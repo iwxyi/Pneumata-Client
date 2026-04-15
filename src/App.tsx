@@ -12,6 +12,7 @@ import ChatDetailPage from './pages/ChatDetailPage';
 import CharacterLibraryPage from './pages/CharacterLibraryPage';
 import SettingsPage from './pages/SettingsPage';
 import AIModelsPage from './pages/AIModelsPage';
+import AccountPage from './pages/AccountPage';
 import BatchGenerateCharactersPage from './pages/BatchGenerateCharactersPage';
 import LoginPage from './pages/LoginPage';
 import './i18n';
@@ -74,6 +75,7 @@ export default function App() {
               <Route path="/characters" element={<CharacterLibraryPage />} />
               <Route path="/characters/batch-generate" element={<BatchGenerateCharactersPage />} />
               <Route path="/models" element={<AIModelsPage />} />
+              <Route path="/account" element={<AccountPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Routes>

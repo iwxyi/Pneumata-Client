@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayout';
-import { Box, Typography, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem } from '@mui/material';
+import { Box, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem } from '@mui/material';
 import { Add as AddIcon, MoreVert as MoreIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -25,10 +25,9 @@ export default function CharacterLibraryPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const { setHeaderActions, setHeaderTitle, setHeaderBackAction } = useLayoutHeaderActions();
+  const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { characters, loadCharacters, addCharacter, updateCharacter, deleteCharacter, importCharacters, initializePresets } =
-    useCharacterStore();
+  const { characters, loadCharacters, addCharacter, updateCharacter, deleteCharacter, importCharacters, initializePresets } = useCharacterStore();
   const [tab, setTab] = useState(0);
   const [showForm, setShowForm] = useState(() => isCreateRequested(searchParams));
   const [editId, setEditId] = useState<string | null>(() => getEditRequested(searchParams));
@@ -42,7 +41,7 @@ export default function CharacterLibraryPage() {
 
   useEffect(() => {
     loadCharacters().then(() => initializePresets());
-  }, []);
+  }, [initializePresets, loadCharacters]);
 
   useEffect(() => {
     setShowForm(isCreateRequested(searchParams));
@@ -51,19 +50,18 @@ export default function CharacterLibraryPage() {
 
   const presets = characters.filter((c) => c.isPreset);
   const custom = characters.filter((c) => !c.isPreset);
+  const displayChars = tab === 0 ? custom : presets;
+  const editChar = editId ? characters.find((c) => c.id === editId) : undefined;
 
   useEffect(() => {
     if (showForm || editId) {
       setHeaderTitle(editId ? t('character.edit') : t('character.create'));
       setHeaderBackAction(() => () => navigate(-1));
+      setHideMobileBottomNav(true);
       setHeaderActions(
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           {editId ? (
-            <Button
-              color="error"
-              variant="outlined"
-              onClick={() => setDeleteId(editId)}
-            >
+            <Button color="error" variant="outlined" onClick={() => setDeleteId(editId)}>
               {t('common.delete')}
             </Button>
           ) : null}
@@ -73,9 +71,11 @@ export default function CharacterLibraryPage() {
         setHeaderActions(null);
         setHeaderTitle(null);
         setHeaderBackAction(null);
+        setHideMobileBottomNav(false);
       };
     }
 
+    setHideMobileBottomNav(false);
     setHeaderBackAction(location.state?.fromHome ? () => navigate(-1) : null);
     setHeaderTitle(null);
     setHeaderActions(
@@ -109,10 +109,10 @@ export default function CharacterLibraryPage() {
     return () => {
       setHeaderActions(null);
       setHeaderTitle(null);
+      setHeaderBackAction(null);
+      setHideMobileBottomNav(false);
     };
-  }, [custom.length, editId, location.state, menuAnchorEl, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, showForm, t]);
-  const displayChars = tab === 0 ? custom : presets;
-  const editChar = editId ? characters.find((c) => c.id === editId) : undefined;
+  }, [custom.length, editId, location.state, menuAnchorEl, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, showForm, t]);
 
   const openCreateForm = () => {
     setSearchParams({ [CREATE_PARAM]: '1' });
@@ -194,8 +194,6 @@ export default function CharacterLibraryPage() {
       </Box>
     );
   }
-
-
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 } }}>

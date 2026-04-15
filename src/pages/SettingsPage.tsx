@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Box, Typography, Card, CardContent, Button, Divider,
+  Box, Typography, Card, CardContent, Button,
   ToggleButtonGroup, ToggleButton,
   Snackbar, Alert,
 } from '@mui/material';
@@ -18,6 +18,7 @@ export default function SettingsPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const settings = useSettingsStore();
+  const user = useAuthStore((s) => s.user);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
@@ -31,9 +32,7 @@ export default function SettingsPage() {
         api.getCharacters(),
         api.getChats(),
       ]);
-      const allMessages = await Promise.all(
-        chats.map((c: { id: string }) => api.getMessages(c.id))
-      );
+      const allMessages = await Promise.all(chats.map((c: { id: string }) => api.getMessages(c.id)));
       const data = {
         characters,
         chats,
@@ -45,6 +44,7 @@ export default function SettingsPage() {
           themeColor: settings.themeColor,
           language: settings.language,
           defaultSpeed: settings.defaultSpeed,
+          chatDraftDefaults: settings.chatDraftDefaults,
         },
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -72,9 +72,7 @@ export default function SettingsPage() {
         const data = JSON.parse(text);
         if (data.characters) {
           for (const c of data.characters) {
-            if (!c.isPreset) {
-              await api.createCharacter(c);
-            }
+            if (!c.isPreset) await api.createCharacter(c);
           }
         }
         if (data.chats) {
@@ -127,12 +125,27 @@ export default function SettingsPage() {
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 960, mx: 'auto' }}>
+      <Card variant="outlined" sx={{ mb: 3, cursor: 'pointer' }} onClick={() => navigate('/account')}>
+        <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              {i18n.language.startsWith('zh') ? '账号' : 'Account'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {user?.nickname || '-'} · {user?.phone || '-'}
+            </Typography>
+          </Box>
+          <Button variant="outlined" onClick={(e) => { e.stopPropagation(); navigate('/account'); }}>
+            {i18n.language.startsWith('zh') ? '查看' : 'Open'}
+          </Button>
+        </CardContent>
+      </Card>
+
       <Card variant="outlined" sx={{ mb: 3 }}>
         <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
             {i18n.language.startsWith('zh') ? 'AI模型' : 'AI Models'}
           </Typography>
-
           <Button variant="outlined" onClick={() => navigate('/models')} sx={{ justifyContent: 'flex-start' }}>
             {i18n.language.startsWith('zh') ? '管理AI模型列表' : 'Manage AI model list'}
           </Button>
@@ -224,7 +237,7 @@ export default function SettingsPage() {
         }}
         sx={{ mb: 3 }}
       >
-        退出登录
+        {i18n.language.startsWith('zh') ? '退出登录' : 'Log out'}
       </Button>
 
       <ConfirmDialog

@@ -167,10 +167,10 @@ export default function ChatDetailPage() {
             },
             onMessageComplete: async (msg) => {
               if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) return;
+              await addMessage(msg);
               setThinkingId(null);
               setStreamingContent('');
               setCurrentSpeaker(null);
-              await addMessage(msg);
               recordSpeak(msg.senderId);
               updateChat(id, { lastMessageAt: Date.now() });
             },

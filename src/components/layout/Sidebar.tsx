@@ -15,6 +15,7 @@ import {
   Person as PersonIcon,
   Settings as SettingsIcon,
   SmartToy as ModelsIcon,
+  AccountCircle as AccountIcon,
   ChevronLeft as CollapseIcon,
   ChevronRight as ExpandIcon,
 } from '@mui/icons-material';
@@ -31,6 +32,7 @@ const navItems = [
   { path: '/chats', icon: <ChatIcon />, labelKey: 'nav.chats' },
   { path: '/characters', icon: <PersonIcon />, labelKey: 'nav.characters' },
   { path: '/models', icon: <ModelsIcon />, labelKey: 'nav.models' },
+  { path: '/account', icon: <AccountIcon />, labelKey: 'nav.account' },
   { path: '/settings', icon: <SettingsIcon />, labelKey: 'nav.settings' },
 ];
 

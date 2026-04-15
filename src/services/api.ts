@@ -58,6 +58,10 @@ class ApiClient {
     return this.request<{ id: string; phone: string; nickname: string; avatar: string }>('GET', '/auth/me');
   }
 
+  async updateMe(data: { nickname?: string; avatar?: string }) {
+    return this.request<{ id: string; phone: string; nickname: string; avatar: string }>('PUT', '/auth/me', data);
+  }
+
   async getCharacters() {
     return this.request<Array<{
       id: string; name: string; avatar: string; personality: Record<string, number>;

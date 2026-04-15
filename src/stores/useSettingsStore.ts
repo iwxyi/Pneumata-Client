@@ -6,6 +6,7 @@ import { api } from '../services/api';
 
 interface SettingsStore extends AppSettings {
   _loaded: boolean;
+  lastSyncedAt: number;
   loadSettings: () => Promise<void>;
   updateApi: (config: Partial<APIConfig>) => void;
   updateAIProfile: (id: string, config: Partial<AIModelProfile>) => void;
@@ -96,6 +97,7 @@ export const useSettingsStore = create<SettingsStore>()(
     (set) => ({
       ...DEFAULT_SETTINGS,
       _loaded: false,
+      lastSyncedAt: 0,
 
       loadSettings: async () => {
         try {
@@ -111,6 +113,7 @@ export const useSettingsStore = create<SettingsStore>()(
               chatDraftDefaults: settings.chatDraftDefaults || DEFAULT_CHAT_DRAFT_DEFAULTS,
             }),
             _loaded: true,
+            lastSyncedAt: Date.now(),
           });
         } catch (error) {
           console.error('Failed to load settings from server:', error);
@@ -123,7 +126,7 @@ export const useSettingsStore = create<SettingsStore>()(
           const nextApi = { ...state.api, ...config };
           const nextProfiles = [...state.aiProfiles];
           nextProfiles[0] = { ...nextProfiles[0], ...nextApi, id: 'default' };
-          const next = syncState({ ...state, api: nextApi, aiProfiles: nextProfiles }) as SettingsStore;
+          const next = { ...(syncState({ ...state, api: nextApi, aiProfiles: nextProfiles }) as SettingsStore), lastSyncedAt: Date.now() };
           syncToServer(buildSettingsPayload(next));
           return next;
         });
@@ -139,7 +142,7 @@ export const useSettingsStore = create<SettingsStore>()(
               id: index === 0 ? 'default' : profile.id,
             };
           });
-          const next = syncState({ ...state, aiProfiles: nextProfiles }) as SettingsStore;
+          const next = { ...(syncState({ ...state, aiProfiles: nextProfiles }) as SettingsStore), lastSyncedAt: Date.now() };
           syncToServer(buildSettingsPayload(next));
           return next;
         });
@@ -148,7 +151,7 @@ export const useSettingsStore = create<SettingsStore>()(
       addAIProfile: () => {
         set((state) => {
           const nextProfiles = [...state.aiProfiles, createProfile(state.aiProfiles.length)];
-          const next = syncState({ ...state, aiProfiles: nextProfiles }) as SettingsStore;
+          const next = { ...(syncState({ ...state, aiProfiles: nextProfiles }) as SettingsStore), lastSyncedAt: Date.now() };
           syncToServer(buildSettingsPayload(next));
           return next;
         });
@@ -158,7 +161,7 @@ export const useSettingsStore = create<SettingsStore>()(
         set((state) => {
           const filtered = state.aiProfiles.filter((profile) => profile.id !== id);
           const nextProfiles = filtered.length > 0 ? filtered : [DEFAULT_AI_PROFILE];
-          const next = syncState({ ...state, aiProfiles: nextProfiles }) as SettingsStore;
+          const next = { ...(syncState({ ...state, aiProfiles: nextProfiles }) as SettingsStore), lastSyncedAt: Date.now() };
           syncToServer(buildSettingsPayload(next));
           return next;
         });
@@ -166,7 +169,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setTheme: (theme) => {
         set((state) => {
-          const next = { ...state, theme };
+          const next = { ...state, theme, lastSyncedAt: Date.now() };
           syncToServer(buildSettingsPayload(next));
           return next;
         });
@@ -174,7 +177,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setThemeColor: (themeColor) => {
         set((state) => {
-          const next = { ...state, themeColor };
+          const next = { ...state, themeColor, lastSyncedAt: Date.now() };
           syncToServer(buildSettingsPayload(next));
           return next;
         });
@@ -183,7 +186,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setLanguage: (language) => {
         localStorage.setItem('mirageTea-language', language);
         set((state) => {
-          const next = { ...state, language };
+          const next = { ...state, language, lastSyncedAt: Date.now() };
           syncToServer(buildSettingsPayload(next));
           return next;
         });
@@ -191,7 +194,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setDefaultSpeed: (defaultSpeed) => {
         set((state) => {
-          const next = { ...state, defaultSpeed };
+          const next = { ...state, defaultSpeed, lastSyncedAt: Date.now() };
           syncToServer(buildSettingsPayload(next));
           return next;
         });
@@ -201,6 +204,7 @@ export const useSettingsStore = create<SettingsStore>()(
         set((state) => {
           const next = {
             ...state,
+            lastSyncedAt: Date.now(),
             chatDraftDefaults: {
               ...state.chatDraftDefaults,
               ...defaults,
@@ -212,7 +216,7 @@ export const useSettingsStore = create<SettingsStore>()(
       },
 
       resetSettings: () => {
-        const next = syncState(DEFAULT_SETTINGS) as SettingsStore;
+        const next = { ...(syncState(DEFAULT_SETTINGS) as SettingsStore), lastSyncedAt: Date.now() };
         set(next);
         syncToServer(buildSettingsPayload(next));
       },

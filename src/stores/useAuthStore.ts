@@ -23,6 +23,7 @@ interface AuthStore {
   logout: () => void;
   checkAuth: () => Promise<boolean>;
   setUser: (user: User) => void;
+  updateProfile: (updates: Partial<User>) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -95,5 +96,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   setUser: (user: User) => {
     localStorage.setItem('miragetea-user', JSON.stringify(user));
     set({ user });
+  },
+
+  updateProfile: async (updates) => {
+    const result = await api.updateMe({ nickname: updates.nickname, avatar: updates.avatar });
+    localStorage.setItem('miragetea-user', JSON.stringify(result));
+    set({ user: result });
   },
 }));
