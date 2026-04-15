@@ -20,8 +20,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'logo-192.png', 'logo-512.png'],
       manifest: {
-        name: 'MirageTea - AI Group Chat',
-        short_name: 'MirageTea',
+        name: 'AI Chat Group',
+        short_name: 'AI Chat Group',
         description: 'AI Multi-Agent Group Chat Simulation Platform',
         theme_color: '#6750A4',
         background_color: '#FEF7FF',

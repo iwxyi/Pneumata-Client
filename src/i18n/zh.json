@@ -1,7 +1,7 @@
 {
   "app": {
-    "name": "MirageTea",
-    "fullName": "虚境茶话会",
+    "name": "AI Chat Group",
+    "fullName": "AI聊天群",
     "tagline": "AI 群聊模拟平台"
   },
   "nav": {
@@ -13,7 +13,7 @@
     "settings": "设置"
   },
   "home": {
-    "title": "欢迎来到虚境茶话会",
+    "title": "欢迎来到AI聊天群",
     "recentChats": "最近活跃",
     "quickCreate": "快速创建",
     "noChats": "还没有群聊，创建一个开始吧！",

@@ -218,7 +218,7 @@ export default function SettingsPage() {
             {t('settings.about')}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            {t('app.fullName')} (MirageTea) v1.0.0
+            {t('app.fullName')} (AI Chat Group) v1.0.0
           </Typography>
           <Typography variant="caption" color="text.disabled">
             AI Group Chat Simulation Platform

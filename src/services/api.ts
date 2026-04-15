@@ -1,4 +1,4 @@
-// HTTP API client for MirageTea backend
+// HTTP API client for AI Chat Group backend
 
 const API_BASE = '/api';
 

@@ -1,7 +1,7 @@
 {
   "app": {
-    "name": "MirageTea",
-    "fullName": "MirageTea",
+    "name": "AI Chat Group",
+    "fullName": "AI Chat Group",
     "tagline": "AI Group Chat Simulation"
   },
   "nav": {
@@ -13,7 +13,7 @@
     "settings": "Settings"
   },
   "home": {
-    "title": "Welcome to MirageTea",
+    "title": "Welcome to AI Chat Group",
     "recentChats": "Recent Active",
     "quickCreate": "Quick Create",
     "noChats": "No chats yet. Create one to get started!",
