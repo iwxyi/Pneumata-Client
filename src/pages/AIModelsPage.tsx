@@ -54,89 +54,100 @@ export default function AIModelsPage() {
             {t('settings.apiConfig')}
           </Typography>
 
-          {settings.aiProfiles.map((profile, index) => (
-            <Card key={profile.id} variant="outlined" sx={{ bgcolor: 'background.default' }}>
-              <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: '1fr',
+                xl: 'repeat(2, minmax(0, 1fr))',
+              },
+              gap: 2,
+            }}
+          >
+            {settings.aiProfiles.map((profile, index) => (
+              <Card key={profile.id} variant="outlined" sx={{ bgcolor: 'background.default' }}>
+                <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <TextField
+                      label={i18n.language.startsWith('zh') ? '模型名称' : 'Profile name'}
+                      value={profile.name}
+                      onChange={(e) => settings.updateAIProfile(profile.id, { name: e.target.value })}
+                      size="small"
+                      fullWidth
+                    />
+                    {index > 0 && (
+                      <Button color="error" onClick={() => settings.removeAIProfile(profile.id)}>
+                        {t('common.delete')}
+                      </Button>
+                    )}
+                  </Box>
+
+                  <FormControl fullWidth size="small">
+                    <InputLabel>{t('settings.provider')}</InputLabel>
+                    <Select
+                      value={profile.provider}
+                      label={t('settings.provider')}
+                      onChange={(e) => {
+                        const provider = e.target.value as any;
+                        settings.updateAIProfile(profile.id, { provider, ...providerDefaults[provider] });
+                      }}
+                    >
+                      <MenuItem value="openai">OpenAI</MenuItem>
+                      <MenuItem value="deepseek">DeepSeek</MenuItem>
+                      <MenuItem value="anthropic">Anthropic</MenuItem>
+                      <MenuItem value="custom">Custom</MenuItem>
+                    </Select>
+                  </FormControl>
+
                   <TextField
-                    label={i18n.language.startsWith('zh') ? '模型名称' : 'Profile name'}
-                    value={profile.name}
-                    onChange={(e) => settings.updateAIProfile(profile.id, { name: e.target.value })}
+                    label={t('settings.apiKey')}
+                    placeholder={t('settings.apiKeyPlaceholder')}
+                    value={profile.apiKey}
+                    onChange={(e) => settings.updateAIProfile(profile.id, { apiKey: e.target.value })}
+                    type={showKey ? 'text' : 'password'}
+                    size="small"
+                    fullWidth
+                    slotProps={{
+                      input: {
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <IconButton size="small" onClick={() => setShowKey(!showKey)}>
+                              {showKey ? <VisibilityOff /> : <Visibility />}
+                            </IconButton>
+                          </InputAdornment>
+                        ),
+                      },
+                    }}
+                  />
+
+                  <TextField
+                    label={t('settings.baseUrl')}
+                    placeholder={profile.provider === 'custom' ? 'https://example.com/v1' : providerDefaults[profile.provider].baseUrl}
+                    value={profile.baseUrl}
+                    onChange={(e) => settings.updateAIProfile(profile.id, { baseUrl: e.target.value })}
                     size="small"
                     fullWidth
                   />
-                  {index > 0 && (
-                    <Button color="error" onClick={() => settings.removeAIProfile(profile.id)}>
-                      {t('common.delete')}
-                    </Button>
-                  )}
-                </Box>
 
-                <FormControl fullWidth size="small">
-                  <InputLabel>{t('settings.provider')}</InputLabel>
-                  <Select
-                    value={profile.provider}
-                    label={t('settings.provider')}
-                    onChange={(e) => {
-                      const provider = e.target.value as any;
-                      settings.updateAIProfile(profile.id, { provider, ...providerDefaults[provider] });
-                    }}
+                  <TextField
+                    label={t('settings.model')}
+                    value={profile.model}
+                    onChange={(e) => settings.updateAIProfile(profile.id, { model: e.target.value })}
+                    size="small"
+                    fullWidth
+                  />
+
+                  <Button
+                    variant="outlined"
+                    onClick={() => handleTestConnection(profile.id)}
+                    disabled={testingId === profile.id || !profile.apiKey}
                   >
-                    <MenuItem value="openai">OpenAI</MenuItem>
-                    <MenuItem value="deepseek">DeepSeek</MenuItem>
-                    <MenuItem value="anthropic">Anthropic</MenuItem>
-                    <MenuItem value="custom">Custom</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <TextField
-                  label={t('settings.apiKey')}
-                  placeholder={t('settings.apiKeyPlaceholder')}
-                  value={profile.apiKey}
-                  onChange={(e) => settings.updateAIProfile(profile.id, { apiKey: e.target.value })}
-                  type={showKey ? 'text' : 'password'}
-                  size="small"
-                  fullWidth
-                  slotProps={{
-                    input: {
-                      endAdornment: (
-                        <InputAdornment position="end">
-                          <IconButton size="small" onClick={() => setShowKey(!showKey)}>
-                            {showKey ? <VisibilityOff /> : <Visibility />}
-                          </IconButton>
-                        </InputAdornment>
-                      ),
-                    },
-                  }}
-                />
-
-                <TextField
-                  label={t('settings.baseUrl')}
-                  placeholder={profile.provider === 'custom' ? 'https://example.com/v1' : providerDefaults[profile.provider].baseUrl}
-                  value={profile.baseUrl}
-                  onChange={(e) => settings.updateAIProfile(profile.id, { baseUrl: e.target.value })}
-                  size="small"
-                  fullWidth
-                />
-
-                <TextField
-                  label={t('settings.model')}
-                  value={profile.model}
-                  onChange={(e) => settings.updateAIProfile(profile.id, { model: e.target.value })}
-                  size="small"
-                  fullWidth
-                />
-
-                <Button
-                  variant="outlined"
-                  onClick={() => handleTestConnection(profile.id)}
-                  disabled={testingId === profile.id || !profile.apiKey}
-                >
-                  {testingId === profile.id ? t('common.loading') : t('settings.testConnection')}
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+                    {testingId === profile.id ? t('common.loading') : t('settings.testConnection')}
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </Box>
         </CardContent>
       </Card>
 

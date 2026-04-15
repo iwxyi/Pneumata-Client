@@ -46,8 +46,12 @@ class ApiClient {
     return response.json();
   }
 
-  async sendCode(phone: string) {
-    return this.request<{ success: boolean; mock?: boolean; code?: string }>('POST', '/auth/send-code', { phone });
+  async sendCode(phone: string, purpose: 'login' | 'register' | 'forgot-password' | 'change-phone' = 'login') {
+    return this.request<{ success: boolean; mock?: boolean; code?: string }>('POST', '/auth/send-code', { phone, purpose });
+  }
+
+  async sendChangePhoneCode(phone: string) {
+    return this.request<{ success: boolean; mock?: boolean; code?: string }>('POST', '/auth/change-phone/send-code', { phone });
   }
 
   async login(phone: string, code: string) {
@@ -60,6 +64,10 @@ class ApiClient {
 
   async updateMe(data: { nickname?: string; avatar?: string }) {
     return this.request<{ id: string; phone: string; nickname: string; avatar: string }>('PUT', '/auth/me', data);
+  }
+
+  async changePhone(phone: string, code: string) {
+    return this.request<{ id: string; phone: string; nickname: string; avatar: string }>('PUT', '/auth/change-phone', { phone, code });
   }
 
   async getCharacters() {

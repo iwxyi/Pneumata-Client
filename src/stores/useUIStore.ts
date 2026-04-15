@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 interface UIStore {
   sidebarOpen: boolean;
@@ -16,18 +17,30 @@ interface UIStore {
   setSpeakAsCharacter: (id: string | null) => void;
 }
 
-export const useUIStore = create<UIStore>((set) => ({
-  sidebarOpen: false,
-  rightPanelOpen: false,
-  godModeActive: false,
-  topicGuideOpen: false,
-  speakAsCharacterId: null,
+export const useUIStore = create<UIStore>()(
+  persist(
+    (set) => ({
+      sidebarOpen: false,
+      rightPanelOpen: false,
+      godModeActive: false,
+      topicGuideOpen: false,
+      speakAsCharacterId: null,
 
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-  setSidebarOpen: (open) => set({ sidebarOpen: open }),
-  toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
-  setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
-  setGodModeActive: (active) => set({ godModeActive: active }),
-  setTopicGuideOpen: (open) => set({ topicGuideOpen: open }),
-  setSpeakAsCharacter: (id) => set({ speakAsCharacterId: id }),
-}));
+      toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+      setSidebarOpen: (open) => set({ sidebarOpen: open }),
+      toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
+      setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
+      setGodModeActive: (active) => set({ godModeActive: active }),
+      setTopicGuideOpen: (open) => set({ topicGuideOpen: open }),
+      setSpeakAsCharacter: (id) => set({ speakAsCharacterId: id }),
+    }),
+    {
+      name: 'mirageTea-ui',
+      partialize: (state) => ({
+        sidebarOpen: state.sidebarOpen,
+      }),
+    }
+  )
+);
+
+export default useUIStore;

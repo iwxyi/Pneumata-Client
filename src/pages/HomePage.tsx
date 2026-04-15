@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Box, Typography, Card, CardContent, Grid, Button, Divider, IconButton } from '@mui/material';
+import { Box, Typography, Card, CardContent, Button, Divider, IconButton, CardActionArea } from '@mui/material';
 import { Add as AddIcon, Chat as ChatIcon, Person as PersonIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -32,7 +32,7 @@ export default function HomePage() {
             value: chats.length,
             icon: <ChatIcon />,
             color: '#6750A4',
-            onOpen: () => navigate('/chats', { state: { fromHome: true } }),
+            onOpen: () => navigate('/chats'),
             onCreate: () => navigate('/chats/create'),
             createLabel: t('chat.create'),
           },
@@ -41,7 +41,7 @@ export default function HomePage() {
             value: customCharacters.length,
             icon: <PersonIcon />,
             color: '#625B71',
-            onOpen: () => navigate('/characters', { state: { fromHome: true } }),
+            onOpen: () => navigate('/characters'),
             onCreate: () => navigate('/characters?create=1'),
             createLabel: t('character.create'),
           },
@@ -49,11 +49,9 @@ export default function HomePage() {
           <Card
             key={stat.label}
             variant="outlined"
-            onClick={stat.onOpen}
             sx={{
               width: { xs: 'calc(50% - 6px)', sm: 220 },
               flex: '0 0 auto',
-              cursor: 'pointer',
               borderRadius: 2,
               bgcolor: 'background.paper',
               overflow: 'visible',
@@ -65,55 +63,57 @@ export default function HomePage() {
               },
             }}
           >
-            <CardContent
-              sx={{
-                textAlign: 'center',
-                py: 2.5,
-                px: { xs: 3, sm: 3.25 },
-                position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 0.75,
-                minHeight: 124,
-                overflow: 'visible',
-              }}
-            >
-              <Box sx={{ color: stat.color, fontSize: '1.3rem', lineHeight: 1 }}>{stat.icon}</Box>
-              <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1 }}>
-                {stat.value}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.3 }}>
-                {stat.label}
-              </Typography>
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  stat.onCreate();
-                }}
-                aria-label={stat.createLabel}
+            <CardActionArea onClick={stat.onOpen} sx={{ borderRadius: 2 }}>
+              <CardContent
                 sx={{
-                  position: 'absolute',
-                  right: -10,
-                  bottom: -10,
-                  bgcolor: 'primary.main',
-                  color: 'primary.contrastText',
-                  boxShadow: 3,
-                  border: 2,
-                  borderColor: 'background.default',
-                  transition: 'transform 160ms ease, box-shadow 160ms ease',
-                  '&:hover': {
-                    bgcolor: 'primary.dark',
-                    transform: 'scale(1.08)',
-                    boxShadow: 4,
-                  },
+                  textAlign: 'center',
+                  py: 2.5,
+                  px: { xs: 3, sm: 3.25 },
+                  position: 'relative',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 0.75,
+                  minHeight: 124,
+                  overflow: 'visible',
                 }}
               >
-                <AddIcon fontSize="small" />
-              </IconButton>
-            </CardContent>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    stat.onCreate();
+                  }}
+                  aria-label={stat.createLabel}
+                  sx={{
+                    position: 'absolute',
+                    right: -10,
+                    bottom: -10,
+                    bgcolor: 'primary.main',
+                    color: 'primary.contrastText',
+                    boxShadow: 3,
+                    border: 2,
+                    borderColor: 'background.default',
+                    transition: 'transform 160ms ease, box-shadow 160ms ease',
+                    '&:hover': {
+                      bgcolor: 'primary.dark',
+                      transform: 'scale(1.08)',
+                      boxShadow: 4,
+                    },
+                  }}
+                >
+                  <AddIcon fontSize="small" />
+                </IconButton>
+                <Box sx={{ color: stat.color, fontSize: '1.3rem', lineHeight: 1 }}>{stat.icon}</Box>
+                <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1 }}>
+                  {stat.value}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.3 }}>
+                  {stat.label}
+                </Typography>
+              </CardContent>
+            </CardActionArea>
           </Card>
         ))}
       </Box>

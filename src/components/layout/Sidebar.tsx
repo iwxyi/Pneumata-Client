@@ -21,6 +21,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useResponsive } from '../../hooks/useResponsive';
 import { useUIStore } from '../../stores/useUIStore';
 
 interface SidebarProps {
@@ -40,12 +41,14 @@ export default function Sidebar({ collapsed }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
+  const { isDesktop } = useResponsive();
   const { toggleSidebar, setSidebarOpen } = useUIStore();
 
   const handleNav = (path: string) => {
     navigate(path);
-    // Close sidebar on mobile/tablet after navigation
-    setSidebarOpen(false);
+    if (!isDesktop) {
+      setSidebarOpen(false);
+    }
   };
 
   return (

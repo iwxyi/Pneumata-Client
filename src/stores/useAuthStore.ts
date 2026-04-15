@@ -18,12 +18,14 @@ interface AuthStore {
   isLoading: boolean;
 
   // Actions
-  sendCode: (phone: string) => Promise<{ success: boolean; mock?: boolean; code?: string }>;
+  sendCode: (phone: string, purpose?: 'login' | 'register' | 'forgot-password' | 'change-phone') => Promise<{ success: boolean; mock?: boolean; code?: string }>;
   login: (phone: string, code: string) => Promise<void>;
   logout: () => void;
   checkAuth: () => Promise<boolean>;
   setUser: (user: User) => void;
   updateProfile: (updates: Partial<User>) => Promise<void>;
+  sendChangePhoneCode: (phone: string) => Promise<{ success: boolean; mock?: boolean; code?: string }>;
+  changePhone: (phone: string, code: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -39,8 +41,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   isLoggedIn: !!localStorage.getItem('miragetea-token'),
   isLoading: false,
 
-  sendCode: async (phone: string) => {
-    const result = await api.sendCode(phone);
+  sendCode: async (phone: string, purpose = 'login') => {
+    const result = await api.sendCode(phone, purpose);
+    return result;
+  },
+
+  sendChangePhoneCode: async (phone: string) => {
+    const result = await api.sendChangePhoneCode(phone);
     return result;
   },
 
@@ -100,6 +107,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   updateProfile: async (updates) => {
     const result = await api.updateMe({ nickname: updates.nickname, avatar: updates.avatar });
+    localStorage.setItem('miragetea-user', JSON.stringify(result));
+    set({ user: result });
+  },
+
+  changePhone: async (phone, code) => {
+    const result = await api.changePhone(phone, code);
     localStorage.setItem('miragetea-user', JSON.stringify(result));
     set({ user: result });
   },

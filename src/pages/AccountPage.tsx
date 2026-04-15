@@ -67,7 +67,7 @@ export default function AccountPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderBackAction, setHeaderActions } = useLayoutHeaderActions();
-  const { user, updateProfile } = useAuthStore();
+  const { user, updateProfile, sendChangePhoneCode, changePhone } = useAuthStore();
   const chatStore = useChatStore();
   const characterStore = useCharacterStore();
   const settingsStore = useSettingsStore();
@@ -78,6 +78,16 @@ export default function AccountPage() {
   const [saving, setSaving] = useState(false);
   const [processingAvatar, setProcessingAvatar] = useState(false);
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
+  const [nicknameDialogOpen, setNicknameDialogOpen] = useState(false);
+  const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
+  const [newPhone, setNewPhone] = useState('');
+  const [phoneCode, setPhoneCode] = useState('');
+  const [draftNickname, setDraftNickname] = useState(user?.nickname || '');
+  const [savingNickname, setSavingNickname] = useState(false);
+  const [sendingPhoneCode, setSendingPhoneCode] = useState(false);
+  const [changingPhone, setChangingPhone] = useState(false);
+  const [phoneCountdown, setPhoneCountdown] = useState(0);
+  const [mockPhoneCode, setMockPhoneCode] = useState('');
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
     message: '',
@@ -86,8 +96,17 @@ export default function AccountPage() {
 
   useEffect(() => {
     setNickname(user?.nickname || '');
+    setDraftNickname(user?.nickname || '');
     setAvatar(user?.avatar || '🍵');
   }, [user]);
+
+  useEffect(() => {
+    if (phoneCountdown <= 0) return;
+    const timer = window.setInterval(() => {
+      setPhoneCountdown((value) => value - 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [phoneCountdown]);
 
   useEffect(() => {
     setHeaderTitle(t('nav.account'));
@@ -132,6 +151,7 @@ export default function AccountPage() {
     try {
       const compressed = await compressAvatar(file);
       setAvatar(compressed);
+      await handleSaveAvatar(compressed);
     } catch (error) {
       setSnackbar({
         open: true,
@@ -144,10 +164,10 @@ export default function AccountPage() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSaveAvatar = async (nextAvatar: string) => {
     setSaving(true);
     try {
-      await updateProfile({ nickname: nickname.trim(), avatar: avatar.trim() || '🍵' });
+      await updateProfile({ avatar: nextAvatar.trim() || '🍵' });
       setSnackbar({ open: true, message: t('common.success'), severity: 'success' });
     } catch (error) {
       setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
@@ -156,46 +176,168 @@ export default function AccountPage() {
     }
   };
 
+  const handleSaveNickname = async () => {
+    setSavingNickname(true);
+    try {
+      await updateProfile({ nickname: draftNickname.trim() });
+      setNicknameDialogOpen(false);
+      setSnackbar({ open: true, message: t('common.success'), severity: 'success' });
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    } finally {
+      setSavingNickname(false);
+    }
+  };
+
+  const openPhoneDialog = () => {
+    setNewPhone(user?.phone || '');
+    setPhoneCode('');
+    setMockPhoneCode('');
+    setPhoneCountdown(0);
+    setPhoneDialogOpen(true);
+  };
+
+  const openNicknameDialog = () => {
+    setDraftNickname(user?.nickname || '');
+    setNicknameDialogOpen(true);
+  };
+
+  const openAvatarDialog = () => {
+    setAvatarDialogOpen(true);
+  };
+
+  const handleSelectAvatarFile = () => {
+    setAvatarDialogOpen(false);
+    fileInputRef.current?.click();
+  };
+
+  const rowSx = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 2,
+    p: 2,
+    borderRadius: 2,
+    border: 1,
+    borderColor: 'divider',
+    cursor: 'pointer',
+    transition: 'all 0.18s ease',
+    '&:hover': { borderColor: 'primary.main', boxShadow: 1 },
+  } as const;
+
+  const compactRowSx = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 1.5,
+    minWidth: 0,
+    cursor: 'pointer',
+    borderRadius: 2,
+    transition: 'background-color 0.18s ease, box-shadow 0.18s ease',
+    '&:hover': {
+      backgroundColor: 'action.hover',
+      boxShadow: 1,
+    },
+  } as const;
+
+  const handleSendPhoneCode = async () => {
+    if (!newPhone || newPhone.length < 5) {
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请输入有效的手机号' : 'Please enter a valid phone number', severity: 'error' });
+      return;
+    }
+
+    if (newPhone === user?.phone) {
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '新手机号不能与当前手机号相同' : 'New phone number must be different', severity: 'error' });
+      return;
+    }
+
+    setSendingPhoneCode(true);
+    try {
+      const result = await sendChangePhoneCode(newPhone);
+      setPhoneCountdown(60);
+      if (result.mock && result.code) {
+        setMockPhoneCode(result.code);
+        setPhoneCode(result.code);
+      } else {
+        setMockPhoneCode('');
+      }
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '验证码已发送' : 'Verification code sent', severity: 'success' });
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    } finally {
+      setSendingPhoneCode(false);
+    }
+  };
+
+  const handleChangePhone = async () => {
+    if (!newPhone || !phoneCode) {
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请输入手机号和验证码' : 'Please enter phone number and code', severity: 'error' });
+      return;
+    }
+
+    setChangingPhone(true);
+    try {
+      await changePhone(newPhone, phoneCode);
+      setNewPhone('');
+      setPhoneCode('');
+      setMockPhoneCode('');
+      setPhoneCountdown(0);
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '手机号修改成功' : 'Phone number updated', severity: 'success' });
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    } finally {
+      setChangingPhone(false);
+    }
+  };
+
   const isImageAvatar = avatar.startsWith('data:image/') || avatar.startsWith('http');
+  const phoneLabel = i18n.language.startsWith('zh') ? '手机号' : 'Phone';
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 12, sm: 8 }, maxWidth: 860, mx: 'auto' }}>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <Card variant="outlined">
-          <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              {i18n.language.startsWith('zh') ? '账号信息' : 'Account info'}
-            </Typography>
+        <Card
+          variant="outlined"
+          sx={{
+            overflow: 'hidden',
+            borderRadius: 2,
+            background: (theme) => theme.palette.mode === 'dark'
+              ? 'linear-gradient(180deg, rgba(103,80,164,0.12) 0%, rgba(18,18,18,0.96) 28%)'
+              : 'linear-gradient(180deg, rgba(103,80,164,0.06) 0%, rgba(255,255,255,1) 24%)',
+          }}
+        >
+          <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box sx={{ pt: 1, pb: 0.5 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                {i18n.language.startsWith('zh') ? '账号信息' : 'Account info'}
+              </Typography>
+            </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Avatar
-                src={isImageAvatar ? avatar : undefined}
-                onClick={() => setAvatarDialogOpen(true)}
-                sx={{ width: 56, height: 56, fontSize: '1.6rem', cursor: 'pointer' }}
-              >
-                {isImageAvatar ? undefined : avatar}
-              </Avatar>
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="body1" sx={{ fontWeight: 600 }}>{user?.nickname || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary">{user?.phone || '-'}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {i18n.language.startsWith('zh') ? '点击头像查看大图并上传新头像' : 'Tap the avatar to preview and upload a new one'}
-                </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              <Box sx={{ ...rowSx, gap: 2, justifyContent: 'flex-start' }}>
+                <Box sx={compactRowSx} onClick={openAvatarDialog}>
+                  <Avatar src={isImageAvatar ? avatar : undefined} sx={{ width: 52, height: 52, fontSize: '1.5rem' }}>
+                    {isImageAvatar ? undefined : avatar}
+                  </Avatar>
+                </Box>
+                <Box sx={compactRowSx} onClick={openNicknameDialog}>
+                  <Typography variant="body1" sx={{ minWidth: 0, fontWeight: 600 }} noWrap>
+                    {user?.nickname || '-'}
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Box sx={rowSx} onClick={openPhoneDialog}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                    {phoneLabel}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" noWrap>
+                    {user?.phone || '-'}
+                  </Typography>
+                </Box>
               </Box>
             </Box>
 
-            <TextField
-              label={i18n.language.startsWith('zh') ? '昵称' : 'Nickname'}
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              fullWidth
-            />
-
             <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={handleAvatarFileChange} />
-
-            <Button variant="contained" onClick={handleSave} disabled={saving || processingAvatar || !nickname.trim()}>
-              {saving ? t('common.loading') : t('common.save')}
-            </Button>
           </CardContent>
         </Card>
 
@@ -220,6 +362,62 @@ export default function AccountPage() {
         </Card>
       </Box>
 
+      <Dialog open={nicknameDialogOpen} onClose={() => setNicknameDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>{i18n.language.startsWith('zh') ? '修改昵称' : 'Change nickname'}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 1 }}>
+            <TextField
+              label={i18n.language.startsWith('zh') ? '昵称' : 'Nickname'}
+              value={draftNickname}
+              onChange={(e) => setDraftNickname(e.target.value)}
+              fullWidth
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setNicknameDialogOpen(false)}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={handleSaveNickname} disabled={savingNickname || !draftNickname.trim()}>
+            {savingNickname ? t('common.loading') : t('common.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={phoneDialogOpen} onClose={() => setPhoneDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>{i18n.language.startsWith('zh') ? '修改手机号' : 'Change phone number'}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+            <TextField
+              label={phoneLabel}
+              value={newPhone}
+              onChange={(e) => setNewPhone(e.target.value)}
+              fullWidth
+            />
+            {mockPhoneCode ? (
+              <Alert severity="info">
+                {i18n.language.startsWith('zh') ? `开发模式 - 验证码：${mockPhoneCode}` : `Development mode - code: ${mockPhoneCode}`}
+              </Alert>
+            ) : null}
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <TextField
+                label={i18n.language.startsWith('zh') ? '验证码' : 'Verification code'}
+                value={phoneCode}
+                onChange={(e) => setPhoneCode(e.target.value)}
+                fullWidth
+              />
+              <Button variant="outlined" onClick={handleSendPhoneCode} disabled={sendingPhoneCode || phoneCountdown > 0} sx={{ minWidth: 120 }}>
+                {phoneCountdown > 0 ? `${phoneCountdown}s` : (sendingPhoneCode ? t('common.loading') : (i18n.language.startsWith('zh') ? '发送验证码' : 'Send code'))}
+              </Button>
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setPhoneDialogOpen(false)}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={handleChangePhone} disabled={changingPhone || !newPhone || !phoneCode}>
+            {changingPhone ? t('common.loading') : t('common.confirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={avatarDialogOpen} onClose={() => setAvatarDialogOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{i18n.language.startsWith('zh') ? '头像预览' : 'Avatar preview'}</DialogTitle>
         <DialogContent>
@@ -233,10 +431,7 @@ export default function AccountPage() {
           <Button onClick={() => setAvatarDialogOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            onClick={() => {
-              setAvatarDialogOpen(false);
-              fileInputRef.current?.click();
-            }}
+            onClick={handleSelectAvatarFile}
             disabled={processingAvatar || saving}
           >
             {processingAvatar ? t('common.loading') : (i18n.language.startsWith('zh') ? '上传新头像' : 'Upload new avatar')}

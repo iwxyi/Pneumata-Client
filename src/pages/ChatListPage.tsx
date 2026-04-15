@@ -26,14 +26,14 @@ export default function ChatListPage() {
   }, []);
 
   useEffect(() => {
-    setHeaderBackAction(location.state?.fromHome ? () => navigate(-1) : null);
+    setHeaderBackAction(null);
     setHeaderActions(null);
 
     return () => {
       setHeaderActions(null);
       setHeaderBackAction(null);
     };
-  }, [location.state, navigate, setHeaderActions, setHeaderBackAction]);
+  }, [setHeaderActions, setHeaderBackAction]);
   const filteredChats = chats.filter(
     (c) =>
       c.name.toLowerCase().includes(search.toLowerCase()) ||

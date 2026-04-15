@@ -42,7 +42,10 @@ export default function BottomNav() {
     >
       <BottomNavigation
         value={currentIndex}
-        onChange={(_, newValue) => navigate(paths[newValue])}
+        onChange={(_, newValue) => {
+          const nextPath = paths[newValue];
+          if (nextPath !== location.pathname) navigate(nextPath);
+        }}
         showLabels
       >
         <BottomNavigationAction label={t('nav.home')} icon={<HomeIcon />} />

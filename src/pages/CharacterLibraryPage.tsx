@@ -76,35 +76,9 @@ export default function CharacterLibraryPage() {
     }
 
     setHideMobileBottomNav(false);
-    setHeaderBackAction(location.state?.fromHome ? () => navigate(-1) : null);
+    setHeaderBackAction(null);
     setHeaderTitle(null);
-    setHeaderActions(
-      <>
-        <IconButton onClick={(e) => setMenuAnchorEl(e.currentTarget)}>
-          <MoreIcon />
-        </IconButton>
-        <Menu anchorEl={menuAnchorEl} open={Boolean(menuAnchorEl)} onClose={() => setMenuAnchorEl(null)}>
-          <MenuItem onClick={() => {
-            setMenuAnchorEl(null);
-            navigate('/characters/batch-generate');
-          }}>
-            批量生成角色
-          </MenuItem>
-          <MenuItem onClick={() => {
-            setMenuAnchorEl(null);
-            handleImport();
-          }}>
-            {t('character.import')}
-          </MenuItem>
-          <MenuItem onClick={() => {
-            setMenuAnchorEl(null);
-            handleExport();
-          }} disabled={custom.length === 0}>
-            {t('character.exportAll')}
-          </MenuItem>
-        </Menu>
-      </>
-    );
+    setHeaderActions(null);
 
     return () => {
       setHeaderActions(null);
@@ -112,7 +86,37 @@ export default function CharacterLibraryPage() {
       setHeaderBackAction(null);
       setHideMobileBottomNav(false);
     };
-  }, [custom.length, editId, location.state, menuAnchorEl, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, showForm, t]);
+  }, [editId, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, showForm, t]);
+
+  const renderListMenu = (
+    <>
+      <IconButton onClick={(e) => setMenuAnchorEl(e.currentTarget)}>
+        <MoreIcon />
+      </IconButton>
+      <Menu anchorEl={menuAnchorEl} open={Boolean(menuAnchorEl)} onClose={() => setMenuAnchorEl(null)}>
+        <MenuItem onClick={() => {
+          setMenuAnchorEl(null);
+          navigate('/characters/batch-generate');
+        }}>
+          批量生成角色
+        </MenuItem>
+        <MenuItem onClick={() => {
+          setMenuAnchorEl(null);
+          handleImport();
+        }}>
+          {t('character.import')}
+        </MenuItem>
+        <MenuItem onClick={() => {
+          setMenuAnchorEl(null);
+          handleExport();
+        }} disabled={custom.length === 0}>
+          {t('character.exportAll')}
+        </MenuItem>
+      </Menu>
+    </>
+  );
+
+  const showInlineMenu = !showForm && !editId;
 
   const openCreateForm = () => {
     setSearchParams({ [CREATE_PARAM]: '1' });
@@ -197,10 +201,13 @@ export default function CharacterLibraryPage() {
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 } }}>
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label={`${t('character.myCharacters')} (${custom.length})`} />
-        <Tab label={`${t('character.presets')} (${presets.length})`} />
-      </Tabs>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2 }}>
+        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minWidth: 0, flex: 1 }}>
+          <Tab label={`${t('character.myCharacters')} (${custom.length})`} />
+          <Tab label={`${t('character.presets')} (${presets.length})`} />
+        </Tabs>
+        {showInlineMenu ? renderListMenu : null}
+      </Box>
 
       {displayChars.length === 0 ? (
         <EmptyState

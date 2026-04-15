@@ -152,13 +152,18 @@ export default function AppLayout() {
                 </ListItemIcon>
               </ListItemButton>
               <ListItemButton
-                onClick={() => navigate('/')}
+                disabled
                 sx={{
                   borderRadius: 3,
                   minHeight: 48,
                   px: 1.5,
                   maxWidth: 'calc(100vw - 220px)',
                   color: 'text.primary',
+                  opacity: 1,
+                  '&.Mui-disabled': {
+                    opacity: 1,
+                    color: 'text.primary',
+                  },
                 }}
               >
                 <Typography
@@ -179,9 +184,42 @@ export default function AppLayout() {
             </Box>
           </Box>
         )}
-        {!shouldShowMenuButton && headerActions ? (
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', px: 3, pt: 3 }}>
-            {headerActions}
+        {!shouldShowMenuButton && (headerActions || headerBackAction || headerTitle) ? (
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 3, pt: 1, gap: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+              {headerBackAction ? (
+                <ListItemButton
+                  onClick={headerBackAction}
+                  sx={{
+                    borderRadius: 3,
+                    minHeight: 48,
+                    px: 1.5,
+                    flex: '0 0 auto',
+                    color: 'text.primary',
+                  }}
+                >
+                  <ListItemIcon sx={{ minWidth: 0, mr: 0 }}>
+                    <ArrowBackIcon />
+                  </ListItemIcon>
+                </ListItemButton>
+              ) : null}
+              {headerTitle ? (
+                <Typography
+                  variant="subtitle1"
+                  sx={{
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {headerTitle}
+                </Typography>
+              ) : null}
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+              {headerActions}
+            </Box>
           </Box>
         ) : null}
 
