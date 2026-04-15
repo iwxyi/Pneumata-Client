@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayout';
 import { Box, Typography, TextField, Button, IconButton, InputAdornment } from '@mui/material';
 import { Add as AddIcon, Search as SearchIcon } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
@@ -13,7 +13,8 @@ import ConfirmDialog from '../components/common/ConfirmDialog';
 export default function ChatListPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { setHeaderActions } = useLayoutHeaderActions();
+  const location = useLocation();
+  const { setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
   const { chats, loadChats, deleteChat } = useChatStore();
   const { characters, loadCharacters } = useCharacterStore();
   const [search, setSearch] = useState('');
@@ -25,15 +26,14 @@ export default function ChatListPage() {
   }, []);
 
   useEffect(() => {
-    setHeaderActions(
-      <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/chats/create')}>
-        {t('chat.create')}
-      </Button>
-    );
+    setHeaderBackAction(location.state?.fromHome ? () => navigate(-1) : null);
+    setHeaderActions(null);
 
-    return () => setHeaderActions(null);
-  }, [navigate, setHeaderActions, t]);
-
+    return () => {
+      setHeaderActions(null);
+      setHeaderBackAction(null);
+    };
+  }, [location.state, navigate, setHeaderActions, setHeaderBackAction]);
   const filteredChats = chats.filter(
     (c) =>
       c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -41,7 +41,7 @@ export default function ChatListPage() {
   );
 
   return (
-    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 } }}>
+    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 } }}>
       {/* Search */}
       <TextField
         fullWidth
@@ -71,7 +71,17 @@ export default function ChatListPage() {
           }
         />
       ) : (
-        <Box sx={{ maxWidth: 600 }}>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: {
+              xs: '1fr',
+              sm: 'repeat(2, minmax(0, 1fr))',
+              xl: 'repeat(3, minmax(0, 1fr))',
+            },
+            gap: 1.5,
+          }}
+        >
           {filteredChats.map((chat) => (
             <ChatCard
               key={chat.id}
@@ -95,6 +105,24 @@ export default function ChatListPage() {
         onCancel={() => setDeleteId(null)}
         destructive
       />
+
+      <Button
+        variant="contained"
+        startIcon={<AddIcon />}
+        onClick={() => navigate('/chats/create')}
+        sx={{
+          position: 'fixed',
+          right: { xs: 20, sm: 28, md: 36 },
+          bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', sm: 32, md: 36 },
+          zIndex: 1300,
+          minHeight: 56,
+          px: 2.25,
+          borderRadius: 18,
+          boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)',
+        }}
+      >
+        {t('chat.create')}
+      </Button>
     </Box>
   );
 }

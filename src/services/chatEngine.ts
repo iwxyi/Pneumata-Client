@@ -26,6 +26,89 @@ export interface ChatEngineCallbacks {
   onError: (error: Error) => void;
 }
 
+function stripRoleActions(content: string) {
+  return content
+    .replace(/（[^（）]{1,24}）/g, '')
+    .replace(/\([^()]{1,24}\)/g, '')
+    .replace(/\*[^*\n]{1,24}\*/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s\n]+|[\s\n]+$/g, '');
+}
+
+function normalizeForComparison(content: string) {
+  return content
+    .replace(/（[^（）]{1,24}）/g, '')
+    .replace(/\([^()]{1,24}\)/g, '')
+    .replace(/\*[^*\n]{1,24}\*/g, '')
+    .replace(/[\p{P}\p{S}]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function jaccardSimilarity(a: string, b: string) {
+  const aSet = new Set(a.split(' ').filter(Boolean));
+  const bSet = new Set(b.split(' ').filter(Boolean));
+  if (aSet.size === 0 || bSet.size === 0) return 0;
+
+  let intersection = 0;
+  for (const token of aSet) {
+    if (bSet.has(token)) intersection += 1;
+  }
+  const union = new Set([...aSet, ...bSet]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
+function isTooSimilarToRecentSameSpeaker(messages: Message[], speakerId: string, content: string) {
+  const normalized = normalizeForComparison(content);
+  if (!normalized) return false;
+
+  const recentSameSpeaker = messages
+    .filter((message) => message.type === 'ai' && !message.isDeleted && message.senderId === speakerId)
+    .slice(-4);
+
+  return recentSameSpeaker.some((message) => {
+    const previous = normalizeForComparison(message.content);
+    if (!previous) return false;
+    return previous === normalized
+      || previous.includes(normalized)
+      || normalized.includes(previous)
+      || jaccardSimilarity(previous, normalized) >= 0.72;
+  });
+}
+
+function isTooSimilarToRecentConversation(messages: Message[], speakerId: string, content: string) {
+  const normalized = normalizeForComparison(content);
+  if (!normalized) return false;
+
+  const recentAiMessages = messages
+    .filter((message) => message.type === 'ai' && !message.isDeleted)
+    .slice(-6);
+
+  return recentAiMessages.some((message) => {
+    if (message.senderId === speakerId) return false;
+    const previous = normalizeForComparison(message.content);
+    if (!previous) return false;
+    return jaccardSimilarity(previous, normalized) >= 0.82;
+  });
+}
+
+function isWeakContent(content: string) {
+  const normalized = normalizeForComparison(content);
+  const words = normalized.split(' ').filter(Boolean);
+  return words.length < 4 || normalized.length < 12;
+}
+
+function needsRetry(messages: Message[], speakerId: string, content: string) {
+  return isWeakContent(content)
+    || isTooSimilarToRecentSameSpeaker(messages, speakerId, content)
+    || isTooSimilarToRecentConversation(messages, speakerId, content);
+}
+
+function buildRetryPrompt(response: string) {
+  return `${response}\n\n请不要重复你刚才已经表达过的内容。换一个新的角度，推进讨论，保持简洁具体。\nDo not repeat the previous wording or the same point. Add a new point and move the conversation forward.`;
+}
+
 function resolveApiConfigForCharacter(character: AICharacter, apiConfig: APIConfig | AIModelProfile[], profiles?: AIModelProfile[]) {
   const availableProfiles = Array.isArray(apiConfig) ? apiConfig : (profiles || []);
   if (availableProfiles.length > 0) {
@@ -73,7 +156,6 @@ export const runOneRound = async (
 
   const speakerId = selectSpeaker(candidates);
   if (!speakerId) {
-    // All on cooldown, wait a bit
     return;
   }
 
@@ -89,16 +171,34 @@ export const runOneRound = async (
   const chatMessages = buildChatMessages(messages.filter((m) => !m.isDeleted), characterMap, MAX_HISTORY_FOR_PROMPT);
 
   try {
+    const resolvedApi = resolveApiConfigForCharacter(speaker, apiConfig, profiles);
+
     // Generate response with streaming
-    const response = await generateResponse(
-      resolveApiConfigForCharacter(speaker, apiConfig, profiles),
+    let response = await generateResponse(
+      resolvedApi,
       systemPrompt,
       chatMessages,
       callbacks.onMessageChunk
     );
+    let finalResponse = chat.showRoleActions === false ? stripRoleActions(response) : response;
+
+    if (needsRetry(messages, speakerId, finalResponse)) {
+      response = await generateResponse(
+        resolvedApi,
+        `${systemPrompt}\n\n${buildRetryPrompt(finalResponse)}`,
+        chatMessages,
+        callbacks.onMessageChunk
+      );
+      finalResponse = chat.showRoleActions === false ? stripRoleActions(response) : response;
+
+      if (needsRetry(messages, speakerId, finalResponse)) {
+        callbacks.onError(new Error('Generated duplicate or weak response'));
+        return;
+      }
+    }
 
     // Update emotion
-    const msgEmotion = analyzeEmotion(response);
+    const msgEmotion = analyzeEmotion(finalResponse);
     setEmotion(speakerId, updateEmotion(emotion, msgEmotion));
 
     // Update emotions of other characters based on this message
@@ -115,7 +215,7 @@ export const runOneRound = async (
       type: 'ai',
       senderId: speakerId,
       senderName: speaker.name,
-      content: response,
+      content: finalResponse,
       emotion: getEmotion(speakerId),
     });
   } catch (error) {

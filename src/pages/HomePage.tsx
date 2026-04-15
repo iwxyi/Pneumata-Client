@@ -20,6 +20,7 @@ export default function HomePage() {
   }, []);
 
   const recentChats = chats.slice(0, 5);
+  const customCharacters = characters.filter((character) => !character.isPreset);
 
   return (
     <Box sx={{ flex: 1, overflow: 'auto', p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 } }}>
@@ -31,16 +32,16 @@ export default function HomePage() {
             value: chats.length,
             icon: <ChatIcon />,
             color: '#6750A4',
-            onOpen: () => navigate('/chats'),
+            onOpen: () => navigate('/chats', { state: { fromHome: true } }),
             onCreate: () => navigate('/chats/create'),
             createLabel: t('chat.create'),
           },
           {
             label: t('home.totalCharacters'),
-            value: characters.length,
+            value: customCharacters.length,
             icon: <PersonIcon />,
             color: '#625B71',
-            onOpen: () => navigate('/characters'),
+            onOpen: () => navigate('/characters', { state: { fromHome: true } }),
             onCreate: () => navigate('/characters?create=1'),
             createLabel: t('character.create'),
           },
@@ -136,7 +137,17 @@ export default function HomePage() {
           }
         />
       ) : (
-        <Box sx={{ maxWidth: 600 }}>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: {
+              xs: '1fr',
+              sm: 'repeat(2, minmax(0, 1fr))',
+              xl: 'repeat(3, minmax(0, 1fr))',
+            },
+            gap: 1.5,
+          }}
+        >
           {recentChats.map((chat) => (
             <ChatCard
               key={chat.id}

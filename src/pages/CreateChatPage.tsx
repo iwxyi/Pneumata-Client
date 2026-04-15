@@ -1,247 +1,385 @@
 import { useState, useEffect } from 'react';
+import { useLayoutHeaderActions } from '../components/layout/AppLayout';
 import {
-  Box, Typography, TextField, Button, Stepper, Step, StepLabel,
-  ToggleButton, ToggleButtonGroup, Slider, Switch, FormControlLabel,
-  Checkbox, Avatar, Chip, Grid,
+  Box, Typography, TextField, Button, IconButton,
+  Checkbox, Avatar, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Divider,
+  FormControlLabel, Switch, Snackbar, Alert,
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { formatExpertiseList } from '../utils/expertise';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import type { ChatStyle } from '../types/chat';
-import { CHAT_STYLE_OPTIONS, MIN_MEMBERS, MAX_MEMBERS, SPEED_MIN, SPEED_MAX, SPEED_STEP } from '../constants/defaults';
-
-const steps = ['chat.stepBasic', 'chat.stepStyle', 'chat.stepMembers', 'chat.stepAdvanced'];
+import { CHAT_STYLE_OPTIONS, MIN_MEMBERS, MAX_MEMBERS } from '../constants/defaults';
 
 export default function CreateChatPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { addChat } = useChatStore();
+  const { id } = useParams<{ id: string }>();
+  const { setHeaderTitle, setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
+  const { chats, addChat, updateChat, deleteChat, loadChats } = useChatStore();
   const { characters, loadCharacters } = useCharacterStore();
-  const [activeStep, setActiveStep] = useState(0);
+  const { chatDraftDefaults, setChatDraftDefaults, loadSettings } = useSettingsStore();
+  const [memberDialogOpen, setMemberDialogOpen] = useState(false);
+  const editingChat = id ? chats.find((chat) => chat.id === id) : null;
 
-  // Form state
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
   const [style, setStyle] = useState<ChatStyle>('free');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [topicSeed, setTopicSeed] = useState('');
-  const [speed, setSpeed] = useState(1.0);
-  const [allowIntervention, setAllowIntervention] = useState(true);
+  const [showRoleActions, setShowRoleActions] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
 
   useEffect(() => {
+    loadChats();
     loadCharacters();
-  }, []);
+    loadSettings();
+  }, [loadCharacters, loadChats, loadSettings]);
 
-  const toggleMember = (id: string) => {
+  useEffect(() => {
+    if (editingChat) {
+      setName(editingChat.name || '');
+      setTopic(editingChat.topic || '');
+      setStyle(editingChat.style);
+      setSelectedMembers(editingChat.memberIds || []);
+      setTopicSeed(editingChat.topicSeed || '');
+      setShowRoleActions(editingChat.showRoleActions ?? true);
+      return;
+    }
+
+    setStyle(chatDraftDefaults.style);
+    setShowRoleActions(chatDraftDefaults.showRoleActions);
+  }, [chatDraftDefaults.showRoleActions, chatDraftDefaults.style, editingChat]);
+
+  useEffect(() => {
+    setHeaderTitle(editingChat ? t('chat.edit') : t('chat.create'));
+    setHeaderBackAction(() => () => navigate(-1));
+    setHeaderActions(
+      <Box sx={{ display: 'flex', gap: 1 }}>
+        {editingChat ? (
+          <Button color="error" variant="outlined" startIcon={<DeleteIcon />} onClick={async () => {
+            await deleteChat(editingChat.id);
+            navigate('/chats');
+          }}>
+            {t('common.delete')}
+          </Button>
+        ) : null}
+      </Box>
+    );
+
+    return () => {
+      setHeaderActions(null);
+      setHeaderTitle(null);
+      setHeaderBackAction(null);
+    };
+  }, [deleteChat, editingChat, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, t]);
+
+  const toggleMember = (memberId: string) => {
     setSelectedMembers((prev) =>
-      prev.includes(id)
-        ? prev.filter((m) => m !== id)
+      prev.includes(memberId)
+        ? prev.filter((m) => m !== memberId)
         : prev.length < MAX_MEMBERS
-          ? [...prev, id]
+          ? [...prev, memberId]
           : prev
     );
   };
 
-  const canProceed = () => {
-    switch (activeStep) {
-      case 0: return name.trim().length > 0;
-      case 1: return true;
-      case 2: return selectedMembers.length >= MIN_MEMBERS;
-      case 3: return true;
-      default: return false;
+  const canCreate = name.trim().length > 0 && selectedMembers.length >= MIN_MEMBERS;
+  const createError = !name.trim()
+    ? (i18n.language.startsWith('zh') ? '请填写群聊名称' : 'Please enter a chat name')
+    : selectedMembers.length < MIN_MEMBERS
+      ? (i18n.language.startsWith('zh') ? `请至少选择${MIN_MEMBERS}个AI成员` : `Please select at least ${MIN_MEMBERS} AI members`)
+      : '';
+
+  const customCharacters = characters.filter((char) => !char.isPreset);
+  const presetCharacters = characters.filter((char) => char.isPreset);
+  const selectedCharacters = characters.filter((char) => selectedMembers.includes(char.id));
+  const hasCustomCharacters = customCharacters.length > 0;
+  const hasPresetCharacters = presetCharacters.length > 0;
+
+  const getStyleLabel = (styleValue: ChatStyle) => {
+    return t(`chat.style${styleValue.charAt(0).toUpperCase() + styleValue.slice(1)}`);
+  };
+
+  const getMemberSecondary = (char: typeof characters[number]) => {
+    const expertise = formatExpertiseList(char.expertise.slice(0, 2), i18n.language).join(' · ');
+    return expertise || t('common.noData');
+  };
+
+  const selectedSummary = selectedCharacters.slice(0, 4);
+
+  const handleCreate = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      if (!canCreate) {
+        setSnackbar({ open: true, message: createError || t('common.error'), severity: 'error' });
+        return;
+      }
+
+      if (editingChat) {
+        await updateChat(editingChat.id, {
+          name: name.trim(),
+          topic: topic.trim(),
+          style,
+          memberIds: selectedMembers,
+          speed: 1,
+          allowIntervention: true,
+          showRoleActions,
+          topicSeed: topicSeed.trim(),
+        });
+        setChatDraftDefaults({ style, showRoleActions });
+        navigate(`/chats/${editingChat.id}`);
+        return;
+      }
+
+      const chat = await addChat({
+        name: name.trim(),
+        topic: topic.trim(),
+        style,
+        memberIds: selectedMembers,
+        speed: 1,
+        isActive: false,
+        allowIntervention: true,
+        showRoleActions,
+        topicSeed: topicSeed.trim(),
+      });
+      setChatDraftDefaults({ style, showRoleActions });
+      navigate(`/chats/${chat.id}`);
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleCreate = async () => {
-    const chat = await addChat({
-      name: name.trim(),
-      topic: topic.trim(),
-      style,
-      memberIds: selectedMembers,
-      speed,
-      isActive: false,
-      allowIntervention,
-      topicSeed: topicSeed.trim(),
-    });
-    navigate(`/chats/${chat.id}`);
-  };
-
   return (
-    <Box sx={{ flex: 1, overflow: 'auto', p: 3, maxWidth: 700, mx: 'auto' }}>
-      <Typography variant="h5" fontWeight={700} gutterBottom>
-        {t('chat.createTitle')}
-      </Typography>
+    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 18, sm: 14, md: 10 }, maxWidth: 860, mx: 'auto' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <TextField
+          label={t('chat.name')}
+          placeholder={t('chat.namePlaceholder')}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+          fullWidth
+        />
 
-      <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
-        {steps.map((label) => (
-          <Step key={label}>
-            <StepLabel>{t(label)}</StepLabel>
-          </Step>
-        ))}
-      </Stepper>
+        <TextField
+          label={t('chat.topic')}
+          placeholder={t('chat.topicPlaceholder')}
+          value={topic}
+          onChange={(e) => setTopic(e.target.value)}
+          fullWidth
+          multiline
+          rows={2}
+        />
 
-      {/* Step 1: Basic Info */}
-      {activeStep === 0 && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <TextField
-            label={t('chat.name')}
-            placeholder={t('chat.namePlaceholder')}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            fullWidth
-          />
-          <TextField
-            label={t('chat.topic')}
-            placeholder={t('chat.topicPlaceholder')}
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            fullWidth
-            multiline
-            rows={2}
-          />
-        </Box>
-      )}
-
-      {/* Step 2: Style */}
-      {activeStep === 1 && (
         <Box>
-          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5 }}>
             {t('chat.style')}
           </Typography>
-          <Grid container spacing={2}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
             {CHAT_STYLE_OPTIONS.map((opt) => (
-              <Grid size={{ xs: 6 }} key={opt.value}>
-                <Box
-                  onClick={() => setStyle(opt.value)}
-                  sx={{
-                    p: 3,
-                    borderRadius: 3,
-                    border: 2,
-                    borderColor: style === opt.value ? 'primary.main' : 'divider',
-                    bgcolor: style === opt.value ? 'primary.light' : 'background.paper',
-                    cursor: 'pointer',
-                    textAlign: 'center',
-                    transition: 'all 0.2s',
-                    '&:hover': { borderColor: 'primary.light' },
-                  }}
-                >
-                  <Typography variant="h4" sx={{ mb: 1 }}>{opt.icon}</Typography>
-                  <Typography variant="subtitle2" fontWeight={600}>
-                    {t(`chat.style${opt.value.charAt(0).toUpperCase() + opt.value.slice(1)}`)}
-                  </Typography>
-                </Box>
-              </Grid>
+              <Button
+                key={opt.value}
+                variant={style === opt.value ? 'contained' : 'outlined'}
+                onClick={() => setStyle(opt.value)}
+                sx={{ borderRadius: 999 }}
+              >
+                {getStyleLabel(opt.value)}
+              </Button>
             ))}
-          </Grid>
+          </Box>
         </Box>
-      )}
 
-      {/* Step 3: Members */}
-      {activeStep === 2 && (
         <Box>
-          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-            {t('chat.selectMembers')}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
-            {t('chat.membersHint')} ({selectedMembers.length}/{MAX_MEMBERS})
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {characters.map((char) => (
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                {t('chat.selectMembers')}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {t('chat.membersHint')} ({selectedMembers.length}/{MAX_MEMBERS})
+              </Typography>
+            </Box>
+            <IconButton color="primary" onClick={() => setMemberDialogOpen(true)}>
+              <AddIcon />
+            </IconButton>
+          </Box>
+
+          {selectedCharacters.length > 0 ? (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {selectedSummary.map((char) => (
+                <Chip
+                  key={char.id}
+                  avatar={<Avatar sx={{ bgcolor: 'primary.light' }}>{char.avatar}</Avatar>}
+                  label={char.name}
+                  onDelete={() => toggleMember(char.id)}
+                />
+              ))}
+              {selectedCharacters.length > selectedSummary.length ? (
+                <Chip label={`+${selectedCharacters.length - selectedSummary.length}`} variant="outlined" />
+              ) : null}
+            </Box>
+          ) : (
+            <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 3, color: 'text.secondary' }}>
+              未选择AI角色
+            </Box>
+          )}
+        </Box>
+
+        <TextField
+          label={t('chat.topicSeed')}
+          placeholder={t('chat.topicSeedPlaceholder')}
+          value={topicSeed}
+          onChange={(e) => setTopicSeed(e.target.value)}
+          fullWidth
+          multiline
+          rows={2}
+        />
+
+        <FormControlLabel
+          control={<Switch checked={showRoleActions} onChange={(e) => setShowRoleActions(e.target.checked)} />}
+          label={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'}
+        />
+
+        <Button
+          variant="contained"
+          onClick={handleCreate}
+          disabled={!canCreate || saving}
+          sx={{
+            position: 'fixed',
+            right: { xs: 20, sm: 28, md: 36 },
+            bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', sm: 32, md: 36 },
+            zIndex: 1300,
+            minHeight: 56,
+            px: 2.25,
+            borderRadius: 18,
+            boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)',
+          }}
+        >
+          {saving ? t('common.loading') : editingChat ? t('common.save') : '开始群聊'}
+        </Button>
+      </Box>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={3000}
+        onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+      >
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+
+      <Dialog open={memberDialogOpen} onClose={() => setMemberDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>{t('chat.selectMembers')}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+            {hasCustomCharacters ? (
               <Box
-                key={char.id}
-                onClick={() => toggleMember(char.id)}
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
+                  display: 'grid',
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    sm: 'repeat(2, minmax(0, 1fr))',
+                    lg: 'repeat(3, minmax(0, 1fr))',
+                  },
                   gap: 1.5,
-                  p: 1.5,
-                  borderRadius: 2,
-                  border: 2,
-                  borderColor: selectedMembers.includes(char.id) ? 'primary.main' : 'divider',
-                  bgcolor: selectedMembers.includes(char.id) ? 'primary.light' : 'transparent',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                  '&:hover': { bgcolor: 'action.hover' },
                 }}
               >
-                <Checkbox checked={selectedMembers.includes(char.id)} size="small" />
-                <Avatar sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>
-                  {char.avatar}
-                </Avatar>
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="body2" fontWeight={600}>{char.name}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {char.expertise.slice(0, 3).join(', ')}
-                  </Typography>
-                </Box>
-                {char.isPreset && <Chip label="Preset" size="small" variant="outlined" />}
+                {customCharacters.map((char) => (
+                  <Box
+                    key={char.id}
+                    onClick={() => toggleMember(char.id)}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.25,
+                      p: 1.5,
+                      borderRadius: 3,
+                      border: 1,
+                      borderColor: selectedMembers.includes(char.id) ? 'primary.main' : 'divider',
+                      bgcolor: selectedMembers.includes(char.id) ? 'primary.light' : 'background.paper',
+                      cursor: 'pointer',
+                      transition: 'all 0.18s ease',
+                      '&:hover': { boxShadow: 1, borderColor: 'primary.main' },
+                    }}
+                  >
+                    <Checkbox checked={selectedMembers.includes(char.id)} size="small" />
+                    <Avatar sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>
+                      {char.avatar}
+                    </Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{char.name}</Typography>
+                      <Typography variant="caption" color="text.secondary" noWrap>
+                        {getMemberSecondary(char)}
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))}
               </Box>
-            ))}
-          </Box>
-        </Box>
-      )}
+            ) : null}
 
-      {/* Step 4: Advanced */}
-      {activeStep === 3 && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <TextField
-            label={t('chat.topicSeed')}
-            placeholder={t('chat.topicSeedPlaceholder')}
-            value={topicSeed}
-            onChange={(e) => setTopicSeed(e.target.value)}
-            fullWidth
-            multiline
-            rows={2}
-          />
-          <Box>
-            <Typography variant="body2" fontWeight={500} gutterBottom>
-              {t('chat.speed')}: {speed}x
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Typography variant="caption">{t('chat.speedSlow')}</Typography>
-              <Slider
-                value={speed}
-                onChange={(_, v) => setSpeed(v as number)}
-                min={SPEED_MIN}
-                max={SPEED_MAX}
-                step={SPEED_STEP}
-                size="small"
-              />
-              <Typography variant="caption">{t('chat.speedFast')}</Typography>
-            </Box>
-          </Box>
-          <FormControlLabel
-            control={
-              <Switch checked={allowIntervention} onChange={(e) => setAllowIntervention(e.target.checked)} />
-            }
-            label={t('chat.allowIntervention')}
-          />
-        </Box>
-      )}
+            {hasCustomCharacters && hasPresetCharacters ? <Divider /> : null}
 
-      {/* Navigation Buttons */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4 }}>
-        <Button
-          onClick={() => (activeStep === 0 ? navigate(-1) : setActiveStep((s) => s - 1))}
-        >
-          {activeStep === 0 ? t('common.cancel') : t('chat.back')}
-        </Button>
-        {activeStep < steps.length - 1 ? (
-          <Button
-            variant="contained"
-            onClick={() => setActiveStep((s) => s + 1)}
-            disabled={!canProceed()}
-          >
-            {t('chat.next')}
-          </Button>
-        ) : (
-          <Button variant="contained" onClick={handleCreate} disabled={!canProceed()}>
-            🍵 {t('chat.startTeaParty')}
-          </Button>
-        )}
-      </Box>
+            {hasPresetCharacters ? (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    sm: 'repeat(2, minmax(0, 1fr))',
+                    lg: 'repeat(3, minmax(0, 1fr))',
+                  },
+                  gap: 1.5,
+                }}
+              >
+                {presetCharacters.map((char) => (
+                  <Box
+                    key={char.id}
+                    onClick={() => toggleMember(char.id)}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.25,
+                      p: 1.5,
+                      borderRadius: 3,
+                      border: 1,
+                      borderColor: selectedMembers.includes(char.id) ? 'primary.main' : 'divider',
+                      bgcolor: selectedMembers.includes(char.id) ? 'primary.light' : 'background.paper',
+                      cursor: 'pointer',
+                      transition: 'all 0.18s ease',
+                      '&:hover': { boxShadow: 1, borderColor: 'primary.main' },
+                    }}
+                  >
+                    <Checkbox checked={selectedMembers.includes(char.id)} size="small" />
+                    <Avatar sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>
+                      {char.avatar}
+                    </Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{char.name}</Typography>
+                      <Typography variant="caption" color="text.secondary" noWrap>
+                        {getMemberSecondary(char)}
+                      </Typography>
+                    </Box>
+                    <Chip label="Preset" size="small" variant="outlined" />
+                  </Box>
+                ))}
+              </Box>
+            ) : null}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setMemberDialogOpen(false)}>{t('common.confirm')}</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

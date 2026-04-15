@@ -1,5 +1,5 @@
-import { Box, Drawer, SwipeableDrawer, IconButton, Typography } from '@mui/material';
-import { Menu as MenuIcon, Home as HomeIcon, Chat as ChatIcon, Person as PersonIcon, Settings as SettingsIcon, SmartToy as ModelsIcon } from '@mui/icons-material';
+import { Box, Drawer, SwipeableDrawer, Typography, ListItemButton, ListItemIcon } from '@mui/material';
+import { Menu as MenuIcon, ArrowBack as ArrowBackIcon, Home as HomeIcon, Chat as ChatIcon, Person as PersonIcon, Settings as SettingsIcon, SmartToy as ModelsIcon } from '@mui/icons-material';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import React, { createContext, useContext, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -24,7 +24,12 @@ const SIDEBAR_WIDTH = 280;
 const SIDEBAR_COLLAPSED_WIDTH = 72;
 export const FLOATING_HEADER_OFFSET = { xs: 0, sm: 0, md: 0 };
 
-const LayoutHeaderActionsContext = createContext<{ setHeaderActions: (actions: ReactNode) => void } | null>(null);
+const LayoutHeaderActionsContext = createContext<{
+  setHeaderActions: (actions: ReactNode) => void;
+  setHeaderTitle: (title: ReactNode | null) => void;
+  setHeaderBackAction: (action: (() => void) | null) => void;
+  setHideMobileBottomNav: (hidden: boolean) => void;
+} | null>(null);
 
 export function useLayoutHeaderActions() {
   const context = useContext(LayoutHeaderActionsContext);
@@ -42,13 +47,15 @@ export default function AppLayout() {
   const { sidebarOpen, setSidebarOpen } = useUIStore();
   const shouldShowMenuButton = isMobile || isTablet;
   const currentRoute = getRouteMeta(location.pathname);
-  const CurrentIcon = currentRoute.icon;
   const currentTitle = t(currentRoute.titleKey);
   const [headerActions, setHeaderActions] = React.useState<ReactNode>(null);
+  const [headerTitle, setHeaderTitle] = React.useState<ReactNode | null>(null);
+  const [headerBackAction, setHeaderBackAction] = React.useState<(() => void) | null>(null);
+  const [hideMobileBottomNav, setHideMobileBottomNav] = React.useState(false);
 
   return (
-    <LayoutHeaderActionsContext.Provider value={{ setHeaderActions }}>
-      <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <LayoutHeaderActionsContext.Provider value={{ setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav }}>
+      <Box sx={{ display: 'flex', height: '100dvh', minHeight: '100dvh', overflow: 'hidden' }}>
       {/* Desktop: permanent sidebar */}
       {isDesktop && (
         <Box
@@ -104,8 +111,8 @@ export default function AppLayout() {
           display: 'flex',
           flexDirection: 'column',
           minHeight: 0,
-          height: '100vh',
-          pb: isMobile ? '56px' : 0,
+          height: '100dvh',
+          pb: isMobile && !hideMobileBottomNav ? '56px' : 0,
           position: 'relative',
           overflow: 'hidden',
         }}
@@ -113,72 +120,59 @@ export default function AppLayout() {
         {shouldShowMenuButton && (
           <Box
             sx={{
-              position: 'sticky',
-              top: 0,
+              position: 'relative',
+              top: 'auto',
               zIndex: sidebarOpen ? 1099 : 1199,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: 2,
-              px: 3,
-              py: 1.5,
-              bgcolor: 'background.default',
+              px: 2,
+              py: 1,
+              bgcolor: (theme) => theme.palette.mode === 'light' ? '#f5f5f5' : '#121212',
               backdropFilter: 'blur(12px)',
               borderBottom: 1,
-              borderColor: 'divider',
-              transition: 'backdrop-filter 180ms ease, border-color 180ms ease',
+              borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
+              transition: 'background-color 180ms ease, backdrop-filter 180ms ease, border-color 180ms ease',
             }}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-              <IconButton
-                onClick={() => setSidebarOpen(true)}
-                size="small"
-                aria-label="Open navigation"
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+              <ListItemButton
+                onClick={headerBackAction ?? (() => setSidebarOpen(true))}
                 sx={{
-                  bgcolor: 'background.paper',
-                  boxShadow: 1,
-                  '&:hover': { bgcolor: 'background.paper', transform: 'scale(1.03)' },
-                }}
-              >
-                <MenuIcon fontSize="small" />
-              </IconButton>
-              <Box
-                onClick={() => navigate('/')}
-                role="button"
-                aria-label={t('nav.home')}
-                sx={{
-                  minWidth: 0,
-                  maxWidth: 'calc(100vw - 220px)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.75,
+                  borderRadius: 3,
+                  minHeight: 48,
                   px: 1.5,
-                  py: 0.875,
-                  borderRadius: 99,
-                  bgcolor: 'background.paper',
-                  boxShadow: 1,
+                  flex: '0 0 auto',
                   color: 'text.primary',
-                  cursor: 'pointer',
-                  transition: 'transform 180ms ease, box-shadow 180ms ease',
-                  '&:hover': {
-                    transform: 'translateY(-1px)',
-                    boxShadow: 2,
-                  },
                 }}
               >
-                <CurrentIcon fontSize="small" color="primary" />
+                <ListItemIcon sx={{ minWidth: 0, mr: 0 }}>
+                  {headerBackAction ? <ArrowBackIcon /> : <MenuIcon />}
+                </ListItemIcon>
+              </ListItemButton>
+              <ListItemButton
+                onClick={() => navigate('/')}
+                sx={{
+                  borderRadius: 3,
+                  minHeight: 48,
+                  px: 1.5,
+                  maxWidth: 'calc(100vw - 220px)',
+                  color: 'text.primary',
+                }}
+              >
                 <Typography
-                  variant="subtitle2"
+                  variant="subtitle1"
                   sx={{
-                    fontWeight: 700,
+                    fontWeight: 600,
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                   }}
                 >
-                  {currentTitle}
+                  {headerTitle ?? currentTitle}
                 </Typography>
-              </Box>
+              </ListItemButton>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0 }}>
               {headerActions}
@@ -191,13 +185,13 @@ export default function AppLayout() {
           </Box>
         ) : null}
 
-        <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pt: FLOATING_HEADER_OFFSET }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehaviorY: 'contain', WebkitOverflowScrolling: 'touch', pt: FLOATING_HEADER_OFFSET }}>
           <Outlet />
         </Box>
       </Box>
 
       {/* Mobile: bottom navigation */}
-      {isMobile && <BottomNav />}
+      {isMobile && !hideMobileBottomNav ? <BottomNav /> : null}
       </Box>
     </LayoutHeaderActionsContext.Provider>
   );

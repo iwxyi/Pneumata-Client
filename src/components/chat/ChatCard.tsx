@@ -18,8 +18,8 @@ export default function ChatCard({ chat, characters, onClick }: ChatCardProps) {
     <Card
       variant="outlined"
       sx={{
-        mb: 1.5,
-        borderRadius: 6,
+        height: '100%',
+        borderRadius: 2,
         bgcolor: 'background.paper',
         transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
         '&:hover': {

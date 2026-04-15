@@ -12,96 +12,18 @@ import {
   IconButton,
   Fab,
   Collapse,
+  Dialog,
+  DialogTitle,
+  DialogContent,
 } from '@mui/material';
-import { Close as CloseIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, Save as SaveIcon } from '@mui/icons-material';
+import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, Save as SaveIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter, PersonalityParams } from '../../types/character';
 import { DEFAULT_PERSONALITY } from '../../types/character';
-import { generateResponse } from '../../services/aiClient';
+import { generateCharacterProfile } from '../../services/characterGenerator';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import PersonalitySliders from './PersonalitySliders';
 import { AVATAR_OPTIONS } from '../../constants/presets';
-
-interface GeneratedCharacterProfile {
-  avatar?: string;
-  personality?: Partial<PersonalityParams>;
-  expertise?: string[];
-  speakingStyle?: string;
-  background?: string;
-}
-
-const CHARACTER_GENERATOR_SYSTEM_PROMPT = `You generate structured AI role profiles for a group chat app.
-Return strict JSON only, with this shape:
-{
-  "avatar": "single emoji from common emoji only",
-  "personality": {
-    "openness": 0-100,
-    "extroversion": 0-100,
-    "agreeableness": 0-100,
-    "neuroticism": 0-100,
-    "humor": 0-100,
-    "creativity": 0-100,
-    "assertiveness": 0-100,
-    "empathy": 0-100
-  },
-  "expertise": ["short domain", "short domain", "short domain", "short domain"],
-  "speakingStyle": "1-2 concise sentences",
-  "background": "2-4 concise sentences"
-}
-Rules:
-- Infer the profile from the provided name and likely public persona/archetype.
-- If the name is fictional, meme-like, or ambiguous, still create a vivid but usable role profile.
-- Keep expertise practical for conversation.
-- Do not wrap in markdown fences.
-- Output valid JSON only.`;
-
-function clampScore(value: unknown, fallback: number) {
-  if (typeof value !== 'number' || Number.isNaN(value)) return fallback;
-  return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function normalizeGeneratedProfile(raw: GeneratedCharacterProfile) {
-  const avatar = typeof raw.avatar === 'string' && raw.avatar.trim() ? raw.avatar.trim() : '🤖';
-  const personality = {
-    openness: clampScore(raw.personality?.openness, DEFAULT_PERSONALITY.openness),
-    extroversion: clampScore(raw.personality?.extroversion, DEFAULT_PERSONALITY.extroversion),
-    agreeableness: clampScore(raw.personality?.agreeableness, DEFAULT_PERSONALITY.agreeableness),
-    neuroticism: clampScore(raw.personality?.neuroticism, DEFAULT_PERSONALITY.neuroticism),
-    humor: clampScore(raw.personality?.humor, DEFAULT_PERSONALITY.humor),
-    creativity: clampScore(raw.personality?.creativity, DEFAULT_PERSONALITY.creativity),
-    assertiveness: clampScore(raw.personality?.assertiveness, DEFAULT_PERSONALITY.assertiveness),
-    empathy: clampScore(raw.personality?.empathy, DEFAULT_PERSONALITY.empathy),
-  };
-
-  const expertise = Array.isArray(raw.expertise)
-    ? raw.expertise
-        .filter((item): item is string => typeof item === 'string')
-        .map((item) => item.trim())
-        .filter(Boolean)
-        .slice(0, 6)
-    : [];
-
-  return {
-    avatar: AVATAR_OPTIONS.includes(avatar) ? avatar : '🤖',
-    personality,
-    expertise,
-    speakingStyle: typeof raw.speakingStyle === 'string' ? raw.speakingStyle.trim() : '',
-    background: typeof raw.background === 'string' ? raw.background.trim() : '',
-  };
-}
-
-function parseGeneratedProfile(content: string) {
-  const trimmed = content.trim();
-  const json = trimmed.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
-  return normalizeGeneratedProfile(JSON.parse(json) as GeneratedCharacterProfile);
-}
-
-function buildGeneratePrompt(name: string, language: 'zh' | 'en') {
-  if (language === 'zh') {
-    return `请基于名字“${name}”生成一个适合多人群聊讨论的 AI 角色档案。输出字段必须完整，语气自然，专业领域用简洁短语。`;
-  }
-  return `Generate a complete AI character profile for the name "${name}" for a multi-person group chat app. Keep the fields concise and usable.`;
-}
 
 function getGenerateButtonLabel(language: string, generating: boolean) {
   if (generating) {
@@ -122,13 +44,13 @@ function getGenerateAriaLabel(language: string) {
   return language.startsWith('zh') ? '生成角色资料' : 'Generate character profile';
 }
 
-function getHelperText(language: string, error: string | null) {
-  if (error) return error;
-  return language.startsWith('zh') ? '输入名字后可自动生成头像、性格、专业领域与背景。' : 'Enter a name to auto-generate avatar, personality, expertise, and background.';
+function getHelperText(_language: string, error: string | null) {
+  return error || '';
 }
 
 interface CharacterFormProps {
   initial?: Partial<AICharacter>;
+  existingNames?: string[];
   onSave: (data: {
     name: string;
     avatar: string;
@@ -141,7 +63,7 @@ interface CharacterFormProps {
   onCancel: () => void;
 }
 
-export default function CharacterForm({ initial, onSave, onCancel }: CharacterFormProps) {
+export default function CharacterForm({ initial, existingNames = [], onSave, onCancel }: CharacterFormProps) {
   const { t, i18n } = useTranslation();
   const settings = useSettingsStore();
   const [name, setName] = useState(initial?.name || '');
@@ -154,6 +76,7 @@ export default function CharacterForm({ initial, onSave, onCancel }: CharacterFo
   const [speakingStyle, setSpeakingStyle] = useState(initial?.speakingStyle || '');
   const [background, setBackground] = useState(initial?.background || '');
   const [modelProfileId, setModelProfileId] = useState<string>(initial?.modelProfileId || 'default');
+  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [personalityExpanded, setPersonalityExpanded] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -177,12 +100,11 @@ export default function CharacterForm({ initial, onSave, onCancel }: CharacterFo
     setGenerateError(null);
 
     try {
-      const response = await generateResponse(
+      const generated = await generateCharacterProfile(
         selectedProfile,
-        CHARACTER_GENERATOR_SYSTEM_PROMPT,
-        [{ role: 'user', content: buildGeneratePrompt(name.trim(), i18n.language.startsWith('zh') ? 'zh' : 'en') }]
+        name.trim(),
+        i18n.language.startsWith('zh') ? 'zh' : 'en'
       );
-      const generated = parseGeneratedProfile(response);
       setAvatar(generated.avatar);
       setPersonality(generated.personality);
       setExpertise(generated.expertise);
@@ -196,8 +118,15 @@ export default function CharacterForm({ initial, onSave, onCancel }: CharacterFo
   };
 
   const handleSubmit = () => {
-    if (!name.trim()) return;
-    onSave({ name: name.trim(), avatar, personality, expertise, speakingStyle, background, modelProfileId });
+    const normalizedName = name.trim();
+    if (!normalizedName || generating) return;
+    const isSameAsInitial = initial?.name?.trim().toLowerCase() === normalizedName.toLowerCase();
+    const duplicated = !isSameAsInitial && existingNames.some((item) => item.trim().toLowerCase() === normalizedName.toLowerCase());
+    if (duplicated) {
+      setGenerateError(i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists');
+      return;
+    }
+    onSave({ name: normalizedName, avatar, personality, expertise, speakingStyle, background, modelProfileId });
   };
 
   const generateLabel = getGenerateButtonLabel(i18n.language, generating);
@@ -206,81 +135,134 @@ export default function CharacterForm({ initial, onSave, onCancel }: CharacterFo
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.75, position: 'relative', pb: 10 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -1, mb: -0.5 }}>
-        <IconButton onClick={onCancel} size="small" aria-label={i18n.language.startsWith('zh') ? '关闭' : 'Close'}>
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </Box>
-      {/* Name */}
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-        <TextField
-          label={t('character.name')}
-          placeholder={t('character.namePlaceholder')}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          helperText={helperText}
-          error={Boolean(generateError)}
-          required
-          fullWidth
-        />
-        <Button
-          variant="outlined"
-          onClick={handleGenerate}
-          aria-label={generateAriaLabel}
-          sx={{ minWidth: 88, height: 56, whiteSpace: 'nowrap' }}
-          disabled={!name.trim() || generating}
-        >
-          {generateLabel}
-        </Button>
-      </Box>
-
-      <FormControl fullWidth size="small">
-        <InputLabel>{i18n.language.startsWith('zh') ? 'AI 模型' : 'AI model'}</InputLabel>
-        <Select
-          value={modelProfileId}
-          label={i18n.language.startsWith('zh') ? 'AI 模型' : 'AI model'}
-          onChange={(e) => setModelProfileId(e.target.value)}
-        >
-          {settings.aiProfiles.map((profile) => (
-            <MenuItem key={profile.id} value={profile.id}>
-              {profile.name}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
-
-      {/* Avatar Selection */}
-      <Box>
-        <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>
-          {t('character.avatar')}
-        </Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          {AVATAR_OPTIONS.map((emoji) => (
-            <Box
-              key={emoji}
-              onClick={() => setAvatar(emoji)}
-              sx={{
-                width: 40,
-                height: 40,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '1.3rem',
-                borderRadius: 2,
-                cursor: 'pointer',
-                border: 2,
-                borderColor: avatar === emoji ? 'primary.main' : 'transparent',
-                bgcolor: avatar === emoji ? 'primary.light' : 'action.hover',
-                '&:hover': { bgcolor: 'action.selected' },
-              }}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr)' }, gap: 1.25, alignItems: 'start' }}>
+        <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+          <Box
+            onClick={() => setAvatarPickerOpen(true)}
+            sx={{
+              width: 56,
+              height: 56,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.5rem',
+              borderRadius: 3,
+              cursor: 'pointer',
+              border: 1,
+              borderColor: 'divider',
+              bgcolor: 'background.paper',
+              boxShadow: 1,
+              transition: 'transform 160ms ease, box-shadow 160ms ease',
+              '&:hover': { transform: 'translateY(-1px)', boxShadow: 2 },
+            }}
+          >
+            {avatar}
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
+            <TextField
+              label={t('character.name')}
+              placeholder={t('character.namePlaceholder')}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              helperText={helperText}
+              error={Boolean(generateError)}
+              required
+              fullWidth
+            />
+            <Button
+              variant="outlined"
+              onClick={handleGenerate}
+              aria-label={generateAriaLabel}
+              sx={{ minWidth: 88, height: 56, whiteSpace: 'nowrap' }}
+              disabled={!name.trim() || generating}
             >
-              {emoji}
-            </Box>
-          ))}
+              {generateLabel}
+            </Button>
+          </Box>
         </Box>
       </Box>
 
-      {/* Personality Sliders */}
+      <Box sx={{ width: { xs: '100%', md: '72%' } }}>
+        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+          {t('character.expertise')}
+        </Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+          {expertise.map((exp) => (
+            <Chip
+              key={exp}
+              label={exp}
+              onDelete={() => setExpertise(expertise.filter((e) => e !== exp))}
+              size="small"
+            />
+          ))}
+          <Chip
+            label={
+              <TextField
+                variant="standard"
+                placeholder={expertise.length === 0 ? t('character.expertisePlaceholder') : ''}
+                value={expertiseInput}
+                onChange={(e) => setExpertiseInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addExpertise();
+                  }
+                }}
+                InputProps={{ disableUnderline: true }}
+                sx={{
+                  width: expertiseInput ? `${Math.max(4, expertiseInput.length + 1)}ch` : '4em',
+                  minWidth: '4em',
+                  maxWidth: 160,
+                  '& .MuiInputBase-root': { fontSize: 13 },
+                  '& .MuiInputBase-input': { py: 0, px: 0, width: '100%' },
+                }}
+              />
+            }
+            size="small"
+            variant="outlined"
+            sx={{
+              width: 'fit-content',
+              maxWidth: 148,
+              '& .MuiChip-label': { px: 0.75, py: 0.25 },
+            }}
+          />
+        </Box>
+      </Box>
+
+      <Dialog open={avatarPickerOpen} onClose={() => setAvatarPickerOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>{t('character.avatar')}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 1 }}>
+            {AVATAR_OPTIONS.map((emoji) => (
+              <Box
+                key={emoji}
+                onClick={() => {
+                  setAvatar(emoji);
+                  setAvatarPickerOpen(false);
+                }}
+                sx={{
+                  width: '100%',
+                  aspectRatio: '1 / 1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.35rem',
+                  borderRadius: 2.5,
+                  cursor: 'pointer',
+                  border: 2,
+                  borderColor: avatar === emoji ? 'primary.main' : 'transparent',
+                  bgcolor: avatar === emoji ? 'primary.light' : 'action.hover',
+                  '&:hover': { bgcolor: 'action.selected' },
+                }}
+              >
+                {emoji}
+              </Box>
+            ))}
+          </Box>
+        </DialogContent>
+      </Dialog>
+
       <Box>
         <Box
           onClick={() => setPersonalityExpanded((prev) => !prev)}
@@ -304,42 +286,6 @@ export default function CharacterForm({ initial, onSave, onCancel }: CharacterFo
         </Collapse>
       </Box>
 
-      {/* Expertise */}
-      <Box>
-        <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>
-          {t('character.expertise')}
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-          <TextField
-            size="small"
-            placeholder={t('character.expertisePlaceholder')}
-            value={expertiseInput}
-            onChange={(e) => setExpertiseInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addExpertise();
-              }
-            }}
-            fullWidth
-          />
-          <Button variant="outlined" onClick={addExpertise} size="small">
-            +
-          </Button>
-        </Box>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-          {expertise.map((exp) => (
-            <Chip
-              key={exp}
-              label={exp}
-              onDelete={() => setExpertise(expertise.filter((e) => e !== exp))}
-              size="small"
-            />
-          ))}
-        </Box>
-      </Box>
-
-      {/* Speaking Style */}
       <TextField
         label={t('character.speakingStyle')}
         placeholder={t('character.speakingStylePlaceholder')}
@@ -350,7 +296,6 @@ export default function CharacterForm({ initial, onSave, onCancel }: CharacterFo
         fullWidth
       />
 
-      {/* Background */}
       <TextField
         label={t('character.background')}
         placeholder={t('character.backgroundPlaceholder')}
@@ -361,11 +306,26 @@ export default function CharacterForm({ initial, onSave, onCancel }: CharacterFo
         fullWidth
       />
 
+      <FormControl size="small" sx={{ width: { xs: '100%', md: 220 } }}>
+        <InputLabel>{i18n.language.startsWith('zh') ? 'AI 模型' : 'AI model'}</InputLabel>
+        <Select
+          value={modelProfileId}
+          label={i18n.language.startsWith('zh') ? 'AI 模型' : 'AI model'}
+          onChange={(e) => setModelProfileId(e.target.value)}
+        >
+          {settings.aiProfiles.map((profile) => (
+            <MenuItem key={profile.id} value={profile.id}>
+              {profile.name}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
       <Fab
         color="primary"
         variant="extended"
         onClick={handleSubmit}
-        disabled={!name.trim()}
+        disabled={!name.trim() || generating}
         aria-label={t('character.save')}
         sx={{
           position: 'fixed',

@@ -3,11 +3,14 @@ import { createTheme, type ThemeOptions } from '@mui/material/styles';
 const baseTheme: ThemeOptions = {
   typography: {
     fontFamily: [
+      '"Source Han Sans SC"',
+      '"Noto Sans SC"',
+      '"PingFang SC"',
+      '"Microsoft YaHei"',
       '-apple-system',
       'BlinkMacSystemFont',
       '"Segoe UI"',
       'Roboto',
-      '"Noto Sans SC"',
       '"Helvetica Neue"',
       'Arial',
       'sans-serif',
@@ -331,18 +334,18 @@ export const createAppTheme = (mode: 'light' | 'dark', primaryColor: string = '#
         main: mode === 'light' ? '#625B71' : '#CCC2DC',
       },
       background: {
-        default: mode === 'light' ? '#FEF7FF' : '#1C1B1F',
-        paper: mode === 'light' ? '#FFFFFF' : '#2B2930',
+        default: mode === 'light' ? '#f5f5f5' : '#121212',
+        paper: mode === 'light' ? '#ffffff' : '#1f1f1f',
       },
       ...(mode === 'light'
         ? {
             surface: {
-              main: '#F7F2FA',
+              main: '#ffffff',
             },
           }
         : {
             surface: {
-              main: '#36343B',
+              main: '#1f1f1f',
             },
           }),
     },

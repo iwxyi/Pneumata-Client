@@ -4,10 +4,10 @@ import { Send as SendIcon, Close as CloseIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 
 interface ChatInputProps {
-  mode: 'god' | 'speakAs';
+  mode: 'guide' | 'speakAs';
   characterName?: string;
   onSend: (content: string) => void;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 export default function ChatInput({ mode, characterName, onSend, onClose }: ChatInputProps) {
@@ -28,31 +28,39 @@ export default function ChatInput({ mode, characterName, onSend, onClose }: Chat
   };
 
   const placeholder =
-    mode === 'god'
-      ? t('controls.godModePlaceholder')
+    mode === 'guide'
+      ? t('controls.topicGuidePlaceholder')
       : t('controls.speakAsPlaceholder', { name: characterName });
 
   return (
     <Box
       sx={{
+        position: 'fixed',
+        left: { xs: 0, md: 'auto' },
+        right: 0,
+        bottom: 0,
         display: 'flex',
         alignItems: 'flex-end',
         gap: 1,
         p: 2,
+        pb: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
         borderTop: 1,
         borderColor: 'divider',
         bgcolor: 'background.paper',
+        zIndex: 1100,
       }}
     >
-      <Chip
-        label={mode === 'god' ? '👑 God' : characterName}
-        onDelete={onClose}
-        deleteIcon={<CloseIcon fontSize="small" />}
-        size="small"
-        color={mode === 'god' ? 'warning' : 'primary'}
-        variant="outlined"
-        sx={{ flexShrink: 0 }}
-      />
+      {mode === 'speakAs' && onClose ? (
+        <Chip
+          label={characterName}
+          onDelete={onClose}
+          deleteIcon={<CloseIcon fontSize="small" />}
+          size="small"
+          color="primary"
+          variant="outlined"
+          sx={{ flexShrink: 0 }}
+        />
+      ) : null}
       <TextField
         fullWidth
         multiline
@@ -62,7 +70,6 @@ export default function ChatInput({ mode, characterName, onSend, onClose }: Chat
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
-        autoFocus
         sx={{
           '& .MuiOutlinedInput-root': {
             borderRadius: 3,

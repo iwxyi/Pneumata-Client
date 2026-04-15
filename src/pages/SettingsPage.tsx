@@ -6,6 +6,7 @@ import {
 } from '@mui/material';
 import { Download as BackupIcon, Upload as RestoreIcon, Delete as ClearIcon, Logout as LogoutIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { api } from '../services/api';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -15,6 +16,7 @@ import ConfirmDialog from '../components/common/ConfirmDialog';
 
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const settings = useSettingsStore();
   const [clearConfirm, setClearConfirm] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
@@ -125,6 +127,18 @@ export default function SettingsPage() {
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 960, mx: 'auto' }}>
+      <Card variant="outlined" sx={{ mb: 3 }}>
+        <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+            {i18n.language.startsWith('zh') ? 'AI模型' : 'AI Models'}
+          </Typography>
+
+          <Button variant="outlined" onClick={() => navigate('/models')} sx={{ justifyContent: 'flex-start' }}>
+            {i18n.language.startsWith('zh') ? '管理AI模型列表' : 'Manage AI model list'}
+          </Button>
+        </CardContent>
+      </Card>
+
       <Card variant="outlined" sx={{ mb: 3 }}>
         <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>

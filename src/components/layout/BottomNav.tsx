@@ -3,7 +3,6 @@ import {
   Home as HomeIcon,
   Chat as ChatIcon,
   Person as PersonIcon,
-  SmartToy as ModelsIcon,
   Settings as SettingsIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -13,8 +12,7 @@ const pathToIndex: Record<string, number> = {
   '/': 0,
   '/chats': 1,
   '/characters': 2,
-  '/models': 3,
-  '/settings': 4,
+  '/settings': 3,
 };
 
 export default function BottomNav() {
@@ -29,7 +27,7 @@ export default function BottomNav() {
     return location.pathname.startsWith(path) ? idx : acc;
   }, 0);
 
-  const paths = ['/', '/chats', '/characters', '/models', '/settings'];
+  const paths = ['/', '/chats', '/characters', '/settings'];
 
   return (
     <Paper
@@ -50,7 +48,6 @@ export default function BottomNav() {
         <BottomNavigationAction label={t('nav.home')} icon={<HomeIcon />} />
         <BottomNavigationAction label={t('nav.chats')} icon={<ChatIcon />} />
         <BottomNavigationAction label={t('nav.characters')} icon={<PersonIcon />} />
-        <BottomNavigationAction label={t('nav.models')} icon={<ModelsIcon />} />
         <BottomNavigationAction label={t('nav.settings')} icon={<SettingsIcon />} />
       </BottomNavigation>
     </Paper>

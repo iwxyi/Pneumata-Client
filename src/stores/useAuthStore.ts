@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import { api } from '../services/api';
+import { clearPersistedChatStore } from './useChatStore';
+import { clearPersistedCharacterStore } from './useCharacterStore';
+import { clearPersistedMessageStore } from './useMessageStore';
 
 interface User {
   id: string;
@@ -61,6 +64,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   logout: () => {
     localStorage.removeItem('miragetea-token');
     localStorage.removeItem('miragetea-user');
+    clearPersistedChatStore();
+    clearPersistedCharacterStore();
+    clearPersistedMessageStore();
     set({
       token: null,
       user: null,

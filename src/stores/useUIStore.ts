@@ -18,7 +18,7 @@ interface UIStore {
 
 export const useUIStore = create<UIStore>((set) => ({
   sidebarOpen: false,
-  rightPanelOpen: true,
+  rightPanelOpen: false,
   godModeActive: false,
   topicGuideOpen: false,
   speakAsCharacterId: null,

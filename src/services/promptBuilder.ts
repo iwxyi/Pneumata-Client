@@ -50,7 +50,8 @@ ${emotionDesc}
 3. Respond naturally to what others have said. You can agree, disagree, add new points, ask questions, or change the subject if natural.
 4. DO NOT use any prefix like "${character.name}:" - just give the message content directly.
 5. Use the language that matches the conversation (if others speak Chinese, respond in Chinese; if English, respond in English).
-6. Be engaging and contribute meaningfully to the conversation.`;
+6. Be engaging and contribute meaningfully to the conversation.
+7. ${chat.showRoleActions === false ? 'Do not include stage directions, action descriptions, or emotional cues in parentheses such as “（微笑着）”, “*waves*”, or similar narrative actions. Output only the spoken content.' : 'You may include light role actions or expressive cues if they feel natural, but do not overuse them.'}`;
 };
 
 export const buildChatMessages = (

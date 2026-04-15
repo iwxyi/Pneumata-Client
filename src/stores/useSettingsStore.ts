@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppSettings, ThemeMode, Language, APIConfig, AIModelProfile } from '../types/settings';
-import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE } from '../types/settings';
+import type { AppSettings, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults } from '../types/settings';
+import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_CHAT_DRAFT_DEFAULTS } from '../types/settings';
 import { api } from '../services/api';
 
 interface SettingsStore extends AppSettings {
@@ -15,6 +15,7 @@ interface SettingsStore extends AppSettings {
   setThemeColor: (color: string) => void;
   setLanguage: (lang: Language) => void;
   setDefaultSpeed: (speed: number) => void;
+  setChatDraftDefaults: (defaults: Partial<ChatDraftDefaults>) => void;
   resetSettings: () => void;
 }
 
@@ -65,6 +66,7 @@ function buildSettingsPayload(state: AppSettings) {
     themeColor: state.themeColor,
     language: state.language,
     defaultSpeed: state.defaultSpeed,
+    chatDraftDefaults: state.chatDraftDefaults,
   };
 }
 
@@ -74,6 +76,10 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
     ...state,
     aiProfiles,
     api: buildApiFromProfiles(aiProfiles),
+    chatDraftDefaults: {
+      ...DEFAULT_CHAT_DRAFT_DEFAULTS,
+      ...(state.chatDraftDefaults || {}),
+    },
   };
 }
 
@@ -102,6 +108,7 @@ export const useSettingsStore = create<SettingsStore>()(
               themeColor: settings.themeColor,
               language: settings.language as Language,
               defaultSpeed: settings.defaultSpeed,
+              chatDraftDefaults: settings.chatDraftDefaults || DEFAULT_CHAT_DRAFT_DEFAULTS,
             }),
             _loaded: true,
           });
@@ -190,6 +197,20 @@ export const useSettingsStore = create<SettingsStore>()(
         });
       },
 
+      setChatDraftDefaults: (defaults) => {
+        set((state) => {
+          const next = {
+            ...state,
+            chatDraftDefaults: {
+              ...state.chatDraftDefaults,
+              ...defaults,
+            },
+          };
+          syncToServer(buildSettingsPayload(next));
+          return next;
+        });
+      },
+
       resetSettings: () => {
         const next = syncState(DEFAULT_SETTINGS) as SettingsStore;
         set(next);
@@ -205,6 +226,7 @@ export const useSettingsStore = create<SettingsStore>()(
         themeColor: state.themeColor,
         language: state.language,
         defaultSpeed: state.defaultSpeed,
+        chatDraftDefaults: state.chatDraftDefaults,
       }),
       merge: (persistedState, currentState) => ({
         ...currentState,

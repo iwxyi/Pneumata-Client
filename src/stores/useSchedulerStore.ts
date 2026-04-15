@@ -10,11 +10,13 @@ interface SchedulerStore {
   lastSpeakTimestamps: Record<string, number>;
   baseCooldownMs: number;
   timerId: ReturnType<typeof setTimeout> | null;
+  loopToken: string | null;
 
-  start: () => void;
+  start: (loopToken?: string | null) => void;
   stop: () => void;
   pause: () => void;
   resume: () => void;
+  setLoopToken: (token: string | null) => void;
   setCurrentSpeaker: (id: string | null) => void;
   updateCandidates: (candidates: CandidateInfo[]) => void;
   recordSpeak: (characterId: string) => void;
@@ -31,8 +33,9 @@ export const useSchedulerStore = create<SchedulerStore>((set, get) => ({
   lastSpeakTimestamps: {},
   baseCooldownMs: BASE_COOLDOWN_MS,
   timerId: null,
+  loopToken: null,
 
-  start: () => set({ isRunning: true, isPaused: false }),
+  start: (loopToken = null) => set({ isRunning: true, isPaused: false, loopToken }),
   stop: () => {
     const { timerId } = get();
     if (timerId) clearTimeout(timerId);
@@ -42,6 +45,7 @@ export const useSchedulerStore = create<SchedulerStore>((set, get) => ({
       currentSpeakerId: null,
       candidates: [],
       timerId: null,
+      loopToken: null,
     });
   },
   pause: () => set({ isPaused: true }),
@@ -49,6 +53,7 @@ export const useSchedulerStore = create<SchedulerStore>((set, get) => ({
 
   setCurrentSpeaker: (id) => set({ currentSpeakerId: id }),
   updateCandidates: (candidates) => set({ candidates }),
+  setLoopToken: (token) => set({ loopToken: token }),
 
   recordSpeak: (characterId) => {
     set((state) => ({

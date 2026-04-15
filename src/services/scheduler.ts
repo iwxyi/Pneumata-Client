@@ -14,6 +14,23 @@ export const calculateWeights = (
   speed: number,
   baseCooldownMs: number
 ): WeightedCandidate[] => {
+  const recentAiMessages = recentMessages.filter((m) => m.type === 'ai' && !m.isDeleted);
+  const lastSpeakerId = recentAiMessages.at(-1)?.senderId;
+  const recentSpeakerIds = recentAiMessages.slice(-6).map((m) => m.senderId);
+  const recentSpeakCounts = recentSpeakerIds.reduce<Record<string, number>>((acc, speakerId) => {
+    acc[speakerId] = (acc[speakerId] || 0) + 1;
+    return acc;
+  }, {});
+  const consecutiveByLastSpeaker = (() => {
+    if (!lastSpeakerId) return 0;
+    let count = 0;
+    for (let i = recentAiMessages.length - 1; i >= 0; i -= 1) {
+      if (recentAiMessages[i].senderId !== lastSpeakerId) break;
+      count += 1;
+    }
+    return count;
+  })();
+
   const now = Date.now();
   const cooldownDuration = baseCooldownMs / speed;
 
@@ -26,25 +43,25 @@ export const calculateWeights = (
 
   return characters
     .filter((char) => {
-      // Filter out characters still on cooldown
       const lastSpeak = cooldownMap[char.id];
       if (!lastSpeak) return true;
       return now - lastSpeak >= cooldownDuration;
     })
     .map((char) => {
-      // Base weight from extroversion
-      let weight = (char.personality.extroversion / 100) * 0.6 + 0.2;
-
-      // Topic relevance bonus
+      const wasLastSpeaker = char.id === lastSpeakerId;
+      let weight = (char.personality.extroversion / 100) * 0.45 + 0.25;
       const relevance = calculateTopicRelevance(keywords, char.expertise);
-      weight += relevance * 0.3;
-
-      // Random factor for variety
-      weight += Math.random() * 0.2;
+      weight += relevance * 0.2;
+      const recentCount = recentSpeakCounts[char.id] || 0;
+      weight -= recentCount * 0.42;
+      if (wasLastSpeaker) {
+        weight *= consecutiveByLastSpeaker >= 3 ? 0.02 : consecutiveByLastSpeaker >= 2 ? 0.06 : 0.18;
+      }
+      weight += Math.random() * 0.03;
 
       return {
         characterId: char.id,
-        weight: Math.max(0.1, weight),
+        weight: Math.max(0.05, weight),
       };
     });
 };

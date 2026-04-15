@@ -27,8 +27,8 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, se
     <Card
       variant="outlined"
       sx={{
-        mb: 1.5,
-        borderRadius: 6,
+        height: '100%',
+        borderRadius: 3,
         borderColor: selected ? 'primary.main' : 'divider',
         borderWidth: selected ? 2 : 1,
         bgcolor: 'background.paper',
@@ -40,46 +40,47 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, se
         },
       }}
     >
-      <CardActionArea onClick={onClick} disabled={!onClick && !selectable}>
-        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-            <Avatar sx={{ width: 48, height: 48, fontSize: '1.5rem', bgcolor: 'primary.light' }}>
-              {character.avatar}
-            </Avatar>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="subtitle1" fontWeight={600}>
+      <Box sx={{ position: 'relative', height: '100%' }}>
+        {!character.isPreset && (onEdit || onDelete) && (
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              setAnchorEl(e.currentTarget);
+            }}
+            sx={{ position: 'absolute', top: 8, right: 8, zIndex: 1 }}
+          >
+            <MoreIcon fontSize="small" />
+          </IconButton>
+        )}
+        <CardActionArea onClick={onClick} disabled={!onClick && !selectable} sx={{ height: '100%' }}>
+          <CardContent sx={{ p: 2, pr: !character.isPreset && (onEdit || onDelete) ? 6 : 2, height: '100%', '&:last-child': { pb: 2 } }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+              <Avatar sx={{ width: 48, height: 48, fontSize: '1.5rem', bgcolor: 'primary.light' }}>
+                {character.avatar}
+              </Avatar>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                   {character.name}
                 </Typography>
-                {!character.isPreset && (onEdit || onDelete) && (
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setAnchorEl(e.currentTarget);
-                    }}
-                  >
-                    <MoreIcon fontSize="small" />
-                  </IconButton>
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                  {topTraits.map((trait) => (
+                    <Chip key={trait} label={trait} size="small" variant="outlined" />
+                  ))}
+                  {character.isPreset && (
+                    <Chip label="Preset" size="small" color="secondary" variant="filled" />
+                  )}
+                </Box>
+                {character.expertise.length > 0 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }} noWrap>
+                    {formatExpertiseList(character.expertise, i18n.language).join(' / ')}
+                  </Typography>
                 )}
               </Box>
-              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                {topTraits.map((trait) => (
-                  <Chip key={trait} label={trait} size="small" variant="outlined" />
-                ))}
-                {character.isPreset && (
-                  <Chip label="Preset" size="small" color="secondary" variant="filled" />
-                )}
-              </Box>
-              {character.expertise.length > 0 && (
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }} noWrap>
-                  {formatExpertiseList(character.expertise, i18n.language).join(' / ')}
-                </Typography>
-              )}
             </Box>
-          </Box>
-        </CardContent>
-      </CardActionArea>
+          </CardContent>
+        </CardActionArea>
+      </Box>
 
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
         {onEdit && (

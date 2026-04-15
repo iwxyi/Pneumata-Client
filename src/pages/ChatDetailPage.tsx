@@ -1,14 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Box, Typography, IconButton, AppBar, Toolbar, Chip, Button } from '@mui/material';
+import { Box, IconButton } from '@mui/material';
 import {
-  ArrowBack as BackIcon,
   People as PeopleIcon,
-  Campaign as GodIcon,
-  Forum as TopicIcon,
-  MoreVert as MoreIcon,
-  Delete as DeleteIcon,
+  Info as InfoIcon,
+  PlayArrow as PlayIcon,
+  Pause as PauseIcon,
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useLayoutHeaderActions } from '../components/layout/AppLayout';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
@@ -19,13 +18,9 @@ import { useUIStore } from '../stores/useUIStore';
 import { useResponsive } from '../hooks/useResponsive';
 import MessageList from '../components/chat/MessageList';
 import ChatInput from '../components/chat/ChatInput';
-import PlayPauseButton from '../components/controls/PlayPauseButton';
-import SpeedSlider from '../components/controls/SpeedSlider';
 import MemberList from '../components/controls/MemberList';
-import TopicGuideDialog from '../components/controls/TopicGuideDialog';
 import RightPanel from '../components/layout/RightPanel';
 import EmptyState from '../components/common/EmptyState';
-import ConfirmDialog from '../components/common/ConfirmDialog';
 import { runOneRound } from '../services/chatEngine';
 
 export default function ChatDetailPage() {
@@ -33,20 +28,22 @@ export default function ChatDetailPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { isMobile } = useResponsive();
+  const { setHeaderTitle, setHeaderActions, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
 
-  const { chats, loadChats, updateChat, deleteChat } = useChatStore();
+  const { chats, loadChats, updateChat } = useChatStore();
   const { characters, loadCharacters } = useCharacterStore();
-  const { messages, loadMessages, addMessage, clearMessages, deleteLastNMessages } = useMessageStore();
-  const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak } = useSchedulerStore();
+  const { messages, hydrateMessagesFromCache, loadMessages, addMessage, clearMessages, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
+  const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
+  const loopTokenRef = useRef<string | null>(null);
   const api = useSettingsStore((s) => s.api);
-  const { godModeActive, setGodModeActive, topicGuideOpen, setTopicGuideOpen,
-    speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, setRightPanelOpen } = useUIStore();
+  const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, setRightPanelOpen } = useUIStore();
 
   const [thinkingId, setThinkingId] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const isRunningRef = useRef(false);
   const isPausedRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  const activeChatIdRef = useRef<string | null>(id ?? null);
 
   const chat = chats.find((c) => c.id === id);
 
@@ -57,26 +54,99 @@ export default function ChatDetailPage() {
 
   useEffect(() => {
     if (id) {
-      loadMessages(id);
+      hydrateMessagesFromCache(id);
+      loadMessages(id, { limit: 16 });
       return () => {
+        activeChatIdRef.current = null;
+        loopTokenRef.current = null;
+        setThinkingId(null);
+        setStreamingContent('');
         clearMessages();
         stop();
       };
     }
-  }, [id]);
+  }, [clearMessages, hydrateMessagesFromCache, id, loadMessages, stop]);
+
+  const handleLoadOlderMessages = useCallback(async () => {
+    if (!id || loadingMoreRef.current || !hasMore || messages.length === 0) return;
+    loadingMoreRef.current = true;
+    try {
+      await loadMessages(id, { append: true, before: messages[0].timestamp, limit: 20 });
+    } finally {
+      loadingMoreRef.current = false;
+    }
+  }, [hasMore, id, loadMessages, messages]);
+
+  const handleNearTop = useCallback(() => {
+    void handleLoadOlderMessages();
+  }, [handleLoadOlderMessages]);
 
   useEffect(() => {
     isRunningRef.current = isRunning;
     isPausedRef.current = isPaused;
   }, [isRunning, isPaused]);
 
+  useEffect(() => {
+    activeChatIdRef.current = id ?? null;
+    loopTokenRef.current = loopToken;
+  }, [id, loopToken]);
+
   const members = characters.filter((c) => chat?.memberIds.includes(c.id));
 
+  useEffect(() => {
+    if (!chat) return;
+    setHeaderTitle(chat.name);
+    setHeaderBackAction(() => () => navigate('/chats'));
+    setHideMobileBottomNav(true);
+    setHeaderActions(
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <IconButton
+          onClick={() => {
+            if (!isRunning) {
+              handlePlay();
+            } else if (isPaused) {
+              handleResume();
+            } else {
+              handlePause();
+            }
+          }}
+          color={isRunning && !isPaused ? 'primary' : 'default'}
+        >
+          {isRunning && !isPaused ? <PauseIcon /> : <PlayIcon />}
+        </IconButton>
+        {isMobile ? (
+          <IconButton onClick={() => setRightPanelOpen(true)}>
+            <PeopleIcon />
+          </IconButton>
+        ) : null}
+        {!isMobile ? (
+          <IconButton onClick={() => setRightPanelOpen(!rightPanelOpen)}>
+            <PeopleIcon />
+          </IconButton>
+        ) : null}
+        <IconButton onClick={() => navigate(`/chats/${chat.id}/edit`)}>
+          <InfoIcon />
+        </IconButton>
+      </Box>
+    );
+
+    return () => {
+      setHeaderTitle(null);
+      setHeaderActions(null);
+      setHeaderBackAction(null);
+      setHideMobileBottomNav(false);
+    };
+  }, [chat, isMobile, navigate, rightPanelOpen, setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav, setRightPanelOpen]);
+
   // Core conversation loop
-  const runLoop = useCallback(async () => {
+  const runLoop = useCallback(async (loopId: string) => {
     if (!chat || !id) return;
 
     while (isRunningRef.current && !isPausedRef.current) {
+      if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) {
+        return;
+      }
+
       try {
         const currentMessages = useMessageStore.getState().messages;
 
@@ -87,23 +157,26 @@ export default function ChatDetailPage() {
           api,
           {
             onSpeakerSelected: (charId) => {
+              if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) return;
               setThinkingId(charId);
               setCurrentSpeaker(charId);
             },
             onMessageChunk: (content) => {
+              if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) return;
               setStreamingContent(content);
             },
             onMessageComplete: async (msg) => {
+              if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) return;
               setThinkingId(null);
               setStreamingContent('');
               setCurrentSpeaker(null);
               await addMessage(msg);
               recordSpeak(msg.senderId);
-              // Update chat lastMessageAt
               updateChat(id, { lastMessageAt: Date.now() });
             },
             onError: (error) => {
               console.error('Chat engine error:', error);
+              if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) return;
               setThinkingId(null);
               setStreamingContent('');
               setCurrentSpeaker(null);
@@ -111,24 +184,33 @@ export default function ChatDetailPage() {
           }
         );
 
-        // Wait between rounds based on speed
+        if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) {
+          return;
+        }
+
         if (isRunningRef.current && !isPausedRef.current) {
           const waitTime = (3000 / (chat.speed || 1)) + Math.random() * 2000;
           await new Promise((resolve) => setTimeout(resolve, waitTime));
         }
       } catch (err) {
         console.error('Loop error:', err);
+        if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) {
+          return;
+        }
         await new Promise((resolve) => setTimeout(resolve, 5000));
       }
     }
-  }, [chat, characters, api, id]);
+  }, [chat, characters, api, id, addMessage, recordSpeak, setCurrentSpeaker, updateChat]);
 
   const handlePlay = useCallback(() => {
     if (!api.apiKey) {
       navigate('/settings');
       return;
     }
-    start();
+    resetAllCooldowns();
+    const newLoopToken = `${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    loopTokenRef.current = newLoopToken;
+    start(newLoopToken);
     updateChat(id!, { isActive: true });
 
     // If no messages yet and there's a topic seed, add initial system message
@@ -145,8 +227,8 @@ export default function ChatDetailPage() {
     }
 
     // Start the loop
-    setTimeout(() => runLoop(), 100);
-  }, [api.apiKey, id, runLoop]);
+    setTimeout(() => runLoop(newLoopToken), 100);
+  }, [api.apiKey, id, resetAllCooldowns, runLoop, start, updateChat]);
 
   const handlePause = useCallback(() => {
     pause();
@@ -162,6 +244,9 @@ export default function ChatDetailPage() {
   }, [id]);
 
   const handleResume = useCallback(() => {
+    const newLoopToken = `${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    loopTokenRef.current = newLoopToken;
+    start(newLoopToken);
     resume();
     updateChat(id!, { isActive: true });
     addMessage({
@@ -172,22 +257,8 @@ export default function ChatDetailPage() {
       content: t('message.system.chatResumed'),
       emotion: 0,
     });
-    setTimeout(() => runLoop(), 100);
-  }, [id, runLoop]);
-
-  const handleGodSend = useCallback(async (content: string) => {
-    await addMessage({
-      chatId: id!,
-      type: 'god',
-      senderId: 'user',
-      senderName: 'God',
-      content,
-      emotion: 0,
-    });
-    updateChat(id!, { lastMessageAt: Date.now() });
-    // Reset all cooldowns so AIs respond quickly
-    useSchedulerStore.getState().resetAllCooldowns();
-  }, [id]);
+    setTimeout(() => runLoop(newLoopToken), 100);
+  }, [addMessage, id, resume, runLoop, start, t, updateChat]);
 
   const handleSpeakAs = useCallback(async (content: string) => {
     if (!speakAsCharacterId) return;
@@ -206,36 +277,18 @@ export default function ChatDetailPage() {
     setSpeakAsCharacter(null);
   }, [id, speakAsCharacterId, characters]);
 
-  const handleTopicGuide = useCallback(async (topic: string) => {
-    await addMessage({
-      chatId: id!,
-      type: 'system',
-      senderId: 'system',
-      senderName: 'System',
-      content: t('message.system.topicChanged', { topic }),
-      emotion: 0,
-    });
-    // Also add it as a god message so AIs see it in context
+  const handleGuideSend = useCallback(async (content: string) => {
     await addMessage({
       chatId: id!,
       type: 'god',
       senderId: 'user',
-      senderName: 'God',
-      content: `Let's shift the discussion to: ${topic}`,
+      senderName: 'User',
+      content,
       emotion: 0,
     });
+    updateChat(id!, { lastMessageAt: Date.now() });
     useSchedulerStore.getState().resetAllCooldowns();
-  }, [id, t]);
-
-  const handleSpeedChange = useCallback((speed: number) => {
-    if (chat) updateChat(chat.id, { speed });
-  }, [chat]);
-
-  const handleDelete = async () => {
-    stop();
-    await deleteChat(id!);
-    navigate('/chats');
-  };
+  }, [id]);
 
   if (!chat) {
     return (
@@ -250,82 +303,29 @@ export default function ChatDetailPage() {
   return (
     <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       {/* Main chat area */}
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* Top bar */}
-        <AppBar position="static" color="default" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Toolbar variant="dense" sx={{ gap: 1 }}>
-            <IconButton edge="start" onClick={() => navigate('/chats')}>
-              <BackIcon />
-            </IconButton>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography variant="subtitle1" fontWeight={600} noWrap>{chat.name}</Typography>
-              {chat.topic && (
-                <Typography variant="caption" color="text.secondary" noWrap>{chat.topic}</Typography>
-              )}
-            </Box>
-            <Chip
-              label={isRunning && !isPaused ? t('chat.active') : t('chat.paused')}
-              size="small"
-              color={isRunning && !isPaused ? 'success' : 'default'}
-              variant="outlined"
-            />
-            <IconButton onClick={() => setGodModeActive(!godModeActive)} color={godModeActive ? 'warning' : 'default'}>
-              <GodIcon />
-            </IconButton>
-            <IconButton onClick={() => setTopicGuideOpen(true)}>
-              <TopicIcon />
-            </IconButton>
-            {!isMobile && (
-              <IconButton onClick={() => setRightPanelOpen(!rightPanelOpen)}>
-                <PeopleIcon />
-              </IconButton>
-            )}
-            <IconButton onClick={() => setDeleteConfirm(true)} color="error">
-              <DeleteIcon />
-            </IconButton>
-          </Toolbar>
-        </AppBar>
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden', pb: { xs: 11, md: 11 } }}>
+          <MessageList
+            messages={messages}
+            characters={characters}
+            thinkingCharacterId={thinkingId}
+            streamingContent={streamingContent}
+            onDeleteMessage={deleteMessage}
+            onReachTop={handleNearTop}
+            isLoadingOlder={isLoadingOlder}
+            hasMore={hasMore}
+            loadingText={t('common.loading')}
+            topHint={t('chat.empty')}
+          />
+        </Box>
 
-        {/* Messages */}
-        <MessageList
-          messages={messages}
-          characters={characters}
-          thinkingCharacterId={thinkingId}
+        <ChatInput
+          mode={speakAsChar ? 'speakAs' : 'guide'}
+          characterName={speakAsChar?.name}
+          onSend={speakAsChar ? handleSpeakAs : handleGuideSend}
+          onClose={speakAsChar ? () => setSpeakAsCharacter(null) : undefined}
         />
 
-        {/* Input area */}
-        {godModeActive && (
-          <ChatInput
-            mode="god"
-            onSend={handleGodSend}
-            onClose={() => setGodModeActive(false)}
-          />
-        )}
-        {speakAsChar && (
-          <ChatInput
-            mode="speakAs"
-            characterName={speakAsChar.name}
-            onSend={handleSpeakAs}
-            onClose={() => setSpeakAsCharacter(null)}
-          />
-        )}
-
-        {/* Mobile: members button */}
-        {isMobile && (
-          <IconButton
-            onClick={() => setRightPanelOpen(true)}
-            sx={{
-              position: 'fixed',
-              bottom: 140,
-              right: 24,
-              bgcolor: 'background.paper',
-              boxShadow: 2,
-              zIndex: 1050,
-            }}
-          >
-            <PeopleIcon />
-          </IconButton>
-        )}
       </Box>
 
       {/* Right panel */}
@@ -342,35 +342,9 @@ export default function ChatDetailPage() {
               }
             }}
           />
-          <SpeedSlider value={chat.speed} onChange={handleSpeedChange} />
         </Box>
       </RightPanel>
 
-      {/* Play/Pause FAB */}
-      <PlayPauseButton
-        isRunning={isRunning}
-        isPaused={isPaused}
-        onPlay={handlePlay}
-        onPause={handlePause}
-        onResume={handleResume}
-      />
-
-      {/* Topic Guide Dialog */}
-      <TopicGuideDialog
-        open={topicGuideOpen}
-        onClose={() => setTopicGuideOpen(false)}
-        onSubmit={handleTopicGuide}
-      />
-
-      {/* Delete Confirmation */}
-      <ConfirmDialog
-        open={deleteConfirm}
-        title={t('chat.delete')}
-        message={t('chat.deleteConfirm')}
-        onConfirm={handleDelete}
-        onCancel={() => setDeleteConfirm(false)}
-        destructive
-      />
     </Box>
   );
 }

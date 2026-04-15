@@ -29,13 +29,9 @@ export default function AIModelsPage() {
   });
 
   useEffect(() => {
-    setHeaderActions(
-      <Button size="small" startIcon={<AddIcon />} onClick={() => settings.addAIProfile()}>
-        {i18n.language.startsWith('zh') ? '添加模型' : 'Add model'}
-      </Button>
-    );
+    setHeaderActions(null);
     return () => setHeaderActions(null);
-  }, [i18n.language, setHeaderActions, settings]);
+  }, [setHeaderActions]);
 
   const handleTestConnection = async (profileId: string) => {
     const profile = settings.aiProfiles.find((item) => item.id === profileId);
@@ -51,7 +47,7 @@ export default function AIModelsPage() {
   };
 
   return (
-    <Box sx={{ flex: 1, overflow: 'auto', p: 3, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 960, mx: 'auto' }}>
+    <Box sx={{ flex: 1, overflow: 'auto', p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 }, width: '100%', maxWidth: 960, mx: 'auto' }}>
       <Card variant="outlined" sx={{ mb: 3 }}>
         <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
@@ -153,6 +149,24 @@ export default function AIModelsPage() {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      <Button
+        variant="contained"
+        startIcon={<AddIcon />}
+        onClick={() => settings.addAIProfile()}
+        sx={{
+          position: 'fixed',
+          right: { xs: 20, sm: 28, md: 36 },
+          bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', sm: 32, md: 36 },
+          zIndex: 1300,
+          minHeight: 56,
+          px: 2.25,
+          borderRadius: 18,
+          boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)',
+        }}
+      >
+        {i18n.language.startsWith('zh') ? '添加模型' : 'Add model'}
+      </Button>
     </Box>
   );
 }

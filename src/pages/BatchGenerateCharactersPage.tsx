@@ -1,0 +1,322 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Box, Button, TextField, Typography, Chip, Snackbar, Alert, LinearProgress, Dialog, DialogContent, IconButton } from '@mui/material';
+import { Search as SearchIcon } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
+import { useLayoutHeaderActions } from '../components/layout/AppLayout';
+import { useTranslation } from 'react-i18next';
+import { generateResponse } from '../services/aiClient';
+import { generateCharacterProfile } from '../services/characterGenerator';
+
+interface ProgressItem {
+  name: string;
+  status: 'success' | 'skipped' | 'failed';
+  reason?: string;
+}
+import { useSettingsStore } from '../stores/useSettingsStore';
+import { useCharacterStore } from '../stores/useCharacterStore';
+
+const NAMES_SYSTEM_PROMPT = `You help generate candidate character names for a theme.
+Return strict JSON only in this shape: {"names":["name1","name2",...]}
+Rules:
+- Return as many relevant names as the theme reasonably supports, typically between 12 and 100.
+- For broad themes, return more names. For narrow themes, return fewer names.
+- Put the most central or iconic names first.
+- Prefer well-known, distinctive characters or figures strongly associated with the theme.
+- No explanations, no markdown.`;
+
+function parseJsonBlock<T>(content: string): T {
+  const trimmed = content.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
+  return JSON.parse(trimmed) as T;
+}
+
+function parseNames(content: string) {
+  try {
+    const parsed = parseJsonBlock<{ names?: string[] }>(content);
+    return Array.isArray(parsed.names) ? parsed.names.filter(Boolean).slice(0, 100) : [];
+  } catch {
+    const cleaned = content
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/\s*```$/, '')
+      .replace(/\r/g, '')
+      .trim();
+
+    const quoted = Array.from(cleaned.matchAll(/["“”'『「]([^"“”'』」\n]{1,40})["“”'』」]/g)).map((match) => match[1].trim());
+    const lines = cleaned
+      .split('\n')
+      .map((line) => line.replace(/^[-*\d.\s]+/, '').trim())
+      .filter((line) => line.length > 0 && line.length <= 40 && !line.includes('{') && !line.includes('}') && !line.includes(':'));
+
+    const names = [...new Set([...quoted, ...lines])].slice(0, 100);
+    if (names.length === 0) {
+      throw new Error('AI 返回的名字列表格式无法解析');
+    }
+    return names;
+  }
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+export default function BatchGenerateCharactersPage() {
+  const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
+  const { setHeaderTitle, setHeaderActions } = useLayoutHeaderActions();
+  const settings = useSettingsStore();
+  const { addCharacter, characters } = useCharacterStore();
+  const [topic, setTopic] = useState('');
+  const [candidateNames, setCandidateNames] = useState<string[]>([]);
+  const [selectedNames, setSelectedNames] = useState<string[]>([]);
+  const [loadingNames, setLoadingNames] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [progress, setProgress] = useState<{ current: number; total: number; items: ProgressItem[] }>({ current: 0, total: 0, items: [] });
+  const cancelGenerationRef = useRef(false);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
+    open: false,
+    message: '',
+    severity: 'success',
+  });
+
+  useEffect(() => {
+    setHeaderTitle(i18n.language.startsWith('zh') ? '批量生成角色' : 'Batch Generate');
+    setHeaderActions(
+      <Button variant="outlined" onClick={() => navigate('/characters')}>
+        {t('common.close')}
+      </Button>
+    );
+    return () => {
+      setHeaderTitle(null);
+      setHeaderActions(null);
+    };
+  }, [i18n.language, navigate, setHeaderActions, setHeaderTitle, t]);
+
+  const selectedSet = useMemo(() => new Set(selectedNames), [selectedNames]);
+  const canGenerateNames = topic.trim().length > 0 && !loadingNames;
+  const canGenerateCharacters = selectedNames.length > 0 && !generating;
+
+  const toggleName = (name: string) => {
+    setSelectedNames((prev) =>
+      prev.includes(name)
+        ? prev.filter((item) => item !== name)
+        : [...prev, name]
+    );
+  };
+
+  const handleFetchNames = async () => {
+    const profile = settings.aiProfiles[0];
+    if (!profile?.apiKey || !profile?.model) {
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first', severity: 'error' });
+      return;
+    }
+
+    setLoadingNames(true);
+    try {
+      const response = await generateResponse(
+        profile,
+        `${NAMES_SYSTEM_PROMPT}\nOutput exactly one valid JSON object. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
+        [{ role: 'user', content: i18n.language.startsWith('zh') ? `主题：${topic}\n请列出这个主题下常见、相关、适合群聊模拟的角色名字。只返回合法JSON，格式必须是 {"names":["名字1","名字2"]}` : `Theme: ${topic}\nList relevant well-known character or figure names for group chat simulation. Return only valid JSON in the format {"names":["name1","name2"]}.` }]
+      );
+      console.log('[batch-generate:names:raw]', response);
+      const names = parseNames(response);
+      console.log('[batch-generate:names:parsed]', names);
+      setCandidateNames(names);
+      setSelectedNames(names.slice(0, Math.min(12, names.length)));
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    } finally {
+      setLoadingNames(false);
+    }
+  };
+
+  const handleGenerateCharacters = async () => {
+    const profile = settings.aiProfiles[0];
+    if (!profile?.apiKey || !profile?.model) {
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first', severity: 'error' });
+      return;
+    }
+
+    cancelGenerationRef.current = false;
+    setGenerating(true);
+    setProgress({ current: 0, total: selectedNames.length, items: [] });
+
+    try {
+      for (let index = 0; index < selectedNames.length; index += 1) {
+        if (cancelGenerationRef.current) break;
+
+        const name = selectedNames[index];
+        const duplicated = characters.some((char) => char.name.trim().toLowerCase() === name.trim().toLowerCase());
+        if (duplicated) {
+          setProgress((prev) => ({ current: index + 1, total: selectedNames.length, items: [...prev.items, { name, status: 'skipped', reason: i18n.language.startsWith('zh') ? '同名已存在' : 'Duplicate name exists' }] }));
+          continue;
+        }
+        try {
+          const normalized = await generateCharacterProfile(
+            profile,
+            name,
+            i18n.language.startsWith('zh') ? 'zh' : 'en'
+          );
+          console.log('[batch-generate:character:parsed]', { name, normalized });
+
+          await addCharacter({ name, ...normalized, modelProfileId: 'default' });
+          setProgress((prev) => ({ current: index + 1, total: selectedNames.length, items: [...prev.items, { name, status: 'success' }] }));
+        } catch (error) {
+          console.error('[batch-generate:character:error]', { name, error });
+          setProgress((prev) => ({ current: index + 1, total: selectedNames.length, items: [...prev.items, { name, status: 'failed', reason: getErrorMessage(error) }] }));
+        }
+      }
+
+      setSnackbar({
+        open: true,
+        message: cancelGenerationRef.current
+          ? (i18n.language.startsWith('zh') ? '已取消批量生成' : 'Batch generation cancelled')
+          : (i18n.language.startsWith('zh') ? '批量生成完成' : 'Batch generation completed'),
+        severity: cancelGenerationRef.current ? 'error' : 'success',
+      });
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    } finally {
+      setGenerating(false);
+      setProgress({ current: 0, total: 0, items: [] });
+    }
+  };
+
+  return (
+    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 960, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+        <TextField
+          label={i18n.language.startsWith('zh') ? '主题' : 'Theme'}
+          placeholder={i18n.language.startsWith('zh') ? '例如：喜羊羊与灰太狼' : 'e.g. Pleasant Goat and Big Big Wolf'}
+          value={topic}
+          onChange={(e) => setTopic(e.target.value)}
+          fullWidth
+        />
+        <IconButton
+          color="primary"
+          onClick={handleFetchNames}
+          disabled={!canGenerateNames}
+          sx={{
+            width: 56,
+            height: 56,
+            border: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'background.paper',
+            flexShrink: 0,
+          }}
+        >
+          <SearchIcon />
+        </IconButton>
+      </Box>
+
+      {candidateNames.length > 0 ? (
+        <>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Button size="small" variant="outlined" onClick={() => setSelectedNames(candidateNames)}>
+              {i18n.language.startsWith('zh') ? '全选' : 'Select all'}
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => setSelectedNames(candidateNames.filter((name) => !selectedSet.has(name)))}>
+              {i18n.language.startsWith('zh') ? '反选' : 'Invert'}
+            </Button>
+            <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
+              {selectedNames.length} · {candidateNames.length}
+            </Typography>
+          </Box>
+
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'repeat(2, minmax(0, 1fr))',
+                sm: 'repeat(3, minmax(0, 1fr))',
+                lg: 'repeat(4, minmax(0, 1fr))',
+              },
+              gap: 1,
+            }}
+          >
+            {candidateNames.map((name) => {
+              const selected = selectedSet.has(name);
+              return (
+                <Chip
+                  key={name}
+                  label={name}
+                  clickable
+                  color={selected ? 'primary' : 'default'}
+                  variant={selected ? 'filled' : 'outlined'}
+                  onClick={() => toggleName(name)}
+                  sx={{ justifyContent: 'flex-start' }}
+                />
+              );
+            })}
+          </Box>
+
+          <Button
+            variant="contained"
+            onClick={handleGenerateCharacters}
+            disabled={!canGenerateCharacters}
+            sx={{
+              position: 'fixed',
+              right: { xs: 24, sm: 32, md: 36 },
+              bottom: { xs: 24, sm: 32, md: 36 },
+              zIndex: 1200,
+              minHeight: 56,
+              px: 2.25,
+              borderRadius: 18,
+              boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)',
+            }}
+          >
+            {i18n.language.startsWith('zh') ? '批量生成' : 'Generate selected'}
+          </Button>
+        </>
+      ) : null}
+
+      <Dialog open={generating || loadingNames} fullWidth maxWidth="sm">
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, py: 1.5, px: 1 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              {loadingNames
+                ? (i18n.language.startsWith('zh') ? '正在列出名字…' : 'Listing names…')
+                : (i18n.language.startsWith('zh') ? '正在批量生成角色' : 'Generating characters')}
+            </Typography>
+            {generating ? (
+              <>
+                <Typography variant="body2" color="text.secondary">
+                  {progress.current}/{progress.total}
+                </Typography>
+                <LinearProgress variant="determinate" value={progress.total > 0 ? (progress.current / progress.total) * 100 : 0} />
+                <Box sx={{ maxHeight: 280, overflow: 'auto', border: 1, borderColor: 'divider', borderRadius: 2, px: 2, py: 1.5 }}>
+                  {progress.items.map((item, index) => (
+                    <Box key={`${item.name}-${item.status}-${index}`} sx={{ py: 0.5 }}>
+                      <Typography variant="body2" sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+                        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</Box>
+                        <Box component="span" sx={{ color: item.status === 'success' ? 'success.main' : item.status === 'skipped' ? 'warning.main' : 'error.main', flexShrink: 0 }}>
+                          {item.status === 'success' ? (i18n.language.startsWith('zh') ? '成功' : 'Success') : item.status === 'skipped' ? (i18n.language.startsWith('zh') ? '跳过' : 'Skipped') : (i18n.language.startsWith('zh') ? '失败' : 'Failed')}
+                        </Box>
+                      </Typography>
+                      {item.reason ? (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                          {item.reason}
+                        </Typography>
+                      ) : null}
+                    </Box>
+                  ))}
+                </Box>
+              </>
+            ) : (
+              <LinearProgress />
+            )}
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button variant="outlined" color="error" onClick={() => { cancelGenerationRef.current = true; }}>
+                {t('common.cancel')}
+              </Button>
+            </Box>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar({ ...snackbar, open: false })}>
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>{snackbar.message}</Alert>
+      </Snackbar>
+    </Box>
+  );
+}

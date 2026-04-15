@@ -9,6 +9,7 @@ export interface GroupChat {
   speed: number;             // 0.5 - 2.0
   isActive: boolean;         // auto-chatting or not
   allowIntervention: boolean;
+  showRoleActions?: boolean;
   topicSeed: string;         // initial topic seed
   createdAt: number;
   updatedAt: number;

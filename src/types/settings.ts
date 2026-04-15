@@ -14,6 +14,11 @@ export interface AIModelProfile extends APIConfig {
   name: string;
 }
 
+export interface ChatDraftDefaults {
+  style: 'free' | 'debate' | 'brainstorm' | 'roleplay';
+  showRoleActions: boolean;
+}
+
 export interface AppSettings {
   api: APIConfig;
   aiProfiles: AIModelProfile[];
@@ -21,6 +26,7 @@ export interface AppSettings {
   themeColor: string;
   language: Language;
   defaultSpeed: number;
+  chatDraftDefaults: ChatDraftDefaults;
 }
 
 export const DEFAULT_API_CONFIG: APIConfig = {
@@ -36,6 +42,11 @@ export const DEFAULT_AI_PROFILE: AIModelProfile = {
   ...DEFAULT_API_CONFIG,
 };
 
+export const DEFAULT_CHAT_DRAFT_DEFAULTS: ChatDraftDefaults = {
+  style: 'free',
+  showRoleActions: true,
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   api: DEFAULT_API_CONFIG,
   aiProfiles: [DEFAULT_AI_PROFILE],
@@ -43,4 +54,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   themeColor: '#6750A4',
   language: 'zh',
   defaultSpeed: 1.0,
+  chatDraftDefaults: DEFAULT_CHAT_DRAFT_DEFAULTS,
 };
