@@ -140,12 +140,12 @@ export const useChatStore = create<ChatStore>()(
     }),
     {
       name: 'mirageTea-chats',
-      storage: chatStorage,
-      partialize: (state) => ({
+      storage: chatStorage as never,
+      partialize: ((state: ChatStore) => ({
         chats: state.chats,
         currentChatId: state.currentChatId,
         lastSyncedAt: state.lastSyncedAt,
-      }),
+      })) as never,
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<PersistedChatState>),

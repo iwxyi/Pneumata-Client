@@ -19,6 +19,8 @@ export interface ChatDraftDefaults {
   showRoleActions: boolean;
 }
 
+import type { BubbleStyleDefinition } from './bubbleStyle';
+
 export interface AppSettings {
   api: APIConfig;
   aiProfiles: AIModelProfile[];
@@ -27,6 +29,7 @@ export interface AppSettings {
   language: Language;
   defaultSpeed: number;
   chatDraftDefaults: ChatDraftDefaults;
+  customBubbleStyles: BubbleStyleDefinition[];
 }
 
 export const DEFAULT_API_CONFIG: APIConfig = {
@@ -55,4 +58,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   language: 'zh',
   defaultSpeed: 1.0,
   chatDraftDefaults: DEFAULT_CHAT_DRAFT_DEFAULTS,
+  customBubbleStyles: [],
 };

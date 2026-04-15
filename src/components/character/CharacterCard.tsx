@@ -41,7 +41,7 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, se
       }}
     >
       <Box sx={{ position: 'relative', height: '100%' }}>
-        {!character.isPreset && (onEdit || onDelete) && (
+        {(onEdit || onDelete) && (
           <IconButton
             size="small"
             onClick={(e) => {
@@ -54,7 +54,7 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, se
           </IconButton>
         )}
         <CardActionArea onClick={onClick} disabled={!onClick && !selectable} sx={{ height: '100%' }}>
-          <CardContent sx={{ p: 2, pr: !character.isPreset && (onEdit || onDelete) ? 6 : 2, height: '100%', '&:last-child': { pb: 2 } }}>
+          <CardContent sx={{ p: 2, pr: (onEdit || onDelete) ? 6 : 2, height: '100%', '&:last-child': { pb: 2 } }}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
               <Avatar sx={{ width: 48, height: 48, fontSize: '1.5rem', bgcolor: 'primary.light' }}>
                 {character.avatar}

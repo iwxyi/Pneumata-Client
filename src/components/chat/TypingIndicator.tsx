@@ -1,5 +1,7 @@
 import { Box, Avatar, Typography, keyframes } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { buildBubblePreview, resolveBubbleStyle } from '../../utils/bubbleStyle';
 
 const bounce = keyframes`
   0%, 60%, 100% { transform: translateY(0); }
@@ -9,11 +11,14 @@ const bounce = keyframes`
 interface TypingIndicatorProps {
   characterName: string;
   avatar: string;
+  bubbleStyleId?: string | null;
   content?: string;
 }
 
-export default function TypingIndicator({ characterName, avatar, content }: TypingIndicatorProps) {
+export default function TypingIndicator({ characterName, avatar, bubbleStyleId, content }: TypingIndicatorProps) {
   const navigate = useNavigate();
+  const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
+  const bubblePreview = buildBubblePreview(resolveBubbleStyle(bubbleStyleId, customBubbleStyles));
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, px: 2, mb: 1.5 }}>
@@ -42,13 +47,13 @@ export default function TypingIndicator({ characterName, avatar, content }: Typi
           sx={{
             px: 2,
             py: 1.5,
-            bgcolor: (theme) => theme.palette.mode === 'light' ? '#ffffff' : '#1f1f1f',
-            color: (theme) => theme.palette.mode === 'light' ? '#111111' : '#f5f5f5',
-            borderRadius: '18px 18px 18px 6px',
+            bgcolor: bubblePreview.background,
+            background: bubblePreview.background,
+            color: bubblePreview.color,
+            borderRadius: bubblePreview.borderRadius,
             minWidth: 56,
-            border: '1px solid',
-            borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
-            boxShadow: (theme) => theme.palette.mode === 'light' ? '0 1px 2px rgba(0,0,0,0.08)' : '0 1px 3px rgba(0,0,0,0.35)',
+            border: bubblePreview.border,
+            boxShadow: bubblePreview.boxShadow,
           }}
         >
           {content ? (

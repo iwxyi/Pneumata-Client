@@ -18,7 +18,7 @@ export default function MemberList({ members, thinkingId, onRemove, onSpeakAs }:
 
   return (
     <Box>
-      <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
         {t('controls.memberList')} ({members.length})
       </Typography>
       <List dense disablePadding>
@@ -49,15 +49,12 @@ export default function MemberList({ members, thinkingId, onRemove, onSpeakAs }:
               </Avatar>
             </ListItemAvatar>
             <ListItemText
-              primary={member.name}
+              primary={<Typography variant="body2" sx={{ fontWeight: 500 }}>{member.name}</Typography>}
               secondary={
-                thinkingId === member.id ? t('controls.thinking') : member.expertise.slice(0, 2).join(', ')
+                <Typography variant="caption" color={thinkingId === member.id ? 'primary.main' : 'text.secondary'}>
+                  {thinkingId === member.id ? t('controls.thinking') : member.expertise.slice(0, 2).join(', ')}
+                </Typography>
               }
-              primaryTypographyProps={{ variant: 'body2', fontWeight: 500 }}
-              secondaryTypographyProps={{
-                variant: 'caption',
-                color: thinkingId === member.id ? 'primary.main' : 'text.secondary',
-              }}
             />
           </ListItem>
         ))}

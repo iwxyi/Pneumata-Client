@@ -240,11 +240,11 @@ export const useMessageStore = create<MessageStore>()(
     }),
     {
       name: 'mirageTea-messages',
-      storage: messageStorage,
-      partialize: (state) => ({
+      storage: messageStorage as never,
+      partialize: ((state: MessageStore) => ({
         messageWindowsByChatId: state.messageWindowsByChatId,
         pendingOperations: state.pendingOperations,
-      }),
+      })) as never,
       merge: (persistedState, currentState) => ({
         ...currentState,
         messageWindowsByChatId: trimCache((persistedState as Partial<MessageStore>)?.messageWindowsByChatId || {}),

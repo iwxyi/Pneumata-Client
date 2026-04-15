@@ -74,7 +74,7 @@ class ApiClient {
     return this.request<Array<{
       id: string; name: string; avatar: string; personality: Record<string, number>;
       expertise: string[]; speakingStyle: string; background: string;
-      modelProfileId?: string | null;
+      modelProfileId?: string | null; bubbleStyleId?: string | null;
       isPreset: boolean; createdAt: number; updatedAt: number;
     }>>('GET', '/characters');
   }
@@ -82,7 +82,7 @@ class ApiClient {
   async createCharacter(data: {
     name: string; avatar?: string; personality: Record<string, number>;
     expertise: string[]; speakingStyle: string; background: string;
-    modelProfileId?: string | null;
+    modelProfileId?: string | null; bubbleStyleId?: string | null;
   }) {
     return this.request<Record<string, unknown>>('POST', '/characters', data);
   }
@@ -148,6 +148,7 @@ class ApiClient {
       aiProfiles?: Array<{ id: string; name: string; provider: string; apiKey: string; baseUrl: string; model: string }>;
       theme: string; themeColor: string; language: string; defaultSpeed: number;
       chatDraftDefaults?: { style: string; showRoleActions: boolean };
+      customBubbleStyles?: Array<Record<string, unknown>>;
     }>('GET', '/settings');
   }
 

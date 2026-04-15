@@ -2,11 +2,14 @@ import { useMemo, useRef, useState } from 'react';
 import { Box, Typography, Avatar, Dialog, DialogContent, Menu, MenuItem } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import type { Message } from '../../types/message';
+import type { AICharacter } from '../../types/character';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { buildBubblePreview, resolveBubbleStyle } from '../../utils/bubbleStyle';
 import { formatTimestamp } from '../../utils/format';
 
 interface MessageBubbleProps {
   message: Message;
-  avatar?: string;
+  character?: AICharacter;
   onDelete?: (id: string) => void;
 }
 
@@ -17,7 +20,8 @@ interface MenuPosition {
 
 const LONG_PRESS_MOVE_THRESHOLD = 12;
 
-export default function MessageBubble({ message, avatar, onDelete }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, onDelete }: MessageBubbleProps) {
+  const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const navigate = useNavigate();
   const [viewerOpen, setViewerOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
@@ -119,6 +123,8 @@ export default function MessageBubble({ message, avatar, onDelete }: MessageBubb
 
   const isUser = message.type === 'user' || message.type === 'god';
   const isGod = message.type === 'god';
+  const aiBubbleStyle = resolveBubbleStyle(character?.bubbleStyleId, customBubbleStyles);
+  const aiBubblePreview = buildBubblePreview(aiBubbleStyle);
 
   return (
     <>
@@ -148,7 +154,7 @@ export default function MessageBubble({ message, avatar, onDelete }: MessageBubb
               cursor: message.type === 'ai' ? 'pointer' : 'default',
             }}
           >
-            {isGod ? '👑' : avatar || message.senderName.charAt(0)}
+            {isGod ? '👑' : character?.avatar || message.senderName.charAt(0)}
           </Avatar>
         )}
 
@@ -171,22 +177,21 @@ export default function MessageBubble({ message, avatar, onDelete }: MessageBubb
             sx={{
               px: 2,
               py: 1,
-              borderRadius: isUser ? '18px 18px 6px 18px' : '18px 18px 18px 6px',
+              borderRadius: isUser ? '18px 18px 6px 18px' : aiBubblePreview.borderRadius,
               bgcolor: isUser
                 ? (theme) => theme.palette.mode === 'light' ? '#95ec69' : '#2f8f46'
                 : isGod
                   ? 'transparent'
-                  : (theme) => theme.palette.mode === 'light' ? '#ffffff' : '#1f1f1f',
+                  : aiBubblePreview.background,
+              background: !isUser && !isGod ? aiBubblePreview.background : undefined,
               color: isUser
                 ? (theme) => theme.palette.mode === 'light' ? '#111111' : '#f7fff7'
                 : isGod
                   ? 'text.primary'
-                  : (theme) => theme.palette.mode === 'light' ? '#111111' : '#f5f5f5',
-              border: isGod ? '1.5px dashed' : '1px solid',
-              borderColor: isGod
-                ? 'warning.main'
-                : (theme) => theme.palette.mode === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
-              boxShadow: isGod ? 'none' : (theme) => theme.palette.mode === 'light' ? '0 1px 2px rgba(0,0,0,0.08)' : '0 1px 3px rgba(0,0,0,0.35)',
+                  : aiBubblePreview.color,
+              border: isGod ? '1.5px dashed' : aiBubblePreview.border,
+              borderColor: isGod ? 'warning.main' : undefined,
+              boxShadow: isGod ? 'none' : aiBubblePreview.boxShadow,
               position: 'relative',
               userSelect: 'text',
               WebkitUserSelect: 'text',

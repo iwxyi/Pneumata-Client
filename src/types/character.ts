@@ -18,6 +18,7 @@ export interface AICharacter {
   speakingStyle: string;     // speaking style description
   background: string;        // background description
   modelProfileId?: string | null;
+  bubbleStyleId?: string | null;
   isPreset: boolean;
   createdAt: number;
   updatedAt: number;

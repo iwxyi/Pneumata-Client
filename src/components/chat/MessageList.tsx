@@ -146,7 +146,7 @@ export default function MessageList({ messages, characters, thinkingCharacterId,
         <MessageBubble
           key={msg.id}
           message={msg}
-          avatar={msg.type === 'ai' ? characterMap.get(msg.senderId)?.avatar : undefined}
+          character={msg.type === 'ai' ? characterMap.get(msg.senderId) : undefined}
           onDelete={msg.type === 'system' ? undefined : onDeleteMessage}
         />
       ))}
@@ -155,6 +155,7 @@ export default function MessageList({ messages, characters, thinkingCharacterId,
         <TypingIndicator
           characterName={thinkingChar.name}
           avatar={thinkingChar.avatar}
+          bubbleStyleId={thinkingChar.bubbleStyleId}
           content={streamingContent}
         />
       )}

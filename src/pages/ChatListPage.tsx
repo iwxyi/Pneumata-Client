@@ -49,12 +49,14 @@ export default function ChatListPage() {
         placeholder={t('chat.search')}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchIcon fontSize="small" />
-            </InputAdornment>
-          ),
+        slotProps={{
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+          },
         }}
         sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 3 } }}
       />

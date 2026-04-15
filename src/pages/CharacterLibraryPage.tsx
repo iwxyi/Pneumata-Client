@@ -238,7 +238,7 @@ export default function CharacterLibraryPage() {
             <CharacterCard
               key={char.id}
               character={char}
-              onClick={char.isPreset ? undefined : () => setEditId(char.id)}
+              onClick={() => setEditId(char.id)}
             />
           ))}
         </Box>

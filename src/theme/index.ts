@@ -312,13 +312,6 @@ const baseTheme: ThemeOptions = {
         },
       },
     },
-    MuiDrawer: {
-      styleOverrides: {
-        paper: {
-          borderRadius: '16px 16px 0 0',
-        },
-      },
-    },
   },
 };
 

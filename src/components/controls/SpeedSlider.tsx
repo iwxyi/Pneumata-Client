@@ -12,7 +12,7 @@ export default function SpeedSlider({ value, onChange }: SpeedSliderProps) {
 
   return (
     <Box sx={{ px: 1 }}>
-      <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+      <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600 }}>
         {t('controls.speedControl')}
       </Typography>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

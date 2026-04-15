@@ -32,7 +32,7 @@ export default function RightPanel({ children, title }: RightPanelProps) {
         {title && (
           <>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2 }}>
-              <Typography variant="subtitle1" fontWeight={600}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                 {title}
               </Typography>
               <IconButton size="small" onClick={() => setRightPanelOpen(false)}>
@@ -66,7 +66,7 @@ export default function RightPanel({ children, title }: RightPanelProps) {
         <Box sx={{ p: 2 }}>
           <Box sx={{ width: 40, height: 4, bgcolor: 'grey.300', borderRadius: 2, mx: 'auto', mb: 2 }} />
           {title && (
-            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
               {title}
             </Typography>
           )}
@@ -94,7 +94,7 @@ export default function RightPanel({ children, title }: RightPanelProps) {
         {title && (
           <>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-              <Typography variant="subtitle1" fontWeight={600}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                 {title}
               </Typography>
               <IconButton size="small" onClick={() => setRightPanelOpen(false)}>

@@ -33,7 +33,7 @@ export default function ChatCard({ chat, characters, onClick }: ChatCardProps) {
         <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography variant="subtitle1" fontWeight={600} noWrap>
+              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600 }}>
                 {chat.name}
               </Typography>
               {chat.topic && (

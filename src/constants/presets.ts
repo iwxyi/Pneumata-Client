@@ -1,9 +1,31 @@
 import type { AICharacter } from '../types/character';
 import { generateId } from '../utils/id';
 
+const PRESET_BUBBLE_STYLE_IDS = [
+  'built-in-sky',
+  'built-in-lavender',
+  'built-in-cyber',
+  'built-in-mint',
+  'built-in-deepsea',
+  'built-in-outline',
+  'built-in-gradient-sunset',
+  'built-in-paper',
+  'built-in-gradient-dream',
+  'built-in-butter',
+  'built-in-neon',
+  'built-in-rose',
+];
+
+function withBubbleStyle<T extends AICharacter>(character: T, index: number): T {
+  return {
+    ...character,
+    bubbleStyleId: PRESET_BUBBLE_STYLE_IDS[index % PRESET_BUBBLE_STYLE_IDS.length],
+  };
+}
+
 const now = Date.now();
 
-export const PRESET_CHARACTERS: AICharacter[] = [
+const presetCharactersBase: AICharacter[] = [
   {
     id: 'preset-scientist',
     name: '理性博士',
@@ -257,6 +279,8 @@ export const PRESET_CHARACTERS: AICharacter[] = [
     updatedAt: now,
   },
 ];
+
+export const PRESET_CHARACTERS: AICharacter[] = presetCharactersBase.map((character, index) => withBubbleStyle(character, index));
 
 export const AVATAR_OPTIONS = [
   '🔬', '🎭', '⚡', '🕊️', '💻', '🦉', '🤡', '📜', '🎨', '💰',

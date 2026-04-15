@@ -122,7 +122,7 @@ export default function LoginPage() {
           <Typography variant="h3" sx={{ mb: 1 }}>
             🍵
           </Typography>
-          <Typography variant="h5" fontWeight="bold">
+          <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
             AI Chat Group
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>

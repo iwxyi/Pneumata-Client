@@ -99,11 +99,12 @@ export const useCharacterStore = create<CharacterStore>()(
         const result = await api.createCharacter({
           name: charData.name,
           avatar: charData.avatar,
-          personality: charData.personality,
+          personality: charData.personality as unknown as Record<string, number>,
           expertise: charData.expertise,
           speakingStyle: charData.speakingStyle,
           background: charData.background,
           modelProfileId: charData.modelProfileId,
+          bubbleStyleId: charData.bubbleStyleId,
         });
         const character = result as unknown as AICharacter;
         set((state) => ({
@@ -145,11 +146,12 @@ export const useCharacterStore = create<CharacterStore>()(
           const result = await api.createCharacter({
             name: c.name,
             avatar: c.avatar,
-            personality: c.personality,
+            personality: c.personality as unknown as Record<string, number>,
             expertise: c.expertise,
             speakingStyle: c.speakingStyle,
             background: c.background,
             modelProfileId: c.modelProfileId,
+            bubbleStyleId: c.bubbleStyleId,
           });
           created.push(result as unknown as AICharacter);
         }
@@ -164,11 +166,11 @@ export const useCharacterStore = create<CharacterStore>()(
     }),
     {
       name: 'mirageTea-characters',
-      storage: characterStorage,
-      partialize: (state) => ({
+      storage: characterStorage as never,
+      partialize: ((state: CharacterStore) => ({
         characters: state.characters,
         lastSyncedAt: state.lastSyncedAt,
-      }),
+      })) as never,
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<PersistedCharacterState>),

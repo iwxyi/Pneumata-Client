@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AppSettings, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults } from '../types/settings';
+import type { BubbleStyleDefinition } from '../types/bubbleStyle';
 import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_CHAT_DRAFT_DEFAULTS } from '../types/settings';
 import { api } from '../services/api';
 
@@ -17,6 +18,7 @@ interface SettingsStore extends AppSettings {
   setLanguage: (lang: Language) => void;
   setDefaultSpeed: (speed: number) => void;
   setChatDraftDefaults: (defaults: Partial<ChatDraftDefaults>) => void;
+  setCustomBubbleStyles: (styles: BubbleStyleDefinition[]) => void;
   resetSettings: () => void;
 }
 
@@ -68,6 +70,7 @@ function buildSettingsPayload(state: AppSettings) {
     language: state.language,
     defaultSpeed: state.defaultSpeed,
     chatDraftDefaults: state.chatDraftDefaults,
+    customBubbleStyles: state.customBubbleStyles,
   };
 }
 
@@ -81,6 +84,7 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
       ...DEFAULT_CHAT_DRAFT_DEFAULTS,
       ...(state.chatDraftDefaults || {}),
     },
+    customBubbleStyles: Array.isArray(state.customBubbleStyles) ? state.customBubbleStyles : [],
   };
 }
 
@@ -110,7 +114,8 @@ export const useSettingsStore = create<SettingsStore>()(
               themeColor: settings.themeColor,
               language: settings.language as Language,
               defaultSpeed: settings.defaultSpeed,
-              chatDraftDefaults: settings.chatDraftDefaults || DEFAULT_CHAT_DRAFT_DEFAULTS,
+              chatDraftDefaults: (settings.chatDraftDefaults || DEFAULT_CHAT_DRAFT_DEFAULTS) as ChatDraftDefaults,
+              customBubbleStyles: settings.customBubbleStyles as BubbleStyleDefinition[] | undefined,
             }),
             _loaded: true,
             lastSyncedAt: Date.now(),
@@ -215,6 +220,18 @@ export const useSettingsStore = create<SettingsStore>()(
         });
       },
 
+      setCustomBubbleStyles: (customBubbleStyles) => {
+        set((state) => {
+          const next = {
+            ...state,
+            customBubbleStyles,
+            lastSyncedAt: Date.now(),
+          };
+          syncToServer(buildSettingsPayload(next));
+          return next;
+        });
+      },
+
       resetSettings: () => {
         const next = { ...(syncState(DEFAULT_SETTINGS) as SettingsStore), lastSyncedAt: Date.now() };
         set(next);
@@ -231,6 +248,7 @@ export const useSettingsStore = create<SettingsStore>()(
         language: state.language,
         defaultSpeed: state.defaultSpeed,
         chatDraftDefaults: state.chatDraftDefaults,
+        customBubbleStyles: state.customBubbleStyles,
       }),
       merge: (persistedState, currentState) => ({
         ...currentState,
