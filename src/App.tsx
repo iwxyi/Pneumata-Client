@@ -9,6 +9,7 @@ import HomePage from './pages/HomePage';
 import ChatListPage from './pages/ChatListPage';
 import CreateChatPage from './pages/CreateChatPage';
 import ChatDetailPage from './pages/ChatDetailPage';
+import CreateDirectChatPage from './pages/CreateDirectChatPage';
 import CharacterLibraryPage from './pages/CharacterLibraryPage';
 import SettingsPage from './pages/SettingsPage';
 import AIModelsPage from './pages/AIModelsPage';
@@ -70,9 +71,12 @@ export default function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/chats" element={<ChatListPage />} />
               <Route path="/chats/create" element={<CreateChatPage />} />
+              <Route path="/direct/create" element={<CreateDirectChatPage />} />
               <Route path="/chats/:id/edit" element={<CreateChatPage />} />
               <Route path="/chats/:id" element={<ChatDetailPage />} />
               <Route path="/characters" element={<CharacterLibraryPage />} />
+              <Route path="/characters/create" element={<CharacterLibraryPage />} />
+              <Route path="/characters/:id/edit" element={<CharacterLibraryPage />} />
               <Route path="/characters/batch-generate" element={<BatchGenerateCharactersPage />} />
               <Route path="/models" element={<AIModelsPage />} />
               <Route path="/account" element={<AccountPage />} />

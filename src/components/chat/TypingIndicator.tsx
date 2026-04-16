@@ -39,7 +39,7 @@ export default function TypingIndicator({ characterName, avatar, bubbleStyleId, 
       >
         {avatar}
       </Avatar>
-      <Box>
+      <Box sx={{ maxWidth: '70%', minWidth: 0 }}>
         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, ml: 1 }}>
           {characterName}
         </Typography>
@@ -52,8 +52,10 @@ export default function TypingIndicator({ characterName, avatar, bubbleStyleId, 
             color: bubblePreview.color,
             borderRadius: bubblePreview.borderRadius,
             minWidth: 56,
+            maxWidth: '100%',
             border: bubblePreview.border,
             boxShadow: bubblePreview.boxShadow,
+            overflowWrap: 'break-word',
           }}
         >
           {content ? (

@@ -1,6 +1,6 @@
 import { Card, CardContent, CardActionArea, Box, Typography, Avatar, Chip, IconButton, Menu, MenuItem } from '@mui/material';
-import { MoreVert as MoreIcon } from '@mui/icons-material';
-import { useState } from 'react';
+import { MoreVert as MoreIcon, CheckCircle as CheckCircleIcon } from '@mui/icons-material';
+import { useRef, useState } from 'react';
 import type { AICharacter } from '../../types/character';
 import { useTranslation } from 'react-i18next';
 import { formatExpertiseList } from '../../utils/expertise';
@@ -10,11 +10,14 @@ interface CharacterCardProps {
   onEdit?: () => void;
   onDelete?: () => void;
   onClick?: () => void;
+  onLongPress?: () => void;
   selected?: boolean;
   selectable?: boolean;
+  selectionMode?: boolean;
 }
 
-export default function CharacterCard({ character, onEdit, onDelete, onClick, selected, selectable }: CharacterCardProps) {
+export default function CharacterCard({ character, onEdit, onDelete, onClick, onLongPress, selected, selectable, selectionMode }: CharacterCardProps) {
+  const pressTimerRef = useRef<number | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const { t, i18n } = useTranslation();
 
@@ -22,6 +25,48 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, se
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
     .map(([key]) => t(`character.${key}`));
+
+  const longPressTriggeredRef = useRef(false);
+
+  const clearPressTimer = () => {
+    if (pressTimerRef.current !== null) {
+      window.clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+  };
+
+  const startLongPress = () => {
+    if (!onLongPress) return;
+    longPressTriggeredRef.current = false;
+    clearPressTimer();
+    pressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      onLongPress();
+      clearPressTimer();
+    }, 450);
+  };
+
+  const handleClick = () => {
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+    onClick?.();
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (!onLongPress) return;
+    e.preventDefault();
+    longPressTriggeredRef.current = true;
+    onLongPress();
+  };
+
+  const handlePointerEnd = () => {
+    clearPressTimer();
+    queueMicrotask(() => {
+      longPressTriggeredRef.current = false;
+    });
+  };
 
   return (
     <Card
@@ -41,6 +86,11 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, se
       }}
     >
       <Box sx={{ position: 'relative', height: '100%' }}>
+        {selectionMode && selectable ? (
+          <Box sx={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: selected ? 'primary.main' : 'action.disabled' }}>
+            <CheckCircleIcon fontSize="small" />
+          </Box>
+        ) : null}
         {(onEdit || onDelete) && (
           <IconButton
             size="small"
@@ -53,7 +103,16 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, se
             <MoreIcon fontSize="small" />
           </IconButton>
         )}
-        <CardActionArea onClick={onClick} disabled={!onClick && !selectable} sx={{ height: '100%' }}>
+        <CardActionArea
+          onClick={handleClick}
+          onPointerDown={startLongPress}
+          onPointerUp={handlePointerEnd}
+          onPointerLeave={clearPressTimer}
+          onPointerCancel={clearPressTimer}
+          onContextMenu={handleContextMenu}
+          disabled={!onClick && !selectable}
+          sx={{ height: '100%' }}
+        >
           <CardContent sx={{ p: 2, pr: (onEdit || onDelete) ? 6 : 2, height: '100%', '&:last-child': { pb: 2 } }}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
               <Avatar sx={{ width: 48, height: 48, fontSize: '1.5rem', bgcolor: 'primary.light' }}>
@@ -67,6 +126,9 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, se
                   {topTraits.map((trait) => (
                     <Chip key={trait} label={trait} size="small" variant="outlined" />
                   ))}
+                  {character.group ? (
+                    <Chip label={character.group} size="small" color="primary" variant="outlined" />
+                  ) : null}
                   {character.isPreset && (
                     <Chip label="Preset" size="small" color="secondary" variant="filled" />
                   )}

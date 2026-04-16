@@ -1,4 +1,5 @@
 import type { AICharacter } from '../types/character';
+import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../types/character';
 import { generateId } from '../utils/id';
 
 const PRESET_BUBBLE_STYLE_IDS = [
@@ -19,13 +20,17 @@ const PRESET_BUBBLE_STYLE_IDS = [
 function withBubbleStyle<T extends AICharacter>(character: T, index: number): T {
   return {
     ...character,
+    behavior: character.behavior || DEFAULT_CHARACTER_BEHAVIOR,
+    relationships: character.relationships || [],
+    memory: character.memory || DEFAULT_CHARACTER_MEMORY,
+    intervention: character.intervention || DEFAULT_CHARACTER_INTERVENTION,
     bubbleStyleId: PRESET_BUBBLE_STYLE_IDS[index % PRESET_BUBBLE_STYLE_IDS.length],
   };
 }
 
 const now = Date.now();
 
-const presetCharactersBase: AICharacter[] = [
+const presetCharactersBase: Omit<AICharacter, 'behavior' | 'relationships' | 'memory' | 'intervention'>[] = [
   {
     id: 'preset-scientist',
     name: '理性博士',
@@ -280,7 +285,7 @@ const presetCharactersBase: AICharacter[] = [
   },
 ];
 
-export const PRESET_CHARACTERS: AICharacter[] = presetCharactersBase.map((character, index) => withBubbleStyle(character, index));
+export const PRESET_CHARACTERS: AICharacter[] = presetCharactersBase.map((character, index) => withBubbleStyle(character as AICharacter, index));
 
 export const AVATAR_OPTIONS = [
   '🔬', '🎭', '⚡', '🕊️', '💻', '🦉', '🤡', '📜', '🎨', '💰',

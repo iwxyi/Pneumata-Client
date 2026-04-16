@@ -9,9 +9,11 @@ interface MemberListProps {
   thinkingId: string | null;
   onRemove?: (id: string) => void;
   onSpeakAs?: (id: string) => void;
+  onStartPrivateChat?: (id: string) => void;
 }
 
-export default function MemberList({ members, thinkingId, onRemove, onSpeakAs }: MemberListProps) {
+export default function MemberList({ members, thinkingId, onRemove, onSpeakAs, onStartPrivateChat }: MemberListProps) {
+
   const { t } = useTranslation();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [menuCharId, setMenuCharId] = useState<string | null>(null);
@@ -73,6 +75,16 @@ export default function MemberList({ members, thinkingId, onRemove, onSpeakAs }:
             }}
           >
             {t('controls.speakAs')}
+          </MenuItem>
+        )}
+        {onStartPrivateChat && (
+          <MenuItem
+            onClick={() => {
+              setAnchorEl(null);
+              if (menuCharId) onStartPrivateChat(menuCharId);
+            }}
+          >
+            发起AI私聊
           </MenuItem>
         )}
         {onRemove && (

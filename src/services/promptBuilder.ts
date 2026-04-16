@@ -2,6 +2,35 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat, ChatStyle } from '../types/chat';
 import type { Message } from '../types/message';
 
+function buildEmotionalStateDescription(character: AICharacter) {
+  const emotional = character.emotionalState;
+  if (!emotional) return 'Your emotional state is steady.';
+
+  const signals: string[] = [];
+  if (emotional.excitement > 60) signals.push('energized and eager to jump in');
+  if (emotional.irritation > 60) signals.push('irritated and ready to push back');
+  if (emotional.affection > 55) signals.push('warm toward people you trust');
+  if (emotional.insecurity > 60) signals.push('slightly defensive about being misunderstood');
+  if (emotional.embarrassment > 55) signals.push('self-conscious and somewhat restrained');
+
+  return signals.length ? `Your emotional undercurrent: ${signals.join(', ')}.` : 'Your emotional state is steady.';
+}
+
+function buildCoreProfileDescription(character: AICharacter) {
+  const profile = character.coreProfile;
+  if (!profile) return '';
+
+  const lines = [
+    profile.coreDesire ? `- Core desire: ${profile.coreDesire}` : '',
+    profile.coreFear ? `- Core fear: ${profile.coreFear}` : '',
+    profile.socialMask ? `- Social mask: ${profile.socialMask}` : '',
+    profile.valuePriority?.length ? `- Values: ${profile.valuePriority.join(', ')}` : '',
+    profile.interactionHabits?.length ? `- Interaction habits: ${profile.interactionHabits.join(', ')}` : '',
+  ].filter(Boolean);
+
+  return lines.length ? `\n## Deeper Motivation\n${lines.join('\n')}` : '';
+}
+
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
   debate: 'This is a formal debate. Take clear positions, provide evidence, and respectfully challenge others\' arguments. Be structured and logical.',
@@ -34,7 +63,7 @@ export const buildSystemPrompt = (
 - Background: ${character.background}
 - Speaking Style: ${character.speakingStyle}
 - Expertise: ${character.expertise.join(', ')}
-- Personality: ${personalityDesc}
+- Personality: ${personalityDesc}${buildCoreProfileDescription(character)}
 
 ## Chat Context
 - Topic: ${chat.topic || 'General discussion'}
@@ -43,6 +72,7 @@ ${chat.topicSeed ? `- Opening topic: ${chat.topicSeed}` : ''}
 
 ## Current State
 ${emotionDesc}
+${buildEmotionalStateDescription(character)}
 
 ## Rules
 1. Stay in character at all times. Speak as ${character.name} would.

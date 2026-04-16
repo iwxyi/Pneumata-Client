@@ -14,45 +14,118 @@ interface ProgressItem {
 }
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
+import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../types';
+import { getTopicDerivedCharacterGroup } from '../types/character';
 
 const NAMES_SYSTEM_PROMPT = `You help generate candidate character names for a theme.
 Return strict JSON only in this shape: {"names":["name1","name2",...]}
 Rules:
-- Return as many relevant names as the theme reasonably supports, typically between 12 and 100.
+- Return as many relevant names as the theme reasonably supports.
 - For broad themes, return more names. For narrow themes, return fewer names.
 - Put the most central or iconic names first.
 - Prefer well-known, distinctive characters or figures strongly associated with the theme.
+- Do not include placeholders, headings, field names, or questions like "names?".
+- Every item in names must be an actual character/person/figure name.
 - No explanations, no markdown.`;
 
-function parseJsonBlock<T>(content: string): T {
-  const trimmed = content.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
-  return JSON.parse(trimmed) as T;
+const INVALID_NAME_PATTERNS = [
+  /^names?\??$/i,
+  /^name\s*list$/i,
+  /^角色名[称字]?\??$/,
+  /^名字\??$/,
+  /^名称\??$/,
+  /^列表$/,
+  /^示例$/,
+];
+
+function isValidCandidateName(value: string) {
+  const normalized = value.trim().replace(/^[:：\-•*\d.\s]+/, '').trim();
+  if (!normalized) return false;
+  if (normalized.length > 40) return false;
+  if (/[{}\[\]]/.test(normalized)) return false;
+  if (INVALID_NAME_PATTERNS.some((pattern) => pattern.test(normalized))) return false;
+  return true;
+}
+
+function sanitizeNames(names: string[]) {
+  return [...new Set(names.map((item) => item.trim()).filter(isValidCandidateName))];
+}
+
+function extractJsonObject(content: string) {
+  const cleaned = content.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return cleaned.slice(firstBrace, lastBrace + 1);
+  }
+  return cleaned;
+}
+
+function extractJsonArray(content: string) {
+  const cleaned = content.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
+  const firstBracket = cleaned.indexOf('[');
+  const lastBracket = cleaned.lastIndexOf(']');
+  if (firstBracket >= 0 && lastBracket > firstBracket) {
+    return cleaned.slice(firstBracket, lastBracket + 1);
+  }
+  return cleaned;
+}
+
+function tryParseNamesJson(content: string) {
+  try {
+    const parsed = JSON.parse(extractJsonObject(content)) as { names?: unknown };
+    if (Array.isArray(parsed.names)) {
+      return sanitizeNames(parsed.names.filter((item): item is string => typeof item === 'string'));
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const parsed = JSON.parse(extractJsonArray(content)) as unknown;
+    if (Array.isArray(parsed)) {
+      return sanitizeNames(parsed.filter((item): item is string => typeof item === 'string'));
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+function stripLinePrefix(line: string) {
+  return line.replace(/^\s*(?:[-*•]|\d+[.)]|[A-Za-z]\)|[（(]?[一二三四五六七八九十]+[)）.、])\s*/, '').trim();
 }
 
 function parseNames(content: string) {
-  try {
-    const parsed = parseJsonBlock<{ names?: string[] }>(content);
-    return Array.isArray(parsed.names) ? parsed.names.filter(Boolean).slice(0, 100) : [];
-  } catch {
-    const cleaned = content
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/\s*```$/, '')
-      .replace(/\r/g, '')
-      .trim();
-
-    const quoted = Array.from(cleaned.matchAll(/["“”'『「]([^"“”'』」\n]{1,40})["“”'』」]/g)).map((match) => match[1].trim());
-    const lines = cleaned
-      .split('\n')
-      .map((line) => line.replace(/^[-*\d.\s]+/, '').trim())
-      .filter((line) => line.length > 0 && line.length <= 40 && !line.includes('{') && !line.includes('}') && !line.includes(':'));
-
-    const names = [...new Set([...quoted, ...lines])].slice(0, 100);
-    if (names.length === 0) {
-      throw new Error('AI 返回的名字列表格式无法解析');
-    }
-    return names;
+  const parsedJson = tryParseNamesJson(content);
+  if (parsedJson && parsedJson.length > 0) {
+    return parsedJson;
   }
+
+  const cleaned = content
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/, '')
+    .replace(/\r/g, '')
+    .trim();
+
+  const quoted = sanitizeNames(
+    Array.from(cleaned.matchAll(/["“”'『「]([^"“”'』」\n]{1,40})["“”'』」]/g)).map((match) => match[1].trim())
+  );
+  const lines = sanitizeNames(
+    cleaned
+      .split('\n')
+      .map(stripLinePrefix)
+      .filter((line) => line.length > 0 && line.length <= 40 && !line.includes('{') && !line.includes('}'))
+      .filter((line) => !/^[A-Za-z_]+\s*:/.test(line) && !/^[\u4e00-\u9fa5]+\s*[：:]/.test(line))
+  );
+
+  const names = sanitizeNames([...quoted, ...lines]);
+  if (names.length === 0) {
+    throw new Error('AI 返回的名字列表格式无法解析');
+  }
+  return names;
 }
 
 function getErrorMessage(error: unknown) {
@@ -63,7 +136,7 @@ function getErrorMessage(error: unknown) {
 export default function BatchGenerateCharactersPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { setHeaderTitle, setHeaderActions } = useLayoutHeaderActions();
+  const { setHeaderTitle, setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
   const settings = useSettingsStore();
   const { addCharacter, characters } = useCharacterStore();
   const [topic, setTopic] = useState('');
@@ -71,7 +144,7 @@ export default function BatchGenerateCharactersPage() {
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
   const [loadingNames, setLoadingNames] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [progress, setProgress] = useState<{ current: number; total: number; items: ProgressItem[] }>({ current: 0, total: 0, items: [] });
+  const [progress, setProgress] = useState<{ current: number; total: number; currentName?: string; items: ProgressItem[] }>({ current: 0, total: 0, currentName: '', items: [] });
   const cancelGenerationRef = useRef(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
@@ -81,16 +154,14 @@ export default function BatchGenerateCharactersPage() {
 
   useEffect(() => {
     setHeaderTitle(i18n.language.startsWith('zh') ? '批量生成角色' : 'Batch Generate');
-    setHeaderActions(
-      <Button variant="outlined" onClick={() => navigate('/characters')}>
-        {t('common.close')}
-      </Button>
-    );
+    setHeaderBackAction(() => () => navigate(-1));
+    setHeaderActions(null);
     return () => {
       setHeaderTitle(null);
+      setHeaderBackAction(null);
       setHeaderActions(null);
     };
-  }, [i18n.language, navigate, setHeaderActions, setHeaderTitle, t]);
+  }, [i18n.language, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, t]);
 
   const selectedSet = useMemo(() => new Set(selectedNames), [selectedNames]);
   const canGenerateNames = topic.trim().length > 0 && !loadingNames;
@@ -139,13 +210,15 @@ export default function BatchGenerateCharactersPage() {
 
     cancelGenerationRef.current = false;
     setGenerating(true);
-    setProgress({ current: 0, total: selectedNames.length, items: [] });
+    setProgress({ current: 0, total: selectedNames.length, currentName: '', items: [] });
 
     try {
+      const generatedGroup = getTopicDerivedCharacterGroup(topic);
       for (let index = 0; index < selectedNames.length; index += 1) {
         if (cancelGenerationRef.current) break;
 
         const name = selectedNames[index];
+        setProgress((prev) => ({ ...prev, currentName: name }));
         const duplicated = characters.some((char) => char.name.trim().toLowerCase() === name.trim().toLowerCase());
         if (duplicated) {
           setProgress((prev) => ({ current: index + 1, total: selectedNames.length, items: [...prev.items, { name, status: 'skipped', reason: i18n.language.startsWith('zh') ? '同名已存在' : 'Duplicate name exists' }] }));
@@ -157,9 +230,19 @@ export default function BatchGenerateCharactersPage() {
             name,
             i18n.language.startsWith('zh') ? 'zh' : 'en'
           );
-          console.log('[batch-generate:character:parsed]', { name, normalized });
+          console.log('[batch-generate:character:parsed]', { name, normalized, generatedGroup });
 
-          await addCharacter({ name, ...normalized, modelProfileId: 'default' });
+          const created = await addCharacter({
+            name,
+            ...normalized,
+            group: generatedGroup,
+            behavior: DEFAULT_CHARACTER_BEHAVIOR,
+            relationships: [],
+            memory: DEFAULT_CHARACTER_MEMORY,
+            intervention: DEFAULT_CHARACTER_INTERVENTION,
+            modelProfileId: 'default',
+          });
+          console.log('[batch-generate:character:created]', { name, generatedGroup, createdGroup: created.group, created });
           setProgress((prev) => ({ current: index + 1, total: selectedNames.length, items: [...prev.items, { name, status: 'success' }] }));
         } catch (error) {
           console.error('[batch-generate:character:error]', { name, error });
@@ -178,7 +261,7 @@ export default function BatchGenerateCharactersPage() {
       setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
     } finally {
       setGenerating(false);
-      setProgress({ current: 0, total: 0, items: [] });
+      setProgress({ current: 0, total: 0, currentName: '', items: [] });
     }
   };
 
@@ -190,6 +273,12 @@ export default function BatchGenerateCharactersPage() {
           placeholder={i18n.language.startsWith('zh') ? '例如：喜羊羊与灰太狼' : 'e.g. Pleasant Goat and Big Big Wolf'}
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && canGenerateNames) {
+              e.preventDefault();
+              void handleFetchNames();
+            }
+          }}
           fullWidth
         />
         <IconButton
@@ -276,7 +365,9 @@ export default function BatchGenerateCharactersPage() {
             <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
               {loadingNames
                 ? (i18n.language.startsWith('zh') ? '正在列出名字…' : 'Listing names…')
-                : (i18n.language.startsWith('zh') ? '正在批量生成角色' : 'Generating characters')}
+                : progress.currentName
+                  ? (i18n.language.startsWith('zh') ? `正在生成：${progress.currentName}` : `Generating: ${progress.currentName}`)
+                  : (i18n.language.startsWith('zh') ? '正在批量生成角色' : 'Generating characters')}
             </Typography>
             {generating ? (
               <>

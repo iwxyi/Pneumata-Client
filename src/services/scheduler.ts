@@ -1,6 +1,35 @@
 import type { AICharacter } from '../types/character';
 import type { Message } from '../types/message';
 import { extractKeywords, calculateTopicRelevance } from './topicExtractor';
+import { getRelationshipWeight } from './relationshipEngine';
+import { applyDriftToBehavior } from './personalityDrift';
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getEmotionalMomentum(character: AICharacter) {
+  const emotional = character.emotionalState;
+  if (!emotional) return 0;
+
+  const positiveDrive = emotional.excitement * 0.008 + emotional.affection * 0.004;
+  const tensionDrive = emotional.irritation * 0.006 + emotional.insecurity * 0.004;
+  const inhibition = emotional.embarrassment * 0.007;
+  return clamp(positiveDrive + tensionDrive - inhibition, -0.18, 0.26);
+}
+
+function getEmotionalReplyBias(character: AICharacter, lastSpeakerId?: string) {
+  if (!lastSpeakerId) return 0;
+  const relationWeight = getRelationshipWeight(character, lastSpeakerId);
+  const emotional = character.emotionalState;
+  if (!emotional) return relationWeight > 0 ? relationWeight * 0.08 : Math.abs(relationWeight) * 0.1;
+
+  const irritationBias = emotional.irritation > 55 ? Math.max(0, -relationWeight) * 0.14 : 0;
+  const affectionBias = emotional.affection > 45 ? Math.max(0, relationWeight) * 0.12 : 0;
+  const insecurityPenalty = emotional.insecurity > 65 && relationWeight < 0 ? -0.08 : 0;
+
+  return (relationWeight > 0 ? relationWeight * 0.08 : Math.abs(relationWeight) * 0.1) + irritationBias + affectionBias + insecurityPenalty;
+}
 
 export interface WeightedCandidate {
   characterId: string;
@@ -48,12 +77,18 @@ export const calculateWeights = (
       return now - lastSpeak >= cooldownDuration;
     })
     .map((char) => {
+      const runtimeBehavior = applyDriftToBehavior(char);
       const wasLastSpeaker = char.id === lastSpeakerId;
-      let weight = (char.personality.extroversion / 100) * 0.45 + 0.25;
+      let weight = (char.personality.extroversion / 100) * 0.32 + (runtimeBehavior.proactivity / 100) * 0.22 + 0.25;
       const relevance = calculateTopicRelevance(keywords, char.expertise);
       weight += relevance * 0.2;
+      weight += getEmotionalMomentum(char);
       const recentCount = recentSpeakCounts[char.id] || 0;
       weight -= recentCount * 0.42;
+      const lastAiMessage = recentAiMessages.at(-1);
+      if (lastAiMessage && lastAiMessage.senderId !== char.id) {
+        weight += getEmotionalReplyBias(char, lastAiMessage.senderId);
+      }
       if (wasLastSpeaker) {
         weight *= consecutiveByLastSpeaker >= 3 ? 0.02 : consecutiveByLastSpeaker >= 2 ? 0.06 : 0.18;
       }

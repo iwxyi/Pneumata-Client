@@ -121,6 +121,30 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
     );
   }
 
+  if (message.type === 'event') {
+    let payload: { title?: string; summary?: string; pair?: string[] } | null = null;
+    try {
+      payload = JSON.parse(message.content);
+    } catch {
+      payload = { title: '事件', summary: message.content };
+    }
+
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+        <Box sx={{ minWidth: 260, maxWidth: 420, px: 2, py: 1.25, bgcolor: 'secondary.light', border: '1px solid', borderColor: 'secondary.main', borderRadius: 3 }}>
+          <Typography variant="caption" sx={{ display: 'block', color: 'secondary.dark', fontWeight: 800, mb: 0.5 }}>
+            关系事件
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+            {payload?.title || '事件'}
+          </Typography>
+          {payload?.summary ? <Typography variant="caption" color="text.secondary">{payload.summary}</Typography> : null}
+          {payload?.pair?.length ? <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>{payload.pair.join(' ↔ ')}</Typography> : null}
+        </Box>
+      </Box>
+    );
+  }
+
   const isUser = message.type === 'user' || message.type === 'god';
   const isGod = message.type === 'god';
   const aiBubbleStyle = resolveBubbleStyle(character?.bubbleStyleId, customBubbleStyles);

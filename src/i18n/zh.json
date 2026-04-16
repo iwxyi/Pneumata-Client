@@ -2,11 +2,11 @@
   "app": {
     "name": "AI Chat Group",
     "fullName": "AI聊天群",
-    "tagline": "AI 群聊模拟平台"
+    "tagline": "AI 聊天模拟平台"
   },
   "nav": {
     "home": "首页",
-    "chats": "群聊",
+    "chats": "聊天",
     "characters": "角色库",
     "models": "AI模型",
     "account": "账号",

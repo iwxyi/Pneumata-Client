@@ -1,40 +1,61 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayout';
 import {
   Box, Typography, TextField, Button, IconButton,
   Checkbox, Avatar, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Divider,
-  FormControlLabel, Switch, Snackbar, Alert,
+  FormControlLabel, Switch, Snackbar, Alert, Tabs, Tab, MenuItem, Card, CardContent, Stack,
 } from '@mui/material';
-import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
-import { formatExpertiseList } from '../utils/expertise';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Add as AddIcon, Delete as DeleteIcon, AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import type { ChatStyle } from '../types/chat';
+import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../types/chat';
+import { generateChatDraftSuggestion } from '../services/chatDraftGenerator';
 import { CHAT_STYLE_OPTIONS, MIN_MEMBERS, MAX_MEMBERS } from '../constants/defaults';
+import ChatRuntimePanel from '../components/chat/ChatRuntimePanel';
 
 export default function CreateChatPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams<{ id: string }>();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
   const { chats, addChat, updateChat, deleteChat, loadChats } = useChatStore();
   const { characters, loadCharacters } = useCharacterStore();
-  const { chatDraftDefaults, setChatDraftDefaults, loadSettings } = useSettingsStore();
+  const { chatDraftDefaults, aiProfiles, api, setChatDraftDefaults, loadSettings } = useSettingsStore();
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [configTab, setConfigTab] = useState(0);
   const editingChat = id ? chats.find((chat) => chat.id === id) : null;
 
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
   const [style, setStyle] = useState<ChatStyle>('free');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
-  const [topicSeed, setTopicSeed] = useState('');
+  const [ownerCharacterId, setOwnerCharacterId] = useState<string>('');
+  const [adminCharacterIds, setAdminCharacterIds] = useState<string[]>([]);
+  const [mood, setMood] = useState('');
+  const [focus, setFocus] = useState('');
+  const [recentEvent, setRecentEvent] = useState('');
+  const [runtimeNotesText, setRuntimeNotesText] = useState('');
+  const [runtimeArtifactsText, setRuntimeArtifactsText] = useState('');
+  const [allowCliques, setAllowCliques] = useState(false);
+  const [allowMockery, setAllowMockery] = useState(false);
   const [showRoleActions, setShowRoleActions] = useState(true);
+  const [allowSpeakAs, setAllowSpeakAs] = useState(true);
+  const [allowDirectorMode, setAllowDirectorMode] = useState(true);
+  const [allowEventInjection, setAllowEventInjection] = useState(true);
+  const [allowForcedReply, setAllowForcedReply] = useState(true);
+  const [autoModeration, setAutoModeration] = useState(false);
+  const [allowMute, setAllowMute] = useState(true);
+  const [allowPrivateThreads, setAllowPrivateThreads] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [aiAutofilling, setAiAutofilling] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
+  const memberPressTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     loadChats();
@@ -48,34 +69,45 @@ export default function CreateChatPage() {
       setTopic(editingChat.topic || '');
       setStyle(editingChat.style);
       setSelectedMembers(editingChat.memberIds || []);
-      setTopicSeed(editingChat.topicSeed || '');
+      setOwnerCharacterId(editingChat.governance.ownerCharacterId || '');
+      setAdminCharacterIds(editingChat.governance.adminCharacterIds || []);
+      setMood(editingChat.worldState.mood || '');
+      setFocus(editingChat.worldState.focus || '');
+      setRecentEvent(editingChat.worldState.recentEvent || '');
+      setRuntimeNotesText((editingChat.runtimeNotes || []).join('\n'));
+      setRuntimeArtifactsText((editingChat.runtimeArtifacts || []).join('\n'));
+      setAllowCliques(editingChat.dramaRules.allowCliques);
+      setAllowMockery(editingChat.dramaRules.allowMockery);
       setShowRoleActions(editingChat.showRoleActions ?? true);
+      setAllowSpeakAs(editingChat.directorControls.allowSpeakAs);
+      setAllowDirectorMode(editingChat.directorControls.allowDirectorMode);
+      setAllowEventInjection(editingChat.directorControls.allowEventInjection);
+      setAllowForcedReply(editingChat.directorControls.allowForcedReply);
+      setAutoModeration(editingChat.governance.autoModeration);
+      setAllowMute(editingChat.governance.allowMute);
+      setAllowPrivateThreads(editingChat.governance.allowPrivateThreads);
       return;
     }
 
     setStyle(chatDraftDefaults.style);
     setShowRoleActions(chatDraftDefaults.showRoleActions);
+    setOwnerCharacterId('');
+    setAdminCharacterIds([]);
+    setMood('');
+    setFocus('');
+    setRecentEvent('');
+    setRuntimeNotesText('');
+    setRuntimeArtifactsText('');
+    setAllowCliques(false);
+    setAllowMockery(false);
+    setAllowSpeakAs(true);
+    setAllowDirectorMode(true);
+    setAllowEventInjection(true);
+    setAllowForcedReply(true);
+    setAutoModeration(false);
+    setAllowMute(true);
+    setAllowPrivateThreads(true);
   }, [chatDraftDefaults.showRoleActions, chatDraftDefaults.style, editingChat]);
-
-  useEffect(() => {
-    setHeaderTitle(editingChat ? t('chat.edit') : t('chat.create'));
-    setHeaderBackAction(() => () => navigate(-1));
-    setHeaderActions(
-      <Box sx={{ display: 'flex', gap: 1 }}>
-        {editingChat ? (
-          <Button color="error" variant="outlined" startIcon={<DeleteIcon />} onClick={() => setDeleteConfirmOpen(true)}>
-            {t('common.delete')}
-          </Button>
-        ) : null}
-      </Box>
-    );
-
-    return () => {
-      setHeaderActions(null);
-      setHeaderTitle(null);
-      setHeaderBackAction(null);
-    };
-  }, [editingChat, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, t]);
 
   const toggleMember = (memberId: string) => {
     setSelectedMembers((prev) =>
@@ -86,6 +118,132 @@ export default function CreateChatPage() {
           : prev
     );
   };
+
+  const persistDraft = () => {
+    sessionStorage.setItem('miragetea-create-chat-draft', JSON.stringify({
+      name,
+      topic,
+      style,
+      selectedMembers,
+      ownerCharacterId,
+      adminCharacterIds,
+      mood,
+      focus,
+      recentEvent,
+      runtimeNotesText,
+      runtimeArtifactsText,
+      allowCliques,
+      allowMockery,
+      showRoleActions,
+      allowSpeakAs,
+      allowDirectorMode,
+      allowEventInjection,
+      allowForcedReply,
+      autoModeration,
+      allowMute,
+      allowPrivateThreads,
+      configTab,
+    }));
+  };
+
+  const restoreDraft = () => {
+    const raw = sessionStorage.getItem('miragetea-create-chat-draft');
+    if (!raw) return;
+    try {
+      const draft = JSON.parse(raw) as Record<string, unknown>;
+      setName(String(draft.name || ''));
+      setTopic(String(draft.topic || ''));
+      setStyle((draft.style as ChatStyle) || chatDraftDefaults.style);
+      setSelectedMembers(Array.isArray(draft.selectedMembers) ? draft.selectedMembers as string[] : []);
+      setOwnerCharacterId(String(draft.ownerCharacterId || ''));
+      setAdminCharacterIds(Array.isArray(draft.adminCharacterIds) ? draft.adminCharacterIds as string[] : []);
+      setMood(String(draft.mood || ''));
+      setFocus(String(draft.focus || ''));
+      setRecentEvent(String(draft.recentEvent || ''));
+      setRuntimeNotesText(String(draft.runtimeNotesText || ''));
+      setRuntimeArtifactsText(String(draft.runtimeArtifactsText || ''));
+      setAllowCliques(Boolean(draft.allowCliques));
+      setAllowMockery(Boolean(draft.allowMockery));
+      setShowRoleActions(Boolean(draft.showRoleActions));
+      setAllowSpeakAs(Boolean(draft.allowSpeakAs));
+      setAllowDirectorMode(Boolean(draft.allowDirectorMode));
+      setAllowEventInjection(Boolean(draft.allowEventInjection));
+      setAllowForcedReply(Boolean(draft.allowForcedReply));
+      setAutoModeration(Boolean(draft.autoModeration));
+      setAllowMute(Boolean(draft.allowMute));
+      setAllowPrivateThreads(Boolean(draft.allowPrivateThreads));
+      setConfigTab(Number(draft.configTab || 0));
+    } finally {
+      sessionStorage.removeItem('miragetea-create-chat-draft');
+    }
+  };
+
+  const openMemberEdit = (characterId: string) => {
+    persistDraft();
+    navigate(`/characters?edit=${characterId}&returnTo=${encodeURIComponent(location.pathname + location.search)}`);
+  };
+
+  const clearMemberPressTimer = () => {
+    if (memberPressTimerRef.current !== null) {
+      window.clearTimeout(memberPressTimerRef.current);
+      memberPressTimerRef.current = null;
+    }
+  };
+
+  const startMemberLongPress = (characterId: string) => {
+    clearMemberPressTimer();
+    memberPressTimerRef.current = window.setTimeout(() => {
+      openMemberEdit(characterId);
+      clearMemberPressTimer();
+    }, 450);
+  };
+
+  const handleMemberItemClick = (characterId: string) => {
+    clearMemberPressTimer();
+    toggleMember(characterId);
+  };
+
+  const handleMemberItemContextMenu = (event: React.MouseEvent, characterId: string) => {
+    event.preventDefault();
+    openMemberEdit(characterId);
+  };
+
+  useEffect(() => {
+    if (!editingChat && new URLSearchParams(location.search).get('restoreDraft') === '1') {
+      restoreDraft();
+      navigate(location.pathname, { replace: true });
+    }
+  }, [editingChat, location.pathname, location.search, navigate]);
+
+  useEffect(() => () => clearMemberPressTimer(), []);
+
+  useEffect(() => {
+    const handler = () => clearMemberPressTimer();
+    window.addEventListener('pointerup', handler);
+    window.addEventListener('pointercancel', handler);
+    window.addEventListener('contextmenu', handler);
+    window.addEventListener('blur', handler);
+    window.addEventListener('mouseup', handler);
+    window.addEventListener('touchend', handler);
+    window.addEventListener('keydown', handler);
+    window.addEventListener('scroll', handler, true);
+    return () => {
+      window.removeEventListener('pointerup', handler);
+      window.removeEventListener('pointercancel', handler);
+      window.removeEventListener('contextmenu', handler);
+      window.removeEventListener('blur', handler);
+      window.removeEventListener('mouseup', handler);
+      window.removeEventListener('touchend', handler);
+      window.removeEventListener('keydown', handler);
+      window.removeEventListener('scroll', handler, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!editingChat && new URLSearchParams(location.search).get('restoreDraft') !== '1') {
+      sessionStorage.removeItem('miragetea-create-chat-draft');
+    }
+  }, [editingChat, location.search]);
 
   const canCreate = name.trim().length > 0 && selectedMembers.length >= MIN_MEMBERS;
   const createError = !name.trim()
@@ -99,14 +257,84 @@ export default function CreateChatPage() {
   const selectedCharacters = characters.filter((char) => selectedMembers.includes(char.id));
   const hasCustomCharacters = customCharacters.length > 0;
   const hasPresetCharacters = presetCharacters.length > 0;
+  const canAutofill = !editingChat && !aiAutofilling && Boolean(name.trim() || topic.trim() || selectedMembers.length);
 
   const getStyleLabel = (styleValue: ChatStyle) => t(`chat.style${styleValue.charAt(0).toUpperCase() + styleValue.slice(1)}`);
-  const getMemberSecondary = (char: typeof characters[number]) => {
-    const expertise = formatExpertiseList(char.expertise.slice(0, 2), i18n.language).join(' · ');
-    return expertise || t('common.noData');
+
+  const handleAutofill = async () => {
+    const profile = aiProfiles[0] || api;
+    if (!profile?.apiKey || !profile?.model) {
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first', severity: 'error' });
+      return;
+    }
+
+    setAiAutofilling(true);
+    try {
+      const suggestion = await generateChatDraftSuggestion({
+        config: profile,
+        language: i18n.language.startsWith('zh') ? 'zh' : 'en',
+        draft: {
+          name,
+          topic,
+          selectedMemberIds: selectedMembers,
+          showRoleActions,
+        },
+        characters,
+      });
+
+      const mergedMemberIds = suggestion.suggestedMemberIds?.length
+        ? Array.from(new Set([...selectedMembers, ...suggestion.suggestedMemberIds])).slice(0, MAX_MEMBERS)
+        : selectedMembers;
+      const appliedName = !name.trim() && suggestion.suggestedName;
+      const appliedTopic = !topic.trim() && suggestion.suggestedTopic;
+      const appliedStyle = !topic.trim() && suggestion.suggestedStyle;
+      const appliedRoleActions = !topic.trim() && suggestion.suggestedShowRoleActions !== undefined;
+      const appliedMembers = mergedMemberIds.length > selectedMembers.length;
+
+      if (appliedName) setName(suggestion.suggestedName!);
+      if (appliedTopic) setTopic(suggestion.suggestedTopic!);
+      if (appliedStyle) setStyle(suggestion.suggestedStyle!);
+      if (appliedRoleActions) setShowRoleActions(suggestion.suggestedShowRoleActions!);
+      if (appliedMembers) setSelectedMembers(mergedMemberIds);
+      if (!appliedName && !appliedTopic && !appliedStyle && !appliedRoleActions && !appliedMembers) {
+        throw new Error(i18n.language.startsWith('zh') ? 'AI 没有返回可用建议' : 'AI did not return usable suggestions');
+      }
+      if (!selectedMembers.length && mergedMemberIds.length < MIN_MEMBERS) {
+        throw new Error(i18n.language.startsWith('zh') ? 'AI 推荐的成员不足，无法自动补全' : 'Suggested members are insufficient for autofill');
+      }
+
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已自动补全群聊草稿' : 'Draft autofilled', severity: 'success' });
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    } finally {
+      setAiAutofilling(false);
+    }
   };
 
-  const selectedSummary = selectedCharacters.slice(0, 4);
+  useEffect(() => {
+    setHeaderTitle(editingChat ? t('chat.edit') : t('chat.create'));
+    setHeaderBackAction(() => () => navigate(-1));
+    setHeaderActions(
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+        {!editingChat ? (
+          <Button variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={handleAutofill} disabled={!canAutofill}>
+            {aiAutofilling ? t('common.loading') : (i18n.language.startsWith('zh') ? '自动补全' : 'Auto fill')}
+          </Button>
+        ) : null}
+        {editingChat ? (
+          <Button color="error" variant="outlined" startIcon={<DeleteIcon />} onClick={() => setDeleteConfirmOpen(true)}>
+            {t('common.delete')}
+          </Button>
+        ) : null}
+      </Box>
+    );
+
+    return () => {
+      setHeaderActions(null);
+      setHeaderTitle(null);
+      setHeaderBackAction(null);
+    };
+  }, [aiAutofilling, canAutofill, editingChat, handleAutofill, i18n.language, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, t]);
 
   const handleCreate = async () => {
     if (saving) return;
@@ -126,7 +354,36 @@ export default function CreateChatPage() {
           speed: 1,
           allowIntervention: true,
           showRoleActions,
-          topicSeed: topicSeed.trim(),
+          topicSeed: '',
+          runtimeNotes: runtimeNotesText.split('\n').map((item) => item.trim()).filter(Boolean),
+          runtimeArtifacts: runtimeArtifactsText.split('\n').map((item) => item.trim()).filter(Boolean),
+          runtimeTimeline: editingChat?.runtimeTimeline || [],
+          governance: {
+            ...DEFAULT_CONVERSATION_GOVERNANCE,
+            ownerCharacterId: ownerCharacterId || null,
+            adminCharacterIds,
+            autoModeration,
+            allowMute,
+            allowPrivateThreads,
+          },
+          dramaRules: {
+            ...DEFAULT_CONVERSATION_DRAMA_RULES,
+            allowCliques,
+            allowMockery,
+          },
+          worldState: {
+            ...DEFAULT_CONVERSATION_WORLD_STATE,
+            mood,
+            focus,
+            recentEvent,
+          },
+          directorControls: {
+            ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
+            allowSpeakAs,
+            allowDirectorMode,
+            allowEventInjection,
+            allowForcedReply,
+          },
         });
         setChatDraftDefaults({ style, showRoleActions });
         navigate(`/chats/${editingChat.id}`);
@@ -134,6 +391,10 @@ export default function CreateChatPage() {
       }
 
       const chat = await addChat({
+        type: 'group',
+        mode: 'open_chat',
+        modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG,
+        modeState: DEFAULT_OPEN_CHAT_MODE_STATE,
         name: name.trim(),
         topic: topic.trim(),
         style,
@@ -142,7 +403,35 @@ export default function CreateChatPage() {
         isActive: false,
         allowIntervention: true,
         showRoleActions,
-        topicSeed: topicSeed.trim(),
+        topicSeed: '',
+        runtimeNotes: runtimeNotesText.split('\n').map((item) => item.trim()).filter(Boolean),
+        runtimeArtifacts: runtimeArtifactsText.split('\n').map((item) => item.trim()).filter(Boolean),
+        governance: {
+          ...DEFAULT_CONVERSATION_GOVERNANCE,
+          ownerCharacterId: ownerCharacterId || null,
+          adminCharacterIds,
+          autoModeration,
+          allowMute,
+          allowPrivateThreads,
+        },
+        dramaRules: {
+          ...DEFAULT_CONVERSATION_DRAMA_RULES,
+          allowCliques,
+          allowMockery,
+        },
+        worldState: {
+          ...DEFAULT_CONVERSATION_WORLD_STATE,
+          mood,
+          focus,
+          recentEvent,
+        },
+        directorControls: {
+          ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
+          allowSpeakAs,
+          allowDirectorMode,
+          allowEventInjection,
+          allowForcedReply,
+        },
       });
       setChatDraftDefaults({ style, showRoleActions });
       navigate(`/chats/${chat.id}`);
@@ -156,44 +445,82 @@ export default function CreateChatPage() {
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 18, sm: 14, md: 10 }, maxWidth: 860, mx: 'auto' }}>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <TextField label={t('chat.name')} placeholder={t('chat.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} required fullWidth />
-        <TextField label={t('chat.topic')} placeholder={t('chat.topicPlaceholder')} value={topic} onChange={(e) => setTopic(e.target.value)} fullWidth multiline rows={2} />
+        <Tabs value={configTab} onChange={(_, value) => setConfigTab(value)} variant="scrollable" allowScrollButtonsMobile>
+          <Tab label={i18n.language.startsWith('zh') ? '设定' : 'Config'} />
+          <Tab label={i18n.language.startsWith('zh') ? '治理' : 'Governance'} />
+          <Tab label={i18n.language.startsWith('zh') ? '戏剧规则' : 'Drama'} />
+          <Tab label={i18n.language.startsWith('zh') ? '运行态' : 'Runtime'} />
+          <Tab label={i18n.language.startsWith('zh') ? '导演控制' : 'Director'} />
+        </Tabs>
 
-        <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5 }}>{t('chat.style')}</Typography>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            {CHAT_STYLE_OPTIONS.map((opt) => (
-              <Button key={opt.value} variant={style === opt.value ? 'contained' : 'outlined'} onClick={() => setStyle(opt.value)} sx={{ borderRadius: 999 }}>
-                {getStyleLabel(opt.value)}
-              </Button>
-            ))}
+        {configTab === 0 ? (
+          <Stack spacing={2}>
+            <Card variant="outlined"><CardContent><TextField label={t('chat.name')} placeholder={t('chat.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} required fullWidth /></CardContent></Card>
+            <Card variant="outlined"><CardContent><TextField label={t('chat.topic')} placeholder={i18n.language.startsWith('zh') ? '创建后由用户发送首条消息启动讨论，可先写简介或目标' : 'After creation the user starts discussion with the first message; use this for description or goal'} value={topic} onChange={(e) => setTopic(e.target.value)} fullWidth multiline rows={2} /></CardContent></Card>
+            <Card variant="outlined"><CardContent><Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}><Box><Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{t('chat.selectMembers')}</Typography><Typography variant="caption" color="text.secondary">{t('chat.membersHint')} ({selectedMembers.length}/{MAX_MEMBERS})</Typography></Box><IconButton color="primary" onClick={() => setMemberDialogOpen(true)}><AddIcon /></IconButton></Box>{selectedCharacters.length > 0 ? (<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{selectedCharacters.map((char) => (<Chip key={char.id} avatar={<Avatar sx={{ bgcolor: 'primary.light' }}>{char.avatar}</Avatar>} label={char.name} onDelete={() => toggleMember(char.id)} />))}</Box>) : (<Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 3, color: 'text.secondary' }}>未选择AI角色</Box>)}</CardContent></Card>
+            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{t('chat.style')}</Typography><Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{CHAT_STYLE_OPTIONS.map((opt) => (<Button key={opt.value} variant={style === opt.value ? 'contained' : 'outlined'} onClick={() => setStyle(opt.value)} sx={{ borderRadius: 999 }}>{getStyleLabel(opt.value)}</Button>))}</Box></CardContent></Card>
+            <Card variant="outlined"><CardContent><FormControlLabel control={<Switch checked={showRoleActions} onChange={(e) => setShowRoleActions(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'} /></CardContent></Card>
+          </Stack>
+        ) : null}
+
+        {configTab === 3 ? (
+          <Stack spacing={2}>
+            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>群聊运行态</Typography><Stack spacing={1}><Typography variant="body2"><strong>阶段：</strong>{editingChat?.worldState.phase || 'idle'}</Typography><Typography variant="body2"><strong>气氛：</strong>{mood || '未设置'}</Typography><Typography variant="body2"><strong>焦点：</strong>{focus || '未设置'}</Typography><Typography variant="body2"><strong>最近事件：</strong>{recentEvent || '暂无'}</Typography></Stack></CardContent></Card>
+            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>长期沉淀记忆</Typography><TextField value={runtimeNotesText} onChange={(e) => setRuntimeNotesText(e.target.value)} multiline rows={5} fullWidth placeholder="每行一条，例如：该群容易因技术路线分裂" /></CardContent></Card>
+            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>成果 / 产物</Typography><TextField value={runtimeArtifactsText} onChange={(e) => setRuntimeArtifactsText(e.target.value)} multiline rows={4} fullWidth placeholder="每行一条，例如：一份共识纪要 / 一张关系图" /></CardContent></Card>
+            <ChatRuntimePanel chat={{ ...(editingChat || {}), id: editingChat?.id || 'draft', type: 'group', mode: 'open_chat', modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG, modeState: DEFAULT_OPEN_CHAT_MODE_STATE, name: name || '未命名群聊', topic, style, memberIds: selectedMembers, speed: 1, isActive: false, allowIntervention: true, showRoleActions, topicSeed: '', sourceChatId: null, sourceMemberIds: [], runtimeNotes: runtimeNotesText.split('\n').map((item) => item.trim()).filter(Boolean), runtimeArtifacts: runtimeArtifactsText.split('\n').map((item) => item.trim()).filter(Boolean), runtimeTimeline: editingChat?.runtimeTimeline || [], governance: { ...DEFAULT_CONVERSATION_GOVERNANCE, ownerCharacterId: ownerCharacterId || null, adminCharacterIds, autoModeration, allowMute, allowPrivateThreads }, dramaRules: { ...DEFAULT_CONVERSATION_DRAMA_RULES, allowCliques, allowMockery }, worldState: { ...DEFAULT_CONVERSATION_WORLD_STATE, mood, focus, recentEvent }, directorControls: { ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, allowSpeakAs, allowDirectorMode, allowEventInjection, allowForcedReply }, createdAt: editingChat?.createdAt || Date.now(), updatedAt: editingChat?.updatedAt || Date.now(), lastMessageAt: editingChat?.lastMessageAt || Date.now() }} members={selectedCharacters} />
+          </Stack>
+        ) : null}
+
+        {configTab === 1 ? (
+          <Box sx={{ display: 'grid', gap: 2 }}>
+            <TextField
+              select
+              label={i18n.language.startsWith('zh') ? '群主' : 'Owner'}
+              value={ownerCharacterId}
+              onChange={(e) => setOwnerCharacterId(e.target.value)}
+              fullWidth
+            >
+              <MenuItem value="">{i18n.language.startsWith('zh') ? '未设置' : 'None'}</MenuItem>
+              {selectedCharacters.map((char) => <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>)}
+            </TextField>
+            <TextField
+              select
+              label={i18n.language.startsWith('zh') ? '管理员' : 'Admins'}
+              value={adminCharacterIds.join(',')}
+              onChange={(e) => setAdminCharacterIds(e.target.value ? e.target.value.split(',') : [])}
+              fullWidth
+            >
+              <MenuItem value="">{i18n.language.startsWith('zh') ? '未设置' : 'None'}</MenuItem>
+              {selectedCharacters.map((char) => <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>)}
+            </TextField>
+            <TextField
+              label={i18n.language.startsWith('zh') ? '管理员说明' : 'Admin notes'}
+              value={adminCharacterIds.map((memberId) => selectedCharacters.find((char) => char.id === memberId)?.name).filter(Boolean).join(', ')}
+              slotProps={{ input: { readOnly: true } }}
+              fullWidth
+            />
+            <FormControlLabel control={<Switch checked={autoModeration} onChange={(e) => setAutoModeration(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '自动治理' : 'Auto moderation'} />
+            <FormControlLabel control={<Switch checked={allowMute} onChange={(e) => setAllowMute(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许禁言' : 'Allow mute'} />
+            <FormControlLabel control={<Switch checked={allowPrivateThreads} onChange={(e) => setAllowPrivateThreads(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许拉私聊' : 'Allow private threads'} />
           </Box>
-        </Box>
+        ) : null}
 
-        <Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}>
-            <Box>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{t('chat.selectMembers')}</Typography>
-              <Typography variant="caption" color="text.secondary">{t('chat.membersHint')} ({selectedMembers.length}/{MAX_MEMBERS})</Typography>
-            </Box>
-            <IconButton color="primary" onClick={() => setMemberDialogOpen(true)}><AddIcon /></IconButton>
+        {configTab === 2 ? (
+          <Box sx={{ display: 'grid', gap: 1 }}>
+            <FormControlLabel control={<Switch checked={allowCliques} onChange={(e) => setAllowCliques(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许小团体' : 'Allow cliques'} />
+            <FormControlLabel control={<Switch checked={allowMockery} onChange={(e) => setAllowMockery(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许公开嘲讽' : 'Allow mockery'} />
           </Box>
+        ) : null}
 
-          {selectedCharacters.length > 0 ? (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-              {selectedSummary.map((char) => (
-                <Chip key={char.id} avatar={<Avatar sx={{ bgcolor: 'primary.light' }}>{char.avatar}</Avatar>} label={char.name} onDelete={() => toggleMember(char.id)} />
-              ))}
-              {selectedCharacters.length > selectedSummary.length ? <Chip label={`+${selectedCharacters.length - selectedSummary.length}`} variant="outlined" /> : null}
-            </Box>
-          ) : (
-            <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 3, color: 'text.secondary' }}>未选择AI角色</Box>
-          )}
-        </Box>
-
-        <TextField label={t('chat.topicSeed')} placeholder={t('chat.topicSeedPlaceholder')} value={topicSeed} onChange={(e) => setTopicSeed(e.target.value)} fullWidth multiline rows={2} />
-
-        <FormControlLabel control={<Switch checked={showRoleActions} onChange={(e) => setShowRoleActions(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'} />
+        {configTab === 4 ? (
+          <Box sx={{ display: 'grid', gap: 1 }}>
+            <FormControlLabel control={<Switch checked={allowSpeakAs} onChange={(e) => setAllowSpeakAs(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许以角色身份发言' : 'Allow speak as'} />
+            <FormControlLabel control={<Switch checked={allowDirectorMode} onChange={(e) => setAllowDirectorMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许导演模式' : 'Allow director mode'} />
+            <FormControlLabel control={<Switch checked={allowEventInjection} onChange={(e) => setAllowEventInjection(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许事件投放' : 'Allow event injection'} />
+            <FormControlLabel control={<Switch checked={allowForcedReply} onChange={(e) => setAllowForcedReply(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许强制指定回复' : 'Allow forced reply'} />
+          </Box>
+        ) : null}
 
         <Button
           variant="contained"
@@ -227,7 +554,12 @@ export default function CreateChatPage() {
                 {customCharacters.map((char) => (
                   <Box
                     key={char.id}
-                    onClick={() => toggleMember(char.id)}
+                    onClick={() => handleMemberItemClick(char.id)}
+                    onPointerDown={() => startMemberLongPress(char.id)}
+                    onPointerUp={clearMemberPressTimer}
+                    onPointerLeave={clearMemberPressTimer}
+                    onPointerCancel={clearMemberPressTimer}
+                    onContextMenu={(e) => handleMemberItemContextMenu(e, char.id)}
                     sx={{
                       display: 'flex', alignItems: 'center', gap: 1.25, p: 1.5, borderRadius: 3, border: 1,
                       borderColor: selectedMembers.includes(char.id) ? 'primary.main' : 'divider',
@@ -235,11 +567,10 @@ export default function CreateChatPage() {
                       cursor: 'pointer', transition: 'all 0.18s ease', '&:hover': { boxShadow: 1, borderColor: 'primary.main' },
                     }}
                   >
-                    <Checkbox checked={selectedMembers.includes(char.id)} size="small" />
+                    <Checkbox checked={selectedMembers.includes(char.id)} size="small" onClick={(e) => { e.stopPropagation(); handleMemberItemClick(char.id); }} />
                     <Avatar sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>{char.avatar}</Avatar>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{char.name}</Typography>
-                      <Typography variant="caption" color="text.secondary" noWrap>{getMemberSecondary(char)}</Typography>
                     </Box>
                   </Box>
                 ))}
@@ -261,11 +592,10 @@ export default function CreateChatPage() {
                       cursor: 'pointer', transition: 'all 0.18s ease', '&:hover': { boxShadow: 1, borderColor: 'primary.main' },
                     }}
                   >
-                    <Checkbox checked={selectedMembers.includes(char.id)} size="small" />
+                    <Checkbox checked={selectedMembers.includes(char.id)} size="small" onClick={(e) => { e.stopPropagation(); toggleMember(char.id); }} />
                     <Avatar sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>{char.avatar}</Avatar>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{char.name}</Typography>
-                      <Typography variant="caption" color="text.secondary" noWrap>{getMemberSecondary(char)}</Typography>
                     </Box>
                     <Chip label="Preset" size="small" variant="outlined" />
                   </Box>

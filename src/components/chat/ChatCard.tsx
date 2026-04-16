@@ -1,4 +1,5 @@
 import { Card, CardContent, CardActionArea, Box, Typography, Avatar, AvatarGroup, Chip } from '@mui/material';
+import { ChatBubbleOutlined as DirectIcon, Groups as GroupIcon } from '@mui/icons-material';
 import type { GroupChat } from '../../types/chat';
 import type { AICharacter } from '../../types/character';
 import { formatRelativeTime } from '../../utils/format';
@@ -13,6 +14,7 @@ interface ChatCardProps {
 export default function ChatCard({ chat, characters, onClick }: ChatCardProps) {
   const { t } = useTranslation();
   const members = characters.filter((c) => chat.memberIds.includes(c.id));
+  const isDirect = chat.type === 'direct' || chat.type === 'ai_direct';
 
   return (
     <Card
@@ -33,9 +35,12 @@ export default function ChatCard({ chat, characters, onClick }: ChatCardProps) {
         <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600 }}>
-                {chat.name}
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+                {isDirect ? <DirectIcon sx={{ fontSize: 16, color: 'text.secondary' }} /> : <GroupIcon sx={{ fontSize: 16, color: 'text.secondary' }} />}
+                <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600 }}>
+                  {chat.type === 'group' ? `${chat.name} (${chat.memberIds.length})` : chat.name}
+                </Typography>
+              </Box>
               {chat.topic && (
                 <Typography variant="caption" color="text.secondary" noWrap>
                   {chat.topic}
@@ -52,13 +57,20 @@ export default function ChatCard({ chat, characters, onClick }: ChatCardProps) {
           </Box>
 
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <AvatarGroup max={5} sx={{ '& .MuiAvatar-root': { width: 28, height: 28, fontSize: '0.85rem' } }}>
-              {members.map((m) => (
-                <Avatar key={m.id} sx={{ bgcolor: 'primary.light' }}>
-                  {m.avatar}
-                </Avatar>
-              ))}
-            </AvatarGroup>
+            {isDirect ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {members[0] ? <Avatar sx={{ width: 28, height: 28, fontSize: '0.85rem', bgcolor: 'primary.light' }}>{members[0].avatar}</Avatar> : null}
+                <Typography variant="caption" color="text.secondary">{chat.type === 'ai_direct' ? 'AI私聊' : '单聊'}</Typography>
+              </Box>
+            ) : (
+              <AvatarGroup max={5} sx={{ '& .MuiAvatar-root': { width: 28, height: 28, fontSize: '0.85rem' } }}>
+                {members.map((m) => (
+                  <Avatar key={m.id} sx={{ bgcolor: 'primary.light' }}>
+                    {m.avatar}
+                  </Avatar>
+                ))}
+              </AvatarGroup>
+            )}
             <Typography variant="caption" color="text.disabled">
               {formatRelativeTime(chat.lastMessageAt)}
             </Typography>

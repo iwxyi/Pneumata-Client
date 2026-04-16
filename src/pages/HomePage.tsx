@@ -19,8 +19,10 @@ export default function HomePage() {
     loadCharacters();
   }, []);
 
-  const recentChats = chats.slice(0, 5);
+  const recentChats = chats.filter((chat) => chat.type === 'group').slice(0, 5);
+  const recentDirectChats = chats.filter((chat) => chat.type === 'direct' || chat.type === 'ai_direct').slice(0, 4);
   const customCharacters = characters.filter((character) => !character.isPreset);
+  const totalDirectChats = chats.filter((chat) => chat.type === 'direct' || chat.type === 'ai_direct').length;
 
   return (
     <Box sx={{ flex: 1, overflow: 'auto', p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 } }}>
@@ -29,7 +31,7 @@ export default function HomePage() {
         {[
           {
             label: t('home.totalChats'),
-            value: chats.length,
+            value: chats.filter((chat) => chat.type === 'group').length,
             icon: <ChatIcon />,
             color: '#6750A4',
             onOpen: () => navigate('/chats'),
@@ -37,12 +39,21 @@ export default function HomePage() {
             createLabel: t('chat.create'),
           },
           {
+            label: '单聊数量',
+            value: totalDirectChats,
+            icon: <ChatIcon />,
+            color: '#4E7E6B',
+            onOpen: () => navigate('/chats'),
+            onCreate: () => navigate('/direct/create'),
+            createLabel: '创建单聊',
+          },
+          {
             label: t('home.totalCharacters'),
             value: customCharacters.length,
             icon: <PersonIcon />,
             color: '#625B71',
             onOpen: () => navigate('/characters'),
-            onCreate: () => navigate('/characters?create=1'),
+            onCreate: () => navigate('/characters/create'),
             createLabel: t('character.create'),
           },
         ].map((stat) => (
@@ -120,7 +131,21 @@ export default function HomePage() {
 
       <Divider sx={{ mb: 3 }} />
 
-      {/* Recent Chats */}
+      {recentDirectChats.length > 0 ? (
+        <>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
+            最近单聊
+          </Typography>
+          <Box sx={{ px: { xs: 0.5, sm: 0.75 }, mb: 4 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1.5 }}>
+              {recentDirectChats.map((chat) => (
+                <ChatCard key={chat.id} chat={chat} characters={characters} onClick={() => navigate(`/chats/${chat.id}`)} />
+              ))}
+            </Box>
+          </Box>
+        </>
+      ) : null}
+
       <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
         {t('home.recentChats')}
       </Typography>

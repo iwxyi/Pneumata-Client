@@ -6,9 +6,9 @@ import { generateResponse } from './aiClient';
 import { buildSystemPrompt, buildChatMessages } from './promptBuilder';
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
 import { calculateWeights, selectSpeaker } from './scheduler';
+import { deriveSpeakIntent } from './intentEngine';
 import { BASE_COOLDOWN_MS, MAX_HISTORY_FOR_PROMPT } from '../constants/defaults';
 
-// Emotion state for each AI character
 const emotionMap: Record<string, number> = {};
 
 export const getEmotion = (characterId: string): number => {
@@ -26,13 +26,44 @@ export interface ChatEngineCallbacks {
   onError: (error: Error) => void;
 }
 
-function stripRoleActions(content: string) {
+export function stripRoleActions(content: string) {
   return content
     .replace(/（[^（）]{1,24}）/g, '')
     .replace(/\([^()]{1,24}\)/g, '')
     .replace(/\*[^*\n]{1,24}\*/g, '')
     .replace(/\s{2,}/g, ' ')
     .replace(/^[\s\n]+|[\s\n]+$/g, '');
+}
+
+function sanitizeChunk(content: string, showRoleActions?: boolean) {
+  if (showRoleActions !== false) return content;
+
+  const trimmed = content.trimStart();
+  if (!trimmed) return '';
+
+  const startsWithBracket = trimmed.startsWith('（') || trimmed.startsWith('(');
+  if (!startsWithBracket) return stripRoleActions(content);
+
+  const closeIndex = (() => {
+    const cn = trimmed.indexOf('）');
+    const en = trimmed.indexOf(')');
+    if (cn === -1) return en;
+    if (en === -1) return cn;
+    return Math.min(cn, en);
+  })();
+
+  if (closeIndex === -1) {
+    return content;
+  }
+
+  const remainder = trimmed.slice(closeIndex + 1);
+  return stripRoleActions(remainder);
+}
+
+function buildChunkHandler(showRoleActions: boolean | undefined, onMessageChunk: (content: string) => void) {
+  return (content: string) => {
+    onMessageChunk(sanitizeChunk(content, showRoleActions));
+  };
 }
 
 function normalizeForComparison(content: string) {
@@ -138,7 +169,6 @@ export const runOneRound = async (
     return;
   }
 
-  // Calculate weights and select speaker
   const lastSpeakTimestamps: Record<string, number> = {};
   for (const msg of messages) {
     if (msg.type === 'ai' && !msg.isDeleted) {
@@ -155,30 +185,28 @@ export const runOneRound = async (
   );
 
   const speakerId = selectSpeaker(candidates);
-  if (!speakerId) {
-    return;
-  }
+  if (!speakerId) return;
 
   const speaker = chatMembers.find((c) => c.id === speakerId);
   if (!speaker) return;
 
   callbacks.onSpeakerSelected(speakerId);
 
-  // Build prompt
   const emotion = getEmotion(speakerId);
-  const systemPrompt = buildSystemPrompt(speaker, chat, emotion);
+  const recentTargetId = messages.filter((m) => m.type === 'ai' && !m.isDeleted).at(-1)?.senderId;
+  const intent = deriveSpeakIntent(speaker, recentTargetId);
+  const systemPrompt = `${buildSystemPrompt(speaker, chat, emotion)}\n\nCurrent speaking intent:\n- reason: ${intent.reason}\n- target: ${intent.target}\n- stance: ${intent.stance}\n- emotionalTone: ${intent.emotionalTone}`;
   const characterMap = new Map(chatMembers.map((c) => [c.id, c]));
   const chatMessages = buildChatMessages(messages.filter((m) => !m.isDeleted), characterMap, MAX_HISTORY_FOR_PROMPT);
 
   try {
     const resolvedApi = resolveApiConfigForCharacter(speaker, apiConfig, profiles);
 
-    // Generate response with streaming
     let response = await generateResponse(
       resolvedApi,
       systemPrompt,
       chatMessages,
-      callbacks.onMessageChunk
+      buildChunkHandler(chat.showRoleActions, callbacks.onMessageChunk)
     );
     let finalResponse = chat.showRoleActions === false ? stripRoleActions(response) : response;
 
@@ -187,7 +215,7 @@ export const runOneRound = async (
         resolvedApi,
         `${systemPrompt}\n\n${buildRetryPrompt(finalResponse)}`,
         chatMessages,
-        callbacks.onMessageChunk
+        buildChunkHandler(chat.showRoleActions, callbacks.onMessageChunk)
       );
       finalResponse = chat.showRoleActions === false ? stripRoleActions(response) : response;
 
@@ -197,15 +225,12 @@ export const runOneRound = async (
       }
     }
 
-    // Update emotion
     const msgEmotion = analyzeEmotion(finalResponse);
     setEmotion(speakerId, updateEmotion(emotion, msgEmotion));
 
-    // Update emotions of other characters based on this message
     for (const member of chatMembers) {
       if (member.id !== speakerId) {
         const otherEmotion = getEmotion(member.id);
-        // Others are slightly influenced by the message
         setEmotion(member.id, updateEmotion(otherEmotion, msgEmotion, 0.85));
       }
     }

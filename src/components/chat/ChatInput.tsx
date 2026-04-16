@@ -8,9 +8,10 @@ interface ChatInputProps {
   characterName?: string;
   onSend: (content: string) => void;
   onClose?: () => void;
+  placeholderOverride?: string;
 }
 
-export default function ChatInput({ mode, characterName, onSend, onClose }: ChatInputProps) {
+export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride }: ChatInputProps) {
   const [text, setText] = useState('');
   const { t } = useTranslation();
 
@@ -27,10 +28,11 @@ export default function ChatInput({ mode, characterName, onSend, onClose }: Chat
     }
   };
 
-  const placeholder =
+  const placeholder = placeholderOverride || (
     mode === 'guide'
       ? t('controls.topicGuidePlaceholder')
-      : t('controls.speakAsPlaceholder', { name: characterName });
+      : t('controls.speakAsPlaceholder', { name: characterName })
+  );
 
   return (
     <Box

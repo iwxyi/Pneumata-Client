@@ -7,11 +7,13 @@ interface UIStore {
   godModeActive: boolean;
   topicGuideOpen: boolean;
   speakAsCharacterId: string | null;
+  rightPanelTab: 'members' | 'world';
 
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleRightPanel: () => void;
   setRightPanelOpen: (open: boolean) => void;
+  setRightPanelTab: (tab: 'members' | 'world') => void;
   setGodModeActive: (active: boolean) => void;
   setTopicGuideOpen: (open: boolean) => void;
   setSpeakAsCharacter: (id: string | null) => void;
@@ -25,11 +27,13 @@ export const useUIStore = create<UIStore>()(
       godModeActive: false,
       topicGuideOpen: false,
       speakAsCharacterId: null,
+      rightPanelTab: 'members',
 
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
       setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
+      setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
       setGodModeActive: (active) => set({ godModeActive: active }),
       setTopicGuideOpen: (open) => set({ topicGuideOpen: open }),
       setSpeakAsCharacter: (id) => set({ speakAsCharacterId: id }),

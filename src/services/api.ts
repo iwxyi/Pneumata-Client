@@ -73,7 +73,8 @@ class ApiClient {
   async getCharacters() {
     return this.request<Array<{
       id: string; name: string; avatar: string; personality: Record<string, number>;
-      expertise: string[]; speakingStyle: string; background: string;
+      behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
+      relationships?: object[]; memory?: object; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       modelProfileId?: string | null; bubbleStyleId?: string | null;
       isPreset: boolean; createdAt: number; updatedAt: number;
     }>>('GET', '/characters');
@@ -81,9 +82,11 @@ class ApiClient {
 
   async createCharacter(data: {
     name: string; avatar?: string; personality: Record<string, number>;
-    expertise: string[]; speakingStyle: string; background: string;
+    behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
+    relationships?: object[]; memory?: object; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     modelProfileId?: string | null; bubbleStyleId?: string | null;
   }) {
+    console.log('[api:createCharacter:request]', data);
     return this.request<Record<string, unknown>>('POST', '/characters', data);
   }
 
@@ -95,18 +98,28 @@ class ApiClient {
     return this.request<{ success: boolean }>('DELETE', `/characters/${id}`);
   }
 
+  async bulkDeleteCharacters(ids: string[]) {
+    return this.request<{ success: boolean; deletedIds: string[] }>('POST', '/characters/bulk-delete', { ids });
+  }
+
+  async bulkUpdateCharacters(ids: string[], data: { group?: string | null }) {
+    return this.request<{ success: boolean; characters: Record<string, unknown>[] }>('POST', '/characters/bulk-update', { ids, ...data });
+  }
+
   async getChats() {
     return this.request<Array<{
-      id: string; name: string; topic: string; style: string;
+      id: string; type?: string; mode?: string; modeConfig?: object; modeState?: object; name: string; topic: string; style: string;
       memberIds: string[]; speed: number; isActive: boolean;
-      allowIntervention: boolean; showRoleActions?: boolean; topicSeed: string;
+      allowIntervention: boolean; showRoleActions?: boolean; topicSeed: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeNotes?: string[]; runtimeArtifacts?: string[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+      governance?: object; dramaRules?: object; worldState?: object; directorControls?: object;
       createdAt: number; updatedAt: number; lastMessageAt: number;
     }>>('GET', '/chats');
   }
 
   async createChat(data: {
-    name: string; topic?: string; style?: string; memberIds: string[];
-    speed?: number; isActive?: boolean; allowIntervention?: boolean; showRoleActions?: boolean; topicSeed?: string;
+    type?: string; mode?: string; modeConfig?: object; modeState?: object; name: string; topic?: string; style?: string; memberIds: string[];
+    speed?: number; isActive?: boolean; allowIntervention?: boolean; showRoleActions?: boolean; topicSeed?: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeNotes?: string[]; runtimeArtifacts?: string[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+    governance?: unknown; dramaRules?: unknown; worldState?: unknown; directorControls?: unknown;
   }) {
     return this.request<Record<string, unknown>>('POST', '/chats', data);
   }

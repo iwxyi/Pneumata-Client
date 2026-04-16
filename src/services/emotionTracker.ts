@@ -38,7 +38,17 @@ export const updateEmotion = (
   messageEmotion: number,
   decay: number = 0.7
 ): number => {
-  // Weighted moving average with decay
   const newEmotion = currentEmotion * decay + messageEmotion * (1 - decay);
   return Math.max(-1, Math.min(1, newEmotion));
+};
+
+export const deriveRelationshipDelta = (text: string) => {
+  const emotion = analyzeEmotion(text);
+  if (emotion >= 0.35) {
+    return { affinity: 8, respect: 5, hostility: -4, contempt: -3 };
+  }
+  if (emotion <= -0.35) {
+    return { affinity: -6, respect: -3, hostility: 8, contempt: 5 };
+  }
+  return { affinity: 1, respect: 1, hostility: 0, contempt: 0 };
 };

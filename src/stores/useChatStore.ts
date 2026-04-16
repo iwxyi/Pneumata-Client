@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { GroupChat } from '../types/chat';
+import { normalizeConversation } from '../types/chat';
 import { api } from '../services/api';
 
 interface PersistedChatState {
@@ -38,11 +39,11 @@ function createChatStorage() {
 function mergeChats(localChats: GroupChat[], remoteChats: GroupChat[]) {
   const merged = new Map<string, GroupChat>();
 
-  for (const chat of localChats) {
+  for (const chat of localChats.map((item) => normalizeConversation(item))) {
     merged.set(chat.id, chat);
   }
 
-  for (const remote of remoteChats) {
+  for (const remote of remoteChats.map((item) => normalizeConversation(item))) {
     const local = merged.get(remote.id);
     if (!local || remote.updatedAt >= local.updatedAt) {
       merged.set(remote.id, remote);
@@ -96,6 +97,10 @@ export const useChatStore = create<ChatStore>()(
 
       addChat: async (chatData) => {
         const result = await api.createChat({
+          type: chatData.type,
+          mode: chatData.mode,
+          modeConfig: chatData.modeConfig,
+          modeState: chatData.modeState,
           name: chatData.name,
           topic: chatData.topic,
           style: chatData.style,
@@ -105,8 +110,22 @@ export const useChatStore = create<ChatStore>()(
           allowIntervention: chatData.allowIntervention,
           showRoleActions: chatData.showRoleActions,
           topicSeed: chatData.topicSeed,
+          sourceChatId: chatData.sourceChatId,
+          sourceMemberIds: chatData.sourceMemberIds,
+          runtimeNotes: chatData.runtimeNotes,
+          runtimeArtifacts: chatData.runtimeArtifacts,
+          runtimeTimeline: chatData.runtimeTimeline,
+          governance: chatData.governance,
+          dramaRules: chatData.dramaRules,
+          worldState: chatData.worldState,
+          directorControls: chatData.directorControls,
         });
-        const chat = result as unknown as GroupChat;
+        const chat = normalizeConversation({
+          ...(result as unknown as GroupChat),
+          type: (result as Partial<GroupChat>).type || chatData.type,
+          sourceChatId: (result as Partial<GroupChat>).sourceChatId ?? chatData.sourceChatId,
+          sourceMemberIds: (result as Partial<GroupChat>).sourceMemberIds || chatData.sourceMemberIds,
+        } as GroupChat);
         set((state) => ({
           chats: [chat, ...state.chats.filter((item) => item.id !== chat.id)].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
         }));
@@ -115,7 +134,13 @@ export const useChatStore = create<ChatStore>()(
 
       updateChat: async (id, updates) => {
         const result = await api.updateChat(id, updates as Record<string, unknown>);
-        const updatedChat = result as unknown as GroupChat;
+        const existingChat = get().chats.find((item) => item.id === id);
+        const updatedChat = normalizeConversation({
+          ...(existingChat || {}),
+          ...(result as unknown as GroupChat),
+          ...(updates as Partial<GroupChat>),
+          id,
+        } as GroupChat);
         set((state) => ({
           chats: state.chats
             .map((c) => (c.id === id ? updatedChat : c))

@@ -11,7 +11,6 @@ import {
   MenuItem,
   IconButton,
   Fab,
-  Collapse,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -22,24 +21,29 @@ import {
   DialogActions,
   Tabs,
   Tab,
+  FormControlLabel,
+  Switch,
+  Autocomplete,
 } from '@mui/material';
 import {
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
   Save as SaveIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
   Add as AddIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import type { AICharacter, PersonalityParams } from '../../types/character';
+import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig } from '../../types/character';
+import { getCharacterGroupList, normalizeCharacterGroup } from '../../types/character';
 import type { BubbleShadowLevel, BubbleStyleDefinition, BubbleStyleFormValues } from '../../types/bubbleStyle';
-import { DEFAULT_PERSONALITY } from '../../types/character';
+import { DEFAULT_PERSONALITY, DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION } from '../../types/character';
 import { DEFAULT_BUBBLE_STYLE_FORM } from '../../types/bubbleStyle';
 import { generateCharacterProfile } from '../../services/characterGenerator';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCharacterStore } from '../../stores/useCharacterStore';
 import PersonalitySliders from './PersonalitySliders';
+import NumericSliders from './NumericSliders';
+import RuntimeInsightsPanel from './RuntimeInsightsPanel';
+import CollapsibleParamGroup from './CollapsibleParamGroup';
 import { AVATAR_OPTIONS } from '../../constants/presets';
 import { BUILT_IN_BUBBLE_STYLES, DEFAULT_AI_BUBBLE_STYLE_ID } from '../../constants/bubbleStyles';
 import { buildBubblePreview, resolveBubbleStyle } from '../../utils/bubbleStyle';
@@ -104,9 +108,14 @@ interface CharacterFormProps {
     name: string;
     avatar: string;
     personality: PersonalityParams;
+    behavior: CharacterBehaviorParams;
     expertise: string[];
     speakingStyle: string;
     background: string;
+    relationships: AICharacter['relationships'];
+    group?: string | null;
+    memory: CharacterMemoryConfig;
+    intervention: CharacterInterventionConfig;
     modelProfileId?: string | null;
     bubbleStyleId?: string | null;
   }) => void;
@@ -119,10 +128,15 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
   const [name, setName] = useState(initial?.name || '');
   const [avatar, setAvatar] = useState(initial?.avatar || '🤖');
   const [personality, setPersonality] = useState<PersonalityParams>(initial?.personality || DEFAULT_PERSONALITY);
+  const [behavior, setBehavior] = useState<CharacterBehaviorParams>(initial?.behavior || DEFAULT_CHARACTER_BEHAVIOR);
   const [expertise, setExpertise] = useState<string[]>(initial?.expertise || []);
   const [expertiseInput, setExpertiseInput] = useState('');
   const [speakingStyle, setSpeakingStyle] = useState(initial?.speakingStyle || '');
   const [background, setBackground] = useState(initial?.background || '');
+  const [relationshipsText, setRelationshipsText] = useState(() => (initial?.relationships || []).map((item) => item.note || '').join('\n'));
+  const [group, setGroup] = useState(initial?.group || '');
+  const [memory, setMemory] = useState<CharacterMemoryConfig>(initial?.memory || DEFAULT_CHARACTER_MEMORY);
+  const [intervention, setIntervention] = useState<CharacterInterventionConfig>(initial?.intervention || DEFAULT_CHARACTER_INTERVENTION);
   const [modelProfileId, setModelProfileId] = useState<string>(initial?.modelProfileId || 'default');
   const [bubbleStyleId, setBubbleStyleId] = useState<string>(initial?.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID);
   const [draftBubbleStyleId, setDraftBubbleStyleId] = useState<string>(initial?.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID);
@@ -132,9 +146,12 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
   const [editingBubbleStyleId, setEditingBubbleStyleId] = useState<string | null>(null);
   const [bubbleForm, setBubbleForm] = useState<BubbleStyleFormValues>(DEFAULT_BUBBLE_STYLE_FORM);
   const [bubbleTab, setBubbleTab] = useState(0);
+  const [configTab, setConfigTab] = useState(0);
   const bubbleCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const characters = useCharacterStore((state) => state.characters);
   const [personalityExpanded, setPersonalityExpanded] = useState(true);
+  const [socialExpanded, setSocialExpanded] = useState(true);
+  const [discussionExpanded, setDiscussionExpanded] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
 
@@ -149,6 +166,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
   const selectedBubbleStyle = resolveBubbleStyle(bubbleStyleId, customBubbleStyles);
   const selectedBubblePreview = buildBubblePreview(selectedBubbleStyle);
   const bubblePreviewText = useMemo(() => (i18n.language.startsWith('zh') ? '这是角色气泡预览' : 'Bubble style preview'), [i18n.language]);
+  const existingGroups = useMemo(() => getCharacterGroupList(characters.filter((character) => !character.isPreset)), [characters]);
 
   useEffect(() => {
     if (bubblePickerOpen) {
@@ -206,13 +224,164 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
       setGenerateError(i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists');
       return;
     }
-    onSave({ name: normalizedName, avatar, personality, expertise, speakingStyle, background, modelProfileId, bubbleStyleId });
+    const relationshipNotes = relationshipsText
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((note, index) => ({
+        characterId: `draft-${index}`,
+        affinity: 50,
+        hostility: 0,
+        respect: 50,
+        contempt: 0,
+        note,
+      }));
+    onSave({
+      name: normalizedName,
+      avatar,
+      personality,
+      behavior,
+      expertise,
+      speakingStyle,
+      background,
+      relationships: relationshipNotes,
+      group: normalizeCharacterGroup(group),
+      memory,
+      intervention,
+      modelProfileId,
+      bubbleStyleId,
+    });
+  };
+
+  const renderTagEditor = (value: string[], onChange: (next: string[]) => void, placeholder: string) => (
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+      {value.map((item) => <Chip key={item} label={item} onDelete={() => onChange(value.filter((entry) => entry !== item))} size="small" />)}
+      <Chip
+        label={
+          <TextField
+            variant="standard"
+            placeholder={value.length === 0 ? placeholder : ''}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const target = e.target as HTMLInputElement;
+                const nextValue = target.value.trim();
+                if (nextValue && !value.includes(nextValue)) {
+                  onChange([...value, nextValue]);
+                }
+                target.value = '';
+              }
+            }}
+            slotProps={{ input: { disableUnderline: true } }}
+            sx={{ width: '8em', '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiInputBase-input': { py: 0, px: 0, width: '100%' } }}
+          />
+        }
+        size="small"
+        variant="outlined"
+        sx={{ width: 'fit-content', maxWidth: 180, '& .MuiChip-label': { px: 0.75, py: 0.25 } }}
+      />
+    </Box>
+  );
+
+  const behaviorGroups: Array<{ title: string; items: Array<{ key: keyof CharacterBehaviorParams; label: string; description: string }> }> = [
+    {
+      title: i18n.language.startsWith('zh') ? '社交表达' : 'Social style',
+      items: [
+        { key: 'proactivity', label: i18n.language.startsWith('zh') ? '主动性' : 'Proactivity', description: i18n.language.startsWith('zh') ? '越高越容易主动开口' : 'Higher means starts talking more often' },
+        { key: 'humorIntensity', label: i18n.language.startsWith('zh') ? '幽默感' : 'Humor', description: i18n.language.startsWith('zh') ? '越高越容易插科打诨' : 'Higher means more joking' },
+        { key: 'empathyLevel', label: i18n.language.startsWith('zh') ? '共情度' : 'Empathy', description: i18n.language.startsWith('zh') ? '越高越会照顾他人情绪' : 'Higher means more emotionally responsive' },
+      ],
+    },
+    {
+      title: i18n.language.startsWith('zh') ? '讨论风格' : 'Discussion style',
+      items: [
+        { key: 'aggressiveness', label: i18n.language.startsWith('zh') ? '攻击性' : 'Aggressiveness', description: i18n.language.startsWith('zh') ? '越高越容易反驳或施压' : 'Higher means more confrontational' },
+        { key: 'summarizing', label: i18n.language.startsWith('zh') ? '总结倾向' : 'Summarizing', description: i18n.language.startsWith('zh') ? '越高越喜欢收束观点' : 'Higher means more likely to summarize' },
+        { key: 'offTopic', label: i18n.language.startsWith('zh') ? '跑题倾向' : 'Off-topic', description: i18n.language.startsWith('zh') ? '越高越容易把话题带偏' : 'Higher means more likely to derail topics' },
+      ],
+    },
+  ];
+
+  const runtimeCharacter = {
+    ...initial,
+    personality,
+    behavior,
+    relationships: initial?.relationships || [],
+    memory,
+    intervention,
   };
 
   const openBubblePicker = () => {
     setDraftBubbleStyleId(bubbleStyleId);
     setBubblePickerOpen(true);
   };
+
+  const settingTab = (
+    <>
+      <Box sx={{ width: { xs: '100%', md: '72%' } }}>
+        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '气泡样式' : 'Bubble style'}</Typography>
+        <Card variant="outlined" sx={{ cursor: 'pointer', borderRadius: 3 }} onClick={openBubblePicker}>
+          <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+              <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{avatar}</Box>
+              <Box sx={{ px: 1.5, py: 0.875, border: selectedBubblePreview.border, borderRadius: selectedBubblePreview.borderRadius, boxShadow: selectedBubblePreview.boxShadow, color: selectedBubblePreview.color, background: selectedBubblePreview.background, flex: 1, minWidth: 0 }}>
+                <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, opacity: 0.9 }}>{selectedBubbleStyle.name}</Typography>
+                <Typography variant="body2" noWrap>{bubblePreviewText}</Typography>
+              </Box>
+              <IconButton size="small"><EditIcon fontSize="small" /></IconButton>
+            </Box>
+          </CardContent>
+        </Card>
+      </Box>
+
+      <Box sx={{ width: { xs: '100%', md: '72%' } }}>
+        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{t('character.expertise')}</Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+          {expertise.map((exp) => <Chip key={exp} label={exp} onDelete={() => setExpertise(expertise.filter((e) => e !== exp))} size="small" />)}
+          <Chip
+            label={<TextField variant="standard" placeholder={expertise.length === 0 ? t('character.expertisePlaceholder') : ''} value={expertiseInput} onChange={(e) => setExpertiseInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExpertise(); } }} slotProps={{ input: { disableUnderline: true } }} sx={{ width: expertiseInput ? `${Math.max(4, expertiseInput.length + 1)}ch` : '4em', minWidth: '4em', maxWidth: 160, '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiInputBase-input': { py: 0, px: 0, width: '100%' } }} />}
+            size="small"
+            variant="outlined"
+            sx={{ width: 'fit-content', maxWidth: 148, '& .MuiChip-label': { px: 0.75, py: 0.25 } }}
+          />
+        </Box>
+      </Box>
+
+      <TextField label={t('character.speakingStyle')} placeholder={t('character.speakingStylePlaceholder')} value={speakingStyle} onChange={(e) => setSpeakingStyle(e.target.value)} multiline rows={2} fullWidth />
+      <TextField label={t('character.background')} placeholder={t('character.backgroundPlaceholder')} value={background} onChange={(e) => setBackground(e.target.value)} multiline rows={3} fullWidth />
+
+      <Stack spacing={1.5}>
+        <FormControlLabel control={<Switch checked={intervention.allowSpeakAs} onChange={(e) => setIntervention((prev) => ({ ...prev, allowSpeakAs: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许用户以该角色身份发言' : 'Allow speak as'} />
+        <FormControlLabel control={<Switch checked={intervention.allowDirectorPrompt} onChange={(e) => setIntervention((prev) => ({ ...prev, allowDirectorPrompt: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许导演强制干预' : 'Allow director prompts'} />
+        <FormControlLabel control={<Switch checked={intervention.allowPrivateThread} onChange={(e) => setIntervention((prev) => ({ ...prev, allowPrivateThread: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许被拉入AI私聊' : 'Allow AI private thread'} />
+      </Stack>
+    </>
+  );
+
+  const behaviorTab = (
+    <Box sx={{ display: 'grid', gap: 1.25 }}>
+      <CollapsibleParamGroup title={t('character.personality')} open={personalityExpanded} onToggle={() => setPersonalityExpanded((prev) => !prev)}>
+        <PersonalitySliders values={personality} onChange={setPersonality} drift={initial?.personalityDrift} />
+      </CollapsibleParamGroup>
+      <CollapsibleParamGroup title={behaviorGroups[0].title} open={socialExpanded} onToggle={() => setSocialExpanded((prev) => !prev)}>
+        <NumericSliders values={behavior} items={behaviorGroups[0].items} onChange={setBehavior} />
+      </CollapsibleParamGroup>
+      <CollapsibleParamGroup title={behaviorGroups[1].title} open={discussionExpanded} onToggle={() => setDiscussionExpanded((prev) => !prev)}>
+        <NumericSliders values={behavior} items={behaviorGroups[1].items} onChange={setBehavior} />
+      </CollapsibleParamGroup>
+    </Box>
+  );
+
+  const modelTab = (
+    <FormControl size="small" sx={{ width: { xs: '100%', md: 220 } }}>
+      <InputLabel>{i18n.language.startsWith('zh') ? 'AI 模型' : 'AI model'}</InputLabel>
+      <Select value={modelProfileId} label={i18n.language.startsWith('zh') ? 'AI 模型' : 'AI model'} onChange={(e) => setModelProfileId(e.target.value)}>
+        {settings.aiProfiles.map((profile) => <MenuItem key={profile.id} value={profile.id}>{profile.name}</MenuItem>)}
+      </Select>
+    </FormControl>
+  );
+
+  const runtimeTab = <RuntimeInsightsPanel character={runtimeCharacter} />;
 
   const shouldAutoScrollBubbleRef = useRef(false);
 
@@ -307,39 +476,88 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
           </Stack>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
             <TextField label={t('character.name')} placeholder={t('character.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} helperText={helperText} error={Boolean(generateError)} required fullWidth />
+            <Autocomplete
+              freeSolo
+              options={existingGroups}
+              value={normalizeCharacterGroup(group) || group || ''}
+              onChange={(_, value) => setGroup(typeof value === 'string' ? value : '')}
+              onInputChange={(_, value) => setGroup(value)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label={i18n.language.startsWith('zh') ? '分组' : 'Group'}
+                  placeholder={i18n.language.startsWith('zh') ? '例如：喜羊羊与灰太狼' : 'e.g. Pleasant Goat and Big Big Wolf'}
+                  fullWidth
+                />
+              )}
+            />
             <Button variant="outlined" onClick={handleGenerate} aria-label={generateAriaLabel} sx={{ minWidth: 88, height: 56, whiteSpace: 'nowrap' }} disabled={!name.trim() || generating}>{generateLabel}</Button>
           </Box>
         </Box>
       </Box>
 
-      <Box sx={{ width: { xs: '100%', md: '72%' } }}>
-        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '气泡样式' : 'Bubble style'}</Typography>
-        <Card variant="outlined" sx={{ cursor: 'pointer', borderRadius: 3 }} onClick={openBubblePicker}>
-          <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-              <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{avatar}</Box>
-              <Box sx={{ px: 1.5, py: 0.875, border: selectedBubblePreview.border, borderRadius: selectedBubblePreview.borderRadius, boxShadow: selectedBubblePreview.boxShadow, color: selectedBubblePreview.color, background: selectedBubblePreview.background, flex: 1, minWidth: 0 }}>
-                <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, opacity: 0.9 }}>{selectedBubbleStyle.name}</Typography>
-                <Typography variant="body2" noWrap>{bubblePreviewText}</Typography>
-              </Box>
-              <IconButton size="small"><EditIcon fontSize="small" /></IconButton>
-            </Box>
-          </CardContent>
-        </Card>
-      </Box>
+      <Tabs value={configTab} onChange={(_, value) => setConfigTab(value)} variant="scrollable" allowScrollButtonsMobile>
+        <Tab label={i18n.language.startsWith('zh') ? '设定' : 'Config'} />
+        <Tab label={i18n.language.startsWith('zh') ? '行为' : 'Behavior'} />
+        <Tab label={i18n.language.startsWith('zh') ? '关系' : 'Relations'} />
+        <Tab label={i18n.language.startsWith('zh') ? '记忆' : 'Memory'} />
+        <Tab label={i18n.language.startsWith('zh') ? '模型' : 'Model'} />
+        <Tab label={i18n.language.startsWith('zh') ? '运行态' : 'Runtime'} />
+      </Tabs>
 
-      <Box sx={{ width: { xs: '100%', md: '72%' } }}>
-        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{t('character.expertise')}</Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-          {expertise.map((exp) => <Chip key={exp} label={exp} onDelete={() => setExpertise(expertise.filter((e) => e !== exp))} size="small" />)}
-          <Chip
-            label={<TextField variant="standard" placeholder={expertise.length === 0 ? t('character.expertisePlaceholder') : ''} value={expertiseInput} onChange={(e) => setExpertiseInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExpertise(); } }} slotProps={{ input: { disableUnderline: true } }} sx={{ width: expertiseInput ? `${Math.max(4, expertiseInput.length + 1)}ch` : '4em', minWidth: '4em', maxWidth: 160, '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiInputBase-input': { py: 0, px: 0, width: '100%' } }} />}
-            size="small"
-            variant="outlined"
-            sx={{ width: 'fit-content', maxWidth: 148, '& .MuiChip-label': { px: 0.75, py: 0.25 } }}
+      {configTab === 0 ? settingTab : null}
+
+      {configTab === 1 ? behaviorTab : null}
+
+      {configTab === 2 ? (
+        <TextField
+          label={i18n.language.startsWith('zh') ? '关系备注' : 'Relationship notes'}
+          placeholder={i18n.language.startsWith('zh') ? '每行一条，例如：容易和理性角色争论' : 'One per line, e.g. tends to challenge analytical characters'}
+          value={relationshipsText}
+          onChange={(e) => setRelationshipsText(e.target.value)}
+          multiline
+          rows={8}
+          fullWidth
+        />
+      ) : null}
+
+      {configTab === 3 ? (
+        <Box sx={{ display: 'grid', gap: 2 }}>
+          <TextField
+            label={i18n.language.startsWith('zh') ? '短期记忆摘要' : 'Short-term summary'}
+            value={memory.shortTermSummary}
+            onChange={(e) => setMemory((prev) => ({ ...prev, shortTermSummary: e.target.value }))}
+            multiline
+            rows={3}
+            fullWidth
           />
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '长期记忆' : 'Long-term memory'}</Typography>
+            {renderTagEditor(memory.longTerm, (next) => setMemory((prev) => ({ ...prev, longTerm: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+          </Box>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '秘密' : 'Secrets'}</Typography>
+            {renderTagEditor(memory.secrets, (next) => setMemory((prev) => ({ ...prev, secrets: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+          </Box>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '执念' : 'Obsessions'}</Typography>
+            {renderTagEditor(memory.obsessions, (next) => setMemory((prev) => ({ ...prev, obsessions: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+          </Box>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '禁区话题' : 'Taboo topics'}</Typography>
+            {renderTagEditor(memory.tabooTopics, (next) => setMemory((prev) => ({ ...prev, tabooTopics: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+          </Box>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '用户相关记忆' : 'User memories'}</Typography>
+            {renderTagEditor(memory.userMemories, (next) => setMemory((prev) => ({ ...prev, userMemories: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+          </Box>
         </Box>
-      </Box>
+      ) : null}
+
+      {configTab === 4 ? modelTab : null}
+
+      {configTab === 5 ? runtimeTab : null}
+
 
       <Dialog open={avatarPickerOpen} onClose={() => setAvatarPickerOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{t('character.avatar')}</DialogTitle>
@@ -413,23 +631,6 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
           <Button variant="contained" onClick={saveBubbleStyle} disabled={!bubbleForm.name.trim()}>{bubblePickerActionLabel.saveStyle}</Button>
         </DialogActions>
       </Dialog>
-
-      <Box>
-        <Box onClick={() => setPersonalityExpanded((prev) => !prev)} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', mb: personalityExpanded ? 0.75 : 0 }}>
-          <Typography variant="body2" sx={{ fontWeight: 500 }}>{t('character.personality')}</Typography>
-          <IconButton size="small">{personalityExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}</IconButton>
-        </Box>
-        <Collapse in={personalityExpanded}><PersonalitySliders values={personality} onChange={setPersonality} /></Collapse>
-      </Box>
-
-      <TextField label={t('character.speakingStyle')} placeholder={t('character.speakingStylePlaceholder')} value={speakingStyle} onChange={(e) => setSpeakingStyle(e.target.value)} multiline rows={2} fullWidth />
-      <TextField label={t('character.background')} placeholder={t('character.backgroundPlaceholder')} value={background} onChange={(e) => setBackground(e.target.value)} multiline rows={3} fullWidth />
-      <FormControl size="small" sx={{ width: { xs: '100%', md: 220 } }}>
-        <InputLabel>{i18n.language.startsWith('zh') ? 'AI 模型' : 'AI model'}</InputLabel>
-        <Select value={modelProfileId} label={i18n.language.startsWith('zh') ? 'AI 模型' : 'AI model'} onChange={(e) => setModelProfileId(e.target.value)}>
-          {settings.aiProfiles.map((profile) => <MenuItem key={profile.id} value={profile.id}>{profile.name}</MenuItem>)}
-        </Select>
-      </FormControl>
 
       <Fab color="primary" variant="extended" onClick={handleSubmit} disabled={!name.trim() || generating} aria-label={t('character.save')} sx={{ position: 'fixed', right: { xs: 24, sm: 32, md: 36 }, bottom: { xs: 24, sm: 32, md: 36 }, zIndex: 1300, minHeight: 56, px: 2.25, gap: 1, borderRadius: 18, boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)', '&:hover': { boxShadow: '0 14px 32px rgba(0,0,0,0.26), 0 6px 12px rgba(0,0,0,0.18)', transform: 'translateY(-1px)' }, '&:active': { boxShadow: '0 6px 14px rgba(0,0,0,0.18)', transform: 'translateY(0)' }, transition: 'box-shadow 0.2s ease, transform 0.2s ease' }}>
         <SaveIcon fontSize="small" />{t('character.save')}

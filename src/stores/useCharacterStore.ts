@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AICharacter } from '../types/character';
+import { normalizeCharacter, normalizeCharacterGroup } from '../types/character';
 import { api } from '../services/api';
 
 interface PersistedCharacterState {
@@ -37,11 +38,11 @@ function createCharacterStorage() {
 function mergeCharacters(localCharacters: AICharacter[], remoteCharacters: AICharacter[]) {
   const merged = new Map<string, AICharacter>();
 
-  for (const character of localCharacters) {
+  for (const character of localCharacters.map((item) => normalizeCharacter(item))) {
     merged.set(character.id, character);
   }
 
-  for (const remote of remoteCharacters) {
+  for (const remote of remoteCharacters.map((item) => normalizeCharacter(item))) {
     const local = merged.get(remote.id);
     if (!local || remote.updatedAt >= local.updatedAt) {
       merged.set(remote.id, remote);
@@ -66,6 +67,8 @@ interface CharacterStore extends PersistedCharacterState {
   addCharacter: (char: Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>) => Promise<AICharacter>;
   updateCharacter: (id: string, updates: Partial<AICharacter>) => Promise<void>;
   deleteCharacter: (id: string) => Promise<void>;
+  deleteCharacters: (ids: string[]) => Promise<void>;
+  updateCharactersGroup: (ids: string[], group: string | null) => Promise<void>;
   getCharacter: (id: string) => AICharacter | undefined;
   getPresets: () => AICharacter[];
   getCustom: () => AICharacter[];
@@ -96,17 +99,24 @@ export const useCharacterStore = create<CharacterStore>()(
       },
 
       addCharacter: async (charData) => {
+        console.log('[store:addCharacter:input]', charData);
         const result = await api.createCharacter({
           name: charData.name,
           avatar: charData.avatar,
           personality: charData.personality as unknown as Record<string, number>,
+          behavior: charData.behavior,
           expertise: charData.expertise,
           speakingStyle: charData.speakingStyle,
           background: charData.background,
+          group: normalizeCharacterGroup(charData.group),
+          relationships: charData.relationships,
+          memory: charData.memory,
+          intervention: charData.intervention,
+          runtimeTimeline: charData.runtimeTimeline,
           modelProfileId: charData.modelProfileId,
           bubbleStyleId: charData.bubbleStyleId,
         });
-        const character = result as unknown as AICharacter;
+        const character = normalizeCharacter(result as unknown as AICharacter);
         set((state) => ({
           characters: mergeCharacters(state.characters, [character, ...state.characters]),
         }));
@@ -115,7 +125,7 @@ export const useCharacterStore = create<CharacterStore>()(
 
       updateCharacter: async (id, updates) => {
         const result = await api.updateCharacter(id, updates);
-        const updatedChar = result as unknown as AICharacter;
+        const updatedChar = normalizeCharacter(result as unknown as AICharacter);
         set((state) => ({
           characters: state.characters.map((c) => (c.id === id ? updatedChar : c)),
         }));
@@ -125,6 +135,27 @@ export const useCharacterStore = create<CharacterStore>()(
         await api.deleteCharacter(id);
         set((state) => ({
           characters: state.characters.filter((c) => c.id !== id),
+        }));
+      },
+
+      deleteCharacters: async (ids) => {
+        const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
+        if (!normalizedIds.length) return;
+        await api.bulkDeleteCharacters(normalizedIds);
+        set((state) => ({
+          characters: state.characters.filter((c) => !normalizedIds.includes(c.id)),
+        }));
+      },
+
+      updateCharactersGroup: async (ids, group) => {
+        const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
+        if (!normalizedIds.length) return;
+        const result = await api.bulkUpdateCharacters(normalizedIds, { group: normalizeCharacterGroup(group) });
+        const updatedCharacters = Array.isArray(result.characters)
+          ? result.characters.map((item) => normalizeCharacter(item as unknown as AICharacter))
+          : [];
+        set((state) => ({
+          characters: updatedCharacters.length ? mergeCharacters(state.characters, updatedCharacters) : state.characters,
         }));
       },
 
@@ -147,9 +178,15 @@ export const useCharacterStore = create<CharacterStore>()(
             name: c.name,
             avatar: c.avatar,
             personality: c.personality as unknown as Record<string, number>,
+            behavior: c.behavior,
             expertise: c.expertise,
             speakingStyle: c.speakingStyle,
             background: c.background,
+            group: normalizeCharacterGroup(c.group),
+            relationships: c.relationships,
+            memory: c.memory,
+            intervention: c.intervention,
+            runtimeTimeline: c.runtimeTimeline,
             modelProfileId: c.modelProfileId,
             bubbleStyleId: c.bubbleStyleId,
           });
