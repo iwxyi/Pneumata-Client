@@ -60,6 +60,8 @@ export interface EmotionalState {
   embarrassment: number;
 }
 
+import type { MemoryItem } from '../services/memoryTypes';
+
 export interface AICharacter {
   id: string;
   name: string;
@@ -75,6 +77,7 @@ export interface AICharacter {
   group?: string | null;
   relationships: CharacterRelationshipPreset[];
   memory: CharacterMemoryConfig;
+  layeredMemories?: MemoryItem[];
   intervention: CharacterInterventionConfig;
   runtimeTimeline?: Array<{ type: 'memory' | 'relationship' | 'drift'; text: string; createdAt: number }>;
   modelProfileId?: string | null;
@@ -228,6 +231,7 @@ export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacte
       tabooTopics: input.memory?.tabooTopics || [],
       userMemories: input.memory?.userMemories || [],
     },
+    layeredMemories: input.layeredMemories || [],
     intervention: {
       ...DEFAULT_CHARACTER_INTERVENTION,
       ...(input.intervention || {}),

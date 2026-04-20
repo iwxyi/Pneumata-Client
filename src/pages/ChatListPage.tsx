@@ -52,16 +52,17 @@ export default function ChatListPage() {
     params.set('tab', String(tab));
     navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
   }, [location.pathname, location.search, navigate, tab]);
-  const filteredChats = chats.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.topic.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredChats = chats.filter((c) => {
+    const summary = (c.layeredMemories || []).slice(-3).map((item) => item.text).join(' ').toLowerCase();
+    const recentEvent = (c.worldState?.recentEvent || '').toLowerCase();
+    const query = search.toLowerCase();
+    return c.name.toLowerCase().includes(query) || c.topic.toLowerCase().includes(query) || recentEvent.includes(query) || summary.includes(query);
+  });
   const groupedChats = filteredChats.filter((chat) => chat.type === 'group');
   const userDirectChats = filteredChats.filter((chat) => chat.type === 'direct');
   const privateChats = filteredChats.filter((chat) => chat.type === 'ai_direct');
   const visibleChats = tab === 0 ? groupedChats : tab === 1 ? userDirectChats : privateChats;
-  const emptyMessage = tab === 0 ? t('chat.empty') : tab === 1 ? '还没有单聊' : '还没有 AI私聊';
+  const emptyMessage = tab === 0 ? t('chat.noGroups') : tab === 1 ? '还没有单聊' : '还没有 AI私聊';
   const createPath = tab === 0 ? '/chats/create' : '/direct/create';
   const createLabel = tab === 0 ? t('chat.create') : '创建单聊';
   const showDirectCreate = tab !== 2;
@@ -93,7 +94,7 @@ export default function ChatListPage() {
       />
 
       <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ mb: 2 }}>
-        <Tab label={`聊天 (${groupedChats.length})`} />
+        <Tab label={`群聊 (${groupedChats.length})`} />
         <Tab label={`单聊 (${userDirectChats.length})`} />
         <Tab label={`AI私聊 (${privateChats.length})`} />
       </Tabs>

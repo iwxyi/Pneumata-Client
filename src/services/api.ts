@@ -74,7 +74,7 @@ class ApiClient {
     return this.request<Array<{
       id: string; name: string; avatar: string; personality: Record<string, number>;
       behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
-      relationships?: object[]; memory?: object; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+      relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       modelProfileId?: string | null; bubbleStyleId?: string | null;
       isPreset: boolean; createdAt: number; updatedAt: number;
     }>>('GET', '/characters');
@@ -83,7 +83,7 @@ class ApiClient {
   async createCharacter(data: {
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
-    relationships?: object[]; memory?: object; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+    relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     modelProfileId?: string | null; bubbleStyleId?: string | null;
   }) {
     console.log('[api:createCharacter:request]', data);
@@ -110,7 +110,7 @@ class ApiClient {
     return this.request<Array<{
       id: string; type?: string; mode?: string; modeConfig?: object; modeState?: object; name: string; topic: string; style: string;
       memberIds: string[]; speed: number; isActive: boolean;
-      allowIntervention: boolean; showRoleActions?: boolean; topicSeed: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeNotes?: string[]; runtimeArtifacts?: string[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+      allowIntervention: boolean; showRoleActions?: boolean; topicSeed: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeNotes?: string[]; runtimeArtifacts?: string[]; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       governance?: object; dramaRules?: object; worldState?: object; directorControls?: object;
       createdAt: number; updatedAt: number; lastMessageAt: number;
     }>>('GET', '/chats');
@@ -118,7 +118,7 @@ class ApiClient {
 
   async createChat(data: {
     type?: string; mode?: string; modeConfig?: object; modeState?: object; name: string; topic?: string; style?: string; memberIds: string[];
-    speed?: number; isActive?: boolean; allowIntervention?: boolean; showRoleActions?: boolean; topicSeed?: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeNotes?: string[]; runtimeArtifacts?: string[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+    speed?: number; isActive?: boolean; allowIntervention?: boolean; showRoleActions?: boolean; topicSeed?: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeNotes?: string[]; runtimeArtifacts?: string[]; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     governance?: unknown; dramaRules?: unknown; worldState?: unknown; directorControls?: unknown;
   }) {
     return this.request<Record<string, unknown>>('POST', '/chats', data);
@@ -160,6 +160,9 @@ class ApiClient {
       api: { provider: string; apiKey: string; baseUrl: string; model: string };
       aiProfiles?: Array<{ id: string; name: string; provider: string; apiKey: string; baseUrl: string; model: string }>;
       theme: string; themeColor: string; language: string; defaultSpeed: number;
+      developerMode?: boolean;
+      developerUI?: { showMemoryDebug?: boolean; showRelationshipEvents?: boolean };
+      memoryUI?: { showDeveloperMemory?: boolean };
       chatDraftDefaults?: { style: string; showRoleActions: boolean };
       customBubbleStyles?: Array<Record<string, unknown>>;
     }>('GET', '/settings');

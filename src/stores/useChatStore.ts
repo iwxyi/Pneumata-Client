@@ -114,6 +114,7 @@ export const useChatStore = create<ChatStore>()(
           sourceMemberIds: chatData.sourceMemberIds,
           runtimeNotes: chatData.runtimeNotes,
           runtimeArtifacts: chatData.runtimeArtifacts,
+          layeredMemories: chatData.layeredMemories,
           runtimeTimeline: chatData.runtimeTimeline,
           governance: chatData.governance,
           dramaRules: chatData.dramaRules,

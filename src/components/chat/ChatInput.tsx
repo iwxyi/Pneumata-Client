@@ -9,9 +9,10 @@ interface ChatInputProps {
   onSend: (content: string) => void;
   onClose?: () => void;
   placeholderOverride?: string;
+  desktopRightOffset?: number;
 }
 
-export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride }: ChatInputProps) {
+export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, desktopRightOffset = 0 }: ChatInputProps) {
   const [text, setText] = useState('');
   const { t } = useTranslation();
 
@@ -38,8 +39,8 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     <Box
       sx={{
         position: 'fixed',
-        left: { xs: 0, md: 'auto' },
-        right: 0,
+        left: 0,
+        right: { xs: 0, md: desktopRightOffset },
         bottom: 0,
         display: 'flex',
         alignItems: 'flex-end',

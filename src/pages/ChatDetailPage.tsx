@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Box, IconButton, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, DialogActions, MenuItem, TextField } from '@mui/material';
 import {
   People as PeopleIcon,
@@ -16,35 +16,38 @@ import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
 import { useResponsive } from '../hooks/useResponsive';
-import { DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE, OPEN_CHAT_MODE_DRIVER } from '../types/chat';
+import { DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../types/chat';
+import { OPEN_CHAT_MODE_DRIVER } from '../services/openChatModeDriver';
 import MessageList from '../components/chat/MessageList';
 import ChatInput from '../components/chat/ChatInput';
 import MemberList from '../components/controls/MemberList';
 import RelationshipPanel from '../components/controls/RelationshipPanel';
 import RightPanel from '../components/layout/RightPanel';
 import EmptyState from '../components/common/EmptyState';
-import { runOneRound } from '../services/chatEngine';
+import { runChatLoop } from '../services/chatLoopRunner';
 import { summarizeRelationshipShift, updateCharacterRelationship } from '../services/relationshipEngine';
-import { derivePersonalityDrift } from '../services/personalityDrift';
-import { accumulateChatRuntime } from '../services/chatRuntime';
+import { deriveEmotionalState, derivePersonalityDrift } from '../services/personalityDrift';
+import { updateCharacterLayeredMemories } from '../services/characterLayeredMemory';
 import { accumulateCharacterRuntime } from '../services/characterRuntime';
 import { buildRuntimeEvent } from '../services/runtimeEventFactory';
-import { refineMemoryCandidate } from '../services/memoryEngine';
+import { accumulateChatRuntime } from '../services/chatRuntime';
+import { commitGeneratedMessage } from '../services/chatRoundExecution';
 
 export default function ChatDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { isMobile } = useResponsive();
+  const { isMobile, isDesktop } = useResponsive();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
 
   const { chats, loadChats, updateChat } = useChatStore();
   const { characters, loadCharacters, updateCharacter } = useCharacterStore();
-  const { messages, hydrateMessagesFromCache, loadMessages, addMessage, clearMessages, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
+  const { messages, hydrateMessagesFromCache, loadMessages, addMessage, addOptimisticMessage, replaceOptimisticMessage, clearMessages, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
   const loopTokenRef = useRef<string | null>(null);
   const api = useSettingsStore((s) => s.api);
   const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, setRightPanelOpen, rightPanelTab, setRightPanelTab } = useUIStore();
+  const desktopRightOffset = useMemo(() => (isDesktop && rightPanelOpen ? 320 : 0), [isDesktop, rightPanelOpen]);
 
   const [thinkingId, setThinkingId] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState('');
@@ -124,7 +127,11 @@ export default function ChatDetailPage() {
   }, [addMessage]);
 
   useEffect(() => {
-    if (!chat) return;
+    if (!id) return;
+    if (!chat) {
+      navigate('/chats', { replace: true });
+      return;
+    }
     const fromTab = new URLSearchParams(window.location.search).get('fromTab');
     setHeaderTitle(chat.name);
     setHeaderBackAction(() => () => navigate(fromTab ? `/chats?tab=${fromTab}` : '/chats'));
@@ -169,99 +176,59 @@ export default function ChatDetailPage() {
       setHeaderBackAction(null);
       setHideMobileBottomNav(false);
     };
-  }, [chat, isMobile, navigate, rightPanelOpen, setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav, setRightPanelOpen]);
+  }, [chat, id, isMobile, navigate, rightPanelOpen, setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav, setRightPanelOpen]);
+
+  useEffect(() => {
+    if (id && chats.length > 0 && !chat) {
+      navigate('/chats', { replace: true });
+    }
+  }, [chat, chats.length, id, navigate]);
 
   // Core conversation loop
   const runLoop = useCallback(async (loopId: string) => {
     if (!chat || !id) return;
 
-    while (isRunningRef.current && !isPausedRef.current) {
-      if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) {
-        return;
-      }
+    await runChatLoop({
+      loopId,
+      chatId: id,
+      chat,
+      characters,
+      api,
+      getCurrentMessages: () => useMessageStore.getState().messages,
+      isRunning: () => isRunningRef.current,
+      isPaused: () => isPausedRef.current,
+      isActiveLoop: (currentLoopId) => activeChatIdRef.current === id && loopTokenRef.current === currentLoopId,
+      onSpeakerSelected: (charId) => {
+        setThinkingId(charId);
+        setCurrentSpeaker(charId);
+      },
+      onMessageChunk: (content) => {
+        setStreamingContent(content);
+      },
+      onClearStreamingState: () => {
+        setThinkingId(null);
+        setStreamingContent('');
+        setCurrentSpeaker(null);
+      },
+      onEngineError: (error) => {
+        console.error('Chat engine error:', error);
+        setThinkingId(null);
+        setStreamingContent('');
+        setCurrentSpeaker(null);
+      },
+      onLoopError: (error) => {
+        console.error('Loop error:', error);
+      },
+      onCommit: OPEN_CHAT_MODE_DRIVER.onMessageCommitted,
+      addOptimisticMessage,
+      replaceOptimisticMessage,
+      updateCharacter,
+      appendEventMessage,
+      updateChat,
+      recordSpeak,
+    });
+  }, [chat, characters, api, id, recordSpeak, setCurrentSpeaker, updateChat]);
 
-      try {
-        const currentMessages = useMessageStore.getState().messages;
-
-        await runOneRound(
-          chat,
-          characters,
-          currentMessages,
-          api,
-          {
-            onSpeakerSelected: (charId) => {
-              if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) return;
-              setThinkingId(charId);
-              setCurrentSpeaker(charId);
-            },
-            onMessageChunk: (content) => {
-              if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) return;
-              setStreamingContent(content);
-            },
-            onMessageComplete: async (msg) => {
-              if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) return;
-              await addMessage(msg);
-              const currentAiMessages = useMessageStore.getState().messages.filter((item) => item.type === 'ai' && !item.isDeleted);
-              const previousAiMessage = currentAiMessages.length >= 2 ? currentAiMessages.at(-2) || null : null;
-              const commitResult = OPEN_CHAT_MODE_DRIVER.onMessageCommitted({
-                conversation: chat,
-                characters,
-                message: msg,
-                previousAiMessage,
-              });
-              const candidate = msg.type === 'ai' ? commitResult.chatPatch.runtimeNotes?.at(-1) || commitResult.chatPatch.runtimeArtifacts?.at(-1) : null;
-              if (candidate && api.apiKey && msg.type === 'ai') {
-                const refined = await refineMemoryCandidate(api, chat, msg, {
-                  kind: commitResult.chatPatch.runtimeArtifacts?.at(-1) === candidate ? 'artifact' : 'note',
-                  text: candidate,
-                  reason: 'driver post-processing candidate',
-                });
-                if (refined) {
-                  commitResult.chatPatch = {
-                    ...commitResult.chatPatch,
-                    ...accumulateChatRuntime(chat, msg, refined),
-                  };
-                }
-              }
-              for (const patch of commitResult.characterPatches) {
-                await updateCharacter(patch.characterId, patch.patch);
-              }
-              for (const eventPayload of commitResult.eventMessages) {
-                await appendEventMessage(id, eventPayload);
-              }
-              setThinkingId(null);
-              setStreamingContent('');
-              setCurrentSpeaker(null);
-              recordSpeak(msg.senderId);
-              updateChat(id, { lastMessageAt: Date.now(), ...commitResult.chatPatch });
-            },
-            onError: (error) => {
-              console.error('Chat engine error:', error);
-              if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) return;
-              setThinkingId(null);
-              setStreamingContent('');
-              setCurrentSpeaker(null);
-            },
-          }
-        );
-
-        if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) {
-          return;
-        }
-
-        if (isRunningRef.current && !isPausedRef.current) {
-          const waitTime = (3000 / (chat.speed || 1)) + Math.random() * 2000;
-          await new Promise((resolve) => setTimeout(resolve, waitTime));
-        }
-      } catch (err) {
-        console.error('Loop error:', err);
-        if (activeChatIdRef.current !== id || loopTokenRef.current !== loopId) {
-          return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-      }
-    }
-  }, [chat, characters, api, id, addMessage, recordSpeak, setCurrentSpeaker, updateChat]);
 
   const handlePlay = useCallback(() => {
     if (!api.apiKey) {
@@ -335,9 +302,17 @@ export default function ChatDetailPage() {
       content,
       emotion: 0,
     });
+    await updateCharacter(char.id, {
+      layeredMemories: updateCharacterLayeredMemories({
+        character: char,
+        content,
+        personalityDrift: {},
+      }),
+      runtimeTimeline: accumulateCharacterRuntime(char, { type: 'memory', text: `以角色身份发言：${content.slice(0, 48)}` }),
+    });
     updateChat(id!, { lastMessageAt: Date.now() });
     setSpeakAsCharacter(null);
-  }, [id, speakAsCharacterId, characters]);
+  }, [id, speakAsCharacterId, characters, updateCharacter]);
 
   const handleGuideSend = useCallback(async (content: string) => {
     await addMessage({
@@ -348,6 +323,15 @@ export default function ChatDetailPage() {
       content,
       emotion: 0,
     });
+    if (chat?.type === 'group') {
+      await Promise.all(members.map((member) => updateCharacter(member.id, {
+        layeredMemories: updateCharacterLayeredMemories({
+          character: member,
+          content,
+          personalityDrift: {},
+        }),
+      })));
+    }
     updateChat(id!, { lastMessageAt: Date.now(), topic: chat?.topic || content });
     useSchedulerStore.getState().resetAllCooldowns();
 
@@ -360,9 +344,23 @@ export default function ChatDetailPage() {
         const updatedTarget = updateCharacterRelationship(target, starterId, content, 1.2);
         const starterDrift = derivePersonalityDrift(starter, content);
         const targetDrift = derivePersonalityDrift(target, content);
+        const starterEmotion = deriveEmotionalState(starter, content);
+        const targetEmotion = deriveEmotionalState(target, content);
         await updateCharacter(starterId, {
           relationships: updatedStarter.relationships,
           personalityDrift: starterDrift,
+          emotionalState: starterEmotion,
+          layeredMemories: updateCharacterLayeredMemories({
+            character: {
+              ...starter,
+              relationships: updatedStarter.relationships,
+              emotionalState: starterEmotion,
+            },
+            targetId,
+            targetName: target.name,
+            content,
+            personalityDrift: starterDrift,
+          }),
           runtimeTimeline: accumulateCharacterRuntime(starter, { type: 'relationship', text: `与 ${target.name} 的AI私聊带来了关系变化` }).concat(
             Object.keys(starterDrift).length ? [{ type: 'drift', text: `与 ${target.name} 互动后产生性格漂移`, createdAt: Date.now() }] : []
           ).slice(-20),
@@ -370,6 +368,18 @@ export default function ChatDetailPage() {
         await updateCharacter(targetId, {
           relationships: updatedTarget.relationships,
           personalityDrift: targetDrift,
+          emotionalState: targetEmotion,
+          layeredMemories: updateCharacterLayeredMemories({
+            character: {
+              ...target,
+              relationships: updatedTarget.relationships,
+              emotionalState: targetEmotion,
+            },
+            targetId: starterId,
+            targetName: starter.name,
+            content,
+            personalityDrift: targetDrift,
+          }),
           runtimeTimeline: accumulateCharacterRuntime(target, { type: 'relationship', text: `与 ${starter.name} 的AI私聊带来了关系变化` }).concat(
             Object.keys(targetDrift).length ? [{ type: 'drift', text: `与 ${starter.name} 互动后产生性格漂移`, createdAt: Date.now() }] : []
           ).slice(-20),
@@ -478,21 +488,20 @@ export default function ChatDetailPage() {
     }
   }, [addMessage, characters, chat, chats, navigate, privateStarterId, privateTargetId]);
 
-  const canAutoRun = chat?.mode === 'open_chat' && chat?.type === 'group';
+  const canAutoRun = chat?.mode === 'open_chat' && (chat?.type === 'group' || chat?.type === 'direct' || chat?.type === 'ai_direct');
 
   const detailTitle = memberPanel?.title || (chat?.type === 'group' ? t('controls.memberList') : chat?.type === 'ai_direct' ? 'AI私聊信息' : '单聊信息');
 
   const privateCandidates = members;
 
   if (!chat) {
-    return (
-      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <EmptyState icon="🔍" message="Chat not found" />
-      </Box>
-    );
+    return null;
   }
 
   const speakAsChar = speakAsCharacterId ? characters.find((c) => c.id === speakAsCharacterId) : null;
+  const compactChatMemorySummary = (chat.layeredMemories || []).slice(-3).map((item) => item.text).join(' / ');
+  const compactCharacterMemorySummary = speakAsChar?.layeredMemories?.slice(-2).map((item) => item.text).join(' / ');
+  const compactRecentEvent = chat.worldState.recentEvent || compactChatMemorySummary;
 
   return (
     <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -513,12 +522,17 @@ export default function ChatDetailPage() {
           />
         </Box>
 
+        <Box sx={{ px: 2, pb: 1 }}>
+          {compactRecentEvent ? <Box sx={{ mb: 0.75, px: 1.25, py: 0.75, borderRadius: 2, bgcolor: 'action.hover', color: 'text.secondary', fontSize: 12 }}>{compactRecentEvent}</Box> : null}
+          {compactCharacterMemorySummary && speakAsChar ? <Box sx={{ mb: 0.75, px: 1.25, py: 0.75, borderRadius: 2, bgcolor: 'action.hover', color: 'text.secondary', fontSize: 12 }}>{`${speakAsChar.name}：${compactCharacterMemorySummary}`}</Box> : null}
+        </Box>
         <ChatInput
           mode={speakAsChar ? 'speakAs' : 'guide'}
           characterName={speakAsChar?.name}
           onSend={speakAsChar ? handleSpeakAs : handleGuideSend}
           onClose={speakAsChar ? () => setSpeakAsCharacter(null) : undefined}
           placeholderOverride={availableActions.some((action) => action.type === 'director_intervention') ? undefined : '当前模式限制发送'}
+          desktopRightOffset={desktopRightOffset}
         />
 
       </Box>

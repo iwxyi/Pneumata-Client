@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { Box, Typography, Avatar, Dialog, DialogContent, Menu, MenuItem } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -22,7 +22,10 @@ const LONG_PRESS_MOVE_THRESHOLD = 12;
 
 export default function MessageBubble({ message, character, onDelete }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
+  const developerMode = useSettingsStore((state) => state.developerMode);
+  const showRelationshipEvents = useSettingsStore((state) => state.developerUI.showRelationshipEvents);
   const navigate = useNavigate();
+  const location = useLocation();
   const [viewerOpen, setViewerOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -81,7 +84,7 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
 
   const handleAvatarClick = () => {
     if (message.type === 'ai') {
-      navigate(`/characters?edit=${message.senderId}`);
+      navigate(`/characters/${message.senderId}/edit?returnTo=${encodeURIComponent(location.pathname + location.search)}`);
     }
   };
 
@@ -122,24 +125,28 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
   }
 
   if (message.type === 'event') {
-    let payload: { title?: string; summary?: string; pair?: string[] } | null = null;
+    if (!developerMode || !showRelationshipEvents) return null;
+
+    let payload: { eventType?: string; title?: string; summary?: string; pair?: string[] } | null = null;
     try {
       payload = JSON.parse(message.content);
     } catch {
       payload = { title: '事件', summary: message.content };
     }
 
+    if (payload?.eventType && payload.eventType !== 'group_relationship_shift') return null;
+
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
-        <Box sx={{ minWidth: 260, maxWidth: 420, px: 2, py: 1.25, bgcolor: 'secondary.light', border: '1px solid', borderColor: 'secondary.main', borderRadius: 3 }}>
-          <Typography variant="caption" sx={{ display: 'block', color: 'secondary.dark', fontWeight: 800, mb: 0.5 }}>
-            关系事件
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: 2 }}>
+        <Box sx={{ maxWidth: 460, px: 1.5, py: 1, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>
+            关系变化
           </Typography>
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
             {payload?.title || '事件'}
           </Typography>
-          {payload?.summary ? <Typography variant="caption" color="text.secondary">{payload.summary}</Typography> : null}
-          {payload?.pair?.length ? <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>{payload.pair.join(' ↔ ')}</Typography> : null}
+          {payload?.summary ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{payload.summary}</Typography> : null}
+          {payload?.pair?.length ? <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.disabled' }}>{payload.pair.join(' ↔ ')}</Typography> : null}
         </Box>
       </Box>
     );

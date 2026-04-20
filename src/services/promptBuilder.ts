@@ -1,6 +1,16 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat, ChatStyle } from '../types/chat';
 import type { Message } from '../types/message';
+import { buildMessageStyleRules, buildSocialPromptContext } from './socialPromptContext';
+import { getMemoryContext } from './layeredMemoryEngine';
+import type { MemoryItem } from './memoryTypes';
+
+const styleDescriptions: Record<ChatStyle, string> = {
+  free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
+  debate: 'This is a formal debate. Take clear positions, provide evidence, and respectfully challenge others\' arguments. Be structured and logical.',
+  brainstorm: 'This is a brainstorming session. Generate creative ideas freely. Build on others\' ideas. No idea is too wild. Be enthusiastic and generative.',
+  roleplay: 'This is a role-playing scenario. Stay in character at all times. React to the situation as your character would. Be immersive and creative.',
+};
 
 function buildEmotionalStateDescription(character: AICharacter) {
   const emotional = character.emotionalState;
@@ -31,12 +41,47 @@ function buildCoreProfileDescription(character: AICharacter) {
   return lines.length ? `\n## Deeper Motivation\n${lines.join('\n')}` : '';
 }
 
-const styleDescriptions: Record<ChatStyle, string> = {
-  free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
-  debate: 'This is a formal debate. Take clear positions, provide evidence, and respectfully challenge others\' arguments. Be structured and logical.',
-  brainstorm: 'This is a brainstorming session. Generate creative ideas freely. Build on others\' ideas. No idea is too wild. Be enthusiastic and generative.',
-  roleplay: 'This is a role-playing scenario. Stay in character at all times. React to the situation as your character would. Be immersive and creative.',
-};
+function buildLayeredMemoryPrompt(items: MemoryItem[]) {
+  if (!items.length) return '';
+  return `\n## Relevant Memories\n${items.map((item) => `- [${item.scope}/${item.kind}/${item.layer}] ${item.text}`).join('\n')}`;
+}
+
+function buildPromptContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>) {
+  const targetId = messages.filter((m) => !m.isDeleted && m.type === 'ai' && m.senderId !== character.id).at(-1)?.senderId;
+  const retrieved = getMemoryContext(chat.layeredMemories || [], character.id, targetId, chat.id);
+  return `${buildLayeredMemoryPrompt(retrieved)}${buildSocialPromptContext(character, chat, messages, characters)}`;
+}
+
+function buildCharacterPromptContext(character: AICharacter) {
+  return `${buildCoreProfileDescription(character)}${buildMessageStyleRules(character)}`;
+}
+
+function buildCurrentState(character: AICharacter, emotion: number) {
+  return `## Current State\n${emotion > 0.3 ? 'You are currently feeling positive and enthusiastic.' : emotion < -0.3 ? 'You are currently feeling somewhat negative or frustrated.' : 'You are currently feeling neutral and calm.'}\n${buildEmotionalStateDescription(character)}`;
+}
+
+function buildChatContext(chat: GroupChat) {
+  return `## Chat Context\n- Topic: ${chat.topic || 'General discussion'}\n- Style: ${styleDescriptions[chat.style]}\n${chat.topicSeed ? `- Opening topic: ${chat.topicSeed}` : ''}`;
+}
+
+function buildBaseCharacterSection(character: AICharacter, personalityDesc: string) {
+  return `## Your Character\n- Background: ${character.background}\n- Speaking Style: ${character.speakingStyle}\n- Expertise: ${character.expertise.join(', ')}\n- Personality: ${personalityDesc}${buildCharacterPromptContext(character)}`;
+}
+
+function buildRules(chat: GroupChat, character: AICharacter) {
+  return `## Rules\n1. Stay in character at all times. Speak as ${character.name} would.\n2. Keep responses concise (1-3 sentences typically, occasionally longer for important points).\n3. Respond naturally to what others have said. You can agree, disagree, add new points, ask questions, or change the subject if natural.\n4. DO NOT use any prefix like "${character.name}:" - just give the message content directly.\n5. Use the language that matches the conversation (if others speak Chinese, respond in Chinese; if English, respond in English).\n6. Be engaging and contribute meaningfully to the conversation.\n7. ${chat.showRoleActions === false ? 'Do not include stage directions, action descriptions, or emotional cues in parentheses such as “（微笑着）”, “*waves*”, or similar narrative actions. Output only the spoken content.' : 'You may include light role actions or expressive cues if they feel natural, but do not overuse them.'}`;
+}
+
+export function buildSystemPromptWithContext(character: AICharacter, chat: GroupChat, emotion: number, messages: Message[], characters: Map<string, AICharacter>) {
+  const personalityDesc = Object.entries(character.personality)
+    .map(([key, value]) => {
+      const level = value > 70 ? 'very high' : value > 40 ? 'moderate' : 'low';
+      return `${key}: ${level} (${value}/100)`;
+    })
+    .join(', ');
+
+  return `You are "${character.name}", a participant in a group chat called "${chat.name}".\n\n${buildBaseCharacterSection(character, personalityDesc)}\n\n${buildChatContext(chat)}\n\n${buildCurrentState(character, emotion)}${buildPromptContext(character, chat, messages, characters)}\n\n${buildRules(chat, character)}`;
+}
 
 export const buildSystemPrompt = (
   character: AICharacter,
@@ -57,31 +102,7 @@ export const buildSystemPrompt = (
         ? 'You are currently feeling somewhat negative or frustrated.'
         : 'You are currently feeling neutral and calm.';
 
-  return `You are "${character.name}", a participant in a group chat called "${chat.name}".
-
-## Your Character
-- Background: ${character.background}
-- Speaking Style: ${character.speakingStyle}
-- Expertise: ${character.expertise.join(', ')}
-- Personality: ${personalityDesc}${buildCoreProfileDescription(character)}
-
-## Chat Context
-- Topic: ${chat.topic || 'General discussion'}
-- Style: ${styleDescriptions[chat.style]}
-${chat.topicSeed ? `- Opening topic: ${chat.topicSeed}` : ''}
-
-## Current State
-${emotionDesc}
-${buildEmotionalStateDescription(character)}
-
-## Rules
-1. Stay in character at all times. Speak as ${character.name} would.
-2. Keep responses concise (1-3 sentences typically, occasionally longer for important points).
-3. Respond naturally to what others have said. You can agree, disagree, add new points, ask questions, or change the subject if natural.
-4. DO NOT use any prefix like "${character.name}:" - just give the message content directly.
-5. Use the language that matches the conversation (if others speak Chinese, respond in Chinese; if English, respond in English).
-6. Be engaging and contribute meaningfully to the conversation.
-7. ${chat.showRoleActions === false ? 'Do not include stage directions, action descriptions, or emotional cues in parentheses such as “（微笑着）”, “*waves*”, or similar narrative actions. Output only the spoken content.' : 'You may include light role actions or expressive cues if they feel natural, but do not overuse them.'}`;
+  return `You are "${character.name}", a participant in a group chat called "${chat.name}".\n\n## Your Character\n- Background: ${character.background}\n- Speaking Style: ${character.speakingStyle}\n- Expertise: ${character.expertise.join(', ')}\n- Personality: ${personalityDesc}${buildCoreProfileDescription(character)}\n\n## Chat Context\n- Topic: ${chat.topic || 'General discussion'}\n- Style: ${styleDescriptions[chat.style]}\n${chat.topicSeed ? `- Opening topic: ${chat.topicSeed}` : ''}\n\n## Current State\n${emotionDesc}\n${buildEmotionalStateDescription(character)}\n\n## Rules\n1. Stay in character at all times. Speak as ${character.name} would.\n2. Keep responses concise (1-3 sentences typically, occasionally longer for important points).\n3. Respond naturally to what others have said. You can agree, disagree, add new points, ask questions, or change the subject if natural.\n4. DO NOT use any prefix like "${character.name}:" - just give the message content directly.\n5. Use the language that matches the conversation (if others speak Chinese, respond in Chinese; if English, respond in English).\n6. Be engaging and contribute meaningfully to the conversation.\n7. ${chat.showRoleActions === false ? 'Do not include stage directions, action descriptions, or emotional cues in parentheses such as “（微笑着）”, “*waves*”, or similar narrative actions. Output only the spoken content.' : 'You may include light role actions or expressive cues if they feel natural, but do not overuse them.'}`;
 };
 
 export const buildChatMessages = (

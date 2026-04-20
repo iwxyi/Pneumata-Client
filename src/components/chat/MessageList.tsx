@@ -20,28 +20,73 @@ interface MessageListProps {
   loadingText?: string;
 }
 
+function getDistanceFromBottom(container: HTMLDivElement) {
+  return container.scrollHeight - container.scrollTop - container.clientHeight;
+}
+
 export default function MessageList({ messages, characters, thinkingCharacterId, streamingContent, onDeleteMessage, onReachTop, isLoadingOlder = false, hasMore = true, topHint, loadingText }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const shouldAutoScrollRef = useRef(true);
-  const previousScrollHeightRef = useRef(0);
+  const pinnedToBottomRef = useRef(true);
+  const prependAnchorScrollHeightRef = useRef(0);
   const loadingOlderRef = useRef(false);
+  const topHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [topTriggerTick, setTopTriggerTick] = useState(0);
+  const [showTopHint, setShowTopHint] = useState(false);
+
+  const clearTopHintTimer = () => {
+    if (topHintTimerRef.current) {
+      clearTimeout(topHintTimerRef.current);
+      topHintTimerRef.current = null;
+    }
+  };
+
+  const revealTopHintTemporarily = () => {
+    setShowTopHint(true);
+    clearTopHintTimer();
+    topHintTimerRef.current = setTimeout(() => {
+      setShowTopHint(false);
+      topHintTimerRef.current = null;
+    }, 2600);
+  };
+
+  const hideTopHint = () => {
+    clearTopHintTimer();
+    setShowTopHint(false);
+  };
+
+  const scrollToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: 'auto' });
+  };
 
   const characterMap = new Map(characters.map((c) => [c.id, c]));
   const visibleMessages = messages.filter((m) => !m.isDeleted);
   const thinkingChar = thinkingCharacterId ? characterMap.get(thinkingCharacterId) : null;
+  const isTopHintVisible = !isLoadingOlder && !hasMore && visibleMessages.length > 0 && showTopHint;
+
+  useEffect(() => {
+    if (!isLoadingOlder && !hasMore && visibleMessages.length > 0) {
+      revealTopHintTemporarily();
+      return;
+    }
+    hideTopHint();
+    return undefined;
+  }, [hasMore, isLoadingOlder, visibleMessages.length]);
+
+  useEffect(() => () => clearTopHintTimer(), []);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const handleScroll = () => {
-      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      shouldAutoScrollRef.current = distanceFromBottom <= AUTO_SCROLL_THRESHOLD;
+      pinnedToBottomRef.current = getDistanceFromBottom(container) <= AUTO_SCROLL_THRESHOLD;
+
+      if (container.scrollTop > 80 && showTopHint) hideTopHint();
+
       if (container.scrollTop <= 80 && onReachTop && !loadingOlderRef.current) {
         loadingOlderRef.current = true;
-        previousScrollHeightRef.current = container.scrollHeight;
+        prependAnchorScrollHeightRef.current = container.scrollHeight;
         setTopTriggerTick((tick) => tick + 1);
       }
     };
@@ -49,13 +94,7 @@ export default function MessageList({ messages, characters, thinkingCharacterId,
     handleScroll();
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  useEffect(() => {
-    if (thinkingCharacterId && !streamingContent) {
-      shouldAutoScrollRef.current = true;
-    }
-  }, [thinkingCharacterId, streamingContent]);
+  }, [onReachTop, showTopHint]);
 
   useEffect(() => {
     if (!onReachTop || topTriggerTick === 0) return;
@@ -68,18 +107,18 @@ export default function MessageList({ messages, characters, thinkingCharacterId,
     const container = containerRef.current;
     if (!container) return;
 
-    if (previousScrollHeightRef.current > 0) {
-      const nextScrollHeight = container.scrollHeight;
-      const delta = nextScrollHeight - previousScrollHeightRef.current;
+    if (prependAnchorScrollHeightRef.current > 0) {
+      const delta = container.scrollHeight - prependAnchorScrollHeightRef.current;
       if (delta > 0) {
         container.scrollTop = container.scrollTop + delta;
       }
-      previousScrollHeightRef.current = 0;
+      prependAnchorScrollHeightRef.current = 0;
       return;
     }
 
-    if (!shouldAutoScrollRef.current) return;
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (pinnedToBottomRef.current) {
+      scrollToBottom();
+    }
   }, [visibleMessages.length, thinkingCharacterId, streamingContent]);
 
   useEffect(() => {
@@ -123,7 +162,7 @@ export default function MessageList({ messages, characters, thinkingCharacterId,
               {loadingText}
             </Typography>
           </Box>
-        ) : !hasMore && visibleMessages.length > 0 ? (
+        ) : isTopHintVisible ? (
           <Box
             sx={{
               display: 'inline-flex',
@@ -151,14 +190,14 @@ export default function MessageList({ messages, characters, thinkingCharacterId,
         />
       ))}
 
-      {thinkingChar && (
+      {thinkingChar ? (
         <TypingIndicator
           characterName={thinkingChar.name}
           avatar={thinkingChar.avatar}
           bubbleStyleId={thinkingChar.bubbleStyleId}
           content={streamingContent}
         />
-      )}
+      ) : null}
 
       <div ref={bottomRef} />
     </Box>

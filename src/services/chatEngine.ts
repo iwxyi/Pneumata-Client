@@ -3,7 +3,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import { generateResponse } from './aiClient';
-import { buildSystemPrompt, buildChatMessages } from './promptBuilder';
+import { buildSystemPromptWithContext, buildChatMessages } from './promptBuilder';
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
 import { calculateWeights, selectSpeaker } from './scheduler';
 import { deriveSpeakIntent } from './intentEngine';
@@ -195,9 +195,10 @@ export const runOneRound = async (
   const emotion = getEmotion(speakerId);
   const recentTargetId = messages.filter((m) => m.type === 'ai' && !m.isDeleted).at(-1)?.senderId;
   const intent = deriveSpeakIntent(speaker, recentTargetId);
-  const systemPrompt = `${buildSystemPrompt(speaker, chat, emotion)}\n\nCurrent speaking intent:\n- reason: ${intent.reason}\n- target: ${intent.target}\n- stance: ${intent.stance}\n- emotionalTone: ${intent.emotionalTone}`;
   const characterMap = new Map(chatMembers.map((c) => [c.id, c]));
-  const chatMessages = buildChatMessages(messages.filter((m) => !m.isDeleted), characterMap, MAX_HISTORY_FOR_PROMPT);
+  const activeMessages = messages.filter((m) => !m.isDeleted);
+  const systemPrompt = `${buildSystemPromptWithContext(speaker, chat, emotion, activeMessages, characterMap)}\n\nCurrent speaking intent:\n- reason: ${intent.reason}\n- target: ${intent.target}\n- stance: ${intent.stance}\n- emotionalTone: ${intent.emotionalTone}`;
+  const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT);
 
   try {
     const resolvedApi = resolveApiConfigForCharacter(speaker, apiConfig, profiles);

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Box, Typography, Card, CardContent, Button,
   ToggleButtonGroup, ToggleButton,
-  Snackbar, Alert,
+  Snackbar, Alert, FormControlLabel, Switch,
 } from '@mui/material';
 import { Download as BackupIcon, Upload as RestoreIcon, Delete as ClearIcon, Logout as LogoutIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
@@ -190,8 +190,31 @@ export default function SettingsPage() {
               <ToggleButton value="en">English</ToggleButton>
             </ToggleButtonGroup>
           </Box>
+
+          <Box sx={{ display: 'grid', gap: 1 }}>
+            <FormControlLabel control={<Switch checked={settings.developerMode} onChange={(e) => settings.setDeveloperMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '开发者模式' : 'Developer mode'} />
+          </Box>
         </CardContent>
       </Card>
+
+      {settings.developerMode ? (
+        <Card variant="outlined" sx={{ mb: 3 }}>
+          <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                {i18n.language.startsWith('zh') ? '开发者工具' : 'Developer Tools'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {i18n.language.startsWith('zh') ? '运行态和调试能力只在这里单独控制。' : 'Runtime and debug surfaces are controlled here.'}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'grid', gap: 1 }}>
+              <FormControlLabel control={<Switch checked={settings.developerUI.showMemoryDebug} onChange={(e) => settings.setDeveloperUI({ showMemoryDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示记忆调试信息' : 'Show memory debug info'} />
+              <FormControlLabel control={<Switch checked={settings.developerUI.showRelationshipEvents} onChange={(e) => settings.setDeveloperUI({ showRelationshipEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示关系事件提示' : 'Show relationship event hints'} />
+            </Box>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card variant="outlined" sx={{ mb: 3 }}>
         <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

@@ -1,5 +1,7 @@
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
+import type { RuntimeEventPayload } from './runtimeEventFactory';
+import { buildRuntimeMemoryEntryFromEvent, buildTimelineEntryFromRuntimeEvent, normalizeRuntimeEvent, parseRuntimeEvent } from './runtimeEventFactory';
 
 interface RuntimeMemoryEntry {
   kind: 'note' | 'artifact';
@@ -13,8 +15,10 @@ function uniq(items: string[]) {
 export function accumulateChatRuntime(
   chat: GroupChat,
   message: Pick<Message, 'content' | 'type'>,
-  memory?: RuntimeMemoryEntry | null
+  memory?: RuntimeMemoryEntry | null,
+  events: RuntimeEventPayload[] = []
 ) {
+  const normalizedEvents = events.map(normalizeRuntimeEvent);
   const nextNotes = [...(chat.runtimeNotes || [])];
   const nextArtifacts = [...(chat.runtimeArtifacts || [])];
   const nextTimeline = [...(chat.runtimeTimeline || [])];
@@ -30,7 +34,18 @@ export function accumulateChatRuntime(
   }
 
   if (message.type === 'event') {
-    nextTimeline.push({ type: 'relationship', text: message.content, createdAt: Date.now() });
+    const parsedEvent = parseRuntimeEvent(message.content);
+    if (parsedEvent) {
+      normalizedEvents.push(parsedEvent);
+    }
+  }
+
+  for (const event of normalizedEvents) {
+    const timelineEntry = buildTimelineEntryFromRuntimeEvent(event);
+    nextTimeline.push(timelineEntry);
+    const memoryEntry = buildRuntimeMemoryEntryFromEvent(event);
+    if (memoryEntry?.kind === 'note') nextNotes.push(memoryEntry.text);
+    if (memoryEntry?.kind === 'artifact') nextArtifacts.push(memoryEntry.text);
   }
 
   return {
@@ -38,4 +53,8 @@ export function accumulateChatRuntime(
     runtimeArtifacts: uniq(nextArtifacts).slice(-8),
     runtimeTimeline: nextTimeline.slice(-20),
   };
+}
+
+export function accumulateChatRuntimeFromEvents(chat: GroupChat, events: RuntimeEventPayload[]) {
+  return accumulateChatRuntime(chat, { type: 'system', content: '' }, null, events);
 }

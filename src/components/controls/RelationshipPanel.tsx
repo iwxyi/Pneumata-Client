@@ -29,41 +29,46 @@ function RelationshipMeters({ affinity, respect, hostility, contempt }: { affini
 }
 
 export default function RelationshipPanel({ chat, members }: RelationshipPanelProps) {
+  const isGroupChat = chat.type === 'group';
   const owner = members.find((member) => member.id === chat.governance.ownerCharacterId);
   const admins = members.filter((member) => chat.governance.adminCharacterIds.includes(member.id));
 
   return (
     <Stack spacing={2}>
-      <Card variant="outlined">
-        <CardContent>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>世界状态</Typography>
-          <Stack spacing={1}>
-            <Typography variant="body2"><strong>阶段：</strong>{chat.worldState.phase || 'idle'}</Typography>
-            <Typography variant="body2"><strong>气氛：</strong>{chat.worldState.mood || '未设置'}</Typography>
-            <Typography variant="body2"><strong>焦点：</strong>{chat.worldState.focus || '未设置'}</Typography>
-            <Typography variant="body2"><strong>最近事件：</strong>{chat.worldState.recentEvent || '暂无'}</Typography>
-          </Stack>
-        </CardContent>
-      </Card>
+      {isGroupChat ? (
+        <>
+          <Card variant="outlined">
+            <CardContent>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>世界状态</Typography>
+              <Stack spacing={1}>
+                <Typography variant="body2"><strong>阶段：</strong>{chat.worldState.phase || 'idle'}</Typography>
+                <Typography variant="body2"><strong>气氛：</strong>{chat.worldState.mood || '未设置'}</Typography>
+                <Typography variant="body2"><strong>焦点：</strong>{chat.worldState.focus || '未设置'}</Typography>
+                <Typography variant="body2"><strong>最近事件：</strong>{chat.worldState.recentEvent || '暂无'}</Typography>
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Card variant="outlined">
+            <CardContent>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>治理</Typography>
+              <Stack spacing={1}>
+                <Typography variant="body2"><strong>群主：</strong>{owner?.name || '未设置'}</Typography>
+                <Typography variant="body2"><strong>管理员：</strong>{admins.length ? admins.map((item) => item.name).join('、') : '无'}</Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+                  <Chip size="small" label={chat.governance.autoModeration ? '自动治理开启' : '自动治理关闭'} />
+                  <Chip size="small" label={chat.governance.allowMute ? '允许禁言' : '不允许禁言'} />
+                  <Chip size="small" label={chat.governance.allowPrivateThreads ? '允许AI私聊' : '不允许AI私聊'} />
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
 
       <Card variant="outlined">
         <CardContent>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>治理</Typography>
-          <Stack spacing={1}>
-            <Typography variant="body2"><strong>群主：</strong>{owner?.name || '未设置'}</Typography>
-            <Typography variant="body2"><strong>管理员：</strong>{admins.length ? admins.map((item) => item.name).join('、') : '无'}</Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-              <Chip size="small" label={chat.governance.autoModeration ? '自动治理开启' : '自动治理关闭'} />
-              <Chip size="small" label={chat.governance.allowMute ? '允许禁言' : '不允许禁言'} />
-              <Chip size="small" label={chat.governance.allowPrivateThreads ? '允许AI私聊' : '不允许AI私聊'} />
-            </Box>
-          </Stack>
-        </CardContent>
-      </Card>
-
-      <Card variant="outlined">
-        <CardContent>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>关系提示</Typography>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{isGroupChat ? '关系提示' : '成员信息'}</Typography>
           {members.length === 0 ? <Typography variant="body2">暂无成员</Typography> : (
             <Stack spacing={1.25}>
               {members.map((member) => (

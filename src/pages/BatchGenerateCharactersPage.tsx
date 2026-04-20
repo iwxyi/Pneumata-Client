@@ -16,6 +16,138 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../types';
 import { getTopicDerivedCharacterGroup } from '../types/character';
+import { BUILT_IN_BUBBLE_STYLES, DEFAULT_AI_BUBBLE_STYLE_ID } from '../constants/bubbleStyles';
+
+function pickRandomAvailableBubbleStyle(params: {
+  allCharacters: Array<{ group?: string | null; bubbleStyleId?: string | null }>;
+  generatedGroup: string | null;
+  customStyleIds: string[];
+}) {
+  const usedOutsideGroup = new Set(
+    params.allCharacters
+      .filter((character: { group?: string | null; bubbleStyleId?: string | null }) => (character.group || null) !== params.generatedGroup)
+      .map((character: { bubbleStyleId?: string | null }) => character.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID)
+  );
+
+  const allStyleIds = [...params.customStyleIds, ...BUILT_IN_BUBBLE_STYLES.map((style) => style.id)];
+  const available = allStyleIds.filter((id) => !usedOutsideGroup.has(id));
+  const pool = available.length ? available : allStyleIds;
+  if (!pool.length) return DEFAULT_AI_BUBBLE_STYLE_ID;
+  return pool[Math.floor(Math.random() * pool.length)] || DEFAULT_AI_BUBBLE_STYLE_ID;
+}
+
+function getCustomBubbleStyleIds(settings: { customBubbleStyles?: Array<{ id: string }> }) {
+  return (settings.customBubbleStyles || []).map((style) => style.id);
+}
+
+function chooseBatchBubbleStyle(settings: { customBubbleStyles?: Array<{ id: string }> }, allCharacters: Array<{ group?: string | null; bubbleStyleId?: string | null }>, generatedGroup: string | null) {
+  return pickRandomAvailableBubbleStyle({
+    allCharacters,
+    generatedGroup,
+    customStyleIds: getCustomBubbleStyleIds(settings),
+  });
+}
+
+function filterMeaningfulRelationshipPairs(members: Array<{ name: string; relationships: Array<{ characterId: string; affinity: number; respect: number; hostility: number; contempt: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
+  return members.flatMap((member) =>
+    member.relationships
+      .filter((relation) => Boolean(relation.note?.trim()) || Math.abs(relation.affinity + relation.respect - relation.hostility - relation.contempt) >= 15 || relation.affinity >= 60 || relation.respect >= 60 || relation.hostility >= 35 || relation.contempt >= 35)
+      .map((relation) => ({
+        source: member.name,
+        target: allMembers.find((item) => item.id === relation.characterId)?.name || relation.characterId,
+        relation,
+        score: relation.affinity + relation.respect - relation.hostility - relation.contempt,
+      }))
+  );
+}
+
+function getLongerMemoryPreview(text: string, limit = 120) {
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function getLongerTimelinePreview(text: string, limit = 140) {
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function getLongerRelationshipPreview(text: string, limit = 90) {
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function getLongerGeneratedNamePreview(text: string, limit = 60) {
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function getBubbleStyleForBatchCharacter(settings: { customBubbleStyles?: Array<{ id: string }> }, characters: Array<{ group?: string | null; bubbleStyleId?: string | null }>, generatedGroup: string | null) {
+  return chooseBatchBubbleStyle(settings, characters, generatedGroup);
+}
+
+function getRuntimeRelationshipItems(members: Array<{ name: string; relationships: Array<{ characterId: string; affinity: number; respect: number; hostility: number; contempt: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
+  return filterMeaningfulRelationshipPairs(members, allMembers).slice(0, 8);
+}
+
+function getExpandedMemoryPreview(text: string) {
+  return getLongerMemoryPreview(text, 120);
+}
+
+function getExpandedTimelinePreview(text: string) {
+  return getLongerTimelinePreview(text, 140);
+}
+
+function getExpandedRelationshipPreview(text: string) {
+  return getLongerRelationshipPreview(text, 90);
+}
+
+function getExpandedGeneratedNamePreview(text: string) {
+  return getLongerGeneratedNamePreview(text, 60);
+}
+
+function buildBatchBubbleStyleId(settings: { customBubbleStyles?: Array<{ id: string }> }, characters: Array<{ group?: string | null; bubbleStyleId?: string | null }>, generatedGroup: string | null) {
+  return getBubbleStyleForBatchCharacter(settings, characters, generatedGroup);
+}
+
+function getMeaningfulRelationshipPairs(members: Array<{ name: string; relationships: Array<{ characterId: string; affinity: number; respect: number; hostility: number; contempt: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
+  return getRuntimeRelationshipItems(members, allMembers);
+}
+
+function getReadableMemoryPreview(text: string) {
+  return getExpandedMemoryPreview(text);
+}
+
+function getReadableTimelinePreview(text: string) {
+  return getExpandedTimelinePreview(text);
+}
+
+function getReadableRelationshipPreview(text: string) {
+  return getExpandedRelationshipPreview(text);
+}
+
+function getReadableGeneratedNamePreview(text: string) {
+  return getExpandedGeneratedNamePreview(text);
+}
+
+function chooseGeneratedBubbleStyle(settings: { customBubbleStyles?: Array<{ id: string }> }, characters: Array<{ group?: string | null; bubbleStyleId?: string | null }>, generatedGroup: string | null) {
+  return buildBatchBubbleStyleId(settings, characters, generatedGroup);
+}
+
+function getFilteredRelationshipPairs(members: Array<{ name: string; relationships: Array<{ characterId: string; affinity: number; respect: number; hostility: number; contempt: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
+  return getMeaningfulRelationshipPairs(members, allMembers);
+}
+
+function getVisibleMemoryText(text: string) {
+  return getReadableMemoryPreview(text);
+}
+
+function getVisibleTimelineText(text: string) {
+  return getReadableTimelinePreview(text);
+}
+
+function getVisibleRelationshipText(text: string) {
+  return getReadableRelationshipPreview(text);
+}
+
+function getVisibleGeneratedNameText(text: string) {
+  return getReadableGeneratedNamePreview(text);
+}
 
 const NAMES_SYSTEM_PROMPT = `You help generate candidate character names for a theme.
 Return strict JSON only in this shape: {"names":["name1","name2",...]}
@@ -236,6 +368,11 @@ export default function BatchGenerateCharactersPage() {
             name,
             ...normalized,
             group: generatedGroup,
+            bubbleStyleId: pickRandomAvailableBubbleStyle({
+              allCharacters: characters,
+              generatedGroup,
+              customStyleIds: (settings.customBubbleStyles || []).map((style) => style.id),
+            }),
             behavior: DEFAULT_CHARACTER_BEHAVIOR,
             relationships: [],
             memory: DEFAULT_CHARACTER_MEMORY,

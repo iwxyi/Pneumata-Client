@@ -15,6 +15,9 @@ export default function ChatCard({ chat, characters, onClick }: ChatCardProps) {
   const { t } = useTranslation();
   const members = characters.filter((c) => chat.memberIds.includes(c.id));
   const isDirect = chat.type === 'direct' || chat.type === 'ai_direct';
+  const memorySummary = (chat.layeredMemories || []).slice(-2).map((item) => item.text).join(' / ');
+  const relationshipSummary = members.flatMap((member) => member.relationships.filter((relation) => Boolean(relation.note?.trim())).slice(0, 1).map((relation) => `${member.name}→${relation.note}`)).slice(0, 1).join(' / ');
+  const subtitle = relationshipSummary || memorySummary || chat.worldState?.recentEvent || chat.topic;
 
   return (
     <Card
@@ -41,11 +44,11 @@ export default function ChatCard({ chat, characters, onClick }: ChatCardProps) {
                   {chat.type === 'group' ? `${chat.name} (${chat.memberIds.length})` : chat.name}
                 </Typography>
               </Box>
-              {chat.topic && (
+              {subtitle ? (
                 <Typography variant="caption" color="text.secondary" noWrap>
-                  {chat.topic}
+                  {subtitle}
                 </Typography>
-              )}
+              ) : null}
             </Box>
             <Chip
               label={chat.isActive ? t('chat.active') : t('chat.paused')}

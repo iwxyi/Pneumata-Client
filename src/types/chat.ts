@@ -1,10 +1,6 @@
 import type { AICharacter } from './character';
 import type { Message } from './message';
-import { updateCharacterRelationship } from '../services/relationshipEngine';
-import { derivePersonalityDrift } from '../services/personalityDrift';
-import { accumulateChatRuntime } from '../services/chatRuntime';
-import { accumulateCharacterRuntime } from '../services/characterRuntime';
-import { extractMemoryCandidate } from '../services/memoryEngine';
+import type { MemoryItem } from '../services/memoryTypes';
 
 export type ChatStyle = 'free' | 'debate' | 'brainstorm' | 'roleplay';
 export type ConversationType = 'group' | 'direct' | 'ai_direct';
@@ -77,11 +73,13 @@ export interface DriverEventPayload {
   metrics?: unknown;
 }
 
-export interface DriverMessageCommitResult {
+export interface DriverMessageCommitTransition {
   chatPatch: Partial<GroupChat>;
   characterPatches: DriverCharacterPatch[];
-  eventMessages: DriverEventPayload[];
+  runtimeEvents: DriverEventPayload[];
 }
+
+export interface DriverMessageCommitResult extends DriverMessageCommitTransition {}
 
 export interface OpenChatModeDriver {
   key: ConversationMode;
@@ -113,77 +111,6 @@ export const DEFAULT_OPEN_CHAT_MODE_STATE: OpenChatModeState = {
   lastRelationshipEventAt: null,
 };
 
-export const OPEN_CHAT_MODE_DRIVER: OpenChatModeDriver = {
-  key: 'open_chat',
-  createInitialConfig: () => DEFAULT_OPEN_CHAT_MODE_CONFIG,
-  createInitialState: () => DEFAULT_OPEN_CHAT_MODE_STATE,
-  buildParticipants: (conversation) => conversation.memberIds.map((memberId, index) => ({
-    participantId: `${conversation.id}:${memberId}`,
-    conversationId: conversation.id,
-    entityType: 'ai',
-    entityRefId: memberId,
-    seatIndex: index,
-    canSpeak: true,
-    canAct: true,
-    flags: {},
-  })),
-  getAvailableActions: () => [
-    { type: 'send_message' },
-    { type: 'director_intervention' },
-    { type: 'start_private_thread' },
-  ],
-  getVisiblePanels: (context) => [
-    { key: 'members', title: context.conversation.type === 'group' ? '成员' : context.conversation.type === 'ai_direct' ? 'AI私聊信息' : '单聊信息', type: 'members', tabKey: 'members' },
-    { key: 'runtime', title: '运行态', type: 'runtime', tabKey: 'world' },
-  ],
-  onMessageCommitted: ({ conversation, characters, message, previousAiMessage }) => {
-    const eventMessages: DriverEventPayload[] = [];
-    const characterPatches: DriverCharacterPatch[] = [];
-    const memoryCandidate = message.type === 'ai' ? extractMemoryCandidate(message.content) : null;
-    const chatPatch: Partial<GroupChat> = {
-      ...accumulateChatRuntime(conversation, message, memoryCandidate ? { kind: memoryCandidate.kind, text: memoryCandidate.text } : null),
-    };
-
-    if (conversation.type === 'group' && message.type === 'ai' && previousAiMessage && previousAiMessage.senderId !== message.senderId) {
-      const speaker = characters.find((item) => item.id === message.senderId);
-      const target = characters.find((item) => item.id === previousAiMessage.senderId);
-      if (speaker && target) {
-        const updatedSpeaker = updateCharacterRelationship(speaker, target.id, message.content, 0.45);
-        const speakerDrift = derivePersonalityDrift(speaker, message.content);
-        const driftEntries = Object.keys(speakerDrift).length ? [
-          {
-            type: 'drift' as const,
-            text: `受到互动影响，性格出现漂移：${Object.entries(speakerDrift).map(([key, value]) => `${key}${value > 0 ? '+' : ''}${value}`).join('，')}`,
-            createdAt: Date.now(),
-          },
-        ] : [];
-
-        characterPatches.push({
-          characterId: speaker.id,
-          patch: {
-            relationships: updatedSpeaker.relationships,
-            personalityDrift: speakerDrift,
-            runtimeTimeline: accumulateCharacterRuntime(speaker, {
-              type: 'relationship',
-              text: `对 ${target.name} 的态度发生变化：${message.content.slice(0, 48)}`,
-            }).concat(driftEntries).slice(-20),
-          },
-        });
-
-        eventMessages.push({
-          eventType: 'group_relationship_shift',
-          title: `${speaker.name} 对 ${target.name} 的态度发生变化`,
-          summary: message.content.slice(0, 48),
-          pair: [speaker.name, target.name],
-          metrics: updatedSpeaker.relationships.find((item) => item.characterId === target.id) || null,
-        });
-      }
-    }
-
-    return { chatPatch, characterPatches, eventMessages };
-  },
-};
-
 export interface ConversationGovernance {
   ownerCharacterId: string | null;
   adminCharacterIds: string[];
@@ -199,11 +126,18 @@ export interface ConversationDramaRules {
   allowContempt: boolean;
 }
 
+export interface ConversationConflictAxis {
+  title: string;
+  poles: [string, string];
+  currentTilt?: number;
+}
+
 export interface ConversationWorldState {
   phase: ConversationPhase;
   mood: string;
   focus: string;
   recentEvent: string;
+  conflictAxes?: ConversationConflictAxis[];
 }
 
 export interface ConversationDirectorControls {
@@ -232,6 +166,7 @@ export interface GroupChat {
   sourceMemberIds?: string[];
   runtimeNotes?: string[];
   runtimeArtifacts?: string[];
+  layeredMemories?: MemoryItem[];
   runtimeTimeline?: Array<{ type: 'note' | 'artifact' | 'relationship'; text: string; createdAt: number }>;
   governance: ConversationGovernance;
   dramaRules: ConversationDramaRules;
@@ -262,6 +197,7 @@ export const DEFAULT_CONVERSATION_WORLD_STATE: ConversationWorldState = {
   mood: '',
   focus: '',
   recentEvent: '',
+  conflictAxes: [],
 };
 
 export const DEFAULT_CONVERSATION_DIRECTOR_CONTROLS: ConversationDirectorControls = {
@@ -270,6 +206,7 @@ export const DEFAULT_CONVERSATION_DIRECTOR_CONTROLS: ConversationDirectorControl
   allowEventInjection: true,
   allowForcedReply: true,
 };
+
 
 export function normalizeConversation(input: Omit<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls'> & Partial<Pick<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls'>>): GroupChat {
   return {
@@ -282,6 +219,7 @@ export function normalizeConversation(input: Omit<GroupChat, 'type' | 'governanc
     sourceMemberIds: input.sourceMemberIds || [],
     runtimeNotes: input.runtimeNotes || [],
     runtimeArtifacts: input.runtimeArtifacts || [],
+    layeredMemories: input.layeredMemories || [],
     runtimeTimeline: input.runtimeTimeline || [],
     governance: {
       ...DEFAULT_CONVERSATION_GOVERNANCE,
@@ -295,6 +233,7 @@ export function normalizeConversation(input: Omit<GroupChat, 'type' | 'governanc
     worldState: {
       ...DEFAULT_CONVERSATION_WORLD_STATE,
       ...(input.worldState || {}),
+      conflictAxes: input.worldState?.conflictAxes || [],
     },
     directorControls: {
       ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,

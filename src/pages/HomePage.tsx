@@ -26,7 +26,6 @@ export default function HomePage() {
 
   return (
     <Box sx={{ flex: 1, overflow: 'auto', p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 } }}>
-      {/* Stats */}
       <Box sx={{ display: 'flex', gap: { xs: 1.25, sm: 1.5 }, mb: 4, px: { xs: 0.5, sm: 0.75 }, alignItems: 'stretch', justifyContent: 'flex-start', flexWrap: 'nowrap' }}>
         {[
           {
@@ -139,7 +138,7 @@ export default function HomePage() {
           <Box sx={{ px: { xs: 0.5, sm: 0.75 }, mb: 4 }}>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1.5 }}>
               {recentDirectChats.map((chat) => (
-                <ChatCard key={chat.id} chat={chat} characters={characters} onClick={() => navigate(`/chats/${chat.id}`)} />
+                <ChatCard key={chat.id} chat={chat} characters={characters} onClick={() => navigate(`/chats/${chat.id}?fromTab=1`)} />
               ))}
             </Box>
           </Box>
@@ -151,38 +150,38 @@ export default function HomePage() {
       </Typography>
 
       <Box sx={{ px: { xs: 0.5, sm: 0.75 } }}>
-      {recentChats.length === 0 ? (
-        <EmptyState
-          icon="🍵"
-          message={t('home.noChats')}
-          action={
-            <Button variant="outlined" onClick={() => navigate('/chats/create')}>
-              {t('chat.create')}
-            </Button>
-          }
-        />
-      ) : (
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: '1fr',
-              sm: 'repeat(2, minmax(0, 1fr))',
-              xl: 'repeat(3, minmax(0, 1fr))',
-            },
-            gap: 1.5,
-          }}
-        >
-          {recentChats.map((chat) => (
-            <ChatCard
-              key={chat.id}
-              chat={chat}
-              characters={characters}
-              onClick={() => navigate(`/chats/${chat.id}`)}
-            />
-          ))}
-        </Box>
-      )}
+        {recentChats.length === 0 ? (
+          <EmptyState
+            icon="🍵"
+            message={t('home.noChats')}
+            action={
+              <Button variant="outlined" onClick={() => navigate('/chats/create')}>
+                {t('chat.create')}
+              </Button>
+            }
+          />
+        ) : (
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: '1fr',
+                sm: 'repeat(2, minmax(0, 1fr))',
+                xl: 'repeat(3, minmax(0, 1fr))',
+              },
+              gap: 1.5,
+            }}
+          >
+            {recentChats.map((chat) => (
+              <ChatCard
+                key={chat.id}
+                chat={chat}
+                characters={characters}
+                onClick={() => navigate(`/chats/${chat.id}?fromTab=0`)}
+              />
+            ))}
+          </Box>
+        )}
       </Box>
     </Box>
   );

@@ -33,7 +33,7 @@ export function extractMemoryCandidate(text: string): MemoryCandidate | null {
   if (artifactMatch) {
     return {
       kind: 'artifact',
-      text: `${artifactMatch[1]}：${artifactMatch[2]}`.slice(0, 60),
+      text: `${artifactMatch[1]}：${artifactMatch[2]}`.slice(0, 96),
       reason: 'contains explicit outcome language',
     };
   }
@@ -42,7 +42,7 @@ export function extractMemoryCandidate(text: string): MemoryCandidate | null {
   if (noteMatch) {
     return {
       kind: 'note',
-      text: `${noteMatch[1]}${noteMatch[2]}${noteMatch[3]}`.slice(0, 60),
+      text: `${noteMatch[1]}${noteMatch[2]}${noteMatch[3]}`.slice(0, 96),
       reason: 'contains stable decision/problem framing',
     };
   }

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Typography, IconButton, Avatar, TextField, InputAdornment } from '@mui/material';
+import { Box, Typography, IconButton, Avatar, TextField, InputAdornment, Chip } from '@mui/material';
 import { Search as SearchIcon, ChatBubbleOutlined as ChatIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useLayoutHeaderActions } from '../components/layout/AppLayout';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../types/chat';
+import { getCharacterGroupList, isCharacterInGroup } from '../types/character';
 
 export default function CreateDirectChatPage() {
   const navigate = useNavigate();
@@ -13,6 +14,7 @@ export default function CreateDirectChatPage() {
   const { chats, loadChats, addChat } = useChatStore();
   const { setHeaderTitle, setHeaderBackAction, setHeaderActions } = useLayoutHeaderActions();
   const [search, setSearch] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [creatingId, setCreatingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,7 +33,11 @@ export default function CreateDirectChatPage() {
     };
   }, [navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle]);
 
-  const customCharacters = useMemo(() => characters.filter((item) => item.name.toLowerCase().includes(search.toLowerCase())), [characters, search]);
+  const groupList = useMemo(() => getCharacterGroupList(characters), [characters]);
+  const customCharacters = useMemo(
+    () => characters.filter((item) => isCharacterInGroup(item, selectedGroup) && item.name.toLowerCase().includes(search.toLowerCase())),
+    [characters, search, selectedGroup]
+  );
 
   const handleCreate = async (characterId: string, characterName: string) => {
     const existing = chats.find((chat) => chat.type === 'direct' && chat.memberIds.length === 1 && chat.memberIds[0] === characterId);
@@ -69,24 +75,46 @@ export default function CreateDirectChatPage() {
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 12, sm: 8 }, maxWidth: 860, mx: 'auto' }}>
-      <TextField
-        fullWidth
-        size="small"
-        placeholder="搜索角色"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-          }
-        }}
-        slotProps={{
-          input: {
-            startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
-          },
-        }}
-        sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 3 } }}
-      />
+      <Box sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.default', pb: 2 }}>
+        <TextField
+          fullWidth
+          size="small"
+          placeholder="搜索角色"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+            }
+          }}
+          slotProps={{
+            input: {
+              startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
+            },
+          }}
+          sx={{ mb: 1.5, '& .MuiOutlinedInput-root': { borderRadius: 3 } }}
+        />
+        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'nowrap', overflowX: 'auto', pb: 0.5 }}>
+          <Chip
+            size="small"
+            label="全部"
+            color={selectedGroup === null ? 'primary' : 'default'}
+            variant={selectedGroup === null ? 'filled' : 'outlined'}
+            onClick={() => setSelectedGroup(null)}
+          />
+          {groupList.map((group) => (
+            <Chip
+              key={group}
+              size="small"
+              label={group}
+              color={selectedGroup === group ? 'primary' : 'default'}
+              variant={selectedGroup === group ? 'filled' : 'outlined'}
+              onClick={() => setSelectedGroup(group)}
+            />
+          ))}
+        </Box>
+      </Box>
+
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1.5 }}>
         {customCharacters.map((character) => (
           <Box
@@ -97,6 +125,7 @@ export default function CreateDirectChatPage() {
             <Avatar sx={{ width: 44, height: 44, bgcolor: 'primary.light' }}>{character.avatar}</Avatar>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>{character.name}</Typography>
+              {character.group ? <Typography variant="caption" color="text.secondary" noWrap>{character.group}</Typography> : null}
             </Box>
             <IconButton
               color="primary"

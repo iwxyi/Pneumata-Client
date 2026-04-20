@@ -1,13 +1,19 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppSettings, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults } from '../types/settings';
+import type { AppSettingsWithMemory, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults, DeveloperUIPrefs } from '../types/settings';
+
+type AppSettings = AppSettingsWithMemory;
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
-import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_CHAT_DRAFT_DEFAULTS } from '../types/settings';
+import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS } from '../types/settings';
 import { api } from '../services/api';
 
 interface SettingsStore extends AppSettings {
   _loaded: boolean;
   lastSyncedAt: number;
+  memoryUI?: { showDeveloperMemory?: boolean };
+  setDeveloperMode: (enabled: boolean) => void;
+  setDeveloperUI: (prefs: Partial<DeveloperUIPrefs>) => void;
+  setMemoryDeveloperView: (enabled: boolean) => void;
   loadSettings: () => Promise<void>;
   updateApi: (config: Partial<APIConfig>) => void;
   updateAIProfile: (id: string, config: Partial<AIModelProfile>) => void;
@@ -71,15 +77,28 @@ function buildSettingsPayload(state: AppSettings) {
     defaultSpeed: state.defaultSpeed,
     chatDraftDefaults: state.chatDraftDefaults,
     customBubbleStyles: state.customBubbleStyles,
+    developerMode: state.developerMode,
+    developerUI: state.developerUI,
+    memoryUI: state.memoryUI,
   };
 }
 
-function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?: AIModelProfile[] }): Partial<AppSettings> {
+function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?: AIModelProfile[]; memoryUI?: { showDeveloperMemory?: boolean } }): Partial<AppSettings> {
   const aiProfiles = normalizeProfiles(state.aiProfiles, state.api);
+  const legacyShowMemoryDebug = Boolean(state.memoryUI?.showDeveloperMemory);
   return {
     ...state,
     aiProfiles,
     api: buildApiFromProfiles(aiProfiles),
+    developerMode: Boolean(state.developerMode),
+    developerUI: {
+      ...DEFAULT_DEVELOPER_UI_PREFS,
+      ...(state.developerUI || {}),
+      showMemoryDebug: state.developerUI?.showMemoryDebug ?? legacyShowMemoryDebug,
+    },
+    memoryUI: {
+      showDeveloperMemory: state.developerUI?.showMemoryDebug ?? legacyShowMemoryDebug,
+    },
     chatDraftDefaults: {
       ...DEFAULT_CHAT_DRAFT_DEFAULTS,
       ...(state.chatDraftDefaults || {}),
@@ -114,6 +133,9 @@ export const useSettingsStore = create<SettingsStore>()(
               themeColor: settings.themeColor,
               language: settings.language as Language,
               defaultSpeed: settings.defaultSpeed,
+              developerMode: settings.developerMode,
+              developerUI: settings.developerUI as DeveloperUIPrefs | undefined,
+              memoryUI: settings.memoryUI as { showDeveloperMemory?: boolean } | undefined,
               chatDraftDefaults: (settings.chatDraftDefaults || DEFAULT_CHAT_DRAFT_DEFAULTS) as ChatDraftDefaults,
               customBubbleStyles: settings.customBubbleStyles as BubbleStyleDefinition[] | undefined,
             }),
@@ -167,6 +189,42 @@ export const useSettingsStore = create<SettingsStore>()(
           const filtered = state.aiProfiles.filter((profile) => profile.id !== id);
           const nextProfiles = filtered.length > 0 ? filtered : [DEFAULT_AI_PROFILE];
           const next = { ...(syncState({ ...state, aiProfiles: nextProfiles }) as SettingsStore), lastSyncedAt: Date.now() };
+          syncToServer(buildSettingsPayload(next));
+          return next;
+        });
+      },
+
+      setDeveloperMode: (developerMode) => {
+        set((state) => {
+          const next = { ...state, developerMode, lastSyncedAt: Date.now() };
+          syncToServer(buildSettingsPayload(next));
+          return next;
+        });
+      },
+
+      setDeveloperUI: (prefs) => {
+        set((state) => {
+          const developerUI = { ...state.developerUI, ...prefs };
+          const next = {
+            ...state,
+            developerUI,
+            memoryUI: { showDeveloperMemory: developerUI.showMemoryDebug },
+            lastSyncedAt: Date.now(),
+          };
+          syncToServer(buildSettingsPayload(next));
+          return next;
+        });
+      },
+
+      setMemoryDeveloperView: (enabled) => {
+        set((state) => {
+          const developerUI = { ...state.developerUI, showMemoryDebug: enabled };
+          const next = {
+            ...state,
+            developerUI,
+            memoryUI: { showDeveloperMemory: enabled },
+            lastSyncedAt: Date.now(),
+          };
           syncToServer(buildSettingsPayload(next));
           return next;
         });
@@ -247,6 +305,9 @@ export const useSettingsStore = create<SettingsStore>()(
         themeColor: state.themeColor,
         language: state.language,
         defaultSpeed: state.defaultSpeed,
+        developerMode: state.developerMode,
+        developerUI: state.developerUI,
+        memoryUI: state.memoryUI,
         chatDraftDefaults: state.chatDraftDefaults,
         customBubbleStyles: state.customBubbleStyles,
       }),

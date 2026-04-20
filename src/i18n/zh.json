@@ -54,7 +54,8 @@
     "active": "对话中",
     "paused": "已暂停",
     "search": "搜索群聊...",
-    "empty": "暂无群聊",
+    "empty": "没有更早的消息了",
+    "noGroups": "还没有群聊，创建一个开始吧！",
     "delete": "删除群聊",
     "deleteConfirm": "确定要删除这个群聊吗？所有消息将被清除。",
     "edit": "编辑群聊",
@@ -156,7 +157,7 @@
   },
   "message": {
     "system": {
-      "chatCreated": "茶会开始了！",
+      "chatCreated": "群聊已创建",
       "chatPaused": "对话已暂停",
       "chatResumed": "对话已继续",
       "topicChanged": "话题已引导至：{{topic}}",

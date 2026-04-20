@@ -98,6 +98,9 @@ interface MessageStore {
   hydrateMessagesFromCache: (chatId: string) => void;
   loadMessages: (chatId: string, options?: { append?: boolean; before?: number; limit?: number }) => Promise<void>;
   addMessage: (msg: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>) => Promise<Message>;
+  upsertMessage: (message: Message) => void;
+  replaceOptimisticMessage: (temporaryId: string, message: Message) => void;
+  addOptimisticMessage: (message: Message) => void;
   deleteMessage: (id: string) => Promise<void>;
   deleteLastNMessages: (chatId: string, n: number) => Promise<void>;
   clearMessages: () => void;
@@ -170,15 +173,20 @@ export const useMessageStore = create<MessageStore>()(
           emotion: msgData.emotion,
         });
         const message = result as unknown as Message;
+        get().upsertMessage(message);
+        return message;
+      },
+
+      upsertMessage: (message) => {
         set((state) => {
-          const currentWindow = state.messageWindowsByChatId[msgData.chatId];
+          const currentWindow = state.messageWindowsByChatId[message.chatId];
           const current = currentWindow?.messages || [];
-          const nextChatMessages = trimMessages([...current, message]);
+          const nextChatMessages = trimMessages(mergeMessages(current, [message]));
           return {
-            messages: state.activeChatId === msgData.chatId ? mergeMessages(state.messages, [message]) : state.messages,
+            messages: state.activeChatId === message.chatId ? mergeMessages(state.messages, [message]) : state.messages,
             messageWindowsByChatId: trimCache({
               ...state.messageWindowsByChatId,
-              [msgData.chatId]: {
+              [message.chatId]: {
                 messages: nextChatMessages,
                 lastSyncedAt: Date.now(),
                 updatedAt: message.timestamp,
@@ -186,7 +194,45 @@ export const useMessageStore = create<MessageStore>()(
             }),
           };
         });
-        return message;
+      },
+
+      replaceOptimisticMessage: (temporaryId, message) => {
+        set((state) => {
+          const currentWindow = state.messageWindowsByChatId[message.chatId];
+          const current = (currentWindow?.messages || []).filter((item) => item.id !== temporaryId);
+          const activeMessages = state.activeChatId === message.chatId ? state.messages.filter((item) => item.id !== temporaryId) : state.messages;
+          const nextChatMessages = trimMessages(mergeMessages(current, [message]));
+          return {
+            messages: state.activeChatId === message.chatId ? mergeMessages(activeMessages, [message]) : state.messages,
+            messageWindowsByChatId: trimCache({
+              ...state.messageWindowsByChatId,
+              [message.chatId]: {
+                messages: nextChatMessages,
+                lastSyncedAt: Date.now(),
+                updatedAt: message.timestamp,
+              },
+            }),
+          };
+        });
+      },
+
+      addOptimisticMessage: (message) => {
+        set((state) => {
+          const currentWindow = state.messageWindowsByChatId[message.chatId];
+          const current = currentWindow?.messages || [];
+          const nextChatMessages = trimMessages(mergeMessages(current, [message]));
+          return {
+            messages: state.activeChatId === message.chatId ? mergeMessages(state.messages, [message]) : state.messages,
+            messageWindowsByChatId: trimCache({
+              ...state.messageWindowsByChatId,
+              [message.chatId]: {
+                messages: nextChatMessages,
+                lastSyncedAt: currentWindow?.lastSyncedAt || 0,
+                updatedAt: message.timestamp,
+              },
+            }),
+          };
+        });
       },
 
       deleteMessage: async (id) => {

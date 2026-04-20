@@ -57,6 +57,15 @@ export default function CreateChatPage() {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
   const memberPressTimerRef = useRef<number | null>(null);
 
+  const showError = (message: string) => {
+    setSnackbar({ open: true, message, severity: 'error' });
+  };
+
+  const getActionErrorMessage = (error: unknown, fallback: string) => {
+    if (error instanceof Error && error.message.trim()) return error.message;
+    return fallback;
+  };
+
   useEffect(() => {
     loadChats();
     loadCharacters();
@@ -64,6 +73,8 @@ export default function CreateChatPage() {
   }, [loadCharacters, loadChats, loadSettings]);
 
   useEffect(() => {
+    if (id && !editingChat) return;
+
     if (editingChat) {
       setName(editingChat.name || '');
       setTopic(editingChat.topic || '');
@@ -107,16 +118,17 @@ export default function CreateChatPage() {
     setAutoModeration(false);
     setAllowMute(true);
     setAllowPrivateThreads(true);
-  }, [chatDraftDefaults.showRoleActions, chatDraftDefaults.style, editingChat]);
+  }, [chatDraftDefaults.showRoleActions, chatDraftDefaults.style, editingChat, id]);
 
   const toggleMember = (memberId: string) => {
-    setSelectedMembers((prev) =>
-      prev.includes(memberId)
-        ? prev.filter((m) => m !== memberId)
-        : prev.length < MAX_MEMBERS
-          ? [...prev, memberId]
-          : prev
-    );
+    setSelectedMembers((prev) => {
+      if (prev.includes(memberId)) return prev.filter((m) => m !== memberId);
+      if (prev.length >= MAX_MEMBERS) {
+        showError(i18n.language.startsWith('zh') ? `最多只能选择${MAX_MEMBERS}个AI成员` : `You can select up to ${MAX_MEMBERS} AI members`);
+        return prev;
+      }
+      return [...prev, memberId];
+    });
   };
 
   const persistDraft = () => {
@@ -180,7 +192,7 @@ export default function CreateChatPage() {
 
   const openMemberEdit = (characterId: string) => {
     persistDraft();
-    navigate(`/characters?edit=${characterId}&returnTo=${encodeURIComponent(location.pathname + location.search)}`);
+    navigate(`/characters/${characterId}/edit?returnTo=${encodeURIComponent(location.pathname + location.search)}`);
   };
 
   const clearMemberPressTimer = () => {
@@ -196,11 +208,6 @@ export default function CreateChatPage() {
       openMemberEdit(characterId);
       clearMemberPressTimer();
     }, 450);
-  };
-
-  const handleMemberItemClick = (characterId: string) => {
-    clearMemberPressTimer();
-    toggleMember(characterId);
   };
 
   const handleMemberItemContextMenu = (event: React.MouseEvent, characterId: string) => {
@@ -255,16 +262,16 @@ export default function CreateChatPage() {
   const customCharacters = characters.filter((char) => !char.isPreset);
   const presetCharacters = characters.filter((char) => char.isPreset);
   const selectedCharacters = characters.filter((char) => selectedMembers.includes(char.id));
+  const selectedMemorySummary = selectedCharacters.flatMap((char) => (char.layeredMemories || []).slice(-1).map((item) => `${char.name}：${item.text}`)).slice(0, 3).join(' / ');
   const hasCustomCharacters = customCharacters.length > 0;
   const hasPresetCharacters = presetCharacters.length > 0;
   const canAutofill = !editingChat && !aiAutofilling && Boolean(name.trim() || topic.trim() || selectedMembers.length);
-
   const getStyleLabel = (styleValue: ChatStyle) => t(`chat.style${styleValue.charAt(0).toUpperCase() + styleValue.slice(1)}`);
 
   const handleAutofill = async () => {
     const profile = aiProfiles[0] || api;
     if (!profile?.apiKey || !profile?.model) {
-      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first', severity: 'error' });
+      showError(i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first');
       return;
     }
 
@@ -305,7 +312,7 @@ export default function CreateChatPage() {
 
       setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已自动补全群聊草稿' : 'Draft autofilled', severity: 'success' });
     } catch (error) {
-      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+      showError(getActionErrorMessage(error, t('common.error')));
     } finally {
       setAiAutofilling(false);
     }
@@ -317,7 +324,7 @@ export default function CreateChatPage() {
     setHeaderActions(
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         {!editingChat ? (
-          <Button variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={handleAutofill} disabled={!canAutofill}>
+          <Button variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={() => void handleAutofill()} disabled={!canAutofill}>
             {aiAutofilling ? t('common.loading') : (i18n.language.startsWith('zh') ? '自动补全' : 'Auto fill')}
           </Button>
         ) : null}
@@ -334,34 +341,58 @@ export default function CreateChatPage() {
       setHeaderTitle(null);
       setHeaderBackAction(null);
     };
-  }, [aiAutofilling, canAutofill, editingChat, handleAutofill, i18n.language, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, t]);
+  }, [aiAutofilling, canAutofill, editingChat, i18n.language, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, t, handleAutofill]);
 
   const handleCreate = async () => {
-    if (saving) return;
+    if (saving) {
+      showError(i18n.language.startsWith('zh') ? '正在处理中，请稍候' : 'Already processing, please wait');
+      return;
+    }
+
+    const validMemberIds = Array.from(new Set(selectedMembers.filter(Boolean)));
+    const normalizedOwnerCharacterId = ownerCharacterId && validMemberIds.includes(ownerCharacterId) ? ownerCharacterId : null;
+    const normalizedAdminCharacterIds = Array.from(new Set(adminCharacterIds.filter((memberId) => validMemberIds.includes(memberId) && memberId !== normalizedOwnerCharacterId)));
+
+    if (!name.trim()) {
+      showError(i18n.language.startsWith('zh') ? '请填写群聊名称' : 'Please enter a chat name');
+      return;
+    }
+    if (validMemberIds.length < MIN_MEMBERS) {
+      showError(i18n.language.startsWith('zh') ? `请至少选择${MIN_MEMBERS}个AI成员` : `Please select at least ${MIN_MEMBERS} AI members`);
+      return;
+    }
+    if (selectedMembers.length !== validMemberIds.length) {
+      showError(i18n.language.startsWith('zh') ? '部分成员无效，请重新选择后再试' : 'Some selected members are invalid. Please reselect and try again');
+      return;
+    }
+    if (ownerCharacterId && !normalizedOwnerCharacterId) {
+      showError(i18n.language.startsWith('zh') ? '群主必须是当前群成员' : 'The owner must be one of the selected members');
+      return;
+    }
+    if (adminCharacterIds.length !== normalizedAdminCharacterIds.length) {
+      showError(i18n.language.startsWith('zh') ? '管理员必须来自当前群成员，且不能与群主重复' : 'Admins must be selected members and cannot duplicate the owner');
+      return;
+    }
+
     setSaving(true);
     try {
-      if (!canCreate) {
-        setSnackbar({ open: true, message: createError || t('common.error'), severity: 'error' });
-        return;
-      }
-
       if (editingChat) {
         await updateChat(editingChat.id, {
           name: name.trim(),
           topic: topic.trim(),
           style,
-          memberIds: selectedMembers,
+          memberIds: validMemberIds,
           speed: 1,
           allowIntervention: true,
           showRoleActions,
           topicSeed: '',
           runtimeNotes: runtimeNotesText.split('\n').map((item) => item.trim()).filter(Boolean),
           runtimeArtifacts: runtimeArtifactsText.split('\n').map((item) => item.trim()).filter(Boolean),
-          runtimeTimeline: editingChat?.runtimeTimeline || [],
+          runtimeTimeline: editingChat.runtimeTimeline || [],
           governance: {
             ...DEFAULT_CONVERSATION_GOVERNANCE,
-            ownerCharacterId: ownerCharacterId || null,
-            adminCharacterIds,
+            ownerCharacterId: normalizedOwnerCharacterId,
+            adminCharacterIds: normalizedAdminCharacterIds,
             autoModeration,
             allowMute,
             allowPrivateThreads,
@@ -386,7 +417,7 @@ export default function CreateChatPage() {
           },
         });
         setChatDraftDefaults({ style, showRoleActions });
-        navigate(`/chats/${editingChat.id}`);
+        navigate(-1);
         return;
       }
 
@@ -398,7 +429,7 @@ export default function CreateChatPage() {
         name: name.trim(),
         topic: topic.trim(),
         style,
-        memberIds: selectedMembers,
+        memberIds: validMemberIds,
         speed: 1,
         isActive: false,
         allowIntervention: true,
@@ -408,8 +439,8 @@ export default function CreateChatPage() {
         runtimeArtifacts: runtimeArtifactsText.split('\n').map((item) => item.trim()).filter(Boolean),
         governance: {
           ...DEFAULT_CONVERSATION_GOVERNANCE,
-          ownerCharacterId: ownerCharacterId || null,
-          adminCharacterIds,
+          ownerCharacterId: normalizedOwnerCharacterId,
+          adminCharacterIds: normalizedAdminCharacterIds,
           autoModeration,
           allowMute,
           allowPrivateThreads,
@@ -424,6 +455,7 @@ export default function CreateChatPage() {
           mood,
           focus,
           recentEvent,
+          conflictAxes: [],
         },
         directorControls: {
           ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
@@ -433,10 +465,13 @@ export default function CreateChatPage() {
           allowForcedReply,
         },
       });
+      sessionStorage.removeItem('miragetea-create-chat-draft');
       setChatDraftDefaults({ style, showRoleActions });
-      navigate(`/chats/${chat.id}`);
+      navigate(-1);
     } catch (error) {
-      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+      showError(getActionErrorMessage(error, editingChat
+        ? (i18n.language.startsWith('zh') ? '保存群聊失败' : 'Failed to save chat')
+        : (i18n.language.startsWith('zh') ? '创建群聊失败' : 'Failed to create chat')));
     } finally {
       setSaving(false);
     }
@@ -486,20 +521,23 @@ export default function CreateChatPage() {
             </TextField>
             <TextField
               select
+              slotProps={{ select: { multiple: true } }}
               label={i18n.language.startsWith('zh') ? '管理员' : 'Admins'}
-              value={adminCharacterIds.join(',')}
-              onChange={(e) => setAdminCharacterIds(e.target.value ? e.target.value.split(',') : [])}
+              value={adminCharacterIds}
+              onChange={(e) => setAdminCharacterIds((typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value).filter(Boolean))}
               fullWidth
             >
-              <MenuItem value="">{i18n.language.startsWith('zh') ? '未设置' : 'None'}</MenuItem>
               {selectedCharacters.map((char) => <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>)}
             </TextField>
             <TextField
               label={i18n.language.startsWith('zh') ? '管理员说明' : 'Admin notes'}
-              value={adminCharacterIds.map((memberId) => selectedCharacters.find((char) => char.id === memberId)?.name).filter(Boolean).join(', ')}
+              value={adminCharacterIds.length ? adminCharacterIds.map((memberId) => selectedCharacters.find((char) => char.id === memberId)?.name).filter(Boolean).join(', ') : (i18n.language.startsWith('zh') ? '未设置' : 'None')}
               slotProps={{ input: { readOnly: true } }}
               fullWidth
             />
+            <Typography variant="caption" color="text.secondary">
+              {i18n.language.startsWith('zh') ? '可多选管理员；群主不会重复加入管理员。' : 'You can select multiple admins; the owner is excluded automatically.'}
+            </Typography>
             <FormControlLabel control={<Switch checked={autoModeration} onChange={(e) => setAutoModeration(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '自动治理' : 'Auto moderation'} />
             <FormControlLabel control={<Switch checked={allowMute} onChange={(e) => setAllowMute(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许禁言' : 'Allow mute'} />
             <FormControlLabel control={<Switch checked={allowPrivateThreads} onChange={(e) => setAllowPrivateThreads(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许拉私聊' : 'Allow private threads'} />
@@ -524,8 +562,8 @@ export default function CreateChatPage() {
 
         <Button
           variant="contained"
-          onClick={handleCreate}
-          disabled={!canCreate || saving}
+          onClick={() => void handleCreate()}
+          disabled={saving}
           sx={{
             position: 'fixed',
             right: { xs: 20, sm: 28, md: 36 },
@@ -554,7 +592,7 @@ export default function CreateChatPage() {
                 {customCharacters.map((char) => (
                   <Box
                     key={char.id}
-                    onClick={() => handleMemberItemClick(char.id)}
+                    onClick={() => toggleMember(char.id)}
                     onPointerDown={() => startMemberLongPress(char.id)}
                     onPointerUp={clearMemberPressTimer}
                     onPointerLeave={clearMemberPressTimer}
@@ -567,7 +605,7 @@ export default function CreateChatPage() {
                       cursor: 'pointer', transition: 'all 0.18s ease', '&:hover': { boxShadow: 1, borderColor: 'primary.main' },
                     }}
                   >
-                    <Checkbox checked={selectedMembers.includes(char.id)} size="small" onClick={(e) => { e.stopPropagation(); handleMemberItemClick(char.id); }} />
+                    <Checkbox checked={selectedMembers.includes(char.id)} size="small" onClick={(e) => { e.stopPropagation(); toggleMember(char.id); }} />
                     <Avatar sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>{char.avatar}</Avatar>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{char.name}</Typography>
@@ -605,7 +643,12 @@ export default function CreateChatPage() {
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setMemberDialogOpen(false)}>{t('common.confirm')}</Button>
+          <Button onClick={() => {
+            setMemberDialogOpen(false);
+            if (selectedMembers.length < MIN_MEMBERS) {
+              showError(i18n.language.startsWith('zh') ? `当前至少需要${MIN_MEMBERS}个AI成员才能开始群聊` : `At least ${MIN_MEMBERS} AI members are required to start the chat`);
+            }
+          }}>{t('common.confirm')}</Button>
         </DialogActions>
       </Dialog>
 
@@ -621,9 +664,13 @@ export default function CreateChatPage() {
             variant="contained"
             onClick={async () => {
               if (!editingChat) return;
-              await deleteChat(editingChat.id);
-              setDeleteConfirmOpen(false);
-              navigate('/chats');
+              try {
+                await deleteChat(editingChat.id);
+                setDeleteConfirmOpen(false);
+                navigate(-1);
+              } catch (error) {
+                showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '删除群聊失败' : 'Failed to delete chat'));
+              }
             }}
           >
             {t('common.delete')}
