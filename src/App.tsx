@@ -12,8 +12,10 @@ import ChatDetailPage from './pages/ChatDetailPage';
 import CreateDirectChatPage from './pages/CreateDirectChatPage';
 import CharacterLibraryPage from './pages/CharacterLibraryPage';
 import SettingsPage from './pages/SettingsPage';
+import RecycleBinPage from './pages/RecycleBinPage';
 import AIModelsPage from './pages/AIModelsPage';
 import AccountPage from './pages/AccountPage';
+import SyncStatusPage from './pages/SyncStatusPage';
 import BatchGenerateCharactersPage from './pages/BatchGenerateCharactersPage';
 import LoginPage from './pages/LoginPage';
 import './i18n';
@@ -80,7 +82,9 @@ export default function App() {
               <Route path="/characters/batch-generate" element={<BatchGenerateCharactersPage />} />
               <Route path="/models" element={<AIModelsPage />} />
               <Route path="/account" element={<AccountPage />} />
+              <Route path="/account/sync-status" element={<SyncStatusPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/settings/recycle-bin" element={<RecycleBinPage />} />
             </Route>
           </Routes>
         </DataLoader>

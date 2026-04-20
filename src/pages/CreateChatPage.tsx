@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayout';
 import {
   Box, Typography, TextField, Button, IconButton,
@@ -268,7 +268,7 @@ export default function CreateChatPage() {
   const canAutofill = !editingChat && !aiAutofilling && Boolean(name.trim() || topic.trim() || selectedMembers.length);
   const getStyleLabel = (styleValue: ChatStyle) => t(`chat.style${styleValue.charAt(0).toUpperCase() + styleValue.slice(1)}`);
 
-  const handleAutofill = async () => {
+  const handleAutofill = useCallback(async () => {
     const profile = aiProfiles[0] || api;
     if (!profile?.apiKey || !profile?.model) {
       showError(i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first');
@@ -316,21 +316,40 @@ export default function CreateChatPage() {
     } finally {
       setAiAutofilling(false);
     }
-  };
+  }, [aiProfiles, api, i18n.language, name, topic, selectedMembers, showRoleActions, characters, t]);
+
+
+  const handleDelete = useCallback(async () => {
+    if (!editingChat) return;
+    try {
+      await deleteChat(editingChat.id);
+      setDeleteConfirmOpen(false);
+      navigate(-1);
+    } catch (error) {
+      showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '删除群聊失败' : 'Failed to delete chat'));
+    }
+  }, [deleteChat, editingChat, i18n.language, navigate]);
+
+  const headerTitle = editingChat ? t('chat.edit') : t('chat.create');
+  const autofillLabel = aiAutofilling ? t('common.loading') : (i18n.language.startsWith('zh') ? '自动补全' : 'Auto fill');
+  const deleteLabel = t('common.delete');
 
   useEffect(() => {
-    setHeaderTitle(editingChat ? t('chat.edit') : t('chat.create'));
+    setHeaderTitle(headerTitle);
     setHeaderBackAction(() => () => navigate(-1));
+  }, [headerTitle, navigate, setHeaderBackAction, setHeaderTitle]);
+
+  useEffect(() => {
     setHeaderActions(
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         {!editingChat ? (
           <Button variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={() => void handleAutofill()} disabled={!canAutofill}>
-            {aiAutofilling ? t('common.loading') : (i18n.language.startsWith('zh') ? '自动补全' : 'Auto fill')}
+            {autofillLabel}
           </Button>
         ) : null}
         {editingChat ? (
           <Button color="error" variant="outlined" startIcon={<DeleteIcon />} onClick={() => setDeleteConfirmOpen(true)}>
-            {t('common.delete')}
+            {deleteLabel}
           </Button>
         ) : null}
       </Box>
@@ -338,10 +357,8 @@ export default function CreateChatPage() {
 
     return () => {
       setHeaderActions(null);
-      setHeaderTitle(null);
-      setHeaderBackAction(null);
     };
-  }, [aiAutofilling, canAutofill, editingChat, i18n.language, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, t, handleAutofill]);
+  }, [autofillLabel, canAutofill, deleteLabel, editingChat, setHeaderActions]);
 
   const handleCreate = async () => {
     if (saving) {

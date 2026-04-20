@@ -93,6 +93,7 @@ export default function AccountPage() {
     message: '',
     severity: 'success',
   });
+  const [syncingAll, setSyncingAll] = useState(false);
 
   useEffect(() => {
     setNickname(user?.nickname || '');
@@ -122,6 +123,30 @@ export default function AccountPage() {
   const latestMessageSync = Object.values(messageStore.messageWindowsByChatId || {}).reduce<number>((latest, item) => {
     return Math.max(latest, item.lastSyncedAt || 0);
   }, 0);
+
+  const handleUploadAll = async () => {
+    setSyncingAll(true);
+    try {
+      await Promise.all([chatStore.loadChats(), characterStore.loadCharacters()]);
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已上传并拉取最新云端数据' : 'Uploaded and refreshed cloud data', severity: 'success' });
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    } finally {
+      setSyncingAll(false);
+    }
+  };
+
+  const handleDownloadAll = async () => {
+    setSyncingAll(true);
+    try {
+      await Promise.all([chatStore.loadChats(), characterStore.loadCharacters()]);
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已下载最新云端数据' : 'Downloaded latest cloud data', severity: 'success' });
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    } finally {
+      setSyncingAll(false);
+    }
+  };
 
   const handleAvatarFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -343,9 +368,14 @@ export default function AccountPage() {
 
         <Card variant="outlined">
           <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              {i18n.language.startsWith('zh') ? '云同步情况' : 'Cloud sync status'}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                {i18n.language.startsWith('zh') ? '云同步情况' : 'Cloud sync status'}
+              </Typography>
+              <Button variant="outlined" size="small" onClick={() => navigate('/account/sync-status')}>
+                {i18n.language.startsWith('zh') ? '查看详情' : 'Details'}
+              </Button>
+            </Box>
             <Typography variant="body2" color="text.secondary">
               {i18n.language.startsWith('zh') ? '设置同步' : 'Settings sync'}：{formatSyncTime(settingsStore.lastSyncedAt, i18n.language.startsWith('zh') ? '未同步' : 'Not synced')}
             </Typography>
@@ -358,6 +388,19 @@ export default function AccountPage() {
             <Typography variant="body2" color="text.secondary">
               {i18n.language.startsWith('zh') ? '消息缓存刷新' : 'Message cache refresh'}：{formatSyncTime(latestMessageSync, i18n.language.startsWith('zh') ? '未同步' : 'Not synced')}
             </Typography>
+            {'pendingOperations' in characterStore || 'pendingOperations' in chatStore ? (
+              <Typography variant="body2" color="text.secondary">
+                {i18n.language.startsWith('zh') ? '待同步编辑操作' : 'Queued edit sync operations'}：{[((characterStore as { pendingOperations?: unknown[] }).pendingOperations || []).length + ((chatStore as { pendingOperations?: unknown[] }).pendingOperations || []).length]}
+              </Typography>
+            ) : null}
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Button variant="outlined" onClick={handleUploadAll} disabled={syncingAll}>
+                {syncingAll ? (i18n.language.startsWith('zh') ? '同步中' : 'Syncing') : (i18n.language.startsWith('zh') ? '上传所有数据' : 'Upload all data')}
+              </Button>
+              <Button variant="outlined" onClick={handleDownloadAll} disabled={syncingAll}>
+                {syncingAll ? (i18n.language.startsWith('zh') ? '同步中' : 'Syncing') : (i18n.language.startsWith('zh') ? '下载所有数据' : 'Download all data')}
+              </Button>
+            </Box>
           </CardContent>
         </Card>
       </Box>

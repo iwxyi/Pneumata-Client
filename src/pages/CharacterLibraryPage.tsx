@@ -21,7 +21,7 @@ export default function CharacterLibraryPage() {
     navigate(-1);
   };
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
-  const { characters, loadCharacters, addCharacter, updateCharacter, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets } = useCharacterStore();
+  const { characters, loadCharacters, loadProjectedCharacters, addCharacter, updateCharacter, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets } = useCharacterStore();
   const [tab, setTab] = useState(0);
   const showForm = location.pathname === '/characters/create';
   const editId = location.pathname.startsWith('/characters/') && location.pathname.endsWith('/edit') ? (id || null) : null;
@@ -45,6 +45,7 @@ export default function CharacterLibraryPage() {
   useEffect(() => {
     loadCharacters().then(() => initializePresets());
   }, [initializePresets, loadCharacters]);
+
 
   const presets = characters.filter((c) => c.isPreset);
   const custom = characters.filter((c) => !c.isPreset);
@@ -116,13 +117,24 @@ export default function CharacterLibraryPage() {
   };
 
   const handleBulkDeleteConfirm = async () => {
-    await applyBulkDelete();
+    try {
+      await applyBulkDelete();
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已删除' : 'Deleted', severity: 'success' });
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    }
   };
 
   const handleSingleDeleteConfirm = async () => {
     if (!deleteId) return;
-    await deleteCharacter(deleteId);
-    setDeleteId(null);
+    try {
+      await deleteCharacter(deleteId);
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已删除' : 'Deleted', severity: 'success' });
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    } finally {
+      setDeleteId(null);
+    }
   };
 
   useEffect(() => {
@@ -225,7 +237,7 @@ export default function CharacterLibraryPage() {
     input.click();
   };
 
-  if (showForm || editId || deleteId) {
+  if (showForm || editId) {
     return (
       <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
         <CharacterForm
@@ -353,6 +365,8 @@ export default function CharacterLibraryPage() {
                 selectable={selectable}
                 selectionMode={selectionMode}
                 onLongPress={selectable ? () => enterSelectionMode(char.id) : undefined}
+                onEdit={tab === 0 ? () => navigate(`/characters/${char.id}/edit`) : undefined}
+                onDelete={tab === 0 && selectable ? () => setDeleteId(char.id) : undefined}
                 onClick={() => {
                   if (selectionMode && selectable) {
                     toggleSelection(char.id);

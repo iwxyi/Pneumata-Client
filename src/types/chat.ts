@@ -172,6 +172,8 @@ export interface GroupChat {
   dramaRules: ConversationDramaRules;
   worldState: ConversationWorldState;
   directorControls: ConversationDirectorControls;
+  deletedAt?: number | null;
+  fieldVersions?: Record<string, number>;
   createdAt: number;
   updatedAt: number;
   lastMessageAt: number;

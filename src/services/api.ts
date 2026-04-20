@@ -76,7 +76,7 @@ class ApiClient {
       behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
       relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       modelProfileId?: string | null; bubbleStyleId?: string | null;
-      isPreset: boolean; createdAt: number; updatedAt: number;
+      isPreset: boolean; deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number;
     }>>('GET', '/characters');
   }
 
@@ -94,12 +94,48 @@ class ApiClient {
     return this.request<Record<string, unknown>>('PUT', `/characters/${id}`, data);
   }
 
+  async syncCharacterPatch(id: string, data: { operationId: string; clientTimestamp: number; patch: Record<string, unknown> }) {
+    return this.request<{ success: boolean; character: Record<string, unknown> }>('PATCH', `/characters/${id}/sync`, data);
+  }
+
+  async syncChatPatch(id: string, data: { operationId: string; clientTimestamp: number; patch: Record<string, unknown> }) {
+    return this.request<{ success: boolean; chat: Record<string, unknown> }>('PATCH', `/chats/${id}/sync`, data);
+  }
+
   async deleteCharacter(id: string) {
     return this.request<{ success: boolean }>('DELETE', `/characters/${id}`);
   }
 
   async bulkDeleteCharacters(ids: string[]) {
     return this.request<{ success: boolean; deletedIds: string[] }>('POST', '/characters/bulk-delete', { ids });
+  }
+
+  async getDeletedCharacters() {
+    return this.request<Array<Record<string, unknown>>>('GET', '/characters/deleted');
+  }
+
+  async restoreCharacter(id: string) {
+    return this.request<{ success: boolean; character: Record<string, unknown> }>('POST', `/characters/${id}/restore`);
+  }
+
+  async bulkRestoreCharacters(ids: string[]) {
+    return this.request<{ success: boolean; characters: Record<string, unknown>[] }>('POST', '/characters/bulk-restore', { ids });
+  }
+
+  async purgeCharacter(id: string) {
+    return this.request<{ success: boolean }>('DELETE', `/characters/${id}/purge`);
+  }
+
+  async bulkPurgeCharacters(ids: string[]) {
+    return this.request<{ success: boolean; deletedIds: string[] }>('POST', '/characters/bulk-purge', { ids });
+  }
+
+  async emptyDeletedCharacters() {
+    return this.request<{ success: boolean; deletedIds: string[] }>('DELETE', '/characters/recycle-bin/empty-all');
+  }
+
+  async getDeletedCharacterStats() {
+    return this.request<{ count: number }>('GET', '/characters/recycle-bin/stats');
   }
 
   async bulkUpdateCharacters(ids: string[], data: { group?: string | null }) {
@@ -112,7 +148,7 @@ class ApiClient {
       memberIds: string[]; speed: number; isActive: boolean;
       allowIntervention: boolean; showRoleActions?: boolean; topicSeed: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeNotes?: string[]; runtimeArtifacts?: string[]; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       governance?: object; dramaRules?: object; worldState?: object; directorControls?: object;
-      createdAt: number; updatedAt: number; lastMessageAt: number;
+      deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number; lastMessageAt: number;
     }>>('GET', '/chats');
   }
 
@@ -130,6 +166,38 @@ class ApiClient {
 
   async deleteChat(id: string) {
     return this.request<{ success: boolean }>('DELETE', `/chats/${id}`);
+  }
+
+  async bulkDeleteChats(ids: string[]) {
+    return this.request<{ success: boolean; deletedIds: string[] }>('POST', '/chats/bulk-delete', { ids });
+  }
+
+  async getDeletedChats() {
+    return this.request<Array<Record<string, unknown>>>('GET', '/chats?deletedOnly=1');
+  }
+
+  async restoreChat(id: string) {
+    return this.request<{ success: boolean; chat: Record<string, unknown> }>('POST', `/chats/${id}/restore`);
+  }
+
+  async bulkRestoreChats(ids: string[]) {
+    return this.request<{ success: boolean; chats: Record<string, unknown>[] }>('POST', '/chats/bulk-restore', { ids });
+  }
+
+  async purgeChat(id: string) {
+    return this.request<{ success: boolean }>('DELETE', `/chats/${id}/purge`);
+  }
+
+  async bulkPurgeChats(ids: string[]) {
+    return this.request<{ success: boolean; deletedIds: string[] }>('POST', '/chats/bulk-purge', { ids });
+  }
+
+  async emptyDeletedChats() {
+    return this.request<{ success: boolean; deletedIds: string[] }>('DELETE', '/chats/recycle-bin/empty-all');
+  }
+
+  async getDeletedChatStats() {
+    return this.request<{ group: number; direct: number; aiDirect: number }>('GET', '/chats/recycle-bin/stats');
   }
 
   async getMessages(chatId: string, options?: { limit?: number; before?: number }) {

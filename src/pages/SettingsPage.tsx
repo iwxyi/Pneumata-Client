@@ -100,13 +100,14 @@ export default function SettingsPage() {
     try {
       const chats = await api.getChats();
       for (const chat of chats) {
-        await api.deleteChat((chat as { id: string }).id);
+        await useChatStore.getState().deleteChat((chat as { id: string }).id);
       }
       const chars = await api.getCharacters();
-      for (const char of chars) {
-        if (!(char as { isPreset: boolean }).isPreset) {
-          await api.deleteCharacter((char as { id: string }).id);
-        }
+      const customCharacterIds = chars
+        .filter((char) => !(char as { isPreset: boolean }).isPreset)
+        .map((char) => (char as { id: string }).id);
+      if (customCharacterIds.length) {
+        await useCharacterStore.getState().deleteCharacters(customCharacterIds);
       }
       settings.resetSettings();
       await useCharacterStore.getState().loadCharacters();
@@ -227,6 +228,9 @@ export default function SettingsPage() {
             </Button>
             <Button startIcon={<RestoreIcon />} variant="outlined" onClick={handleRestore}>
               {t('settings.restore')}
+            </Button>
+            <Button variant="outlined" onClick={() => navigate('/settings/recycle-bin')}>
+              {i18n.language.startsWith('zh') ? '回收站' : 'Recycle Bin'}
             </Button>
             <Button startIcon={<ClearIcon />} variant="outlined" color="error" onClick={() => setClearConfirm(true)}>
               {t('settings.clearAll')}

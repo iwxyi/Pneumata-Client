@@ -4,6 +4,7 @@ import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import MessageBubble from './MessageBubble';
 import TypingIndicator from './TypingIndicator';
+import { resolveCharacterOrDeleted } from '../../utils/deletedEntity';
 
 const AUTO_SCROLL_THRESHOLD = 96;
 
@@ -185,7 +186,7 @@ export default function MessageList({ messages, characters, thinkingCharacterId,
         <MessageBubble
           key={msg.id}
           message={msg}
-          character={msg.type === 'ai' ? characterMap.get(msg.senderId) : undefined}
+          character={msg.type === 'ai' ? resolveCharacterOrDeleted(characters, msg.senderId, msg.senderName) : undefined}
           onDelete={msg.type === 'system' ? undefined : onDeleteMessage}
         />
       ))}

@@ -32,6 +32,7 @@ import { accumulateCharacterRuntime } from '../services/characterRuntime';
 import { buildRuntimeEvent } from '../services/runtimeEventFactory';
 import { accumulateChatRuntime } from '../services/chatRuntime';
 import { commitGeneratedMessage } from '../services/chatRoundExecution';
+import { buildDeletedCharacter, resolveCharacterOrDeleted } from '../utils/deletedEntity';
 
 export default function ChatDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -106,7 +107,8 @@ export default function ChatDetailPage() {
     loopTokenRef.current = loopToken;
   }, [id, loopToken]);
 
-  const members = characters.filter((c) => chat?.memberIds.includes(c.id));
+  const members = chat ? chat.memberIds.map((memberId) => resolveCharacterOrDeleted(characters, memberId)) : [];
+  const activeMembers = chat ? characters.filter((c) => chat.memberIds.includes(c.id)) : [];
   const runtimeContext = chat ? { conversation: chat, participants: OPEN_CHAT_MODE_DRIVER.buildParticipants(chat) } : null;
   const visiblePanels = runtimeContext ? OPEN_CHAT_MODE_DRIVER.getVisiblePanels(runtimeContext) : [];
   const availableActions = runtimeContext ? OPEN_CHAT_MODE_DRIVER.getAvailableActions(runtimeContext) : [];
@@ -192,7 +194,7 @@ export default function ChatDetailPage() {
       loopId,
       chatId: id,
       chat,
-      characters,
+      characters: activeMembers,
       api,
       getCurrentMessages: () => useMessageStore.getState().messages,
       isRunning: () => isRunningRef.current,
@@ -488,7 +490,7 @@ export default function ChatDetailPage() {
     }
   }, [addMessage, characters, chat, chats, navigate, privateStarterId, privateTargetId]);
 
-  const canAutoRun = chat?.mode === 'open_chat' && (chat?.type === 'group' || chat?.type === 'direct' || chat?.type === 'ai_direct');
+  const canAutoRun = Boolean(chat?.mode === 'open_chat' && (chat?.type === 'group' || chat?.type === 'direct' || chat?.type === 'ai_direct') && activeMembers.length > 0);
 
   const detailTitle = memberPanel?.title || (chat?.type === 'group' ? t('controls.memberList') : chat?.type === 'ai_direct' ? 'AI私聊信息' : '单聊信息');
 

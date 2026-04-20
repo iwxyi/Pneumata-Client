@@ -83,6 +83,8 @@ export interface AICharacter {
   modelProfileId?: string | null;
   bubbleStyleId?: string | null;
   isPreset: boolean;
+  deletedAt?: number | null;
+  fieldVersions?: Record<string, number>;
   createdAt: number;
   updatedAt: number;
 }
