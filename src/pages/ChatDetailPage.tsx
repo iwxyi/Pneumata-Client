@@ -264,15 +264,7 @@ export default function ChatDetailPage() {
   const handlePause = useCallback(() => {
     pause();
     updateChat(id!, { isActive: false });
-    addMessage({
-      chatId: id!,
-      type: 'system',
-      senderId: 'system',
-      senderName: 'System',
-      content: t('message.system.chatPaused'),
-      emotion: 0,
-    });
-  }, [id]);
+  }, [id, pause, updateChat]);
 
   const handleResume = useCallback(() => {
     const newLoopToken = `${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -280,16 +272,8 @@ export default function ChatDetailPage() {
     start(newLoopToken);
     resume();
     updateChat(id!, { isActive: true });
-    addMessage({
-      chatId: id!,
-      type: 'system',
-      senderId: 'system',
-      senderName: 'System',
-      content: t('message.system.chatResumed'),
-      emotion: 0,
-    });
     setTimeout(() => runLoop(newLoopToken), 100);
-  }, [addMessage, id, resume, runLoop, start, t, updateChat]);
+  }, [id, resume, runLoop, start, updateChat]);
 
   const handleSpeakAs = useCallback(async (content: string) => {
     if (!speakAsCharacterId) return;

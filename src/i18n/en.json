@@ -157,8 +157,6 @@
   "message": {
     "system": {
       "chatCreated": "The tea party has begun!",
-      "chatPaused": "Chat paused",
-      "chatResumed": "Chat resumed",
       "topicChanged": "Topic guided to: {{topic}}",
       "memberJoined": "{{name}} joined the chat",
       "memberLeft": "{{name}} left the chat"

@@ -50,13 +50,15 @@ export default function ChatCard({ chat, characters, onClick }: ChatCardProps) {
                 </Typography>
               ) : null}
             </Box>
-            <Chip
-              label={chat.isActive ? t('chat.active') : t('chat.paused')}
-              size="small"
-              color={chat.isActive ? 'success' : 'default'}
-              variant="outlined"
-              sx={{ ml: 1, flexShrink: 0 }}
-            />
+            {chat.deletedAt == null ? (
+              <Chip
+                label={chat.isActive ? t('chat.active') : t('chat.paused')}
+                size="small"
+                color={chat.isActive ? 'success' : 'default'}
+                variant="outlined"
+                sx={{ ml: 1, flexShrink: 0 }}
+              />
+            ) : null}
           </Box>
 
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
