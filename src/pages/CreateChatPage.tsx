@@ -333,6 +333,68 @@ export default function CreateChatPage() {
   const headerTitle = editingChat ? t('chat.edit') : t('chat.create');
   const autofillLabel = aiAutofilling ? t('common.loading') : (i18n.language.startsWith('zh') ? '自动补全' : 'Auto fill');
   const deleteLabel = t('common.delete');
+  const closeMemberDialog = () => {
+    setMemberDialogOpen(false);
+  };
+  const openDeleteDialog = () => {
+    setDeleteConfirmOpen(true);
+  };
+  const closeDeleteDialog = () => {
+    setDeleteConfirmOpen(false);
+  };
+  const closeSnackbar = () => {
+    setSnackbar((prev) => ({ ...prev, open: false }));
+  };
+  const handleTabChange = (_: unknown, value: number) => {
+    setConfigTab(value);
+  };
+  const handleCreateAction = () => {
+    void handleCreate();
+  };
+  const handleAutofillAction = () => {
+    void handleAutofill();
+  };
+  const handleDeleteAction = () => {
+    void handleDelete();
+  };
+  const confirmMemberDialog = () => {
+    setMemberDialogOpen(false);
+    if (selectedMembers.length < MIN_MEMBERS) {
+      showError(i18n.language.startsWith('zh') ? `当前至少需要${MIN_MEMBERS}个AI成员才能开始群聊` : `At least ${MIN_MEMBERS} AI members are required to start the chat`);
+    }
+  };
+  const goBack = () => {
+    navigate(-1);
+  };
+
+  const selectedMemberGridSx = {
+    display: 'grid',
+    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' },
+    gap: 1.5,
+  } as const;
+
+  const memberOptionSx = (checked: boolean) => ({
+    display: 'flex', alignItems: 'center', gap: 1.25, p: 1.5, borderRadius: 3, border: 1,
+    borderColor: checked ? 'primary.main' : 'divider',
+    bgcolor: checked ? 'primary.light' : 'background.paper',
+    cursor: 'pointer', transition: 'all 0.18s ease', '&:hover': { boxShadow: 1, borderColor: 'primary.main' },
+  });
+
+  const memberSummaryEmptyLabel = i18n.language.startsWith('zh') ? '未选择AI角色' : 'No AI members selected';
+  const memberDialogConfirmLabel = t('common.confirm');
+  const memberDialogMinError = i18n.language.startsWith('zh') ? `当前至少需要${MIN_MEMBERS}个AI成员才能开始群聊` : `At least ${MIN_MEMBERS} AI members are required to start the chat`;
+  const startChatLabel = editingChat ? t('common.save') : '开始群聊';
+  const runtimePhaseLabel = editingChat?.worldState.phase || 'idle';
+  const runtimeMoodLabel = mood || '未设置';
+  const runtimeFocusLabel = focus || '未设置';
+  const runtimeRecentEventLabel = recentEvent || '暂无';
+  const deleteChatTitle = t('chat.delete');
+  const deleteChatConfirm = t('chat.deleteConfirm');
+  const cancelLabel = t('common.cancel');
+  const confirmDeleteLabel = t('common.delete');
+  const noOwnerLabel = i18n.language.startsWith('zh') ? '未设置' : 'None';
+  const adminNotesValue = adminCharacterIds.length ? adminCharacterIds.map((memberId) => selectedCharacters.find((char) => char.id === memberId)?.name).filter(Boolean).join(', ') : noOwnerLabel;
+  const topicPlaceholder = i18n.language.startsWith('zh') ? '创建后由用户发送首条消息启动讨论，可先写简介或目标' : 'After creation the user starts discussion with the first message; use this for description or goal';
 
   useEffect(() => {
     setHeaderTitle(headerTitle);
@@ -343,12 +405,12 @@ export default function CreateChatPage() {
     setHeaderActions(
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         {!editingChat ? (
-          <Button variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={() => void handleAutofill()} disabled={!canAutofill}>
+          <Button variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={handleAutofillAction} disabled={!canAutofill}>
             {autofillLabel}
           </Button>
         ) : null}
         {editingChat ? (
-          <Button color="error" variant="outlined" startIcon={<DeleteIcon />} onClick={() => setDeleteConfirmOpen(true)}>
+          <Button color="error" variant="outlined" startIcon={<DeleteIcon />} onClick={openDeleteDialog}>
             {deleteLabel}
           </Button>
         ) : null}
@@ -497,7 +559,7 @@ export default function CreateChatPage() {
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 18, sm: 14, md: 10 }, maxWidth: 860, mx: 'auto' }}>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <Tabs value={configTab} onChange={(_, value) => setConfigTab(value)} variant="scrollable" allowScrollButtonsMobile>
+        <Tabs value={configTab} onChange={handleTabChange} variant="scrollable" allowScrollButtonsMobile>
           <Tab label={i18n.language.startsWith('zh') ? '设定' : 'Config'} />
           <Tab label={i18n.language.startsWith('zh') ? '治理' : 'Governance'} />
           <Tab label={i18n.language.startsWith('zh') ? '戏剧规则' : 'Drama'} />
@@ -508,8 +570,8 @@ export default function CreateChatPage() {
         {configTab === 0 ? (
           <Stack spacing={2}>
             <Card variant="outlined"><CardContent><TextField label={t('chat.name')} placeholder={t('chat.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} required fullWidth /></CardContent></Card>
-            <Card variant="outlined"><CardContent><TextField label={t('chat.topic')} placeholder={i18n.language.startsWith('zh') ? '创建后由用户发送首条消息启动讨论，可先写简介或目标' : 'After creation the user starts discussion with the first message; use this for description or goal'} value={topic} onChange={(e) => setTopic(e.target.value)} fullWidth multiline rows={2} /></CardContent></Card>
-            <Card variant="outlined"><CardContent><Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}><Box><Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{t('chat.selectMembers')}</Typography><Typography variant="caption" color="text.secondary">{t('chat.membersHint')} ({selectedMembers.length}/{MAX_MEMBERS})</Typography></Box><IconButton color="primary" onClick={() => setMemberDialogOpen(true)}><AddIcon /></IconButton></Box>{selectedCharacters.length > 0 ? (<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{selectedCharacters.map((char) => (<Chip key={char.id} avatar={<Avatar sx={{ bgcolor: 'primary.light' }}>{char.avatar}</Avatar>} label={char.name} onDelete={() => toggleMember(char.id)} />))}</Box>) : (<Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 3, color: 'text.secondary' }}>未选择AI角色</Box>)}</CardContent></Card>
+            <Card variant="outlined"><CardContent><TextField label={t('chat.topic')} placeholder={topicPlaceholder} value={topic} onChange={(e) => setTopic(e.target.value)} fullWidth multiline rows={2} /></CardContent></Card>
+            <Card variant="outlined"><CardContent><Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}><Box><Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{t('chat.selectMembers')}</Typography><Typography variant="caption" color="text.secondary">{t('chat.membersHint')} ({selectedMembers.length}/{MAX_MEMBERS})</Typography></Box><IconButton color="primary" onClick={() => setMemberDialogOpen(true)}><AddIcon /></IconButton></Box>{selectedCharacters.length > 0 ? (<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{selectedCharacters.map((char) => (<Chip key={char.id} avatar={<Avatar sx={{ bgcolor: 'primary.light' }}>{char.avatar}</Avatar>} label={char.name} onDelete={() => toggleMember(char.id)} />))}</Box>) : (<Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 3, color: 'text.secondary' }}>{memberSummaryEmptyLabel}</Box>)}</CardContent></Card>
             <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{t('chat.style')}</Typography><Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{CHAT_STYLE_OPTIONS.map((opt) => (<Button key={opt.value} variant={style === opt.value ? 'contained' : 'outlined'} onClick={() => setStyle(opt.value)} sx={{ borderRadius: 999 }}>{getStyleLabel(opt.value)}</Button>))}</Box></CardContent></Card>
             <Card variant="outlined"><CardContent><FormControlLabel control={<Switch checked={showRoleActions} onChange={(e) => setShowRoleActions(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'} /></CardContent></Card>
           </Stack>
@@ -517,7 +579,7 @@ export default function CreateChatPage() {
 
         {configTab === 3 ? (
           <Stack spacing={2}>
-            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>群聊运行态</Typography><Stack spacing={1}><Typography variant="body2"><strong>阶段：</strong>{editingChat?.worldState.phase || 'idle'}</Typography><Typography variant="body2"><strong>气氛：</strong>{mood || '未设置'}</Typography><Typography variant="body2"><strong>焦点：</strong>{focus || '未设置'}</Typography><Typography variant="body2"><strong>最近事件：</strong>{recentEvent || '暂无'}</Typography></Stack></CardContent></Card>
+            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>群聊运行态</Typography><Stack spacing={1}><Typography variant="body2"><strong>阶段：</strong>{runtimePhaseLabel}</Typography><Typography variant="body2"><strong>气氛：</strong>{runtimeMoodLabel}</Typography><Typography variant="body2"><strong>焦点：</strong>{runtimeFocusLabel}</Typography><Typography variant="body2"><strong>最近事件：</strong>{runtimeRecentEventLabel}</Typography></Stack></CardContent></Card>
             <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>长期沉淀记忆</Typography><TextField value={runtimeNotesText} onChange={(e) => setRuntimeNotesText(e.target.value)} multiline rows={5} fullWidth placeholder="每行一条，例如：该群容易因技术路线分裂" /></CardContent></Card>
             <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>成果 / 产物</Typography><TextField value={runtimeArtifactsText} onChange={(e) => setRuntimeArtifactsText(e.target.value)} multiline rows={4} fullWidth placeholder="每行一条，例如：一份共识纪要 / 一张关系图" /></CardContent></Card>
             <ChatRuntimePanel chat={{ ...(editingChat || {}), id: editingChat?.id || 'draft', type: 'group', mode: 'open_chat', modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG, modeState: DEFAULT_OPEN_CHAT_MODE_STATE, name: name || '未命名群聊', topic, style, memberIds: selectedMembers, speed: 1, isActive: false, allowIntervention: true, showRoleActions, topicSeed: '', sourceChatId: null, sourceMemberIds: [], runtimeNotes: runtimeNotesText.split('\n').map((item) => item.trim()).filter(Boolean), runtimeArtifacts: runtimeArtifactsText.split('\n').map((item) => item.trim()).filter(Boolean), runtimeTimeline: editingChat?.runtimeTimeline || [], governance: { ...DEFAULT_CONVERSATION_GOVERNANCE, ownerCharacterId: ownerCharacterId || null, adminCharacterIds, autoModeration, allowMute, allowPrivateThreads }, dramaRules: { ...DEFAULT_CONVERSATION_DRAMA_RULES, allowCliques, allowMockery }, worldState: { ...DEFAULT_CONVERSATION_WORLD_STATE, mood, focus, recentEvent }, directorControls: { ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, allowSpeakAs, allowDirectorMode, allowEventInjection, allowForcedReply }, createdAt: editingChat?.createdAt || Date.now(), updatedAt: editingChat?.updatedAt || Date.now(), lastMessageAt: editingChat?.lastMessageAt || Date.now() }} members={selectedCharacters} />
@@ -533,7 +595,7 @@ export default function CreateChatPage() {
               onChange={(e) => setOwnerCharacterId(e.target.value)}
               fullWidth
             >
-              <MenuItem value="">{i18n.language.startsWith('zh') ? '未设置' : 'None'}</MenuItem>
+              <MenuItem value="">{noOwnerLabel}</MenuItem>
               {selectedCharacters.map((char) => <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>)}
             </TextField>
             <TextField
@@ -548,7 +610,7 @@ export default function CreateChatPage() {
             </TextField>
             <TextField
               label={i18n.language.startsWith('zh') ? '管理员说明' : 'Admin notes'}
-              value={adminCharacterIds.length ? adminCharacterIds.map((memberId) => selectedCharacters.find((char) => char.id === memberId)?.name).filter(Boolean).join(', ') : (i18n.language.startsWith('zh') ? '未设置' : 'None')}
+              value={adminNotesValue}
               slotProps={{ input: { readOnly: true } }}
               fullWidth
             />
@@ -579,7 +641,7 @@ export default function CreateChatPage() {
 
         <Button
           variant="contained"
-          onClick={() => void handleCreate()}
+          onClick={handleCreateAction}
           disabled={saving}
           sx={{
             position: 'fixed',
@@ -592,20 +654,20 @@ export default function CreateChatPage() {
             boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)',
           }}
         >
-          {saving ? t('common.loading') : editingChat ? t('common.save') : '开始群聊'}
+          {saving ? t('common.loading') : startChatLabel}
         </Button>
       </Box>
 
-      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}>
-        <Alert severity={snackbar.severity} onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}>{snackbar.message}</Alert>
+      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={closeSnackbar}>
+        <Alert severity={snackbar.severity} onClose={closeSnackbar}>{snackbar.message}</Alert>
       </Snackbar>
 
-      <Dialog open={memberDialogOpen} onClose={() => setMemberDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={memberDialogOpen} onClose={closeMemberDialog} maxWidth="md" fullWidth>
         <DialogTitle>{t('chat.selectMembers')}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
             {hasCustomCharacters ? (
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 }}>
+              <Box sx={selectedMemberGridSx}>
                 {customCharacters.map((char) => (
                   <Box
                     key={char.id}
@@ -615,12 +677,7 @@ export default function CreateChatPage() {
                     onPointerLeave={clearMemberPressTimer}
                     onPointerCancel={clearMemberPressTimer}
                     onContextMenu={(e) => handleMemberItemContextMenu(e, char.id)}
-                    sx={{
-                      display: 'flex', alignItems: 'center', gap: 1.25, p: 1.5, borderRadius: 3, border: 1,
-                      borderColor: selectedMembers.includes(char.id) ? 'primary.main' : 'divider',
-                      bgcolor: selectedMembers.includes(char.id) ? 'primary.light' : 'background.paper',
-                      cursor: 'pointer', transition: 'all 0.18s ease', '&:hover': { boxShadow: 1, borderColor: 'primary.main' },
-                    }}
+                    sx={memberOptionSx(selectedMembers.includes(char.id))}
                   >
                     <Checkbox checked={selectedMembers.includes(char.id)} size="small" onClick={(e) => { e.stopPropagation(); toggleMember(char.id); }} />
                     <Avatar sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>{char.avatar}</Avatar>
@@ -635,17 +692,12 @@ export default function CreateChatPage() {
             {hasCustomCharacters && hasPresetCharacters ? <Divider /> : null}
 
             {hasPresetCharacters ? (
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 }}>
+              <Box sx={selectedMemberGridSx}>
                 {presetCharacters.map((char) => (
                   <Box
                     key={char.id}
                     onClick={() => toggleMember(char.id)}
-                    sx={{
-                      display: 'flex', alignItems: 'center', gap: 1.25, p: 1.5, borderRadius: 3, border: 1,
-                      borderColor: selectedMembers.includes(char.id) ? 'primary.main' : 'divider',
-                      bgcolor: selectedMembers.includes(char.id) ? 'primary.light' : 'background.paper',
-                      cursor: 'pointer', transition: 'all 0.18s ease', '&:hover': { boxShadow: 1, borderColor: 'primary.main' },
-                    }}
+                    sx={memberOptionSx(selectedMembers.includes(char.id))}
                   >
                     <Checkbox checked={selectedMembers.includes(char.id)} size="small" onClick={(e) => { e.stopPropagation(); toggleMember(char.id); }} />
                     <Avatar sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>{char.avatar}</Avatar>
@@ -660,37 +712,23 @@ export default function CreateChatPage() {
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => {
-            setMemberDialogOpen(false);
-            if (selectedMembers.length < MIN_MEMBERS) {
-              showError(i18n.language.startsWith('zh') ? `当前至少需要${MIN_MEMBERS}个AI成员才能开始群聊` : `At least ${MIN_MEMBERS} AI members are required to start the chat`);
-            }
-          }}>{t('common.confirm')}</Button>
+          <Button onClick={confirmMemberDialog}>{memberDialogConfirmLabel}</Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>{t('chat.delete')}</DialogTitle>
+      <Dialog open={deleteConfirmOpen} onClose={closeDeleteDialog} maxWidth="xs" fullWidth>
+        <DialogTitle>{deleteChatTitle}</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary">{t('chat.deleteConfirm')}</Typography>
+          <Typography variant="body2" color="text.secondary">{deleteChatConfirm}</Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setDeleteConfirmOpen(false)}>{t('common.cancel')}</Button>
+          <Button onClick={closeDeleteDialog}>{cancelLabel}</Button>
           <Button
             color="error"
             variant="contained"
-            onClick={async () => {
-              if (!editingChat) return;
-              try {
-                await deleteChat(editingChat.id);
-                setDeleteConfirmOpen(false);
-                navigate(-1);
-              } catch (error) {
-                showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '删除群聊失败' : 'Failed to delete chat'));
-              }
-            }}
+            onClick={handleDeleteAction}
           >
-            {t('common.delete')}
+            {confirmDeleteLabel}
           </Button>
         </DialogActions>
       </Dialog>
