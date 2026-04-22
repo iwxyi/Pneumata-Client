@@ -102,6 +102,7 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
     chatDraftDefaults: {
       ...DEFAULT_CHAT_DRAFT_DEFAULTS,
       ...(state.chatDraftDefaults || {}),
+      runtimeEvolutionIntensity: state.chatDraftDefaults?.runtimeEvolutionIntensity || DEFAULT_CHAT_DRAFT_DEFAULTS.runtimeEvolutionIntensity,
     },
     customBubbleStyles: Array.isArray(state.customBubbleStyles) ? state.customBubbleStyles : [],
   };
@@ -136,7 +137,10 @@ export const useSettingsStore = create<SettingsStore>()(
               developerMode: settings.developerMode,
               developerUI: settings.developerUI as DeveloperUIPrefs | undefined,
               memoryUI: settings.memoryUI as { showDeveloperMemory?: boolean } | undefined,
-              chatDraftDefaults: (settings.chatDraftDefaults || DEFAULT_CHAT_DRAFT_DEFAULTS) as ChatDraftDefaults,
+              chatDraftDefaults: {
+                ...DEFAULT_CHAT_DRAFT_DEFAULTS,
+                ...((settings.chatDraftDefaults || DEFAULT_CHAT_DRAFT_DEFAULTS) as ChatDraftDefaults),
+              },
               customBubbleStyles: settings.customBubbleStyles as BubbleStyleDefinition[] | undefined,
             }),
             _loaded: true,

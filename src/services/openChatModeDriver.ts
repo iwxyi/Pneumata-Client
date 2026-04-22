@@ -3,6 +3,7 @@ import type { DriverMessageCommitResult, GroupChat, OpenChatModeDriver, RuntimeC
 import type { Message } from '../types/message';
 import { DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../types/chat';
 import { buildChatPatch, buildNextWorldState, buildRelationshipTransition, buildWorldRuntimeEvents } from './chatRuntimeTransitionBuilder';
+import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 
 function buildParticipants(conversation: GroupChat) {
   return conversation.memberIds.map((memberId, index) => ({
@@ -38,13 +39,14 @@ function onMessageCommitted(params: {
   message: Pick<Message, 'content' | 'type' | 'senderId'>;
   previousAiMessage?: Pick<Message, 'senderId'> | null;
 }): DriverMessageCommitResult {
-  const { worldState, nextConflictAxes } = buildNextWorldState(params.conversation, params.message);
-  const relationshipTransition = buildRelationshipTransition(params);
+  const config = resolveRuntimeEvolutionConfig(params.conversation.runtimeEvolutionIntensity);
+  const { worldState, nextConflictAxes } = buildNextWorldState(params.conversation, params.message, config);
+  const relationshipTransition = buildRelationshipTransition({ ...params, config });
   const runtimeEvents = [
     ...relationshipTransition.runtimeEvents,
-    ...buildWorldRuntimeEvents(params.message, worldState, nextConflictAxes),
+    ...buildWorldRuntimeEvents(params.message, worldState, nextConflictAxes, config),
   ];
-  const chatPatch = buildChatPatch(params.conversation, params.message, worldState, runtimeEvents);
+  const chatPatch = buildChatPatch(params.conversation, params.message, worldState, runtimeEvents, config);
 
   return {
     chatPatch,

@@ -45,6 +45,7 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
                 <Typography variant="body2"><strong>气氛：</strong>{chat.worldState.mood || '未设置'}</Typography>
                 <Typography variant="body2"><strong>焦点：</strong>{chat.worldState.focus || '未设置'}</Typography>
                 <Typography variant="body2"><strong>最近事件：</strong>{chat.worldState.recentEvent || '暂无'}</Typography>
+                <Typography variant="body2"><strong>变化强度：</strong>{chat.runtimeEvolutionIntensity === 'slow' ? '慢' : chat.runtimeEvolutionIntensity === 'fast' ? '快' : '平衡'}</Typography>
               </Stack>
             </CardContent>
           </Card>

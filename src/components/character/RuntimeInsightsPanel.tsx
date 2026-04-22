@@ -243,6 +243,13 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
           <Typography variant="body2" color="text.secondary">
             {isDeveloperView ? '这里展示角色运行后逐渐沉淀出来的完整运行态与记忆调试信息。' : (memorySummary || '这里展示角色运行后逐渐沉淀下来的关键线索。')}
           </Typography>
+          {!isDeveloperView ? (
+            <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+              {relationships[0] ? <Chip size="small" label={`关系 ${relationships[0].affinity + relationships[0].respect >= relationships[0].hostility + relationships[0].contempt ? '升温' : '紧张'}`} variant="outlined" /> : null}
+              {Object.entries(personalityDrift).slice(0, 2).map(([key, value]) => <Chip key={key} size="small" label={`${key} ${value > 0 ? '+' : ''}${value}`} variant="outlined" />)}
+              {character.emotionalState ? <Chip size="small" label={`情绪 ${Object.entries(character.emotionalState).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || '稳定'}`} variant="outlined" /> : null}
+            </Box>
+          ) : null}
         </CardContent>
       </Card>
 

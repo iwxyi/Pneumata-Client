@@ -56,6 +56,7 @@ export default function CreateDirectChatPage() {
         name: characterName,
         topic: '',
         style: 'free',
+        runtimeEvolutionIntensity: 'balanced',
         memberIds: [characterId],
         speed: 1,
         isActive: false,

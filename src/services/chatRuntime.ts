@@ -16,7 +16,8 @@ export function accumulateChatRuntime(
   chat: GroupChat,
   message: Pick<Message, 'content' | 'type'>,
   memory?: RuntimeMemoryEntry | null,
-  events: RuntimeEventPayload[] = []
+  events: RuntimeEventPayload[] = [],
+  options: { maxNotes?: number; maxArtifacts?: number; maxTimeline?: number } = {}
 ) {
   const normalizedEvents = events.map(normalizeRuntimeEvent);
   const nextNotes = [...(chat.runtimeNotes || [])];
@@ -49,12 +50,12 @@ export function accumulateChatRuntime(
   }
 
   return {
-    runtimeNotes: uniq(nextNotes).slice(-12),
-    runtimeArtifacts: uniq(nextArtifacts).slice(-8),
-    runtimeTimeline: nextTimeline.slice(-20),
+    runtimeNotes: uniq(nextNotes).slice(-(options.maxNotes || 12)),
+    runtimeArtifacts: uniq(nextArtifacts).slice(-(options.maxArtifacts || 8)),
+    runtimeTimeline: nextTimeline.slice(-(options.maxTimeline || 20)),
   };
 }
 
-export function accumulateChatRuntimeFromEvents(chat: GroupChat, events: RuntimeEventPayload[]) {
-  return accumulateChatRuntime(chat, { type: 'system', content: '' }, null, events);
+export function accumulateChatRuntimeFromEvents(chat: GroupChat, events: RuntimeEventPayload[], options: { maxNotes?: number; maxArtifacts?: number; maxTimeline?: number } = {}) {
+  return accumulateChatRuntime(chat, { type: 'system', content: '' }, null, events, options);
 }

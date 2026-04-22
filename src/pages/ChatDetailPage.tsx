@@ -17,6 +17,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
 import { useResponsive } from '../hooks/useResponsive';
 import { DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../types/chat';
+import { resolveRuntimeEvolutionConfig } from '../services/runtimeEvolutionConfig';
 import { OPEN_CHAT_MODE_DRIVER } from '../services/openChatModeDriver';
 import MessageList from '../components/chat/MessageList';
 import ChatInput from '../components/chat/ChatInput';
@@ -326,12 +327,13 @@ export default function ChatDetailPage() {
       const starter = characters.find((item) => item.id === starterId);
       const target = characters.find((item) => item.id === targetId);
       if (starter && target) {
-        const updatedStarter = updateCharacterRelationship(starter, targetId, content, 1.35);
-        const updatedTarget = updateCharacterRelationship(target, starterId, content, 1.2);
-        const starterDrift = derivePersonalityDrift(starter, content);
-        const targetDrift = derivePersonalityDrift(target, content);
-        const starterEmotion = deriveEmotionalState(starter, content);
-        const targetEmotion = deriveEmotionalState(target, content);
+        const evolution = resolveRuntimeEvolutionConfig(chat.runtimeEvolutionIntensity);
+        const updatedStarter = updateCharacterRelationship(starter, targetId, content, evolution.relationshipMultiplier);
+        const updatedTarget = updateCharacterRelationship(target, starterId, content, evolution.reciprocalRelationshipMultiplier);
+        const starterDrift = derivePersonalityDrift(starter, content, evolution.driftMultiplier);
+        const targetDrift = derivePersonalityDrift(target, content, evolution.driftMultiplier * 0.85);
+        const starterEmotion = deriveEmotionalState(starter, content, evolution.emotionMultiplier, evolution.emotionDecayBias);
+        const targetEmotion = deriveEmotionalState(target, content, evolution.emotionMultiplier * 0.85, evolution.emotionDecayBias);
         await updateCharacter(starterId, {
           relationships: updatedStarter.relationships,
           personalityDrift: starterDrift,
@@ -347,9 +349,9 @@ export default function ChatDetailPage() {
             content,
             personalityDrift: starterDrift,
           }),
-          runtimeTimeline: accumulateCharacterRuntime(starter, { type: 'relationship', text: `与 ${target.name} 的AI私聊带来了关系变化` }).concat(
+          runtimeTimeline: accumulateCharacterRuntime(starter, { type: 'relationship', text: `与 ${target.name} 的AI私聊带来了关系变化（${evolution.label}）` }).concat(
             Object.keys(starterDrift).length ? [{ type: 'drift', text: `与 ${target.name} 互动后产生性格漂移`, createdAt: Date.now() }] : []
-          ).slice(-20),
+          ).slice(-Math.max(20, evolution.maxTimeline)),
         });
         await updateCharacter(targetId, {
           relationships: updatedTarget.relationships,
@@ -366,9 +368,9 @@ export default function ChatDetailPage() {
             content,
             personalityDrift: targetDrift,
           }),
-          runtimeTimeline: accumulateCharacterRuntime(target, { type: 'relationship', text: `与 ${starter.name} 的AI私聊带来了关系变化` }).concat(
+          runtimeTimeline: accumulateCharacterRuntime(target, { type: 'relationship', text: `与 ${starter.name} 的AI私聊带来了关系变化（${evolution.label}）` }).concat(
             Object.keys(targetDrift).length ? [{ type: 'drift', text: `与 ${starter.name} 互动后产生性格漂移`, createdAt: Date.now() }] : []
-          ).slice(-20),
+          ).slice(-Math.max(20, evolution.maxTimeline)),
         });
         const starterRelation = updatedStarter.relationships.find((item) => item.characterId === targetId);
         const targetRelation = updatedTarget.relationships.find((item) => item.characterId === starterId);
@@ -437,6 +439,7 @@ export default function ChatDetailPage() {
         name: `${initiator.name} × ${target.name}`,
         topic: `${initiator.name} 和 ${target.name} 的AI私聊`,
         style: 'free',
+        runtimeEvolutionIntensity: chat.runtimeEvolutionIntensity,
         memberIds: [privateStarterId, privateTargetId],
         speed: 1,
         isActive: false,
@@ -487,7 +490,7 @@ export default function ChatDetailPage() {
   const speakAsChar = speakAsCharacterId ? characters.find((c) => c.id === speakAsCharacterId) : null;
   const compactChatMemorySummary = (chat.layeredMemories || []).slice(-3).map((item) => item.text).join(' / ');
   const compactCharacterMemorySummary = speakAsChar?.layeredMemories?.slice(-2).map((item) => item.text).join(' / ');
-  const compactRecentEvent = chat.worldState.recentEvent || compactChatMemorySummary;
+  const compactRecentEvent = [chat.worldState.recentEvent, `变化强度：${chat.runtimeEvolutionIntensity === 'slow' ? '慢' : chat.runtimeEvolutionIntensity === 'fast' ? '快' : '平衡'}`, compactChatMemorySummary].filter(Boolean).join(' / ');
 
   return (
     <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>

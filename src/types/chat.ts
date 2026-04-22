@@ -6,6 +6,7 @@ export type ChatStyle = 'free' | 'debate' | 'brainstorm' | 'roleplay';
 export type ConversationType = 'group' | 'direct' | 'ai_direct';
 export type ConversationMode = 'open_chat';
 export type ConversationPhase = 'idle' | 'warming' | 'debating' | 'aligned' | 'chaotic';
+export type RuntimeEvolutionIntensity = 'slow' | 'balanced' | 'fast';
 
 export interface OpenChatModeConfig {
   freeSpeaking: boolean;
@@ -156,6 +157,7 @@ export interface GroupChat {
   name: string;
   topic: string;
   style: ChatStyle;
+  runtimeEvolutionIntensity: RuntimeEvolutionIntensity;
   memberIds: string[];
   speed: number;
   isActive: boolean;
@@ -209,14 +211,16 @@ export const DEFAULT_CONVERSATION_DIRECTOR_CONTROLS: ConversationDirectorControl
   allowForcedReply: true,
 };
 
+export const DEFAULT_RUNTIME_EVOLUTION_INTENSITY: RuntimeEvolutionIntensity = 'balanced';
 
-export function normalizeConversation(input: Omit<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls'> & Partial<Pick<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls'>>): GroupChat {
+export function normalizeConversation(input: Omit<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls' | 'runtimeEvolutionIntensity'> & Partial<Pick<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls' | 'runtimeEvolutionIntensity'>>): GroupChat {
   return {
     ...input,
     type: input.type || 'group',
     mode: input.mode || 'open_chat',
     modeConfig: input.modeConfig || DEFAULT_OPEN_CHAT_MODE_CONFIG,
     modeState: input.modeState || DEFAULT_OPEN_CHAT_MODE_STATE,
+    runtimeEvolutionIntensity: input.runtimeEvolutionIntensity || DEFAULT_RUNTIME_EVOLUTION_INTENSITY,
     sourceChatId: input.sourceChatId || null,
     sourceMemberIds: input.sourceMemberIds || [],
     runtimeNotes: input.runtimeNotes || [],

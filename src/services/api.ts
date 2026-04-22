@@ -2,6 +2,37 @@
 
 const API_BASE = '/api';
 
+export interface TopicSourceSummary {
+  id: string;
+  label: string;
+  status: 'ok' | 'degraded' | 'unavailable';
+  note?: string;
+}
+
+export interface TopicItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  url?: string;
+  heat?: string;
+  source: string;
+  fetchedAt: number;
+  status: 'ok' | 'degraded' | 'unavailable';
+}
+
+export interface TopicAdaptationCharacterSuggestion {
+  name: string;
+  description: string;
+}
+
+export interface TopicAdaptationResult {
+  suggestedName?: string;
+  suggestedTopic?: string;
+  suggestedStyle?: 'free' | 'debate' | 'brainstorm' | 'roleplay';
+  suggestedMemberIds?: string[];
+  recommendedCharacters?: TopicAdaptationCharacterSuggestion[];
+}
+
 class ApiClient {
   private getToken(): string | null {
     return localStorage.getItem('miragetea-token');
@@ -90,6 +121,15 @@ class ApiClient {
     return this.request<Record<string, unknown>>('POST', '/characters', data);
   }
 
+  async createCharactersBatch(items: Array<{
+    name: string; avatar?: string; personality: Record<string, number>;
+    behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
+    relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+    modelProfileId?: string | null; bubbleStyleId?: string | null;
+  }>) {
+    return this.request<{ characters: Record<string, unknown>[] }>('POST', '/characters/batch', { items });
+  }
+
   async updateCharacter(id: string, data: Record<string, unknown>) {
     return this.request<Record<string, unknown>>('PUT', `/characters/${id}`, data);
   }
@@ -145,7 +185,7 @@ class ApiClient {
   async getChats() {
     return this.request<Array<{
       id: string; type?: string; mode?: string; modeConfig?: object; modeState?: object; name: string; topic: string; style: string;
-      memberIds: string[]; speed: number; isActive: boolean;
+      runtimeEvolutionIntensity?: 'slow' | 'balanced' | 'fast'; memberIds: string[]; speed: number; isActive: boolean;
       allowIntervention: boolean; showRoleActions?: boolean; topicSeed: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeNotes?: string[]; runtimeArtifacts?: string[]; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       governance?: object; dramaRules?: object; worldState?: object; directorControls?: object;
       deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number; lastMessageAt: number;
@@ -153,7 +193,7 @@ class ApiClient {
   }
 
   async createChat(data: {
-    type?: string; mode?: string; modeConfig?: object; modeState?: object; name: string; topic?: string; style?: string; memberIds: string[];
+    type?: string; mode?: string; modeConfig?: object; modeState?: object; name: string; topic?: string; style?: string; runtimeEvolutionIntensity?: 'slow' | 'balanced' | 'fast'; memberIds: string[];
     speed?: number; isActive?: boolean; allowIntervention?: boolean; showRoleActions?: boolean; topicSeed?: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeNotes?: string[]; runtimeArtifacts?: string[]; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     governance?: unknown; dramaRules?: unknown; worldState?: unknown; directorControls?: unknown;
   }) {
@@ -231,13 +271,25 @@ class ApiClient {
       developerMode?: boolean;
       developerUI?: { showMemoryDebug?: boolean; showRelationshipEvents?: boolean };
       memoryUI?: { showDeveloperMemory?: boolean };
-      chatDraftDefaults?: { style: string; showRoleActions: boolean };
+      chatDraftDefaults?: { style: string; showRoleActions: boolean; runtimeEvolutionIntensity: 'slow' | 'balanced' | 'fast' };
       customBubbleStyles?: Array<Record<string, unknown>>;
     }>('GET', '/settings');
   }
 
   async updateSettings(data: Record<string, unknown>) {
     return this.request<Record<string, unknown>>('PUT', '/settings', data);
+  }
+
+  async getTopicSources() {
+    return this.request<{ sources: TopicSourceSummary[] }>('GET', '/topics/sources');
+  }
+
+  async getTopics(source: string) {
+    return this.request<{ items: TopicItem[]; status: 'ok' | 'degraded' | 'unavailable'; note?: string }>('GET', `/topics?source=${encodeURIComponent(source)}`);
+  }
+
+  async adaptTopic(data: { topic: { title: string; subtitle?: string; source: string }; characters: Record<string, unknown>[]; language: 'zh' | 'en' }) {
+    return this.request<TopicAdaptationResult>('POST', '/topics/adapt', data);
   }
 }
 

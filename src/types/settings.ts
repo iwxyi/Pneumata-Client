@@ -1,3 +1,5 @@
+import type { RuntimeEvolutionIntensity } from './chat';
+
 export type AIProvider = 'openai' | 'anthropic' | 'deepseek' | 'custom';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type Language = 'zh' | 'en';
@@ -17,6 +19,7 @@ export interface AIModelProfile extends APIConfig {
 export interface ChatDraftDefaults {
   style: 'free' | 'debate' | 'brainstorm' | 'roleplay';
   showRoleActions: boolean;
+  runtimeEvolutionIntensity: RuntimeEvolutionIntensity;
 }
 
 import type { BubbleStyleDefinition } from './bubbleStyle';
@@ -62,6 +65,7 @@ export const DEFAULT_AI_PROFILE: AIModelProfile = {
 export const DEFAULT_CHAT_DRAFT_DEFAULTS: ChatDraftDefaults = {
   style: 'free',
   showRoleActions: true,
+  runtimeEvolutionIntensity: 'balanced',
 };
 
 export const DEFAULT_SETTINGS: AppSettingsWithMemory = {

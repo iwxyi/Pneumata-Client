@@ -192,6 +192,23 @@ export default function SettingsPage() {
             </ToggleButtonGroup>
           </Box>
 
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>
+              {i18n.language.startsWith('zh') ? '新建群聊默认变化强度' : 'Default evolution intensity for new group chats'}
+            </Typography>
+            <ToggleButtonGroup
+              value={settings.chatDraftDefaults.runtimeEvolutionIntensity}
+              exclusive
+              onChange={(_, v) => v && settings.setChatDraftDefaults({ runtimeEvolutionIntensity: v })}
+              size="small"
+              sx={{ alignItems: 'center', justifyContent: 'flex-start', overflow: 'visible' }}
+            >
+              <ToggleButton value="slow">{i18n.language.startsWith('zh') ? '慢' : 'Slow'}</ToggleButton>
+              <ToggleButton value="balanced">{i18n.language.startsWith('zh') ? '平衡' : 'Balanced'}</ToggleButton>
+              <ToggleButton value="fast">{i18n.language.startsWith('zh') ? '快' : 'Fast'}</ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+
           <Box sx={{ display: 'grid', gap: 1 }}>
             <FormControlLabel control={<Switch checked={settings.developerMode} onChange={(e) => settings.setDeveloperMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '开发者模式' : 'Developer mode'} />
           </Box>
