@@ -4,7 +4,7 @@ import type { PersonalityParams } from '../types/character';
 import { DEFAULT_PERSONALITY } from '../types/character';
 import { AVATAR_OPTIONS } from '../constants/presets';
 
-interface GeneratedCharacterProfile {
+export interface GeneratedCharacterProfile {
   avatar?: string;
   personality?: Partial<PersonalityParams>;
   expertise?: string[];
@@ -86,6 +86,89 @@ export function buildGeneratePrompt(name: string, language: 'zh' | 'en') {
     return `请基于名字“${name}”生成一个适合多人群聊讨论的 AI 角色档案。输出字段必须完整，语气自然，专业领域用简洁短语。`;
   }
   return `Generate a complete AI character profile for the name "${name}" for a multi-person group chat app. Keep the fields concise and usable.`;
+}
+
+function sanitizeBatchNames(names: string[]) {
+  return names.map((name) => name.trim()).filter(Boolean);
+}
+
+function extractJsonBlock(content: string) {
+  const trimmed = content.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+  return trimmed;
+}
+
+function buildBatchGeneratePrompt(names: string[], language: 'zh' | 'en') {
+  const normalizedNames = sanitizeBatchNames(names);
+  if (language === 'zh') {
+    return `请为以下名字批量生成角色档案：${normalizedNames.join('、')}。返回严格 JSON 数组，格式必须是 [{"name":"名字1","avatar":"😀","personality":{...},"expertise":[...],"speakingStyle":"...","background":"..."}]。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`;
+  }
+  return `Generate character profiles for these names: ${normalizedNames.join(', ')}. Return a strict JSON array in this exact shape: [{"name":"name1","avatar":"😀","personality":{...},"expertise":[...],"speakingStyle":"...","background":"..."}]. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`;
+}
+
+export function parseGeneratedProfileMap(content: string, names: string[]) {
+  const json = extractJsonBlock(content);
+  console.log('[character-generator:batch:raw]', json);
+  const parsed = JSON.parse(json) as Array<GeneratedCharacterProfile & { name?: string }>;
+  const items = Array.isArray(parsed) ? parsed : [];
+  const nameMap = new Map(items.map((item) => [typeof item.name === 'string' ? item.name.trim() : '', item]));
+  return names.map((name) => {
+    const normalizedName = name.trim();
+    const profile = nameMap.get(normalizedName);
+    if (!profile) {
+      throw new Error(`Missing generated profile for ${normalizedName}`);
+    }
+    return { name: normalizedName, profile: normalizeGeneratedProfile(profile) };
+  });
+}
+
+export async function generateCharacterProfilesIndividually(config: APIConfig, names: string[], language: 'zh' | 'en') {
+  const normalizedNames = sanitizeBatchNames(names);
+  const results = await Promise.allSettled(normalizedNames.map(async (name) => ({
+    name,
+    profile: await generateCharacterProfile(config, name, language),
+  })));
+  return results.map((result, index) => ({ result, name: normalizedNames[index] }));
+}
+
+export async function generateCharacterProfilesSafe(config: APIConfig, names: string[], language: 'zh' | 'en') {
+  const normalizedNames = sanitizeBatchNames(names);
+  if (!normalizedNames.length) return { success: [] as Array<{ name: string; profile: ReturnType<typeof normalizeGeneratedProfile> }>, failed: [] as Array<{ name: string; reason: string }> };
+  try {
+    const success = await generateCharacterProfiles(config, normalizedNames, language);
+    return { success, failed: [] as Array<{ name: string; reason: string }> };
+  } catch (error) {
+    console.warn('[character-generator:batch:fallback]', error);
+    const results = await generateCharacterProfilesIndividually(config, normalizedNames, language);
+    const success: Array<{ name: string; profile: ReturnType<typeof normalizeGeneratedProfile> }> = [];
+    const failed: Array<{ name: string; reason: string }> = [];
+    results.forEach(({ result, name }) => {
+      if (result.status === 'fulfilled') {
+        success.push(result.value);
+        return;
+      }
+      failed.push({
+        name,
+        reason: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      });
+    });
+    return { success, failed };
+  }
+}
+
+export async function generateCharacterProfiles(config: APIConfig, names: string[], language: 'zh' | 'en') {
+  const normalizedNames = sanitizeBatchNames(names);
+  if (!normalizedNames.length) return [];
+  const response = await generateResponse(
+    config,
+    `${CHARACTER_GENERATOR_SYSTEM_PROMPT}\nWhen generating multiple characters, return exactly one valid JSON object with a top-level "profiles" map. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
+    [{ role: 'user', content: buildBatchGeneratePrompt(normalizedNames, language) }]
+  );
+  return parseGeneratedProfileMap(response, normalizedNames);
 }
 
 export async function generateCharacterProfile(config: APIConfig, name: string, language: 'zh' | 'en') {

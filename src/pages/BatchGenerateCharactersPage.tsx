@@ -1,17 +1,165 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, TextField, Typography, Chip, Snackbar, Alert, LinearProgress, Dialog, DialogContent, IconButton } from '@mui/material';
-import { Search as SearchIcon } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
-import { useLayoutHeaderActions } from '../components/layout/AppLayout';
-import { useTranslation } from 'react-i18next';
-import { generateResponse } from '../services/aiClient';
-import { generateCharacterProfile } from '../services/characterGenerator';
+import type { AIModelProfile } from '../types/settings';
+import type { AICharacter, PersonalityParams } from '../types/character';
+import { api as backendApi } from '../services/api';
+
+const BATCH_GENERATE_GROUP_SIZE = 10;
 
 interface ProgressItem {
   name: string;
   status: 'success' | 'skipped' | 'failed';
   reason?: string;
 }
+
+interface ProgressState {
+  current: number;
+  total: number;
+  currentName?: string;
+  items: ProgressItem[];
+}
+
+async function runInBatches<T>(items: T[], batchSize: number, worker: (batch: T[], batchStartIndex: number) => Promise<void>) {
+  for (let start = 0; start < items.length; start += batchSize) {
+    await worker(items.slice(start, start + batchSize), start);
+  }
+}
+
+function appendProgressItem(
+  setProgress: React.Dispatch<React.SetStateAction<ProgressState>>,
+  item: ProgressItem
+) {
+  setProgress((prev) => ({
+    ...prev,
+    current: Math.min(prev.total, prev.current + 1),
+    items: [...prev.items, item],
+  }));
+}
+
+function markCurrentName(
+  setProgress: React.Dispatch<React.SetStateAction<ProgressState>>,
+  name: string
+) {
+  setProgress((prev) => ({ ...prev, currentName: name }));
+}
+
+function buildBatchProgressLabel(names: string[]) {
+  return names.join('、');
+}
+
+function finishBatchProgress(
+  setProgress: React.Dispatch<React.SetStateAction<ProgressState>>
+) {
+  setProgress((prev) => ({ ...prev, currentName: '' }));
+}
+
+function buildGeneratedCharacterPayload(params: {
+  name: string;
+  generated: {
+    avatar: string;
+    personality: Record<string, number>;
+    expertise: string[];
+    speakingStyle: string;
+    background: string;
+  };
+  generatedGroup: string | null;
+  allCharacters: Array<Pick<AICharacter, 'name' | 'group' | 'bubbleStyleId'>>;
+  customStyleIds: string[];
+}) {
+  return {
+    name: params.name,
+    ...params.generated,
+    group: params.generatedGroup,
+    bubbleStyleId: pickRandomAvailableBubbleStyle({
+      allCharacters: params.allCharacters,
+      generatedGroup: params.generatedGroup,
+      customStyleIds: params.customStyleIds,
+    }),
+    behavior: DEFAULT_CHARACTER_BEHAVIOR,
+    relationships: [],
+    memory: DEFAULT_CHARACTER_MEMORY,
+    intervention: DEFAULT_CHARACTER_INTERVENTION,
+    modelProfileId: 'default',
+  };
+}
+
+async function processCharacterBatch(params: {
+  selectedNames: string[];
+  characters: Array<Pick<AICharacter, 'name' | 'group' | 'bubbleStyleId'>>;
+  generatedGroup: string | null;
+  customStyleIds: string[];
+  profile: AIModelProfile;
+  language: 'zh' | 'en';
+  cancelGenerationRef: React.MutableRefObject<boolean>;
+  setProgress: React.Dispatch<React.SetStateAction<ProgressState>>;
+  duplicateMessage: string;
+  getErrorMessage: (error: unknown) => string;
+}) {
+  const existingNames = new Set(params.characters.map((char) => char.name.trim().toLowerCase()));
+  const reservedNames = new Set<string>();
+
+  await runInBatches(params.selectedNames, BATCH_GENERATE_GROUP_SIZE, async (batch) => {
+    if (params.cancelGenerationRef.current) return;
+
+    markCurrentName(params.setProgress, buildBatchProgressLabel(batch));
+    const creatableNames = batch.filter((name) => {
+      const normalizedName = name.trim().toLowerCase();
+      const duplicated = existingNames.has(normalizedName) || reservedNames.has(normalizedName);
+      if (duplicated) {
+        appendProgressItem(params.setProgress, { name, status: 'skipped', reason: params.duplicateMessage });
+        return false;
+      }
+      reservedNames.add(normalizedName);
+      return true;
+    });
+
+    if (params.cancelGenerationRef.current || !creatableNames.length) return;
+
+    try {
+      const { success, failed } = await generateCharacterProfilesSafe(params.profile, creatableNames, params.language);
+      failed.forEach(({ name, reason }) => {
+        appendProgressItem(params.setProgress, { name, status: 'failed', reason });
+      });
+      if (!success.length) return;
+      const successfulPayloads = success.map(({ name, profile }) => ({
+        name,
+        payload: buildGeneratedCharacterPayload({
+          name,
+          generated: {
+            avatar: profile.avatar,
+            personality: profile.personality as unknown as Record<string, number>,
+            expertise: profile.expertise,
+            speakingStyle: profile.speakingStyle,
+            background: profile.background,
+          },
+          generatedGroup: params.generatedGroup,
+          allCharacters: params.characters,
+          customStyleIds: params.customStyleIds,
+        }),
+      }));
+      await backendApi.createCharactersBatch(successfulPayloads.map((item) => item.payload));
+      successfulPayloads.forEach(({ name }) => {
+        existingNames.add(name.trim().toLowerCase());
+        appendProgressItem(params.setProgress, { name, status: 'success' });
+      });
+    } catch (error) {
+      console.error('[batch-generate:batch-request:error]', { names: creatableNames, error });
+      creatableNames.forEach((name) => {
+        appendProgressItem(params.setProgress, { name, status: 'failed', reason: params.getErrorMessage(error) });
+      });
+    }
+  });
+
+  finishBatchProgress(params.setProgress);
+}
+
+import { Search as SearchIcon } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
+import { useLayoutHeaderActions } from '../components/layout/AppLayout';
+import { useTranslation } from 'react-i18next';
+import { generateResponse } from '../services/aiClient';
+import { generateCharacterProfilesSafe } from '../services/characterGenerator';
+
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../types';
@@ -270,7 +418,7 @@ export default function BatchGenerateCharactersPage() {
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
   const settings = useSettingsStore();
-  const { addCharacter, characters } = useCharacterStore();
+  const { characters, loadCharacters } = useCharacterStore();
   const [topic, setTopic] = useState('');
   const [candidateNames, setCandidateNames] = useState<string[]>([]);
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
@@ -346,47 +494,20 @@ export default function BatchGenerateCharactersPage() {
 
     try {
       const generatedGroup = getTopicDerivedCharacterGroup(topic);
-      for (let index = 0; index < selectedNames.length; index += 1) {
-        if (cancelGenerationRef.current) break;
+      await processCharacterBatch({
+        selectedNames,
+        characters,
+        generatedGroup,
+        customStyleIds: (settings.customBubbleStyles || []).map((style) => style.id),
+        profile,
+        language: i18n.language.startsWith('zh') ? 'zh' : 'en',
+        cancelGenerationRef,
+        setProgress,
+        duplicateMessage: i18n.language.startsWith('zh') ? '同名已存在' : 'Duplicate name exists',
+        getErrorMessage,
+      });
 
-        const name = selectedNames[index];
-        setProgress((prev) => ({ ...prev, currentName: name }));
-        const duplicated = characters.some((char) => char.name.trim().toLowerCase() === name.trim().toLowerCase());
-        if (duplicated) {
-          setProgress((prev) => ({ current: index + 1, total: selectedNames.length, items: [...prev.items, { name, status: 'skipped', reason: i18n.language.startsWith('zh') ? '同名已存在' : 'Duplicate name exists' }] }));
-          continue;
-        }
-        try {
-          const normalized = await generateCharacterProfile(
-            profile,
-            name,
-            i18n.language.startsWith('zh') ? 'zh' : 'en'
-          );
-          console.log('[batch-generate:character:parsed]', { name, normalized, generatedGroup });
-
-          const created = await addCharacter({
-            name,
-            ...normalized,
-            group: generatedGroup,
-            bubbleStyleId: pickRandomAvailableBubbleStyle({
-              allCharacters: characters,
-              generatedGroup,
-              customStyleIds: (settings.customBubbleStyles || []).map((style) => style.id),
-            }),
-            behavior: DEFAULT_CHARACTER_BEHAVIOR,
-            relationships: [],
-            memory: DEFAULT_CHARACTER_MEMORY,
-            intervention: DEFAULT_CHARACTER_INTERVENTION,
-            modelProfileId: 'default',
-          });
-          console.log('[batch-generate:character:created]', { name, generatedGroup, createdGroup: created.group, created });
-          setProgress((prev) => ({ current: index + 1, total: selectedNames.length, items: [...prev.items, { name, status: 'success' }] }));
-        } catch (error) {
-          console.error('[batch-generate:character:error]', { name, error });
-          setProgress((prev) => ({ current: index + 1, total: selectedNames.length, items: [...prev.items, { name, status: 'failed', reason: getErrorMessage(error) }] }));
-        }
-      }
-
+      await loadCharacters();
       setSnackbar({
         open: true,
         message: cancelGenerationRef.current

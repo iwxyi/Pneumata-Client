@@ -3,15 +3,18 @@ import { useLayoutHeaderActions } from '../components/layout/AppLayout';
 import {
   Box, Typography, TextField, Button, IconButton,
   Checkbox, Avatar, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Divider,
-  FormControlLabel, Switch, Snackbar, Alert, Tabs, Tab, MenuItem, Card, CardContent, Stack,
+  FormControlLabel, Switch, Snackbar, Alert, Tabs, Tab, MenuItem, Card, CardContent, Stack, InputAdornment,
 } from '@mui/material';
-import { Add as AddIcon, Delete as DeleteIcon, AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
+import { Add as AddIcon, Delete as DeleteIcon, AutoAwesome as AutoAwesomeIcon, LocalFireDepartment as HotIcon } from '@mui/icons-material';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
-import type { ChatStyle } from '../types/chat';
+import { api as backendApi, type TopicAdaptationResult, type TopicItem, type TopicSourceSummary } from '../services/api';
+import { generateCharacterProfile } from '../services/characterGenerator';
+import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../types';
+import type { ChatStyle, RuntimeEvolutionIntensity } from '../types/chat';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../types/chat';
 import { generateChatDraftSuggestion } from '../services/chatDraftGenerator';
 import { CHAT_STYLE_OPTIONS, MIN_MEMBERS, MAX_MEMBERS } from '../constants/defaults';
@@ -28,7 +31,22 @@ export default function CreateChatPage() {
   const { chatDraftDefaults, aiProfiles, api, setChatDraftDefaults, loadSettings } = useSettingsStore();
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [hotDialogOpen, setHotDialogOpen] = useState(false);
+  const [hotSources, setHotSources] = useState<TopicSourceSummary[]>([]);
+  const [hotSourceTab, setHotSourceTab] = useState(0);
+  const [hotTopics, setHotTopics] = useState<TopicItem[]>([]);
+  const [hotLoading, setHotLoading] = useState(false);
+  const [hotAdapting, setHotAdapting] = useState(false);
+  const [hotCreatingCharacters, setHotCreatingCharacters] = useState(false);
+  const [hotSourceNote, setHotSourceNote] = useState('');
+  const [selectedHotTopic, setSelectedHotTopic] = useState<TopicItem | null>(null);
+  const [hotAdaptation, setHotAdaptation] = useState<TopicAdaptationResult | null>(null);
+  const [hotSelectedCharacterNames, setHotSelectedCharacterNames] = useState<string[]>([]);
+  const [hotCreatedCharacterNames, setHotCreatedCharacterNames] = useState<string[]>([]);
+  const [hotOverwriteName, setHotOverwriteName] = useState(false);
+  const [hotOverwriteTopic, setHotOverwriteTopic] = useState(false);
   const [configTab, setConfigTab] = useState(0);
+
   const editingChat = id ? chats.find((chat) => chat.id === id) : null;
 
   const [name, setName] = useState('');
@@ -45,6 +63,7 @@ export default function CreateChatPage() {
   const [allowCliques, setAllowCliques] = useState(false);
   const [allowMockery, setAllowMockery] = useState(false);
   const [showRoleActions, setShowRoleActions] = useState(true);
+  const [runtimeEvolutionIntensity, setRuntimeEvolutionIntensity] = useState<RuntimeEvolutionIntensity>('balanced');
   const [allowSpeakAs, setAllowSpeakAs] = useState(true);
   const [allowDirectorMode, setAllowDirectorMode] = useState(true);
   const [allowEventInjection, setAllowEventInjection] = useState(true);
@@ -90,6 +109,7 @@ export default function CreateChatPage() {
       setAllowCliques(editingChat.dramaRules.allowCliques);
       setAllowMockery(editingChat.dramaRules.allowMockery);
       setShowRoleActions(editingChat.showRoleActions ?? true);
+      setRuntimeEvolutionIntensity(editingChat.runtimeEvolutionIntensity || 'balanced');
       setAllowSpeakAs(editingChat.directorControls.allowSpeakAs);
       setAllowDirectorMode(editingChat.directorControls.allowDirectorMode);
       setAllowEventInjection(editingChat.directorControls.allowEventInjection);
@@ -102,6 +122,7 @@ export default function CreateChatPage() {
 
     setStyle(chatDraftDefaults.style);
     setShowRoleActions(chatDraftDefaults.showRoleActions);
+    setRuntimeEvolutionIntensity(chatDraftDefaults.runtimeEvolutionIntensity);
     setOwnerCharacterId('');
     setAdminCharacterIds([]);
     setMood('');
@@ -118,7 +139,7 @@ export default function CreateChatPage() {
     setAutoModeration(false);
     setAllowMute(true);
     setAllowPrivateThreads(true);
-  }, [chatDraftDefaults.showRoleActions, chatDraftDefaults.style, editingChat, id]);
+  }, [chatDraftDefaults.runtimeEvolutionIntensity, chatDraftDefaults.showRoleActions, chatDraftDefaults.style, editingChat, id]);
 
   const toggleMember = (memberId: string) => {
     setSelectedMembers((prev) => {
@@ -147,6 +168,7 @@ export default function CreateChatPage() {
       allowCliques,
       allowMockery,
       showRoleActions,
+      runtimeEvolutionIntensity,
       allowSpeakAs,
       allowDirectorMode,
       allowEventInjection,
@@ -177,6 +199,7 @@ export default function CreateChatPage() {
       setAllowCliques(Boolean(draft.allowCliques));
       setAllowMockery(Boolean(draft.allowMockery));
       setShowRoleActions(Boolean(draft.showRoleActions));
+      setRuntimeEvolutionIntensity((draft.runtimeEvolutionIntensity as RuntimeEvolutionIntensity) || chatDraftDefaults.runtimeEvolutionIntensity);
       setAllowSpeakAs(Boolean(draft.allowSpeakAs));
       setAllowDirectorMode(Boolean(draft.allowDirectorMode));
       setAllowEventInjection(Boolean(draft.allowEventInjection));
@@ -252,6 +275,154 @@ export default function CreateChatPage() {
     }
   }, [editingChat, location.search]);
 
+  useEffect(() => {
+    if (!hotDialogOpen && hotSources.length === 0) return;
+    if (hotSourceTab <= hotSources.length - 1) return;
+    setHotSourceTab(Math.max(0, hotSources.length - 1));
+  }, [hotSourceTab, hotSources.length, hotDialogOpen]);
+
+  useEffect(() => {
+    if (!hotAdaptation) return;
+    setHotOverwriteName(Boolean(name.trim() && hotAdaptation.suggestedName && name.trim() !== hotAdaptation.suggestedName.trim()));
+    setHotOverwriteTopic(Boolean(topic.trim() && hotAdaptation.suggestedTopic && topic.trim() !== hotAdaptation.suggestedTopic.trim()));
+  }, [hotAdaptation, name, topic]);
+
+  useEffect(() => {
+    if (selectedMembers.length <= MAX_MEMBERS) return;
+    setSelectedMembers((prev) => prev.slice(0, MAX_MEMBERS));
+  }, [selectedMembers]);
+
+  useEffect(() => {
+    if (!selectedHotTopic) return;
+    if (hotTopics.some((item) => item.id === selectedHotTopic.id)) return;
+    setSelectedHotTopic(null);
+    setHotAdaptation(null);
+    setHotSelectedCharacterNames([]);
+  }, [hotTopics, selectedHotTopic]);
+
+  useEffect(() => {
+    const recommended = hotAdaptation?.recommendedCharacters || [];
+    if (!recommended.length) {
+      setHotSelectedCharacterNames([]);
+      setHotCreatedCharacterNames([]);
+      return;
+    }
+    const recommendedNames = new Set(recommended.map((item) => item.name));
+    const existingNames = new Set(characters.map((character) => character.name.trim().toLowerCase()));
+    const createdNames = new Set(hotCreatedCharacterNames.map((name) => name.trim().toLowerCase()));
+    const selectableNames = recommended
+      .map((item) => item.name)
+      .filter((itemName) => !existingNames.has(itemName.trim().toLowerCase()) && !createdNames.has(itemName.trim().toLowerCase()));
+    setHotSelectedCharacterNames((prev) => {
+      const kept = prev.filter((itemName) => recommendedNames.has(itemName));
+      return kept.length ? kept : selectableNames;
+    });
+    setHotCreatedCharacterNames((prev) => prev.filter((createdName) => recommended.some((item) => item.name === createdName)));
+  }, [characters, hotAdaptation, hotCreatedCharacterNames]);
+
+  useEffect(() => {
+    setHotSelectedCharacterNames((prev) => {
+      const recommendedNames = new Set((hotAdaptation?.recommendedCharacters || []).map((item) => item.name));
+      const next = prev.filter((itemName) => recommendedNames.has(itemName));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [hotAdaptation]);
+
+  useEffect(() => {
+    if (!hotCreatedCharacterNames.length) return;
+    setHotSelectedCharacterNames((prev) => Array.from(new Set([...prev, ...hotCreatedCharacterNames])));
+  }, [hotCreatedCharacterNames]);
+
+  useEffect(() => {
+    if (!characters.length) return;
+    setHotCreatedCharacterNames((prev) => prev.filter((createdName) => characters.some((character) => character.name.trim().toLowerCase() === createdName.trim().toLowerCase())));
+  }, [characters]);
+
+  const hotCreationInFlightRef = useRef(false);
+  const BATCH_GENERATE_GROUP_SIZE = 10;
+
+  const runInBatches = async <T,>(items: T[], batchSize: number, worker: (batch: T[], batchStartIndex: number) => Promise<void>) => {
+    for (let start = 0; start < items.length; start += batchSize) {
+      await worker(items.slice(start, start + batchSize), start);
+    }
+  };
+
+  const buildCharacterCreatePayload = async (params: {
+    name: string;
+    backgroundHint?: string;
+    config: typeof api;
+  }) => {
+    const generated = await generateCharacterProfile(params.config, params.name, i18n.language.startsWith('zh') ? 'zh' : 'en');
+    return {
+      name: params.name,
+      avatar: generated.avatar,
+      personality: generated.personality,
+      behavior: DEFAULT_CHARACTER_BEHAVIOR,
+      expertise: generated.expertise,
+      speakingStyle: generated.speakingStyle,
+      background: params.backgroundHint || generated.background,
+      relationships: [],
+      memory: DEFAULT_CHARACTER_MEMORY,
+      layeredMemories: [],
+      intervention: DEFAULT_CHARACTER_INTERVENTION,
+      runtimeTimeline: [],
+      modelProfileId: null,
+      bubbleStyleId: null,
+    };
+  };
+
+  const buildRecommendedHotCharacterQueue = () => {
+    const recommended = hotAdaptation?.recommendedCharacters || [];
+    const existingNames = new Set(characters.map((character) => character.name.trim().toLowerCase()));
+    const createdNames = new Set(hotCreatedCharacterNames.map((name) => name.trim().toLowerCase()));
+    const selectedNames = new Set(hotSelectedCharacterNames.map((name) => name.trim().toLowerCase()));
+    const queuedNames = new Set<string>();
+    return recommended.filter((candidate) => {
+      const normalizedName = candidate.name.trim().toLowerCase();
+      if (!selectedNames.has(normalizedName)) return false;
+      if (existingNames.has(normalizedName) || createdNames.has(normalizedName) || queuedNames.has(normalizedName)) return false;
+      queuedNames.add(normalizedName);
+      return true;
+    });
+  };
+
+  const markRecommendedHotCharactersCreated = (names: string[]) => {
+    if (!names.length) return;
+    setHotCreatedCharacterNames((prev) => Array.from(new Set([...prev, ...names])));
+  };
+
+  const getHotCharacterCardState = (candidateName: string) => {
+    const normalizedName = candidateName.trim().toLowerCase();
+    const alreadyExists = characters.some((character) => character.name.trim().toLowerCase() === normalizedName);
+    const created = hotCreatedCharacterNames.some((name) => name.trim().toLowerCase() === normalizedName);
+    return { alreadyExists, created };
+  };
+
+  const createRecommendedHotCharacterBatches = async (params: {
+    queue: Array<{ name: string; description: string }>;
+    activeConfig: typeof api;
+  }) => {
+    const createdIds: string[] = [];
+    await runInBatches(params.queue, BATCH_GENERATE_GROUP_SIZE, async (batch) => {
+      const payloads = await Promise.all(batch.map((candidate) => buildCharacterCreatePayload({
+        name: candidate.name,
+        backgroundHint: candidate.description,
+        config: params.activeConfig,
+      })));
+      const result = await backendApi.createCharactersBatch(payloads);
+      const createdCharacters = (result.characters || []) as Array<{ id: string; name: string }>;
+      if (!createdCharacters.length) return;
+      createdIds.push(...createdCharacters.map((character) => character.id));
+      markRecommendedHotCharactersCreated(createdCharacters.map((character) => character.name));
+      setSnackbar({
+        open: true,
+        message: i18n.language.startsWith('zh') ? `已创建 ${createdCharacters.length} 个角色` : `${createdCharacters.length} characters created`,
+        severity: 'success',
+      });
+    });
+    return createdIds;
+  };
+
   const canCreate = name.trim().length > 0 && selectedMembers.length >= MIN_MEMBERS;
   const createError = !name.trim()
     ? (i18n.language.startsWith('zh') ? '请填写群聊名称' : 'Please enter a chat name')
@@ -318,7 +489,6 @@ export default function CreateChatPage() {
     }
   }, [aiProfiles, api, i18n.language, name, topic, selectedMembers, showRoleActions, characters, t]);
 
-
   const handleDelete = useCallback(async () => {
     if (!editingChat) return;
     try {
@@ -342,6 +512,198 @@ export default function CreateChatPage() {
   const closeDeleteDialog = () => {
     setDeleteConfirmOpen(false);
   };
+  const loadHotTopics = useCallback(async (sourceId: string) => {
+    setHotLoading(true);
+    try {
+      const result = await backendApi.getTopics(sourceId);
+      setHotTopics(result.items || []);
+      setHotSourceNote(result.note || '');
+    } catch (error) {
+      showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '热点加载失败' : 'Failed to load topics'));
+      setHotTopics([]);
+      setHotSourceNote('');
+    } finally {
+      setHotLoading(false);
+    }
+  }, [i18n.language]);
+
+  const openHotDialog = async () => {
+    setHotDialogOpen(true);
+    setHotAdaptation(null);
+    setSelectedHotTopic(null);
+    setHotSelectedCharacterNames([]);
+    setHotCreatedCharacterNames([]);
+    setHotOverwriteName(false);
+    setHotOverwriteTopic(false);
+    try {
+      const result = await backendApi.getTopicSources();
+      const sources = result.sources || [];
+      setHotSources(sources);
+      const firstSourceId = sources[0]?.id || 'ai_ideas';
+      setHotSourceTab(0);
+      await loadHotTopics(firstSourceId);
+    } catch (error) {
+      setHotSources([]);
+      setHotSourceTab(0);
+      await loadHotTopics('ai_ideas');
+      showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '热点来源加载失败' : 'Failed to load topic sources'));
+    }
+  };
+
+  const closeHotDialog = () => {
+    setHotDialogOpen(false);
+    setHotAdaptation(null);
+    setSelectedHotTopic(null);
+    setHotSelectedCharacterNames([]);
+    setHotCreatedCharacterNames([]);
+    setHotOverwriteName(false);
+    setHotOverwriteTopic(false);
+  };
+
+  const handleHotSourceTabChange = async (_: unknown, value: number) => {
+    if (value === hotSourceTab) return;
+    setHotSourceTab(value);
+    const sourceId = hotSourceTabs[value]?.id || 'ai_ideas';
+    await loadHotTopics(sourceId);
+  };
+
+  const handleHotTopicSelect = async (topicItem: TopicItem) => {
+    const activeConfig = aiProfiles[0] || api;
+    if (!activeConfig?.apiKey || !activeConfig?.model) {
+      showError(i18n.language.startsWith('zh') ? '请先配置AI模型后再使用热点改编' : 'Configure AI model before using topic adaptation');
+      return;
+    }
+    setSelectedHotTopic(topicItem);
+    setHotAdapting(true);
+    try {
+      const adaptation = await backendApi.adaptTopic({
+        topic: { title: topicItem.title, subtitle: topicItem.subtitle, source: topicItem.source },
+        characters: characters.map((character) => ({
+          id: character.id,
+          name: character.name,
+          background: character.background,
+          expertise: character.expertise,
+          speakingStyle: character.speakingStyle,
+          isPreset: character.isPreset,
+        })),
+        language: i18n.language.startsWith('zh') ? 'zh' : 'en',
+      });
+      setHotCreatedCharacterNames([]);
+      setHotAdaptation(adaptation);
+    } catch (error) {
+      showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '热点改编失败' : 'Failed to adapt topic'));
+      setHotAdaptation(null);
+      setHotSelectedCharacterNames([]);
+    } finally {
+      setHotAdapting(false);
+    }
+  };
+
+  const handleApplyHotTopic = () => {
+    if (!hotAdaptation) return;
+    if ((!name.trim() || hotOverwriteName) && hotAdaptation.suggestedName) setName(hotAdaptation.suggestedName);
+    if ((!topic.trim() || hotOverwriteTopic) && hotAdaptation.suggestedTopic) setTopic(hotAdaptation.suggestedTopic);
+    if (hotAdaptation.suggestedStyle) setStyle(hotAdaptation.suggestedStyle);
+    if (hotAdaptation.suggestedMemberIds?.length) {
+      setSelectedMembers((prev) => Array.from(new Set([...prev, ...hotAdaptation.suggestedMemberIds!])).slice(0, MAX_MEMBERS));
+    }
+    closeHotDialog();
+    setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已应用热点灵感' : 'Topic inspiration applied', severity: 'success' });
+  };
+
+  const handleToggleHotCharacter = (characterName: string) => {
+    setHotSelectedCharacterNames((prev) => prev.includes(characterName) ? prev.filter((item) => item !== characterName) : [...prev, characterName]);
+  };
+
+  const handleCreateHotCharacters = async () => {
+    if (hotCreatingCharacters || hotCreationInFlightRef.current) return;
+    const activeConfig = aiProfiles[0] || api;
+    if (!activeConfig?.apiKey || !activeConfig?.model || !hotAdaptation?.recommendedCharacters?.length) return;
+    const selectedCandidates = buildRecommendedHotCharacterQueue();
+    if (!selectedCandidates.length) {
+      setSnackbar({
+        open: true,
+        message: i18n.language.startsWith('zh') ? '没有需要创建的新角色' : 'No new characters needed',
+        severity: 'success',
+      });
+      return;
+    }
+
+    hotCreationInFlightRef.current = true;
+    setHotCreatingCharacters(true);
+    try {
+      const createdIds = await createRecommendedHotCharacterBatches({ queue: selectedCandidates, activeConfig });
+      if (createdIds.length) {
+        setSelectedMembers((prev) => Array.from(new Set([...prev, ...createdIds])).slice(0, MAX_MEMBERS));
+      }
+    } catch (error) {
+      showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '批量创建推荐角色失败' : 'Failed to create suggested characters'));
+    } finally {
+      hotCreationInFlightRef.current = false;
+      setHotCreatingCharacters(false);
+    }
+  };
+
+  const hotSourceTabs = (hotSources.length
+    ? [...hotSources].sort((a, b) => {
+        const order = ['ai_ideas', 'weibo', 'zhihu', 'baidu', 'toutiao', 'tieba', 'hupu', '36kr', 'cls', 'ifanr', 'jinritemai', 'sspai', 'github', 'hackernews'];
+        const aIndex = order.indexOf(a.id);
+        const bIndex = order.indexOf(b.id);
+        if (aIndex === -1 && bIndex === -1) return 0;
+        if (aIndex === -1) return 1;
+        if (bIndex === -1) return -1;
+        return aIndex - bIndex;
+      })
+    : [{ id: 'ai_ideas', label: i18n.language.startsWith('zh') ? 'AI灵感' : 'AI ideas', status: 'ok' as const }]);
+  const hotSuggestedMembers = hotAdaptation?.suggestedMemberIds?.length
+    ? characters.filter((character) => hotAdaptation.suggestedMemberIds?.includes(character.id))
+    : [];
+  const hotCreateCount = (hotAdaptation?.recommendedCharacters || []).filter((candidate) => {
+    const { alreadyExists, created } = getHotCharacterCardState(candidate.name);
+    return hotSelectedCharacterNames.includes(candidate.name) && !alreadyExists && !created;
+  }).length;
+  const hotCanApply = Boolean(hotAdaptation);
+  const hotCanCreateCharacters = hotCreateCount > 0;
+  const hotStatusLabel = (status: TopicSourceSummary['status'] | TopicItem['status']) => {
+    if (status === 'degraded') return i18n.language.startsWith('zh') ? '降级' : 'Degraded';
+    if (status === 'unavailable') return i18n.language.startsWith('zh') ? '不可用' : 'Unavailable';
+    return '';
+  };
+  const hotStatusColor = (status: TopicSourceSummary['status'] | TopicItem['status']) => {
+    if (status === 'degraded') return 'warning';
+    if (status === 'unavailable') return 'error';
+    return 'success';
+  };
+  const hotApplyLabel = hotOverwriteName || hotOverwriteTopic
+    ? (i18n.language.startsWith('zh') ? '覆盖并应用' : 'Overwrite and apply')
+    : (i18n.language.startsWith('zh') ? '应用到草稿' : 'Apply to draft');
+  const hotCreateLabel = hotCreatingCharacters
+    ? (i18n.language.startsWith('zh') ? '创建角色中…' : 'Creating characters…')
+    : hotCanCreateCharacters
+      ? (i18n.language.startsWith('zh') ? `创建 ${hotCreateCount} 个推荐角色` : `Create ${hotCreateCount} suggested characters`)
+      : (i18n.language.startsWith('zh') ? '批量创建推荐角色' : 'Create suggested characters');
+  const hotCurrentSource = hotSourceTabs[hotSourceTab] || null;
+  const hotDialogSourceNote = hotCurrentSource?.note || hotSourceNote;
+  const hotCurrentSourceId = hotCurrentSource?.id || 'ai_ideas';
+  const hotAllSourcesUnavailable = hotSources.length > 0 && hotSources.every((source) => source.status === 'unavailable');
+  const hotDialogHint = hotAllSourcesUnavailable
+    ? (i18n.language.startsWith('zh') ? '外部来源当前不可用，仍可使用 AI 灵感 fallback。' : 'External sources are unavailable right now; AI ideas fallback still works.')
+    : (i18n.language.startsWith('zh') ? '选择一个热点，让 AI 改编成可直接用于群聊创建的草稿。' : 'Pick a trending topic and let AI adapt it into a usable group-chat draft.');
+  const hotSelectionConflictText = [
+    hotOverwriteName ? (i18n.language.startsWith('zh') ? '群聊名称将被覆盖' : 'Chat name will be overwritten') : '',
+    hotOverwriteTopic ? (i18n.language.startsWith('zh') ? '话题文案将被覆盖' : 'Topic text will be overwritten') : '',
+  ].filter(Boolean).join(' · ');
+  const hotLoadingText = hotLoading
+    ? (i18n.language.startsWith('zh') ? '加载热点中…' : 'Loading topics…')
+    : hotAdapting
+      ? (i18n.language.startsWith('zh') ? 'AI 改编中…' : 'Adapting with AI…')
+      : '';
+  const hotEmptyText = hotCurrentSourceId === 'ai_ideas'
+    ? (i18n.language.startsWith('zh') ? '当前没有可用灵感，请稍后再试。' : 'No AI ideas are available right now.')
+    : (i18n.language.startsWith('zh') ? '当前来源暂无热点。' : 'No topics available for this source.');
+  const hotSelectedTopicMeta = selectedHotTopic
+    ? [selectedHotTopic.source, selectedHotTopic.heat, selectedHotTopic.subtitle].filter(Boolean).join(' · ')
+    : '';
   const closeSnackbar = () => {
     setSnackbar((prev) => ({ ...prev, open: false }));
   };
@@ -495,7 +857,7 @@ export default function CreateChatPage() {
             allowForcedReply,
           },
         });
-        setChatDraftDefaults({ style, showRoleActions });
+        setChatDraftDefaults({ style, showRoleActions, runtimeEvolutionIntensity });
         navigate(-1);
         return;
       }
@@ -508,6 +870,7 @@ export default function CreateChatPage() {
         name: name.trim(),
         topic: topic.trim(),
         style,
+        runtimeEvolutionIntensity,
         memberIds: validMemberIds,
         speed: 1,
         isActive: false,
@@ -545,7 +908,7 @@ export default function CreateChatPage() {
         },
       });
       sessionStorage.removeItem('miragetea-create-chat-draft');
-      setChatDraftDefaults({ style, showRoleActions });
+      setChatDraftDefaults({ style, showRoleActions, runtimeEvolutionIntensity });
       navigate(-1);
     } catch (error) {
       showError(getActionErrorMessage(error, editingChat
@@ -569,20 +932,21 @@ export default function CreateChatPage() {
 
         {configTab === 0 ? (
           <Stack spacing={2}>
-            <Card variant="outlined"><CardContent><TextField label={t('chat.name')} placeholder={t('chat.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} required fullWidth /></CardContent></Card>
+            <Card variant="outlined"><CardContent><TextField label={t('chat.name')} placeholder={t('chat.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} required fullWidth slotProps={{ input: { endAdornment: (<InputAdornment position="end"><IconButton color="primary" onClick={openHotDialog} edge="end" aria-label={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}><HotIcon /></IconButton></InputAdornment>) } }} /></CardContent></Card>
             <Card variant="outlined"><CardContent><TextField label={t('chat.topic')} placeholder={topicPlaceholder} value={topic} onChange={(e) => setTopic(e.target.value)} fullWidth multiline rows={2} /></CardContent></Card>
             <Card variant="outlined"><CardContent><Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}><Box><Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{t('chat.selectMembers')}</Typography><Typography variant="caption" color="text.secondary">{t('chat.membersHint')} ({selectedMembers.length}/{MAX_MEMBERS})</Typography></Box><IconButton color="primary" onClick={() => setMemberDialogOpen(true)}><AddIcon /></IconButton></Box>{selectedCharacters.length > 0 ? (<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{selectedCharacters.map((char) => (<Chip key={char.id} avatar={<Avatar sx={{ bgcolor: 'primary.light' }}>{char.avatar}</Avatar>} label={char.name} onDelete={() => toggleMember(char.id)} />))}</Box>) : (<Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 3, color: 'text.secondary' }}>{memberSummaryEmptyLabel}</Box>)}</CardContent></Card>
             <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{t('chat.style')}</Typography><Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{CHAT_STYLE_OPTIONS.map((opt) => (<Button key={opt.value} variant={style === opt.value ? 'contained' : 'outlined'} onClick={() => setStyle(opt.value)} sx={{ borderRadius: 999 }}>{getStyleLabel(opt.value)}</Button>))}</Box></CardContent></Card>
             <Card variant="outlined"><CardContent><FormControlLabel control={<Switch checked={showRoleActions} onChange={(e) => setShowRoleActions(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'} /></CardContent></Card>
+          <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{i18n.language.startsWith('zh') ? '变化强度' : 'Evolution intensity'}</Typography><Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}><Button variant={runtimeEvolutionIntensity === 'slow' ? 'contained' : 'outlined'} onClick={() => setRuntimeEvolutionIntensity('slow')} sx={{ borderRadius: 999 }}>{i18n.language.startsWith('zh') ? '慢' : 'Slow'}</Button><Button variant={runtimeEvolutionIntensity === 'balanced' ? 'contained' : 'outlined'} onClick={() => setRuntimeEvolutionIntensity('balanced')} sx={{ borderRadius: 999 }}>{i18n.language.startsWith('zh') ? '平衡' : 'Balanced'}</Button><Button variant={runtimeEvolutionIntensity === 'fast' ? 'contained' : 'outlined'} onClick={() => setRuntimeEvolutionIntensity('fast')} sx={{ borderRadius: 999 }}>{i18n.language.startsWith('zh') ? '快' : 'Fast'}</Button></Box><Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>{i18n.language.startsWith('zh') ? '控制关系、情绪和人格漂移是快速显现，还是多轮对话后慢慢沉淀。' : 'Controls how quickly relationships, emotions, and drift become visible.'}</Typography></CardContent></Card>
           </Stack>
         ) : null}
 
         {configTab === 3 ? (
           <Stack spacing={2}>
-            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>群聊运行态</Typography><Stack spacing={1}><Typography variant="body2"><strong>阶段：</strong>{runtimePhaseLabel}</Typography><Typography variant="body2"><strong>气氛：</strong>{runtimeMoodLabel}</Typography><Typography variant="body2"><strong>焦点：</strong>{runtimeFocusLabel}</Typography><Typography variant="body2"><strong>最近事件：</strong>{runtimeRecentEventLabel}</Typography></Stack></CardContent></Card>
+            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>群聊运行态</Typography><Stack spacing={1}><Typography variant="body2"><strong>阶段：</strong>{runtimePhaseLabel}</Typography><Typography variant="body2"><strong>气氛：</strong>{runtimeMoodLabel}</Typography><Typography variant="body2"><strong>焦点：</strong>{runtimeFocusLabel}</Typography><Typography variant="body2"><strong>最近事件：</strong>{runtimeRecentEventLabel}</Typography><Typography variant="body2"><strong>{i18n.language.startsWith('zh') ? '变化强度' : 'Evolution intensity'}：</strong>{runtimeEvolutionIntensity === 'slow' ? (i18n.language.startsWith('zh') ? '慢' : 'Slow') : runtimeEvolutionIntensity === 'fast' ? (i18n.language.startsWith('zh') ? '快' : 'Fast') : (i18n.language.startsWith('zh') ? '平衡' : 'Balanced')}</Typography></Stack></CardContent></Card>
             <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>长期沉淀记忆</Typography><TextField value={runtimeNotesText} onChange={(e) => setRuntimeNotesText(e.target.value)} multiline rows={5} fullWidth placeholder="每行一条，例如：该群容易因技术路线分裂" /></CardContent></Card>
             <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>成果 / 产物</Typography><TextField value={runtimeArtifactsText} onChange={(e) => setRuntimeArtifactsText(e.target.value)} multiline rows={4} fullWidth placeholder="每行一条，例如：一份共识纪要 / 一张关系图" /></CardContent></Card>
-            <ChatRuntimePanel chat={{ ...(editingChat || {}), id: editingChat?.id || 'draft', type: 'group', mode: 'open_chat', modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG, modeState: DEFAULT_OPEN_CHAT_MODE_STATE, name: name || '未命名群聊', topic, style, memberIds: selectedMembers, speed: 1, isActive: false, allowIntervention: true, showRoleActions, topicSeed: '', sourceChatId: null, sourceMemberIds: [], runtimeNotes: runtimeNotesText.split('\n').map((item) => item.trim()).filter(Boolean), runtimeArtifacts: runtimeArtifactsText.split('\n').map((item) => item.trim()).filter(Boolean), runtimeTimeline: editingChat?.runtimeTimeline || [], governance: { ...DEFAULT_CONVERSATION_GOVERNANCE, ownerCharacterId: ownerCharacterId || null, adminCharacterIds, autoModeration, allowMute, allowPrivateThreads }, dramaRules: { ...DEFAULT_CONVERSATION_DRAMA_RULES, allowCliques, allowMockery }, worldState: { ...DEFAULT_CONVERSATION_WORLD_STATE, mood, focus, recentEvent }, directorControls: { ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, allowSpeakAs, allowDirectorMode, allowEventInjection, allowForcedReply }, createdAt: editingChat?.createdAt || Date.now(), updatedAt: editingChat?.updatedAt || Date.now(), lastMessageAt: editingChat?.lastMessageAt || Date.now() }} members={selectedCharacters} />
+            <ChatRuntimePanel chat={{ ...(editingChat || {}), id: editingChat?.id || 'draft', type: 'group', mode: 'open_chat', modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG, modeState: DEFAULT_OPEN_CHAT_MODE_STATE, name: name || '未命名群聊', topic, style, runtimeEvolutionIntensity, memberIds: selectedMembers, speed: 1, isActive: false, allowIntervention: true, showRoleActions, topicSeed: '', sourceChatId: null, sourceMemberIds: [], runtimeNotes: runtimeNotesText.split('\n').map((item) => item.trim()).filter(Boolean), runtimeArtifacts: runtimeArtifactsText.split('\n').map((item) => item.trim()).filter(Boolean), runtimeTimeline: editingChat?.runtimeTimeline || [], governance: { ...DEFAULT_CONVERSATION_GOVERNANCE, ownerCharacterId: ownerCharacterId || null, adminCharacterIds, autoModeration, allowMute, allowPrivateThreads }, dramaRules: { ...DEFAULT_CONVERSATION_DRAMA_RULES, allowCliques, allowMockery }, worldState: { ...DEFAULT_CONVERSATION_WORLD_STATE, mood, focus, recentEvent }, directorControls: { ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, allowSpeakAs, allowDirectorMode, allowEventInjection, allowForcedReply }, createdAt: editingChat?.createdAt || Date.now(), updatedAt: editingChat?.updatedAt || Date.now(), lastMessageAt: editingChat?.lastMessageAt || Date.now() }} members={selectedCharacters} />
           </Stack>
         ) : null}
 
@@ -730,6 +1094,120 @@ export default function CreateChatPage() {
           >
             {confirmDeleteLabel}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={hotDialogOpen} onClose={closeHotDialog} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+          <Typography variant="h6">{i18n.language.startsWith('zh') ? '热点灵感' : 'Topic inspiration'}</Typography>
+          <Box sx={{ minWidth: 120, display: 'flex', justifyContent: 'flex-end' }}>
+            {hotLoadingText ? <Typography variant="body2" color="text.secondary">{hotLoadingText}</Typography> : null}
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1, minHeight: 520 }}>
+            <Tabs value={hotSourceTab} onChange={(event, value) => void handleHotSourceTabChange(event, value)} variant="scrollable" allowScrollButtonsMobile>
+              {hotSourceTabs.map((source) => (
+                <Tab key={source.id} label={source.label} />
+              ))}
+            </Tabs>
+            {hotCurrentSource?.status === 'unavailable' && hotCurrentSource?.note ? <Alert severity="error">{hotCurrentSource.note}</Alert> : null}
+            {hotSelectionConflictText ? <Alert severity="info">{hotSelectionConflictText}</Alert> : null}
+            {!hotLoading && hotTopics.length === 0 && hotCurrentSource?.status === 'unavailable' ? (
+              <Typography variant="body2" color="text.secondary">{hotCurrentSource?.note || hotEmptyText}</Typography>
+            ) : null}
+            {!hotLoading ? (
+              <Box sx={{ display: 'grid', gap: 1 }}>
+                {hotTopics.map((topicItem) => (
+                  <Box
+                    key={topicItem.id}
+                    onClick={() => void handleHotTopicSelect(topicItem)}
+                    sx={{
+                      p: 1.5,
+                      border: 1,
+                      borderRadius: 2,
+                      borderColor: selectedHotTopic?.id === topicItem.id ? 'primary.main' : 'divider',
+                      bgcolor: selectedHotTopic?.id === topicItem.id ? 'action.selected' : 'background.paper',
+                      cursor: 'pointer',
+                      '&:hover': { borderColor: 'primary.main', boxShadow: 1 },
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body1" sx={{ fontWeight: 600 }}>{topicItem.title}</Typography>
+                        {(topicItem.subtitle || topicItem.heat) ? <Typography variant="caption" color="text.secondary">{[topicItem.subtitle, topicItem.heat].filter(Boolean).join(' · ')}</Typography> : null}
+                      </Box>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            ) : null}
+            {hotAdaptation ? (
+              <Stack spacing={1.5}>
+                <Divider />
+                {hotAdaptation.suggestedName ? (
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{i18n.language.startsWith('zh') ? '推荐群聊名称' : 'Suggested chat name'}</Typography>
+                    <Typography variant="body2">{hotAdaptation.suggestedName}</Typography>
+                  </Box>
+                ) : null}
+                {hotAdaptation.suggestedTopic ? (
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{i18n.language.startsWith('zh') ? '推荐话题' : 'Suggested topic'}</Typography>
+                    <Typography variant="body2">{hotAdaptation.suggestedTopic}</Typography>
+                  </Box>
+                ) : null}
+                {hotAdaptation.suggestedStyle ? (
+                  <Chip label={`${i18n.language.startsWith('zh') ? '建议风格' : 'Suggested style'}：${getStyleLabel(hotAdaptation.suggestedStyle)}`} size="small" color="primary" variant="outlined" />
+                ) : null}
+                {hotSuggestedMembers.length ? (
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{i18n.language.startsWith('zh') ? '推荐已有成员' : 'Suggested existing members'}</Typography>
+                    <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mt: 0.75 }}>
+                      {hotSuggestedMembers.map((character) => (
+                        <Chip key={character.id} label={character.name} size="small" variant="outlined" />
+                      ))}
+                    </Box>
+                  </Box>
+                ) : null}
+                {hotAdaptation.recommendedCharacters?.length ? (
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{i18n.language.startsWith('zh') ? '推荐新角色' : 'Suggested new characters'}</Typography>
+                    <Stack spacing={1} sx={{ mt: 0.75 }}>
+                      {hotAdaptation.recommendedCharacters.map((candidate) => {
+                        const { alreadyExists, created } = getHotCharacterCardState(candidate.name);
+                        const checked = hotSelectedCharacterNames.includes(candidate.name) || created;
+                        return (
+                          <Box key={candidate.name} sx={{ p: 1.25, border: 1, borderColor: checked ? 'primary.main' : created ? 'success.main' : 'divider', borderRadius: 2, bgcolor: alreadyExists ? 'action.disabledBackground' : checked ? 'action.selected' : 'background.paper', position: 'relative' }}>
+                            {created ? <Chip size="small" color="success" label={i18n.language.startsWith('zh') ? '已创建' : 'Created'} sx={{ position: 'absolute', top: 8, right: 8 }} /> : null}
+                            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                              <Checkbox checked={checked} disabled={alreadyExists || created || hotCreatingCharacters} onChange={() => handleToggleHotCharacter(candidate.name)} sx={{ mt: -0.5 }} />
+                              <Box sx={{ flex: 1, minWidth: 0, pr: created ? 7 : 0 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 700 }}>{candidate.name}</Typography>
+                                <Typography variant="caption" color="text.secondary">{candidate.description}</Typography>
+                                {alreadyExists ? <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>{i18n.language.startsWith('zh') ? '已存在同名角色' : 'Character already exists'}</Typography> : null}
+                              </Box>
+                            </Box>
+                          </Box>
+                        );
+                      })}
+                    </Stack>
+                  </Box>
+                ) : null}
+              </Stack>
+            ) : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+          <Button onClick={closeHotDialog}>{cancelLabel}</Button>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Button variant="outlined" onClick={() => void handleCreateHotCharacters()} disabled={hotCreatingCharacters || !hotCanCreateCharacters}>
+              {hotCreateLabel}
+            </Button>
+            <Button variant="contained" onClick={handleApplyHotTopic} disabled={!hotCanApply}>
+              {hotApplyLabel}
+            </Button>
+          </Box>
         </DialogActions>
       </Dialog>
     </Box>
