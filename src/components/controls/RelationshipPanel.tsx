@@ -52,12 +52,12 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
 
           <Card variant="outlined">
             <CardContent>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>治理</Typography>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>管理</Typography>
               <Stack spacing={1}>
                 <Typography variant="body2"><strong>群主：</strong>{owner?.name || '未设置'}</Typography>
                 <Typography variant="body2"><strong>管理员：</strong>{admins.length ? admins.map((item) => item.name).join('、') : '无'}</Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-                  <Chip size="small" label={chat.governance.autoModeration ? '自动治理开启' : '自动治理关闭'} />
+                  <Chip size="small" label={chat.governance.autoModeration ? '自动管理开启' : '自动管理关闭'} />
                   <Chip size="small" label={chat.governance.allowMute ? '允许禁言' : '不允许禁言'} />
                   <Chip size="small" label={chat.governance.allowPrivateThreads ? '允许AI私聊' : '不允许AI私聊'} />
                 </Box>

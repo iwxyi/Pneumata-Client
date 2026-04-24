@@ -223,12 +223,16 @@ export default function SettingsPage() {
                 {i18n.language.startsWith('zh') ? '开发者工具' : 'Developer Tools'}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {i18n.language.startsWith('zh') ? '运行态和调试能力只在这里单独控制。' : 'Runtime and debug surfaces are controlled here.'}
+                {i18n.language.startsWith('zh') ? '先打开上方“开发者模式”，这里才能显示发言风格、记忆调试等开关。' : 'Turn on Developer mode above to reveal speech style, memory, and runtime debug toggles here.'}
               </Typography>
             </Box>
+            <Typography variant="caption" color="text.secondary">
+              {i18n.language.startsWith('zh') ? '路径：设置 → 开发者模式 → 开发者工具 → 显示发言风格' : 'Path: Settings → Developer mode → Developer Tools → Show speech style'}
+            </Typography>
             <Box sx={{ display: 'grid', gap: 1 }}>
               <FormControlLabel control={<Switch checked={settings.developerUI.showMemoryDebug} onChange={(e) => settings.setDeveloperUI({ showMemoryDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示记忆调试信息' : 'Show memory debug info'} />
               <FormControlLabel control={<Switch checked={settings.developerUI.showRelationshipEvents} onChange={(e) => settings.setDeveloperUI({ showRelationshipEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示关系事件提示' : 'Show relationship event hints'} />
+              <FormControlLabel control={<Switch checked={settings.developerUI.showSpeechStyle} onChange={(e) => settings.setDeveloperUI({ showSpeechStyle: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示发言风格' : 'Show speech style'} />
             </Box>
           </CardContent>
         </Card>

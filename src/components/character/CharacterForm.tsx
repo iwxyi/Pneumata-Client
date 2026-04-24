@@ -32,7 +32,7 @@ import {
   Add as AddIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig } from '../../types/character';
+import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile } from '../../types/character';
 import { getCharacterGroupList, normalizeCharacterGroup } from '../../types/character';
 import type { BubbleShadowLevel, BubbleStyleDefinition, BubbleStyleFormValues } from '../../types/bubbleStyle';
 import { DEFAULT_PERSONALITY, DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION } from '../../types/character';
@@ -112,6 +112,7 @@ interface CharacterFormProps {
     expertise: string[];
     speakingStyle: string;
     background: string;
+    speechProfile?: CharacterSpeechProfile;
     relationships: AICharacter['relationships'];
     group?: string | null;
     memory: CharacterMemoryConfig;
@@ -125,6 +126,7 @@ interface CharacterFormProps {
 export default function CharacterForm({ initial, existingNames = [], onSave }: CharacterFormProps) {
   const { t, i18n } = useTranslation();
   const settings = useSettingsStore();
+  const showSpeechStyle = settings.developerMode && settings.developerUI.showSpeechStyle;
   const [name, setName] = useState(initial?.name || '');
   const [avatar, setAvatar] = useState(initial?.avatar || '🤖');
   const [personality, setPersonality] = useState<PersonalityParams>(initial?.personality || DEFAULT_PERSONALITY);
@@ -133,6 +135,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
   const [expertiseInput, setExpertiseInput] = useState('');
   const [speakingStyle, setSpeakingStyle] = useState(initial?.speakingStyle || '');
   const [background, setBackground] = useState(initial?.background || '');
+  const [speechProfile, setSpeechProfile] = useState<CharacterSpeechProfile | undefined>(initial?.speechProfile);
   const [relationshipsText, setRelationshipsText] = useState(() => (initial?.relationships || []).map((item) => item.note || '').join('\n'));
   const [group, setGroup] = useState(initial?.group || '');
   const [memory, setMemory] = useState<CharacterMemoryConfig>(initial?.memory || DEFAULT_CHARACTER_MEMORY);
@@ -208,6 +211,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
       setExpertise(generated.expertise);
       setSpeakingStyle(generated.speakingStyle);
       setBackground(generated.background);
+      setSpeechProfile(generated.speechProfile);
     } catch {
       setGenerateError(getGenerateError(i18n.language));
     } finally {
@@ -244,6 +248,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
       expertise,
       speakingStyle,
       background,
+      speechProfile,
       relationships: relationshipNotes,
       group: normalizeCharacterGroup(group),
       memory,
@@ -349,6 +354,35 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
 
       <TextField label={t('character.speakingStyle')} placeholder={t('character.speakingStylePlaceholder')} value={speakingStyle} onChange={(e) => setSpeakingStyle(e.target.value)} multiline rows={2} fullWidth />
       <TextField label={t('character.background')} placeholder={t('character.backgroundPlaceholder')} value={background} onChange={(e) => setBackground(e.target.value)} multiline rows={3} fullWidth />
+
+      {showSpeechStyle ? (
+        <Card variant="outlined">
+          <CardContent sx={{ display: 'grid', gap: 1.25 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? '发言风格' : 'Speech style'}</Typography>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '口头禅' : 'Catchphrases'}</Typography>
+              {renderTagEditor(speechProfile?.catchphrases || [], (next) => setSpeechProfile((prev) => ({ ...(prev || { catchphrases: [], fillers: [], tabooPhrases: [], preferredOpeners: [], preferredClosers: [], sentenceLengthBias: 'mixed', questionBias: 50, sarcasmBias: 50 }), catchphrases: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '语气词' : 'Fillers'}</Typography>
+              {renderTagEditor(speechProfile?.fillers || [], (next) => setSpeechProfile((prev) => ({ ...(prev || { catchphrases: [], fillers: [], tabooPhrases: [], preferredOpeners: [], preferredClosers: [], sentenceLengthBias: 'mixed', questionBias: 50, sarcasmBias: 50 }), fillers: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '避免表达' : 'Taboo phrases'}</Typography>
+              {renderTagEditor(speechProfile?.tabooPhrases || [], (next) => setSpeechProfile((prev) => ({ ...(prev || { catchphrases: [], fillers: [], tabooPhrases: [], preferredOpeners: [], preferredClosers: [], sentenceLengthBias: 'mixed', questionBias: 50, sarcasmBias: 50 }), tabooPhrases: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+            </Box>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1 }}>
+              <TextField size="small" select label={i18n.language.startsWith('zh') ? '句长偏好' : 'Sentence length'} value={speechProfile?.sentenceLengthBias || 'mixed'} onChange={(e) => setSpeechProfile((prev) => ({ ...(prev || { catchphrases: [], fillers: [], tabooPhrases: [], preferredOpeners: [], preferredClosers: [], sentenceLengthBias: 'mixed', questionBias: 50, sarcasmBias: 50 }), sentenceLengthBias: e.target.value as 'short' | 'mixed' | 'long' }))}>
+                <MenuItem value="short">{i18n.language.startsWith('zh') ? '短句' : 'Short'}</MenuItem>
+                <MenuItem value="mixed">{i18n.language.startsWith('zh') ? '混合' : 'Mixed'}</MenuItem>
+                <MenuItem value="long">{i18n.language.startsWith('zh') ? '长句' : 'Long'}</MenuItem>
+              </TextField>
+              <TextField size="small" type="number" label={i18n.language.startsWith('zh') ? '提问倾向' : 'Question bias'} value={speechProfile?.questionBias ?? 50} onChange={(e) => setSpeechProfile((prev) => ({ ...(prev || { catchphrases: [], fillers: [], tabooPhrases: [], preferredOpeners: [], preferredClosers: [], sentenceLengthBias: 'mixed', questionBias: 50, sarcasmBias: 50 }), questionBias: Number(e.target.value) }))} />
+              <TextField size="small" type="number" label={i18n.language.startsWith('zh') ? '阴阳倾向' : 'Sarcasm bias'} value={speechProfile?.sarcasmBias ?? 50} onChange={(e) => setSpeechProfile((prev) => ({ ...(prev || { catchphrases: [], fillers: [], tabooPhrases: [], preferredOpeners: [], preferredClosers: [], sentenceLengthBias: 'mixed', questionBias: 50, sarcasmBias: 50 }), sarcasmBias: Number(e.target.value) }))} />
+            </Box>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Stack spacing={1.5}>
         <FormControlLabel control={<Switch checked={intervention.allowSpeakAs} onChange={(e) => setIntervention((prev) => ({ ...prev, allowSpeakAs: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许用户以该角色身份发言' : 'Allow speak as'} />

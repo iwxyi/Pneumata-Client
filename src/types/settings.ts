@@ -27,6 +27,7 @@ import type { BubbleStyleDefinition } from './bubbleStyle';
 export interface DeveloperUIPrefs {
   showMemoryDebug: boolean;
   showRelationshipEvents: boolean;
+  showSpeechStyle: boolean;
 }
 
 export interface AppSettings {
@@ -45,6 +46,7 @@ export interface AppSettings {
 export const DEFAULT_DEVELOPER_UI_PREFS: DeveloperUIPrefs = {
   showMemoryDebug: false,
   showRelationshipEvents: false,
+  showSpeechStyle: false,
 };
 
 export type AppSettingsWithMemory = AppSettings & { memoryUI?: { showDeveloperMemory?: boolean } };

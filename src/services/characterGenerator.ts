@@ -1,7 +1,7 @@
 import { generateResponse } from './aiClient';
 import type { APIConfig } from '../types/settings';
-import type { PersonalityParams } from '../types/character';
-import { DEFAULT_PERSONALITY } from '../types/character';
+import type { PersonalityParams, CharacterSpeechProfile } from '../types/character';
+import { DEFAULT_PERSONALITY, DEFAULT_SPEECH_PROFILE } from '../types/character';
 import { AVATAR_OPTIONS } from '../constants/presets';
 
 export interface GeneratedCharacterProfile {
@@ -10,6 +10,7 @@ export interface GeneratedCharacterProfile {
   expertise?: string[];
   speakingStyle?: string;
   background?: string;
+  speechProfile?: Partial<CharacterSpeechProfile>;
 }
 
 export const CHARACTER_GENERATOR_SYSTEM_PROMPT = `You generate structured AI role profiles for a group chat app.
@@ -28,7 +29,17 @@ Return strict JSON only, with this shape:
   },
   "expertise": ["short domain", "short domain", "short domain", "short domain"],
   "speakingStyle": "1-2 concise sentences",
-  "background": "2-4 concise sentences"
+  "background": "2-4 concise sentences",
+  "speechProfile": {
+    "catchphrases": ["0-3 short catchphrases"],
+    "fillers": ["0-4 short filler words or spoken tics"],
+    "tabooPhrases": ["0-3 phrases they avoid saying"],
+    "preferredOpeners": ["0-3 common openers"],
+    "preferredClosers": ["0-3 common closers"],
+    "sentenceLengthBias": "short|mixed|long",
+    "questionBias": 0-100,
+    "sarcasmBias": 0-100
+  }
 }
 Rules:
 - Infer the profile from the provided name and likely public persona/archetype.
@@ -40,6 +51,12 @@ Rules:
 function clampScore(value: unknown, fallback: number) {
   if (typeof value !== 'number' || Number.isNaN(value)) return fallback;
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function normalizeStringList(value: unknown, limit: number) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean).slice(0, limit)
+    : [];
 }
 
 export function normalizeGeneratedProfile(raw: GeneratedCharacterProfile) {
@@ -63,12 +80,26 @@ export function normalizeGeneratedProfile(raw: GeneratedCharacterProfile) {
         .slice(0, 6)
     : [];
 
+  const speechProfile: CharacterSpeechProfile = {
+    ...DEFAULT_SPEECH_PROFILE,
+    ...(raw.speechProfile || {}),
+    catchphrases: normalizeStringList(raw.speechProfile?.catchphrases, 3),
+    fillers: normalizeStringList(raw.speechProfile?.fillers, 4),
+    tabooPhrases: normalizeStringList(raw.speechProfile?.tabooPhrases, 3),
+    preferredOpeners: normalizeStringList(raw.speechProfile?.preferredOpeners, 3),
+    preferredClosers: normalizeStringList(raw.speechProfile?.preferredClosers, 3),
+    sentenceLengthBias: raw.speechProfile?.sentenceLengthBias === 'short' || raw.speechProfile?.sentenceLengthBias === 'long' ? raw.speechProfile.sentenceLengthBias : 'mixed',
+    questionBias: clampScore(raw.speechProfile?.questionBias, DEFAULT_SPEECH_PROFILE.questionBias),
+    sarcasmBias: clampScore(raw.speechProfile?.sarcasmBias, DEFAULT_SPEECH_PROFILE.sarcasmBias),
+  };
+
   return {
     avatar: AVATAR_OPTIONS.includes(avatar) ? avatar : '🤖',
     personality,
     expertise,
     speakingStyle: typeof raw.speakingStyle === 'string' ? raw.speakingStyle.trim() : '',
     background: typeof raw.background === 'string' ? raw.background.trim() : '',
+    speechProfile,
   };
 }
 

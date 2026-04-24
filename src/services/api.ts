@@ -105,7 +105,7 @@ class ApiClient {
     return this.request<Array<{
       id: string; name: string; avatar: string; personality: Record<string, number>;
       behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
-      relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+      speechProfile?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       modelProfileId?: string | null; bubbleStyleId?: string | null;
       isPreset: boolean; deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number;
     }>>('GET', '/characters');
@@ -114,7 +114,7 @@ class ApiClient {
   async createCharacter(data: {
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
-    relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+    speechProfile?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     modelProfileId?: string | null; bubbleStyleId?: string | null;
   }) {
     console.log('[api:createCharacter:request]', data);
@@ -124,7 +124,7 @@ class ApiClient {
   async createCharactersBatch(items: Array<{
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
-    relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+    speechProfile?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     modelProfileId?: string | null; bubbleStyleId?: string | null;
   }>) {
     return this.request<{ characters: Record<string, unknown>[] }>('POST', '/characters/batch', { items });
@@ -259,6 +259,10 @@ class ApiClient {
     return this.request<Record<string, unknown>>('POST', `/chats/${chatId}/messages`, data);
   }
 
+  async clearChatMessages(chatId: string) {
+    return this.request<{ success: boolean }>('DELETE', `/chats/${chatId}/messages`);
+  }
+
   async deleteMessage(id: string) {
     return this.request<{ success: boolean }>('DELETE', `/messages/${id}`);
   }
@@ -269,7 +273,7 @@ class ApiClient {
       aiProfiles?: Array<{ id: string; name: string; provider: string; apiKey: string; baseUrl: string; model: string }>;
       theme: string; themeColor: string; language: string; defaultSpeed: number;
       developerMode?: boolean;
-      developerUI?: { showMemoryDebug?: boolean; showRelationshipEvents?: boolean };
+      developerUI?: { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showSpeechStyle?: boolean };
       memoryUI?: { showDeveloperMemory?: boolean };
       chatDraftDefaults?: { style: string; showRoleActions: boolean; runtimeEvolutionIntensity: 'slow' | 'balanced' | 'fast' };
       customBubbleStyles?: Array<Record<string, unknown>>;

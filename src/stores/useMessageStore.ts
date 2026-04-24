@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { Message } from '../types/message';
 import { api } from '../services/api';
 
-const MAX_CACHED_MESSAGES_PER_CHAT = 40;
+const MAX_CACHED_MESSAGES_PER_CHAT = 120;
 const MAX_CACHED_CHATS = 12;
 
 interface CachedMessageWindow {
@@ -51,20 +51,34 @@ export function clearPersistedMessageStore() {
 }
 
 function dedupeMessages(messages: Message[]) {
-  return messages.filter((message, index, array) => array.findIndex((item) => item.id === message.id) === index);
+  const getIdentity = (message: Message) => message.serverId || message.id;
+  return messages.filter((message, index, array) => array.findIndex((item) => getIdentity(item) === getIdentity(message)) === index);
 }
 
 function mergeMessages(localMessages: Message[], remoteMessages: Message[]) {
   const merged = new Map<string, Message>();
+  const getIdentity = (message: Message) => message.serverId || message.id;
 
   for (const message of localMessages) {
-    merged.set(message.id, message);
+    merged.set(getIdentity(message), message);
   }
 
   for (const remote of remoteMessages) {
-    const local = merged.get(remote.id);
-    if (!local || remote.timestamp >= local.timestamp || remote.isDeleted !== local.isDeleted) {
-      merged.set(remote.id, remote);
+    const remoteIdentity = getIdentity(remote);
+    const local = merged.get(remoteIdentity);
+    if (!local) {
+      merged.set(remoteIdentity, remote);
+      continue;
+    }
+
+    if (remote.timestamp >= local.timestamp || remote.isDeleted !== local.isDeleted) {
+      merged.set(remoteIdentity, {
+        ...remote,
+        id: local.id,
+        clientKey: local.clientKey,
+        serverId: remote.serverId || remote.id,
+        isOptimistic: local.isOptimistic && remote.isDeleted ? local.isOptimistic : false,
+      });
     }
   }
 
@@ -99,8 +113,7 @@ interface MessageStore {
   loadMessages: (chatId: string, options?: { append?: boolean; before?: number; limit?: number }) => Promise<void>;
   addMessage: (msg: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>) => Promise<Message>;
   upsertMessage: (message: Message) => void;
-  replaceOptimisticMessage: (temporaryId: string, message: Message) => void;
-  addOptimisticMessage: (message: Message) => void;
+  clearChatMessagesLocal: (chatId: string) => void;
   deleteMessage: (id: string) => Promise<void>;
   deleteLastNMessages: (chatId: string, n: number) => Promise<void>;
   clearMessages: () => void;
@@ -139,7 +152,7 @@ export const useMessageStore = create<MessageStore>()(
             const current = currentWindow?.messages || [];
             const merged = isAppend
               ? mergeMessages(current, fetched)
-              : mergeMessages(current, fetched);
+              : mergeMessages([], fetched);
             const trimmed = trimMessages(merged);
             const nextCache = trimCache({
               ...state.messageWindowsByChatId,
@@ -196,47 +209,22 @@ export const useMessageStore = create<MessageStore>()(
         });
       },
 
-      replaceOptimisticMessage: (temporaryId, message) => {
+      clearChatMessagesLocal: (chatId) => {
         set((state) => {
-          const currentWindow = state.messageWindowsByChatId[message.chatId];
-          const current = (currentWindow?.messages || []).filter((item) => item.id !== temporaryId);
-          const activeMessages = state.activeChatId === message.chatId ? state.messages.filter((item) => item.id !== temporaryId) : state.messages;
-          const nextChatMessages = trimMessages(mergeMessages(current, [message]));
+          const nextWindows = { ...state.messageWindowsByChatId };
+          delete nextWindows[chatId];
           return {
-            messages: state.activeChatId === message.chatId ? mergeMessages(activeMessages, [message]) : state.messages,
-            messageWindowsByChatId: trimCache({
-              ...state.messageWindowsByChatId,
-              [message.chatId]: {
-                messages: nextChatMessages,
-                lastSyncedAt: Date.now(),
-                updatedAt: message.timestamp,
-              },
-            }),
-          };
-        });
-      },
-
-      addOptimisticMessage: (message) => {
-        set((state) => {
-          const currentWindow = state.messageWindowsByChatId[message.chatId];
-          const current = currentWindow?.messages || [];
-          const nextChatMessages = trimMessages(mergeMessages(current, [message]));
-          return {
-            messages: state.activeChatId === message.chatId ? mergeMessages(state.messages, [message]) : state.messages,
-            messageWindowsByChatId: trimCache({
-              ...state.messageWindowsByChatId,
-              [message.chatId]: {
-                messages: nextChatMessages,
-                lastSyncedAt: currentWindow?.lastSyncedAt || 0,
-                updatedAt: message.timestamp,
-              },
-            }),
+            messages: state.activeChatId === chatId ? [] : state.messages,
+            messageWindowsByChatId: trimCache(nextWindows),
+            hasMore: state.activeChatId === chatId ? false : state.hasMore,
           };
         });
       },
 
       deleteMessage: async (id) => {
-        await api.deleteMessage(id);
+        const targetMessage = get().messages.find((message) => message.id === id)
+          || Object.values(get().messageWindowsByChatId).flatMap((window) => window.messages).find((message) => message.id === id);
+        await api.deleteMessage(targetMessage?.serverId || targetMessage?.id || id);
         set((state) => {
           const nextWindows = Object.fromEntries(
             Object.entries(state.messageWindowsByChatId).map(([chatId, window]) => {
@@ -254,7 +242,7 @@ export const useMessageStore = create<MessageStore>()(
       deleteLastNMessages: async (chatId, n) => {
         const msgs = get().messages.filter((m) => m.chatId === chatId && !m.isDeleted).slice(-n);
         for (const msg of msgs) {
-          await api.deleteMessage(msg.id);
+          await api.deleteMessage(msg.serverId || msg.id);
         }
         set((state) => {
           const nextMessages = state.messages.map((m) => (

@@ -13,6 +13,12 @@ import { updateCharacterLayeredMemories } from './characterLayeredMemory';
 import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 
+function truncateWithEllipsis(text: string, maxLength: number) {
+  const normalized = text.trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 export function buildNextWorldState(conversation: GroupChat, message: Pick<Message, 'content' | 'type'>, config: RuntimeEvolutionConfig = resolveRuntimeEvolutionConfig(conversation.runtimeEvolutionIntensity)) {
   const nextConflictAxes = message.type === 'ai' && config.worldMultiplier >= 0.7 ? evolveConflictAxes(conversation, message.content) : (conversation.worldState.conflictAxes || []);
   return {
@@ -42,8 +48,17 @@ export function buildRelationshipTransition(params: {
     const speaker = params.characters.find((item) => item.id === params.message.senderId);
     const target = recentNonSpeaker;
     if (speaker && target) {
-      const updatedSpeaker = updateCharacterRelationship(speaker, target.id, params.message.content, config.relationshipMultiplier);
-      const updatedTarget = updateCharacterRelationship(target, speaker.id, params.message.content, config.reciprocalRelationshipMultiplier);
+      const updatedSpeakerBase = updateCharacterRelationship(speaker, target.id, params.message.content, config.relationshipMultiplier);
+      const updatedTargetBase = updateCharacterRelationship(target, speaker.id, params.message.content, config.reciprocalRelationshipMultiplier);
+      const summary = truncateWithEllipsis(params.message.content, 48);
+      const updatedSpeaker = {
+        ...updatedSpeakerBase,
+        relationships: updatedSpeakerBase.relationships.map((relation) => relation.characterId === target.id ? { ...relation, note: `${speaker.name} ↔ ${target.name}：${summary}` } : relation),
+      };
+      const updatedTarget = {
+        ...updatedTargetBase,
+        relationships: updatedTargetBase.relationships.map((relation) => relation.characterId === speaker.id ? { ...relation, note: `${target.name} ↔ ${speaker.name}：${summary}` } : relation),
+      };
       const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier);
       const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
       const targetEmotion = deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias);
@@ -74,7 +89,7 @@ export function buildRelationshipTransition(params: {
           }),
           runtimeTimeline: accumulateCharacterRuntime(speaker, {
             type: 'relationship',
-            text: `对 ${target.name} 的态度发生变化：${params.message.content.slice(0, 48)}`,
+            text: `对 ${target.name} 的态度发生变化：${summary}`,
           }).concat(driftEntries).slice(-Math.max(20, config.maxTimeline)),
         },
       });
@@ -97,7 +112,7 @@ export function buildRelationshipTransition(params: {
           }),
           runtimeTimeline: accumulateCharacterRuntime(target, {
             type: 'relationship',
-            text: `${speaker.name} 的发言影响了对 ${speaker.name} 的态度：${params.message.content.slice(0, 36)}`,
+            text: `${speaker.name} 的发言影响了对 TA 的态度：${truncateWithEllipsis(params.message.content, 36)}`,
           }).slice(-Math.max(16, config.maxTimeline - 4)),
         },
       });
@@ -105,25 +120,7 @@ export function buildRelationshipTransition(params: {
       runtimeEvents.push(normalizeRuntimeEvent({
         eventType: 'group_relationship_shift',
         title: `${speaker.name} 对 ${target.name} 的态度发生变化`,
-        summary: `${params.message.content.slice(0, 48)} / 强度:${config.label}`,
-        pair: [speaker.name, target.name],
-        metrics: updatedSpeaker.relationships.find((item) => item.characterId === target.id) || null,
-        timelineType: 'relationship',
-      }));
-
-      runtimeEvents.push(normalizeRuntimeEvent({
-        eventType: 'relationship_shift',
-        title: `${target.name} 也受到 ${speaker.name} 的发言影响`,
-        summary: `回应强度 ${config.label} · ${params.message.content.slice(0, 36)}`,
-        pair: [target.name, speaker.name],
-        metrics: updatedTarget.relationships.find((item) => item.characterId === speaker.id) || null,
-        timelineType: 'relationship',
-      }));
-
-      runtimeEvents.push(normalizeRuntimeEvent({
-        eventType: 'group_relationship_shift',
-        title: `${speaker.name} 对 ${target.name} 的态度发生变化`,
-        summary: params.message.content.slice(0, 48),
+        summary: summary,
         pair: [speaker.name, target.name],
         metrics: updatedSpeaker.relationships.find((item) => item.characterId === target.id) || null,
         timelineType: 'relationship',

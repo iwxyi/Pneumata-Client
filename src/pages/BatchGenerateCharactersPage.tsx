@@ -61,6 +61,7 @@ function buildGeneratedCharacterPayload(params: {
     expertise: string[];
     speakingStyle: string;
     background: string;
+    speechProfile: NonNullable<AICharacter['speechProfile']>;
   };
   generatedGroup: string | null;
   allCharacters: Array<Pick<AICharacter, 'name' | 'group' | 'bubbleStyleId'>>;
@@ -131,6 +132,7 @@ async function processCharacterBatch(params: {
             expertise: profile.expertise,
             speakingStyle: profile.speakingStyle,
             background: profile.background,
+            speechProfile: profile.speechProfile,
           },
           generatedGroup: params.generatedGroup,
           allCharacters: params.characters,
@@ -298,11 +300,16 @@ function getVisibleGeneratedNameText(text: string) {
 }
 
 const NAMES_SYSTEM_PROMPT = `You help generate candidate character names for a theme.
-Return strict JSON only in this shape: {"names":["name1","name2",...]}
+Return strict JSON only in this shape: {"names":["name1","name2",...],"defaultSelectedNames":["name1","name2"]}
 Rules:
-- Return as many relevant names as the theme reasonably supports.
+- Build a usable cast, not just a protagonist list.
+- Include a mix of: core characters, major supporting characters, recurring side characters, rivals, mentors, family members, allies, comic relief, or strongly associated peripheral figures.
+- Aim for breadth around the theme: roughly 30-40% core names, 40-50% important supporting names, and 20-30% peripheral-but-recognizable related names.
+- Do not stop at only the most famous names if the world clearly has a broader cast.
 - For broad themes, return more names. For narrow themes, return fewer names.
-- Put the most central or iconic names first.
+- Put the most central or iconic names first, but keep expanding outward to a richer cast.
+- defaultSelectedNames should contain only the characters that should be selected by default for an initial chat cast. Usually this means the core cast, not everyone.
+- defaultSelectedNames must be a subset of names.
 - Prefer well-known, distinctive characters or figures strongly associated with the theme.
 - Do not include placeholders, headings, field names, or questions like "names?".
 - Every item in names must be an actual character/person/figure name.
@@ -353,9 +360,13 @@ function extractJsonArray(content: string) {
 
 function tryParseNamesJson(content: string) {
   try {
-    const parsed = JSON.parse(extractJsonObject(content)) as { names?: unknown };
+    const parsed = JSON.parse(extractJsonObject(content)) as { names?: unknown; defaultSelectedNames?: unknown };
     if (Array.isArray(parsed.names)) {
-      return sanitizeNames(parsed.names.filter((item): item is string => typeof item === 'string'));
+      const names = sanitizeNames(parsed.names.filter((item): item is string => typeof item === 'string'));
+      const defaultSelectedNames = Array.isArray(parsed.defaultSelectedNames)
+        ? sanitizeNames(parsed.defaultSelectedNames.filter((item): item is string => typeof item === 'string')).filter((name) => names.includes(name))
+        : [];
+      return { names, defaultSelectedNames };
     }
   } catch {
     // ignore
@@ -364,7 +375,7 @@ function tryParseNamesJson(content: string) {
   try {
     const parsed = JSON.parse(extractJsonArray(content)) as unknown;
     if (Array.isArray(parsed)) {
-      return sanitizeNames(parsed.filter((item): item is string => typeof item === 'string'));
+      return { names: sanitizeNames(parsed.filter((item): item is string => typeof item === 'string')), defaultSelectedNames: [] };
     }
   } catch {
     // ignore
@@ -379,7 +390,7 @@ function stripLinePrefix(line: string) {
 
 function parseNames(content: string) {
   const parsedJson = tryParseNamesJson(content);
-  if (parsedJson && parsedJson.length > 0) {
+  if (parsedJson && parsedJson.names.length > 0) {
     return parsedJson;
   }
 
@@ -405,7 +416,7 @@ function parseNames(content: string) {
   if (names.length === 0) {
     throw new Error('AI 返回的名字列表格式无法解析');
   }
-  return names;
+  return { names, defaultSelectedNames: [] };
 }
 
 function getErrorMessage(error: unknown) {
@@ -467,13 +478,13 @@ export default function BatchGenerateCharactersPage() {
       const response = await generateResponse(
         profile,
         `${NAMES_SYSTEM_PROMPT}\nOutput exactly one valid JSON object. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
-        [{ role: 'user', content: i18n.language.startsWith('zh') ? `主题：${topic}\n请列出这个主题下常见、相关、适合群聊模拟的角色名字。只返回合法JSON，格式必须是 {"names":["名字1","名字2"]}` : `Theme: ${topic}\nList relevant well-known character or figure names for group chat simulation. Return only valid JSON in the format {"names":["name1","name2"]}.` }]
+        [{ role: 'user', content: i18n.language.startsWith('zh') ? `主题：${topic}\n请列出一个适合放进同一群聊的角色阵容，不要只给主角。需要同时包含主角、重要配角、反派/对手、老师/家人/同伴，以及少量但强相关的边缘角色。并请额外判断哪些角色应该默认选中作为初始群聊阵容。只返回合法JSON，格式必须是 {"names":["名字1","名字2"],"defaultSelectedNames":["名字1"]}` : `Theme: ${topic}\nReturn a cast suitable for the same group chat, not just protagonists. Include main characters, important supporting characters, rivals/antagonists, mentors/family/allies, and a few strongly related peripheral figures. Also decide which characters should be selected by default as the initial cast. Return only valid JSON in the format {"names":["name1","name2"],"defaultSelectedNames":["name1"]}.` }]
       );
       console.log('[batch-generate:names:raw]', response);
-      const names = parseNames(response);
-      console.log('[batch-generate:names:parsed]', names);
-      setCandidateNames(names);
-      setSelectedNames(names.slice(0, Math.min(12, names.length)));
+      const parsed = parseNames(response);
+      console.log('[batch-generate:names:parsed]', parsed);
+      setCandidateNames(parsed.names);
+      setSelectedNames(parsed.defaultSelectedNames.length ? parsed.defaultSelectedNames : parsed.names.slice(0, Math.min(4, parsed.names.length)));
     } catch (error) {
       setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
     } finally {

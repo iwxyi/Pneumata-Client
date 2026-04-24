@@ -4,9 +4,59 @@ import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import { generateResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildChatMessages } from './promptBuilder';
+import { buildEngineAwarePrompt } from './promptContextAssembler';
+
+function buildSessionSystemPrompt(args: Parameters<typeof buildSystemPromptWithContext>[0] extends never ? never : {
+  speaker: AICharacter;
+  chat: GroupChat;
+  emotion: number;
+  messages: Message[];
+  characters: Map<string, AICharacter>;
+}) {
+  return buildEngineAwarePrompt({
+    engineKey: args.chat.mode,
+    character: args.speaker,
+    chat: args.chat,
+    emotion: args.emotion,
+    messages: args.messages,
+    characters: args.characters,
+    fallback: ({ character, chat, emotion, messages, characters }) => buildSystemPromptWithContext(character, chat, emotion, messages, characters),
+  });
+}
+
+function withGroupChatPrompt(prompt: string) {
+  return `${prompt}\n\nTreat the room like a live multi-person conversation with momentum, partial replies, and social baggage.`;
+}
+
+function getRecentHumanlikeSignal(messages: Message[]) {
+  return messages.slice(-4).map((message) => `${message.senderName}: ${message.content}`).join('\n');
+}
+
+function buildSessionPrompt(prompt: string, messages: Message[]) {
+  const recentSignal = getRecentHumanlikeSignal(messages);
+  return `${withGroupChatPrompt(prompt)}\n\nRecent room signal:\n${recentSignal}`;
+}
+
+function buildSpeakerSystemPrompt(args: {
+  speaker: AICharacter;
+  chat: GroupChat;
+  emotion: number;
+  activeMessages: Message[];
+  characterMap: Map<string, AICharacter>;
+}) {
+  const basePrompt = buildSessionSystemPrompt({
+    speaker: args.speaker,
+    chat: args.chat,
+    emotion: args.emotion,
+    messages: args.activeMessages,
+    characters: args.characterMap,
+  });
+  return buildSessionPrompt(basePrompt, args.activeMessages);
+}
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
 import { calculateWeights, selectSpeaker } from './scheduler';
-import { deriveSpeakIntent } from './intentEngine';
+import { deriveSpeakIntentFromContext, describeIntentForPrompt } from './intentEngine';
+import { buildHumanizationPrompt, postProcessHumanChat } from './dialogueHumanizer';
 import { BASE_COOLDOWN_MS, MAX_HISTORY_FOR_PROMPT } from '../constants/defaults';
 
 const emotionMap: Record<string, number> = {};
@@ -22,7 +72,7 @@ export const setEmotion = (characterId: string, value: number): void => {
 export interface ChatEngineCallbacks {
   onSpeakerSelected: (characterId: string) => void;
   onMessageChunk: (content: string) => void;
-  onMessageComplete: (message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>) => void;
+  onMessageComplete: (message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>) => void | Promise<void>;
   onError: (error: Error) => void;
 }
 
@@ -33,6 +83,11 @@ export function stripRoleActions(content: string) {
     .replace(/\*[^*\n]{1,24}\*/g, '')
     .replace(/\s{2,}/g, ' ')
     .replace(/^[\s\n]+|[\s\n]+$/g, '');
+}
+
+function trimSpeakerPrefix(content: string, speakerName: string) {
+  const escapedName = speakerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return content.replace(new RegExp(`^${escapedName}\\s*[:：]\\s*`), '').trim();
 }
 
 function sanitizeChunk(content: string, showRoleActions?: boolean) {
@@ -60,10 +115,54 @@ function sanitizeChunk(content: string, showRoleActions?: boolean) {
   return stripRoleActions(remainder);
 }
 
-function buildChunkHandler(showRoleActions: boolean | undefined, onMessageChunk: (content: string) => void) {
-  return (content: string) => {
-    onMessageChunk(sanitizeChunk(content, showRoleActions));
-  };
+function trimHumanChatStyle(content: string) {
+  const trimmed = content.trim();
+  if (!trimmed) return trimmed;
+  return trimmed
+    .replace(/\n{2,}/g, '\n')
+    .replace(/([。！？.!?])\s*([。！？.!?])+/g, '$1')
+    .replace(/^(好的|明白了|我认为|我觉得是这样|总结一下|总的来说)[，,:：\s]*/i, '')
+    .replace(/(总之|所以总体来说|综上)[，,:：\s]*$/i, '')
+    .trim();
+}
+
+function salvageEmptyResponse(raw: string, speakerName: string, showRoleActions?: boolean) {
+  const withoutPrefix = trimSpeakerPrefix(raw.trim(), speakerName);
+  if (!withoutPrefix) return '';
+
+  const stripped = showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix;
+  if (normalizeForComparison(stripped)) return stripped.trim();
+
+  const unwrapped = withoutPrefix
+    .replace(/^[（(][^）)]{0,40}[）)]\s*/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (normalizeForComparison(unwrapped)) return unwrapped;
+
+  const fallback = withoutPrefix
+    .replace(/[（(][^）)]{0,40}[）)]/gu, ' ')
+    .replace(/\*[^*\n]{1,24}\*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalizeForComparison(fallback) ? fallback : '';
+}
+
+function limitResponseShape(content: string) {
+  const trimmed = trimHumanChatStyle(content);
+  if (!trimmed) return trimmed;
+  const lines = trimmed.split(/\n+/).filter(Boolean);
+  const firstLine = lines[0] || trimmed;
+  const sentenceParts = firstLine.split(/(?<=[。！？!?])/).filter((part) => part.trim());
+  if (sentenceParts.length <= 2) return firstLine.trim();
+  return sentenceParts.slice(0, 2).join('').trim();
+}
+
+function finalizeResponse(content: string, intent: ReturnType<typeof deriveSpeakIntentFromContext>, speaker: AICharacter, recentMessages: Message[], showRoleActions?: boolean) {
+  const withoutPrefix = trimSpeakerPrefix(content, speaker.name);
+  const sanitized = showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix;
+  const processed = postProcessHumanChat(limitResponseShape(sanitized), intent, speaker, recentMessages);
+  if (normalizeForComparison(processed)) return processed;
+  return salvageEmptyResponse(content, speaker.name, showRoleActions);
 }
 
 function normalizeForComparison(content: string) {
@@ -77,67 +176,37 @@ function normalizeForComparison(content: string) {
     .toLowerCase();
 }
 
-function jaccardSimilarity(a: string, b: string) {
-  const aSet = new Set(a.split(' ').filter(Boolean));
-  const bSet = new Set(b.split(' ').filter(Boolean));
-  if (aSet.size === 0 || bSet.size === 0) return 0;
-
-  let intersection = 0;
-  for (const token of aSet) {
-    if (bSet.has(token)) intersection += 1;
-  }
-  const union = new Set([...aSet, ...bSet]).size;
-  return union === 0 ? 0 : intersection / union;
-}
-
-function isTooSimilarToRecentSameSpeaker(messages: Message[], speakerId: string, content: string) {
-  const normalized = normalizeForComparison(content);
-  if (!normalized) return false;
-
-  const recentSameSpeaker = messages
+function collectRecentConstraintLines(messages: Message[], speakerId: string) {
+  const sameSpeaker = messages
     .filter((message) => message.type === 'ai' && !message.isDeleted && message.senderId === speakerId)
-    .slice(-4);
+    .slice(-3)
+    .map((message) => `- Your previous line: ${trimHumanChatStyle(message.content).slice(0, 80)}`);
 
-  return recentSameSpeaker.some((message) => {
-    const previous = normalizeForComparison(message.content);
-    if (!previous) return false;
-    return previous === normalized
-      || previous.includes(normalized)
-      || normalized.includes(previous)
-      || jaccardSimilarity(previous, normalized) >= 0.72;
+  const roomLines = messages
+    .filter((message) => message.type === 'ai' && !message.isDeleted && message.senderId !== speakerId)
+    .slice(-4)
+    .map((message) => `- Room line from ${message.senderName}: ${trimHumanChatStyle(message.content).slice(0, 80)}`);
+
+  return [...sameSpeaker, ...roomLines].filter((line, index, array) => {
+    const normalized = normalizeForComparison(line);
+    return normalized && array.findIndex((candidate) => normalizeForComparison(candidate) === normalized) === index;
   });
 }
 
-function isTooSimilarToRecentConversation(messages: Message[], speakerId: string, content: string) {
-  const normalized = normalizeForComparison(content);
-  if (!normalized) return false;
+function buildGenerationConstraints(messages: Message[], speakerId: string) {
+  const recentLines = collectRecentConstraintLines(messages, speakerId);
+  const forbiddenBlock = recentLines.length
+    ? `\nForbidden semantic overlap:\n${recentLines.join('\n')}`
+    : '';
 
-  const recentAiMessages = messages
-    .filter((message) => message.type === 'ai' && !message.isDeleted)
-    .slice(-6);
-
-  return recentAiMessages.some((message) => {
-    if (message.senderId === speakerId) return false;
-    const previous = normalizeForComparison(message.content);
-    if (!previous) return false;
-    return jaccardSimilarity(previous, normalized) >= 0.82;
-  });
-}
-
-function isWeakContent(content: string) {
-  const normalized = normalizeForComparison(content);
-  const words = normalized.split(' ').filter(Boolean);
-  return words.length < 4 || normalized.length < 12;
-}
-
-function needsRetry(messages: Message[], speakerId: string, content: string) {
-  return isWeakContent(content)
-    || isTooSimilarToRecentSameSpeaker(messages, speakerId, content)
-    || isTooSimilarToRecentConversation(messages, speakerId, content);
-}
-
-function buildRetryPrompt(response: string) {
-  return `${response}\n\n请不要重复你刚才已经表达过的内容。换一个新的角度，推进讨论，保持简洁具体。\nDo not repeat the previous wording or the same point. Add a new point and move the conversation forward.`;
+  return `\nHard constraints for this reply:
+- Write exactly one chat message only. No self-explanation, no meta commentary.
+- Do not repeat, paraphrase, summarize, or restate the same semantic point from the forbidden lines.
+- Do not sound like an assistant answer. Never use structures like “首先/其次/最后/总结一下”, “first/second/finally”, or “in summary”.
+- Do not give a balanced full explanation unless the room absolutely requires it.
+- Keep it short, reactive, colloquial, and socially situated.
+- Prefer one sharp move: a quick challenge, follow-up, jab, side remark, or clipped agreement.
+- If the intent shape is question_only, output only a question. If fragment, output a clipped fragment.${forbiddenBlock}`;
 }
 
 function resolveApiConfigForCharacter(character: AICharacter, apiConfig: APIConfig | AIModelProfile[], profiles?: AIModelProfile[]) {
@@ -194,36 +263,26 @@ export const runOneRound = async (
 
   const emotion = getEmotion(speakerId);
   const recentTargetId = messages.filter((m) => m.type === 'ai' && !m.isDeleted).at(-1)?.senderId;
-  const intent = deriveSpeakIntent(speaker, recentTargetId);
-  const characterMap = new Map(chatMembers.map((c) => [c.id, c]));
   const activeMessages = messages.filter((m) => !m.isDeleted);
-  const systemPrompt = `${buildSystemPromptWithContext(speaker, chat, emotion, activeMessages, characterMap)}\n\nCurrent speaking intent:\n- reason: ${intent.reason}\n- target: ${intent.target}\n- stance: ${intent.stance}\n- emotionalTone: ${intent.emotionalTone}`;
+  const recentText = activeMessages.at(-1)?.content || '';
+  const intent = deriveSpeakIntentFromContext(speaker, recentTargetId, recentText);
+  const characterMap = new Map(chatMembers.map((c) => [c.id, c]));
+  const systemPrompt = `${buildSpeakerSystemPrompt({ speaker, chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(speaker, intent, activeMessages)}\n\nCurrent speaking intent:\n- ${describeIntentForPrompt(intent)}\n- Follow the intent shape strictly: fragment means a clipped phrase; question_only means only ask or challenge; single_sentence means one line; two_sentences is the max unless genuinely necessary.\n- Respond like a WeChat group message: quick, targeted, partial, reactive, and slightly messy. Do not write a balanced full answer unless the room truly needs it.\n- Prefer sounding impulsive, socially situated, colloquial, and slightly incomplete over sounding polished.\n- If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.${buildGenerationConstraints(activeMessages, speakerId)}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT);
 
   try {
     const resolvedApi = resolveApiConfigForCharacter(speaker, apiConfig, profiles);
 
-    let response = await generateResponse(
+    const response = await generateResponse(
       resolvedApi,
       systemPrompt,
       chatMessages,
-      buildChunkHandler(chat.showRoleActions, callbacks.onMessageChunk)
     );
-    let finalResponse = chat.showRoleActions === false ? stripRoleActions(response) : response;
+    const finalResponse = finalizeResponse(response, intent, speaker, activeMessages, chat.showRoleActions);
 
-    if (needsRetry(messages, speakerId, finalResponse)) {
-      response = await generateResponse(
-        resolvedApi,
-        `${systemPrompt}\n\n${buildRetryPrompt(finalResponse)}`,
-        chatMessages,
-        buildChunkHandler(chat.showRoleActions, callbacks.onMessageChunk)
-      );
-      finalResponse = chat.showRoleActions === false ? stripRoleActions(response) : response;
-
-      if (needsRetry(messages, speakerId, finalResponse)) {
-        callbacks.onError(new Error('Generated duplicate or weak response'));
-        return;
-      }
+    if (!normalizeForComparison(finalResponse)) {
+      callbacks.onError(new Error('Empty model response'));
+      return;
     }
 
     const msgEmotion = analyzeEmotion(finalResponse);
@@ -236,7 +295,7 @@ export const runOneRound = async (
       }
     }
 
-    callbacks.onMessageComplete({
+    await callbacks.onMessageComplete({
       chatId: chat.id,
       type: 'ai',
       senderId: speakerId,

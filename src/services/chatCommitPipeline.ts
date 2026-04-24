@@ -20,8 +20,7 @@ export async function runChatCommitPipeline(params: {
     message: Pick<Message, 'content' | 'type' | 'senderId'>;
     previousAiMessage: Pick<Message, 'senderId'> | null;
   }) => DriverMessageCommitResult;
-  addOptimisticMessage: (message: Message) => void;
-  replaceOptimisticMessage: (temporaryId: string, message: Message) => void;
+  upsertMessage: (message: Message) => void;
   updateCharacter: (id: string, patch: Partial<AICharacter>) => Promise<void>;
   appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number]) => Promise<void>;
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
@@ -30,8 +29,7 @@ export async function runChatCommitPipeline(params: {
   const nextMessages = params.currentMessages.filter((message) => !message.isDeleted);
   await persistStreamingMessage({
     message: params.message,
-    addOptimisticMessage: params.addOptimisticMessage,
-    replaceOptimisticMessage: params.replaceOptimisticMessage,
+    upsertMessage: params.upsertMessage,
   });
 
   const commitContext = buildChatCommitContext(nextMessages);

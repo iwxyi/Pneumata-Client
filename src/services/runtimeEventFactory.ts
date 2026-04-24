@@ -5,6 +5,9 @@ export interface RuntimeEventPayload {
   pair?: [string, string];
   metrics?: unknown;
   timelineType?: 'note' | 'artifact' | 'relationship';
+  visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
+  visibleToIds?: string[];
+  visibleToRoles?: string[];
   createdAt?: number;
 }
 
@@ -12,6 +15,9 @@ export function normalizeRuntimeEvent(payload: RuntimeEventPayload): RuntimeEven
   return {
     ...payload,
     timelineType: payload.timelineType || (payload.eventType === 'group_relationship_shift' || payload.eventType === 'relationship_shift' ? 'relationship' : 'note'),
+    visibilityScope: payload.visibilityScope || 'public',
+    visibleToIds: payload.visibleToIds || [],
+    visibleToRoles: payload.visibleToRoles || [],
     createdAt: payload.createdAt || Date.now(),
   };
 }

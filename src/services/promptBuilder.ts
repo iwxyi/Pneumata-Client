@@ -57,11 +57,11 @@ function buildCharacterPromptContext(character: AICharacter) {
 }
 
 function buildCurrentState(character: AICharacter, emotion: number) {
-  return `## Current State\n${emotion > 0.3 ? 'You are currently feeling positive and enthusiastic.' : emotion < -0.3 ? 'You are currently feeling somewhat negative or frustrated.' : 'You are currently feeling neutral and calm.'}\n${buildEmotionalStateDescription(character)}`;
+  return `## Current State\n${emotion > 0.3 ? 'You are currently feeling positive and enthusiastic.' : emotion < -0.3 ? 'You are currently feeling somewhat negative or frustrated.' : 'You are currently feeling neutral and calm.'}\n${buildEmotionalStateDescription(character)}\n- You do not need to be fair or complete; react the way this person would in a live group chat.`;
 }
 
 function buildChatContext(chat: GroupChat) {
-  return `## Chat Context\n- Topic: ${chat.topic || 'General discussion'}\n- Style: ${styleDescriptions[chat.style]}\n${chat.topicSeed ? `- Opening topic: ${chat.topicSeed}` : ''}`;
+  return `## Chat Context\n- Topic: ${chat.topic || 'General discussion'}\n- Style: ${styleDescriptions[chat.style]}\n- Treat this like a live WeChat group conversation, not a formal response session.\n${chat.topicSeed ? `- Opening topic: ${chat.topicSeed}` : ''}`;
 }
 
 function buildBaseCharacterSection(character: AICharacter, personalityDesc: string) {
@@ -69,7 +69,7 @@ function buildBaseCharacterSection(character: AICharacter, personalityDesc: stri
 }
 
 function buildRules(chat: GroupChat, character: AICharacter) {
-  return `## Rules\n1. Stay in character at all times. Speak as ${character.name} would.\n2. Keep responses concise (1-3 sentences typically, occasionally longer for important points).\n3. Respond naturally to what others have said. You can agree, disagree, add new points, ask questions, or change the subject if natural.\n4. DO NOT use any prefix like "${character.name}:" - just give the message content directly.\n5. Use the language that matches the conversation (if others speak Chinese, respond in Chinese; if English, respond in English).\n6. Be engaging and contribute meaningfully to the conversation.\n7. ${chat.showRoleActions === false ? 'Do not include stage directions, action descriptions, or emotional cues in parentheses such as “（微笑着）”, “*waves*”, or similar narrative actions. Output only the spoken content.' : 'You may include light role actions or expressive cues if they feel natural, but do not overuse them.'}`;
+  return `## Rules\n1. Stay in character at all times. Speak as ${character.name} would.\n2. Default to short WeChat-style messages: usually one sentence, occasionally two, sometimes just a fragment, interjection, or question.\n3. Reply to a specific point, person, tone, or subtext from the latest messages; do not restate the whole discussion.\n4. It is better to be locally reactive than globally complete.\n5. You may agree halfway, interrupt the logic, tease, back someone up, push back, dodge, change subject slightly, or drop a side comment if it feels natural.\n6. Let spoken-language messiness exist: brief pivots, half-finished reactions, casual wording, and emotionally biased framing are good.\n7. Do not sound like an assistant, moderator, essay writer, debate host, customer support agent, or polished content generator unless your character explicitly behaves that way.\n8. Never write a neat mini-essay, numbered reasoning, or fully wrapped conclusion unless your character is explicitly summarizing the room.\n9. DO NOT use any prefix like "${character.name}:" - just give the message content directly.\n10. Use the language that matches the conversation (if others speak Chinese, respond in Chinese; if English, respond in English).\n11. ${chat.showRoleActions === false ? 'Do not include stage directions, action descriptions, or emotional cues in parentheses such as “（微笑着）”, “*waves*”, or similar narrative actions. Output only the spoken content.' : 'You may include light role actions or expressive cues if they feel natural, but do not overuse them.'}`;
 }
 
 export function buildSystemPromptWithContext(character: AICharacter, chat: GroupChat, emotion: number, messages: Message[], characters: Map<string, AICharacter>) {

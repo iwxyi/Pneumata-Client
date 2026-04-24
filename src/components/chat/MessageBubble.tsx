@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Box, Typography, Avatar, Dialog, DialogContent, Menu, MenuItem } from '@mui/material';
+import { Box, Typography, Avatar, Dialog, DialogContent, Menu, MenuItem, keyframes } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -11,6 +11,7 @@ interface MessageBubbleProps {
   message: Message;
   character?: AICharacter;
   onDelete?: (id: string) => void;
+  pending?: boolean;
 }
 
 interface MenuPosition {
@@ -19,8 +20,40 @@ interface MenuPosition {
 }
 
 const LONG_PRESS_MOVE_THRESHOLD = 12;
+const typingBounce = keyframes`
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-4px); opacity: 1; }
+`;
 
-export default function MessageBubble({ message, character, onDelete }: MessageBubbleProps) {
+function renderMessageContent(message: Message) {
+  return (
+    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
+      {message.content}
+    </Typography>
+  );
+}
+
+function renderPendingTypingDots() {
+  return (
+    <Box sx={{ display: 'flex', gap: 0.5, py: 0.25 }}>
+      {[0, 1, 2].map((i) => (
+        <Box
+          key={i}
+          sx={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            bgcolor: 'text.disabled',
+            animation: `${typingBounce} 1.4s ease-in-out infinite`,
+            animationDelay: `${i * 0.18}s`,
+          }}
+        />
+      ))}
+    </Box>
+  );
+}
+
+export default function MessageBubble({ message, character, onDelete, pending = false }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showRelationshipEvents = useSettingsStore((state) => state.developerUI.showRelationshipEvents);
@@ -30,7 +63,7 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartRef = useRef<MenuPosition | null>(null);
-  const canDelete = useMemo(() => message.type !== 'system' && Boolean(onDelete), [message.type, onDelete]);
+  const canDelete = useMemo(() => !pending && message.type !== 'system' && Boolean(onDelete), [message.type, onDelete, pending]);
 
   const clearPressTimer = () => {
     if (pressTimerRef.current) {
@@ -40,6 +73,7 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
   };
 
   const openMenuAt = (x: number, y: number) => {
+    if (pending) return;
     setMenuPosition({ mouseX: x, mouseY: y });
   };
 
@@ -53,7 +87,6 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
     const touch = e.touches[0];
     const start = touchStartRef.current;
     if (!touch || !start) return;
-
     const deltaX = touch.clientX - start.mouseX;
     const deltaY = touch.clientY - start.mouseY;
     if (Math.hypot(deltaX, deltaY) > LONG_PRESS_MOVE_THRESHOLD) {
@@ -63,11 +96,6 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
   };
 
   const handleTouchEnd = () => {
-    clearPressTimer();
-    touchStartRef.current = null;
-  };
-
-  const handleTouchCancel = () => {
     clearPressTimer();
     touchStartRef.current = null;
   };
@@ -83,12 +111,12 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
   };
 
   const handleAvatarClick = () => {
-    if (message.type === 'ai') {
+    if (message.type === 'ai' && !pending) {
       navigate(`/characters/${message.senderId}/edit?returnTo=${encodeURIComponent(location.pathname + location.search)}`);
     }
   };
 
-  const bubbleHandlers = message.type === 'system'
+  const bubbleHandlers = message.type === 'system' || pending
     ? {}
     : {
         onDoubleClick: () => setViewerOpen(true),
@@ -106,7 +134,7 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
         },
         onTouchMove: handleTouchMove,
         onTouchEnd: handleTouchEnd,
-        onTouchCancel: handleTouchCancel,
+        onTouchCancel: handleTouchEnd,
       };
 
   if (message.isDeleted) return null;
@@ -114,10 +142,7 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
   if (message.type === 'system') {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
-        <Typography
-          variant="caption"
-          sx={{ color: 'text.secondary', fontStyle: 'italic', px: 2, py: 0.5, bgcolor: 'action.hover', borderRadius: 2 }}
-        >
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic', px: 2, py: 0.5, bgcolor: 'action.hover', borderRadius: 2 }}>
           {message.content}
         </Typography>
       </Box>
@@ -126,25 +151,18 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
 
   if (message.type === 'event') {
     if (!developerMode || !showRelationshipEvents) return null;
-
     let payload: { eventType?: string; title?: string; summary?: string; pair?: string[] } | null = null;
     try {
       payload = JSON.parse(message.content);
     } catch {
       payload = { title: '事件', summary: message.content };
     }
-
-    if (payload?.eventType && payload.eventType !== 'group_relationship_shift') return null;
-
+    if (payload?.eventType && payload.eventType !== 'group_relationship_shift' && payload.eventType !== 'relationship_shift') return null;
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: 2 }}>
         <Box sx={{ maxWidth: 460, px: 1.5, py: 1, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>
-            关系变化
-          </Typography>
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            {payload?.title || '事件'}
-          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>关系变化</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>{payload?.title || '事件'}</Typography>
           {payload?.summary ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{payload.summary}</Typography> : null}
           {payload?.pair?.length ? <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.disabled' }}>{payload.pair.join(' ↔ ')}</Typography> : null}
         </Box>
@@ -154,21 +172,14 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
 
   const isUser = message.type === 'user' || message.type === 'god';
   const isGod = message.type === 'god';
+  const senderName = message.senderName || character?.name || '';
+  const senderAvatar = character?.avatar || message.senderName.charAt(0);
   const aiBubbleStyle = resolveBubbleStyle(character?.bubbleStyleId, customBubbleStyles);
   const aiBubblePreview = buildBubblePreview(aiBubbleStyle);
 
   return (
     <>
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: isUser ? 'flex-end' : 'flex-start',
-          alignItems: 'flex-start',
-          mb: 1.5,
-          px: 2,
-          gap: 1,
-        }}
-      >
+      <Box sx={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', alignItems: 'flex-start', mb: 1.5, px: 2, gap: 1 }}>
         {!isUser && (
           <Avatar
             onClick={handleAvatarClick}
@@ -182,24 +193,17 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
               color: 'text.primary',
               flexShrink: 0,
               mt: 0.5,
-              cursor: message.type === 'ai' ? 'pointer' : 'default',
+              cursor: message.type === 'ai' && !pending ? 'pointer' : 'default',
             }}
           >
-            {isGod ? '👑' : character?.avatar || message.senderName.charAt(0)}
+            {isGod ? '👑' : senderAvatar}
           </Avatar>
         )}
 
         <Box sx={{ maxWidth: '70%', minWidth: 0 }}>
           {!isUser && (
-            <Typography
-              variant="caption"
-              sx={{
-                color: isGod ? 'warning.main' : 'text.secondary',
-                fontWeight: 600,
-                ml: 1,
-              }}
-            >
-              {isGod ? '👑 God Mode' : message.senderName}
+            <Typography variant="caption" sx={{ color: isGod ? 'warning.main' : 'text.secondary', fontWeight: 600, ml: 1 }}>
+              {isGod ? '👑 God Mode' : senderName}
             </Typography>
           )}
 
@@ -226,32 +230,21 @@ export default function MessageBubble({ message, character, onDelete }: MessageB
               position: 'relative',
               userSelect: 'text',
               WebkitUserSelect: 'text',
-              cursor: 'text',
+              cursor: pending ? 'default' : 'text',
             }}
           >
-            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
-              {message.content}
-            </Typography>
+            {pending && !message.content ? renderPendingTypingDots() : renderMessageContent(message)}
           </Box>
 
-          <Typography
-            variant="caption"
-            sx={{ color: 'text.disabled', ml: 1, mt: 0.25, display: 'block' }}
-          >
-            {formatTimestamp(message.timestamp)}
-          </Typography>
+          {!pending ? (
+            <Typography variant="caption" sx={{ color: 'text.disabled', ml: 1, mt: 0.25, display: 'block' }}>
+              {formatTimestamp(message.timestamp)}
+            </Typography>
+          ) : null}
         </Box>
 
         {isUser && (
-          <Avatar
-            sx={{
-              width: 36,
-              height: 36,
-              bgcolor: 'primary.dark',
-              flexShrink: 0,
-              mt: 0.5,
-            }}
-          >
+          <Avatar sx={{ width: 36, height: 36, bgcolor: 'primary.dark', flexShrink: 0, mt: 0.5 }}>
             U
           </Avatar>
         )}

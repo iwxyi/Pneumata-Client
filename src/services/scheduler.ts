@@ -84,10 +84,28 @@ export const calculateWeights = (
       weight += relevance * 0.2;
       weight += getEmotionalMomentum(char);
       const recentCount = recentSpeakCounts[char.id] || 0;
-      weight -= recentCount * 0.42;
+      weight -= recentCount * 0.5;
+      if (recentCount === 0) weight += 0.06;
+      if (recentCount >= 2) weight -= 0.12;
       const lastAiMessage = recentAiMessages.at(-1);
       if (lastAiMessage && lastAiMessage.senderId !== char.id) {
         weight += getEmotionalReplyBias(char, lastAiMessage.senderId);
+        const relationWeight = getRelationshipWeight(char, lastAiMessage.senderId);
+        const repliedRecentlyToSameSpeaker = recentAiMessages.slice(-4, -1).some((message) => message.senderId === char.id) && recentAiMessages.slice(-4, -1).some((message) => message.senderId === lastAiMessage.senderId);
+        if (repliedRecentlyToSameSpeaker) weight += 0.1;
+        if (Math.abs(relationWeight) >= 0.2) {
+          weight += relationWeight > 0 ? 0.12 : 0.16;
+        }
+        const directCue = lastAiMessage.content.includes(char.name) || /你|你这|不是吧|等等|可问题是|那你|你咋|你是不是|你先别/.test(lastAiMessage.content);
+        if (directCue) weight += 0.28;
+        if (lastAiMessage.content.length <= 18) weight += 0.08;
+        if (lastAiMessage.content.length >= 90) weight -= 0.1;
+      }
+      if (runtimeBehavior.proactivity >= 65 && recentAiMessages.length > 0) {
+        const latestContentLength = recentAiMessages[recentAiMessages.length - 1]?.content.length || 0;
+        if (latestContentLength > 60) {
+          weight += 0.08;
+        }
       }
       if (wasLastSpeaker) {
         weight *= consecutiveByLastSpeaker >= 3 ? 0.02 : consecutiveByLastSpeaker >= 2 ? 0.06 : 0.18;

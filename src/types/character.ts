@@ -43,6 +43,17 @@ export interface CharacterInterventionConfig {
   allowPrivateThread: boolean;
 }
 
+export interface CharacterSpeechProfile {
+  catchphrases: string[];
+  fillers: string[];
+  tabooPhrases: string[];
+  preferredOpeners: string[];
+  preferredClosers: string[];
+  sentenceLengthBias: 'short' | 'mixed' | 'long';
+  questionBias: number;
+  sarcasmBias: number;
+}
+
 export interface CharacterCoreProfile {
   coreDesire?: string;
   coreFear?: string;
@@ -70,6 +81,7 @@ export interface AICharacter {
   personalityDrift?: Partial<PersonalityParams>;
   emotionalState?: EmotionalState;
   coreProfile?: CharacterCoreProfile;
+  speechProfile?: CharacterSpeechProfile;
   behavior: CharacterBehaviorParams;
   expertise: string[];
   speakingStyle: string;
@@ -202,6 +214,17 @@ export const DEFAULT_CORE_PROFILE: CharacterCoreProfile = {
   interactionHabits: [],
 };
 
+export const DEFAULT_SPEECH_PROFILE: CharacterSpeechProfile = {
+  catchphrases: [],
+  fillers: [],
+  tabooPhrases: [],
+  preferredOpeners: [],
+  preferredClosers: [],
+  sentenceLengthBias: 'mixed',
+  questionBias: 50,
+  sarcasmBias: 50,
+};
+
 export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacter, 'id' | 'name' | 'avatar' | 'personality' | 'expertise' | 'speakingStyle' | 'background' | 'isPreset' | 'createdAt' | 'updatedAt'>): AICharacter {
   return {
     ...input,
@@ -216,6 +239,15 @@ export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacte
       valuePriority: input.coreProfile?.valuePriority || [],
       biases: input.coreProfile?.biases || [],
       interactionHabits: input.coreProfile?.interactionHabits || [],
+    },
+    speechProfile: {
+      ...DEFAULT_SPEECH_PROFILE,
+      ...(input.speechProfile || {}),
+      catchphrases: input.speechProfile?.catchphrases || [],
+      fillers: input.speechProfile?.fillers || [],
+      tabooPhrases: input.speechProfile?.tabooPhrases || [],
+      preferredOpeners: input.speechProfile?.preferredOpeners || [],
+      preferredClosers: input.speechProfile?.preferredClosers || [],
     },
     behavior: {
       ...DEFAULT_CHARACTER_BEHAVIOR,

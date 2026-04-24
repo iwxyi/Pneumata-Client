@@ -13,9 +13,10 @@ interface TypingIndicatorProps {
   avatar: string;
   bubbleStyleId?: string | null;
   content?: string;
+  status?: 'thinking' | 'persisting';
 }
 
-export default function TypingIndicator({ characterName, avatar, bubbleStyleId, content }: TypingIndicatorProps) {
+export default function TypingIndicator({ characterName, avatar, bubbleStyleId, content, status = 'thinking' }: TypingIndicatorProps) {
   const navigate = useNavigate();
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const bubblePreview = buildBubblePreview(resolveBubbleStyle(bubbleStyleId, customBubbleStyles));
@@ -59,9 +60,12 @@ export default function TypingIndicator({ characterName, avatar, bubbleStyleId, 
           }}
         >
           {content ? (
-            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {content}
-            </Typography>
+            <Box>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {content}
+              </Typography>
+              {status === 'persisting' ? <Typography variant="caption" color="text.secondary">发送中…</Typography> : null}
+            </Box>
           ) : (
             <Box sx={{ display: 'flex', gap: 0.5 }}>
               {[0, 1, 2].map((i) => (

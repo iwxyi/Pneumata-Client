@@ -1,24 +1,28 @@
 import { useMemo, useState } from 'react';
 import { Box, Card, CardContent, Chip, LinearProgress, Stack, Typography } from '@mui/material';
+import PrivatePayloadPanel from '../session/PrivatePayloadPanel';
 import { retrieveRelevantMemories } from '../../services/memoryRetrieval';
 import type { MemoryItem } from '../../services/memoryTypes';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import SimpleBarChart from '../common/SimpleBarChart';
-import { getRuntimeEvolutionLabel } from '../../services/runtimeEvolutionConfig';
+import DialogueDebugPanel from './DialogueDebugPanel';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat;
   members: AICharacter[];
+  privatePayloads?: Array<{ key: string; title: string; text: string }>;
 }
 
-export default function ChatRuntimePanel({ chat, members }: ChatRuntimePanelProps) {
+export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }: ChatRuntimePanelProps) {
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'note' | 'artifact' | 'relationship'>('all');
   const [viewMode, setViewMode] = useState<'timeline' | 'graph'>('timeline');
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
+  const showSpeechStyle = useSettingsStore((state) => state.developerUI.showSpeechStyle);
   const isDeveloperView = developerMode && showDeveloperMemory;
+  const isSpeechStyleView = developerMode && showSpeechStyle;
 
   const relationshipPairs = members.flatMap((member) =>
     member.relationships
@@ -59,7 +63,6 @@ export default function ChatRuntimePanel({ chat, members }: ChatRuntimePanelProp
             {isDeveloperView ? '这里展示群聊在长期运行中沉淀出的完整运行态与记忆调试信息。' : (memorySummary || '这里展示群聊运行后逐渐沉淀下来的关键状态与关系变化。')}
           </Typography>
           <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-            <Chip size="small" label={`变化强度 ${getRuntimeEvolutionLabel(chat.runtimeEvolutionIntensity)}`} color="primary" variant="outlined" />
             {relationshipPairs[0] ? <Chip size="small" label={`${relationshipPairs[0].source}→${relationshipPairs[0].target} ${relationshipPairs[0].score >= 0 ? '升温' : '紧张'}`} variant="outlined" /> : null}
             {chat.worldState.recentEvent ? <Chip size="small" label={chat.worldState.recentEvent.slice(0, 24)} variant="outlined" /> : null}
           </Box>
@@ -191,6 +194,10 @@ export default function ChatRuntimePanel({ chat, members }: ChatRuntimePanelProp
           )}
         </CardContent>
       </Card>
+
+
+      <PrivatePayloadPanel payloads={privatePayloads} />
+      {isSpeechStyleView ? <DialogueDebugPanel chat={chat} /> : null}
 
       <Card variant="outlined">
         <CardContent>

@@ -1,10 +1,11 @@
 import type { AICharacter } from './character';
 import type { Message } from './message';
 import type { MemoryItem } from '../services/memoryTypes';
+import type { ParticipantPrivateState, ParticipantPublicState } from './participantRole';
 
 export type ChatStyle = 'free' | 'debate' | 'brainstorm' | 'roleplay';
 export type ConversationType = 'group' | 'direct' | 'ai_direct';
-export type ConversationMode = 'open_chat';
+export type ConversationMode = 'open_chat' | 'interview' | 'group_discussion' | 'roundtable' | 'classroom' | 'bargaining' | 'service_roleplay' | 'board_game' | 'scripted_play' | 'werewolf' | 'murder_mystery';
 export type ConversationPhase = 'idle' | 'warming' | 'debating' | 'aligned' | 'chaotic';
 export type RuntimeEvolutionIntensity = 'slow' | 'balanced' | 'fast';
 
@@ -31,10 +32,14 @@ export interface ParticipantInstance {
   seatIndex?: number;
   displayName?: string;
   title?: string;
+  roleKey?: string | null;
+  faction?: string | null;
   muted?: boolean;
   canSpeak?: boolean;
   canAct?: boolean;
   flags: Record<string, boolean | number | string | null>;
+  privateState?: ParticipantPrivateState;
+  publicState?: ParticipantPublicState;
 }
 
 export interface RuntimeAction {
@@ -95,6 +100,12 @@ export interface OpenChatModeDriver {
     message: Pick<Message, 'content' | 'type' | 'senderId'>;
     previousAiMessage?: Pick<Message, 'senderId'> | null;
   }) => DriverMessageCommitResult;
+}
+
+export interface SessionKernelCompatibility {
+  buildParticipants: (conversation: GroupChat) => ParticipantInstance[];
+  getAvailableActions: (context: RuntimeContext) => RuntimeAction[];
+  getVisiblePanels: (context: RuntimeContext) => RuntimePanelDefinition[];
 }
 
 export const DEFAULT_OPEN_CHAT_MODE_CONFIG: OpenChatModeConfig = {

@@ -18,9 +18,6 @@ export function createDefaultConflictAxes(chat: Pick<GroupChat, 'topic' | 'style
   if (chat.dramaRules.allowMockery || chat.dramaRules.allowContempt) {
     axes.push({ title: '表达风格', poles: ['克制', '尖锐'], currentTilt: 20 });
   }
-  if (!axes.length && chat.topic) {
-    axes.push({ title: '讨论走向', poles: ['共识', '分歧'], currentTilt: 0 });
-  }
   return axes;
 }
 

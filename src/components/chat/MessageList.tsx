@@ -3,16 +3,15 @@ import { Box, CircularProgress, Typography } from '@mui/material';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import MessageBubble from './MessageBubble';
-import TypingIndicator from './TypingIndicator';
 import { resolveCharacterOrDeleted } from '../../utils/deletedEntity';
+import { buildChatRenderItems, type LiveChatMessage } from './chatRenderModel';
 
 const AUTO_SCROLL_THRESHOLD = 96;
 
 interface MessageListProps {
   messages: Message[];
   characters: AICharacter[];
-  thinkingCharacterId: string | null;
-  streamingContent?: string;
+  liveMessage?: LiveChatMessage | null;
   onDeleteMessage?: (id: string) => void;
   onReachTop?: () => void | Promise<void>;
   isLoadingOlder?: boolean;
@@ -25,15 +24,21 @@ function getDistanceFromBottom(container: HTMLDivElement) {
   return container.scrollHeight - container.scrollTop - container.clientHeight;
 }
 
-export default function MessageList({ messages, characters, thinkingCharacterId, streamingContent, onDeleteMessage, onReachTop, isLoadingOlder = false, hasMore = true, topHint, loadingText }: MessageListProps) {
+export default function MessageList({ messages, characters, liveMessage = null, onDeleteMessage, onReachTop, isLoadingOlder = false, hasMore = true, topHint, loadingText }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const pinnedToBottomRef = useRef(true);
   const prependAnchorScrollHeightRef = useRef(0);
   const loadingOlderRef = useRef(false);
+  const topReachAttemptedRef = useRef(false);
+  const hasLeftTopRef = useRef(false);
   const topHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [topTriggerTick, setTopTriggerTick] = useState(0);
   const [showTopHint, setShowTopHint] = useState(false);
+
+  const visibleMessages = messages.filter((message) => !message.isDeleted);
+  const renderItems = buildChatRenderItems(messages, liveMessage);
+  const isTopHintVisible = !isLoadingOlder && !hasMore && visibleMessages.length > 0 && showTopHint;
 
   const clearTopHintTimer = () => {
     if (topHintTimerRef.current) {
@@ -60,13 +65,8 @@ export default function MessageList({ messages, characters, thinkingCharacterId,
     bottomRef.current?.scrollIntoView({ behavior: 'auto' });
   };
 
-  const characterMap = new Map(characters.map((c) => [c.id, c]));
-  const visibleMessages = messages.filter((m) => !m.isDeleted);
-  const thinkingChar = thinkingCharacterId ? characterMap.get(thinkingCharacterId) : null;
-  const isTopHintVisible = !isLoadingOlder && !hasMore && visibleMessages.length > 0 && showTopHint;
-
   useEffect(() => {
-    if (!isLoadingOlder && !hasMore && visibleMessages.length > 0) {
+    if (topReachAttemptedRef.current && !isLoadingOlder && !hasMore && visibleMessages.length > 0) {
       revealTopHintTemporarily();
       return;
     }
@@ -83,19 +83,24 @@ export default function MessageList({ messages, characters, thinkingCharacterId,
     const handleScroll = () => {
       pinnedToBottomRef.current = getDistanceFromBottom(container) <= AUTO_SCROLL_THRESHOLD;
 
+      if (container.scrollTop > 80) {
+        hasLeftTopRef.current = true;
+      }
+
       if (container.scrollTop > 80 && showTopHint) hideTopHint();
 
-      if (container.scrollTop <= 80 && onReachTop && !loadingOlderRef.current) {
+      if (container.scrollTop <= 80 && onReachTop && hasMore && !loadingOlderRef.current && hasLeftTopRef.current) {
         loadingOlderRef.current = true;
+        topReachAttemptedRef.current = true;
         prependAnchorScrollHeightRef.current = container.scrollHeight;
         setTopTriggerTick((tick) => tick + 1);
       }
     };
 
-    handleScroll();
+    pinnedToBottomRef.current = getDistanceFromBottom(container) <= AUTO_SCROLL_THRESHOLD;
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
-  }, [onReachTop, showTopHint]);
+  }, [hasMore, onReachTop, showTopHint]);
 
   useEffect(() => {
     if (!onReachTop || topTriggerTick === 0) return;
@@ -120,7 +125,7 @@ export default function MessageList({ messages, characters, thinkingCharacterId,
     if (pinnedToBottomRef.current) {
       scrollToBottom();
     }
-  }, [visibleMessages.length, thinkingCharacterId, streamingContent]);
+  }, [visibleMessages.length, visibleMessages.at(-1)?.content, visibleMessages.at(-1)?.id]);
 
   useEffect(() => {
     if (!loadingOlderRef.current) return;
@@ -145,60 +150,26 @@ export default function MessageList({ messages, characters, thinkingCharacterId,
     >
       <Box sx={{ px: 2, pb: 1, display: 'flex', justifyContent: 'center' }}>
         {isLoadingOlder ? (
-          <Box
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 1,
-              px: 1.5,
-              py: 0.75,
-              borderRadius: 999,
-              bgcolor: 'background.paper',
-              color: 'text.secondary',
-              boxShadow: 1,
-            }}
-          >
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75, borderRadius: 999, bgcolor: 'background.paper', color: 'text.secondary', boxShadow: 1 }}>
             <CircularProgress size={16} thickness={5} />
-            <Typography variant="caption" sx={{ fontWeight: 600 }}>
-              {loadingText}
-            </Typography>
+            <Typography variant="caption" sx={{ fontWeight: 600 }}>{loadingText}</Typography>
           </Box>
         ) : isTopHintVisible ? (
-          <Box
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              px: 1.5,
-              py: 0.75,
-              borderRadius: 999,
-              bgcolor: 'action.hover',
-              color: 'text.secondary',
-            }}
-          >
-            <Typography variant="caption" sx={{ fontWeight: 500 }}>
-              {topHint}
-            </Typography>
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1.5, py: 0.75, borderRadius: 999, bgcolor: 'action.hover', color: 'text.secondary' }}>
+            <Typography variant="caption" sx={{ fontWeight: 500 }}>{topHint}</Typography>
           </Box>
         ) : null}
       </Box>
 
-      {visibleMessages.map((msg) => (
+      {renderItems.map((item) => (
         <MessageBubble
-          key={msg.id}
-          message={msg}
-          character={msg.type === 'ai' ? resolveCharacterOrDeleted(characters, msg.senderId, msg.senderName) : undefined}
-          onDelete={msg.type === 'system' ? undefined : onDeleteMessage}
+          key={item.key}
+          message={item.message}
+          character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
+          onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
+          pending={item.pending}
         />
       ))}
-
-      {thinkingChar ? (
-        <TypingIndicator
-          characterName={thinkingChar.name}
-          avatar={thinkingChar.avatar}
-          bubbleStyleId={thinkingChar.bubbleStyleId}
-          content={streamingContent}
-        />
-      ) : null}
 
       <div ref={bottomRef} />
     </Box>

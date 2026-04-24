@@ -5,9 +5,17 @@ import { getRelationshipBetween, getRelationshipWeight } from './relationshipEng
 import { retrieveRelevantMemories } from './memoryRetrieval';
 
 export function findRecentTarget(messages: Message[], characters: Map<string, AICharacter>, selfId: string) {
-  const recentAiMessages = messages.filter((msg) => !msg.isDeleted && msg.type === 'ai' && msg.senderId !== selfId);
-  const targetId = recentAiMessages.at(-1)?.senderId;
-  return targetId ? characters.get(targetId) : undefined;
+  const recent = messages.filter((msg) => !msg.isDeleted).slice(-4);
+  for (let index = recent.length - 1; index >= 0; index -= 1) {
+    const msg = recent[index];
+    if (msg.senderId === selfId) continue;
+    const named = Array.from(characters.values()).find((character) => character.id !== selfId && msg.content.includes(character.name));
+    if (named) return named;
+    if (msg.type === 'ai' && msg.senderId !== selfId) {
+      return characters.get(msg.senderId);
+    }
+  }
+  return undefined;
 }
 
 export function buildRelationshipPrompt(character: AICharacter, targetCharacter?: AICharacter) {
@@ -19,13 +27,18 @@ export function buildRelationshipPrompt(character: AICharacter, targetCharacter?
   }
 
   const cues: string[] = [];
-  if (relation.affinity >= 65) cues.push('you feel personal warmth and are more likely to echo or protect them');
-  if (relation.respect >= 65) cues.push('you take their ideas seriously even when disagreeing');
-  if (relation.hostility >= 55) cues.push('you are primed to challenge or needle them');
-  if (relation.contempt >= 55) cues.push('you tend to be dismissive, ironic, or impatient with them');
+  if (relation.affinity >= 65) cues.push('you feel personal warmth and are more likely to echo, defend, or casually side with them');
+  if (relation.respect >= 65) cues.push('you take their ideas seriously even when disagreeing and may give them more room than others');
+  if (relation.hostility >= 55) cues.push('you are primed to challenge, needle, or pick at weak points in what they say');
+  if (relation.contempt >= 55) cues.push('you tend to be dismissive, ironic, or impatient with them in public');
   if (Math.abs(weight) < 0.15) cues.push('your stance toward them is still mixed and unstable');
 
-  return `\n## Social Tension\n- Current target: ${targetCharacter.name}\n- Relationship note: ${relation.note || 'no explicit note'}\n- Dynamic bias: ${weight > 0.3 ? 'lean supportive' : weight < -0.3 ? 'lean adversarial' : 'lean uncertain'}\n${cues.map((cue) => `- ${cue}`).join('\n')}`;
+  const baggage: string[] = [];
+  if (relation.hostility >= 45 || relation.contempt >= 45) baggage.push('you may still be carrying irritation or a grudge from earlier exchanges');
+  if (relation.affinity >= 60 || relation.respect >= 60) baggage.push('you may feel some loyalty, obligation, or instinct to back them up');
+  if (relation.note?.trim()) baggage.push(`recent social baggage: ${relation.note}`);
+
+  return `\n## Social Tension\n- Current target: ${targetCharacter.name}\n- Dynamic bias: ${weight > 0.3 ? 'lean supportive' : weight < -0.3 ? 'lean adversarial' : 'lean uncertain'}\n${cues.map((cue) => `- ${cue}`).join('\n')}\n${baggage.map((item) => `- ${item}`).join('\n')}`;
 }
 
 export function buildConflictAxesPrompt(chat: GroupChat) {
@@ -74,17 +87,35 @@ export function buildConflictPrompt(character: AICharacter) {
     profile.coreDesire ? `- What you want from this interaction: ${profile.coreDesire}` : '',
     profile.coreFear ? `- What you are trying to avoid: ${profile.coreFear}` : '',
     profile.biases?.length ? `- Biases that may color your response: ${profile.biases.join(', ')}` : '',
+    profile.socialMask ? `- How you want to come across in front of others: ${profile.socialMask}` : '',
   ].filter(Boolean);
   return lines.length ? `\n## Hidden Conflict\n${lines.join('\n')}` : '';
 }
 
 export function buildMessageStyleRules(character: AICharacter) {
-  const rules: string[] = [];
-  if (character.behavior.aggressiveness >= 70) rules.push('Be more willing to press, interrupt rhetorically, or push a point.');
-  if (character.behavior.empathyLevel >= 70) rules.push('Notice emotional cues and respond with some sensitivity.');
-  if (character.behavior.humorIntensity >= 70) rules.push('Let wit or playful phrasing show up naturally.');
-  if (character.behavior.summarizing >= 70) rules.push('You may impose structure or summarize the room when useful.');
-  return rules.length ? `\n## Expression Bias\n${rules.map((rule) => `- ${rule}`).join('\n')}` : '';
+  const runtimeBehavior = {
+    ...character.behavior,
+    aggressiveness: Math.max(0, Math.min(100, character.behavior.aggressiveness + Math.round((character.personalityDrift?.neuroticism || 0) * 0.5))),
+    empathyLevel: Math.max(0, Math.min(100, character.behavior.empathyLevel + Math.round((character.personalityDrift?.empathy || 0) * 0.8))),
+    summarizing: Math.max(0, Math.min(100, character.behavior.summarizing + Math.round((character.personalityDrift?.openness || 0) * 0.3))),
+    humorIntensity: character.behavior.humorIntensity,
+    proactivity: character.behavior.proactivity,
+    offTopic: character.behavior.offTopic,
+  };
+  const rules: string[] = [
+    'Sound like a person in a live chat, not an AI giving a neat answer.',
+    'Prefer unfinished, partial, or emotionally colored replies over polished completeness.',
+    'Usually write one sentence; only use two when adding a turn or clarifying a misunderstanding.',
+    'It is fine to be vague, biased, impatient, playful, repetitive in a human way, or slightly messy.',
+    'Do not tidy your tone into a mini speech; react like you are mid-conversation.',
+    'You can misread emphasis slightly, latch onto one phrase, or answer only the part you care about.',
+  ];
+  if (runtimeBehavior.aggressiveness >= 70) rules.push('Be more willing to press, interrupt rhetorically, or push a point.');
+  if (runtimeBehavior.empathyLevel >= 70) rules.push('Notice emotional cues and respond with some sensitivity.');
+  if (runtimeBehavior.humorIntensity >= 70) rules.push('Let wit or playful phrasing show up naturally.');
+  if (runtimeBehavior.summarizing >= 70) rules.push('Only summarize when the room is obviously drifting or confused.');
+  if (runtimeBehavior.offTopic >= 60) rules.push('Allow a light tangent, stray association, or side comment when it feels organic.');
+  return `\n## Expression Bias\n${rules.map((rule) => `- ${rule}`).join('\n')}`;
 }
 
 export function buildSocialPromptContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>) {

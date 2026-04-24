@@ -2,7 +2,7 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat, DriverMessageCommitResult } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig } from '../types/settings';
-import { runChatCommitPipeline } from './chatCommitPipeline';
+import { runSessionCommitPipeline } from './sessionCommitPipeline';
 
 export async function commitGeneratedMessage(params: {
   api: APIConfig;
@@ -17,8 +17,7 @@ export async function commitGeneratedMessage(params: {
     message: Pick<Message, 'content' | 'type' | 'senderId'>;
     previousAiMessage: Pick<Message, 'senderId'> | null;
   }) => DriverMessageCommitResult;
-  addOptimisticMessage: (message: Message) => void;
-  replaceOptimisticMessage: (temporaryId: string, message: Message) => void;
+  upsertMessage: (message: Message) => void;
   updateCharacter: (id: string, patch: Partial<AICharacter>) => Promise<void>;
   appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number]) => Promise<void>;
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
@@ -26,7 +25,7 @@ export async function commitGeneratedMessage(params: {
   clearStreamingState: () => void;
 }) {
   params.clearStreamingState();
-  await runChatCommitPipeline({
+  await runSessionCommitPipeline({
     api: params.api,
     chatId: params.chatId,
     chat: params.chat,
@@ -34,8 +33,7 @@ export async function commitGeneratedMessage(params: {
     message: params.message,
     currentMessages: params.currentMessages,
     onCommit: params.onCommit,
-    addOptimisticMessage: params.addOptimisticMessage,
-    replaceOptimisticMessage: params.replaceOptimisticMessage,
+    upsertMessage: params.upsertMessage,
     updateCharacter: params.updateCharacter,
     appendEventMessage: params.appendEventMessage,
     updateChat: params.updateChat,
