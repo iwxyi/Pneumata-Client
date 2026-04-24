@@ -2,6 +2,7 @@ import type { APIConfig } from '../types/settings';
 import { generateImage } from './aiClient';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { api } from './api';
+import { prepareAvatarUploadDataUrl } from '../utils/avatarUpload';
 
 export type AvatarGenerationStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -149,8 +150,9 @@ class AvatarGenerationQueueService {
         const currentCharacters = useCharacterStore.getState().characters;
         const stillExists = currentCharacters.some((character) => character.id === task.characterId);
         if (stillExists) {
+          const avatarForUpload = await prepareAvatarUploadDataUrl(firstImage.dataUrl);
           await api.updateCharacter(task.characterId, {
-            avatar: firstImage.dataUrl,
+            avatar: avatarForUpload,
           });
           await useCharacterStore.getState().loadCharacters();
         }

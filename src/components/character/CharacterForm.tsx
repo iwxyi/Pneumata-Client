@@ -49,6 +49,7 @@ import type { AIModelType } from '../../types/settings';
 import { getPreferredAIProfile } from '../../types/settings';
 import { avatarGenerationQueue, type AvatarGenerationStatus } from '../../services/avatarGenerationQueue';
 import { canAutoGenerateAvatarDraft } from '../../services/avatarGeneration';
+import { isImageAvatar as isImageAvatarValue } from '../../utils/avatar';
 import PersonalitySliders from './PersonalitySliders';
 import NumericSliders from './NumericSliders';
 import RuntimeInsightsPanel from './RuntimeInsightsPanel';
@@ -333,7 +334,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
     }));
   };
 
-  const isImageAvatar = avatar.startsWith('data:image/') || avatar.startsWith('http');
+  const isImageAvatar = isImageAvatarValue(avatar);
 
   const handleSubmit = () => {
     const normalizedName = name.trim();

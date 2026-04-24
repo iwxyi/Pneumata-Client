@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayout';
 import { useAuthStore } from '../stores/useAuthStore';
+import { isImageAvatar as isImageAvatarValue } from '../utils/avatar';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
@@ -313,7 +314,7 @@ export default function AccountPage() {
     }
   };
 
-  const isImageAvatar = avatar.startsWith('data:image/') || avatar.startsWith('http');
+  const isImageAvatar = isImageAvatarValue(avatar);
   const phoneLabel = i18n.language.startsWith('zh') ? '手机号' : 'Phone';
 
   return (
