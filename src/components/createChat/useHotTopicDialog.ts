@@ -4,6 +4,8 @@ import { generateCharacterProfile } from '../../services/characterGenerator';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../../types';
 import type { AICharacter } from '../../types/character';
 import type { ChatStyle } from '../../types/chat';
+import { getPreferredAIProfile } from '../../types/settings';
+import { enqueueAvatarGenerationForCharacters } from '../../services/avatarGeneration';
 
 const BATCH_GENERATE_GROUP_SIZE = 10;
 
@@ -31,6 +33,7 @@ export function useHotTopicDialog(params: {
   language: string;
   apiConfig: any;
   aiProfiles: any[];
+  autoGenerateCharacterAvatar?: boolean;
   characters: AICharacter[];
   name: string;
   topic: string;
@@ -176,7 +179,7 @@ export function useHotTopicDialog(params: {
   }, [sources, isZh, loadTopics]);
 
   const handleTopicSelect = useCallback(async (topicItem: TopicItem) => {
-    const activeConfig = params.aiProfiles[0] || params.apiConfig;
+    const activeConfig = getPreferredAIProfile(params.aiProfiles, 'text') || params.apiConfig;
     if (!activeConfig?.apiKey || !activeConfig?.model) {
       params.onError(isZh ? '请先配置AI模型后再使用热点改编' : 'Configure AI model before using topic adaptation');
       return;
@@ -249,6 +252,7 @@ export function useHotTopicDialog(params: {
       intervention: DEFAULT_CHARACTER_INTERVENTION,
       runtimeTimeline: [],
       modelProfileId: null,
+      modelProfileIds: { text: null, image: null, audio: null, document: null },
       bubbleStyleId: null,
     };
   }, [isZh]);
@@ -270,7 +274,7 @@ export function useHotTopicDialog(params: {
 
   const handleCreateCharacters = useCallback(async () => {
     if (creatingCharacters || creationInFlightRef.current) return;
-    const activeConfig = params.aiProfiles[0] || params.apiConfig;
+    const activeConfig = getPreferredAIProfile(params.aiProfiles, 'text') || params.apiConfig;
     if (!activeConfig?.apiKey || !activeConfig?.model || !adaptation?.recommendedCharacters?.length) return;
     const queue = createQueue();
     if (!queue.length) {
@@ -285,9 +289,24 @@ export function useHotTopicDialog(params: {
       await runInBatches(queue, BATCH_GENERATE_GROUP_SIZE, async (batch) => {
         const payloads = await Promise.all(batch.map((candidate) => buildCharacterCreatePayload(candidate.name, candidate.description, activeConfig)));
         const result = await backendApi.createCharactersBatch(payloads);
-        const createdCharacters = (result.characters || []) as Array<{ id: string; name: string }>;
+        const createdCharacters = (result.characters || []) as Array<{ id: string; name: string; background?: string; speakingStyle?: string }>;
         if (!createdCharacters.length) return;
         createdIds.push(...createdCharacters.map((character) => character.id));
+        if (params.autoGenerateCharacterAvatar) {
+          enqueueAvatarGenerationForCharacters(
+            createdCharacters.map((character) => {
+              const fallback = payloads.find((item) => item.name === character.name);
+              return {
+                id: character.id,
+                name: character.name,
+                background: character.background || fallback?.background || '',
+                speakingStyle: character.speakingStyle || fallback?.speakingStyle || '',
+              };
+            }),
+            params.aiProfiles,
+            isZh ? 'zh' : 'en',
+          );
+        }
         setCreatedCharacterNames((prev) => Array.from(new Set([...prev, ...createdCharacters.map((character) => character.name)])));
         params.setSnackbar({ open: true, message: isZh ? `已创建 ${createdCharacters.length} 个角色` : `${createdCharacters.length} characters created`, severity: 'success' });
       });

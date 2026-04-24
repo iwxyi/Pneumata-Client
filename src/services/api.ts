@@ -106,7 +106,7 @@ class ApiClient {
       id: string; name: string; avatar: string; personality: Record<string, number>;
       behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
       speechProfile?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
-      modelProfileId?: string | null; bubbleStyleId?: string | null;
+      modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyleId?: string | null;
       isPreset: boolean; deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number;
     }>>('GET', '/characters');
   }
@@ -115,7 +115,7 @@ class ApiClient {
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
     speechProfile?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
-    modelProfileId?: string | null; bubbleStyleId?: string | null;
+    modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyleId?: string | null;
   }) {
     console.log('[api:createCharacter:request]', data);
     return this.request<Record<string, unknown>>('POST', '/characters', data);
@@ -125,7 +125,7 @@ class ApiClient {
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
     speechProfile?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
-    modelProfileId?: string | null; bubbleStyleId?: string | null;
+    modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyleId?: string | null;
   }>) {
     return this.request<{ characters: Record<string, unknown>[] }>('POST', '/characters/batch', { items });
   }
@@ -270,10 +270,11 @@ class ApiClient {
   async getSettings() {
     return this.request<{
       api: { provider: string; apiKey: string; baseUrl: string; model: string };
-      aiProfiles?: Array<{ id: string; name: string; provider: string; apiKey: string; baseUrl: string; model: string }>;
+      aiProfiles?: Array<{ id: string; name: string; type?: 'text' | 'image' | 'audio' | 'document'; isDefault?: boolean; provider: string; apiKey: string; baseUrl: string; model: string }>;
       theme: string; themeColor: string; language: string; defaultSpeed: number;
       developerMode?: boolean;
-      developerUI?: { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showSpeechStyle?: boolean };
+      autoGenerateCharacterAvatar?: boolean;
+      developerUI?: { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showSpeechStyle?: boolean; dramaBoost?: boolean };
       memoryUI?: { showDeveloperMemory?: boolean };
       chatDraftDefaults?: { style: string; showRoleActions: boolean; runtimeEvolutionIntensity: 'slow' | 'balanced' | 'fast' };
       customBubbleStyles?: Array<Record<string, unknown>>;

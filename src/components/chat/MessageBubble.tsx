@@ -5,6 +5,7 @@ import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildBubblePreview, resolveBubbleStyle } from '../../utils/bubbleStyle';
+import { isImageAvatar } from '../../utils/avatar';
 import { formatTimestamp } from '../../utils/format';
 
 interface MessageBubbleProps {
@@ -182,6 +183,7 @@ export default function MessageBubble({ message, character, onDelete, pending = 
       <Box sx={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', alignItems: 'flex-start', mb: 1.5, px: 2, gap: 1 }}>
         {!isUser && (
           <Avatar
+            src={!isGod && isImageAvatar(senderAvatar) ? senderAvatar : undefined}
             onClick={handleAvatarClick}
             sx={{
               width: 36,
@@ -196,7 +198,7 @@ export default function MessageBubble({ message, character, onDelete, pending = 
               cursor: message.type === 'ai' && !pending ? 'pointer' : 'default',
             }}
           >
-            {isGod ? '👑' : senderAvatar}
+            {isGod ? '👑' : (isImageAvatar(senderAvatar) ? undefined : senderAvatar)}
           </Avatar>
         )}
 

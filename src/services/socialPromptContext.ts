@@ -47,11 +47,12 @@ export function buildConflictAxesPrompt(chat: GroupChat) {
   return `\n## Conflict Axes\n${axes.map((axis) => `- ${axis.title}: ${axis.poles[0]} ↔ ${axis.poles[1]}${typeof axis.currentTilt === 'number' ? ` (tilt ${axis.currentTilt > 0 ? '+' : ''}${axis.currentTilt})` : ''}`).join('\n')}`;
 }
 
-export function buildGroupDynamicsPrompt(chat: GroupChat) {
+export function buildGroupDynamicsPrompt(chat: GroupChat, dramaBoost = false) {
   const dynamics: string[] = [];
   if (chat.dramaRules.allowCliques) dynamics.push('sub-groups and alliances are allowed to form');
-  if (chat.dramaRules.allowMockery) dynamics.push('public teasing and sharp replies are acceptable');
-  if (chat.dramaRules.allowContempt) dynamics.push('open disdain can surface when tensions rise');
+  if (chat.dramaRules.allowMockery || dramaBoost) dynamics.push('public teasing and sharp replies are acceptable');
+  if (chat.dramaRules.allowContempt || dramaBoost) dynamics.push('open disdain can surface when tensions rise');
+  if (dramaBoost) dynamics.push('people should more readily interrupt, needle, misread, push, and escalate local tension instead of politely taking turns');
   if (chat.worldState.mood) dynamics.push(`group mood: ${chat.worldState.mood}`);
   if (chat.worldState.focus) dynamics.push(`current focus: ${chat.worldState.focus}`);
   if (chat.worldState.recentEvent) dynamics.push(`recent event: ${chat.worldState.recentEvent}`);
@@ -118,7 +119,7 @@ export function buildMessageStyleRules(character: AICharacter) {
   return `\n## Expression Bias\n${rules.map((rule) => `- ${rule}`).join('\n')}`;
 }
 
-export function buildSocialPromptContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>) {
+export function buildSocialPromptContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>, dramaBoost = false) {
   const recentTarget = findRecentTarget(messages, characters, character.id);
-  return `${buildRelationshipPrompt(character, recentTarget)}${buildGroupDynamicsPrompt(chat)}${buildMemoryPressurePrompt(character, messages)}${buildConflictPrompt(character)}`;
+  return `${buildRelationshipPrompt(character, recentTarget)}${buildGroupDynamicsPrompt(chat, dramaBoost)}${buildMemoryPressurePrompt(character, messages)}${buildConflictPrompt(character)}`;
 }

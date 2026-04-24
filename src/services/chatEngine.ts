@@ -1,7 +1,8 @@
-import type { AICharacter } from '../types/character';
+import { getCharacterModelProfileId, type AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
+import { getPreferredAIProfile } from '../types/settings';
 import { generateResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildChatMessages } from './promptBuilder';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
@@ -212,7 +213,8 @@ function buildGenerationConstraints(messages: Message[], speakerId: string) {
 function resolveApiConfigForCharacter(character: AICharacter, apiConfig: APIConfig | AIModelProfile[], profiles?: AIModelProfile[]) {
   const availableProfiles = Array.isArray(apiConfig) ? apiConfig : (profiles || []);
   if (availableProfiles.length > 0) {
-    const matched = availableProfiles.find((profile) => profile.id === character.modelProfileId) || availableProfiles[0];
+    const textProfileId = getCharacterModelProfileId(character, 'text');
+    const matched = availableProfiles.find((profile) => profile.id === textProfileId) || getPreferredAIProfile(availableProfiles, 'text') || availableProfiles[0];
     return {
       provider: matched.provider,
       apiKey: matched.apiKey,

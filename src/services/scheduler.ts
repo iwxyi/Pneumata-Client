@@ -93,8 +93,9 @@ export const calculateWeights = (
         const relationWeight = getRelationshipWeight(char, lastAiMessage.senderId);
         const repliedRecentlyToSameSpeaker = recentAiMessages.slice(-4, -1).some((message) => message.senderId === char.id) && recentAiMessages.slice(-4, -1).some((message) => message.senderId === lastAiMessage.senderId);
         if (repliedRecentlyToSameSpeaker) weight += 0.1;
-        if (Math.abs(relationWeight) >= 0.2) {
-          weight += relationWeight > 0 ? 0.12 : 0.16;
+        const dramaBoost = Boolean((globalThis as { __MIRAGETEA_DRAMA_BOOST__?: boolean }).__MIRAGETEA_DRAMA_BOOST__);
+        if (Math.abs(relationWeight) >= (dramaBoost ? 0.12 : 0.2)) {
+          weight += relationWeight > 0 ? 0.12 : (dramaBoost ? 0.24 : 0.16);
         }
         const directCue = lastAiMessage.content.includes(char.name) || /你|你这|不是吧|等等|可问题是|那你|你咋|你是不是|你先别/.test(lastAiMessage.content);
         if (directCue) weight += 0.28;

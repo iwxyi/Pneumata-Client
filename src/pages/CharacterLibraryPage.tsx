@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayout';
 import { Box, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Typography } from '@mui/material';
-import { Add as AddIcon, MoreVert as MoreIcon, ClearAll as ClearAllIcon, DeleteSweep as DeleteSweepIcon, DriveFileMove as DriveFileMoveIcon } from '@mui/icons-material';
+import { Add as AddIcon, MoreVert as MoreIcon, ClearAll as ClearAllIcon, DeleteSweep as DeleteSweepIcon, DriveFileMove as DriveFileMoveIcon, AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useCharacterStore } from '../stores/useCharacterStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import CharacterCard from '../components/character/CharacterCard';
 import CharacterForm from '../components/character/CharacterForm';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmptyState from '../components/common/EmptyState';
 import { canDeleteCharacterGroup, getCharacterGroupList, getCharactersInGroup, isPresetCharacterSelectable, normalizeCharacterGroup } from '../types/character';
+import { enqueueAvatarGenerationForCharacter, enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
 
 export default function CharacterLibraryPage() {
   const { t, i18n } = useTranslation();
@@ -21,6 +23,7 @@ export default function CharacterLibraryPage() {
     navigate(-1);
   };
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
+  const settings = useSettingsStore();
   const { characters, loadCharacters, loadProjectedCharacters, addCharacter, updateCharacter, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets } = useCharacterStore();
   const [tab, setTab] = useState(0);
   const showForm = location.pathname === '/characters/create';
@@ -98,6 +101,21 @@ export default function CharacterLibraryPage() {
     await deleteCharacters(selectedIds);
     setBulkDeleteOpen(false);
     resetSelection();
+  };
+
+  const handleBulkGenerateAvatars = () => {
+    const queued = enqueueAvatarGenerationForCharacters(
+      selectedCustomCharacters,
+      settings.aiProfiles,
+      i18n.language.startsWith('zh') ? 'zh' : 'en',
+    );
+    setSnackbar({
+      open: true,
+      message: i18n.language.startsWith('zh')
+        ? `已为 ${queued.length} 个角色加入头像生成队列`
+        : `Queued avatar generation for ${queued.length} characters`,
+      severity: queued.length > 0 ? 'success' : 'error',
+    });
   };
 
   const clearGroupPressTimer = () => {
@@ -247,7 +265,10 @@ export default function CharacterLibraryPage() {
             if (editId) {
               await updateCharacter(editId, data);
             } else {
-              await addCharacter(data);
+              const created = await addCharacter(data);
+              if (settings.autoGenerateCharacterAvatar && data.generatedByAI) {
+                enqueueAvatarGenerationForCharacter(created, settings.aiProfiles, i18n.language.startsWith('zh') ? 'zh' : 'en');
+              }
             }
             if (returnTo) {
               navigate(`${decodeURIComponent(returnTo)}${decodeURIComponent(returnTo).includes('?') ? '&' : '?'}restoreDraft=1`, { replace: true });
@@ -322,6 +343,7 @@ export default function CharacterLibraryPage() {
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
           <Typography variant="body2" color="text.secondary">{selectedIds.length} {i18n.language.startsWith('zh') ? '已选择' : 'selected'}</Typography>
           <Button size="small" variant="outlined" startIcon={<ClearAllIcon />} onClick={resetSelection}>{i18n.language.startsWith('zh') ? '取消选择' : 'Cancel'}</Button>
+          <Button size="small" variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={handleBulkGenerateAvatars} disabled={selectedIds.length === 0}>{i18n.language.startsWith('zh') ? '自动生成头像' : 'Auto-generate avatars'}</Button>
           <Button size="small" variant="outlined" startIcon={<DriveFileMoveIcon />} onClick={() => setBulkGroupDialogOpen(true)} disabled={selectedIds.length === 0}>{i18n.language.startsWith('zh') ? '更改分组' : 'Change group'}</Button>
           <Button size="small" color="error" variant="outlined" startIcon={<DeleteSweepIcon />} onClick={() => setBulkDeleteOpen(true)} disabled={selectedIds.length === 0}>{i18n.language.startsWith('zh') ? '批量删除' : 'Delete selected'}</Button>
         </Box>

@@ -230,9 +230,11 @@ export default function SettingsPage() {
               {i18n.language.startsWith('zh') ? '路径：设置 → 开发者模式 → 开发者工具 → 显示发言风格' : 'Path: Settings → Developer mode → Developer Tools → Show speech style'}
             </Typography>
             <Box sx={{ display: 'grid', gap: 1 }}>
+              <FormControlLabel control={<Switch checked={settings.autoGenerateCharacterAvatar} onChange={(e) => settings.setAutoGenerateCharacterAvatar(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '自动生成角色头像' : 'Auto-generate character avatars'} />
               <FormControlLabel control={<Switch checked={settings.developerUI.showMemoryDebug} onChange={(e) => settings.setDeveloperUI({ showMemoryDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示记忆调试信息' : 'Show memory debug info'} />
               <FormControlLabel control={<Switch checked={settings.developerUI.showRelationshipEvents} onChange={(e) => settings.setDeveloperUI({ showRelationshipEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示关系事件提示' : 'Show relationship event hints'} />
               <FormControlLabel control={<Switch checked={settings.developerUI.showSpeechStyle} onChange={(e) => settings.setDeveloperUI({ showSpeechStyle: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示发言风格' : 'Show speech style'} />
+              <FormControlLabel control={<Switch checked={settings.developerUI.dramaBoost} onChange={(e) => settings.setDeveloperUI({ dramaBoost: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '增强戏剧冲突' : 'Boost dramatic conflict'} />
             </Box>
           </CardContent>
         </Card>

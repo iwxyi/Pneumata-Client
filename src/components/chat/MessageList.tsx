@@ -32,12 +32,14 @@ export default function MessageList({ messages, characters, liveMessage = null, 
   const loadingOlderRef = useRef(false);
   const topReachAttemptedRef = useRef(false);
   const hasLeftTopRef = useRef(false);
+  const lastSmoothScrollAtRef = useRef(0);
   const topHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [topTriggerTick, setTopTriggerTick] = useState(0);
   const [showTopHint, setShowTopHint] = useState(false);
 
   const visibleMessages = messages.filter((message) => !message.isDeleted);
   const renderItems = buildChatRenderItems(messages, liveMessage);
+  const lastRenderItem = renderItems.at(-1);
   const isTopHintVisible = !isLoadingOlder && !hasMore && visibleMessages.length > 0 && showTopHint;
 
   const clearTopHintTimer = () => {
@@ -61,8 +63,16 @@ export default function MessageList({ messages, characters, liveMessage = null, 
     setShowTopHint(false);
   };
 
-  const scrollToBottom = () => {
-    bottomRef.current?.scrollIntoView({ behavior: 'auto' });
+  const scrollToBottom = (behavior: ScrollBehavior = 'auto') => {
+    const container = containerRef.current;
+    if (!container) {
+      bottomRef.current?.scrollIntoView({ behavior });
+      return;
+    }
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior,
+    });
   };
 
   useEffect(() => {
@@ -123,9 +133,14 @@ export default function MessageList({ messages, characters, liveMessage = null, 
     }
 
     if (pinnedToBottomRef.current) {
-      scrollToBottom();
+      const now = Date.now();
+      const useSmooth = now - lastSmoothScrollAtRef.current > 140;
+      scrollToBottom(useSmooth ? 'smooth' : 'auto');
+      if (useSmooth) {
+        lastSmoothScrollAtRef.current = now;
+      }
     }
-  }, [visibleMessages.length, visibleMessages.at(-1)?.content, visibleMessages.at(-1)?.id]);
+  }, [renderItems.length, lastRenderItem?.key, lastRenderItem?.message.content, lastRenderItem?.pending]);
 
   useEffect(() => {
     if (!loadingOlderRef.current) return;

@@ -4,14 +4,17 @@ import type { AppSettingsWithMemory, ThemeMode, Language, APIConfig, AIModelProf
 
 type AppSettings = AppSettingsWithMemory;
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
-import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS } from '../types/settings';
+import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
 import { api } from '../services/api';
 
 interface SettingsStore extends AppSettings {
   _loaded: boolean;
   lastSyncedAt: number;
+  syncStatus: 'idle' | 'saving' | 'saved' | 'error';
+  syncError: string | null;
   memoryUI?: { showDeveloperMemory?: boolean };
   setDeveloperMode: (enabled: boolean) => void;
+  setAutoGenerateCharacterAvatar: (enabled: boolean) => void;
   setDeveloperUI: (prefs: Partial<DeveloperUIPrefs>) => void;
   setMemoryDeveloperView: (enabled: boolean) => void;
   loadSettings: () => Promise<void>;
@@ -28,37 +31,40 @@ interface SettingsStore extends AppSettings {
   resetSettings: () => void;
 }
 
-let syncTimer: ReturnType<typeof setTimeout> | null = null;
+type SettingsSet = (partial: SettingsStore | Partial<SettingsStore> | ((state: SettingsStore) => SettingsStore | Partial<SettingsStore>), replace?: false) => unknown;
 
-function syncToServer(data: Record<string, unknown>) {
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+let savedStateTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearSavedStateTimer() {
+  if (savedStateTimer) {
+    clearTimeout(savedStateTimer);
+    savedStateTimer = null;
+  }
+}
+
+function syncToServer(data: Record<string, unknown>, set: SettingsSet) {
   if (syncTimer) clearTimeout(syncTimer);
+  clearSavedStateTimer();
+  set((state) => ({ ...state, syncStatus: 'saving', syncError: null }));
   syncTimer = setTimeout(() => {
-    api.updateSettings(data).catch((err) => {
-      console.error('Failed to sync settings to server:', err);
-    });
+    api.updateSettings(data)
+      .then(() => {
+        set((state) => ({ ...state, syncStatus: 'saved', syncError: null, lastSyncedAt: Date.now() }));
+        savedStateTimer = setTimeout(() => {
+          set((state) => state.syncStatus === 'saved' ? { ...state, syncStatus: 'idle' } : state);
+          savedStateTimer = null;
+        }, 1800);
+      })
+      .catch((err) => {
+        console.error('Failed to sync settings to server:', err);
+        set((state) => ({ ...state, syncStatus: 'error', syncError: err instanceof Error ? err.message : String(err) }));
+      });
   }, 500);
 }
 
-function normalizeProfiles(aiProfiles?: AIModelProfile[], api?: APIConfig): AIModelProfile[] {
-  if (Array.isArray(aiProfiles) && aiProfiles.length > 0) {
-    return aiProfiles.map((profile, index) => ({
-      ...DEFAULT_AI_PROFILE,
-      ...profile,
-      id: index === 0 ? 'default' : (profile.id || `profile-${index + 1}`),
-      name: index === 0 ? (profile.name || 'Default') : (profile.name || `Model ${index + 1}`),
-    }));
-  }
-
-  return [{
-    ...DEFAULT_AI_PROFILE,
-    ...(api || DEFAULT_AI_PROFILE),
-    id: 'default',
-    name: 'Default',
-  }];
-}
-
 function buildApiFromProfiles(aiProfiles: AIModelProfile[]): APIConfig {
-  const defaultProfile = aiProfiles[0] || DEFAULT_AI_PROFILE;
+  const defaultProfile = getPreferredAIProfile(aiProfiles, 'text') || aiProfiles[0] || DEFAULT_AI_PROFILE;
   return {
     provider: defaultProfile.provider,
     apiKey: defaultProfile.apiKey,
@@ -78,19 +84,21 @@ function buildSettingsPayload(state: AppSettings) {
     chatDraftDefaults: state.chatDraftDefaults,
     customBubbleStyles: state.customBubbleStyles,
     developerMode: state.developerMode,
+    autoGenerateCharacterAvatar: state.autoGenerateCharacterAvatar,
     developerUI: state.developerUI,
     memoryUI: state.memoryUI,
   };
 }
 
 function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?: AIModelProfile[]; memoryUI?: { showDeveloperMemory?: boolean } }): Partial<AppSettings> {
-  const aiProfiles = normalizeProfiles(state.aiProfiles, state.api);
+  const aiProfiles = normalizeAIProfiles(state.aiProfiles, state.api);
   const legacyShowMemoryDebug = Boolean(state.memoryUI?.showDeveloperMemory);
   return {
     ...state,
     aiProfiles,
     api: buildApiFromProfiles(aiProfiles),
     developerMode: Boolean(state.developerMode),
+    autoGenerateCharacterAvatar: Boolean(state.autoGenerateCharacterAvatar),
     developerUI: {
       ...DEFAULT_DEVELOPER_UI_PREFS,
       ...(state.developerUI || {}),
@@ -113,6 +121,7 @@ function createProfile(index: number): AIModelProfile {
     ...DEFAULT_AI_PROFILE,
     id: `profile-${Date.now()}-${index}`,
     name: `Model ${index + 1}`,
+    isDefault: false,
   };
 }
 
@@ -122,6 +131,8 @@ export const useSettingsStore = create<SettingsStore>()(
       ...DEFAULT_SETTINGS,
       _loaded: false,
       lastSyncedAt: 0,
+      syncStatus: 'idle',
+      syncError: null,
 
       loadSettings: async () => {
         try {
@@ -135,6 +146,7 @@ export const useSettingsStore = create<SettingsStore>()(
               language: settings.language as Language,
               defaultSpeed: settings.defaultSpeed,
               developerMode: settings.developerMode,
+              autoGenerateCharacterAvatar: Boolean((settings as { autoGenerateCharacterAvatar?: boolean }).autoGenerateCharacterAvatar),
               developerUI: settings.developerUI as DeveloperUIPrefs | undefined,
               memoryUI: settings.memoryUI as { showDeveloperMemory?: boolean } | undefined,
               chatDraftDefaults: {
@@ -145,10 +157,12 @@ export const useSettingsStore = create<SettingsStore>()(
             }),
             _loaded: true,
             lastSyncedAt: Date.now(),
+            syncStatus: 'idle',
+            syncError: null,
           });
         } catch (error) {
           console.error('Failed to load settings from server:', error);
-          set({ _loaded: true, ...syncState(DEFAULT_SETTINGS) });
+          set({ _loaded: true, ...syncState(DEFAULT_SETTINGS), syncStatus: 'error', syncError: error instanceof Error ? error.message : String(error) });
         }
       },
 
@@ -158,32 +172,54 @@ export const useSettingsStore = create<SettingsStore>()(
           const nextProfiles = [...state.aiProfiles];
           nextProfiles[0] = { ...nextProfiles[0], ...nextApi, id: 'default' };
           const next = { ...(syncState({ ...state, api: nextApi, aiProfiles: nextProfiles }) as SettingsStore), lastSyncedAt: Date.now() };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
 
       updateAIProfile: (id, config) => {
         set((state) => {
+          const targetProfile = state.aiProfiles.find((profile) => profile.id === id);
+          const nextType = config.type || targetProfile?.type || 'text';
+          const shouldBecomeDefault = config.isDefault === true
+            || (!!config.type && !state.aiProfiles.some((profile) => profile.id !== id && (profile.type || 'text') === nextType));
+
           const nextProfiles = state.aiProfiles.map((profile, index) => {
-            if (profile.id !== id) return profile;
-            return {
-              ...profile,
-              ...config,
-              id: index === 0 ? 'default' : profile.id,
-            };
+            if (profile.id === id) {
+              return {
+                ...profile,
+                ...config,
+                id: index === 0 ? 'default' : profile.id,
+                type: nextType,
+                isDefault: shouldBecomeDefault ? true : (config.isDefault === false ? false : profile.isDefault),
+              };
+            }
+
+            if (shouldBecomeDefault && (profile.type || 'text') === nextType) {
+              return {
+                ...profile,
+                isDefault: false,
+              };
+            }
+
+            return profile;
           });
           const next = { ...(syncState({ ...state, aiProfiles: nextProfiles }) as SettingsStore), lastSyncedAt: Date.now() };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
 
       addAIProfile: () => {
         set((state) => {
-          const nextProfiles = [...state.aiProfiles, createProfile(state.aiProfiles.length)];
+          const nextProfile = createProfile(state.aiProfiles.length);
+          const typeCount = state.aiProfiles.filter((profile) => (profile.type || 'text') === nextProfile.type).length;
+          if (typeCount === 0) {
+            nextProfile.isDefault = true;
+          }
+          const nextProfiles = [...state.aiProfiles, nextProfile];
           const next = { ...(syncState({ ...state, aiProfiles: nextProfiles }) as SettingsStore), lastSyncedAt: Date.now() };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
@@ -193,7 +229,7 @@ export const useSettingsStore = create<SettingsStore>()(
           const filtered = state.aiProfiles.filter((profile) => profile.id !== id);
           const nextProfiles = filtered.length > 0 ? filtered : [DEFAULT_AI_PROFILE];
           const next = { ...(syncState({ ...state, aiProfiles: nextProfiles }) as SettingsStore), lastSyncedAt: Date.now() };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
@@ -201,7 +237,15 @@ export const useSettingsStore = create<SettingsStore>()(
       setDeveloperMode: (developerMode) => {
         set((state) => {
           const next = { ...state, developerMode, lastSyncedAt: Date.now() };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
+          return next;
+        });
+      },
+
+      setAutoGenerateCharacterAvatar: (autoGenerateCharacterAvatar) => {
+        set((state) => {
+          const next = { ...state, autoGenerateCharacterAvatar, lastSyncedAt: Date.now() };
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
@@ -215,7 +259,7 @@ export const useSettingsStore = create<SettingsStore>()(
             memoryUI: { showDeveloperMemory: developerUI.showMemoryDebug },
             lastSyncedAt: Date.now(),
           };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
@@ -229,7 +273,7 @@ export const useSettingsStore = create<SettingsStore>()(
             memoryUI: { showDeveloperMemory: enabled },
             lastSyncedAt: Date.now(),
           };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
@@ -237,7 +281,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setTheme: (theme) => {
         set((state) => {
           const next = { ...state, theme, lastSyncedAt: Date.now() };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
@@ -245,7 +289,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setThemeColor: (themeColor) => {
         set((state) => {
           const next = { ...state, themeColor, lastSyncedAt: Date.now() };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
@@ -254,7 +298,7 @@ export const useSettingsStore = create<SettingsStore>()(
         localStorage.setItem('mirageTea-language', language);
         set((state) => {
           const next = { ...state, language, lastSyncedAt: Date.now() };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
@@ -262,7 +306,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setDefaultSpeed: (defaultSpeed) => {
         set((state) => {
           const next = { ...state, defaultSpeed, lastSyncedAt: Date.now() };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
@@ -277,7 +321,7 @@ export const useSettingsStore = create<SettingsStore>()(
               ...defaults,
             },
           };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
@@ -289,7 +333,7 @@ export const useSettingsStore = create<SettingsStore>()(
             customBubbleStyles,
             lastSyncedAt: Date.now(),
           };
-          syncToServer(buildSettingsPayload(next));
+          syncToServer(buildSettingsPayload(next), set);
           return next;
         });
       },
@@ -297,7 +341,7 @@ export const useSettingsStore = create<SettingsStore>()(
       resetSettings: () => {
         const next = { ...(syncState(DEFAULT_SETTINGS) as SettingsStore), lastSyncedAt: Date.now() };
         set(next);
-        syncToServer(buildSettingsPayload(next));
+        syncToServer(buildSettingsPayload(next), set);
       },
     }),
     {
@@ -310,6 +354,7 @@ export const useSettingsStore = create<SettingsStore>()(
         language: state.language,
         defaultSpeed: state.defaultSpeed,
         developerMode: state.developerMode,
+        autoGenerateCharacterAvatar: state.autoGenerateCharacterAvatar,
         developerUI: state.developerUI,
         memoryUI: state.memoryUI,
         chatDraftDefaults: state.chatDraftDefaults,

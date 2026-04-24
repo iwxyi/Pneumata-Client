@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Typography, IconButton, Avatar, TextField, InputAdornment, Chip } from '@mui/material';
+import { isImageAvatar } from '../utils/avatar';
 import { Search as SearchIcon, ChatBubbleOutlined as ChatIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useLayoutHeaderActions } from '../components/layout/AppLayout';
@@ -123,7 +124,7 @@ export default function CreateDirectChatPage() {
             onClick={() => navigate(`/characters/${character.id}/edit?returnTo=${encodeURIComponent('/direct/create')}`)}
             sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 3, display: 'flex', alignItems: 'center', gap: 1.5, cursor: 'pointer', transition: 'all 0.18s ease', '&:hover': { boxShadow: 1, borderColor: 'primary.main' } }}
           >
-            <Avatar sx={{ width: 44, height: 44, bgcolor: 'primary.light' }}>{character.avatar}</Avatar>
+            <Avatar src={isImageAvatar(character.avatar) ? character.avatar : undefined} sx={{ width: 44, height: 44, bgcolor: 'primary.light' }}>{isImageAvatar(character.avatar) ? undefined : character.avatar}</Avatar>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>{character.name}</Typography>
               {character.group ? <Typography variant="caption" color="text.secondary" noWrap>{character.group}</Typography> : null}

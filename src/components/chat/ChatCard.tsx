@@ -1,4 +1,5 @@
 import { Card, CardContent, CardActionArea, Box, Typography, Avatar, AvatarGroup, Chip } from '@mui/material';
+import { isImageAvatar } from '../../utils/avatar';
 import { ChatBubbleOutlined as DirectIcon, Groups as GroupIcon } from '@mui/icons-material';
 import type { GroupChat } from '../../types/chat';
 import type { AICharacter } from '../../types/character';
@@ -64,14 +65,14 @@ export default function ChatCard({ chat, characters, onClick }: ChatCardProps) {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             {isDirect ? (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {members[0] ? <Avatar sx={{ width: 28, height: 28, fontSize: '0.85rem', bgcolor: 'primary.light' }}>{members[0].avatar}</Avatar> : null}
+                {members[0] ? <Avatar src={isImageAvatar(members[0].avatar) ? members[0].avatar : undefined} sx={{ width: 28, height: 28, fontSize: '0.85rem', bgcolor: 'primary.light' }}>{isImageAvatar(members[0].avatar) ? undefined : members[0].avatar}</Avatar> : null}
                 <Typography variant="caption" color="text.secondary">{chat.type === 'ai_direct' ? 'AI私聊' : '单聊'}</Typography>
               </Box>
             ) : (
               <AvatarGroup max={5} sx={{ '& .MuiAvatar-root': { width: 28, height: 28, fontSize: '0.85rem' } }}>
                 {members.map((m) => (
-                  <Avatar key={m.id} sx={{ bgcolor: 'primary.light' }}>
-                    {m.avatar}
+                  <Avatar key={m.id} src={isImageAvatar(m.avatar) ? m.avatar : undefined} sx={{ bgcolor: 'primary.light' }}>
+                    {isImageAvatar(m.avatar) ? undefined : m.avatar}
                   </Avatar>
                 ))}
               </AvatarGroup>

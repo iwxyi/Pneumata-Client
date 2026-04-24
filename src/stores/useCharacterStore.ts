@@ -378,6 +378,7 @@ export const useCharacterStore = create<CharacterStore>()(
             intervention: charData.intervention,
             runtimeTimeline: charData.runtimeTimeline,
             modelProfileId: charData.modelProfileId,
+            modelProfileIds: charData.modelProfileIds,
             bubbleStyleId: charData.bubbleStyleId,
           });
           const character = normalizeCharacter(result as unknown as AICharacter);
@@ -496,6 +497,7 @@ export const useCharacterStore = create<CharacterStore>()(
               intervention: c.intervention,
               runtimeTimeline: c.runtimeTimeline,
               modelProfileId: c.modelProfileId,
+              modelProfileIds: c.modelProfileIds,
               bubbleStyleId: c.bubbleStyleId,
             });
             created.push(result as unknown as AICharacter);

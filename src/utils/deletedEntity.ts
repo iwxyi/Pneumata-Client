@@ -1,5 +1,5 @@
 import type { AICharacter } from '../types/character';
-import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY, DEFAULT_CORE_PROFILE, DEFAULT_EMOTIONAL_STATE, DEFAULT_PERSONALITY } from '../types/character';
+import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_MODEL_PROFILE_IDS, DEFAULT_CORE_PROFILE, DEFAULT_EMOTIONAL_STATE, DEFAULT_PERSONALITY } from '../types/character';
 
 export function buildDeletedCharacter(id: string, name?: string): AICharacter {
   return {
@@ -21,6 +21,7 @@ export function buildDeletedCharacter(id: string, name?: string): AICharacter {
     intervention: DEFAULT_CHARACTER_INTERVENTION,
     runtimeTimeline: [],
     modelProfileId: null,
+    modelProfileIds: DEFAULT_CHARACTER_MODEL_PROFILE_IDS,
     bubbleStyleId: null,
     isPreset: false,
     deletedAt: Date.now(),

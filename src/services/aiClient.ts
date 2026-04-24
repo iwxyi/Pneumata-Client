@@ -1,5 +1,54 @@
 import OpenAI from 'openai';
-import type { APIConfig } from '../types/settings';
+import type { APIConfig, AIModelProfile } from '../types/settings';
+
+type ChatRole = 'user' | 'assistant' | 'system';
+type ChatMessage = { role: ChatRole; content: string };
+type MaybeTypedConfig = APIConfig & Partial<Pick<AIModelProfile, 'type'>>;
+type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
+
+export interface AvailableModelInfo {
+  id: string;
+  label: string;
+  raw?: JSONValue;
+}
+
+export interface ImageGenerationOptions {
+  prompt: string;
+  size?: string;
+  count?: number;
+  signal?: AbortSignal;
+}
+
+export interface GeneratedImage {
+  mimeType: string;
+  dataUrl: string;
+  revisedPrompt?: string;
+  url?: string;
+}
+
+export interface SpeechSynthesisOptions {
+  input: string;
+  voice?: string;
+  format?: 'mp3' | 'wav' | 'opus' | 'aac' | 'flac' | 'pcm';
+}
+
+export interface SpeechSynthesisResult {
+  mimeType: string;
+  blob: Blob;
+  objectUrl: string;
+}
+
+export interface AudioTranscriptionOptions {
+  file: Blob;
+  fileName?: string;
+  prompt?: string;
+  language?: string;
+}
+
+export interface AudioTranscriptionResult {
+  text: string;
+  raw?: JSONValue;
+}
 
 let clientInstance: OpenAI | null = null;
 let currentConfig: string = '';
@@ -19,19 +68,415 @@ export const getAIClient = (config: APIConfig): OpenAI => {
   return clientInstance;
 };
 
-export const generateResponse = async (
+function trimTrailingSlashes(value: string) {
+  return value.replace(/\/+$/, '');
+}
+
+function joinUrl(baseUrl: string, path: string) {
+  return `${trimTrailingSlashes(baseUrl)}/${path.replace(/^\/+/, '')}`;
+}
+
+function encodeDataUrl(mimeType: string, base64: string) {
+  return `data:${mimeType};base64,${base64}`;
+}
+
+function guessAudioMimeType(format?: string) {
+  switch (format) {
+    case 'wav': return 'audio/wav';
+    case 'opus': return 'audio/ogg';
+    case 'aac': return 'audio/aac';
+    case 'flac': return 'audio/flac';
+    case 'pcm': return 'audio/pcm';
+    default: return 'audio/mpeg';
+  }
+}
+
+function createObjectUrl(blob: Blob) {
+  return URL.createObjectURL(blob);
+}
+
+function splitSystemMessages(messages: ChatMessage[], systemPrompt: string) {
+  const systemParts = [
+    systemPrompt.trim(),
+    ...messages.filter((message) => message.role === 'system').map((message) => message.content.trim()),
+  ].filter(Boolean);
+
+  const conversation = messages.filter((message) => message.role !== 'system');
+  return {
+    systemPrompt: systemParts.join('\n\n'),
+    conversation: conversation.length > 0 ? conversation : [{ role: 'user' as const, content: 'Hello' }],
+  };
+}
+
+function buildAnthropicUrl(baseUrl: string) {
+  const normalized = trimTrailingSlashes(baseUrl);
+  if (normalized.endsWith('/messages')) return normalized;
+  if (normalized.endsWith('/v1')) return `${normalized}/messages`;
+  return `${normalized}/v1/messages`;
+}
+
+function buildGeminiUrl(baseUrl: string, model: string, stream: boolean) {
+  const normalized = trimTrailingSlashes(baseUrl);
+  const method = stream ? 'streamGenerateContent' : 'generateContent';
+
+  if (normalized.includes('/models/')) {
+    if (normalized.endsWith(`:${method}`)) return normalized;
+    if (normalized.endsWith(`:${stream ? 'generateContent' : 'streamGenerateContent'}`)) {
+      return normalized.replace(/:(generateContent|streamGenerateContent)$/, `:${method}`);
+    }
+    return `${normalized}:${method}`;
+  }
+
+  return `${normalized}/models/${model}:${method}`;
+}
+
+function buildZhipuUrl(baseUrl: string) {
+  const normalized = trimTrailingSlashes(baseUrl);
+  if (normalized.endsWith('/chat/completions')) return normalized;
+  return `${normalized}/chat/completions`;
+}
+
+function buildQwenUrl(baseUrl: string) {
+  const normalized = trimTrailingSlashes(baseUrl);
+  if (normalized.endsWith('/services/aigc/text-generation/generation')) return normalized;
+  return `${normalized}/services/aigc/text-generation/generation`;
+}
+
+function buildOpenAICompatibleImageUrl(baseUrl: string) {
+  const normalized = trimTrailingSlashes(baseUrl);
+  if (normalized.endsWith('/images/generations')) return normalized;
+  return `${normalized}/images/generations`;
+}
+
+function buildOpenAICompatibleSpeechUrl(baseUrl: string) {
+  const normalized = trimTrailingSlashes(baseUrl);
+  if (normalized.endsWith('/audio/speech')) return normalized;
+  return `${normalized}/audio/speech`;
+}
+
+function buildOpenAICompatibleTranscriptionUrl(baseUrl: string) {
+  const normalized = trimTrailingSlashes(baseUrl);
+  if (normalized.endsWith('/audio/transcriptions')) return normalized;
+  return `${normalized}/audio/transcriptions`;
+}
+
+function buildOpenAICompatibleMessages(messages: ChatMessage[], systemPrompt: string) {
+  return [{ role: 'system' as const, content: systemPrompt }, ...messages];
+}
+
+function isOpenAICompatibleEndpoint(config: APIConfig) {
+  const baseUrl = config.baseUrl.toLowerCase();
+  if (config.provider === 'google') return baseUrl.includes('/openai');
+  if (config.provider === 'alibaba') return baseUrl.includes('compatible-mode');
+  return false;
+}
+
+async function parseSSEStream(
+  response: Response,
+  onData: (parsed: Record<string, unknown>) => void,
+) {
+  if (!response.ok || !response.body) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || `Streaming request failed: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop() || '';
+
+    for (const part of parts) {
+      const lines = part.split('\n').map((line) => line.trim()).filter(Boolean);
+      const dataLines = lines.filter((line) => line.startsWith('data:'));
+
+      for (const line of dataLines) {
+        const data = line.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        onData(JSON.parse(data) as Record<string, unknown>);
+      }
+    }
+  }
+}
+
+async function parseJsonResponse<T>(response: Response, fallbackPrefix: string): Promise<T> {
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || `${fallbackPrefix}: ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function generateAnthropicResponse(
   config: APIConfig,
   systemPrompt: string,
-  messages: { role: 'user' | 'assistant' | 'system'; content: string }[],
-  onChunk?: (chunk: string) => void
-): Promise<string> => {
+  messages: ChatMessage[],
+  onChunk?: (chunk: string) => void,
+) {
+  const payload = splitSystemMessages(messages, systemPrompt);
+  const endpoint = buildAnthropicUrl(config.baseUrl);
+
+  if (onChunk) {
+    let fullResponse = '';
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': config.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        system: payload.systemPrompt || undefined,
+        messages: payload.conversation.map((message) => ({
+          role: message.role,
+          content: [{ type: 'text', text: message.content }],
+        })),
+        max_tokens: 500,
+        temperature: 0.8,
+        stream: true,
+      }),
+    });
+
+    await parseSSEStream(response, (parsed) => {
+      const delta = parsed.delta as { text?: string } | undefined;
+      if (parsed.type === 'content_block_delta' && delta?.text) {
+        fullResponse += delta.text;
+        onChunk(fullResponse);
+      }
+    });
+    return fullResponse;
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': config.apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: config.model,
+      system: payload.systemPrompt || undefined,
+      messages: payload.conversation.map((message) => ({
+        role: message.role,
+        content: [{ type: 'text', text: message.content }],
+      })),
+      max_tokens: 500,
+      temperature: 0.8,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || `Anthropic request failed: ${response.status}`);
+  }
+
+  const result = await response.json() as { content?: Array<{ type?: string; text?: string }> };
+  return result.content?.filter((item) => item.type === 'text').map((item) => item.text || '').join('') || '';
+}
+
+async function generateGeminiResponse(
+  config: APIConfig,
+  systemPrompt: string,
+  messages: ChatMessage[],
+  onChunk?: (chunk: string) => void,
+) {
+  const payload = splitSystemMessages(messages, systemPrompt);
+  const query = `key=${encodeURIComponent(config.apiKey)}${onChunk ? '&alt=sse' : ''}`;
+  const endpoint = `${buildGeminiUrl(config.baseUrl, config.model, Boolean(onChunk))}?${query}`;
+  const requestBody = {
+    systemInstruction: payload.systemPrompt
+      ? { parts: [{ text: payload.systemPrompt }] }
+      : undefined,
+    contents: payload.conversation.map((message) => ({
+      role: message.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: message.content }],
+    })),
+    generationConfig: {
+      temperature: 0.8,
+      maxOutputTokens: 500,
+    },
+  };
+
+  if (onChunk) {
+    let fullResponse = '';
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    });
+
+    await parseSSEStream(response, (parsed) => {
+      const candidates = parsed.candidates as Array<{ content?: { parts?: Array<{ text?: string }> } }> | undefined;
+      const text = candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || '';
+      if (text) {
+        fullResponse += text;
+        onChunk(fullResponse);
+      }
+    });
+    return fullResponse;
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || `Gemini request failed: ${response.status}`);
+  }
+
+  const result = await response.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  return result.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || '';
+}
+
+async function generateZhipuResponse(
+  config: APIConfig,
+  systemPrompt: string,
+  messages: ChatMessage[],
+  onChunk?: (chunk: string) => void,
+) {
+  const endpoint = buildZhipuUrl(config.baseUrl);
+  const requestBody = {
+    model: config.model,
+    messages: buildOpenAICompatibleMessages(messages, systemPrompt),
+    temperature: 0.8,
+    max_tokens: 500,
+    stream: Boolean(onChunk),
+  };
+
+  if (onChunk) {
+    let fullResponse = '';
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    await parseSSEStream(response, (parsed) => {
+      const choices = parsed.choices as Array<{ delta?: { content?: string } }> | undefined;
+      const content = choices?.[0]?.delta?.content || '';
+      if (content) {
+        fullResponse += content;
+        onChunk(fullResponse);
+      }
+    });
+    return fullResponse;
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || `Zhipu request failed: ${response.status}`);
+  }
+
+  const result = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+  return result.choices?.[0]?.message?.content || '';
+}
+
+async function generateQwenResponse(
+  config: APIConfig,
+  systemPrompt: string,
+  messages: ChatMessage[],
+  onChunk?: (chunk: string) => void,
+) {
+  const endpoint = buildQwenUrl(config.baseUrl);
+  const requestBody = {
+    model: config.model,
+    input: {
+      messages: buildOpenAICompatibleMessages(messages, systemPrompt),
+    },
+    parameters: {
+      temperature: 0.8,
+      max_tokens: 500,
+      incremental_output: Boolean(onChunk),
+      result_format: 'message',
+    },
+  };
+
+  if (onChunk) {
+    let fullResponse = '';
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+        'X-DashScope-SSE': 'enable',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    await parseSSEStream(response, (parsed) => {
+      const output = parsed.output as {
+        choices?: Array<{ message?: { content?: Array<{ text?: string }> | string } }>;
+      } | undefined;
+      const content = output?.choices?.[0]?.message?.content;
+      const text = Array.isArray(content)
+        ? content.map((item) => item.text || '').join('')
+        : (typeof content === 'string' ? content : '');
+      if (text) {
+        fullResponse = text;
+        onChunk(fullResponse);
+      }
+    });
+    return fullResponse;
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || `Qwen request failed: ${response.status}`);
+  }
+
+  const result = await response.json() as {
+    output?: { choices?: Array<{ message?: { content?: Array<{ text?: string }> | string } }> };
+  };
+  const content = result.output?.choices?.[0]?.message?.content;
+  return Array.isArray(content) ? content.map((item) => item.text || '').join('') : (typeof content === 'string' ? content : '');
+}
+
+async function generateOpenAICompatibleResponse(
+  config: APIConfig,
+  systemPrompt: string,
+  messages: ChatMessage[],
+  onChunk?: (chunk: string) => void,
+) {
   const client = getAIClient(config);
 
   if (onChunk) {
-    // Streaming mode
     const stream = await client.chat.completions.create({
       model: config.model,
-      messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      messages: buildOpenAICompatibleMessages(messages, systemPrompt),
       stream: true,
       max_tokens: 500,
       temperature: 0.8,
@@ -44,28 +489,313 @@ export const generateResponse = async (
       onChunk(fullResponse);
     }
     return fullResponse;
-  } else {
-    // Non-streaming mode
-    const response = await client.chat.completions.create({
-      model: config.model,
-      messages: [{ role: 'system', content: systemPrompt }, ...messages],
-      max_tokens: 500,
-      temperature: 0.8,
-    });
-    return response.choices[0]?.message?.content || '';
   }
+
+  const response = await client.chat.completions.create({
+    model: config.model,
+    messages: buildOpenAICompatibleMessages(messages, systemPrompt),
+    max_tokens: 500,
+    temperature: 0.8,
+  });
+  return response.choices[0]?.message?.content || '';
+}
+
+const providerHandlers: Partial<Record<APIConfig['provider'], typeof generateOpenAICompatibleResponse>> = {
+  openai: generateOpenAICompatibleResponse,
+  anthropic: generateAnthropicResponse,
+  google: generateGeminiResponse,
+  xai: generateOpenAICompatibleResponse,
+  deepseek: generateOpenAICompatibleResponse,
+  alibaba: generateQwenResponse,
+  zhipu: generateZhipuResponse,
+  moonshot: generateOpenAICompatibleResponse,
+  minimax: generateOpenAICompatibleResponse,
+  bytedance: generateOpenAICompatibleResponse,
+  custom: generateOpenAICompatibleResponse,
 };
 
-export const testConnection = async (config: APIConfig): Promise<boolean> => {
-  try {
-    const client = getAIClient(config);
-    await client.chat.completions.create({
-      model: config.model,
-      messages: [{ role: 'user', content: 'Hello' }],
-      max_tokens: 5,
+async function listOpenAICompatibleModels(config: APIConfig) {
+  const response = await fetch(joinUrl(config.baseUrl, '/models'), {
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+  });
+  const result = await parseJsonResponse<{ data?: Array<{ id?: string }> }>(response, 'Model list request failed');
+  return (result.data || [])
+    .map((item) => item.id)
+    .filter((id): id is string => Boolean(id))
+    .map((id) => ({ id, label: id }));
+}
+
+async function listAnthropicModels(config: APIConfig) {
+  const response = await fetch(joinUrl(config.baseUrl, '/models'), {
+    headers: {
+      'x-api-key': config.apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+  });
+  const result = await parseJsonResponse<{ data?: Array<{ id?: string; display_name?: string }> }>(response, 'Anthropic model list request failed');
+  return (result.data || [])
+    .filter((item): item is { id: string; display_name?: string } => Boolean(item.id))
+    .map((item) => ({ id: item.id, label: item.display_name || item.id }));
+}
+
+async function listGeminiModels(config: APIConfig) {
+  const response = await fetch(`${joinUrl(config.baseUrl, '/models')}?key=${encodeURIComponent(config.apiKey)}`);
+  const result = await parseJsonResponse<{ models?: Array<{ name?: string; displayName?: string }> }>(response, 'Gemini model list request failed');
+  return (result.models || [])
+    .filter((item): item is { name: string; displayName?: string } => Boolean(item.name))
+    .map((item) => {
+      const id = item.name.replace(/^models\//, '');
+      return { id, label: item.displayName || id };
     });
+}
+
+async function listQwenModels(config: APIConfig) {
+  return listOpenAICompatibleModels({
+    ...config,
+    baseUrl: config.baseUrl.includes('compatible-mode') ? config.baseUrl : joinUrl(config.baseUrl, '/compatible-mode/v1'),
+  });
+}
+
+export async function listAvailableModels(config: APIConfig): Promise<AvailableModelInfo[]> {
+  if (isOpenAICompatibleEndpoint(config)) {
+    return listOpenAICompatibleModels(config);
+  }
+
+  switch (config.provider) {
+    case 'anthropic':
+      return listAnthropicModels(config);
+    case 'google':
+      return listGeminiModels(config);
+    case 'alibaba':
+      return listQwenModels(config);
+    default:
+      return listOpenAICompatibleModels(config);
+  }
+}
+
+async function generateOpenAICompatibleImage(config: APIConfig, options: ImageGenerationOptions): Promise<GeneratedImage[]> {
+  const response = await fetch(buildOpenAICompatibleImageUrl(config.baseUrl), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    signal: options.signal,
+    body: JSON.stringify({
+      model: config.model,
+      prompt: options.prompt,
+      n: options.count || 1,
+      size: options.size || '1024x1024',
+      response_format: 'b64_json',
+    }),
+  });
+
+  const result = await parseJsonResponse<{
+    data?: Array<{ b64_json?: string; revised_prompt?: string; url?: string }>;
+  }>(response, 'Image generation request failed');
+
+  const images: GeneratedImage[] = [];
+  for (const item of result.data || []) {
+    if (item.b64_json) {
+      images.push({
+        mimeType: 'image/png',
+        dataUrl: encodeDataUrl('image/png', item.b64_json),
+        revisedPrompt: item.revised_prompt,
+        url: item.url,
+      });
+      continue;
+    }
+
+    if (item.url) {
+      images.push({
+        mimeType: 'image/png',
+        dataUrl: item.url,
+        revisedPrompt: item.revised_prompt,
+        url: item.url,
+      });
+    }
+  }
+  return images;
+}
+
+async function generateGeminiImage(config: APIConfig, options: ImageGenerationOptions): Promise<GeneratedImage[]> {
+  const response = await fetch(`${buildGeminiUrl(config.baseUrl, config.model, false)}?key=${encodeURIComponent(config.apiKey)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    signal: options.signal,
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: options.prompt }] }],
+      generationConfig: {
+        responseModalities: ['TEXT', 'IMAGE'],
+      },
+    }),
+  });
+
+  const result = await parseJsonResponse<{
+    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> } }>;
+  }>(response, 'Gemini image generation request failed');
+
+  const images: GeneratedImage[] = [];
+  for (const candidate of result.candidates || []) {
+    for (const part of candidate.content?.parts || []) {
+      const mimeType = part.inlineData?.mimeType;
+      const data = part.inlineData?.data;
+      if (mimeType && data) {
+        images.push({
+          mimeType,
+          dataUrl: encodeDataUrl(mimeType, data),
+        });
+      }
+    }
+  }
+  return images;
+}
+
+export async function generateImage(config: APIConfig, options: ImageGenerationOptions): Promise<GeneratedImage[]> {
+  if (isOpenAICompatibleEndpoint(config)) {
+    return generateOpenAICompatibleImage(config, options);
+  }
+
+  switch (config.provider) {
+    case 'google':
+      return generateGeminiImage(config, options);
+    default:
+      return generateOpenAICompatibleImage(config, options);
+  }
+}
+
+async function synthesizeOpenAICompatibleSpeech(config: APIConfig, options: SpeechSynthesisOptions): Promise<SpeechSynthesisResult> {
+  const response = await fetch(buildOpenAICompatibleSpeechUrl(config.baseUrl), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      input: options.input,
+      voice: options.voice || 'alloy',
+      response_format: options.format || 'mp3',
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || `Speech synthesis request failed: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  return {
+    mimeType: blob.type || guessAudioMimeType(options.format),
+    blob,
+    objectUrl: createObjectUrl(blob),
+  };
+}
+
+async function synthesizeGeminiSpeech(config: APIConfig, options: SpeechSynthesisOptions): Promise<SpeechSynthesisResult> {
+  const response = await fetch(`${buildGeminiUrl(config.baseUrl, config.model, false)}?key=${encodeURIComponent(config.apiKey)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: options.input }] }],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: options.voice ? { voiceConfig: { prebuiltVoiceConfig: { voiceName: options.voice } } } : undefined,
+      },
+    }),
+  });
+
+  const result = await parseJsonResponse<{
+    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> } }>;
+  }>(response, 'Gemini speech request failed');
+
+  const audioPart = result.candidates?.flatMap((candidate) => candidate.content?.parts || []).find((part) => part.inlineData?.data);
+  const mimeType = audioPart?.inlineData?.mimeType || guessAudioMimeType(options.format);
+  const base64 = audioPart?.inlineData?.data;
+  if (!base64) {
+    throw new Error('Gemini speech request returned no audio data');
+  }
+
+  const blob = await fetch(encodeDataUrl(mimeType, base64)).then((res) => res.blob());
+  return {
+    mimeType,
+    blob,
+    objectUrl: createObjectUrl(blob),
+  };
+}
+
+export async function synthesizeSpeech(config: APIConfig, options: SpeechSynthesisOptions): Promise<SpeechSynthesisResult> {
+  if (isOpenAICompatibleEndpoint(config)) {
+    return synthesizeOpenAICompatibleSpeech(config, options);
+  }
+
+  switch (config.provider) {
+    case 'google':
+      return synthesizeGeminiSpeech(config, options);
+    default:
+      return synthesizeOpenAICompatibleSpeech(config, options);
+  }
+}
+
+export async function transcribeAudio(config: APIConfig, options: AudioTranscriptionOptions): Promise<AudioTranscriptionResult> {
+  const formData = new FormData();
+  formData.append('model', config.model);
+  formData.append('file', options.file, options.fileName || 'audio.webm');
+  if (options.prompt) formData.append('prompt', options.prompt);
+  if (options.language) formData.append('language', options.language);
+
+  const response = await fetch(buildOpenAICompatibleTranscriptionUrl(config.baseUrl), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: formData,
+  });
+
+  const result = await parseJsonResponse<{ text?: string } & Record<string, JSONValue>>(response, 'Audio transcription request failed');
+  return {
+    text: result.text || '',
+    raw: result,
+  };
+}
+
+export const generateResponse = async (
+  config: APIConfig,
+  systemPrompt: string,
+  messages: ChatMessage[],
+  onChunk?: (chunk: string) => void,
+): Promise<string> => {
+  if (isOpenAICompatibleEndpoint(config)) {
+    return generateOpenAICompatibleResponse(config, systemPrompt, messages, onChunk);
+  }
+  const handler = providerHandlers[config.provider] || generateOpenAICompatibleResponse;
+  return handler(config, systemPrompt, messages, onChunk);
+};
+
+async function testTextLikeConnection(config: APIConfig) {
+  await generateResponse(config, 'You are a connection test.', [{ role: 'user', content: 'Hello' }]);
+}
+
+async function testMetadataConnection(config: APIConfig) {
+  await listAvailableModels(config);
+}
+
+export const testConnection = async (config: MaybeTypedConfig): Promise<boolean> => {
+  try {
+    if (config.type === 'image' || config.type === 'audio') {
+      await testMetadataConnection(config);
+    } else {
+      await testTextLikeConnection(config);
+    }
     return true;
-  } catch {
+  } catch (error) {
+    console.error('AI connection test failed:', error);
     return false;
   }
 };

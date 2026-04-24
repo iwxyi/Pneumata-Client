@@ -60,7 +60,9 @@ export function deriveSpeakIntent(character: AICharacter, recentTargetId?: strin
   const emotional = character.emotionalState || { irritation: 0, affection: 0, insecurity: 0, excitement: 0, embarrassment: 0 };
   const relationWeight = recentTargetId ? getRelationshipWeight(character, recentTargetId) : 0;
 
-  if (emotional.irritation > 55 || relationWeight < -0.3) {
+  const dramaBoost = Boolean((globalThis as { __MIRAGETEA_DRAMA_BOOST__?: boolean }).__MIRAGETEA_DRAMA_BOOST__);
+
+  if (emotional.irritation > (dramaBoost ? 42 : 55) || relationWeight < (dramaBoost ? -0.18 : -0.3)) {
     return withMessageShape({
       shouldSpeak: true,
       reason: 'felt challenged',

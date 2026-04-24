@@ -24,22 +24,31 @@ import {
   FormControlLabel,
   Switch,
   Autocomplete,
+  Collapse,
+  Tooltip,
 } from '@mui/material';
 import {
   Save as SaveIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
   Add as AddIcon,
+  AutoAwesome as AutoAwesomeIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile } from '../../types/character';
-import { getCharacterGroupList, normalizeCharacterGroup } from '../../types/character';
+import { getCharacterGroupList, getCharacterModelProfileId, normalizeCharacterGroup, normalizeCharacterModelProfileIds } from '../../types/character';
 import type { BubbleShadowLevel, BubbleStyleDefinition, BubbleStyleFormValues } from '../../types/bubbleStyle';
 import { DEFAULT_PERSONALITY, DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION } from '../../types/character';
 import { DEFAULT_BUBBLE_STYLE_FORM } from '../../types/bubbleStyle';
 import { generateCharacterProfile } from '../../services/characterGenerator';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCharacterStore } from '../../stores/useCharacterStore';
+import type { AIModelType } from '../../types/settings';
+import { getPreferredAIProfile } from '../../types/settings';
+import { avatarGenerationQueue, type AvatarGenerationStatus } from '../../services/avatarGenerationQueue';
+import { canAutoGenerateAvatarDraft } from '../../services/avatarGeneration';
 import PersonalitySliders from './PersonalitySliders';
 import NumericSliders from './NumericSliders';
 import RuntimeInsightsPanel from './RuntimeInsightsPanel';
@@ -63,6 +72,15 @@ function getGenerateAriaLabel(language: string) {
 }
 function getHelperText(_language: string, error: string | null) {
   return error || '';
+}
+function renderAvatarPreview(avatar: string, isImageAvatar: boolean, size: number) {
+  return (
+    <Box sx={{ width: size, height: size, borderRadius: '50%', bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+      {isImageAvatar
+        ? <Box component="img" src={avatar} alt="avatar" sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        : avatar}
+    </Box>
+  );
 }
 function createStyleId() {
   return `custom-bubble-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -118,7 +136,9 @@ interface CharacterFormProps {
     memory: CharacterMemoryConfig;
     intervention: CharacterInterventionConfig;
     modelProfileId?: string | null;
+    modelProfileIds?: Partial<Record<AIModelType, string | null>>;
     bubbleStyleId?: string | null;
+    generatedByAI?: boolean;
   }) => void;
   onCancel: () => void;
 }
@@ -140,7 +160,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
   const [group, setGroup] = useState(initial?.group || '');
   const [memory, setMemory] = useState<CharacterMemoryConfig>(initial?.memory || DEFAULT_CHARACTER_MEMORY);
   const [intervention, setIntervention] = useState<CharacterInterventionConfig>(initial?.intervention || DEFAULT_CHARACTER_INTERVENTION);
-  const [modelProfileId, setModelProfileId] = useState<string>(initial?.modelProfileId || 'default');
+  const [modelProfileIds, setModelProfileIds] = useState(() => normalizeCharacterModelProfileIds(initial?.modelProfileIds, initial?.modelProfileId || null));
   const [bubbleStyleId, setBubbleStyleId] = useState<string>(initial?.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID);
   const [draftBubbleStyleId, setDraftBubbleStyleId] = useState<string>(initial?.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID);
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
@@ -151,12 +171,27 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
   const [bubbleTab, setBubbleTab] = useState(0);
   const [configTab, setConfigTab] = useState(0);
   const bubbleCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const modelDefaultsAppliedRef = useRef(false);
   const characters = useCharacterStore((state) => state.characters);
   const [personalityExpanded, setPersonalityExpanded] = useState(true);
   const [socialExpanded, setSocialExpanded] = useState(true);
   const [discussionExpanded, setDiscussionExpanded] = useState(true);
+  const [modelConfigExpanded, setModelConfigExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generatedByAI, setGeneratedByAI] = useState(false);
+  const [avatarTaskId, setAvatarTaskId] = useState<string | null>(null);
+  const [avatarTaskStatus, setAvatarTaskStatus] = useState<AvatarGenerationStatus | null>(null);
+  const [avatarTaskError, setAvatarTaskError] = useState<string | null>(null);
+  const avatarTaskTargetKey = initial?.id ? `character:${initial.id}` : 'character-form:draft';
+
+  const modelTypeLabels: Record<AIModelType, string> = {
+    text: i18n.language.startsWith('zh') ? '文本' : 'Text',
+    image: i18n.language.startsWith('zh') ? '图片' : 'Image',
+    audio: i18n.language.startsWith('zh') ? '语音' : 'Audio',
+    document: i18n.language.startsWith('zh') ? '文档' : 'Document',
+  };
+  const modelTypeOrder: AIModelType[] = ['text', 'image', 'audio', 'document'];
 
   const customBubbleStyles = settings.customBubbleStyles || [];
   const roundedStyles = BUILT_IN_BUBBLE_STYLES.filter((style) => style.radius >= 22);
@@ -170,12 +205,57 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
   const selectedBubblePreview = buildBubblePreview(selectedBubbleStyle);
   const bubblePreviewText = useMemo(() => (i18n.language.startsWith('zh') ? '这是角色气泡预览' : 'Bubble style preview'), [i18n.language]);
   const existingGroups = useMemo(() => getCharacterGroupList(characters.filter((character) => !character.isPreset)), [characters]);
+  const profilesByType = useMemo(() => ({
+    text: settings.aiProfiles.filter((profile) => (profile.type || 'text') === 'text'),
+    image: settings.aiProfiles.filter((profile) => profile.type === 'image'),
+    audio: settings.aiProfiles.filter((profile) => profile.type === 'audio'),
+    document: settings.aiProfiles.filter((profile) => profile.type === 'document'),
+  }), [settings.aiProfiles]);
+
+  useEffect(() => {
+    if (initial?.id || modelDefaultsAppliedRef.current) return;
+    setModelProfileIds((current) => {
+      const next = { ...current };
+      for (const type of modelTypeOrder) {
+        if (next[type]) continue;
+        next[type] = getPreferredAIProfile(profilesByType[type], type)?.id || null;
+      }
+      return next;
+    });
+    modelDefaultsAppliedRef.current = true;
+  }, [initial?.id, modelTypeOrder, profilesByType]);
 
   useEffect(() => {
     if (bubblePickerOpen) {
       setDraftBubbleStyleId(bubbleStyleId);
     }
   }, [bubblePickerOpen, bubbleStyleId]);
+
+  useEffect(() => {
+    if (!initial) return;
+    setModelProfileIds(normalizeCharacterModelProfileIds(initial.modelProfileIds, initial.modelProfileId || null));
+  }, [initial?.id, initial?.modelProfileId, initial?.modelProfileIds]);
+
+  useEffect(() => {
+    const current = avatarGenerationQueue.getLatestTaskForTarget(avatarTaskTargetKey);
+    if (current) {
+      setAvatarTaskId(current.id);
+      setAvatarTaskStatus(current.status);
+      setAvatarTaskError(current.error);
+      if (current.status === 'succeeded' && current.imageDataUrl) {
+        setAvatar(current.imageDataUrl);
+      }
+    }
+
+    return avatarGenerationQueue.subscribeTarget(avatarTaskTargetKey, (state) => {
+      setAvatarTaskStatus(state.status);
+      setAvatarTaskError(state.error);
+      setAvatarTaskId(state.status === 'queued' || state.status === 'running' ? state.id : null);
+      if (state.status === 'succeeded' && state.imageDataUrl) {
+        setAvatar(state.imageDataUrl);
+      }
+    });
+  }, [avatarTaskTargetKey]);
 
 
   const applyBubbleSelection = () => {
@@ -197,7 +277,8 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
 
   const handleGenerate = async () => {
     if (!name.trim() || generating) return;
-    const selectedProfile = settings.aiProfiles.find((profile) => profile.id === modelProfileId) || settings.aiProfiles[0];
+    const textModelProfileId = modelProfileIds.text || null;
+    const selectedProfile = settings.aiProfiles.find((profile) => profile.id === textModelProfileId) || getPreferredAIProfile(settings.aiProfiles, 'text') || settings.aiProfiles[0];
     if (!selectedProfile?.apiKey || !selectedProfile?.model) {
       setGenerateError(getGenerateNoKeyError(i18n.language));
       return;
@@ -212,12 +293,47 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
       setSpeakingStyle(generated.speakingStyle);
       setBackground(generated.background);
       setSpeechProfile(generated.speechProfile);
+      setGeneratedByAI(true);
     } catch {
       setGenerateError(getGenerateError(i18n.language));
     } finally {
       setGenerating(false);
     }
   };
+
+  const handleAvatarAutoGenerate = () => {
+    if (avatarTaskId) {
+      avatarGenerationQueue.cancel(avatarTaskId);
+      return;
+    }
+
+    const imageProfile = getPreferredAIProfile(settings.aiProfiles, 'image');
+    if (!imageProfile?.apiKey || !imageProfile?.model) {
+      setAvatarTaskStatus('failed');
+      setAvatarTaskError(i18n.language.startsWith('zh') ? '请先配置默认图片模型' : 'Configure a default image model first.');
+      return;
+    }
+
+    const prompt = [
+      i18n.language.startsWith('zh')
+        ? `为角色“${name.trim() || '未命名角色'}”生成一张聊天头像。`
+        : `Generate a chat avatar portrait for the character "${name.trim() || 'Unnamed character'}".`,
+      background.trim() ? (i18n.language.startsWith('zh') ? `背景设定：${background.trim()}` : `Background: ${background.trim()}`) : '',
+      speakingStyle.trim() ? (i18n.language.startsWith('zh') ? `说话风格与气质：${speakingStyle.trim()}` : `Speech style and vibe: ${speakingStyle.trim()}`) : '',
+      i18n.language.startsWith('zh')
+        ? '要求：单人，正方形构图，突出脸部和上半身，适合角色头像，画面干净，不要文字，不要水印。'
+        : 'Requirements: single character, square composition, focus on face and upper body, suitable as avatar, clean image, no text, no watermark.',
+    ].filter(Boolean).join('\n');
+
+    setAvatarTaskError(null);
+    setAvatarTaskStatus('queued');
+    setAvatarTaskId(avatarGenerationQueue.enqueue(imageProfile, prompt, {
+      targetKey: avatarTaskTargetKey,
+      characterId: initial?.id || null,
+    }));
+  };
+
+  const isImageAvatar = avatar.startsWith('data:image/') || avatar.startsWith('http');
 
   const handleSubmit = () => {
     const normalizedName = name.trim();
@@ -253,8 +369,10 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
       group: normalizeCharacterGroup(group),
       memory,
       intervention,
-      modelProfileId,
+      modelProfileId: modelProfileIds.text || null,
+      modelProfileIds,
       bubbleStyleId,
+      generatedByAI,
     });
   };
 
@@ -328,7 +446,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
         <Card variant="outlined" sx={{ cursor: 'pointer', borderRadius: 3 }} onClick={openBubblePicker}>
           <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-              <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{avatar}</Box>
+              {renderAvatarPreview(avatar, isImageAvatar, 28)}
               <Box sx={{ px: 1.5, py: 0.875, border: selectedBubblePreview.border, borderRadius: selectedBubblePreview.borderRadius, boxShadow: selectedBubblePreview.boxShadow, color: selectedBubblePreview.color, background: selectedBubblePreview.background, flex: 1, minWidth: 0 }}>
                 <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, opacity: 0.9 }}>{selectedBubbleStyle.name}</Typography>
                 <Typography variant="body2" noWrap>{bubblePreviewText}</Typography>
@@ -385,6 +503,41 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
       ) : null}
 
       <Stack spacing={1.5}>
+        <Card variant="outlined">
+          <CardContent sx={{ display: 'grid', gap: 1.25 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? 'AI模型' : 'AI Models'}</Typography>
+              <Button size="small" onClick={() => setModelConfigExpanded((prev) => !prev)} endIcon={modelConfigExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}>
+                {modelConfigExpanded ? (i18n.language.startsWith('zh') ? '收起' : 'Collapse') : (i18n.language.startsWith('zh') ? '展开' : 'Expand')}
+              </Button>
+            </Box>
+            <Collapse in={modelConfigExpanded}>
+              <Box sx={{ display: 'grid', gap: 1, pt: 0.5 }}>
+                {modelTypeOrder.map((type) => (
+                  <FormControl key={type} size="small" fullWidth>
+                    <InputLabel>{modelTypeLabels[type]}</InputLabel>
+                    <Select
+                      value={modelProfileIds[type] || ''}
+                      label={modelTypeLabels[type]}
+                      onChange={(e) => {
+                        const nextValue = typeof e.target.value === 'string' ? e.target.value : '';
+                        setModelProfileIds((prev) => ({
+                          ...prev,
+                          [type]: nextValue || null,
+                        }));
+                      }}
+                    >
+                      <MenuItem value="">{i18n.language.startsWith('zh') ? '无' : 'None'}</MenuItem>
+                      {profilesByType[type].map((profile) => (
+                        <MenuItem key={profile.id} value={profile.id}>{profile.name}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                ))}
+              </Box>
+            </Collapse>
+          </CardContent>
+        </Card>
         <FormControlLabel control={<Switch checked={intervention.allowSpeakAs} onChange={(e) => setIntervention((prev) => ({ ...prev, allowSpeakAs: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许用户以该角色身份发言' : 'Allow speak as'} />
         <FormControlLabel control={<Switch checked={intervention.allowDirectorPrompt} onChange={(e) => setIntervention((prev) => ({ ...prev, allowDirectorPrompt: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许导演强制干预' : 'Allow director prompts'} />
         <FormControlLabel control={<Switch checked={intervention.allowPrivateThread} onChange={(e) => setIntervention((prev) => ({ ...prev, allowPrivateThread: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许被拉入AI私聊' : 'Allow AI private thread'} />
@@ -404,15 +557,6 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
         <NumericSliders values={behavior} items={behaviorGroups[1].items} onChange={setBehavior} />
       </CollapsibleParamGroup>
     </Box>
-  );
-
-  const modelTab = (
-    <FormControl size="small" sx={{ width: { xs: '100%', md: 220 } }}>
-      <InputLabel>{i18n.language.startsWith('zh') ? 'AI 模型' : 'AI model'}</InputLabel>
-      <Select value={modelProfileId} label={i18n.language.startsWith('zh') ? 'AI 模型' : 'AI model'} onChange={(e) => setModelProfileId(e.target.value)}>
-        {settings.aiProfiles.map((profile) => <MenuItem key={profile.id} value={profile.id}>{profile.name}</MenuItem>)}
-      </Select>
-    </FormControl>
   );
 
   const runtimeTab = <RuntimeInsightsPanel character={runtimeCharacter} />;
@@ -500,13 +644,22 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
 
   const helperText = getHelperText(i18n.language, generateError);
   const generateAriaLabel = getGenerateAriaLabel(i18n.language);
+  const avatarGenerateLabel = avatarTaskId
+    ? (avatarTaskStatus === 'running'
+        ? (i18n.language.startsWith('zh') ? '正在生成' : 'Generating')
+        : (i18n.language.startsWith('zh') ? '等待生成' : 'Queued'))
+    : (i18n.language.startsWith('zh') ? '自动生成' : 'Auto generate');
+  const canGenerateAvatar = canAutoGenerateAvatarDraft({ name, background });
+  const avatarGenerateDisabledReason = i18n.language.startsWith('zh') ? '要先设置角色' : 'Set the character first';
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.75, position: 'relative', pb: 10 }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr)' }, gap: 1.25, alignItems: 'start' }}>
         <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
           <Stack spacing={1} sx={{ flexShrink: 0 }}>
-            <Box onClick={() => setAvatarPickerOpen(true)} sx={{ width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', borderRadius: 3, cursor: 'pointer', border: 1, borderColor: 'divider', bgcolor: 'background.paper', boxShadow: 1, transition: 'transform 160ms ease, box-shadow 160ms ease', '&:hover': { transform: 'translateY(-1px)', boxShadow: 2 } }}>{avatar}</Box>
+            <Box onClick={() => setAvatarPickerOpen(true)} sx={{ width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', borderRadius: 3, cursor: 'pointer', border: 1, borderColor: 'divider', bgcolor: 'background.paper', boxShadow: 1, overflow: 'hidden', transition: 'transform 160ms ease, box-shadow 160ms ease', '&:hover': { transform: 'translateY(-1px)', boxShadow: 2 } }}>
+              {isImageAvatar ? <Box component="img" src={avatar} alt={name || 'avatar'} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatar}
+            </Box>
           </Stack>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
             <TextField label={t('character.name')} placeholder={t('character.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} helperText={helperText} error={Boolean(generateError)} required fullWidth />
@@ -535,7 +688,6 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
         <Tab label={i18n.language.startsWith('zh') ? '行为' : 'Behavior'} />
         <Tab label={i18n.language.startsWith('zh') ? '关系' : 'Relations'} />
         <Tab label={i18n.language.startsWith('zh') ? '记忆' : 'Memory'} />
-        <Tab label={i18n.language.startsWith('zh') ? '模型' : 'Model'} />
         <Tab label={i18n.language.startsWith('zh') ? '运行态' : 'Runtime'} />
       </Tabs>
 
@@ -588,14 +740,37 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
         </Box>
       ) : null}
 
-      {configTab === 4 ? modelTab : null}
-
-      {configTab === 5 ? runtimeTab : null}
+      {configTab === 4 ? runtimeTab : null}
 
 
       <Dialog open={avatarPickerOpen} onClose={() => setAvatarPickerOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>{t('character.avatar')}</DialogTitle>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+          <Box component="span">{t('character.avatar')}</Box>
+          <Tooltip title={!canGenerateAvatar && !avatarTaskId ? avatarGenerateDisabledReason : ''}>
+            <Box component="span">
+              <Button
+                variant="outlined"
+                startIcon={<AutoAwesomeIcon />}
+                onClick={handleAvatarAutoGenerate}
+                disabled={!avatarTaskId && !canGenerateAvatar}
+                sx={{ whiteSpace: 'nowrap' }}
+              >
+                {avatarGenerateLabel}
+              </Button>
+            </Box>
+          </Tooltip>
+        </DialogTitle>
         <DialogContent>
+          {avatarTaskError ? (
+            <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1 }}>
+              {avatarTaskError}
+            </Typography>
+          ) : null}
+          {isImageAvatar ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1.5 }}>
+              <Box component="img" src={avatar} alt={name || 'avatar'} sx={{ width: 132, height: 132, objectFit: 'cover', borderRadius: 3, border: '1px solid', borderColor: 'divider' }} />
+            </Box>
+          ) : null}
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 1 }}>
             {AVATAR_OPTIONS.map((emoji) => (
               <Box key={emoji} onClick={() => { setAvatar(emoji); setAvatarPickerOpen(false); }} sx={{ width: '100%', aspectRatio: '1 / 1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.35rem', borderRadius: 2.5, cursor: 'pointer', border: 2, borderColor: avatar === emoji ? 'primary.main' : 'transparent', bgcolor: avatar === emoji ? 'primary.light' : 'action.hover', '&:hover': { bgcolor: 'action.selected' } }}>{emoji}</Box>
@@ -622,8 +797,8 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
             </Tabs>
           </Box>
           <Box sx={{ overflowY: 'auto', px: 3, pb: 2, pt: 2 }}>
-            {customBubbleStyles.length > 0 ? <><Typography variant="subtitle2" sx={{ mb: 1 }}>{bubblePickerActionLabel.custom}</Typography><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1.25 }}>{customBubbleStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={{ borderColor: isStyleSelected(style.id) ? 'primary.main' : 'divider', cursor: 'pointer' }} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography><Box sx={{ display: 'flex', gap: 0.5 }}><Button size="small" onClick={(e) => { e.stopPropagation(); selectBubbleStyle(style.id); }}>{bubblePickerActionLabel.use}</Button><IconButton size="small" onClick={(e) => { e.stopPropagation(); openBubbleEditor(style); }}><EditIcon fontSize="small" /></IconButton><IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); deleteBubbleStyle(style.id); }}><DeleteIcon fontSize="small" /></IconButton></Box></Box><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}><Box sx={{ width: 30, height: 30, borderRadius: '50%', bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{avatar}</Box><Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box><Divider sx={{ my: 2.5 }} /></> : null}
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1.25 }}>{currentBuiltInStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={{ borderColor: isStyleSelected(style.id) ? 'primary.main' : 'divider', cursor: 'pointer' }} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}><Box sx={{ width: 30, height: 30, borderRadius: '50%', bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{avatar}</Box><Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box>
+            {customBubbleStyles.length > 0 ? <><Typography variant="subtitle2" sx={{ mb: 1 }}>{bubblePickerActionLabel.custom}</Typography><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1.25 }}>{customBubbleStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={{ borderColor: isStyleSelected(style.id) ? 'primary.main' : 'divider', cursor: 'pointer' }} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography><Box sx={{ display: 'flex', gap: 0.5 }}><Button size="small" onClick={(e) => { e.stopPropagation(); selectBubbleStyle(style.id); }}>{bubblePickerActionLabel.use}</Button><IconButton size="small" onClick={(e) => { e.stopPropagation(); openBubbleEditor(style); }}><EditIcon fontSize="small" /></IconButton><IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); deleteBubbleStyle(style.id); }}><DeleteIcon fontSize="small" /></IconButton></Box></Box><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>{renderAvatarPreview(avatar, isImageAvatar, 30)}<Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box><Divider sx={{ my: 2.5 }} /></> : null}
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1.25 }}>{currentBuiltInStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={{ borderColor: isStyleSelected(style.id) ? 'primary.main' : 'divider', cursor: 'pointer' }} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>{renderAvatarPreview(avatar, isImageAvatar, 30)}<Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box>
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -653,7 +828,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
               <FormControl fullWidth><InputLabel>{i18n.language.startsWith('zh') ? '边框样式' : 'Border style'}</InputLabel><Select value={bubbleForm.borderStyle} label={i18n.language.startsWith('zh') ? '边框样式' : 'Border style'} onChange={(e) => setBubbleForm((prev) => ({ ...prev, borderStyle: e.target.value as BubbleStyleDefinition['borderStyle'] }))}><MenuItem value="solid">solid</MenuItem><MenuItem value="dashed">dashed</MenuItem><MenuItem value="dotted">dotted</MenuItem></Select></FormControl>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-              <Box sx={{ width: 30, height: 30, borderRadius: '50%', bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{avatar}</Box>
+              {renderAvatarPreview(avatar, isImageAvatar, 30)}
               <Box sx={{ px: 1.5, py: 1, border: buildBubblePreview(formValuesToStyle(bubbleForm, editingBubbleStyleId || 'preview')).border, borderRadius: buildBubblePreview(formValuesToStyle(bubbleForm, editingBubbleStyleId || 'preview')).borderRadius, boxShadow: buildBubblePreview(formValuesToStyle(bubbleForm, editingBubbleStyleId || 'preview')).boxShadow, color: buildBubblePreview(formValuesToStyle(bubbleForm, editingBubbleStyleId || 'preview')).color, background: buildBubblePreview(formValuesToStyle(bubbleForm, editingBubbleStyleId || 'preview')).background, flex: 1 }}>
                 <Typography variant="body2">{bubblePreviewText}</Typography>
               </Box>

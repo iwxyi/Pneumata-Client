@@ -12,6 +12,7 @@ import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
+import { getPreferredAIProfile } from '../types/settings';
 import type { ChatStyle, RuntimeEvolutionIntensity } from '../types/chat';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../types/chat';
 import { generateChatDraftSuggestion } from '../services/chatDraftGenerator';
@@ -20,6 +21,7 @@ import { CHAT_STYLE_OPTIONS, MIN_MEMBERS, MAX_MEMBERS } from '../constants/defau
 import ChatRuntimePanel from '../components/chat/ChatRuntimePanel';
 import HotTopicDialog from '../components/createChat/HotTopicDialog';
 import { useHotTopicDialog } from '../components/createChat/useHotTopicDialog';
+import { isImageAvatar } from '../utils/avatar';
 
 export default function CreateChatPage() {
   const { t, i18n } = useTranslation();
@@ -301,7 +303,7 @@ export default function CreateChatPage() {
   const getStyleLabel = (styleValue: ChatStyle) => t(`chat.style${styleValue.charAt(0).toUpperCase() + styleValue.slice(1)}`);
 
   const handleAutofill = useCallback(async () => {
-    const profile = aiProfiles[0] || api;
+    const profile = getPreferredAIProfile(aiProfiles, 'text') || api;
     if (!profile?.apiKey || !profile?.model) {
       showError(i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first');
       return;
@@ -434,6 +436,7 @@ export default function CreateChatPage() {
     language: i18n.language,
     apiConfig: api,
     aiProfiles,
+    autoGenerateCharacterAvatar: useSettingsStore.getState().autoGenerateCharacterAvatar,
     characters,
     name,
     topic,
@@ -688,7 +691,7 @@ export default function CreateChatPage() {
           <Stack spacing={2}>
             <Card variant="outlined"><CardContent><TextField label={t('chat.name')} placeholder={t('chat.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} required fullWidth slotProps={{ input: { endAdornment: (<InputAdornment position="end"><IconButton color="primary" onClick={openHotDialog} edge="end" aria-label={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}><HotIcon /></IconButton></InputAdornment>) } }} /></CardContent></Card>
             <Card variant="outlined"><CardContent><TextField label={t('chat.topic')} placeholder={topicPlaceholder} value={topic} onChange={(e) => setTopic(e.target.value)} fullWidth multiline rows={2} /></CardContent></Card>
-            <Card variant="outlined"><CardContent><Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}><Box><Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{t('chat.selectMembers')}</Typography><Typography variant="caption" color="text.secondary">{t('chat.membersHint')} ({selectedMembers.length}/{MAX_MEMBERS})</Typography></Box><IconButton color="primary" onClick={() => setMemberDialogOpen(true)}><AddIcon /></IconButton></Box>{selectedCharacters.length > 0 ? (<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{selectedCharacters.map((char) => (<Chip key={char.id} avatar={<Avatar sx={{ bgcolor: 'primary.light' }}>{char.avatar}</Avatar>} label={char.name} onDelete={() => toggleMember(char.id)} />))}</Box>) : (<Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 3, color: 'text.secondary' }}>{memberSummaryEmptyLabel}</Box>)}</CardContent></Card>
+            <Card variant="outlined"><CardContent><Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}><Box><Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{t('chat.selectMembers')}</Typography><Typography variant="caption" color="text.secondary">{t('chat.membersHint')} ({selectedMembers.length}/{MAX_MEMBERS})</Typography></Box><IconButton color="primary" onClick={() => setMemberDialogOpen(true)}><AddIcon /></IconButton></Box>{selectedCharacters.length > 0 ? (<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{selectedCharacters.map((char) => (<Chip key={char.id} avatar={<Avatar src={isImageAvatar(char.avatar) ? char.avatar : undefined} sx={{ bgcolor: 'primary.light' }}>{isImageAvatar(char.avatar) ? undefined : char.avatar}</Avatar>} label={char.name} onDelete={() => toggleMember(char.id)} />))}</Box>) : (<Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 3, color: 'text.secondary' }}>{memberSummaryEmptyLabel}</Box>)}</CardContent></Card>
             <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{t('chat.style')}</Typography><Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{CHAT_STYLE_OPTIONS.map((opt) => (<Button key={opt.value} variant={style === opt.value ? 'contained' : 'outlined'} onClick={() => setStyle(opt.value)} sx={{ borderRadius: 999 }}>{getStyleLabel(opt.value)}</Button>))}</Box></CardContent></Card>
             <Card variant="outlined"><CardContent><FormControlLabel control={<Switch checked={showRoleActions} onChange={(e) => setShowRoleActions(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'} /></CardContent></Card>
           </Stack>
@@ -822,7 +825,7 @@ export default function CreateChatPage() {
                     sx={memberOptionSx(selectedMembers.includes(char.id))}
                   >
                     <Checkbox checked={selectedMembers.includes(char.id)} size="small" onClick={(e) => { e.stopPropagation(); toggleMember(char.id); }} />
-                    <Avatar sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>{char.avatar}</Avatar>
+                    <Avatar src={isImageAvatar(char.avatar) ? char.avatar : undefined} sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>{isImageAvatar(char.avatar) ? undefined : char.avatar}</Avatar>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{char.name}</Typography>
                     </Box>
@@ -842,7 +845,7 @@ export default function CreateChatPage() {
                     sx={memberOptionSx(selectedMembers.includes(char.id))}
                   >
                     <Checkbox checked={selectedMembers.includes(char.id)} size="small" onClick={(e) => { e.stopPropagation(); toggleMember(char.id); }} />
-                    <Avatar sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>{char.avatar}</Avatar>
+                    <Avatar src={isImageAvatar(char.avatar) ? char.avatar : undefined} sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>{isImageAvatar(char.avatar) ? undefined : char.avatar}</Avatar>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{char.name}</Typography>
                     </Box>

@@ -1,4 +1,5 @@
 import { Box, Typography, Avatar, IconButton, Menu, MenuItem, List, ListItem, ListItemAvatar, ListItemText, Divider, Slider } from '@mui/material';
+import { isImageAvatar } from '../../utils/avatar';
 import { MoreVert as MoreIcon } from '@mui/icons-material';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -46,8 +47,8 @@ export default function MemberList({ members, thinkingId, onRemove, onSpeakAs, o
             }}
           >
             <ListItemAvatar>
-              <Avatar sx={{ width: 32, height: 32, fontSize: '1rem', bgcolor: 'primary.light' }}>
-                {member.avatar}
+              <Avatar src={isImageAvatar(member.avatar) ? member.avatar : undefined} sx={{ width: 32, height: 32, fontSize: '1rem', bgcolor: 'primary.light' }}>
+                {isImageAvatar(member.avatar) ? undefined : member.avatar}
               </Avatar>
             </ListItemAvatar>
             <ListItemText

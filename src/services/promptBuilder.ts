@@ -49,7 +49,8 @@ function buildLayeredMemoryPrompt(items: MemoryItem[]) {
 function buildPromptContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>) {
   const targetId = messages.filter((m) => !m.isDeleted && m.type === 'ai' && m.senderId !== character.id).at(-1)?.senderId;
   const retrieved = getMemoryContext(chat.layeredMemories || [], character.id, targetId, chat.id);
-  return `${buildLayeredMemoryPrompt(retrieved)}${buildSocialPromptContext(character, chat, messages, characters)}`;
+  const dramaBoost = Boolean((globalThis as { __MIRAGETEA_DRAMA_BOOST__?: boolean }).__MIRAGETEA_DRAMA_BOOST__);
+  return `${buildLayeredMemoryPrompt(retrieved)}${buildSocialPromptContext(character, chat, messages, characters, dramaBoost)}`;
 }
 
 function buildCharacterPromptContext(character: AICharacter) {

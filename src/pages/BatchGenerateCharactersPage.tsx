@@ -3,6 +3,7 @@ import { Box, Button, TextField, Typography, Chip, Snackbar, Alert, LinearProgre
 import type { AIModelProfile } from '../types/settings';
 import type { AICharacter, PersonalityParams } from '../types/character';
 import { api as backendApi } from '../services/api';
+import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
 
 const BATCH_GENERATE_GROUP_SIZE = 10;
 
@@ -66,6 +67,7 @@ function buildGeneratedCharacterPayload(params: {
   generatedGroup: string | null;
   allCharacters: Array<Pick<AICharacter, 'name' | 'group' | 'bubbleStyleId'>>;
   customStyleIds: string[];
+  profile: AIModelProfile;
 }) {
   return {
     name: params.name,
@@ -80,7 +82,8 @@ function buildGeneratedCharacterPayload(params: {
     relationships: [],
     memory: DEFAULT_CHARACTER_MEMORY,
     intervention: DEFAULT_CHARACTER_INTERVENTION,
-    modelProfileId: 'default',
+    modelProfileId: params.profile.id,
+    modelProfileIds: { text: params.profile.id, image: null, audio: null, document: null },
   };
 }
 
@@ -137,9 +140,23 @@ async function processCharacterBatch(params: {
           generatedGroup: params.generatedGroup,
           allCharacters: params.characters,
           customStyleIds: params.customStyleIds,
+          profile: params.profile,
         }),
       }));
-      await backendApi.createCharactersBatch(successfulPayloads.map((item) => item.payload));
+      const result = await backendApi.createCharactersBatch(successfulPayloads.map((item) => item.payload));
+      if (useSettingsStore.getState().autoGenerateCharacterAvatar) {
+        const createdCharacters = ((result.characters || []) as Array<{ id: string; name: string; background?: string; speakingStyle?: string }>)
+          .map((character) => {
+            const fallback = successfulPayloads.find((item) => item.name === character.name)?.payload;
+            return {
+              id: character.id,
+              name: character.name,
+              background: character.background || fallback?.background || '',
+              speakingStyle: character.speakingStyle || fallback?.speakingStyle || '',
+            };
+          });
+        enqueueAvatarGenerationForCharacters(createdCharacters, useSettingsStore.getState().aiProfiles, params.language);
+      }
       successfulPayloads.forEach(({ name }) => {
         existingNames.add(name.trim().toLowerCase());
         appendProgressItem(params.setProgress, { name, status: 'success' });
@@ -166,6 +183,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../types';
 import { getTopicDerivedCharacterGroup } from '../types/character';
+import { getPreferredAIProfile } from '../types/settings';
 import { BUILT_IN_BUBBLE_STYLES, DEFAULT_AI_BUBBLE_STYLE_ID } from '../constants/bubbleStyles';
 
 function pickRandomAvailableBubbleStyle(params: {
@@ -467,7 +485,7 @@ export default function BatchGenerateCharactersPage() {
   };
 
   const handleFetchNames = async () => {
-    const profile = settings.aiProfiles[0];
+    const profile = getPreferredAIProfile(settings.aiProfiles, 'text');
     if (!profile?.apiKey || !profile?.model) {
       setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first', severity: 'error' });
       return;
@@ -493,7 +511,7 @@ export default function BatchGenerateCharactersPage() {
   };
 
   const handleGenerateCharacters = async () => {
-    const profile = settings.aiProfiles[0];
+    const profile = getPreferredAIProfile(settings.aiProfiles, 'text');
     if (!profile?.apiKey || !profile?.model) {
       setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first', severity: 'error' });
       return;

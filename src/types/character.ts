@@ -1,3 +1,5 @@
+import type { AIModelType } from './settings';
+
 export interface PersonalityParams {
   openness: number;
   extroversion: number;
@@ -93,6 +95,7 @@ export interface AICharacter {
   intervention: CharacterInterventionConfig;
   runtimeTimeline?: Array<{ type: 'memory' | 'relationship' | 'drift'; text: string; createdAt: number }>;
   modelProfileId?: string | null;
+  modelProfileIds?: Partial<Record<AIModelType, string | null>>;
   bubbleStyleId?: string | null;
   isPreset: boolean;
   deletedAt?: number | null;
@@ -225,6 +228,26 @@ export const DEFAULT_SPEECH_PROFILE: CharacterSpeechProfile = {
   sarcasmBias: 50,
 };
 
+export const DEFAULT_CHARACTER_MODEL_PROFILE_IDS: Partial<Record<AIModelType, string | null>> = {
+  text: null,
+  image: null,
+  audio: null,
+  document: null,
+};
+
+export function normalizeCharacterModelProfileIds(input?: Partial<Record<AIModelType, string | null>> | null, legacyTextId?: string | null) {
+  return {
+    ...DEFAULT_CHARACTER_MODEL_PROFILE_IDS,
+    ...(input || {}),
+    text: input?.text ?? legacyTextId ?? null,
+  } satisfies Partial<Record<AIModelType, string | null>>;
+}
+
+export function getCharacterModelProfileId(character: Pick<AICharacter, 'modelProfileIds' | 'modelProfileId'>, type: AIModelType) {
+  const profileIds = normalizeCharacterModelProfileIds(character.modelProfileIds, character.modelProfileId);
+  return profileIds[type] ?? null;
+}
+
 export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacter, 'id' | 'name' | 'avatar' | 'personality' | 'expertise' | 'speakingStyle' | 'background' | 'isPreset' | 'createdAt' | 'updatedAt'>): AICharacter {
   return {
     ...input,
@@ -270,5 +293,7 @@ export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacte
       ...DEFAULT_CHARACTER_INTERVENTION,
       ...(input.intervention || {}),
     },
+    modelProfileId: input.modelProfileId || null,
+    modelProfileIds: normalizeCharacterModelProfileIds(input.modelProfileIds, input.modelProfileId),
   };
 }

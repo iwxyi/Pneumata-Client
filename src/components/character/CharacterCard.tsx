@@ -1,4 +1,5 @@
 import { Card, CardContent, CardActionArea, Box, Typography, Avatar, Chip, IconButton, Menu, MenuItem } from '@mui/material';
+import { isImageAvatar } from '../../utils/avatar';
 import { MoreVert as MoreIcon, CheckCircle as CheckCircleIcon } from '@mui/icons-material';
 import { useRef, useState } from 'react';
 import type { AICharacter } from '../../types/character';
@@ -115,8 +116,8 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, on
         >
           <CardContent sx={{ p: 2, pr: (onEdit || onDelete) ? 6 : 2, height: '100%', '&:last-child': { pb: 2 } }}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-              <Avatar sx={{ width: 48, height: 48, fontSize: '1.5rem', bgcolor: 'primary.light' }}>
-                {character.avatar}
+              <Avatar src={isImageAvatar(character.avatar) ? character.avatar : undefined} sx={{ width: 48, height: 48, fontSize: '1.5rem', bgcolor: 'primary.light' }}>
+                {isImageAvatar(character.avatar) ? undefined : character.avatar}
               </Avatar>
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>

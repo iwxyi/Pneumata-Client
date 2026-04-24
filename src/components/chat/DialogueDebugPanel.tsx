@@ -1,5 +1,6 @@
 import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
 import type { GroupChat } from '../../types/chat';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 
 interface DialogueDebugPanelProps {
   chat: GroupChat;
@@ -13,6 +14,7 @@ function buildRecentSignal(chat: GroupChat) {
 }
 
 export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
+  const dramaBoost = useSettingsStore((state) => state.developerUI.dramaBoost);
   const signal = buildRecentSignal(chat);
   const runtimeTimeline = chat.runtimeTimeline || [];
   const latestItems = runtimeTimeline.slice(-5).reverse();
@@ -26,6 +28,7 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
             <Chip size="small" label={`phase ${chat.worldState.phase || 'idle'}`} variant="outlined" />
             <Chip size="small" label={`mood ${signal.mood}`} variant="outlined" />
             <Chip size="small" label={`focus ${signal.focus}`} variant="outlined" />
+            <Chip size="small" color={dramaBoost ? 'warning' : 'default'} label={dramaBoost ? 'drama on' : 'drama off'} variant="outlined" />
           </Box>
           <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
             <Typography variant="caption" color="text.secondary">最近事件</Typography>

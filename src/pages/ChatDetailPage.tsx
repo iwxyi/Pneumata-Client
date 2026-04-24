@@ -76,6 +76,7 @@ export default function ChatDetailPage() {
   const loopTokenRef = useRef<string | null>(null);
   const api = useSettingsStore((s) => s.api);
   const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, setRightPanelOpen, rightPanelTab, setRightPanelTab } = useUIStore();
+  const dramaBoost = useSettingsStore((s) => s.developerUI.dramaBoost);
   const desktopRightOffset = useMemo(() => (isDesktop && rightPanelOpen ? 320 : 0), [isDesktop, rightPanelOpen]);
 
   const [thinkingId, setThinkingId] = useState<string | null>(null);
@@ -92,6 +93,13 @@ export default function ChatDetailPage() {
   const liveMessageRef = useRef<LiveChatMessage | null>(null);
   const liveMessageSeedRef = useRef<Omit<LiveChatMessage, 'content'> | null>(null);
   const chat = chats.find((c) => c.id === id);
+
+  useEffect(() => {
+    (globalThis as { __MIRAGETEA_DRAMA_BOOST__?: boolean }).__MIRAGETEA_DRAMA_BOOST__ = dramaBoost;
+    return () => {
+      delete (globalThis as { __MIRAGETEA_DRAMA_BOOST__?: boolean }).__MIRAGETEA_DRAMA_BOOST__;
+    };
+  }, [dramaBoost]);
 
   const updateLiveMessage = useCallback((updater: (current: LiveChatMessage | null) => LiveChatMessage | null) => {
     setLiveMessage((current) => {
