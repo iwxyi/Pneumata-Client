@@ -7,7 +7,7 @@ import { accumulateChatRuntime } from './chatRuntime';
 import { accumulateCharacterRuntime } from './characterRuntime';
 import { extractMemoryCandidate } from './memoryEngine';
 import { evolveConflictAxes, summarizeConflictAxes } from './conflictAxisEngine';
-import { updateLayeredMemoriesWithEvents } from './layeredMemoryEngine';
+import { appendMemoryCandidateEvents, buildMemoryCandidateEvents, updateLayeredMemoriesWithEvents } from './layeredMemoryEngine';
 import { normalizeRuntimeEvent } from './runtimeEventFactory';
 import { updateCharacterLayeredMemories } from './characterLayeredMemory';
 import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
@@ -161,14 +161,27 @@ export function buildChatPatch(conversation: GroupChat, message: Pick<Message, '
     ...accumulateChatRuntime(
       conversation,
       message,
-      memoryCandidate ? { kind: memoryCandidate.kind, text: memoryCandidate.text } : null,
       runtimeEvents,
-      { maxNotes: config.maxNotes, maxArtifacts: config.maxArtifacts, maxTimeline: config.maxTimeline }
+      { maxTimeline: config.maxTimeline }
     ),
+    runtimeSeed: {
+      notes: conversation.runtimeSeed?.notes || [],
+      artifacts: conversation.runtimeSeed?.artifacts || [],
+    },
+    ...(memoryCandidate ? {
+      runtimeSeed: {
+        notes: memoryCandidate.kind === 'note'
+          ? [...(conversation.runtimeSeed?.notes || []), memoryCandidate.text].slice(-config.maxNotes)
+          : (conversation.runtimeSeed?.notes || []),
+        artifacts: memoryCandidate.kind === 'artifact'
+          ? [...(conversation.runtimeSeed?.artifacts || []), memoryCandidate.text].slice(-config.maxArtifacts)
+          : (conversation.runtimeSeed?.artifacts || []),
+      },
+    } : {}),
     worldState,
   };
 
-  chatPatch.layeredMemories = updateLayeredMemoriesWithEvents(
+  const nextLayeredMemories = updateLayeredMemoriesWithEvents(
     conversation.layeredMemories || [],
     {
       ...conversation,
@@ -178,6 +191,16 @@ export function buildChatPatch(conversation: GroupChat, message: Pick<Message, '
     message,
     runtimeEvents,
   );
+
+  const memoryCandidateEvents = buildMemoryCandidateEvents({
+    chat: conversation,
+    message,
+    existingMemories: conversation.layeredMemories || [],
+    nextMemories: nextLayeredMemories,
+  });
+
+  chatPatch.layeredMemories = nextLayeredMemories;
+  chatPatch.runtimeEventsV2 = appendMemoryCandidateEvents(conversation.runtimeEventsV2 || [], memoryCandidateEvents);
 
   return chatPatch;
 }

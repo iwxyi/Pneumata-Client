@@ -24,10 +24,6 @@ function buildMessageIdentity(message: Message) {
   return `${message.chatId}:${message.id}`;
 }
 
-function buildSurfaceIdentity(message: Pick<Message, 'type' | 'senderId' | 'content'>) {
-  return `${message.type}:${message.senderId}:${normalizeContent(message.content)}`;
-}
-
 function buildLiveMessage(liveMessage: LiveChatMessage): Message {
   return {
     id: liveMessage.key,
@@ -53,7 +49,6 @@ function shouldSuppressCommittedForLive(message: Message, liveMessage: LiveChatM
 
 export function buildChatRenderItems(messages: Message[], liveMessage: LiveChatMessage | null): ChatRenderItem[] {
   const seenIds = new Set<string>();
-  const seenSurfaces = new Set<string>();
   const items: ChatRenderItem[] = [];
 
   for (const message of messages) {
@@ -64,12 +59,6 @@ export function buildChatRenderItems(messages: Message[], liveMessage: LiveChatM
     const identity = buildMessageIdentity(message);
     if (seenIds.has(identity)) continue;
     seenIds.add(identity);
-
-    if (message.type === 'ai') {
-      const surface = buildSurfaceIdentity(message);
-      if (seenSurfaces.has(surface)) continue;
-      seenSurfaces.add(surface);
-    }
 
     items.push({
       key: message.clientKey || identity,

@@ -1,6 +1,7 @@
 import type { AICharacter } from './character';
 import type { GroupChat, ParticipantInstance, RuntimeAction, RuntimePanelDefinition } from './chat';
 import type { Message } from './message';
+import type { APIConfig } from './settings';
 
 export type VisibilityScope = 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
 
@@ -58,8 +59,10 @@ export interface SessionViewProjection {
 export interface SessionCommitContext {
   conversation: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'>;
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null };
   previousAiMessage?: Pick<Message, 'senderId'> | null;
+  recentMessages?: Message[];
+  apiConfig?: APIConfig;
 }
 
 export interface SessionEngineActionContext {
@@ -77,7 +80,11 @@ export interface SessionEngineDefinition {
   getVisiblePanels: (context: SessionProjectionContext) => RuntimePanelDefinition[];
   getAvailableActions: (context: SessionProjectionContext) => RuntimeAction[];
   getActionSchema?: (context: SessionEngineActionContext) => SessionActionSchema | null;
-  onMessageCommitted: (context: SessionCommitContext) => {
+  onMessageCommitted: (context: SessionCommitContext) => Promise<{
+    chatPatch: Partial<GroupChat>;
+    characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;
+    runtimeEvents: Array<{ eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown }>;
+  }> | {
     chatPatch: Partial<GroupChat>;
     characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;
     runtimeEvents: Array<{ eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown }>;

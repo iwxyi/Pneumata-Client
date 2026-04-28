@@ -86,6 +86,7 @@ export async function applyAiDirectFeedback(params: {
       lastMessageAt: Date.now(),
       worldState: { ...DEFAULT_CONVERSATION_WORLD_STATE, ...(sourceChat.worldState || {}), recentEvent: `${starter.name} 与 ${target.name} 的AI私聊：${summary}` },
       ...accumulateChatRuntime(sourceChat, { type: 'event', content: `${starter.name} 与 ${target.name} 的AI私聊：${summary}` }),
+      runtimeSeed: sourceChat.runtimeSeed,
     });
   }
 }

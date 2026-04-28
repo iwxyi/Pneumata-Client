@@ -85,6 +85,10 @@ function mergeMessages(localMessages: Message[], remoteMessages: Message[]) {
   return Array.from(merged.values()).sort((a, b) => a.timestamp - b.timestamp);
 }
 
+function countUniqueMessages(messages: Message[]) {
+  return dedupeMessages(messages).length;
+}
+
 function trimMessages(messages: Message[]) {
   return dedupeMessages(messages).slice(-MAX_CACHED_MESSAGES_PER_CHAT);
 }
@@ -150,10 +154,14 @@ export const useMessageStore = create<MessageStore>()(
           set((state) => {
             const currentWindow = state.messageWindowsByChatId[chatId];
             const current = currentWindow?.messages || [];
-            const merged = isAppend
-              ? mergeMessages(current, fetched)
-              : mergeMessages([], fetched);
+            const merged = mergeMessages(current, fetched);
             const trimmed = trimMessages(merged);
+            const currentCount = countUniqueMessages(current);
+            const mergedCount = countUniqueMessages(merged);
+            const addedOlderMessages = mergedCount > currentCount;
+            const nextHasMore = isAppend
+              ? fetched.length > 0 && addedOlderMessages
+              : fetched.length > 0;
             const nextCache = trimCache({
               ...state.messageWindowsByChatId,
               [chatId]: {
@@ -168,7 +176,7 @@ export const useMessageStore = create<MessageStore>()(
               messageWindowsByChatId: nextCache,
               isLoading: false,
               isLoadingOlder: false,
-              hasMore: fetched.length === limit,
+              hasMore: nextHasMore,
             };
           });
         } catch (error) {

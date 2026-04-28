@@ -1,0 +1,110 @@
+import { Box, Button, Card, CardContent, FormControlLabel, MenuItem, Stack, Switch, TextField, Typography } from '@mui/material';
+import type { AICharacter } from '../../types/character';
+
+interface ManagementSectionProps {
+  selectedCharacters: AICharacter[];
+  ownerCharacterId: string;
+  adminCharacterIds: string[];
+  noOwnerLabel: string;
+  adminNotesValue: string;
+  autoModeration: boolean;
+  allowMute: boolean;
+  allowPrivateThreads: boolean;
+  allowCliques: boolean;
+  allowMockery: boolean;
+  editingChat: boolean;
+  language: string;
+  clearMessagesLabel: string;
+  clearMemoryLabel: string;
+  onOwnerChange: (value: string) => void;
+  onAdminChange: (value: string[]) => void;
+  onAutoModerationChange: (value: boolean) => void;
+  onAllowMuteChange: (value: boolean) => void;
+  onAllowPrivateThreadsChange: (value: boolean) => void;
+  onAllowCliquesChange: (value: boolean) => void;
+  onAllowMockeryChange: (value: boolean) => void;
+  onOpenClearMessagesDialog: () => void;
+  onOpenClearMemoryDialog: () => void;
+}
+
+export default function ManagementSection(props: ManagementSectionProps) {
+  const isZh = props.language.startsWith('zh');
+
+  return (
+    <Box sx={{ display: 'grid', gap: 2 }}>
+      <TextField
+        select
+        label={isZh ? '群主' : 'Owner'}
+        value={props.ownerCharacterId}
+        onChange={(e) => props.onOwnerChange(e.target.value)}
+        fullWidth
+      >
+        <MenuItem value="">{props.noOwnerLabel}</MenuItem>
+        {props.selectedCharacters.map((char) => (
+          <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>
+        ))}
+      </TextField>
+
+      <TextField
+        select
+        slotProps={{ select: { multiple: true } }}
+        label={isZh ? '管理员' : 'Admins'}
+        value={props.adminCharacterIds}
+        onChange={(e) => props.onAdminChange((typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value).filter(Boolean))}
+        fullWidth
+      >
+        {props.selectedCharacters.map((char) => (
+          <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>
+        ))}
+      </TextField>
+
+      <TextField
+        label={isZh ? '管理员说明' : 'Admin notes'}
+        value={props.adminNotesValue}
+        slotProps={{ input: { readOnly: true } }}
+        fullWidth
+      />
+
+      <Typography variant="caption" color="text.secondary">
+        {isZh ? '可多选管理员；群主不会重复加入管理员。' : 'You can select multiple admins; the owner is excluded automatically.'}
+      </Typography>
+
+      <FormControlLabel control={<Switch checked={props.autoModeration} onChange={(e) => props.onAutoModerationChange(e.target.checked)} />} label={isZh ? '自动管理' : 'Auto moderation'} />
+      <FormControlLabel control={<Switch checked={props.allowMute} onChange={(e) => props.onAllowMuteChange(e.target.checked)} />} label={isZh ? '允许禁言' : 'Allow mute'} />
+      <FormControlLabel control={<Switch checked={props.allowPrivateThreads} onChange={(e) => props.onAllowPrivateThreadsChange(e.target.checked)} />} label={isZh ? '允许拉私聊' : 'Allow private threads'} />
+
+      <Card variant="outlined">
+        <CardContent>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+            {isZh ? '戏剧规则' : 'Drama'}
+          </Typography>
+          <Box sx={{ display: 'grid', gap: 1 }}>
+            <FormControlLabel control={<Switch checked={props.allowCliques} onChange={(e) => props.onAllowCliquesChange(e.target.checked)} />} label={isZh ? '允许小团体' : 'Allow cliques'} />
+            <FormControlLabel control={<Switch checked={props.allowMockery} onChange={(e) => props.onAllowMockeryChange(e.target.checked)} />} label={isZh ? '允许公开嘲讽' : 'Allow mockery'} />
+          </Box>
+        </CardContent>
+      </Card>
+
+      {props.editingChat ? (
+        <Card variant="outlined" sx={{ borderColor: 'error.light', bgcolor: 'rgba(211, 47, 47, 0.04)' }}>
+          <CardContent>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: 'error.main' }}>
+              {isZh ? '危险操作' : 'Danger zone'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              {isZh ? '可分别清理消息记录或会话级记忆，不删除群聊本身。' : 'You can clear messages or session memory separately without deleting the chat itself.'}
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button color="error" variant="outlined" onClick={props.onOpenClearMessagesDialog}>
+                {props.clearMessagesLabel}
+              </Button>
+              <Button color="error" variant="outlined" onClick={props.onOpenClearMemoryDialog}>
+                {props.clearMemoryLabel}
+              </Button>
+            </Stack>
+          </CardContent>
+        </Card>
+      ) : null}
+    </Box>
+  );
+}

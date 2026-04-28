@@ -1,5 +1,6 @@
 import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
 import type { GroupChat } from '../../types/chat';
+import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 interface DialogueDebugPanelProps {
@@ -13,11 +14,22 @@ function buildRecentSignal(chat: GroupChat) {
   return { recentEvent, focus, mood };
 }
 
+function formatEventKind(kind: RuntimeEventV2['kind']) {
+  const labels: Record<RuntimeEventV2['kind'], string> = {
+    message_generated: '消息生成',
+    interaction: '互动',
+    relationship_delta: '关系变化',
+    room_shift: '房间态势',
+    memory_candidate: '记忆候选',
+    artifact: '产物',
+  };
+  return labels[kind] || kind;
+}
+
 export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
   const dramaBoost = useSettingsStore((state) => state.developerUI.dramaBoost);
   const signal = buildRecentSignal(chat);
-  const runtimeTimeline = chat.runtimeTimeline || [];
-  const latestItems = runtimeTimeline.slice(-5).reverse();
+  const latestItems = (chat.runtimeEventsV2 || []).slice(-5).reverse();
 
   return (
     <Card variant="outlined">
@@ -25,23 +37,23 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
         <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>发言风格</Typography>
         <Stack spacing={1.25}>
           <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-            <Chip size="small" label={`phase ${chat.worldState.phase || 'idle'}`} variant="outlined" />
-            <Chip size="small" label={`mood ${signal.mood}`} variant="outlined" />
-            <Chip size="small" label={`focus ${signal.focus}`} variant="outlined" />
-            <Chip size="small" color={dramaBoost ? 'warning' : 'default'} label={dramaBoost ? 'drama on' : 'drama off'} variant="outlined" />
+            <Chip size="small" label={`阶段 ${chat.worldState.phase || 'idle'}`} variant="outlined" />
+            <Chip size="small" label={`气氛 ${signal.mood}`} variant="outlined" />
+            <Chip size="small" label={`焦点 ${signal.focus}`} variant="outlined" />
+            <Chip size="small" color={dramaBoost ? 'warning' : 'default'} label={dramaBoost ? '戏剧增强开' : '戏剧增强关'} variant="outlined" />
           </Box>
           <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
             <Typography variant="caption" color="text.secondary">最近事件</Typography>
             <Typography variant="body2">{signal.recentEvent}</Typography>
           </Box>
           <Box>
-            <Typography variant="caption" color="text.secondary">最近运行时间线</Typography>
+            <Typography variant="caption" color="text.secondary">最近结构化事件</Typography>
             {latestItems.length ? (
               <Stack spacing={0.75} sx={{ mt: 0.75 }}>
-                {latestItems.map((item, index) => (
-                  <Box key={`${item.type}-${item.createdAt}-${index}`} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
-                    <Typography variant="caption" color="text.secondary">{item.type} · {new Date(item.createdAt).toLocaleString()}</Typography>
-                    <Typography variant="body2">{item.text}</Typography>
+                {latestItems.map((item) => (
+                  <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+                    <Typography variant="caption" color="text.secondary">{formatEventKind(item.kind)} · {new Date(item.createdAt).toLocaleString()}</Typography>
+                    <Typography variant="body2">{item.summary}</Typography>
                   </Box>
                 ))}
               </Stack>

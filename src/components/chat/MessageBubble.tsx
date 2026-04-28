@@ -180,7 +180,7 @@ export default function MessageBubble({ message, character, onDelete, pending = 
 
   return (
     <>
-      <Box sx={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', alignItems: 'flex-start', mb: 1.5, px: 2, gap: 1 }}>
+      <Box sx={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', alignItems: 'flex-start', mb: 0.75, px: 2, gap: 1 }}>
         {!isUser && (
           <Avatar
             src={!isGod && isImageAvatar(senderAvatar) ? senderAvatar : undefined}
@@ -202,7 +202,15 @@ export default function MessageBubble({ message, character, onDelete, pending = 
           </Avatar>
         )}
 
-        <Box sx={{ maxWidth: '70%', minWidth: 0 }}>
+        <Box
+          sx={{
+            maxWidth: '70%',
+            minWidth: 0,
+            '&:hover .message-timestamp': {
+              opacity: 1,
+            },
+          }}
+        >
           {!isUser && (
             <Typography variant="caption" sx={{ color: isGod ? 'warning.main' : 'text.secondary', fontWeight: 600, ml: 1 }}>
               {isGod ? '👑 God Mode' : senderName}
@@ -238,11 +246,23 @@ export default function MessageBubble({ message, character, onDelete, pending = 
             {pending && !message.content ? renderPendingTypingDots() : renderMessageContent(message)}
           </Box>
 
-          {!pending ? (
-            <Typography variant="caption" sx={{ color: 'text.disabled', ml: 1, mt: 0.25, display: 'block' }}>
-              {formatTimestamp(message.timestamp)}
-            </Typography>
-          ) : null}
+          <Typography
+            variant="caption"
+            className="message-timestamp"
+            sx={{
+              color: 'text.disabled',
+              ml: 1,
+              mt: 0,
+              display: 'block',
+              lineHeight: 1.2,
+              minHeight: 14,
+              opacity: 0,
+              transition: 'opacity 120ms ease',
+              pointerEvents: 'none',
+            }}
+          >
+            {formatTimestamp(message.timestamp)}
+          </Typography>
         </Box>
 
         {isUser && (

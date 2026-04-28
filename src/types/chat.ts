@@ -2,6 +2,8 @@ import type { AICharacter } from './character';
 import type { Message } from './message';
 import type { MemoryItem } from '../services/memoryTypes';
 import type { ParticipantPrivateState, ParticipantPublicState } from './participantRole';
+import type { RelationshipLedgerEntry, RoomStateSnapshotV2, RuntimeEventV2 } from './runtimeEvent';
+import type { APIConfig } from './settings';
 
 export type ChatStyle = 'free' | 'debate' | 'brainstorm' | 'roleplay';
 export type ConversationType = 'group' | 'direct' | 'ai_direct';
@@ -97,9 +99,11 @@ export interface OpenChatModeDriver {
   onMessageCommitted: (params: {
     conversation: GroupChat;
     characters: AICharacter[];
-    message: Pick<Message, 'content' | 'type' | 'senderId'>;
+    message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null };
     previousAiMessage?: Pick<Message, 'senderId'> | null;
-  }) => DriverMessageCommitResult;
+    recentMessages?: Message[];
+    apiConfig?: APIConfig;
+  }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>;
 }
 
 export interface SessionKernelCompatibility {
@@ -150,6 +154,7 @@ export interface ConversationWorldState {
   focus: string;
   recentEvent: string;
   conflictAxes?: ConversationConflictAxis[];
+  structuredRoomState?: RoomStateSnapshotV2 | null;
 }
 
 export interface ConversationDirectorControls {
@@ -177,10 +182,14 @@ export interface GroupChat {
   topicSeed: string;
   sourceChatId?: string | null;
   sourceMemberIds?: string[];
-  runtimeNotes?: string[];
-  runtimeArtifacts?: string[];
   layeredMemories?: MemoryItem[];
+  runtimeSeed?: {
+    notes?: string[];
+    artifacts?: string[];
+  };
   runtimeTimeline?: Array<{ type: 'note' | 'artifact' | 'relationship'; text: string; createdAt: number }>;
+  runtimeEventsV2?: RuntimeEventV2[];
+  relationshipLedger?: RelationshipLedgerEntry[];
   governance: ConversationGovernance;
   dramaRules: ConversationDramaRules;
   worldState: ConversationWorldState;
@@ -224,7 +233,7 @@ export const DEFAULT_CONVERSATION_DIRECTOR_CONTROLS: ConversationDirectorControl
 
 export const DEFAULT_RUNTIME_EVOLUTION_INTENSITY: RuntimeEvolutionIntensity = 'balanced';
 
-export function normalizeConversation(input: Omit<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls' | 'runtimeEvolutionIntensity'> & Partial<Pick<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls' | 'runtimeEvolutionIntensity'>>): GroupChat {
+export function normalizeConversation(input: (Omit<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls' | 'runtimeEvolutionIntensity'> & Partial<Pick<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls' | 'runtimeEvolutionIntensity'>>) & { runtimeNotes?: string[]; runtimeArtifacts?: string[] }): GroupChat {
   return {
     ...input,
     type: input.type || 'group',
@@ -234,10 +243,14 @@ export function normalizeConversation(input: Omit<GroupChat, 'type' | 'governanc
     runtimeEvolutionIntensity: input.runtimeEvolutionIntensity || DEFAULT_RUNTIME_EVOLUTION_INTENSITY,
     sourceChatId: input.sourceChatId || null,
     sourceMemberIds: input.sourceMemberIds || [],
-    runtimeNotes: input.runtimeNotes || [],
-    runtimeArtifacts: input.runtimeArtifacts || [],
     layeredMemories: input.layeredMemories || [],
+    runtimeSeed: {
+      notes: input.runtimeSeed?.notes || input.runtimeNotes || [],
+      artifacts: input.runtimeSeed?.artifacts || input.runtimeArtifacts || [],
+    },
     runtimeTimeline: input.runtimeTimeline || [],
+    runtimeEventsV2: input.runtimeEventsV2 || [],
+    relationshipLedger: input.relationshipLedger || [],
     governance: {
       ...DEFAULT_CONVERSATION_GOVERNANCE,
       ...(input.governance || {}),
@@ -251,6 +264,7 @@ export function normalizeConversation(input: Omit<GroupChat, 'type' | 'governanc
       ...DEFAULT_CONVERSATION_WORLD_STATE,
       ...(input.worldState || {}),
       conflictAxes: input.worldState?.conflictAxes || [],
+      structuredRoomState: input.worldState?.structuredRoomState || null,
     },
     directorControls: {
       ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,

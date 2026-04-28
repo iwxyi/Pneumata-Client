@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Box, IconButton, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, DialogActions, MenuItem, TextField } from '@mui/material';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { Box, IconButton, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, DialogActions, MenuItem, TextField, Stack, Snackbar, Alert } from '@mui/material';
 import {
   People as PeopleIcon,
   Info as InfoIcon,
@@ -16,7 +16,7 @@ import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
 import { useResponsive } from '../hooks/useResponsive';
-import { DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE, type GroupChat, type RuntimeAction } from '../types/chat';
+import { DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE, type DriverMessageCommitResult, type GroupChat } from '../types/chat';
 import { resolveRuntimeEvolutionConfig } from '../services/runtimeEvolutionConfig';
 import { applyAiDirectFeedback, buildAiPrivateChatDraft } from '../services/directSessionRuntime';
 import { getSessionEngine } from '../services/sessionEngineRegistry';
@@ -27,29 +27,7 @@ import MemberList from '../components/controls/MemberList';
 import RelationshipPanel from '../components/controls/RelationshipPanel';
 import RightPanel from '../components/layout/RightPanel';
 import EmptyState from '../components/common/EmptyState';
-import ChatRuntimePanel from '../components/chat/ChatRuntimePanel';
-import SessionActionPanel from '../components/session/SessionActionPanel';
-import { runSessionActionExecutor } from '../services/sessionActionExecutors/sessionActionExecutorRegistry';
-
-function normalizeActionEvent(event: { eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown }) {
-  return event;
-}
-
-async function runSessionAction(params: {
-  chat: GroupChat;
-  action: RuntimeAction;
-  updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
-  appendEventMessage: (chatId: string, payload: { eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown }) => Promise<void>;
-}) {
-  const result = runSessionActionExecutor(params.chat, params.action);
-  if (!result) return;
-  if (result.chatPatch) {
-    await params.updateChat(params.chat.id, result.chatPatch);
-  }
-  for (const event of result.runtimeEvents || []) {
-    await params.appendEventMessage(params.chat.id, normalizeActionEvent(event));
-  }
-}
+import ChatSidebarPanel from '../components/chat/ChatSidebarPanel';
 import { runChatLoop } from '../services/chatLoopRunner';
 import { summarizeRelationshipShift, updateCharacterRelationship } from '../services/relationshipEngine';
 import { deriveEmotionalState, derivePersonalityDrift } from '../services/personalityDrift';
@@ -61,6 +39,8 @@ import { accumulateChatRuntime } from '../services/chatRuntime';
 import { commitGeneratedMessage } from '../services/chatRoundExecution';
 import { buildDeletedCharacter, resolveCharacterOrDeleted } from '../utils/deletedEntity';
 import type { LiveChatMessage } from '../components/chat/chatRenderModel';
+import type { AICharacter } from '../types/character';
+import type { Message } from '../types/message';
 
 export default function ChatDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -77,11 +57,20 @@ export default function ChatDetailPage() {
   const api = useSettingsStore((s) => s.api);
   const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, setRightPanelOpen, rightPanelTab, setRightPanelTab } = useUIStore();
   const dramaBoost = useSettingsStore((s) => s.developerUI.dramaBoost);
-  const desktopRightOffset = useMemo(() => (isDesktop && rightPanelOpen ? 320 : 0), [isDesktop, rightPanelOpen]);
 
   const [thinkingId, setThinkingId] = useState<string | null>(null);
   const [liveMessage, setLiveMessage] = useState<LiveChatMessage | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [runLoopError, setRunLoopError] = useState<string | null>(null);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' }>({ open: false, message: '', severity: 'error' });
+
+  const showErrorToast = useCallback((message: string) => {
+    setSnackbar({ open: true, message, severity: 'error' });
+  }, []);
+
+  const closeSnackbar = useCallback(() => {
+    setSnackbar((prev) => ({ ...prev, open: false }));
+  }, []);
   const [privateDialogOpen, setPrivateDialogOpen] = useState(false);
   const [privateStarterId, setPrivateStarterId] = useState<string>('');
   const [privateTargetId, setPrivateTargetId] = useState<string>('');
@@ -123,7 +112,7 @@ export default function ChatDetailPage() {
   useEffect(() => {
     if (id) {
       hydrateMessagesFromCache(id);
-      loadMessages(id, { limit: 40 });
+      loadMessages(id, { limit: 20 });
       return () => {
         activeChatIdRef.current = null;
         loopTokenRef.current = null;
@@ -165,18 +154,20 @@ export default function ChatDetailPage() {
   const sessionEngine = chat ? getSessionEngine(chat.mode) : null;
   const runtimeContext = chat && sessionEngine ? createSessionRuntimeContext(sessionEngine, chat) : null;
   const projectionData = runtimeContext && sessionEngine ? resolveSessionProjectionData(sessionEngine, runtimeContext) : { view: { visiblePanels: [], availableActions: [] }, actionSchema: null, runtimeState: null, privatePayloads: [] };
-  const sessionView = projectionData.view;
-  const actionSchema = projectionData.actionSchema;
   const projectedRuntimeState = projectionData.runtimeState;
   const privatePayloads = projectionData.privatePayloads;
-  const visiblePanels = sessionView.visiblePanels;
-  const availableActions = sessionView.availableActions;
+  const visiblePanels = projectionData.view.visiblePanels;
   const memberPanel = visiblePanels.find((panel) => panel.tabKey === 'members');
   const runtimePanel = visiblePanels.find((panel) => panel.tabKey === 'world');
-  const actionPanel = visiblePanels.find((panel) => panel.type === 'actions');
   const showMemberTab = Boolean(memberPanel);
   const showRuntimeTab = Boolean(runtimePanel);
-  const showActionPanel = Boolean(actionPanel && availableActions.length > 0);
+  const hasSidebarTabs = showMemberTab && showRuntimeTab;
+  const activeSidebarTab = hasSidebarTabs ? rightPanelTab : showMemberTab ? 'members' : 'world';
+  const sidebarTitle = activeSidebarTab === 'members'
+    ? (memberPanel?.title || (chat?.type === 'group' ? t('controls.memberList') : chat?.type === 'ai_direct' ? 'AI私聊信息' : '单聊信息'))
+    : (runtimePanel?.title || '状态');
+  const canSendInput = true;
+  void canSendInput;
 
   const appendEventMessage = useCallback(async (chatId: string, payload: { eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown; visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public'; visibleToIds?: string[]; visibleToRoles?: string[] }) => {
     const targetChat = chats.find((item) => item.id === chatId);
@@ -190,16 +181,6 @@ export default function ChatDetailPage() {
       emotion: 0,
     });
   }, [addMessage, chats]);
-
-  const handleRunSessionAction = useCallback(async (action: { type: string; payload?: Record<string, unknown> }, payload: Record<string, unknown>) => {
-    if (!chat) return;
-    await runSessionAction({
-      chat,
-      action: { ...action, payload },
-      updateChat,
-      appendEventMessage,
-    });
-  }, [appendEventMessage, chat, updateChat]);
 
   useEffect(() => {
     if (!id) return;
@@ -283,6 +264,7 @@ export default function ChatDetailPage() {
           startedAt: Date.now(),
         };
         liveMessageSeedRef.current = seed;
+        setRunLoopError(null);
         setThinkingId(charId);
         updateLiveMessage(() => ({ ...seed, content: '' }));
         setCurrentSpeaker(charId);
@@ -307,12 +289,26 @@ export default function ChatDetailPage() {
         clearLiveMessage();
         setThinkingId(null);
         setCurrentSpeaker(null);
-        setChatError(error.message || (t('common.error')));
+        const message = error.message || t('common.error');
+        setChatError(message);
+        setRunLoopError(message);
+        showErrorToast(message);
       },
       onLoopError: (error) => {
         console.error('Loop error:', error);
+        const message = error instanceof Error ? error.message : String(error);
+        const safeMessage = message || t('common.error');
+        setRunLoopError(safeMessage);
+        showErrorToast(safeMessage);
       },
-      onCommit: (sessionEngine || getSessionEngine(chat.mode)).onMessageCommitted,
+      onCommit: (sessionEngine || getSessionEngine(chat.mode)).onMessageCommitted as (args: {
+        conversation: GroupChat;
+        characters: AICharacter[];
+        message: Pick<Message, 'content' | 'type' | 'senderId'>;
+        previousAiMessage: Pick<Message, 'senderId'> | null;
+        recentMessages?: Message[];
+        apiConfig?: import('../types/settings').APIConfig;
+      }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>,
       upsertMessage,
       updateCharacter,
       appendEventMessage,
@@ -327,6 +323,7 @@ export default function ChatDetailPage() {
       navigate('/settings');
       return;
     }
+    setRunLoopError(null);
     resetAllCooldowns();
     const newLoopToken = `${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     loopTokenRef.current = newLoopToken;
@@ -335,13 +332,13 @@ export default function ChatDetailPage() {
 
     setTimeout(() => runLoop(newLoopToken), 100);
   }, [api.apiKey, id, navigate, resetAllCooldowns, runLoop, start, updateChat]);
-
   const handlePause = useCallback(() => {
     pause();
     updateChat(id!, { isActive: false });
   }, [id, pause, updateChat]);
 
   const handleResume = useCallback(() => {
+    setRunLoopError(null);
     const newLoopToken = `${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     loopTokenRef.current = newLoopToken;
     start(newLoopToken);
@@ -349,7 +346,6 @@ export default function ChatDetailPage() {
     updateChat(id!, { isActive: true });
     setTimeout(() => runLoop(newLoopToken), 100);
   }, [id, resume, runLoop, start, updateChat]);
-
   const handleSpeakAs = useCallback(async (content: string) => {
     if (!speakAsCharacterId) return;
     const char = characters.find((c) => c.id === speakAsCharacterId);
@@ -472,8 +468,6 @@ export default function ChatDetailPage() {
 
   const canAutoRun = Boolean(chat?.mode === 'open_chat' && (chat?.type === 'group' || chat?.type === 'direct' || chat?.type === 'ai_direct') && activeMembers.length > 0);
 
-  const detailTitle = memberPanel?.title || (chat?.type === 'group' ? t('controls.memberList') : chat?.type === 'ai_direct' ? 'AI私聊信息' : '单聊信息');
-
   const privateCandidates = members;
 
   if (!chat) {
@@ -484,11 +478,21 @@ export default function ChatDetailPage() {
   const compactCharacterMemorySummary = speakAsChar?.layeredMemories?.slice(-2).map((item) => item.text).join(' / ');
 
   return (
-    <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+    <Box sx={{ display: 'flex', flex: 1, minHeight: 0, height: '100%', overflow: 'hidden' }}>
       {/* Main chat area */}
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden', pb: { xs: 11, md: 11 } }}>
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          height: '100%',
+          overflow: 'hidden',
+          display: 'grid',
+          gridTemplateRows: 'minmax(0, 1fr) auto auto',
+        }}
+      >
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <MessageList
+            key={id}
             messages={messages}
             characters={characters}
             liveMessage={liveMessage}
@@ -497,27 +501,24 @@ export default function ChatDetailPage() {
             isLoadingOlder={isLoadingOlder}
             hasMore={hasMore}
             loadingText={t('common.loading')}
-            topHint={t('chat.empty')}
+            topHint="没有更早的消息"
           />
         </Box>
 
-        <Box sx={{ px: 2, pb: 1 }}>
+        <Box sx={{ px: 2, pb: 1, flexShrink: 0 }}>
           {compactCharacterMemorySummary && speakAsChar ? <Box sx={{ mb: 0.75, px: 1.25, py: 0.75, borderRadius: 2, bgcolor: 'action.hover', color: 'text.secondary', fontSize: 12 }}>{`${speakAsChar.name}：${compactCharacterMemorySummary}`}</Box> : null}
-          {chatError ? <Box sx={{ mb: 0.75, px: 1.25, py: 0.75, borderRadius: 2, bgcolor: 'error.light', color: 'error.contrastText', fontSize: 12 }}>{chatError}</Box> : null}
         </Box>
         <ChatInput
           mode={speakAsChar ? 'speakAs' : 'guide'}
           characterName={speakAsChar?.name}
           onSend={speakAsChar ? handleSpeakAs : handleGuideSend}
           onClose={speakAsChar ? () => setSpeakAsCharacter(null) : undefined}
-          placeholderOverride={availableActions.some((action) => action.type === 'director_intervention') ? undefined : '当前模式限制发送'}
-          desktopRightOffset={desktopRightOffset}
         />
 
       </Box>
 
       {/* Right panel */}
-      <RightPanel title={detailTitle}>
+      <RightPanel title={sidebarTitle}>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {chat.type === 'ai_direct' && chat.sourceChatId ? (
             <Button variant="outlined" onClick={() => navigate(`/chats/${chat.sourceChatId}`)}>
@@ -536,38 +537,27 @@ export default function ChatDetailPage() {
               <Box sx={{ fontSize: 14, fontWeight: 700 }}>AI私聊</Box>
             </Box>
           ) : null}
-          {visiblePanels.length > 1 ? (
-            <Tabs value={rightPanelTab} onChange={(_, value) => setRightPanelTab(value)}>
-              {showMemberTab ? <Tab value="members" label={memberPanel?.title || (chat.type === 'group' ? '成员' : '角色')} /> : null}
-              {showRuntimeTab ? <Tab value="world" label={runtimePanel?.title || '状态'} /> : null}
-            </Tabs>
-          ) : null}
+          <ChatSidebarPanel
+            chat={{ ...chat, worldState: projectedRuntimeState?.worldState || chat.worldState, runtimeTimeline: projectedRuntimeState?.runtimeTimeline || chat.runtimeTimeline, runtimeSeed: projectedRuntimeState?.runtimeSeed || chat.runtimeSeed, runtimeEventsV2: projectedRuntimeState?.runtimeEventsV2 || chat.runtimeEventsV2, relationshipLedger: projectedRuntimeState?.relationshipLedger || chat.relationshipLedger, primaryRecentEvent: projectedRuntimeState?.primaryRecentEvent }}
+            members={members}
+            thinkingId={thinkingId}
+            rightPanelTab={activeSidebarTab}
+            setRightPanelTab={setRightPanelTab}
+            showMemberTab={showMemberTab}
+            showRuntimeTab={showRuntimeTab}
+            memberPanelTitle={memberPanel?.title || (chat.type === 'group' ? '成员' : '角色')}
+            runtimePanelTitle={runtimePanel?.title || '状态'}
+            privatePayloads={privatePayloads}
+            onSpeakAs={(charId) => setSpeakAsCharacter(charId)}
+            onStartPrivateChat={chat.type === 'group' ? handleOpenPrivateChatDialog : undefined}
+            onRemoveMember={chat.type === 'group' ? (charId) => {
+              const newMembers = chat.memberIds.filter((m) => m !== charId);
+              if (newMembers.length >= 2) {
+                updateChat(chat.id, { memberIds: newMembers });
+              }
+            } : undefined}
+          />
 
-          {rightPanelTab === 'members' && showMemberTab ? (
-            <MemberList
-              members={members}
-              thinkingId={thinkingId}
-              onSpeakAs={(charId) => setSpeakAsCharacter(charId)}
-              onStartPrivateChat={chat.type === 'group' ? handleOpenPrivateChatDialog : undefined}
-              onRemove={chat.type === 'group' ? (charId) => {
-                const newMembers = chat.memberIds.filter((m) => m !== charId);
-                if (newMembers.length >= 2) {
-                  updateChat(chat.id, { memberIds: newMembers });
-                }
-              } : undefined}
-            />
-          ) : (
-            <RelationshipPanel chat={{ ...chat, worldState: projectedRuntimeState?.worldState || chat.worldState }} members={members} />
-          )}
-
-          {showActionPanel && actionSchema ? <SessionActionPanel title={actionSchema.title} actions={actionSchema.actions} onRunAction={handleRunSessionAction} /> : null}
-          {showRuntimeTab ? <ChatRuntimePanel chat={{ ...chat, worldState: projectedRuntimeState?.worldState || chat.worldState, runtimeTimeline: projectedRuntimeState?.runtimeTimeline || chat.runtimeTimeline, runtimeNotes: projectedRuntimeState?.runtimeNotes || chat.runtimeNotes, runtimeArtifacts: projectedRuntimeState?.runtimeArtifacts || chat.runtimeArtifacts }} members={members} privatePayloads={privatePayloads} /> : null}
-
-          {chat.type === 'group' ? (
-            <Button variant="outlined" onClick={() => setRightPanelTab(rightPanelTab === 'members' ? 'world' : 'members')}>
-              {rightPanelTab === 'members' ? '查看世界状态' : '查看成员'}
-            </Button>
-          ) : null}
         </Box>
       </RightPanel>
 
@@ -605,6 +595,9 @@ export default function ChatDetailPage() {
         </DialogActions>
       </Dialog>
 
+      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={closeSnackbar}>
+        <Alert severity={snackbar.severity} onClose={closeSnackbar}>{snackbar.message}</Alert>
+      </Snackbar>
     </Box>
   );
 }

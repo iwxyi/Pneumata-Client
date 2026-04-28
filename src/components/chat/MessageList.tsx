@@ -1,12 +1,13 @@
-import { useRef, useEffect, useState } from 'react';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import MessageBubble from './MessageBubble';
 import { resolveCharacterOrDeleted } from '../../utils/deletedEntity';
 import { buildChatRenderItems, type LiveChatMessage } from './chatRenderModel';
 
-const AUTO_SCROLL_THRESHOLD = 96;
+const TOP_REACH_THRESHOLD = 64;
+const BOTTOM_STICKY_THRESHOLD = 96;
 
 interface MessageListProps {
   messages: Message[];
@@ -20,173 +21,172 @@ interface MessageListProps {
   loadingText?: string;
 }
 
-function getDistanceFromBottom(container: HTMLDivElement) {
-  return container.scrollHeight - container.scrollTop - container.clientHeight;
-}
-
-export default function MessageList({ messages, characters, liveMessage = null, onDeleteMessage, onReachTop, isLoadingOlder = false, hasMore = true, topHint, loadingText }: MessageListProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const pinnedToBottomRef = useRef(true);
-  const prependAnchorScrollHeightRef = useRef(0);
-  const loadingOlderRef = useRef(false);
-  const topReachAttemptedRef = useRef(false);
-  const hasLeftTopRef = useRef(false);
-  const lastSmoothScrollAtRef = useRef(0);
-  const topHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [topTriggerTick, setTopTriggerTick] = useState(0);
-  const [showTopHint, setShowTopHint] = useState(false);
-
-  const visibleMessages = messages.filter((message) => !message.isDeleted);
+export default function MessageList({
+  messages,
+  characters,
+  liveMessage = null,
+  onDeleteMessage,
+  onReachTop,
+  isLoadingOlder = false,
+  hasMore = false,
+  topHint,
+  loadingText,
+}: MessageListProps) {
   const renderItems = buildChatRenderItems(messages, liveMessage);
-  const lastRenderItem = renderItems.at(-1);
-  const isTopHintVisible = !isLoadingOlder && !hasMore && visibleMessages.length > 0 && showTopHint;
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const topLoadTriggeredRef = useRef(false);
+  const shouldStickToBottomRef = useRef(true);
+  const hasJumpedToBottomRef = useRef(false);
+  const prependRestoreRef = useRef<{ height: number; top: number } | null>(null);
+  const autoFillTriggeredRef = useRef(false);
+  const previousRenderMetricsRef = useRef({
+    itemCount: renderItems.length,
+    liveContentLength: liveMessage?.content.length ?? 0,
+  });
 
-  const clearTopHintTimer = () => {
-    if (topHintTimerRef.current) {
-      clearTimeout(topHintTimerRef.current);
-      topHintTimerRef.current = null;
-    }
-  };
+  const topStatusText = useMemo(() => {
+    if (messages.length === 0) return null;
+    if (hasMore) return isLoadingOlder ? (loadingText || null) : '';
+    return topHint || '没有更早的消息';
+  }, [hasMore, isLoadingOlder, loadingText, messages.length, topHint]);
 
-  const revealTopHintTemporarily = () => {
-    setShowTopHint(true);
-    clearTopHintTimer();
-    topHintTimerRef.current = setTimeout(() => {
-      setShowTopHint(false);
-      topHintTimerRef.current = null;
-    }, 2600);
-  };
+  const getDistanceFromBottom = useCallback((element: HTMLDivElement) => (
+    element.scrollHeight - element.scrollTop - element.clientHeight
+  ), []);
 
-  const hideTopHint = () => {
-    clearTopHintTimer();
-    setShowTopHint(false);
-  };
-
-  const scrollToBottom = (behavior: ScrollBehavior = 'auto') => {
+  const updatePinnedState = useCallback(() => {
     const container = containerRef.current;
-    if (!container) {
-      bottomRef.current?.scrollIntoView({ behavior });
-      return;
-    }
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior,
-    });
-  };
+    if (!container) return false;
+    const pinned = getDistanceFromBottom(container) <= BOTTOM_STICKY_THRESHOLD;
+    shouldStickToBottomRef.current = pinned;
+    return pinned;
+  }, [getDistanceFromBottom]);
 
-  useEffect(() => {
-    if (topReachAttemptedRef.current && !isLoadingOlder && !hasMore && visibleMessages.length > 0) {
-      revealTopHintTemporarily();
-      return;
-    }
-    hideTopHint();
-    return undefined;
-  }, [hasMore, isLoadingOlder, visibleMessages.length]);
-
-  useEffect(() => () => clearTopHintTimer(), []);
-
-  useEffect(() => {
+  const scrollToBottom = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
+    const top = Math.max(0, container.scrollHeight - container.clientHeight);
+    container.scrollTop = top;
+  }, []);
 
-    const handleScroll = () => {
-      pinnedToBottomRef.current = getDistanceFromBottom(container) <= AUTO_SCROLL_THRESHOLD;
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container || renderItems.length === 0 || hasJumpedToBottomRef.current) return;
+    scrollToBottom();
+    hasJumpedToBottomRef.current = true;
+    shouldStickToBottomRef.current = true;
+  }, [renderItems.length, scrollToBottom]);
 
-      if (container.scrollTop > 80) {
-        hasLeftTopRef.current = true;
-      }
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const snapshot = prependRestoreRef.current;
+    if (!container || !snapshot) return;
+    prependRestoreRef.current = null;
+    const delta = container.scrollHeight - snapshot.height;
+    container.scrollTop = snapshot.top + delta;
+    updatePinnedState();
+  }, [messages, updatePinnedState]);
 
-      if (container.scrollTop > 80 && showTopHint) hideTopHint();
-
-      if (container.scrollTop <= 80 && onReachTop && hasMore && !loadingOlderRef.current && hasLeftTopRef.current) {
-        loadingOlderRef.current = true;
-        topReachAttemptedRef.current = true;
-        prependAnchorScrollHeightRef.current = container.scrollHeight;
-        setTopTriggerTick((tick) => tick + 1);
-      }
+  useEffect(() => {
+    const currentMetrics = {
+      itemCount: renderItems.length,
+      liveContentLength: liveMessage?.content.length ?? 0,
     };
+    const previousMetrics = previousRenderMetricsRef.current;
+    previousRenderMetricsRef.current = currentMetrics;
 
-    pinnedToBottomRef.current = getDistanceFromBottom(container) <= AUTO_SCROLL_THRESHOLD;
-    container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [hasMore, onReachTop, showTopHint]);
-
-  useEffect(() => {
-    if (!onReachTop || topTriggerTick === 0) return;
-    void Promise.resolve(onReachTop()).finally(() => {
-      loadingOlderRef.current = false;
-    });
-  }, [onReachTop, topTriggerTick]);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    if (prependAnchorScrollHeightRef.current > 0) {
-      const delta = container.scrollHeight - prependAnchorScrollHeightRef.current;
-      if (delta > 0) {
-        container.scrollTop = container.scrollTop + delta;
-      }
-      prependAnchorScrollHeightRef.current = 0;
+    if (!hasJumpedToBottomRef.current) return;
+    if (!shouldStickToBottomRef.current) return;
+    if (
+      currentMetrics.itemCount === previousMetrics.itemCount
+      && currentMetrics.liveContentLength === previousMetrics.liveContentLength
+    ) {
       return;
     }
 
-    if (pinnedToBottomRef.current) {
-      const now = Date.now();
-      const useSmooth = now - lastSmoothScrollAtRef.current > 140;
-      scrollToBottom(useSmooth ? 'smooth' : 'auto');
-      if (useSmooth) {
-        lastSmoothScrollAtRef.current = now;
-      }
-    }
-  }, [renderItems.length, lastRenderItem?.key, lastRenderItem?.message.content, lastRenderItem?.pending]);
+    scrollToBottom();
+  }, [liveMessage?.content, renderItems.length, scrollToBottom]);
 
   useEffect(() => {
-    if (!loadingOlderRef.current) return;
-    const container = containerRef.current;
-    if (!container) return;
-    if (container.scrollTop > 80) {
-      loadingOlderRef.current = false;
+    if (!isLoadingOlder) {
+      topLoadTriggeredRef.current = false;
+      autoFillTriggeredRef.current = false;
     }
-  }, [visibleMessages.length]);
+  }, [isLoadingOlder]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !onReachTop || isLoadingOlder || !hasMore || autoFillTriggeredRef.current) return;
+    if (container.scrollHeight > container.clientHeight + 1) return;
+
+    prependRestoreRef.current = {
+      height: container.scrollHeight,
+      top: container.scrollTop,
+    };
+    autoFillTriggeredRef.current = true;
+    topLoadTriggeredRef.current = true;
+    void onReachTop();
+  }, [hasMore, isLoadingOlder, onReachTop, renderItems.length]);
 
   return (
     <Box
       ref={containerRef}
+      onScroll={() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        updatePinnedState();
+
+        if (container.scrollTop > TOP_REACH_THRESHOLD) {
+          topLoadTriggeredRef.current = false;
+          return;
+        }
+
+        if (!onReachTop || topLoadTriggeredRef.current || isLoadingOlder || !hasMore) return;
+
+        prependRestoreRef.current = {
+          height: container.scrollHeight,
+          top: container.scrollTop,
+        };
+        topLoadTriggeredRef.current = true;
+        void onReachTop();
+      }}
       sx={{
         flex: 1,
-        overflow: 'auto',
+        height: '100%',
+        minHeight: 0,
+        overflowY: 'auto',
+        overflowX: 'hidden',
         py: 2,
         display: 'flex',
         flexDirection: 'column',
         bgcolor: (theme) => theme.palette.mode === 'light' ? '#f5f5f5' : '#121212',
       }}
     >
-      <Box sx={{ px: 2, pb: 1, display: 'flex', justifyContent: 'center' }}>
-        {isLoadingOlder ? (
-          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75, borderRadius: 999, bgcolor: 'background.paper', color: 'text.secondary', boxShadow: 1 }}>
-            <CircularProgress size={16} thickness={5} />
-            <Typography variant="caption" sx={{ fontWeight: 600 }}>{loadingText}</Typography>
-          </Box>
-        ) : isTopHintVisible ? (
-          <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1.5, py: 0.75, borderRadius: 999, bgcolor: 'action.hover', color: 'text.secondary' }}>
-            <Typography variant="caption" sx={{ fontWeight: 500 }}>{topHint}</Typography>
+      <Box>
+        {messages.length > 0 ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', px: 2, pb: 1, minHeight: 25 }}>
+            <Typography
+              variant="caption"
+              sx={{
+                color: topStatusText ? 'text.secondary' : 'transparent',
+                userSelect: 'none',
+              }}
+            >
+              {topStatusText || '没有更早的消息'}
+            </Typography>
           </Box>
         ) : null}
+        {renderItems.map((item) => (
+          <MessageBubble
+            key={item.key}
+            message={item.message}
+            character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
+            onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
+            pending={item.pending}
+          />
+        ))}
       </Box>
-
-      {renderItems.map((item) => (
-        <MessageBubble
-          key={item.key}
-          message={item.message}
-          character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
-          onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
-          pending={item.pending}
-        />
-      ))}
-
-      <div ref={bottomRef} />
     </Box>
   );
 }

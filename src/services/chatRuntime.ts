@@ -1,12 +1,34 @@
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
+import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { RuntimeEventPayload } from './runtimeEventFactory';
 import { buildRuntimeMemoryEntryFromEvent, buildTimelineEntryFromRuntimeEvent, normalizeRuntimeEvent, parseRuntimeEvent } from './runtimeEventFactory';
 
-interface RuntimeMemoryEntry {
-  kind: 'note' | 'artifact';
-  text: string;
+function convertRuntimeEventV2ToPayload(event: RuntimeEventV2): RuntimeEventPayload {
+  return {
+    eventType: event.kind,
+    title: event.kind,
+    summary: event.summary,
+    createdAt: event.createdAt,
+    timelineType: event.kind === 'artifact' ? 'artifact' : event.kind === 'interaction' || event.kind === 'relationship_delta' ? 'relationship' : 'note',
+  };
 }
+
+function eventToMemoryEntry(event: RuntimeEventV2) {
+  return buildRuntimeMemoryEntryFromEvent(convertRuntimeEventV2ToPayload(event));
+}
+
+function eventToTimelineEntry(event: RuntimeEventV2) {
+  return buildTimelineEntryFromRuntimeEvent(convertRuntimeEventV2ToPayload(event));
+}
+
+void eventToTimelineEntry;
+
+void eventToMemoryEntry;
+
+void convertRuntimeEventV2ToPayload;
+
+void normalizeRuntimeEvent;
 
 function uniq(items: string[]) {
   return Array.from(new Set(items.filter(Boolean)));
@@ -15,47 +37,47 @@ function uniq(items: string[]) {
 export function accumulateChatRuntime(
   chat: GroupChat,
   message: Pick<Message, 'content' | 'type'>,
-  memory?: RuntimeMemoryEntry | null,
   events: RuntimeEventPayload[] = [],
-  options: { maxNotes?: number; maxArtifacts?: number; maxTimeline?: number } = {}
+  options: { maxTimeline?: number } = {}
 ) {
   const normalizedEvents = events.map(normalizeRuntimeEvent);
-  const nextNotes = [...(chat.runtimeNotes || [])];
-  const nextArtifacts = [...(chat.runtimeArtifacts || [])];
   const nextTimeline = [...(chat.runtimeTimeline || [])];
-
-  if (memory?.kind === 'note') {
-    nextNotes.push(memory.text);
-    nextTimeline.push({ type: 'note', text: memory.text, createdAt: Date.now() });
-  }
-
-  if (memory?.kind === 'artifact') {
-    nextArtifacts.push(memory.text);
-    nextTimeline.push({ type: 'artifact', text: memory.text, createdAt: Date.now() });
-  }
 
   if (message.type === 'event') {
     const parsedEvent = parseRuntimeEvent(message.content);
-    if (parsedEvent) {
-      normalizedEvents.push(parsedEvent);
-    }
+    if (parsedEvent) normalizedEvents.push(parsedEvent);
   }
 
   for (const event of normalizedEvents) {
-    const timelineEntry = buildTimelineEntryFromRuntimeEvent(event);
-    nextTimeline.push(timelineEntry);
-    const memoryEntry = buildRuntimeMemoryEntryFromEvent(event);
-    if (memoryEntry?.kind === 'note') nextNotes.push(memoryEntry.text);
-    if (memoryEntry?.kind === 'artifact') nextArtifacts.push(memoryEntry.text);
+    nextTimeline.push(buildTimelineEntryFromRuntimeEvent(event));
   }
 
   return {
-    runtimeNotes: uniq(nextNotes).slice(-(options.maxNotes || 12)),
-    runtimeArtifacts: uniq(nextArtifacts).slice(-(options.maxArtifacts || 8)),
     runtimeTimeline: nextTimeline.slice(-(options.maxTimeline || 20)),
   };
 }
 
-export function accumulateChatRuntimeFromEvents(chat: GroupChat, events: RuntimeEventPayload[], options: { maxNotes?: number; maxArtifacts?: number; maxTimeline?: number } = {}) {
-  return accumulateChatRuntime(chat, { type: 'system', content: '' }, null, events, options);
+export function accumulateChatRuntimeFromEvents(chat: GroupChat, events: RuntimeEventPayload[], options: { maxTimeline?: number } = {}) {
+  return accumulateChatRuntime(chat, { type: 'system', content: '' }, events, options);
+}
+
+export function projectLegacyRuntimeSeed(chat: GroupChat) {
+  const notes = [...(chat.runtimeSeed?.notes || [])];
+  const artifacts = [...(chat.runtimeSeed?.artifacts || [])];
+
+  for (const event of chat.runtimeEventsV2 || []) {
+    const memoryEntry = eventToMemoryEntry(event);
+    if (memoryEntry?.kind === 'note') notes.push(memoryEntry.text);
+    if (memoryEntry?.kind === 'artifact') artifacts.push(memoryEntry.text);
+  }
+
+  for (const item of chat.runtimeTimeline || []) {
+    if (item.type === 'note') notes.push(item.text);
+    if (item.type === 'artifact') artifacts.push(item.text);
+  }
+
+  return {
+    notes: uniq(notes),
+    artifacts: uniq(artifacts),
+  };
 }

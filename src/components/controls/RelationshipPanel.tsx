@@ -1,6 +1,7 @@
-import { Box, Card, CardContent, Chip, Divider, LinearProgress, Stack, Typography } from '@mui/material';
+import { Box, Card, CardContent, Divider, LinearProgress, Stack, Typography } from '@mui/material';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
+import { isMeaningfulRelationshipLedgerEntry } from '../../services/relationshipLedger';
 
 interface RelationshipPanelProps {
   chat: GroupChat;
@@ -30,78 +31,70 @@ function RelationshipMeters({ affinity, respect, hostility, contempt }: { affini
 
 export default function RelationshipPanel({ chat, members }: RelationshipPanelProps) {
   const isGroupChat = chat.type === 'group';
-  const owner = members.find((member) => member.id === chat.governance.ownerCharacterId);
-  const admins = members.filter((member) => chat.governance.adminCharacterIds.includes(member.id));
+  const ledgerEntries = (chat.relationshipLedger || [])
+    .filter((entry) => !/^draft-\d+$/i.test(entry.actorId) && !/^draft-\d+$/i.test(entry.targetId))
+    .filter(isMeaningfulRelationshipLedgerEntry)
+    .slice()
+    .sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
+
+  const describeRecentEvidence = (summary: string) => summary.replace(/^[^\s]+\s(?:support|challenge|mock|dismiss|defend|evade|probe|pile_on|redirect|side_comment)(?:\s→\s[^\s]+)?\s*/, '').trim();
 
   return (
-    <Stack spacing={2}>
-      {isGroupChat ? (
-        <>
-          <Card variant="outlined">
-            <CardContent>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>世界状态</Typography>
-              <Stack spacing={1}>
-                <Typography variant="body2"><strong>阶段：</strong>{chat.worldState.phase || 'idle'}</Typography>
-                <Typography variant="body2"><strong>气氛：</strong>{chat.worldState.mood || '未设置'}</Typography>
-                <Typography variant="body2"><strong>焦点：</strong>{chat.worldState.focus || '未设置'}</Typography>
-                <Typography variant="body2"><strong>最近事件：</strong>{chat.worldState.recentEvent || '暂无'}</Typography>
-                <Typography variant="body2"><strong>变化强度：</strong>{chat.runtimeEvolutionIntensity === 'slow' ? '慢' : chat.runtimeEvolutionIntensity === 'fast' ? '快' : '平衡'}</Typography>
-              </Stack>
-            </CardContent>
-          </Card>
-
-          <Card variant="outlined">
-            <CardContent>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>管理</Typography>
-              <Stack spacing={1}>
-                <Typography variant="body2"><strong>群主：</strong>{owner?.name || '未设置'}</Typography>
-                <Typography variant="body2"><strong>管理员：</strong>{admins.length ? admins.map((item) => item.name).join('、') : '无'}</Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-                  <Chip size="small" label={chat.governance.autoModeration ? '自动管理开启' : '自动管理关闭'} />
-                  <Chip size="small" label={chat.governance.allowMute ? '允许禁言' : '不允许禁言'} />
-                  <Chip size="small" label={chat.governance.allowPrivateThreads ? '允许AI私聊' : '不允许AI私聊'} />
+    <Card variant="outlined">
+      <CardContent>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{isGroupChat ? '关系账本' : '成员信息'}</Typography>
+        {ledgerEntries.length ? (
+          <Stack spacing={1.25}>
+            {ledgerEntries.slice(0, 8).map((entry) => {
+              const actor = members.find((member) => member.id === entry.actorId);
+              const target = members.find((member) => member.id === entry.targetId);
+              return (
+                <Box key={entry.pairKey} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{actor?.name || entry.actorId} → {target?.name || entry.targetId}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    趋势：{entry.trend === 'flat' ? '平' : entry.trend === 'volatile' ? '震荡' : entry.trend === 'down' ? '下降' : '上升'}
+                  </Typography>
+                  <RelationshipMeters affinity={entry.current.affinity} respect={entry.current.respect} hostility={entry.current.hostility} contempt={entry.current.contempt} />
+                  {entry.recentEvents[entry.recentEvents.length - 1] ? (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+                      最近证据：{describeRecentEvidence(entry.recentEvents[entry.recentEvents.length - 1].summary) || '无'}
+                    </Typography>
+                  ) : null}
                 </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </>
-      ) : null}
-
-      <Card variant="outlined">
-        <CardContent>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{isGroupChat ? '关系提示' : '成员信息'}</Typography>
-          {members.length === 0 ? <Typography variant="body2">暂无成员</Typography> : (
-            <Stack spacing={1.25}>
-              {members.map((member) => (
-                <Box key={member.id}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}</Typography>
-                  {member.relationships.length ? (
-                    <Stack spacing={1} sx={{ mt: 0.5 }}>
-                      {member.relationships.slice(0, 3).map((relation, index) => {
-                        const target = members.find((item) => item.id === relation.characterId);
-                        return (
-                          <Box key={`${member.id}-${index}`} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
-                            <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>
-                              对 {target?.name || relation.characterId}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {relation.note || '暂无备注'}
-                            </Typography>
-                            <RelationshipMeters affinity={relation.affinity} respect={relation.respect} hostility={relation.hostility} contempt={relation.contempt} />
-                          </Box>
-                        );
-                      })}
-                    </Stack>
-                  ) : (
-                    <Typography variant="caption" color="text.secondary">暂无明确关系备注</Typography>
-                  )}
-                  <Divider sx={{ mt: 1 }} />
-                </Box>
-              ))}
-            </Stack>
-          )}
-        </CardContent>
-      </Card>
-    </Stack>
+              );
+            })}
+          </Stack>
+        ) : members.length === 0 ? <Typography variant="body2">暂无成员</Typography> : (
+          <Stack spacing={1.25}>
+            {members.map((member) => (
+              <Box key={member.id}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}</Typography>
+                {member.relationships.length ? (
+                  <Stack spacing={1} sx={{ mt: 0.5 }}>
+                    {member.relationships.slice(0, 3).map((relation, index) => {
+                      const target = members.find((item) => item.id === relation.characterId);
+                      return (
+                        <Box key={`${member.id}-${index}`} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+                          <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>
+                            对 {target?.name || relation.characterId}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {relation.note || '暂无备注'}
+                          </Typography>
+                          <RelationshipMeters affinity={relation.affinity} respect={relation.respect} hostility={relation.hostility} contempt={relation.contempt} />
+                        </Box>
+                      );
+                    })}
+                  </Stack>
+                ) : (
+                  <Typography variant="caption" color="text.secondary">暂无明确关系备注</Typography>
+                )}
+                <Divider sx={{ mt: 1 }} />
+              </Box>
+            ))}
+          </Stack>
+        )}
+      </CardContent>
+    </Card>
   );
 }

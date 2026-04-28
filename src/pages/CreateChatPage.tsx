@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayout';
 import {
-  Box, Typography, TextField, Button, IconButton,
-  Checkbox, Avatar, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Divider,
-  FormControlLabel, Switch, Snackbar, Alert, Tabs, Tab, MenuItem, Card, CardContent, Stack, InputAdornment,
+  Box, Typography, TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions,
+  Snackbar, Alert, Tabs, Tab, Stack,
 } from '@mui/material';
-import { Add as AddIcon, Delete as DeleteIcon, AutoAwesome as AutoAwesomeIcon, LocalFireDepartment as HotIcon } from '@mui/icons-material';
+import { Delete as DeleteIcon, AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
@@ -18,10 +17,13 @@ import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULE
 import { generateChatDraftSuggestion } from '../services/chatDraftGenerator';
 import { api as apiClient } from '../services/api';
 import { CHAT_STYLE_OPTIONS, MIN_MEMBERS, MAX_MEMBERS } from '../constants/defaults';
-import ChatRuntimePanel from '../components/chat/ChatRuntimePanel';
+import RuntimeSeedSection from '../components/createChat/RuntimeSeedSection';
+import DirectorControlsSection from '../components/createChat/DirectorControlsSection';
+import ChatConfigSection from '../components/createChat/ChatConfigSection';
+import ManagementSection from '../components/createChat/ManagementSection';
+import MemberSelectionDialog from '../components/createChat/MemberSelectionDialog';
 import HotTopicDialog from '../components/createChat/HotTopicDialog';
 import { useHotTopicDialog } from '../components/createChat/useHotTopicDialog';
-import { isImageAvatar } from '../utils/avatar';
 
 export default function CreateChatPage() {
   const { t, i18n } = useTranslation();
@@ -51,8 +53,8 @@ export default function CreateChatPage() {
   const [mood, setMood] = useState('');
   const [focus, setFocus] = useState('');
   const [recentEvent, setRecentEvent] = useState('');
-  const [runtimeNotesText, setRuntimeNotesText] = useState('');
-  const [runtimeArtifactsText, setRuntimeArtifactsText] = useState('');
+  const [seedMemoryText, setSeedMemoryText] = useState('');
+  const [seedArtifactText, setSeedArtifactText] = useState('');
   const [allowCliques, setAllowCliques] = useState(false);
   const [allowMockery, setAllowMockery] = useState(false);
   const [showRoleActions, setShowRoleActions] = useState(true);
@@ -110,8 +112,8 @@ export default function CreateChatPage() {
       setMood(editingChat.worldState.mood || '');
       setFocus(editingChat.worldState.focus || '');
       setRecentEvent(editingChat.worldState.recentEvent || '');
-      setRuntimeNotesText((editingChat.runtimeNotes || []).join('\n'));
-      setRuntimeArtifactsText((editingChat.runtimeArtifacts || []).join('\n'));
+      setSeedMemoryText((editingChat.runtimeSeed?.notes || []).join('\n'));
+      setSeedArtifactText((editingChat.runtimeSeed?.artifacts || []).join('\n'));
       setAllowCliques(editingChat.dramaRules.allowCliques);
       setAllowMockery(editingChat.dramaRules.allowMockery);
       setShowRoleActions(editingChat.showRoleActions ?? true);
@@ -134,8 +136,8 @@ export default function CreateChatPage() {
     setMood('');
     setFocus('');
     setRecentEvent('');
-    setRuntimeNotesText('');
-    setRuntimeArtifactsText('');
+    setSeedMemoryText('');
+    setSeedArtifactText('');
     setAllowCliques(false);
     setAllowMockery(false);
     setAllowSpeakAs(true);
@@ -169,8 +171,8 @@ export default function CreateChatPage() {
       mood,
       focus,
       recentEvent,
-      runtimeNotesText,
-      runtimeArtifactsText,
+      seedMemoryText,
+      seedArtifactText,
       allowCliques,
       allowMockery,
       showRoleActions,
@@ -200,8 +202,8 @@ export default function CreateChatPage() {
       setMood(String(draft.mood || ''));
       setFocus(String(draft.focus || ''));
       setRecentEvent(String(draft.recentEvent || ''));
-      setRuntimeNotesText(String(draft.runtimeNotesText || ''));
-      setRuntimeArtifactsText(String(draft.runtimeArtifactsText || ''));
+      setSeedMemoryText(String(draft.seedMemoryText || draft.runtimeNotesText || ''));
+      setSeedArtifactText(String(draft.seedArtifactText || draft.runtimeArtifactsText || ''));
       setAllowCliques(Boolean(draft.allowCliques));
       setAllowMockery(Boolean(draft.allowMockery));
       setShowRoleActions(Boolean(draft.showRoleActions));
@@ -386,8 +388,7 @@ export default function CreateChatPage() {
         modeState: {
           ...DEFAULT_OPEN_CHAT_MODE_STATE,
         },
-        runtimeNotes: [],
-        runtimeArtifacts: [],
+        runtimeSeed: { notes: [], artifacts: [] },
         layeredMemories: [],
         runtimeTimeline: [],
         worldState: {
@@ -584,8 +585,10 @@ export default function CreateChatPage() {
           allowIntervention: true,
           showRoleActions,
           topicSeed: '',
-          runtimeNotes: runtimeNotesText.split('\n').map((item) => item.trim()).filter(Boolean),
-          runtimeArtifacts: runtimeArtifactsText.split('\n').map((item) => item.trim()).filter(Boolean),
+          runtimeSeed: {
+            notes: seedMemoryText.split('\n').map((item) => item.trim()).filter(Boolean),
+            artifacts: seedArtifactText.split('\n').map((item) => item.trim()).filter(Boolean),
+          },
           runtimeTimeline: editingChat.runtimeTimeline || [],
           governance: {
             ...DEFAULT_CONVERSATION_GOVERNANCE,
@@ -634,8 +637,10 @@ export default function CreateChatPage() {
         allowIntervention: true,
         showRoleActions,
         topicSeed: '',
-        runtimeNotes: runtimeNotesText.split('\n').map((item) => item.trim()).filter(Boolean),
-        runtimeArtifacts: runtimeArtifactsText.split('\n').map((item) => item.trim()).filter(Boolean),
+        runtimeSeed: {
+          notes: seedMemoryText.split('\n').map((item) => item.trim()).filter(Boolean),
+          artifacts: seedArtifactText.split('\n').map((item) => item.trim()).filter(Boolean),
+        },
         governance: {
           ...DEFAULT_CONVERSATION_GOVERNANCE,
           ownerCharacterId: normalizedOwnerCharacterId,
@@ -688,100 +693,115 @@ export default function CreateChatPage() {
         </Tabs>
 
         {configTab === 0 ? (
-          <Stack spacing={2}>
-            <Card variant="outlined"><CardContent><TextField label={t('chat.name')} placeholder={t('chat.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} required fullWidth slotProps={{ input: { endAdornment: (<InputAdornment position="end"><IconButton color="primary" onClick={openHotDialog} edge="end" aria-label={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}><HotIcon /></IconButton></InputAdornment>) } }} /></CardContent></Card>
-            <Card variant="outlined"><CardContent><TextField label={t('chat.topic')} placeholder={topicPlaceholder} value={topic} onChange={(e) => setTopic(e.target.value)} fullWidth multiline rows={2} /></CardContent></Card>
-            <Card variant="outlined"><CardContent><Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}><Box><Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{t('chat.selectMembers')}</Typography><Typography variant="caption" color="text.secondary">{t('chat.membersHint')} ({selectedMembers.length}/{MAX_MEMBERS})</Typography></Box><IconButton color="primary" onClick={() => setMemberDialogOpen(true)}><AddIcon /></IconButton></Box>{selectedCharacters.length > 0 ? (<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{selectedCharacters.map((char) => (<Chip key={char.id} avatar={<Avatar src={isImageAvatar(char.avatar) ? char.avatar : undefined} sx={{ bgcolor: 'primary.light' }}>{isImageAvatar(char.avatar) ? undefined : char.avatar}</Avatar>} label={char.name} onDelete={() => toggleMember(char.id)} />))}</Box>) : (<Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 3, color: 'text.secondary' }}>{memberSummaryEmptyLabel}</Box>)}</CardContent></Card>
-            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{t('chat.style')}</Typography><Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{CHAT_STYLE_OPTIONS.map((opt) => (<Button key={opt.value} variant={style === opt.value ? 'contained' : 'outlined'} onClick={() => setStyle(opt.value)} sx={{ borderRadius: 999 }}>{getStyleLabel(opt.value)}</Button>))}</Box></CardContent></Card>
-            <Card variant="outlined"><CardContent><FormControlLabel control={<Switch checked={showRoleActions} onChange={(e) => setShowRoleActions(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'} /></CardContent></Card>
-          </Stack>
-        ) : null}
-
-        {configTab === 3 ? (
-          <Stack spacing={2}>
-            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>群聊运行态</Typography><Stack spacing={1}><Typography variant="body2"><strong>阶段：</strong>{runtimePhaseLabel}</Typography><Typography variant="body2"><strong>气氛：</strong>{runtimeMoodLabel}</Typography><Typography variant="body2"><strong>焦点：</strong>{runtimeFocusLabel}</Typography><Typography variant="body2"><strong>最近事件：</strong>{runtimeRecentEventLabel}</Typography><Typography variant="body2"><strong>{i18n.language.startsWith('zh') ? '变化强度' : 'Evolution intensity'}：</strong>{runtimeEvolutionIntensity === 'slow' ? (i18n.language.startsWith('zh') ? '慢' : 'Slow') : runtimeEvolutionIntensity === 'fast' ? (i18n.language.startsWith('zh') ? '快' : 'Fast') : (i18n.language.startsWith('zh') ? '平衡' : 'Balanced')}</Typography></Stack></CardContent></Card>
-            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>长期沉淀记忆</Typography><TextField value={runtimeNotesText} onChange={(e) => setRuntimeNotesText(e.target.value)} multiline rows={5} fullWidth placeholder="每行一条，例如：该群容易因技术路线分裂" /></CardContent></Card>
-            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>成果 / 产物</Typography><TextField value={runtimeArtifactsText} onChange={(e) => setRuntimeArtifactsText(e.target.value)} multiline rows={4} fullWidth placeholder="每行一条，例如：一份共识纪要 / 一张关系图" /></CardContent></Card>
-            <ChatRuntimePanel chat={{ ...(editingChat || {}), id: editingChat?.id || 'draft', type: 'group', mode: 'open_chat', modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG, modeState: DEFAULT_OPEN_CHAT_MODE_STATE, name: name || '未命名群聊', topic, style, runtimeEvolutionIntensity, memberIds: selectedMembers, speed: 1, isActive: false, allowIntervention: true, showRoleActions, topicSeed: '', sourceChatId: null, sourceMemberIds: [], runtimeNotes: runtimeNotesText.split('\n').map((item) => item.trim()).filter(Boolean), runtimeArtifacts: runtimeArtifactsText.split('\n').map((item) => item.trim()).filter(Boolean), runtimeTimeline: editingChat?.runtimeTimeline || [], governance: { ...DEFAULT_CONVERSATION_GOVERNANCE, ownerCharacterId: ownerCharacterId || null, adminCharacterIds, autoModeration, allowMute, allowPrivateThreads }, dramaRules: { ...DEFAULT_CONVERSATION_DRAMA_RULES, allowCliques, allowMockery }, worldState: { ...DEFAULT_CONVERSATION_WORLD_STATE, mood, focus, recentEvent }, directorControls: { ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, allowSpeakAs, allowDirectorMode, allowEventInjection, allowForcedReply }, createdAt: editingChat?.createdAt || Date.now(), updatedAt: editingChat?.updatedAt || Date.now(), lastMessageAt: editingChat?.lastMessageAt || Date.now() }} members={selectedCharacters} />
-          </Stack>
+          <ChatConfigSection
+            name={name}
+            topic={topic}
+            style={style}
+            showRoleActions={showRoleActions}
+            selectedMembers={selectedMembers}
+            selectedCharacters={selectedCharacters}
+            language={i18n.language}
+            memberSummaryEmptyLabel={memberSummaryEmptyLabel}
+            topicPlaceholder={topicPlaceholder}
+            getStyleLabel={getStyleLabel}
+            onNameChange={setName}
+            onTopicChange={setTopic}
+            onStyleChange={setStyle}
+            onShowRoleActionsChange={setShowRoleActions}
+            onOpenMemberDialog={() => setMemberDialogOpen(true)}
+            onOpenHotDialog={openHotDialog}
+            onToggleMember={toggleMember}
+            nameLabel={t('chat.name')}
+            namePlaceholder={t('chat.namePlaceholder')}
+            topicLabel={t('chat.topic')}
+            selectMembersLabel={t('chat.selectMembers')}
+            membersHintLabel={t('chat.membersHint')}
+            styleLabel={t('chat.style')}
+            showRoleActionsLabel={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'}
+            openTopicInspirationLabel={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}
+          />
         ) : null}
 
         {configTab === 1 ? (
-          <Box sx={{ display: 'grid', gap: 2 }}>
-            <TextField
-              select
-              label={i18n.language.startsWith('zh') ? '群主' : 'Owner'}
-              value={ownerCharacterId}
-              onChange={(e) => setOwnerCharacterId(e.target.value)}
-              fullWidth
-            >
-              <MenuItem value="">{noOwnerLabel}</MenuItem>
-              {selectedCharacters.map((char) => <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>)}
-            </TextField>
-            <TextField
-              select
-              slotProps={{ select: { multiple: true } }}
-              label={i18n.language.startsWith('zh') ? '管理员' : 'Admins'}
-              value={adminCharacterIds}
-              onChange={(e) => setAdminCharacterIds((typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value).filter(Boolean))}
-              fullWidth
-            >
-              {selectedCharacters.map((char) => <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>)}
-            </TextField>
-            <TextField
-              label={i18n.language.startsWith('zh') ? '管理员说明' : 'Admin notes'}
-              value={adminNotesValue}
-              slotProps={{ input: { readOnly: true } }}
-              fullWidth
-            />
-            <Typography variant="caption" color="text.secondary">
-              {i18n.language.startsWith('zh') ? '可多选管理员；群主不会重复加入管理员。' : 'You can select multiple admins; the owner is excluded automatically.'}
-            </Typography>
-            <FormControlLabel control={<Switch checked={autoModeration} onChange={(e) => setAutoModeration(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '自动管理' : 'Auto moderation'} />
-            <FormControlLabel control={<Switch checked={allowMute} onChange={(e) => setAllowMute(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许禁言' : 'Allow mute'} />
-            <FormControlLabel control={<Switch checked={allowPrivateThreads} onChange={(e) => setAllowPrivateThreads(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许拉私聊' : 'Allow private threads'} />
-            <Card variant="outlined">
-              <CardContent>
-                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
-                  {i18n.language.startsWith('zh') ? '戏剧规则' : 'Drama'}
-                </Typography>
-                <Box sx={{ display: 'grid', gap: 1 }}>
-                  <FormControlLabel control={<Switch checked={allowCliques} onChange={(e) => setAllowCliques(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许小团体' : 'Allow cliques'} />
-                  <FormControlLabel control={<Switch checked={allowMockery} onChange={(e) => setAllowMockery(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许公开嘲讽' : 'Allow mockery'} />
-                </Box>
-              </CardContent>
-            </Card>
-            {editingChat ? (
-              <Card variant="outlined" sx={{ borderColor: 'error.light', bgcolor: 'rgba(211, 47, 47, 0.04)' }}>
-                <CardContent>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: 'error.main' }}>
-                    {i18n.language.startsWith('zh') ? '危险操作' : 'Danger zone'}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                    {i18n.language.startsWith('zh') ? '可分别清理消息记录或会话级记忆，不删除群聊本身。' : 'You can clear messages or session memory separately without deleting the chat itself.'}
-                  </Typography>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                    <Button color="error" variant="outlined" onClick={openClearMessagesDialog}>
-                      {clearMessagesLabel}
-                    </Button>
-                    <Button color="error" variant="outlined" onClick={openClearMemoryDialog}>
-                      {clearMemoryLabel}
-                    </Button>
-                  </Stack>
-                </CardContent>
-              </Card>
-            ) : null}
-          </Box>
+          <ManagementSection
+            selectedCharacters={selectedCharacters}
+            ownerCharacterId={ownerCharacterId}
+            adminCharacterIds={adminCharacterIds}
+            noOwnerLabel={noOwnerLabel}
+            adminNotesValue={adminNotesValue}
+            autoModeration={autoModeration}
+            allowMute={allowMute}
+            allowPrivateThreads={allowPrivateThreads}
+            allowCliques={allowCliques}
+            allowMockery={allowMockery}
+            editingChat={Boolean(editingChat)}
+            language={i18n.language}
+            clearMessagesLabel={clearMessagesLabel}
+            clearMemoryLabel={clearMemoryLabel}
+            onOwnerChange={setOwnerCharacterId}
+            onAdminChange={setAdminCharacterIds}
+            onAutoModerationChange={setAutoModeration}
+            onAllowMuteChange={setAllowMute}
+            onAllowPrivateThreadsChange={setAllowPrivateThreads}
+            onAllowCliquesChange={setAllowCliques}
+            onAllowMockeryChange={setAllowMockery}
+            onOpenClearMessagesDialog={openClearMessagesDialog}
+            onOpenClearMemoryDialog={openClearMemoryDialog}
+          />
+        ) : null}
+
+        {configTab === 2 ? (
+          <RuntimeSeedSection
+            editingChatId={editingChat?.id}
+            editingChatCreatedAt={editingChat?.createdAt}
+            editingChatUpdatedAt={editingChat?.updatedAt}
+            editingChatLastMessageAt={editingChat?.lastMessageAt}
+            editingChatTimeline={editingChat?.runtimeTimeline}
+            name={name}
+            topic={topic}
+            style={style}
+            runtimeEvolutionIntensity={runtimeEvolutionIntensity}
+            selectedMembers={selectedMembers}
+            showRoleActions={showRoleActions}
+            ownerCharacterId={ownerCharacterId}
+            adminCharacterIds={adminCharacterIds}
+            autoModeration={autoModeration}
+            allowMute={allowMute}
+            allowPrivateThreads={allowPrivateThreads}
+            allowCliques={allowCliques}
+            allowMockery={allowMockery}
+            mood={mood}
+            focus={focus}
+            recentEvent={recentEvent}
+            allowSpeakAs={allowSpeakAs}
+            allowDirectorMode={allowDirectorMode}
+            allowEventInjection={allowEventInjection}
+            allowForcedReply={allowForcedReply}
+            seedMemoryText={seedMemoryText}
+            seedArtifactText={seedArtifactText}
+            setSeedMemoryText={setSeedMemoryText}
+            setSeedArtifactText={setSeedArtifactText}
+            runtimePhaseLabel={runtimePhaseLabel}
+            runtimeMoodLabel={runtimeMoodLabel}
+            runtimeFocusLabel={runtimeFocusLabel}
+            runtimeRecentEventLabel={runtimeRecentEventLabel}
+            selectedCharacters={selectedCharacters}
+          />
         ) : null}
 
         {configTab === 3 ? (
-          <Box sx={{ display: 'grid', gap: 1 }}>
-            <Card variant="outlined"><CardContent><Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{i18n.language.startsWith('zh') ? '变化强度' : 'Evolution intensity'}</Typography><Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}><Button variant={runtimeEvolutionIntensity === 'slow' ? 'contained' : 'outlined'} onClick={() => setRuntimeEvolutionIntensity('slow')} sx={{ borderRadius: 999 }}>{i18n.language.startsWith('zh') ? '慢' : 'Slow'}</Button><Button variant={runtimeEvolutionIntensity === 'balanced' ? 'contained' : 'outlined'} onClick={() => setRuntimeEvolutionIntensity('balanced')} sx={{ borderRadius: 999 }}>{i18n.language.startsWith('zh') ? '平衡' : 'Balanced'}</Button><Button variant={runtimeEvolutionIntensity === 'fast' ? 'contained' : 'outlined'} onClick={() => setRuntimeEvolutionIntensity('fast')} sx={{ borderRadius: 999 }}>{i18n.language.startsWith('zh') ? '快' : 'Fast'}</Button></Box><Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>{i18n.language.startsWith('zh') ? '控制关系、情绪和人格漂移是快速显现，还是多轮对话后慢慢沉淀。' : 'Controls how quickly relationships, emotions, and drift become visible.'}</Typography></CardContent></Card>
-            <FormControlLabel control={<Switch checked={allowSpeakAs} onChange={(e) => setAllowSpeakAs(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许以角色身份发言' : 'Allow speak as'} />
-            <FormControlLabel control={<Switch checked={allowDirectorMode} onChange={(e) => setAllowDirectorMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许导演模式' : 'Allow director mode'} />
-            <FormControlLabel control={<Switch checked={allowEventInjection} onChange={(e) => setAllowEventInjection(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许事件投放' : 'Allow event injection'} />
-            <FormControlLabel control={<Switch checked={allowForcedReply} onChange={(e) => setAllowForcedReply(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '允许强制指定回复' : 'Allow forced reply'} />
-          </Box>
+          <DirectorControlsSection
+            runtimeEvolutionIntensity={runtimeEvolutionIntensity}
+            setRuntimeEvolutionIntensity={setRuntimeEvolutionIntensity}
+            allowSpeakAs={allowSpeakAs}
+            setAllowSpeakAs={setAllowSpeakAs}
+            allowDirectorMode={allowDirectorMode}
+            setAllowDirectorMode={setAllowDirectorMode}
+            allowEventInjection={allowEventInjection}
+            setAllowEventInjection={setAllowEventInjection}
+            allowForcedReply={allowForcedReply}
+            setAllowForcedReply={setAllowForcedReply}
+          />
         ) : null}
 
         <Button
@@ -807,59 +827,25 @@ export default function CreateChatPage() {
         <Alert severity={snackbar.severity} onClose={closeSnackbar}>{snackbar.message}</Alert>
       </Snackbar>
 
-      <Dialog open={memberDialogOpen} onClose={closeMemberDialog} maxWidth="md" fullWidth>
-        <DialogTitle>{t('chat.selectMembers')}</DialogTitle>
-        <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
-            {hasCustomCharacters ? (
-              <Box sx={selectedMemberGridSx}>
-                {customCharacters.map((char) => (
-                  <Box
-                    key={char.id}
-                    onClick={() => toggleMember(char.id)}
-                    onPointerDown={() => startMemberLongPress(char.id)}
-                    onPointerUp={clearMemberPressTimer}
-                    onPointerLeave={clearMemberPressTimer}
-                    onPointerCancel={clearMemberPressTimer}
-                    onContextMenu={(e) => handleMemberItemContextMenu(e, char.id)}
-                    sx={memberOptionSx(selectedMembers.includes(char.id))}
-                  >
-                    <Checkbox checked={selectedMembers.includes(char.id)} size="small" onClick={(e) => { e.stopPropagation(); toggleMember(char.id); }} />
-                    <Avatar src={isImageAvatar(char.avatar) ? char.avatar : undefined} sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>{isImageAvatar(char.avatar) ? undefined : char.avatar}</Avatar>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{char.name}</Typography>
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-            ) : null}
-
-            {hasCustomCharacters && hasPresetCharacters ? <Divider /> : null}
-
-            {hasPresetCharacters ? (
-              <Box sx={selectedMemberGridSx}>
-                {presetCharacters.map((char) => (
-                  <Box
-                    key={char.id}
-                    onClick={() => toggleMember(char.id)}
-                    sx={memberOptionSx(selectedMembers.includes(char.id))}
-                  >
-                    <Checkbox checked={selectedMembers.includes(char.id)} size="small" onClick={(e) => { e.stopPropagation(); toggleMember(char.id); }} />
-                    <Avatar src={isImageAvatar(char.avatar) ? char.avatar : undefined} sx={{ width: 36, height: 36, fontSize: '1.1rem', bgcolor: 'primary.light' }}>{isImageAvatar(char.avatar) ? undefined : char.avatar}</Avatar>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{char.name}</Typography>
-                    </Box>
-                    <Chip label="Preset" size="small" variant="outlined" />
-                  </Box>
-                ))}
-              </Box>
-            ) : null}
-          </Box>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={confirmMemberDialog}>{memberDialogConfirmLabel}</Button>
-        </DialogActions>
-      </Dialog>
+      <MemberSelectionDialog
+        open={memberDialogOpen}
+        onClose={closeMemberDialog}
+        customCharacters={customCharacters}
+        presetCharacters={presetCharacters}
+        selectedMembers={selectedMembers}
+        hasCustomCharacters={hasCustomCharacters}
+        hasPresetCharacters={hasPresetCharacters}
+        selectedMemberGridSx={selectedMemberGridSx}
+        memberOptionSx={memberOptionSx}
+        title={t('chat.selectMembers')}
+        presetLabel="Preset"
+        confirmLabel={memberDialogConfirmLabel}
+        onConfirm={confirmMemberDialog}
+        onToggleMember={toggleMember}
+        onStartLongPress={startMemberLongPress}
+        onClearPressTimer={clearMemberPressTimer}
+        onContextMenu={handleMemberItemContextMenu}
+      />
 
       <Dialog open={deleteConfirmOpen} onClose={closeDeleteDialog} maxWidth="xs" fullWidth>
         <DialogTitle>{deleteChatTitle}</DialogTitle>

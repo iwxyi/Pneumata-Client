@@ -3,11 +3,24 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import { getPreferredAIProfile } from '../types/settings';
+import type { InteractionEventPayload } from '../types/runtimeEvent';
 import { generateResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildChatMessages } from './promptBuilder';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
+import { analyzeEmotion, updateEmotion } from './emotionTracker';
+import { calculateWeights, selectSpeaker } from './scheduler';
+import { deriveSpeakIntentFromContext, describeIntentForPrompt } from './intentEngine';
+import { buildHumanizationPrompt, postProcessHumanChat } from './dialogueHumanizer';
+import { BASE_COOLDOWN_MS, MAX_HISTORY_FOR_PROMPT } from '../constants/defaults';
+import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 
-function buildSessionSystemPrompt(args: Parameters<typeof buildSystemPromptWithContext>[0] extends never ? never : {
+interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
+  interactionHint?: InteractionEventPayload | null;
+}
+
+const emotionMap: Record<string, number> = {};
+
+function buildSessionSystemPrompt(args: {
   speaker: AICharacter;
   chat: GroupChat;
   emotion: number;
@@ -54,26 +67,14 @@ function buildSpeakerSystemPrompt(args: {
   });
   return buildSessionPrompt(basePrompt, args.activeMessages);
 }
-import { analyzeEmotion, updateEmotion } from './emotionTracker';
-import { calculateWeights, selectSpeaker } from './scheduler';
-import { deriveSpeakIntentFromContext, describeIntentForPrompt } from './intentEngine';
-import { buildHumanizationPrompt, postProcessHumanChat } from './dialogueHumanizer';
-import { BASE_COOLDOWN_MS, MAX_HISTORY_FOR_PROMPT } from '../constants/defaults';
 
-const emotionMap: Record<string, number> = {};
-
-export const getEmotion = (characterId: string): number => {
-  return emotionMap[characterId] || 0;
-};
-
-export const setEmotion = (characterId: string, value: number): void => {
-  emotionMap[characterId] = value;
-};
+export const getEmotion = (characterId: string): number => emotionMap[characterId] || 0;
+export const setEmotion = (characterId: string, value: number): void => { emotionMap[characterId] = value; };
 
 export interface ChatEngineCallbacks {
   onSpeakerSelected: (characterId: string) => void;
   onMessageChunk: (content: string) => void;
-  onMessageComplete: (message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>) => void | Promise<void>;
+  onMessageComplete: (message: GeneratedRoundMessage) => void | Promise<void>;
   onError: (error: Error) => void;
 }
 
@@ -91,31 +92,6 @@ function trimSpeakerPrefix(content: string, speakerName: string) {
   return content.replace(new RegExp(`^${escapedName}\\s*[:：]\\s*`), '').trim();
 }
 
-function sanitizeChunk(content: string, showRoleActions?: boolean) {
-  if (showRoleActions !== false) return content;
-
-  const trimmed = content.trimStart();
-  if (!trimmed) return '';
-
-  const startsWithBracket = trimmed.startsWith('（') || trimmed.startsWith('(');
-  if (!startsWithBracket) return stripRoleActions(content);
-
-  const closeIndex = (() => {
-    const cn = trimmed.indexOf('）');
-    const en = trimmed.indexOf(')');
-    if (cn === -1) return en;
-    if (en === -1) return cn;
-    return Math.min(cn, en);
-  })();
-
-  if (closeIndex === -1) {
-    return content;
-  }
-
-  const remainder = trimmed.slice(closeIndex + 1);
-  return stripRoleActions(remainder);
-}
-
 function trimHumanChatStyle(content: string) {
   const trimmed = content.trim();
   if (!trimmed) return trimmed;
@@ -130,16 +106,8 @@ function trimHumanChatStyle(content: string) {
 function salvageEmptyResponse(raw: string, speakerName: string, showRoleActions?: boolean) {
   const withoutPrefix = trimSpeakerPrefix(raw.trim(), speakerName);
   if (!withoutPrefix) return '';
-
   const stripped = showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix;
   if (normalizeForComparison(stripped)) return stripped.trim();
-
-  const unwrapped = withoutPrefix
-    .replace(/^[（(][^）)]{0,40}[）)]\s*/u, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (normalizeForComparison(unwrapped)) return unwrapped;
-
   const fallback = withoutPrefix
     .replace(/[（(][^）)]{0,40}[）)]/gu, ' ')
     .replace(/\*[^*\n]{1,24}\*/g, ' ')
@@ -196,10 +164,7 @@ function collectRecentConstraintLines(messages: Message[], speakerId: string) {
 
 function buildGenerationConstraints(messages: Message[], speakerId: string) {
   const recentLines = collectRecentConstraintLines(messages, speakerId);
-  const forbiddenBlock = recentLines.length
-    ? `\nForbidden semantic overlap:\n${recentLines.join('\n')}`
-    : '';
-
+  const forbiddenBlock = recentLines.length ? `\nForbidden semantic overlap:\n${recentLines.join('\n')}` : '';
   return `\nHard constraints for this reply:
 - Write exactly one chat message only. No self-explanation, no meta commentary.
 - Do not repeat, paraphrase, summarize, or restate the same semantic point from the forbidden lines.
@@ -225,6 +190,21 @@ function resolveApiConfigForCharacter(character: AICharacter, apiConfig: APIConf
   return apiConfig as APIConfig;
 }
 
+function toInteractionPayload(hint: { targetId?: string | null; kind?: InteractionEventPayload['kind']; tone?: InteractionEventPayload['tone']; intensity?: number; confidence?: number } | null, speakerId: string, content: string): InteractionEventPayload | null {
+  if (!hint?.targetId || !hint.kind || hint.kind === 'side_comment') return null;
+  const intensity = Math.max(1, Math.min(5, Number(hint.intensity || 0)));
+  const confidence = Math.max(0, Math.min(1, Number(hint.confidence || 0)));
+  return {
+    actorId: speakerId,
+    targetId: hint.targetId,
+    kind: hint.kind,
+    tone: hint.tone || 'cold',
+    intensity,
+    confidence,
+    evidenceText: content.slice(0, 120),
+  };
+}
+
 export const runOneRound = async (
   chat: GroupChat,
   characters: AICharacter[],
@@ -234,7 +214,6 @@ export const runOneRound = async (
   profiles?: AIModelProfile[]
 ): Promise<void> => {
   const chatMembers = characters.filter((c) => chat.memberIds.includes(c.id));
-
   if (chatMembers.length === 0) {
     callbacks.onError(new Error('No AI members in this chat'));
     return;
@@ -242,19 +221,10 @@ export const runOneRound = async (
 
   const lastSpeakTimestamps: Record<string, number> = {};
   for (const msg of messages) {
-    if (msg.type === 'ai' && !msg.isDeleted) {
-      lastSpeakTimestamps[msg.senderId] = msg.timestamp;
-    }
+    if (msg.type === 'ai' && !msg.isDeleted) lastSpeakTimestamps[msg.senderId] = msg.timestamp;
   }
 
-  const candidates = calculateWeights(
-    chatMembers,
-    messages.filter((m) => !m.isDeleted),
-    lastSpeakTimestamps,
-    chat.speed,
-    BASE_COOLDOWN_MS
-  );
-
+  const candidates = calculateWeights(chatMembers, messages.filter((m) => !m.isDeleted), lastSpeakTimestamps, chat.speed, BASE_COOLDOWN_MS);
   const speakerId = selectSpeaker(candidates);
   if (!speakerId) return;
 
@@ -269,18 +239,22 @@ export const runOneRound = async (
   const recentText = activeMessages.at(-1)?.content || '';
   const intent = deriveSpeakIntentFromContext(speaker, recentTargetId, recentText);
   const characterMap = new Map(chatMembers.map((c) => [c.id, c]));
-  const systemPrompt = `${buildSpeakerSystemPrompt({ speaker, chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(speaker, intent, activeMessages)}\n\nCurrent speaking intent:\n- ${describeIntentForPrompt(intent)}\n- Follow the intent shape strictly: fragment means a clipped phrase; question_only means only ask or challenge; single_sentence means one line; two_sentences is the max unless genuinely necessary.\n- Respond like a WeChat group message: quick, targeted, partial, reactive, and slightly messy. Do not write a balanced full answer unless the room truly needs it.\n- Prefer sounding impulsive, socially situated, colloquial, and slightly incomplete over sounding polished.\n- If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.${buildGenerationConstraints(activeMessages, speakerId)}`;
+  const systemPrompt = `${buildSpeakerSystemPrompt({ speaker, chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(speaker, intent, activeMessages)}
+
+Current speaking intent:
+- ${describeIntentForPrompt(intent)}
+- Follow the intent shape strictly: fragment means a clipped phrase; question_only means only ask or challenge; single_sentence means one line; two_sentences is the max unless genuinely necessary.
+- Respond like a WeChat group message: quick, targeted, partial, reactive, and slightly messy. Do not write a balanced full answer unless the room truly needs it.
+- Prefer sounding impulsive, socially situated, colloquial, and slightly incomplete over sounding polished.
+- If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.${buildGenerationConstraints(activeMessages, speakerId)}${buildInlineInteractionContract({ chat, speaker, characters: chatMembers, recentMessages: activeMessages })}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT);
 
   try {
     const resolvedApi = resolveApiConfigForCharacter(speaker, apiConfig, profiles);
-
-    const response = await generateResponse(
-      resolvedApi,
-      systemPrompt,
-      chatMessages,
-    );
-    const finalResponse = finalizeResponse(response, intent, speaker, activeMessages, chat.showRoleActions);
+    const response = await generateResponse(resolvedApi, systemPrompt, chatMessages);
+    const parsedEnvelope = parseInlineInteractionEnvelope(response);
+    const rawContent = parsedEnvelope?.content || response;
+    const finalResponse = finalizeResponse(rawContent, intent, speaker, activeMessages, chat.showRoleActions);
 
     if (!normalizeForComparison(finalResponse)) {
       callbacks.onError(new Error('Empty model response'));
@@ -304,6 +278,7 @@ export const runOneRound = async (
       senderName: speaker.name,
       content: finalResponse,
       emotion: getEmotion(speakerId),
+      interactionHint: toInteractionPayload(parsedEnvelope?.interactionHint || null, speakerId, finalResponse),
     });
   } catch (error) {
     callbacks.onError(error instanceof Error ? error : new Error(String(error)));

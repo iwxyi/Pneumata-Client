@@ -20,6 +20,10 @@ function getRouteMeta(pathname: string) {
   return routeMeta.find((item) => item.match(pathname)) ?? routeMeta[0];
 }
 
+function isChatDetailRoute(pathname: string) {
+  return /^\/chats\/[^/]+$/.test(pathname);
+}
+
 const SIDEBAR_WIDTH = 280;
 const SIDEBAR_COLLAPSED_WIDTH = 72;
 export const FLOATING_HEADER_OFFSET = { xs: 0, sm: 0, md: 0 };
@@ -47,6 +51,7 @@ export default function AppLayout() {
   const { sidebarOpen, setSidebarOpen } = useUIStore();
   const shouldShowMenuButton = isMobile || isTablet;
   const currentRoute = getRouteMeta(location.pathname);
+  const chatDetailRoute = isChatDetailRoute(location.pathname);
   const currentTitle = t(currentRoute.titleKey);
   const [headerActions, setHeaderActions] = React.useState<ReactNode>(null);
   const [headerTitle, setHeaderTitle] = React.useState<ReactNode | null>(null);
@@ -223,7 +228,19 @@ export default function AppLayout() {
           </Box>
         ) : null}
 
-        <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehaviorY: 'contain', WebkitOverflowScrolling: 'touch', pt: FLOATING_HEADER_OFFSET }}>
+        <Box
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: chatDetailRoute ? 'hidden' : 'auto',
+            overscrollBehaviorY: 'contain',
+            WebkitOverflowScrolling: 'touch',
+            pt: FLOATING_HEADER_OFFSET,
+          }}
+        >
           <Outlet />
         </Box>
       </Box>

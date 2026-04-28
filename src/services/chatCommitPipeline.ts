@@ -19,7 +19,9 @@ export async function runChatCommitPipeline(params: {
     characters: AICharacter[];
     message: Pick<Message, 'content' | 'type' | 'senderId'>;
     previousAiMessage: Pick<Message, 'senderId'> | null;
-  }) => DriverMessageCommitResult;
+    recentMessages?: Message[];
+    apiConfig?: APIConfig;
+  }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>;
   upsertMessage: (message: Message) => void;
   updateCharacter: (id: string, patch: Partial<AICharacter>) => Promise<void>;
   appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number]) => Promise<void>;
@@ -39,6 +41,7 @@ export async function runChatCommitPipeline(params: {
     characters: params.characters,
     message: params.message,
     previousAiMessage: commitContext.previousAiMessage,
+    recentMessages: nextMessages,
     onCommit: params.onCommit,
   });
 

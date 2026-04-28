@@ -186,16 +186,16 @@ class ApiClient {
     return this.request<Array<{
       id: string; type?: string; mode?: string; modeConfig?: object; modeState?: object; name: string; topic: string; style: string;
       runtimeEvolutionIntensity?: 'slow' | 'balanced' | 'fast'; memberIds: string[]; speed: number; isActive: boolean;
-      allowIntervention: boolean; showRoleActions?: boolean; topicSeed: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeNotes?: string[]; runtimeArtifacts?: string[]; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
-      governance?: object; dramaRules?: object; worldState?: object; directorControls?: object;
+      allowIntervention: boolean; showRoleActions?: boolean; topicSeed: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeSeed?: { notes?: string[]; artifacts?: string[] }; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+      runtimeEventsV2?: object[]; relationshipLedger?: object[]; governance?: object; dramaRules?: object; worldState?: object; directorControls?: object;
       deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number; lastMessageAt: number;
     }>>('GET', '/chats');
   }
 
   async createChat(data: {
     type?: string; mode?: string; modeConfig?: object; modeState?: object; name: string; topic?: string; style?: string; runtimeEvolutionIntensity?: 'slow' | 'balanced' | 'fast'; memberIds: string[];
-    speed?: number; isActive?: boolean; allowIntervention?: boolean; showRoleActions?: boolean; topicSeed?: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeNotes?: string[]; runtimeArtifacts?: string[]; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
-    governance?: unknown; dramaRules?: unknown; worldState?: unknown; directorControls?: unknown;
+    speed?: number; isActive?: boolean; allowIntervention?: boolean; showRoleActions?: boolean; topicSeed?: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeSeed?: { notes?: string[]; artifacts?: string[] }; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+    runtimeEventsV2?: object[]; relationshipLedger?: object[]; governance?: unknown; dramaRules?: unknown; worldState?: unknown; directorControls?: unknown;
   }) {
     return this.request<Record<string, unknown>>('POST', '/chats', data);
   }
