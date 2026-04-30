@@ -92,7 +92,7 @@ function buildRelationshipMemoryItems(character: Partial<AICharacter>): MemoryIt
     id: `rel-${relation.characterId}-${index}`,
     scope: 'relationship',
     layer: 'episodic',
-    kind: relation.affinity + relation.respect >= relation.hostility + relation.contempt ? 'bond' : 'resentment',
+    kind: relation.warmth + relation.competence + relation.trust >= relation.threat + 100 ? 'bond' : 'resentment',
     ownerId: character.id || 'character',
     subjectIds: [character.id || 'character', relation.characterId],
     text: relation.note || relation.characterId,
@@ -193,10 +193,10 @@ function RelationshipGraphPanel({ relationships, developerMode }: { relationship
           <Typography variant="body2" sx={{ fontWeight: 700 }}>{relation.note || relation.characterId}</Typography>
           {developerMode ? (
             <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mt: 0.75 }}>
-              <Chip size="small" color="success" label={`亲近 ${relation.affinity}`} />
-              <Chip size="small" color="info" label={`尊重 ${relation.respect}`} />
-              <Chip size="small" color="warning" label={`敌意 ${relation.hostility}`} />
-              <Chip size="small" color="error" label={`轻视 ${relation.contempt}`} />
+              <Chip size="small" color="success" label={`亲和 ${relation.warmth}`} />
+              <Chip size="small" color="info" label={`能力 ${relation.competence}`} />
+              <Chip size="small" color="secondary" label={`信任 ${relation.trust}`} />
+              <Chip size="small" color="error" label={`威胁 ${relation.threat}`} />
             </Box>
           ) : null}
         </Box>
@@ -245,7 +245,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
           </Typography>
           {!isDeveloperView ? (
             <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-              {relationships[0] ? <Chip size="small" label={`关系 ${relationships[0].affinity + relationships[0].respect >= relationships[0].hostility + relationships[0].contempt ? '升温' : '紧张'}`} variant="outlined" /> : null}
+              {relationships[0] ? <Chip size="small" label={`关系 ${relationships[0].warmth + relationships[0].competence + relationships[0].trust >= relationships[0].threat + 100 ? '升温' : '紧张'}`} variant="outlined" /> : null}
               {Object.entries(personalityDrift).slice(0, 2).map(([key, value]) => <Chip key={key} size="small" label={`${key} ${value > 0 ? '+' : ''}${value}`} variant="outlined" />)}
               {character.emotionalState ? <Chip size="small" label={`情绪 ${Object.entries(character.emotionalState).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || '稳定'}`} variant="outlined" /> : null}
             </Box>

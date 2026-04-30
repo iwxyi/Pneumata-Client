@@ -1,5 +1,6 @@
-import type { GroupChat } from '../types/chat';
-import type { MemoryCandidatePayload, RuntimeEventKind, RuntimeEventV2 } from '../types/runtimeEvent';
+import type { AICharacter } from '../types/character';
+import type { GroupChat, ParticipantInstance } from '../types/chat';
+import type { MemoryCandidatePayload, RuntimeEventKind, RuntimeEventV2, SocialEventCandidatePayload, SocialEventEffectPayload, RelationshipAxisReason } from '../types/runtimeEvent';
 import type { SessionActionDefinition, SessionEngineDefinition, SessionProjectionContext, SessionViewProjection } from '../types/sessionEngine';
 import { canProjectScope } from '../types/sessionVisibility';
 import { projectSessionRecentEvent } from './directSessionHelpers';
@@ -11,11 +12,37 @@ export interface ProjectedRuntimeTimelineItem {
   createdAt: number;
   label: string;
   event?: RuntimeEventV2 | null;
+  actorNames?: string[];
+  targetNames?: string[];
   meta?: {
     memoryCandidate?: MemoryCandidatePayload;
+    socialEventCandidate?: SocialEventCandidatePayload;
+    socialEventArtifact?: {
+      eventKind?: string;
+      artifactType?: string;
+      title?: string;
+      activityType?: string;
+      dedupeKey?: string | null;
+      participantIds?: string[];
+      targetIds?: string[];
+      expectedArtifacts?: string[];
+      timeHint?: string | null;
+      locationHint?: string | null;
+      candidateId?: string;
+      reasonType?: string;
+    };
+    socialEventEffect?: SocialEventEffectPayload;
+    socialEventCluster?: {
+      eventKind?: string;
+      dedupeKey?: string | null;
+      candidateId?: string | null;
+      stage: 'candidate' | 'artifact' | 'effect' | 'opened';
+    };
     relationshipDelta?: {
       reason: string;
-      delta: { affinity?: number; respect?: number; hostility?: number; contempt?: number };
+      delta: { warmth?: number; competence?: number; trust?: number; threat?: number };
+      axisReasons?: Partial<Record<'warmth' | 'competence' | 'trust' | 'threat', RelationshipAxisReason[]>>;
+      spikeType?: 'normal' | 'turning_point' | 'rupture' | 'bonding';
     };
     roomShift?: {
       heat?: number;
@@ -26,30 +53,67 @@ export interface ProjectedRuntimeTimelineItem {
   };
 }
 
+function isSocialEventArtifactPayload(payload: RuntimeEventV2['payload']): payload is { eventKind?: string; artifactType?: string; title?: string; activityType?: string; dedupeKey?: string | null; participantIds?: string[]; targetIds?: string[]; expectedArtifacts?: string[]; timeHint?: string | null; locationHint?: string | null; candidateId?: string; reasonType?: string } {
+  return typeof payload === 'object' && payload !== null && ('eventKind' in payload || 'artifactType' in payload);
+}
+
 function isMemoryCandidatePayload(payload: RuntimeEventV2['payload']): payload is MemoryCandidatePayload {
   return typeof payload === 'object' && payload !== null && 'kind' in payload && 'text' in payload && 'salience' in payload && 'confidence' in payload;
 }
 
-function isRelationshipDeltaPayload(payload: RuntimeEventV2['payload']): payload is { reason: string; delta: { affinity?: number; respect?: number; hostility?: number; contempt?: number } } {
+function isRelationshipDeltaPayload(payload: RuntimeEventV2['payload']): payload is { reason: string; delta: { warmth?: number; competence?: number; trust?: number; threat?: number }; axisReasons?: Partial<Record<'warmth' | 'competence' | 'trust' | 'threat', RelationshipAxisReason[]>>; spikeType?: 'normal' | 'turning_point' | 'rupture' | 'bonding' } {
   return typeof payload === 'object' && payload !== null && 'reason' in payload && 'delta' in payload;
+}
+
+function isSocialEventCandidatePayload(payload: RuntimeEventV2['payload']): payload is SocialEventCandidatePayload {
+  return typeof payload === 'object' && payload !== null && 'eventKind' in payload && 'initiatorId' in payload && 'participantIds' in payload && 'seedIntent' in payload;
 }
 
 function isRoomShiftPayload(payload: RuntimeEventV2['payload']): payload is { heat?: number; cohesion?: number; topicDrift?: number; delta?: { heat?: number; cohesion?: number; topicDrift?: number } } {
   return typeof payload === 'object' && payload !== null && ('heat' in payload || 'cohesion' in payload || 'topicDrift' in payload || 'delta' in payload);
 }
 
+function isSocialEventEffectPayload(payload: RuntimeEventV2['payload']): payload is SocialEventEffectPayload {
+  return typeof payload === 'object' && payload !== null && 'eventKind' in payload && 'effectType' in payload && 'summary' in payload && 'confidence' in payload;
+}
+
+function buildSocialEventCluster(event: RuntimeEventV2) {
+  if (event.kind === 'event_candidate' && isSocialEventCandidatePayload(event.payload)) {
+    return {
+      eventKind: event.payload.eventKind,
+      dedupeKey: event.payload.dedupeKey ?? null,
+      stage: 'candidate' as const,
+    };
+  }
+  if (event.kind === 'artifact' && isSocialEventArtifactPayload(event.payload)) {
+    return {
+      eventKind: event.payload.eventKind,
+      dedupeKey: event.payload.dedupeKey ?? null,
+      candidateId: event.payload.candidateId ?? null,
+      stage: event.payload.artifactType === 'private_thread_opened' ? 'opened' as const : 'artifact' as const,
+    };
+  }
+  if (isSocialEventEffectPayload(event.payload)) {
+    return {
+      eventKind: event.payload.eventKind,
+      dedupeKey: null,
+      stage: 'effect' as const,
+    };
+  }
+  return undefined;
+}
+
 function buildEventMeta(event: RuntimeEventV2) {
   return {
     memoryCandidate: event.kind === 'memory_candidate' && isMemoryCandidatePayload(event.payload) ? event.payload : undefined,
+    socialEventCandidate: event.kind === 'event_candidate' && isSocialEventCandidatePayload(event.payload) ? event.payload : undefined,
+    socialEventArtifact: event.kind === 'artifact' && isSocialEventArtifactPayload(event.payload) ? event.payload : undefined,
+    socialEventEffect: isSocialEventEffectPayload(event.payload) ? event.payload : undefined,
+    socialEventCluster: buildSocialEventCluster(event),
     relationshipDelta: event.kind === 'relationship_delta' && isRelationshipDeltaPayload(event.payload) ? event.payload : undefined,
     roomShift: event.kind === 'room_shift' && isRoomShiftPayload(event.payload) ? event.payload : undefined,
   };
 }
-
-void buildEventMeta;
-void isRoomShiftPayload;
-void isRelationshipDeltaPayload;
-void isMemoryCandidatePayload;
 
 export interface ProjectedRuntimeState {
   worldState: GroupChat['worldState'];
@@ -76,6 +140,7 @@ function formatRuntimeEventLabel(kind: RuntimeEventKind) {
     room_shift: '房间态势',
     memory_candidate: '记忆候选',
     artifact: '产物',
+    event_candidate: '事件候选',
   };
   return labels[kind] || kind;
 }
@@ -99,21 +164,43 @@ function formatRelationshipReason(reason: string) {
     mock: '嘲讽',
     dismiss: '轻视',
     pile_on: '围攻',
+    probe: '追问',
   };
   return labels[reason] || reason;
 }
 
-void formatRelationshipReason;
-void formatMemoryCandidateKind;
+function buildParticipantNameMap(participants: Array<AICharacter | ParticipantInstance>) {
+  return new Map(participants.map((participant) => (
+    'participantId' in participant
+      ? [participant.participantId, participant.displayName || participant.entityRefId]
+      : [participant.id, participant.name]
+  )));
+}
 
-function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: NonNullable<GroupChat['runtimeTimeline']>) {
+function resolveActorTargetNames(ids: string[] | undefined, participantNameMap: Map<string, string>) {
+  return (ids || []).map((id) => participantNameMap.get(id) || id);
+}
+
+function replaceIdsWithNames(text: string, participantNameMap: Map<string, string>) {
+  let result = text;
+  participantNameMap.forEach((name, id) => {
+    const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(new RegExp(escapedId, 'g'), name);
+  });
+  return result;
+}
+
+function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: NonNullable<GroupChat['runtimeTimeline']>, participants: Array<AICharacter | ParticipantInstance> = []) {
+  const participantNameMap = buildParticipantNameMap(participants);
   if (events.length) {
     return events.map<ProjectedRuntimeTimelineItem>((event) => ({
       type: mapRuntimeEventKindToTimelineType(event.kind),
-      text: event.summary,
+      text: replaceIdsWithNames(event.summary, participantNameMap),
       createdAt: event.createdAt,
       label: formatRuntimeEventLabel(event.kind),
       event,
+      actorNames: resolveActorTargetNames(event.actorIds, participantNameMap),
+      targetNames: resolveActorTargetNames(event.targetIds, participantNameMap),
       meta: (() => {
         const baseMeta = buildEventMeta(event);
         return {
@@ -121,12 +208,24 @@ function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: N
             ? {
                 ...baseMeta.memoryCandidate,
                 kind: formatMemoryCandidateKind(baseMeta.memoryCandidate.kind) as MemoryCandidatePayload['kind'],
+                text: replaceIdsWithNames(baseMeta.memoryCandidate.text, participantNameMap),
               }
             : undefined,
+          socialEventCandidate: baseMeta.socialEventCandidate,
+          socialEventArtifact: baseMeta.socialEventArtifact,
+          socialEventEffect: baseMeta.socialEventEffect
+            ? {
+                ...baseMeta.socialEventEffect,
+                summary: replaceIdsWithNames(baseMeta.socialEventEffect.summary, participantNameMap),
+              }
+            : undefined,
+          socialEventCluster: baseMeta.socialEventCluster,
           relationshipDelta: baseMeta.relationshipDelta
             ? {
                 reason: formatRelationshipReason(baseMeta.relationshipDelta.reason),
                 delta: baseMeta.relationshipDelta.delta || {},
+                axisReasons: baseMeta.relationshipDelta.axisReasons || {},
+                spikeType: baseMeta.relationshipDelta.spikeType,
               }
             : undefined,
           roomShift: baseMeta.roomShift,
@@ -137,10 +236,12 @@ function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: N
 
   return legacyTimeline.map<ProjectedRuntimeTimelineItem>((item) => ({
     type: item.type,
-    text: item.text,
+    text: replaceIdsWithNames(item.text, participantNameMap),
     createdAt: item.createdAt,
     label: item.type,
     event: null,
+    actorNames: [],
+    targetNames: [],
   }));
 }
 
@@ -157,8 +258,8 @@ function countProjectedTimeline(chat: GroupChat) {
   return chat.runtimeEventsV2?.length || chat.runtimeTimeline?.length || 0;
 }
 
-export function projectRuntimeTimeline(chat: GroupChat) {
-  return projectRuntimeTimelineItems(chat.runtimeEventsV2 || [], chat.runtimeTimeline || []);
+export function projectRuntimeTimeline(chat: GroupChat, participants: Array<AICharacter | ParticipantInstance> = []) {
+  return projectRuntimeTimelineItems(chat.runtimeEventsV2 || [], chat.runtimeTimeline || [], participants);
 }
 
 export function projectPrimaryRecentEvent(chat: GroupChat) {
@@ -199,15 +300,24 @@ function buildVisiblePanels(engine: SessionEngineDefinition, context: SessionPro
   return privatePayloads.length ? [...visiblePanels, { key: 'private_payloads', title: '私有信息', type: 'custom' as const }] : visiblePanels;
 }
 
+function filterVisibleRuntimeEvents(events: RuntimeEventV2[], context: SessionProjectionContext) {
+  return events.filter((event) => canProjectScope({
+    scope: event.visibility || 'public',
+    visibleToIds: event.visibleToIds,
+    visibleToRoles: event.visibleToRoles,
+  }, { viewerId: context.viewerId, viewerRole: context.viewerRole }));
+}
+
 function buildProjectedRuntimeState(chat: GroupChat, context: SessionProjectionContext): ProjectedRuntimeState {
   const canSeePrivate = chat.type === 'group' || context.viewerRole === 'pair_private' || context.viewerRole === 'user_private' || !context.viewerRole;
-  const runtimeEventsV2 = canSeePrivate ? (chat.runtimeEventsV2 || []) : [];
+  const runtimeEventsV2 = filterVisibleRuntimeEvents(chat.runtimeEventsV2 || [], context);
+  const runtimeTimeline = projectRuntimeTimelineItems(runtimeEventsV2, chat.runtimeTimeline || [], context.participants);
   return {
     worldState: {
       ...chat.worldState,
       recentEvent: projectSessionRecentEvent(chat, context.viewerRole),
     },
-    runtimeTimeline: canSeePrivate ? projectRuntimeTimeline(chat) : [],
+    runtimeTimeline,
     runtimeSeed: {
       notes: canSeePrivate ? (chat.runtimeSeed?.notes || []) : [],
       artifacts: canSeePrivate ? (chat.runtimeSeed?.artifacts || []) : [],
@@ -215,8 +325,8 @@ function buildProjectedRuntimeState(chat: GroupChat, context: SessionProjectionC
     runtimeEventsV2,
     relationshipLedger: canSeePrivate ? (chat.relationshipLedger || []) : [],
     primaryRecentEvent: projectPrimaryRecentEvent(chat),
-    latestEvent: canSeePrivate ? projectLatestRuntimeEvent(chat) : null,
-    timelineCount: canSeePrivate ? projectTimelineCount(chat) : 0,
+    latestEvent: runtimeEventsV2.length ? runtimeEventsV2[runtimeEventsV2.length - 1] : null,
+    timelineCount: runtimeTimeline.length,
   };
 }
 

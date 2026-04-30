@@ -65,6 +65,24 @@ export interface SessionCommitContext {
   apiConfig?: APIConfig;
 }
 
+export interface SessionGenerationContext {
+  conversation: GroupChat;
+  characters: AICharacter[];
+  messages: Message[];
+}
+
+export interface SessionGenerationPromptContext {
+  promptPrefix?: string;
+  promptSuffix?: string;
+  additionalConstraints?: string[];
+}
+
+export interface SessionTurnPolicy {
+  runChat: boolean;
+  runAction: boolean;
+  interleaveAction?: boolean;
+}
+
 export interface SessionEngineActionContext {
   conversation: GroupChat;
   participants: ParticipantInstance[];
@@ -80,6 +98,8 @@ export interface SessionEngineDefinition {
   getVisiblePanels: (context: SessionProjectionContext) => RuntimePanelDefinition[];
   getAvailableActions: (context: SessionProjectionContext) => RuntimeAction[];
   getActionSchema?: (context: SessionEngineActionContext) => SessionActionSchema | null;
+  buildGenerationPromptContext?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionGenerationPromptContext;
+  resolveTurnPolicy?: (context: SessionGenerationContext) => SessionTurnPolicy;
   onMessageCommitted: (context: SessionCommitContext) => Promise<{
     chatPatch: Partial<GroupChat>;
     characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;

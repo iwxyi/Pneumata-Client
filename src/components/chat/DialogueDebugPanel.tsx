@@ -22,6 +22,7 @@ function formatEventKind(kind: RuntimeEventV2['kind']) {
     room_shift: '房间态势',
     memory_candidate: '记忆候选',
     artifact: '产物',
+    event_candidate: '事件候选',
   };
   return labels[kind] || kind;
 }

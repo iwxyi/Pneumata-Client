@@ -4,7 +4,8 @@ export type RuntimeEventKind =
   | 'relationship_delta'
   | 'room_shift'
   | 'memory_candidate'
-  | 'artifact';
+  | 'artifact'
+  | 'event_candidate';
 
 export type InteractionKind =
   | 'support'
@@ -28,16 +29,26 @@ export interface InteractionEventPayload {
   confidence: number;
 }
 
+export interface RelationshipAxisReason {
+  axis: 'warmth' | 'competence' | 'trust' | 'threat';
+  value: number;
+  reason: string;
+  evidence: string;
+  createdAt?: number;
+}
+
 export interface RelationshipDeltaPayload {
   actorId: string;
   targetId: string;
   delta: {
-    affinity?: number;
-    respect?: number;
-    hostility?: number;
-    contempt?: number;
+    warmth?: number;
+    competence?: number;
+    trust?: number;
+    threat?: number;
   };
   reason: string;
+  axisReasons?: Partial<Record<'warmth' | 'competence' | 'trust' | 'threat', RelationshipAxisReason[]>>;
+  spikeType?: 'normal' | 'turning_point' | 'rupture' | 'bonding';
 }
 
 export interface RoomShiftPayload {
@@ -60,6 +71,102 @@ export interface MemoryCandidatePayload {
   confidence: number;
 }
 
+export type SocialEventKind = 'pair_private_thread' | 'social_outing' | 'post_moment' | 'status_update' | 'gift_exchange' | 'conflict_expression' | 'custom';
+
+export interface SocialEventCandidatePayload {
+  eventKind: SocialEventKind;
+  initiatorId: string;
+  participantIds: string[];
+  targetIds?: string[];
+  reasonType: string;
+  confidence: number;
+  urgency: 'immediate' | 'soon' | 'defer';
+  seedIntent: string;
+  visibilityPlan: 'public' | 'conversation_private' | 'user_private' | 'mixed';
+  expectedArtifacts?: string[];
+  sourceText?: string;
+  title?: string;
+  activityType?: string;
+  timeHint?: string | null;
+  locationHint?: string | null;
+  dedupeKey?: string | null;
+}
+
+export interface SocialEventHintEnvelope {
+  eventKind: SocialEventKind;
+  targetIds?: string[];
+  participantIds?: string[];
+  reasonType?: string;
+  confidence?: number;
+  urgency?: 'immediate' | 'soon' | 'defer';
+  seedIntent?: string;
+  visibilityPlan?: 'public' | 'conversation_private' | 'user_private' | 'mixed';
+  expectedArtifacts?: string[];
+  title?: string;
+  activityType?: string;
+  timeHint?: string | null;
+  locationHint?: string | null;
+  dedupeKey?: string | null;
+}
+
+export interface RecentSocialEventSummary {
+  eventKind: SocialEventKind;
+  title?: string;
+  activityType?: string;
+  participantIds?: string[];
+  targetIds?: string[];
+  createdAt: number;
+  summary: string;
+}
+
+export interface SocialOutingAnalysisResult {
+  shouldCreate: boolean;
+  title?: string;
+  activityType?: string;
+  timeHint?: string | null;
+  locationHint?: string | null;
+  participantIds?: string[];
+  confidence?: number;
+  reasonType?: string;
+  dedupeKey?: string | null;
+  seedIntent?: string;
+}
+
+export interface PostMomentAnalysisResult {
+  shouldCreate: boolean;
+  title?: string;
+  activityType?: string;
+  targetIds?: string[];
+  confidence?: number;
+  reasonType?: string;
+  dedupeKey?: string | null;
+  seedIntent?: string;
+}
+
+export interface PairPrivateThreadAnalysisResult {
+  shouldCreate: boolean;
+  participantIds?: string[];
+  targetIds?: string[];
+  confidence?: number;
+  reasonType?: string;
+  dedupeKey?: string | null;
+  seedIntent?: string;
+}
+
+export interface SocialEventEffectPayload {
+  eventKind: SocialEventKind;
+  effectType: 'memory' | 'relationship' | 'room' | 'artifact';
+  summary: string;
+  confidence: number;
+}
+
+export interface SocialEventArtifactPayload {
+  artifactType: string;
+  eventKind: SocialEventKind;
+  text: string;
+  expectedArtifacts?: string[];
+}
+
 export interface RuntimeEventV2 {
   id: string;
   conversationId: string;
@@ -69,7 +176,10 @@ export interface RuntimeEventV2 {
   targetIds?: string[];
   evidenceMessageIds?: string[];
   summary: string;
-  payload: InteractionEventPayload | RelationshipDeltaPayload | RoomShiftPayload | MemoryCandidatePayload | Record<string, unknown>;
+  visibility?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
+  visibleToIds?: string[];
+  visibleToRoles?: string[];
+  payload: InteractionEventPayload | RelationshipDeltaPayload | RoomShiftPayload | MemoryCandidatePayload | SocialEventCandidatePayload | SocialEventEffectPayload | SocialEventArtifactPayload | Record<string, unknown>;
 }
 
 export interface RelationshipLedgerEntry {
@@ -77,11 +187,17 @@ export interface RelationshipLedgerEntry {
   actorId: string;
   targetId: string;
   current: {
-    affinity: number;
-    respect: number;
-    hostility: number;
-    contempt: number;
+    warmth: number;
+    competence: number;
+    trust: number;
+    threat: number;
   };
+  derived?: {
+    stability?: number;
+    reciprocity?: number;
+    salience?: number;
+  };
+  axisReasons?: Partial<Record<'warmth' | 'competence' | 'trust' | 'threat', RelationshipAxisReason[]>>;
   trend: 'up' | 'down' | 'volatile' | 'flat';
   recentEvents: RuntimeEventV2[];
   lastUpdatedAt: number;

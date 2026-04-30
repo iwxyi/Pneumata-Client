@@ -22,10 +22,10 @@ export interface CharacterBehaviorParams {
 
 export interface CharacterRelationshipPreset {
   characterId: string;
-  affinity: number;
-  hostility: number;
-  respect: number;
-  contempt: number;
+  warmth: number;
+  competence: number;
+  trust: number;
+  threat: number;
   note?: string;
   updatedAt?: number;
 }

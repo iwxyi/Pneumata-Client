@@ -13,6 +13,16 @@ function createBaseRoomState(): RoomStateSnapshotV2 {
   };
 }
 
+function clamp(value: number) {
+  return Math.max(0, Math.min(100, value));
+}
+
+function pushUniquePair(list: Array<[string, string]>, pair: [string, string]) {
+  const key = pair.join('->');
+  const next = [...list.filter((item) => item.join('->') !== key), pair];
+  return next.slice(-6);
+}
+
 export function calculateRoomShift(current: RoomStateSnapshotV2 | null, interaction: InteractionEventPayload): { nextState: RoomStateSnapshotV2; shift: RoomShiftPayload } {
   const base = current || createBaseRoomState();
   const conflict = interaction.kind === 'challenge' || interaction.kind === 'mock' || interaction.kind === 'dismiss' || interaction.kind === 'pile_on';
@@ -25,14 +35,14 @@ export function calculateRoomShift(current: RoomStateSnapshotV2 | null, interact
   const dominantThread = interaction.targetId ? [interaction.actorId, interaction.targetId] as [string, string] : base.dominantThread;
   const nextState: RoomStateSnapshotV2 = {
     ...base,
-    heat: Math.max(0, Math.min(100, base.heat + delta.heat)),
-    cohesion: Math.max(0, Math.min(100, base.cohesion + delta.cohesion)),
-    topicDrift: Math.max(0, Math.min(100, base.topicDrift + delta.topicDrift)),
+    heat: clamp(base.heat + delta.heat),
+    cohesion: clamp(base.cohesion + delta.cohesion),
+    topicDrift: clamp(base.topicDrift + delta.topicDrift),
     dominantThread,
-    alliances: support && interaction.targetId ? [...base.alliances, [interaction.actorId, interaction.targetId] as [string, string]].slice(-6) : base.alliances,
-    conflictPairs: conflict && interaction.targetId ? [...base.conflictPairs, [interaction.actorId, interaction.targetId] as [string, string]].slice(-6) : base.conflictPairs,
-    pileOnTarget: interaction.kind === 'pile_on' ? interaction.targetId || null : base.pileOnTarget,
-    silencedActors: base.silencedActors,
+    alliances: support && interaction.targetId ? pushUniquePair(base.alliances, [interaction.actorId, interaction.targetId] as [string, string]) : base.alliances,
+    conflictPairs: conflict && interaction.targetId ? pushUniquePair(base.conflictPairs, [interaction.actorId, interaction.targetId] as [string, string]) : base.conflictPairs,
+    pileOnTarget: interaction.kind === 'pile_on' ? interaction.targetId || null : (conflict && interaction.targetId === base.pileOnTarget ? interaction.targetId : base.pileOnTarget),
+    silencedActors: interaction.targetId && conflict ? Array.from(new Set([...base.silencedActors, interaction.targetId])).slice(-6) : base.silencedActors.filter((actorId) => actorId !== interaction.actorId).slice(-6),
   };
 
   return {

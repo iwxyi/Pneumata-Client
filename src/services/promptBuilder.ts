@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat, ChatStyle } from '../types/chat';
 import type { Message } from '../types/message';
-import { buildMessageStyleRules, buildSocialPromptContext } from './socialPromptContext';
+import { buildMessageStyleRules, buildRelationshipPrompt as buildSocialPromptContext } from './socialPromptContext';
 import { getMemoryContext } from './layeredMemoryEngine';
 import type { MemoryItem } from './memoryTypes';
 
@@ -50,7 +50,8 @@ function buildPromptContext(character: AICharacter, chat: GroupChat, messages: M
   const targetId = messages.filter((m) => !m.isDeleted && m.type === 'ai' && m.senderId !== character.id).at(-1)?.senderId;
   const retrieved = getMemoryContext(chat.layeredMemories || [], character.id, targetId, chat.id);
   const dramaBoost = Boolean((globalThis as { __MIRAGETEA_DRAMA_BOOST__?: boolean }).__MIRAGETEA_DRAMA_BOOST__);
-  return `${buildLayeredMemoryPrompt(retrieved)}${buildSocialPromptContext(character, chat, messages, characters, dramaBoost)}`;
+  const target = targetId ? characters.get(targetId) : undefined;
+  return `${buildLayeredMemoryPrompt(retrieved)}${buildSocialPromptContext(character, target)}`;
 }
 
 function buildCharacterPromptContext(character: AICharacter) {

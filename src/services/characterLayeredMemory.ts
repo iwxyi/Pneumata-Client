@@ -4,7 +4,7 @@ import { consolidateMemoryCandidates } from './memoryConsolidation';
 
 function buildRelationshipMemoryCandidate(character: AICharacter, targetId: string, targetName: string, content: string): MemoryCandidate {
   const relation = character.relationships.find((item) => item.characterId === targetId);
-  const isPositive = (relation?.affinity || 0) + (relation?.respect || 0) >= (relation?.hostility || 0) + (relation?.contempt || 0);
+  const isPositive = (relation?.warmth || 0) + (relation?.competence || 0) + (relation?.trust || 0) >= (relation?.threat || 0) + 100;
   return {
     scope: 'relationship',
     layerHint: 'episodic',

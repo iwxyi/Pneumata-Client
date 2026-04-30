@@ -2,6 +2,7 @@ import type { ConversationPhase, GroupChat, RuntimeContext } from '../../types/c
 import type { SessionActionSchema, SessionEngineDefinition } from '../../types/sessionEngine';
 import type { AICharacter } from '../../types/character';
 import type { Message } from '../../types/message';
+import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 const WEREWOLF_PHASES: Array<{ key: ConversationPhase; label: string; allowedActions: string[] }> = [
   { key: 'idle', label: 'Lobby', allowedActions: ['director_intervention'] },
@@ -105,6 +106,42 @@ function getNextPhase(currentPhase: ConversationPhase): ConversationPhase {
   return 'warming';
 }
 
+function buildGenerationPromptContext(params: { conversation: GroupChat; speaker: AICharacter }) {
+  const seatIndex = params.conversation.memberIds.indexOf(params.speaker.id);
+  const role = pickWerewolfRole(seatIndex, params.conversation.memberIds.length);
+  return {
+    promptPrefix: `You are speaking inside a werewolf social deduction game as ${role}. Preserve hidden-role incentives and public plausibility.`,
+    additionalConstraints: [
+      params.conversation.worldState.phase === 'warming'
+        ? 'Night-phase speech should stay covert and implication-heavy.'
+        : 'Day-phase speech should sound accusatory, defensive, or analytical in-character.',
+    ],
+  };
+}
+
+function resolveTurnPolicy(params: { conversation: GroupChat }) {
+  const phase = params.conversation.worldState.phase;
+  return {
+    runChat: phase !== 'idle' && phase !== 'aligned',
+    runAction: phase === 'warming' || phase === 'aligned' || phase === 'idle',
+    interleaveAction: phase === 'debating',
+  };
+}
+
+function createStructuredWerewolfEvent(params: { conversationId: string; kind: RuntimeEventV2['kind']; summary: string; actorIds?: string[]; payload?: RuntimeEventV2['payload']; visibility?: RuntimeEventV2['visibility']; visibleToRoles?: string[] }) {
+  return {
+    id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    conversationId: params.conversationId,
+    kind: params.kind,
+    createdAt: Date.now(),
+    actorIds: params.actorIds,
+    summary: params.summary,
+    visibility: params.visibility || 'public',
+    visibleToRoles: params.visibleToRoles,
+    payload: params.payload || {},
+  } satisfies RuntimeEventV2;
+}
+
 function onMessageCommitted(params: {
   conversation: GroupChat;
   characters: AICharacter[];
@@ -115,6 +152,13 @@ function onMessageCommitted(params: {
   const speakerName = speaker?.name || '玩家';
   const summary = params.message.content.trim().slice(0, 56);
   const nextPhase = params.conversation.worldState.phase === 'warming' ? 'debating' : params.conversation.worldState.phase;
+  const speakerRole = speaker ? pickWerewolfRole(params.conversation.memberIds.indexOf(speaker.id), params.conversation.memberIds.length) : 'villager';
+  const runtimeEventsV2 = [
+    ...(params.conversation.runtimeEventsV2 || []),
+    createStructuredWerewolfEvent({ conversationId: params.conversation.id, kind: 'message_generated', summary, actorIds: [params.message.senderId], payload: { text: summary, phase: params.conversation.worldState.phase } }),
+    createStructuredWerewolfEvent({ conversationId: params.conversation.id, kind: 'room_shift', summary: `局势变化：${speakerName} 发言推进了白天讨论`, actorIds: [params.message.senderId], payload: { heat: params.conversation.worldState.phase === 'debating' ? 34 : 18, cohesion: 42, topicDrift: 8, delta: { heat: 4, cohesion: -1, topicDrift: 0 } } }),
+    ...(params.conversation.worldState.phase === 'warming' ? [createStructuredWerewolfEvent({ conversationId: params.conversation.id, kind: 'artifact', summary: `${speakerName} 的夜晚身份相关动作仅私有可见`, actorIds: [params.message.senderId], visibility: speakerRole === 'werewolf' ? 'pair_private' : 'role_private', visibleToRoles: speakerRole === 'werewolf' ? ['werewolf'] : [speakerRole], payload: { role: speakerRole, nightOnly: true } })] : []),
+  ].slice(-120);
   return {
     chatPatch: {
       worldState: {
@@ -124,12 +168,14 @@ function onMessageCommitted(params: {
         focus: params.conversation.worldState.focus || '找出狼人',
         recentEvent: `${speakerName} 发言：${summary}${params.message.content.trim().length > 56 ? '…' : ''}`,
       },
+      runtimeEventsV2,
     },
     characterPatches: [],
     runtimeEvents: [{
       eventType: 'werewolf_discussion',
       title: '狼人杀发言推进',
       summary: `${speakerName}：${summary}`,
+      metrics: runtimeEventsV2.at(-1),
     }],
   };
 }
@@ -143,5 +189,7 @@ export const WEREWOLF_ENGINE: SessionEngineDefinition = {
   getVisiblePanels,
   getAvailableActions,
   getActionSchema: ({ conversation }) => buildWerewolfActionSchema(conversation),
+  buildGenerationPromptContext,
+  resolveTurnPolicy,
   onMessageCommitted,
 };

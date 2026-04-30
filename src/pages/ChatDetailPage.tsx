@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { Box, IconButton, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, DialogActions, MenuItem, TextField, Stack, Snackbar, Alert } from '@mui/material';
+import { lazy, Suspense, useEffect, useState, useCallback, useRef } from 'react';
+import { Box, IconButton, Button, Stack, Snackbar, Alert } from '@mui/material';
 import {
   People as PeopleIcon,
   Info as InfoIcon,
@@ -17,17 +17,29 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
 import { useResponsive } from '../hooks/useResponsive';
 import { DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE, type DriverMessageCommitResult, type GroupChat } from '../types/chat';
+import type { SessionActionDefinition } from '../types/sessionEngine';
 import { resolveRuntimeEvolutionConfig } from '../services/runtimeEvolutionConfig';
-import { applyAiDirectFeedback, buildAiPrivateChatDraft } from '../services/directSessionRuntime';
+import { applyAiDirectFeedback, createAiPrivateThread, runSocialEventAutoFlow } from '../services/directSessionRuntime';
 import { getSessionEngine } from '../services/sessionEngineRegistry';
 import { createSessionRuntimeContext, resolveSessionProjectionData, resolveSessionView } from '../services/sessionEngineKernel';
 import MessageList from '../components/chat/MessageList';
 import ChatInput from '../components/chat/ChatInput';
-import MemberList from '../components/controls/MemberList';
-import RelationshipPanel from '../components/controls/RelationshipPanel';
 import RightPanel from '../components/layout/RightPanel';
 import EmptyState from '../components/common/EmptyState';
-import ChatSidebarPanel from '../components/chat/ChatSidebarPanel';
+
+const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
+const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
+
+function PanelFallback() {
+  return null;
+}
+
+function LazyPanel({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<PanelFallback />}>{children}</Suspense>;
+}
+
+void LazyPanel;
+void PanelFallback;
 import { runChatLoop } from '../services/chatLoopRunner';
 import { summarizeRelationshipShift, updateCharacterRelationship } from '../services/relationshipEngine';
 import { deriveEmotionalState, derivePersonalityDrift } from '../services/personalityDrift';
@@ -71,10 +83,6 @@ export default function ChatDetailPage() {
   const closeSnackbar = useCallback(() => {
     setSnackbar((prev) => ({ ...prev, open: false }));
   }, []);
-  const [privateDialogOpen, setPrivateDialogOpen] = useState(false);
-  const [privateStarterId, setPrivateStarterId] = useState<string>('');
-  const [privateTargetId, setPrivateTargetId] = useState<string>('');
-  const [privateCreating, setPrivateCreating] = useState(false);
   const isRunningRef = useRef(false);
   const isPausedRef = useRef(false);
   const loadingMoreRef = useRef(false);
@@ -82,6 +90,7 @@ export default function ChatDetailPage() {
   const liveMessageRef = useRef<LiveChatMessage | null>(null);
   const liveMessageSeedRef = useRef<Omit<LiveChatMessage, 'content'> | null>(null);
   const chat = chats.find((c) => c.id === id);
+  const lastAutoThreadCandidateIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     (globalThis as { __MIRAGETEA_DRAMA_BOOST__?: boolean }).__MIRAGETEA_DRAMA_BOOST__ = dramaBoost;
@@ -157,15 +166,53 @@ export default function ChatDetailPage() {
   const projectedRuntimeState = projectionData.runtimeState;
   const privatePayloads = projectionData.privatePayloads;
   const visiblePanels = projectionData.view.visiblePanels;
+  const actionSchema = projectionData.actionSchema;
   const memberPanel = visiblePanels.find((panel) => panel.tabKey === 'members');
   const runtimePanel = visiblePanels.find((panel) => panel.tabKey === 'world');
   const showMemberTab = Boolean(memberPanel);
   const showRuntimeTab = Boolean(runtimePanel);
-  const hasSidebarTabs = showMemberTab && showRuntimeTab;
-  const activeSidebarTab = hasSidebarTabs ? rightPanelTab : showMemberTab ? 'members' : 'world';
+  const showActionTab = chat?.type === 'group' || Boolean(actionSchema?.actions?.length);
+  const activeSidebarTab = (showMemberTab && rightPanelTab === 'members')
+    ? 'members'
+    : (showRuntimeTab && rightPanelTab === 'world')
+      ? 'world'
+      : showActionTab
+        ? 'actions'
+        : showMemberTab
+          ? 'members'
+          : 'world';
   const sidebarTitle = activeSidebarTab === 'members'
     ? (memberPanel?.title || (chat?.type === 'group' ? t('controls.memberList') : chat?.type === 'ai_direct' ? 'AI私聊信息' : '单聊信息'))
-    : (runtimePanel?.title || '状态');
+    : activeSidebarTab === 'actions'
+      ? '动作'
+      : (runtimePanel?.title || '状态');
+  const actionTabActions = actionSchema?.actions || [];
+  const manualPrivateThreadAction: SessionActionDefinition = {
+    type: 'start_private_thread',
+    label: '发起 AI 私聊',
+    description: '从群聊中手动选择两名成员，派生一条独立 AI 私聊。',
+    visibility: 'public',
+    fields: [
+      {
+        key: 'actorId',
+        label: '发起者',
+        type: 'single_select',
+        required: true,
+        options: members.map((member) => ({ value: member.id, label: member.name })),
+      },
+      {
+        key: 'targetId',
+        label: '对象',
+        type: 'single_select',
+        required: true,
+        options: members.map((member) => ({ value: member.id, label: member.name })),
+      },
+    ],
+  };
+  const sessionActions = chat?.type === 'group'
+    ? [manualPrivateThreadAction, ...actionTabActions.filter((action) => action.type !== 'start_private_thread')]
+    : actionTabActions;
+  const actionPanelTitle = chat?.type === 'group' ? '动作与派生' : actionSchema?.title;
   const canSendInput = true;
   void canSendInput;
 
@@ -412,63 +459,57 @@ export default function ChatDetailPage() {
     }
   }, [api.apiKey, chat, chats, characters, id, runLoop, start, updateCharacter, updateChat]);
 
-  const handleOpenPrivateChatDialog = useCallback((starterId?: string) => {
-    if (!chat || chat.type !== 'group') return;
-    const defaultStarter = starterId || chat.memberIds[0] || '';
-    const defaultTarget = chat.memberIds.find((memberId) => memberId !== defaultStarter) || '';
-    setPrivateStarterId(defaultStarter);
-    setPrivateTargetId(defaultTarget);
-    setPrivateDialogOpen(true);
-  }, [chat]);
+  const triggerPairPrivateThread = useCallback(async (sourceChat: GroupChat, actorId: string, targetId: string, navigateAfterCreate = false) => {
+    if (!actorId || !targetId || actorId === targetId) return null;
+    const privateChat = await createAiPrivateThread({
+      sourceChat,
+      chats,
+      characters,
+      starterId: actorId,
+      targetId,
+      addChat: async (input) => useChatStore.getState().addChat(input),
+      addMessage,
+      appendEventMessage,
+    });
+    if (privateChat && navigateAfterCreate) navigate(`/chats/${privateChat.id}`);
+    return privateChat;
+  }, [addMessage, appendEventMessage, chats, characters, navigate]);
 
-  const handleCreatePrivateChat = useCallback(async () => {
-    if (!chat || chat.type !== 'group' || !privateStarterId || !privateTargetId || privateStarterId === privateTargetId) return;
-
-    const initiator = characters.find((item) => item.id === privateStarterId);
-    const target = characters.find((item) => item.id === privateTargetId);
-    if (!initiator || !target) return;
-
-    const existing = chats.find((item) => item.type === 'ai_direct' && item.sourceChatId === chat.id && item.memberIds.includes(privateStarterId) && item.memberIds.includes(privateTargetId));
-    if (existing) {
-      setPrivateDialogOpen(false);
-      navigate(`/chats/${existing.id}`);
+  const runSessionAction = useCallback(async (action: { type: string }, payload: Record<string, unknown>) => {
+    if (!chat) return;
+    if (action.type === 'start_private_thread') {
+      const actorId = typeof payload.actorId === 'string' ? payload.actorId : '';
+      const targetId = typeof payload.targetId === 'string' ? payload.targetId : '';
+      if (!actorId || !targetId || actorId === targetId) return;
+      await triggerPairPrivateThread(chat, actorId, targetId, true);
       return;
     }
+  }, [chat, triggerPairPrivateThread]);
 
-    setPrivateCreating(true);
-    try {
-      const privateChat = await useChatStore.getState().addChat({
-        modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG,
-        modeState: DEFAULT_OPEN_CHAT_MODE_STATE,
-        ...buildAiPrivateChatDraft(chat, initiator, target),
-      });
+  const runAutoSocialEventFlow = useCallback(async (sourceChat: GroupChat) => {
+    return runSocialEventAutoFlow(sourceChat, {
+      chats,
+      characters,
+      updateChat,
+      addChat: async (input) => useChatStore.getState().addChat(input),
+      addMessage,
+      appendEventMessage,
+    });
+  }, [addMessage, appendEventMessage, characters, chats, updateChat]);
 
-      await addMessage({
-        chatId: privateChat.id,
-        type: 'system',
-        senderId: 'system',
-        senderName: 'System',
-        content: `${initiator.name} 和 ${target.name} 从群聊 ${chat.name} 派生出一个AI私聊。`,
-        emotion: 0,
-      });
-
-      await appendEventMessage(chat.id, {
-        eventType: 'private_chat_started',
-        title: `${initiator.name} 与 ${target.name} 开启了AI私聊`,
-        summary: '群聊将跟踪这段私下互动带来的关系变化。',
-        pair: [initiator.name, target.name],
-      });
-
-      setPrivateDialogOpen(false);
-      navigate(`/chats/${privateChat.id}`);
-    } finally {
-      setPrivateCreating(false);
-    }
-  }, [addMessage, characters, chat, chats, navigate, privateStarterId, privateTargetId]);
+  void runAutoSocialEventFlow;
 
   const canAutoRun = Boolean(chat?.mode === 'open_chat' && (chat?.type === 'group' || chat?.type === 'direct' || chat?.type === 'ai_direct') && activeMembers.length > 0);
 
-  const privateCandidates = members;
+  const actionPanel = sessionActions.length ? <LazyPanel><SessionActionPanel title={actionPanelTitle} actions={sessionActions} onRunAction={runSessionAction} /></LazyPanel> : null;
+
+  useEffect(() => {
+    if (!chat || chat.type !== 'group') return;
+    void (async () => {
+      const result = await runAutoSocialEventFlow(chat);
+      if (result.handledEventId) lastAutoThreadCandidateIdRef.current = result.handledEventId;
+    })();
+  }, [chat, runAutoSocialEventFlow]);
 
   if (!chat) {
     return null;
@@ -537,63 +578,32 @@ export default function ChatDetailPage() {
               <Box sx={{ fontSize: 14, fontWeight: 700 }}>AI私聊</Box>
             </Box>
           ) : null}
-          <ChatSidebarPanel
-            chat={{ ...chat, worldState: projectedRuntimeState?.worldState || chat.worldState, runtimeTimeline: projectedRuntimeState?.runtimeTimeline || chat.runtimeTimeline, runtimeSeed: projectedRuntimeState?.runtimeSeed || chat.runtimeSeed, runtimeEventsV2: projectedRuntimeState?.runtimeEventsV2 || chat.runtimeEventsV2, relationshipLedger: projectedRuntimeState?.relationshipLedger || chat.relationshipLedger, primaryRecentEvent: projectedRuntimeState?.primaryRecentEvent }}
-            members={members}
-            thinkingId={thinkingId}
-            rightPanelTab={activeSidebarTab}
-            setRightPanelTab={setRightPanelTab}
-            showMemberTab={showMemberTab}
-            showRuntimeTab={showRuntimeTab}
-            memberPanelTitle={memberPanel?.title || (chat.type === 'group' ? '成员' : '角色')}
-            runtimePanelTitle={runtimePanel?.title || '状态'}
-            privatePayloads={privatePayloads}
-            onSpeakAs={(charId) => setSpeakAsCharacter(charId)}
-            onStartPrivateChat={chat.type === 'group' ? handleOpenPrivateChatDialog : undefined}
-            onRemoveMember={chat.type === 'group' ? (charId) => {
-              const newMembers = chat.memberIds.filter((m) => m !== charId);
-              if (newMembers.length >= 2) {
-                updateChat(chat.id, { memberIds: newMembers });
-              }
-            } : undefined}
-          />
+          <LazyPanel>
+            <ChatSidebarPanel
+              chat={{ ...chat, worldState: projectedRuntimeState?.worldState || chat.worldState, runtimeTimeline: projectedRuntimeState?.runtimeTimeline || chat.runtimeTimeline, runtimeSeed: projectedRuntimeState?.runtimeSeed || chat.runtimeSeed, runtimeEventsV2: projectedRuntimeState?.runtimeEventsV2 || chat.runtimeEventsV2, relationshipLedger: projectedRuntimeState?.relationshipLedger || chat.relationshipLedger, primaryRecentEvent: projectedRuntimeState?.primaryRecentEvent }}
+              members={members}
+              thinkingId={thinkingId}
+              rightPanelTab={activeSidebarTab}
+              setRightPanelTab={setRightPanelTab}
+              showMemberTab={showMemberTab}
+              showRuntimeTab={showRuntimeTab}
+              memberPanelTitle={memberPanel?.title || (chat.type === 'group' ? '成员' : '角色')}
+              runtimePanelTitle={runtimePanel?.title || '状态'}
+              privatePayloads={privatePayloads}
+              showActionTab={showActionTab}
+              actionPanel={actionPanel}
+              onSpeakAs={(charId) => setSpeakAsCharacter(charId)}
+              onRemoveMember={chat.type === 'group' ? (charId) => {
+                const newMembers = chat.memberIds.filter((m) => m !== charId);
+                if (newMembers.length >= 2) {
+                  updateChat(chat.id, { memberIds: newMembers });
+                }
+              } : undefined}
+            />
+          </LazyPanel>
 
         </Box>
       </RightPanel>
-
-      <Dialog open={privateDialogOpen} onClose={() => setPrivateDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>发起AI私聊</DialogTitle>
-        <DialogContent>
-          <Box sx={{ display: 'grid', gap: 2, pt: 1 }}>
-            <TextField
-              select
-              label="发起者"
-              value={privateStarterId}
-              onChange={(e) => setPrivateStarterId(e.target.value)}
-              fullWidth
-            >
-              {privateCandidates.map((member) => (
-                <MenuItem key={member.id} value={member.id}>{member.name}</MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label="对象"
-              value={privateTargetId}
-              onChange={(e) => setPrivateTargetId(e.target.value)}
-              fullWidth
-            >
-              {privateCandidates.filter((member) => member.id !== privateStarterId).map((member) => (
-                <MenuItem key={member.id} value={member.id}>{member.name}</MenuItem>
-              ))}
-            </TextField>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPrivateDialogOpen(false)}>取消</Button>
-          <Button variant="contained" onClick={handleCreatePrivateChat} disabled={!privateStarterId || !privateTargetId || privateStarterId === privateTargetId || privateCreating}>创建</Button>
-        </DialogActions>
-      </Dialog>
 
       <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={closeSnackbar}>
         <Alert severity={snackbar.severity} onClose={closeSnackbar}>{snackbar.message}</Alert>

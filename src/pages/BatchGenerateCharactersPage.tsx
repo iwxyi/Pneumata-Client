@@ -216,17 +216,29 @@ function chooseBatchBubbleStyle(settings: { customBubbleStyles?: Array<{ id: str
   });
 }
 
-function filterMeaningfulRelationshipPairs(members: Array<{ name: string; relationships: Array<{ characterId: string; affinity: number; respect: number; hostility: number; contempt: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
+function filterMeaningfulRelationshipPairs(members: Array<{ name: string; relationships: Array<{ characterId: string; valence: number; respect: number; trust: number; tension: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
   return members.flatMap((member) =>
     member.relationships
-      .filter((relation) => Boolean(relation.note?.trim()) || Math.abs(relation.affinity + relation.respect - relation.hostility - relation.contempt) >= 15 || relation.affinity >= 60 || relation.respect >= 60 || relation.hostility >= 35 || relation.contempt >= 35)
+      .filter((relation) => Boolean(relation.note?.trim()) || Math.abs(relation.valence + relation.respect + relation.trust - relation.tension - 100) >= 15 || relation.valence >= 60 || relation.respect >= 60 || relation.trust >= 60 || relation.tension >= 35)
       .map((relation) => ({
         source: member.name,
         target: allMembers.find((item) => item.id === relation.characterId)?.name || relation.characterId,
         relation,
-        score: relation.affinity + relation.respect - relation.hostility - relation.contempt,
+        score: relation.valence + relation.respect + relation.trust - relation.tension,
       }))
   );
+}
+
+function getRuntimeRelationshipItems(members: Array<{ name: string; relationships: Array<{ characterId: string; valence: number; respect: number; trust: number; tension: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
+  return filterMeaningfulRelationshipPairs(members, allMembers).slice(0, 8);
+}
+
+function getMeaningfulRelationshipPairs(members: Array<{ name: string; relationships: Array<{ characterId: string; valence: number; respect: number; trust: number; tension: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
+  return getRuntimeRelationshipItems(members, allMembers);
+}
+
+function getFilteredRelationshipPairs(members: Array<{ name: string; relationships: Array<{ characterId: string; valence: number; respect: number; trust: number; tension: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
+  return getMeaningfulRelationshipPairs(members, allMembers);
 }
 
 function getLongerMemoryPreview(text: string, limit = 120) {
@@ -249,10 +261,6 @@ function getBubbleStyleForBatchCharacter(settings: { customBubbleStyles?: Array<
   return chooseBatchBubbleStyle(settings, characters, generatedGroup);
 }
 
-function getRuntimeRelationshipItems(members: Array<{ name: string; relationships: Array<{ characterId: string; affinity: number; respect: number; hostility: number; contempt: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
-  return filterMeaningfulRelationshipPairs(members, allMembers).slice(0, 8);
-}
-
 function getExpandedMemoryPreview(text: string) {
   return getLongerMemoryPreview(text, 120);
 }
@@ -273,10 +281,6 @@ function buildBatchBubbleStyleId(settings: { customBubbleStyles?: Array<{ id: st
   return getBubbleStyleForBatchCharacter(settings, characters, generatedGroup);
 }
 
-function getMeaningfulRelationshipPairs(members: Array<{ name: string; relationships: Array<{ characterId: string; affinity: number; respect: number; hostility: number; contempt: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
-  return getRuntimeRelationshipItems(members, allMembers);
-}
-
 function getReadableMemoryPreview(text: string) {
   return getExpandedMemoryPreview(text);
 }
@@ -295,10 +299,6 @@ function getReadableGeneratedNamePreview(text: string) {
 
 function chooseGeneratedBubbleStyle(settings: { customBubbleStyles?: Array<{ id: string }> }, characters: Array<{ group?: string | null; bubbleStyleId?: string | null }>, generatedGroup: string | null) {
   return buildBatchBubbleStyleId(settings, characters, generatedGroup);
-}
-
-function getFilteredRelationshipPairs(members: Array<{ name: string; relationships: Array<{ characterId: string; affinity: number; respect: number; hostility: number; contempt: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
-  return getMeaningfulRelationshipPairs(members, allMembers);
 }
 
 function getVisibleMemoryText(text: string) {

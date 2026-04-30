@@ -1,5 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat, DriverMessageCommitResult } from '../types/chat';
+import type { SessionGenerationContext } from '../types/sessionEngine';
 import type { Message } from '../types/message';
 import type { APIConfig } from '../types/settings';
 import { runOneRound } from './chatEngine';
@@ -40,186 +41,80 @@ export async function revealMessageContent(params: {
   }
 }
 
-function canRunSpeakWithEnginePolicy(chat: GroupChat) {
-  return shouldInterviewAllowSpeak(chat) && isSpeakAllowed(chat);
+function buildEngineGenerationContext(chat: GroupChat, characters: AICharacter[], messages: Message[]): SessionGenerationContext {
+  return {
+    conversation: chat,
+    characters,
+    messages,
+  };
 }
 
-function canRunNonChatWithEnginePolicy(chat: GroupChat) {
-  return canAttemptNonChatAction(chat) && (chat.mode !== 'interview' || shouldInterviewRunAction(chat));
+function resolveEngineTurnPolicy(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  const engine = getSessionEngine(chat.mode);
+  const context = buildEngineGenerationContext(chat, characters, messages);
+  const policy = engine.resolveTurnPolicy?.(context);
+  if (policy) return policy;
+  return {
+    runChat: shouldInterviewAllowSpeak(chat) && isSpeakAllowed(chat),
+    runAction: canAttemptNonChatAction(chat) && (chat.mode !== 'interview' || shouldInterviewRunAction(chat)),
+    interleaveAction: canAttemptNonChatAction(chat) && (shouldInterviewAllowSpeak(chat) && isSpeakAllowed(chat)),
+  };
 }
 
-function getPhaseAwareLoopState(chat: GroupChat) {
-  return { speakAllowed: canRunSpeakWithEnginePolicy(chat), hasNonChatAction: canRunNonChatWithEnginePolicy(chat) };
+function canRunSpeakWithEnginePolicy(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return resolveEngineTurnPolicy(chat, characters, messages).runChat;
 }
 
-function getPhaseAwareControl(chat: GroupChat) {
-  const state = getPhaseAwareLoopState(chat);
+function canRunNonChatWithEnginePolicy(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return resolveEngineTurnPolicy(chat, characters, messages).runAction;
+}
+
+function getPhaseAwareLoopState(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return { speakAllowed: canRunSpeakWithEnginePolicy(chat, characters, messages), hasNonChatAction: canRunNonChatWithEnginePolicy(chat, characters, messages) };
+}
+
+function getPhaseAwareControl(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  const state = getPhaseAwareLoopState(chat, characters, messages);
   return {
     skipSpeak: !state.speakAllowed,
     allowInterleaveAction: state.hasNonChatAction,
   };
 }
 
-function shouldRunInterviewActionBeforeRound(chat: GroupChat) {
-  return getPhaseAwareControl(chat).allowInterleaveAction;
+function shouldRunInterviewActionBeforeRound(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return getPhaseAwareControl(chat, characters, messages).allowInterleaveAction;
 }
 
-function shouldRunInterviewRound(chat: GroupChat) {
-  return !getPhaseAwareControl(chat).skipSpeak;
+function shouldRunInterviewRound(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return !getPhaseAwareControl(chat, characters, messages).skipSpeak;
 }
 
-function getEngineLoopGate(chat: GroupChat) {
+function getEngineLoopGate(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
   return {
-    runTurn: shouldRunInterviewRound(chat),
-    actionFirst: shouldRunInterviewActionBeforeRound(chat),
+    runTurn: shouldRunInterviewRound(chat, characters, messages),
+    actionFirst: shouldRunInterviewActionBeforeRound(chat, characters, messages),
   };
 }
 
-function shouldEngineInvokeChat(chat: GroupChat) {
-  return getEngineLoopGate(chat).runTurn;
-}
-
-function shouldEngineInvokeAction(chat: GroupChat) {
-  return getEngineLoopGate(chat).actionFirst;
-}
-
-function getEngineLoopPlan(chat: GroupChat) {
+function getLoopExecutionPolicy(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  const gate = getEngineLoopGate(chat, characters, messages);
   return {
-    invokeChatEngine: shouldEngineInvokeChat(chat),
-    invokeActionScaffold: shouldEngineInvokeAction(chat),
+    runAction: gate.actionFirst,
+    runChat: gate.runTurn,
+    skip: !gate.runTurn && !gate.actionFirst,
   };
 }
 
-function shouldProcessEngineChat(chat: GroupChat) {
-  return getEngineLoopPlan(chat).invokeChatEngine;
+function shouldExecuteLoopAction(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return getLoopExecutionPolicy(chat, characters, messages).runAction;
 }
 
-function shouldProcessEngineAction(chat: GroupChat) {
-  return getEngineLoopPlan(chat).invokeActionScaffold;
+function shouldExecuteLoopChat(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return getLoopExecutionPolicy(chat, characters, messages).runChat;
 }
 
-function canRunEngineFlow(chat: GroupChat) {
-  return shouldProcessEngineChat(chat) || shouldProcessEngineAction(chat);
-}
-
-function shouldSkipEngineIteration(chat: GroupChat) {
-  return !canRunEngineFlow(chat);
-}
-
-function getEngineIterationPlan(chat: GroupChat) {
-  return {
-    skip: shouldSkipEngineIteration(chat),
-    runAction: shouldProcessEngineAction(chat),
-    runChat: shouldProcessEngineChat(chat),
-  };
-}
-
-function shouldEngineRunAction(chat: GroupChat) {
-  return getEngineIterationPlan(chat).runAction;
-}
-
-function shouldEngineRunChat(chat: GroupChat) {
-  return getEngineIterationPlan(chat).runChat;
-}
-
-function shouldEngineSkip(chat: GroupChat) {
-  return getEngineIterationPlan(chat).skip;
-}
-
-function getRunnerEnginePlan(chat: GroupChat) {
-  return getEngineIterationPlan(chat);
-}
-
-function shouldRunActionWithEnginePolicy(chat: GroupChat) {
-  return getRunnerEnginePlan(chat).runAction;
-}
-
-function shouldRunChatWithEnginePolicy(chat: GroupChat) {
-  return getRunnerEnginePlan(chat).runChat;
-}
-
-function shouldSkipWithEnginePolicy(chat: GroupChat) {
-  return getRunnerEnginePlan(chat).skip;
-}
-
-function getSessionEngineAwareState(chat: GroupChat) {
-  return {
-    runAction: shouldRunActionWithEnginePolicy(chat),
-    runChat: shouldRunChatWithEnginePolicy(chat),
-    skip: shouldSkipWithEnginePolicy(chat),
-  };
-}
-
-function shouldExecuteActionWithPolicy(chat: GroupChat) {
-  return getSessionEngineAwareState(chat).runAction;
-}
-
-function shouldExecuteChatWithPolicy(chat: GroupChat) {
-  return getSessionEngineAwareState(chat).runChat;
-}
-
-function shouldSkipWithPolicy(chat: GroupChat) {
-  return getSessionEngineAwareState(chat).skip;
-}
-
-function getPolicyResult(chat: GroupChat) {
-  return {
-    action: shouldExecuteActionWithPolicy(chat),
-    chat: shouldExecuteChatWithPolicy(chat),
-    skip: shouldSkipWithPolicy(chat),
-  };
-}
-
-function shouldRunActionByPolicy(chat: GroupChat) {
-  return getPolicyResult(chat).action;
-}
-
-function shouldRunChatByPolicy(chat: GroupChat) {
-  return getPolicyResult(chat).chat;
-}
-
-function shouldSkipByPolicy(chat: GroupChat) {
-  return getPolicyResult(chat).skip;
-}
-
-function getPolicyLoopState(chat: GroupChat) {
-  return {
-    runAction: shouldRunActionByPolicy(chat),
-    runChat: shouldRunChatByPolicy(chat),
-    skip: shouldSkipByPolicy(chat),
-  };
-}
-
-function shouldRunPolicyAction(chat: GroupChat) {
-  return getPolicyLoopState(chat).runAction;
-}
-
-function shouldRunPolicyChat(chat: GroupChat) {
-  return getPolicyLoopState(chat).runChat;
-}
-
-function shouldSkipPolicy(chat: GroupChat) {
-  return getPolicyLoopState(chat).skip;
-}
-
-function getLoopExecutionPolicy(chat: GroupChat) {
-  return {
-    runAction: shouldRunPolicyAction(chat),
-    runChat: shouldRunPolicyChat(chat),
-    skip: shouldSkipPolicy(chat),
-  };
-}
-
-function shouldExecuteLoopAction(chat: GroupChat) {
-  return getLoopExecutionPolicy(chat).runAction;
-}
-
-function shouldExecuteLoopChat(chat: GroupChat) {
-  return getLoopExecutionPolicy(chat).runChat;
-}
-
-function shouldSkipLoopExecution(chat: GroupChat) {
-  return getLoopExecutionPolicy(chat).skip;
+function shouldSkipLoopExecution(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return getLoopExecutionPolicy(chat, characters, messages).skip;
 }
 
 function maybeRunEngineAction(chat: GroupChat, updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>, appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number]) => Promise<void>) {
@@ -294,79 +189,36 @@ function canRunLoop(chat: GroupChat) {
   return Boolean(getSessionLoopMode(chat));
 }
 
-function shouldUseChatEngine(chat: GroupChat) {
-  return shouldRunSpeakAction(chat);
+function shouldRunSpeakAction(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return canRunSpeakWithEnginePolicy(chat, characters, messages);
 }
 
-function canUseNonChatAction(chat: GroupChat) {
-  return canAttemptNonChatAction(chat);
+function shouldRunTickAction(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return shouldExecuteLoopAction(chat, characters, messages);
 }
 
-function getLoopState(chat: GroupChat) {
-  return { mode: chat.mode, speakAllowed: shouldRunSpeakAction(chat), hasNonChatAction: canUseNonChatAction(chat) };
+function shouldRunTickChat(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return shouldRunSpeakAction(chat, characters, messages);
 }
 
-function shouldRunNonChatAction(chat: GroupChat) {
-  const state = getLoopState(chat);
-  return state.hasNonChatAction && !state.speakAllowed;
-}
-
-function canInterleaveNonChatAction(chat: GroupChat) {
-  const state = getLoopState(chat);
-  return state.hasNonChatAction && state.speakAllowed;
-}
-
-function shouldRunSpeakAction(chat: GroupChat) {
-  return canRunSpeakWithEnginePolicy(chat);
-}
-
-function getLoopMode(chat: GroupChat) {
+function getTickExecution(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
   return {
-    speak: shouldRunSpeakAction(chat),
-    nonChat: shouldRunNonChatAction(chat),
-    interleave: canInterleaveNonChatAction(chat),
+    canRun: canRunLoop(chat) && !shouldSkipLoopExecution(chat, characters, messages),
+    runAction: shouldExecuteLoopAction(chat, characters, messages),
+    runChat: shouldExecuteLoopChat(chat, characters, messages),
   };
 }
 
-function shouldRunTickAction(chat: GroupChat) {
-  const mode = getLoopMode(chat);
-  return mode.nonChat || mode.interleave;
+function shouldExecuteAnyTick(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return getTickExecution(chat, characters, messages).canRun;
 }
 
-function shouldRunTickChat(chat: GroupChat) {
-  return getLoopMode(chat).speak;
+function shouldExecuteTickAction(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return shouldRunTickAction(chat, characters, messages);
 }
 
-function getTickExecution(chat: GroupChat) {
-  return {
-    canRun: canRunLoop(chat) && !shouldSkipLoopExecution(chat),
-    runAction: shouldExecuteLoopAction(chat),
-    runChat: shouldExecuteLoopChat(chat),
-  };
-}
-
-function canRunTick(chat: GroupChat) {
-  return getTickExecution(chat).canRun;
-}
-
-function getPhaseAwareExecution(chat: GroupChat) {
-  return {
-    canRunTick: canRunTick(chat),
-    runTickAction: shouldRunTickAction(chat),
-    runTickChat: shouldRunTickChat(chat),
-  };
-}
-
-function shouldExecuteAnyTick(chat: GroupChat) {
-  return getPhaseAwareExecution(chat).canRunTick;
-}
-
-function shouldExecuteTickAction(chat: GroupChat) {
-  return getPhaseAwareExecution(chat).runTickAction;
-}
-
-function shouldExecuteTickChat(chat: GroupChat) {
-  return getPhaseAwareExecution(chat).runTickChat;
+function shouldExecuteTickChat(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+  return shouldRunTickChat(chat, characters, messages);
 }
 
 export async function runSessionLoop(params: {
@@ -417,8 +269,10 @@ export async function runSessionLoop(params: {
       }
 
       const effectiveCharacters = loopCharacters.length ? loopCharacters : params.characters;
+      const engine = getSessionEngine(params.chat.mode);
+      const generationContext = buildEngineGenerationContext(params.chat, effectiveCharacters, currentMessages);
 
-      if (shouldExecuteAnyTick(params.chat) && shouldExecuteTickAction(params.chat)) {
+      if (shouldExecuteAnyTick(params.chat, effectiveCharacters, currentMessages) && shouldExecuteTickAction(params.chat, effectiveCharacters, currentMessages)) {
         const handled = await maybeRunNonChatAction(params.chat, params.updateChat, params.appendEventMessage);
         if (handled) {
           if (params.isRunning() && !params.isPaused() && shouldWaitAfterSessionTick()) {
@@ -428,12 +282,21 @@ export async function runSessionLoop(params: {
         }
       }
 
-      if (!shouldExecuteTickChat(params.chat)) {
+      if (!shouldExecuteTickChat(params.chat, effectiveCharacters, currentMessages)) {
         params.onLoopError(new Error('Current session phase does not allow speaking'));
         await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(params.chat)));
         continue;
       }
 
+      const preselectedSpeaker = effectiveCharacters.find((character) => character.id === currentMessages.filter((message) => message.type === 'ai' && !message.isDeleted).at(-1)?.senderId)
+        || effectiveCharacters[0]
+        || null;
+      const roundPromptContext: ReturnType<NonNullable<typeof engine.buildGenerationPromptContext>> | null = preselectedSpeaker
+        ? engine.buildGenerationPromptContext?.({
+            ...generationContext,
+            speaker: preselectedSpeaker,
+          }) || null
+        : null;
       await runOneRound(
         params.chat,
         effectiveCharacters,
@@ -479,6 +342,10 @@ export async function runSessionLoop(params: {
             if (!isActiveLoop(params)) return;
             params.onEngineError(error);
           },
+        },
+        undefined,
+        {
+          promptContext: roundPromptContext,
         }
       );
 

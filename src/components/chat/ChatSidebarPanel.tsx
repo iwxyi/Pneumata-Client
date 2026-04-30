@@ -10,14 +10,15 @@ interface ChatSidebarPanelProps {
   members: AICharacter[];
   thinkingId: string | null;
   rightPanelTab: string;
-  setRightPanelTab: (value: 'members' | 'world') => void;
+  setRightPanelTab: (value: 'members' | 'world' | 'actions') => void;
   showMemberTab: boolean;
   showRuntimeTab: boolean;
+  showActionTab?: boolean;
+  actionPanel?: React.ReactNode;
   memberPanelTitle?: string;
   runtimePanelTitle?: string;
   privatePayloads: Array<{ key: string; title: string; text: string }>;
   onSpeakAs: (charId: string) => void;
-  onStartPrivateChat?: (charId: string) => void;
   onRemoveMember?: (charId: string) => void;
 }
 
@@ -29,19 +30,21 @@ export default function ChatSidebarPanel({
   setRightPanelTab,
   showMemberTab,
   showRuntimeTab,
+  showActionTab,
+  actionPanel,
   memberPanelTitle,
   runtimePanelTitle,
   privatePayloads,
   onSpeakAs,
-  onStartPrivateChat,
   onRemoveMember,
 }: ChatSidebarPanelProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      {showMemberTab && showRuntimeTab ? (
+      {showMemberTab || showRuntimeTab || showActionTab ? (
         <Tabs value={rightPanelTab} onChange={(_, value) => setRightPanelTab(value)}>
-          <Tab value="members" label={memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} />
-          <Tab value="world" label={runtimePanelTitle || '状态'} />
+          {showMemberTab ? <Tab value="members" label={memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} /> : null}
+          {showRuntimeTab ? <Tab value="world" label={runtimePanelTitle || '状态'} /> : null}
+          {showActionTab ? <Tab value="actions" label="动作" /> : null}
         </Tabs>
       ) : null}
 
@@ -52,7 +55,6 @@ export default function ChatSidebarPanel({
             thinkingId={thinkingId}
             chat={chat}
             onSpeakAs={onSpeakAs}
-            onStartPrivateChat={onStartPrivateChat}
             onRemove={onRemoveMember}
           />
           <RelationshipPanel chat={chat} members={members} />
@@ -60,6 +62,7 @@ export default function ChatSidebarPanel({
       ) : null}
 
       {rightPanelTab === 'world' && showRuntimeTab ? <ChatRuntimePanel chat={chat} members={members} privatePayloads={privatePayloads} /> : null}
+      {rightPanelTab === 'actions' && showActionTab ? actionPanel || null : null}
 
     </Box>
   );

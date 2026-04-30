@@ -8,6 +8,10 @@ interface SessionActionPanelProps {
   onRunAction: (action: SessionActionDefinition, payload: Record<string, unknown>) => void;
 }
 
+function getOptionLabel(label: string) {
+  return label;
+}
+
 function getActionLabel(action: SessionActionDefinition) {
   if (action.type === 'ask_question') return '提问动作';
   if (action.type === 'director_intervention') return '导演干预';
@@ -60,7 +64,7 @@ export default function SessionActionPanel({ title = '动作面板', actions, on
                         },
                       }))}
                     >
-                      {(field.options || []).map((option) => <MenuItem key={`${field.key}-${option.value}`} value={option.value}>{option.label}</MenuItem>)}
+                      {(field.options || []).map((option) => <MenuItem key={`${field.key}-${option.value}`} value={option.value}>{getOptionLabel(option.label)}</MenuItem>)}
                     </TextField>
                   ) : (
                     <TextField

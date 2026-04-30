@@ -351,10 +351,10 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
       .filter(Boolean)
       .map((note, index) => ({
         characterId: `draft-${index}`,
-        affinity: 50,
-        hostility: 0,
-        respect: 50,
-        contempt: 0,
+        warmth: 50,
+        competence: 50,
+        trust: 50,
+        threat: 0,
         note,
       }));
     onSave({

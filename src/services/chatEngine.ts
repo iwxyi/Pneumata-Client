@@ -2,8 +2,9 @@ import { getCharacterModelProfileId, type AICharacter } from '../types/character
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
+import type { SessionGenerationPromptContext } from '../types/sessionEngine';
 import { getPreferredAIProfile } from '../types/settings';
-import type { InteractionEventPayload } from '../types/runtimeEvent';
+import type { InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
 import { generateResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildChatMessages } from './promptBuilder';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
@@ -16,6 +17,7 @@ import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from '
 
 interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   interactionHint?: InteractionEventPayload | null;
+  socialEventHints?: SocialEventHintEnvelope[] | null;
 }
 
 const emotionMap: Record<string, number> = {};
@@ -72,7 +74,7 @@ export const getEmotion = (characterId: string): number => emotionMap[characterI
 export const setEmotion = (characterId: string, value: number): void => { emotionMap[characterId] = value; };
 
 export interface ChatEngineCallbacks {
-  onSpeakerSelected: (characterId: string) => void;
+  onSpeakerSelected: (characterId: string, speaker?: AICharacter) => void;
   onMessageChunk: (content: string) => void;
   onMessageComplete: (message: GeneratedRoundMessage) => void | Promise<void>;
   onError: (error: Error) => void;
@@ -211,7 +213,8 @@ export const runOneRound = async (
   messages: Message[],
   apiConfig: APIConfig | AIModelProfile[],
   callbacks: ChatEngineCallbacks,
-  profiles?: AIModelProfile[]
+  profiles?: AIModelProfile[],
+  generationContext?: { promptContext?: SessionGenerationPromptContext | null }
 ): Promise<void> => {
   const chatMembers = characters.filter((c) => chat.memberIds.includes(c.id));
   if (chatMembers.length === 0) {
@@ -231,7 +234,7 @@ export const runOneRound = async (
   const speaker = chatMembers.find((c) => c.id === speakerId);
   if (!speaker) return;
 
-  callbacks.onSpeakerSelected(speakerId);
+  callbacks.onSpeakerSelected(speakerId, speaker);
 
   const emotion = getEmotion(speakerId);
   const recentTargetId = messages.filter((m) => m.type === 'ai' && !m.isDeleted).at(-1)?.senderId;
@@ -239,14 +242,20 @@ export const runOneRound = async (
   const recentText = activeMessages.at(-1)?.content || '';
   const intent = deriveSpeakIntentFromContext(speaker, recentTargetId, recentText);
   const characterMap = new Map(chatMembers.map((c) => [c.id, c]));
-  const systemPrompt = `${buildSpeakerSystemPrompt({ speaker, chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(speaker, intent, activeMessages)}
+  const enginePromptContext = generationContext?.promptContext;
+  const promptPrefix = enginePromptContext?.promptPrefix ? `${enginePromptContext.promptPrefix.trim()}\n\n` : '';
+  const promptSuffix = enginePromptContext?.promptSuffix ? `\n\n${enginePromptContext.promptSuffix.trim()}` : '';
+  const additionalConstraints = enginePromptContext?.additionalConstraints?.length
+    ? `\n- ${enginePromptContext.additionalConstraints.join('\n- ')}`
+    : '';
+  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker, chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(speaker, intent, activeMessages)}
 
 Current speaking intent:
 - ${describeIntentForPrompt(intent)}
 - Follow the intent shape strictly: fragment means a clipped phrase; question_only means only ask or challenge; single_sentence means one line; two_sentences is the max unless genuinely necessary.
 - Respond like a WeChat group message: quick, targeted, partial, reactive, and slightly messy. Do not write a balanced full answer unless the room truly needs it.
 - Prefer sounding impulsive, socially situated, colloquial, and slightly incomplete over sounding polished.
-- If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.${buildGenerationConstraints(activeMessages, speakerId)}${buildInlineInteractionContract({ chat, speaker, characters: chatMembers, recentMessages: activeMessages })}`;
+- If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.${additionalConstraints}${buildGenerationConstraints(activeMessages, speakerId)}${buildInlineInteractionContract({ chat, speaker, characters: chatMembers, recentMessages: activeMessages })}${promptSuffix}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT);
 
   try {
@@ -279,6 +288,7 @@ Current speaking intent:
       content: finalResponse,
       emotion: getEmotion(speakerId),
       interactionHint: toInteractionPayload(parsedEnvelope?.interactionHint || null, speakerId, finalResponse),
+      socialEventHints: parsedEnvelope?.socialEventHints || null,
     });
   } catch (error) {
     callbacks.onError(error instanceof Error ? error : new Error(String(error)));

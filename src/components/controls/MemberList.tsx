@@ -12,13 +12,12 @@ interface MemberListProps {
   chat?: GroupChat;
   onRemove?: (id: string) => void;
   onSpeakAs?: (id: string) => void;
-  onStartPrivateChat?: (id: string) => void;
 }
 
 function buildMemberStatus(member: AICharacter) {
   const chips = [] as string[];
-  if (member.relationships.some((relation) => relation.affinity >= 60 || relation.respect >= 60)) chips.push('高好感');
-  if (member.relationships.some((relation) => relation.hostility >= 35 || relation.contempt >= 35)) chips.push('有冲突');
+  if (member.relationships.some((relation) => relation.warmth >= 60 || relation.competence >= 60 || relation.trust >= 60)) chips.push('高好感');
+  if (member.relationships.some((relation) => relation.threat >= 35)) chips.push('有冲突');
   return chips;
 }
 
@@ -28,7 +27,7 @@ function buildMemberSubtitle(member: AICharacter, thinkingId: string | null, thi
   return member.expertise.slice(0, 2).join(', ');
 }
 
-export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onStartPrivateChat }: MemberListProps) {
+export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs }: MemberListProps) {
   const { t } = useTranslation();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [menuCharId, setMenuCharId] = useState<string | null>(null);
@@ -102,16 +101,6 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
             }}
           >
             {t('controls.speakAs')}
-          </MenuItem>
-        )}
-        {onStartPrivateChat && (
-          <MenuItem
-            onClick={() => {
-              setAnchorEl(null);
-              if (menuCharId) onStartPrivateChat(menuCharId);
-            }}
-          >
-            发起AI私聊
           </MenuItem>
         )}
         {onRemove && (

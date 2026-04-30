@@ -36,7 +36,7 @@ export const analyzeEmotion = (text: string): number => {
 export const updateEmotion = (
   currentEmotion: number,
   messageEmotion: number,
-  decay: number = 0.7
+  decay: number = 0.7,
 ): number => {
   const newEmotion = currentEmotion * decay + messageEmotion * (1 - decay);
   return Math.max(-1, Math.min(1, newEmotion));
@@ -45,10 +45,10 @@ export const updateEmotion = (
 export const deriveRelationshipDelta = (text: string) => {
   const emotion = analyzeEmotion(text);
   if (emotion >= 0.35) {
-    return { affinity: 8, respect: 5, hostility: -4, contempt: -3 };
+    return { warmth: 8, competence: 3, trust: 5, threat: -2 };
   }
   if (emotion <= -0.35) {
-    return { affinity: -6, respect: -3, hostility: 8, contempt: 5 };
+    return { warmth: -6, competence: -2, trust: -5, threat: 8 };
   }
-  return { affinity: 1, respect: 1, hostility: 0, contempt: 0 };
+  return { warmth: 1, competence: 0, trust: 1, threat: 0 };
 };

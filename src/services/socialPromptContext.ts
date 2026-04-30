@@ -23,22 +23,22 @@ export function buildRelationshipPrompt(character: AICharacter, targetCharacter?
   const relation = getRelationshipBetween(character, targetCharacter.id);
   const weight = getRelationshipWeight(character, targetCharacter.id);
   if (!relation) {
-    return `\n## Social Tension\n- You are reacting to ${targetCharacter.name} without an established bond yet. Stay attentive to status and tone.`;
+    return `\n## Social Appraisal\n- You are reacting to ${targetCharacter.name} without a stable interpersonal model yet. Pay attention to reliability, competence, and threat cues.`;
   }
 
   const cues: string[] = [];
-  if (relation.affinity >= 65) cues.push('you feel personal warmth and are more likely to echo, defend, or casually side with them');
-  if (relation.respect >= 65) cues.push('you take their ideas seriously even when disagreeing and may give them more room than others');
-  if (relation.hostility >= 55) cues.push('you are primed to challenge, needle, or pick at weak points in what they say');
-  if (relation.contempt >= 55) cues.push('you tend to be dismissive, ironic, or impatient with them in public');
-  if (Math.abs(weight) < 0.15) cues.push('your stance toward them is still mixed and unstable');
+  if (relation.warmth >= 65) cues.push('you feel interpersonal warmth and are more likely to soften, echo, or defend them');
+  if (relation.competence >= 65) cues.push('you treat their judgment as credible and may give their claims more weight');
+  if (relation.trust >= 65) cues.push('you expect follow-through and are more willing to coordinate or disclose');
+  if (relation.threat >= 55) cues.push('you perceive interpersonal threat and are more likely to guard, challenge, deflect, or escalate');
+  if (Math.abs(weight) < 0.15) cues.push('your appraisal is mixed and still unstable');
 
   const baggage: string[] = [];
-  if (relation.hostility >= 45 || relation.contempt >= 45) baggage.push('you may still be carrying irritation or a grudge from earlier exchanges');
-  if (relation.affinity >= 60 || relation.respect >= 60) baggage.push('you may feel some loyalty, obligation, or instinct to back them up');
-  if (relation.note?.trim()) baggage.push(`recent social baggage: ${relation.note}`);
+  if (relation.threat >= 45) baggage.push('you may still carry vigilance, defensiveness, or unresolved conflict from earlier exchanges');
+  if (relation.warmth >= 60 || relation.competence >= 60 || relation.trust >= 60) baggage.push('you may feel some loyalty, deference, or willingness to extend the benefit of the doubt');
+  if (relation.note?.trim()) baggage.push(`recent interpersonal baggage: ${relation.note}`);
 
-  return `\n## Social Tension\n- Current target: ${targetCharacter.name}\n- Dynamic bias: ${weight > 0.3 ? 'lean supportive' : weight < -0.3 ? 'lean adversarial' : 'lean uncertain'}\n${cues.map((cue) => `- ${cue}`).join('\n')}\n${baggage.map((item) => `- ${item}`).join('\n')}`;
+  return `\n## Social Appraisal\n- Current target: ${targetCharacter.name}\n- Dynamic stance: ${weight > 0.3 ? 'supportive / affiliative' : weight < -0.3 ? 'guarded / adversarial' : 'mixed / uncertain'}\n${cues.map((cue) => `- ${cue}`).join('\n')}\n${baggage.map((item) => `- ${item}`).join('\n')}`;
 }
 
 export function buildConflictAxesPrompt(chat: GroupChat) {
@@ -117,9 +117,4 @@ export function buildMessageStyleRules(character: AICharacter) {
   if (runtimeBehavior.summarizing >= 70) rules.push('Only summarize when the room is obviously drifting or confused.');
   if (runtimeBehavior.offTopic >= 60) rules.push('Allow a light tangent, stray association, or side comment when it feels organic.');
   return `\n## Expression Bias\n${rules.map((rule) => `- ${rule}`).join('\n')}`;
-}
-
-export function buildSocialPromptContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>, dramaBoost = false) {
-  const recentTarget = findRecentTarget(messages, characters, character.id);
-  return `${buildRelationshipPrompt(character, recentTarget)}${buildGroupDynamicsPrompt(chat, dramaBoost)}${buildMemoryPressurePrompt(character, messages)}${buildConflictPrompt(character)}`;
 }

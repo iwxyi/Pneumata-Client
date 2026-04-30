@@ -1,26 +1,34 @@
-import { useMemo, useEffect } from 'react';
+import { lazy, Suspense, useMemo, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ThemeProvider, CssBaseline, useMediaQuery } from '@mui/material';
 import { createAppTheme } from './theme';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useAuthStore } from './stores/useAuthStore';
 import AppLayout from './components/layout/AppLayout';
-import HomePage from './pages/HomePage';
-import ChatListPage from './pages/ChatListPage';
-import CreateChatPage from './pages/CreateChatPage';
-import ChatDetailPage from './pages/ChatDetailPage';
-import CreateDirectChatPage from './pages/CreateDirectChatPage';
-import CharacterLibraryPage from './pages/CharacterLibraryPage';
-import SettingsPage from './pages/SettingsPage';
-import RecycleBinPage from './pages/RecycleBinPage';
-import AIModelsPage from './pages/AIModelsPage';
-import AccountPage from './pages/AccountPage';
-import SyncStatusPage from './pages/SyncStatusPage';
-import BatchGenerateCharactersPage from './pages/BatchGenerateCharactersPage';
-import LoginPage from './pages/LoginPage';
 import './i18n';
 
-// Route guard component
+const HomePage = lazy(() => import('./pages/HomePage'));
+const ChatListPage = lazy(() => import('./pages/ChatListPage'));
+const CreateChatPage = lazy(() => import('./pages/CreateChatPage'));
+const ChatDetailPage = lazy(() => import('./pages/ChatDetailPage'));
+const CreateDirectChatPage = lazy(() => import('./pages/CreateDirectChatPage'));
+const CharacterLibraryPage = lazy(() => import('./pages/CharacterLibraryPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const RecycleBinPage = lazy(() => import('./pages/RecycleBinPage'));
+const AIModelsPage = lazy(() => import('./pages/AIModelsPage'));
+const AccountPage = lazy(() => import('./pages/AccountPage'));
+const SyncStatusPage = lazy(() => import('./pages/SyncStatusPage'));
+const BatchGenerateCharactersPage = lazy(() => import('./pages/BatchGenerateCharactersPage'));
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+
+function RouteFallback() {
+  return null;
+}
+
+function RouteElement({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
+}
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const location = useLocation();
@@ -32,7 +40,6 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Load data after login
 function DataLoader({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const loadSettings = useSettingsStore((s) => s.loadSettings);
@@ -64,27 +71,27 @@ export default function App() {
       <BrowserRouter>
         <DataLoader>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
+            <Route path="/login" element={<RouteElement><LoginPage /></RouteElement>} />
             <Route element={
               <RequireAuth>
                 <AppLayout />
               </RequireAuth>
             }>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/chats" element={<ChatListPage />} />
-              <Route path="/chats/create" element={<CreateChatPage />} />
-              <Route path="/direct/create" element={<CreateDirectChatPage />} />
-              <Route path="/chats/:id/edit" element={<CreateChatPage />} />
-              <Route path="/chats/:id" element={<ChatDetailPage />} />
-              <Route path="/characters" element={<CharacterLibraryPage />} />
-              <Route path="/characters/create" element={<CharacterLibraryPage />} />
-              <Route path="/characters/:id/edit" element={<CharacterLibraryPage />} />
-              <Route path="/characters/batch-generate" element={<BatchGenerateCharactersPage />} />
-              <Route path="/models" element={<AIModelsPage />} />
-              <Route path="/account" element={<AccountPage />} />
-              <Route path="/account/sync-status" element={<SyncStatusPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/settings/recycle-bin" element={<RecycleBinPage />} />
+              <Route path="/" element={<RouteElement><HomePage /></RouteElement>} />
+              <Route path="/chats" element={<RouteElement><ChatListPage /></RouteElement>} />
+              <Route path="/chats/create" element={<RouteElement><CreateChatPage /></RouteElement>} />
+              <Route path="/direct/create" element={<RouteElement><CreateDirectChatPage /></RouteElement>} />
+              <Route path="/chats/:id/edit" element={<RouteElement><CreateChatPage /></RouteElement>} />
+              <Route path="/chats/:id" element={<RouteElement><ChatDetailPage /></RouteElement>} />
+              <Route path="/characters" element={<RouteElement><CharacterLibraryPage /></RouteElement>} />
+              <Route path="/characters/create" element={<RouteElement><CharacterLibraryPage /></RouteElement>} />
+              <Route path="/characters/:id/edit" element={<RouteElement><CharacterLibraryPage /></RouteElement>} />
+              <Route path="/characters/batch-generate" element={<RouteElement><BatchGenerateCharactersPage /></RouteElement>} />
+              <Route path="/models" element={<RouteElement><AIModelsPage /></RouteElement>} />
+              <Route path="/account" element={<RouteElement><AccountPage /></RouteElement>} />
+              <Route path="/account/sync-status" element={<RouteElement><SyncStatusPage /></RouteElement>} />
+              <Route path="/settings" element={<RouteElement><SettingsPage /></RouteElement>} />
+              <Route path="/settings/recycle-bin" element={<RouteElement><RecycleBinPage /></RouteElement>} />
             </Route>
           </Routes>
         </DataLoader>

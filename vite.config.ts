@@ -76,4 +76,21 @@ export default defineConfig({
       '@': '/src',
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('@mui/x-charts')) return 'vendor-mui-charts'
+            if (id.includes('@mui/icons-material')) return 'vendor-mui-icons'
+            if (id.includes('@emotion/')) return 'vendor-emotion'
+            if (id.includes('@mui/')) return 'vendor-mui-core'
+            if (id.includes('react-router') || id.includes('@remix-run/')) return 'vendor-router'
+            if (id.includes('react-i18next') || id.includes('i18next')) return 'vendor-i18n'
+            if (id.includes('react/jsx-runtime') || id.includes('/react/') || id.includes('/react-dom/')) return 'vendor-react'
+          }
+        },
+      },
+    },
+  },
 })
