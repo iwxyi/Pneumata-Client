@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat, DriverMessageCommitResult } from '../types/chat';
-import type { SessionGenerationContext } from '../types/sessionEngine';
+import type { SessionGenerationContext, SessionTurnPolicy } from '../types/sessionEngine';
 import type { Message } from '../types/message';
 import type { APIConfig } from '../types/settings';
 import { runOneRound } from './chatEngine';
@@ -10,7 +10,6 @@ import { createSessionRuntimeContext } from './sessionEngineKernel';
 import { getCurrentSessionPhase } from './sessionStateMachine';
 import { getAllowedSessionActions } from './sessionActionBus';
 import { runSessionActionExecutor } from './sessionActionExecutors/sessionActionExecutorRegistry';
-import { shouldInterviewAllowSpeak, shouldInterviewRunAction } from './interviewRunnerPolicy';
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -49,16 +48,20 @@ function buildEngineGenerationContext(chat: GroupChat, characters: AICharacter[]
   };
 }
 
+function createDefaultTurnPolicy(chat: GroupChat): SessionTurnPolicy {
+  const canSpeak = isSpeakAllowed(chat);
+  const canAct = canAttemptNonChatAction(chat);
+  return {
+    runChat: canSpeak,
+    runAction: canAct,
+    interleaveAction: canSpeak && canAct,
+  };
+}
+
 function resolveEngineTurnPolicy(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
   const engine = getSessionEngine(chat.mode);
   const context = buildEngineGenerationContext(chat, characters, messages);
-  const policy = engine.resolveTurnPolicy?.(context);
-  if (policy) return policy;
-  return {
-    runChat: shouldInterviewAllowSpeak(chat) && isSpeakAllowed(chat),
-    runAction: canAttemptNonChatAction(chat) && (chat.mode !== 'interview' || shouldInterviewRunAction(chat)),
-    interleaveAction: canAttemptNonChatAction(chat) && (shouldInterviewAllowSpeak(chat) && isSpeakAllowed(chat)),
-  };
+  return engine.resolveTurnPolicy?.(context) || createDefaultTurnPolicy(chat);
 }
 
 function canRunSpeakWithEnginePolicy(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
@@ -81,18 +84,18 @@ function getPhaseAwareControl(chat: GroupChat, characters: AICharacter[], messag
   };
 }
 
-function shouldRunInterviewActionBeforeRound(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+function shouldRunActionBeforeRound(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
   return getPhaseAwareControl(chat, characters, messages).allowInterleaveAction;
 }
 
-function shouldRunInterviewRound(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
+function shouldRunRound(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
   return !getPhaseAwareControl(chat, characters, messages).skipSpeak;
 }
 
 function getEngineLoopGate(chat: GroupChat, characters: AICharacter[], messages: Message[]) {
   return {
-    runTurn: shouldRunInterviewRound(chat, characters, messages),
-    actionFirst: shouldRunInterviewActionBeforeRound(chat, characters, messages),
+    runTurn: shouldRunRound(chat, characters, messages),
+    actionFirst: shouldRunActionBeforeRound(chat, characters, messages),
   };
 }
 
