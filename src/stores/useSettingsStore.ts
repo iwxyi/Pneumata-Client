@@ -6,6 +6,7 @@ type AppSettings = AppSettingsWithMemory;
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
 import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
 import { api } from '../services/api';
+import { useAuthStore } from './useAuthStore';
 
 interface SettingsStore extends AppSettings {
   _loaded: boolean;
@@ -46,6 +47,10 @@ function clearSavedStateTimer() {
 function syncToServer(data: Record<string, unknown>, set: SettingsSet) {
   if (syncTimer) clearTimeout(syncTimer);
   clearSavedStateTimer();
+  if (useAuthStore.getState().authMode === 'local') {
+    set((state) => ({ ...state, syncStatus: 'idle', syncError: null }));
+    return;
+  }
   set((state) => ({ ...state, syncStatus: 'saving', syncError: null }));
   syncTimer = setTimeout(() => {
     api.updateSettings(data)
@@ -135,6 +140,10 @@ export const useSettingsStore = create<SettingsStore>()(
       syncError: null,
 
       loadSettings: async () => {
+        if (useAuthStore.getState().authMode === 'local') {
+          set((state) => ({ ...state, _loaded: true, syncStatus: 'idle', syncError: null }));
+          return;
+        }
         try {
           const settings = await api.getSettings();
           set({
@@ -162,7 +171,7 @@ export const useSettingsStore = create<SettingsStore>()(
           });
         } catch (error) {
           console.error('Failed to load settings from server:', error);
-          set({ _loaded: true, ...syncState(DEFAULT_SETTINGS), syncStatus: 'error', syncError: error instanceof Error ? error.message : String(error) });
+          set({ _loaded: true, syncStatus: 'error', syncError: error instanceof Error ? error.message : String(error) });
         }
       },
 

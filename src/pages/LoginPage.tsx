@@ -18,7 +18,7 @@ import { useTranslation } from 'react-i18next';
 export default function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { login, sendCode, isLoggedIn, isLoading } = useAuthStore();
+  const { login, sendCode, enterLocalMode, isLoggedIn, isLoading } = useAuthStore();
 
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
@@ -128,6 +128,9 @@ export default function LoginPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
             AI 群聊模拟平台
           </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+            可跳过登录离线使用；登录后再同步到云端
+          </Typography>
         </Box>
 
         {error && (
@@ -183,16 +186,29 @@ export default function LoginPage() {
         )}
 
         {!codeSent ? (
-          <Button
-            fullWidth
-            variant="contained"
-            size="large"
-            onClick={handleSendCode}
-            disabled={sendingCode || !phone}
-            sx={{ py: 1.5, borderRadius: 2 }}
-          >
-            {sendingCode ? <CircularProgress size={24} /> : '获取验证码'}
-          </Button>
+          <>
+            <Button
+              fullWidth
+              variant="contained"
+              size="large"
+              onClick={handleSendCode}
+              disabled={sendingCode || !phone}
+              sx={{ py: 1.5, borderRadius: 2 }}
+            >
+              {sendingCode ? <CircularProgress size={24} /> : '获取验证码'}
+            </Button>
+            <Button
+              fullWidth
+              variant="text"
+              onClick={() => {
+                enterLocalMode();
+                navigate('/', { replace: true });
+              }}
+              sx={{ mt: 1.5 }}
+            >
+              跳过登录，离线使用
+            </Button>
+          </>
         ) : (
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button

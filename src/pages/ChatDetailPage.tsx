@@ -27,7 +27,9 @@ import { applyAiDirectFeedback, createAiPrivateThread, runSocialEventAutoFlow } 
 import { getSessionEngine } from '../services/sessionEngineRegistry';
 import { createSessionRuntimeContext, resolveSessionProjectionData, resolveSessionView } from '../services/sessionEngineKernel';
 import MessageList from '../components/chat/MessageList';
-import ChatInput from '../components/chat/ChatInput';
+import SessionComposerHost from '../components/session/SessionComposerHost';
+import { buildDefaultSessionSurfaceProjection } from '../types/chat';
+import { normalizeTextSurfaceSubmission } from '../types/sessionEngine';
 import RightPanel from '../components/layout/RightPanel';
 import EmptyState from '../components/common/EmptyState';
 
@@ -166,11 +168,13 @@ export default function ChatDetailPage() {
   const activeMembers = chat ? characters.filter((c) => chat.memberIds.includes(c.id)) : [];
   const sessionEngine = chat ? getSessionEngine(chat.mode) : null;
   const runtimeContext = chat && sessionEngine ? createSessionRuntimeContext(sessionEngine, chat) : null;
-  const projectionData = runtimeContext && sessionEngine ? resolveSessionProjectionData(sessionEngine, runtimeContext) : { view: { visiblePanels: [], availableActions: [] }, actionSchema: null, runtimeState: null, privatePayloads: [] };
+  const projectionData = runtimeContext && sessionEngine ? resolveSessionProjectionData(sessionEngine, runtimeContext) : { view: { visiblePanels: [], availableActions: [] }, actionSchema: null, runtimeState: null, frameworkState: { definition: null, surfaces: { surfaces: [] } }, privatePayloads: [] };
   const projectedRuntimeState = projectionData.runtimeState;
+  const frameworkState = projectionData.frameworkState;
   const privatePayloads = projectionData.privatePayloads;
   const visiblePanels = projectionData.view.visiblePanels;
   const actionSchema = projectionData.actionSchema;
+  const inputSurfaces = frameworkState.surfaces.surfaces;
   const memberPanel = visiblePanels.find((panel) => panel.tabKey === 'members');
   const runtimePanel = visiblePanels.find((panel) => panel.tabKey === 'world');
   const showMemberTab = Boolean(memberPanel);
@@ -521,6 +525,8 @@ export default function ChatDetailPage() {
 
   const speakAsChar = speakAsCharacterId ? characters.find((c) => c.id === speakAsCharacterId) : null;
   const compactCharacterMemorySummary = speakAsChar?.layeredMemories?.slice(-2).map((item) => item.text).join(' / ');
+  const activeSurfaceProfile = frameworkState.definition?.kind.surfaceProfile || chat.sessionKind?.surfaceProfile || 'text';
+  void activeSurfaceProfile;
 
   return (
     <Box sx={{ display: 'flex', flex: 1, minHeight: 0, height: '100%', overflow: 'hidden' }}>
@@ -553,11 +559,20 @@ export default function ChatDetailPage() {
         <Box sx={{ px: 2, pb: 1, flexShrink: 0 }}>
           {compactCharacterMemorySummary && speakAsChar ? <Box sx={{ mb: 0.75, px: 1.25, py: 0.75, borderRadius: 2, bgcolor: 'action.hover', color: 'text.secondary', fontSize: 12 }}>{`${speakAsChar.name}：${compactCharacterMemorySummary}`}</Box> : null}
         </Box>
-        <ChatInput
-          mode={speakAsChar ? 'speakAs' : 'guide'}
-          characterName={speakAsChar?.name}
-          onSend={speakAsChar ? handleSpeakAs : handleGuideSend}
-          onClose={speakAsChar ? () => setSpeakAsCharacter(null) : undefined}
+        <SessionComposerHost
+          surfaces={inputSurfaces.length ? inputSurfaces : buildDefaultSessionSurfaceProjection(chat).surfaces}
+          speakAsCharacterName={speakAsChar?.name}
+          onCloseSpeakAs={speakAsChar ? () => setSpeakAsCharacter(null) : undefined}
+          onSubmitText={(submission, surface) => {
+            const normalized = normalizeTextSurfaceSubmission(surface, submission);
+            const content = typeof normalized.intent.payload.content === 'string' ? normalized.intent.payload.content : '';
+            if (!content) return;
+            if ((normalized.intent.payload.mode === 'speakAs' || speakAsChar) && speakAsChar) {
+              void handleSpeakAs(content);
+              return;
+            }
+            void handleGuideSend(content);
+          }}
         />
 
       </Box>

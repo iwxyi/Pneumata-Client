@@ -11,15 +11,19 @@ interface User {
   avatar: string;
 }
 
+type AuthMode = 'cloud' | 'local';
+
 interface AuthStore {
   token: string | null;
   user: User | null;
   isLoggedIn: boolean;
   isLoading: boolean;
+  authMode: AuthMode;
 
   // Actions
   sendCode: (phone: string, purpose?: 'login' | 'register' | 'forgot-password' | 'change-phone') => Promise<{ success: boolean; mock?: boolean; code?: string }>;
   login: (phone: string, code: string) => Promise<void>;
+  enterLocalMode: () => void;
   logout: () => void;
   checkAuth: () => Promise<boolean>;
   setUser: (user: User) => void;
@@ -40,6 +44,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   })(),
   isLoggedIn: !!localStorage.getItem('miragetea-token'),
   isLoading: false,
+  authMode: (localStorage.getItem('miragetea-auth-mode') as AuthMode | null) || (localStorage.getItem('miragetea-token') ? 'cloud' : 'local'),
 
   sendCode: async (phone: string, purpose = 'login') => {
     const result = await api.sendCode(phone, purpose);
@@ -57,11 +62,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const result = await api.login(phone, code);
       localStorage.setItem('miragetea-token', result.token);
       localStorage.setItem('miragetea-user', JSON.stringify(result.user));
+      localStorage.setItem('miragetea-auth-mode', 'cloud');
       set({
         token: result.token,
         user: result.user,
         isLoggedIn: true,
         isLoading: false,
+        authMode: 'cloud',
       });
     } catch (error) {
       set({ isLoading: false });
@@ -69,9 +76,22 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
   },
 
+  enterLocalMode: () => {
+    localStorage.removeItem('miragetea-token');
+    localStorage.removeItem('miragetea-user');
+    localStorage.setItem('miragetea-auth-mode', 'local');
+    set({
+      token: null,
+      user: null,
+      isLoggedIn: false,
+      authMode: 'local',
+    });
+  },
+
   logout: () => {
     localStorage.removeItem('miragetea-token');
     localStorage.removeItem('miragetea-user');
+    localStorage.setItem('miragetea-auth-mode', 'local');
     clearPersistedChatStore();
     clearPersistedCharacterStore();
     clearPersistedMessageStore();
@@ -79,6 +99,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       token: null,
       user: null,
       isLoggedIn: false,
+      authMode: 'local',
     });
   },
 
@@ -89,13 +110,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const user = await api.getMe();
       localStorage.setItem('miragetea-user', JSON.stringify(user));
-      set({ user, isLoggedIn: true });
+      set({ user, isLoggedIn: true, authMode: 'cloud' });
       return true;
     } catch {
       // Token invalid
       localStorage.removeItem('miragetea-token');
       localStorage.removeItem('miragetea-user');
-      set({ token: null, user: null, isLoggedIn: false });
+      localStorage.setItem('miragetea-auth-mode', 'local');
+      set({ token: null, user: null, isLoggedIn: false, authMode: 'local' });
       return false;
     }
   },

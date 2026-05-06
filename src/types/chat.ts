@@ -10,6 +10,314 @@ export type ConversationType = 'group' | 'direct' | 'ai_direct';
 export type ConversationMode = 'open_chat' | 'interview' | 'group_discussion' | 'roundtable' | 'classroom' | 'bargaining' | 'service_roleplay' | 'board_game' | 'scripted_play' | 'werewolf' | 'murder_mystery';
 export type ConversationPhase = 'idle' | 'warming' | 'debating' | 'aligned' | 'chaotic';
 export type RuntimeEvolutionIntensity = 'slow' | 'balanced' | 'fast';
+export type SessionFamily = 'conversation' | 'interview' | 'deduction' | 'mystery' | 'study' | 'analysis' | 'board_game';
+export type SessionSurfaceProfile = 'text' | 'form' | 'board' | 'hybrid';
+export type SessionTopology = 'group' | 'direct' | 'thread' | 'team' | 'table';
+
+export interface SessionKind {
+  topology: SessionTopology;
+  family: SessionFamily;
+  scenarioId: string;
+  surfaceProfile: SessionSurfaceProfile;
+}
+
+export interface PersistentCharacterCore {
+  characterId: string;
+  summary?: string;
+}
+
+export interface ConversationCharacterState {
+  characterId: string;
+  summary?: string;
+  growthNotes?: string[];
+}
+
+export interface ScenarioSeat {
+  seatId: string;
+  seatIndex: number;
+  actorId?: string | null;
+  roleId?: string | null;
+  teamId?: string | null;
+  displayName?: string;
+}
+
+export interface ScenarioRoleAssignment {
+  actorId: string;
+  roleId: string;
+  factionId?: string | null;
+  summary?: string;
+}
+
+export interface SessionBoardSchema {
+  kind: string;
+  columns?: number;
+  rows?: number;
+  nodes?: Array<{ id: string; x: number; y: number }>;
+  edges?: Array<{ from: string; to: string }>;
+}
+
+export interface SessionBoardPiece {
+  id: string;
+  type: string;
+  actorId?: string;
+  teamId?: string;
+  position: string;
+}
+
+export interface SessionBoardState {
+  schema: SessionBoardSchema;
+  pieces?: SessionBoardPiece[];
+}
+
+export interface ScenarioState {
+  seats?: ScenarioSeat[];
+  roleAssignments?: ScenarioRoleAssignment[];
+  turnOrder?: string[];
+  currentTurnActorId?: string | null;
+  board?: SessionBoardState | null;
+  factions?: Array<{ factionId: string; label: string }>;
+}
+
+export interface LayeredGrowthState {
+  persistentCharacterCores?: PersistentCharacterCore[];
+  conversationCharacterStates?: ConversationCharacterState[];
+}
+
+export interface SessionChannel {
+  channelId: string;
+  visibility: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
+  actorIds?: string[];
+  roleIds?: string[];
+  label?: string;
+}
+
+export interface SessionLayoutSlot {
+  slotId: string;
+  x: number;
+  y: number;
+  actorId?: string | null;
+}
+
+export interface SessionLayoutState {
+  slots: SessionLayoutSlot[];
+}
+
+export interface SessionScenarioPackageRef {
+  scenarioId: string;
+  label?: string;
+}
+
+export interface SessionJudgeAgentState {
+  actorId?: string;
+  enabled: boolean;
+  style?: 'strict' | 'assistive';
+}
+
+export interface SessionMemoryLayerSummary {
+  characterCore: boolean;
+  relationship: boolean;
+  conversation: boolean;
+  scenario: boolean;
+}
+
+export interface SessionGrowthSnapshot {
+  actorId: string;
+  conversationSummary?: string;
+  persistentSummary?: string;
+}
+
+export interface SessionRoleMemorySummary {
+  actorId: string;
+  roleId?: string | null;
+  summary?: string;
+}
+
+export interface SessionScenarioMemorySummary {
+  conversationId: string;
+  summary?: string;
+}
+
+export interface SessionTopologySummary {
+  topology: SessionTopology;
+  description: string;
+}
+
+export interface SessionFamilyRuntimeSummary {
+  family: SessionFamily;
+  scenarioId: string;
+}
+
+export interface SessionRefereeDecision {
+  allowed: boolean;
+  reason?: string;
+}
+
+export interface SessionBoardIntentPayload {
+  position?: string;
+  pieceId?: string;
+  move?: string;
+}
+
+export interface SessionFormIntentPayload {
+  fields: Record<string, unknown>;
+}
+
+export interface SessionInputFieldOption {
+  label: string;
+  value: string;
+}
+
+export interface SessionInputField {
+  key: string;
+  label: string;
+  type: 'text' | 'textarea' | 'single_select' | 'number' | 'multi_select';
+  required?: boolean;
+  options?: SessionInputFieldOption[];
+  placeholder?: string;
+}
+
+export interface SessionInputSurfaceDefinition {
+  key: string;
+  type: 'text' | 'form' | 'board' | 'hybrid';
+  label?: string;
+  actorId?: string;
+  placeholder?: string;
+  mode?: 'guide' | 'speakAs';
+  fields?: SessionInputField[];
+}
+
+export interface SessionSurfaceProjection {
+  surfaces: SessionInputSurfaceDefinition[];
+}
+
+export interface SessionTextComposerSubmission {
+  content: string;
+  actorId?: string;
+}
+
+export interface SessionScenarioDefinition {
+  scenarioId: string;
+  label: string;
+}
+
+export interface SessionResolvedDefinition {
+  kind: SessionKind;
+  scenario: SessionScenarioDefinition;
+}
+
+export interface SessionScenarioPackage {
+  scenarioId: string;
+  label: string;
+  seats?: ScenarioSeat[];
+  channels?: SessionChannel[];
+  board?: SessionBoardSchema | null;
+}
+
+export interface SessionBoardRendererDefinition {
+  kind: string;
+  schema: SessionBoardSchema;
+}
+
+export interface SessionJudgeAgentDefinition {
+  actorId?: string;
+  enabled: boolean;
+  style?: 'strict' | 'assistive';
+}
+
+export function createDefaultSessionKind(type: ConversationType, mode: ConversationMode): SessionKind {
+  if (mode === 'board_game') {
+    return { topology: type === 'group' ? 'table' : 'direct', family: 'board_game', scenarioId: 'board-game', surfaceProfile: 'board' };
+  }
+  if (mode === 'interview') {
+    return { topology: type === 'group' ? 'group' : 'direct', family: 'interview', scenarioId: 'panel-interview', surfaceProfile: 'form' };
+  }
+  if (mode === 'werewolf') {
+    return { topology: 'table', family: 'deduction', scenarioId: 'werewolf-classic', surfaceProfile: 'hybrid' };
+  }
+  if (mode === 'murder_mystery') {
+    return { topology: 'table', family: 'mystery', scenarioId: 'murder-mystery', surfaceProfile: 'hybrid' };
+  }
+  return {
+    topology: type === 'group' ? 'group' : type === 'ai_direct' ? 'thread' : 'direct',
+    family: 'conversation',
+    scenarioId: type === 'group' ? 'open-chat' : type === 'ai_direct' ? 'ai-private-thread' : 'direct-chat',
+    surfaceProfile: 'text',
+  };
+}
+
+export function resolveSessionDefinitionForConversation(conversation: Pick<GroupChat, 'type' | 'mode' | 'sessionKind'>): SessionResolvedDefinition {
+  const kind = conversation.sessionKind || createDefaultSessionKind(conversation.type, conversation.mode);
+  return {
+    kind,
+    scenario: {
+      scenarioId: kind.scenarioId,
+      label: kind.scenarioId,
+    },
+  };
+}
+
+export function createDefaultTextInputSurface(params: { key?: string; label?: string; mode?: 'guide' | 'speakAs'; actorId?: string; placeholder?: string } = {}): SessionInputSurfaceDefinition {
+  return {
+    key: params.key || 'main-text',
+    type: 'text',
+    label: params.label,
+    mode: params.mode || 'guide',
+    actorId: params.actorId,
+    placeholder: params.placeholder,
+  };
+}
+
+export function defaultInputSurfacesForConversation(conversation: Pick<GroupChat, 'type' | 'mode' | 'sessionKind'>): SessionInputSurfaceDefinition[] {
+  const definition = resolveSessionDefinitionForConversation(conversation);
+  if (definition.kind.surfaceProfile === 'hybrid') {
+    return [
+      createDefaultTextInputSurface({ key: 'hybrid-text', label: 'Chat' }),
+      { key: 'hybrid-actions', type: 'form', label: 'Actions' },
+    ];
+  }
+  if (definition.kind.surfaceProfile === 'board') {
+    return [
+      { key: 'board-surface', type: 'board', label: 'Board' },
+      createDefaultTextInputSurface({ key: 'board-chat', label: 'Chat' }),
+    ];
+  }
+  if (definition.kind.surfaceProfile === 'form') {
+    return [createDefaultTextInputSurface({ key: 'fallback-text', label: 'Text fallback' })];
+  }
+  return [createDefaultTextInputSurface()];
+}
+
+export function defaultTopologySummaryForConversation(conversation: Pick<GroupChat, 'type' | 'mode' | 'sessionKind'>): SessionTopologySummary {
+  const definition = resolveSessionDefinitionForConversation(conversation);
+  return {
+    topology: definition.kind.topology,
+    description: `${definition.kind.topology}:${definition.kind.family}:${definition.kind.scenarioId}`,
+  };
+}
+
+export function deriveSessionMemoryLayerSummary(conversation: Pick<GroupChat, 'mode'>): SessionMemoryLayerSummary {
+  return {
+    characterCore: true,
+    relationship: true,
+    conversation: true,
+    scenario: conversation.mode !== 'open_chat',
+  };
+}
+
+export function buildDefaultScenarioPackage(conversation: Pick<GroupChat, 'type' | 'mode' | 'sessionKind'>): SessionScenarioPackage {
+  const definition = resolveSessionDefinitionForConversation(conversation);
+  return {
+    scenarioId: definition.kind.scenarioId,
+    label: definition.scenario.label,
+    board: definition.kind.family === 'board_game' ? { kind: 'grid', columns: 8, rows: 8 } : null,
+  };
+}
+
+export function buildDefaultSessionSurfaceProjection(conversation: Pick<GroupChat, 'type' | 'mode' | 'sessionKind'>): SessionSurfaceProjection {
+  return {
+    surfaces: defaultInputSurfacesForConversation(conversation),
+  };
+}
 
 export interface OpenChatModeConfig {
   freeSpeaking: boolean;
@@ -168,8 +476,21 @@ export interface GroupChat {
   id: string;
   type: ConversationType;
   mode: ConversationMode;
+  sessionKind?: SessionKind;
   modeConfig: OpenChatModeConfig;
   modeState: OpenChatModeState;
+  scenarioState?: ScenarioState;
+  channels?: SessionChannel[];
+  layoutState?: SessionLayoutState;
+  scenarioPackage?: SessionScenarioPackageRef | null;
+  judgeAgent?: SessionJudgeAgentState | null;
+  layeredGrowth?: LayeredGrowthState;
+  modeStateSummary?: SessionFamilyRuntimeSummary;
+  memoryLayerSummary?: SessionMemoryLayerSummary;
+  growthSnapshots?: SessionGrowthSnapshot[];
+  roleMemorySummaries?: SessionRoleMemorySummary[];
+  scenarioMemorySummary?: SessionScenarioMemorySummary | null;
+  topologySummary?: SessionTopologySummary | null;
   name: string;
   topic: string;
   style: ChatStyle;
@@ -238,8 +559,21 @@ export function normalizeConversation(input: (Omit<GroupChat, 'type' | 'governan
     ...input,
     type: input.type || 'group',
     mode: input.mode || 'open_chat',
+    sessionKind: input.sessionKind || createDefaultSessionKind(input.type || 'group', input.mode || 'open_chat'),
     modeConfig: input.modeConfig || DEFAULT_OPEN_CHAT_MODE_CONFIG,
     modeState: input.modeState || DEFAULT_OPEN_CHAT_MODE_STATE,
+    scenarioState: input.scenarioState || {},
+    channels: input.channels || [],
+    layoutState: input.layoutState || { slots: [] },
+    scenarioPackage: input.scenarioPackage || null,
+    judgeAgent: input.judgeAgent || null,
+    layeredGrowth: input.layeredGrowth || { persistentCharacterCores: [], conversationCharacterStates: [] },
+    modeStateSummary: input.modeStateSummary || undefined,
+    memoryLayerSummary: input.memoryLayerSummary || deriveSessionMemoryLayerSummary({ mode: input.mode || 'open_chat' }),
+    growthSnapshots: input.growthSnapshots || [],
+    roleMemorySummaries: input.roleMemorySummaries || [],
+    scenarioMemorySummary: input.scenarioMemorySummary || null,
+    topologySummary: input.topologySummary || defaultTopologySummaryForConversation({ type: input.type || 'group', mode: input.mode || 'open_chat', sessionKind: input.sessionKind }),
     runtimeEvolutionIntensity: input.runtimeEvolutionIntensity || DEFAULT_RUNTIME_EVOLUTION_INTENSITY,
     sourceChatId: input.sourceChatId || null,
     sourceMemberIds: input.sourceMemberIds || [],

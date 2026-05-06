@@ -31,9 +31,10 @@ function RouteElement({ children }: { children: React.ReactNode }) {
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const authMode = useAuthStore((s) => s.authMode);
   const location = useLocation();
 
-  if (!isLoggedIn) {
+  if (!isLoggedIn && authMode !== 'local') {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
@@ -42,13 +43,14 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 function DataLoader({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const authMode = useAuthStore((s) => s.authMode);
   const loadSettings = useSettingsStore((s) => s.loadSettings);
 
   useEffect(() => {
-    if (isLoggedIn) {
+    if (isLoggedIn || authMode === 'local') {
       loadSettings();
     }
-  }, [isLoggedIn, loadSettings]);
+  }, [authMode, isLoggedIn, loadSettings]);
 
   return <>{children}</>;
 }

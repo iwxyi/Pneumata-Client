@@ -4,6 +4,143 @@ import type { GroupChat } from '../types/chat';
 import { normalizeConversation } from '../types/chat';
 import { api } from '../services/api';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
+import { useAuthStore } from './useAuthStore';
+
+function isLocalOnlyMode() {
+  return useAuthStore.getState().authMode === 'local';
+}
+
+function createLocalChatId() {
+  return `local-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function shouldSkipCloudSync() {
+  return isLocalOnlyMode();
+}
+
+function applyLocalChatCreate(chatData: Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'>) {
+  const now = Date.now();
+  return normalizeConversation({
+    ...chatData,
+    id: createLocalChatId(),
+    createdAt: now,
+    updatedAt: now,
+    lastMessageAt: now,
+  } as GroupChat);
+}
+
+function applyLocalChatUpdate(chat: GroupChat, updates: Partial<GroupChat>) {
+  return normalizeConversation({
+    ...chat,
+    ...updates,
+    updatedAt: Date.now(),
+    lastMessageAt: updates.lastMessageAt ?? chat.lastMessageAt,
+  });
+}
+
+function applyLocalChatDelete(chat: GroupChat) {
+  return normalizeConversation({
+    ...chat,
+    deletedAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
+function applyLocalChatRestore(chat: GroupChat) {
+  return normalizeConversation({
+    ...chat,
+    deletedAt: null,
+    updatedAt: Date.now(),
+  });
+}
+
+function applyLocalChatPurge(chats: GroupChat[], ids: string[]) {
+  const normalizedIds = new Set(ids);
+  return chats.filter((chat) => !normalizedIds.has(chat.id));
+}
+
+function applyLocalEmptyDeletedChats(chats: GroupChat[]) {
+  return chats.filter((chat) => chat.deletedAt == null);
+}
+
+function migrateGuestChatsToCloud(chats: GroupChat[]) {
+  localStorage.setItem('miragetea-guest-chats-upload-pending', JSON.stringify(chats));
+}
+
+function clearGuestChatUploadFlag() {
+  localStorage.removeItem('miragetea-guest-chats-upload-pending');
+}
+
+function readGuestChatUploadFlag(): GroupChat[] {
+  try {
+    const raw = localStorage.getItem('miragetea-guest-chats-upload-pending');
+    return raw ? (JSON.parse(raw) as GroupChat[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function flushGuestChatsToCloud(addChatRemote: (chat: Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'>) => Promise<GroupChat>) {
+  const pending = readGuestChatUploadFlag();
+  if (!pending.length) return;
+  for (const chat of pending) {
+    await addChatRemote({
+      ...chat,
+      sourceChatId: chat.sourceChatId || null,
+      sourceMemberIds: chat.sourceMemberIds || [],
+    });
+  }
+  clearGuestChatUploadFlag();
+}
+
+async function createChatRemote(chatData: Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'>) {
+  const result = await api.createChat({
+    type: chatData.type,
+    mode: chatData.mode,
+    modeConfig: chatData.modeConfig,
+    modeState: chatData.modeState,
+    name: chatData.name,
+    topic: chatData.topic,
+    style: chatData.style,
+    memberIds: chatData.memberIds,
+    speed: chatData.speed,
+    isActive: chatData.isActive,
+    allowIntervention: chatData.allowIntervention,
+    showRoleActions: chatData.showRoleActions,
+    topicSeed: chatData.topicSeed,
+    sourceChatId: chatData.sourceChatId,
+    sourceMemberIds: chatData.sourceMemberIds,
+    runtimeSeed: chatData.runtimeSeed,
+    layeredMemories: chatData.layeredMemories,
+    runtimeTimeline: chatData.runtimeTimeline,
+    runtimeEventsV2: chatData.runtimeEventsV2,
+    relationshipLedger: chatData.relationshipLedger,
+    governance: chatData.governance,
+    dramaRules: chatData.dramaRules,
+    worldState: chatData.worldState,
+    directorControls: chatData.directorControls,
+  });
+  return normalizeConversation(result as unknown as GroupChat);
+}
+
+async function maybeUploadGuestChats(get: () => ChatStore) {
+  if (shouldSkipCloudSync()) return;
+  const guestKey = 'mirageTea-chats-guest';
+  const raw = localStorage.getItem(guestKey);
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw) as { state?: { chats?: GroupChat[] } };
+    const guestChats = (parsed.state?.chats || []).filter((chat) => !chat.deletedAt);
+    if (!guestChats.length) return;
+    migrateGuestChatsToCloud(guestChats);
+    await flushGuestChatsToCloud(createChatRemote);
+    localStorage.removeItem(guestKey);
+    await get().loadChats();
+  } catch {
+    // ignore malformed guest cache
+  }
+}
+
 
 interface PendingChatOperation extends SyncPatchOperation<Record<string, unknown>> {
   kind: 'patch';
@@ -195,7 +332,7 @@ function scheduleChatFlush(flush: () => Promise<void>, delay = 0) {
 }
 
 function canSyncChats() {
-  return typeof navigator === 'undefined' || navigator.onLine;
+  return !shouldSkipCloudSync() && (typeof navigator === 'undefined' || navigator.onLine);
 }
 
 async function executeChatOperation(operation: PendingChatOperation) {
@@ -307,7 +444,17 @@ export const useChatStore = create<ChatStore>()(
 
         loadChats: async () => {
           set((state) => ({ isLoading: state.chats.length === 0 }));
+          if (shouldSkipCloudSync()) {
+            set((state) => ({
+              chats: projectVisibleChats(state.chats, state.pendingOperations),
+              isLoading: false,
+              pendingEditSyncCount: state.pendingOperations.length,
+              pendingEditSyncError: latestChatError(state.pendingOperations),
+            }));
+            return;
+          }
           try {
+            await maybeUploadGuestChats(get);
             const projectedState = await reloadProjectedChatState(get().pendingOperations);
             set({
               chats: projectedState.visible,
@@ -360,36 +507,15 @@ export const useChatStore = create<ChatStore>()(
         loadProjectedVisibleChats: async () => projectVisibleChats(get().chats, get().pendingOperations),
 
         addChat: async (chatData) => {
-          const result = await api.createChat({
-            type: chatData.type,
-            mode: chatData.mode,
-            modeConfig: chatData.modeConfig,
-            modeState: chatData.modeState,
-            name: chatData.name,
-            topic: chatData.topic,
-            style: chatData.style,
-            memberIds: chatData.memberIds,
-            speed: chatData.speed,
-            isActive: chatData.isActive,
-            allowIntervention: chatData.allowIntervention,
-            showRoleActions: chatData.showRoleActions,
-            topicSeed: chatData.topicSeed,
-            sourceChatId: chatData.sourceChatId,
-            sourceMemberIds: chatData.sourceMemberIds,
-            runtimeSeed: chatData.runtimeSeed,
-            layeredMemories: chatData.layeredMemories,
-            runtimeTimeline: chatData.runtimeTimeline,
-            governance: chatData.governance,
-            dramaRules: chatData.dramaRules,
-            worldState: chatData.worldState,
-            directorControls: chatData.directorControls,
-          });
-          const chat = normalizeConversation({
-            ...(result as unknown as GroupChat),
-            type: (result as Partial<GroupChat>).type || chatData.type,
-            sourceChatId: (result as Partial<GroupChat>).sourceChatId ?? chatData.sourceChatId,
-            sourceMemberIds: (result as Partial<GroupChat>).sourceMemberIds || chatData.sourceMemberIds,
-          } as GroupChat);
+          if (shouldSkipCloudSync()) {
+            const chat = applyLocalChatCreate(chatData);
+            set((state) => ({
+              chats: [chat, ...state.chats.filter((item) => item.id !== chat.id)].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
+              currentChatId: chat.id,
+            }));
+            return chat;
+          }
+          const chat = await createChatRemote(chatData);
           set((state) => ({
             chats: [chat, ...state.chats.filter((item) => item.id !== chat.id)].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
             lastSyncedAt: Date.now(),
@@ -398,11 +524,24 @@ export const useChatStore = create<ChatStore>()(
         },
 
         updateChat: async (id, updates) => {
+          if (shouldSkipCloudSync()) {
+            set((state) => ({
+              chats: state.chats.map((chat) => chat.id === id ? applyLocalChatUpdate(chat, updates) : chat),
+            }));
+            return;
+          }
           await get().syncPatch(id, updates, 'patch');
         },
 
         deleteChat: async (id) => {
           if (!id) return;
+          if (shouldSkipCloudSync()) {
+            set((state) => ({
+              chats: state.chats.map((chat) => chat.id === id ? applyLocalChatDelete(chat) : chat).filter((chat) => chat.deletedAt == null),
+              currentChatId: state.currentChatId === id ? null : state.currentChatId,
+            }));
+            return;
+          }
           await api.deleteChat(id);
           const projectedState = await reloadProjectedChatState(get().pendingOperations);
           set((state) => ({
@@ -417,6 +556,12 @@ export const useChatStore = create<ChatStore>()(
         restoreChats: async (ids) => {
           const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
           if (!normalizedIds.length) return;
+          if (shouldSkipCloudSync()) {
+            set((state) => ({
+              chats: state.chats.map((chat) => normalizedIds.includes(chat.id) ? applyLocalChatRestore(chat) : chat).filter((chat) => chat.deletedAt == null),
+            }));
+            return;
+          }
           await applyChatRestore(normalizedIds);
           const projectedState = await reloadProjectedChatState(get().pendingOperations);
           set({
@@ -430,6 +575,13 @@ export const useChatStore = create<ChatStore>()(
         purgeChats: async (ids) => {
           const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
           if (!normalizedIds.length) return;
+          if (shouldSkipCloudSync()) {
+            set((state) => ({
+              chats: applyLocalChatPurge(state.chats, normalizedIds),
+              currentChatId: normalizedIds.includes(state.currentChatId || '') ? null : state.currentChatId,
+            }));
+            return;
+          }
           await applyChatPurge(normalizedIds);
           const projectedState = await reloadProjectedChatState(get().pendingOperations);
           set((state) => ({
@@ -442,6 +594,13 @@ export const useChatStore = create<ChatStore>()(
         },
 
         emptyDeletedChats: async () => {
+          if (shouldSkipCloudSync()) {
+            set((state) => ({
+              chats: applyLocalEmptyDeletedChats(state.chats),
+              currentChatId: state.chats.some((chat) => chat.id === state.currentChatId && chat.deletedAt == null) ? state.currentChatId : null,
+            }));
+            return;
+          }
           await applyEmptyDeletedChats();
           const projectedState = await reloadProjectedChatState(get().pendingOperations);
           set((state) => ({

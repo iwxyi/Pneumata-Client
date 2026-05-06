@@ -1,7 +1,8 @@
 import type { AICharacter } from '../types/character';
-import type { GroupChat, ParticipantInstance } from '../types/chat';
+import type { GroupChat, ParticipantInstance, SessionSurfaceProjection } from '../types/chat';
 import type { MemoryCandidatePayload, RuntimeEventKind, RuntimeEventV2, SocialEventCandidatePayload, SocialEventEffectPayload, RelationshipAxisReason } from '../types/runtimeEvent';
-import type { SessionActionDefinition, SessionEngineDefinition, SessionProjectionContext, SessionViewProjection } from '../types/sessionEngine';
+import type { SessionActionDefinition, SessionEngineDefinition, SessionProjectionContext, SessionViewProjection, resolveSessionDefinition as ResolveSessionDefinitionFn } from '../types/sessionEngine';
+import { buildDefaultSessionSurfaceProjection, resolveSessionDefinitionForConversation } from '../types/chat';
 import { canProjectScope } from '../types/sessionVisibility';
 import { projectSessionRecentEvent } from './directSessionHelpers';
 import { buildRolePrivateParticipantStates, buildRolePrivatePayloads, projectPrivateParticipantPayloads } from './privateRuntimePayloads';
@@ -124,6 +125,11 @@ export interface ProjectedRuntimeState {
   primaryRecentEvent: string;
   latestEvent: RuntimeEventV2 | null;
   timelineCount: number;
+}
+
+export interface ProjectedSessionFrameworkState {
+  definition: ReturnType<typeof resolveSessionDefinitionForConversation>;
+  surfaces: SessionSurfaceProjection;
 }
 
 function mapRuntimeEventKindToTimelineType(kind: RuntimeEventKind): 'note' | 'artifact' | 'relationship' {
@@ -272,6 +278,13 @@ export function projectLatestRuntimeEvent(chat: GroupChat) {
 
 export function projectTimelineCount(chat: GroupChat) {
   return countProjectedTimeline(chat);
+}
+
+export function projectSessionFrameworkState(chat: GroupChat): ProjectedSessionFrameworkState {
+  return {
+    definition: resolveSessionDefinitionForConversation(chat),
+    surfaces: buildDefaultSessionSurfaceProjection(chat),
+  };
 }
 
 function buildProjectedParticipants(chat: GroupChat, context: SessionProjectionContext) {
