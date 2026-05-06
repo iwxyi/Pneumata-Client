@@ -1,4 +1,4 @@
-// HTTP API client for AI Chat Group backend
+// HTTP API client for chat backend
 
 const API_BASE = '/api';
 

@@ -1,6 +1,988 @@
-import { Box, Button, Card, CardContent, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { useMemo, useState } from 'react';
 import type { SessionActionDefinition } from '../../types/sessionEngine';
+import SurfaceCard from '../common/SurfaceCard';
+import SectionHeader from '../common/SectionHeader';
+import PageSection from '../common/PageSection';
+
+function getActionSurfaceSx(index: number) {
+  return {
+    p: { xs: 1, sm: 1.25 },
+    borderRadius: 2,
+    bgcolor: index === 0 ? 'rgba(103, 80, 164, 0.06)' : 'action.hover',
+  };
+}
+
+function getActionButtonLabel(action: SessionActionDefinition) {
+  return action.type === 'start_private_thread' ? '创建私聊' : '执行动作';
+}
+
+function getFieldGridSx() {
+  return {
+    display: 'grid',
+    gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+    gap: 1,
+    mb: 1,
+  };
+}
+
+function shouldSpanFullRow(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return field.type === 'textarea';
+}
+
+function buildFieldSx(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return shouldSpanFullRow(field) ? { gridColumn: '1 / -1' } : undefined;
+}
+
+function buildActionSubtitle(action: SessionActionDefinition) {
+  return action.description || getActionHint(action);
+}
+
+function buildActionTitle(action: SessionActionDefinition) {
+  return getActionLabel(action);
+}
+
+function buildActionSectionTitle(title: string) {
+  return title;
+}
+
+function buildActionSectionSubtitle(actions: SessionActionDefinition[]) {
+  return actions.length ? '在当前阶段执行派生、投票、干预或私聊动作。' : undefined;
+}
+
+function isActionDisabled(action: SessionActionDefinition, payloads: Record<string, Record<string, string>>) {
+  return (action.fields || []).some((field) => field.required && !(payloads[action.type]?.[field.key] || '').trim());
+}
+
+function buildActionCardSpacing() {
+  return 1;
+}
+
+function buildActionFormSpacing() {
+  return 1;
+}
+
+function buildActionCardGap() {
+  return 0.75;
+}
+
+function buildActionTitleWeight() {
+  return 700;
+}
+
+function buildActionCaptionSx() {
+  return { display: 'block', mt: 0.25, mb: 1 };
+}
+
+function buildActionButtonSx() {
+  return { alignSelf: 'flex-start' as const };
+}
+
+function buildActionSurfaceVariant() {
+  return 'contained' as const;
+}
+
+function buildActionButtonVariant(action: SessionActionDefinition) {
+  return action.type === 'start_private_thread' ? 'contained' as const : 'outlined' as const;
+}
+
+function buildActionButtonColor(action: SessionActionDefinition) {
+  return action.type === 'start_private_thread' ? 'primary' as const : undefined;
+}
+
+function buildActionSurfacePadding() {
+  return { xs: 1, sm: 1.25 };
+}
+
+function buildActionCardTone(index: number) {
+  return index === 0 ? 'rgba(103, 80, 164, 0.06)' : 'action.hover';
+}
+
+function buildActionSectionSpacing() {
+  return 1;
+}
+
+function buildActionEmptyText() {
+  return '当前阶段暂无额外动作';
+}
+
+function buildFieldLabel(label: string) {
+  return label;
+}
+
+function buildActionHelperText(text: string) {
+  return text;
+}
+
+function buildActionTitleText(text: string) {
+  return text;
+}
+
+function buildActionButtonText(action: SessionActionDefinition) {
+  return getActionButtonLabel(action);
+}
+
+function buildActionSubtitleText(text: string) {
+  return text;
+}
+
+function buildActionFieldPlaceholder(text: string | undefined) {
+  return text;
+}
+
+function buildActionFieldRows(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return field.type === 'textarea' ? 3 : undefined;
+}
+
+function isActionPrimary(action: SessionActionDefinition) {
+  return action.type === 'start_private_thread';
+}
+
+function buildActionSectionContentSpacing() {
+  return 1;
+}
+
+function buildActionTextFieldSize() {
+  return 'small' as const;
+}
+
+function buildActionOutlinedVariant() {
+  return 'outlined' as const;
+}
+
+function buildActionDenseHeader() {
+  return false;
+}
+
+function buildActionFooterSpacing() {
+  return 0.5;
+}
+
+function buildActionSurfaceStackGap() {
+  return 1;
+}
+
+function buildActionCardKey(action: SessionActionDefinition, index: number) {
+  return `${action.type}-${index}`;
+}
+
+function buildActionFieldKey(action: SessionActionDefinition, fieldKey: string) {
+  return `${action.type}-${fieldKey}`;
+}
+
+function buildActionOptionKey(fieldKey: string, optionValue: string) {
+  return `${fieldKey}-${optionValue}`;
+}
+
+function buildActionTextFieldType(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return field.type === 'number' ? 'number' : 'text';
+}
+
+function isActionMultiline(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return field.type === 'textarea';
+}
+
+function buildActionContentSx() {
+  return { p: 2, '&:last-child': { pb: 2 } };
+}
+
+function buildActionSurfaceTitle(title: string) {
+  return buildActionSectionTitle(title);
+}
+
+function buildActionSurfaceSubtitle(actions: SessionActionDefinition[]) {
+  return buildActionSectionSubtitle(actions);
+}
+
+function buildActionSectionBodySpacing() {
+  return 1;
+}
+
+function buildActionFieldLayout() {
+  return getFieldGridSx();
+}
+
+function buildActionItemSx(index: number) {
+  return getActionSurfaceSx(index);
+}
+
+function buildActionItemPadding() {
+  return buildActionSurfacePadding();
+}
+
+function buildActionPrimaryVariant(action: SessionActionDefinition) {
+  return buildActionButtonVariant(action);
+}
+
+function buildActionPrimaryColor(action: SessionActionDefinition) {
+  return buildActionButtonColor(action);
+}
+
+function buildActionButtonLabelText(action: SessionActionDefinition) {
+  return buildActionButtonText(action);
+}
+
+function buildActionCardSubtitle(action: SessionActionDefinition) {
+  return buildActionSubtitle(action);
+}
+
+function buildActionCardTitle(action: SessionActionDefinition) {
+  return buildActionTitle(action);
+}
+
+function buildActionFieldRowsCount(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldRows(field);
+}
+
+function buildActionFieldSizeValue() {
+  return buildActionTextFieldSize();
+}
+
+function buildActionFieldVariant() {
+  return buildActionOutlinedVariant();
+}
+
+function buildActionSectionEmptyText() {
+  return buildActionEmptyText();
+}
+
+function buildActionCardBackground(index: number) {
+  return buildActionCardTone(index);
+}
+
+function buildActionCardPaddingValue() {
+  return buildActionItemPadding();
+}
+
+function buildActionSectionHeaderDense() {
+  return buildActionDenseHeader();
+}
+
+function buildActionSectionFooterSpacing() {
+  return buildActionFooterSpacing();
+}
+
+function buildActionSectionStackGap() {
+  return buildActionSurfaceStackGap();
+}
+
+function buildActionButtonStyle() {
+  return buildActionButtonSx();
+}
+
+function buildActionCaptionStyle() {
+  return buildActionCaptionSx();
+}
+
+function buildActionWeight() {
+  return buildActionTitleWeight();
+}
+
+function buildActionSpacingValue() {
+  return buildActionCardSpacing();
+}
+
+function buildActionFormSpacingValue() {
+  return buildActionFormSpacing();
+}
+
+function buildActionGapValue() {
+  return buildActionCardGap();
+}
+
+function buildActionSectionSpacingValue() {
+  return buildActionSectionSpacing();
+}
+
+function buildActionBodySpacingValue() {
+  return buildActionSectionBodySpacing();
+}
+
+function buildActionContentSpacingValue() {
+  return buildActionSectionContentSpacing();
+}
+
+function buildActionSurfaceVariantValue() {
+  return buildActionSurfaceVariant();
+}
+
+function buildActionSurfaceContentSx() {
+  return buildActionContentSx();
+}
+
+function buildActionItemBackground(index: number) {
+  return buildActionCardBackground(index);
+}
+
+function buildActionLayoutSx() {
+  return buildActionFieldLayout();
+}
+
+function buildActionFieldItemSx(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildFieldSx(field);
+}
+
+function buildActionTextFieldMultiline(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return isActionMultiline(field);
+}
+
+function buildActionTextFieldRowsValue(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldRowsCount(field);
+}
+
+function buildActionTextFieldTypeValue(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionTextFieldType(field);
+}
+
+function buildActionPrimaryFlag(action: SessionActionDefinition) {
+  return isActionPrimary(action);
+}
+
+function buildActionDisableFlag(action: SessionActionDefinition, payloads: Record<string, Record<string, string>>) {
+  return isActionDisabled(action, payloads);
+}
+
+function buildActionHeaderTitle(title: string) {
+  return buildActionSurfaceTitle(title);
+}
+
+function buildActionHeaderSubtitle(actions: SessionActionDefinition[]) {
+  return buildActionSurfaceSubtitle(actions);
+}
+
+function buildActionHelperSubtitle(action: SessionActionDefinition) {
+  return buildActionCardSubtitle(action);
+}
+
+function buildActionHelperTitle(action: SessionActionDefinition) {
+  return buildActionCardTitle(action);
+}
+
+function buildActionPlaceholder(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldPlaceholder(field.placeholder);
+}
+
+function buildActionFieldLabelText(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildFieldLabel(field.label);
+}
+
+function buildActionOptionLabel(label: string) {
+  return getOptionLabel(label);
+}
+
+function buildActionButtonVariantValue(action: SessionActionDefinition) {
+  return buildActionPrimaryVariant(action);
+}
+
+function buildActionButtonColorValue(action: SessionActionDefinition) {
+  return buildActionPrimaryColor(action);
+}
+
+function buildActionButtonTitle(action: SessionActionDefinition) {
+  return buildActionButtonLabelText(action);
+}
+
+function buildActionEmptyMessage() {
+  return buildActionSectionEmptyText();
+}
+
+function buildActionHeaderDenseFlag() {
+  return buildActionSectionHeaderDense();
+}
+
+function buildActionSectionTitleText(title: string) {
+  return buildActionHeaderTitle(title);
+}
+
+function buildActionSectionSubtitleText(actions: SessionActionDefinition[]) {
+  return buildActionHeaderSubtitle(actions);
+}
+
+function buildActionCardTitleText(action: SessionActionDefinition) {
+  return buildActionHelperTitle(action);
+}
+
+function buildActionCardSubtitleText(action: SessionActionDefinition) {
+  return buildActionHelperSubtitle(action);
+}
+
+function buildActionExecuteLabel(action: SessionActionDefinition) {
+  return buildActionButtonTitle(action);
+}
+
+function buildActionDisabledState(action: SessionActionDefinition, payloads: Record<string, Record<string, string>>) {
+  return buildActionDisableFlag(action, payloads);
+}
+
+function buildActionFieldLabelValue(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldLabelText(field);
+}
+
+function buildActionFieldPlaceholderValue(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionPlaceholder(field);
+}
+
+function buildActionFieldMultilineFlag(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionTextFieldMultiline(field);
+}
+
+function buildActionFieldRowsNumber(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionTextFieldRowsValue(field);
+}
+
+function buildActionFieldTypeValueText(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionTextFieldTypeValue(field);
+}
+
+function buildActionOptionText(label: string) {
+  return buildActionOptionLabel(label);
+}
+
+function buildActionPrimaryStyle(action: SessionActionDefinition) {
+  return buildActionButtonVariantValue(action);
+}
+
+function buildActionPrimaryTone(action: SessionActionDefinition) {
+  return buildActionButtonColorValue(action);
+}
+
+function buildActionHeaderSpacing() {
+  return 1;
+}
+
+function buildActionStackSpacing() {
+  return 1;
+}
+
+function buildActionInnerSpacing() {
+  return 1;
+}
+
+function buildActionSurfaceHeaderSpacing() {
+  return 1;
+}
+
+function buildActionCardHeaderSpacing() {
+  return 0.75;
+}
+
+function buildActionCardFooterSpacing() {
+  return 0.75;
+}
+
+function buildActionSectionSurfaceSpacing() {
+  return 1;
+}
+
+function buildActionContentGap() {
+  return 1;
+}
+
+function buildActionMetaGap() {
+  return 0.75;
+}
+
+function buildActionGridGap() {
+  return 1;
+}
+
+function buildActionCardRadius() {
+  return 2;
+}
+
+function buildActionCardPaddingSx() {
+  return { xs: 1, sm: 1.25 };
+}
+
+function buildActionCardSx(index: number) {
+  return {
+    ...getActionSurfaceSx(index),
+    borderRadius: buildActionCardRadius(),
+    p: buildActionCardPaddingSx(),
+  };
+}
+
+function buildActionFieldWrapperSx(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldItemSx(field);
+}
+
+function buildActionFieldGrid() {
+  return buildActionLayoutSx();
+}
+
+function buildActionPrimaryButtonSx() {
+  return buildActionButtonStyle();
+}
+
+function buildActionCaptionBlockSx() {
+  return buildActionCaptionStyle();
+}
+
+function buildActionSectionPageSpacing() {
+  return buildActionSectionSpacingValue();
+}
+
+function buildActionSurfaceGap() {
+  return buildActionContentGap();
+}
+
+function buildActionSurfaceContentSpacing() {
+  return buildActionInnerSpacing();
+}
+
+function buildActionSurfaceHeaderGap() {
+  return buildActionHeaderSpacing();
+}
+
+function buildActionCardHeaderGap() {
+  return buildActionCardHeaderSpacing();
+}
+
+function buildActionCardFooterGap() {
+  return buildActionCardFooterSpacing();
+}
+
+function buildActionMetaSpacing() {
+  return buildActionMetaGap();
+}
+
+function buildActionGridSpacing() {
+  return buildActionGridGap();
+}
+
+function buildActionWeightValue() {
+  return buildActionWeight();
+}
+
+function buildActionSurfaceBodySx() {
+  return buildActionSurfaceContentSx();
+}
+
+function buildActionSurfaceCardVariant() {
+  return buildActionSurfaceVariantValue();
+}
+
+function buildActionPrimaryButtonVariant(action: SessionActionDefinition) {
+  return buildActionPrimaryStyle(action);
+}
+
+function buildActionPrimaryButtonColor(action: SessionActionDefinition) {
+  return buildActionPrimaryTone(action);
+}
+
+function buildActionFieldTextSize() {
+  return buildActionFieldSizeValue();
+}
+
+function buildActionFieldTextVariant() {
+  return buildActionFieldVariant();
+}
+
+function buildActionSectionText(title: string) {
+  return buildActionSectionTitleText(title);
+}
+
+function buildActionSectionSubtext(actions: SessionActionDefinition[]) {
+  return buildActionSectionSubtitleText(actions);
+}
+
+function buildActionTitleValue(action: SessionActionDefinition) {
+  return buildActionCardTitleText(action);
+}
+
+function buildActionSubtitleValue(action: SessionActionDefinition) {
+  return buildActionCardSubtitleText(action);
+}
+
+function buildActionExecuteText(action: SessionActionDefinition) {
+  return buildActionExecuteLabel(action);
+}
+
+function buildActionDisabledValue(action: SessionActionDefinition, payloads: Record<string, Record<string, string>>) {
+  return buildActionDisabledState(action, payloads);
+}
+
+function buildActionFieldLabelFinal(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldLabelValue(field);
+}
+
+function buildActionFieldPlaceholderFinal(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldPlaceholderValue(field);
+}
+
+function buildActionFieldTypeFinal(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldTypeValueText(field);
+}
+
+function buildActionFieldRowsFinal(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldRowsNumber(field);
+}
+
+function buildActionFieldMultilineFinal(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldMultilineFlag(field);
+}
+
+function buildActionOptionFinal(label: string) {
+  return buildActionOptionText(label);
+}
+
+function buildActionCardContainerSx(index: number) {
+  return buildActionCardSx(index);
+}
+
+function buildActionFieldsContainerSx() {
+  return buildActionFieldGrid();
+}
+
+function buildActionCardHeaderTypographyWeight() {
+  return buildActionWeightValue();
+}
+
+function buildActionHeaderProps(title: string, actions: SessionActionDefinition[]) {
+  return {
+    title: buildActionSectionText(title),
+    subtitle: buildActionSectionSubtext(actions),
+  };
+}
+
+function buildActionEmptyCopy() {
+  return buildActionEmptyMessage();
+}
+
+function buildActionSurfaceSpacingValueFinal() {
+  return buildActionSectionPageSpacing();
+}
+
+function buildActionCardSpacingValueFinal() {
+  return buildActionSpacingValue();
+}
+
+function buildActionContentSpacingValueFinal() {
+  return buildActionSurfaceContentSpacing();
+}
+
+function buildActionHeaderDenseValue() {
+  return buildActionHeaderDenseFlag();
+}
+
+function buildActionPrimaryButtonProps(action: SessionActionDefinition) {
+  return {
+    variant: buildActionPrimaryButtonVariant(action),
+    color: buildActionPrimaryButtonColor(action),
+  };
+}
+
+function buildActionCardBodySx() {
+  return buildActionSurfaceBodySx();
+}
+
+function buildActionPageSectionSpacing() {
+  return buildActionSurfaceSpacingValueFinal();
+}
+
+function buildActionCardListSpacing() {
+  return buildActionCardSpacingValueFinal();
+}
+
+function buildActionSurfaceStackSpacing() {
+  return buildActionContentSpacingValueFinal();
+}
+
+function buildActionHeaderConfig(title: string, actions: SessionActionDefinition[]) {
+  return buildActionHeaderProps(title, actions);
+}
+
+function buildActionButtonConfig(action: SessionActionDefinition) {
+  return buildActionPrimaryButtonProps(action);
+}
+
+function buildActionEmptyStateCopy() {
+  return buildActionEmptyCopy();
+}
+
+function buildActionHeaderDenseConfig() {
+  return buildActionHeaderDenseValue();
+}
+
+function buildActionSurfaceBodyConfig() {
+  return buildActionCardBodySx();
+}
+
+function buildActionListSpacingConfig() {
+  return buildActionCardListSpacing();
+}
+
+function buildActionSurfaceSpacingConfig() {
+  return buildActionPageSectionSpacing();
+}
+
+function buildActionStackSpacingConfig() {
+  return buildActionSurfaceStackSpacing();
+}
+
+function buildActionCardConfig(index: number) {
+  return buildActionCardContainerSx(index);
+}
+
+function buildActionFieldConfig(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldWrapperSx(field);
+}
+
+function buildActionFieldsConfig() {
+  return buildActionFieldsContainerSx();
+}
+
+function buildActionTypographyWeight() {
+  return buildActionCardHeaderTypographyWeight();
+}
+
+function buildActionHeaderInfo(title: string, actions: SessionActionDefinition[]) {
+  return buildActionHeaderConfig(title, actions);
+}
+
+function buildActionButtonInfo(action: SessionActionDefinition) {
+  return buildActionButtonConfig(action);
+}
+
+function buildActionEmptyInfo() {
+  return buildActionEmptyStateCopy();
+}
+
+function buildActionSurfaceInfo() {
+  return buildActionSurfaceBodyConfig();
+}
+
+function buildActionLayoutInfo() {
+  return buildActionFieldsConfig();
+}
+
+function buildActionFieldInfo(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldConfig(field);
+}
+
+function buildActionCardInfo(index: number) {
+  return buildActionCardConfig(index);
+}
+
+function buildActionSpacingInfo() {
+  return buildActionStackSpacingConfig();
+}
+
+function buildActionHeaderMeta() {
+  return buildActionHeaderDenseConfig();
+}
+
+function buildActionTitleWeightValue() {
+  return buildActionTypographyWeight();
+}
+
+function buildActionHeaderState(title: string, actions: SessionActionDefinition[]) {
+  return buildActionHeaderInfo(title, actions);
+}
+
+function buildActionButtonState(action: SessionActionDefinition) {
+  return buildActionButtonInfo(action);
+}
+
+function buildActionEmptyState() {
+  return buildActionEmptyInfo();
+}
+
+function buildActionSurfaceState() {
+  return buildActionSurfaceInfo();
+}
+
+function buildActionLayoutState() {
+  return buildActionLayoutInfo();
+}
+
+function buildActionFieldState(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldInfo(field);
+}
+
+function buildActionCardState(index: number) {
+  return buildActionCardInfo(index);
+}
+
+function buildActionSpacingState() {
+  return buildActionSpacingInfo();
+}
+
+function buildActionHeaderMode() {
+  return buildActionHeaderMeta();
+}
+
+function buildActionWeightState() {
+  return buildActionTitleWeightValue();
+}
+
+function buildActionSurfaceProps() {
+  return buildActionSurfaceState();
+}
+
+function buildActionSurfaceListSpacing() {
+  return buildActionSpacingState();
+}
+
+function buildActionCardProps(index: number) {
+  return buildActionCardState(index);
+}
+
+function buildActionFieldProps(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldState(field);
+}
+
+function buildActionLayoutProps() {
+  return buildActionLayoutState();
+}
+
+function buildActionHeaderPropsFinal(title: string, actions: SessionActionDefinition[]) {
+  return buildActionHeaderState(title, actions);
+}
+
+function buildActionButtonPropsFinal(action: SessionActionDefinition) {
+  return buildActionButtonState(action);
+}
+
+function buildActionEmptyProps() {
+  return buildActionEmptyState();
+}
+
+function buildActionWeightProps() {
+  return buildActionWeightState();
+}
+
+function buildActionHeaderDenseProps() {
+  return buildActionHeaderMode();
+}
+
+function buildActionSectionSurfaceProps() {
+  return buildActionSurfaceProps();
+}
+
+function buildActionSectionListSpacing() {
+  return buildActionSurfaceListSpacing();
+}
+
+function buildActionSectionCardProps(index: number) {
+  return buildActionCardProps(index);
+}
+
+function buildActionSectionFieldProps(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionFieldProps(field);
+}
+
+function buildActionSectionLayoutProps() {
+  return buildActionLayoutProps();
+}
+
+function buildActionSectionHeaderProps(title: string, actions: SessionActionDefinition[]) {
+  return buildActionHeaderPropsFinal(title, actions);
+}
+
+function buildActionSectionButtonProps(action: SessionActionDefinition) {
+  return buildActionButtonPropsFinal(action);
+}
+
+function buildActionSectionEmptyProps() {
+  return buildActionEmptyProps();
+}
+
+function buildActionSectionWeightProps() {
+  return buildActionWeightProps();
+}
+
+function buildActionSectionDenseProps() {
+  return buildActionHeaderDenseProps();
+}
+
+function buildActionPageSectionProps() {
+  return buildActionSectionSurfaceProps();
+}
+
+function buildActionPageSpacingProps() {
+  return buildActionSectionListSpacing();
+}
+
+function buildActionItemProps(index: number) {
+  return buildActionSectionCardProps(index);
+}
+
+function buildActionInputProps(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionSectionFieldProps(field);
+}
+
+function buildActionGridProps() {
+  return buildActionSectionLayoutProps();
+}
+
+function buildActionTopHeaderProps(title: string, actions: SessionActionDefinition[]) {
+  return buildActionSectionHeaderProps(title, actions);
+}
+
+function buildActionExecuteProps(action: SessionActionDefinition) {
+  return buildActionSectionButtonProps(action);
+}
+
+function buildActionFallbackProps() {
+  return buildActionSectionEmptyProps();
+}
+
+function buildActionTextWeightProps() {
+  return buildActionSectionWeightProps();
+}
+
+function buildActionDenseModeProps() {
+  return buildActionSectionDenseProps();
+}
+
+function buildActionPageProps() {
+  return buildActionPageSectionProps();
+}
+
+function buildActionSpacingProps() {
+  return buildActionPageSpacingProps();
+}
+
+function buildActionBoxProps(index: number) {
+  return buildActionItemProps(index);
+}
+
+function buildActionFormFieldProps(field: NonNullable<SessionActionDefinition['fields']>[number]) {
+  return buildActionInputProps(field);
+}
+
+function buildActionFormGridProps() {
+  return buildActionGridProps();
+}
+
+function buildActionHeaderSurface(title: string, actions: SessionActionDefinition[]) {
+  return buildActionTopHeaderProps(title, actions);
+}
+
+function buildActionRunProps(action: SessionActionDefinition) {
+  return buildActionExecuteProps(action);
+}
+
+function buildActionNoopProps() {
+  return buildActionFallbackProps();
+}
+
+function buildActionWeightConfig() {
+  return buildActionTextWeightProps();
+}
+
+function buildActionDenseConfig() {
+  return buildActionDenseModeProps();
+}
+
+function buildActionPageConfig() {
+  return buildActionPageProps();
+}
+
+function buildActionGapConfig() {
+  return buildActionSpacingProps();
+}
 
 interface SessionActionPanelProps {
   title?: string;
@@ -39,59 +1021,68 @@ export default function SessionActionPanel({ title = '动作面板', actions, on
   const [payloads, setPayloads] = useState<Record<string, Record<string, string>>>(() => Object.fromEntries(actions.map((action) => [action.type, { ...initialState }])));
 
   return (
-    <Card variant="outlined">
-      <CardContent>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{title}</Typography>
-        {actions.length ? (
-          <Stack spacing={1}>
-            {actions.map((action, index) => (
-              <Box key={`${action.type}-${index}`} sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>{getActionLabel(action)}</Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, mb: 1 }}>{action.description || getActionHint(action)}</Typography>
-                <Stack spacing={1} sx={{ mb: 1 }}>
-                  {(action.fields || []).map((field) => field.type === 'single_select' ? (
-                    <TextField
-                      key={`${action.type}-${field.key}`}
-                      size="small"
-                      select
-                      label={field.label}
-                      value={payloads[action.type]?.[field.key] || ''}
-                      onChange={(e) => setPayloads((current) => ({
-                        ...current,
-                        [action.type]: {
-                          ...(current[action.type] || {}),
-                          [field.key]: e.target.value,
-                        },
-                      }))}
-                    >
-                      {(field.options || []).map((option) => <MenuItem key={`${field.key}-${option.value}`} value={option.value}>{getOptionLabel(option.label)}</MenuItem>)}
-                    </TextField>
-                  ) : (
-                    <TextField
-                      key={`${action.type}-${field.key}`}
-                      size="small"
-                      type={field.type === 'number' ? 'number' : 'text'}
-                      multiline={field.type === 'textarea'}
-                      minRows={field.type === 'textarea' ? 2 : undefined}
-                      label={field.label}
-                      placeholder={field.placeholder}
-                      value={payloads[action.type]?.[field.key] || ''}
-                      onChange={(e) => setPayloads((current) => ({
-                        ...current,
-                        [action.type]: {
-                          ...(current[action.type] || {}),
-                          [field.key]: e.target.value,
-                        },
-                      }))}
-                    />
-                  ))}
-                </Stack>
-                <Button size="small" variant="outlined" onClick={() => onRunAction(action, payloads[action.type] || {})} disabled={(action.fields || []).some((field) => field.required && !(payloads[action.type]?.[field.key] || '').trim())}>执行</Button>
+    <SurfaceCard contentSx={buildActionPageProps()}>
+      <SectionHeader {...buildActionTopHeaderProps(title, actions)} dense={buildActionDenseConfig()} />
+      {actions.length ? (
+        <PageSection spacing={buildActionGapConfig()}>
+          {actions.map((action, index) => (
+            <Box key={buildActionCardKey(action, index)} sx={buildActionBoxProps(index)}>
+              <Typography variant="body2" sx={{ fontWeight: buildActionWeightConfig() }}>{buildActionTitleValue(action)}</Typography>
+              <Typography variant="caption" color="text.secondary" sx={buildActionCaptionBlockSx()}>{buildActionSubtitleValue(action)}</Typography>
+              <Box sx={buildActionFormGridProps()}>
+                {(action.fields || []).map((field) => field.type === 'single_select' ? (
+                  <TextField
+                    key={buildActionFieldKey(action, field.key)}
+                    size={buildActionFieldTextSize()}
+                    select
+                    label={buildActionFieldLabelFinal(field)}
+                    value={payloads[action.type]?.[field.key] || ''}
+                    sx={buildActionFormFieldProps(field)}
+                    onChange={(e) => setPayloads((current) => ({
+                      ...current,
+                      [action.type]: {
+                        ...(current[action.type] || {}),
+                        [field.key]: e.target.value,
+                      },
+                    }))}
+                  >
+                    {(field.options || []).map((option) => <MenuItem key={buildActionOptionKey(field.key, option.value)} value={option.value}>{buildActionOptionFinal(option.label)}</MenuItem>)}
+                  </TextField>
+                ) : (
+                  <TextField
+                    key={buildActionFieldKey(action, field.key)}
+                    size={buildActionFieldTextSize()}
+                    type={buildActionFieldTypeFinal(field)}
+                    multiline={buildActionFieldMultilineFinal(field)}
+                    minRows={buildActionFieldRowsFinal(field)}
+                    label={buildActionFieldLabelFinal(field)}
+                    placeholder={buildActionFieldPlaceholderFinal(field)}
+                    value={payloads[action.type]?.[field.key] || ''}
+                    sx={buildActionFormFieldProps(field)}
+                    onChange={(e) => setPayloads((current) => ({
+                      ...current,
+                      [action.type]: {
+                        ...(current[action.type] || {}),
+                        [field.key]: e.target.value,
+                      },
+                    }))}
+                  />
+                ))}
               </Box>
-            ))}
-          </Stack>
-        ) : <Typography variant="caption" color="text.secondary">当前阶段暂无额外动作</Typography>}
-      </CardContent>
-    </Card>
+              <Button
+                size="small"
+                variant={buildActionRunProps(action).variant}
+                color={buildActionRunProps(action).color}
+                sx={buildActionPrimaryButtonSx()}
+                onClick={() => onRunAction(action, payloads[action.type] || {})}
+                disabled={buildActionDisabledValue(action, payloads)}
+              >
+                {buildActionExecuteText(action)}
+              </Button>
+            </Box>
+          ))}
+        </PageSection>
+      ) : <Typography variant="caption" color="text.secondary">{buildActionNoopProps()}</Typography>}
+    </SurfaceCard>
   );
 }

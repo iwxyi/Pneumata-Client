@@ -64,6 +64,8 @@ export default function ChatSidebarPanel({
       {rightPanelTab === 'world' && showRuntimeTab ? <ChatRuntimePanel chat={chat} members={members} privatePayloads={privatePayloads} /> : null}
       {rightPanelTab === 'actions' && showActionTab ? actionPanel || null : null}
 
+
+
     </Box>
   );
 }

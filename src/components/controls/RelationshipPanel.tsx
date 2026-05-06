@@ -1,10 +1,13 @@
 import { alpha } from '@mui/material/styles';
-import { Box, Card, CardContent, Chip, Dialog, DialogContent, DialogTitle, Divider, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Chip, Dialog, DialogContent, DialogTitle, Divider, Stack, Tooltip, Typography } from '@mui/material';
+import SurfaceCard from '../common/SurfaceCard';
+import SectionHeader from '../common/SectionHeader';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import type { RelationshipAxisReason, RelationshipLedgerEntry } from '../../types/runtimeEvent';
-import { buildRelationshipDisplaySummary, buildRelationshipEvidenceText, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
+import { buildRelationshipDisplaySummary, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
+import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
 
 interface RelationshipPanelProps {
   chat: GroupChat;
@@ -124,7 +127,7 @@ function RadarAxisLabels({ delta, onOpenAxis }: { delta: ReturnType<typeof toRel
   );
 }
 
-function RelationshipRadar({ entry, onOpenAxis }: { entry: RelationshipLedgerEntry; onOpenAxis: (axis: AxisKey) => void }) {
+export function RelationshipRadar({ entry, onOpenAxis }: { entry: RelationshipLedgerEntry; onOpenAxis: (axis: AxisKey) => void }) {
   const delta = toRelationshipDisplayDelta(entry.current);
   const scaledValues = METRIC_META.map((item) => scaleForRadar(delta[item.key] || 0));
   const polygon = buildMetricPolygon(scaledValues, 84);
@@ -184,7 +187,7 @@ function RelationshipCardFrame({ children }: { children: ReactNode }) {
     <Box
       sx={(theme) => ({
         p: 1.25,
-        borderRadius: 3,
+        borderRadius: 2,
         border: `1px solid ${alpha(theme.palette.divider, 0.6)}`,
         bgcolor: alpha(theme.palette.background.default, 0.45),
         transition: 'transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease',
@@ -202,25 +205,21 @@ function RelationshipCardFrame({ children }: { children: ReactNode }) {
 
 function RelationshipLedgerCard({ entry, members }: { entry: RelationshipLedgerEntry; members: AICharacter[] }) {
   const normalizedEntry = normalizeRelationshipLedgerEntry(entry);
-  const actor = members.find((member) => member.id === normalizedEntry.actorId);
-  const target = members.find((member) => member.id === normalizedEntry.targetId);
-  const latestEventActorId = normalizedEntry.recentEvents.at(-1)?.actorIds?.[0] || normalizedEntry.actorId;
-  const speaker = members.find((member) => member.id === latestEventActorId);
-  const actorName = actor?.name || normalizedEntry.actorId;
-  const speakerName = speaker?.name || actorName;
-  const targetName = target?.name || normalizedEntry.targetId;
-  const evidence = buildRelationshipEvidenceText(normalizedEntry);
+  const presented = buildPresentedRelationshipLedger({ relationshipLedger: [normalizedEntry] } as GroupChat, members)[0];
   const dominantSummary = buildRelationshipDisplaySummary(normalizedEntry);
   const [activeAxis, setActiveAxis] = useState<AxisKey | null>(null);
   const axisReasonMap = normalizedEntry.axisReasons || {};
   const activeMeta = useMemo(() => METRIC_META.find((item) => item.key === activeAxis) || null, [activeAxis]);
   const activeReasons = activeAxis ? (axisReasonMap[activeAxis] || []) : [];
 
+  if (!presented) return null;
+
+
   return (
     <RelationshipCardFrame>
       <Stack spacing={0.85} sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75, px: 0.25, pt: 0.25 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{targetName}</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{presented.targetName}</Typography>
           <Tooltip title={trendHint(normalizedEntry.trend)} arrow>
             <Chip size="small" label={trendLabel(normalizedEntry.trend)} sx={{ height: 22, fontSize: 11 }} />
           </Tooltip>
@@ -229,7 +228,7 @@ function RelationshipLedgerCard({ entry, members }: { entry: RelationshipLedgerE
           </Tooltip>
         </Box>
         <RelationshipDerivedChips entry={normalizedEntry} />
-        <RelationshipEvidenceCard speakerName={speakerName} evidence={evidence || '暂无明确证据'} />
+        <RelationshipEvidenceCard speakerName={presented.speakerName} evidence={presented.evidence || '暂无明确证据'} />
         <RelationshipRadar entry={normalizedEntry} onOpenAxis={setActiveAxis} />
       </Stack>
       <AxisReasonDialog open={Boolean(activeAxis)} onClose={() => setActiveAxis(null)} axisLabel={activeMeta?.label || '关系轴'} reasons={activeReasons} />
@@ -282,49 +281,47 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
     .sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
 
   return (
-    <Card variant="outlined">
-      <CardContent>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{isGroupChat ? '关系账本' : '成员信息'}</Typography>
-        {ledgerEntries.length ? (
-          <Stack spacing={1.1}>
-            {ledgerEntries.slice(0, 8).map((entry) => <RelationshipLedgerCard key={entry.pairKey} entry={entry} members={members} />)}
-          </Stack>
-        ) : members.length === 0 ? <Typography variant="body2">暂无成员</Typography> : (
-          <Stack spacing={1.25}>
-            {members.map((member) => (
-              <Box key={member.id}>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}</Typography>
-                {member.relationships.length ? (
-                  <Stack spacing={1} sx={{ mt: 0.5 }}>
-                    {member.relationships.slice(0, 3).map((relation, index) => {
-                      const target = members.find((item) => item.id === relation.characterId);
-                      const targetName = target?.name || relation.characterId;
-                      return (
-                        <RelationshipFallbackCard
-                          key={`${member.id}-${index}`}
-                          memberName={member.name}
-                          targetName={targetName}
-                          note={relation.note}
-                          relation={{
-                            warmth: relation.warmth,
-                            competence: relation.competence,
-                            trust: relation.trust,
-                            threat: relation.threat,
-                          }}
-                          updatedAt={chat.updatedAt}
-                        />
-                      );
-                    })}
-                  </Stack>
-                ) : (
-                  <Typography variant="caption" color="text.secondary">暂无明确关系备注</Typography>
-                )}
-                <Divider sx={{ mt: 1 }} />
-              </Box>
-            ))}
-          </Stack>
-        )}
-      </CardContent>
-    </Card>
+    <SurfaceCard>
+      <SectionHeader title={isGroupChat ? '关系账本' : '成员信息'} dense />
+      {ledgerEntries.length ? (
+        <Stack spacing={1.1}>
+          {ledgerEntries.slice(0, 8).map((entry) => <RelationshipLedgerCard key={entry.pairKey} entry={entry} members={members} />)}
+        </Stack>
+      ) : members.length === 0 ? <Typography variant="body2">暂无成员</Typography> : (
+        <Stack spacing={1.25}>
+          {members.map((member) => (
+            <Box key={member.id}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}</Typography>
+              {member.relationships.length ? (
+                <Stack spacing={1} sx={{ mt: 0.5 }}>
+                  {member.relationships.slice(0, 3).map((relation, index) => {
+                    const target = members.find((item) => item.id === relation.characterId);
+                    const targetName = target?.name || relation.characterId;
+                    return (
+                      <RelationshipFallbackCard
+                        key={`${member.id}-${index}`}
+                        memberName={member.name}
+                        targetName={targetName}
+                        note={relation.note}
+                        relation={{
+                          warmth: relation.warmth,
+                          competence: relation.competence,
+                          trust: relation.trust,
+                          threat: relation.threat,
+                        }}
+                        updatedAt={chat.updatedAt}
+                      />
+                    );
+                  })}
+                </Stack>
+              ) : (
+                <Typography variant="caption" color="text.secondary">暂无明确关系备注</Typography>
+              )}
+              <Divider sx={{ mt: 1 }} />
+            </Box>
+          ))}
+        </Stack>
+      )}
+    </SurfaceCard>
   );
 }

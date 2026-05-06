@@ -1,5 +1,9 @@
 import { lazy, Suspense, useEffect, useState, useCallback, useRef } from 'react';
-import { Box, IconButton, Button, Stack, Snackbar, Alert } from '@mui/material';
+import { Box, IconButton, Button, Stack, Snackbar, Alert, Typography } from '@mui/material';
+import SurfaceCard from '../components/common/SurfaceCard';
+import PageSection from '../components/common/PageSection';
+import SectionHeader from '../components/common/SectionHeader';
+import StatChipRow from '../components/common/StatChipRow';
 import {
   People as PeopleIcon,
   Info as InfoIcon,
@@ -178,14 +182,14 @@ export default function ChatDetailPage() {
       ? 'world'
       : showActionTab
         ? 'actions'
-        : showMemberTab
-          ? 'members'
-          : 'world';
+        : 'world';
   const sidebarTitle = activeSidebarTab === 'members'
     ? (memberPanel?.title || (chat?.type === 'group' ? t('controls.memberList') : chat?.type === 'ai_direct' ? 'AI私聊信息' : '单聊信息'))
     : activeSidebarTab === 'actions'
       ? '动作'
       : (runtimePanel?.title || '状态');
+  const memberTabTitle = memberPanel?.title || (chat?.type === 'group' ? '成员' : '角色');
+  const runtimeTabTitle = runtimePanel?.title || '状态';
   const actionTabActions = actionSchema?.actions || [];
   const manualPrivateThreadAction: SessionActionDefinition = {
     type: 'start_private_thread',
@@ -560,23 +564,18 @@ export default function ChatDetailPage() {
 
       {/* Right panel */}
       <RightPanel title={sidebarTitle}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <PageSection spacing={2}>
           {chat.type === 'ai_direct' && chat.sourceChatId ? (
             <Button variant="outlined" onClick={() => navigate(`/chats/${chat.sourceChatId}`)}>
               返回来源群聊
             </Button>
           ) : null}
-          {chat.type === 'direct' ? (
-            <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'action.hover' }}>
-              <Box sx={{ fontSize: 12, color: 'text.secondary' }}>当前会话类型</Box>
-              <Box sx={{ fontSize: 14, fontWeight: 700 }}>用户单聊</Box>
-            </Box>
-          ) : null}
-          {chat.type === 'ai_direct' ? (
-            <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'action.hover' }}>
-              <Box sx={{ fontSize: 12, color: 'text.secondary' }}>当前会话类型</Box>
-              <Box sx={{ fontSize: 14, fontWeight: 700 }}>AI私聊</Box>
-            </Box>
+          {chat.type === 'direct' || chat.type === 'ai_direct' ? (
+            <SurfaceCard>
+              <SectionHeader title="会话信息" dense />
+              <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>{chat.type === 'ai_direct' ? 'AI私聊' : '用户单聊'}</Typography>
+              <StatChipRow items={[chat.mode, `${members.length} 成员`]} />
+            </SurfaceCard>
           ) : null}
           <LazyPanel>
             <ChatSidebarPanel
@@ -587,8 +586,8 @@ export default function ChatDetailPage() {
               setRightPanelTab={setRightPanelTab}
               showMemberTab={showMemberTab}
               showRuntimeTab={showRuntimeTab}
-              memberPanelTitle={memberPanel?.title || (chat.type === 'group' ? '成员' : '角色')}
-              runtimePanelTitle={runtimePanel?.title || '状态'}
+              memberPanelTitle={memberTabTitle}
+              runtimePanelTitle={runtimeTabTitle}
               privatePayloads={privatePayloads}
               showActionTab={showActionTab}
               actionPanel={actionPanel}
@@ -601,8 +600,7 @@ export default function ChatDetailPage() {
               } : undefined}
             />
           </LazyPanel>
-
-        </Box>
+        </PageSection>
       </RightPanel>
 
       <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={closeSnackbar}>

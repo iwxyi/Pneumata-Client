@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Box, Typography, Card, CardContent, Button,
+  Box, Typography, Button,
   ToggleButtonGroup, ToggleButton,
   Snackbar, Alert, FormControlLabel, Switch,
 } from '@mui/material';
@@ -13,6 +13,54 @@ import { useAuthStore } from '../stores/useAuthStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import SurfaceCard from '../components/common/SurfaceCard';
+import PageSection from '../components/common/PageSection';
+import SectionHeader from '../components/common/SectionHeader';
+import StatChipRow from '../components/common/StatChipRow';
+
+function buildPageSx() {
+  return { p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 960, mx: 'auto' };
+}
+
+function buildToggleGroupSx() {
+  return { alignItems: 'center', justifyContent: 'flex-start', overflow: 'visible', flexWrap: 'wrap' as const, gap: 0.5 };
+}
+
+function buildActionGridSx() {
+  return { display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1 };
+}
+
+function buildCardBodySx() {
+  return { p: { xs: 1.75, sm: 2 }, '&:last-child': { pb: { xs: 1.75, sm: 2 } } };
+}
+
+function buildSectionBodySx() {
+  return { display: 'flex', flexDirection: 'column', gap: 2.25 };
+}
+
+function buildDeveloperBodySx() {
+  return { display: 'flex', flexDirection: 'column', gap: 1.5 };
+}
+
+function buildTopRowSx() {
+  return { display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2 };
+}
+
+function buildHeaderChips(language: string) {
+  return [language.startsWith('zh') ? '偏好设置' : 'Preferences', language.startsWith('zh') ? '多端同步' : 'Cross-device sync'];
+}
+
+function buildDeveloperChips(language: string) {
+  return [language.startsWith('zh') ? '调试' : 'Debug', language.startsWith('zh') ? '运行态' : 'Runtime'];
+}
+
+function buildDataChips(language: string) {
+  return [language.startsWith('zh') ? '备份 / 恢复' : 'Backup / Restore', language.startsWith('zh') ? '回收站' : 'Recycle Bin'];
+}
+
+function buildAboutChips() {
+  return ['v1.0.0'];
+}
 
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
@@ -125,170 +173,112 @@ export default function SettingsPage() {
   };
 
   return (
-    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 960, mx: 'auto' }}>
-      <Card variant="outlined" sx={{ mb: 3, cursor: 'pointer' }} onClick={() => navigate('/account')}>
-        <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-          <Box>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              {i18n.language.startsWith('zh') ? '账号' : 'Account'}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {user?.nickname || '-'} · {user?.phone || '-'}
-            </Typography>
-          </Box>
-          <Button variant="outlined" onClick={(e) => { e.stopPropagation(); navigate('/account'); }}>
-            {i18n.language.startsWith('zh') ? '查看' : 'Open'}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            {i18n.language.startsWith('zh') ? 'AI模型' : 'AI Models'}
-          </Typography>
-          <Button variant="outlined" onClick={() => navigate('/models')} sx={{ justifyContent: 'flex-start' }}>
-            {i18n.language.startsWith('zh') ? '管理AI模型列表' : 'Manage AI model list'}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            {t('settings.appearance')}
-          </Typography>
-
-          <Box>
-            <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>
-              {t('settings.theme')}
-            </Typography>
-            <ToggleButtonGroup
-              value={settings.theme}
-              exclusive
-              onChange={(_, v) => v && settings.setTheme(v)}
-              size="small"
-              sx={{ alignItems: 'center', justifyContent: 'flex-start', overflow: 'visible' }}
-            >
-              <ToggleButton value="light">{t('settings.themeLight')}</ToggleButton>
-              <ToggleButton value="dark">{t('settings.themeDark')}</ToggleButton>
-              <ToggleButton value="system">{t('settings.themeSystem')}</ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-
-          <Box>
-            <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>
-              {t('settings.language')}
-            </Typography>
-            <ToggleButtonGroup
-              value={settings.language}
-              exclusive
-              onChange={(_, v) => v && handleLanguageChange(v)}
-              size="small"
-              sx={{ alignItems: 'center', justifyContent: 'flex-start', overflow: 'visible' }}
-            >
-              <ToggleButton value="zh">中文</ToggleButton>
-              <ToggleButton value="en">English</ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-
-          <Box>
-            <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>
-              {i18n.language.startsWith('zh') ? '新建群聊默认变化强度' : 'Default evolution intensity for new group chats'}
-            </Typography>
-            <ToggleButtonGroup
-              value={settings.chatDraftDefaults.runtimeEvolutionIntensity}
-              exclusive
-              onChange={(_, v) => v && settings.setChatDraftDefaults({ runtimeEvolutionIntensity: v })}
-              size="small"
-              sx={{ alignItems: 'center', justifyContent: 'flex-start', overflow: 'visible' }}
-            >
-              <ToggleButton value="slow">{i18n.language.startsWith('zh') ? '慢' : 'Slow'}</ToggleButton>
-              <ToggleButton value="balanced">{i18n.language.startsWith('zh') ? '平衡' : 'Balanced'}</ToggleButton>
-              <ToggleButton value="fast">{i18n.language.startsWith('zh') ? '快' : 'Fast'}</ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-
-          <Box sx={{ display: 'grid', gap: 1 }}>
-            <FormControlLabel control={<Switch checked={settings.developerMode} onChange={(e) => settings.setDeveloperMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '开发者模式' : 'Developer mode'} />
-          </Box>
-        </CardContent>
-      </Card>
-
-      {settings.developerMode ? (
-        <Card variant="outlined" sx={{ mb: 3 }}>
-          <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+    <Box sx={buildPageSx()}>
+      <PageSection spacing={3}>
+        <SurfaceCard contentSx={buildCardBodySx()}>
+          <Box sx={buildTopRowSx()}>
             <Box>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                {i18n.language.startsWith('zh') ? '开发者工具' : 'Developer Tools'}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {i18n.language.startsWith('zh') ? '先打开上方“开发者模式”，这里才能显示发言风格、记忆调试等开关。' : 'Turn on Developer mode above to reveal speech style, memory, and runtime debug toggles here.'}
-              </Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? '账号' : 'Account'}</Typography>
+              <Typography variant="body2" color="text.secondary">{user?.nickname || '-'} · {user?.phone || '-'}</Typography>
             </Box>
-            <Typography variant="caption" color="text.secondary">
-              {i18n.language.startsWith('zh') ? '路径：设置 → 开发者模式 → 开发者工具 → 显示发言风格' : 'Path: Settings → Developer mode → Developer Tools → Show speech style'}
-            </Typography>
-            <Box sx={{ display: 'grid', gap: 1 }}>
-              <FormControlLabel control={<Switch checked={settings.autoGenerateCharacterAvatar} onChange={(e) => settings.setAutoGenerateCharacterAvatar(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '自动生成角色头像' : 'Auto-generate character avatars'} />
-              <FormControlLabel control={<Switch checked={settings.developerUI.showMemoryDebug} onChange={(e) => settings.setDeveloperUI({ showMemoryDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示记忆调试信息' : 'Show memory debug info'} />
-              <FormControlLabel control={<Switch checked={settings.developerUI.showRelationshipEvents} onChange={(e) => settings.setDeveloperUI({ showRelationshipEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示关系事件提示' : 'Show relationship event hints'} />
-              <FormControlLabel control={<Switch checked={settings.developerUI.showSpeechStyle} onChange={(e) => settings.setDeveloperUI({ showSpeechStyle: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示发言风格' : 'Show speech style'} />
-              <FormControlLabel control={<Switch checked={settings.developerUI.dramaBoost} onChange={(e) => settings.setDeveloperUI({ dramaBoost: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '增强戏剧冲突' : 'Boost dramatic conflict'} />
-            </Box>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            {t('settings.dataManagement')}
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Button startIcon={<BackupIcon />} variant="outlined" onClick={handleBackup}>
-              {t('settings.backup')}
-            </Button>
-            <Button startIcon={<RestoreIcon />} variant="outlined" onClick={handleRestore}>
-              {t('settings.restore')}
-            </Button>
-            <Button variant="outlined" onClick={() => navigate('/settings/recycle-bin')}>
-              {i18n.language.startsWith('zh') ? '回收站' : 'Recycle Bin'}
-            </Button>
-            <Button startIcon={<ClearIcon />} variant="outlined" color="error" onClick={() => setClearConfirm(true)}>
-              {t('settings.clearAll')}
-            </Button>
+            <Button variant="outlined" onClick={() => navigate('/account')}>{i18n.language.startsWith('zh') ? '查看' : 'Open'}</Button>
           </Box>
-        </CardContent>
-      </Card>
+        </SurfaceCard>
 
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }} gutterBottom>
-            {t('settings.about')}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {t('app.fullName')} (AI Chat Group) v1.0.0
-          </Typography>
-          <Typography variant="caption" color="text.disabled">
-            AI Group Chat Simulation Platform
-          </Typography>
-        </CardContent>
-      </Card>
+        <SurfaceCard contentSx={buildCardBodySx()}>
+          <Box sx={buildSectionBodySx()}>
+            <SectionHeader title={i18n.language.startsWith('zh') ? 'AI模型' : 'AI Models'} />
+            <Button variant="outlined" onClick={() => navigate('/models')} sx={{ justifyContent: 'flex-start' }}>{i18n.language.startsWith('zh') ? '管理AI模型列表' : 'Manage AI model list'}</Button>
+          </Box>
+        </SurfaceCard>
 
-      <Button
-        fullWidth
-        variant="outlined"
-        color="error"
-        startIcon={<LogoutIcon />}
-        onClick={() => {
-          useAuthStore.getState().logout();
-          window.location.href = '/login';
-        }}
-        sx={{ mb: 3 }}
-      >
-        {i18n.language.startsWith('zh') ? '退出登录' : 'Log out'}
-      </Button>
+        <SurfaceCard contentSx={buildCardBodySx()}>
+          <Box sx={buildSectionBodySx()}>
+            <SectionHeader title={t('settings.appearance')} />
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{t('settings.theme')}</Typography>
+              <ToggleButtonGroup value={settings.theme} exclusive onChange={(_, v) => v && settings.setTheme(v)} size="small" sx={buildToggleGroupSx()}>
+                <ToggleButton value="light">{t('settings.themeLight')}</ToggleButton>
+                <ToggleButton value="dark">{t('settings.themeDark')}</ToggleButton>
+                <ToggleButton value="system">{t('settings.themeSystem')}</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{t('settings.language')}</Typography>
+              <ToggleButtonGroup value={settings.language} exclusive onChange={(_, v) => v && handleLanguageChange(v)} size="small" sx={buildToggleGroupSx()}>
+                <ToggleButton value="zh">中文</ToggleButton>
+                <ToggleButton value="en">English</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+            <Box sx={{ display: 'grid', gap: 1 }}>
+              <FormControlLabel control={<Switch checked={settings.developerMode} onChange={(e) => settings.setDeveloperMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '开发者模式' : 'Developer mode'} />
+            </Box>
+          </Box>
+        </SurfaceCard>
+
+        <SurfaceCard contentSx={buildCardBodySx()}>
+          <Box sx={buildSectionBodySx()}>
+            <SectionHeader title={i18n.language.startsWith('zh') ? '群聊默认行为' : 'Chat defaults'} />
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '群聊默认变化强度' : 'Default evolution intensity for group chats'}</Typography>
+              <ToggleButtonGroup value={settings.chatDraftDefaults.runtimeEvolutionIntensity} exclusive onChange={(_, v) => v && settings.setChatDraftDefaults({ runtimeEvolutionIntensity: v })} size="small" sx={buildToggleGroupSx()}>
+                <ToggleButton value="slow">{i18n.language.startsWith('zh') ? '慢' : 'Slow'}</ToggleButton>
+                <ToggleButton value="balanced">{i18n.language.startsWith('zh') ? '平衡' : 'Balanced'}</ToggleButton>
+                <ToggleButton value="fast">{i18n.language.startsWith('zh') ? '快' : 'Fast'}</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+          </Box>
+        </SurfaceCard>
+
+        {settings.developerMode ? (
+          <SurfaceCard contentSx={buildCardBodySx()}>
+            <Box sx={buildDeveloperBodySx()}>
+              <SectionHeader title={i18n.language.startsWith('zh') ? '开发者工具' : 'Developer Tools'} />
+              <StatChipRow items={buildDeveloperChips(i18n.language)} />
+              <Box sx={{ display: 'grid', gap: 1 }}>
+                <FormControlLabel control={<Switch checked={settings.autoGenerateCharacterAvatar} onChange={(e) => settings.setAutoGenerateCharacterAvatar(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '自动生成角色头像' : 'Auto-generate character avatars'} />
+                <FormControlLabel control={<Switch checked={settings.developerUI.showMemoryDebug} onChange={(e) => settings.setDeveloperUI({ showMemoryDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示记忆调试信息' : 'Show memory debug info'} />
+                <FormControlLabel control={<Switch checked={settings.developerUI.showRelationshipEvents} onChange={(e) => settings.setDeveloperUI({ showRelationshipEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示关系事件提示' : 'Show relationship event hints'} />
+                <FormControlLabel control={<Switch checked={settings.developerUI.showSpeechStyle} onChange={(e) => settings.setDeveloperUI({ showSpeechStyle: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示发言风格' : 'Show speech style'} />
+                <FormControlLabel control={<Switch checked={settings.developerUI.dramaBoost} onChange={(e) => settings.setDeveloperUI({ dramaBoost: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '增强戏剧冲突' : 'Boost dramatic conflict'} />
+              </Box>
+            </Box>
+          </SurfaceCard>
+        ) : null}
+
+        <SurfaceCard contentSx={buildCardBodySx()}>
+          <Box sx={buildSectionBodySx()}>
+            <SectionHeader title={t('settings.dataManagement')} />
+            <StatChipRow items={buildDataChips(i18n.language)} />
+            <Box sx={buildActionGridSx()}>
+              <Button startIcon={<BackupIcon />} variant="outlined" onClick={handleBackup}>{t('settings.backup')}</Button>
+              <Button startIcon={<RestoreIcon />} variant="outlined" onClick={handleRestore}>{t('settings.restore')}</Button>
+              <Button variant="outlined" onClick={() => navigate('/settings/recycle-bin')}>{i18n.language.startsWith('zh') ? '回收站' : 'Recycle Bin'}</Button>
+              <Button startIcon={<ClearIcon />} variant="outlined" color="error" onClick={() => setClearConfirm(true)}>{t('settings.clearAll')}</Button>
+            </Box>
+          </Box>
+        </SurfaceCard>
+
+        <SurfaceCard contentSx={buildCardBodySx()}>
+          <SectionHeader title={t('settings.about')} dense />
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.75 }}>AI Chat Group</Typography>
+          <StatChipRow items={buildAboutChips()} />
+        </SurfaceCard>
+
+        <Button
+          fullWidth
+          variant="outlined"
+          color="error"
+          startIcon={<LogoutIcon />}
+          onClick={() => {
+            useAuthStore.getState().logout();
+            window.location.href = '/login';
+          }}
+          sx={{ mb: 1 }}
+        >
+          {i18n.language.startsWith('zh') ? '退出登录' : 'Log out'}
+        </Button>
+      </PageSection>
 
       <ConfirmDialog
         open={clearConfirm}

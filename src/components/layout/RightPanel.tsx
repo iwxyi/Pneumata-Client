@@ -8,7 +8,7 @@ interface RightPanelProps {
   title?: string;
 }
 
-const PANEL_WIDTH = 320;
+const PANEL_WIDTH = 336;
 
 export default function RightPanel({ children, title }: RightPanelProps) {
   const { isMobile, isDesktop } = useResponsive();
@@ -31,8 +31,8 @@ export default function RightPanel({ children, title }: RightPanelProps) {
       >
         {title && (
           <>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2.25, py: 1.75 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
                 {title}
               </Typography>
               <IconButton size="small" onClick={() => setRightPanelOpen(false)}>
@@ -42,7 +42,7 @@ export default function RightPanel({ children, title }: RightPanelProps) {
             <Divider />
           </>
         )}
-        <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>{children}</Box>
+        <Box sx={{ flex: 1, overflow: 'auto', p: 2.25 }}>{children}</Box>
       </Box>
     ) : null;
   }
@@ -63,10 +63,10 @@ export default function RightPanel({ children, title }: RightPanelProps) {
           },
         }}
       >
-        <Box sx={{ p: 2 }}>
+        <Box sx={{ p: 2.25 }}>
           <Box sx={{ width: 40, height: 4, bgcolor: 'grey.300', borderRadius: 2, mx: 'auto', mb: 2 }} />
           {title && (
-            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 600 }}>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 700, letterSpacing: '-0.01em', mb: 1.25 }}>
               {title}
             </Typography>
           )}
@@ -90,11 +90,11 @@ export default function RightPanel({ children, title }: RightPanelProps) {
         },
       }}
     >
-      <Box sx={{ p: 2 }}>
+      <Box sx={{ p: 2.25 }}>
         {title && (
           <>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
                 {title}
               </Typography>
               <IconButton size="small" onClick={() => setRightPanelOpen(false)}>

@@ -17,7 +17,7 @@ export default function EmptyState({ icon = '📭', message, action }: EmptyStat
         py: 8,
         px: 3,
         textAlign: 'center',
-        borderRadius: 7,
+        borderRadius: 3,
         bgcolor: 'background.paper',
         border: 1,
         borderColor: 'divider',
