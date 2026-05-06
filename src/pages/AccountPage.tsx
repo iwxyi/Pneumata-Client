@@ -68,7 +68,7 @@ export default function AccountPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderBackAction, setHeaderActions } = useLayoutHeaderActions();
-  const { user, updateProfile, sendChangePhoneCode, changePhone } = useAuthStore();
+  const { user, authMode, updateProfile, sendChangePhoneCode, changePhone } = useAuthStore();
   const chatStore = useChatStore();
   const characterStore = useCharacterStore();
   const settingsStore = useSettingsStore();
@@ -126,6 +126,10 @@ export default function AccountPage() {
   }, 0);
 
   const handleUploadAll = async () => {
+    if (authMode === 'local') {
+      navigate('/login');
+      return;
+    }
     setSyncingAll(true);
     try {
       await Promise.all([chatStore.loadChats(), characterStore.loadCharacters()]);
@@ -138,6 +142,10 @@ export default function AccountPage() {
   };
 
   const handleDownloadAll = async () => {
+    if (authMode === 'local') {
+      navigate('/login');
+      return;
+    }
     setSyncingAll(true);
     try {
       await Promise.all([chatStore.loadChats(), characterStore.loadCharacters()]);
@@ -335,6 +343,11 @@ export default function AccountPage() {
               <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                 {i18n.language.startsWith('zh') ? '账号信息' : 'Account info'}
               </Typography>
+              {authMode === 'local' ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                  {i18n.language.startsWith('zh') ? '当前处于离线本地模式。所有数据仅保存在当前设备，登录后会自动尝试同步。' : 'You are in local-only mode. Data is stored on this device and will be uploaded automatically after sign-in.'}
+                </Typography>
+              ) : null}
             </Box>
 
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
@@ -346,7 +359,7 @@ export default function AccountPage() {
                 </Box>
                 <Box sx={compactRowSx} onClick={openNicknameDialog}>
                   <Typography variant="body1" sx={{ minWidth: 0, fontWeight: 600 }} noWrap>
-                    {user?.nickname || '-'}
+                    {authMode === 'local' ? (i18n.language.startsWith('zh') ? '本地用户' : 'Local user') : (user?.nickname || '-')}
                   </Typography>
                 </Box>
               </Box>
@@ -357,7 +370,7 @@ export default function AccountPage() {
                     {phoneLabel}
                   </Typography>
                   <Typography variant="body2" color="text.secondary" noWrap>
-                    {user?.phone || '-'}
+                    {authMode === 'local' ? (i18n.language.startsWith('zh') ? '未登录' : 'Not signed in') : (user?.phone || '-')}
                   </Typography>
                 </Box>
               </Box>

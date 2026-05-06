@@ -1,14 +1,16 @@
-import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
+import { Alert, Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
+import { useAuthStore } from '../stores/useAuthStore';
 import EmptyState from '../components/common/EmptyState';
 
 export default function SyncStatusPage() {
   const { i18n } = useTranslation();
   const characterStore = useCharacterStore();
   const chatStore = useChatStore();
+  const authMode = useAuthStore((s) => s.authMode);
 
   const items = useMemo(() => {
     const characterItems = (characterStore.pendingOperations || []).map((item) => ({
@@ -54,6 +56,12 @@ export default function SyncStatusPage() {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         {i18n.language.startsWith('zh') ? '这里只显示字段编辑同步队列；删除、恢复、彻底删除和清空回收站已改为直接服务端操作。' : 'This page only shows queued field-edit sync operations. Delete, restore, purge, and empty-trash actions now run directly on the server.'}
       </Typography>
+
+      {authMode === 'local' ? (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          {i18n.language.startsWith('zh') ? '当前为离线本地模式：云同步已关闭，登录后会自动尝试上传本地数据。' : 'You are in local-only offline mode. Cloud sync is disabled and local data will be uploaded automatically after login.'}
+        </Alert>
+      ) : null}
 
       {items.length === 0 ? (
         <EmptyState icon="☁️" message={i18n.language.startsWith('zh') ? '当前没有待同步的编辑项' : 'No queued edit sync items'} />

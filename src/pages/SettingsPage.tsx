@@ -67,6 +67,7 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const settings = useSettingsStore();
   const user = useAuthStore((s) => s.user);
+  const authMode = useAuthStore((s) => s.authMode);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
@@ -179,9 +180,9 @@ export default function SettingsPage() {
           <Box sx={buildTopRowSx()}>
             <Box>
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? '账号' : 'Account'}</Typography>
-              <Typography variant="body2" color="text.secondary">{user?.nickname || '-'} · {user?.phone || '-'}</Typography>
+              <Typography variant="body2" color="text.secondary">{authMode === 'local' ? (i18n.language.startsWith('zh') ? '离线本地模式 · 未登录' : 'Local-only mode · Not signed in') : `${user?.nickname || '-'} · ${user?.phone || '-'}`}</Typography>
             </Box>
-            <Button variant="outlined" onClick={() => navigate('/account')}>{i18n.language.startsWith('zh') ? '查看' : 'Open'}</Button>
+            <Button variant="outlined" onClick={() => navigate('/account')}>{authMode === 'local' ? (i18n.language.startsWith('zh') ? '登录并同步' : 'Sign in & sync') : (i18n.language.startsWith('zh') ? '查看' : 'Open')}</Button>
           </Box>
         </SurfaceCard>
 

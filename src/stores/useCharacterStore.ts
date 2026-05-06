@@ -4,6 +4,471 @@ import type { AICharacter } from '../types/character';
 import { normalizeCharacter, normalizeCharacterGroup } from '../types/character';
 import { api } from '../services/api';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
+import { useAuthStore } from './useAuthStore';
+
+function isLocalOnlyMode() {
+  return useAuthStore.getState().authMode === 'local';
+}
+
+function createLocalCharacterId() {
+  return `local-character-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function shouldSkipCloudSync() {
+  return isLocalOnlyMode();
+}
+
+function applyLocalCharacterCreate(charData: Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>) {
+  const now = Date.now();
+  return normalizeCharacter({
+    ...charData,
+    id: createLocalCharacterId(),
+    isPreset: false,
+    createdAt: now,
+    updatedAt: now,
+  } as AICharacter);
+}
+
+function applyLocalCharacterUpdate(character: AICharacter, updates: Partial<AICharacter>) {
+  return normalizeCharacter({
+    ...character,
+    ...updates,
+    updatedAt: Date.now(),
+  });
+}
+
+function applyLocalCharacterDelete(character: AICharacter) {
+  return normalizeCharacter({
+    ...character,
+    deletedAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
+function applyLocalCharacterRestore(character: AICharacter) {
+  return normalizeCharacter({
+    ...character,
+    deletedAt: null,
+    updatedAt: Date.now(),
+  });
+}
+
+function applyLocalCharacterPurge(characters: AICharacter[], ids: string[]) {
+  const normalizedIds = new Set(ids);
+  return characters.filter((character) => !normalizedIds.has(character.id));
+}
+
+function applyLocalEmptyDeletedCharacters(characters: AICharacter[]) {
+  return characters.filter((character) => character.deletedAt == null);
+}
+
+async function createCharacterRemote(charData: Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>) {
+  const result = await api.createCharacter({
+    name: charData.name,
+    avatar: charData.avatar,
+    personality: charData.personality as unknown as Record<string, number>,
+    behavior: charData.behavior,
+    expertise: charData.expertise,
+    speakingStyle: charData.speakingStyle,
+    background: charData.background,
+    group: normalizeCharacterGroup(charData.group),
+    speechProfile: charData.speechProfile,
+    relationships: charData.relationships,
+    memory: charData.memory,
+    layeredMemories: charData.layeredMemories,
+    intervention: charData.intervention,
+    runtimeTimeline: charData.runtimeTimeline,
+    modelProfileId: charData.modelProfileId,
+    modelProfileIds: charData.modelProfileIds,
+    bubbleStyleId: charData.bubbleStyleId,
+  });
+  return normalizeCharacter(result as unknown as AICharacter);
+}
+
+async function uploadGuestCharactersToCloud() {
+  if (shouldSkipCloudSync()) return;
+  const raw = localStorage.getItem('mirageTea-characters-guest');
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw) as { state?: { characters?: AICharacter[] } };
+    const guestCharacters = (parsed.state?.characters || []).filter((character) => !character.deletedAt && !character.isPreset);
+    if (!guestCharacters.length) return;
+    for (const character of guestCharacters) {
+      await createCharacterRemote(character);
+    }
+    localStorage.removeItem('mirageTea-characters-guest');
+  } catch {
+    // ignore malformed guest cache
+  }
+}
+
+function buildLocalImportedCharacters(chars: AICharacter[]) {
+  return chars.map((character) => applyLocalCharacterCreate({
+    name: character.name,
+    avatar: character.avatar,
+    personality: character.personality,
+    behavior: character.behavior,
+    expertise: character.expertise,
+    speakingStyle: character.speakingStyle,
+    background: character.background,
+    group: character.group,
+    speechProfile: character.speechProfile,
+    relationships: character.relationships,
+    memory: character.memory,
+    layeredMemories: character.layeredMemories,
+    intervention: character.intervention,
+    runtimeTimeline: character.runtimeTimeline,
+    modelProfileId: character.modelProfileId,
+    modelProfileIds: character.modelProfileIds,
+    bubbleStyleId: character.bubbleStyleId,
+    fieldVersions: character.fieldVersions,
+    deletedAt: character.deletedAt,
+  }));
+}
+
+function mergeCharacterResults(current: AICharacter[], incoming: AICharacter[]) {
+  return mergeCharacters(current, incoming, []).filter((item) => item.deletedAt == null);
+}
+
+function canAttemptCloudSync() {
+  return !shouldSkipCloudSync() && (typeof navigator === 'undefined' || navigator.onLine);
+}
+
+function projectLocalCharacterState(state: CharacterStore) {
+  return projectVisibleCharacters(state.characters, state.pendingOperations);
+}
+
+function projectLocalDeletedCharacters(state: CharacterStore) {
+  return projectDeletedCharacters(state.characters, state.pendingOperations);
+}
+
+function sortMergedCharacters(characters: AICharacter[]) {
+  return sortCharacters(characters);
+}
+
+function createImportedLocalCharacter(source: AICharacter) {
+  const now = Date.now();
+  return normalizeCharacter({
+    ...source,
+    id: `local-character-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    isPreset: false,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+function buildLocalCharacterCollection(chars: AICharacter[]) {
+  return chars.map((character) => createImportedLocalCharacter(character));
+}
+
+function locallyUpdateCharactersGroup(characters: AICharacter[], ids: string[], group: string | null) {
+  const normalizedIds = new Set(ids);
+  return characters.map((character) => normalizedIds.has(character.id)
+    ? applyLocalCharacterUpdate(character, { group: normalizeCharacterGroup(group) })
+    : character);
+}
+
+function appendLocalCharacters(existing: AICharacter[], incoming: AICharacter[]) {
+  return sortMergedCharacters(mergeCharacterResults(existing, incoming));
+}
+
+function localVisibleCharacters(characters: AICharacter[]) {
+  return sortCharacters(characters.filter((character) => character.deletedAt == null));
+}
+
+function localDeletedCharacters(characters: AICharacter[]) {
+  return sortCharacters(characters.filter((character) => character.deletedAt != null));
+}
+
+function removeDeletedFromLocalView(characters: AICharacter[]) {
+  return localVisibleCharacters(characters);
+}
+
+function restoreLocalCharactersCollection(characters: AICharacter[], ids: string[]) {
+  const normalizedIds = new Set(ids);
+  return characters.map((character) => normalizedIds.has(character.id) ? applyLocalCharacterRestore(character) : character);
+}
+
+function deleteLocalCharactersCollection(characters: AICharacter[], ids: string[]) {
+  const normalizedIds = new Set(ids);
+  return characters.map((character) => normalizedIds.has(character.id) ? applyLocalCharacterDelete(character) : character);
+}
+
+function hasCloudAccess() {
+  return !shouldSkipCloudSync();
+}
+
+function createLocalCharacterFromData(charData: Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>) {
+  return applyLocalCharacterCreate(charData);
+}
+
+function updateLocalCharacterList(characters: AICharacter[], id: string, updates: Partial<AICharacter>) {
+  return characters.map((character) => character.id === id ? applyLocalCharacterUpdate(character, updates) : character);
+}
+
+function deleteLocalCharacterList(characters: AICharacter[], ids: string[]) {
+  return deleteLocalCharactersCollection(characters, ids);
+}
+
+function restoreLocalCharacterList(characters: AICharacter[], ids: string[]) {
+  return restoreLocalCharactersCollection(characters, ids);
+}
+
+function purgeLocalCharacterList(characters: AICharacter[], ids: string[]) {
+  return applyLocalCharacterPurge(characters, ids);
+}
+
+function clearLocalDeletedCharacterList(characters: AICharacter[]) {
+  return applyLocalEmptyDeletedCharacters(characters);
+}
+
+function buildLocalCharacterImport(chars: AICharacter[]) {
+  return buildLocalCharacterCollection(chars);
+}
+
+function updateGroupLocally(characters: AICharacter[], ids: string[], group: string | null) {
+  return locallyUpdateCharactersGroup(characters, ids, group);
+}
+
+function canUseCloudCharacterApis() {
+  return hasCloudAccess();
+}
+
+function projectCharactersForLocalMode(state: CharacterStore) {
+  return localVisibleCharacters(projectEntities(state.characters, state.pendingOperations));
+}
+
+function projectDeletedCharactersForLocalMode(state: CharacterStore) {
+  return localDeletedCharacters(projectEntities(state.characters, state.pendingOperations));
+}
+
+function buildLocalCharacterStateFromCurrent(state: CharacterStore) {
+  return {
+    visible: projectCharactersForLocalMode(state),
+    deleted: projectDeletedCharactersForLocalMode(state),
+  };
+}
+
+function normalizeImportedLocalCharacters(chars: AICharacter[]) {
+  return buildLocalCharacterImport(chars);
+}
+
+function sortLocalCharacters(characters: AICharacter[]) {
+  return sortCharacters(characters);
+}
+
+function applyLocalCharacterListUpdate(characters: AICharacter[], id: string, updates: Partial<AICharacter>) {
+  return sortLocalCharacters(updateLocalCharacterList(characters, id, updates));
+}
+
+function applyLocalCharacterListDelete(characters: AICharacter[], ids: string[]) {
+  return sortLocalCharacters(deleteLocalCharacterList(characters, ids));
+}
+
+function applyLocalCharacterListRestore(characters: AICharacter[], ids: string[]) {
+  return sortLocalCharacters(restoreLocalCharacterList(characters, ids));
+}
+
+function applyLocalCharacterListPurge(characters: AICharacter[], ids: string[]) {
+  return sortLocalCharacters(purgeLocalCharacterList(characters, ids));
+}
+
+function applyLocalCharacterListEmptyDeleted(characters: AICharacter[]) {
+  return sortLocalCharacters(clearLocalDeletedCharacterList(characters));
+}
+
+function applyLocalCharacterListGroupUpdate(characters: AICharacter[], ids: string[], group: string | null) {
+  return sortLocalCharacters(updateGroupLocally(characters, ids, group));
+}
+
+function createLocalCharacterBatch(chars: AICharacter[]) {
+  return normalizeImportedLocalCharacters(chars);
+}
+
+function buildLocalCharacterState(state: CharacterStore) {
+  return buildLocalCharacterStateFromCurrent(state);
+}
+
+function projectCharactersWithoutCloud(state: CharacterStore) {
+  return buildLocalCharacterState(state);
+}
+
+function shouldUseLocalCharacterMode() {
+  return !canUseCloudCharacterApis();
+}
+
+function localCharacterSnapshots(state: CharacterStore) {
+  return projectCharactersWithoutCloud(state);
+}
+
+function createLocalCharacterForImport(source: AICharacter) {
+  return createImportedLocalCharacter(source);
+}
+
+function importCharactersLocally(chars: AICharacter[]) {
+  return chars.map((character) => createLocalCharacterForImport(character));
+}
+
+function mergeLocalCharacterImports(existing: AICharacter[], incoming: AICharacter[]) {
+  return appendLocalCharacters(existing, incoming);
+}
+
+function loadCharactersLocally(state: CharacterStore) {
+  return localCharacterSnapshots(state);
+}
+
+function cloudCharacterCreateAllowed() {
+  return !shouldUseLocalCharacterMode();
+}
+
+function queueCharacterSyncIfNeeded(flush: () => Promise<void>, delay = 50) {
+  if (!shouldSkipCloudSync()) {
+    scheduleCharacterFlush(flush, delay);
+  }
+}
+
+function localCharacterCurrentView(state: CharacterStore) {
+  return removeDeletedFromLocalView(projectEntities(state.characters, state.pendingOperations));
+}
+
+function localCharacterDeletedView(state: CharacterStore) {
+  return localDeletedCharacters(projectEntities(state.characters, state.pendingOperations));
+}
+
+function loadLocalCharacterProjection(state: CharacterStore) {
+  return {
+    visible: localCharacterCurrentView(state),
+    deleted: localCharacterDeletedView(state),
+  };
+}
+
+function createLocalCharacterAndInsert(state: CharacterStore, charData: Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>) {
+  const character = createLocalCharacterFromData(charData);
+  return {
+    character,
+    characters: appendLocalCharacters(state.characters, [character]),
+  };
+}
+
+function replaceCharacterCollection(state: CharacterStore, characters: AICharacter[]) {
+  return sortLocalCharacters(characters);
+}
+
+function projectVisibleCharacterCollection(state: CharacterStore) {
+  return projectVisibleCharacters(state.characters, state.pendingOperations);
+}
+
+function projectDeletedCharacterCollection(state: CharacterStore) {
+  return projectDeletedCharacters(state.characters, state.pendingOperations);
+}
+
+function useLocalCharacterPath() {
+  return shouldSkipCloudSync();
+}
+
+function refreshLocalCharacterState(state: CharacterStore) {
+  return {
+    visible: projectVisibleCharacterCollection(state),
+    deleted: projectDeletedCharacterCollection(state),
+  };
+}
+
+function createCharacterLocally(state: CharacterStore, charData: Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>) {
+  return createLocalCharacterAndInsert(state, charData);
+}
+
+function updateCharacterLocally(state: CharacterStore, id: string, updates: Partial<AICharacter>) {
+  return applyLocalCharacterListUpdate(state.characters, id, updates);
+}
+
+function deleteCharactersLocally(state: CharacterStore, ids: string[]) {
+  return applyLocalCharacterListDelete(state.characters, ids);
+}
+
+function restoreCharactersLocally(state: CharacterStore, ids: string[]) {
+  return applyLocalCharacterListRestore(state.characters, ids);
+}
+
+function purgeCharactersLocally(state: CharacterStore, ids: string[]) {
+  return applyLocalCharacterListPurge(state.characters, ids);
+}
+
+function emptyDeletedCharactersLocally(state: CharacterStore) {
+  return applyLocalCharacterListEmptyDeleted(state.characters);
+}
+
+function updateCharactersGroupLocally(state: CharacterStore, ids: string[], group: string | null) {
+  return applyLocalCharacterListGroupUpdate(state.characters, ids, group);
+}
+
+function importCharactersBatchLocally(state: CharacterStore, chars: AICharacter[]) {
+  return mergeLocalCharacterImports(state.characters, importCharactersLocally(chars));
+}
+
+function localCharacterModeEnabled() {
+  return useLocalCharacterPath();
+}
+
+function skipCloudCharacterFetch() {
+  return localCharacterModeEnabled();
+}
+
+function skipCharacterFlush() {
+  return shouldSkipCloudSync();
+}
+
+function queueCharacterFlushIfOnline(flush: () => Promise<void>, delay = 50) {
+  if (!skipCharacterFlush()) {
+    scheduleCharacterFlush(flush, delay);
+  }
+}
+
+function visibleCharactersFromState(state: CharacterStore) {
+  return refreshLocalCharacterState(state).visible;
+}
+
+function deletedCharactersFromState(state: CharacterStore) {
+  return refreshLocalCharacterState(state).deleted;
+}
+
+function buildLocalCharacterView(state: CharacterStore) {
+  return {
+    visible: visibleCharactersFromState(state),
+    deleted: deletedCharactersFromState(state),
+  };
+}
+
+function localCharacterSet(state: CharacterStore, characters: AICharacter[]) {
+  return replaceCharacterCollection(state, characters);
+}
+
+function readGuestCharacterCache() {
+  try {
+    const raw = localStorage.getItem('mirageTea-characters-guest');
+    if (!raw) return [] as AICharacter[];
+    const parsed = JSON.parse(raw) as { state?: { characters?: AICharacter[] } };
+    return parsed.state?.characters || [];
+  } catch {
+    return [] as AICharacter[];
+  }
+}
+
+async function maybeUploadGuestCharacters() {
+  if (shouldSkipCloudSync()) return;
+  const guestCharacters = readGuestCharacterCache().filter((character) => !character.deletedAt && !character.isPreset);
+  if (!guestCharacters.length) return;
+  for (const character of guestCharacters) {
+    await createCharacterRemote(character);
+  }
+  localStorage.removeItem('mirageTea-characters-guest');
+}
+
+function createLocalCharacterPlaceholder() {
+  return 'guest';
+}
+
+void createLocalCharacterPlaceholder;
+
 
 interface PendingCharacterOperation extends SyncPatchOperation<Record<string, unknown>> {
   kind: 'patch';
@@ -206,7 +671,7 @@ function scheduleCharacterFlush(flush: () => Promise<void>, delay = 0) {
 }
 
 function canAttemptSync() {
-  return typeof navigator === 'undefined' || navigator.onLine;
+  return !shouldSkipCloudSync() && (typeof navigator === 'undefined' || navigator.onLine);
 }
 
 async function executeCharacterOperation(operation: PendingCharacterOperation) {
@@ -280,7 +745,7 @@ export const useCharacterStore = create<CharacterStore>()(
             pendingEditSyncError: latestCharacterError(nextQueue),
             lastSyncedAt: Date.now(),
           });
-          scheduleCharacterFlush(flushPendingOperations, 50);
+          queueCharacterFlushIfOnline(flushPendingOperations, 50);
         } catch (error) {
           const classified = classifySyncError(error);
           const attemptCount = nextOperation.attemptCount + 1;
@@ -315,7 +780,17 @@ export const useCharacterStore = create<CharacterStore>()(
 
         loadCharacters: async () => {
           set((state) => ({ isLoading: state.characters.length === 0 }));
+          if (shouldSkipCloudSync()) {
+            set((state) => ({
+              characters: visibleCharactersFromState(state),
+              isLoading: false,
+              pendingEditSyncCount: state.pendingOperations.length,
+              pendingEditSyncError: latestCharacterError(state.pendingOperations),
+            }));
+            return;
+          }
           try {
+            await maybeUploadGuestCharacters();
             const projectedState = await reloadProjectedCharacterState(get().pendingOperations);
             set({
               characters: projectedState.visible,
@@ -334,7 +809,7 @@ export const useCharacterStore = create<CharacterStore>()(
         queuePatch: (entityId, patch, kind = 'patch') => {
           const operation = createPendingCharacterOperation(kind, entityId ? [entityId] : [], patch);
           set((state) => queueAndProjectCharacters(state, [operation]));
-          scheduleCharacterFlush(flushPendingOperations, 50);
+          queueCharacterFlushIfOnline(flushPendingOperations, 50);
         },
 
         loadProjectedDeletedCharacters: async () => {
@@ -362,26 +837,16 @@ export const useCharacterStore = create<CharacterStore>()(
         loadProjectedVisibleCharacters: async () => get().loadProjectedCharacters(),
 
         addCharacter: async (charData) => {
-          const result = await api.createCharacter({
-            name: charData.name,
-            avatar: charData.avatar,
-            personality: charData.personality as unknown as Record<string, number>,
-            behavior: charData.behavior,
-            expertise: charData.expertise,
-            speakingStyle: charData.speakingStyle,
-            background: charData.background,
-            group: normalizeCharacterGroup(charData.group),
-            speechProfile: charData.speechProfile,
-            relationships: charData.relationships,
-            memory: charData.memory,
-            layeredMemories: charData.layeredMemories,
-            intervention: charData.intervention,
-            runtimeTimeline: charData.runtimeTimeline,
-            modelProfileId: charData.modelProfileId,
-            modelProfileIds: charData.modelProfileIds,
-            bubbleStyleId: charData.bubbleStyleId,
-          });
-          const character = normalizeCharacter(result as unknown as AICharacter);
+          if (shouldSkipCloudSync()) {
+            let createdCharacter: AICharacter | null = null;
+            set((state) => {
+              const local = createCharacterLocally(state, charData);
+              createdCharacter = local.character;
+              return { characters: local.characters };
+            });
+            return createdCharacter as unknown as AICharacter;
+          }
+          const character = await createCharacterRemote(charData);
           set((state) => ({
             characters: mergeCharacters(state.characters, [character, ...state.characters], state.pendingOperations).filter((item) => item.deletedAt == null),
             lastSyncedAt: Date.now(),
@@ -390,12 +855,20 @@ export const useCharacterStore = create<CharacterStore>()(
         },
 
         updateCharacter: async (id, updates) => {
+          if (shouldSkipCloudSync()) {
+            set((state) => ({ characters: updateCharacterLocally(state, id, updates) }));
+            return;
+          }
           await get().syncPatch(id, updates, 'patch');
         },
 
         deleteCharacter: async (id) => {
           const normalizedIds = Array.from(new Set([id].filter(Boolean)));
           if (!normalizedIds.length) return;
+          if (shouldSkipCloudSync()) {
+            set((state) => ({ characters: localVisibleCharacters(deleteCharactersLocally(state, normalizedIds)) }));
+            return;
+          }
           await Promise.all(normalizedIds.map((characterId) => api.deleteCharacter(characterId)));
           const projectedState = await reloadProjectedCharacterState(get().pendingOperations);
           set({
@@ -409,6 +882,10 @@ export const useCharacterStore = create<CharacterStore>()(
         deleteCharacters: async (ids) => {
           const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
           if (!normalizedIds.length) return;
+          if (shouldSkipCloudSync()) {
+            set((state) => ({ characters: localVisibleCharacters(deleteCharactersLocally(state, normalizedIds)) }));
+            return;
+          }
           if (normalizedIds.length === 1) {
             await api.deleteCharacter(normalizedIds[0]);
           } else {
@@ -426,6 +903,10 @@ export const useCharacterStore = create<CharacterStore>()(
         restoreCharacters: async (ids) => {
           const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
           if (!normalizedIds.length) return;
+          if (shouldSkipCloudSync()) {
+            set((state) => ({ characters: localVisibleCharacters(restoreCharactersLocally(state, normalizedIds)) }));
+            return;
+          }
           await applyCharacterRestore(normalizedIds);
           const projectedState = await reloadProjectedCharacterState(get().pendingOperations);
           set({
@@ -439,6 +920,10 @@ export const useCharacterStore = create<CharacterStore>()(
         purgeCharacters: async (ids) => {
           const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
           if (!normalizedIds.length) return;
+          if (shouldSkipCloudSync()) {
+            set((state) => ({ characters: purgeCharactersLocally(state, normalizedIds) }));
+            return;
+          }
           await applyCharacterPurge(normalizedIds);
           const projectedState = await reloadProjectedCharacterState(get().pendingOperations);
           set({
@@ -450,6 +935,10 @@ export const useCharacterStore = create<CharacterStore>()(
         },
 
         emptyDeletedCharacters: async () => {
+          if (shouldSkipCloudSync()) {
+            set((state) => ({ characters: emptyDeletedCharactersLocally(state) }));
+            return;
+          }
           await applyEmptyDeletedCharacters();
           const projectedState = await reloadProjectedCharacterState(get().pendingOperations);
           set({
@@ -465,6 +954,10 @@ export const useCharacterStore = create<CharacterStore>()(
         updateCharactersGroup: async (ids, group) => {
           const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
           if (!normalizedIds.length) return;
+          if (shouldSkipCloudSync()) {
+            set((state) => ({ characters: updateCharactersGroupLocally(state, normalizedIds, group) }));
+            return;
+          }
           const result = await api.bulkUpdateCharacters(normalizedIds, { group: normalizeCharacterGroup(group) });
           const updatedCharacters = Array.isArray(result.characters)
             ? result.characters.map((item) => normalizeCharacter(item as unknown as AICharacter))
@@ -479,28 +972,14 @@ export const useCharacterStore = create<CharacterStore>()(
         getCustom: () => get().characters.filter((c) => !c.isPreset),
 
         importCharacters: async (chars) => {
+          if (shouldSkipCloudSync()) {
+            set((state) => ({ characters: importCharactersBatchLocally(state, chars) }));
+            return;
+          }
           const created: AICharacter[] = [];
           for (const c of chars) {
-            const result = await api.createCharacter({
-              name: c.name,
-              avatar: c.avatar,
-              personality: c.personality as unknown as Record<string, number>,
-              behavior: c.behavior,
-              expertise: c.expertise,
-              speakingStyle: c.speakingStyle,
-              background: c.background,
-              group: normalizeCharacterGroup(c.group),
-              speechProfile: c.speechProfile,
-              relationships: c.relationships,
-              memory: c.memory,
-              layeredMemories: c.layeredMemories,
-              intervention: c.intervention,
-              runtimeTimeline: c.runtimeTimeline,
-              modelProfileId: c.modelProfileId,
-              modelProfileIds: c.modelProfileIds,
-              bubbleStyleId: c.bubbleStyleId,
-            });
-            created.push(result as unknown as AICharacter);
+            const result = await createCharacterRemote(c);
+            created.push(result);
           }
           set((state) => ({
             characters: mergeCharacters(state.characters, [...created, ...state.characters], state.pendingOperations).filter((item) => item.deletedAt == null),

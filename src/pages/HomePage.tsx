@@ -123,11 +123,8 @@ export default function HomePage() {
     <Box sx={{ flex: 1, overflow: 'auto', p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 } }}>
       <PageSection spacing={3}>
         <SurfaceCard>
-          <SectionHeader title="工作台概览" subtitle={`群聊 ${stats[0].value} · 角色 ${customCharacters.length}`} />
-          <Box sx={{ mt: 1 }}>
-            <StatChipRow items={[`单聊 ${totalDirectChats}`, `角色 ${customCharacters.length}`]} />
-          </Box>
-          <Box sx={{ display: 'flex', gap: { xs: 1.25, sm: 1.5 }, mt: 2, px: { xs: 0.5, sm: 0.75 }, alignItems: 'stretch', justifyContent: 'flex-start', flexWrap: 'nowrap' }}>
+          <SectionHeader title="工作台概览" />
+          <Box sx={{ display: 'flex', gap: { xs: 1.25, sm: 1.5 }, mt: 1, px: { xs: 0.5, sm: 0.75 }, alignItems: 'stretch', justifyContent: 'flex-start', flexWrap: 'nowrap' }}>
             {stats.map((stat) => (
               <SurfaceCard key={stat.label} sx={buildStatCardSx()} contentSx={buildStatContentSx()}>
                 <CardActionArea onClick={stat.onOpen} sx={{ borderRadius: 2.5 }}>
@@ -157,7 +154,7 @@ export default function HomePage() {
 
         {recentDirectChats.length > 0 ? (
           <SurfaceCard>
-            <SectionHeader title="最近单聊" subtitle={`最近 ${recentDirectChats.length} 条`} action={<Button size="small" variant="outlined" onClick={() => navigate('/chats?tab=1')}>查看全部</Button>} />
+            <SectionHeader title="最近单聊" action={<Button size="small" variant="outlined" onClick={() => navigate('/chats?tab=1')}>查看全部</Button>} />
             <Box sx={buildGridSx({ xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' })}>
               {recentDirectChats.map((chat) => (
                 <ChatCard key={chat.id} chat={chat} characters={characters} onClick={() => navigate(`/chats/${chat.id}?fromTab=1`)} />
@@ -167,7 +164,7 @@ export default function HomePage() {
         ) : null}
 
         <SurfaceCard>
-          <SectionHeader title={t('home.recentChats')} subtitle={recentChats.length ? `最近 ${recentChats.length} 条` : '暂无最近群聊'} action={<Button size="small" variant="outlined" onClick={() => navigate('/chats?tab=0')}>查看全部</Button>} />
+          <SectionHeader title={t('home.recentChats')} action={<Button size="small" variant="outlined" onClick={() => navigate('/chats?tab=0')}>查看全部</Button>} />
           {recentChats.length === 0 ? (
             <EmptyState
               icon="🍵"
