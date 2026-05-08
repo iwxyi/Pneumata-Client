@@ -10,6 +10,7 @@ interface CharacterCardProps {
   character: AICharacter;
   onEdit?: () => void;
   onDelete?: () => void;
+  onStartDirectChat?: () => void;
   onClick?: () => void;
   onLongPress?: () => void;
   selected?: boolean;
@@ -17,7 +18,7 @@ interface CharacterCardProps {
   selectionMode?: boolean;
 }
 
-export default function CharacterCard({ character, onEdit, onDelete, onClick, onLongPress, selected, selectable, selectionMode }: CharacterCardProps) {
+export default function CharacterCard({ character, onEdit, onDelete, onStartDirectChat, onClick, onLongPress, selected, selectable, selectionMode }: CharacterCardProps) {
   const pressTimerRef = useRef<number | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const { t, i18n } = useTranslation();
@@ -64,9 +65,33 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, on
 
   const handlePointerEnd = () => {
     clearPressTimer();
-    queueMicrotask(() => {
-      longPressTriggeredRef.current = false;
-    });
+  };
+
+  const handlePointerLeave = () => {
+    clearPressTimer();
+    longPressTriggeredRef.current = false;
+  };
+
+  const handlePointerCancel = () => {
+    clearPressTimer();
+    longPressTriggeredRef.current = false;
+  };
+
+  const handleMenuOpen = (e: React.MouseEvent<HTMLElement>) => {
+    e.stopPropagation();
+    longPressTriggeredRef.current = false;
+    setAnchorEl(e.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    longPressTriggeredRef.current = false;
+    setAnchorEl(null);
+  };
+
+  const handleMenuAction = (action?: () => void) => {
+    longPressTriggeredRef.current = false;
+    setAnchorEl(null);
+    action?.();
   };
 
   return (
@@ -95,10 +120,7 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, on
         {(onEdit || onDelete) && (
           <IconButton
             size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              setAnchorEl(e.currentTarget);
-            }}
+            onClick={handleMenuOpen}
             sx={{ position: 'absolute', top: 8, right: 8, zIndex: 1 }}
           >
             <MoreIcon fontSize="small" />
@@ -108,8 +130,8 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, on
           onClick={handleClick}
           onPointerDown={startLongPress}
           onPointerUp={handlePointerEnd}
-          onPointerLeave={clearPressTimer}
-          onPointerCancel={clearPressTimer}
+          onPointerLeave={handlePointerLeave}
+          onPointerCancel={handlePointerCancel}
           onContextMenu={handleContextMenu}
           disabled={!onClick && !selectable}
           sx={{ height: '100%' }}
@@ -145,23 +167,22 @@ export default function CharacterCard({ character, onEdit, onDelete, onClick, on
         </CardActionArea>
       </Box>
 
-      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
+      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleMenuClose}>
+        {onStartDirectChat && !selectionMode ? (
+          <MenuItem onClick={() => handleMenuAction(onStartDirectChat)}>
+            {i18n.language.startsWith('zh') ? '发起私聊' : 'Start direct chat'}
+          </MenuItem>
+        ) : null}
         {onEdit && (
           <MenuItem
-            onClick={() => {
-              setAnchorEl(null);
-              onEdit();
-            }}
+            onClick={() => handleMenuAction(onEdit)}
           >
             {t('common.edit')}
           </MenuItem>
         )}
         {onDelete && (
           <MenuItem
-            onClick={() => {
-              setAnchorEl(null);
-              onDelete();
-            }}
+            onClick={() => handleMenuAction(onDelete)}
             sx={{ color: 'error.main' }}
           >
             {t('common.delete')}

@@ -1,33 +1,30 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { Box, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Typography } from '@mui/material';
 import { Add as AddIcon, MoreVert as MoreIcon, ClearAll as ClearAllIcon, DeleteSweep as DeleteSweepIcon, DriveFileMove as DriveFileMoveIcon, AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import CharacterCard from '../components/character/CharacterCard';
-import CharacterForm from '../components/character/CharacterForm';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmptyState from '../components/common/EmptyState';
 import { canDeleteCharacterGroup, getCharacterGroupList, getCharactersInGroup, isPresetCharacterSelectable, normalizeCharacterGroup } from '../types/character';
 import { enqueueAvatarGenerationForCharacter, enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
+import { generateCharacterProfile } from '../services/characterGenerator';
+import { createCharacterBubbleStyleId } from '../utils/bubbleStyle';
+import { getPreferredAIProfile } from '../types/settings';
+import { useChatStore } from '../stores/useChatStore';
+import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 
 export default function CharacterLibraryPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const location = useLocation();
-  const { id } = useParams<{ id?: string }>();
-  const returnTo = new URLSearchParams(location.search).get('returnTo');
-  const returnBack = useCallback(() => {
-    navigate(-1);
-  }, [navigate]);
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
   const settings = useSettingsStore();
-  const { characters, loadCharacters, addCharacter, updateCharacter, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets } = useCharacterStore();
+  const { chats, addChat } = useChatStore();
+  const { characters, loadCharacters, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets } = useCharacterStore();
   const [tab, setTab] = useState(0);
-  const showForm = location.pathname === '/characters/create';
-  const editId = location.pathname.startsWith('/characters/') && location.pathname.endsWith('/edit') ? (id || null) : null;
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [selectionMode, setSelectionMode] = useState(false);
@@ -38,6 +35,7 @@ export default function CharacterLibraryPage() {
   const [groupActionTarget, setGroupActionTarget] = useState<string | null>(null);
   const [groupActionDialogOpen, setGroupActionDialogOpen] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [selectionMenuAnchorEl, setSelectionMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [charactersBootstrapComplete, setCharactersBootstrapComplete] = useState(false);
   const groupPressTimerRef = useRef<number | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
@@ -71,7 +69,6 @@ export default function CharacterLibraryPage() {
   const displayChars = tab === 0 ? filteredCustom : presets;
   const selectedIdSet = new Set(selectedIds);
   const selectedCustomCharacters = custom.filter((character) => selectedIdSet.has(character.id));
-  const editChar = editId ? characters.find((c) => c.id === editId) : undefined;
 
   const resetSelection = () => {
     setSelectionMode(false);
@@ -132,6 +129,56 @@ export default function CharacterLibraryPage() {
     });
   };
 
+  const handleBulkGenerateBubbles = async () => {
+    const profile = getPreferredAIProfile(settings.aiProfiles, 'text');
+    if (!profile?.apiKey || !profile?.model) {
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first', severity: 'error' });
+      return;
+    }
+
+    let successCount = 0;
+    for (const character of selectedCustomCharacters) {
+      try {
+        const generated = await generateCharacterProfile(profile, character.name, i18n.language.startsWith('zh') ? 'zh' : 'en', character.group || null);
+        await useCharacterStore.getState().updateCharacter(character.id, {
+          bubbleStyle: { ...generated.bubbleStyle, id: createCharacterBubbleStyleId() },
+        });
+        successCount += 1;
+      } catch (error) {
+        setSnackbar({
+          open: true,
+          message: error instanceof Error ? error.message : (i18n.language.startsWith('zh') ? '批量生成气泡失败' : 'Failed to generate bubbles'),
+          severity: 'error',
+        });
+        return;
+      }
+    }
+
+    setSnackbar({
+      open: true,
+      message: i18n.language.startsWith('zh') ? `已为 ${successCount} 个角色生成气泡` : `Generated bubbles for ${successCount} characters`,
+      severity: successCount > 0 ? 'success' : 'error',
+    });
+  };
+
+  const handleSelectionMoreMenu = (event: MouseEvent<HTMLElement>) => {
+    setSelectionMenuAnchorEl(event.currentTarget);
+  };
+
+  const closeSelectionMoreMenu = () => {
+    setSelectionMenuAnchorEl(null);
+  };
+
+  const handleStartDirectChat = async (characterId: string, characterName: string) => {
+    const existing = chats.find((chat) => chat.type === 'direct' && chat.memberIds.length === 1 && chat.memberIds[0] === characterId);
+    if (existing) {
+      navigate(`/chats/${existing.id}?fromTab=1`);
+      return;
+    }
+    const chat = await addChat(buildDirectChatDraft(characterId, characterName));
+    navigate(`/chats/${chat.id}?fromTab=1`);
+  };
+
   const clearGroupPressTimer = () => {
     if (groupPressTimerRef.current !== null) {
       window.clearTimeout(groupPressTimerRef.current);
@@ -170,26 +217,10 @@ export default function CharacterLibraryPage() {
   };
 
   useEffect(() => {
-    const inForm = showForm || Boolean(editId);
-    if (inForm) {
-      setHeaderTitle(editId ? t('character.edit') : t('character.create'));
-      setHeaderBackAction(() => () => returnBack());
-      setHideMobileBottomNav(true);
-      setHeaderActions(
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          {editId ? (
-            <Button color="error" variant="outlined" onClick={() => setDeleteId(editId)}>
-              {t('common.delete')}
-            </Button>
-          ) : null}
-        </Box>
-      );
-    } else {
-      setHideMobileBottomNav(false);
-      setHeaderBackAction(null);
-      setHeaderTitle(null);
-      setHeaderActions(null);
-    }
+    setHideMobileBottomNav(false);
+    setHeaderBackAction(null);
+    setHeaderTitle(null);
+    setHeaderActions(null);
 
     return () => {
       setHeaderActions(null);
@@ -197,20 +228,13 @@ export default function CharacterLibraryPage() {
       setHeaderBackAction(null);
       setHideMobileBottomNav(false);
     };
-  }, [editId, returnBack, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, showForm, t]);
-
-  const mobileFormHeader = null;
-  void mobileFormHeader;
+  }, [setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
 
   const desktopListMenu = null;
   void desktopListMenu;
 
-  const desktopFormActions = null;
-  void desktopFormActions;
-
   const mobileListHeader = null;
   void mobileListHeader;
-  void returnBack;
 
   const renderListMenu = (
     <>
@@ -240,14 +264,10 @@ export default function CharacterLibraryPage() {
     </>
   );
 
-  const showInlineMenu = !showForm && !editId;
+  const showInlineMenu = true;
 
   const openCreateForm = () => {
     navigate('/characters/create');
-  };
-
-  const closeCreateForm = () => {
-    navigate('/characters', { replace: true });
   };
 
   const handleExport = () => {
@@ -280,70 +300,6 @@ export default function CharacterLibraryPage() {
     };
     input.click();
   };
-
-  if (showForm || editId) {
-    if (editId && !editChar) {
-      return (
-        <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
-          <Typography variant="body2" color="text.secondary">
-            {charactersBootstrapComplete
-              ? (i18n.language.startsWith('zh') ? '未找到这个角色' : 'Character not found')
-              : (i18n.language.startsWith('zh') ? '正在打开角色...' : 'Opening character...')}
-          </Typography>
-        </Box>
-      );
-    }
-
-    return (
-      <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
-        <CharacterForm
-          initial={editChar}
-          existingNames={characters.map((char) => char.name)}
-          onSave={async (data) => {
-            if (editId) {
-              await updateCharacter(editId, data);
-            } else {
-              const created = await addCharacter(data);
-              if (settings.autoGenerateCharacterAvatar && data.generatedByAI) {
-                enqueueAvatarGenerationForCharacter(created, settings.aiProfiles, i18n.language.startsWith('zh') ? 'zh' : 'en');
-              }
-            }
-            if (returnTo) {
-              navigate(`${decodeURIComponent(returnTo)}${decodeURIComponent(returnTo).includes('?') ? '&' : '?'}restoreDraft=1`, { replace: true });
-              return;
-            }
-            closeCreateForm();
-          }}
-          onCancel={() => {
-            if (returnTo) {
-              navigate(`${decodeURIComponent(returnTo)}${decodeURIComponent(returnTo).includes('?') ? '&' : '?'}restoreDraft=1`, { replace: true });
-              return;
-            }
-            closeCreateForm();
-          }}
-        />
-
-        <ConfirmDialog
-          open={Boolean(deleteId)}
-          title={t('character.delete')}
-          message={t('character.deleteConfirm')}
-          onConfirm={async () => {
-            if (deleteId) {
-              await deleteCharacter(deleteId);
-            }
-            setDeleteId(null);
-            if (returnTo) {
-              navigate(`${decodeURIComponent(returnTo)}${decodeURIComponent(returnTo).includes('?') ? '&' : '?'}restoreDraft=1`, { replace: true });
-              return;
-            }
-            closeCreateForm();
-          }}
-          onCancel={() => setDeleteId(null)}
-          destructive
-        />
-      </Box>
-    );
-  }
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: 0, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -380,10 +336,33 @@ export default function CharacterLibraryPage() {
       {selectionMode && tab === 0 ? (
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
           <Typography variant="body2" color="text.secondary">{selectedIds.length} {i18n.language.startsWith('zh') ? '已选择' : 'selected'}</Typography>
-          <Button size="small" variant="outlined" startIcon={<ClearAllIcon />} onClick={resetSelection}>{i18n.language.startsWith('zh') ? '取消选择' : 'Cancel'}</Button>
-          <Button size="small" variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={handleBulkGenerateAvatars} disabled={selectedIds.length === 0}>{i18n.language.startsWith('zh') ? '自动生成头像' : 'Auto-generate avatars'}</Button>
-          <Button size="small" variant="outlined" startIcon={<DriveFileMoveIcon />} onClick={() => setBulkGroupDialogOpen(true)} disabled={selectedIds.length === 0}>{i18n.language.startsWith('zh') ? '更改分组' : 'Change group'}</Button>
-          <Button size="small" color="error" variant="outlined" startIcon={<DeleteSweepIcon />} onClick={() => setBulkDeleteOpen(true)} disabled={selectedIds.length === 0}>{i18n.language.startsWith('zh') ? '批量删除' : 'Delete selected'}</Button>
+          <Box sx={{ ml: 'auto', display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Button size="small" variant="outlined" startIcon={<ClearAllIcon />} onClick={resetSelection}>{i18n.language.startsWith('zh') ? '取消选择' : 'Cancel'}</Button>
+            <Button size="small" color="error" variant="outlined" startIcon={<DeleteSweepIcon />} onClick={() => setBulkDeleteOpen(true)} disabled={selectedIds.length === 0}>{i18n.language.startsWith('zh') ? '批量删除' : 'Delete selected'}</Button>
+            <IconButton size="small" onClick={handleSelectionMoreMenu} disabled={selectedIds.length === 0}>
+              <MoreIcon fontSize="small" />
+            </IconButton>
+          </Box>
+          <Menu anchorEl={selectionMenuAnchorEl} open={Boolean(selectionMenuAnchorEl) && selectionMode} onClose={closeSelectionMoreMenu}>
+            <MenuItem onClick={() => {
+              closeSelectionMoreMenu();
+              handleBulkGenerateAvatars();
+            }}>
+              {i18n.language.startsWith('zh') ? '批量生成头像' : 'Generate avatars'}
+            </MenuItem>
+            <MenuItem onClick={async () => {
+              closeSelectionMoreMenu();
+              await handleBulkGenerateBubbles();
+            }}>
+              {i18n.language.startsWith('zh') ? '批量生成气泡' : 'Generate bubbles'}
+            </MenuItem>
+            <MenuItem onClick={() => {
+              closeSelectionMoreMenu();
+              setBulkGroupDialogOpen(true);
+            }}>
+              {i18n.language.startsWith('zh') ? '更改分组' : 'Change group'}
+            </MenuItem>
+          </Menu>
         </Box>
       ) : null}
 
@@ -427,6 +406,7 @@ export default function CharacterLibraryPage() {
                 onLongPress={selectable ? () => enterSelectionMode(char.id) : undefined}
                 onEdit={tab === 0 ? () => navigate(`/characters/${char.id}/edit`) : undefined}
                 onDelete={tab === 0 && selectable ? () => setDeleteId(char.id) : undefined}
+                onStartDirectChat={tab === 0 && !selectionMode ? () => void handleStartDirectChat(char.id, char.name) : undefined}
                 onClick={() => {
                   if (selectionMode && selectable) {
                     toggleSelection(char.id);

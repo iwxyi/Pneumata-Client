@@ -278,7 +278,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
     setGenerating(true);
     setGenerateError(null);
     try {
-      const generated = await generateCharacterProfile(selectedProfile, name.trim(), i18n.language.startsWith('zh') ? 'zh' : 'en');
+      const generated = await generateCharacterProfile(selectedProfile, name.trim(), i18n.language.startsWith('zh') ? 'zh' : 'en', normalizeCharacterGroup(group));
       const generatedBubbleStyleId = createCharacterBubbleStyleId();
       setAvatar(generated.avatar);
       setPersonality(generated.personality);
@@ -622,8 +622,12 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
 
   const saveBubbleStyle = () => {
     if (!bubbleForm.name.trim()) return;
-    const id = editingBubbleStyleId || createCharacterBubbleStyleId();
+    const isEditingCustomStyle = customBubbleStyles.some((style) => style.id === editingBubbleStyleId);
+    const id = isEditingCustomStyle ? editingBubbleStyleId! : createCharacterBubbleStyleId();
     const nextStyle = formValuesToStyle(bubbleForm, id);
+    if (isEditingCustomStyle) {
+      settings.setCustomBubbleStyles(customBubbleStyles.map((style) => (style.id === id ? nextStyle : style)));
+    }
     setBubbleStyleId(id);
     setBubbleStyle(nextStyle);
     setDraftBubbleStyleId(id);
@@ -631,6 +635,18 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
     setBubbleEditorOpen(false);
     setBubblePickerOpen(true);
   };
+
+  const handleDeleteCustomBubbleStyle = () => {
+    if (!editingBubbleStyleId) return;
+    const isEditingCustomStyle = customBubbleStyles.some((style) => style.id === editingBubbleStyleId);
+    if (!isEditingCustomStyle) return;
+    settings.setCustomBubbleStyles(customBubbleStyles.filter((style) => style.id !== editingBubbleStyleId));
+    setBubbleEditorOpen(false);
+    setBubblePickerOpen(true);
+    deleteBubbleStyle(editingBubbleStyleId);
+  };
+
+  const isEditingCustomBubbleStyle = customBubbleStyles.some((style) => style.id === editingBubbleStyleId);
 
   const handleRegenerateBubble = async () => {
     if (!name.trim() || generating) return;
@@ -882,9 +898,16 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
             </Box>
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setBubbleEditorOpen(false)}>{i18n.language.startsWith('zh') ? '取消' : 'Cancel'}</Button>
-          <Button variant="contained" onClick={saveBubbleStyle} disabled={!bubbleForm.name.trim()}>{bubblePickerActionLabel.saveStyle}</Button>
+        <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {isEditingCustomBubbleStyle ? (
+              <Button color="error" onClick={handleDeleteCustomBubbleStyle}>{i18n.language.startsWith('zh') ? '删除' : 'Delete'}</Button>
+            ) : null}
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Button onClick={() => setBubbleEditorOpen(false)}>{i18n.language.startsWith('zh') ? '取消' : 'Cancel'}</Button>
+            <Button variant="contained" onClick={saveBubbleStyle} disabled={!bubbleForm.name.trim()}>{bubblePickerActionLabel.saveStyle}</Button>
+          </Box>
         </DialogActions>
       </Dialog>
 
