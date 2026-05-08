@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
-import { Box, Typography, Avatar, Dialog, DialogContent, Menu, MenuItem, keyframes } from '@mui/material';
+import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, Menu, MenuItem, keyframes } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { buildBubblePreview, resolveBubbleStyle } from '../../utils/bubbleStyle';
+import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import { isImageAvatar } from '../../utils/avatar';
 import { formatTimestamp } from '../../utils/format';
 
@@ -12,6 +12,7 @@ interface MessageBubbleProps {
   message: Message;
   character?: AICharacter;
   onDelete?: (id: string) => void;
+  onAnalyze?: (message: Message) => void;
   pending?: boolean;
 }
 
@@ -54,7 +55,7 @@ function renderPendingTypingDots() {
   );
 }
 
-export default function MessageBubble({ message, character, onDelete, pending = false }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, onDelete, onAnalyze, pending = false }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showRelationshipEvents = useSettingsStore((state) => state.developerUI.showRelationshipEvents);
@@ -108,6 +109,11 @@ export default function MessageBubble({ message, character, onDelete, pending = 
 
   const handleDelete = () => {
     if (onDelete) onDelete(message.id);
+    setMenuPosition(null);
+  };
+
+  const handleAnalyze = () => {
+    if (onAnalyze) onAnalyze(message);
     setMenuPosition(null);
   };
 
@@ -175,7 +181,7 @@ export default function MessageBubble({ message, character, onDelete, pending = 
   const isGod = message.type === 'god';
   const senderName = message.senderName || character?.name || '';
   const senderAvatar = character?.avatar || message.senderName.charAt(0);
-  const aiBubbleStyle = resolveBubbleStyle(character?.bubbleStyleId, customBubbleStyles);
+  const aiBubbleStyle = resolveCharacterBubbleStyle({ bubbleStyle: character?.bubbleStyle, bubbleStyleId: character?.bubbleStyleId, customStyles: customBubbleStyles });
   const aiBubblePreview = buildBubblePreview(aiBubbleStyle);
 
   return (
@@ -287,6 +293,7 @@ export default function MessageBubble({ message, character, onDelete, pending = 
         anchorPosition={menuPosition ? { top: menuPosition.mouseY, left: menuPosition.mouseX } : undefined}
       >
         <MenuItem onClick={handleCopy}>复制</MenuItem>
+        <MenuItem onClick={handleAnalyze}>AI分析</MenuItem>
         {canDelete ? <MenuItem onClick={handleDelete} sx={{ color: 'error.main' }}>删除</MenuItem> : null}
       </Menu>
     </>

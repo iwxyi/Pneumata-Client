@@ -1,5 +1,7 @@
 // HTTP API client for chat backend
 
+import type { BubbleStyleDefinition } from '../types/bubbleStyle';
+
 const API_BASE = '/api';
 
 export interface TopicSourceSummary {
@@ -106,7 +108,7 @@ class ApiClient {
       id: string; name: string; avatar: string; personality: Record<string, number>;
       behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
       speechProfile?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
-      modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyleId?: string | null;
+      modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyle?: BubbleStyleDefinition | null; bubbleStyleId?: string | null;
       isPreset: boolean; deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number;
     }>>('GET', '/characters');
   }
@@ -115,7 +117,7 @@ class ApiClient {
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
     speechProfile?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
-    modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyleId?: string | null;
+    modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyle?: BubbleStyleDefinition | null; bubbleStyleId?: string | null;
   }) {
     console.log('[api:createCharacter:request]', data);
     return this.request<Record<string, unknown>>('POST', '/characters', data);

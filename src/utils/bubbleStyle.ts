@@ -1,5 +1,58 @@
 import { BUILT_IN_BUBBLE_STYLES, DEFAULT_AI_BUBBLE_STYLE_ID } from '../constants/bubbleStyles';
-import type { BubbleStyleDefinition, BubbleStylePreview } from '../types/bubbleStyle';
+import type { BubbleStyleDefinition, BubbleStylePreview, BubbleStyleFormValues } from '../types/bubbleStyle';
+
+export function chooseRandomBubbleStyleId(params: {
+  allCharacters: Array<{ group?: string | null; bubbleStyleId?: string | null }>;
+  generatedGroup: string | null;
+  customStyleIds: string[];
+}) {
+  const usedOutsideGroup = new Set(
+    params.allCharacters
+      .filter((character) => (character.group || null) !== params.generatedGroup)
+      .map((character) => character.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID)
+  );
+
+  const allStyleIds = [...params.customStyleIds, ...BUILT_IN_BUBBLE_STYLES.map((style) => style.id)];
+  const available = allStyleIds.filter((id) => !usedOutsideGroup.has(id));
+  const pool = available.length ? available : allStyleIds;
+  if (!pool.length) return DEFAULT_AI_BUBBLE_STYLE_ID;
+  return pool[Math.floor(Math.random() * pool.length)] || DEFAULT_AI_BUBBLE_STYLE_ID;
+}
+
+export function resolveCharacterBubbleStyle(params: {
+  bubbleStyle?: BubbleStyleDefinition | null;
+  bubbleStyleId?: string | null;
+  customStyles?: BubbleStyleDefinition[];
+}) {
+  if (params.bubbleStyle) {
+    return { ...params.bubbleStyle, id: params.bubbleStyle.id || params.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID };
+  }
+  return resolveBubbleStyle(params.bubbleStyleId, params.customStyles || []);
+}
+
+export function toBubbleStyleFormValues(style: BubbleStyleDefinition): BubbleStyleFormValues {
+  return {
+    name: style.name,
+    backgroundColor: style.backgroundColor,
+    textColor: style.textColor,
+    borderColor: style.borderColor,
+    borderWidth: style.borderWidth,
+    borderStyle: style.borderStyle,
+    radius: style.radius,
+    shadow: style.shadow,
+    gradientFrom: style.gradientFrom || '',
+    gradientTo: style.gradientTo || '',
+    gradientDirection: style.gradientDirection || '135deg',
+  };
+}
+
+export function createCharacterBubbleStyleId() {
+  return `character-bubble-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function cloneBubbleStyle(style: BubbleStyleDefinition | null | undefined) {
+  return style ? { ...style } : null;
+}
 
 function shadowValue(shadow: BubbleStyleDefinition['shadow']) {
   switch (shadow) {

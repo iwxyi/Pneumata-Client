@@ -1,7 +1,8 @@
 import { Box, Avatar, Typography, keyframes } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { buildBubblePreview, resolveBubbleStyle } from '../../utils/bubbleStyle';
+import type { BubbleStyleDefinition } from '../../types/bubbleStyle';
+import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 
 const bounce = keyframes`
   0%, 60%, 100% { transform: translateY(0); }
@@ -11,15 +12,16 @@ const bounce = keyframes`
 interface TypingIndicatorProps {
   characterName: string;
   avatar: string;
+  bubbleStyle?: BubbleStyleDefinition | null;
   bubbleStyleId?: string | null;
   content?: string;
   status?: 'thinking' | 'persisting';
 }
 
-export default function TypingIndicator({ characterName, avatar, bubbleStyleId, content, status = 'thinking' }: TypingIndicatorProps) {
+export default function TypingIndicator({ characterName, avatar, bubbleStyle, bubbleStyleId, content, status = 'thinking' }: TypingIndicatorProps) {
   const navigate = useNavigate();
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
-  const bubblePreview = buildBubblePreview(resolveBubbleStyle(bubbleStyleId, customBubbleStyles));
+  const bubblePreview = buildBubblePreview(resolveCharacterBubbleStyle({ bubbleStyle, bubbleStyleId, customStyles: customBubbleStyles }));
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, px: 2, mb: 1.5 }}>

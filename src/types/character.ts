@@ -1,4 +1,5 @@
 import type { AIModelType } from './settings';
+import type { BubbleStyleDefinition } from './bubbleStyle';
 
 export interface PersonalityParams {
   openness: number;
@@ -96,6 +97,7 @@ export interface AICharacter {
   runtimeTimeline?: Array<{ type: 'memory' | 'relationship' | 'drift'; text: string; createdAt: number }>;
   modelProfileId?: string | null;
   modelProfileIds?: Partial<Record<AIModelType, string | null>>;
+  bubbleStyle?: BubbleStyleDefinition | null;
   bubbleStyleId?: string | null;
   isPreset: boolean;
   deletedAt?: number | null;
@@ -295,5 +297,6 @@ export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacte
     },
     modelProfileId: input.modelProfileId || null,
     modelProfileIds: normalizeCharacterModelProfileIds(input.modelProfileIds, input.modelProfileId),
+    bubbleStyle: input.bubbleStyle || null,
   };
 }

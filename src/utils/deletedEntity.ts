@@ -22,6 +22,7 @@ export function buildDeletedCharacter(id: string, name?: string): AICharacter {
     runtimeTimeline: [],
     modelProfileId: null,
     modelProfileIds: DEFAULT_CHARACTER_MODEL_PROFILE_IDS,
+    bubbleStyle: null,
     bubbleStyleId: null,
     isPreset: false,
     deletedAt: Date.now(),

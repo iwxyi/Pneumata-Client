@@ -62,6 +62,7 @@ function buildGeneratedCharacterPayload(params: {
     speakingStyle: string;
     background: string;
     speechProfile: NonNullable<AICharacter['speechProfile']>;
+    bubbleStyle: NonNullable<AICharacter['bubbleStyle']>;
   };
   generatedGroup: string | null;
   allCharacters: Array<Pick<AICharacter, 'name' | 'group' | 'bubbleStyleId'>>;
@@ -73,7 +74,8 @@ function buildGeneratedCharacterPayload(params: {
     ...params.generated,
     personality: params.generated.personality as unknown as PersonalityParams,
     group: params.generatedGroup,
-    bubbleStyleId: pickRandomAvailableBubbleStyle({
+    bubbleStyle: { ...params.generated.bubbleStyle, id: createCharacterBubbleStyleId() },
+    bubbleStyleId: chooseRandomBubbleStyleId({
       allCharacters: params.allCharacters,
       generatedGroup: params.generatedGroup,
       customStyleIds: params.customStyleIds,
@@ -94,6 +96,7 @@ async function processCharacterBatch(params: {
   customStyleIds: string[];
   profile: AIModelProfile;
   language: 'zh' | 'en';
+  theme?: string | null;
   cancelGenerationRef: React.MutableRefObject<boolean>;
   setProgress: React.Dispatch<React.SetStateAction<ProgressState>>;
   duplicateMessage: string;
@@ -121,7 +124,7 @@ async function processCharacterBatch(params: {
     if (params.cancelGenerationRef.current || !creatableNames.length) return;
 
     try {
-      const { success, failed } = await generateCharacterProfilesSafe(params.profile, creatableNames, params.language);
+      const { success, failed } = await generateCharacterProfilesSafe(params.profile, creatableNames, params.language, params.theme);
       failed.forEach(({ name, reason }) => {
         appendProgressItem(params.setProgress, { name, status: 'failed', reason });
       });
@@ -137,6 +140,7 @@ async function processCharacterBatch(params: {
             speakingStyle: profile.speakingStyle,
             background: profile.background,
             speechProfile: profile.speechProfile,
+            bubbleStyle: profile.bubbleStyle,
           },
           generatedGroup: params.generatedGroup,
           allCharacters: params.characters,
@@ -150,6 +154,7 @@ async function processCharacterBatch(params: {
           createdCharacters.map((character) => ({
             id: character.id,
             name: character.name,
+            group: character.group || '',
             background: character.background || '',
             speakingStyle: character.speakingStyle || '',
           })),
@@ -184,32 +189,16 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../types';
 import { getTopicDerivedCharacterGroup } from '../types/character';
 import { getPreferredAIProfile } from '../types/settings';
-import { BUILT_IN_BUBBLE_STYLES, DEFAULT_AI_BUBBLE_STYLE_ID } from '../constants/bubbleStyles';
+import { BUILT_IN_BUBBLE_STYLES } from '../constants/bubbleStyles';
+import { chooseRandomBubbleStyleId, createCharacterBubbleStyleId } from '../utils/bubbleStyle';
 
-function pickRandomAvailableBubbleStyle(params: {
-  allCharacters: Array<{ group?: string | null; bubbleStyleId?: string | null }>;
-  generatedGroup: string | null;
-  customStyleIds: string[];
-}) {
-  const usedOutsideGroup = new Set(
-    params.allCharacters
-      .filter((character: { group?: string | null; bubbleStyleId?: string | null }) => (character.group || null) !== params.generatedGroup)
-      .map((character: { bubbleStyleId?: string | null }) => character.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID)
-  );
-
-  const allStyleIds = [...params.customStyleIds, ...BUILT_IN_BUBBLE_STYLES.map((style) => style.id)];
-  const available = allStyleIds.filter((id) => !usedOutsideGroup.has(id));
-  const pool = available.length ? available : allStyleIds;
-  if (!pool.length) return DEFAULT_AI_BUBBLE_STYLE_ID;
-  return pool[Math.floor(Math.random() * pool.length)] || DEFAULT_AI_BUBBLE_STYLE_ID;
-}
 
 function getCustomBubbleStyleIds(settings: { customBubbleStyles?: Array<{ id: string }> }) {
   return (settings.customBubbleStyles || []).map((style) => style.id);
 }
 
 function chooseBatchBubbleStyle(settings: { customBubbleStyles?: Array<{ id: string }> }, allCharacters: Array<{ group?: string | null; bubbleStyleId?: string | null }>, generatedGroup: string | null) {
-  return pickRandomAvailableBubbleStyle({
+  return chooseRandomBubbleStyleId({
     allCharacters,
     generatedGroup,
     customStyleIds: getCustomBubbleStyleIds(settings),
@@ -219,7 +208,7 @@ function chooseBatchBubbleStyle(settings: { customBubbleStyles?: Array<{ id: str
 function filterMeaningfulRelationshipPairs(members: Array<{ name: string; relationships: Array<{ characterId: string; valence: number; respect: number; trust: number; tension: number; note?: string }>; }>, allMembers: Array<{ id: string; name: string }>) {
   return members.flatMap((member) =>
     member.relationships
-      .filter((relation) => Boolean(relation.note?.trim()) || Math.abs(relation.valence + relation.respect + relation.trust - relation.tension - 100) >= 15 || relation.valence >= 60 || relation.respect >= 60 || relation.trust >= 60 || relation.tension >= 35)
+      .filter((relation) => Boolean(relation.note?.trim()) || Math.abs(relation.valence + relation.respect + relation.trust - relation.tension) >= 15 || relation.valence >= 12 || relation.respect >= 12 || relation.trust >= 12 || relation.tension >= 12 || relation.valence <= -12 || relation.respect <= -12 || relation.trust <= -12)
       .map((relation) => ({
         source: member.name,
         target: allMembers.find((item) => item.id === relation.characterId)?.name || relation.characterId,
@@ -530,6 +519,7 @@ export default function BatchGenerateCharactersPage() {
         customStyleIds: (settings.customBubbleStyles || []).map((style) => style.id),
         profile,
         language: i18n.language.startsWith('zh') ? 'zh' : 'en',
+        theme: topic,
         cancelGenerationRef,
         setProgress,
         duplicateMessage: i18n.language.startsWith('zh') ? '同名已存在' : 'Duplicate name exists',

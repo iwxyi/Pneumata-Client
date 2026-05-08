@@ -84,6 +84,7 @@ async function createCharacterRemote(charData: Omit<AICharacter, 'id' | 'created
     runtimeTimeline: charData.runtimeTimeline,
     modelProfileId: charData.modelProfileId,
     modelProfileIds: charData.modelProfileIds,
+    bubbleStyle: charData.bubbleStyle,
     bubbleStyleId: charData.bubbleStyleId,
   });
   return normalizeCharacter(result as unknown as AICharacter);
@@ -123,6 +124,7 @@ function buildLocalImportedCharacters(chars: AICharacter[]) {
     runtimeTimeline: character.runtimeTimeline,
     modelProfileId: character.modelProfileId,
     modelProfileIds: character.modelProfileIds,
+    bubbleStyle: character.bubbleStyle,
     bubbleStyleId: character.bubbleStyleId,
     fieldVersions: character.fieldVersions,
     deletedAt: character.deletedAt,

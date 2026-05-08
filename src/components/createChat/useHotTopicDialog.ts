@@ -6,6 +6,7 @@ import type { AICharacter } from '../../types/character';
 import type { ChatStyle } from '../../types/chat';
 import { getPreferredAIProfile } from '../../types/settings';
 import { enqueueAvatarGenerationForCharacters } from '../../services/avatarGeneration';
+import { chooseRandomBubbleStyleId, createCharacterBubbleStyleId } from '../../utils/bubbleStyle';
 
 const BATCH_GENERATE_GROUP_SIZE = 10;
 
@@ -247,6 +248,7 @@ export function useHotTopicDialog(params: {
       speakingStyle: generated.speakingStyle,
       background: backgroundHint || generated.background,
       speechProfile: generated.speechProfile,
+      bubbleStyle: { ...generated.bubbleStyle, id: createCharacterBubbleStyleId() },
       relationships: [],
       memory: DEFAULT_CHARACTER_MEMORY,
       layeredMemories: [],
@@ -254,7 +256,11 @@ export function useHotTopicDialog(params: {
       runtimeTimeline: [],
       modelProfileId: null,
       modelProfileIds: { text: null, image: null, audio: null, document: null },
-      bubbleStyleId: null,
+      bubbleStyleId: chooseRandomBubbleStyleId({
+        allCharacters: params.characters,
+        generatedGroup: params.topic?.trim() || null,
+        customStyleIds: [],
+      }),
     };
   }, [isZh]);
 
