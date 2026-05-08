@@ -13,6 +13,7 @@ import CreateDirectChatPage from './pages/CreateDirectChatPage';
 import './i18n';
 
 const CharacterLibraryPage = lazy(() => import('./pages/CharacterLibraryPage'));
+const CharacterEditorPage = lazy(() => import('./pages/CharacterEditorPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const RecycleBinPage = lazy(() => import('./pages/RecycleBinPage'));
 const AIModelsPage = lazy(() => import('./pages/AIModelsPage'));
@@ -75,8 +76,8 @@ function RoutedApp() {
         <Route path="/chats/:id/edit" element={<RouteElement><CreateChatPage /></RouteElement>} />
         <Route path="/chats/:id" element={<ChatDetailRouteElement />} />
         <Route path="/characters" element={<RouteElement><CharacterLibraryPage /></RouteElement>} />
-        <Route path="/characters/create" element={<RouteElement><CharacterLibraryPage /></RouteElement>} />
-        <Route path="/characters/:id/edit" element={<RouteElement><CharacterLibraryPage /></RouteElement>} />
+        <Route path="/characters/create" element={<RouteElement><CharacterEditorPage /></RouteElement>} />
+        <Route path="/characters/:id/edit" element={<RouteElement><CharacterEditorPage /></RouteElement>} />
         <Route path="/characters/batch-generate" element={<RouteElement><BatchGenerateCharactersPage /></RouteElement>} />
         <Route path="/models" element={<RouteElement><AIModelsPage /></RouteElement>} />
         <Route path="/account" element={<RouteElement><AccountPage /></RouteElement>} />

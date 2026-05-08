@@ -146,7 +146,6 @@ export function RelationshipRadar({ entry, onOpenAxis }: { entry: RelationshipLe
   return (
     <Box sx={{ mt: 0.25, display: 'grid', placeItems: 'center' }}>
       <svg viewBox="0 0 112 122" width="100%" height="122" aria-hidden="true" style={{ maxWidth: 210, overflow: 'visible' }}>
-        <text x="56" y="10" textAnchor="middle" fill="rgba(100, 116, 139, 0.9)" fontSize="10">统一零点基底</text>
         <g transform="translate(14, 18)">
           {[0.33, 0.66, 1].map((scale) => (
             <polygon key={scale} points={buildHexRing(84, scale)} fill="none" stroke="rgba(148, 163, 184, 0.24)" strokeWidth="1" />
@@ -183,12 +182,12 @@ function RelationshipDerivedChips({ entry }: { entry: RelationshipLedgerEntry })
   );
 }
 
-function RelationshipEvidenceCard({ speakerName, evidence }: { speakerName: string; evidence: string }) {
+function RelationshipEvidenceCard({ speakerName, evidence }: { speakerName?: string; evidence: string }) {
   const cleaned = cleanRelationshipText(evidence);
   if (!cleaned) return null;
   return (
     <Box sx={(theme) => ({ p: 1, borderRadius: 2, bgcolor: alpha(theme.palette.common.black, 0.03) })}>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35 }}>{speakerName}</Typography>
+      {speakerName ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35 }}>{speakerName}</Typography> : null}
       <Typography variant="body2">{cleaned}</Typography>
     </Box>
   );
@@ -249,6 +248,8 @@ function RelationshipLedgerCard({ entry, members }: { entry: RelationshipLedgerE
 }
 
 function RelationshipFallbackCard({ memberName, targetName, note, relation, updatedAt }: { memberName: string; targetName: string; note?: string; relation: { warmth: number; competence: number; trust: number; threat: number }; updatedAt: number }) {
+  const fallbackEvidence = note?.trim() ? `预设备注：${note.trim()}` : '暂无结构化证据';
+  const hasMeaningfulFallback = Math.abs(relation.warmth) >= 8 || Math.abs(relation.competence) >= 8 || Math.abs(relation.trust) >= 8 || Math.abs(relation.threat) >= 8 || Boolean(note?.trim());
   const [activeAxis, setActiveAxis] = useState<AxisKey | null>(null);
   const activeMeta = useMemo(() => METRIC_META.find((item) => item.key === activeAxis) || null, [activeAxis]);
   const fallbackEntry: RelationshipLedgerEntry = {
@@ -264,6 +265,8 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
   };
   const summary = buildRelationshipDisplaySummary(fallbackEntry);
 
+  if (!hasMeaningfulFallback) return null;
+
   return (
     <RelationshipCardFrame>
       <Stack spacing={0.85} sx={{ minWidth: 0 }}>
@@ -276,7 +279,7 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
             <Chip size="small" variant="outlined" label={summary} sx={{ height: 22, fontSize: 11 }} />
           </Tooltip>
         </Box>
-        <RelationshipEvidenceCard speakerName={memberName} evidence={note || '暂无备注'} />
+        <RelationshipEvidenceCard speakerName={memberName} evidence={fallbackEvidence} />
         <RelationshipRadar entry={fallbackEntry} onOpenAxis={setActiveAxis} />
       </Stack>
       <AxisReasonDialog open={Boolean(activeAxis)} onClose={() => setActiveAxis(null)} axisLabel={activeMeta?.label || '关系轴'} reasons={[]} />
@@ -291,6 +294,15 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
     .filter(isMeaningfulRelationshipLedgerEntry)
     .slice()
     .sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
+  const fallbackSections = members
+    .map((member) => {
+      const items = member.relationships
+        .filter((relation) => !/^draft-\d+$/i.test(relation.characterId))
+        .filter((relation) => Math.abs(relation.warmth) >= 8 || Math.abs(relation.competence) >= 8 || Math.abs(relation.trust) >= 8 || Math.abs(relation.threat) >= 8 || Boolean(relation.note?.trim()))
+        .slice(0, 3);
+      return { member, items };
+    })
+    .filter((section) => section.items.length > 0);
 
   return (
     <SurfaceCard>
@@ -299,36 +311,32 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
         <Stack spacing={1.1}>
           {ledgerEntries.slice(0, 8).map((entry) => <RelationshipLedgerCard key={entry.pairKey} entry={entry} members={members} />)}
         </Stack>
-      ) : members.length === 0 ? <Typography variant="body2">暂无成员</Typography> : (
+      ) : fallbackSections.length === 0 ? <Typography variant="caption" color="text.secondary">暂无结构化关系数据</Typography> : (
         <Stack spacing={1.25}>
-          {members.map((member) => (
+          {fallbackSections.map(({ member, items }) => (
             <Box key={member.id}>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}</Typography>
-              {member.relationships.length ? (
-                <Stack spacing={1} sx={{ mt: 0.5 }}>
-                  {member.relationships.slice(0, 3).map((relation, index) => {
-                    const target = members.find((item) => item.id === relation.characterId);
-                    const targetName = target?.name || relation.characterId;
-                    return (
-                      <RelationshipFallbackCard
-                        key={`${member.id}-${index}`}
-                        memberName={member.name}
-                        targetName={targetName}
-                        note={relation.note}
-                        relation={{
-                          warmth: relation.warmth,
-                          competence: relation.competence,
-                          trust: relation.trust,
-                          threat: relation.threat,
-                        }}
-                        updatedAt={chat.updatedAt}
-                      />
-                    );
-                  })}
-                </Stack>
-              ) : (
-                <Typography variant="caption" color="text.secondary">暂无明确关系备注</Typography>
-              )}
+              <Stack spacing={1} sx={{ mt: 0.5 }}>
+                {items.map((relation, index) => {
+                  const target = members.find((item) => item.id === relation.characterId);
+                  const targetName = target?.name || relation.characterId;
+                  return (
+                    <RelationshipFallbackCard
+                      key={`${member.id}-${index}`}
+                      memberName={member.name}
+                      targetName={targetName}
+                      note={relation.note}
+                      relation={{
+                        warmth: relation.warmth,
+                        competence: relation.competence,
+                        trust: relation.trust,
+                        threat: relation.threat,
+                      }}
+                      updatedAt={chat.updatedAt}
+                    />
+                  );
+                })}
+              </Stack>
               <Divider sx={{ mt: 1 }} />
             </Box>
           ))}

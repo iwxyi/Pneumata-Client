@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Box, Typography, Button, Divider, IconButton, CardActionArea } from '@mui/material';
+import { Box, Typography, Button, Divider, IconButton } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ChatIcon from '@mui/icons-material/Chat';
 import PersonIcon from '@mui/icons-material/Person';
@@ -13,11 +13,37 @@ import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
 
-function buildStatCardSx() {
+function buildStatGridSx() {
   return {
-    width: { xs: 'calc(50% - 6px)', sm: 220 },
-    flex: '0 0 auto',
+    display: 'grid',
+    gridTemplateColumns: {
+      xs: 'repeat(2, minmax(0, 1fr))',
+      sm: 'repeat(3, minmax(0, 1fr))',
+    },
+    gap: { xs: 1, sm: 1.25 },
+    mt: 1,
+    px: { xs: 0.25, sm: 0.5 },
+    alignItems: 'stretch',
+  };
+}
+
+function buildStatCellSx(index: number) {
+  return {
+    minWidth: 0,
+    display: 'flex',
+    gridColumn: { xs: index === 2 ? '1 / -1' : 'auto', sm: 'auto' },
+    justifyContent: { xs: index === 2 ? 'center' : 'stretch', sm: 'stretch' },
+  };
+}
+
+function buildStatCardSx(index: number) {
+  return {
+    width: '100%',
+    maxWidth: { xs: index === 2 ? 160 : 'none', sm: 'none' },
+    minWidth: 0,
+    position: 'relative',
     overflow: 'visible',
+    cursor: 'pointer',
     transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
     '&:hover': {
       transform: 'translateY(-2px)',
@@ -29,16 +55,16 @@ function buildStatCardSx() {
 
 function buildStatContentSx() {
   return {
+    width: '100%',
     textAlign: 'center',
-    py: 2.5,
-    px: { xs: 3, sm: 3.25 },
-    position: 'relative',
+    py: { xs: 1.6, sm: 1.95 },
+    px: { xs: 1.1, sm: 1.5 },
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 0.75,
-    minHeight: 124,
+    gap: { xs: 0.45, sm: 0.6 },
+    minHeight: { xs: 94, sm: 108 },
     overflow: 'visible',
   };
 }
@@ -46,8 +72,9 @@ function buildStatContentSx() {
 function buildCreateButtonSx() {
   return {
     position: 'absolute',
-    right: -10,
-    bottom: -10,
+    right: 4,
+    bottom: 4,
+    zIndex: 1,
     bgcolor: 'primary.main',
     color: 'primary.contrastText',
     boxShadow: 3,
@@ -59,6 +86,37 @@ function buildCreateButtonSx() {
       transform: 'scale(1.08)',
       boxShadow: 4,
     },
+  };
+}
+
+function buildStatLabelSx() {
+  return {
+    width: '100%',
+    lineHeight: 1.25,
+    textAlign: 'center',
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+    minHeight: { xs: '2.3em', sm: '2.5em' },
+    color: 'text.secondary',
+    fontSize: { xs: '0.76rem', sm: '0.84rem' },
+  };
+}
+
+function buildStatValueSx() {
+  return {
+    fontWeight: 700,
+    lineHeight: 1,
+    fontSize: { xs: '1.08rem', sm: '1.28rem' },
+  };
+}
+
+function buildStatIconSx(color: string) {
+  return {
+    color,
+    fontSize: { xs: '0.95rem', sm: '1.1rem' },
+    lineHeight: 1,
   };
 }
 
@@ -87,16 +145,20 @@ export default function HomePage() {
     void prefetchCharacters();
   }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats]);
 
-
-  const recentChats = chats.filter((chat) => chat.type === 'group').slice(0, 5);
-  const recentDirectChats = chats.filter((chat) => chat.type === 'direct' || chat.type === 'ai_direct').slice(0, 4);
+  const recentChats = chats.slice(0, 10);
   const customCharacters = characters.filter((character) => !character.isPreset);
   const totalDirectChats = chats.filter((chat) => chat.type === 'direct' || chat.type === 'ai_direct').length;
+  const totalGroupChats = chats.filter((chat) => chat.type === 'group').length;
+  const totalAiDirectChats = chats.filter((chat) => chat.type === 'ai_direct').length;
+  const totalUserDirectChats = chats.filter((chat) => chat.type === 'direct').length;
+  const openChatFromHome = (chat: typeof chats[number]) => navigate(`/chats/${chat.id}?fromTab=${chat.type === 'group' ? 0 : chat.type === 'ai_direct' ? 2 : 1}`);
+  const recentChatsTitle = `最近会话（群聊 ${totalGroupChats} / 单聊 ${totalUserDirectChats} / AI私聊 ${totalAiDirectChats}）`;
+  const recentChatsActionTab = recentChats[0]?.type === 'group' ? 0 : recentChats[0]?.type === 'ai_direct' ? 2 : 1;
 
   const stats = [
     {
       label: t('home.totalChats'),
-      value: chats.filter((chat) => chat.type === 'group').length,
+      value: totalGroupChats,
       icon: <ChatIcon />,
       color: '#6750A4',
       onOpen: () => navigate('/chats?tab=0'),
@@ -128,46 +190,42 @@ export default function HomePage() {
       <PageSection spacing={3}>
         <SurfaceCard>
           <SectionHeader title="工作台概览" />
-          <Box sx={{ display: 'flex', gap: { xs: 1.25, sm: 1.5 }, mt: 1, px: { xs: 0.5, sm: 0.75 }, alignItems: 'stretch', justifyContent: 'flex-start', flexWrap: 'nowrap' }}>
-            {stats.map((stat) => (
-              <SurfaceCard key={stat.label} sx={buildStatCardSx()} contentSx={buildStatContentSx()}>
-                <Box sx={{ position: 'relative' }}>
+          <Box sx={buildStatGridSx()}>
+            {stats.map((stat, index) => (
+              <Box key={stat.label} sx={buildStatCellSx(index)}>
+                <SurfaceCard
+                  sx={buildStatCardSx(index)}
+                  contentSx={{
+                    ...buildStatContentSx(),
+                    '& > :not(button)': { width: '100%', display: 'flex', justifyContent: 'center' },
+                  }}
+                  onClick={stat.onOpen}
+                  aria-label={`${stat.label}快捷入口`}
+                >
                   <IconButton
                     size="small"
-                    onClick={stat.onCreate}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      stat.onCreate();
+                    }}
                     aria-label={stat.createLabel}
                     sx={buildCreateButtonSx()}
                   >
                     <AddIcon fontSize="small" />
                   </IconButton>
-                  <CardActionArea onClick={stat.onOpen} sx={{ borderRadius: 2.5 }}>
-                    <Box sx={buildStatContentSx()}>
-                      <Box sx={{ color: stat.color, fontSize: '1.3rem', lineHeight: 1 }}>{stat.icon}</Box>
-                      <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1 }}>{stat.value}</Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.3 }}>{stat.label}</Typography>
-                    </Box>
-                  </CardActionArea>
-                </Box>
-              </SurfaceCard>
+                  <Box sx={buildStatIconSx(stat.color)}>{stat.icon}</Box>
+                  <Typography variant="h5" sx={buildStatValueSx()}>{stat.value}</Typography>
+                  <Typography variant="body2" sx={buildStatLabelSx()}>{stat.label}</Typography>
+                </SurfaceCard>
+              </Box>
             ))}
           </Box>
         </SurfaceCard>
 
         <Divider />
 
-        {recentDirectChats.length > 0 ? (
-          <SurfaceCard>
-            <SectionHeader title="最近单聊" action={<Button size="small" variant="outlined" onClick={() => navigate('/chats?tab=1')}>查看全部</Button>} />
-            <Box sx={buildGridSx({ xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' })}>
-              {recentDirectChats.map((chat) => (
-                <ChatCard key={chat.id} chat={chat} characters={characters} onClick={() => navigate(`/chats/${chat.id}?fromTab=1`)} />
-              ))}
-            </Box>
-          </SurfaceCard>
-        ) : null}
-
         <SurfaceCard>
-          <SectionHeader title={t('home.recentChats')} action={<Button size="small" variant="outlined" onClick={() => navigate('/chats?tab=0')}>查看全部</Button>} />
+          <SectionHeader title={recentChatsTitle} action={<Button size="small" variant="outlined" onClick={() => navigate(`/chats?tab=${recentChatsActionTab}`)}>查看全部</Button>} />
           {recentChats.length === 0 ? (
             <EmptyState
               icon="🍵"
@@ -177,7 +235,7 @@ export default function HomePage() {
           ) : (
             <Box sx={buildGridSx()}>
               {recentChats.map((chat) => (
-                <ChatCard key={chat.id} chat={chat} characters={characters} onClick={() => navigate(`/chats/${chat.id}?fromTab=0`)} />
+                <ChatCard key={chat.id} chat={chat} characters={characters} onClick={() => openChatFromHome(chat)} />
               ))}
             </Box>
           )}

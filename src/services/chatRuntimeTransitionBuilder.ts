@@ -51,14 +51,8 @@ export function buildRelationshipTransition(params: {
       const updatedSpeakerBase = updateCharacterRelationship(speaker, target.id, params.message.content, config.relationshipMultiplier);
       const updatedTargetBase = updateCharacterRelationship(target, speaker.id, params.message.content, config.reciprocalRelationshipMultiplier);
       const summary = truncateWithEllipsis(params.message.content, 48);
-      const updatedSpeaker = {
-        ...updatedSpeakerBase,
-        relationships: updatedSpeakerBase.relationships.map((relation) => relation.characterId === target.id ? { ...relation, note: `${speaker.name} ↔ ${target.name}：${summary}` } : relation),
-      };
-      const updatedTarget = {
-        ...updatedTargetBase,
-        relationships: updatedTargetBase.relationships.map((relation) => relation.characterId === speaker.id ? { ...relation, note: `${target.name} ↔ ${speaker.name}：${summary}` } : relation),
-      };
+      const updatedSpeaker = updatedSpeakerBase;
+      const updatedTarget = updatedTargetBase;
       const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier);
       const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
       const targetEmotion = deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias);

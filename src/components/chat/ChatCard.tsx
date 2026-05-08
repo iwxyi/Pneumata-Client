@@ -4,8 +4,10 @@ import DirectIcon from '@mui/icons-material/ChatBubbleOutlined';
 import GroupIcon from '@mui/icons-material/Groups';
 import type { GroupChat } from '../../types/chat';
 import type { AICharacter } from '../../types/character';
+import type { Message } from '../../types/message';
 import { formatRelativeTime } from '../../utils/format';
 import { useTranslation } from 'react-i18next';
+import { useMessageStore } from '../../stores/useMessageStore';
 
 interface ChatCardProps {
   chat: GroupChat;
@@ -37,17 +39,32 @@ function clipPreview(text: string, max = 72) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-function buildChatSubtitle(chat: GroupChat, members: AICharacter[]) {
+function buildLatestMessagePreview(message: Message | null, members: AICharacter[]) {
+  if (!message || message.isDeleted || message.type === 'system' || message.type === 'event') return '';
+  const senderName = message.type === 'user'
+    ? '你'
+    : message.type === 'god'
+      ? 'God Mode'
+      : members.find((member) => member.id === message.senderId)?.name || message.senderName || '未知';
+  return clipPreview(`${senderName}：${message.content}`);
+}
+
+function buildChatSubtitle(chat: GroupChat, members: AICharacter[], latestMessage: Message | null) {
+  const latestMessagePreview = buildLatestMessagePreview(latestMessage, members);
   const relationshipPreview = buildRelationshipPreview(members);
   const memorySummary = (chat.layeredMemories || []).slice(-2).map((item) => item.text).join(' / ');
-  return clipPreview(relationshipPreview || memorySummary || chat.worldState?.recentEvent || chat.topic || '');
+  return latestMessagePreview || clipPreview(relationshipPreview || memorySummary || chat.worldState?.recentEvent || chat.topic || '');
 }
 
 export default function ChatCard({ chat, characters, onClick, onPrefetch }: ChatCardProps) {
   const { t } = useTranslation();
+  const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
   const members = characters.filter((c) => chat.memberIds.includes(c.id));
   const isDirect = chat.type === 'direct' || chat.type === 'ai_direct';
-  const subtitle = buildChatSubtitle(chat, members);
+  const latestMessage = [...(messageWindowsByChatId[chat.id]?.messages || [])]
+    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
+    .sort((a, b) => b.timestamp - a.timestamp)[0] || null;
+  const subtitle = buildChatSubtitle(chat, members, latestMessage);
 
   return (
     <Card
