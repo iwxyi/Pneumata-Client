@@ -124,6 +124,8 @@ export function buildRelationshipTransition(params: {
         pair: [speaker.name, target.name],
         metrics: updatedSpeaker.relationships.find((item) => item.characterId === target.id) || null,
         timelineType: 'relationship',
+        eventClass: 'action',
+        visibilityScope: 'public',
       }));
     }
   }
@@ -140,6 +142,8 @@ export function buildWorldRuntimeEvents(message: Pick<Message, 'content' | 'type
       title: '群聊冲突轴发生偏移',
       summary: summarizeConflictAxes(nextConflictAxes),
       timelineType: 'note',
+      eventClass: 'phase',
+      visibilityScope: 'public',
     }));
   }
 
@@ -149,6 +153,8 @@ export function buildWorldRuntimeEvents(message: Pick<Message, 'content' | 'type
       title: '群聊状态发生变化',
       summary: [worldState.mood, worldState.focus, worldState.recentEvent].filter(Boolean).join(' / ').slice(0, 90),
       timelineType: 'note',
+      eventClass: 'phase',
+      visibilityScope: 'public',
     }));
   }
 

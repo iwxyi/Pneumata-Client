@@ -341,5 +341,7 @@ export function getMemoryContext(items: MemoryItem[], speakerId: string, targetI
     targetId,
     conversationId,
     maxItems: 6,
+    preferredLayers: ['working', 'episodic', 'long_term'],
+    preferredScopes: targetId ? ['relationship', 'conversation', 'thread', 'character_self', 'system_runtime'] : ['conversation', 'relationship', 'character_self', 'thread', 'system_runtime'],
   });
 }

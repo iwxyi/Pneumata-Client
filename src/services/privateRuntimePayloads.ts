@@ -1,11 +1,13 @@
 import type { GroupChat, ParticipantInstance } from '../types/chat';
 import type { ParticipantRoleCard } from '../types/participantRole';
+import { getModeratorChannelId, getRoleChannelId } from './sessionTopology';
 
 export interface RolePrivateRuntimePayload {
   key: string;
   title: string;
   text: string;
   visibilityScope: 'role_private' | 'moderator_only' | 'pair_private';
+  channelId?: string;
   visibleToRoles?: string[];
   visibleToIds?: string[];
 }
@@ -88,6 +90,7 @@ function buildWerewolfModeratorPayload(chat: GroupChat): RolePrivateRuntimePaylo
     title: '裁判视角',
     text: '主持视角可查看身份分布、夜晚动作与结算提示。',
     visibilityScope: 'moderator_only',
+    channelId: getModeratorChannelId(),
     visibleToRoles: ['moderator'],
   };
 }
@@ -99,6 +102,7 @@ function buildWerewolfRolePayload(chat: GroupChat): RolePrivateRuntimePayload | 
     title: '狼人杀私有信息',
     text: '不同身份在夜晚与白天拥有不同可见信息与动作权限。',
     visibilityScope: 'role_private',
+    channelId: getRoleChannelId(),
   };
 }
 
@@ -109,6 +113,7 @@ function buildWerewolfPackPayload(chat: GroupChat): RolePrivateRuntimePayload | 
     title: '狼人同伴视角',
     text: '狼人夜晚可共享队友信息与刀口协商。',
     visibilityScope: 'pair_private',
+    channelId: getRoleChannelId('werewolf'),
     visibleToRoles: ['werewolf'],
   };
 }
@@ -120,6 +125,7 @@ export function buildInterviewPrivatePayload(chat: GroupChat): RolePrivateRuntim
     title: '面试官私有提示',
     text: '优先观察回答是否具体、是否有证据、是否能承受追问压力。',
     visibilityScope: 'moderator_only',
+    channelId: getModeratorChannelId(),
     visibleToRoles: ['interviewer'],
   };
 }
@@ -131,6 +137,7 @@ export function buildDirectPrivatePayload(chat: GroupChat): RolePrivateRuntimePa
     title: chat.type === 'direct' ? '单聊私有上下文' : 'AI私聊私有上下文',
     text: chat.type === 'direct' ? '该会话仅对当前用户与目标角色可见。' : '该会话只对当前私聊双方可见，主群只看摘要回流。',
     visibilityScope: 'pair_private',
+    channelId: getRoleChannelId(chat.type === 'direct' ? 'user' : 'pair'),
     visibleToRoles: chat.type === 'direct' ? ['user_private'] : ['pair_private'],
     visibleToIds: chat.memberIds,
   };

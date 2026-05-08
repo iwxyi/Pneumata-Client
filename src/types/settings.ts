@@ -31,6 +31,7 @@ export interface DeveloperUIPrefs {
   showMemoryDebug: boolean;
   showRelationshipEvents: boolean;
   showSpeechStyle: boolean;
+  showAdvancedRuntimePanels: boolean;
   dramaBoost: boolean;
 }
 
@@ -52,6 +53,7 @@ export const DEFAULT_DEVELOPER_UI_PREFS: DeveloperUIPrefs = {
   showMemoryDebug: false,
   showRelationshipEvents: false,
   showSpeechStyle: false,
+  showAdvancedRuntimePanels: false,
   dramaBoost: false,
 };
 

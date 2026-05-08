@@ -3,25 +3,21 @@ import { Box, Typography, IconButton, Avatar, TextField, InputAdornment, Chip } 
 import { isImageAvatar } from '../utils/avatar';
 import { Search as SearchIcon, ChatBubbleOutlined as ChatIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useLayoutHeaderActions } from '../components/layout/AppLayout';
+import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
-import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../types/chat';
 import { getCharacterGroupList, isCharacterInGroup } from '../types/character';
+import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 
 export default function CreateDirectChatPage() {
   const navigate = useNavigate();
-  const { characters, loadCharacters } = useCharacterStore();
-  const { chats, loadChats, addChat } = useChatStore();
+  const { characters } = useCharacterStore();
+  const { chats, addChat } = useChatStore();
   const { setHeaderTitle, setHeaderBackAction, setHeaderActions } = useLayoutHeaderActions();
   const [search, setSearch] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [creatingId, setCreatingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadCharacters();
-    loadChats();
-  }, [loadCharacters, loadChats]);
 
   useEffect(() => {
     setHeaderTitle('创建单聊');
@@ -49,26 +45,7 @@ export default function CreateDirectChatPage() {
 
     setCreatingId(characterId);
     try {
-      const chat = await addChat({
-        type: 'direct',
-        mode: 'open_chat',
-        modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG,
-        modeState: DEFAULT_OPEN_CHAT_MODE_STATE,
-        name: characterName,
-        topic: '',
-        style: 'free',
-        runtimeEvolutionIntensity: 'balanced',
-        memberIds: [characterId],
-        speed: 1,
-        isActive: false,
-        allowIntervention: true,
-        showRoleActions: true,
-        topicSeed: '',
-        governance: { ...DEFAULT_CONVERSATION_GOVERNANCE, allowMute: false, allowPrivateThreads: false },
-        dramaRules: { ...DEFAULT_CONVERSATION_DRAMA_RULES, allowCliques: false, allowMockery: false },
-        worldState: { ...DEFAULT_CONVERSATION_WORLD_STATE, mood: 'private', focus: '', recentEvent: '' },
-        directorControls: { ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, allowEventInjection: false, allowForcedReply: false },
-      });
+      const chat = await addChat(buildDirectChatDraft(characterId, characterName));
       navigate(`/chats/${chat.id}?fromTab=1`);
     } finally {
       setCreatingId(null);

@@ -10,6 +10,7 @@ export type SessionActorKind = 'ai_agent' | 'human_user' | 'system_agent' | 'mod
 export type SessionViewerCapability = 'speak' | 'guide' | 'moderate' | 'judge' | 'observe' | 'speak_as';
 export type SessionIntentType = 'message_intent' | 'action_intent' | 'board_intent' | 'form_intent' | 'system_intent';
 export type SessionInputSurfaceType = 'text' | 'form' | 'board' | 'hybrid';
+export type VisibilityScope = 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
 
 export interface SessionKind {
   topology: SessionTopology;
@@ -75,6 +76,33 @@ export interface SessionNormalizedIntentResult {
 export interface SessionFamilyDefinition {
   key: SessionFamily;
   label: string;
+  supportsThreads?: boolean;
+  supportsPrivateRoles?: boolean;
+  defaultActionChance?: number;
+}
+
+export interface SessionFamilyRegistryEntry {
+  definition: SessionFamilyDefinition;
+  defaultSurfaceProfile: SessionSurfaceProfile;
+}
+
+export interface SessionRuntimeLoopDecision {
+  canRun: boolean;
+  runChat: boolean;
+  runAction: boolean;
+  actionFirst: boolean;
+}
+
+export interface SessionScenarioResolution {
+  scenarioId: string;
+  label: string;
+  family: SessionFamily;
+  surfaceProfile?: SessionSurfaceProfile;
+}
+
+export interface SessionFrameworkRegistry {
+  families: Record<SessionFamily, SessionFamilyRegistryEntry>;
+  scenarios: Record<string, SessionScenarioResolution>;
 }
 
 export interface ScenarioSeat {
@@ -218,23 +246,72 @@ export interface SessionTextComposerSubmission {
   actorId?: string;
 }
 
+export interface SessionFormComposerSubmission {
+  fields: Record<string, unknown>;
+  actorId?: string;
+}
+
+export interface SessionBoardComposerSubmission {
+  position?: string;
+  pieceId?: string;
+  move?: string;
+  actorId?: string;
+}
+
 export interface SessionSurfaceProjection {
   surfaces: SessionInputSurfaceDefinition[];
 }
 
+export const DEFAULT_SESSION_FAMILY_REGISTRY: SessionFrameworkRegistry = {
+  families: {
+    conversation: { definition: { key: 'conversation', label: 'conversation', supportsThreads: true, defaultActionChance: 0.08 }, defaultSurfaceProfile: 'text' },
+    interview: { definition: { key: 'interview', label: 'interview', defaultActionChance: 0.18 }, defaultSurfaceProfile: 'form' },
+    deduction: { definition: { key: 'deduction', label: 'deduction', supportsPrivateRoles: true, defaultActionChance: 0.16 }, defaultSurfaceProfile: 'hybrid' },
+    mystery: { definition: { key: 'mystery', label: 'mystery', supportsPrivateRoles: true, defaultActionChance: 0.14 }, defaultSurfaceProfile: 'hybrid' },
+    study: { definition: { key: 'study', label: 'study', defaultActionChance: 0.12 }, defaultSurfaceProfile: 'form' },
+    analysis: { definition: { key: 'analysis', label: 'analysis', defaultActionChance: 0.1 }, defaultSurfaceProfile: 'text' },
+    board_game: { definition: { key: 'board_game', label: 'board_game', defaultActionChance: 0.22 }, defaultSurfaceProfile: 'board' },
+  },
+  scenarios: {
+    'open-chat': { scenarioId: 'open-chat', label: 'open-chat', family: 'conversation', surfaceProfile: 'text' },
+    'direct-chat': { scenarioId: 'direct-chat', label: 'direct-chat', family: 'conversation', surfaceProfile: 'text' },
+    'ai-private-thread': { scenarioId: 'ai-private-thread', label: 'ai-private-thread', family: 'conversation', surfaceProfile: 'text' },
+    'panel-interview': { scenarioId: 'panel-interview', label: 'panel-interview', family: 'interview', surfaceProfile: 'form' },
+    'werewolf-classic': { scenarioId: 'werewolf-classic', label: 'werewolf-classic', family: 'deduction', surfaceProfile: 'hybrid' },
+    'murder-mystery': { scenarioId: 'murder-mystery', label: 'murder-mystery', family: 'mystery', surfaceProfile: 'hybrid' },
+    'board-game': { scenarioId: 'board-game', label: 'board-game', family: 'board_game', surfaceProfile: 'board' },
+  },
+};
+
+export function getSessionFamilyDefinition(family: SessionFamily): SessionFamilyDefinition {
+  return DEFAULT_SESSION_FAMILY_REGISTRY.families[family]?.definition || { key: family, label: family };
+}
+
+export function getSessionScenarioResolution(scenarioId: string): SessionScenarioResolution {
+  return DEFAULT_SESSION_FAMILY_REGISTRY.scenarios[scenarioId] || { scenarioId, label: scenarioId, family: 'conversation' };
+}
+
+export function deriveLoopDecisionFromTurnPolicy(policy: SessionTurnPolicy): SessionRuntimeLoopDecision {
+  return {
+    canRun: Boolean(policy.runChat || policy.runAction),
+    runChat: Boolean(policy.runChat),
+    runAction: Boolean(policy.runAction),
+    actionFirst: Boolean(policy.interleaveAction && policy.runAction),
+  };
+}
+
+export function createDefaultTurnPolicyForFamily(family: SessionFamily, canSpeak: boolean, canAct: boolean): SessionTurnPolicy {
+  if (family === 'interview') return { runChat: canSpeak, runAction: canAct, interleaveAction: canAct };
+  if (family === 'deduction' || family === 'mystery') return { runChat: canSpeak, runAction: canAct, interleaveAction: true };
+  if (family === 'board_game') return { runChat: canSpeak, runAction: true, interleaveAction: true };
+  return { runChat: canSpeak, runAction: canAct, interleaveAction: canSpeak && canAct };
+}
+
 export function createDefaultSessionKind(type: GroupChat['type'], mode: GroupChat['mode']): SessionKind {
-  if (mode === 'board_game') {
-    return { topology: type === 'group' ? 'table' : 'direct', family: 'board_game', scenarioId: 'board-game', surfaceProfile: 'board' };
-  }
-  if (mode === 'interview') {
-    return { topology: type === 'group' ? 'group' : 'direct', family: 'interview', scenarioId: 'panel-interview', surfaceProfile: 'form' };
-  }
-  if (mode === 'werewolf') {
-    return { topology: 'table', family: 'deduction', scenarioId: 'werewolf-classic', surfaceProfile: 'hybrid' };
-  }
-  if (mode === 'murder_mystery') {
-    return { topology: 'table', family: 'mystery', scenarioId: 'murder-mystery', surfaceProfile: 'hybrid' };
-  }
+  if (mode === 'board_game') return { topology: type === 'group' ? 'table' : 'direct', family: 'board_game', scenarioId: 'board-game', surfaceProfile: 'board' };
+  if (mode === 'interview') return { topology: type === 'group' ? 'group' : 'direct', family: 'interview', scenarioId: 'panel-interview', surfaceProfile: 'form' };
+  if (mode === 'werewolf') return { topology: 'table', family: 'deduction', scenarioId: 'werewolf-classic', surfaceProfile: 'hybrid' };
+  if (mode === 'murder_mystery') return { topology: 'table', family: 'mystery', scenarioId: 'murder-mystery', surfaceProfile: 'hybrid' };
   return {
     topology: type === 'group' ? 'group' : type === 'ai_direct' ? 'thread' : 'direct',
     family: 'conversation',
@@ -244,11 +321,12 @@ export function createDefaultSessionKind(type: GroupChat['type'], mode: GroupCha
 }
 
 export function createDefaultSessionFamilyDefinition(kind: SessionKind): SessionFamilyDefinition {
-  return { key: kind.family, label: kind.family };
+  return getSessionFamilyDefinition(kind.family);
 }
 
 export function createDefaultSessionScenarioDefinition(kind: SessionKind): SessionScenarioDefinition {
-  return { scenarioId: kind.scenarioId, label: kind.scenarioId };
+  const scenario = getSessionScenarioResolution(kind.scenarioId);
+  return { scenarioId: scenario.scenarioId, label: scenario.label };
 }
 
 export function resolveSessionDefinition(conversation: GroupChat): SessionResolvedDefinition {
@@ -284,6 +362,820 @@ export function normalizeTextSurfaceSubmission(surface: SessionInputSurfaceDefin
       },
     },
   };
+}
+
+export function normalizeFormSurfaceSubmission(surface: SessionInputSurfaceDefinition, submission: SessionFormComposerSubmission): SessionNormalizedIntentResult {
+  return {
+    intent: {
+      type: surface.type === 'hybrid' ? 'action_intent' : 'form_intent',
+      actorId: submission.actorId || surface.actorId,
+      payload: {
+        fields: submission.fields,
+        surfaceKey: surface.key,
+      },
+    },
+  };
+}
+
+export function normalizeBoardSurfaceSubmission(surface: SessionInputSurfaceDefinition, submission: SessionBoardComposerSubmission): SessionNormalizedIntentResult {
+  return {
+    intent: {
+      type: 'board_intent',
+      actorId: submission.actorId || surface.actorId,
+      payload: {
+        position: submission.position,
+        pieceId: submission.pieceId,
+        move: submission.move,
+        surfaceKey: surface.key,
+      },
+    },
+  };
+}
+
+export function normalizeSurfaceSubmission(surface: SessionInputSurfaceDefinition, submission: SessionTextComposerSubmission | SessionFormComposerSubmission | SessionBoardComposerSubmission): SessionNormalizedIntentResult {
+  if (surface.type === 'form' || surface.type === 'hybrid') {
+    return normalizeFormSurfaceSubmission(surface, submission as SessionFormComposerSubmission);
+  }
+  if (surface.type === 'board') {
+    return normalizeBoardSurfaceSubmission(surface, submission as SessionBoardComposerSubmission);
+  }
+  return normalizeTextSurfaceSubmission(surface, submission as SessionTextComposerSubmission);
+}
+
+export function createIntentId() {
+  return `intent_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function attachIntentMetadata(result: SessionNormalizedIntentResult, surface: SessionInputSurfaceDefinition) {
+  return {
+    intent: {
+      ...result.intent,
+      payload: {
+        ...result.intent.payload,
+        intentId: createIntentId(),
+        surfaceType: surface.type,
+      },
+    },
+  } satisfies SessionNormalizedIntentResult;
+}
+
+export function normalizeSurfaceSubmissionWithMetadata(surface: SessionInputSurfaceDefinition, submission: SessionTextComposerSubmission | SessionFormComposerSubmission | SessionBoardComposerSubmission) {
+  return attachIntentMetadata(normalizeSurfaceSubmission(surface, submission), surface);
+}
+
+export function buildDefaultFormSurface(actionType: string, fields: SessionInputField[], label = 'Action Form'): SessionInputSurfaceDefinition {
+  return {
+    key: `${actionType}-form`,
+    type: 'form',
+    label,
+    fields,
+  };
+}
+
+export function buildDefaultBoardSurface(label = 'Board'): SessionInputSurfaceDefinition {
+  return {
+    key: 'board-surface',
+    type: 'board',
+    label,
+  };
+}
+
+export function buildHybridSurface(label = 'Hybrid', fields: SessionInputField[] = []): SessionInputSurfaceDefinition {
+  return {
+    key: 'hybrid-surface',
+    type: 'hybrid',
+    label,
+    fields,
+  };
+}
+
+export function deriveSurfaceProfileSurfaces(profile: SessionSurfaceProfile): SessionInputSurfaceDefinition[] {
+  if (profile === 'form') return [buildDefaultFormSurface('default', [], 'Form')];
+  if (profile === 'board') return [buildDefaultBoardSurface(), createDefaultTextInputSurface({ key: 'board-chat', label: 'Chat' })];
+  if (profile === 'hybrid') return [createDefaultTextInputSurface({ key: 'hybrid-text', label: 'Chat' }), buildHybridSurface('Actions')];
+  return [createDefaultTextInputSurface()];
+}
+
+export function coerceSurfaceProfileSurfaces(conversation: GroupChat) {
+  return deriveSurfaceProfileSurfaces(resolveSessionDefinition(conversation).kind.surfaceProfile);
+}
+
+export function buildIntentMetadataPatch(intent: SessionIntent, channelId = 'public') {
+  return {
+    causedByIntentId: typeof intent.payload.intentId === 'string' ? intent.payload.intentId : undefined,
+    channelId,
+  };
+}
+
+export function inferIntentChannelId(conversation: GroupChat, intent: SessionIntent) {
+  if (intent.channelId) return intent.channelId;
+  if (conversation.type === 'ai_direct') return 'pair-private';
+  if (conversation.type === 'direct') return 'user-private';
+  if (conversation.mode === 'interview' && intent.type !== 'message_intent') return 'moderator';
+  return 'public';
+}
+
+export function inferIntentEventClass(intent: SessionIntent): 'message' | 'action' | 'board' | 'phase' | 'score' | 'artifact' {
+  if (intent.type === 'board_intent') return 'board';
+  if (intent.type === 'form_intent' || intent.type === 'action_intent') return 'action';
+  if (intent.type === 'system_intent') return 'phase';
+  return 'message';
+}
+
+export function buildIntentRuntimeMetadata(conversation: GroupChat, intent: SessionIntent) {
+  return {
+    channelId: inferIntentChannelId(conversation, intent),
+    causedByIntentId: typeof intent.payload.intentId === 'string' ? intent.payload.intentId : undefined,
+    eventClass: inferIntentEventClass(intent),
+  };
+}
+
+export function buildDefaultActionIntent(actionType: string, fields: Record<string, unknown>, actorId?: string): SessionIntent {
+  return {
+    type: 'action_intent',
+    actorId,
+    payload: {
+      actionType,
+      fields,
+      intentId: createIntentId(),
+    },
+  };
+}
+
+export function buildDefaultBoardIntent(payload: SessionBoardComposerSubmission): SessionIntent {
+  return {
+    type: 'board_intent',
+    actorId: payload.actorId,
+    payload: {
+      ...payload,
+      intentId: createIntentId(),
+    },
+  };
+}
+
+export function buildDefaultMessageIntent(content: string, actorId?: string): SessionIntent {
+  return {
+    type: 'message_intent',
+    actorId,
+    payload: {
+      content,
+      intentId: createIntentId(),
+    },
+  };
+}
+
+export function buildDefaultSystemIntent(reason: string, actorId?: string): SessionIntent {
+  return {
+    type: 'system_intent',
+    actorId,
+    payload: {
+      reason,
+      intentId: createIntentId(),
+    },
+  };
+}
+
+export function buildActionFieldsFromSchema(fields: SessionActionField[] = []): SessionInputField[] {
+  return fields.map((field) => ({
+    key: field.key,
+    label: field.label,
+    type: field.type,
+    required: field.required,
+    options: field.options,
+    placeholder: field.placeholder,
+  }));
+}
+
+export function buildSurfaceFromAction(action: SessionActionDefinition): SessionInputSurfaceDefinition {
+  return buildDefaultFormSurface(action.type, buildActionFieldsFromSchema(action.fields || []), action.label || action.type);
+}
+
+export function buildSurfacesFromActionSchema(schema: SessionActionSchema | null): SessionInputSurfaceDefinition[] {
+  if (!schema) return [];
+  return schema.actions.map((action) => buildSurfaceFromAction(action));
+}
+
+export function mergeSessionSurfaces(primary: SessionInputSurfaceDefinition[], secondary: SessionInputSurfaceDefinition[]) {
+  const merged = [...primary];
+  for (const surface of secondary) {
+    if (!merged.find((item) => item.key === surface.key)) merged.push(surface);
+  }
+  return merged;
+}
+
+export function resolveSessionComposerSurfaces(conversation: GroupChat, schema: SessionActionSchema | null): SessionInputSurfaceDefinition[] {
+  return mergeSessionSurfaces(defaultInputSurfacesForConversation(conversation), buildSurfacesFromActionSchema(schema));
+}
+
+export function buildSurfaceProjectionFromSchema(conversation: GroupChat, schema: SessionActionSchema | null): SessionSurfaceProjection {
+  return {
+    surfaces: resolveSessionComposerSurfaces(conversation, schema),
+  };
+}
+
+export function hasInteractiveSurface(surface: SessionInputSurfaceDefinition) {
+  return surface.type === 'form' || surface.type === 'board' || surface.type === 'hybrid';
+}
+
+export function splitPrimaryAndSecondarySurfaces(surfaces: SessionInputSurfaceDefinition[]) {
+  return {
+    primary: surfaces.filter((surface) => surface.type === 'text'),
+    secondary: surfaces.filter((surface) => hasInteractiveSurface(surface)),
+  };
+}
+
+export function resolvePrimarySurface(surfaces: SessionInputSurfaceDefinition[]) {
+  return surfaces.find((surface) => surface.type === 'text') || surfaces[0] || null;
+}
+
+export function resolveSecondarySurfaces(surfaces: SessionInputSurfaceDefinition[]) {
+  return surfaces.filter((surface) => surface !== resolvePrimarySurface(surfaces));
+}
+
+export function buildActionPayloadFromIntent(intent: SessionIntent) {
+  return typeof intent.payload.fields === 'object' && intent.payload.fields ? intent.payload.fields as Record<string, unknown> : {};
+}
+
+export function buildMessageContentFromIntent(intent: SessionIntent) {
+  return typeof intent.payload.content === 'string' ? intent.payload.content : '';
+}
+
+export function buildBoardPayloadFromIntent(intent: SessionIntent): SessionBoardComposerSubmission {
+  return {
+    position: typeof intent.payload.position === 'string' ? intent.payload.position : undefined,
+    pieceId: typeof intent.payload.pieceId === 'string' ? intent.payload.pieceId : undefined,
+    move: typeof intent.payload.move === 'string' ? intent.payload.move : undefined,
+    actorId: intent.actorId,
+  };
+}
+
+export function buildActionTypeFromIntent(intent: SessionIntent) {
+  return typeof intent.payload.actionType === 'string' ? intent.payload.actionType : undefined;
+}
+
+export function buildSurfaceKeyFromIntent(intent: SessionIntent) {
+  return typeof intent.payload.surfaceKey === 'string' ? intent.payload.surfaceKey : undefined;
+}
+
+export function isMessageIntent(intent: SessionIntent) {
+  return intent.type === 'message_intent';
+}
+
+export function isActionIntent(intent: SessionIntent) {
+  return intent.type === 'action_intent' || intent.type === 'form_intent';
+}
+
+export function isBoardIntent(intent: SessionIntent) {
+  return intent.type === 'board_intent';
+}
+
+export function isSystemIntent(intent: SessionIntent) {
+  return intent.type === 'system_intent';
+}
+
+export function resolveIntentActionDefinition(schema: SessionActionSchema | null, intent: SessionIntent) {
+  const actionType = buildActionTypeFromIntent(intent) || buildSurfaceKeyFromIntent(intent)?.replace(/-form$/, '');
+  return schema?.actions.find((action) => action.type === actionType) || null;
+}
+
+export function buildActionFromIntent(schema: SessionActionSchema | null, intent: SessionIntent): SessionActionDefinition | null {
+  const matched = resolveIntentActionDefinition(schema, intent);
+  if (!matched) return null;
+  return {
+    ...matched,
+    actorId: intent.actorId || matched.actorId,
+    payload: buildActionPayloadFromIntent(intent),
+  };
+}
+
+export function createBoardStateArtifactSummary(payload: SessionBoardComposerSubmission) {
+  return payload.move || payload.position || payload.pieceId || 'board update';
+}
+
+export function buildBoardArtifactEventSummary(intent: SessionIntent) {
+  return createBoardStateArtifactSummary(buildBoardPayloadFromIntent(intent));
+}
+
+export function buildSystemIntentSummary(intent: SessionIntent) {
+  return typeof intent.payload.reason === 'string' ? intent.payload.reason : 'system update';
+}
+
+export function buildIntentSummary(intent: SessionIntent) {
+  if (isMessageIntent(intent)) return buildMessageContentFromIntent(intent);
+  if (isBoardIntent(intent)) return buildBoardArtifactEventSummary(intent);
+  if (isSystemIntent(intent)) return buildSystemIntentSummary(intent);
+  return buildActionTypeFromIntent(intent) || 'action';
+}
+
+export function buildSurfaceCapabilityLabel(surface: SessionInputSurfaceDefinition) {
+  return surface.capability || (surface.type === 'text' ? 'guide' : 'moderate');
+}
+
+export function buildIntentCapability(surface: SessionInputSurfaceDefinition) {
+  return buildSurfaceCapabilityLabel(surface);
+}
+
+export function deriveActionTypeFromSurface(surface: SessionInputSurfaceDefinition) {
+  return surface.key.replace(/-form$/, '');
+}
+
+export function ensureSurfaceActionType(surface: SessionInputSurfaceDefinition, intent: SessionIntent) {
+  if (!isActionIntent(intent)) return intent;
+  return {
+    ...intent,
+    payload: {
+      ...intent.payload,
+      actionType: buildActionTypeFromIntent(intent) || deriveActionTypeFromSurface(surface),
+    },
+  };
+}
+
+export function normalizeSurfaceSubmissionToIntent(surface: SessionInputSurfaceDefinition, submission: SessionTextComposerSubmission | SessionFormComposerSubmission | SessionBoardComposerSubmission) {
+  return ensureSurfaceActionType(surface, normalizeSurfaceSubmissionWithMetadata(surface, submission).intent);
+}
+
+export function buildNormalizedIntentResult(surface: SessionInputSurfaceDefinition, submission: SessionTextComposerSubmission | SessionFormComposerSubmission | SessionBoardComposerSubmission): SessionNormalizedIntentResult {
+  return {
+    intent: normalizeSurfaceSubmissionToIntent(surface, submission),
+  };
+}
+
+export function buildSessionSurfaceProjectionFromSchema(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildSurfaceProjectionFromSchema(conversation, schema);
+}
+
+export function buildIntentMetadataForEvent(conversation: GroupChat, intent: SessionIntent) {
+  return buildIntentRuntimeMetadata(conversation, intent);
+}
+
+export function buildIntentMetadataForPatch(conversation: GroupChat, intent: SessionIntent) {
+  return buildIntentRuntimeMetadata(conversation, intent);
+}
+
+export function deriveBoardChannelId(conversation: GroupChat) {
+  return conversation.type === 'ai_direct' ? 'pair-private' : 'public';
+}
+
+export function buildBoardIntentRuntimeMetadata(conversation: GroupChat, intent: SessionIntent) {
+  return {
+    ...buildIntentRuntimeMetadata(conversation, intent),
+    channelId: deriveBoardChannelId(conversation),
+  };
+}
+
+export function buildFormIntentRuntimeMetadata(conversation: GroupChat, intent: SessionIntent) {
+  return buildIntentRuntimeMetadata(conversation, intent);
+}
+
+export function buildMessageIntentRuntimeMetadata(conversation: GroupChat, intent: SessionIntent) {
+  return buildIntentRuntimeMetadata(conversation, intent);
+}
+
+export function buildSystemIntentRuntimeMetadata(conversation: GroupChat, intent: SessionIntent) {
+  return buildIntentRuntimeMetadata(conversation, intent);
+}
+
+export function buildIntentRuntimeMetadataByType(conversation: GroupChat, intent: SessionIntent) {
+  if (isBoardIntent(intent)) return buildBoardIntentRuntimeMetadata(conversation, intent);
+  if (isActionIntent(intent)) return buildFormIntentRuntimeMetadata(conversation, intent);
+  if (isSystemIntent(intent)) return buildSystemIntentRuntimeMetadata(conversation, intent);
+  return buildMessageIntentRuntimeMetadata(conversation, intent);
+}
+
+export function buildIntentDrivenActionSchema(schema: SessionActionSchema | null) {
+  return schema;
+}
+
+export function buildIntentDrivenSurfaceProjection(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildSurfaceProjectionFromSchema(conversation, buildIntentDrivenActionSchema(schema));
+}
+
+export function buildIntentDrivenSurfaces(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildIntentDrivenSurfaceProjection(conversation, schema).surfaces;
+}
+
+export function buildDefaultInteractiveSurfaces(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildIntentDrivenSurfaces(conversation, schema);
+}
+
+export function buildDefaultComposerSurface(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return resolvePrimarySurface(buildDefaultInteractiveSurfaces(conversation, schema));
+}
+
+export function buildDefaultSecondarySurfaces(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return resolveSecondarySurfaces(buildDefaultInteractiveSurfaces(conversation, schema));
+}
+
+export function hasBoardSurface(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildDefaultInteractiveSurfaces(conversation, schema).some((surface) => surface.type === 'board');
+}
+
+export function hasFormSurface(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildDefaultInteractiveSurfaces(conversation, schema).some((surface) => surface.type === 'form' || surface.type === 'hybrid');
+}
+
+export function buildActionIntentForSurface(surface: SessionInputSurfaceDefinition, fields: Record<string, unknown>, actorId?: string) {
+  return normalizeSurfaceSubmissionToIntent(surface, { fields, actorId } satisfies SessionFormComposerSubmission);
+}
+
+export function buildBoardIntentForSurface(surface: SessionInputSurfaceDefinition, payload: SessionBoardComposerSubmission) {
+  return normalizeSurfaceSubmissionToIntent(surface, payload);
+}
+
+export function buildMessageIntentForSurface(surface: SessionInputSurfaceDefinition, content: string, actorId?: string) {
+  return normalizeSurfaceSubmissionToIntent(surface, { content, actorId } satisfies SessionTextComposerSubmission);
+}
+
+export function buildSessionIntentSummary(intent: SessionIntent) {
+  return buildIntentSummary(intent);
+}
+
+export function buildSessionIntentMetadata(conversation: GroupChat, intent: SessionIntent) {
+  return buildIntentRuntimeMetadataByType(conversation, intent);
+}
+
+export function createIntentEventPayload(conversation: GroupChat, intent: SessionIntent) {
+  return {
+    ...buildSessionIntentMetadata(conversation, intent),
+    summary: buildSessionIntentSummary(intent),
+  };
+}
+
+export function createIntentPatchPayload(conversation: GroupChat, intent: SessionIntent) {
+  return buildSessionIntentMetadata(conversation, intent);
+}
+
+export function canIntentDriveAction(intent: SessionIntent) {
+  return isActionIntent(intent) || isBoardIntent(intent) || isSystemIntent(intent);
+}
+
+export function canIntentDriveMessage(intent: SessionIntent) {
+  return isMessageIntent(intent);
+}
+
+export function buildIntentSourceFields(intent: SessionIntent) {
+  return typeof intent.payload.fields === 'object' && intent.payload.fields ? intent.payload.fields as Record<string, unknown> : {};
+}
+
+export function buildIntentSourceContent(intent: SessionIntent) {
+  return buildMessageContentFromIntent(intent);
+}
+
+export function buildIntentSourceBoard(intent: SessionIntent) {
+  return buildBoardPayloadFromIntent(intent);
+}
+
+export function buildIntentDriver(intent: SessionIntent) {
+  return {
+    actionType: buildActionTypeFromIntent(intent),
+    content: buildIntentSourceContent(intent),
+    board: buildIntentSourceBoard(intent),
+    fields: buildIntentSourceFields(intent),
+  };
+}
+
+export function buildIntentProjectionSummary(intent: SessionIntent) {
+  return buildIntentSummary(intent);
+}
+
+export function buildSurfaceProjectionSummary(surface: SessionInputSurfaceDefinition) {
+  return `${surface.key}:${surface.type}`;
+}
+
+export function buildSurfaceProjectionSummaries(surfaces: SessionInputSurfaceDefinition[]) {
+  return surfaces.map((surface) => buildSurfaceProjectionSummary(surface));
+}
+
+export function buildSurfaceProjectionLabel(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildSurfaceProjectionSummaries(buildDefaultInteractiveSurfaces(conversation, schema)).join(' / ');
+}
+
+export function buildIntentProjectionLabel(conversation: GroupChat, intent: SessionIntent) {
+  return `${conversation.id}:${buildIntentSummary(intent)}`;
+}
+
+export function buildIntentSurfaceKey(intent: SessionIntent) {
+  return buildSurfaceKeyFromIntent(intent) || 'unknown-surface';
+}
+
+export function buildIntentSurfaceType(intent: SessionIntent) {
+  if (isBoardIntent(intent)) return 'board';
+  if (isActionIntent(intent)) return 'form';
+  return 'text';
+}
+
+export function buildIntentProjectionDescriptor(intent: SessionIntent) {
+  return `${buildIntentSurfaceKey(intent)}:${buildIntentSurfaceType(intent)}`;
+}
+
+export function buildIntentProjectionDescriptors(intents: SessionIntent[]) {
+  return intents.map((intent) => buildIntentProjectionDescriptor(intent));
+}
+
+export function buildIntentProjectionState(intents: SessionIntent[]) {
+  return buildIntentProjectionDescriptors(intents);
+}
+
+export function buildIntentProjectionRows(intents: SessionIntent[]) {
+  return buildIntentProjectionState(intents);
+}
+
+export function buildIntentProjectionText(intents: SessionIntent[]) {
+  return buildIntentProjectionRows(intents).join(' / ');
+}
+
+export function buildSessionSurfaceText(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildSurfaceProjectionLabel(conversation, schema);
+}
+
+export function buildSessionIntentText(intents: SessionIntent[]) {
+  return buildIntentProjectionText(intents);
+}
+
+export function buildIntentTrace(conversation: GroupChat, intent: SessionIntent) {
+  return `${conversation.id}:${buildIntentProjectionDescriptor(intent)}:${buildIntentSummary(intent)}`;
+}
+
+export function buildIntentTraces(conversation: GroupChat, intents: SessionIntent[]) {
+  return intents.map((intent) => buildIntentTrace(conversation, intent));
+}
+
+export function buildIntentTraceText(conversation: GroupChat, intents: SessionIntent[]) {
+  return buildIntentTraces(conversation, intents).join(' / ');
+}
+
+export function buildRuntimeIntentDescriptor(conversation: GroupChat, intent: SessionIntent) {
+  return {
+    trace: buildIntentTrace(conversation, intent),
+    metadata: buildSessionIntentMetadata(conversation, intent),
+  };
+}
+
+export function buildRuntimeIntentDescriptors(conversation: GroupChat, intents: SessionIntent[]) {
+  return intents.map((intent) => buildRuntimeIntentDescriptor(conversation, intent));
+}
+
+export function buildRuntimeIntentTraceText(conversation: GroupChat, intents: SessionIntent[]) {
+  return buildRuntimeIntentDescriptors(conversation, intents).map((item) => item.trace).join(' / ');
+}
+
+export function buildSessionSurfaceCapabilitySummary(surfaces: SessionInputSurfaceDefinition[]) {
+  return surfaces.map((surface) => `${surface.key}:${buildSurfaceCapabilityLabel(surface)}`).join(' / ');
+}
+
+export function buildSessionIntentCapabilitySummary(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildSessionSurfaceCapabilitySummary(buildDefaultInteractiveSurfaces(conversation, schema));
+}
+
+export function buildSurfaceProjectionStateLabel(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildSessionIntentCapabilitySummary(conversation, schema);
+}
+
+export function buildSurfaceProjectionDisplayRows(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildDefaultInteractiveSurfaces(conversation, schema).map((surface) => ({ key: surface.key, label: surface.label || surface.key, value: `${surface.type}:${buildSurfaceCapabilityLabel(surface)}` }));
+}
+
+export function buildSurfaceProjectionDisplayText(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildSurfaceProjectionDisplayRows(conversation, schema).map((row) => `${row.label} ${row.value}`).join(' / ');
+}
+
+export function buildComposerHostSurfaces(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildDefaultInteractiveSurfaces(conversation, schema);
+}
+
+export function buildComposerHostPrimarySurface(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildDefaultComposerSurface(conversation, schema);
+}
+
+export function buildComposerHostSecondarySurfaces(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildDefaultSecondarySurfaces(conversation, schema);
+}
+
+export function buildActionSurfaceFields(action: SessionActionDefinition) {
+  return buildActionFieldsFromSchema(action.fields || []);
+}
+
+export function buildActionSurfaceDefinition(action: SessionActionDefinition) {
+  return buildDefaultFormSurface(action.type, buildActionSurfaceFields(action), action.label || action.type);
+}
+
+export function buildActionSurfaceDefinitions(actions: SessionActionDefinition[]) {
+  return actions.map((action) => buildActionSurfaceDefinition(action));
+}
+
+export function mergeActionSurfaceDefinitions(conversation: GroupChat, actions: SessionActionDefinition[]) {
+  return mergeSessionSurfaces(defaultInputSurfacesForConversation(conversation), buildActionSurfaceDefinitions(actions));
+}
+
+export function buildSurfaceProjectionWithActions(conversation: GroupChat, actions: SessionActionDefinition[]) {
+  return {
+    surfaces: mergeActionSurfaceDefinitions(conversation, actions),
+  };
+}
+
+export function buildActionSurfaceProjection(schema: SessionActionSchema | null) {
+  return buildSurfacesFromActionSchema(schema);
+}
+
+export function buildConversationSurfaceProjection(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildSurfaceProjectionWithActions(conversation, schema?.actions || []);
+}
+
+export function buildResolvedSurfaceProjection(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildConversationSurfaceProjection(conversation, schema);
+}
+
+export function buildResolvedSurfaceList(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildResolvedSurfaceProjection(conversation, schema).surfaces;
+}
+
+export function buildResolvedPrimarySurface(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return resolvePrimarySurface(buildResolvedSurfaceList(conversation, schema));
+}
+
+export function buildResolvedSecondarySurfaces(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return resolveSecondarySurfaces(buildResolvedSurfaceList(conversation, schema));
+}
+
+export function buildActionSurfaceSummary(actions: SessionActionDefinition[]) {
+  return actions.map((action) => `${action.type}:${action.fields?.length || 0}`).join(' / ');
+}
+
+export function buildActionSchemaSummary(schema: SessionActionSchema | null) {
+  return schema ? buildActionSurfaceSummary(schema.actions) : '';
+}
+
+export function buildResolvedSurfaceSummary(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildSurfaceProjectionDisplayText(conversation, schema);
+}
+
+export function buildResolvedIntentSummary(conversation: GroupChat, intent: SessionIntent) {
+  return buildIntentProjectionLabel(conversation, intent);
+}
+
+export function buildResolvedIntentMetadata(conversation: GroupChat, intent: SessionIntent) {
+  return buildSessionIntentMetadata(conversation, intent);
+}
+
+export function buildResolvedIntentRuntime(conversation: GroupChat, intent: SessionIntent) {
+  return {
+    summary: buildResolvedIntentSummary(conversation, intent),
+    metadata: buildResolvedIntentMetadata(conversation, intent),
+  };
+}
+
+export function buildResolvedIntentRuntimeTrace(conversation: GroupChat, intent: SessionIntent) {
+  return `${buildResolvedIntentSummary(conversation, intent)}:${JSON.stringify(buildResolvedIntentMetadata(conversation, intent))}`;
+}
+
+export function buildResolvedIntentRuntimeTraces(conversation: GroupChat, intents: SessionIntent[]) {
+  return intents.map((intent) => buildResolvedIntentRuntimeTrace(conversation, intent));
+}
+
+export function buildResolvedIntentRuntimeText(conversation: GroupChat, intents: SessionIntent[]) {
+  return buildResolvedIntentRuntimeTraces(conversation, intents).join(' / ');
+}
+
+export function buildResolvedSurfaceRuntimeText(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildResolvedSurfaceSummary(conversation, schema);
+}
+
+export function buildResolvedProjectionText(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return `${buildResolvedSurfaceRuntimeText(conversation, schema)} | ${buildResolvedIntentRuntimeText(conversation, intents)}`;
+}
+
+export function buildResolvedProjectionState(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return {
+    surfaces: buildResolvedSurfaceList(conversation, schema),
+    intents,
+    text: buildResolvedProjectionText(conversation, schema, intents),
+  };
+}
+
+export function buildResolvedProjectionStateText(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionState(conversation, schema, intents).text;
+}
+
+export function buildResolvedProjectionRows(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return {
+    surfaces: buildResolvedSurfaceDisplayRows(conversation, schema),
+    intents: intents.map((intent) => ({ key: buildIntentSurfaceKey(intent), label: buildIntentSurfaceType(intent), value: buildIntentSummary(intent) })),
+  };
+}
+
+export function buildResolvedSurfaceDisplayRows(conversation: GroupChat, schema: SessionActionSchema | null) {
+  return buildSurfaceProjectionDisplayRows(conversation, schema);
+}
+
+export function buildResolvedIntentDisplayRows(intents: SessionIntent[]) {
+  return intents.map((intent, index) => ({ key: `${buildIntentSurfaceKey(intent)}-${index}`, label: buildIntentSurfaceType(intent), value: buildIntentSummary(intent) }));
+}
+
+export function buildResolvedProjectionDisplayRows(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return {
+    surfaces: buildResolvedSurfaceDisplayRows(conversation, schema),
+    intents: buildResolvedIntentDisplayRows(intents),
+  };
+}
+
+export function buildResolvedProjectionDisplayText(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  const rows = buildResolvedProjectionDisplayRows(conversation, schema, intents);
+  return [...rows.surfaces, ...rows.intents].map((row) => `${row.label} ${row.value}`).join(' / ');
+}
+
+export function buildResolvedProjectionRuntimeLabel(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionDisplayText(conversation, schema, intents);
+}
+
+export function buildResolvedProjectionRuntimeState(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return {
+    label: buildResolvedProjectionRuntimeLabel(conversation, schema, intents),
+    surfaces: buildResolvedSurfaceList(conversation, schema),
+    intents,
+  };
+}
+
+export function buildResolvedProjectionRuntimeStateText(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeState(conversation, schema, intents).label;
+}
+
+export function buildResolvedProjectionRuntimeRows(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionDisplayRows(conversation, schema, intents);
+}
+
+export function buildResolvedProjectionRuntimeSummary(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeStateText(conversation, schema, intents);
+}
+
+export function buildResolvedProjectionRuntimeDescriptor(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return {
+    summary: buildResolvedProjectionRuntimeSummary(conversation, schema, intents),
+    rows: buildResolvedProjectionRuntimeRows(conversation, schema, intents),
+  };
+}
+
+export function buildResolvedProjectionRuntimeDescriptors(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeDescriptor(conversation, schema, intents);
+}
+
+export function buildResolvedProjectionRuntimeDisplay(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeDescriptors(conversation, schema, intents);
+}
+
+export function buildResolvedProjectionRuntimeDisplayText(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeDisplay(conversation, schema, intents).summary;
+}
+
+export function buildResolvedProjectionRuntimeDisplayRows(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeDisplay(conversation, schema, intents).rows;
+}
+
+export function buildResolvedProjectionRuntimeCard(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return {
+    title: 'Projection',
+    summary: buildResolvedProjectionRuntimeDisplayText(conversation, schema, intents),
+    rows: buildResolvedProjectionRuntimeDisplayRows(conversation, schema, intents),
+  };
+}
+
+export function buildResolvedProjectionRuntimeCardText(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeCard(conversation, schema, intents).summary;
+}
+
+export function buildResolvedProjectionRuntimeCardRows(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeCard(conversation, schema, intents).rows;
+}
+
+export function buildResolvedProjectionRuntimeCardTitle() {
+  return 'Projection';
+}
+
+export function buildResolvedProjectionRuntimeCardDescriptor(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return {
+    title: buildResolvedProjectionRuntimeCardTitle(),
+    summary: buildResolvedProjectionRuntimeCardText(conversation, schema, intents),
+    rows: buildResolvedProjectionRuntimeCardRows(conversation, schema, intents),
+  };
+}
+
+export function buildResolvedProjectionRuntimeCardDescriptors(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeCardDescriptor(conversation, schema, intents);
+}
+
+export function buildResolvedProjectionRuntimeCardDisplay(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeCardDescriptors(conversation, schema, intents);
+}
+
+export function buildResolvedProjectionRuntimeCardDisplayText(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeCardDisplay(conversation, schema, intents).summary;
+}
+
+export function buildResolvedProjectionRuntimeCardDisplayRows(conversation: GroupChat, schema: SessionActionSchema | null, intents: SessionIntent[]) {
+  return buildResolvedProjectionRuntimeCardDisplay(conversation, schema, intents).rows;
+}
+
+export function buildResolvedProjectionRuntimeCardDisplayTitle() {
+  return 'Projection';
 }
 
 export function defaultInputSurfacesForConversation(conversation: GroupChat): SessionInputSurfaceDefinition[] {
@@ -347,10 +1239,7 @@ export function buildDefaultSessionSurfaceProjection(conversation: GroupChat): S
 }
 
 export function deriveDefaultTurnOrder(actorIds: string[]): SessionTurnOrderState {
-  return {
-    actorIds,
-    currentIndex: 0,
-  };
+  return { actorIds, currentIndex: 0 };
 }
 
 export function createBoardIntentPayload(position: string, pieceId?: string): SessionBoardIntentPayload {
@@ -362,10 +1251,7 @@ export function createFormIntentPayload(fields: Record<string, unknown>): Sessio
 }
 
 export function defaultJudgeAgent(enabled = false): SessionJudgeAgentDefinition {
-  return {
-    enabled,
-    style: 'assistive',
-  };
+  return { enabled, style: 'assistive' };
 }
 
 export function allowRefereeDecision(): SessionRefereeDecision {
@@ -395,8 +1281,6 @@ export function buildSessionFactionDefinition(factionId: string, label: string):
 export function buildSessionLayoutSlot(slotId: string, x: number, y: number, actorId?: string | null): SessionLayoutSlot {
   return { slotId, x, y, actorId };
 }
-
-export type VisibilityScope = 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
 
 export interface SessionPhaseDefinition {
   key: string;
@@ -433,7 +1317,20 @@ export interface SessionActionSchema {
 
 export interface SessionActionExecutionResult {
   chatPatch?: Partial<GroupChat>;
-  runtimeEvents?: Array<{ eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown }>;
+  runtimeEvents?: Array<{
+    eventType: string;
+    title: string;
+    summary: string;
+    pair?: [string, string];
+    metrics?: unknown;
+    channelId?: string;
+    causedByIntentId?: string;
+    threadRef?: string;
+    eventClass?: 'message' | 'action' | 'board' | 'phase' | 'score' | 'artifact';
+    visibilityScope?: VisibilityScope;
+    visibleToIds?: string[];
+    visibleToRoles?: string[];
+  }>;
 }
 
 export interface SessionProjectionContext {
@@ -487,6 +1384,7 @@ export interface SessionEngineDefinition {
   createInitialConfig: () => unknown;
   createInitialState: (config: unknown) => unknown;
   buildParticipants: (conversation: GroupChat) => ParticipantInstance[];
+  buildChatPatch?: (conversation: GroupChat) => Partial<GroupChat>;
   getPhaseDefinitions?: (conversation: GroupChat) => SessionPhaseDefinition[];
   getVisiblePanels: (context: SessionProjectionContext) => RuntimePanelDefinition[];
   getAvailableActions: (context: SessionProjectionContext) => RuntimeAction[];
@@ -494,12 +1392,218 @@ export interface SessionEngineDefinition {
   buildGenerationPromptContext?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionGenerationPromptContext;
   resolveTurnPolicy?: (context: SessionGenerationContext) => SessionTurnPolicy;
   onMessageCommitted: (context: SessionCommitContext) => Promise<{
-    chatPatch: Partial<GroupChat>;
-    characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;
-    runtimeEvents: Array<{ eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown }>;
-  }> | {
-    chatPatch: Partial<GroupChat>;
-    characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;
-    runtimeEvents: Array<{ eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown }>;
+  chatPatch: Partial<GroupChat>;
+  characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;
+  runtimeEvents: Array<{ eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown }>;
+}> | {
+  chatPatch: Partial<GroupChat>;
+  characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;
+  runtimeEvents: Array<{ eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown }>;
+};
+}
+
+export function mergeSessionChatPatch(engine: SessionEngineDefinition, conversation: GroupChat, patch: Partial<GroupChat> = {}): Partial<GroupChat> {
+  const basePatch = engine.buildChatPatch?.(conversation) || {};
+  return {
+    ...basePatch,
+    ...patch,
+    sessionKind: patch.sessionKind || basePatch.sessionKind,
+    scenarioPackage: patch.scenarioPackage || basePatch.scenarioPackage,
+    scenarioState: patch.scenarioState || basePatch.scenarioState,
+    channels: patch.channels || basePatch.channels,
+    layoutState: patch.layoutState || basePatch.layoutState,
+    judgeAgent: patch.judgeAgent || basePatch.judgeAgent,
+    modeStateSummary: patch.modeStateSummary || basePatch.modeStateSummary,
+    memoryLayerSummary: patch.memoryLayerSummary || basePatch.memoryLayerSummary,
+    growthSnapshots: patch.growthSnapshots || basePatch.growthSnapshots,
+    roleMemorySummaries: patch.roleMemorySummaries || basePatch.roleMemorySummaries,
+    scenarioMemorySummary: patch.scenarioMemorySummary || basePatch.scenarioMemorySummary,
+    topologySummary: patch.topologySummary || basePatch.topologySummary,
+  };
+}
+
+export function createDefaultConversationFrameworkPatch(conversation: GroupChat): Partial<GroupChat> {
+  const kind = resolveSessionDefinition(conversation).kind;
+  return {
+    sessionKind: kind,
+    scenarioPackage: { scenarioId: kind.scenarioId, label: conversation.scenarioPackage?.label || kind.scenarioId },
+    scenarioState: conversation.scenarioState || {
+      turnOrder: conversation.memberIds,
+      currentTurnActorId: null,
+      board: kind.surfaceProfile === 'board' ? { schema: { kind: 'grid', columns: 8, rows: 8 }, pieces: [] } : null,
+      factions: [],
+      seats: conversation.memberIds.map((memberId, index) => ({ seatId: `seat-${index + 1}`, seatIndex: index, actorId: memberId })),
+      roleAssignments: [],
+    },
+    channels: conversation.channels || [{ channelId: 'public', visibility: 'public', label: 'Public' }],
+    layoutState: conversation.layoutState || { slots: conversation.memberIds.map((memberId, index) => ({ slotId: `slot-${index + 1}`, x: index, y: 0, actorId: memberId })) },
+    judgeAgent: conversation.judgeAgent || { enabled: false, style: 'assistive' },
+    modeStateSummary: conversation.modeStateSummary || { family: kind.family, scenarioId: kind.scenarioId },
+    memoryLayerSummary: conversation.memoryLayerSummary || deriveSessionMemoryLayerSummary(conversation),
+    growthSnapshots: conversation.growthSnapshots || conversation.memberIds.map((memberId) => ({ actorId: memberId, conversationSummary: '参与当前会话' })),
+    roleMemorySummaries: conversation.roleMemorySummaries || [],
+    scenarioMemorySummary: conversation.scenarioMemorySummary || { conversationId: conversation.id, summary: kind.family === 'conversation' ? '当前会话按通用对话场景运行。' : '' },
+    topologySummary: conversation.topologySummary || defaultTopologySummary(conversation),
+  };
+}
+
+export function buildConversationParticipantLabel(conversation: GroupChat['type']) {
+  return conversation === 'group' ? 'participant' : conversation === 'ai_direct' ? 'pair_private' : 'user_private';
+}
+
+export function createDefaultConversationParticipants(conversation: GroupChat): ParticipantInstance[] {
+  return conversation.memberIds.map((memberId, index) => ({
+    participantId: `${conversation.id}:${memberId}`,
+    conversationId: conversation.id,
+    entityType: 'ai',
+    entityRefId: memberId,
+    seatIndex: conversation.scenarioState?.seats?.find((seat) => seat.actorId === memberId)?.seatIndex ?? index,
+    canSpeak: true,
+    canAct: true,
+    roleKey: conversation.type === 'ai_direct' ? 'private_party' : conversation.type === 'direct' ? 'direct_partner' : 'participant',
+    faction: null,
+    flags: {
+      channelRole: buildConversationParticipantLabel(conversation.type),
+    },
+  }));
+}
+
+export function createDefaultConversationPanels(context: SessionProjectionContext): RuntimePanelDefinition[] {
+  return [
+    { key: 'members', title: context.conversation.type === 'group' ? '成员' : '角色', type: 'members', tabKey: 'members' },
+    { key: 'runtime', title: context.conversation.type === 'group' ? '运行态' : '私聊状态', type: 'runtime', tabKey: 'world' },
+  ];
+}
+
+export function createDefaultConversationActions(context: SessionProjectionContext): RuntimeAction[] {
+  const actions: RuntimeAction[] = [{ type: 'speak' }];
+  if (context.conversation.type === 'group' && context.conversation.governance.allowPrivateThreads) actions.push({ type: 'start_private_thread' });
+  return actions;
+}
+
+export function createDefaultConversationActionSchema(context: SessionEngineActionContext): SessionActionSchema | null {
+  if (context.conversation.type !== 'group' || !context.conversation.governance.allowPrivateThreads) return null;
+  const options = context.participants.map((participant, index) => ({ label: participant.displayName || `成员 ${index + 1}`, value: participant.entityRefId }));
+  return {
+    title: '开放聊天动作',
+    actions: [{
+      type: 'start_private_thread',
+      label: '发起 AI 私聊',
+      description: '从主群中派生一条仅私聊双方可见的 AI 线程。',
+      fields: [
+        { key: 'actorId', label: '发起者', type: 'single_select', required: true, options, targetSource: 'participants' },
+        { key: 'targetId', label: '对象', type: 'single_select', required: true, options, targetSource: 'participants' },
+        { key: 'prompt', label: '私聊起因', type: 'textarea', placeholder: '例如：继续私下追问刚才的话题' },
+      ],
+    }],
+  };
+}
+
+export function createDefaultConversationPhases(): SessionPhaseDefinition[] {
+  return [{ key: 'idle', label: 'Idle', allowedActions: ['speak', 'all'] }];
+}
+
+export function createDefaultConversationPromptContext(params: SessionGenerationContext & { speaker: AICharacter }): SessionGenerationPromptContext {
+  return {
+    promptPrefix: params.conversation.type === 'ai_direct'
+      ? 'This is a private side-thread derived from a larger conversation. Keep the line confidential, intimate, and responsive to the private counterpart.'
+      : undefined,
+    additionalConstraints: [
+      params.conversation.type === 'group'
+        ? 'Assume there are multiple simultaneous conversational threads and react to one thread sharply.'
+        : 'Treat this as a focused two-party exchange and respond directly.',
+      params.speaker.group ? `Maintain ${params.speaker.group} social stance and continuity.` : 'Maintain speaker-specific social continuity.',
+    ],
+  };
+}
+
+export function createDefaultConversationTurnPolicy(params: SessionGenerationContext): SessionTurnPolicy {
+  const hasMembers = params.characters.some((character) => params.conversation.memberIds.includes(character.id));
+  return {
+    runChat: hasMembers,
+    runAction: false,
+    interleaveAction: false,
+  };
+}
+
+export interface SessionCommitContext {
+  conversation: GroupChat;
+  characters: AICharacter[];
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null };
+  previousAiMessage?: Pick<Message, 'senderId'> | null;
+  recentMessages?: Message[];
+  apiConfig?: APIConfig;
+}
+
+export interface SessionGenerationContext {
+  conversation: GroupChat;
+  characters: AICharacter[];
+  messages: Message[];
+}
+
+export interface SessionGenerationPromptContext {
+  promptPrefix?: string;
+  promptSuffix?: string;
+  additionalConstraints?: string[];
+}
+
+export interface SessionTurnPolicy {
+  runChat: boolean;
+  runAction: boolean;
+  interleaveAction?: boolean;
+}
+
+export interface SessionEngineActionContext {
+  conversation: GroupChat;
+  participants: ParticipantInstance[];
+  characters?: AICharacter[];
+}
+
+export interface SessionEngineDefinition {
+  key: string;
+  createInitialConfig: () => unknown;
+  createInitialState: (config: unknown) => unknown;
+  buildParticipants: (conversation: GroupChat) => ParticipantInstance[];
+  buildChatPatch?: (conversation: GroupChat) => Partial<GroupChat>;
+  getPhaseDefinitions?: (conversation: GroupChat) => SessionPhaseDefinition[];
+  getVisiblePanels: (context: SessionProjectionContext) => RuntimePanelDefinition[];
+  getAvailableActions: (context: SessionProjectionContext) => RuntimeAction[];
+  getActionSchema?: (context: SessionEngineActionContext) => SessionActionSchema | null;
+  buildGenerationPromptContext?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionGenerationPromptContext;
+  resolveTurnPolicy?: (context: SessionGenerationContext) => SessionTurnPolicy;
+  onMessageCommitted: (context: SessionCommitContext) => Promise<{
+  chatPatch: Partial<GroupChat>;
+  characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;
+  runtimeEvents: Array<{ eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown }>;
+}> | {
+  chatPatch: Partial<GroupChat>;
+  characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;
+  runtimeEvents: Array<{ eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown }>;
+};
+}
+
+export function createDefaultConversationChatPatch(conversation: GroupChat): Partial<GroupChat> {
+  return createDefaultConversationFrameworkPatch(conversation);
+}
+
+export function createDefaultConversationEngineDefinition(params: {
+  key: string;
+  createInitialConfig: () => unknown;
+  createInitialState: (config: unknown) => unknown;
+  onMessageCommitted: SessionEngineDefinition['onMessageCommitted'];
+}): SessionEngineDefinition {
+  return {
+    key: params.key,
+    createInitialConfig: params.createInitialConfig,
+    createInitialState: params.createInitialState,
+    buildParticipants: createDefaultConversationParticipants,
+    buildChatPatch: createDefaultConversationChatPatch,
+    getPhaseDefinitions: createDefaultConversationPhases,
+    getVisiblePanels: createDefaultConversationPanels,
+    getAvailableActions: createDefaultConversationActions,
+    getActionSchema: createDefaultConversationActionSchema,
+    buildGenerationPromptContext: createDefaultConversationPromptContext,
+    resolveTurnPolicy: createDefaultConversationTurnPolicy,
+    onMessageCommitted: params.onMessageCommitted,
   };
 }

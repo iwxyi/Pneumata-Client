@@ -70,7 +70,7 @@ export const calculateWeights = (
     .join(' ');
   const keywords = extractKeywords(recentText);
 
-  return characters
+  const weightedCandidates = characters
     .filter((char) => {
       const lastSpeak = cooldownMap[char.id];
       if (!lastSpeak) return true;
@@ -118,6 +118,8 @@ export const calculateWeights = (
         weight: Math.max(0.05, weight),
       };
     });
+
+  return weightedCandidates;
 };
 
 export const selectSpeaker = (candidates: WeightedCandidate[]): string | null => {

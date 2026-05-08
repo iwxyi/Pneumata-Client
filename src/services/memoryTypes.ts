@@ -45,4 +45,6 @@ export interface MemoryRetrievalContext {
   targetId?: string | null;
   conversationId: string;
   maxItems: number;
+  preferredLayers?: MemoryLayer[];
+  preferredScopes?: MemoryScope[];
 }

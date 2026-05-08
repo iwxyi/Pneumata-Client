@@ -2,7 +2,20 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat, DriverMessageCommitResult } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig } from '../types/settings';
+import { mergeSessionChatPatch } from '../types/sessionEngine';
 import { runChatCommitPipeline } from './chatCommitPipeline';
+import { resolveSessionEngine } from './sessionEngineRegistry';
+
+function wrapCommitWithFrameworkPatch(params: Parameters<typeof runChatCommitPipeline>[0]): Parameters<typeof runChatCommitPipeline>[0]['onCommit'] {
+  return async (args) => {
+    const transition = await params.onCommit(args);
+    const engine = resolveSessionEngine(args.conversation);
+    return {
+      ...transition,
+      chatPatch: mergeSessionChatPatch(engine, args.conversation, transition.chatPatch),
+    };
+  };
+}
 
 export async function runSessionCommitPipeline(params: {
   api: APIConfig;
@@ -25,5 +38,8 @@ export async function runSessionCommitPipeline(params: {
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
   recordSpeak: (characterId: string) => void;
 }) {
-  await runChatCommitPipeline(params);
+  await runChatCommitPipeline({
+    ...params,
+    onCommit: wrapCommitWithFrameworkPatch(params),
+  });
 }

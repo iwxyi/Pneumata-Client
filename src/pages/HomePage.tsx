@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { Box, Typography, Button, Divider, IconButton, CardActionArea } from '@mui/material';
-import { Add as AddIcon, Chat as ChatIcon, Person as PersonIcon } from '@mui/icons-material';
+import AddIcon from '@mui/icons-material/Add';
+import ChatIcon from '@mui/icons-material/Chat';
+import PersonIcon from '@mui/icons-material/Person';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
@@ -10,7 +12,6 @@ import EmptyState from '../components/common/EmptyState';
 import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
-import StatChipRow from '../components/common/StatChipRow';
 
 function buildStatCardSx() {
   return {
@@ -76,13 +77,16 @@ function buildGridSx(columns?: { xs: string; sm: string; xl?: string }) {
 export default function HomePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { chats, loadChats } = useChatStore();
-  const { characters, loadCharacters } = useCharacterStore();
+  const { chats, prefetchChats, markChatsWarm } = useChatStore();
+  const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
 
   useEffect(() => {
-    loadChats();
-    loadCharacters();
-  }, []);
+    markChatsWarm();
+    markCharactersWarm();
+    void prefetchChats();
+    void prefetchCharacters();
+  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats]);
+
 
   const recentChats = chats.filter((chat) => chat.type === 'group').slice(0, 5);
   const recentDirectChats = chats.filter((chat) => chat.type === 'direct' || chat.type === 'ai_direct').slice(0, 4);
@@ -127,24 +131,23 @@ export default function HomePage() {
           <Box sx={{ display: 'flex', gap: { xs: 1.25, sm: 1.5 }, mt: 1, px: { xs: 0.5, sm: 0.75 }, alignItems: 'stretch', justifyContent: 'flex-start', flexWrap: 'nowrap' }}>
             {stats.map((stat) => (
               <SurfaceCard key={stat.label} sx={buildStatCardSx()} contentSx={buildStatContentSx()}>
-                <CardActionArea onClick={stat.onOpen} sx={{ borderRadius: 2.5 }}>
-                  <Box sx={buildStatContentSx()}>
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        stat.onCreate();
-                      }}
-                      aria-label={stat.createLabel}
-                      sx={buildCreateButtonSx()}
-                    >
-                      <AddIcon fontSize="small" />
-                    </IconButton>
-                    <Box sx={{ color: stat.color, fontSize: '1.3rem', lineHeight: 1 }}>{stat.icon}</Box>
-                    <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1 }}>{stat.value}</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.3 }}>{stat.label}</Typography>
-                  </Box>
-                </CardActionArea>
+                <Box sx={{ position: 'relative' }}>
+                  <IconButton
+                    size="small"
+                    onClick={stat.onCreate}
+                    aria-label={stat.createLabel}
+                    sx={buildCreateButtonSx()}
+                  >
+                    <AddIcon fontSize="small" />
+                  </IconButton>
+                  <CardActionArea onClick={stat.onOpen} sx={{ borderRadius: 2.5 }}>
+                    <Box sx={buildStatContentSx()}>
+                      <Box sx={{ color: stat.color, fontSize: '1.3rem', lineHeight: 1 }}>{stat.icon}</Box>
+                      <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1 }}>{stat.value}</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.3 }}>{stat.label}</Typography>
+                    </Box>
+                  </CardActionArea>
+                </Box>
               </SurfaceCard>
             ))}
           </Box>

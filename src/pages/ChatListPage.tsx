@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLayoutHeaderActions } from '../components/layout/AppLayout';
+import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { Box, TextField, Button, InputAdornment, Tabs, Tab, Stack } from '@mui/material';
-import { Add as AddIcon, Search as SearchIcon } from '@mui/icons-material';
+import AddIcon from '@mui/icons-material/Add';
+import SearchIcon from '@mui/icons-material/Search';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
@@ -15,8 +16,8 @@ export default function ChatListPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
-  const { chats, loadChats, deleteChat } = useChatStore();
-  const { characters, loadCharacters } = useCharacterStore();
+  const { chats, deleteChat, prefetchChats, markChatsWarm } = useChatStore();
+  const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
   const [search, setSearch] = useState('');
   const initialTab = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -27,10 +28,6 @@ export default function ChatListPage() {
   const [tab, setTab] = useState(initialTab);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadChats();
-    loadCharacters();
-  }, []);
 
   useEffect(() => {
     setHeaderBackAction(null);
@@ -41,6 +38,13 @@ export default function ChatListPage() {
       setHeaderBackAction(null);
     };
   }, [setHeaderActions, setHeaderBackAction]);
+
+  useEffect(() => {
+    markChatsWarm();
+    markCharactersWarm();
+    void prefetchChats();
+    void prefetchCharacters();
+  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats]);
 
   useEffect(() => {
     setTab(initialTab);

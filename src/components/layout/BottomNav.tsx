@@ -1,10 +1,8 @@
 import { BottomNavigation, BottomNavigationAction, Paper } from '@mui/material';
-import {
-  Home as HomeIcon,
-  Chat as ChatIcon,
-  Person as PersonIcon,
-  Settings as SettingsIcon,
-} from '@mui/icons-material';
+import HomeIcon from '@mui/icons-material/Home';
+import ChatIcon from '@mui/icons-material/Chat';
+import PersonIcon from '@mui/icons-material/Person';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 

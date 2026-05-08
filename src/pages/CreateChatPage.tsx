@@ -1,40 +1,43 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useLayoutHeaderActions } from '../components/layout/AppLayout';
+import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
+import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import {
-  Box, Typography, TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  Snackbar, Alert, Tabs, Tab, Stack,
+  Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
+  Snackbar, Alert, Tabs, Tab,
 } from '@mui/material';
 import { Delete as DeleteIcon, AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
-import { useMessageStore } from '../stores/useMessageStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { getPreferredAIProfile } from '../types/settings';
 import type { ChatStyle, RuntimeEvolutionIntensity } from '../types/chat';
-import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE, DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../types/chat';
-import { generateChatDraftSuggestion } from '../services/chatDraftGenerator';
+import {
+  DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
+  DEFAULT_CONVERSATION_DRAMA_RULES,
+  DEFAULT_CONVERSATION_GOVERNANCE,
+  DEFAULT_CONVERSATION_WORLD_STATE,
+  DEFAULT_OPEN_CHAT_MODE_STATE,
+} from '../types/chat';
+import { buildGroupChatDraft } from '../services/chatDraftBuilder';
 import { api as apiClient } from '../services/api';
-import { CHAT_STYLE_OPTIONS, MIN_MEMBERS, MAX_MEMBERS } from '../constants/defaults';
-import RuntimeSeedSection from '../components/createChat/RuntimeSeedSection';
+import { MIN_MEMBERS, MAX_MEMBERS } from '../constants/defaults';
 import DirectorControlsSection from '../components/createChat/DirectorControlsSection';
 import ChatConfigSection from '../components/createChat/ChatConfigSection';
 import ManagementSection from '../components/createChat/ManagementSection';
 import MemberSelectionDialog from '../components/createChat/MemberSelectionDialog';
-import HotTopicDialog from '../components/createChat/HotTopicDialog';
-import { useHotTopicDialog } from '../components/createChat/useHotTopicDialog';
+
+const HotTopicDialogContainer = lazy(() => import('../components/createChat/HotTopicDialogContainer'));
+const RuntimeSeedSection = lazy(() => import('../components/createChat/RuntimeSeedSection'));
 
 export default function CreateChatPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams<{ id: string }>();
-  const { setHeaderTitle, setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
-  const { chats, addChat, updateChat, deleteChat, loadChats } = useChatStore();
-  const { characters, loadCharacters } = useCharacterStore();
-  const clearChatMessagesLocal = useMessageStore((state) => state.clearChatMessagesLocal);
-  const addMessage = useMessageStore((state) => state.addMessage);
+  const { setHeaderTitle, setHeaderActions, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
+  const { chats, addChat, updateChat, deleteChat, prefetchChats, markChatsWarm } = useChatStore();
+  const { characters, addCharacters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
   const { chatDraftDefaults, aiProfiles, api, setChatDraftDefaults, loadSettings } = useSettingsStore();
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -68,6 +71,8 @@ export default function CreateChatPage() {
   const [allowPrivateThreads, setAllowPrivateThreads] = useState(true);
   const [saving, setSaving] = useState(false);
   const [aiAutofilling, setAiAutofilling] = useState(false);
+  const [hotTopicOpenSignal, setHotTopicOpenSignal] = useState(0);
+  const [hotTopicDialogEnabled, setHotTopicDialogEnabled] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
   const memberPressTimerRef = useRef<number | null>(null);
 
@@ -83,7 +88,8 @@ export default function CreateChatPage() {
   const seedOpeningTopicMessage = useCallback(async (chatId: string, topicText?: string | null) => {
     const openingTopic = (topicText || '').trim();
     if (!openingTopic) return;
-    await addMessage({
+    const { useMessageStore } = await import('../stores/useMessageStore');
+    await useMessageStore.getState().addMessage({
       chatId,
       type: 'god',
       senderId: 'user',
@@ -91,13 +97,18 @@ export default function CreateChatPage() {
       content: openingTopic,
       emotion: 0,
     });
-  }, [addMessage]);
+  }, []);
 
   useEffect(() => {
-    loadChats();
-    loadCharacters();
-    loadSettings();
-  }, [loadCharacters, loadChats, loadSettings]);
+    void loadSettings();
+  }, [loadSettings]);
+
+  useEffect(() => {
+    markChatsWarm();
+    markCharactersWarm();
+    void prefetchChats();
+    void prefetchCharacters();
+  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats]);
 
   useEffect(() => {
     if (id && !editingChat) return;
@@ -249,9 +260,8 @@ export default function CreateChatPage() {
   useEffect(() => {
     if (!editingChat && new URLSearchParams(location.search).get('restoreDraft') === '1') {
       restoreDraft();
-      navigate(location.pathname, { replace: true });
     }
-  }, [editingChat, location.pathname, location.search, navigate]);
+  }, [editingChat, location.search]);
 
   useEffect(() => () => clearMemberPressTimer(), []);
 
@@ -288,17 +298,9 @@ export default function CreateChatPage() {
     setSelectedMembers((prev) => prev.slice(0, MAX_MEMBERS));
   }, [selectedMembers]);
 
-  const canCreate = name.trim().length > 0 && selectedMembers.length >= MIN_MEMBERS;
-  const createError = !name.trim()
-    ? (i18n.language.startsWith('zh') ? '请填写群聊名称' : 'Please enter a chat name')
-    : selectedMembers.length < MIN_MEMBERS
-      ? (i18n.language.startsWith('zh') ? `请至少选择${MIN_MEMBERS}个AI成员` : `Please select at least ${MIN_MEMBERS} AI members`)
-      : '';
-
   const customCharacters = characters.filter((char) => !char.isPreset);
   const presetCharacters = characters.filter((char) => char.isPreset);
   const selectedCharacters = characters.filter((char) => selectedMembers.includes(char.id));
-  const selectedMemorySummary = selectedCharacters.flatMap((char) => (char.layeredMemories || []).slice(-1).map((item) => `${char.name}：${item.text}`)).slice(0, 3).join(' / ');
   const hasCustomCharacters = customCharacters.length > 0;
   const hasPresetCharacters = presetCharacters.length > 0;
   const canAutofill = !editingChat && !aiAutofilling && Boolean(name.trim() || topic.trim() || selectedMembers.length);
@@ -313,6 +315,7 @@ export default function CreateChatPage() {
 
     setAiAutofilling(true);
     try {
+      const { generateChatDraftSuggestion } = await import('../services/chatDraftGenerator');
       const suggestion = await generateChatDraftSuggestion({
         config: profile,
         language: i18n.language.startsWith('zh') ? 'zh' : 'en',
@@ -367,7 +370,8 @@ export default function CreateChatPage() {
     if (!editingChat) return;
     try {
       await apiClient.clearChatMessages(editingChat.id);
-      clearChatMessagesLocal(editingChat.id);
+      const { useMessageStore } = await import('../stores/useMessageStore');
+      useMessageStore.getState().clearChatMessagesLocal(editingChat.id);
       await seedOpeningTopicMessage(editingChat.id, editingChat.topic);
       setClearMessagesConfirmOpen(false);
       setSnackbar({
@@ -378,7 +382,7 @@ export default function CreateChatPage() {
     } catch (error) {
       showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '清理聊天记录失败' : 'Failed to clear chat messages'));
     }
-  }, [clearChatMessagesLocal, editingChat, i18n.language, seedOpeningTopicMessage]);
+  }, [editingChat, i18n.language, seedOpeningTopicMessage]);
 
   const handleClearMemory = useCallback(async () => {
     if (!editingChat) return;
@@ -433,22 +437,10 @@ export default function CreateChatPage() {
   const closeClearMemoryDialog = () => {
     setClearMemoryConfirmOpen(false);
   };
-  const { hotDialogProps, openHotDialog } = useHotTopicDialog({
-    language: i18n.language,
-    apiConfig: api,
-    aiProfiles,
-    autoGenerateCharacterAvatar: useSettingsStore.getState().autoGenerateCharacterAvatar,
-    characters,
-    name,
-    topic,
-    setName,
-    setTopic,
-    setStyle,
-    setSelectedMembers,
-    maxMembers: MAX_MEMBERS,
-    onError: showError,
-    setSnackbar,
-  });
+  const openHotDialog = () => {
+    setHotTopicDialogEnabled(true);
+    setHotTopicOpenSignal((value) => value + 1);
+  };
   const closeSnackbar = () => {
     setSnackbar((prev) => ({ ...prev, open: false }));
   };
@@ -495,7 +487,6 @@ export default function CreateChatPage() {
 
   const memberSummaryEmptyLabel = i18n.language.startsWith('zh') ? '未选择AI角色' : 'No AI members selected';
   const memberDialogConfirmLabel = t('common.confirm');
-  const memberDialogMinError = i18n.language.startsWith('zh') ? `当前至少需要${MIN_MEMBERS}个AI成员才能开始群聊` : `At least ${MIN_MEMBERS} AI members are required to start the chat`;
   const startChatLabel = editingChat ? t('common.save') : '开始群聊';
   const runtimePhaseLabel = editingChat?.worldState.phase || 'idle';
   const runtimeMoodLabel = mood || '未设置';
@@ -518,9 +509,7 @@ export default function CreateChatPage() {
   useEffect(() => {
     setHeaderTitle(headerTitle);
     setHeaderBackAction(() => () => navigate(-1));
-  }, [headerTitle, navigate, setHeaderBackAction, setHeaderTitle]);
-
-  useEffect(() => {
+    setHideMobileBottomNav(true);
     setHeaderActions(
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
         {!editingChat ? (
@@ -535,11 +524,19 @@ export default function CreateChatPage() {
         ) : null}
       </Box>
     );
-
     return () => {
+      setHeaderTitle(null);
+      setHeaderBackAction(null);
+      setHideMobileBottomNav(false);
       setHeaderActions(null);
     };
-  }, [autofillLabel, canAutofill, deleteLabel, editingChat, setHeaderActions]);
+  }, [autofillLabel, canAutofill, deleteLabel, editingChat, handleAutofillAction, headerTitle, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
+
+  const desktopHeaderActions = null;
+  void desktopHeaderActions;
+
+  void goBack;
+  void t;
 
   const handleCreate = async () => {
     if (saving) {
@@ -622,53 +619,31 @@ export default function CreateChatPage() {
         return;
       }
 
-      const chat = await addChat({
+      const chat = await addChat(buildGroupChatDraft({
         type: 'group',
-        mode: 'open_chat',
-        modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG,
-        modeState: DEFAULT_OPEN_CHAT_MODE_STATE,
-        name: name.trim(),
-        topic: topic.trim(),
+        name,
+        topic,
         style,
         runtimeEvolutionIntensity,
         memberIds: validMemberIds,
-        speed: 1,
-        isActive: false,
-        allowIntervention: true,
         showRoleActions,
-        topicSeed: '',
-        runtimeSeed: {
-          notes: seedMemoryText.split('\n').map((item) => item.trim()).filter(Boolean),
-          artifacts: seedArtifactText.split('\n').map((item) => item.trim()).filter(Boolean),
-        },
-        governance: {
-          ...DEFAULT_CONVERSATION_GOVERNANCE,
-          ownerCharacterId: normalizedOwnerCharacterId,
-          adminCharacterIds: normalizedAdminCharacterIds,
-          autoModeration,
-          allowMute,
-          allowPrivateThreads,
-        },
-        dramaRules: {
-          ...DEFAULT_CONVERSATION_DRAMA_RULES,
-          allowCliques,
-          allowMockery,
-        },
-        worldState: {
-          ...DEFAULT_CONVERSATION_WORLD_STATE,
-          mood,
-          focus,
-          recentEvent,
-          conflictAxes: [],
-        },
-        directorControls: {
-          ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
-          allowSpeakAs,
-          allowDirectorMode,
-          allowEventInjection,
-          allowForcedReply,
-        },
-      });
+        seedMemoryText,
+        seedArtifactText,
+        ownerCharacterId: normalizedOwnerCharacterId,
+        adminCharacterIds: normalizedAdminCharacterIds,
+        autoModeration,
+        allowMute,
+        allowPrivateThreads,
+        allowCliques,
+        allowMockery,
+        mood,
+        focus,
+        recentEvent,
+        allowSpeakAs,
+        allowDirectorMode,
+        allowEventInjection,
+        allowForcedReply,
+      }));
       await seedOpeningTopicMessage(chat.id, topic);
       sessionStorage.removeItem('miragetea-create-chat-draft');
       setChatDraftDefaults({ style, showRoleActions, runtimeEvolutionIntensity });
@@ -751,42 +726,44 @@ export default function CreateChatPage() {
         ) : null}
 
         {configTab === 2 ? (
-          <RuntimeSeedSection
-            editingChatId={editingChat?.id}
-            editingChatCreatedAt={editingChat?.createdAt}
-            editingChatUpdatedAt={editingChat?.updatedAt}
-            editingChatLastMessageAt={editingChat?.lastMessageAt}
-            editingChatTimeline={editingChat?.runtimeTimeline}
-            name={name}
-            topic={topic}
-            style={style}
-            runtimeEvolutionIntensity={runtimeEvolutionIntensity}
-            selectedMembers={selectedMembers}
-            showRoleActions={showRoleActions}
-            ownerCharacterId={ownerCharacterId}
-            adminCharacterIds={adminCharacterIds}
-            autoModeration={autoModeration}
-            allowMute={allowMute}
-            allowPrivateThreads={allowPrivateThreads}
-            allowCliques={allowCliques}
-            allowMockery={allowMockery}
-            mood={mood}
-            focus={focus}
-            recentEvent={recentEvent}
-            allowSpeakAs={allowSpeakAs}
-            allowDirectorMode={allowDirectorMode}
-            allowEventInjection={allowEventInjection}
-            allowForcedReply={allowForcedReply}
-            seedMemoryText={seedMemoryText}
-            seedArtifactText={seedArtifactText}
-            setSeedMemoryText={setSeedMemoryText}
-            setSeedArtifactText={setSeedArtifactText}
-            runtimePhaseLabel={runtimePhaseLabel}
-            runtimeMoodLabel={runtimeMoodLabel}
-            runtimeFocusLabel={runtimeFocusLabel}
-            runtimeRecentEventLabel={runtimeRecentEventLabel}
-            selectedCharacters={selectedCharacters}
-          />
+          <Suspense fallback={null}>
+            <RuntimeSeedSection
+              editingChatId={editingChat?.id}
+              editingChatCreatedAt={editingChat?.createdAt}
+              editingChatUpdatedAt={editingChat?.updatedAt}
+              editingChatLastMessageAt={editingChat?.lastMessageAt}
+              editingChatTimeline={editingChat?.runtimeTimeline}
+              name={name}
+              topic={topic}
+              style={style}
+              runtimeEvolutionIntensity={runtimeEvolutionIntensity}
+              selectedMembers={selectedMembers}
+              showRoleActions={showRoleActions}
+              ownerCharacterId={ownerCharacterId}
+              adminCharacterIds={adminCharacterIds}
+              autoModeration={autoModeration}
+              allowMute={allowMute}
+              allowPrivateThreads={allowPrivateThreads}
+              allowCliques={allowCliques}
+              allowMockery={allowMockery}
+              mood={mood}
+              focus={focus}
+              recentEvent={recentEvent}
+              allowSpeakAs={allowSpeakAs}
+              allowDirectorMode={allowDirectorMode}
+              allowEventInjection={allowEventInjection}
+              allowForcedReply={allowForcedReply}
+              seedMemoryText={seedMemoryText}
+              seedArtifactText={seedArtifactText}
+              setSeedMemoryText={setSeedMemoryText}
+              setSeedArtifactText={setSeedArtifactText}
+              runtimePhaseLabel={runtimePhaseLabel}
+              runtimeMoodLabel={runtimeMoodLabel}
+              runtimeFocusLabel={runtimeFocusLabel}
+              runtimeRecentEventLabel={runtimeRecentEventLabel}
+              selectedCharacters={selectedCharacters}
+            />
+          </Suspense>
         ) : null}
 
         {configTab === 3 ? (
@@ -890,10 +867,29 @@ export default function CreateChatPage() {
         </DialogActions>
       </Dialog>
 
-      <HotTopicDialog
-        {...hotDialogProps}
-        getStyleLabel={getStyleLabel}
-      />
+      {hotTopicDialogEnabled ? (
+        <Suspense fallback={null}>
+          <HotTopicDialogContainer
+            openSignal={hotTopicOpenSignal}
+            language={i18n.language}
+            apiConfig={api}
+            aiProfiles={aiProfiles}
+            autoGenerateCharacterAvatar={useSettingsStore.getState().autoGenerateCharacterAvatar}
+            characters={characters}
+            name={name}
+            topic={topic}
+            setName={setName}
+            setTopic={setTopic}
+            setStyle={setStyle}
+            setSelectedMembers={setSelectedMembers}
+            addCharacters={addCharacters}
+            maxMembers={MAX_MEMBERS}
+            onError={showError}
+            setSnackbar={setSnackbar}
+            getStyleLabel={getStyleLabel}
+          />
+        </Suspense>
+      ) : null}
     </Box>
   );
 }

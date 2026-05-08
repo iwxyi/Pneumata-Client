@@ -5,7 +5,11 @@ export type RuntimeEventKind =
   | 'room_shift'
   | 'memory_candidate'
   | 'artifact'
-  | 'event_candidate';
+  | 'event_candidate'
+  | 'phase_transition'
+  | 'action_resolution'
+  | 'board_state'
+  | 'score_update';
 
 export type InteractionKind =
   | 'support'
@@ -176,6 +180,10 @@ export interface RuntimeEventV2 {
   targetIds?: string[];
   evidenceMessageIds?: string[];
   summary: string;
+  channelId?: string;
+  causedByIntentId?: string;
+  threadRef?: string;
+  eventClass?: 'message' | 'action' | 'board' | 'phase' | 'score' | 'artifact';
   visibility?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
   visibleToIds?: string[];
   visibleToRoles?: string[];

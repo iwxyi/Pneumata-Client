@@ -4293,6 +4293,15 @@ function trimCache(cache: Record<string, CachedMessageWindow>) {
 }
 
 const messageStorage = createMessageStorage();
+let messageHydrationPromise: Promise<void> | null = null;
+
+function ensureMessageStoreHydrated() {
+  if (useMessageStore.persist.hasHydrated()) return Promise.resolve();
+  messageHydrationPromise ??= Promise.resolve(useMessageStore.persist.rehydrate()).finally(() => {
+    messageHydrationPromise = null;
+  });
+  return messageHydrationPromise;
+}
 
 interface MessageStore {
   messages: Message[];
@@ -4304,6 +4313,10 @@ interface MessageStore {
   hasMore: boolean;
 
   hydrateMessagesFromCache: (chatId: string) => void;
+  openChatWindow: (chatId: string, options?: { limit?: number; revalidate?: boolean }) => Promise<void>;
+  closeChatWindow: (chatId: string, options?: { clearActiveOnly?: boolean }) => void;
+  prefetchMessages: (chatId: string, options?: { limit?: number }) => Promise<void>;
+  hasMessageWindow: (chatId: string) => boolean;
   loadMessages: (chatId: string, options?: { append?: boolean; before?: number; limit?: number }) => Promise<void>;
   addMessage: (msg: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>) => Promise<Message>;
   upsertMessage: (message: Message) => void;
@@ -4328,6 +4341,35 @@ export const useMessageStore = create<MessageStore>()(
       hydrateMessagesFromCache: (chatId) => {
         set((state) => localHydratedMessages(state, chatId));
       },
+
+      openChatWindow: async (chatId: string, options?: { limit?: number; revalidate?: boolean }) => {
+        await ensureMessageStoreHydrated();
+        get().hydrateMessagesFromCache(chatId);
+        const shouldRevalidate = options?.revalidate ?? true;
+        if (!get().hasMessageWindow(chatId) || shouldRevalidate) {
+          await get().loadMessages(chatId, { limit: options?.limit ?? 20 });
+        }
+      },
+
+      closeChatWindow: (chatId: string, options?: { clearActiveOnly?: boolean }) => {
+        if (options?.clearActiveOnly) {
+          set((state) => ({
+            activeChatId: state.activeChatId === chatId ? null : state.activeChatId,
+            messages: state.activeChatId === chatId ? [] : state.messages,
+            hasMore: state.activeChatId === chatId ? false : state.hasMore,
+          }));
+          return;
+        }
+        get().clearChatMessagesLocal(chatId);
+      },
+
+      prefetchMessages: async (chatId: string, options?: { limit?: number }) => {
+        await ensureMessageStoreHydrated();
+        if (get().messageWindowsByChatId[chatId]?.messages?.length) return;
+        await get().loadMessages(chatId, { limit: options?.limit ?? 20 });
+      },
+
+      hasMessageWindow: (chatId: string) => Boolean(get().messageWindowsByChatId[chatId]?.messages?.length),
 
       loadMessages: async (chatId, options) => {
         const isAppend = Boolean(options?.append);
@@ -4498,6 +4540,7 @@ export const useMessageStore = create<MessageStore>()(
         messageWindowsByChatId: trimCache((persistedState as Partial<MessageStore>)?.messageWindowsByChatId || {}),
         pendingOperations: (persistedState as Partial<MessageStore>)?.pendingOperations || [],
       }),
+      skipHydration: true,
     }
   )
 );

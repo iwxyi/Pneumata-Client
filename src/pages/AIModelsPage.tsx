@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Box, Typography, Card, CardContent, TextField, Button,
   FormControl, InputLabel, Select, MenuItem,
@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import { Visibility, VisibilityOff, Add as AddIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
-import { useLayoutHeaderActions } from '../components/layout/AppLayout';
+import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { listAvailableModels, testConnection } from '../services/aiClient';
@@ -17,7 +17,7 @@ import { getPopularModels, getProviderCatalogEntry, getProviderDefaults, getProv
 
 export default function AIModelsPage() {
   const { t, i18n } = useTranslation();
-  const { setHeaderActions } = useLayoutHeaderActions();
+  const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
   const settings = useSettingsStore();
   const characters = useCharacterStore((state) => state.characters);
   const characterLoading = useCharacterStore((state) => state.isLoading);
@@ -70,9 +70,21 @@ export default function AIModelsPage() {
   } as const;
 
   useEffect(() => {
+    setHeaderTitle(t('nav.models'));
+    setHeaderBackAction(null);
+    setHideMobileBottomNav(false);
     setHeaderActions(null);
-    return () => setHeaderActions(null);
-  }, [setHeaderActions]);
+    return () => {
+      setHeaderTitle(null);
+      setHeaderBackAction(null);
+      setHideMobileBottomNav(false);
+      setHeaderActions(null);
+    };
+  }, [setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, t]);
+
+  const handleModelInputChange = useCallback((profileId: string, value: string) => {
+    settings.updateAIProfile(profileId, { model: value });
+  }, [settings]);
 
   useEffect(() => {
     if (characters.length === 0 && !characterLoading) {
@@ -371,7 +383,7 @@ export default function AIModelsPage() {
                     })}
                     onInputChange={(_event, value, reason) => {
                       if (reason === 'input' || reason === 'clear') {
-                        settings.updateAIProfile(profile.id, { model: value });
+                        handleModelInputChange(profile.id, value);
                       }
                     }}
                     renderOption={(props, option) => (

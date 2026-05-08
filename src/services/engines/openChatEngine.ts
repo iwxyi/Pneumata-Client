@@ -1,5 +1,6 @@
-import type { DriverMessageCommitResult, GroupChat, RuntimeContext } from '../../types/chat';
-import type { SessionActionSchema, SessionEngineDefinition } from '../../types/sessionEngine';
+import type { DriverMessageCommitResult, GroupChat } from '../../types/chat';
+import { createDefaultConversationEngineDefinition } from '../../types/sessionEngine';
+import type { SessionEngineDefinition } from '../../types/sessionEngine';
 import type { AICharacter } from '../../types/character';
 import type { Message } from '../../types/message';
 import type {
@@ -42,6 +43,8 @@ function createRuntimeEventV2(params: {
     targetIds: params.targetIds,
     evidenceMessageIds: params.evidenceMessageIds,
     summary: params.summary,
+    channelId: params.visibility === 'pair_private' ? 'pair-private' : params.visibility === 'moderator_only' ? 'moderator' : 'public',
+    eventClass: params.kind === 'artifact' ? 'artifact' : params.kind === 'room_shift' ? 'phase' : params.kind === 'event_candidate' ? 'action' : 'message',
     visibility: params.visibility || 'public',
     visibleToIds: params.visibleToIds,
     visibleToRoles: params.visibleToRoles,
@@ -1347,79 +1350,6 @@ function mergeRecentEvent(baseRecentEvent: string, structuredSummary: string | n
   return baseRecentEvent ? `${baseRecentEvent} / ${structuredSummary}`.slice(0, 120) : structuredSummary;
 }
 
-function buildParticipants(conversation: GroupChat) {
-  return conversation.memberIds.map((memberId, index) => ({
-    participantId: `${conversation.id}:${memberId}`,
-    conversationId: conversation.id,
-    entityType: 'ai' as const,
-    entityRefId: memberId,
-    seatIndex: index,
-    canSpeak: true,
-    canAct: true,
-    flags: {},
-  }));
-}
-
-function getAvailableActions(context: RuntimeContext) {
-  const base = [{ type: 'speak' }];
-  if (context.conversation.type === 'group' && context.conversation.governance.allowPrivateThreads) {
-    base.push({ type: 'start_private_thread' });
-  }
-  return base;
-}
-
-function getVisiblePanels(context: RuntimeContext) {
-  const isOpenChat = context.conversation.mode === 'open_chat';
-  return [
-    { key: 'members', title: context.conversation.type === 'group' ? '成员' : '角色', type: 'members' as const, tabKey: 'members' as const },
-    { key: 'runtime', title: isOpenChat ? '运行态' : '世界', type: 'runtime' as const, tabKey: 'world' as const },
-  ];
-}
-
-function getPhaseDefinitions() {
-  return [{ key: 'idle', label: 'Idle', allowedActions: ['speak', 'all'] }];
-}
-
-function getActionSchema(context: { conversation: GroupChat }): SessionActionSchema | null {
-  if (context.conversation.type !== 'group' || !context.conversation.governance.allowPrivateThreads) return null;
-  return {
-    title: '开放聊天动作',
-    actions: [{
-      type: 'start_private_thread',
-      label: '发起 AI 私聊',
-      description: '从主群中派生一条仅私聊双方可见的 AI 线程。',
-      fields: [
-        { key: 'actorId', label: '发起者', type: 'single_select', required: true, options: context.conversation.memberIds.map((id) => ({ label: id, value: id })), targetSource: 'participants' },
-        { key: 'targetId', label: '对象', type: 'single_select', required: true, options: context.conversation.memberIds.map((id) => ({ label: id, value: id })), targetSource: 'participants' },
-        { key: 'prompt', label: '私聊起因', type: 'textarea', placeholder: '例如：继续私下追问刚才的话题' },
-      ],
-    }],
-  };
-}
-
-function buildGenerationPromptContext(params: { conversation: GroupChat; speaker: AICharacter }) {
-  return {
-    promptPrefix: params.conversation.type === 'ai_direct'
-      ? 'This is a private side-thread derived from a larger conversation. Keep the line confidential, intimate, and responsive to the private counterpart.'
-      : undefined,
-    additionalConstraints: [
-      params.conversation.type === 'group'
-        ? 'Assume there are multiple simultaneous conversational threads and react to one thread sharply.'
-        : 'Treat this as a focused two-party exchange and respond directly.',
-      params.speaker.group ? `Maintain ${params.speaker.group} social stance and continuity.` : 'Maintain speaker-specific social continuity.',
-    ],
-  };
-}
-
-function resolveTurnPolicy(params: { conversation: GroupChat; characters: AICharacter[]; messages: Message[] }) {
-  const hasMembers = params.characters.some((character) => params.conversation.memberIds.includes(character.id));
-  void params.messages;
-  return {
-    runChat: hasMembers,
-    runAction: false,
-    interleaveAction: false,
-  };
-}
 
 async function onMessageCommitted(params: {
   conversation: GroupChat;
@@ -1468,18 +1398,11 @@ async function onMessageCommitted(params: {
   };
 }
 
-export const openChatEngine: SessionEngineDefinition = {
+export const openChatEngine: SessionEngineDefinition = createDefaultConversationEngineDefinition({
   key: 'open_chat',
-  createInitialConfig: () => DEFAULT_OPEN_CHAT_MODE_CONFIG,
+  createInitialConfig: () => ({ ...DEFAULT_OPEN_CHAT_MODE_CONFIG, sessionFamily: 'conversation', scenarioId: 'open-chat' }),
   createInitialState: () => DEFAULT_OPEN_CHAT_MODE_STATE,
-  buildParticipants,
-  getPhaseDefinitions,
-  getActionSchema,
-  getAvailableActions,
-  getVisiblePanels,
-  buildGenerationPromptContext,
-  resolveTurnPolicy,
   onMessageCommitted,
-};
+});
 
 export const OPEN_CHAT_ENGINE = openChatEngine;

@@ -23,6 +23,10 @@ function formatEventKind(kind: RuntimeEventV2['kind']) {
     memory_candidate: '记忆候选',
     artifact: '产物',
     event_candidate: '事件候选',
+    phase_transition: '阶段切换',
+    action_resolution: '动作结算',
+    board_state: '棋盘状态',
+    score_update: '分数更新',
   };
   return labels[kind] || kind;
 }
@@ -35,7 +39,7 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
   return (
     <Card variant="outlined">
       <CardContent>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>发言风格</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}><Typography variant="subtitle2" sx={{ fontWeight: 700 }}>发言风格</Typography><Chip size="small" label="调试" color="warning" variant="outlined" /></Box>
         <Stack spacing={1.25}>
           <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
             <Chip size="small" label={`阶段 ${chat.worldState.phase || 'idle'}`} variant="outlined" />

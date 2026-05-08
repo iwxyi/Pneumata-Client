@@ -1,6 +1,7 @@
 import type { DriverMessageCommitTransition } from '../types/chat';
+import { applyCommitTransition, type CommitRuntimeServices } from './sessionCommitContract';
 
-export async function applyChatCommitRuntime(params: {
+export interface ChatCommitApplyParams {
   chatId: string;
   transition: DriverMessageCommitTransition;
   updateCharacter: (id: string, patch: DriverMessageCommitTransition['characterPatches'][number]['patch']) => Promise<void>;
@@ -8,15 +9,22 @@ export async function applyChatCommitRuntime(params: {
   updateChat: (id: string, patch: DriverMessageCommitTransition['chatPatch']) => Promise<void>;
   recordSpeak: (characterId: string) => void;
   speakerId: string;
-}) {
-  for (const patch of params.transition.characterPatches) {
-    await params.updateCharacter(patch.characterId, patch.patch);
-  }
+}
 
-  for (const eventPayload of params.transition.runtimeEvents) {
-    await params.appendEventMessage(params.chatId, eventPayload);
-  }
+export function buildCommitRuntimeServices(params: ChatCommitApplyParams): CommitRuntimeServices {
+  return {
+    updateCharacter: params.updateCharacter,
+    appendEventMessage: params.appendEventMessage,
+    updateChat: params.updateChat,
+    recordSpeak: params.recordSpeak,
+  };
+}
 
-  params.recordSpeak(params.speakerId);
-  await params.updateChat(params.chatId, { lastMessageAt: Date.now(), ...params.transition.chatPatch });
+export async function applyChatCommitRuntime(params: ChatCommitApplyParams) {
+  await applyCommitTransition({
+    chatId: params.chatId,
+    speakerId: params.speakerId,
+    transition: params.transition,
+    services: buildCommitRuntimeServices(params),
+  });
 }

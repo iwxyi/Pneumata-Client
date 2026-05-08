@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLayoutHeaderActions } from '../components/layout/AppLayout';
+import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { Box, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Typography } from '@mui/material';
 import { Add as AddIcon, MoreVert as MoreIcon, ClearAll as ClearAllIcon, DeleteSweep as DeleteSweepIcon, DriveFileMove as DriveFileMoveIcon, AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
@@ -157,7 +157,6 @@ export default function CharacterLibraryPage() {
 
   useEffect(() => {
     const inForm = showForm || Boolean(editId);
-
     if (inForm) {
       setHeaderTitle(editId ? t('character.edit') : t('character.create'));
       setHeaderBackAction(() => () => returnBack());
@@ -184,7 +183,20 @@ export default function CharacterLibraryPage() {
       setHeaderBackAction(null);
       setHideMobileBottomNav(false);
     };
-  }, [editId, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, showForm, t, navigate]);
+  }, [editId, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, showForm, t]);
+
+  const mobileFormHeader = null;
+  void mobileFormHeader;
+
+  const desktopListMenu = null;
+  void desktopListMenu;
+
+  const desktopFormActions = null;
+  void desktopFormActions;
+
+  const mobileListHeader = null;
+  void mobileListHeader;
+  void returnBack;
 
   const renderListMenu = (
     <>
@@ -310,13 +322,13 @@ export default function CharacterLibraryPage() {
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: 0, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Box sx={{ flexShrink: 0 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2 }}>
-        <Tabs value={tab} onChange={(_, v) => { setTab(v); resetSelection(); }} sx={{ minWidth: 0, flex: 1 }}>
-          <Tab label={`${t('character.myCharacters')} (${custom.length})`} />
-          <Tab label={`${t('character.presets')} (${presets.length})`} />
-        </Tabs>
-        {showInlineMenu ? renderListMenu : null}
-      </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2 }}>
+          <Tabs value={tab} onChange={(_, v) => { setTab(v); resetSelection(); }} sx={{ minWidth: 0, flex: 1 }}>
+            <Tab label={`${t('character.myCharacters')} (${custom.length})`} />
+            <Tab label={`${t('character.presets')} (${presets.length})`} />
+          </Tabs>
+          {showInlineMenu ? renderListMenu : null}
+        </Box>
       {tab === 0 ? (
         <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 1.5, mb: 1.5 }}>
           <Chip label={`${i18n.language.startsWith('zh') ? '全部' : 'All'} (${custom.length})`} color={selectedGroup === 'all' ? 'primary' : 'default'} variant={selectedGroup === 'all' ? 'filled' : 'outlined'} onClick={() => setSelectedGroup('all')} />

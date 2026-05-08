@@ -387,6 +387,13 @@ export interface DriverEventPayload {
   summary: string;
   pair?: [string, string];
   metrics?: unknown;
+  channelId?: string;
+  causedByIntentId?: string;
+  threadRef?: string;
+  eventClass?: 'message' | 'action' | 'board' | 'phase' | 'score' | 'artifact';
+  visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
+  visibleToIds?: string[];
+  visibleToRoles?: string[];
 }
 
 export interface DriverMessageCommitTransition {
@@ -562,17 +569,26 @@ export function normalizeConversation(input: (Omit<GroupChat, 'type' | 'governan
     sessionKind: input.sessionKind || createDefaultSessionKind(input.type || 'group', input.mode || 'open_chat'),
     modeConfig: input.modeConfig || DEFAULT_OPEN_CHAT_MODE_CONFIG,
     modeState: input.modeState || DEFAULT_OPEN_CHAT_MODE_STATE,
-    scenarioState: input.scenarioState || {},
-    channels: input.channels || [],
-    layoutState: input.layoutState || { slots: [] },
-    scenarioPackage: input.scenarioPackage || null,
-    judgeAgent: input.judgeAgent || null,
+    scenarioState: input.scenarioState || {
+      turnOrder: input.memberIds || [],
+      currentTurnActorId: null,
+      board: (input.sessionKind?.surfaceProfile || createDefaultSessionKind(input.type || 'group', input.mode || 'open_chat').surfaceProfile) === 'board'
+        ? { schema: { kind: 'grid', columns: 8, rows: 8 }, pieces: [] }
+        : null,
+      factions: [],
+      seats: (input.memberIds || []).map((memberId, index) => ({ seatId: `seat-${index + 1}`, seatIndex: index, actorId: memberId })),
+      roleAssignments: [],
+    },
+    channels: input.channels || [{ channelId: 'public', visibility: 'public', label: 'Public' }],
+    layoutState: input.layoutState || { slots: (input.memberIds || []).map((memberId, index) => ({ slotId: `slot-${index + 1}`, x: index, y: 0, actorId: memberId })) },
+    scenarioPackage: input.scenarioPackage || { scenarioId: (input.sessionKind?.scenarioId || createDefaultSessionKind(input.type || 'group', input.mode || 'open_chat').scenarioId), label: (input.sessionKind?.scenarioId || createDefaultSessionKind(input.type || 'group', input.mode || 'open_chat').scenarioId) },
+    judgeAgent: input.judgeAgent || { enabled: (input.sessionKind?.family || createDefaultSessionKind(input.type || 'group', input.mode || 'open_chat').family) === 'board_game', style: 'assistive' },
     layeredGrowth: input.layeredGrowth || { persistentCharacterCores: [], conversationCharacterStates: [] },
-    modeStateSummary: input.modeStateSummary || undefined,
+    modeStateSummary: input.modeStateSummary || { family: (input.sessionKind?.family || createDefaultSessionKind(input.type || 'group', input.mode || 'open_chat').family), scenarioId: (input.sessionKind?.scenarioId || createDefaultSessionKind(input.type || 'group', input.mode || 'open_chat').scenarioId) },
     memoryLayerSummary: input.memoryLayerSummary || deriveSessionMemoryLayerSummary({ mode: input.mode || 'open_chat' }),
     growthSnapshots: input.growthSnapshots || [],
     roleMemorySummaries: input.roleMemorySummaries || [],
-    scenarioMemorySummary: input.scenarioMemorySummary || null,
+    scenarioMemorySummary: input.scenarioMemorySummary || { conversationId: input.id, summary: '' },
     topologySummary: input.topologySummary || defaultTopologySummaryForConversation({ type: input.type || 'group', mode: input.mode || 'open_chat', sessionKind: input.sessionKind }),
     runtimeEvolutionIntensity: input.runtimeEvolutionIntensity || DEFAULT_RUNTIME_EVOLUTION_INTENSITY,
     sourceChatId: input.sourceChatId || null,

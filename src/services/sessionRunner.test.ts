@@ -26,7 +26,7 @@ vi.mock('./sessionActionBus', () => ({
   getAllowedSessionActions: (_engine: unknown, context: { conversation: GroupChat }) => {
     if (context.conversation.mode === 'open_chat') return [{ type: 'speak' }];
     if (context.conversation.mode === 'werewolf') return [{ type: 'wolf_vote' }];
-    return [{ type: 'ask_question' }, { type: 'speak' }];
+    return [{ type: 'ask_question', payload: { prompt: '问题', targetId: 'b' }, targetIds: ['b'] }, { type: 'speak' }];
   },
 }));
 
@@ -57,7 +57,7 @@ vi.mock('./engines/interviewEngine', () => ({
     }),
     resolveTurnPolicy: (context: { conversation: GroupChat }) => ({
       runChat: context.conversation.worldState.phase !== 'idle' && context.conversation.worldState.phase !== 'aligned',
-      runAction: context.conversation.worldState.phase === 'idle' || context.conversation.worldState.phase === 'aligned',
+      runAction: true,
       interleaveAction: false,
     }),
     buildGenerationPromptContext: () => ({ promptPrefix: 'interview' }),
@@ -189,17 +189,13 @@ describe('runSessionLoop', () => {
     expect(chunkCalls.at(-1)).toBe('最终文本');
   });
 
-  it('runs interview non-chat actions before speak', async () => {
-    runSessionActionExecutorMock.mockReturnValue({
-      chatPatch: { worldState: { phase: 'debating', recentEvent: '提问' } },
-      runtimeEvents: [{ eventType: 'interview_turn', title: '执行提问', summary: '提问' }],
-    });
+  it('reports blocked interview actions when no executable schema action is available', async () => {
     const params = buildLoopParams(buildChat({ mode: 'interview', worldState: { phase: 'idle', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
     await runSessionLoop(params as never);
-    expect(runSessionActionExecutorMock).toHaveBeenCalledTimes(1);
+    expect(runSessionActionExecutorMock).not.toHaveBeenCalled();
     expect(runOneRoundMock).not.toHaveBeenCalled();
-    expect(params.updateChat).toHaveBeenCalledTimes(1);
-    expect(params.appendEventMessage).toHaveBeenCalledTimes(1);
+    expect(params.updateChat).not.toHaveBeenCalled();
+    expect(params.onLoopError).toHaveBeenCalled();
   });
 
   it('skips chat ticks when engine policy disallows werewolf speaking', async () => {

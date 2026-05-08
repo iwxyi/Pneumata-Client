@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Chip, Dialog, DialogContent, DialogTitle, Divider, Stack, Typography } from '@mui/material';
+import { Box, Chip, Dialog, DialogContent, DialogTitle, Divider, Stack, Typography, Collapse, Button } from '@mui/material';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import StatChipRow from '../common/StatChipRow';
@@ -49,21 +49,13 @@ function clip(text: string, max = 64) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-function safeNumber(value: number | undefined) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-}
-
 function formatSigned(value: number | undefined) {
-  const safeValue = safeNumber(value);
+  const safeValue = typeof value === 'number' && Number.isFinite(value) ? value : 0;
   return `${safeValue > 0 ? '+' : ''}${Math.round(safeValue)}`;
 }
 
 function formatPairLabel(source: string, target: string) {
   return `${source} ↔ ${target}`;
-}
-
-function buildPairScore(relation: PairSummary['relation']) {
-  return safeNumber(relation.warmth) + safeNumber(relation.competence) + safeNumber(relation.trust) - safeNumber(relation.threat);
 }
 
 function buildPairStatus(score: number) {
@@ -113,17 +105,16 @@ function formatEventKind(kind: RuntimeEventV2['kind']) {
     memory_candidate: '记忆候选',
     artifact: '产物',
     event_candidate: '事件候选',
+    phase_transition: '阶段切换',
+    action_resolution: '动作结算',
+    board_state: '棋盘状态',
+    score_update: '分数更新',
   };
   return labels[kind] || kind;
 }
 
 function formatClusterStage(stage: 'candidate' | 'artifact' | 'effect' | 'opened' | undefined) {
-  const labels: Record<string, string> = {
-    candidate: '候选',
-    artifact: '产物',
-    effect: '回流',
-    opened: '已派生',
-  };
+  const labels: Record<string, string> = { candidate: '候选', artifact: '产物', effect: '回流', opened: '已派生' };
   return stage ? labels[stage] || stage : '事件';
 }
 
@@ -142,6 +133,7 @@ function formatSocialEventKind(kind: string | undefined) {
 
 function buildTimelineTitle(item: ProjectedRuntimeTimelineItem) {
   const cluster = readSocialEventClusterMeta(item);
+  if (cluster?.eventKind === 'pair_private_thread' && cluster.stage === 'opened') return '双人私聊';
   if (cluster) return `${formatSocialEventKind(cluster.eventKind)} · ${formatClusterStage(cluster.stage)}`;
   return item.event ? formatEventKind(item.event.kind) : item.label;
 }
@@ -159,18 +151,17 @@ function buildTimelineMeta(item: ProjectedRuntimeTimelineItem) {
   const memory = readMemoryCandidateMeta(item);
   const candidate = readSocialEventCandidateMeta(item);
   const effect = readSocialEventEffectMeta(item);
-
   if (candidate) return cleanText(`候选 · ${formatSocialEventKind(candidate.eventKind)}`);
   if (effect) return cleanText(`回流 · ${effect.effectType}`);
   if (relation) return cleanText(`关系 · ${relation.reason}`);
-  if (room?.delta?.heat || room?.delta?.cohesion || room?.delta?.topicDrift) {
-    return `热度 ${formatSigned(room.delta?.heat)} / 凝聚 ${formatSigned(room.delta?.cohesion)}`;
-  }
+  if (room?.delta?.heat || room?.delta?.cohesion || room?.delta?.topicDrift) return `热度 ${formatSigned(room.delta?.heat)} / 凝聚 ${formatSigned(room.delta?.cohesion)}`;
   if (memory) return cleanText(`${memory.kind} · ${Math.round(memory.confidence * 100)}%`);
   return null;
 }
 
 function buildTimelineCaption(item: ProjectedRuntimeTimelineItem) {
+  const cluster = readSocialEventClusterMeta(item);
+  if (cluster?.eventKind === 'pair_private_thread' && cluster.stage === 'opened') return null;
   const actors = item.actorNames?.length ? item.actorNames.join('、') : null;
   const targets = item.targetNames?.length ? item.targetNames.join('、') : null;
   if (!actors && !targets) return null;
@@ -184,31 +175,39 @@ function timelineTone(item: ProjectedRuntimeTimelineItem) {
   return 'action.hover';
 }
 
-function buildPairSummaries(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean) {
-  return buildPresentedRelationshipLedger(chat, members)
-    .map((item) => ({
-      key: item.key,
-      source: item.actorName,
-      target: item.targetName,
-      score: item.score,
-      note: item.evidence || '暂无最新证据',
-      relation: item.entry.current,
-      derived: item.entry.derived,
-      ledgerEntry: item.entry,
-    }))
-    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
-    .slice(0, isDeveloperView ? 4 : 3);
+function buildScenarioRows(chat: GroupChat, members: AICharacter[]) {
+  const scenario = chat.scenarioState;
+  if (!scenario) return [];
+  const roleSummary = (scenario.roleAssignments || []).slice(0, 4).map((item) => `${members.find((member) => member.id === item.actorId)?.name || item.actorId}·${item.roleId}`).join(' / ');
+  const factionSummary = (scenario.factions || []).slice(0, 4).map((item) => item.label).join(' / ');
+  const rows = [] as Array<{ key: string; label: string; value: string }>;
+  if (roleSummary) rows.push({ key: 'roles', label: '角色位', value: roleSummary });
+  if (factionSummary) rows.push({ key: 'factions', label: '阵营', value: factionSummary });
+  if (scenario.currentTurnActorId) rows.push({ key: 'currentTurn', label: '当前轮次', value: members.find((item) => item.id === scenario.currentTurnActorId)?.name || scenario.currentTurnActorId });
+  return rows;
 }
 
-function buildRoomRows(chat: GroupChat, members: AICharacter[]) {
-  const room = chat.worldState.structuredRoomState;
-  if (!room) return [];
+function buildBoardRows(chat: GroupChat) {
+  const board = chat.scenarioState?.board;
+  if (!board) return [];
   return [
-    { key: 'heat', label: '热度', value: `${Math.round(room.heat)}` },
-    { key: 'cohesion', label: '凝聚', value: `${Math.round(room.cohesion)}` },
-    { key: 'topicDrift', label: '跑题', value: `${Math.round(room.topicDrift)}` },
-    { key: 'thread', label: '主线程', value: room.dominantThread ? room.dominantThread.map((id) => members.find((item) => item.id === id)?.name || id).join(' ↔ ') : '暂无' },
+    { key: 'boardKind', label: '棋盘', value: board.schema.kind },
+    { key: 'boardSize', label: '尺寸', value: `${board.schema.columns || 0} × ${board.schema.rows || 0}` },
+    { key: 'pieces', label: '棋子', value: `${board.pieces?.length || 0}` },
   ];
+}
+
+function buildOverviewRows(chat: GroupChat & { primaryRecentEvent?: string }, members: AICharacter[]) {
+  const room = chat.worldState.structuredRoomState;
+  const recentEvent = chat.primaryRecentEvent || chat.worldState.recentEvent;
+  const activeThread = room?.dominantThread?.length ? room.dominantThread.map((id) => members.find((item) => item.id === id)?.name || id).join(' ↔ ') : null;
+  const stageLabel = chat.worldState.phase === 'idle' ? '自由聊天' : chat.worldState.phase;
+  return [
+    recentEvent ? { key: 'overview-recent', label: '最近', value: recentEvent } : null,
+    activeThread ? { key: 'overview-thread', label: '主线', value: activeThread } : null,
+    room ? { key: 'overview-room', label: '局势', value: `热度 ${Math.round(room.heat)} / 凝聚 ${Math.round(room.cohesion)}` } : null,
+    { key: 'overview-stage', label: '阶段', value: stageLabel },
+  ].filter(Boolean).slice(0, 3) as Array<{ key: string; label: string; value: string }>;
 }
 
 function buildRoomContext(chat: GroupChat, members: AICharacter[]) {
@@ -220,45 +219,97 @@ function buildRoomContext(chat: GroupChat, members: AICharacter[]) {
   return [...alliances, ...conflicts, ...silenced];
 }
 
+function buildPairSummaries(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean) {
+  return buildPresentedRelationshipLedger(chat, members)
+    .map((item) => ({ key: item.key, source: item.actorName, target: item.targetName, score: item.score, note: item.evidence || '暂无最新证据', relation: item.entry.current, derived: item.entry.derived, ledgerEntry: item.entry }))
+    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
+    .slice(0, isDeveloperView ? 4 : 3);
+}
+
 function buildVisibleMemories(chat: GroupChat, isDeveloperView: boolean) {
   const all = retrieveRelevantMemories((chat.layeredMemories || []) as MemoryItem[], {
     speakerId: chat.memberIds[0] || chat.id,
     targetId: chat.memberIds[1] || null,
     conversationId: chat.id,
-    maxItems: isDeveloperView ? 4 : 2,
+    maxItems: isDeveloperView ? 6 : 3,
+    preferredLayers: ['working', 'episodic', 'long_term'],
+    preferredScopes: ['relationship', 'conversation', 'thread', 'character_self', 'system_runtime'],
   });
-  return isDeveloperView ? all : all.filter((item) => item.layer !== 'working').slice(0, 2);
+  return isDeveloperView ? all : all.filter((item) => item.layer !== 'working').slice(0, 3);
+}
+
+function buildMemoryLayerLabel(layer: MemoryItem['layer']) {
+  const labels: Record<MemoryItem['layer'], string> = { working: '即时', episodic: '阶段', long_term: '长期' };
+  return labels[layer] || layer;
+}
+
+function buildMemoryScopeLabel(scope: MemoryItem['scope']) {
+  const labels: Record<MemoryItem['scope'], string> = { conversation: '会话', character_self: '角色', relationship: '关系', thread: '线程', system_runtime: '系统' };
+  return labels[scope] || scope;
+}
+
+function buildMemoryKindLabel(kind: MemoryItem['kind']) {
+  const labels: Record<MemoryItem['kind'], string> = { decision: '决策', conflict: '冲突', bond: '连接', resentment: '芥蒂', status_shift: '状态', trait_evidence: '特征', bias: '偏向', taboo: '禁忌', obsession: '执念', artifact: '产物', thread_effect: '线程影响' };
+  return labels[kind] || kind;
+}
+
+function buildAdvancedMemoryRows(items: MemoryItem[]) {
+  return items.map((item) => ({ id: item.id, title: `${buildMemoryLayerLabel(item.layer)} · ${buildMemoryKindLabel(item.kind)}`, meta: `${buildMemoryScopeLabel(item.scope)} · 强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`, text: clip(cleanText(item.text), 96) }));
+}
+
+function buildMemorySummaryLine(items: MemoryItem[]) {
+  return items.slice(0, 2).map((item) => clip(cleanText(item.text), 28)).join(' / ');
+}
+
+function buildMemoryPanelState(items: MemoryItem[], expanded: boolean, isDeveloperView: boolean) {
+  const visible = isDeveloperView || items.length > 0;
+  const rows = (expanded || isDeveloperView)
+    ? buildAdvancedMemoryRows(items)
+    : items.slice(0, 2).map((item) => ({ id: item.id, title: `${buildMemoryLayerLabel(item.layer)} · ${buildMemoryKindLabel(item.kind)}`, text: clip(cleanText(item.text), 72) }));
+  return {
+    visible,
+    canExpand: items.length > 1,
+    rows,
+    summary: buildMemorySummaryLine(items),
+    statItems: [items.length ? `${items.length} 条` : '暂无', ...items.slice(0, 3).map((item) => `${buildMemoryLayerLabel(item.layer)}·${buildMemoryKindLabel(item.kind)}`)],
+    emptyText: '暂无明显沉淀',
+    buttonText: expanded ? (isDeveloperView ? '收起调试细节' : '收起') : (isDeveloperView ? '展开调试细节' : '查看更多'),
+    header: {
+      title: isDeveloperView ? '记忆调试' : '记忆与成长',
+      subtitle: items.length ? (isDeveloperView ? `展示 ${items.length} 条结构化记忆` : items.slice(0, 2).map((item) => `${buildMemoryLayerLabel(item.layer)}·${buildMemoryKindLabel(item.kind)}`).join(' / ')) : undefined,
+    },
+  };
+}
+
+function buildMemoryPanelButtonVariant() {
+  return 'text' as const;
+}
+
+function buildMemoryPanelOpenState(isDeveloperView: boolean) {
+  return isDeveloperView;
+}
+
+function buildMemoryPanelRowMeta(item: { meta?: string; text: string; title: string }) {
+  return item.meta || null;
+}
+
+function buildMemoryPanelRowText(item: { text: string; title: string; meta?: string }) {
+  return item.text;
+}
+
+function buildMemoryPanelRowTitle(item: { title: string; text: string; meta?: string }) {
+  return item.title;
 }
 
 function PairDetailDialog({ open, onClose, pair }: { open: boolean; onClose: () => void; pair: PairSummary | null }) {
-  const [activeAxis, setActiveAxis] = useState<string | null>(null);
   if (!pair) return null;
-  const normalizedEntry = normalizeRelationshipLedgerEntry(pair.ledgerEntry);
-  const hasNonZeroRadar = ['warmth', 'competence', 'trust', 'threat'].some((axis) => Math.abs(normalizedEntry.current[axis as keyof typeof normalizedEntry.current]) > 0);
-  const detailChips = [
-    `亲和 ${formatSigned(pair.relation.warmth)}`,
-    `能力 ${formatSigned(pair.relation.competence)}`,
-    `信任 ${formatSigned(pair.relation.trust)}`,
-    `威胁 ${formatSigned(pair.relation.threat)}`,
-  ];
-  const derivedChips = [
-    typeof pair.derived?.stability === 'number' ? `稳定 ${Math.round(pair.derived.stability)}` : null,
-    typeof pair.derived?.salience === 'number' ? `显著 ${Math.round(pair.derived.salience)}` : null,
-    typeof pair.derived?.reciprocity === 'number' ? `对称 ${Math.round(pair.derived.reciprocity)}` : null,
-  ].filter(Boolean) as string[];
-
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{formatPairLabel(pair.source, pair.target)}</DialogTitle>
       <DialogContent>
         <Stack spacing={1.25}>
           <Typography variant="body2">{pair.note}</Typography>
-          {hasNonZeroRadar ? <RelationshipRadar entry={normalizedEntry} onOpenAxis={(axis) => setActiveAxis(axis)} /> : <Typography variant="caption" color="text.secondary">该关系目前还没有形成明显的结构化四轴偏移。</Typography>}
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-            {detailChips.map((chip) => <Chip key={chip} size="small" label={chip} variant="outlined" />)}
-          </Box>
-          {derivedChips.length ? <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>{derivedChips.map((chip) => <Chip key={chip} size="small" label={chip} variant="outlined" />)}</Box> : null}
-          {activeAxis ? <Typography variant="caption" color="text.secondary">轴详情请在成员页关系卡中查看完整原因链。</Typography> : null}
+          <RelationshipRadar entry={normalizeRelationshipLedgerEntry(pair.ledgerEntry)} onOpenAxis={() => undefined} />
         </Stack>
       </DialogContent>
     </Dialog>
@@ -268,31 +319,57 @@ function PairDetailDialog({ open, onClose, pair }: { open: boolean; onClose: () 
 export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }: ChatRuntimePanelProps) {
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'note' | 'artifact' | 'relationship'>('all');
   const [activePairKey, setActivePairKey] = useState<string | null>(null);
+  const [memoryExpanded, setMemoryExpanded] = useState(buildMemoryPanelOpenState(false));
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showSpeechStyle = useSettingsStore((state) => state.developerUI.showSpeechStyle);
+  const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
   const isDeveloperView = developerMode && showDeveloperMemory;
   const isSpeechStyleView = developerMode && showSpeechStyle;
+  const isAdvancedRuntimeView = developerMode && showAdvancedRuntimePanels;
 
   const pairSummaries = useMemo(() => buildPairSummaries(chat, members, isDeveloperView), [chat, members, isDeveloperView]);
-  const roomRows = useMemo(() => buildRoomRows(chat, members), [chat, members]);
+  const roomRows = useMemo(() => buildOverviewRows(chat, members), [chat, members]);
   const roomContext = useMemo(() => buildRoomContext(chat, members), [chat, members]);
   const visibleMemories = useMemo(() => buildVisibleMemories(chat, isDeveloperView), [chat, isDeveloperView]);
   const projectedTimeline = useMemo(() => projectRuntimeTimeline(chat, members), [chat, members]);
   const displayTimeline = useMemo(() => projectedTimeline.filter((item) => timelineFilter === 'all' ? true : timelineFilter === 'artifact' ? item.type === 'artifact' || Boolean(readSocialEventClusterMeta(item)) : item.type === timelineFilter).slice().reverse().slice(0, isDeveloperView ? 8 : 5), [projectedTimeline, timelineFilter, isDeveloperView]);
   const activePair = pairSummaries.find((item) => item.key === activePairKey) || null;
-  const roomSummary = roomRows.slice(0, 3).map((row) => `${row.label} ${cleanText(row.value)}`).join(' / ');
-  const memorySummary = visibleMemories.map((item) => clip(cleanText(item.text), 28)).join(' / ');
+  const roomSummary = roomRows.map((row) => `${row.label} ${cleanText(row.value)}`).join(' / ');
+  const memoryPanel = buildMemoryPanelState(visibleMemories, memoryExpanded, isDeveloperView);
+  const memorySummary = memoryPanel.summary;
+  const structureRows = [...buildScenarioRows(chat, members), ...buildBoardRows(chat)];
 
   return (
     <>
       <PageSection spacing={1.5}>
         <SurfaceCard>
           <SectionHeader title="运行概览" dense />
-          <Typography variant="body2">{roomSummary || '暂无结构化房间态势'}</Typography>
-          {memorySummary ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{memorySummary}</Typography> : null}
-          {roomContext.length ? <Box sx={{ mt: 0.75 }}><StatChipRow items={roomContext.slice(0, 1).map((chip) => cleanText(chip))} /></Box> : null}
+          <Stack spacing={0.8}>
+            {roomRows.length ? roomRows.map((row) => (
+              <Box key={row.key} sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: 'action.hover' }}>
+                <Typography variant="caption" color="text.secondary">{row.label}</Typography>
+                <Typography variant="body2" sx={{ mt: 0.2 }}>{cleanText(row.value)}</Typography>
+              </Box>
+            )) : <Typography variant="body2">暂无结构化房间态势</Typography>}
+            {memorySummary ? <Typography variant="caption" color="text.secondary">{memorySummary}</Typography> : null}
+            {roomContext.length ? <StatChipRow items={roomContext.slice(0, 1).map((chip) => cleanText(chip))} /> : null}
+          </Stack>
         </SurfaceCard>
+
+        {structureRows.length ? (
+          <SurfaceCard>
+            <SectionHeader title="场景结构" dense />
+            <Stack spacing={0.8}>
+              {structureRows.map((row) => (
+                <Box key={row.key} sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: 'action.hover' }}>
+                  <Typography variant="caption" color="text.secondary">{row.label}</Typography>
+                  <Typography variant="body2" sx={{ mt: 0.2 }}>{cleanText(row.value)}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          </SurfaceCard>
+        ) : null}
 
         <Divider flexItem />
 
@@ -322,17 +399,10 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
         <SurfaceCard>
           <SectionHeader title={`事件时间线${displayTimeline.length ? ` · ${displayTimeline.length}` : ''}`} dense />
           <Box sx={{ mb: 1 }}>
-            <StatChipRow items={[
-              timelineFilter === 'all' ? '全部' : timelineFilter === 'relationship' ? '关系' : timelineFilter === 'artifact' ? '社交' : (isDeveloperView ? '记忆' : '沉淀'),
-            ]} />
+            <StatChipRow items={[timelineFilter === 'all' ? '全部' : timelineFilter === 'relationship' ? '关系' : timelineFilter === 'artifact' ? '社交' : (isDeveloperView ? '记忆' : '沉淀')]} />
           </Box>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mb: 1 }}>
-            {[
-              ['all', '全部'],
-              ['relationship', '关系'],
-              ['artifact', '社交'],
-              ['note', isDeveloperView ? '记忆' : '沉淀'],
-            ].map(([value, label]) => (
+            {[['all', '全部'], ['relationship', '关系'], ['artifact', '社交'], ['note', isDeveloperView ? '记忆' : '沉淀']].map(([value, label]) => (
               <Chip key={value} size="small" label={label} color={timelineFilter === value ? 'primary' : 'default'} variant={timelineFilter === value ? 'filled' : 'outlined'} onClick={() => setTimelineFilter(value as 'all' | 'note' | 'artifact' | 'relationship')} />
             ))}
           </Box>
@@ -356,20 +426,40 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
           ) : <Typography variant="body2" color="text.secondary">暂无关键事件</Typography>}
         </SurfaceCard>
 
-        {(isDeveloperView || visibleMemories.length > 0) ? (
+        {memoryPanel.visible ? (
           <SurfaceCard>
-            <SectionHeader title={isDeveloperView ? '记忆调试' : '关键记忆'} dense />
-            {visibleMemories.length ? (
+            <SectionHeader title={memoryPanel.header.title} subtitle={memoryPanel.header.subtitle} dense action={<Chip size="small" label="调试" color="warning" variant="outlined" />} />
+            {memoryPanel.statItems.length ? <Box sx={{ mb: 1 }}><StatChipRow items={memoryPanel.statItems} /></Box> : null}
+            {memoryPanel.rows.length ? (
               <Stack spacing={0.85}>
-                {visibleMemories.map((item) => (
+                {memoryPanel.rows.map((item) => (
                   <Box key={item.id} sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'action.hover' }}>
-                    <Typography variant="body2">{clip(cleanText(item.text), 72)}</Typography>
-                    {isDeveloperView ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{`强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`}</Typography> : null}
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{buildMemoryPanelRowTitle(item)}</Typography>
+                    <Typography variant="body2" sx={{ mt: 0.2 }}>{buildMemoryPanelRowText(item)}</Typography>
+                    {buildMemoryPanelRowMeta(item) ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{buildMemoryPanelRowMeta(item)}</Typography> : null}
                   </Box>
                 ))}
               </Stack>
-            ) : <Typography variant="body2" color="text.secondary">暂无明显沉淀</Typography>}
+            ) : <Typography variant="body2" color="text.secondary">{memoryPanel.emptyText}</Typography>}
+            {memoryPanel.canExpand ? <Box sx={{ mt: 1 }}><Button size="small" variant={buildMemoryPanelButtonVariant()} onClick={() => setMemoryExpanded((current) => isDeveloperView ? true : !current)}>{memoryPanel.buttonText}</Button></Box> : null}
           </SurfaceCard>
+        ) : null}
+
+        {isAdvancedRuntimeView ? (
+          <Collapse in={memoryExpanded || isDeveloperView}>
+            <SurfaceCard>
+              <SectionHeader title="高级运行视图" subtitle="展示多层记忆、结构化事件与私有视角的调试信息。" dense action={<Chip size="small" label="调试" color="warning" variant="outlined" />} />
+              <Stack spacing={0.85}>
+                {buildAdvancedMemoryRows(visibleMemories).map((item) => (
+                  <Box key={item.id} sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'action.hover' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{item.title}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.2 }}>{item.meta}</Typography>
+                    <Typography variant="body2" sx={{ mt: 0.25 }}>{item.text}</Typography>
+                  </Box>
+                ))}
+              </Stack>
+            </SurfaceCard>
+          </Collapse>
         ) : null}
 
         {privatePayloads.length ? <PrivatePayloadPanel payloads={privatePayloads} /> : null}

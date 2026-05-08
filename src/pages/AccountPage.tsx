@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Avatar, Box, Button, Card, CardContent, Snackbar, Alert, TextField, Typography, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useLayoutHeaderActions } from '../components/layout/AppLayout';
+import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useAuthStore } from '../stores/useAuthStore';
 import { isImageAvatar as isImageAvatarValue } from '../utils/avatar';
 import { useChatStore } from '../stores/useChatStore';

@@ -41,6 +41,7 @@ export function useHotTopicDialog(params: {
   setTopic: (value: string) => void;
   setStyle: (value: ChatStyle) => void;
   setSelectedMembers: React.Dispatch<React.SetStateAction<string[]>>;
+  addCharacters: (chars: Array<Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>>) => Promise<AICharacter[]>;
   maxMembers: number;
   onError: (message: string) => void;
   setSnackbar: React.Dispatch<React.SetStateAction<{ open: boolean; message: string; severity: 'success' | 'error' }>>;
@@ -288,21 +289,17 @@ export function useHotTopicDialog(params: {
       const createdIds: string[] = [];
       await runInBatches(queue, BATCH_GENERATE_GROUP_SIZE, async (batch) => {
         const payloads = await Promise.all(batch.map((candidate) => buildCharacterCreatePayload(candidate.name, candidate.description, activeConfig)));
-        const result = await backendApi.createCharactersBatch(payloads);
-        const createdCharacters = (result.characters || []) as Array<{ id: string; name: string; background?: string; speakingStyle?: string }>;
+        const createdCharacters = await params.addCharacters(payloads);
         if (!createdCharacters.length) return;
         createdIds.push(...createdCharacters.map((character) => character.id));
         if (params.autoGenerateCharacterAvatar) {
           enqueueAvatarGenerationForCharacters(
-            createdCharacters.map((character) => {
-              const fallback = payloads.find((item) => item.name === character.name);
-              return {
-                id: character.id,
-                name: character.name,
-                background: character.background || fallback?.background || '',
-                speakingStyle: character.speakingStyle || fallback?.speakingStyle || '',
-              };
-            }),
+            createdCharacters.map((character) => ({
+              id: character.id,
+              name: character.name,
+              background: character.background || '',
+              speakingStyle: character.speakingStyle || '',
+            })),
             params.aiProfiles,
             isZh ? 'zh' : 'en',
           );

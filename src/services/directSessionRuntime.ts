@@ -2,9 +2,10 @@ import type { AICharacter } from '../types/character';
 import type { ConversationPhase, GroupChat } from '../types/chat';
 import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
 import type { SessionActionExecutionResult } from '../types/sessionEngine';
+import { createDefaultConversationFrameworkPatch, mergeSessionChatPatch } from '../types/sessionEngine';
 import { DEFAULT_CONVERSATION_WORLD_STATE } from '../types/chat';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
-import { updateCharacterRelationship, summarizeRelationshipShift } from './relationshipEngine';
+import { updateCharacterRelationship } from './relationshipEngine';
 import { deriveEmotionalState, derivePersonalityDrift } from './personalityDrift';
 import { updateCharacterLayeredMemories } from './characterLayeredMemory';
 import { accumulateCharacterRuntime } from './characterRuntime';
@@ -13,6 +14,27 @@ import { createProjectionContext, projectRuntimeState } from './sessionProjectio
 import { openChatEngine } from './engines/openChatEngine';
 import { getRelationshipLedgerEntry } from './relationshipLedger';
 import { calculateRoomShift } from './roomStateSynthesizer';
+import { resolveSessionEngine } from './sessionEngineRegistry';
+import { buildThreadRef, getVisibilityChannelId } from './sessionTopology';
+
+function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
+  const engine = resolveSessionEngine(chat);
+  return mergeSessionChatPatch(engine, chat, {
+    ...createDefaultConversationFrameworkPatch(chat),
+    ...patch,
+  });
+}
+
+function createConversationThreadFrameworkPatch(sourceChat: GroupChat, memberIds: string[]) {
+  const conversation = {
+    ...sourceChat,
+    type: 'ai_direct' as const,
+    memberIds,
+    sessionKind: { topology: 'thread' as const, family: 'conversation' as const, scenarioId: 'ai-private-thread', surfaceProfile: 'text' as const },
+    channels: [{ channelId: 'public', visibility: 'pair_private' as const, label: 'Private Thread', actorIds: memberIds }],
+  } as GroupChat;
+  return createDefaultConversationFrameworkPatch(conversation);
+}
 
 function createRuntimeEventV2(params: {
   conversationId: string;
@@ -22,6 +44,10 @@ function createRuntimeEventV2(params: {
   actorIds?: string[];
   targetIds?: string[];
   visibility?: RuntimeEventV2['visibility'];
+  channelId?: string;
+  causedByIntentId?: string;
+  threadRef?: string;
+  eventClass?: RuntimeEventV2['eventClass'];
 }) {
   return {
     id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -31,6 +57,10 @@ function createRuntimeEventV2(params: {
     actorIds: params.actorIds,
     targetIds: params.targetIds,
     summary: params.summary,
+    channelId: params.channelId || getVisibilityChannelId(params.visibility),
+    causedByIntentId: params.causedByIntentId,
+    threadRef: params.threadRef || buildThreadRef(undefined, params.conversationId),
+    eventClass: params.eventClass || (params.kind === 'artifact' ? 'artifact' : params.kind === 'room_shift' ? 'phase' : 'message'),
     visibility: params.visibility || 'public',
     payload: params.payload,
   } satisfies RuntimeEventV2;
@@ -111,12 +141,13 @@ function buildPrivateThreadEffectEvents(sourceChat: GroupChat, starterId: string
       payload: shiftedRoom.shift,
     }),
     nextStructuredRoomState: shiftedRoom.nextState,
+    currentLedger,
   };
 }
 
 function updateSourceChatAfterPrivateThread(sourceChat: GroupChat, starterId: string, targetId: string, starterName: string, targetName: string, summary: string) {
   const { effectEvent, summaryEvent, roomShiftEvent, nextStructuredRoomState } = buildPrivateThreadEffectEvents(sourceChat, starterId, targetId, summary);
-  return {
+  return withFrameworkPatch(sourceChat, {
     lastMessageAt: Date.now(),
     runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [effectEvent, summaryEvent, roomShiftEvent]),
     worldState: {
@@ -127,7 +158,7 @@ function updateSourceChatAfterPrivateThread(sourceChat: GroupChat, starterId: st
     },
     ...accumulateChatRuntime(sourceChat, { type: 'event', content: buildPrivateThreadRecentEvent(starterName, targetName, summary) }),
     runtimeSeed: mergeRuntimeSeedWithSummary(sourceChat, buildPrivateThreadPublicSummary(starterName, targetName, summary)),
-  };
+  });
 }
 
 function buildPostMomentSummary(actorName: string, payload: SocialEventCandidatePayload) {
@@ -210,7 +241,7 @@ function buildPostMomentEffectEvents(sourceChat: GroupChat, payload: SocialEvent
 
 export function updateSourceChatAfterPostMoment(sourceChat: GroupChat, payload: SocialEventCandidatePayload, actorName: string) {
   const { effectEvent, memoryEvent, artifactEvent, roomShiftEvent, nextStructuredRoomState, publicSummary } = buildPostMomentEffectEvents(sourceChat, payload, actorName);
-  return {
+  return withFrameworkPatch(sourceChat, {
     lastMessageAt: Date.now(),
     runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [effectEvent, memoryEvent, artifactEvent, roomShiftEvent]),
     worldState: {
@@ -221,7 +252,7 @@ export function updateSourceChatAfterPostMoment(sourceChat: GroupChat, payload: 
     },
     ...accumulateChatRuntime(sourceChat, { type: 'event', content: publicSummary }),
     runtimeSeed: mergeRuntimeSeedWithSummary(sourceChat, publicSummary),
-  };
+  });
 }
 
 export function buildSocialOutingEffectEvents(sourceChat: GroupChat, payload: SocialEventCandidatePayload, actorNames: string[]) {
@@ -302,7 +333,7 @@ export function buildSocialOutingEffectEvents(sourceChat: GroupChat, payload: So
 
 export function updateSourceChatAfterSocialOuting(sourceChat: GroupChat, payload: SocialEventCandidatePayload, actorNames: string[]) {
   const { effectEvent, memoryEvent, artifactEvent, roomShiftEvent, nextStructuredRoomState, publicSummary } = buildSocialOutingEffectEvents(sourceChat, payload, actorNames);
-  return {
+  return withFrameworkPatch(sourceChat, {
     lastMessageAt: Date.now(),
     runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [effectEvent, memoryEvent, artifactEvent, roomShiftEvent]),
     worldState: {
@@ -313,7 +344,7 @@ export function updateSourceChatAfterSocialOuting(sourceChat: GroupChat, payload
     },
     ...accumulateChatRuntime(sourceChat, { type: 'event', content: publicSummary }),
     runtimeSeed: mergeRuntimeSeedWithSummary(sourceChat, publicSummary),
-  };
+  });
 }
 
 function isPrivateThreadOpenedArtifact(event: RuntimeEventV2) {
@@ -457,7 +488,7 @@ export function updateSourceChatAfterStatusUpdate(sourceChat: GroupChat, payload
     visibility: 'derived_public',
     payload: shiftedRoom.shift,
   });
-  return {
+  return withFrameworkPatch(sourceChat, {
     lastMessageAt: Date.now(),
     runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [effectEvent, memoryEvent, artifactEvent, roomShiftEvent]),
     worldState: {
@@ -468,7 +499,7 @@ export function updateSourceChatAfterStatusUpdate(sourceChat: GroupChat, payload
     },
     ...accumulateChatRuntime(sourceChat, { type: 'event', content: summary }),
     runtimeSeed: mergeRuntimeSeedWithSummary(sourceChat, summary),
-  };
+  });
 }
 
 function findLatestAutoSocialOutingCandidate(chat: GroupChat) {
@@ -560,7 +591,7 @@ export function updateSourceChatAfterGiftExchange(sourceChat: GroupChat, payload
     visibility: 'derived_public',
     payload: shiftedRoom.shift,
   });
-  return {
+  return withFrameworkPatch(sourceChat, {
     lastMessageAt: Date.now(),
     runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [effectEvent, memoryEvent, artifactEvent, roomShiftEvent]),
     worldState: {
@@ -571,7 +602,7 @@ export function updateSourceChatAfterGiftExchange(sourceChat: GroupChat, payload
     },
     ...accumulateChatRuntime(sourceChat, { type: 'event', content: summary }),
     runtimeSeed: mergeRuntimeSeedWithSummary(sourceChat, summary),
-  };
+  });
 }
 
 export function updateSourceChatAfterConflictExpression(sourceChat: GroupChat, payload: SocialEventCandidatePayload, actorName: string) {
@@ -639,7 +670,7 @@ export function updateSourceChatAfterConflictExpression(sourceChat: GroupChat, p
     visibility: 'derived_public',
     payload: shiftedRoom.shift,
   });
-  return {
+  return withFrameworkPatch(sourceChat, {
     lastMessageAt: Date.now(),
     runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [effectEvent, memoryEvent, artifactEvent, roomShiftEvent]),
     worldState: {
@@ -650,12 +681,8 @@ export function updateSourceChatAfterConflictExpression(sourceChat: GroupChat, p
     },
     ...accumulateChatRuntime(sourceChat, { type: 'event', content: summary }),
     runtimeSeed: mergeRuntimeSeedWithSummary(sourceChat, summary),
-  };
+  });
 }
-
-void findLatestAutoSocialOutingCandidate;
-void findLatestAutoGiftExchangeCandidate;
-void findLatestAutoConflictExpressionCandidate;
 
 export async function applyAiDirectFeedback(params: {
   chat: GroupChat;
@@ -751,7 +778,7 @@ export function buildPrivateThreadOpenedEvent(chat: GroupChat, candidateEvent: R
   return createRuntimeEventV2({
     conversationId: chat.id,
     kind: 'artifact',
-    summary: `${payload.participantIds[0]} 与 ${payload.participantIds[1]} 的双人私聊已自动派生`,
+    summary: '已自动派生双人私聊',
     actorIds: [payload.initiatorId],
     targetIds: payload.participantIds,
     visibility: 'derived_public',
@@ -790,9 +817,9 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
       appendEventMessage: ops.appendEventMessage,
     });
     if (privateChat) {
-      await ops.updateChat(sourceChat.id, {
+      await ops.updateChat(sourceChat.id, withFrameworkPatch(sourceChat, {
         runtimeEventsV2: [...(sourceChat.runtimeEventsV2 || []), buildPrivateThreadOpenedEvent(sourceChat, pairCandidate)].slice(-160),
-      });
+      }));
       return { privateChatId: privateChat.id, handledEventId: pairCandidate.id };
     }
   }
@@ -843,12 +870,12 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
 export function buildStartPrivateThreadExecutionResult(chat: GroupChat, actorId: string, targetId: string, prompt = ''): SessionActionExecutionResult {
   const summary = `发起私聊：${actorId} → ${targetId}${prompt ? ` · ${prompt.slice(0, 32)}` : ''}`;
   return {
-    chatPatch: {
+    chatPatch: withFrameworkPatch(chat, {
       worldState: {
         ...chat.worldState,
         recentEvent: summary,
       },
-    },
+    }),
     runtimeEvents: [{
       eventType: 'start_private_thread',
       title: '执行了私聊派生动作',
@@ -899,9 +926,24 @@ export async function createAiPrivateThread(params: {
 
 export function buildAiPrivateChatDraft(sourceChat: GroupChat, starter: AICharacter, target: AICharacter): Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'> {
   const phase: ConversationPhase = 'warming';
+  const frameworkPatch = createConversationThreadFrameworkPatch(sourceChat, [starter.id, target.id]);
   return {
     type: 'ai_direct' as const,
     mode: 'open_chat' as const,
+    sessionKind: frameworkPatch.sessionKind,
+    modeConfig: sourceChat.modeConfig,
+    modeState: sourceChat.modeState,
+    scenarioPackage: frameworkPatch.scenarioPackage,
+    scenarioState: frameworkPatch.scenarioState,
+    channels: frameworkPatch.channels,
+    layoutState: frameworkPatch.layoutState,
+    judgeAgent: frameworkPatch.judgeAgent,
+    modeStateSummary: frameworkPatch.modeStateSummary,
+    memoryLayerSummary: frameworkPatch.memoryLayerSummary,
+    growthSnapshots: frameworkPatch.growthSnapshots,
+    roleMemorySummaries: frameworkPatch.roleMemorySummaries,
+    scenarioMemorySummary: frameworkPatch.scenarioMemorySummary,
+    topologySummary: frameworkPatch.topologySummary,
     name: `${starter.name} × ${target.name}`,
     topic: `${starter.name} 和 ${target.name} 的AI私聊`,
     style: 'free' as const,
@@ -911,8 +953,6 @@ export function buildAiPrivateChatDraft(sourceChat: GroupChat, starter: AICharac
     isActive: false,
     allowIntervention: true,
     showRoleActions: true,
-    modeConfig: sourceChat.modeConfig,
-    modeState: sourceChat.modeState,
     topicSeed: '',
     sourceChatId: sourceChat.id,
     sourceMemberIds: [starter.id, target.id],

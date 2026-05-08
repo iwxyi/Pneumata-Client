@@ -5,7 +5,7 @@ import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { SessionGenerationPromptContext } from '../types/sessionEngine';
 import { getPreferredAIProfile } from '../types/settings';
 import type { InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
-import { generateResponse } from './aiClient';
+import { generateJsonResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildChatMessages } from './promptBuilder';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
@@ -194,8 +194,10 @@ function resolveApiConfigForCharacter(character: AICharacter, apiConfig: APIConf
 
 function toInteractionPayload(hint: { targetId?: string | null; kind?: InteractionEventPayload['kind']; tone?: InteractionEventPayload['tone']; intensity?: number; confidence?: number } | null, speakerId: string, content: string): InteractionEventPayload | null {
   if (!hint?.targetId || !hint.kind || hint.kind === 'side_comment') return null;
-  const intensity = Math.max(1, Math.min(5, Number(hint.intensity || 0)));
-  const confidence = Math.max(0, Math.min(1, Number(hint.confidence || 0)));
+  const rawIntensity = Number(hint.intensity || 0);
+  const rawConfidence = Number(hint.confidence || 0);
+  const intensity = Math.max(1, Math.min(5, rawIntensity > 5 ? Math.round(rawIntensity / 20) : rawIntensity));
+  const confidence = Math.max(0, Math.min(1, rawConfidence > 1 ? rawConfidence / 100 : rawConfidence));
   return {
     actorId: speakerId,
     targetId: hint.targetId,
@@ -214,7 +216,10 @@ export const runOneRound = async (
   apiConfig: APIConfig | AIModelProfile[],
   callbacks: ChatEngineCallbacks,
   profiles?: AIModelProfile[],
-  generationContext?: { promptContext?: SessionGenerationPromptContext | null }
+  generationContext?: {
+    promptContext?: SessionGenerationPromptContext | null;
+    buildPromptContext?: (speaker: AICharacter) => SessionGenerationPromptContext | null | undefined;
+  }
 ): Promise<void> => {
   const chatMembers = characters.filter((c) => chat.memberIds.includes(c.id));
   if (chatMembers.length === 0) {
@@ -242,7 +247,7 @@ export const runOneRound = async (
   const recentText = activeMessages.at(-1)?.content || '';
   const intent = deriveSpeakIntentFromContext(speaker, recentTargetId, recentText);
   const characterMap = new Map(chatMembers.map((c) => [c.id, c]));
-  const enginePromptContext = generationContext?.promptContext;
+  const enginePromptContext = generationContext?.buildPromptContext?.(speaker) || generationContext?.promptContext;
   const promptPrefix = enginePromptContext?.promptPrefix ? `${enginePromptContext.promptPrefix.trim()}\n\n` : '';
   const promptSuffix = enginePromptContext?.promptSuffix ? `\n\n${enginePromptContext.promptSuffix.trim()}` : '';
   const additionalConstraints = enginePromptContext?.additionalConstraints?.length
@@ -260,7 +265,7 @@ Current speaking intent:
 
   try {
     const resolvedApi = resolveApiConfigForCharacter(speaker, apiConfig, profiles);
-    const response = await generateResponse(resolvedApi, systemPrompt, chatMessages);
+    const response = await generateJsonResponse(resolvedApi, systemPrompt, chatMessages);
     const parsedEnvelope = parseInlineInteractionEnvelope(response);
     const rawContent = parsedEnvelope?.content || response;
     const finalResponse = finalizeResponse(rawContent, intent, speaker, activeMessages, chat.showRoleActions);

@@ -9,16 +9,14 @@ import {
   Divider,
   Tooltip,
 } from '@mui/material';
-import {
-  Home as HomeIcon,
-  Chat as ChatIcon,
-  Person as PersonIcon,
-  Settings as SettingsIcon,
-  SmartToy as ModelsIcon,
-  AccountCircle as AccountIcon,
-  ChevronLeft as CollapseIcon,
-  ChevronRight as ExpandIcon,
-} from '@mui/icons-material';
+import HomeIcon from '@mui/icons-material/Home';
+import ChatIcon from '@mui/icons-material/Chat';
+import PersonIcon from '@mui/icons-material/Person';
+import SettingsIcon from '@mui/icons-material/Settings';
+import ModelsIcon from '@mui/icons-material/SmartToy';
+import AccountIcon from '@mui/icons-material/AccountCircle';
+import CollapseIcon from '@mui/icons-material/ChevronLeft';
+import ExpandIcon from '@mui/icons-material/ChevronRight';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useResponsive } from '../../hooks/useResponsive';

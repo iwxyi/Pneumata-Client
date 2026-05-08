@@ -157,7 +157,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
   return (
     <PageSection spacing={2}>
       <SurfaceCard>
-        <SectionHeader title="运行态观察" dense />
+        <SectionHeader title="运行态观察" dense action={isDeveloperView ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
         <Typography variant="body2" color="text.secondary">{isDeveloperView ? '这里展示角色运行后逐渐沉淀出来的完整运行态与记忆调试信息。' : (memorySummary || '这里展示角色运行后逐渐沉淀下来的关键线索。')}</Typography>
         {!isDeveloperView ? <Box sx={{ mt: 1 }}><StatChipRow items={[
           relationships[0] ? `关系 ${relationships[0].warmth + relationships[0].competence + relationships[0].trust >= relationships[0].threat + 100 ? '升温' : '紧张'}` : '',

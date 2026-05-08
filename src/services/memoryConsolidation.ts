@@ -10,8 +10,22 @@ function sameBucket(item: MemoryItem, candidate: MemoryCandidate) {
   return item.scope === candidate.scope && item.kind === candidate.kind && item.ownerId === candidate.ownerId && sameSubjects;
 }
 
+function nextLayerForCandidate(candidate: MemoryCandidate, reinforcementCount: number) {
+  if (candidate.layerHint === 'working' && reinforcementCount >= 2) return 'episodic' as const;
+  if (candidate.layerHint === 'episodic' && reinforcementCount >= 3) return 'long_term' as const;
+  return candidate.layerHint;
+}
+
+function decayExistingMemory(item: MemoryItem): MemoryItem {
+  return {
+    ...item,
+    recency: Math.max(0.1, item.recency * 0.92),
+    archivedAt: item.recency < 0.12 && item.layer === 'working' ? (item.archivedAt || Date.now()) : item.archivedAt,
+  };
+}
+
 export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: MemoryCandidate[]) {
-  const next = [...existing];
+  const next = existing.map((item) => decayExistingMemory(item));
   const now = Date.now();
 
   for (const candidate of candidates) {
@@ -21,15 +35,18 @@ export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: 
     const existingIndex = next.findIndex((item) => sameBucket(item, candidate));
     if (existingIndex >= 0) {
       const item = next[existingIndex];
+      const reinforcementCount = item.reinforcementCount + 1;
       next[existingIndex] = {
         ...item,
         text: candidate.text.length >= item.text.length ? candidate.text : item.text,
         salience: Math.max(item.salience, score),
         confidence: Math.min(1, (item.confidence || 0.5) + 0.08),
         recency: 1,
-        reinforcementCount: item.reinforcementCount + 1,
+        reinforcementCount,
+        layer: nextLayerForCandidate(candidate, reinforcementCount),
         sourceEventIds: Array.from(new Set([...item.sourceEventIds, ...candidate.sourceEventIds])).slice(-8),
         updatedAt: now,
+        archivedAt: null,
       };
       continue;
     }

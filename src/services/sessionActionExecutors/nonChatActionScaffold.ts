@@ -1,6 +1,7 @@
 import type { GroupChat } from '../../types/chat';
 import type { SessionActionDefinition, SessionActionExecutionResult } from '../../types/sessionEngine';
 import { buildStartPrivateThreadExecutionResult } from '../directSessionRuntime';
+import { buildActionRuntimeContract } from '../sessionRuntimeContract';
 
 function truncate(text: string, maxLength: number) {
   const normalized = text.trim();
@@ -16,7 +17,7 @@ function getTargetLabel(chat: GroupChat, action: SessionActionDefinition) {
   return ` → 对象#${index + 1}`;
 }
 
-function buildActionResult(chat: GroupChat, title: string, summary: string, eventType = 'session_action_scaffold', metrics?: unknown): SessionActionExecutionResult {
+function buildActionResult(chat: GroupChat, action: SessionActionDefinition, title: string, summary: string, eventType = 'session_action_scaffold', metrics?: unknown): SessionActionExecutionResult {
   return {
     chatPatch: {
       worldState: {
@@ -24,12 +25,13 @@ function buildActionResult(chat: GroupChat, title: string, summary: string, even
         recentEvent: summary,
       },
     },
-    runtimeEvents: [{
+    runtimeEvents: [buildActionRuntimeContract(chat, action.type, action.payload || {}, action.actorId, {
       eventType,
       title,
       summary,
       metrics,
-    }],
+      visibilityScope: action.visibility || 'public',
+    })],
   };
 }
 
@@ -63,7 +65,7 @@ function buildPhasePatch(chat: GroupChat, phase: GroupChat['worldState']['phase'
 
 function handleAskQuestion(chat: GroupChat, action: SessionActionDefinition) {
   const summary = `提问${getTargetLabel(chat, action)}：${truncate(getPrompt(action), 48)}`;
-  return buildActionResult(chat, '面试官发起提问', summary, 'interview_question', {
+  return buildActionResult(chat, action, '面试官发起提问', summary, 'interview_question', {
     targetIds: action.targetIds || [],
     round: action.payload?.round,
   });
@@ -72,7 +74,7 @@ function handleAskQuestion(chat: GroupChat, action: SessionActionDefinition) {
 function handleDirectorIntervention(chat: GroupChat, action: SessionActionDefinition) {
   const prompt = getPrompt(action);
   const summary = prompt ? `导演推进：${truncate(prompt, 48)}` : '执行了导演推进';
-  return buildActionResult(chat, '面试阶段推进', summary, 'interview_phase_control', {
+  return buildActionResult(chat, action, '面试阶段推进', summary, 'interview_phase_control', {
     prompt,
   });
 }
@@ -88,7 +90,7 @@ function handleWolfVote(chat: GroupChat, action: SessionActionDefinition) {
   const summary = `狼人夜晚刀口${getTargetLabel(chat, action)}${prompt ? `：${truncate(prompt, 32)}` : ''}`;
   return {
     chatPatch: buildPhasePatch(chat, 'debating', summary),
-    runtimeEvents: [{ eventType: 'werewolf_night_action', title: '狼人夜晚袭击结算', summary, metrics: { targetIds: action.targetIds || [], prompt } }],
+    runtimeEvents: [buildActionRuntimeContract(chat, action.type, action.payload || {}, action.actorId, { eventType: 'werewolf_night_action', title: '狼人夜晚袭击结算', summary, metrics: { targetIds: action.targetIds || [], prompt }, visibilityScope: action.visibility || 'pair_private' })],
   };
 }
 
@@ -96,7 +98,7 @@ function handleInspectPlayer(chat: GroupChat, action: SessionActionDefinition) {
   const summary = `预言家查验${getTargetLabel(chat, action)}`;
   return {
     chatPatch: buildPhasePatch(chat, 'debating', summary),
-    runtimeEvents: [{ eventType: 'werewolf_inspection', title: '预言家夜晚查验', summary, metrics: { targetIds: action.targetIds || [] } }],
+    runtimeEvents: [buildActionRuntimeContract(chat, action.type, action.payload || {}, action.actorId, { eventType: 'werewolf_inspection', title: '预言家夜晚查验', summary, metrics: { targetIds: action.targetIds || [] }, visibilityScope: action.visibility || 'role_private' })],
   };
 }
 
@@ -105,7 +107,7 @@ function handleVotePlayer(chat: GroupChat, action: SessionActionDefinition) {
   const summary = `白天投票${getTargetLabel(chat, action)}${prompt ? `：${truncate(prompt, 32)}` : ''}`;
   return {
     chatPatch: buildPhasePatch(chat, 'aligned', summary),
-    runtimeEvents: [{ eventType: 'werewolf_vote', title: '白天投票推进', summary, metrics: { targetIds: action.targetIds || [], prompt } }],
+    runtimeEvents: [buildActionRuntimeContract(chat, action.type, action.payload || {}, action.actorId, { eventType: 'werewolf_vote', title: '白天投票推进', summary, metrics: { targetIds: action.targetIds || [], prompt }, visibilityScope: action.visibility || 'public' })],
   };
 }
 

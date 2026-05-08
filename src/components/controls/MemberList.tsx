@@ -1,7 +1,8 @@
-import { Box, Typography, Avatar, IconButton, Menu, MenuItem, List, ListItem, ListItemAvatar, ListItemText, Chip, Stack } from '@mui/material';
+import { Box, Typography, Avatar, IconButton, Menu, MenuItem, List, ListItem, ListItemAvatar, Chip, Stack, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
 import { isImageAvatar } from '../../utils/avatar';
-import { MoreVert as MoreIcon } from '@mui/icons-material';
-import { useState } from 'react';
+import { MoreVert as MoreIcon, DragIndicator as DragIndicatorIcon } from '@mui/icons-material';
+import { useEffect, useMemo, useState } from 'react';
+import SortableList from '../common/SortableList';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
@@ -12,6 +13,7 @@ interface MemberListProps {
   chat?: GroupChat;
   onRemove?: (id: string) => void;
   onSpeakAs?: (id: string) => void;
+  onUpdateSeats?: (memberIds: string[]) => void;
 }
 
 function buildMemberStatus(member: AICharacter) {
@@ -27,20 +29,66 @@ function buildMemberSubtitle(member: AICharacter, thinkingId: string | null, thi
   return member.expertise.slice(0, 2).join(', ');
 }
 
-export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs }: MemberListProps) {
+export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onUpdateSeats }: MemberListProps) {
   const { t } = useTranslation();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [menuCharId, setMenuCharId] = useState<string | null>(null);
+  const [seatDialogOpen, setSeatDialogOpen] = useState(false);
 
-  void chat;
+  const resolvedSeatOrder = useMemo(() => {
+    const orderedSeatIds = chat?.scenarioState?.seats
+      ?.slice()
+      .sort((a, b) => a.seatIndex - b.seatIndex)
+      .map((item) => item.actorId || '')
+      .filter(Boolean);
+
+    if (orderedSeatIds?.length) {
+      const memberIds = new Set(members.map((member) => member.id));
+      const normalizedSeatIds = orderedSeatIds.filter((id) => memberIds.has(id));
+      const missingMemberIds = members.map((member) => member.id).filter((id) => !normalizedSeatIds.includes(id));
+      return [...normalizedSeatIds, ...missingMemberIds];
+    }
+
+    return members.map((member) => member.id);
+  }, [chat?.scenarioState?.seats, members]);
+
+  const [seatOrder, setSeatOrder] = useState<string[]>(resolvedSeatOrder);
+
+  useEffect(() => {
+    if (seatDialogOpen) return;
+    setSeatOrder((current) => {
+      if (current.length === resolvedSeatOrder.length && current.every((id, index) => id === resolvedSeatOrder[index])) {
+        return current;
+      }
+      return resolvedSeatOrder;
+    });
+  }, [resolvedSeatOrder, seatDialogOpen]);
+
+  const orderedMembers = useMemo(() => {
+    const lookup = new Map(members.map((member) => [member.id, member]));
+    return seatOrder.map((id) => lookup.get(id)).filter(Boolean) as AICharacter[];
+  }, [members, seatOrder]);
+
+  const visibleMembers = useMemo(() => {
+    if (orderedMembers.length === members.length) return orderedMembers;
+    return members;
+  }, [members, orderedMembers]);
+
+  const closeMenu = () => {
+    setAnchorEl(null);
+    setMenuCharId(null);
+  };
 
   return (
     <Box>
-      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-        {t('controls.memberList')} ({members.length})
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          {t('controls.memberList')} ({members.length})
+        </Typography>
+        {chat?.type === 'group' && onUpdateSeats ? <Button size="small" variant="text" onClick={() => setSeatDialogOpen(true)}>调整座位</Button> : null}
+      </Box>
       <List dense disablePadding>
-        {members.map((member) => {
+        {visibleMembers.map((member) => {
           const memberStatus = buildMemberStatus(member);
           return (
             <ListItem
@@ -68,53 +116,69 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                   {isImageAvatar(member.avatar) ? undefined : member.avatar}
                 </Avatar>
               </ListItemAvatar>
-              <ListItemText
-                primary={<Typography variant="body2" sx={{ fontWeight: 500 }}>{member.name}</Typography>}
-                secondary={
-                  <Stack spacing={0.5} sx={{ mt: 0.25 }}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>{member.name}</Typography>
+                <Box sx={{ mt: 0.25 }}>
+                  <Stack spacing={0.5}>
                     <Typography variant="caption" color={thinkingId === member.id ? 'primary.main' : 'text.secondary'}>
                       {buildMemberSubtitle(member, thinkingId, t('controls.thinking'))}
                     </Typography>
-                    {memberStatus.length ? (
-                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                        {memberStatus.map((label) => <Chip key={`${member.id}-${label}`} size="small" label={label} variant="outlined" />)}
-                      </Box>
-                    ) : null}
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                      {memberStatus.map((label) => <Chip key={`${member.id}-${label}`} size="small" label={label} variant="outlined" />)}
+                    </Box>
                   </Stack>
-                }
-              />
+                </Box>
+              </Box>
             </ListItem>
           );
         })}
       </List>
 
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={() => setAnchorEl(null)}
-      >
-        {onSpeakAs && (
-          <MenuItem
-            onClick={() => {
-              setAnchorEl(null);
-              if (menuCharId) onSpeakAs(menuCharId);
-            }}
-          >
-            {t('controls.speakAs')}
-          </MenuItem>
-        )}
-        {onRemove && (
-          <MenuItem
-            onClick={() => {
-              setAnchorEl(null);
-              if (menuCharId) onRemove(menuCharId);
-            }}
-            sx={{ color: 'error.main' }}
-          >
-            {t('controls.removeMember')}
-          </MenuItem>
-        )}
+      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu}>
+        {onSpeakAs && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onSpeakAs(menuCharId); }}>{t('controls.speakAs')}</MenuItem>}
+        {onRemove && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onRemove(menuCharId); }} sx={{ color: 'error.main' }}>{t('controls.removeMember')}</MenuItem>}
       </Menu>
+
+      <Dialog open={seatDialogOpen} onClose={() => setSeatDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>调整成员位置</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 1 }}>
+            <SortableList
+              items={orderedMembers}
+              onChange={(nextMembers) => setSeatOrder(nextMembers.map((member) => member.id))}
+              getItemSx={({ isDragging }) => ({
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 1,
+                p: 1,
+                borderRadius: 2,
+                bgcolor: isDragging ? 'action.selected' : 'action.hover',
+                border: '1px solid',
+                borderColor: isDragging ? 'primary.main' : 'transparent',
+                boxShadow: isDragging ? 3 : 0,
+                opacity: isDragging ? 0.88 : 1,
+                cursor: isDragging ? 'grabbing' : 'grab',
+                touchAction: 'none',
+                userSelect: 'none',
+              })}
+              renderItem={({ item: member, index }) => (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                  <DragIndicatorIcon fontSize="small" color="action" />
+                  <Typography variant="body2">{index + 1}. {member.name}</Typography>
+                </Box>
+              )}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSeatDialogOpen(false)}>取消</Button>
+          <Button variant="contained" onClick={() => {
+            onUpdateSeats?.(seatOrder);
+            setSeatDialogOpen(false);
+          }}>保存</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

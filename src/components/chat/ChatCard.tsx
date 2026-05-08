@@ -1,6 +1,7 @@
 import { Card, CardContent, CardActionArea, Box, Typography, Avatar, AvatarGroup, Chip } from '@mui/material';
 import { isImageAvatar } from '../../utils/avatar';
-import { ChatBubbleOutlined as DirectIcon, Groups as GroupIcon } from '@mui/icons-material';
+import DirectIcon from '@mui/icons-material/ChatBubbleOutlined';
+import GroupIcon from '@mui/icons-material/Groups';
 import type { GroupChat } from '../../types/chat';
 import type { AICharacter } from '../../types/character';
 import { formatRelativeTime } from '../../utils/format';
@@ -10,15 +11,43 @@ interface ChatCardProps {
   chat: GroupChat;
   characters: AICharacter[];
   onClick: () => void;
+  onPrefetch?: () => void;
 }
 
-export default function ChatCard({ chat, characters, onClick }: ChatCardProps) {
+function cleanRelationshipPreview(text: string) {
+  return text
+    .replace(/^[^\s]+→/, '')
+    .replace(/^[^↔]+↔[^：:]+[：:]/, '')
+    .trim();
+}
+
+function buildRelationshipPreview(members: AICharacter[]) {
+  return members
+    .flatMap((member) => member.relationships
+      .filter((relation) => Boolean(relation.note?.trim()))
+      .slice(0, 1)
+      .map((relation) => {
+        const preview = cleanRelationshipPreview(relation.note || '');
+        return preview ? `${member.name}：${preview}` : '';
+      }))
+    .find(Boolean) || '';
+}
+
+function clipPreview(text: string, max = 72) {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function buildChatSubtitle(chat: GroupChat, members: AICharacter[]) {
+  const relationshipPreview = buildRelationshipPreview(members);
+  const memorySummary = (chat.layeredMemories || []).slice(-2).map((item) => item.text).join(' / ');
+  return clipPreview(relationshipPreview || memorySummary || chat.worldState?.recentEvent || chat.topic || '');
+}
+
+export default function ChatCard({ chat, characters, onClick, onPrefetch }: ChatCardProps) {
   const { t } = useTranslation();
   const members = characters.filter((c) => chat.memberIds.includes(c.id));
   const isDirect = chat.type === 'direct' || chat.type === 'ai_direct';
-  const memorySummary = (chat.layeredMemories || []).slice(-2).map((item) => item.text).join(' / ');
-  const relationshipSummary = members.flatMap((member) => member.relationships.filter((relation) => Boolean(relation.note?.trim())).slice(0, 1).map((relation) => `${member.name}→${relation.note}`)).slice(0, 1).join(' / ');
-  const subtitle = relationshipSummary || memorySummary || chat.worldState?.recentEvent || chat.topic;
+  const subtitle = buildChatSubtitle(chat, members);
 
   return (
     <Card
@@ -35,7 +64,7 @@ export default function ChatCard({ chat, characters, onClick }: ChatCardProps) {
         },
       }}
     >
-      <CardActionArea onClick={onClick}>
+      <CardActionArea onClick={onClick} onPointerEnter={onPrefetch} onFocus={onPrefetch} onPointerDown={onPrefetch}>
         <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>

@@ -5,6 +5,9 @@ type ChatRole = 'user' | 'assistant' | 'system';
 type ChatMessage = { role: ChatRole; content: string };
 type MaybeTypedConfig = APIConfig & Partial<Pick<AIModelProfile, 'type'>>;
 type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
+type GenerateResponseOptions = {
+  responseFormat?: 'text' | 'json';
+};
 
 export interface AvailableModelInfo {
   id: string;
@@ -171,6 +174,11 @@ function isOpenAICompatibleEndpoint(config: APIConfig) {
   return false;
 }
 
+function usesOpenAICompatibleChatApi(config: APIConfig) {
+  if (isOpenAICompatibleEndpoint(config)) return true;
+  return ['openai', 'xai', 'deepseek', 'moonshot', 'minimax', 'bytedance', 'custom'].includes(config.provider);
+}
+
 async function parseSSEStream(
   response: Response,
   onData: (parsed: Record<string, unknown>) => void,
@@ -287,6 +295,7 @@ async function generateGeminiResponse(
   systemPrompt: string,
   messages: ChatMessage[],
   onChunk?: (chunk: string) => void,
+  options: GenerateResponseOptions = {},
 ) {
   const payload = splitSystemMessages(messages, systemPrompt);
   const query = `key=${encodeURIComponent(config.apiKey)}${onChunk ? '&alt=sse' : ''}`;
@@ -302,6 +311,7 @@ async function generateGeminiResponse(
     generationConfig: {
       temperature: 0.8,
       maxOutputTokens: 500,
+      responseMimeType: options.responseFormat === 'json' ? 'application/json' : undefined,
     },
   };
 
@@ -346,6 +356,7 @@ async function generateZhipuResponse(
   systemPrompt: string,
   messages: ChatMessage[],
   onChunk?: (chunk: string) => void,
+  options: GenerateResponseOptions = {},
 ) {
   const endpoint = buildZhipuUrl(config.baseUrl);
   const requestBody = {
@@ -354,6 +365,7 @@ async function generateZhipuResponse(
     temperature: 0.8,
     max_tokens: 500,
     stream: Boolean(onChunk),
+    response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
   };
 
   if (onChunk) {
@@ -401,6 +413,7 @@ async function generateQwenResponse(
   systemPrompt: string,
   messages: ChatMessage[],
   onChunk?: (chunk: string) => void,
+  options: GenerateResponseOptions = {},
 ) {
   const endpoint = buildQwenUrl(config.baseUrl);
   const requestBody = {
@@ -413,6 +426,7 @@ async function generateQwenResponse(
       max_tokens: 500,
       incremental_output: Boolean(onChunk),
       result_format: 'message',
+      response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
     },
   };
 
@@ -470,6 +484,7 @@ async function generateOpenAICompatibleResponse(
   systemPrompt: string,
   messages: ChatMessage[],
   onChunk?: (chunk: string) => void,
+  options: GenerateResponseOptions = {},
 ) {
   const client = getAIClient(config);
 
@@ -496,6 +511,7 @@ async function generateOpenAICompatibleResponse(
     messages: buildOpenAICompatibleMessages(messages, systemPrompt),
     max_tokens: 500,
     temperature: 0.8,
+    response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
   });
   return response.choices[0]?.message?.content || '';
 }
@@ -776,6 +792,38 @@ export const generateResponse = async (
   }
   const handler = providerHandlers[config.provider] || generateOpenAICompatibleResponse;
   return handler(config, systemPrompt, messages, onChunk);
+};
+
+export const generateJsonResponse = async (
+  config: APIConfig,
+  systemPrompt: string,
+  messages: ChatMessage[],
+): Promise<string> => {
+  const jsonPrompt = `${systemPrompt}\n\nThe response must be exactly one valid JSON object. Do not wrap it in markdown.`;
+
+  try {
+    if (usesOpenAICompatibleChatApi(config)) {
+      return await generateOpenAICompatibleResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
+    }
+
+    if (config.provider === 'zhipu') {
+      return await generateZhipuResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
+    }
+
+    if (config.provider === 'alibaba') {
+      return await generateQwenResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
+    }
+
+    if (config.provider === 'google') {
+      return await generateGeminiResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/response_format|json_object|json/i.test(message)) throw error;
+  }
+
+  const handler = providerHandlers[config.provider] || generateOpenAICompatibleResponse;
+  return handler(config, jsonPrompt, messages);
 };
 
 async function testTextLikeConnection(config: APIConfig) {

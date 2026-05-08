@@ -1,8 +1,9 @@
 import type { AICharacter } from '../types/character';
-import type { GroupChat, ParticipantInstance, SessionSurfaceProjection } from '../types/chat';
+import type { GroupChat, ParticipantInstance, RuntimePanelDefinition, SessionSurfaceProjection } from '../types/chat';
 import type { MemoryCandidatePayload, RuntimeEventKind, RuntimeEventV2, SocialEventCandidatePayload, SocialEventEffectPayload, RelationshipAxisReason } from '../types/runtimeEvent';
-import type { SessionActionDefinition, SessionEngineDefinition, SessionProjectionContext, SessionViewProjection, resolveSessionDefinition as ResolveSessionDefinitionFn } from '../types/sessionEngine';
+import type { SessionActionDefinition, SessionActionSchema, SessionEngineDefinition, SessionProjectionContext, SessionViewProjection } from '../types/sessionEngine';
 import { buildDefaultSessionSurfaceProjection, resolveSessionDefinitionForConversation } from '../types/chat';
+import { buildSessionSurfaceProjectionFromSchema } from '../types/sessionEngine';
 import { canProjectScope } from '../types/sessionVisibility';
 import { projectSessionRecentEvent } from './directSessionHelpers';
 import { buildRolePrivateParticipantStates, buildRolePrivatePayloads, projectPrivateParticipantPayloads } from './privateRuntimePayloads';
@@ -54,6 +55,47 @@ export interface ProjectedRuntimeTimelineItem {
   };
 }
 
+export interface ProjectedRuntimeState {
+  worldState: GroupChat['worldState'];
+  runtimeTimeline: ProjectedRuntimeTimelineItem[];
+  runtimeSeed: { notes: string[]; artifacts: string[] };
+  runtimeEventsV2: RuntimeEventV2[];
+  relationshipLedger: NonNullable<GroupChat['relationshipLedger']>;
+  primaryRecentEvent: string;
+  latestEvent: RuntimeEventV2 | null;
+  timelineCount: number;
+}
+
+export interface ProjectedSessionFrameworkState {
+  definition: ReturnType<typeof resolveSessionDefinitionForConversation>;
+  surfaces: SessionSurfaceProjection;
+  familyLabel: string;
+  scenarioLabel: string;
+  topologyLabel: string;
+}
+
+export interface ProjectedSidebarChat {
+  chat: GroupChat & { primaryRecentEvent?: string };
+  privatePayloads: Array<{ key: string; title: string; text: string }>;
+}
+
+export interface ProjectedChatDetailState {
+  memberPanel?: RuntimePanelDefinition;
+  runtimePanel?: RuntimePanelDefinition;
+  showMemberTab: boolean;
+  showRuntimeTab: boolean;
+  showActionTab: boolean;
+  activeSidebarTab: string;
+  sidebarTitle: string;
+  memberTabTitle: string;
+  runtimeTabTitle: string;
+  sidebarChat: ProjectedSidebarChat;
+  actionPanel: { title: string; actions: SessionActionDefinition[] };
+  composerSurfaces: SessionSurfaceProjection['surfaces'];
+  compactCharacterMemorySummary?: string;
+  speakAsSummary?: string | null;
+}
+
 function isSocialEventArtifactPayload(payload: RuntimeEventV2['payload']): payload is { eventKind?: string; artifactType?: string; title?: string; activityType?: string; dedupeKey?: string | null; participantIds?: string[]; targetIds?: string[]; expectedArtifacts?: string[]; timeHint?: string | null; locationHint?: string | null; candidateId?: string; reasonType?: string } {
   return typeof payload === 'object' && payload !== null && ('eventKind' in payload || 'artifactType' in payload);
 }
@@ -79,28 +121,9 @@ function isSocialEventEffectPayload(payload: RuntimeEventV2['payload']): payload
 }
 
 function buildSocialEventCluster(event: RuntimeEventV2) {
-  if (event.kind === 'event_candidate' && isSocialEventCandidatePayload(event.payload)) {
-    return {
-      eventKind: event.payload.eventKind,
-      dedupeKey: event.payload.dedupeKey ?? null,
-      stage: 'candidate' as const,
-    };
-  }
-  if (event.kind === 'artifact' && isSocialEventArtifactPayload(event.payload)) {
-    return {
-      eventKind: event.payload.eventKind,
-      dedupeKey: event.payload.dedupeKey ?? null,
-      candidateId: event.payload.candidateId ?? null,
-      stage: event.payload.artifactType === 'private_thread_opened' ? 'opened' as const : 'artifact' as const,
-    };
-  }
-  if (isSocialEventEffectPayload(event.payload)) {
-    return {
-      eventKind: event.payload.eventKind,
-      dedupeKey: null,
-      stage: 'effect' as const,
-    };
-  }
+  if (event.kind === 'event_candidate' && isSocialEventCandidatePayload(event.payload)) return { eventKind: event.payload.eventKind, dedupeKey: event.payload.dedupeKey ?? null, stage: 'candidate' as const };
+  if (event.kind === 'artifact' && isSocialEventArtifactPayload(event.payload)) return { eventKind: event.payload.eventKind, dedupeKey: event.payload.dedupeKey ?? null, candidateId: event.payload.candidateId ?? null, stage: event.payload.artifactType === 'private_thread_opened' ? 'opened' as const : 'artifact' as const };
+  if (isSocialEventEffectPayload(event.payload)) return { eventKind: event.payload.eventKind, dedupeKey: null, stage: 'effect' as const };
   return undefined;
 }
 
@@ -114,22 +137,6 @@ function buildEventMeta(event: RuntimeEventV2) {
     relationshipDelta: event.kind === 'relationship_delta' && isRelationshipDeltaPayload(event.payload) ? event.payload : undefined,
     roomShift: event.kind === 'room_shift' && isRoomShiftPayload(event.payload) ? event.payload : undefined,
   };
-}
-
-export interface ProjectedRuntimeState {
-  worldState: GroupChat['worldState'];
-  runtimeTimeline: ProjectedRuntimeTimelineItem[];
-  runtimeSeed: { notes: string[]; artifacts: string[] };
-  runtimeEventsV2: RuntimeEventV2[];
-  relationshipLedger: NonNullable<GroupChat['relationshipLedger']>;
-  primaryRecentEvent: string;
-  latestEvent: RuntimeEventV2 | null;
-  timelineCount: number;
-}
-
-export interface ProjectedSessionFrameworkState {
-  definition: ReturnType<typeof resolveSessionDefinitionForConversation>;
-  surfaces: SessionSurfaceProjection;
 }
 
 function mapRuntimeEventKindToTimelineType(kind: RuntimeEventKind): 'note' | 'artifact' | 'relationship' {
@@ -147,40 +154,26 @@ function formatRuntimeEventLabel(kind: RuntimeEventKind) {
     memory_candidate: '记忆候选',
     artifact: '产物',
     event_candidate: '事件候选',
+    phase_transition: '阶段切换',
+    action_resolution: '动作结算',
+    board_state: '棋盘状态',
+    score_update: '分数更新',
   };
   return labels[kind] || kind;
 }
 
 function formatMemoryCandidateKind(kind: MemoryCandidatePayload['kind']) {
-  const labels: Record<MemoryCandidatePayload['kind'], string> = {
-    fact: '事实',
-    topic: '话题',
-    preference: '偏好',
-    secret: '秘密',
-    relationship: '关系',
-  };
+  const labels: Record<MemoryCandidatePayload['kind'], string> = { fact: '事实', topic: '话题', preference: '偏好', secret: '秘密', relationship: '关系' };
   return labels[kind] || kind;
 }
 
 function formatRelationshipReason(reason: string) {
-  const labels: Record<string, string> = {
-    support: '支持',
-    defend: '维护',
-    challenge: '挑战',
-    mock: '嘲讽',
-    dismiss: '轻视',
-    pile_on: '围攻',
-    probe: '追问',
-  };
+  const labels: Record<string, string> = { support: '支持', defend: '维护', challenge: '挑战', mock: '嘲讽', dismiss: '轻视', pile_on: '围攻', probe: '追问' };
   return labels[reason] || reason;
 }
 
 function buildParticipantNameMap(participants: Array<AICharacter | ParticipantInstance>) {
-  return new Map(participants.map((participant) => (
-    'participantId' in participant
-      ? [participant.participantId, participant.displayName || participant.entityRefId]
-      : [participant.id, participant.name]
-  )));
+  return new Map(participants.map((participant) => ('participantId' in participant ? [participant.participantId, participant.displayName || participant.entityRefId] : [participant.id, participant.name])));
 }
 
 function resolveActorTargetNames(ids: string[] | undefined, participantNameMap: Map<string, string>) {
@@ -210,45 +203,19 @@ function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: N
       meta: (() => {
         const baseMeta = buildEventMeta(event);
         return {
-          memoryCandidate: baseMeta.memoryCandidate
-            ? {
-                ...baseMeta.memoryCandidate,
-                kind: formatMemoryCandidateKind(baseMeta.memoryCandidate.kind) as MemoryCandidatePayload['kind'],
-                text: replaceIdsWithNames(baseMeta.memoryCandidate.text, participantNameMap),
-              }
-            : undefined,
+          memoryCandidate: baseMeta.memoryCandidate ? { ...baseMeta.memoryCandidate, kind: formatMemoryCandidateKind(baseMeta.memoryCandidate.kind) as MemoryCandidatePayload['kind'], text: replaceIdsWithNames(baseMeta.memoryCandidate.text, participantNameMap) } : undefined,
           socialEventCandidate: baseMeta.socialEventCandidate,
           socialEventArtifact: baseMeta.socialEventArtifact,
-          socialEventEffect: baseMeta.socialEventEffect
-            ? {
-                ...baseMeta.socialEventEffect,
-                summary: replaceIdsWithNames(baseMeta.socialEventEffect.summary, participantNameMap),
-              }
-            : undefined,
+          socialEventEffect: baseMeta.socialEventEffect ? { ...baseMeta.socialEventEffect, summary: replaceIdsWithNames(baseMeta.socialEventEffect.summary, participantNameMap) } : undefined,
           socialEventCluster: baseMeta.socialEventCluster,
-          relationshipDelta: baseMeta.relationshipDelta
-            ? {
-                reason: formatRelationshipReason(baseMeta.relationshipDelta.reason),
-                delta: baseMeta.relationshipDelta.delta || {},
-                axisReasons: baseMeta.relationshipDelta.axisReasons || {},
-                spikeType: baseMeta.relationshipDelta.spikeType,
-              }
-            : undefined,
+          relationshipDelta: baseMeta.relationshipDelta ? { reason: formatRelationshipReason(baseMeta.relationshipDelta.reason), delta: baseMeta.relationshipDelta.delta || {}, axisReasons: baseMeta.relationshipDelta.axisReasons || {}, spikeType: baseMeta.relationshipDelta.spikeType } : undefined,
           roomShift: baseMeta.roomShift,
         };
       })(),
     }));
   }
 
-  return legacyTimeline.map<ProjectedRuntimeTimelineItem>((item) => ({
-    type: item.type,
-    text: replaceIdsWithNames(item.text, participantNameMap),
-    createdAt: item.createdAt,
-    label: item.type,
-    event: null,
-    actorNames: [],
-    targetNames: [],
-  }));
+  return legacyTimeline.map<ProjectedRuntimeTimelineItem>((item) => ({ type: item.type, text: replaceIdsWithNames(item.text, participantNameMap), createdAt: item.createdAt, label: item.type, event: null, actorNames: [], targetNames: [] }));
 }
 
 function latestStructuredEvent(events: RuntimeEventV2[]) {
@@ -280,10 +247,14 @@ export function projectTimelineCount(chat: GroupChat) {
   return countProjectedTimeline(chat);
 }
 
-export function projectSessionFrameworkState(chat: GroupChat): ProjectedSessionFrameworkState {
+export function projectSessionFrameworkState(chat: GroupChat, actionSchema: SessionActionSchema | null = null): ProjectedSessionFrameworkState {
+  const definition = resolveSessionDefinitionForConversation(chat);
   return {
-    definition: resolveSessionDefinitionForConversation(chat),
-    surfaces: buildDefaultSessionSurfaceProjection(chat),
+    definition,
+    surfaces: actionSchema ? buildSessionSurfaceProjectionFromSchema(chat, actionSchema) : buildDefaultSessionSurfaceProjection(chat),
+    familyLabel: definition.kind.family,
+    scenarioLabel: definition.scenario.label,
+    topologyLabel: definition.kind.topology,
   };
 }
 
@@ -293,11 +264,7 @@ function buildProjectedParticipants(chat: GroupChat, context: SessionProjectionC
 
 function buildPrivatePanelPayloads(chat: GroupChat, context: SessionProjectionContext) {
   const scopedPayloads = buildRolePrivatePayloads(chat)
-    .filter((payload) => canProjectScope({
-      scope: payload.visibilityScope,
-      visibleToIds: payload.visibleToIds,
-      visibleToRoles: payload.visibleToRoles,
-    }, { viewerId: context.viewerId, viewerRole: context.viewerRole }))
+    .filter((payload) => canProjectScope({ scope: payload.visibilityScope, visibleToIds: payload.visibleToIds, visibleToRoles: payload.visibleToRoles }, { viewerId: context.viewerId, viewerRole: context.viewerRole }))
     .map((payload) => ({ key: payload.key, title: payload.title, text: payload.text }));
   const participantPayloads = projectPrivateParticipantPayloads(buildProjectedParticipants(chat, context), context.viewerRole);
   return [...scopedPayloads, ...participantPayloads];
@@ -314,11 +281,7 @@ function buildVisiblePanels(engine: SessionEngineDefinition, context: SessionPro
 }
 
 function filterVisibleRuntimeEvents(events: RuntimeEventV2[], context: SessionProjectionContext) {
-  return events.filter((event) => canProjectScope({
-    scope: event.visibility || 'public',
-    visibleToIds: event.visibleToIds,
-    visibleToRoles: event.visibleToRoles,
-  }, { viewerId: context.viewerId, viewerRole: context.viewerRole }));
+  return events.filter((event) => canProjectScope({ scope: event.visibility || 'public', visibleToIds: event.visibleToIds, visibleToRoles: event.visibleToRoles }, { viewerId: context.viewerId, viewerRole: context.viewerRole }));
 }
 
 function buildProjectedRuntimeState(chat: GroupChat, context: SessionProjectionContext): ProjectedRuntimeState {
@@ -326,15 +289,9 @@ function buildProjectedRuntimeState(chat: GroupChat, context: SessionProjectionC
   const runtimeEventsV2 = filterVisibleRuntimeEvents(chat.runtimeEventsV2 || [], context);
   const runtimeTimeline = projectRuntimeTimelineItems(runtimeEventsV2, chat.runtimeTimeline || [], context.participants);
   return {
-    worldState: {
-      ...chat.worldState,
-      recentEvent: projectSessionRecentEvent(chat, context.viewerRole),
-    },
+    worldState: { ...chat.worldState, recentEvent: projectSessionRecentEvent(chat, context.viewerRole) },
     runtimeTimeline,
-    runtimeSeed: {
-      notes: canSeePrivate ? (chat.runtimeSeed?.notes || []) : [],
-      artifacts: canSeePrivate ? (chat.runtimeSeed?.artifacts || []) : [],
-    },
+    runtimeSeed: { notes: canSeePrivate ? (chat.runtimeSeed?.notes || []) : [], artifacts: canSeePrivate ? (chat.runtimeSeed?.artifacts || []) : [] },
     runtimeEventsV2,
     relationshipLedger: canSeePrivate ? (chat.relationshipLedger || []) : [],
     primaryRecentEvent: projectPrimaryRecentEvent(chat),
@@ -351,30 +308,20 @@ export function projectSessionView(engine: SessionEngineDefinition, context: Ses
   const visiblePanels = buildVisiblePanels(engine, context);
   const actionSchema = projectActionSchema(engine, context);
   const availableActions = actionSchema ? actionSchema.actions.map((action) => ({ type: action.type })) : engine.getAvailableActions(context);
-  return {
-    visiblePanels,
-    availableActions,
-  };
+  return { visiblePanels, availableActions };
 }
 
 function filterActionsByVisibility(actions: SessionActionDefinition[], context: SessionProjectionContext) {
   return actions.filter((action) => {
     const visibility = action.visibility || (context.conversationType === 'ai_direct' ? 'pair_private' : context.conversationType === 'direct' ? 'pair_private' : 'public');
-    return canProjectScope({
-      scope: visibility,
-      visibleToIds: action.targetIds,
-      visibleToRoles: visibility === 'moderator_only' ? ['moderator', 'interviewer'] : visibility === 'pair_private' ? ['pair_private', 'user_private', 'participant'] : undefined,
-    }, { viewerId: context.viewerId, viewerRole: context.viewerRole });
+    return canProjectScope({ scope: visibility, visibleToIds: action.targetIds, visibleToRoles: visibility === 'moderator_only' ? ['moderator', 'interviewer'] : visibility === 'pair_private' ? ['pair_private', 'user_private', 'participant'] : undefined }, { viewerId: context.viewerId, viewerRole: context.viewerRole });
   });
 }
 
 export function projectActionSchema(engine: SessionEngineDefinition, context: SessionProjectionContext) {
   const schema = engine.getActionSchema?.({ conversation: context.conversation, participants: context.participants }) || null;
   if (!schema) return null;
-  return {
-    ...schema,
-    actions: filterActionsByVisibility(schema.actions, context),
-  };
+  return { ...schema, actions: filterActionsByVisibility(schema.actions, context) };
 }
 
 export function createViewerRoleForConversation(conversation: GroupChat, viewerId?: string | null) {
@@ -393,11 +340,84 @@ export function createViewerRoleForConversation(conversation: GroupChat, viewerI
 }
 
 export function createProjectionContext(conversation: GroupChat, participants: SessionProjectionContext['participants'], viewerId?: string | null, viewerRole?: string | null): SessionProjectionContext {
+  return { conversation, participants, viewerId, viewerRole: viewerRole || createViewerRoleForConversation(conversation, viewerId), conversationType: conversation.type };
+}
+
+export function buildProjectedSidebarChat(chat: GroupChat, runtimeState: ProjectedRuntimeState | null, privatePayloads: Array<{ key: string; title: string; text: string }>): ProjectedSidebarChat {
   return {
-    conversation,
-    participants,
-    viewerId,
-    viewerRole: viewerRole || createViewerRoleForConversation(conversation, viewerId),
-    conversationType: conversation.type,
+    chat: {
+      ...chat,
+      worldState: runtimeState?.worldState || chat.worldState,
+      runtimeTimeline: runtimeState?.runtimeTimeline || chat.runtimeTimeline,
+      runtimeSeed: runtimeState?.runtimeSeed || chat.runtimeSeed,
+      runtimeEventsV2: runtimeState?.runtimeEventsV2 || chat.runtimeEventsV2,
+      relationshipLedger: runtimeState?.relationshipLedger || chat.relationshipLedger,
+      primaryRecentEvent: runtimeState?.primaryRecentEvent,
+    },
+    privatePayloads,
+  };
+}
+
+export function buildProjectedActionPanel(actions: SessionActionDefinition[], title: string) {
+  return { title, actions };
+}
+
+export function buildProjectedSessionActions(chat: GroupChat, actions: SessionActionDefinition[]) {
+  return chat.type === 'group'
+    ? [{ type: 'start_private_thread', label: '发起 AI 私聊', description: '从群聊中手动选择两名成员，派生一条独立 AI 私聊。', fields: [], visibility: 'public' as const }, ...actions.filter((action) => action.type !== 'start_private_thread')]
+    : actions;
+}
+
+export function buildProjectedActionPanelTitle(chat: GroupChat, schemaTitle?: string) {
+  return chat.type === 'group' ? '动作与派生' : schemaTitle;
+}
+
+export function buildProjectedComposerSurfaces(chat: GroupChat, frameworkState: ProjectedSessionFrameworkState) {
+  return frameworkState.surfaces.surfaces.length ? frameworkState.surfaces.surfaces : buildDefaultSessionSurfaceProjection(chat).surfaces;
+}
+
+export function buildProjectedCompactMemorySummary(speakAsChar?: { layeredMemories?: Array<{ text: string }> } | null) {
+  return speakAsChar?.layeredMemories?.slice(-2).map((item) => item.text).join(' / ');
+}
+
+export function buildProjectedSpeakAsSummary(speakAsChar?: { name?: string; layeredMemories?: Array<{ text: string }> } | null) {
+  if (!speakAsChar) return null;
+  const summary = buildProjectedCompactMemorySummary(speakAsChar);
+  return summary ? `${speakAsChar.name}：${summary}` : null;
+}
+
+export function buildProjectedChatDetailState(params: {
+  chat: GroupChat;
+  runtimeState: ProjectedRuntimeState | null;
+  privatePayloads: Array<{ key: string; title: string; text: string }>;
+  visiblePanels: RuntimePanelDefinition[];
+  schemaActions: SessionActionDefinition[] | undefined;
+  schemaTitle?: string;
+  rightPanelTab: string;
+  frameworkState: ProjectedSessionFrameworkState;
+  speakAsChar?: { name?: string; layeredMemories?: Array<{ text: string }> } | null;
+}): ProjectedChatDetailState {
+  const memberPanel = params.visiblePanels.find((panel) => panel.tabKey === 'members');
+  const runtimePanel = params.visiblePanels.find((panel) => panel.tabKey === 'world');
+  const showMemberTab = Boolean(memberPanel);
+  const showRuntimeTab = Boolean(runtimePanel);
+  const actionList = params.schemaActions || [];
+  const showActionTab = params.chat.type === 'group' || Boolean(actionList.length);
+  const activeSidebarTab = (showMemberTab && params.rightPanelTab === 'members') ? 'members' : (showRuntimeTab && params.rightPanelTab === 'world') ? 'world' : showActionTab ? 'actions' : 'world';
+  return {
+    memberPanel,
+    runtimePanel,
+    showMemberTab,
+    showRuntimeTab,
+    showActionTab,
+    activeSidebarTab,
+    sidebarTitle: activeSidebarTab === 'members' ? (memberPanel?.title || (params.chat.type === 'group' ? '成员' : params.chat.type === 'ai_direct' ? 'AI私聊信息' : '单聊信息')) : activeSidebarTab === 'actions' ? '动作' : (runtimePanel?.title || '状态'),
+    memberTabTitle: memberPanel?.title || (params.chat.type === 'group' ? '成员' : '角色'),
+    runtimeTabTitle: runtimePanel?.title || '状态',
+    sidebarChat: buildProjectedSidebarChat(params.chat, params.runtimeState, params.privatePayloads),
+    actionPanel: buildProjectedActionPanel(buildProjectedSessionActions(params.chat, actionList), buildProjectedActionPanelTitle(params.chat, params.schemaTitle) || '动作'),
+    composerSurfaces: buildProjectedComposerSurfaces(params.chat, params.frameworkState),
+    compactCharacterMemorySummary: buildProjectedCompactMemorySummary(params.speakAsChar),
+    speakAsSummary: buildProjectedSpeakAsSummary(params.speakAsChar),
   };
 }

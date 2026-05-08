@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, TextField, Typography, Chip, Snackbar, Alert, LinearProgress, Dialog, DialogContent, IconButton } from '@mui/material';
 import type { AIModelProfile } from '../types/settings';
 import type { AICharacter, PersonalityParams } from '../types/character';
-import { api as backendApi } from '../services/api';
 import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
 
 const BATCH_GENERATE_GROUP_SIZE = 10;
@@ -68,10 +67,11 @@ function buildGeneratedCharacterPayload(params: {
   allCharacters: Array<Pick<AICharacter, 'name' | 'group' | 'bubbleStyleId'>>;
   customStyleIds: string[];
   profile: AIModelProfile;
-}) {
+}): Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'> {
   return {
     name: params.name,
     ...params.generated,
+    personality: params.generated.personality as unknown as PersonalityParams,
     group: params.generatedGroup,
     bubbleStyleId: pickRandomAvailableBubbleStyle({
       allCharacters: params.allCharacters,
@@ -98,6 +98,7 @@ async function processCharacterBatch(params: {
   setProgress: React.Dispatch<React.SetStateAction<ProgressState>>;
   duplicateMessage: string;
   getErrorMessage: (error: unknown) => string;
+  addCharacters: (chars: Array<Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>>) => Promise<AICharacter[]>;
 }) {
   const existingNames = new Set(params.characters.map((char) => char.name.trim().toLowerCase()));
   const reservedNames = new Set<string>();
@@ -143,19 +144,18 @@ async function processCharacterBatch(params: {
           profile: params.profile,
         }),
       }));
-      const result = await backendApi.createCharactersBatch(successfulPayloads.map((item) => item.payload));
+      const createdCharacters = await params.addCharacters(successfulPayloads.map((item) => item.payload));
       if (useSettingsStore.getState().autoGenerateCharacterAvatar) {
-        const createdCharacters = ((result.characters || []) as Array<{ id: string; name: string; background?: string; speakingStyle?: string }>)
-          .map((character) => {
-            const fallback = successfulPayloads.find((item) => item.name === character.name)?.payload;
-            return {
-              id: character.id,
-              name: character.name,
-              background: character.background || fallback?.background || '',
-              speakingStyle: character.speakingStyle || fallback?.speakingStyle || '',
-            };
-          });
-        enqueueAvatarGenerationForCharacters(createdCharacters, useSettingsStore.getState().aiProfiles, params.language);
+        enqueueAvatarGenerationForCharacters(
+          createdCharacters.map((character) => ({
+            id: character.id,
+            name: character.name,
+            background: character.background || '',
+            speakingStyle: character.speakingStyle || '',
+          })),
+          useSettingsStore.getState().aiProfiles,
+          params.language,
+        );
       }
       successfulPayloads.forEach(({ name }) => {
         existingNames.add(name.trim().toLowerCase());
@@ -174,7 +174,7 @@ async function processCharacterBatch(params: {
 
 import { Search as SearchIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useLayoutHeaderActions } from '../components/layout/AppLayout';
+import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useTranslation } from 'react-i18next';
 import { generateResponse } from '../services/aiClient';
 import { generateCharacterProfilesSafe } from '../services/characterGenerator';
@@ -447,7 +447,7 @@ export default function BatchGenerateCharactersPage() {
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
   const settings = useSettingsStore();
-  const { characters, loadCharacters } = useCharacterStore();
+  const { characters, loadCharacters, addCharacters } = useCharacterStore();
   const [topic, setTopic] = useState('');
   const [candidateNames, setCandidateNames] = useState<string[]>([]);
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
@@ -534,6 +534,7 @@ export default function BatchGenerateCharactersPage() {
         setProgress,
         duplicateMessage: i18n.language.startsWith('zh') ? '同名已存在' : 'Duplicate name exists',
         getErrorMessage,
+        addCharacters,
       });
 
       await loadCharacters();

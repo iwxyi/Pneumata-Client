@@ -8,6 +8,10 @@ export interface RuntimeEventPayload {
   visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
   visibleToIds?: string[];
   visibleToRoles?: string[];
+  channelId?: string;
+  causedByIntentId?: string;
+  threadRef?: string;
+  eventClass?: 'message' | 'action' | 'board' | 'phase' | 'score' | 'artifact';
   createdAt?: number;
 }
 
