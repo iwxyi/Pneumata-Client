@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { Box, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Typography } from '@mui/material';
 import { Add as AddIcon, MoreVert as MoreIcon, ClearAll as ClearAllIcon, DeleteSweep as DeleteSweepIcon, DriveFileMove as DriveFileMoveIcon, AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
@@ -19,12 +19,12 @@ export default function CharacterLibraryPage() {
   const location = useLocation();
   const { id } = useParams<{ id?: string }>();
   const returnTo = new URLSearchParams(location.search).get('returnTo');
-  const returnBack = () => {
+  const returnBack = useCallback(() => {
     navigate(-1);
-  };
+  }, [navigate]);
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
   const settings = useSettingsStore();
-  const { characters, loadCharacters, loadProjectedCharacters, addCharacter, updateCharacter, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets } = useCharacterStore();
+  const { characters, loadCharacters, addCharacter, updateCharacter, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets } = useCharacterStore();
   const [tab, setTab] = useState(0);
   const showForm = location.pathname === '/characters/create';
   const editId = location.pathname.startsWith('/characters/') && location.pathname.endsWith('/edit') ? (id || null) : null;
@@ -38,6 +38,7 @@ export default function CharacterLibraryPage() {
   const [groupActionTarget, setGroupActionTarget] = useState<string | null>(null);
   const [groupActionDialogOpen, setGroupActionDialogOpen] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [charactersBootstrapComplete, setCharactersBootstrapComplete] = useState(false);
   const groupPressTimerRef = useRef<number | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
@@ -46,7 +47,20 @@ export default function CharacterLibraryPage() {
   });
 
   useEffect(() => {
-    loadCharacters().then(() => initializePresets());
+    let cancelled = false;
+    setCharactersBootstrapComplete(false);
+
+    void loadCharacters()
+      .then(() => initializePresets())
+      .finally(() => {
+        if (!cancelled) {
+          setCharactersBootstrapComplete(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [initializePresets, loadCharacters]);
 
 
@@ -183,7 +197,7 @@ export default function CharacterLibraryPage() {
       setHeaderBackAction(null);
       setHideMobileBottomNav(false);
     };
-  }, [editId, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, showForm, t]);
+  }, [editId, returnBack, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, showForm, t]);
 
   const mobileFormHeader = null;
   void mobileFormHeader;
@@ -268,6 +282,18 @@ export default function CharacterLibraryPage() {
   };
 
   if (showForm || editId) {
+    if (editId && !editChar) {
+      return (
+        <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
+          <Typography variant="body2" color="text.secondary">
+            {charactersBootstrapComplete
+              ? (i18n.language.startsWith('zh') ? '未找到这个角色' : 'Character not found')
+              : (i18n.language.startsWith('zh') ? '正在打开角色...' : 'Opening character...')}
+          </Typography>
+        </Box>
+      );
+    }
+
     return (
       <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
         <CharacterForm
