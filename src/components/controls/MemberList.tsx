@@ -1,7 +1,7 @@
 import { Box, Typography, Avatar, IconButton, Menu, MenuItem, List, ListItem, ListItemAvatar, Chip, Stack, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
 import { isImageAvatar } from '../../utils/avatar';
 import { MoreVert as MoreIcon, DragIndicator as DragIndicatorIcon } from '@mui/icons-material';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import SortableList from '../common/SortableList';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter } from '../../types/character';
@@ -18,8 +18,8 @@ interface MemberListProps {
 
 function buildMemberStatus(member: AICharacter) {
   const chips = [] as string[];
-  if (member.relationships.some((relation) => relation.warmth >= 60 || relation.competence >= 60 || relation.trust >= 60)) chips.push('高好感');
-  if (member.relationships.some((relation) => relation.threat >= 35)) chips.push('有冲突');
+  if (member.relationships.some((relation) => relation.warmth >= 12 || relation.competence >= 12 || relation.trust >= 12)) chips.push('高好感');
+  if (member.relationships.some((relation) => relation.threat >= 12 || relation.warmth <= -12 || relation.trust <= -12)) chips.push('有冲突');
   return chips;
 }
 
@@ -52,27 +52,27 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
     return members.map((member) => member.id);
   }, [chat?.scenarioState?.seats, members]);
 
-  const [seatOrder, setSeatOrder] = useState<string[]>(resolvedSeatOrder);
+  const [seatOrder, setSeatOrder] = useState<string[]>([]);
 
-  useEffect(() => {
-    if (seatDialogOpen) return;
-    setSeatOrder((current) => {
-      if (current.length === resolvedSeatOrder.length && current.every((id, index) => id === resolvedSeatOrder[index])) {
-        return current;
-      }
-      return resolvedSeatOrder;
-    });
-  }, [resolvedSeatOrder, seatDialogOpen]);
-
-  const orderedMembers = useMemo(() => {
-    const lookup = new Map(members.map((member) => [member.id, member]));
-    return seatOrder.map((id) => lookup.get(id)).filter(Boolean) as AICharacter[];
-  }, [members, seatOrder]);
+  const memberLookup = useMemo(() => {
+    return new Map(members.map((member) => [member.id, member]));
+  }, [members]);
 
   const visibleMembers = useMemo(() => {
+    const orderedMembers = resolvedSeatOrder.map((id) => memberLookup.get(id)).filter(Boolean) as AICharacter[];
     if (orderedMembers.length === members.length) return orderedMembers;
     return members;
-  }, [members, orderedMembers]);
+  }, [memberLookup, members, resolvedSeatOrder]);
+
+  const seatDialogMembers = useMemo(() => {
+    const orderedMembers = seatOrder.map((id) => memberLookup.get(id)).filter(Boolean) as AICharacter[];
+    return orderedMembers.length ? orderedMembers : visibleMembers;
+  }, [memberLookup, seatOrder, visibleMembers]);
+
+  const openSeatDialog = () => {
+    setSeatOrder(resolvedSeatOrder);
+    setSeatDialogOpen(true);
+  };
 
   const closeMenu = () => {
     setAnchorEl(null);
@@ -85,7 +85,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
         <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
           {t('controls.memberList')} ({members.length})
         </Typography>
-        {chat?.type === 'group' && onUpdateSeats ? <Button size="small" variant="text" onClick={() => setSeatDialogOpen(true)}>调整座位</Button> : null}
+        {chat?.type === 'group' && onUpdateSeats ? <Button size="small" variant="text" onClick={openSeatDialog}>调整座位</Button> : null}
       </Box>
       <List dense disablePadding>
         {visibleMembers.map((member) => {
@@ -144,7 +144,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
         <DialogContent>
           <Box sx={{ mt: 1 }}>
             <SortableList
-              items={orderedMembers}
+              items={seatDialogMembers}
               onChange={(nextMembers) => setSeatOrder(nextMembers.map((member) => member.id))}
               getItemSx={({ isDragging }) => ({
                 display: 'flex',
@@ -174,7 +174,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
         <DialogActions>
           <Button onClick={() => setSeatDialogOpen(false)}>取消</Button>
           <Button variant="contained" onClick={() => {
-            onUpdateSeats?.(seatOrder);
+            onUpdateSeats?.(seatOrder.length ? seatOrder : resolvedSeatOrder);
             setSeatDialogOpen(false);
           }}>保存</Button>
         </DialogActions>

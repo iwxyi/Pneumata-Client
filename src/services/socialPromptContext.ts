@@ -27,15 +27,15 @@ export function buildRelationshipPrompt(character: AICharacter, targetCharacter?
   }
 
   const cues: string[] = [];
-  if (relation.warmth >= 65) cues.push('you feel interpersonal warmth and are more likely to soften, echo, or defend them');
-  if (relation.competence >= 65) cues.push('you treat their judgment as credible and may give their claims more weight');
-  if (relation.trust >= 65) cues.push('you expect follow-through and are more willing to coordinate or disclose');
-  if (relation.threat >= 55) cues.push('you perceive interpersonal threat and are more likely to guard, challenge, deflect, or escalate');
-  if (Math.abs(weight) < 0.15) cues.push('your appraisal is mixed and still unstable');
+  if (relation.warmth >= 12) cues.push('you feel interpersonal warmth and are more likely to soften, echo, or defend them');
+  if (relation.competence >= 12) cues.push('you treat their judgment as credible and may give their claims more weight');
+  if (relation.trust >= 12) cues.push('you expect follow-through and are more willing to coordinate or disclose');
+  if (relation.threat >= 12) cues.push('you perceive interpersonal threat and are more likely to guard, challenge, deflect, or escalate');
+  if (Math.abs(weight) < 0.08) cues.push('your appraisal is mixed and still unstable');
 
   const baggage: string[] = [];
-  if (relation.threat >= 45) baggage.push('you may still carry vigilance, defensiveness, or unresolved conflict from earlier exchanges');
-  if (relation.warmth >= 60 || relation.competence >= 60 || relation.trust >= 60) baggage.push('you may feel some loyalty, deference, or willingness to extend the benefit of the doubt');
+  if (relation.threat >= 10) baggage.push('you may still carry vigilance, defensiveness, or unresolved conflict from earlier exchanges');
+  if (relation.warmth >= 12 || relation.competence >= 12 || relation.trust >= 12) baggage.push('you may feel some loyalty, deference, or willingness to extend the benefit of the doubt');
   if (relation.note?.trim()) baggage.push(`recent interpersonal baggage: ${relation.note}`);
 
   return `\n## Social Appraisal\n- Current target: ${targetCharacter.name}\n- Dynamic stance: ${weight > 0.3 ? 'supportive / affiliative' : weight < -0.3 ? 'guarded / adversarial' : 'mixed / uncertain'}\n${cues.map((cue) => `- ${cue}`).join('\n')}\n${baggage.map((item) => `- ${item}`).join('\n')}`;

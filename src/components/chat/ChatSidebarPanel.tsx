@@ -1,9 +1,11 @@
+import { lazy, Suspense } from 'react';
 import { Box, Tabs, Tab, Stack, Typography } from '@mui/material';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import MemberList from '../controls/MemberList';
-import RelationshipPanel from '../controls/RelationshipPanel';
-import ChatRuntimePanel from './ChatRuntimePanel';
+
+const RelationshipPanel = lazy(() => import('../controls/RelationshipPanel'));
+const ChatRuntimePanel = lazy(() => import('./ChatRuntimePanel'));
 
 interface ChatSidebarPanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -37,6 +39,10 @@ function ChatScenarioCard({ chat }: { chat: GroupChat }) {
       </Stack>
     </Box>
   );
+}
+
+function PanelFallback() {
+  return null;
 }
 
 export default function ChatSidebarPanel({
@@ -76,14 +82,18 @@ export default function ChatSidebarPanel({
             onRemove={onRemoveMember}
             onUpdateSeats={onUpdateSeats}
           />
-          <RelationshipPanel chat={chat} members={members} />
+          <Suspense fallback={<PanelFallback />}>
+            <RelationshipPanel chat={chat} members={members} />
+          </Suspense>
         </Stack>
       ) : null}
 
       {rightPanelTab === 'world' && showRuntimeTab ? (
         <Stack spacing={2}>
           <ChatScenarioCard chat={chat} />
-          <ChatRuntimePanel chat={chat} members={members} privatePayloads={privatePayloads} />
+          <Suspense fallback={<PanelFallback />}>
+            <ChatRuntimePanel chat={chat} members={members} privatePayloads={privatePayloads} />
+          </Suspense>
         </Stack>
       ) : null}
 

@@ -61,8 +61,8 @@ function trendHint(trend: RelationshipLedgerEntry['trend']) {
 }
 
 function summaryHint(summary: string) {
-  if (summary === '中性') return '当前没有哪个关系轴足够突出。';
-  return `当前最突出的关系轴：${summary}。`;
+  if (summary === '中性') return '当前没有哪个关系轴足够突出。雷达图会适度放大正向关系、压缩轻微负向偏移。';
+  return `当前最突出的关系轴：${summary}。雷达图会适度放大正向关系、压缩轻微负向偏移。`;
 }
 
 function formatSignedDelta(value: number) {
@@ -71,8 +71,19 @@ function formatSignedDelta(value: number) {
   return '0';
 }
 
+function scalePositiveBiasedRadar(value: number) {
+  if (value >= 0) return Math.max(24, Math.min(100, 40 + value * 0.6));
+  return Math.max(18, Math.min(44, 40 + value * 0.44));
+}
+
+function buildRadarValue(entry: RelationshipLedgerEntry, axis: AxisKey) {
+  const delta = toRelationshipDisplayDelta(entry.current);
+  const value = delta[axis] || 0;
+  return scalePositiveBiasedRadar(value);
+}
+
 function scaleForRadar(value: number) {
-  return Math.max(0, Math.min(100, 50 + value / 2));
+  return scalePositiveBiasedRadar(value);
 }
 
 function cleanRelationshipText(text: string) {
@@ -115,7 +126,7 @@ function RadarAxisLabels({ delta, onOpenAxis }: { delta: ReturnType<typeof toRel
       {buildAxisLabels(delta).map((item) => {
         const meta = METRIC_META.find((axis) => axis.key === item.key);
         return (
-          <Tooltip key={item.key} title={meta?.hint || item.label} arrow>
+          <Tooltip key={item.key} title={`${meta?.hint || item.label} 当前雷达图对正向值做了更大展示，对轻微负向做了压缩。`} arrow>
             <g transform={`translate(${item.x}, ${item.y})`} style={{ cursor: 'pointer' }} onClick={() => onOpenAxis(item.key)}>
               <text textAnchor={item.anchor} dy={item.labelDy} dominantBaseline="middle" fill="rgba(71, 85, 105, 0.92)" fontSize="11" fontWeight="600">{item.label}</text>
               <text textAnchor={item.anchor} dy={item.valueDy} dominantBaseline="middle" fill={item.color} fontSize="11">{item.value}</text>
@@ -129,12 +140,13 @@ function RadarAxisLabels({ delta, onOpenAxis }: { delta: ReturnType<typeof toRel
 
 export function RelationshipRadar({ entry, onOpenAxis }: { entry: RelationshipLedgerEntry; onOpenAxis: (axis: AxisKey) => void }) {
   const delta = toRelationshipDisplayDelta(entry.current);
-  const scaledValues = METRIC_META.map((item) => scaleForRadar(delta[item.key] || 0));
+  const scaledValues = METRIC_META.map((item) => buildRadarValue(entry, item.key));
   const polygon = buildMetricPolygon(scaledValues, 84);
 
   return (
     <Box sx={{ mt: 0.25, display: 'grid', placeItems: 'center' }}>
       <svg viewBox="0 0 112 122" width="100%" height="122" aria-hidden="true" style={{ maxWidth: 210, overflow: 'visible' }}>
+        <text x="56" y="10" textAnchor="middle" fill="rgba(100, 116, 139, 0.9)" fontSize="10">统一零点基底</text>
         <g transform="translate(14, 18)">
           {[0.33, 0.66, 1].map((scale) => (
             <polygon key={scale} points={buildHexRing(84, scale)} fill="none" stroke="rgba(148, 163, 184, 0.24)" strokeWidth="1" />

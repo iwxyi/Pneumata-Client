@@ -234,7 +234,7 @@ describe('runSessionLoop', () => {
       params.onLoopError();
     });
     await runSessionLoop(params as never);
-    expect(runOneRoundMock.mock.calls[0]?.[6]).toEqual({ promptContext: { promptPrefix: 'open' } });
+    expect(runOneRoundMock.mock.calls[0]?.[6]).toMatchObject({ buildPromptContext: expect.any(Function) });
   });
 
   it('reports blocked speaking phases as loop errors', async () => {

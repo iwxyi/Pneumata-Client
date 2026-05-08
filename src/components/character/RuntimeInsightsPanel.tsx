@@ -36,7 +36,7 @@ function buildRelationshipMemoryItems(character: Partial<AICharacter>): MemoryIt
     id: `rel-${relation.characterId}-${index}`,
     scope: 'relationship',
     layer: 'episodic',
-    kind: relation.warmth + relation.competence + relation.trust >= relation.threat + 100 ? 'bond' : 'resentment',
+    kind: relation.warmth + relation.competence + relation.trust >= relation.threat + 12 ? 'bond' : 'resentment',
     ownerId: character.id || 'character',
     subjectIds: [character.id || 'character', relation.characterId],
     text: relation.note || relation.characterId,
@@ -160,7 +160,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
         <SectionHeader title="运行态观察" dense action={isDeveloperView ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
         <Typography variant="body2" color="text.secondary">{isDeveloperView ? '这里展示角色运行后逐渐沉淀出来的完整运行态与记忆调试信息。' : (memorySummary || '这里展示角色运行后逐渐沉淀下来的关键线索。')}</Typography>
         {!isDeveloperView ? <Box sx={{ mt: 1 }}><StatChipRow items={[
-          relationships[0] ? `关系 ${relationships[0].warmth + relationships[0].competence + relationships[0].trust >= relationships[0].threat + 100 ? '升温' : '紧张'}` : '',
+          relationships[0] ? `关系 ${relationships[0].warmth + relationships[0].competence + relationships[0].trust >= relationships[0].threat + 12 ? '升温' : '紧张'}` : '',
           ...Object.entries(personalityDrift).slice(0, 1).map(([key, value]) => `${key} ${value > 0 ? '+' : ''}${value}`),
           character.emotionalState ? `情绪 ${Object.entries(character.emotionalState).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || '稳定'}` : '',
         ].filter(Boolean)} /></Box> : null}

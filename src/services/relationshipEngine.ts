@@ -1,7 +1,11 @@
 import type { AICharacter, CharacterRelationshipPreset } from '../types/character';
 import { deriveRelationshipDelta } from './emotionTracker';
 
-function clamp(value: number) {
+function clampSigned(value: number) {
+  return Math.max(-100, Math.min(100, value));
+}
+
+function clampThreat(value: number) {
   return Math.max(0, Math.min(100, value));
 }
 
@@ -14,17 +18,18 @@ export function getRelationshipWeight(character: AICharacter, targetCharacterId:
   if (!relation) return 0;
   const positive = relation.warmth * 0.32 + relation.competence * 0.2 + relation.trust * 0.28;
   const negative = relation.threat * 0.38;
-  return (positive - negative - 50) / 100;
+  return (positive - negative) / 100;
 }
 
 export function summarizeRelationshipShift(relation?: CharacterRelationshipPreset) {
-  if (!relation) return '关系开始建立';
+  if (!relation) return '关系尚未建立';
   const positive = relation.warmth + relation.competence + relation.trust;
   const negative = relation.threat;
-  if (positive - negative >= 120) return '明显靠近';
-  if (negative - positive >= 40) return '明显恶化';
-  if (positive >= 150) return '略有升温';
-  return '略有紧张';
+  if (positive - negative >= 36) return '明显靠近';
+  if (negative - positive >= 18) return '明显恶化';
+  if (positive >= 12) return '略有升温';
+  if (negative >= 10) return '略有紧张';
+  return '整体中性';
 }
 
 export function updateCharacterRelationship(
@@ -45,18 +50,18 @@ export function updateCharacterRelationship(
   const nextRelationship: CharacterRelationshipPreset = existing
     ? {
         ...existing,
-        warmth: clamp(existing.warmth + delta.warmth),
-        competence: clamp(existing.competence + delta.competence),
-        trust: clamp(existing.trust + delta.trust),
-        threat: clamp(existing.threat + delta.threat),
+        warmth: clampSigned(existing.warmth + delta.warmth),
+        competence: clampSigned(existing.competence + delta.competence),
+        trust: clampSigned(existing.trust + delta.trust),
+        threat: clampThreat(existing.threat + delta.threat),
         updatedAt: Date.now(),
       }
     : {
         characterId: targetCharacterId,
-        warmth: clamp(50 + delta.warmth),
-        competence: clamp(50 + delta.competence),
-        trust: clamp(50 + delta.trust),
-        threat: clamp(delta.threat),
+        warmth: clampSigned(delta.warmth),
+        competence: clampSigned(delta.competence),
+        trust: clampSigned(delta.trust),
+        threat: clampThreat(delta.threat),
         note: '',
         updatedAt: Date.now(),
       };

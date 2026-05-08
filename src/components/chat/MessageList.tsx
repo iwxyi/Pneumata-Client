@@ -14,6 +14,7 @@ interface MessageListProps {
   characters: AICharacter[];
   liveMessage?: LiveChatMessage | null;
   onDeleteMessage?: (id: string) => void;
+  onAnalyzeMessage?: (message: Message) => void;
   onReachTop?: () => void | Promise<void>;
   isLoadingOlder?: boolean;
   hasMore?: boolean;
@@ -26,6 +27,7 @@ export default function MessageList({
   characters,
   liveMessage = null,
   onDeleteMessage,
+  onAnalyzeMessage,
   onReachTop,
   isLoadingOlder = false,
   hasMore = false,
@@ -183,6 +185,7 @@ export default function MessageList({
             message={item.message}
             character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
             onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
+            onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
             pending={item.pending}
           />
         ))}

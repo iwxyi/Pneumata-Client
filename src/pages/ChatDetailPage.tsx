@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Box, IconButton, Button, Snackbar, Alert, Typography } from '@mui/material';
+import { Box, IconButton, Button, Snackbar, Alert, Typography, Dialog, DialogTitle, DialogContent, CircularProgress } from '@mui/material';
 import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
@@ -53,8 +53,8 @@ export default function ChatDetailPage() {
   const { t } = useTranslation();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
 
-  const { chats, updateChat } = useChatStore();
-  const { characters, updateCharacter } = useCharacterStore();
+  const { chats, updateChat, loadChats, markChatsWarm, isLoading: chatsLoading } = useChatStore();
+  const { characters, updateCharacter, loadCharacters, markCharactersWarm } = useCharacterStore();
   const { messages, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
   const api = useSettingsStore((s) => s.api);
@@ -68,6 +68,12 @@ export default function ChatDetailPage() {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' }>({ open: false, message: '', severity: 'error' });
   const [projectionData, setProjectionData] = useState<SessionProjectionData | null>(null);
   const [projectedDetailState, setProjectedDetailState] = useState<ProjectedChatDetailState | null>(null);
+  const [analysisTarget, setAnalysisTarget] = useState<Message | null>(null);
+  const [analysisText, setAnalysisText] = useState('');
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false);
+  const [detailBootstrapComplete, setDetailBootstrapComplete] = useState(false);
 
   const loopTokenRef = useRef<string | null>(null);
   const isRunningRef = useRef(false);
@@ -77,6 +83,19 @@ export default function ChatDetailPage() {
   const liveMessageRef = useRef<LiveChatMessage | null>(null);
   const liveMessageSeedRef = useRef<Omit<LiveChatMessage, 'content'> | null>(null);
   const lastAutoThreadCandidateIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDetailBootstrapComplete(false);
+    markChatsWarm();
+    markCharactersWarm();
+    void Promise.all([loadChats(), loadCharacters()]).finally(() => {
+      if (!cancelled) setDetailBootstrapComplete(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadCharacters, loadChats, markCharactersWarm, markChatsWarm]);
 
   const chat = chats.find((c) => c.id === id);
   const members = useMemo(
@@ -97,13 +116,16 @@ export default function ChatDetailPage() {
     () => speakAsCharacterId ? characters.find((c) => c.id === speakAsCharacterId) ?? null : null,
     [characters, speakAsCharacterId]
   );
-  const showMemberTab = projectedDetailState?.showMemberTab || false;
-  const showRuntimeTab = projectedDetailState?.showRuntimeTab || false;
-  const showActionTab = projectedDetailState?.showActionTab || false;
-  const activeSidebarTab = projectedDetailState?.activeSidebarTab || 'world';
-  const sidebarTitle = projectedDetailState?.sidebarTitle || '状态';
-  const memberTabTitle = projectedDetailState?.memberTabTitle || '角色';
-  const runtimeTabTitle = projectedDetailState?.runtimeTabTitle || '状态';
+  const showMemberTab = projectedDetailState?.showMemberTab ?? true;
+  const showRuntimeTab = projectedDetailState?.showRuntimeTab ?? true;
+  const showActionTab = projectedDetailState?.showActionTab ?? (chat?.type === 'group');
+  const activeSidebarTab = projectedDetailState?.activeSidebarTab
+    || (showMemberTab && rightPanelTab === 'members' ? 'members'
+      : showRuntimeTab && rightPanelTab === 'world' ? 'world'
+        : showMemberTab ? 'members' : 'world');
+  const memberTabTitle = projectedDetailState?.memberTabTitle || (chat?.type === 'group' ? '成员' : '角色');
+  const runtimeTabTitle = projectedDetailState?.runtimeTabTitle || (chat?.type === 'group' ? '运行态' : '状态');
+  const sidebarTitle = projectedDetailState?.sidebarTitle || (activeSidebarTab === 'members' ? memberTabTitle : activeSidebarTab === 'actions' ? '动作' : runtimeTabTitle);
 
   const manualPrivateThreadAction: SessionActionDefinition = {
     type: 'start_private_thread',
@@ -367,6 +389,30 @@ export default function ChatDetailPage() {
     void handleLoadOlderMessages();
   }, [handleLoadOlderMessages]);
 
+  const handleAnalyzeMessage = useCallback(async (targetMessage: Message) => {
+    if (!chat) return;
+    setAnalysisTarget(targetMessage);
+    setAnalysisDialogOpen(true);
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+    setAnalysisText('');
+    try {
+      const { analyzeChatMessage } = await import('../services/messageAnalysis');
+      const result = await analyzeChatMessage(api, {
+        chat,
+        message: targetMessage,
+        messages,
+        characters,
+      });
+      setAnalysisText(result.trim() || '未生成有效分析结果。');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAnalysisError(message || t('common.error'));
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }, [api, characters, chat, messages, t]);
+
   const runLoop = useCallback(async (loopId: string) => {
     if (!chat || !id) return;
     const [{ runChatLoop }, { getSessionEngine }] = await Promise.all([
@@ -485,7 +531,15 @@ export default function ChatDetailPage() {
     setHeaderActions(null);
   }, [setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
 
-  if (!chat) return null;
+  if (!chat) {
+    return (
+      <Box sx={{ display: 'grid', placeItems: 'center', height: '100%', p: 3 }}>
+        <Typography variant="body2" color="text.secondary">
+          {chatsLoading || !detailBootstrapComplete ? '正在打开会话...' : '未找到这个会话'}
+        </Typography>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ display: 'flex', flex: 1, minHeight: 0, height: '100%', overflow: 'hidden' }}>
@@ -497,6 +551,7 @@ export default function ChatDetailPage() {
             characters={characters}
             liveMessage={liveMessage}
             onDeleteMessage={deleteMessage}
+            onAnalyzeMessage={handleAnalyzeMessage}
             onReachTop={handleNearTop}
             isLoadingOlder={isLoadingOlder}
             hasMore={hasMore}
@@ -586,6 +641,24 @@ export default function ChatDetailPage() {
           </LazyPanel>
         </PageSection>
       </RightPanel>
+
+      <Dialog open={analysisDialogOpen} onClose={() => setAnalysisDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>AI分析</DialogTitle>
+        <DialogContent>
+          {analysisTarget ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{analysisTarget.senderName || '消息'}：{analysisTarget.content}</Typography> : null}
+          {analysisLoading ? (
+            <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : analysisError ? (
+            <Typography variant="body2" color="error">{analysisError}</Typography>
+          ) : (
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
+              {analysisText}
+            </Typography>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={closeSnackbar}>
         <Alert severity={snackbar.severity} onClose={closeSnackbar}>{snackbar.message}</Alert>
