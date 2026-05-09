@@ -1,26 +1,21 @@
-# MirageTea Client
+# AIChatGroup Client
 
 > Not a chatbot.  
 > A living AI social world where characters argue, align, remember, whisper in private, and get directed by you.
 
-MirageTea Client is the frontend experience layer of MirageTea: a **PWA + React + TypeScript + Material UI** client for multi-agent social simulation. It lets users create AI group chats, private user-to-character chats, and AI-to-AI side threads. Characters share memory, relationships, and runtime context across sessions, while the user can step in as a director to steer the story.
+AIChatGroup Client is the frontend experience layer of AIChatGroup: a **PWA + React + TypeScript + Material UI** client for multi-agent social simulation. It lets users create AI group chats, private user-to-character chats, and AI-to-AI side threads. Characters share memory, relationships, and runtime context across sessions, while the user can step in as a director to steer the story.
 
 | Document | Purpose |
 |---|---|
 | [中文 README](./README.md) | Showcase doc for Chinese readers |
-| [`../server/docs/PRD.md`](../server/docs/PRD.md) | Product goals and experience design |
-| [`../server/docs/架构.md`](../server/docs/架构.md) | Core architecture and runtime layers |
-| [`../server/docs/MODE_DATA_MODEL.md`](../server/docs/MODE_DATA_MODEL.md) | Unified data model |
-| [`../server/docs/事件与可见性.md`](../server/docs/事件与可见性.md) | Event schema and visibility model |
-| [`../server/docs/关系与记忆.md`](../server/docs/关系与记忆.md) | Relationship ledger and layered memory |
 
 ---
 
 ## What it is
 
-MirageTea is not built around a single model answering prompts. It is built around a **persistent AI social runtime**.
+AIChatGroup is not built around a single model answering prompts. It is built around a **persistent AI social runtime**.
 
-| Typical AI chat app | MirageTea |
+| Typical AI chat app | AIChatGroup |
 |---|---|
 | User asks, model answers | Multiple characters interact inside one shared world |
 | Sessions are mostly isolated | Group chats, direct chats, and AI-private threads shape the same characters |
@@ -92,7 +87,7 @@ What users come back for is not just a line of text, but questions like:
 
 ## Architecture overview
 
-MirageTea Client is not just a set of pages calling APIs. It is the product shell for a shared runtime model.
+AIChatGroup's frontend is not just a set of pages calling APIs. It is the product shell for a shared runtime model.
 
 | Layer | Responsibility |
 |---|---|
@@ -103,7 +98,7 @@ MirageTea Client is not just a set of pages calling APIs. It is the product shel
 | Relationship Ledger | Updates structured character-to-character state from interaction hints and reducers |
 | Memory Pipeline | Consolidates memory candidates and retrieves context with character-first priorities |
 | Projection Layer | Turns internal runtime state into user-facing and developer-facing UI views |
-| Persistence & Sync | Local-first caches with account-scoped cloud synchronization |
+| Persistence & Sync | Local-first caches with account-scoped optional sign-in sync |
 
 ### Conversation topology
 
@@ -123,7 +118,6 @@ MirageTea Client is not just a set of pages calling APIs. It is the product shel
 | Projection separation | User-facing summaries and developer-facing detail views are intentionally distinct |
 | Unified data model | Conversations, characters, events, artifacts, and mode state share reusable primitives |
 
-For deeper design detail, see [`../server/docs/架构.md`](../server/docs/架构.md).
 
 ---
 
@@ -164,8 +158,8 @@ For deeper design detail, see [`../server/docs/架构.md`](../server/docs/架构
 | Item | Notes |
 |---|---|
 | Node.js | Use a recent LTS version |
-| MirageTea Server | This repo is the client and expects the server repo for auth, persistence, and APIs |
 | AI model config | At least one text model is needed; add an image model for avatar generation |
+| Login mode | Local mode works for standalone use; sign-in is optional |
 
 ### Install and run
 
@@ -181,12 +175,13 @@ For deeper design detail, see [`../server/docs/架构.md`](../server/docs/架构
 
 | Step | Suggested action |
 |---|---|
-| 1 | Start both the server and the client |
-| 2 | Open the app and configure AI models |
-| 3 | Create or import characters |
-| 4 | Create a group chat or a direct chat |
-| 5 | Send the first topic message to start the runtime |
-| 6 | Watch relationship changes, private threads, and runtime panels evolve |
+| 1 | Start the client |
+| 2 | Open the app and enter local mode or sign in if needed |
+| 3 | Configure AI models |
+| 4 | Create or import characters |
+| 5 | Create a group chat or a direct chat |
+| 6 | Send the first topic message to start the runtime |
+| 7 | Watch relationship changes, private threads, and runtime panels evolve |
 
 ---
 
@@ -226,19 +221,6 @@ For deeper design detail, see [`../server/docs/架构.md`](../server/docs/架构
 
 ---
 
-## Relationship to `server/docs`
-
-| Content type | Location |
-|---|---|
-| Showcase docs | `client/README.md` and `client/README.en.md` |
-| Core architecture and data model | `server/docs/` |
-| Product requirements and roadmap | `server/docs/` |
-| Detailed implementation evolution | Codebase + `server/docs/` |
-
-This README is intentionally a presentation layer. The heavier architectural and systems documentation remains centralized in `server/docs/`.
-
----
-
 ## One-line pitch
 
-**MirageTea Client is a PWA frontend for an AI social world where multiple characters talk, align, fight, remember, split into private threads, and let the user direct the drama.**
+**AIChatGroup Client is a PWA frontend for an AI social world where multiple characters talk, align, fight, remember, split into private threads, and let the user direct the drama.**
