@@ -35,6 +35,11 @@ export interface DeveloperUIPrefs {
   dramaBoost: boolean;
 }
 
+export interface AvatarGenerationSettings {
+  autoGenerateCharacterAvatar: boolean;
+  preferNonPhotorealAvatar: boolean;
+}
+
 export interface AppSettings {
   api: APIConfig;
   aiProfiles: AIModelProfile[];
@@ -43,7 +48,7 @@ export interface AppSettings {
   language: Language;
   defaultSpeed: number;
   developerMode: boolean;
-  autoGenerateCharacterAvatar: boolean;
+  avatarGeneration: AvatarGenerationSettings;
   developerUI: DeveloperUIPrefs;
   chatDraftDefaults: ChatDraftDefaults;
   customBubbleStyles: BubbleStyleDefinition[];
@@ -55,6 +60,11 @@ export const DEFAULT_DEVELOPER_UI_PREFS: DeveloperUIPrefs = {
   showSpeechStyle: false,
   showAdvancedRuntimePanels: false,
   dramaBoost: false,
+};
+
+export const DEFAULT_AVATAR_GENERATION_SETTINGS: AvatarGenerationSettings = {
+  autoGenerateCharacterAvatar: false,
+  preferNonPhotorealAvatar: false,
 };
 
 export type AppSettingsWithMemory = AppSettings & { memoryUI?: { showDeveloperMemory?: boolean } };
@@ -136,7 +146,7 @@ export const DEFAULT_SETTINGS: AppSettingsWithMemory = {
   language: 'zh',
   defaultSpeed: 1.0,
   developerMode: false,
-  autoGenerateCharacterAvatar: false,
+  avatarGeneration: DEFAULT_AVATAR_GENERATION_SETTINGS,
   developerUI: DEFAULT_DEVELOPER_UI_PREFS,
   chatDraftDefaults: DEFAULT_CHAT_DRAFT_DEFAULTS,
   customBubbleStyles: [],

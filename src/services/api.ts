@@ -276,6 +276,7 @@ class ApiClient {
       theme: string; themeColor: string; language: string; defaultSpeed: number;
       developerMode?: boolean;
       autoGenerateCharacterAvatar?: boolean;
+      avatarGeneration?: { autoGenerateCharacterAvatar?: boolean; preferNonPhotorealAvatar?: boolean };
       developerUI?: { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showSpeechStyle?: boolean; dramaBoost?: boolean };
       memoryUI?: { showDeveloperMemory?: boolean };
       chatDraftDefaults?: { style: string; showRoleActions: boolean; runtimeEvolutionIntensity: 'slow' | 'balanced' | 'fast' };

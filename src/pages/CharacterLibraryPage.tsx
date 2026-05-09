@@ -10,7 +10,7 @@ import CharacterCard from '../components/character/CharacterCard';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmptyState from '../components/common/EmptyState';
 import { canDeleteCharacterGroup, getCharacterGroupList, getCharactersInGroup, isPresetCharacterSelectable, normalizeCharacterGroup } from '../types/character';
-import { enqueueAvatarGenerationForCharacter, enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
+import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
 import { generateCharacterProfile } from '../services/characterGenerator';
 import { createCharacterBubbleStyleId } from '../utils/bubbleStyle';
 import { getPreferredAIProfile } from '../types/settings';
@@ -115,18 +115,27 @@ export default function CharacterLibraryPage() {
   };
 
   const handleBulkGenerateAvatars = () => {
-    const queued = enqueueAvatarGenerationForCharacters(
-      selectedCustomCharacters,
-      settings.aiProfiles,
-      i18n.language.startsWith('zh') ? 'zh' : 'en',
-    );
-    setSnackbar({
-      open: true,
-      message: i18n.language.startsWith('zh')
-        ? `已为 ${queued.length} 个角色加入头像生成队列`
-        : `Queued avatar generation for ${queued.length} characters`,
-      severity: queued.length > 0 ? 'success' : 'error',
-    });
+    try {
+      const queued = enqueueAvatarGenerationForCharacters(
+        selectedCustomCharacters,
+        settings.aiProfiles,
+        i18n.language.startsWith('zh') ? 'zh' : 'en',
+        settings.avatarGeneration,
+      );
+      setSnackbar({
+        open: true,
+        message: i18n.language.startsWith('zh')
+          ? `已为 ${queued.length} 个角色加入头像生成队列`
+          : `Queued avatar generation for ${queued.length} characters`,
+        severity: queued.length > 0 ? 'success' : 'error',
+      });
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: error instanceof Error ? error.message : (i18n.language.startsWith('zh') ? '头像生成入队失败' : 'Failed to queue avatar generation'),
+        severity: 'error',
+      });
+    }
   };
 
   const handleBulkGenerateBubbles = async () => {

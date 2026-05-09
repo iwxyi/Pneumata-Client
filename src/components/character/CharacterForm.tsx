@@ -48,7 +48,7 @@ import { useCharacterStore } from '../../stores/useCharacterStore';
 import type { AIModelType } from '../../types/settings';
 import { getPreferredAIProfile } from '../../types/settings';
 import { avatarGenerationQueue, type AvatarGenerationStatus } from '../../services/avatarGenerationQueue';
-import { canAutoGenerateAvatarDraft } from '../../services/avatarGeneration';
+import { canAutoGenerateAvatarDraft, enqueueAvatarGenerationForCharacter } from '../../services/avatarGeneration';
 import { isImageAvatar as isImageAvatarValue } from '../../utils/avatar';
 import PersonalitySliders from './PersonalitySliders';
 import NumericSliders from './NumericSliders';
@@ -311,23 +311,21 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
       return;
     }
 
-    const prompt = [
-      i18n.language.startsWith('zh')
-        ? `为角色“${name.trim() || '未命名角色'}”生成一张聊天头像。`
-        : `Generate a chat avatar portrait for the character "${name.trim() || 'Unnamed character'}".`,
-      background.trim() ? (i18n.language.startsWith('zh') ? `背景设定：${background.trim()}` : `Background: ${background.trim()}`) : '',
-      speakingStyle.trim() ? (i18n.language.startsWith('zh') ? `说话风格与气质：${speakingStyle.trim()}` : `Speech style and vibe: ${speakingStyle.trim()}`) : '',
-      i18n.language.startsWith('zh')
-        ? '要求：单人，正方形构图，突出脸部和上半身，适合角色头像，画面干净，不要文字，不要水印。'
-        : 'Requirements: single character, square composition, focus on face and upper body, suitable as avatar, clean image, no text, no watermark.',
-    ].filter(Boolean).join('\n');
-
     setAvatarTaskError(null);
     setAvatarTaskStatus('queued');
-    setAvatarTaskId(avatarGenerationQueue.enqueue(imageProfile, prompt, {
+    setAvatarTaskId(enqueueAvatarGenerationForCharacter({
+      id: initial?.id || 'draft-character',
+      name,
+      background,
+      speakingStyle,
+      expertise,
+      group,
+      personality,
+      speechProfile,
+    }, settings.aiProfiles, i18n.language.startsWith('zh') ? 'zh' : 'en', settings.avatarGeneration, {
       targetKey: avatarTaskTargetKey,
       characterId: initial?.id || null,
-    }));
+    }) || null);
   };
 
   const isImageAvatar = isImageAvatarValue(avatar);
@@ -807,6 +805,16 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
           </Tooltip>
         </DialogTitle>
         <DialogContent>
+          {avatarTaskStatus === 'running' ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              {i18n.language.startsWith('zh') ? '正在生成头像…' : 'Generating avatar...'}
+            </Typography>
+          ) : null}
+          {avatarTaskStatus === 'queued' ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              {i18n.language.startsWith('zh') ? '头像已加入队列，等待开始…' : 'Avatar queued and waiting to start...'}
+            </Typography>
+          ) : null}
           {avatarTaskError ? (
             <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1 }}>
               {avatarTaskError}

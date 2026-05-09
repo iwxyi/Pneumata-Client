@@ -6,6 +6,7 @@ import type { AICharacter } from '../../types/character';
 import type { ChatStyle } from '../../types/chat';
 import { getPreferredAIProfile } from '../../types/settings';
 import { enqueueAvatarGenerationForCharacters } from '../../services/avatarGeneration';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 import { chooseRandomBubbleStyleId, createCharacterBubbleStyleId } from '../../utils/bubbleStyle';
 
 const BATCH_GENERATE_GROUP_SIZE = 10;
@@ -299,16 +300,29 @@ export function useHotTopicDialog(params: {
         if (!createdCharacters.length) return;
         createdIds.push(...createdCharacters.map((character) => character.id));
         if (params.autoGenerateCharacterAvatar) {
-          enqueueAvatarGenerationForCharacters(
-            createdCharacters.map((character) => ({
-              id: character.id,
-              name: character.name,
-              background: character.background || '',
-              speakingStyle: character.speakingStyle || '',
-            })),
-            params.aiProfiles,
-            isZh ? 'zh' : 'en',
-          );
+          try {
+            enqueueAvatarGenerationForCharacters(
+              createdCharacters.map((character) => ({
+                id: character.id,
+                name: character.name,
+                background: character.background || '',
+                speakingStyle: character.speakingStyle || '',
+                group: character.group || '',
+                expertise: character.expertise || [],
+                personality: character.personality,
+                speechProfile: character.speechProfile,
+              })),
+              params.aiProfiles,
+              isZh ? 'zh' : 'en',
+              useSettingsStore.getState().avatarGeneration,
+            );
+          } catch (error) {
+            params.setSnackbar({
+              open: true,
+              message: error instanceof Error ? error.message : (isZh ? '头像生成未启动' : 'Avatar generation did not start'),
+              severity: 'error',
+            });
+          }
         }
         setCreatedCharacterNames((prev) => Array.from(new Set([...prev, ...createdCharacters.map((character) => character.name)])));
         params.setSnackbar({ open: true, message: isZh ? `已创建 ${createdCharacters.length} 个角色` : `${createdCharacters.length} characters created`, severity: 'success' });

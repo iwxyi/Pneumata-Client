@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppSettingsWithMemory, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults, DeveloperUIPrefs } from '../types/settings';
+import type { AppSettingsWithMemory, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults, DeveloperUIPrefs, AvatarGenerationSettings } from '../types/settings';
 
 type AppSettings = AppSettingsWithMemory;
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
-import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
+import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
 import { api } from '../services/api';
 import { useAuthStore } from './useAuthStore';
 
@@ -15,6 +15,7 @@ interface SettingsStore extends AppSettings {
   syncError: string | null;
   memoryUI?: { showDeveloperMemory?: boolean };
   setDeveloperMode: (enabled: boolean) => void;
+  setAvatarGeneration: (prefs: Partial<AvatarGenerationSettings>) => void;
   setAutoGenerateCharacterAvatar: (enabled: boolean) => void;
   setDeveloperUI: (prefs: Partial<DeveloperUIPrefs>) => void;
   setMemoryDeveloperView: (enabled: boolean) => void;
@@ -89,7 +90,7 @@ function buildSettingsPayload(state: AppSettings) {
     chatDraftDefaults: state.chatDraftDefaults,
     customBubbleStyles: state.customBubbleStyles,
     developerMode: state.developerMode,
-    autoGenerateCharacterAvatar: state.autoGenerateCharacterAvatar,
+    avatarGeneration: state.avatarGeneration,
     developerUI: state.developerUI,
     memoryUI: state.memoryUI,
   };
@@ -103,7 +104,12 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
     aiProfiles,
     api: buildApiFromProfiles(aiProfiles),
     developerMode: Boolean(state.developerMode),
-    autoGenerateCharacterAvatar: Boolean(state.autoGenerateCharacterAvatar),
+    avatarGeneration: {
+      ...DEFAULT_AVATAR_GENERATION_SETTINGS,
+      ...(state.avatarGeneration || {}),
+      autoGenerateCharacterAvatar: state.avatarGeneration?.autoGenerateCharacterAvatar ?? Boolean((state as { autoGenerateCharacterAvatar?: boolean }).autoGenerateCharacterAvatar),
+      preferNonPhotorealAvatar: state.avatarGeneration?.preferNonPhotorealAvatar ?? false,
+    },
     developerUI: {
       ...DEFAULT_DEVELOPER_UI_PREFS,
       ...(state.developerUI || {}),
@@ -155,7 +161,12 @@ export const useSettingsStore = create<SettingsStore>()(
               language: settings.language as Language,
               defaultSpeed: settings.defaultSpeed,
               developerMode: settings.developerMode,
-              autoGenerateCharacterAvatar: Boolean((settings as { autoGenerateCharacterAvatar?: boolean }).autoGenerateCharacterAvatar),
+              avatarGeneration: {
+                ...DEFAULT_AVATAR_GENERATION_SETTINGS,
+                ...((settings as { avatarGeneration?: AvatarGenerationSettings }).avatarGeneration || {}),
+                autoGenerateCharacterAvatar: ((settings as { avatarGeneration?: AvatarGenerationSettings }).avatarGeneration?.autoGenerateCharacterAvatar)
+                  ?? Boolean((settings as { autoGenerateCharacterAvatar?: boolean }).autoGenerateCharacterAvatar),
+              },
               developerUI: settings.developerUI as DeveloperUIPrefs | undefined,
               memoryUI: settings.memoryUI as { showDeveloperMemory?: boolean } | undefined,
               chatDraftDefaults: {
@@ -251,9 +262,31 @@ export const useSettingsStore = create<SettingsStore>()(
         });
       },
 
+      setAvatarGeneration: (prefs) => {
+        set((state) => {
+          const next = {
+            ...state,
+            avatarGeneration: {
+              ...state.avatarGeneration,
+              ...prefs,
+            },
+            lastSyncedAt: Date.now(),
+          };
+          syncToServer(buildSettingsPayload(next), set);
+          return next;
+        });
+      },
+
       setAutoGenerateCharacterAvatar: (autoGenerateCharacterAvatar) => {
         set((state) => {
-          const next = { ...state, autoGenerateCharacterAvatar, lastSyncedAt: Date.now() };
+          const next = {
+            ...state,
+            avatarGeneration: {
+              ...state.avatarGeneration,
+              autoGenerateCharacterAvatar,
+            },
+            lastSyncedAt: Date.now(),
+          };
           syncToServer(buildSettingsPayload(next), set);
           return next;
         });
@@ -363,7 +396,7 @@ export const useSettingsStore = create<SettingsStore>()(
         language: state.language,
         defaultSpeed: state.defaultSpeed,
         developerMode: state.developerMode,
-        autoGenerateCharacterAvatar: state.autoGenerateCharacterAvatar,
+        avatarGeneration: state.avatarGeneration,
         developerUI: state.developerUI,
         memoryUI: state.memoryUI,
         chatDraftDefaults: state.chatDraftDefaults,

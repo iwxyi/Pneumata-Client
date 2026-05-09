@@ -874,7 +874,7 @@ export default function CreateChatPage() {
             language={i18n.language}
             apiConfig={api}
             aiProfiles={aiProfiles}
-            autoGenerateCharacterAvatar={useSettingsStore.getState().autoGenerateCharacterAvatar}
+            autoGenerateCharacterAvatar={useSettingsStore.getState().avatarGeneration.autoGenerateCharacterAvatar}
             characters={characters}
             name={name}
             topic={topic}

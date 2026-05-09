@@ -94,8 +94,12 @@ export default function CharacterEditorPage() {
             await updateCharacter(editId, data);
           } else {
             const created = await addCharacter(data);
-            if (settings.autoGenerateCharacterAvatar && data.generatedByAI) {
-              enqueueAvatarGenerationForCharacter(created, settings.aiProfiles, i18n.language.startsWith('zh') ? 'zh' : 'en');
+            if (settings.avatarGeneration.autoGenerateCharacterAvatar && data.generatedByAI) {
+              try {
+                enqueueAvatarGenerationForCharacter(created, settings.aiProfiles, i18n.language.startsWith('zh') ? 'zh' : 'en', settings.avatarGeneration);
+              } catch (error) {
+                console.error('[character-editor:auto-avatar:error]', error);
+              }
             }
           }
           goBack();

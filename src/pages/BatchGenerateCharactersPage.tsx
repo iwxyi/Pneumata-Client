@@ -149,18 +149,29 @@ async function processCharacterBatch(params: {
         }),
       }));
       const createdCharacters = await params.addCharacters(successfulPayloads.map((item) => item.payload));
-      if (useSettingsStore.getState().autoGenerateCharacterAvatar) {
-        enqueueAvatarGenerationForCharacters(
-          createdCharacters.map((character) => ({
-            id: character.id,
-            name: character.name,
-            group: character.group || '',
-            background: character.background || '',
-            speakingStyle: character.speakingStyle || '',
-          })),
-          useSettingsStore.getState().aiProfiles,
-          params.language,
-        );
+      if (useSettingsStore.getState().avatarGeneration.autoGenerateCharacterAvatar) {
+        try {
+          enqueueAvatarGenerationForCharacters(
+            createdCharacters.map((character) => ({
+              id: character.id,
+              name: character.name,
+              group: character.group || '',
+              background: character.background || '',
+              speakingStyle: character.speakingStyle || '',
+              expertise: character.expertise || [],
+              personality: character.personality,
+              speechProfile: character.speechProfile,
+            })),
+            useSettingsStore.getState().aiProfiles,
+            params.language,
+            useSettingsStore.getState().avatarGeneration,
+          );
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : params.getErrorMessage(error);
+          createdCharacters.forEach((character) => {
+            appendProgressItem(params.setProgress, { name: character.name, status: 'failed', reason: `${params.language === 'zh' ? '头像生成未启动：' : 'Avatar generation did not start: '}${reason}` });
+          });
+        }
       }
       successfulPayloads.forEach(({ name }) => {
         existingNames.add(name.trim().toLowerCase());
