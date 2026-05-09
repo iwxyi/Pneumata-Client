@@ -1,12 +1,13 @@
 import { alpha } from '@mui/material/styles';
-import { Box, Chip, Dialog, DialogContent, DialogTitle, Divider, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Chip, Dialog, DialogContent, DialogTitle, Divider, IconButton, Stack, Tooltip, Typography } from '@mui/material';
+import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import type { RelationshipAxisReason, RelationshipLedgerEntry } from '../../types/runtimeEvent';
-import { buildRelationshipDisplaySummary, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
+import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
 import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
 
 interface RelationshipPanelProps {
@@ -66,9 +67,7 @@ function summaryHint(summary: string) {
 }
 
 function formatSignedDelta(value: number) {
-  if (value > 0) return `+${value}`;
-  if (value < 0) return `${value}`;
-  return '0';
+  return formatSignedRelationshipNumber(value);
 }
 
 function scalePositiveBiasedRadar(value: number) {
@@ -214,7 +213,7 @@ function RelationshipCardFrame({ children }: { children: ReactNode }) {
   );
 }
 
-function RelationshipLedgerCard({ entry, members }: { entry: RelationshipLedgerEntry; members: AICharacter[] }) {
+function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, reverseView = false }: { entry: RelationshipLedgerEntry; members: AICharacter[]; hideSpeakerName?: boolean; reverseView?: boolean }) {
   const normalizedEntry = normalizeRelationshipLedgerEntry(entry);
   const presented = buildPresentedRelationshipLedger({ relationshipLedger: [normalizedEntry] } as GroupChat, members)[0];
   const dominantSummary = buildRelationshipDisplaySummary(normalizedEntry);
@@ -230,7 +229,7 @@ function RelationshipLedgerCard({ entry, members }: { entry: RelationshipLedgerE
     <RelationshipCardFrame>
       <Stack spacing={0.85} sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75, px: 0.25, pt: 0.25 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{presented.targetName}</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{reverseView ? presented.actorName : presented.targetName}</Typography>
           <Tooltip title={trendHint(normalizedEntry.trend)} arrow>
             <Chip size="small" label={trendLabel(normalizedEntry.trend)} sx={{ height: 22, fontSize: 11 }} />
           </Tooltip>
@@ -239,7 +238,7 @@ function RelationshipLedgerCard({ entry, members }: { entry: RelationshipLedgerE
           </Tooltip>
         </Box>
         <RelationshipDerivedChips entry={normalizedEntry} />
-        <RelationshipEvidenceCard speakerName={presented.speakerName} evidence={presented.evidence || '暂无明确证据'} />
+        <RelationshipEvidenceCard speakerName={hideSpeakerName ? undefined : presented.speakerName} evidence={presented.evidence || '暂无明确证据'} />
         <RelationshipRadar entry={normalizedEntry} onOpenAxis={setActiveAxis} />
       </Stack>
       <AxisReasonDialog open={Boolean(activeAxis)} onClose={() => setActiveAxis(null)} axisLabel={activeMeta?.label || '关系轴'} reasons={activeReasons} />
@@ -289,33 +288,68 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
 
 export default function RelationshipPanel({ chat, members }: RelationshipPanelProps) {
   const isGroupChat = chat.type === 'group';
+  const [reverseLedger, setReverseLedger] = useState(false);
   const ledgerEntries = (chat.relationshipLedger || [])
     .filter((entry) => !/^draft-\d+$/i.test(entry.actorId) && !/^draft-\d+$/i.test(entry.targetId))
     .filter(isMeaningfulRelationshipLedgerEntry)
     .slice()
-    .sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
+    .sort((a, b) => {
+      const aDelta = toRelationshipDisplayDelta(a.current);
+      const bDelta = toRelationshipDisplayDelta(b.current);
+      const aScore = Math.abs((aDelta.warmth || 0) + (aDelta.competence || 0) + (aDelta.trust || 0) - (aDelta.threat || 0));
+      const bScore = Math.abs((bDelta.warmth || 0) + (bDelta.competence || 0) + (bDelta.trust || 0) - (bDelta.threat || 0));
+      if (bScore !== aScore) return bScore - aScore;
+      return b.lastUpdatedAt - a.lastUpdatedAt;
+    });
+
+  const groupedLedgerSections = members
+    .map((member) => ({
+      member,
+      items: ledgerEntries.filter((entry) => (reverseLedger ? entry.targetId === member.id : entry.actorId === member.id)).slice(0, 8),
+    }))
+    .filter((section) => section.items.length > 0);
+
   const fallbackSections = members
+    .filter((member) => !groupedLedgerSections.some((section) => section.member.id === member.id))
     .map((member) => {
       const items = member.relationships
         .filter((relation) => !/^draft-\d+$/i.test(relation.characterId))
-        .filter((relation) => Math.abs(relation.warmth) >= 8 || Math.abs(relation.competence) >= 8 || Math.abs(relation.trust) >= 8 || Math.abs(relation.threat) >= 8 || Boolean(relation.note?.trim()))
+        .filter((relation) => relation.warmth !== 0 || relation.competence !== 0 || relation.trust !== 0 || relation.threat !== 0 || Boolean(relation.note?.trim()))
         .slice(0, 3);
       return { member, items };
     })
     .filter((section) => section.items.length > 0);
 
   return (
+
     <SurfaceCard>
-      <SectionHeader title={isGroupChat ? '关系账本' : '成员信息'} dense />
-      {ledgerEntries.length ? (
-        <Stack spacing={1.1}>
-          {ledgerEntries.slice(0, 8).map((entry) => <RelationshipLedgerCard key={entry.pairKey} entry={entry} members={members} />)}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+        <SectionHeader title={isGroupChat ? '关系账本' : '成员信息'} dense />
+        {isGroupChat && groupedLedgerSections.length ? (
+          <Tooltip title={reverseLedger ? '切换为“该成员对其他人”' : '切换为“其他人对该成员”'} arrow>
+            <IconButton size="small" onClick={() => setReverseLedger((value) => !value)}>
+              <SwapHorizRoundedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        ) : null}
+      </Box>
+      {groupedLedgerSections.length ? (
+        <Stack spacing={1.25}>
+          {groupedLedgerSections.map(({ member, items }) => (
+            <Box key={member.id}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}{reverseLedger ? ' ← 他人视角' : ' → 对外视角'}</Typography>
+              <Stack spacing={1} sx={{ mt: 0.5 }}>
+                {items.map((entry) => <RelationshipLedgerCard key={entry.pairKey} entry={entry} members={members} hideSpeakerName={false} reverseView={reverseLedger} />)}
+              </Stack>
+              <Divider sx={{ mt: 1 }} />
+            </Box>
+          ))}
         </Stack>
       ) : fallbackSections.length === 0 ? <Typography variant="caption" color="text.secondary">暂无结构化关系数据</Typography> : (
         <Stack spacing={1.25}>
           {fallbackSections.map(({ member, items }) => (
             <Box key={member.id}>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}{reverseLedger ? ' ← 他人视角' : ' → 对外视角'}</Typography>
               <Stack spacing={1} sx={{ mt: 0.5 }}>
                 {items.map((relation, index) => {
                   const target = members.find((item) => item.id === relation.characterId);

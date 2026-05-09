@@ -22,6 +22,7 @@ function cleanRelationshipText(text: string) {
   return text
     .replace(/^[^：:]+[：:]/, '')
     .replace(/^[^↔]+↔[^：:]+[：:]/, '')
+    .replace(/^[^·]+·\s*/, '')
     .replace(/亲近/g, '亲和')
     .replace(/尊重/g, '能力')
     .replace(/态度发生变化/g, '关系发生变化')
@@ -39,7 +40,8 @@ export function buildPresentedRelationshipEntry(entry: RelationshipLedgerEntry, 
   const latestEventActorId = normalizedEntry.recentEvents.at(-1)?.actorIds?.[0] || normalizedEntry.actorId;
   const speaker = members.find((member) => member.id === latestEventActorId);
   const delta = toRelationshipDisplayDelta(normalizedEntry.current);
-  const evidence = cleanRelationshipText(buildRelationshipEvidenceText(normalizedEntry));
+  const evidenceText = cleanRelationshipText(buildRelationshipEvidenceText(normalizedEntry));
+  const evidence = evidenceText ? `${speaker?.name || actor?.name || normalizedEntry.actorId}：${evidenceText}` : '';
 
   return {
     key: normalizedEntry.pairKey,

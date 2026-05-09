@@ -75,19 +75,39 @@ function getCurrentOrBaseline(previous: RelationshipLedgerEntry | null | undefin
   return previous?.current || buildBaselineCurrent();
 }
 
+function roundDisplayValue(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+export function roundRelationshipDisplayValue(value: number) {
+  return roundDisplayValue(value);
+}
+
+export function formatRelationshipNumber(value: number) {
+  const rounded = roundDisplayValue(value);
+  if (Number.isInteger(rounded)) return String(rounded);
+  return rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+export function formatSignedRelationshipNumber(value: number) {
+  const formatted = formatRelationshipNumber(value);
+  if (value > 0) return `+${formatted}`;
+  return formatted;
+}
+
 export function toRelationshipDisplayDelta(current: RelationshipLedgerEntry['current']) {
   const normalized = normalizeCurrent(current);
   return {
-    warmth: normalized.warmth,
-    competence: normalized.competence,
-    trust: normalized.trust,
-    threat: normalized.threat,
+    warmth: roundDisplayValue(normalized.warmth),
+    competence: roundDisplayValue(normalized.competence),
+    trust: roundDisplayValue(normalized.trust),
+    threat: roundDisplayValue(normalized.threat),
   };
 }
 
 function dampenTowardSaturation(current: number, delta: number) {
-  const saturation = Math.max(0.2, 1 - Math.abs(current) / 100);
-  return delta > 0 ? delta * saturation : delta * Math.max(0.35, 1 - Math.abs(current) / 120);
+  const saturation = Math.max(0.45, 1 - Math.abs(current) / 140);
+  return delta > 0 ? delta * saturation : delta * Math.max(0.55, 1 - Math.abs(current) / 160);
 }
 
 function buildAxisReason(axis: RelationshipAxisReason['axis'], value: number, reason: string, evidence: string, createdAt?: number): RelationshipAxisReason {
@@ -166,7 +186,10 @@ function passesInteractionGate(interaction: InteractionEventPayload, delta: Rela
 export function inferRelationshipDelta(interaction: InteractionEventPayload): RelationshipDeltaPayload | null {
   if (!interaction.targetId) return null;
   if (interaction.kind === 'support' || interaction.kind === 'defend') {
-    const delta = { warmth: interaction.intensity, competence: 1, trust: interaction.intensity };
+    const warmth = interaction.intensity + (interaction.tone === 'warm' ? 1 : 0);
+    const trust = interaction.intensity + (interaction.confidence >= 0.92 ? 1 : 0);
+    const competence = interaction.kind === 'defend' ? 1 + (interaction.tone === 'excited' ? 1 : 0) : (interaction.tone === 'warm' ? 1 : 0);
+    const delta = { warmth, competence, trust, threat: 0 };
     return {
       actorId: interaction.actorId,
       targetId: interaction.targetId,
@@ -180,9 +203,10 @@ export function inferRelationshipDelta(interaction: InteractionEventPayload): Re
     const targetId = inferChallengeTarget(interaction) || interaction.targetId;
     const selfAssertive = isSelfAssertiveSpeech(interaction.evidenceText);
     const delta = {
-      threat: interaction.intensity,
-      competence: interaction.kind === 'probe' ? 0 : (selfAssertive ? -1 : 1),
-      trust: interaction.kind === 'probe' ? -1 : (selfAssertive ? -2 : -1),
+      warmth: interaction.kind === 'probe' ? 0 : (interaction.tone === 'annoyed' ? -1 : 0),
+      threat: interaction.intensity + (interaction.tone === 'cold' ? 1 : 0),
+      competence: interaction.kind === 'probe' ? 0 : (selfAssertive ? -1 : (interaction.tone === 'excited' ? 2 : 1)),
+      trust: interaction.kind === 'probe' ? -(1 + (interaction.confidence >= 0.92 ? 1 : 0)) : (selfAssertive ? -2 : -1),
     };
     return {
       actorId: interaction.actorId,
@@ -195,8 +219,9 @@ export function inferRelationshipDelta(interaction: InteractionEventPayload): Re
   }
   if (interaction.kind === 'mock' || interaction.kind === 'dismiss' || interaction.kind === 'pile_on') {
     const delta = {
-      warmth: -interaction.intensity,
-      trust: -interaction.intensity,
+      warmth: -(interaction.intensity + (interaction.tone === 'sarcastic' ? 1 : 0)),
+      competence: interaction.kind === 'dismiss' ? -1 : 0,
+      trust: -(interaction.intensity + (interaction.kind === 'pile_on' ? 1 : 0)),
       threat: interaction.intensity + (interaction.kind === 'mock' || interaction.kind === 'dismiss' ? 1 : 0),
     };
     return {
@@ -226,10 +251,10 @@ function inferTrend(previous: RelationshipLedgerEntry | undefined, delta: Relati
 export function isMeaningfulRelationshipLedgerEntry(entry: RelationshipLedgerEntry) {
   const normalized = normalizeRelationshipLedgerEntry(entry);
   const delta = toRelationshipDisplayDelta(normalized.current);
-  return Math.abs(delta.warmth) >= 8
-    || Math.abs(delta.competence) >= 8
-    || Math.abs(delta.trust) >= 8
-    || Math.abs(delta.threat) >= 8;
+  return delta.warmth !== 0
+    || delta.competence !== 0
+    || delta.trust !== 0
+    || delta.threat !== 0;
 }
 
 function buildNextTrust(current: RelationshipLedgerEntry['current'], delta: RelationshipDeltaPayload['delta']) {
@@ -288,7 +313,7 @@ export function summarizeRelationshipDelta(delta: RelationshipDeltaPayload) {
     { label: '威胁感', value: delta.delta.threat || 0 },
   ].sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
   const lead = ranked[0];
-  return lead ? `${lead.label} ${lead.value > 0 ? '+' : ''}${lead.value}` : delta.reason;
+  return lead ? `${lead.label} ${formatSignedRelationshipNumber(lead.value)}` : delta.reason;
 }
 
 export function calculateRelationshipCurrent(previous: RelationshipLedgerEntry | null, delta: RelationshipDeltaPayload['delta']) {

@@ -29,6 +29,16 @@ import RightPanel from '../components/layout/RightPanel';
 import { buildRuntimeEvent } from '../services/runtimeEventFactory';
 import { buildPrivateSessionEvent } from '../services/directSessionHelpers';
 import { resolveCharacterOrDeleted } from '../utils/deletedEntity';
+import { updateCharacterRelationship } from '../services/relationshipEngine';
+import { deriveEmotionalState, derivePersonalityDrift } from '../services/personalityDrift';
+import { updateCharacterLayeredMemories } from '../services/characterLayeredMemory';
+import { accumulateCharacterRuntime } from '../services/characterRuntime';
+import { resolveRuntimeEvolutionConfig } from '../services/runtimeEvolutionConfig';
+import { getCharacterGroupLabel } from '../types/character';
+import { generateResponse } from '../services/aiClient';
+import { buildSystemPromptWithContext, buildChatMessages, buildDirectMemoryPanelContext } from '../services/promptBuilder';
+import { getCharacterModelProfileId } from '../types/character';
+import { getPreferredAIProfile } from '../types/settings';
 import type { LiveChatMessage } from '../components/chat/chatRenderModel';
 import type { AICharacter } from '../types/character';
 import type { Message } from '../types/message';
@@ -58,6 +68,7 @@ export default function ChatDetailPage() {
   const { messages, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
   const api = useSettingsStore((s) => s.api);
+  const aiProfiles = useSettingsStore((s) => s.aiProfiles);
   const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, toggleRightPanel, rightPanelTab, setRightPanelTab } = useUIStore();
   const dramaBoost = useSettingsStore((s) => s.developerUI.dramaBoost);
 
@@ -125,6 +136,10 @@ export default function ChatDetailPage() {
         : showMemberTab ? 'members' : 'world');
   const memberTabTitle = projectedDetailState?.memberTabTitle || (chat?.type === 'group' ? '成员' : '角色');
   const runtimeTabTitle = projectedDetailState?.runtimeTabTitle || (chat?.type === 'group' ? '运行态' : '状态');
+  const directMemoryPanelContext = useMemo(() => {
+    if (!chat || chat.type !== 'direct' || !activeMembers[0]) return null;
+    return buildDirectMemoryPanelContext(activeMembers[0], messages.filter((item) => item.chatId === chat.id), new Map(characters.map((item) => [item.id, item] as const)));
+  }, [activeMembers, characters, chat, messages]);
   const sidebarTitle = projectedDetailState?.sidebarTitle || (activeSidebarTab === 'members' ? memberTabTitle : activeSidebarTab === 'actions' ? '动作' : runtimeTabTitle);
 
   const manualPrivateThreadAction: SessionActionDefinition = {
@@ -141,7 +156,6 @@ export default function ChatDetailPage() {
     ? [manualPrivateThreadAction, ...actionTabActions.filter((action: SessionActionDefinition) => action.type !== 'start_private_thread')]
     : actionTabActions;
   const actionPanelTitle = chat?.type === 'group' ? '动作与派生' : actionSchema?.title;
-  const compactCharacterMemorySummary = projectedDetailState?.compactCharacterMemorySummary || speakAsChar?.layeredMemories?.slice(-2).map((item) => item.text).join(' / ');
   const composerSurfaces = projectedDetailState?.composerSurfaces || (inputSurfaces.length ? inputSurfaces : (chat ? buildDefaultSessionSurfaceProjection(chat).surfaces : []));
   const actionPanel = sessionActions.length ? <LazyPanel><SessionActionPanel title={actionPanelTitle} actions={sessionActions} onRunAction={() => undefined} /></LazyPanel> : null;
   void runLoopError;
@@ -292,10 +306,52 @@ export default function ChatDetailPage() {
     }));
   }, [appendEventMessage, chat, triggerPairPrivateThread, updateChat]);
 
+  const shouldDirectCharacterFollowUp = useCallback(async (directCharacter: AICharacter, userContent: string) => {
+    const textProfileId = getCharacterModelProfileId(directCharacter, 'text');
+    const profile = aiProfiles.find((item) => item.id === textProfileId) || getPreferredAIProfile(aiProfiles, 'text') || api;
+    if (!profile?.apiKey || !profile?.model || !chat) return null;
+
+    const recentMessages = messages.filter((item) => item.chatId === chat.id && !item.isDeleted).slice(-8);
+    const characterMap = new Map(characters.map((item) => [item.id, item] as const));
+    const systemPrompt = `${buildSystemPromptWithContext(directCharacter, chat, 0, recentMessages, characterMap)}\n\n## Task\nDecide whether this character would naturally send one short follow-up message right after replying to the user's latest message. Return strict JSON only: {"shouldFollowUp":true|false,"content":"short follow-up if true"}. If there should be no follow-up, return shouldFollowUp false and empty content.`;
+    const raw = await generateResponse(profile, systemPrompt, [{ role: 'user', content: `Latest user message: ${userContent}\nRecent conversation:\n${buildChatMessages(recentMessages, characterMap, 8).map((item) => item.content).join('\n')}` }]);
+    const parsed = JSON.parse(raw.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '')) as { shouldFollowUp?: boolean; content?: string };
+    const contentText = typeof parsed.content === 'string' ? parsed.content.trim() : '';
+    return parsed.shouldFollowUp && contentText ? contentText : null;
+  }, [aiProfiles, api, characters, chat, messages]);
+
   const handleGuideSend = useCallback(async (content: string) => {
     if (!chat || !id) return;
     await addMessage({ chatId: id, type: 'user', senderId: 'user', senderName: 'User', content, emotion: 0 });
     if (chat.type === 'direct') {
+      const directCharacter = characters.find((item) => item.id === chat.memberIds[0]);
+      if (directCharacter) {
+        const evolution = resolveRuntimeEvolutionConfig(chat.runtimeEvolutionIntensity);
+        const drift = derivePersonalityDrift(directCharacter, content, evolution.driftMultiplier * 0.5);
+        const emotion = deriveEmotionalState(directCharacter, content, evolution.emotionMultiplier * 0.85, evolution.emotionDecayBias);
+        await updateCharacter(directCharacter.id, {
+          personalityDrift: drift,
+          emotionalState: emotion,
+          layeredMemories: updateCharacterLayeredMemories({
+            character: { ...directCharacter, emotionalState: emotion },
+            content,
+            personalityDrift: drift,
+          }),
+          runtimeTimeline: accumulateCharacterRuntime(directCharacter, {
+            type: 'memory',
+            text: `${getCharacterGroupLabel(directCharacter.group) || '单聊'}中与用户互动：${content.slice(0, 48)}`,
+          }).concat(
+            Object.keys(drift).length ? [{ type: 'drift' as const, text: '与用户互动后产生性格漂移', createdAt: Date.now() }] : []
+          ).slice(-24),
+        });
+        const followUp = await shouldDirectCharacterFollowUp(directCharacter, content);
+        if (followUp) {
+          await addMessage({ chatId: id, type: 'ai', senderId: directCharacter.id, senderName: directCharacter.name, content: followUp, emotion: 0 });
+        }
+      }
+      return;
+    }
+    if (chat.type === 'ai_direct') {
       const { applyAiDirectFeedback } = await import('../services/directSessionRuntime');
       await applyAiDirectFeedback({ chat, chats, characters, content, updateCharacter, updateChat, appendEventMessage });
     }
@@ -443,6 +499,12 @@ export default function ChatDetailPage() {
         updateLiveMessage((current) => current ? { ...current, content } : current);
         setChatError(null);
       },
+      onIdle: (reason) => {
+        clearLiveMessage();
+        setThinkingId(null);
+        setCurrentSpeaker(null);
+        setRunLoopError(reason);
+      },
       onClearStreamingState: () => {
         clearLiveMessage();
         setThinkingId(null);
@@ -484,8 +546,10 @@ export default function ChatDetailPage() {
     navigate(fromTab ? `/chats?tab=${fromTab}` : '/chats');
   }, [fromTab, navigate]);
 
+  const canAutoRunConversation = chat?.type !== 'direct';
+
   const handleHeaderPrimaryAction = useCallback(() => {
-    if (!id) return;
+    if (!id || !canAutoRunConversation) return;
     if (!isRunning) {
       resetAllCooldowns();
       const newLoopToken = `${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -502,7 +566,13 @@ export default function ChatDetailPage() {
       pause();
       updateChat(id, { isActive: false });
     }
-  }, [id, isPaused, isRunning, pause, resetAllCooldowns, resume, runLoop, start, updateChat]);
+  }, [canAutoRunConversation, id, isPaused, isRunning, pause, resetAllCooldowns, resume, runLoop, start, updateChat]);
+
+  const headerPrimaryActionButton = canAutoRunConversation ? (
+    <IconButton onClick={handleHeaderPrimaryAction} color={isRunning && !isPaused ? 'primary' : 'default'}>
+      {isRunning && !isPaused ? <PauseIcon /> : <PlayIcon />}
+    </IconButton>
+  ) : null;
 
   useEffect(() => {
     if (!chat) return;
@@ -511,9 +581,7 @@ export default function ChatDetailPage() {
     setHideMobileBottomNav(true);
     setHeaderActions(
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <IconButton onClick={handleHeaderPrimaryAction} color={isRunning && !isPaused ? 'primary' : 'default'}>
-          {isRunning && !isPaused ? <PauseIcon /> : <PlayIcon />}
-        </IconButton>
+        {headerPrimaryActionButton}
         <IconButton onClick={toggleRightPanel}>
           <PeopleIcon />
         </IconButton>
@@ -559,9 +627,6 @@ export default function ChatDetailPage() {
             topHint="没有更早的消息"
           />
         </Box>
-        <Box sx={{ px: 2, pb: 1, flexShrink: 0 }}>
-          {compactCharacterMemorySummary && speakAsChar ? <Box sx={{ mb: 0.75, px: 1.25, py: 0.75, borderRadius: 2, bgcolor: 'action.hover', color: 'text.secondary', fontSize: 12 }}>{`${speakAsChar.name}：${compactCharacterMemorySummary}`}</Box> : null}
-        </Box>
         <SessionComposerHost
           surfaces={composerSurfaces}
           speakAsCharacterName={speakAsChar?.name}
@@ -587,7 +652,12 @@ export default function ChatDetailPage() {
             <SurfaceCard>
               <SectionHeader title="会话信息" dense />
               <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>{chat.type === 'ai_direct' ? 'AI私聊' : '用户单聊'}</Typography>
-              <StatChipRow items={[chat.mode, `${members.length} 成员`]} />
+              <StatChipRow items={[chat.mode, `${members.length} 成员`, chat.type === 'direct' ? '回应式' : '可运行']} />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                {chat.type === 'direct'
+                  ? '用户单聊默认不持续运行，角色会基于自身记忆、关系与最近变化进行回应。'
+                  : 'AI私聊是两个AI之间的线程，可持续运行并沉淀关系与记忆。'}
+              </Typography>
             </SurfaceCard>
           ) : null}
           <LazyPanel>
@@ -602,6 +672,7 @@ export default function ChatDetailPage() {
               memberPanelTitle={memberTabTitle}
               runtimePanelTitle={runtimeTabTitle}
               privatePayloads={projectedDetailState?.sidebarChat.privatePayloads || privatePayloads}
+              directMemoryContext={directMemoryPanelContext}
               showActionTab={showActionTab}
               actionPanel={showActionTab ? <LazyPanel><SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedDetailState?.actionPanel.actions || sessionActions} onRunAction={runSessionAction} /></LazyPanel> : null}
               onSpeakAs={(charId) => setSpeakAsCharacter(charId)}

@@ -117,6 +117,7 @@ export async function runSessionLoop(params: {
   isPaused: () => boolean;
   isActiveLoop: (loopId: string) => boolean;
   onSpeakerSelected: (characterId: string) => void;
+  onIdle?: (reason: string) => void;
   onMessageChunk: (content: string) => void;
   onClearStreamingState: () => void;
   onEngineError: (error: Error) => void;
@@ -187,6 +188,10 @@ export async function runSessionLoop(params: {
           onMessageChunk: (content) => {
             if (!isActiveLoop(params)) return;
             params.onMessageChunk(content);
+          },
+          onIdle: (reason) => {
+            if (!isActiveLoop(params)) return;
+            params.onIdle?.(reason);
           },
           onMessageComplete: async (message) => {
             if (!isActiveLoop(params)) return;

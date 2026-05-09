@@ -46,12 +46,112 @@ function buildLayeredMemoryPrompt(items: MemoryItem[]) {
   return `\n## Relevant Memories\n${items.map((item) => `- [${item.scope}/${item.kind}/${item.layer}] ${item.text}`).join('\n')}`;
 }
 
+function detectMentionedTarget(messages: Message[], characters: Map<string, AICharacter>, speakerId: string) {
+  const recentText = messages.filter((m) => !m.isDeleted).slice(-4).map((m) => m.content).join('\n');
+  const candidates = [...characters.values()]
+    .filter((character) => character.id !== speakerId && character.name)
+    .map((character) => ({
+      character,
+      score: recentText.includes(character.name) ? character.name.length : 0,
+    }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return candidates[0]?.character || null;
+}
+
+function buildTargetedRelationshipSummary(target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null) {
+  if (!target || !relationshipSnapshot) return '';
+  const sentiment = relationshipSnapshot.trust + relationshipSnapshot.warmth - relationshipSnapshot.threat;
+  const stance = sentiment >= 20 ? 'overall positive' : sentiment <= -20 ? 'guarded or negative' : 'mixed or unstable';
+  return `\n## Targeted Judgment\n- Your current overall stance toward ${target.name}: ${stance}.`;
+}
+
+function buildTargetedMemoryRationale(targetedCharacterMemories: MemoryItem[]) {
+  if (!targetedCharacterMemories.length) return '';
+  return `\n## Why You Think This\n${targetedCharacterMemories.slice(0, 4).map((item) => `- ${item.text}`).join('\n')}`;
+}
+
+function buildRelationshipProjectionText(target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null) {
+  if (!target || !relationshipSnapshot) return '';
+  return `${target.name} · 亲和 ${relationshipSnapshot.warmth ?? 0} / 能力 ${relationshipSnapshot.competence ?? 0} / 信任 ${relationshipSnapshot.trust ?? 0} / 威胁 ${relationshipSnapshot.threat ?? 0}`;
+}
+
+export function buildDirectTargetSummary(character: AICharacter, messages: Message[], characters: Map<string, AICharacter>) {
+  const target = detectMentionedTarget(messages, characters, character.id);
+  if (!target) return '';
+  const relationshipSnapshot = character.relationships.find((item) => item.characterId === target.id) || null;
+  return buildRelationshipProjectionText(target, relationshipSnapshot || null);
+}
+
+export function buildDirectMemoryVisibilitySummary(character: AICharacter) {
+  const layeredMemories = character.layeredMemories || [];
+  return {
+    working: layeredMemories.filter((item) => item.layer === 'working').length,
+    episodic: layeredMemories.filter((item) => item.layer === 'episodic').length,
+    longTerm: layeredMemories.filter((item) => item.layer === 'long_term').length,
+    relationship: layeredMemories.filter((item) => item.scope === 'relationship').length,
+    characterSelf: layeredMemories.filter((item) => item.scope === 'character_self').length,
+    conversation: layeredMemories.filter((item) => item.scope === 'conversation').length,
+    thread: layeredMemories.filter((item) => item.scope === 'thread').length,
+  };
+}
+
+export function buildDirectMemoryVisibilityText(character: AICharacter) {
+  const summary = buildDirectMemoryVisibilitySummary(character);
+  return `工作 ${summary.working} / 情节 ${summary.episodic} / 长期 ${summary.longTerm} / 关系 ${summary.relationship} / 自我 ${summary.characterSelf} / 会话 ${summary.conversation} / 线程 ${summary.thread}`;
+}
+
+export function buildDirectRecentMemoryChanges(character: AICharacter) {
+  return (character.layeredMemories || []).slice().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5);
+}
+
+export function buildDirectRecentRelationshipChanges(character: AICharacter) {
+  return (character.runtimeTimeline || []).filter((item) => item.type === 'relationship' || item.type === 'drift').slice(-5);
+}
+
+export function buildDirectResponseDebugContext(character: AICharacter, messages: Message[], characters: Map<string, AICharacter>) {
+  const target = detectMentionedTarget(messages, characters, character.id);
+  const relationshipSnapshot = target ? character.relationships.find((item) => item.characterId === target.id) || null : null;
+  return {
+    targetName: target?.name || null,
+    targetSummary: buildRelationshipProjectionText(target, relationshipSnapshot),
+    memoryVisibility: buildDirectMemoryVisibilityText(character),
+  };
+}
+
+export function buildDirectMemoryPanelContext(character: AICharacter, messages: Message[], characters: Map<string, AICharacter>) {
+  const debug = buildDirectResponseDebugContext(character, messages, characters);
+  return {
+    ...debug,
+    recentMemories: buildDirectRecentMemoryChanges(character),
+    recentRelationshipChanges: buildDirectRecentRelationshipChanges(character),
+  };
+}
+
 function buildPromptContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>) {
-  const targetId = messages.filter((m) => !m.isDeleted && m.type === 'ai' && m.senderId !== character.id).at(-1)?.senderId;
-  const retrieved = getMemoryContext(chat.layeredMemories || [], character.id, targetId, chat.id);
-  const dramaBoost = Boolean((globalThis as { __MIRAGETEA_DRAMA_BOOST__?: boolean }).__MIRAGETEA_DRAMA_BOOST__);
-  const target = targetId ? characters.get(targetId) : undefined;
-  return `${buildLayeredMemoryPrompt(retrieved)}${buildSocialPromptContext(character, target)}`;
+  const recentTargetId = messages.filter((m) => !m.isDeleted && m.type === 'ai' && m.senderId !== character.id).at(-1)?.senderId;
+  const mentionedTarget = detectMentionedTarget(messages, characters, character.id);
+  const target = mentionedTarget || (recentTargetId ? characters.get(recentTargetId) : undefined);
+  const targetId = target?.id;
+  const targetName = target?.name;
+  const targetedCharacterMemories = targetId ? (character.layeredMemories || []).filter((item) => item.subjectIds?.includes(targetId)).slice(-6) : [];
+  const targetedRuntime = targetName ? (character.runtimeTimeline || []).filter((item) => item.text.includes(targetName)).slice(-3) : [];
+  const conversationMemories = getMemoryContext(chat.layeredMemories || [], character.id, targetId, chat.id);
+  const characterMemories = getMemoryContext(character.layeredMemories || [], character.id, targetId, chat.id);
+  const recentRuntime = (character.runtimeTimeline || []).slice(-4).map((item) => `- [${item.type}] ${item.text}`);
+  const targetedRuntimeLines = targetedRuntime.map((item) => `- [${item.type}] ${item.text}`);
+  const relationshipSnapshot = target
+    ? (character.relationships.find((item) => item.characterId === target.id) || null)
+    : null;
+  const mergedMemories = [...targetedCharacterMemories, ...characterMemories, ...conversationMemories].slice(0, 8);
+  const relationshipContext = target && relationshipSnapshot
+    ? `\n## Relationship Snapshot\n- Toward ${target.name}: warmth ${relationshipSnapshot.warmth ?? 0}, competence ${relationshipSnapshot.competence ?? 0}, trust ${relationshipSnapshot.trust ?? 0}, threat ${relationshipSnapshot.threat ?? 0}${relationshipSnapshot.note ? `\n- Note: ${relationshipSnapshot.note}` : ''}`
+    : '';
+  const targetedJudgment = buildTargetedRelationshipSummary(target, relationshipSnapshot);
+  const targetedRationale = buildTargetedMemoryRationale(targetedCharacterMemories);
+  const runtimeContext = recentRuntime.length ? `\n## Recent Cross-Conversation State\n${recentRuntime.join('\n')}` : '';
+  const targetedRuntimeContext = targetedRuntimeLines.length ? `\n## Recent Target-Specific Changes\n${targetedRuntimeLines.join('\n')}` : '';
+  return `${buildLayeredMemoryPrompt(mergedMemories)}${relationshipContext}${targetedJudgment}${targetedRationale}${targetedRuntimeContext}${runtimeContext}${buildSocialPromptContext(character, target)}`;
 }
 
 function buildCharacterPromptContext(character: AICharacter) {
@@ -71,7 +171,7 @@ function buildBaseCharacterSection(character: AICharacter, personalityDesc: stri
 }
 
 function buildRules(chat: GroupChat, character: AICharacter) {
-  return `## Rules\n1. Stay in character at all times. Speak as ${character.name} would.\n2. Default to short WeChat-style messages: usually one sentence, occasionally two, sometimes just a fragment, interjection, or question.\n3. Reply to a specific point, person, tone, or subtext from the latest messages; do not restate the whole discussion.\n4. It is better to be locally reactive than globally complete.\n5. You may agree halfway, interrupt the logic, tease, back someone up, push back, dodge, change subject slightly, or drop a side comment if it feels natural.\n6. Let spoken-language messiness exist: brief pivots, half-finished reactions, casual wording, and emotionally biased framing are good.\n7. Do not sound like an assistant, moderator, essay writer, debate host, customer support agent, or polished content generator unless your character explicitly behaves that way.\n8. Never write a neat mini-essay, numbered reasoning, or fully wrapped conclusion unless your character is explicitly summarizing the room.\n9. DO NOT use any prefix like "${character.name}:" - just give the message content directly.\n10. Use the language that matches the conversation (if others speak Chinese, respond in Chinese; if English, respond in English).\n11. ${chat.showRoleActions === false ? 'Do not include stage directions, action descriptions, or emotional cues in parentheses such as “（微笑着）”, “*waves*”, or similar narrative actions. Output only the spoken content.' : 'You may include light role actions or expressive cues if they feel natural, but do not overuse them.'}`;
+  return `## Rules\n1. Stay in character at all times. Speak as ${character.name} would.\n2. Default to short WeChat-style messages: usually one sentence, occasionally two, sometimes just a fragment, interjection, or question.\n3. Reply to a specific point, person, tone, or subtext from the latest messages; do not restate the whole discussion.\n4. It is better to be locally reactive than globally complete.\n5. You may agree halfway, interrupt the logic, tease, back someone up, push back, dodge, change subject slightly, or drop a side comment if it feels natural.\n6. Let spoken-language messiness exist: brief pivots, half-finished reactions, casual wording, and emotionally biased framing are good.\n7. Do not sound like an assistant, moderator, essay writer, debate host, customer support agent, or polished content generator unless your character explicitly behaves that way.\n8. Never write a neat mini-essay, numbered reasoning, or fully wrapped conclusion unless your character is explicitly summarizing the room.\n9. When evaluating another named character, prefer your own long-term memories, relationship state, and recent changes over generic balanced analysis.\n10. DO NOT use any prefix like "${character.name}:" - just give the message content directly.\n11. Use the language that matches the conversation (if others speak Chinese, respond in Chinese; if English, respond in English).\n12. ${chat.showRoleActions === false ? 'Do not include stage directions, action descriptions, or emotional cues in parentheses such as “（微笑着）”, “*waves*”, or similar narrative actions. Output only the spoken content.' : 'You may include light role actions or expressive cues if they feel natural, but do not overuse them.'}`;
 }
 
 export function buildSystemPromptWithContext(character: AICharacter, chat: GroupChat, emotion: number, messages: Message[], characters: Map<string, AICharacter>) {

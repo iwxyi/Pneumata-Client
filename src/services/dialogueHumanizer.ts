@@ -255,15 +255,28 @@ function stripFormalLeadIn(content: string) {
   return content.replace(/^(我觉得|我认为|从我的角度看|总结一下|简单来说)[，,:：\s]*/i, '').trim();
 }
 
+function normalizeDuplicateCheck(content: string) {
+  return content
+    .replace(/[\p{P}\p{S}]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 function removeRepeatedSurfacePattern(content: string, messages: Message[]) {
   const repeatedPatterns = getRecentSurfacePatterns(messages).filter(([, count]) => count >= 2).map(([pattern]) => pattern);
-  if (!repeatedPatterns.length) return content;
   let next = content.trim();
   for (const pattern of repeatedPatterns) {
     if (next.startsWith(pattern)) {
       next = next.slice(pattern.length).replace(/^[，,、：:\s]+/, '').trim();
     }
   }
+  const normalizedNext = normalizeDuplicateCheck(next || content.trim());
+  const recentNormalized = messages
+    .filter((message) => !message.isDeleted && message.type === 'ai')
+    .slice(-10)
+    .map((message) => normalizeDuplicateCheck(message.content));
+  if (normalizedNext && recentNormalized.includes(normalizedNext)) return '';
   return next || content.trim();
 }
 
@@ -274,11 +287,13 @@ function normalizeCatchphraseEcho(content: string, character?: AICharacter) {
   return content.replace(new RegExp(`^(${duplicated})+`), duplicated).trim();
 }
 
-export function postProcessHumanChat(content: string, intent: SpeakIntent, character?: AICharacter, messages: Message[] = []) {
+export function postProcessHumanChat(content: string, intent: SpeakIntent, character?: AICharacter, messages: Message[] = [], intentionalRepeat = false) {
   const trimmed = content.trim();
   if (!trimmed) return trimmed;
   const normalized = trimRepeatedSentenceEnding(collapseRepeatedSurface(stripFormalLeadIn(trimmed))).replace(/\n{2,}/g, '\n').trim();
-  const surfaceControlled = normalizeCatchphraseEcho(removeRepeatedSurfacePattern(normalized, messages), character);
+  const repeatedControlled = intentionalRepeat ? normalized : removeRepeatedSurfacePattern(normalized, messages);
+  const surfaceControlled = normalizeCatchphraseEcho(repeatedControlled, character);
+  if (!surfaceControlled.trim()) return '';
   if (intent.messageShape === 'question_only') {
     const question = surfaceControlled.split(/(?<=[。！？!?])/).find((part) => /[?？]|吗|怎么|凭什么|是不是|要不/.test(part)) || surfaceControlled;
     return question.trim();

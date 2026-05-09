@@ -142,6 +142,16 @@ function buildTimelineBody(item: ProjectedRuntimeTimelineItem) {
   const candidate = readSocialEventCandidateMeta(item);
   const artifact = readSocialEventArtifactMeta(item);
   const effect = readSocialEventEffectMeta(item);
+  const relation = readRelationshipDeltaMeta(item);
+  if (relation) {
+    const parts = [
+      relation.delta.warmth ? `亲和${formatSigned(relation.delta.warmth)}` : '',
+      relation.delta.competence ? `能力${formatSigned(relation.delta.competence)}` : '',
+      relation.delta.trust ? `信任${formatSigned(relation.delta.trust)}` : '',
+      relation.delta.threat ? `威胁${formatSigned(relation.delta.threat)}` : '',
+    ].filter(Boolean);
+    return clip(parts.join(' / '), 88);
+  }
   return clip(cleanText(candidate?.title || artifact?.title || artifact?.activityType || effect?.summary || item.text), 88);
 }
 
@@ -153,7 +163,7 @@ function buildTimelineMeta(item: ProjectedRuntimeTimelineItem) {
   const effect = readSocialEventEffectMeta(item);
   if (candidate) return cleanText(`候选 · ${formatSocialEventKind(candidate.eventKind)}`);
   if (effect) return cleanText(`回流 · ${effect.effectType}`);
-  if (relation) return cleanText(`关系 · ${relation.reason}`);
+  if (relation) return cleanText(item.label);
   if (room?.delta?.heat || room?.delta?.cohesion || room?.delta?.topicDrift) return `热度 ${formatSigned(room.delta?.heat)} / 凝聚 ${formatSigned(room.delta?.cohesion)}`;
   if (memory) return cleanText(`${memory.kind} · ${Math.round(memory.confidence * 100)}%`);
   return null;
@@ -162,10 +172,28 @@ function buildTimelineMeta(item: ProjectedRuntimeTimelineItem) {
 function buildTimelineCaption(item: ProjectedRuntimeTimelineItem) {
   const cluster = readSocialEventClusterMeta(item);
   if (cluster?.eventKind === 'pair_private_thread' && cluster.stage === 'opened') return null;
+  if (item.event?.kind === 'interaction' || item.event?.kind === 'relationship_delta') return null;
   const actors = item.actorNames?.length ? item.actorNames.join('、') : null;
   const targets = item.targetNames?.length ? item.targetNames.join('、') : null;
   if (!actors && !targets) return null;
   return clip(cleanText(actors && targets ? `${actors} → ${targets}` : actors || targets || ''), 36);
+}
+
+function looksLikePrimaryRecentEvent(value: string) {
+  return /^热度\s+\d+\s*\/\s*凝聚\s+\d+/.test(value.trim());
+}
+
+function buildOverviewRows(chat: GroupChat & { primaryRecentEvent?: string }, members: AICharacter[]) {
+  const room = chat.worldState.structuredRoomState;
+  const recentEvent = chat.primaryRecentEvent || chat.worldState.recentEvent;
+  const activeThread = room?.dominantThread?.length ? room.dominantThread.map((id) => members.find((item) => item.id === id)?.name || id).join(' ↔ ') : null;
+  const stageLabel = chat.worldState.phase === 'idle' ? '自由聊天' : chat.worldState.phase;
+  return [
+    recentEvent && !looksLikePrimaryRecentEvent(recentEvent) ? { key: 'overview-recent', label: '最近', value: recentEvent } : null,
+    activeThread ? { key: 'overview-thread', label: '主线', value: activeThread } : null,
+    room ? { key: 'overview-room', label: '局势', value: `热度 ${Math.round(room.heat)} / 凝聚 ${Math.round(room.cohesion)}` } : null,
+    { key: 'overview-stage', label: '阶段', value: stageLabel },
+  ].filter(Boolean).slice(0, 3) as Array<{ key: string; label: string; value: string }>;
 }
 
 function timelineTone(item: ProjectedRuntimeTimelineItem) {
@@ -195,19 +223,6 @@ function buildBoardRows(chat: GroupChat) {
     { key: 'boardSize', label: '尺寸', value: `${board.schema.columns || 0} × ${board.schema.rows || 0}` },
     { key: 'pieces', label: '棋子', value: `${board.pieces?.length || 0}` },
   ];
-}
-
-function buildOverviewRows(chat: GroupChat & { primaryRecentEvent?: string }, members: AICharacter[]) {
-  const room = chat.worldState.structuredRoomState;
-  const recentEvent = chat.primaryRecentEvent || chat.worldState.recentEvent;
-  const activeThread = room?.dominantThread?.length ? room.dominantThread.map((id) => members.find((item) => item.id === id)?.name || id).join(' ↔ ') : null;
-  const stageLabel = chat.worldState.phase === 'idle' ? '自由聊天' : chat.worldState.phase;
-  return [
-    recentEvent ? { key: 'overview-recent', label: '最近', value: recentEvent } : null,
-    activeThread ? { key: 'overview-thread', label: '主线', value: activeThread } : null,
-    room ? { key: 'overview-room', label: '局势', value: `热度 ${Math.round(room.heat)} / 凝聚 ${Math.round(room.cohesion)}` } : null,
-    { key: 'overview-stage', label: '阶段', value: stageLabel },
-  ].filter(Boolean).slice(0, 3) as Array<{ key: string; label: string; value: string }>;
 }
 
 function buildRoomContext(chat: GroupChat, members: AICharacter[]) {

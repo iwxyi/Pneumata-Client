@@ -117,8 +117,10 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
 
       {!primarySurface || primarySurface.type !== 'text' ? (
         <ChatInput
-          mode="guide"
-          onSend={(content) => onSubmitText({ content }, { key: 'fallback-text', type: 'text', mode: 'guide' })}
+          mode={speakAsCharacterName ? 'speakAs' : 'guide'}
+          characterName={speakAsCharacterName || undefined}
+          onSend={(content) => onSubmitText({ content }, { key: 'fallback-text', type: 'text', mode: speakAsCharacterName ? 'speakAs' : 'guide' })}
+          onClose={speakAsCharacterName ? onCloseSpeakAs : undefined}
         />
       ) : (() => {
         const mode = primarySurface.mode || (speakAsCharacterName ? 'speakAs' : 'guide');

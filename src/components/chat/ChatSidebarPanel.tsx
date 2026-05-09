@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Box, Tabs, Tab, Stack, Typography } from '@mui/material';
+import { Box, Tabs, Tab, Stack, Typography, Chip } from '@mui/material';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import MemberList from '../controls/MemberList';
@@ -20,6 +20,13 @@ interface ChatSidebarPanelProps {
   memberPanelTitle?: string;
   runtimePanelTitle?: string;
   privatePayloads: Array<{ key: string; title: string; text: string }>;
+  directMemoryContext?: {
+    targetName: string | null;
+    targetSummary: string;
+    memoryVisibility: string;
+    recentMemories: Array<{ id: string; text: string; layer: string; scope: string }>;
+    recentRelationshipChanges: Array<{ type: string; text: string; createdAt: number }>;
+  } | null;
   onSpeakAs: (charId: string) => void;
   onRemoveMember?: (charId: string) => void;
   onUpdateSeats?: (memberIds: string[]) => void;
@@ -45,6 +52,29 @@ function PanelFallback() {
   return null;
 }
 
+function DirectMemoryHint({ chat, members, directMemoryContext }: { chat: GroupChat; members: AICharacter[]; directMemoryContext?: ChatSidebarPanelProps['directMemoryContext'] }) {
+  if (chat.type !== 'direct' || !members[0]) return null;
+  const character = members[0];
+  return (
+    <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.75 }}>单聊记忆主轴</Typography>
+      <Stack spacing={0.75}>
+        <Typography variant="caption" color="text.secondary">该角色会优先读取自己的长期记忆、关系记忆与最近变化，而不是优先回溯来源群聊。</Typography>
+        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+          <Chip size="small" label={`角色记忆 ${(character.layeredMemories || []).length}`} />
+          <Chip size="small" label={`关系 ${(character.relationships || []).length}`} />
+          <Chip size="small" label={`时间线 ${(character.runtimeTimeline || []).length}`} />
+        </Box>
+        {directMemoryContext?.memoryVisibility ? <Typography variant="caption" color="text.secondary">{directMemoryContext.memoryVisibility}</Typography> : null}
+        {directMemoryContext?.targetSummary ? <Typography variant="caption" color="text.secondary">{directMemoryContext.targetSummary}</Typography> : null}
+        {directMemoryContext?.recentRelationshipChanges?.length ? (
+          <Typography variant="caption" color="text.secondary">最近关系变化：{directMemoryContext.recentRelationshipChanges.slice(-2).map((item) => item.text).join(' / ')}</Typography>
+        ) : null}
+      </Stack>
+    </Box>
+  );
+}
+
 export default function ChatSidebarPanel({
   chat,
   members,
@@ -58,6 +88,7 @@ export default function ChatSidebarPanel({
   memberPanelTitle,
   runtimePanelTitle,
   privatePayloads,
+  directMemoryContext,
   onSpeakAs,
   onRemoveMember,
   onUpdateSeats,
@@ -91,6 +122,7 @@ export default function ChatSidebarPanel({
       {rightPanelTab === 'world' && showRuntimeTab ? (
         <Stack spacing={2}>
           <ChatScenarioCard chat={chat} />
+          <DirectMemoryHint chat={chat} members={members} directMemoryContext={directMemoryContext} />
           <Suspense fallback={<PanelFallback />}>
             <ChatRuntimePanel chat={chat} members={members} privatePayloads={privatePayloads} />
           </Suspense>

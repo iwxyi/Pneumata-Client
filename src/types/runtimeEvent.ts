@@ -33,6 +33,59 @@ export interface InteractionEventPayload {
   confidence: number;
 }
 
+export interface InteractionHintEnvelope {
+  targetId?: string | null;
+  kind?: InteractionKind;
+  tone?: InteractionEventPayload['tone'];
+  intensity?: number;
+  confidence?: number;
+  reason?: string;
+}
+
+export interface InteractionHintCollection {
+  primary?: InteractionHintEnvelope | null;
+  secondary?: InteractionHintEnvelope[] | null;
+}
+
+export function isInteractionPayloadMeaningful(payload: Pick<InteractionEventPayload, 'targetId' | 'kind'> | null | undefined) {
+  return Boolean(payload?.targetId && payload?.kind && payload.kind !== 'side_comment');
+}
+
+export function normalizeInteractionHintPayload(hint: InteractionHintEnvelope | null | undefined, actorId: string, content: string): InteractionEventPayload | null {
+  if (!hint?.targetId || !hint.kind || hint.kind === 'side_comment') return null;
+  const rawIntensity = Number(hint.intensity || 0);
+  const rawConfidence = Number(hint.confidence || 0);
+  const intensity = Math.max(1, Math.min(5, rawIntensity > 5 ? Math.round(rawIntensity / 20) : rawIntensity));
+  const confidence = Math.max(0, Math.min(1, rawConfidence > 1 ? rawConfidence / 100 : rawConfidence));
+  return {
+    actorId,
+    targetId: hint.targetId,
+    kind: hint.kind,
+    tone: hint.tone || 'cold',
+    intensity,
+    confidence,
+    evidenceText: content.slice(0, 120),
+  };
+}
+
+export function normalizeInteractionHintCollection(hints: InteractionHintCollection | null | undefined, actorId: string, content: string) {
+  const primary = normalizeInteractionHintPayload(hints?.primary || null, actorId, content);
+  const secondary = (hints?.secondary || []).map((hint) => normalizeInteractionHintPayload(hint, actorId, content)).filter(Boolean) as InteractionEventPayload[];
+  return [primary, ...secondary].filter(Boolean) as InteractionEventPayload[];
+}
+
+export function summarizeCompactRelationshipDeltaLines(lines: Array<{ actorName: string; targetName: string; delta: Partial<Record<'warmth' | 'competence' | 'trust' | 'threat', number>> }>) {
+  return lines.map((line) => {
+    const parts = [
+      line.delta.warmth ? `亲和${line.delta.warmth > 0 ? '+' : ''}${line.delta.warmth}` : '',
+      line.delta.competence ? `能力${line.delta.competence > 0 ? '+' : ''}${line.delta.competence}` : '',
+      line.delta.trust ? `信任${line.delta.trust > 0 ? '+' : ''}${line.delta.trust}` : '',
+      line.delta.threat ? `威胁${line.delta.threat > 0 ? '+' : ''}${line.delta.threat}` : '',
+    ].filter(Boolean).join('，');
+    return `${line.actorName}→${line.targetName}：${parts || '无变化'}`;
+  }).join('\n');
+}
+
 export interface RelationshipAxisReason {
   axis: 'warmth' | 'competence' | 'trust' | 'threat';
   value: number;

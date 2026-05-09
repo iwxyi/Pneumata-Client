@@ -1382,15 +1382,17 @@ async function onMessageCommitted(params: {
     recentEvent: mergeRecentEvent(nextWorldStateResult.worldState.recentEvent, buildStructuredSummary(interaction, params.characters)),
   };
   const nextStructuredEvents = runtimeEventsV2.slice((params.conversation.runtimeEventsV2 || []).length);
+  const fallbackRelationshipLedger = relationshipTransition.relationshipLedger;
+  const effectiveRelationshipLedger = relationshipLedger.length ? relationshipLedger : fallbackRelationshipLedger;
   const commitRuntimeEvents = [
     ...relationshipTransition.runtimeEvents,
     ...worldRuntimeEvents,
-    ...buildStructuredLegacyEvents(nextStructuredEvents, relationshipLedger, structuredRoomState),
+    ...buildStructuredLegacyEvents(nextStructuredEvents, effectiveRelationshipLedger, structuredRoomState),
   ];
 
   const chatPatch = buildChatPatch(params.conversation, params.message, mergedWorldState, commitRuntimeEvents, config);
   chatPatch.runtimeEventsV2 = runtimeEventsV2;
-  chatPatch.relationshipLedger = relationshipLedger;
+  chatPatch.relationshipLedger = effectiveRelationshipLedger;
   return {
     chatPatch,
     characterPatches: relationshipTransition.characterPatches,

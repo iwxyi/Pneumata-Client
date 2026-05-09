@@ -165,13 +165,13 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
       payload = { title: '事件', summary: message.content };
     }
     if (payload?.eventType && payload.eventType !== 'group_relationship_shift' && payload.eventType !== 'relationship_shift') return null;
+    const displayText = payload?.summary || payload?.title || '事件';
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: 2 }}>
-        <Box sx={{ maxWidth: 460, px: 1.5, py: 1, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>关系变化</Typography>
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>{payload?.title || '事件'}</Typography>
-          {payload?.summary ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{payload.summary}</Typography> : null}
-          {payload?.pair?.length ? <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.disabled' }}>{payload.pair.join(' ↔ ')}</Typography> : null}
+        <Box sx={{ maxWidth: 620, width: 'fit-content', minWidth: 420, px: 1.75, py: 1, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {displayText}
+          </Typography>
         </Box>
       </Box>
     );

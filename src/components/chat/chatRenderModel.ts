@@ -47,6 +47,7 @@ function shouldSuppressCommittedForLive(message: Message, liveMessage: LiveChatM
   return normalizeContent(message.content) === normalizeContent(liveMessage.content);
 }
 
+
 export function buildChatRenderItems(messages: Message[], liveMessage: LiveChatMessage | null): ChatRenderItem[] {
   const seenIds = new Set<string>();
   const items: ChatRenderItem[] = [];

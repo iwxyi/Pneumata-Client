@@ -8,6 +8,7 @@ import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import PageSection from '../common/PageSection';
 import StatChipRow from '../common/StatChipRow';
+import { formatRelationshipNumber } from '../../services/relationshipLedger';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -117,7 +118,7 @@ function RelationshipGraphPanel({ relationships, developerMode }: { relationship
       {relationships.slice(0, developerMode ? 8 : 4).map((relation, index) => (
         <Box key={`${relation.characterId}-graph-${index}`} sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'action.hover' }}>
           <Typography variant="body2" sx={{ fontWeight: 700 }}>{relation.note || relation.characterId}</Typography>
-          {developerMode ? <Box sx={{ mt: 0.5 }}><StatChipRow items={[`亲和 ${relation.warmth}`, `能力 ${relation.competence}`, `信任 ${relation.trust}`, `威胁 ${relation.threat}`]} /></Box> : null}
+          {developerMode ? <Box sx={{ mt: 0.5 }}><StatChipRow items={[`亲和 ${formatRelationshipNumber(relation.warmth)}`, `能力 ${formatRelationshipNumber(relation.competence)}`, `信任 ${formatRelationshipNumber(relation.trust)}`, `威胁 ${formatRelationshipNumber(relation.threat)}`]} /></Box> : null}
         </Box>
       ))}
     </Stack>
@@ -171,10 +172,45 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
         {layeredMemories.length ? <Stack spacing={1}>{layeredMemories.map((item) => <MemoryCard key={item.id} item={item} developerMode={isDeveloperView} />)}</Stack> : <Typography variant="caption" color="text.secondary">{isDeveloperView ? '暂无结构化记忆' : '暂无明显沉淀'}</Typography>}
       </SurfaceCard>
 
+      {isDeveloperView ? (
+        <SurfaceCard>
+          <SectionHeader title="多层记忆结构" dense />
+          <StatChipRow items={[
+            `工作记忆 ${layeredMemories.filter((item) => item.layer === 'working').length}`,
+            `情节记忆 ${layeredMemories.filter((item) => item.layer === 'episodic').length}`,
+            `长期记忆 ${layeredMemories.filter((item) => item.layer === 'long_term').length}`,
+            `角色自我 ${layeredMemories.filter((item) => item.scope === 'character_self').length}`,
+            `关系记忆 ${layeredMemories.filter((item) => item.scope === 'relationship').length}`,
+            `会话记忆 ${layeredMemories.filter((item) => item.scope === 'conversation').length}`,
+            `线程记忆 ${layeredMemories.filter((item) => item.scope === 'thread').length}`,
+          ]} />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            direct 单聊现在优先使用角色自身记忆、关系记忆与最近变化；会话/线程记忆作为补充，而不是主检索源。
+          </Typography>
+        </SurfaceCard>
+      ) : null}
+
       <SurfaceCard>
         <SectionHeader title={isDeveloperView ? '关系记忆' : '关系变化'} dense />
         {relationshipMemories.length ? <Stack spacing={1}>{relationshipMemories.map((item) => <MemoryCard key={item.id} item={item} developerMode={isDeveloperView} />)}</Stack> : <Typography variant="caption" color="text.secondary">{isDeveloperView ? '暂无关系记忆' : '暂无突出关系变化'}</Typography>}
       </SurfaceCard>
+
+      {isDeveloperView ? (
+        <SurfaceCard>
+          <SectionHeader title="最近记忆变更" dense />
+          {layeredMemories.length ? (
+            <Stack spacing={0.85}>
+              {layeredMemories.slice().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8).map((item) => (
+                <Box key={`change-${item.id}`} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+                  <Typography variant="caption" color="text.secondary">{item.layer} / {item.scope} / {item.kind}</Typography>
+                  <Typography variant="body2">{item.text}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{new Date(item.updatedAt).toLocaleString()}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          ) : <Typography variant="caption" color="text.secondary">暂无最近记忆变更</Typography>}
+        </SurfaceCard>
+      ) : null}
 
       <SurfaceCard>
         <SectionHeader title="情绪状态" dense />

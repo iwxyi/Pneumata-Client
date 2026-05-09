@@ -30,9 +30,9 @@ describe('relationshipLedger', () => {
 
     const result = reduceRelationshipLedger([], interaction, buildEvent(interaction));
     expect(result).toHaveLength(1);
-    expect(result[0].current.warmth).toBe(4);
+    expect(result[0].current.warmth).toBe(5);
     expect(result[0].current.competence).toBe(1);
-    expect(result[0].current.trust).toBeGreaterThan(0);
+    expect(result[0].current.trust).toBeGreaterThanOrEqual(5);
     expect(result[0].current.threat).toBe(0);
   });
 
@@ -50,7 +50,7 @@ describe('relationshipLedger', () => {
     const result = reduceRelationshipLedger([], interaction, buildEvent(interaction));
     expect(result[0].current.warmth).toBe(0);
     expect(result[0].current.competence).toBe(1);
-    expect(result[0].current.threat).toBe(3);
+    expect(result[0].current.threat).toBe(4);
     expect(result[0].current.trust).toBe(-1);
   });
 
@@ -75,9 +75,9 @@ describe('relationshipLedger', () => {
       lastUpdatedAt: 1,
     }], interaction, buildEvent(interaction));
 
-    expect(result[0].current.warmth).toBe(3);
+    expect(result[0].current.warmth).toBe(4);
     expect(result[0].current.competence).toBe(1);
-    expect(result[0].current.trust).toBe(3);
+    expect(result[0].current.trust).toBe(4);
   });
 
   it('rejects weak or low-confidence interactions', () => {

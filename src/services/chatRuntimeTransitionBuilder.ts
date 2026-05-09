@@ -2,6 +2,8 @@ import type { AICharacter } from '../types/character';
 import type { ConversationConflictAxis, DriverCharacterPatch, DriverEventPayload, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import { updateCharacterRelationship } from './relationshipEngine';
+import { createBaselineRelationshipCurrent, inferRelationshipDelta, reduceRelationshipLedger } from './relationshipLedger';
+import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { deriveEmotionalState, derivePersonalityDrift } from './personalityDrift';
 import { accumulateChatRuntime } from './chatRuntime';
 import { accumulateCharacterRuntime } from './characterRuntime';
@@ -31,62 +33,104 @@ export function buildNextWorldState(conversation: GroupChat, message: Pick<Messa
   };
 }
 
+function buildSeededRelationshipLedger(conversation: GroupChat, characters: AICharacter[]) {
+  if ((conversation.relationshipLedger || []).length > 0) return conversation.relationshipLedger || [];
+  const seeded = characters.flatMap((character) => character.relationships
+    .filter((relation) => !/^draft-\d+$/i.test(relation.characterId))
+    .map((relation) => ({
+      pairKey: `${character.id}->${relation.characterId}`,
+      actorId: character.id,
+      targetId: relation.characterId,
+      current: {
+        warmth: relation.warmth ?? createBaselineRelationshipCurrent().warmth,
+        competence: relation.competence ?? createBaselineRelationshipCurrent().competence,
+        trust: relation.trust ?? createBaselineRelationshipCurrent().trust,
+        threat: relation.threat ?? createBaselineRelationshipCurrent().threat,
+      },
+      derived: {},
+      axisReasons: {},
+      trend: 'flat' as const,
+      recentEvents: [],
+      lastUpdatedAt: relation.updatedAt || conversation.updatedAt || Date.now(),
+    })));
+  return seeded;
+}
+
 export function buildRelationshipTransition(params: {
   conversation: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'>;
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('../types/runtimeEvent').InteractionEventPayload | null; interactionHints?: import('../types/runtimeEvent').InteractionEventPayload[] | null };
   previousAiMessage?: Pick<Message, 'senderId'> | null;
   config?: RuntimeEvolutionConfig;
 }) {
   const runtimeEvents: DriverEventPayload[] = [];
   const characterPatches: DriverCharacterPatch[] = [];
+  let relationshipLedger = buildSeededRelationshipLedger(params.conversation, params.characters);
   const previousAiMessage = params.previousAiMessage;
   const config = params.config || resolveRuntimeEvolutionConfig(params.conversation.runtimeEvolutionIntensity);
-  const recentNonSpeaker = [...params.characters].find((item) => item.id !== params.message.senderId && (params.message.content.includes(item.name) || previousAiMessage?.senderId === item.id));
+  const speaker = params.characters.find((item) => item.id === params.message.senderId);
+  const explicitHints = params.message.interactionHints || (params.message.interactionHint ? [params.message.interactionHint] : []);
+  const uniqueHints = explicitHints.filter((hint, index, array) => {
+    if (!hint?.targetId) return false;
+    return array.findIndex((candidate) => candidate.targetId === hint.targetId && candidate.kind === hint.kind) === index;
+  });
+  const hintedTargets = uniqueHints
+    .map((hint) => ({ hint, target: params.characters.find((item) => item.id === hint.targetId) }))
+    .filter((item): item is { hint: NonNullable<typeof uniqueHints[number]>; target: AICharacter } => Boolean(item.target));
+  const fallbackTarget = !hintedTargets.length
+    ? [...params.characters].find((item) => item.id !== params.message.senderId && (params.message.content.includes(item.name) || previousAiMessage?.senderId === item.id))
+    : null;
+  const targetEntries = hintedTargets.length
+    ? hintedTargets
+    : (fallbackTarget && params.message.interactionHint?.targetId === fallbackTarget.id
+      ? [{ hint: params.message.interactionHint, target: fallbackTarget }]
+      : []);
 
-  if (params.message.type === 'ai' && recentNonSpeaker) {
-    const speaker = params.characters.find((item) => item.id === params.message.senderId);
-    const target = recentNonSpeaker;
-    if (speaker && target) {
-      const updatedSpeakerBase = updateCharacterRelationship(speaker, target.id, params.message.content, config.relationshipMultiplier);
-      const updatedTargetBase = updateCharacterRelationship(target, speaker.id, params.message.content, config.reciprocalRelationshipMultiplier);
-      const summary = truncateWithEllipsis(params.message.content, 48);
-      const updatedSpeaker = updatedSpeakerBase;
-      const updatedTarget = updatedTargetBase;
-      const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier);
-      const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
-      const targetEmotion = deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias);
-      const driftEntries = Object.keys(speakerDrift).length ? [
-        {
-          type: 'drift' as const,
-          text: `受到互动影响，性格出现漂移：${Object.entries(speakerDrift).map(([key, value]) => `${key}${value > 0 ? '+' : ''}${value}`).join('，')}`,
-          createdAt: Date.now(),
-        },
-      ] : [];
+  if (params.message.type === 'ai' && speaker && targetEntries.length) {
+    const summary = truncateWithEllipsis(params.message.content, 48);
+    const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier);
+    const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
+    const driftEntries = Object.keys(speakerDrift).length ? [
+      {
+        type: 'drift' as const,
+        text: `受到互动影响，性格出现漂移：${Object.entries(speakerDrift).map(([key, value]) => `${key}${value > 0 ? '+' : ''}${value}`).join('，')}`,
+        createdAt: Date.now(),
+      },
+    ] : [];
 
-      characterPatches.push({
-        characterId: speaker.id,
-        patch: {
-          relationships: updatedSpeaker.relationships,
+    const updatedSpeakerRelationships = targetEntries.reduce((relationships, { target }) => {
+      return updateCharacterRelationship({ ...speaker, relationships }, target.id, params.message.content, config.relationshipMultiplier).relationships;
+    }, speaker.relationships);
+
+    characterPatches.push({
+      characterId: speaker.id,
+      patch: {
+        relationships: updatedSpeakerRelationships,
+        personalityDrift: speakerDrift,
+        emotionalState: speakerEmotion,
+        layeredMemories: updateCharacterLayeredMemories({
+          character: {
+            ...speaker,
+            relationships: updatedSpeakerRelationships,
+            emotionalState: speakerEmotion,
+          },
+          targetId: targetEntries[0].target.id,
+          targetName: targetEntries.map(({ target }) => target.name).join('、'),
+          content: params.message.content,
           personalityDrift: speakerDrift,
-          emotionalState: speakerEmotion,
-          layeredMemories: updateCharacterLayeredMemories({
-            character: {
-              ...speaker,
-              relationships: updatedSpeaker.relationships,
-              emotionalState: speakerEmotion,
-            },
-            targetId: target.id,
-            targetName: target.name,
-            content: params.message.content,
-            personalityDrift: speakerDrift,
-          }),
-          runtimeTimeline: accumulateCharacterRuntime(speaker, {
-            type: 'relationship',
-            text: `对 ${target.name} 的态度发生变化：${summary}`,
-          }).concat(driftEntries).slice(-Math.max(20, config.maxTimeline)),
-        },
-      });
+        }),
+        runtimeTimeline: accumulateCharacterRuntime(speaker, {
+          type: 'relationship',
+          text: `对 ${targetEntries.map(({ target }) => target.name).join('、')} 的态度发生变化：${summary}`,
+        }).concat(driftEntries).slice(-Math.max(20, config.maxTimeline)),
+      },
+    });
+
+    const relationshipLines: string[] = [];
+
+    for (const { target, hint } of targetEntries) {
+      const updatedTarget = updateCharacterRelationship(target, speaker.id, params.message.content, config.reciprocalRelationshipMultiplier);
+      const targetEmotion = deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias);
 
       characterPatches.push({
         characterId: target.id,
@@ -111,20 +155,52 @@ export function buildRelationshipTransition(params: {
         },
       });
 
+      const relationshipDelta = inferRelationshipDelta(hint);
+      if (!relationshipDelta) continue;
+      const deltaParts = [
+        relationshipDelta.delta.warmth ? `亲和${relationshipDelta.delta.warmth > 0 ? '+' : ''}${relationshipDelta.delta.warmth}` : '',
+        relationshipDelta.delta.competence ? `能力${relationshipDelta.delta.competence > 0 ? '+' : ''}${relationshipDelta.delta.competence}` : '',
+        relationshipDelta.delta.trust ? `信任${relationshipDelta.delta.trust > 0 ? '+' : ''}${relationshipDelta.delta.trust}` : '',
+        relationshipDelta.delta.threat ? `威胁${relationshipDelta.delta.threat > 0 ? '+' : ''}${relationshipDelta.delta.threat}` : '',
+      ].filter(Boolean);
+      if (!deltaParts.length) continue;
+
+      const confidenceLabel = `${Math.round((hint.confidence || 0) * 100)}%`;
+      const relationshipSummary = `${speaker.name}→${target.name}：${deltaParts.join('，')}｜${confidenceLabel}`;
+      relationshipLines.push(relationshipSummary);
+      const relationshipEvent: RuntimeEventV2 = {
+        id: `relationship-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        conversationId: params.conversation.id,
+        createdAt: Date.now(),
+        kind: 'relationship_delta',
+        actorIds: [speaker.id],
+        targetIds: [target.id],
+        summary: relationshipSummary,
+        eventClass: 'action',
+        visibility: 'public',
+        visibleToIds: [],
+        visibleToRoles: [],
+        payload: relationshipDelta,
+      };
+      relationshipLedger = reduceRelationshipLedger(relationshipLedger, hint, relationshipEvent);
+    }
+
+    if (relationshipLines.length) {
       runtimeEvents.push(normalizeRuntimeEvent({
         eventType: 'group_relationship_shift',
-        title: `${speaker.name} 对 ${target.name} 的态度发生变化`,
-        summary: summary,
-        pair: [speaker.name, target.name],
-        metrics: updatedSpeaker.relationships.find((item) => item.characterId === target.id) || null,
+        title: `${speaker.name} 触发关系变化`,
+        summary: relationshipLines.join('\n'),
+        pair: [speaker.name, targetEntries[0].target.name],
+        metrics: null,
         timelineType: 'relationship',
         eventClass: 'action',
         visibilityScope: 'public',
+        createdAt: Date.now(),
       }));
     }
   }
 
-  return { runtimeEvents, characterPatches };
+  return { runtimeEvents, characterPatches, relationshipLedger };
 }
 
 export function buildWorldRuntimeEvents(message: Pick<Message, 'content' | 'type'>, worldState: GroupChat['worldState'], nextConflictAxes: ConversationConflictAxis[], config: RuntimeEvolutionConfig) {
