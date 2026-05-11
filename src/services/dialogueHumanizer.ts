@@ -7,6 +7,10 @@ export interface SpeechFingerprint {
   openers: string[];
   closers: string[];
   prefersQuestions: boolean;
+  asksForInformation: boolean;
+  usesQuestionAsPushback: boolean;
+  usesQuestionToSteer: boolean;
+  usesQuestionPlayfully: boolean;
   terseBias: number;
   sarcasmBias: number;
 }
@@ -67,9 +71,9 @@ function buildStanceSummary(memory: StanceMemory) {
 }
 
 function buildArchetypeExecutionHint(archetype: MessageArchetype) {
-  if (archetype.key === 'pushback') return '可以直接顶一句、挑一个漏洞、或者反问。';
+  if (archetype.key === 'pushback') return '可以直接顶一句、挑一个漏洞、或者在真有压迫感时反问。';
   if (archetype.key === 'backing') return '可以顺着站边、补半句、或者替对方递刀。';
-  if (archetype.key === 'probe') return '优先短追问，不要展开成长回答。';
+  if (archetype.key === 'probe') return '可以短追问，但提问不只用于缺信息：也可以拿来逼表态、转移问题、带节奏、开玩笑、或者把话题拧去你想要的方向。';
   if (archetype.key === 'side_comment') return '像群里插一句，不要自成完整段落。';
   if (archetype.key === 'redirect') return '把话扯回你在意的主线，但依然保持口语。';
   return '像即时聊天接话，不要写成解释。';
@@ -149,11 +153,20 @@ export function buildSpeechFingerprint(character: AICharacter): SpeechFingerprin
       : character.behavior.offTopic >= 60
         ? ['算了扯远了', '先不说这个']
         : ['就这样', '差不多'];
+  const explicitQuestionBias = speechProfile?.questionBias ?? 50;
+  const asksForInformation = explicitQuestionBias >= 62 || (explicitQuestionBias >= 55 && character.behavior.empathyLevel >= 58);
+  const usesQuestionAsPushback = character.behavior.aggressiveness >= 68 || (explicitQuestionBias >= 58 && character.behavior.assertiveness >= 60);
+  const usesQuestionToSteer = character.behavior.summarizing >= 68 || (explicitQuestionBias >= 56 && character.behavior.proactivity >= 60);
+  const usesQuestionPlayfully = character.behavior.humorIntensity >= 68 || (explicitQuestionBias >= 54 && character.behavior.creativity >= 60);
   return {
     fillers,
     openers,
     closers,
-    prefersQuestions: (speechProfile?.questionBias ?? 50) >= 55 || character.behavior.proactivity >= 58 || character.behavior.aggressiveness >= 60,
+    prefersQuestions: asksForInformation || usesQuestionAsPushback || usesQuestionToSteer || usesQuestionPlayfully,
+    asksForInformation,
+    usesQuestionAsPushback,
+    usesQuestionToSteer,
+    usesQuestionPlayfully,
     terseBias: speechProfile?.sentenceLengthBias === 'short'
       ? 85
       : speechProfile?.sentenceLengthBias === 'long'
@@ -166,9 +179,9 @@ export function buildSpeechFingerprint(character: AICharacter): SpeechFingerprin
 export function pickMessageArchetype(intent: SpeakIntent): MessageArchetype {
   if (intent.stance === 'challenge' || intent.stance === 'pile_on') return { key: 'pushback', label: '顶回去' };
   if (intent.stance === 'back_up' || intent.stance === 'support') return { key: 'backing', label: '顺手站边' };
-  if (intent.stance === 'probe' || intent.delivery === 'quick_question') return { key: 'probe', label: '追问一下' };
+  if (intent.stance === 'probe') return { key: 'probe', label: '追问一下' };
   if (intent.stance === 'summarize' || intent.delivery === 'group_redirect') return { key: 'redirect', label: '把话题扯回来' };
-  if (intent.delivery === 'side_remark') return { key: 'side_comment', label: '插一句' };
+  if (intent.delivery === 'side_remark' || intent.delivery === 'quick_question') return { key: 'side_comment', label: '插一句' };
   return { key: 'interjection', label: '短接话' };
 }
 
@@ -218,7 +231,9 @@ export function buildHumanizationPrompt(character: AICharacter, intent: SpeakInt
 - Do not mention, quote, or riff on a catchphrase/opening filler as if it were already being repeated.
 - Do not start with a forced opener, filler, or catchphrase. If the character has verbal tics, keep them subtle and optional.
 - Write one natural opening chat message, not a summary, not a host announcement, and not a reaction to imaginary context.
-- Question bias: ${fingerprint.prefersQuestions ? 'high' : 'normal'}
+- For opening turns, do not mechanically default to asking. Open with whatever fits this person in this room: a view, a joke, a vibe check, a side-eye, a provocation, or occasionally a question.
+- If a question appears, it should feel socially motivated: seeking information, fishing for reactions, steering the room, changing the subject, teasing, or putting someone on the spot.
+- Question tendency: ${fingerprint.prefersQuestions ? [fingerprint.asksForInformation ? 'info-seeking' : '', fingerprint.usesQuestionAsPushback ? 'pushback' : '', fingerprint.usesQuestionToSteer ? 'steering' : '', fingerprint.usesQuestionPlayfully ? 'playful' : ''].filter(Boolean).join(' / ') : 'not preferred'}
 - Terse bias: ${fingerprint.terseBias}/100
 - Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}`;
   }
@@ -234,7 +249,10 @@ export function buildHumanizationPrompt(character: AICharacter, intent: SpeakInt
 - Selective response mode: ${selectiveMisread.mode}
 - ${selectiveMisread.instruction}
 - Do not force a fixed opener, filler, closer, or catchphrase. Use character flavor only when it naturally fits this exact turn.
-- Question bias: ${fingerprint.prefersQuestions ? 'high' : 'normal'}
+- In realistic group chat, many turns are statements, reactions, stance-taking, jokes, fragments, or casual questions; do not make every turn a neat question-response pair.
+- Questions are welcome when they feel socially useful: to get information, pressure someone, test a stance, redirect the topic, dodge a point, fish for alignment, or make the room more playful.
+- If you ask, let it sound like a live human move rather than a formal interviewer move.
+- Question tendency: ${fingerprint.prefersQuestions ? [fingerprint.asksForInformation ? 'info-seeking' : '', fingerprint.usesQuestionAsPushback ? 'pushback' : '', fingerprint.usesQuestionToSteer ? 'steering' : '', fingerprint.usesQuestionPlayfully ? 'playful' : ''].filter(Boolean).join(' / ') : 'not preferred'}
 - Terse bias: ${fingerprint.terseBias}/100
 - Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}${buildRecentSurfaceHint(messages)}${buildRecentPhraseConstraint(messages)}
 - Keep the reply socially sticky: continue the same vibe instead of resetting into neutral analysis.`;
@@ -295,7 +313,13 @@ export function postProcessHumanChat(content: string, intent: SpeakIntent, chara
   const surfaceControlled = normalizeCatchphraseEcho(repeatedControlled, character);
   if (!surfaceControlled.trim()) return '';
   if (intent.messageShape === 'question_only') {
+    const fingerprint = character ? buildSpeechFingerprint(character) : null;
     const question = surfaceControlled.split(/(?<=[。！？!?])/).find((part) => /[?？]|吗|怎么|凭什么|是不是|要不/.test(part)) || surfaceControlled;
+    const hasRealQuestionCue = /[?？]|吗|怎么|凭什么|是不是|要不/.test(question);
+    if (!fingerprint?.prefersQuestions && hasRealQuestionCue && intent.stance !== 'probe' && intent.delivery !== 'quick_question') {
+      const firstSentence = surfaceControlled.split(/(?<=[。！？!?])/)[0]?.trim() || surfaceControlled;
+      return firstSentence.replace(/[?？]+$/g, '。').trim();
+    }
     return question.trim();
   }
   if (intent.messageShape === 'fragment') {

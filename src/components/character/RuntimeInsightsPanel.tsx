@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Box, Chip, LinearProgress, Stack, Typography, Button } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 import type { AICharacter } from '../../types/character';
 import type { MemoryItem } from '../../services/memoryTypes';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -105,21 +106,42 @@ function MemoryCard({ item, developerMode, title }: { item: MemoryItem; develope
   );
 }
 
+function getTraitLabel(key: string, language: string) {
+  const isZh = language.startsWith('zh');
+  const labels: Record<string, string> = {
+    openness: isZh ? '开放性' : 'Openness',
+    extroversion: isZh ? '外向性' : 'Extroversion',
+    agreeableness: isZh ? '宜人性' : 'Agreeableness',
+    neuroticism: isZh ? '神经质' : 'Neuroticism',
+    humor: isZh ? '幽默感' : 'Humor',
+    creativity: isZh ? '创造力' : 'Creativity',
+    assertiveness: isZh ? '果断度' : 'Assertiveness',
+    empathy: isZh ? '共情力' : 'Empathy',
+    irritation: isZh ? '烦躁' : 'Irritation',
+    affection: isZh ? '好感' : 'Affection',
+    insecurity: isZh ? '不安' : 'Insecurity',
+    excitement: isZh ? '兴奋' : 'Excitement',
+    embarrassment: isZh ? '尴尬' : 'Embarrassment',
+  };
+  return labels[key] || key;
+}
+
 function EmotionPanel({ character }: { character: Partial<AICharacter> }) {
+  const { i18n } = useTranslation();
   const emotional = character.emotionalState;
-  if (!emotional) return <Typography variant="caption" color="text.secondary">暂无情绪轨迹</Typography>;
+  if (!emotional) return <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '暂无情绪轨迹' : 'No emotion trace yet'}</Typography>;
   return (
     <Stack spacing={1}>
       {[
-        ['烦躁', emotional.irritation],
-        ['好感', emotional.affection],
-        ['不安', emotional.insecurity],
-        ['兴奋', emotional.excitement],
-        ['尴尬', emotional.embarrassment],
-      ].map(([label, value]) => (
-        <Box key={String(label)}>
+        ['irritation', emotional.irritation],
+        ['affection', emotional.affection],
+        ['insecurity', emotional.insecurity],
+        ['excitement', emotional.excitement],
+        ['embarrassment', emotional.embarrassment],
+      ].map(([key, value]) => (
+        <Box key={String(key)}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-            <Typography variant="caption" color="text.secondary">{label}</Typography>
+            <Typography variant="caption" color="text.secondary">{getTraitLabel(String(key), i18n.language)}</Typography>
             <Typography variant="caption" color="text.secondary">{value}</Typography>
           </Box>
           <LinearProgress variant="determinate" value={Number(value)} sx={{ height: 5, borderRadius: 999 }} />
@@ -295,6 +317,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
 }
 
 export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanelProps) {
+  const { i18n } = useTranslation();
   const [viewMode, setViewMode] = useState<'timeline' | 'graph'>('timeline');
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'memory' | 'relationship' | 'drift'>('all');
   const developerMode = useSettingsStore((state) => state.developerMode);
@@ -310,7 +333,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
   const filteredTimeline = timelineFilter === 'all' ? timeline : timeline.filter((item) => item.type === timelineFilter);
   const runtimeSummaryItems = [
     relationships[0] ? `关系 ${relationships[0].warmth + relationships[0].competence + relationships[0].trust >= relationships[0].threat + 12 ? '升温' : '紧张'}` : '',
-    ...Object.entries(personalityDrift).slice(0, 1).map(([key, value]) => `${key} ${value > 0 ? '+' : ''}${value}`),
+    ...Object.entries(personalityDrift).slice(0, 1).map(([key, value]) => `${getTraitLabel(key, i18n.language)} ${value > 0 ? '+' : ''}${value}`),
     character.emotionalState ? `情绪 ${Object.entries(character.emotionalState).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || '稳定'}` : '',
   ].filter(Boolean);
   const hasRuntimeSummary = runtimeSummaryItems.length > 0;
@@ -337,7 +360,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
         <SectionHeader title="行为 / 漂移" dense />
         <Stack spacing={1.25}>
           {isDeveloperView ? <SimpleBarChart title="行为强度" items={Object.entries(behavior || {}).map(([key, value]) => ({ label: key, value: Number(value) }))} /> : null}
-          {Object.keys(personalityDrift).length ? <StatChipRow items={Object.entries(personalityDrift).map(([key, value]) => `${key} ${value > 0 ? '+' : ''}${value}`)} /> : null}
+          {Object.keys(personalityDrift).length ? <StatChipRow items={Object.entries(personalityDrift).map(([key, value]) => `${getTraitLabel(key, i18n.language)} ${value > 0 ? '+' : ''}${value}`)} /> : null}
         </Stack>
       </SurfaceCard>
 
