@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Chip, Dialog, DialogContent, DialogTitle, Divider, Stack, Typography, Collapse, Button } from '@mui/material';
+import { Box, Chip, Dialog, DialogContent, DialogTitle, Stack, Typography, Button } from '@mui/material';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import StatChipRow from '../common/StatChipRow';
@@ -325,8 +325,8 @@ function buildMemoryPanelState(items: MemoryItem[], expanded: boolean, isDevelop
     emptyText: '暂无明显沉淀',
     buttonText: expanded ? (isDeveloperView ? '收起调试细节' : '收起') : (isDeveloperView ? '展开调试细节' : '查看更多'),
     header: {
-      title: isDeveloperView ? '记忆调试' : '记忆与成长',
-      subtitle: items.length ? (isDeveloperView ? `展示 ${items.length} 条结构化记忆` : items.slice(0, 2).map((item) => `${buildMemoryLayerLabel(item.layer)}·${buildMemoryKindLabel(item.kind)}`).join(' / ')) : undefined,
+      title: isDeveloperView ? '聊天记忆' : '记忆与成长',
+      subtitle: items.length ? (isDeveloperView ? `展示 ${items.length} 条结构化记忆` : items.slice(0, 2).map((item) => `${buildMemoryLayerLabel(item.layer)}·${buildMemoryKindLabel(item.kind)}`).join(' / ')) : (isDeveloperView ? '暂无结构化聊天记忆' : undefined),
     },
   };
 }
@@ -403,42 +403,17 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
                 <Typography variant="body2" sx={{ mt: 0.2 }}>{cleanText(row.value)}</Typography>
               </Box>
             )) : <Typography variant="body2">暂无结构化房间态势</Typography>}
-            {targetPressure.text ? <Typography variant="caption" color="text.secondary">{targetPressure.text}</Typography> : null}
             {memorySummary ? <Typography variant="caption" color="text.secondary">{memorySummary}</Typography> : null}
-            {roomContext.length ? <StatChipRow items={roomContext.slice(0, 2).map((chip) => cleanText(chip))} /> : null}
-            {targetPressure.chips.length ? <StatChipRow items={targetPressure.chips} /> : null}
+            {[...roomContext.slice(0, 2), ...targetPressure.chips.slice(0, 2)].length ? <StatChipRow items={[...roomContext.slice(0, 2), ...targetPressure.chips.slice(0, 2)].map((chip) => cleanText(chip))} /> : null}
+            {structureRows.length && isDeveloperView ? (
+              <Box sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: 'action.hover' }}>
+                <Typography variant="caption" color="text.secondary">场景结构</Typography>
+                <Typography variant="body2" sx={{ mt: 0.2 }}>{structureRows.map((row) => cleanText(`${row.label} ${row.value}`)).join(' / ')}</Typography>
+              </Box>
+            ) : null}
           </Stack>
         </SurfaceCard>
 
-        {targetPressure.rows.length ? (
-          <SurfaceCard>
-            <SectionHeader title="目标压力" dense />
-            <Stack spacing={0.8}>
-              {targetPressure.rows.map((row) => (
-                <Box key={row.key} sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: 'action.hover' }}>
-                  <Typography variant="caption" color="text.secondary">{row.label}</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.2 }}>{cleanText(row.value)}</Typography>
-                </Box>
-              ))}
-            </Stack>
-          </SurfaceCard>
-        ) : null}
-
-        {structureRows.length ? (
-          <SurfaceCard>
-            <SectionHeader title="场景结构" dense />
-            <Stack spacing={0.8}>
-              {structureRows.map((row) => (
-                <Box key={row.key} sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: 'action.hover' }}>
-                  <Typography variant="caption" color="text.secondary">{row.label}</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.2 }}>{cleanText(row.value)}</Typography>
-                </Box>
-              ))}
-            </Stack>
-          </SurfaceCard>
-        ) : null}
-
-        <Divider flexItem />
 
         <SurfaceCard>
           <SectionHeader title="关系脉络" dense />
@@ -457,7 +432,7 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
         </SurfaceCard>
 
         <SurfaceCard>
-          <SectionHeader title={memoryPanel.header.title} subtitle={memoryPanel.header.subtitle} dense />
+          <SectionHeader title={memoryPanel.header.title} subtitle={memoryPanel.header.subtitle} dense action={isDeveloperView ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
           <Stack spacing={0.8}>
             {memoryPanel.visible ? memoryPanel.rows.map((item) => (
               <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
@@ -470,25 +445,27 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
           </Stack>
         </SurfaceCard>
 
-        <SurfaceCard>
-          <SectionHeader title="聊天记忆分层" dense />
-          <Stack spacing={0.8}>
-            {([
-              ['长期记忆', chatMemoryGroups.longTerm],
-              ['情节记忆', chatMemoryGroups.episodic],
-              ['即时记忆', chatMemoryGroups.working],
-              ['关系影响', chatMemoryGroups.relationship],
-              ['会话记忆', chatMemoryGroups.conversation],
-              ['线程记忆', chatMemoryGroups.thread],
-              ['系统运行态', chatMemoryGroups.runtime],
-            ] as Array<[string, MemoryItem[]]>).map(([label, items]) => (
-              <Box key={String(label)} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
-                <Typography variant="caption" color="text.secondary">{label} · {(items as MemoryItem[]).length} 条</Typography>
-                <Typography variant="body2">{((items as MemoryItem[]).length ? (items as MemoryItem[]).slice(0, 3).map((item) => cleanText(item.text)).join(' / ') : '暂无')}</Typography>
-              </Box>
-            ))}
-          </Stack>
-        </SurfaceCard>
+        {isDeveloperView ? (
+          <SurfaceCard>
+            <SectionHeader title="聊天记忆分层" dense action={<Chip size="small" label="调试" color="warning" variant="outlined" />} />
+            <Stack spacing={0.8}>
+              {([
+                ['长期记忆', chatMemoryGroups.longTerm],
+                ['情节记忆', chatMemoryGroups.episodic],
+                ['即时记忆', chatMemoryGroups.working],
+                ['关系影响', chatMemoryGroups.relationship],
+                ['会话记忆', chatMemoryGroups.conversation],
+                ['线程记忆', chatMemoryGroups.thread],
+                ['系统运行态', chatMemoryGroups.runtime],
+              ] as Array<[string, MemoryItem[]]>).map(([label, items]) => (
+                <Box key={String(label)} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+                  <Typography variant="caption" color="text.secondary">{label} · {(items as MemoryItem[]).length} 条</Typography>
+                  <Typography variant="body2">{((items as MemoryItem[]).length ? (items as MemoryItem[]).slice(0, 3).map((item) => cleanText(item.text)).join(' / ') : `暂无${label}`)}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          </SurfaceCard>
+        ) : null}
 
         <SurfaceCard>
           <SectionHeader title="运行时间线" dense />
@@ -508,8 +485,7 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
         </SurfaceCard>
 
         {privatePayloads.length ? <PrivatePayloadPanel payloads={privatePayloads} /> : null}
-        {isSpeechStyleView ? <DialogueDebugPanel chat={chat} /> : null}
-        {isAdvancedRuntimeView ? <DialogueDebugPanel chat={chat} /> : null}
+        {(isSpeechStyleView || isAdvancedRuntimeView) ? <DialogueDebugPanel chat={chat} /> : null}
       </PageSection>
       <PairDetailDialog open={Boolean(activePair)} onClose={() => setActivePairKey(null)} pair={activePair} />
     </>

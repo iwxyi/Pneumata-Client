@@ -76,6 +76,9 @@ export default function CreateChatPage() {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
   const memberPressTimerRef = useRef<number | null>(null);
 
+  const showRuntimeTab = Boolean(editingChat);
+  const directorTabIndex = showRuntimeTab ? 3 : 2;
+
   const showError = (message: string) => {
     setSnackbar({ open: true, message, severity: 'error' });
   };
@@ -535,6 +538,12 @@ export default function CreateChatPage() {
     };
   }, [setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
 
+  useEffect(() => {
+    if (configTab > directorTabIndex) {
+      setConfigTab(directorTabIndex);
+    }
+  }, [configTab, directorTabIndex]);
+
   const desktopHeaderActions = null;
   void desktopHeaderActions;
 
@@ -650,7 +659,7 @@ export default function CreateChatPage() {
       await seedOpeningTopicMessage(chat.id, topic);
       sessionStorage.removeItem('miragetea-create-chat-draft');
       setChatDraftDefaults({ style, showRoleActions, runtimeEvolutionIntensity });
-      navigate(-1);
+      navigate(`/chats/${chat.id}`);
     } catch (error) {
       showError(getActionErrorMessage(error, editingChat
         ? (i18n.language.startsWith('zh') ? '保存群聊失败' : 'Failed to save chat')
@@ -664,10 +673,10 @@ export default function CreateChatPage() {
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 18, sm: 14, md: 10 }, maxWidth: 860, mx: 'auto' }}>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <Tabs value={configTab} onChange={handleTabChange} variant="scrollable" allowScrollButtonsMobile>
-          <Tab label={i18n.language.startsWith('zh') ? '设定' : 'Config'} />
-          <Tab label={i18n.language.startsWith('zh') ? '管理' : 'Management'} />
-          <Tab label={i18n.language.startsWith('zh') ? '运行态' : 'Runtime'} />
-          <Tab label={i18n.language.startsWith('zh') ? '导演控制' : 'Director'} />
+          <Tab value={0} label={i18n.language.startsWith('zh') ? '设定' : 'Config'} />
+          <Tab value={1} label={i18n.language.startsWith('zh') ? '管理' : 'Management'} />
+          {showRuntimeTab ? <Tab value={2} label={i18n.language.startsWith('zh') ? '运行态' : 'Runtime'} /> : null}
+          <Tab value={directorTabIndex} label={i18n.language.startsWith('zh') ? '导演控制' : 'Director'} />
         </Tabs>
 
         {configTab === 0 ? (
@@ -728,7 +737,7 @@ export default function CreateChatPage() {
           />
         ) : null}
 
-        {configTab === 2 ? (
+        {showRuntimeTab && configTab === 2 ? (
           <Suspense fallback={null}>
             <RuntimeSeedSection
               editingChatId={editingChat?.id}
@@ -769,7 +778,7 @@ export default function CreateChatPage() {
           </Suspense>
         ) : null}
 
-        {configTab === 3 ? (
+        {configTab === directorTabIndex ? (
           <DirectorControlsSection
             runtimeEvolutionIntensity={runtimeEvolutionIntensity}
             setRuntimeEvolutionIntensity={setRuntimeEvolutionIntensity}

@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { ConversationConflictAxis, DriverCharacterPatch, DriverEventPayload, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
-import { updateCharacterRelationship } from './relationshipEngine';
+import { deriveFallbackRelationshipDelta, updateCharacterRelationship, updateCharacterRelationshipFromDelta } from './relationshipEngine';
 import { createBaselineRelationshipCurrent, inferRelationshipDelta, reduceRelationshipLedger } from './relationshipLedger';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { deriveEmotionalState, derivePersonalityDrift } from './personalityDrift';
@@ -98,8 +98,9 @@ export function buildRelationshipTransition(params: {
       },
     ] : [];
 
-    const updatedSpeakerRelationships = targetEntries.reduce((relationships, { target }) => {
-      return updateCharacterRelationship({ ...speaker, relationships }, target.id, params.message.content, config.relationshipMultiplier).relationships;
+    const updatedSpeakerRelationships = targetEntries.reduce((relationships, { target, hint }) => {
+      const explicitDelta = inferRelationshipDelta(hint)?.delta || deriveFallbackRelationshipDelta(params.message.content);
+      return updateCharacterRelationshipFromDelta({ ...speaker, relationships }, target.id, explicitDelta, config.relationshipMultiplier).relationships;
     }, speaker.relationships);
 
     characterPatches.push({
@@ -129,7 +130,8 @@ export function buildRelationshipTransition(params: {
     const relationshipLines: string[] = [];
 
     for (const { target, hint } of targetEntries) {
-      const updatedTarget = updateCharacterRelationship(target, speaker.id, params.message.content, config.reciprocalRelationshipMultiplier);
+      const reciprocalDelta = inferRelationshipDelta(hint)?.delta || deriveFallbackRelationshipDelta(params.message.content);
+      const updatedTarget = updateCharacterRelationshipFromDelta(target, speaker.id, reciprocalDelta, config.reciprocalRelationshipMultiplier);
       const targetEmotion = deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias);
 
       characterPatches.push({

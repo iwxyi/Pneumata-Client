@@ -18,7 +18,9 @@ interface HotTopicDialogProps {
   selectedTopic: TopicItem | null;
   adaptation: TopicAdaptationResult | null;
   suggestedMembers: AICharacter[];
+  selectedSuggestedMemberIds: string[];
   selectedCharacterNames: string[];
+  adapting: boolean;
   creatingCharacters: boolean;
   canCreateCharacters: boolean;
   canApply: boolean;
@@ -29,6 +31,7 @@ interface HotTopicDialogProps {
   onClose: () => void;
   onSourceTabChange: (event: unknown, value: number) => void;
   onTopicSelect: (topic: TopicItem) => void;
+  onToggleSuggestedMember: (characterId: string) => void;
   onToggleCharacter: (characterName: string) => void;
   onCreateCharacters: () => void;
   onApply: () => void;
@@ -49,7 +52,9 @@ export default function HotTopicDialog({
   selectedTopic,
   adaptation,
   suggestedMembers,
+  selectedSuggestedMemberIds,
   selectedCharacterNames,
+  adapting,
   creatingCharacters,
   canCreateCharacters,
   canApply,
@@ -60,6 +65,7 @@ export default function HotTopicDialog({
   onClose,
   onSourceTabChange,
   onTopicSelect,
+  onToggleSuggestedMember,
   onToggleCharacter,
   onCreateCharacters,
   onApply,
@@ -129,8 +135,21 @@ export default function HotTopicDialog({
               {suggestedMembers.length ? (
                 <Box>
                   <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{isZh ? '推荐已有成员' : 'Suggested existing members'}</Typography>
-                  <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mt: 0.75 }}>
-                    {suggestedMembers.map((character) => <Chip key={character.id} label={character.name} size="small" variant="outlined" />)}
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1, mt: 0.75 }}>
+                    {suggestedMembers.map((character) => {
+                      const checked = selectedSuggestedMemberIds.includes(character.id);
+                      return (
+                        <Box key={character.id} onClick={() => onToggleSuggestedMember(character.id)} sx={{ p: 1, border: 1, borderColor: checked ? 'primary.main' : 'divider', borderRadius: 2, bgcolor: checked ? 'action.selected' : 'background.paper', cursor: 'pointer' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Checkbox checked={checked} onChange={() => onToggleSuggestedMember(character.id)} onClick={(event) => event.stopPropagation()} sx={{ p: 0.25 }} />
+                            <Box sx={{ minWidth: 0 }}>
+                              <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{character.name}</Typography>
+                              {character.group ? <Typography variant="caption" color="text.secondary">{character.group}</Typography> : null}
+                            </Box>
+                          </Box>
+                        </Box>
+                      );
+                    })}
                   </Box>
                 </Box>
               ) : null}
@@ -165,8 +184,8 @@ export default function HotTopicDialog({
       <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
         <Button onClick={onClose}>{cancelLabel}</Button>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <Button variant="outlined" onClick={onCreateCharacters} disabled={creatingCharacters || !canCreateCharacters}>{createLabel}</Button>
-          <Button variant="contained" onClick={onApply} disabled={!canApply}>{applyLabel}</Button>
+          <Button variant="outlined" onClick={onCreateCharacters} disabled={adapting || creatingCharacters || !canCreateCharacters}>{createLabel}</Button>
+          <Button variant="contained" onClick={onApply} disabled={adapting || !canApply}>{applyLabel}</Button>
         </Box>
       </DialogActions>
     </Dialog>

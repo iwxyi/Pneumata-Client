@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Chip, LinearProgress, Stack, Typography } from '@mui/material';
+import { Box, Chip, LinearProgress, Stack, Typography, Button } from '@mui/material';
 import type { AICharacter } from '../../types/character';
 import type { MemoryItem } from '../../services/memoryTypes';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -8,7 +8,10 @@ import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import PageSection from '../common/PageSection';
 import StatChipRow from '../common/StatChipRow';
-import { formatRelationshipNumber } from '../../services/relationshipLedger';
+import { formatRelationshipNumber, normalizeCurrent } from '../../services/relationshipLedger';
+import { useCharacterStore } from '../../stores/useCharacterStore';
+import { RelationshipRadar } from '../controls/RelationshipPanel';
+import type { RelationshipLedgerEntry } from '../../types/runtimeEvent';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -51,12 +54,53 @@ function buildRelationshipMemoryItems(character: Partial<AICharacter>): MemoryIt
   }));
 }
 
-function MemoryCard({ item, developerMode }: { item: MemoryItem; developerMode: boolean }) {
+function getMemoryLayerLabel(layer: MemoryItem['layer']) {
+  const labels: Record<MemoryItem['layer'], string> = {
+    long_term: '长期记忆',
+    episodic: '情节记忆',
+    working: '即时记忆',
+  };
+  return labels[layer] || layer;
+}
+
+function getMemoryScopeLabel(scope: MemoryItem['scope']) {
+  const labels: Record<MemoryItem['scope'], string> = {
+    character_self: '角色自我',
+    relationship: '关系',
+    conversation: '会话',
+    thread: '线程',
+    system_runtime: '系统运行态',
+  };
+  return labels[scope] || scope;
+}
+
+function getMemoryKindLabel(kind: MemoryItem['kind']) {
+  const labels: Record<MemoryItem['kind'], string> = {
+    trait_evidence: '特征证据',
+    obsession: '执念',
+    taboo: '禁区',
+    bond: '连结',
+    resentment: '芥蒂',
+    bias: '偏向',
+    decision: '决策',
+    conflict: '冲突',
+    status_shift: '状态变化',
+    artifact: '产物',
+    thread_effect: '线程影响',
+  };
+  return labels[kind] || kind;
+}
+
+function MemoryCard({ item, developerMode, title }: { item: MemoryItem; developerMode: boolean; title?: string }) {
+  const bodyText = title && title === item.text ? null : item.text;
   return (
-    <Box sx={{ p: { xs: 0.95, sm: 1.1 }, borderRadius: 2, bgcolor: 'action.hover' }}>
-      {developerMode ? <StatChipRow items={[item.layer, item.scope, item.kind]} /> : null}
-      <Typography variant="body2" sx={{ mt: developerMode ? 0.5 : 0 }}>{item.text}</Typography>
-      {developerMode ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{`强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`}</Typography> : null}
+    <Box sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
+      <Stack spacing={0.6}>
+        {title ? <Typography variant="body2" sx={{ fontWeight: 700 }}>{title}</Typography> : null}
+        {developerMode ? <StatChipRow items={[getMemoryLayerLabel(item.layer), getMemoryScopeLabel(item.scope), getMemoryKindLabel(item.kind)]} /> : null}
+        {bodyText ? <Typography variant="body2" color="text.secondary">{bodyText}</Typography> : null}
+        {developerMode ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', opacity: 0.85 }}>{`强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`}</Typography> : null}
+      </Stack>
     </Box>
   );
 }
@@ -112,21 +156,142 @@ function RuntimeTimelinePanel({ filteredTimeline, developerMode }: { filteredTim
   ) : <Typography variant="caption" color="text.secondary">{developerMode ? '当前筛选下暂无时间线数据' : '当前暂无关键变化'}</Typography>;
 }
 
-function RelationshipGraphPanel({ relationships, developerMode }: { relationships: NonNullable<AICharacter['relationships']>; developerMode: boolean }) {
+function RelationshipGraphPanel({ relationships, developerMode, resolveCharacterName }: { relationships: NonNullable<AICharacter['relationships']>; developerMode: boolean; resolveCharacterName: (id: string, fallback?: string) => string }) {
   return relationships.length ? (
-    <Stack spacing={0.85}>
-      {relationships.slice(0, developerMode ? 8 : 4).map((relation, index) => (
-        <Box key={`${relation.characterId}-graph-${index}`} sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'action.hover' }}>
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{relation.note || relation.characterId}</Typography>
-          {developerMode ? <Box sx={{ mt: 0.5 }}><StatChipRow items={[`亲和 ${formatRelationshipNumber(relation.warmth)}`, `能力 ${formatRelationshipNumber(relation.competence)}`, `信任 ${formatRelationshipNumber(relation.trust)}`, `威胁 ${formatRelationshipNumber(relation.threat)}`]} /></Box> : null}
-        </Box>
-      ))}
+    <Stack spacing={1}>
+      {relationships.slice(0, developerMode ? 8 : 4).map((relation, index) => {
+        const radarEntry: RelationshipLedgerEntry = {
+          pairKey: `character:${relation.characterId}`,
+          actorId: 'character',
+          targetId: relation.characterId,
+          current: normalizeCurrent({
+            warmth: relation.warmth,
+            competence: relation.competence,
+            trust: relation.trust,
+            threat: relation.threat,
+          }),
+          derived: {},
+          axisReasons: {},
+          trend: 'flat',
+          recentEvents: [],
+          lastUpdatedAt: relation.updatedAt || Date.now(),
+        };
+        return (
+          <Box key={`${relation.characterId}-graph-${index}`} sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '72px minmax(0, 1fr)', gap: 1.1, alignItems: 'center' }}>
+              <RelationshipRadar entry={radarEntry} onOpenAxis={() => undefined} compact />
+              <Stack spacing={0.6} sx={{ minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>{resolveCharacterName(relation.characterId, relation.note)}</Typography>
+                <StatChipRow items={[`亲和 ${formatRelationshipNumber(relation.warmth)}`, `能力 ${formatRelationshipNumber(relation.competence)}`, `信任 ${formatRelationshipNumber(relation.trust)}`, `威胁 ${formatRelationshipNumber(relation.threat)}`]} />
+              </Stack>
+            </Box>
+          </Box>
+        );
+      })}
     </Stack>
   ) : <Typography variant="caption" color="text.secondary">暂无关系图谱数据</Typography>;
 }
 
 interface RuntimeInsightsPanelProps {
   character: Partial<AICharacter>;
+}
+
+export function CharacterMemoryInspector({ character }: RuntimeInsightsPanelProps) {
+  const developerMode = useSettingsStore((state) => state.developerMode);
+  const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
+  const isDeveloperView = developerMode && Boolean(showDeveloperMemory);
+  const [expanded, setExpanded] = useState(isDeveloperView);
+  const allLayeredMemories = useMemo(() => buildCharacterLayeredMemories(character), [character]);
+  const layeredMemories = useMemo(() => {
+    if (isDeveloperView) return allLayeredMemories;
+    const visible = allLayeredMemories.filter((item) => item.layer !== 'working');
+    return expanded ? visible.slice(0, 12) : visible.slice(0, 4);
+  }, [allLayeredMemories, expanded, isDeveloperView]);
+  const layeredMemoryGroups = useMemo(() => ({
+    longTerm: allLayeredMemories.filter((item) => item.layer === 'long_term'),
+    episodic: allLayeredMemories.filter((item) => item.layer === 'episodic'),
+    working: allLayeredMemories.filter((item) => item.layer === 'working'),
+    relationship: allLayeredMemories.filter((item) => item.scope === 'relationship'),
+    self: allLayeredMemories.filter((item) => item.scope === 'character_self'),
+    conversation: allLayeredMemories.filter((item) => item.scope === 'conversation' || item.scope === 'thread'),
+  }), [allLayeredMemories]);
+  const summaryItems = [
+    layeredMemoryGroups.longTerm.length ? `长期 ${layeredMemoryGroups.longTerm.length}` : '',
+    layeredMemoryGroups.episodic.length ? `情节 ${layeredMemoryGroups.episodic.length}` : '',
+    layeredMemoryGroups.relationship.length ? `关系 ${layeredMemoryGroups.relationship.length}` : '',
+  ].filter(Boolean);
+
+  return (
+    <PageSection spacing={2}>
+      <SurfaceCard>
+        <SectionHeader title={isDeveloperView ? '角色记忆' : '关键记忆'} dense action={isDeveloperView ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
+        <Stack spacing={1}>
+          {summaryItems.length ? <StatChipRow items={summaryItems} /> : null}
+          {layeredMemories.length ? <Stack spacing={1}>{layeredMemories.map((item) => <MemoryCard key={item.id} item={item} developerMode={isDeveloperView} />)}</Stack> : <Typography variant="caption" color="text.secondary">{isDeveloperView ? '暂无结构化记忆' : '暂无明显沉淀'}</Typography>}
+          {!isDeveloperView && allLayeredMemories.filter((item) => item.layer !== 'working').length > 4 ? <Button size="small" variant="text" onClick={() => setExpanded((prev) => !prev)}>{expanded ? '收起' : '查看更多'}</Button> : null}
+        </Stack>
+      </SurfaceCard>
+
+      {isDeveloperView ? (
+        <SurfaceCard>
+          <SectionHeader title="记忆分层检查" dense action={<Chip size="small" label="调试" color="warning" variant="outlined" />} />
+          <Stack spacing={1}>
+            {([
+              ['长期记忆', layeredMemoryGroups.longTerm],
+              ['情节记忆', layeredMemoryGroups.episodic],
+              ['即时记忆', layeredMemoryGroups.working],
+              ['关系记忆', layeredMemoryGroups.relationship],
+              ['角色自我', layeredMemoryGroups.self],
+              ['会话/线程', layeredMemoryGroups.conversation],
+            ] as Array<[string, MemoryItem[]]>).map(([label, items]) => (
+              <Box key={String(label)} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+                <Typography variant="caption" color="text.secondary">{label} · {items.length} 条</Typography>
+                <Typography variant="body2">{items.length ? items.slice(0, 3).map((item) => item.text).join(' / ') : `暂无${label}`}</Typography>
+              </Box>
+            ))}
+          </Stack>
+        </SurfaceCard>
+      ) : null}
+    </PageSection>
+  );
+}
+
+export function CharacterRelationshipInspector({ character }: RuntimeInsightsPanelProps) {
+  const developerMode = useSettingsStore((state) => state.developerMode);
+  const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
+  const characters = useCharacterStore((state) => state.characters);
+  const isDeveloperView = developerMode && Boolean(showDeveloperMemory);
+  const relationships = character.relationships || [];
+  const resolveCharacterName = useMemo(() => {
+    const byId = new Map(characters.map((item) => [item.id, item.name]));
+    return (id: string, fallback?: string) => {
+      const matched = byId.get(id);
+      if (matched) return matched;
+      if (fallback && fallback !== id) return fallback;
+      return id.startsWith('draft-') ? '未命名关系' : `角色 ${id.slice(0, 6)}`;
+    };
+  }, [characters]);
+  const relationshipMemories = useMemo(() => {
+    const items = buildRelationshipMemoryItems(character).map((item) => ({
+      ...item,
+      text: resolveCharacterName(item.subjectIds?.[1] || '', item.text),
+    }));
+    return isDeveloperView ? items : items.slice(0, 8);
+  }, [character, isDeveloperView, resolveCharacterName]);
+
+  return (
+    <PageSection spacing={2}>
+      <SurfaceCard>
+        <SectionHeader title={isDeveloperView ? '关系记忆' : '关系变化'} dense action={isDeveloperView ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
+        {relationshipMemories.length ? <Stack spacing={1}>{relationshipMemories.map((item) => <MemoryCard key={item.id} item={item} title={item.text} developerMode={isDeveloperView} />)}</Stack> : <Typography variant="caption" color="text.secondary">{isDeveloperView ? '暂无关系记忆' : '暂无突出关系变化'}</Typography>}
+      </SurfaceCard>
+
+      <SurfaceCard>
+        <SectionHeader title="关系图谱" dense />
+        <RelationshipGraphPanel relationships={relationships} developerMode={isDeveloperView} resolveCharacterName={resolveCharacterName} />
+      </SurfaceCard>
+    </PageSection>
+  );
 }
 
 export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanelProps) {
@@ -136,108 +301,27 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const isDeveloperView = developerMode && Boolean(showDeveloperMemory);
   const relationships = character.relationships || [];
-  const memory = character.memory;
   const behavior = character.behavior;
   const personalityDrift = character.personalityDrift || {};
-  const layeredMemories = useMemo(() => {
-    const items = buildCharacterLayeredMemories(character);
-    return isDeveloperView ? items : items.filter((item) => item.layer !== 'working').slice(0, 12);
-  }, [character, isDeveloperView]);
-  const layeredMemoryGroups = useMemo(() => ({
-    longTerm: layeredMemories.filter((item) => item.layer === 'long_term'),
-    episodic: layeredMemories.filter((item) => item.layer === 'episodic'),
-    working: layeredMemories.filter((item) => item.layer === 'working'),
-    relationship: layeredMemories.filter((item) => item.scope === 'relationship'),
-    self: layeredMemories.filter((item) => item.scope === 'character_self'),
-    conversation: layeredMemories.filter((item) => item.scope === 'conversation' || item.scope === 'thread'),
-  }), [layeredMemories]);
-  const relationshipMemories = useMemo(() => {
-    const items = buildRelationshipMemoryItems(character);
-    return isDeveloperView ? items : items.slice(0, 4);
-  }, [character, isDeveloperView]);
   const timeline = useMemo(() => character.runtimeTimeline || [
-    ...(memory?.longTerm || []).slice(-3).map((item) => ({ type: 'memory' as const, text: item, createdAt: Date.now() })),
     ...relationships.slice(-3).map((relation) => ({ type: 'relationship' as const, text: `${relation.note || relation.characterId} · ${relation.updatedAt ? new Date(relation.updatedAt).toLocaleString() : '最近更新'}`, createdAt: relation.updatedAt || Date.now() })),
     ...Object.entries(personalityDrift).map(([key, value]) => ({ type: 'drift' as const, text: `${key} ${value > 0 ? '+' : ''}${value}`, createdAt: Date.now() })),
-  ], [character.runtimeTimeline, memory?.longTerm, relationships, personalityDrift]);
+  ], [character.runtimeTimeline, relationships, personalityDrift]);
   const filteredTimeline = timelineFilter === 'all' ? timeline : timeline.filter((item) => item.type === timelineFilter);
-  const memorySummary = layeredMemories.slice(0, 3).map((item) => item.text).join(' / ');
+  const runtimeSummaryItems = [
+    relationships[0] ? `关系 ${relationships[0].warmth + relationships[0].competence + relationships[0].trust >= relationships[0].threat + 12 ? '升温' : '紧张'}` : '',
+    ...Object.entries(personalityDrift).slice(0, 1).map(([key, value]) => `${key} ${value > 0 ? '+' : ''}${value}`),
+    character.emotionalState ? `情绪 ${Object.entries(character.emotionalState).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || '稳定'}` : '',
+  ].filter(Boolean);
+  const hasRuntimeSummary = runtimeSummaryItems.length > 0;
+  const hasCoreProfile = Boolean(character.coreProfile?.coreDesire || character.coreProfile?.coreFear || character.coreProfile?.socialMask || character.coreProfile?.biases?.length || character.coreProfile?.interactionHabits?.length);
 
   return (
     <PageSection spacing={2}>
       <SurfaceCard>
         <SectionHeader title="运行态观察" dense action={isDeveloperView ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
-        <Typography variant="body2" color="text.secondary">{isDeveloperView ? '这里展示角色运行后逐渐沉淀出来的完整运行态与记忆调试信息。' : (memorySummary || '这里展示角色运行后逐渐沉淀下来的关键线索。')}</Typography>
-        {!isDeveloperView ? <Box sx={{ mt: 1 }}><StatChipRow items={[
-          relationships[0] ? `关系 ${relationships[0].warmth + relationships[0].competence + relationships[0].trust >= relationships[0].threat + 12 ? '升温' : '紧张'}` : '',
-          ...Object.entries(personalityDrift).slice(0, 1).map(([key, value]) => `${key} ${value > 0 ? '+' : ''}${value}`),
-          character.emotionalState ? `情绪 ${Object.entries(character.emotionalState).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || '稳定'}` : '',
-        ].filter(Boolean)} /></Box> : null}
+        {hasRuntimeSummary ? <Box sx={{ mt: 0.5 }}><StatChipRow items={runtimeSummaryItems} /></Box> : <Typography variant="caption" color="text.secondary">暂无运行态观察结果</Typography>}
       </SurfaceCard>
-
-      <SurfaceCard>
-        <SectionHeader title={isDeveloperView ? '角色记忆' : '关键记忆'} dense />
-        {layeredMemories.length ? <Stack spacing={1}>{layeredMemories.map((item) => <MemoryCard key={item.id} item={item} developerMode={isDeveloperView} />)}</Stack> : <Typography variant="caption" color="text.secondary">{isDeveloperView ? '暂无结构化记忆' : '暂无明显沉淀'}</Typography>}
-      </SurfaceCard>
-
-      <SurfaceCard>
-        <SectionHeader title="记忆分层检查" dense />
-        <Stack spacing={1}>
-          {([
-            ['长期记忆', layeredMemoryGroups.longTerm],
-            ['情节记忆', layeredMemoryGroups.episodic],
-            ['即时记忆', layeredMemoryGroups.working],
-            ['关系记忆', layeredMemoryGroups.relationship],
-            ['角色自我', layeredMemoryGroups.self],
-            ['会话/线程', layeredMemoryGroups.conversation],
-          ] as Array<[string, MemoryItem[]]>).map(([label, items]) => (
-            <Box key={String(label)} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
-              <Typography variant="caption" color="text.secondary">{label} · {(items as MemoryItem[]).length} 条</Typography>
-              <Typography variant="body2">{((items as MemoryItem[]).length ? (items as MemoryItem[]).slice(0, 3).map((item) => item.text).join(' / ') : '暂无')}</Typography>
-            </Box>
-          ))}
-        </Stack>
-      </SurfaceCard>
-
-      {isDeveloperView ? (
-        <SurfaceCard>
-          <SectionHeader title="多层记忆结构" dense />
-          <StatChipRow items={[
-            `工作记忆 ${layeredMemories.filter((item) => item.layer === 'working').length}`,
-            `情节记忆 ${layeredMemories.filter((item) => item.layer === 'episodic').length}`,
-            `长期记忆 ${layeredMemories.filter((item) => item.layer === 'long_term').length}`,
-            `角色自我 ${layeredMemories.filter((item) => item.scope === 'character_self').length}`,
-            `关系记忆 ${layeredMemories.filter((item) => item.scope === 'relationship').length}`,
-            `会话记忆 ${layeredMemories.filter((item) => item.scope === 'conversation').length}`,
-            `线程记忆 ${layeredMemories.filter((item) => item.scope === 'thread').length}`,
-          ]} />
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-            direct 单聊现在优先使用角色自身记忆、关系记忆与最近变化；会话/线程记忆作为补充，而不是主检索源。
-          </Typography>
-        </SurfaceCard>
-      ) : null}
-
-      <SurfaceCard>
-        <SectionHeader title={isDeveloperView ? '关系记忆' : '关系变化'} dense />
-        {relationshipMemories.length ? <Stack spacing={1}>{relationshipMemories.map((item) => <MemoryCard key={item.id} item={item} developerMode={isDeveloperView} />)}</Stack> : <Typography variant="caption" color="text.secondary">{isDeveloperView ? '暂无关系记忆' : '暂无突出关系变化'}</Typography>}
-      </SurfaceCard>
-
-      {isDeveloperView ? (
-        <SurfaceCard>
-          <SectionHeader title="最近记忆变更" dense />
-          {layeredMemories.length ? (
-            <Stack spacing={0.85}>
-              {layeredMemories.slice().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8).map((item) => (
-                <Box key={`change-${item.id}`} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
-                  <Typography variant="caption" color="text.secondary">{item.layer} / {item.scope} / {item.kind}</Typography>
-                  <Typography variant="body2">{item.text}</Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{new Date(item.updatedAt).toLocaleString()}</Typography>
-                </Box>
-              ))}
-            </Stack>
-          ) : <Typography variant="caption" color="text.secondary">暂无最近记忆变更</Typography>}
-        </SurfaceCard>
-      ) : null}
 
       <SurfaceCard>
         <SectionHeader title="情绪状态" dense />
@@ -246,7 +330,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
 
       <SurfaceCard>
         <SectionHeader title="核心画像" dense />
-        <CoreProfilePanel character={character} />
+        {hasCoreProfile ? <CoreProfilePanel character={character} /> : <Typography variant="caption" color="text.secondary">暂无核心画像</Typography>}
       </SurfaceCard>
 
       <SurfaceCard>
@@ -258,7 +342,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
       </SurfaceCard>
 
       <SurfaceCard>
-        <SectionHeader title="运行视图" dense action={<StatChipRow items={[viewMode === 'timeline' ? '时间线' : '关系图谱']} />} />
+        <SectionHeader title="运行时间线" dense action={<StatChipRow items={[viewMode === 'timeline' ? '时间线' : '关系图谱']} />} />
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 1.25 }}>
           <Chip size="small" label="时间线" color={viewMode === 'timeline' ? 'primary' : 'default'} variant={viewMode === 'timeline' ? 'filled' : 'outlined'} onClick={() => setViewMode('timeline')} />
           <Chip size="small" label="关系图谱" color={viewMode === 'graph' ? 'primary' : 'default'} variant={viewMode === 'graph' ? 'filled' : 'outlined'} onClick={() => setViewMode('graph')} />
@@ -278,7 +362,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
             <RuntimeTimelinePanel filteredTimeline={filteredTimeline} developerMode={isDeveloperView} />
           </>
         ) : (
-          <RelationshipGraphPanel relationships={relationships} developerMode={isDeveloperView} />
+          <RelationshipGraphPanel relationships={relationships} developerMode={isDeveloperView} resolveCharacterName={(id, fallback) => fallback || id} />
         )}
       </SurfaceCard>
     </PageSection>

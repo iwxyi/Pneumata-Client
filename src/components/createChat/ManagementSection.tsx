@@ -32,46 +32,62 @@ export default function ManagementSection(props: ManagementSectionProps) {
 
   return (
     <Box sx={{ display: 'grid', gap: 2 }}>
-      <TextField
-        select
-        label={isZh ? '群主' : 'Owner'}
-        value={props.ownerCharacterId}
-        onChange={(e) => props.onOwnerChange(e.target.value)}
-        fullWidth
-      >
-        <MenuItem value="">{props.noOwnerLabel}</MenuItem>
-        {props.selectedCharacters.map((char) => (
-          <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>
-        ))}
-      </TextField>
+      <Card variant="outlined">
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              {isZh ? '管理设置' : 'Management'}
+            </Typography>
+            <Typography variant="caption" color="warning.main" sx={{ fontWeight: 700, letterSpacing: '0.04em' }}>
+              TODO
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'grid', gap: 2 }}>
+            <TextField
+              select
+              label={isZh ? '群主' : 'Owner'}
+              value={props.ownerCharacterId}
+              onChange={(e) => props.onOwnerChange(e.target.value)}
+              fullWidth
+            >
+              <MenuItem value="">{props.noOwnerLabel}</MenuItem>
+              {props.selectedCharacters.map((char) => (
+                <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>
+              ))}
+            </TextField>
 
-      <TextField
-        select
-        slotProps={{ select: { multiple: true } }}
-        label={isZh ? '管理员' : 'Admins'}
-        value={props.adminCharacterIds}
-        onChange={(e) => props.onAdminChange((typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value).filter(Boolean))}
-        fullWidth
-      >
-        {props.selectedCharacters.map((char) => (
-          <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>
-        ))}
-      </TextField>
+            <TextField
+              select
+              slotProps={{ select: { multiple: true } }}
+              label={isZh ? '管理员' : 'Admins'}
+              value={props.adminCharacterIds}
+              onChange={(e) => props.onAdminChange((typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value).filter(Boolean))}
+              fullWidth
+            >
+              {props.selectedCharacters.map((char) => (
+                <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>
+              ))}
+            </TextField>
 
-      <TextField
-        label={isZh ? '管理员说明' : 'Admin notes'}
-        value={props.adminNotesValue}
-        slotProps={{ input: { readOnly: true } }}
-        fullWidth
-      />
+            <TextField
+              label={isZh ? '管理员说明' : 'Admin notes'}
+              value={props.adminNotesValue}
+              slotProps={{ input: { readOnly: true } }}
+              fullWidth
+            />
 
-      <Typography variant="caption" color="text.secondary">
-        {isZh ? '可多选管理员；群主不会重复加入管理员。' : 'You can select multiple admins; the owner is excluded automatically.'}
-      </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {isZh ? '可多选管理员；群主不会重复加入管理员。' : 'You can select multiple admins; the owner is excluded automatically.'}
+            </Typography>
 
-      <FormControlLabel control={<Switch checked={props.autoModeration} onChange={(e) => props.onAutoModerationChange(e.target.checked)} />} label={isZh ? '自动管理' : 'Auto moderation'} />
-      <FormControlLabel control={<Switch checked={props.allowMute} onChange={(e) => props.onAllowMuteChange(e.target.checked)} />} label={isZh ? '允许禁言' : 'Allow mute'} />
-      <FormControlLabel control={<Switch checked={props.allowPrivateThreads} onChange={(e) => props.onAllowPrivateThreadsChange(e.target.checked)} />} label={isZh ? '允许拉私聊' : 'Allow private threads'} />
+            <Box sx={{ display: 'grid', gap: 0.5 }}>
+              <FormControlLabel control={<Switch checked={props.autoModeration} onChange={(e) => props.onAutoModerationChange(e.target.checked)} />} label={isZh ? '自动管理' : 'Auto moderation'} />
+              <FormControlLabel control={<Switch checked={props.allowMute} onChange={(e) => props.onAllowMuteChange(e.target.checked)} />} label={isZh ? '允许禁言' : 'Allow mute'} />
+              <FormControlLabel control={<Switch checked={props.allowPrivateThreads} onChange={(e) => props.onAllowPrivateThreadsChange(e.target.checked)} />} label={isZh ? '允许拉私聊' : 'Allow private threads'} />
+            </Box>
+          </Box>
+        </CardContent>
+      </Card>
 
       <Card variant="outlined">
         <CardContent>

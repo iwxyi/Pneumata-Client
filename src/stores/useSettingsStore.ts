@@ -90,6 +90,7 @@ function buildSettingsPayload(state: AppSettings) {
     chatDraftDefaults: state.chatDraftDefaults,
     customBubbleStyles: state.customBubbleStyles,
     developerMode: state.developerMode,
+    autoGenerateCharacterAvatar: state.avatarGeneration.autoGenerateCharacterAvatar,
     avatarGeneration: state.avatarGeneration,
     developerUI: state.developerUI,
     memoryUI: state.memoryUI,

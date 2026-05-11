@@ -11,10 +11,11 @@ export default function SurfaceCard({ children, contentSx, sx, ...cardProps }: S
     <Card
       variant="outlined"
       sx={{
-        borderRadius: 2.5,
-        borderColor: 'divider',
+        borderRadius: 3,
+        borderColor: 'rgba(148, 163, 184, 0.18)',
         bgcolor: 'background.paper',
-        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.03), 0 8px 24px rgba(15, 23, 42, 0.04)',
+        backdropFilter: 'blur(8px)',
         ...sx,
       }}
       {...cardProps}

@@ -362,10 +362,22 @@ export function buildProjectedActionPanel(actions: SessionActionDefinition[], ti
   return { title, actions };
 }
 
-export function buildProjectedSessionActions(chat: GroupChat, actions: SessionActionDefinition[]) {
-  return chat.type === 'group'
-    ? [{ type: 'start_private_thread', label: '发起 AI 私聊', description: '从群聊中手动选择两名成员，派生一条独立 AI 私聊。', fields: [], visibility: 'public' as const }, ...actions.filter((action) => action.type !== 'start_private_thread')]
-    : actions;
+export function buildProjectedSessionActions(chat: GroupChat, actions: SessionActionDefinition[], members: AICharacter[] = []) {
+  const injected = actions.find((action) => action.type === 'start_private_thread');
+  if (chat.type !== 'group') return actions;
+  if (injected?.fields?.length) {
+    return [injected, ...actions.filter((action) => action !== injected && action.type !== 'start_private_thread')];
+  }
+  return [{
+    type: 'start_private_thread',
+    label: '发起 AI 私聊',
+    description: '从群聊中手动选择两名成员，派生一条独立 AI 私聊。',
+    fields: [
+      { key: 'actorId', label: '发起者', type: 'single_select', required: true, options: members.map((member) => ({ value: member.id, label: member.name })) },
+      { key: 'targetId', label: '对象', type: 'single_select', required: true, options: members.map((member) => ({ value: member.id, label: member.name })) },
+    ],
+    visibility: 'public' as const,
+  }, ...actions.filter((action) => action.type !== 'start_private_thread')];
 }
 
 export function buildProjectedActionPanelTitle(chat: GroupChat, schemaTitle?: string) {
@@ -415,7 +427,7 @@ export function buildProjectedChatDetailState(params: {
     memberTabTitle: memberPanel?.title || (params.chat.type === 'group' ? '成员' : '角色'),
     runtimeTabTitle: runtimePanel?.title || '状态',
     sidebarChat: buildProjectedSidebarChat(params.chat, params.runtimeState, params.privatePayloads),
-    actionPanel: buildProjectedActionPanel(buildProjectedSessionActions(params.chat, actionList), buildProjectedActionPanelTitle(params.chat, params.schemaTitle) || '动作'),
+    actionPanel: buildProjectedActionPanel(buildProjectedSessionActions(params.chat, actionList, params.chat.members || []), buildProjectedActionPanelTitle(params.chat, params.schemaTitle) || '动作'),
     composerSurfaces: buildProjectedComposerSurfaces(params.chat, params.frameworkState),
     compactCharacterMemorySummary: buildProjectedCompactMemorySummary(params.speakAsChar),
     speakAsSummary: buildProjectedSpeakAsSummary(params.speakAsChar),

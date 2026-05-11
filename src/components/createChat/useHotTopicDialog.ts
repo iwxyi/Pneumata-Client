@@ -97,6 +97,7 @@ export function useHotTopicDialog(params: {
   const [creatingCharacters, setCreatingCharacters] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<TopicItem | null>(null);
   const [adaptation, setAdaptation] = useState<TopicAdaptationResult | null>(null);
+  const [selectedSuggestedMemberIds, setSelectedSuggestedMemberIds] = useState<string[]>([]);
   const [selectedCharacterNames, setSelectedCharacterNames] = useState<string[]>([]);
   const [createdCharacterNames, setCreatedCharacterNames] = useState<string[]>([]);
   const [overwriteName, setOverwriteName] = useState(false);
@@ -121,6 +122,7 @@ export function useHotTopicDialog(params: {
     if (topics.some((item) => item.id === selectedTopic.id)) return;
     setSelectedTopic(null);
     setAdaptation(null);
+    setSelectedSuggestedMemberIds([]);
     setSelectedCharacterNames([]);
   }, [topics, selectedTopic]);
 
@@ -180,6 +182,7 @@ export function useHotTopicDialog(params: {
     setOpen(true);
     setAdaptation(null);
     setSelectedTopic(null);
+    setSelectedSuggestedMemberIds([]);
     setSelectedCharacterNames([]);
     setCreatedCharacterNames([]);
     setOverwriteName(false);
@@ -205,6 +208,7 @@ export function useHotTopicDialog(params: {
     setOpen(false);
     setAdaptation(null);
     setSelectedTopic(null);
+    setSelectedSuggestedMemberIds([]);
     setSelectedCharacterNames([]);
     setCreatedCharacterNames([]);
     setOverwriteName(false);
@@ -240,10 +244,12 @@ export function useHotTopicDialog(params: {
       });
       hasManualCharacterSelectionRef.current = false;
       setCreatedCharacterNames([]);
+      setSelectedSuggestedMemberIds((nextAdaptation.suggestedMemberIds || []).filter((memberId) => params.characters.some((character) => character.id === memberId)));
       setAdaptation(nextAdaptation);
     } catch {
       params.onError(isZh ? '热点改编失败' : 'Failed to adapt topic');
       setAdaptation(null);
+      setSelectedSuggestedMemberIds([]);
       setSelectedCharacterNames([]);
     } finally {
       setAdapting(false);
@@ -251,16 +257,21 @@ export function useHotTopicDialog(params: {
   }, [isZh, params]);
 
   const handleApply = useCallback(() => {
+    if (adapting) return;
     if (!adaptation) return;
     if ((!params.name.trim() || overwriteName) && adaptation.suggestedName) params.setName(adaptation.suggestedName);
     if ((!params.topic.trim() || overwriteTopic) && adaptation.suggestedTopic) params.setTopic(adaptation.suggestedTopic);
     if (adaptation.suggestedStyle) params.setStyle(adaptation.suggestedStyle);
-    if (adaptation.suggestedMemberIds?.length) {
-      params.setSelectedMembers((prev) => Array.from(new Set([...prev, ...adaptation.suggestedMemberIds!])).slice(0, params.maxMembers));
+    if (selectedSuggestedMemberIds.length) {
+      params.setSelectedMembers((prev) => Array.from(new Set([...prev, ...selectedSuggestedMemberIds])).slice(0, params.maxMembers));
     }
     closeDialog();
     params.setSnackbar({ open: true, message: isZh ? '已应用热点灵感' : 'Topic inspiration applied', severity: 'success' });
-  }, [adaptation, params, overwriteName, overwriteTopic, closeDialog, isZh]);
+  }, [adapting, adaptation, params, overwriteName, overwriteTopic, selectedSuggestedMemberIds, closeDialog, isZh]);
+
+  const handleToggleSuggestedMember = useCallback((characterId: string) => {
+    setSelectedSuggestedMemberIds((prev) => prev.includes(characterId) ? prev.filter((item) => item !== characterId) : [...prev, characterId]);
+  }, []);
 
   const handleToggleCharacter = useCallback((characterName: string) => {
     hasManualCharacterSelectionRef.current = true;
@@ -318,6 +329,7 @@ export function useHotTopicDialog(params: {
   }, [adaptation, params.characters, createdCharacterNames, selectedCharacterNames]);
 
   const handleCreateCharacters = useCallback(async () => {
+    if (adapting) return;
     if (creatingCharacters || creationInFlightRef.current) return;
     const activeConfig = getPreferredAIProfile(params.aiProfiles, 'text') || params.apiConfig;
     if (!activeConfig?.apiKey || !activeConfig?.model) {
@@ -385,7 +397,7 @@ export function useHotTopicDialog(params: {
       creationInFlightRef.current = false;
       setCreatingCharacters(false);
     }
-  }, [creatingCharacters, params, adaptation, createQueue, buildCharacterCreatePayload, isZh]);
+  }, [adapting, creatingCharacters, params, adaptation, createQueue, buildCharacterCreatePayload, isZh]);
 
   const sourceTabs = useMemo(() => getSourceTabs(sources, isZh), [sources, isZh]);
   const suggestedMembers = useMemo(() => adaptation?.suggestedMemberIds?.length ? params.characters.filter((character) => adaptation.suggestedMemberIds?.includes(character.id)) : [], [adaptation, params.characters]);
@@ -422,7 +434,9 @@ export function useHotTopicDialog(params: {
       selectedTopic,
       adaptation,
       suggestedMembers,
+      selectedSuggestedMemberIds,
       selectedCharacterNames,
+      adapting,
       creatingCharacters,
       canCreateCharacters,
       canApply,
@@ -432,6 +446,7 @@ export function useHotTopicDialog(params: {
       onClose: closeDialog,
       onSourceTabChange: handleSourceTabChange,
       onTopicSelect: handleTopicSelect,
+      onToggleSuggestedMember: handleToggleSuggestedMember,
       onToggleCharacter: handleToggleCharacter,
       onCreateCharacters: handleCreateCharacters,
       onApply: handleApply,

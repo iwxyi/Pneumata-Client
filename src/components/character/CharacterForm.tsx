@@ -52,7 +52,7 @@ import { canAutoGenerateAvatarDraft, enqueueAvatarGenerationForCharacter } from 
 import { isImageAvatar as isImageAvatarValue } from '../../utils/avatar';
 import PersonalitySliders from './PersonalitySliders';
 import NumericSliders from './NumericSliders';
-import RuntimeInsightsPanel from './RuntimeInsightsPanel';
+import RuntimeInsightsPanel, { CharacterMemoryInspector, CharacterRelationshipInspector } from './RuntimeInsightsPanel';
 import CollapsibleParamGroup from './CollapsibleParamGroup';
 import { AVATAR_OPTIONS } from '../../constants/presets';
 import { BUILT_IN_BUBBLE_STYLES, DEFAULT_AI_BUBBLE_STYLE_ID } from '../../constants/bubbleStyles';
@@ -743,48 +743,39 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
 
       {configTab === 1 ? behaviorTab : null}
 
-      {configTab === 2 ? (
-        <TextField
-          label={i18n.language.startsWith('zh') ? '关系备注' : 'Relationship notes'}
-          placeholder={i18n.language.startsWith('zh') ? '每行一条，例如：容易和理性角色争论' : 'One per line, e.g. tends to challenge analytical characters'}
-          value={relationshipsText}
-          onChange={(e) => setRelationshipsText(e.target.value)}
-          multiline
-          rows={8}
-          fullWidth
-        />
-      ) : null}
+      {configTab === 2 ? <CharacterRelationshipInspector character={runtimeCharacter} /> : null}
 
       {configTab === 3 ? (
         <Box sx={{ display: 'grid', gap: 2 }}>
-          <TextField
-            label={i18n.language.startsWith('zh') ? '短期记忆摘要' : 'Short-term summary'}
-            value={memory.shortTermSummary}
-            onChange={(e) => setMemory((prev) => ({ ...prev, shortTermSummary: e.target.value }))}
-            multiline
-            rows={3}
-            fullWidth
-          />
-          <Box>
-            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '长期记忆' : 'Long-term memory'}</Typography>
-            {renderTagEditor(memory.longTerm, (next) => setMemory((prev) => ({ ...prev, longTerm: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
-          </Box>
-          <Box>
-            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '秘密' : 'Secrets'}</Typography>
-            {renderTagEditor(memory.secrets, (next) => setMemory((prev) => ({ ...prev, secrets: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
-          </Box>
-          <Box>
-            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '执念' : 'Obsessions'}</Typography>
-            {renderTagEditor(memory.obsessions, (next) => setMemory((prev) => ({ ...prev, obsessions: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
-          </Box>
-          <Box>
-            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '禁区话题' : 'Taboo topics'}</Typography>
-            {renderTagEditor(memory.tabooTopics, (next) => setMemory((prev) => ({ ...prev, tabooTopics: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
-          </Box>
-          <Box>
-            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '用户相关记忆' : 'User memories'}</Typography>
-            {renderTagEditor(memory.userMemories, (next) => setMemory((prev) => ({ ...prev, userMemories: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
-          </Box>
+          <CharacterMemoryInspector character={runtimeCharacter} />
+          <Card variant="outlined">
+            <CardContent sx={{ display: 'grid', gap: 1.5 }}>
+              <TextField
+                label={i18n.language.startsWith('zh') ? '短期记忆摘要' : 'Short-term summary'}
+                value={memory.shortTermSummary}
+                onChange={(e) => setMemory((prev) => ({ ...prev, shortTermSummary: e.target.value }))}
+                multiline
+                rows={3}
+                fullWidth
+              />
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '长期记忆' : 'Long-term memory'}</Typography>
+                {renderTagEditor(memory.longTerm, (next) => setMemory((prev) => ({ ...prev, longTerm: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+              </Box>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '秘密' : 'Secrets'}</Typography>
+                {renderTagEditor(memory.secrets, (next) => setMemory((prev) => ({ ...prev, secrets: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+              </Box>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '执念 / 禁区 / 用户记忆' : 'Obsessions / taboo / user memory'}</Typography>
+                <Stack spacing={1.25}>
+                  {renderTagEditor(memory.obsessions, (next) => setMemory((prev) => ({ ...prev, obsessions: next })), i18n.language.startsWith('zh') ? '执念，输入后回车' : 'Obsessions, press Enter')}
+                  {renderTagEditor(memory.tabooTopics, (next) => setMemory((prev) => ({ ...prev, tabooTopics: next })), i18n.language.startsWith('zh') ? '禁区话题，输入后回车' : 'Taboo topics, press Enter')}
+                  {renderTagEditor(memory.userMemories, (next) => setMemory((prev) => ({ ...prev, userMemories: next })), i18n.language.startsWith('zh') ? '用户相关记忆，输入后回车' : 'User memories, press Enter')}
+                </Stack>
+              </Box>
+            </CardContent>
+          </Card>
         </Box>
       ) : null}
 

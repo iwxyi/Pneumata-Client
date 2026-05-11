@@ -113,6 +113,8 @@ export async function runSessionLoop(params: {
   characters: AICharacter[];
   api: APIConfig;
   getCurrentMessages: () => Message[];
+  getCurrentChat?: () => GroupChat | undefined;
+  getCurrentCharacters?: () => AICharacter[];
   isRunning: () => boolean;
   isPaused: () => boolean;
   isActiveLoop: (loopId: string) => boolean;
@@ -142,26 +144,28 @@ export async function runSessionLoop(params: {
 
     try {
       const currentMessages = getSessionMessages(params.getCurrentMessages);
-      if (params.chat.memberIds.length && params.characters.length === 0) {
+      const currentChat = params.getCurrentChat?.() || params.chat;
+      const currentCharacters = params.getCurrentCharacters?.() || params.characters;
+      if (currentChat.memberIds.length && currentCharacters.length === 0) {
         params.onLoopError(new Error('No active character records available for this chat loop'));
         await new Promise((resolve) => setTimeout(resolve, getLoopErrorWaitTime()));
         continue;
       }
 
-      const loopCharacters = params.characters.filter((character) => params.chat.memberIds.includes(character.id));
-      if (params.chat.memberIds.length && loopCharacters.length === 0) {
+      const loopCharacters = currentCharacters.filter((character) => currentChat.memberIds.includes(character.id));
+      if (currentChat.memberIds.length && loopCharacters.length === 0) {
         params.onLoopError(new Error('All selected members are missing from the active character set'));
         await new Promise((resolve) => setTimeout(resolve, getLoopErrorWaitTime()));
         continue;
       }
 
-      const effectiveCharacters = loopCharacters.length ? loopCharacters : params.characters;
-      const engine = getSessionEngine(params.chat);
-      const generationContext = buildEngineGenerationContext(params.chat, effectiveCharacters, currentMessages);
-      const loopDecision = resolveEngineLoopDecision(params.chat, effectiveCharacters, currentMessages);
+      const effectiveCharacters = loopCharacters.length ? loopCharacters : currentCharacters;
+      const engine = getSessionEngine(currentChat);
+      const generationContext = buildEngineGenerationContext(currentChat, effectiveCharacters, currentMessages);
+      const loopDecision = resolveEngineLoopDecision(currentChat, effectiveCharacters, currentMessages);
 
       if (loopDecision.canRun && loopDecision.actionFirst) {
-        const handled = await maybeRunNonChatAction(params.chat, params.updateChat, params.appendEventMessage);
+        const handled = await maybeRunNonChatAction(currentChat, params.updateChat, params.appendEventMessage);
         if (handled) {
           if (params.isRunning() && !params.isPaused() && shouldWaitAfterSessionTick()) {
             await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(params.chat)));
@@ -205,8 +209,8 @@ export async function runSessionLoop(params: {
               await runSessionCommitPipeline({
                 api: params.api,
                 chatId: params.chatId,
-                chat: params.chat,
-                characters: params.characters,
+                chat: currentChat,
+                characters: currentCharacters,
                 message,
                 currentMessages: params.getCurrentMessages(),
                 onCommit: params.onCommit,

@@ -34,6 +34,7 @@ import { updateCharacterLayeredMemories } from '../services/characterLayeredMemo
 import { accumulateCharacterRuntime } from '../services/characterRuntime';
 import { resolveRuntimeEvolutionConfig } from '../services/runtimeEvolutionConfig';
 import { getCharacterGroupLabel } from '../types/character';
+import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
 import { generateResponse } from '../services/aiClient';
 import { buildSystemPromptWithContext, buildChatMessages, buildDirectMemoryPanelContext } from '../services/promptBuilder';
 import { getCharacterModelProfileId } from '../types/character';
@@ -47,6 +48,25 @@ const SessionActionPanel = lazy(() => import('../components/session/SessionActio
 
 type SessionProjectionData = Awaited<ReturnType<typeof import('../services/sessionEngineKernel')['resolveSessionProjectionData']>>;
 type ProjectedChatDetailState = ReturnType<typeof import('../services/sessionProjection')['buildProjectedChatDetailState']>;
+
+function mergeCharacterRelationshipsFromLedger(character: AICharacter, ledger: RelationshipLedgerEntry[] = []) {
+  const ownEntries = ledger.filter((entry) => entry.actorId === character.id);
+  if (!ownEntries.length) return character.relationships;
+  const map = new Map(character.relationships.map((item) => [item.characterId, item] as const));
+  ownEntries.forEach((entry) => {
+    const existing = map.get(entry.targetId);
+    map.set(entry.targetId, {
+      characterId: entry.targetId,
+      warmth: entry.current.warmth,
+      competence: entry.current.competence,
+      trust: entry.current.trust,
+      threat: entry.current.threat,
+      note: existing?.note || entry.recentEvents.at(-1)?.summary || '',
+      updatedAt: entry.lastUpdatedAt,
+    });
+  });
+  return [...map.values()];
+}
 type AnalysisSection = { index: number; title: string; content: string };
 
 function PanelFallback() {
@@ -314,6 +334,7 @@ export default function ChatDetailPage() {
     return buildDirectMemoryPanelContext(activeMembers[0], messages.filter((item) => item.chatId === chat.id), new Map(characters.map((item) => [item.id, item] as const)));
   }, [activeMembers, characters, chat, messages]);
   const sidebarTitle = projectedDetailState?.sidebarTitle || (activeSidebarTab === 'members' ? memberTabTitle : activeSidebarTab === 'actions' ? '动作' : runtimeTabTitle);
+  const runtimePanelLoading = !projectionData && Boolean(chat);
 
   const manualPrivateThreadAction: SessionActionDefinition = {
     type: 'start_private_thread',
@@ -675,6 +696,8 @@ export default function ChatDetailPage() {
       characters: activeMembers,
       api,
       getCurrentMessages: () => useMessageStore.getState().messages,
+      getCurrentChat: () => useChatStore.getState().chats.find((item) => item.id === id),
+      getCurrentCharacters: () => useCharacterStore.getState().characters,
       isRunning: () => isRunningRef.current,
       isPaused: () => isPausedRef.current,
       isActiveLoop: (currentLoopId) => activeChatIdRef.current === id && loopTokenRef.current === currentLoopId,
@@ -716,14 +739,22 @@ export default function ChatDetailPage() {
         const safeMessage = message || t('common.error');
         setRunLoopError(safeMessage);
       },
-      onCommit: sessionEngine.onMessageCommitted as (args: {
-        conversation: GroupChat;
-        characters: AICharacter[];
-        message: Pick<Message, 'content' | 'type' | 'senderId'>;
-        previousAiMessage: Pick<Message, 'senderId'> | null;
-        recentMessages?: Message[];
-        apiConfig?: import('../types/settings').APIConfig;
-      }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>,
+      onCommit: async (args) => {
+        const result = await (sessionEngine.onMessageCommitted as (args: {
+          conversation: GroupChat;
+          characters: AICharacter[];
+          message: Pick<Message, 'content' | 'type' | 'senderId'>;
+          previousAiMessage: Pick<Message, 'senderId'> | null;
+          recentMessages?: Message[];
+          apiConfig?: import('../types/settings').APIConfig;
+        }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>)(args);
+        if (result.chatPatch?.relationshipLedger?.length) {
+          await Promise.all(args.characters.map((character) => updateCharacter(character.id, {
+            relationships: mergeCharacterRelationshipsFromLedger(character, result.chatPatch?.relationshipLedger || []),
+          })));
+        }
+        return result;
+      },
       upsertMessage,
       updateCharacter,
       appendEventMessage,
@@ -854,7 +885,7 @@ export default function ChatDetailPage() {
             </SurfaceCard>
           ) : null}
           <LazyPanel>
-            <ChatSidebarPanel
+            {runtimePanelLoading ? <Box sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">加载中…</Typography></Box> : <ChatSidebarPanel
               chat={projectedDetailState?.sidebarChat.chat || { ...chat, primaryRecentEvent: projectedRuntimeState?.primaryRecentEvent }}
               members={members}
               thinkingId={thinkingId}
@@ -901,7 +932,7 @@ export default function ChatDetailPage() {
                   },
                 });
               } : undefined}
-            />
+            />}
           </LazyPanel>
         </PageSection>
       </RightPanel>

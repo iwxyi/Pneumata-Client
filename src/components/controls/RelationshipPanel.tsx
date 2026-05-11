@@ -62,8 +62,8 @@ function trendHint(trend: RelationshipLedgerEntry['trend']) {
 }
 
 function summaryHint(summary: string) {
-  if (summary === '中性') return '当前没有哪个关系轴足够突出。雷达图会适度放大正向关系、压缩轻微负向偏移。';
-  return `当前最突出的关系轴：${summary}。雷达图会适度放大正向关系、压缩轻微负向偏移。`;
+  if (summary === '中性') return '当前没有哪个关系轴足够突出。';
+  return `当前最突出的关系轴：${summary}。`;
 }
 
 function formatSignedDelta(value: number) {
@@ -78,10 +78,6 @@ function scalePositiveBiasedRadar(value: number) {
 function buildRadarValue(entry: RelationshipLedgerEntry, axis: AxisKey) {
   const delta = toRelationshipDisplayDelta(entry.current);
   const value = delta[axis] || 0;
-  return scalePositiveBiasedRadar(value);
-}
-
-function scaleForRadar(value: number) {
   return scalePositiveBiasedRadar(value);
 }
 
@@ -125,7 +121,7 @@ function RadarAxisLabels({ delta, onOpenAxis }: { delta: ReturnType<typeof toRel
       {buildAxisLabels(delta).map((item) => {
         const meta = METRIC_META.find((axis) => axis.key === item.key);
         return (
-          <Tooltip key={item.key} title={`${meta?.hint || item.label} 当前雷达图对正向值做了更大展示，对轻微负向做了压缩。`} arrow>
+          <Tooltip key={item.key} title={meta?.hint || item.label} arrow>
             <g transform={`translate(${item.x}, ${item.y})`} style={{ cursor: 'pointer' }} onClick={() => onOpenAxis(item.key)}>
               <text textAnchor={item.anchor} dy={item.labelDy} dominantBaseline="middle" fill="rgba(71, 85, 105, 0.92)" fontSize="11" fontWeight="600">{item.label}</text>
               <text textAnchor={item.anchor} dy={item.valueDy} dominantBaseline="middle" fill={item.color} fontSize="11">{item.value}</text>
@@ -137,34 +133,37 @@ function RadarAxisLabels({ delta, onOpenAxis }: { delta: ReturnType<typeof toRel
   );
 }
 
-export function RelationshipRadar({ entry, onOpenAxis }: { entry: RelationshipLedgerEntry; onOpenAxis: (axis: AxisKey) => void }) {
+export function RelationshipRadar({ entry, onOpenAxis, compact = false }: { entry: RelationshipLedgerEntry; onOpenAxis: (axis: AxisKey) => void; compact?: boolean }) {
   const delta = toRelationshipDisplayDelta(entry.current);
   const scaledValues = METRIC_META.map((item) => buildRadarValue(entry, item.key));
-  const polygon = buildMetricPolygon(scaledValues, 84);
+  const size = compact ? 72 : 84;
+  const center = size / 2;
+  const armRadius = size / 2 - 8;
+  const polygon = buildMetricPolygon(scaledValues, size);
 
   return (
-    <Box sx={{ mt: 0.25, display: 'grid', placeItems: 'center' }}>
-      <svg viewBox="0 0 112 122" width="100%" height="122" aria-hidden="true" style={{ maxWidth: 210, overflow: 'visible' }}>
-        <g transform="translate(14, 18)">
+    <Box sx={{ mt: compact ? 0 : 0.25, display: 'grid', placeItems: 'center' }}>
+      <svg viewBox={compact ? '0 0 72 72' : '0 0 112 122'} width="100%" height={compact ? 72 : 122} aria-hidden="true" style={{ maxWidth: compact ? 72 : 210, overflow: 'visible' }}>
+        <g transform={compact ? 'translate(0, 0)' : 'translate(14, 18)'}>
           {[0.33, 0.66, 1].map((scale) => (
-            <polygon key={scale} points={buildHexRing(84, scale)} fill="none" stroke="rgba(148, 163, 184, 0.24)" strokeWidth="1" />
+            <polygon key={scale} points={buildHexRing(size, scale)} fill="none" stroke="rgba(148, 163, 184, 0.24)" strokeWidth="1" />
           ))}
           {METRIC_META.map((item, index) => {
             const angle = (Math.PI * 2 * index) / METRIC_META.length - Math.PI / 2;
-            const x = 42 + Math.cos(angle) * 34;
-            const y = 42 + Math.sin(angle) * 34;
-            return <line key={item.key} x1="42" y1="42" x2={x} y2={y} stroke="rgba(148, 163, 184, 0.18)" strokeWidth="1" />;
+            const x = center + Math.cos(angle) * armRadius;
+            const y = center + Math.sin(angle) * armRadius;
+            return <line key={item.key} x1={center} y1={center} x2={x} y2={y} stroke="rgba(148, 163, 184, 0.18)" strokeWidth="1" />;
           })}
           <polygon points={polygon} fill="rgba(124, 58, 237, 0.16)" stroke="rgba(124, 58, 237, 0.7)" strokeWidth="1.75" />
           {METRIC_META.map((item, index) => {
             const angle = (Math.PI * 2 * index) / METRIC_META.length - Math.PI / 2;
-            const radius = 34 * (scaledValues[index] / 100);
-            const x = 42 + Math.cos(angle) * radius;
-            const y = 42 + Math.sin(angle) * radius;
-            return <circle key={item.key} cx={x} cy={y} r="2.5" fill={item.color} />;
+            const radius = armRadius * (scaledValues[index] / 100);
+            const x = center + Math.cos(angle) * radius;
+            const y = center + Math.sin(angle) * radius;
+            return <circle key={item.key} cx={x} cy={y} r={compact ? '2' : '2.5'} fill={item.color} />;
           })}
         </g>
-        <RadarAxisLabels delta={delta} onOpenAxis={onOpenAxis} />
+        {compact ? null : <RadarAxisLabels delta={delta} onOpenAxis={onOpenAxis} />}
       </svg>
     </Box>
   );

@@ -72,14 +72,25 @@ export default function CharacterEditorPage() {
 
   const duplicateNameErrorText = i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists';
   const editChar = useMemo(() => (editId ? characters.find((character) => character.id === editId) : undefined), [characters, editId]);
+  const shouldWaitForCharacter = Boolean(editId && !editChar && !characterDataReady);
 
-  if (editId && !editChar) {
+  if (editId && !editChar && !shouldWaitForCharacter) {
     return (
       <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
         <Typography variant="body2" color="text.secondary">
           {characterDataReady
             ? (i18n.language.startsWith('zh') ? '未找到这个角色' : 'Character not found')
             : (i18n.language.startsWith('zh') ? '正在打开角色...' : 'Opening character...')}
+        </Typography>
+      </Box>
+    );
+  }
+
+  if (shouldWaitForCharacter) {
+    return (
+      <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
+        <Typography variant="body2" color="text.secondary">
+          {i18n.language.startsWith('zh') ? '正在打开角色...' : 'Opening character...'}
         </Typography>
       </Box>
     );

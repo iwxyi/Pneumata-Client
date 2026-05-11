@@ -10,10 +10,10 @@ interface SectionHeaderProps {
 
 export default function SectionHeader({ title, subtitle, action, dense = false }: SectionHeaderProps) {
   return (
-    <Box sx={{ display: 'flex', alignItems: dense ? 'center' : 'flex-start', justifyContent: 'space-between', gap: 1, mb: dense ? 0.75 : 1 }}>
+    <Box sx={{ display: 'flex', alignItems: dense ? 'center' : 'flex-start', justifyContent: 'space-between', gap: 1, mb: dense ? 0.9 : 1.15 }}>
       <Box sx={{ minWidth: 0 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{title}</Typography>
-        {subtitle ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{subtitle}</Typography> : null}
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, letterSpacing: '0.01em' }}>{title}</Typography>
+        {subtitle ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35, opacity: 0.82 }}>{subtitle}</Typography> : null}
       </Box>
       {action}
     </Box>
