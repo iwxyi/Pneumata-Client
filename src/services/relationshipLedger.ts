@@ -12,7 +12,8 @@ function pairKey(actorId: string, targetId: string) {
 }
 
 function clampMetric(value: number) {
-  return Math.max(-100, Math.min(100, value));
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return Math.max(-100, Math.min(100, safeValue));
 }
 
 function clampDelta(value: number | undefined) {
@@ -42,7 +43,7 @@ function inferChallengeTarget(interaction: InteractionEventPayload) {
   return interaction.targetId;
 }
 
-function normalizeCurrent(current?: Partial<RelationshipLedgerEntry['current']> | null) {
+export function normalizeCurrent(current?: Partial<RelationshipLedgerEntry['current']> | null) {
   const baseline = buildBaselineCurrent();
   return {
     warmth: clampMetric(typeof current?.warmth === 'number' ? current.warmth : baseline.warmth),
@@ -84,11 +85,11 @@ export function roundRelationshipDisplayValue(value: number) {
 }
 
 export function formatRelationshipNumber(value: number) {
-  return String(roundDisplayValue(value));
+  return String(roundDisplayValue(Number.isFinite(value) ? value : 0));
 }
 
 export function formatSignedRelationshipNumber(value: number) {
-  const rounded = roundDisplayValue(value);
+  const rounded = roundDisplayValue(Number.isFinite(value) ? value : 0);
   if (rounded > 0) return `+${rounded}`;
   return String(rounded);
 }

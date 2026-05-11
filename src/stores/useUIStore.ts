@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { CLIENT_STORE_SCHEMA_VERSION, migrateUiStoreState } from './storeMigrations';
 
 interface UIStore {
   sidebarOpen: boolean;
@@ -40,6 +41,8 @@ export const useUIStore = create<UIStore>()(
     }),
     {
       name: 'mirageTea-ui',
+      version: CLIENT_STORE_SCHEMA_VERSION,
+      migrate: (persistedState) => migrateUiStoreState(persistedState as Partial<UIStore>) as Partial<UIStore>,
       partialize: (state) => ({
         sidebarOpen: state.sidebarOpen,
       }),

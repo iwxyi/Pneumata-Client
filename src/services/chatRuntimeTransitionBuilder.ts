@@ -4,8 +4,7 @@ import type { Message } from '../types/message';
 import { deriveFallbackRelationshipDelta, updateCharacterRelationship, updateCharacterRelationshipFromDelta } from './relationshipEngine';
 import { createBaselineRelationshipCurrent, inferRelationshipDelta, reduceRelationshipLedger } from './relationshipLedger';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
-import { deriveEmotionalState, derivePersonalityDrift } from './personalityDrift';
-import { accumulateChatRuntime } from './chatRuntime';
+import { deriveEmotionalState, derivePersonalityDrift, getRuntimeAffectEventDriftLine, getRuntimeAffectEventEmotionLines } from './personalityDrift';import { accumulateChatRuntime } from './chatRuntime';
 import { accumulateCharacterRuntime } from './characterRuntime';
 import { extractMemoryCandidate } from './memoryEngine';
 import { evolveConflictAxes, summarizeConflictAxes } from './conflictAxisEngine';
@@ -90,10 +89,11 @@ export function buildRelationshipTransition(params: {
     const summary = truncateWithEllipsis(params.message.content, 48);
     const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier);
     const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
-    const driftEntries = Object.keys(speakerDrift).length ? [
+    const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
+    const driftEntries = localizedDriftSummary ? [
       {
         type: 'drift' as const,
-        text: `受到互动影响，性格出现漂移：${Object.entries(speakerDrift).map(([key, value]) => `${key}${value > 0 ? '+' : ''}${value}`).join('，')}`,
+        text: localizedDriftSummary,
         createdAt: Date.now(),
       },
     ] : [];
@@ -195,6 +195,48 @@ export function buildRelationshipTransition(params: {
         pair: [speaker.name, targetEntries[0].target.name],
         metrics: null,
         timelineType: 'relationship',
+        eventClass: 'action',
+        visibilityScope: 'public',
+        createdAt: Date.now(),
+      }));
+    }
+
+    if (localizedDriftSummary) {
+      runtimeEvents.push(normalizeRuntimeEvent({
+        eventType: 'speaker_drift_shift',
+        title: `${speaker.name} 出现人格偏移`,
+        summary: localizedDriftSummary,
+        timelineType: 'note',
+        eventClass: 'action',
+        visibilityScope: 'public',
+        createdAt: Date.now(),
+      }));
+    }
+
+    const speakerEmotionLines = getRuntimeAffectEventEmotionLines([{ name: speaker.name, emotion: speakerEmotion }], 'zh');
+    if (speakerEmotionLines.length) {
+      runtimeEvents.push(normalizeRuntimeEvent({
+        eventType: 'speaker_emotion_shift',
+        title: `${speaker.name} 出现情绪变化`,
+        summary: speakerEmotionLines.join('\n'),
+        timelineType: 'note',
+        eventClass: 'action',
+        visibilityScope: 'public',
+        createdAt: Date.now(),
+      }));
+    }
+
+    const targetEmotionLines = getRuntimeAffectEventEmotionLines(
+      targetEntries.map(({ target }) => ({ target, emotion: deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias), name: target.name })),
+      'zh'
+    );
+
+    if (targetEmotionLines.length) {
+      runtimeEvents.push(normalizeRuntimeEvent({
+        eventType: 'target_emotion_shift',
+        title: '目标角色出现情绪变化',
+        summary: targetEmotionLines.join('\n'),
+        timelineType: 'note',
         eventClass: 'action',
         visibilityScope: 'public',
         createdAt: Date.now(),

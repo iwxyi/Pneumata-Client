@@ -7,6 +7,7 @@ import type { BubbleStyleDefinition } from '../types/bubbleStyle';
 import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
 import { api } from '../services/api';
 import { useAuthStore } from './useAuthStore';
+import { CLIENT_STORE_SCHEMA_VERSION, migrateSettingsStoreState } from './storeMigrations';
 
 interface SettingsStore extends AppSettings {
   _loaded: boolean;
@@ -389,6 +390,8 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'mirageTea-settings',
+      version: CLIENT_STORE_SCHEMA_VERSION,
+      migrate: (persistedState) => migrateSettingsStoreState(persistedState as Partial<SettingsStore>) as Partial<SettingsStore>,
       partialize: (state) => ({
         api: state.api,
         aiProfiles: state.aiProfiles,

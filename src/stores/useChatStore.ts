@@ -8,6 +8,7 @@ import { buildWarmState } from './storeWarmHelpers';
 import { createScopedStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
 import { createGuestUploadFlag } from './storeGuestUpload';
+import { CLIENT_STORE_SCHEMA_VERSION, migrateChatStoreState } from './storeMigrations';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -576,6 +577,8 @@ export const useChatStore = create<ChatStore>()(
     {
       name: getLegacyChatStorageKey(),
       storage: chatStorage,
+      version: CLIENT_STORE_SCHEMA_VERSION,
+      migrate: (persistedState) => migrateChatStoreState(persistedState as PersistedChatState) as PersistedChatState,
       partialize: (state) => ({
         chats: state.chats,
         currentChatId: state.currentChatId,

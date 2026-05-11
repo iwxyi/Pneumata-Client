@@ -122,7 +122,7 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
                   return (
                     <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
                       <Typography variant="caption" color="text.secondary">{formatEventKind(item.kind, isZh)} · {new Date(item.createdAt).toLocaleString()}</Typography>
-                      <Typography variant="body2">{item.summary}</Typography>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>{item.summary}</Typography>
                       {projectionMeta ? <Typography variant="caption" color="text.secondary">{projectionMeta}</Typography> : null}
                     </Box>
                   );

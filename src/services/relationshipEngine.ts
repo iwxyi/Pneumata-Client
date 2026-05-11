@@ -1,12 +1,44 @@
 import type { AICharacter, CharacterRelationshipPreset } from '../types/character';
 import { deriveRelationshipDelta } from './emotionTracker';
 
+function sanitizeMetric(value: number) {
+  return Number.isFinite(value) ? value : 0;
+}
+
 function clampSigned(value: number) {
-  return Math.max(-100, Math.min(100, value));
+  const safeValue = sanitizeMetric(value);
+  return Math.max(-100, Math.min(100, safeValue));
 }
 
 function clampThreat(value: number) {
-  return Math.max(0, Math.min(100, value));
+  const safeValue = sanitizeMetric(value);
+  return Math.max(0, Math.min(100, safeValue));
+}
+
+function sanitizeDelta(rawDelta: { warmth?: number; competence?: number; trust?: number; threat?: number }) {
+  return {
+    warmth: sanitizeMetric(rawDelta.warmth || 0),
+    competence: sanitizeMetric(rawDelta.competence || 0),
+    trust: sanitizeMetric(rawDelta.trust || 0),
+    threat: sanitizeMetric(rawDelta.threat || 0),
+  };
+}
+
+function sanitizeRelationshipPreset(relationship: CharacterRelationshipPreset): CharacterRelationshipPreset {
+  return {
+    ...relationship,
+    warmth: clampSigned(relationship.warmth),
+    competence: clampSigned(relationship.competence),
+    trust: clampSigned(relationship.trust),
+    threat: clampThreat(relationship.threat),
+  };
+}
+
+function sanitizeCharacterRelationships(character: AICharacter): AICharacter {
+  return {
+    ...character,
+    relationships: (character.relationships || []).map(sanitizeRelationshipPreset),
+  };
 }
 
 function looksLikeNeutralProbe(text: string) {
@@ -18,18 +50,13 @@ function looksSupportiveOrProfessional(text: string) {
 }
 
 function normalizeRawDelta(rawDelta: { warmth?: number; competence?: number; trust?: number; threat?: number }) {
-  return {
-    warmth: rawDelta.warmth || 0,
-    competence: rawDelta.competence || 0,
-    trust: rawDelta.trust || 0,
-    threat: rawDelta.threat || 0,
-  };
+  return sanitizeDelta(rawDelta);
 }
 
 function deriveSafeRelationshipDelta(messageContent: string) {
   if (looksLikeNeutralProbe(messageContent)) return { warmth: 0, competence: 1, trust: 0, threat: 0 };
   if (looksSupportiveOrProfessional(messageContent)) return { warmth: 2, competence: 1, trust: 1, threat: 0 };
-  const rawDelta = deriveRelationshipDelta(messageContent);
+  const rawDelta = sanitizeDelta(deriveRelationshipDelta(messageContent));
   if (rawDelta.threat > 0 && rawDelta.warmth >= 0 && rawDelta.trust >= 0 && !/[你他她它].*(错|闭嘴|别装|胡说|可疑|有问题|威胁|麻烦)|滚|蠢|废物|讨厌|反对/.test(messageContent)) {
     return { ...rawDelta, threat: 0 };
   }
@@ -47,13 +74,14 @@ function roundRelationshipDelta(rawDelta: { warmth?: number; competence?: number
 }
 
 function buildNextRelationship(existing: CharacterRelationshipPreset | undefined, targetCharacterId: string, delta: { warmth: number; competence: number; trust: number; threat: number }): CharacterRelationshipPreset {
-  return existing
+  const safeExisting = existing ? sanitizeRelationshipPreset(existing) : undefined;
+  return safeExisting
     ? {
-        ...existing,
-        warmth: clampSigned(existing.warmth + delta.warmth),
-        competence: clampSigned(existing.competence + delta.competence),
-        trust: clampSigned(existing.trust + delta.trust),
-        threat: clampThreat(existing.threat + delta.threat),
+        ...safeExisting,
+        warmth: clampSigned(safeExisting.warmth + delta.warmth),
+        competence: clampSigned(safeExisting.competence + delta.competence),
+        trust: clampSigned(safeExisting.trust + delta.trust),
+        threat: clampThreat(safeExisting.threat + delta.threat),
         updatedAt: Date.now(),
       }
     : {
@@ -73,15 +101,16 @@ export function applyRelationshipDelta(
   rawDelta: { warmth?: number; competence?: number; trust?: number; threat?: number },
   multiplier: number = 1,
 ): AICharacter {
-  const delta = roundRelationshipDelta(rawDelta, multiplier);
-  const existing = character.relationships.find((item) => item.characterId === targetCharacterId);
+  const safeCharacter = sanitizeCharacterRelationships(character);
+  const delta = roundRelationshipDelta(sanitizeDelta(rawDelta), multiplier);
+  const existing = safeCharacter.relationships.find((item) => item.characterId === targetCharacterId);
   const nextRelationship = buildNextRelationship(existing, targetCharacterId, delta);
-  return {
-    ...character,
+  return sanitizeCharacterRelationships({
+    ...safeCharacter,
     relationships: existing
-      ? character.relationships.map((item) => item.characterId === targetCharacterId ? nextRelationship : item)
-      : [...character.relationships, nextRelationship],
-  };
+      ? safeCharacter.relationships.map((item) => item.characterId === targetCharacterId ? nextRelationship : item)
+      : [...safeCharacter.relationships, nextRelationship],
+  });
 }
 
 export function deriveFallbackRelationshipDelta(messageContent: string) {
@@ -107,7 +136,7 @@ export function updateCharacterRelationshipFromDelta(
 }
 
 export function getRelationshipBetween(character: AICharacter, targetCharacterId: string) {
-  return character.relationships.find((item) => item.characterId === targetCharacterId);
+  return sanitizeCharacterRelationships(character).relationships.find((item) => item.characterId === targetCharacterId);
 }
 
 export function getRelationshipWeight(character: AICharacter, targetCharacterId: string) {
@@ -124,8 +153,9 @@ export function getRelationshipWeight(character: AICharacter, targetCharacterId:
 
 export function summarizeRelationshipShift(relation?: CharacterRelationshipPreset) {
   if (!relation) return '关系尚未建立';
-  const positive = relation.warmth + relation.competence + relation.trust;
-  const negative = relation.threat;
+  const safeRelation = sanitizeRelationshipPreset(relation);
+  const positive = safeRelation.warmth + safeRelation.competence + safeRelation.trust;
+  const negative = safeRelation.threat;
   if (positive - negative >= 36) return '明显靠近';
   if (negative - positive >= 18) return '明显恶化';
   if (positive >= 12) return '略有升温';

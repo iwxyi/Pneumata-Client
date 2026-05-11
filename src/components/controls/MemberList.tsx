@@ -1,4 +1,6 @@
 import { Box, Typography, Avatar, IconButton, Menu, MenuItem, List, ListItem, ListItemAvatar, Chip, Stack, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
+import { RelationshipRadar } from './RelationshipPanel';
+import { getAffectChipColor, getRuntimeAffectMemberIndicators, getRuntimeAffectMemberShape, hasRuntimeAffectIndicators } from '../../services/personalityDrift';
 import { isImageAvatar } from '../../utils/avatar';
 import { MoreVert as MoreIcon, DragIndicator as DragIndicatorIcon } from '@mui/icons-material';
 import { useMemo, useState } from 'react';
@@ -30,7 +32,7 @@ function buildMemberSubtitle(member: AICharacter, thinkingId: string | null, thi
 }
 
 export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onUpdateSeats }: MemberListProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [menuCharId, setMenuCharId] = useState<string | null>(null);
   const [seatDialogOpen, setSeatDialogOpen] = useState(false);
@@ -90,6 +92,9 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
       <List dense disablePadding>
         {visibleMembers.map((member) => {
           const memberStatus = buildMemberStatus(member);
+          const runtimeAffect = getRuntimeAffectMemberIndicators(member, i18n.language);
+          const runtimeAffectVisible = hasRuntimeAffectIndicators(member);
+          const runtimeAffectRadar = getRuntimeAffectMemberShape(member);
           return (
             <ListItem
               key={member.id}
@@ -126,6 +131,14 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                     <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                       {memberStatus.map((label) => <Chip key={`${member.id}-${label}`} size="small" label={label} variant="outlined" />)}
                     </Box>
+                    {runtimeAffectVisible ? (
+                      <Box sx={{ mt: 0.25, display: 'grid', gridTemplateColumns: '48px minmax(0, 1fr)', gap: 0.6, alignItems: 'center' }}>
+                        <RelationshipRadar entry={runtimeAffectRadar} onOpenAxis={() => undefined} compact />
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {runtimeAffect.map((label) => <Chip key={`${member.id}-affect-${label}`} size="small" label={label} variant="filled" color={getAffectChipColor(label)} sx={{ height: 20, '& .MuiChip-label': { px: 0.8 } }} />)}
+                        </Box>
+                      </Box>
+                    ) : null}
                   </Stack>
                 </Box>
               </Box>

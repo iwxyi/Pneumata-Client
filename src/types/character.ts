@@ -294,6 +294,21 @@ export function getCharacterModelProfileId(character: Pick<AICharacter, 'modelPr
   return profileIds[type] ?? null;
 }
 
+function normalizeRelationshipMetric(value: number, min: number, max: number) {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return Math.max(min, Math.min(max, safeValue));
+}
+
+function normalizeRelationshipPreset(input: CharacterRelationshipPreset): CharacterRelationshipPreset {
+  return {
+    ...input,
+    warmth: normalizeRelationshipMetric(input.warmth, -100, 100),
+    competence: normalizeRelationshipMetric(input.competence, -100, 100),
+    trust: normalizeRelationshipMetric(input.trust, -100, 100),
+    threat: normalizeRelationshipMetric(input.threat, 0, 100),
+  };
+}
+
 export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacter, 'id' | 'name' | 'avatar' | 'personality' | 'expertise' | 'speakingStyle' | 'background' | 'isPreset' | 'createdAt' | 'updatedAt'>): AICharacter {
   return {
     ...input,
@@ -323,7 +338,7 @@ export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacte
       ...(input.behavior || {}),
     },
     group: normalizeCharacterGroup(input.group),
-    relationships: input.relationships || [],
+    relationships: (input.relationships || []).map(normalizeRelationshipPreset),
     runtimeTimeline: input.runtimeTimeline || [],
     memory: {
       ...DEFAULT_CHARACTER_MEMORY,

@@ -13,6 +13,7 @@ import { formatRelationshipNumber, normalizeCurrent } from '../../services/relat
 import { useCharacterStore } from '../../stores/useCharacterStore';
 import { RelationshipRadar } from '../controls/RelationshipPanel';
 import type { RelationshipLedgerEntry } from '../../types/runtimeEvent';
+import { formatLocalizedDriftSummary, getDominantEmotionLabel, getAffectSummaryLines } from '../../services/personalityDrift';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -187,10 +188,10 @@ function RelationshipGraphPanel({ relationships, developerMode, resolveCharacter
           actorId: 'character',
           targetId: relation.characterId,
           current: normalizeCurrent({
-            warmth: relation.warmth,
-            competence: relation.competence,
-            trust: relation.trust,
-            threat: relation.threat,
+            warmth: Number.isFinite(relation.warmth) ? relation.warmth : 0,
+            competence: Number.isFinite(relation.competence) ? relation.competence : 0,
+            trust: Number.isFinite(relation.trust) ? relation.trust : 0,
+            threat: Number.isFinite(relation.threat) ? relation.threat : 0,
           }),
           derived: {},
           axisReasons: {},
@@ -204,7 +205,7 @@ function RelationshipGraphPanel({ relationships, developerMode, resolveCharacter
               <RelationshipRadar entry={radarEntry} onOpenAxis={() => undefined} compact />
               <Stack spacing={0.6} sx={{ minWidth: 0 }}>
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>{resolveCharacterName(relation.characterId, relation.note)}</Typography>
-                <StatChipRow items={[`亲和 ${formatRelationshipNumber(relation.warmth)}`, `能力 ${formatRelationshipNumber(relation.competence)}`, `信任 ${formatRelationshipNumber(relation.trust)}`, `威胁 ${formatRelationshipNumber(relation.threat)}`]} />
+                <StatChipRow items={[`亲和 ${formatRelationshipNumber(Number.isFinite(relation.warmth) ? relation.warmth : 0)}`, `能力 ${formatRelationshipNumber(Number.isFinite(relation.competence) ? relation.competence : 0)}`, `信任 ${formatRelationshipNumber(Number.isFinite(relation.trust) ? relation.trust : 0)}`, `威胁 ${formatRelationshipNumber(Number.isFinite(relation.threat) ? relation.threat : 0)}`]} />
               </Stack>
             </Box>
           </Box>
@@ -328,14 +329,15 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
   const personalityDrift = character.personalityDrift || {};
   const timeline = useMemo(() => character.runtimeTimeline || [
     ...relationships.slice(-3).map((relation) => ({ type: 'relationship' as const, text: `${relation.note || relation.characterId} · ${relation.updatedAt ? new Date(relation.updatedAt).toLocaleString() : '最近更新'}`, createdAt: relation.updatedAt || Date.now() })),
-    ...Object.entries(personalityDrift).map(([key, value]) => ({ type: 'drift' as const, text: `${key} ${value > 0 ? '+' : ''}${value}`, createdAt: Date.now() })),
+    ...(formatLocalizedDriftSummary(personalityDrift, i18n.language) ? [{ type: 'drift' as const, text: formatLocalizedDriftSummary(personalityDrift, i18n.language), createdAt: Date.now() }] : []),
   ], [character.runtimeTimeline, relationships, personalityDrift]);
   const filteredTimeline = timelineFilter === 'all' ? timeline : timeline.filter((item) => item.type === timelineFilter);
   const runtimeSummaryItems = [
     relationships[0] ? `关系 ${relationships[0].warmth + relationships[0].competence + relationships[0].trust >= relationships[0].threat + 12 ? '升温' : '紧张'}` : '',
     ...Object.entries(personalityDrift).slice(0, 1).map(([key, value]) => `${getTraitLabel(key, i18n.language)} ${value > 0 ? '+' : ''}${value}`),
-    character.emotionalState ? `情绪 ${Object.entries(character.emotionalState).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || '稳定'}` : '',
+    character.emotionalState ? `情绪 ${getDominantEmotionLabel(character.emotionalState, i18n.language)}` : '',
   ].filter(Boolean);
+  const runtimeAffectHints = getAffectSummaryLines(character as AICharacter, i18n.language).slice(0, isDeveloperView ? 4 : 2);
   const hasRuntimeSummary = runtimeSummaryItems.length > 0;
   const hasCoreProfile = Boolean(character.coreProfile?.coreDesire || character.coreProfile?.coreFear || character.coreProfile?.socialMask || character.coreProfile?.biases?.length || character.coreProfile?.interactionHabits?.length);
 
@@ -347,8 +349,11 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
       </SurfaceCard>
 
       <SurfaceCard>
-        <SectionHeader title="情绪状态" dense />
-        <EmotionPanel character={character} />
+        <SectionHeader title="情绪状态" dense action={isDeveloperView && runtimeAffectHints.length ? <Chip size="small" label="变化" color="warning" variant="outlined" /> : undefined} />
+        <Stack spacing={1}>
+          <EmotionPanel character={character} />
+          {isDeveloperView && runtimeAffectHints.length ? <StatChipRow items={runtimeAffectHints} /> : null}
+        </Stack>
       </SurfaceCard>
 
       <SurfaceCard>

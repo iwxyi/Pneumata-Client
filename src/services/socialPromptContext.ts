@@ -96,13 +96,14 @@ export function buildConflictPrompt(character: AICharacter) {
 export function buildMessageStyleRules(character: AICharacter) {
   const runtimeBehavior = {
     ...character.behavior,
-    aggressiveness: Math.max(0, Math.min(100, character.behavior.aggressiveness + Math.round((character.personalityDrift?.neuroticism || 0) * 0.5))),
-    empathyLevel: Math.max(0, Math.min(100, character.behavior.empathyLevel + Math.round((character.personalityDrift?.empathy || 0) * 0.8))),
+    aggressiveness: Math.max(0, Math.min(100, character.behavior.aggressiveness + Math.round((character.personalityDrift?.neuroticism || 0) * 0.5) + Math.round((character.personalityDrift?.assertiveness || 0) * 0.3))),
+    empathyLevel: Math.max(0, Math.min(100, character.behavior.empathyLevel + Math.round((character.personalityDrift?.empathy || 0) * 0.8) + Math.round((character.personalityDrift?.agreeableness || 0) * 0.35))),
     summarizing: Math.max(0, Math.min(100, character.behavior.summarizing + Math.round((character.personalityDrift?.openness || 0) * 0.3))),
-    humorIntensity: character.behavior.humorIntensity,
-    proactivity: character.behavior.proactivity,
-    offTopic: character.behavior.offTopic,
+    humorIntensity: Math.max(0, Math.min(100, character.behavior.humorIntensity + Math.round((character.personalityDrift?.humor || 0) * 0.45) + Math.round((character.personalityDrift?.creativity || 0) * 0.25))),
+    proactivity: Math.max(0, Math.min(100, character.behavior.proactivity + Math.round((character.personalityDrift?.extroversion || 0) * 0.6) + Math.round((character.personalityDrift?.assertiveness || 0) * 0.35))),
+    offTopic: Math.max(0, Math.min(100, character.behavior.offTopic + Math.round((character.personalityDrift?.openness || 0) * 0.25) + Math.round((character.personalityDrift?.creativity || 0) * 0.2))),
   };
+  const emotion = character.emotionalState || { irritation: 0, affection: 0, insecurity: 0, excitement: 0, embarrassment: 0 };
   const rules: string[] = [
     'Sound like a person in a live chat, not an AI giving a neat answer.',
     'Prefer unfinished, partial, or emotionally colored replies over polished completeness.',
@@ -116,5 +117,10 @@ export function buildMessageStyleRules(character: AICharacter) {
   if (runtimeBehavior.humorIntensity >= 70) rules.push('Let wit or playful phrasing show up naturally.');
   if (runtimeBehavior.summarizing >= 70) rules.push('Only summarize when the room is obviously drifting or confused.');
   if (runtimeBehavior.offTopic >= 60) rules.push('Allow a light tangent, stray association, or side comment when it feels organic.');
+  if (emotion.irritation >= 68) rules.push('Your patience is thinning; shorter, sharper, or more loaded replies are natural.');
+  if (emotion.affection >= 65) rules.push('Warmth should leak into wording, alignment, or the benefit of the doubt you give people.');
+  if (emotion.insecurity >= 65) rules.push('You may hedge, test reactions, or protect yourself instead of speaking cleanly and directly.');
+  if (emotion.excitement >= 70) rules.push('Let extra energy show: quicker jumps, playful escalation, livelier rhythm, or more eager participation.');
+  if (emotion.embarrassment >= 65) rules.push('Awkwardness can bend the wording: evasive jokes, clipped pivots, or trying to move past the moment.');
   return `\n## Expression Bias\n${rules.map((rule) => `- ${rule}`).join('\n')}`;
 }

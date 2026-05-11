@@ -59,6 +59,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showRelationshipEvents = useSettingsStore((state) => state.developerUI.showRelationshipEvents);
+  const showAffectEvents = useSettingsStore((state) => state.developerUI.showAffectEvents);
   const navigate = useNavigate();
   const location = useLocation();
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -157,14 +158,16 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   }
 
   if (message.type === 'event') {
-    if (!developerMode || !showRelationshipEvents) return null;
+    if (!developerMode) return null;
     let payload: { eventType?: string; title?: string; summary?: string; pair?: string[] } | null = null;
     try {
       payload = JSON.parse(message.content);
     } catch {
       payload = { title: '事件', summary: message.content };
     }
-    if (payload?.eventType && payload.eventType !== 'group_relationship_shift' && payload.eventType !== 'relationship_shift') return null;
+    if (payload?.eventType && !['group_relationship_shift', 'relationship_shift', 'speaker_drift_shift', 'speaker_emotion_shift', 'target_emotion_shift'].includes(String(payload.eventType))) return null;
+    if ((payload?.eventType === 'group_relationship_shift' || payload?.eventType === 'relationship_shift') && !showRelationshipEvents) return null;
+    if ((payload?.eventType === 'speaker_drift_shift' || payload?.eventType === 'speaker_emotion_shift' || payload?.eventType === 'target_emotion_shift') && !showAffectEvents) return null;
     const displayText = payload?.summary || payload?.title || '事件';
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: 2 }}>

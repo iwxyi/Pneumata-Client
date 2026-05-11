@@ -241,6 +241,70 @@ export interface SocialEventArtifactPayload {
   expectedArtifacts?: string[];
 }
 
+export type ConflictType =
+  | 'identity_ownership'
+  | 'authority_challenge'
+  | 'status_competition'
+  | 'alliance_boundary'
+  | 'care_jealousy'
+  | 'value_conflict'
+  | 'goal_conflict'
+  | 'resource_conflict'
+  | 'fairness_conflict'
+  | 'contradiction_exposure'
+  | 'tone_escalation'
+  | 'misrecognition';
+
+export type ConflictStage = 'latent' | 'emerging' | 'open' | 'escalating' | 'fragmented' | 'cooling' | 'resolved';
+export type ConflictNextPressure = 'escalate' | 'spread' | 'stabilize' | 'divert' | 'cool';
+export type ConflictDevelopmentHook =
+  | 'invite_target_response'
+  | 'force_side_taking'
+  | 'expose_contradiction'
+  | 'raise_stakes'
+  | 'shift_public_private'
+  | 'cool_down_with_residue'
+  | 'redirect_topic'
+  | 'trigger_memory_recall';
+
+export interface ConflictFocusPayload {
+  present: boolean;
+  type?: ConflictType;
+  severity?: number;
+  stage?: ConflictStage;
+  summary?: string;
+  primaryTargetIds?: string[];
+  participantIds?: string[];
+  nextPressure?: ConflictNextPressure;
+  developmentHooks?: ConflictDevelopmentHook[];
+  why?: string;
+}
+
+export interface ConflictFocusState {
+  id: string;
+  scope: 'group' | 'direct' | 'ai_direct';
+  type: ConflictType;
+  severity: number;
+  stage: ConflictStage;
+  summary: string;
+  participantIds: string[];
+  targetIds?: string[];
+  triggerMessageId?: string;
+  nextPressure: ConflictNextPressure;
+  developmentHooks: ConflictDevelopmentHook[];
+  sourceEventIds: string[];
+  updatedAt: number;
+}
+
+export interface ConflictRuntimeState {
+  primaryConflict?: ConflictFocusState | null;
+  activeConflicts: ConflictFocusState[];
+  developmentHooks: ConflictDevelopmentHook[];
+  volatility: number;
+  cooling: number;
+  updatedAt: number;
+}
+
 export interface RuntimeEventV2 {
   id: string;
   conversationId: string;
@@ -257,7 +321,7 @@ export interface RuntimeEventV2 {
   visibility?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
   visibleToIds?: string[];
   visibleToRoles?: string[];
-  payload: InteractionEventPayload | RelationshipDeltaPayload | RoomShiftPayload | MemoryCandidatePayload | SocialEventCandidatePayload | SocialEventEffectPayload | SocialEventArtifactPayload | Record<string, unknown>;
+  payload: InteractionEventPayload | RelationshipDeltaPayload | RoomShiftPayload | MemoryCandidatePayload | SocialEventCandidatePayload | SocialEventEffectPayload | SocialEventArtifactPayload | ConflictFocusPayload | Record<string, unknown>;
 }
 
 export interface RelationshipLedgerEntry {

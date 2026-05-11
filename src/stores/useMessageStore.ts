@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { Message } from '../types/message';
 import { api } from '../services/api';
 import { useAuthStore } from './useAuthStore';
+import { CLIENT_STORE_SCHEMA_VERSION, migrateMessageStoreState } from './storeMigrations';
 
 function isLocalOnlyMode() {
   return useAuthStore.getState().authMode === 'local';
@@ -4531,6 +4532,8 @@ export const useMessageStore = create<MessageStore>()(
     {
       name: 'mirageTea-messages',
       storage: messageStorage as never,
+      version: CLIENT_STORE_SCHEMA_VERSION,
+      migrate: (persistedState) => migrateMessageStoreState(persistedState as Partial<MessageStore>) as Partial<MessageStore>,
       partialize: ((state: MessageStore) => ({
         messageWindowsByChatId: state.messageWindowsByChatId,
         pendingOperations: state.pendingOperations,

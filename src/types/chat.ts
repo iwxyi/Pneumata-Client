@@ -1,6 +1,7 @@
 import type { AICharacter } from './character';
 import type { Message } from './message';
 import type { MemoryItem } from '../services/memoryTypes';
+import type { ConflictRuntimeState } from './runtimeEvent';
 import type { ParticipantPrivateState, ParticipantPublicState } from './participantRole';
 import type { RelationshipLedgerEntry, RoomStateSnapshotV2, RuntimeEventV2 } from './runtimeEvent';
 import type { APIConfig } from './settings';
@@ -470,6 +471,7 @@ export interface ConversationWorldState {
   recentEvent: string;
   conflictAxes?: ConversationConflictAxis[];
   structuredRoomState?: RoomStateSnapshotV2 | null;
+  conflictState?: ConflictRuntimeState | null;
 }
 
 export interface ConversationDirectorControls {

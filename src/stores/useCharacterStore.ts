@@ -8,6 +8,7 @@ import { buildWarmState } from './storeWarmHelpers';
 import { createScopedStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
 import { createGuestUploadFlag } from './storeGuestUpload';
+import { CLIENT_STORE_SCHEMA_VERSION, migrateCharacterStoreState } from './storeMigrations';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -696,6 +697,8 @@ export const useCharacterStore = create<CharacterStore>()(
     {
       name: getLegacyCharacterStorageKey(),
       storage: createJSONStorage(() => createCharacterStorage()),
+      version: CLIENT_STORE_SCHEMA_VERSION,
+      migrate: (persistedState) => migrateCharacterStoreState(persistedState as PersistedCharacterState) as PersistedCharacterState,
       partialize: (state) => ({
         characters: state.characters,
         lastSyncedAt: state.lastSyncedAt,
