@@ -31,6 +31,15 @@ function formatEventKind(kind: RuntimeEventV2['kind']) {
   return labels[kind] || kind;
 }
 
+function buildProjectionMeta(item: RuntimeEventV2) {
+  const payload = item.payload as Record<string, unknown>;
+  const projectionKind = typeof payload?.projectionKind === 'string' ? payload.projectionKind : null;
+  const topicSnippet = typeof payload?.topicSnippet === 'string' ? payload.topicSnippet : null;
+  const participantNames = Array.isArray(payload?.participantNames) ? payload.participantNames.filter((value): value is string => typeof value === 'string') : [];
+  if (!projectionKind && !topicSnippet && !participantNames.length) return null;
+  return [projectionKind, participantNames.length ? participantNames.join(' ↔ ') : null, topicSnippet].filter(Boolean).join(' · ');
+}
+
 export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
   const dramaBoost = useSettingsStore((state) => state.developerUI.dramaBoost);
   const signal = buildRecentSignal(chat);
@@ -55,12 +64,16 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
             <Typography variant="caption" color="text.secondary">最近结构化事件</Typography>
             {latestItems.length ? (
               <Stack spacing={0.75} sx={{ mt: 0.75 }}>
-                {latestItems.map((item) => (
-                  <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
-                    <Typography variant="caption" color="text.secondary">{formatEventKind(item.kind)} · {new Date(item.createdAt).toLocaleString()}</Typography>
-                    <Typography variant="body2">{item.summary}</Typography>
-                  </Box>
-                ))}
+                {latestItems.map((item) => {
+                  const projectionMeta = buildProjectionMeta(item);
+                  return (
+                    <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+                      <Typography variant="caption" color="text.secondary">{formatEventKind(item.kind)} · {new Date(item.createdAt).toLocaleString()}</Typography>
+                      <Typography variant="body2">{item.summary}</Typography>
+                      {projectionMeta ? <Typography variant="caption" color="text.secondary">{projectionMeta}</Typography> : null}
+                    </Box>
+                  );
+                })}
               </Stack>
             ) : <Typography variant="caption" color="text.secondary">暂无运行调试数据</Typography>}
           </Box>

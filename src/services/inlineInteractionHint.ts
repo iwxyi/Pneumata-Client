@@ -1,12 +1,13 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
-import type { InteractionHintCollection, RecentSocialEventSummary, SocialEventHintEnvelope } from '../types/runtimeEvent';
+import type { AddressedTargetHintEnvelope, InteractionHintCollection, RecentSocialEventSummary, SocialEventHintEnvelope } from '../types/runtimeEvent';
 
 export interface InlineInteractionEnvelope {
   content: string;
   intentionalRepeat?: boolean | null;
   interactionHints?: InteractionHintCollection | null;
+  addressedTargets?: AddressedTargetHintEnvelope | null;
   socialEventHints?: SocialEventHintEnvelope[] | null;
 }
 

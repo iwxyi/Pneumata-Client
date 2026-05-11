@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Box, IconButton, Button, Snackbar, Alert, Typography, Dialog, DialogTitle, DialogContent, CircularProgress } from '@mui/material';
+import { Box, IconButton, Button, Snackbar, Alert, Typography, Dialog, DialogTitle, DialogContent, CircularProgress, Chip, Stack } from '@mui/material';
 import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
@@ -29,7 +29,6 @@ import RightPanel from '../components/layout/RightPanel';
 import { buildRuntimeEvent } from '../services/runtimeEventFactory';
 import { buildPrivateSessionEvent } from '../services/directSessionHelpers';
 import { resolveCharacterOrDeleted } from '../utils/deletedEntity';
-import { updateCharacterRelationship } from '../services/relationshipEngine';
 import { deriveEmotionalState, derivePersonalityDrift } from '../services/personalityDrift';
 import { updateCharacterLayeredMemories } from '../services/characterLayeredMemory';
 import { accumulateCharacterRuntime } from '../services/characterRuntime';
@@ -48,6 +47,7 @@ const SessionActionPanel = lazy(() => import('../components/session/SessionActio
 
 type SessionProjectionData = Awaited<ReturnType<typeof import('../services/sessionEngineKernel')['resolveSessionProjectionData']>>;
 type ProjectedChatDetailState = ReturnType<typeof import('../services/sessionProjection')['buildProjectedChatDetailState']>;
+type AnalysisSection = { index: number; title: string; content: string };
 
 function PanelFallback() {
   return null;
@@ -55,6 +55,179 @@ function PanelFallback() {
 
 function LazyPanel({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PanelFallback />}>{children}</Suspense>;
+}
+
+function parseAnalysisSections(text: string): AnalysisSection[] {
+  const sections: AnalysisSection[] = [];
+  let current: AnalysisSection | null = null;
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine
+      .trim()
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^\*\*(.+)\*\*$/, '$1')
+      .replace(/^__(.+)__$/, '$1')
+      .trim();
+    const headingMatch = line.match(/^(\d{1,2})[.、]\s*(.+)$/);
+    if (headingMatch) {
+      if (current) sections.push(current);
+      const heading = headingMatch[2].trim();
+      const splitMatch = heading.match(/^(.+?)(?:[:：]\s*)(.+)$/);
+      current = {
+        index: Number(headingMatch[1]),
+        title: splitMatch?.[1]?.trim() || heading,
+        content: splitMatch?.[2]?.trim() || '',
+      };
+      continue;
+    }
+    if (current) {
+      current.content = [current.content, rawLine].filter((item) => item.trim()).join('\n');
+    }
+  }
+  if (current) sections.push(current);
+  return sections;
+}
+
+function getAnalysisSectionTone(index: number) {
+  if (index === 1) return { color: '#2563eb', bgcolor: 'rgba(37,99,235,0.10)' };
+  if ([3, 4, 8].includes(index)) return { color: '#7c3aed', bgcolor: 'rgba(124,58,237,0.10)' };
+  if ([5, 7].includes(index)) return { color: '#0f766e', bgcolor: 'rgba(15,118,110,0.10)' };
+  if (index === 9) return { color: '#b45309', bgcolor: 'rgba(180,83,9,0.10)' };
+  return { color: '#475569', bgcolor: 'rgba(71,85,105,0.10)' };
+}
+
+function renderInlineMarkdown(text: string) {
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g).filter(Boolean);
+  return parts.map((part, index) => {
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <Box key={index} component="code" sx={{ px: 0.5, py: 0.1, borderRadius: 0.75, bgcolor: 'action.hover', fontFamily: 'monospace', fontSize: 'inherit' }}>
+          {part.slice(1, -1)}
+        </Box>
+      );
+    }
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <Box key={index} component="strong" sx={{ fontWeight: 800 }}>{part.slice(2, -2)}</Box>;
+    }
+    if (part.startsWith('*') && part.endsWith('*')) {
+      return <Box key={index} component="em" sx={{ fontStyle: 'italic' }}>{part.slice(1, -1)}</Box>;
+    }
+    return part;
+  });
+}
+
+function MarkdownText({ text }: { text: string }) {
+  const lines = text.split(/\r?\n/);
+  const blocks: React.ReactNode[] = [];
+  let listItems: Array<{ ordered: boolean; text: string }> = [];
+
+  const flushList = () => {
+    if (!listItems.length) return;
+    const ordered = listItems[0].ordered;
+    const items = listItems;
+    listItems = [];
+    blocks.push(
+      <Box key={`list-${blocks.length}`} component={ordered ? 'ol' : 'ul'} sx={{ m: 0, pl: 2.5, fontSize: 'inherit', '& li': { mb: 0.45, lineHeight: 1.75, fontSize: 'inherit' } }}>
+        {items.map((item, index) => <li key={index}>{renderInlineMarkdown(item.text)}</li>)}
+      </Box>
+    );
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushList();
+      return;
+    }
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushList();
+      blocks.push(
+        <Box key={`heading-${blocks.length}`} sx={{ mt: blocks.length ? 1 : 0, mb: 0.5, fontWeight: 850, fontSize: 'inherit', lineHeight: 1.75 }}>
+          {renderInlineMarkdown(heading[2])}
+        </Box>
+      );
+      return;
+    }
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      listItems.push({ ordered: false, text: bullet[1] });
+      return;
+    }
+    const ordered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      listItems.push({ ordered: true, text: ordered[1] });
+      return;
+    }
+    const quote = line.match(/^>\s+(.+)$/);
+    if (quote) {
+      flushList();
+      blocks.push(
+        <Box key={`quote-${blocks.length}`} sx={{ borderLeft: '3px solid', borderColor: 'divider', pl: 1, py: 0.25, fontStyle: 'italic', lineHeight: 1.75 }}>
+          {renderInlineMarkdown(quote[1])}
+        </Box>
+      );
+      return;
+    }
+    flushList();
+    blocks.push(
+      <Box key={`p-${blocks.length}`} sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.75, mb: 0.5, fontSize: 'inherit' }}>
+        {renderInlineMarkdown(line)}
+      </Box>
+    );
+  });
+  flushList();
+
+  return <>{blocks}</>;
+}
+
+function AnalysisResultView({ text }: { text: string }) {
+  const sections = useMemo(() => parseAnalysisSections(text), [text]);
+  if (!sections.length) {
+    return (
+      <Box sx={{ userSelect: 'text', WebkitUserSelect: 'text' }}>
+        <MarkdownText text={text} />
+      </Box>
+    );
+  }
+
+  const summary = sections.find((section) => section.index === 1) || sections[0];
+  const followUps = sections.find((section) => section.index === 9);
+  const bodySections = sections.filter((section) => section !== summary && section !== followUps);
+
+  return (
+    <Stack spacing={1.5} sx={{ userSelect: 'text', WebkitUserSelect: 'text' }}>
+      <Box sx={{ p: 1.75, borderRadius: 2, bgcolor: 'primary.main', color: 'primary.contrastText' }}>
+        <Typography variant="caption" sx={{ display: 'block', opacity: 0.78, mb: 0.5 }}>一句话总评</Typography>
+        <Box sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.7, fontWeight: 650 }}>
+          <MarkdownText text={summary.content || summary.title} />
+        </Box>
+      </Box>
+
+      <Box sx={{ columnCount: { xs: 1, sm: 2 }, columnGap: 1.25 }}>
+        {bodySections.map((section) => {
+          const tone = getAnalysisSectionTone(section.index);
+          return (
+            <Box key={section.index} sx={{ display: 'inline-block', width: '100%', mb: 1.25, p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', minWidth: 0, breakInside: 'avoid' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
+                <Box sx={{ width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: tone.bgcolor, color: tone.color, fontSize: 12, fontWeight: 800, flexShrink: 0 }}>
+                  {section.index}
+                </Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, minWidth: 0 }}>{section.title}</Typography>
+              </Box>
+              <MarkdownText text={section.content || '无'} />
+            </Box>
+          );
+        })}
+      </Box>
+
+      {followUps ? (
+        <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: (theme) => theme.palette.mode === 'light' ? '#fff7ed' : 'rgba(180,83,9,0.16)', border: '1px solid', borderColor: (theme) => theme.palette.mode === 'light' ? '#fed7aa' : 'rgba(251,146,60,0.35)' }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.75 }}>{followUps.title}</Typography>
+          <MarkdownText text={followUps.content} />
+        </Box>
+      ) : null}
+    </Stack>
+  );
 }
 
 export default function ChatDetailPage() {
@@ -336,6 +509,7 @@ export default function ChatDetailPage() {
             character: { ...directCharacter, emotionalState: emotion },
             content,
             personalityDrift: drift,
+            sourceEventTag: 'direct_user_message',
           }),
           runtimeTimeline: accumulateCharacterRuntime(directCharacter, {
             type: 'memory',
@@ -347,6 +521,24 @@ export default function ChatDetailPage() {
         const followUp = await shouldDirectCharacterFollowUp(directCharacter, content);
         if (followUp) {
           await addMessage({ chatId: id, type: 'ai', senderId: directCharacter.id, senderName: directCharacter.name, content: followUp, emotion: 0 });
+          const followUpDrift = derivePersonalityDrift(directCharacter, followUp, evolution.driftMultiplier * 0.35);
+          const followUpEmotion = deriveEmotionalState(directCharacter, followUp, evolution.emotionMultiplier * 0.6, evolution.emotionDecayBias);
+          await updateCharacter(directCharacter.id, {
+            personalityDrift: followUpDrift,
+            emotionalState: followUpEmotion,
+            layeredMemories: updateCharacterLayeredMemories({
+              character: { ...directCharacter, emotionalState: followUpEmotion },
+              content: followUp,
+              personalityDrift: followUpDrift,
+              sourceEventTag: 'direct_ai_follow_up',
+            }),
+            runtimeTimeline: accumulateCharacterRuntime(directCharacter, {
+              type: 'memory',
+              text: `单聊续发：${followUp.slice(0, 48)}`,
+            }).concat(
+              Object.keys(followUpDrift).length ? [{ type: 'drift' as const, text: '续发后产生性格漂移', createdAt: Date.now() }] : []
+            ).slice(-24),
+          });
         }
       }
       return;
@@ -537,6 +729,7 @@ export default function ChatDetailPage() {
       appendEventMessage,
       updateChat,
       recordSpeak,
+      getCooldownMap: () => useSchedulerStore.getState().lastSpeakTimestamps,
     });
   }, [activeMembers, api, appendEventMessage, chat, clearLiveMessage, id, recordSpeak, setCurrentSpeaker, showErrorToast, t, updateCharacter, updateChat, updateLiveMessage, upsertMessage]);
 
@@ -713,10 +906,22 @@ export default function ChatDetailPage() {
         </PageSection>
       </RightPanel>
 
-      <Dialog open={analysisDialogOpen} onClose={() => setAnalysisDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>AI分析</DialogTitle>
-        <DialogContent>
-          {analysisTarget ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{analysisTarget.senderName || '消息'}：{analysisTarget.content}</Typography> : null}
+      <Dialog open={analysisDialogOpen} onClose={() => setAnalysisDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+            <Typography component="span" variant="h6" sx={{ fontWeight: 800 }}>AI分析</Typography>
+            {analysisTarget ? <Chip size="small" label={analysisTarget.senderName || '消息'} /> : null}
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ maxHeight: '72vh', overflowY: 'auto', pb: 3 }}>
+          {analysisTarget ? (
+            <Box sx={{ mb: 1.75, p: 1.25, borderRadius: 2, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>目标消息</Typography>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.65 }}>
+                {analysisTarget.content}
+              </Typography>
+            </Box>
+          ) : null}
           {analysisLoading ? (
             <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
               <CircularProgress size={28} />
@@ -724,9 +929,7 @@ export default function ChatDetailPage() {
           ) : analysisError ? (
             <Typography variant="body2" color="error">{analysisError}</Typography>
           ) : (
-            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
-              {analysisText}
-            </Typography>
+            <AnalysisResultView text={analysisText} />
           )}
         </DialogContent>
       </Dialog>

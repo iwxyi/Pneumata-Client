@@ -143,6 +143,9 @@ function buildTimelineBody(item: ProjectedRuntimeTimelineItem) {
   const artifact = readSocialEventArtifactMeta(item);
   const effect = readSocialEventEffectMeta(item);
   const relation = readRelationshipDeltaMeta(item);
+  const payload = item.event?.payload as Record<string, unknown> | undefined;
+  const topicSnippet = typeof payload?.topicSnippet === 'string' ? payload.topicSnippet : null;
+  const participantNames = Array.isArray(payload?.participantNames) ? payload.participantNames.filter((value): value is string => typeof value === 'string') : [];
   if (relation) {
     const parts = [
       relation.delta.warmth ? `亲和${formatSigned(relation.delta.warmth)}` : '',
@@ -152,7 +155,7 @@ function buildTimelineBody(item: ProjectedRuntimeTimelineItem) {
     ].filter(Boolean);
     return clip(parts.join(' / '), 88);
   }
-  return clip(cleanText(candidate?.title || artifact?.title || artifact?.activityType || effect?.summary || item.text), 88);
+  return clip(cleanText(candidate?.title || artifact?.title || artifact?.activityType || (participantNames.length ? `${participantNames.join(' ↔ ')} · ${topicSnippet || effect?.summary || item.text}` : null) || topicSnippet || effect?.summary || item.text), 88);
 }
 
 function buildTimelineMeta(item: ProjectedRuntimeTimelineItem) {
@@ -161,8 +164,10 @@ function buildTimelineMeta(item: ProjectedRuntimeTimelineItem) {
   const memory = readMemoryCandidateMeta(item);
   const candidate = readSocialEventCandidateMeta(item);
   const effect = readSocialEventEffectMeta(item);
+  const payload = item.event?.payload as Record<string, unknown> | undefined;
+  const projectionKind = typeof payload?.projectionKind === 'string' ? payload.projectionKind : null;
   if (candidate) return cleanText(`候选 · ${formatSocialEventKind(candidate.eventKind)}`);
-  if (effect) return cleanText(`回流 · ${effect.effectType}`);
+  if (effect) return cleanText(`回流 · ${projectionKind || effect.effectType}`);
   if (relation) return cleanText(item.label);
   if (room?.delta?.heat || room?.delta?.cohesion || room?.delta?.topicDrift) return `热度 ${formatSigned(room.delta?.heat)} / 凝聚 ${formatSigned(room.delta?.cohesion)}`;
   if (memory) return cleanText(`${memory.kind} · ${Math.round(memory.confidence * 100)}%`);
@@ -231,7 +236,19 @@ function buildRoomContext(chat: GroupChat, members: AICharacter[]) {
   const alliances = (room.alliances || []).slice(0, 1).map((pair) => `联盟 ${pair.map((id) => members.find((item) => item.id === id)?.name || id).join(' + ')}`);
   const conflicts = (room.conflictPairs || []).slice(0, 1).map((pair) => `对线 ${pair.map((id) => members.find((item) => item.id === id)?.name || id).join(' ↔ ')}`);
   const silenced = (room.silencedActors || []).slice(0, 1).map((id) => `被压制 ${members.find((item) => item.id === id)?.name || id}`);
-  return [...alliances, ...conflicts, ...silenced];
+  const pileOn = room.pileOnTarget ? [`围压 ${members.find((item) => item.id === room.pileOnTarget)?.name || room.pileOnTarget}`] : [];
+  return [...pileOn, ...alliances, ...conflicts, ...silenced];
+}
+
+function buildTargetPressureState(chat: GroupChat, members: AICharacter[]) {
+  const room = chat.worldState.structuredRoomState;
+  if (!room) return { rows: [] as Array<{ key: string; label: string; value: string }>, text: null as string | null, chips: [] as string[] };
+  const rows: Array<{ key: string; label: string; value: string }> = [];
+  if (room.pileOnTarget) rows.push({ key: 'pileOn', label: '围压目标', value: members.find((item) => item.id === room.pileOnTarget)?.name || room.pileOnTarget });
+  if (room.dominantThread?.length) rows.push({ key: 'dominantThread', label: '主线目标', value: room.dominantThread.map((id) => members.find((item) => item.id === id)?.name || id).join(' ↔ ') });
+  const text = rows.length ? rows.map((row) => `${row.label} ${row.value}`).join(' / ') : null;
+  const chips = rows.map((row) => `${row.label} ${row.value}`);
+  return { rows, text, chips };
 }
 
 function buildPairSummaries(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean) {
@@ -249,8 +266,26 @@ function buildVisibleMemories(chat: GroupChat, isDeveloperView: boolean) {
     maxItems: isDeveloperView ? 6 : 3,
     preferredLayers: ['working', 'episodic', 'long_term'],
     preferredScopes: ['relationship', 'conversation', 'thread', 'character_self', 'system_runtime'],
+    preferredSourceTags: ['group_relationship_shift', 'interaction', 'relationship_delta', 'room_shift', 'private_thread_effect', 'private_thread_summary'],
+    blockedSourceTags: ['direct_user_message', 'direct_ai_follow_up', 'ai_direct_starter_message', 'ai_direct_target_message'],
+    relationshipBoost: true,
+    selfMemoryBoost: true,
+    conversationBoost: true,
   });
-  return isDeveloperView ? all : all.filter((item) => item.layer !== 'working').slice(0, 3);
+  return isDeveloperView ? all : all.filter((item) => item.layer !== 'working').slice(0, 8);
+}
+
+function buildChatMemoryGroups(chat: GroupChat) {
+  const items = (chat.layeredMemories || []) as MemoryItem[];
+  return {
+    longTerm: items.filter((item) => item.layer === 'long_term'),
+    episodic: items.filter((item) => item.layer === 'episodic'),
+    working: items.filter((item) => item.layer === 'working'),
+    relationship: items.filter((item) => item.scope === 'relationship'),
+    conversation: items.filter((item) => item.scope === 'conversation'),
+    thread: items.filter((item) => item.scope === 'thread'),
+    runtime: items.filter((item) => item.scope === 'system_runtime'),
+  };
 }
 
 function buildMemoryLayerLabel(layer: MemoryItem['layer']) {
@@ -346,11 +381,12 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
   const pairSummaries = useMemo(() => buildPairSummaries(chat, members, isDeveloperView), [chat, members, isDeveloperView]);
   const roomRows = useMemo(() => buildOverviewRows(chat, members), [chat, members]);
   const roomContext = useMemo(() => buildRoomContext(chat, members), [chat, members]);
+  const targetPressure = useMemo(() => buildTargetPressureState(chat, members), [chat, members]);
   const visibleMemories = useMemo(() => buildVisibleMemories(chat, isDeveloperView), [chat, isDeveloperView]);
+  const chatMemoryGroups = useMemo(() => buildChatMemoryGroups(chat), [chat]);
   const projectedTimeline = useMemo(() => projectRuntimeTimeline(chat, members), [chat, members]);
   const displayTimeline = useMemo(() => projectedTimeline.filter((item) => timelineFilter === 'all' ? true : timelineFilter === 'artifact' ? item.type === 'artifact' || Boolean(readSocialEventClusterMeta(item)) : item.type === timelineFilter).slice().reverse().slice(0, isDeveloperView ? 8 : 5), [projectedTimeline, timelineFilter, isDeveloperView]);
   const activePair = pairSummaries.find((item) => item.key === activePairKey) || null;
-  const roomSummary = roomRows.map((row) => `${row.label} ${cleanText(row.value)}`).join(' / ');
   const memoryPanel = buildMemoryPanelState(visibleMemories, memoryExpanded, isDeveloperView);
   const memorySummary = memoryPanel.summary;
   const structureRows = [...buildScenarioRows(chat, members), ...buildBoardRows(chat)];
@@ -367,10 +403,26 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
                 <Typography variant="body2" sx={{ mt: 0.2 }}>{cleanText(row.value)}</Typography>
               </Box>
             )) : <Typography variant="body2">暂无结构化房间态势</Typography>}
+            {targetPressure.text ? <Typography variant="caption" color="text.secondary">{targetPressure.text}</Typography> : null}
             {memorySummary ? <Typography variant="caption" color="text.secondary">{memorySummary}</Typography> : null}
-            {roomContext.length ? <StatChipRow items={roomContext.slice(0, 1).map((chip) => cleanText(chip))} /> : null}
+            {roomContext.length ? <StatChipRow items={roomContext.slice(0, 2).map((chip) => cleanText(chip))} /> : null}
+            {targetPressure.chips.length ? <StatChipRow items={targetPressure.chips} /> : null}
           </Stack>
         </SurfaceCard>
+
+        {targetPressure.rows.length ? (
+          <SurfaceCard>
+            <SectionHeader title="目标压力" dense />
+            <Stack spacing={0.8}>
+              {targetPressure.rows.map((row) => (
+                <Box key={row.key} sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: 'action.hover' }}>
+                  <Typography variant="caption" color="text.secondary">{row.label}</Typography>
+                  <Typography variant="body2" sx={{ mt: 0.2 }}>{cleanText(row.value)}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          </SurfaceCard>
+        ) : null}
 
         {structureRows.length ? (
           <SurfaceCard>
@@ -389,96 +441,75 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
         <Divider flexItem />
 
         <SurfaceCard>
-          <SectionHeader title="关键关系动态" subtitle={pairSummaries.length ? `当前优先展示 ${pairSummaries.slice(0, 2).length} 条最显著关系` : undefined} dense />
-          {pairSummaries.length ? (
-            <Stack spacing={0.75}>
-              {pairSummaries.slice(0, 2).map((pair) => (
-                <Box key={pair.key} sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'action.hover' }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 700 }}>{formatPairLabel(pair.source, pair.target)}</Typography>
-                    <Chip size="small" label={buildPairStatus(pair.score)} color={pairStatusColor(pair.score)} />
-                  </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{clip(pair.note, 48)}</Typography>
-                  <Box sx={{ mt: 0.5 }}>
-                    <StatChipRow items={[`信任 ${formatSigned(pair.relation.trust)}`, `威胁 ${formatSigned(pair.relation.threat)}`]} />
-                  </Box>
-                  <Box sx={{ mt: 0.5 }}>
-                    <Chip size="small" label="详情" variant="outlined" onClick={() => setActivePairKey(pair.key)} sx={{ cursor: 'pointer' }} />
-                  </Box>
+          <SectionHeader title="关系脉络" dense />
+          <Stack spacing={0.9}>
+            {pairSummaries.map((pair) => (
+              <Box key={pair.key} sx={{ p: 1, borderRadius: 2, bgcolor: timelineTone({ type: 'relationship', text: '', label: '', event: null } as ProjectedRuntimeTimelineItem), cursor: 'pointer' }} onClick={() => setActivePairKey(pair.key)}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatPairLabel(pair.source, pair.target)}</Typography>
+                  <Chip size="small" label={buildPairStatus(pair.score)} color={pairStatusColor(pair.score)} variant="outlined" />
                 </Box>
-              ))}
-            </Stack>
-          ) : <Typography variant="body2" color="text.secondary">暂无突出关系变化</Typography>}
+                <Typography variant="caption" color="text.secondary">{pair.note}</Typography>
+              </Box>
+            ))}
+            {!pairSummaries.length ? <Typography variant="body2">暂无明显关系变化</Typography> : null}
+          </Stack>
         </SurfaceCard>
 
         <SurfaceCard>
-          <SectionHeader title={`事件时间线${displayTimeline.length ? ` · ${displayTimeline.length}` : ''}`} dense />
-          <Box sx={{ mb: 1 }}>
-            <StatChipRow items={[timelineFilter === 'all' ? '全部' : timelineFilter === 'relationship' ? '关系' : timelineFilter === 'artifact' ? '社交' : (isDeveloperView ? '记忆' : '沉淀')]} />
-          </Box>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mb: 1 }}>
-            {[['all', '全部'], ['relationship', '关系'], ['artifact', '社交'], ['note', isDeveloperView ? '记忆' : '沉淀']].map(([value, label]) => (
-              <Chip key={value} size="small" label={label} color={timelineFilter === value ? 'primary' : 'default'} variant={timelineFilter === value ? 'filled' : 'outlined'} onClick={() => setTimelineFilter(value as 'all' | 'note' | 'artifact' | 'relationship')} />
-            ))}
-          </Box>
-          {displayTimeline.length ? (
-            <Stack spacing={0.85}>
-              {displayTimeline.map((item, index) => {
-                const meta = buildTimelineMeta(item);
-                const caption = buildTimelineCaption(item);
-                return (
-                  <Box key={`${item.type}-${item.createdAt}-${index}`} sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: timelineTone(item) }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 1, flexWrap: 'wrap' }}>
-                      <Typography variant="caption" color="text.secondary">{buildTimelineTitle(item)}</Typography>
-                      {meta ? <Typography variant="caption" color="text.secondary">{meta}</Typography> : null}
-                    </Box>
-                    <Typography variant="body2" sx={{ mt: 0.25 }}>{buildTimelineBody(item)}</Typography>
-                    {caption ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{caption}</Typography> : null}
-                  </Box>
-                );
-              })}
-            </Stack>
-          ) : <Typography variant="body2" color="text.secondary">暂无关键事件</Typography>}
+          <SectionHeader title={memoryPanel.header.title} subtitle={memoryPanel.header.subtitle} dense />
+          <Stack spacing={0.8}>
+            {memoryPanel.visible ? memoryPanel.rows.map((item) => (
+              <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+                <Typography variant="caption" color="text.secondary">{buildMemoryPanelRowTitle(item)}</Typography>
+                {buildMemoryPanelRowMeta(item) ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{buildMemoryPanelRowMeta(item)}</Typography> : null}
+                <Typography variant="body2">{buildMemoryPanelRowText(item)}</Typography>
+              </Box>
+            )) : <Typography variant="body2">{memoryPanel.emptyText}</Typography>}
+            {memoryPanel.canExpand ? <Button size="small" variant={buildMemoryPanelButtonVariant()} onClick={() => setMemoryExpanded((prev) => !prev)}>{memoryPanel.buttonText}</Button> : null}
+          </Stack>
         </SurfaceCard>
 
-        {memoryPanel.visible ? (
-          <SurfaceCard>
-            <SectionHeader title={memoryPanel.header.title} subtitle={memoryPanel.header.subtitle} dense action={<Chip size="small" label="调试" color="warning" variant="outlined" />} />
-            {memoryPanel.statItems.length ? <Box sx={{ mb: 1 }}><StatChipRow items={memoryPanel.statItems} /></Box> : null}
-            {memoryPanel.rows.length ? (
-              <Stack spacing={0.85}>
-                {memoryPanel.rows.map((item) => (
-                  <Box key={item.id} sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'action.hover' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{buildMemoryPanelRowTitle(item)}</Typography>
-                    <Typography variant="body2" sx={{ mt: 0.2 }}>{buildMemoryPanelRowText(item)}</Typography>
-                    {buildMemoryPanelRowMeta(item) ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{buildMemoryPanelRowMeta(item)}</Typography> : null}
-                  </Box>
-                ))}
-              </Stack>
-            ) : <Typography variant="body2" color="text.secondary">{memoryPanel.emptyText}</Typography>}
-            {memoryPanel.canExpand ? <Box sx={{ mt: 1 }}><Button size="small" variant={buildMemoryPanelButtonVariant()} onClick={() => setMemoryExpanded((current) => isDeveloperView ? true : !current)}>{memoryPanel.buttonText}</Button></Box> : null}
-          </SurfaceCard>
-        ) : null}
+        <SurfaceCard>
+          <SectionHeader title="聊天记忆分层" dense />
+          <Stack spacing={0.8}>
+            {([
+              ['长期记忆', chatMemoryGroups.longTerm],
+              ['情节记忆', chatMemoryGroups.episodic],
+              ['即时记忆', chatMemoryGroups.working],
+              ['关系影响', chatMemoryGroups.relationship],
+              ['会话记忆', chatMemoryGroups.conversation],
+              ['线程记忆', chatMemoryGroups.thread],
+              ['系统运行态', chatMemoryGroups.runtime],
+            ] as Array<[string, MemoryItem[]]>).map(([label, items]) => (
+              <Box key={String(label)} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+                <Typography variant="caption" color="text.secondary">{label} · {(items as MemoryItem[]).length} 条</Typography>
+                <Typography variant="body2">{((items as MemoryItem[]).length ? (items as MemoryItem[]).slice(0, 3).map((item) => cleanText(item.text)).join(' / ') : '暂无')}</Typography>
+              </Box>
+            ))}
+          </Stack>
+        </SurfaceCard>
 
-        {isAdvancedRuntimeView ? (
-          <Collapse in={memoryExpanded || isDeveloperView}>
-            <SurfaceCard>
-              <SectionHeader title="高级运行视图" subtitle="展示多层记忆、结构化事件与私有视角的调试信息。" dense action={<Chip size="small" label="调试" color="warning" variant="outlined" />} />
-              <Stack spacing={0.85}>
-                {buildAdvancedMemoryRows(visibleMemories).map((item) => (
-                  <Box key={item.id} sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'action.hover' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{item.title}</Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.2 }}>{item.meta}</Typography>
-                    <Typography variant="body2" sx={{ mt: 0.25 }}>{item.text}</Typography>
-                  </Box>
-                ))}
-              </Stack>
-            </SurfaceCard>
-          </Collapse>
-        ) : null}
+        <SurfaceCard>
+          <SectionHeader title="运行时间线" dense />
+          <Stack spacing={0.8}>
+            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+              {(['all', 'note', 'artifact', 'relationship'] as const).map((filter) => <Chip key={filter} size="small" label={filter === 'all' ? '全部' : filter === 'note' ? '注记' : filter === 'artifact' ? '产物' : '关系'} color={timelineFilter === filter ? 'primary' : 'default'} variant={timelineFilter === filter ? 'filled' : 'outlined'} onClick={() => setTimelineFilter(filter)} />)}
+            </Box>
+            {displayTimeline.length ? displayTimeline.map((item, index) => (
+              <Box key={`${item.label}-${index}`} sx={{ p: 1, borderRadius: 2, bgcolor: timelineTone(item) }}>
+                <Typography variant="caption" color="text.secondary">{buildTimelineTitle(item)}</Typography>
+                <Typography variant="body2">{buildTimelineBody(item)}</Typography>
+                {buildTimelineMeta(item) ? <Typography variant="caption" color="text.secondary">{buildTimelineMeta(item)}</Typography> : null}
+                {buildTimelineCaption(item) ? <Typography variant="caption" color="text.secondary">{buildTimelineCaption(item)}</Typography> : null}
+              </Box>
+            )) : <Typography variant="body2">暂无运行事件</Typography>}
+          </Stack>
+        </SurfaceCard>
 
         {privatePayloads.length ? <PrivatePayloadPanel payloads={privatePayloads} /> : null}
         {isSpeechStyleView ? <DialogueDebugPanel chat={chat} /> : null}
+        {isAdvancedRuntimeView ? <DialogueDebugPanel chat={chat} /> : null}
       </PageSection>
       <PairDetailDialog open={Boolean(activePair)} onClose={() => setActivePairKey(null)} pair={activePair} />
     </>

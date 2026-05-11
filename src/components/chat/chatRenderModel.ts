@@ -51,15 +51,25 @@ function shouldSuppressCommittedForLive(message: Message, liveMessage: LiveChatM
 export function buildChatRenderItems(messages: Message[], liveMessage: LiveChatMessage | null): ChatRenderItem[] {
   const seenIds = new Set<string>();
   const items: ChatRenderItem[] = [];
+  let liveMessageRenderedInPlace = false;
 
   for (const message of messages) {
     if (message.isDeleted) continue;
     if (message.isOptimistic) continue;
-    if (liveMessage && shouldSuppressCommittedForLive(message, liveMessage)) continue;
 
     const identity = buildMessageIdentity(message);
     if (seenIds.has(identity)) continue;
     seenIds.add(identity);
+
+    if (liveMessage && shouldSuppressCommittedForLive(message, liveMessage)) {
+      items.push({
+        key: liveMessage.key,
+        message: buildLiveMessage(liveMessage),
+        pending: true,
+      });
+      liveMessageRenderedInPlace = true;
+      continue;
+    }
 
     items.push({
       key: message.clientKey || identity,
@@ -68,7 +78,7 @@ export function buildChatRenderItems(messages: Message[], liveMessage: LiveChatM
     });
   }
 
-  if (liveMessage) {
+  if (liveMessage && !liveMessageRenderedInPlace) {
     const liveAsMessage = buildLiveMessage(liveMessage);
     items.push({
       key: liveMessage.key,

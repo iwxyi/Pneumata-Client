@@ -55,8 +55,10 @@ function buildSpeakerProfile(message: Message, characters: AICharacter[]) {
 function buildSystemPrompt() {
   return `你是一个聊天消息分析助手。你的任务不是继续对话，而是解释一条聊天消息为何会这样表达。
 
-请用中文输出纯文本，不要使用 Markdown 表格，不要输出 JSON，不要写代码块。
+请用中文输出。可以使用常见 Markdown 增强可读性，例如小标题、加粗、斜体、无序/有序列表、引用、行内代码。
+不要使用 Markdown 表格，不要输出 JSON，不要写代码块，不要输出原始 HTML。
 必须结合目标消息、上下文和发送者设定进行分析，避免空泛套话。
+如果使用 Markdown 小标题，仍必须保留下面的编号，例如“## 1. 一句话总评”，不要改写或省略编号。
 
 按下面结构输出：
 1. 一句话总评
@@ -100,5 +102,5 @@ function buildUserPrompt({ chat, message, messages, characters }: AnalysisContex
 }
 
 export async function analyzeChatMessage(config: APIConfig, context: AnalysisContext) {
-  return generateResponse(config, buildSystemPrompt(), [{ role: 'user', content: buildUserPrompt(context) }]);
+  return generateResponse(config, buildSystemPrompt(), [{ role: 'user', content: buildUserPrompt(context) }], undefined, { maxTokens: 1800 });
 }

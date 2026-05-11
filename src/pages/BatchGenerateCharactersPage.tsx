@@ -179,8 +179,11 @@ async function processCharacterBatch(params: {
       });
     } catch (error) {
       console.error('[batch-generate:batch-request:error]', { names: creatableNames, error });
+      const reason = error instanceof Error && error.message === 'DUPLICATE_CHARACTER_NAME'
+        ? params.duplicateMessage
+        : params.getErrorMessage(error);
       creatableNames.forEach((name) => {
-        appendProgressItem(params.setProgress, { name, status: 'failed', reason: params.getErrorMessage(error) });
+        appendProgressItem(params.setProgress, { name, status: 'failed', reason });
       });
     }
   });

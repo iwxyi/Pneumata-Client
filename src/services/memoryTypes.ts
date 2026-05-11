@@ -17,6 +17,7 @@ export interface MemoryItem {
   recency: number;
   reinforcementCount: number;
   sourceEventIds: string[];
+  sourceTag?: string | null;
   createdAt: number;
   updatedAt: number;
   lastActivatedAt?: number | null;
@@ -31,6 +32,7 @@ export interface MemoryCandidate {
   subjectIds?: string[];
   text: string;
   sourceEventIds: string[];
+  sourceTag?: string;
   scoreBreakdown: {
     stability: number;
     recurrence: number;
@@ -47,4 +49,10 @@ export interface MemoryRetrievalContext {
   maxItems: number;
   preferredLayers?: MemoryLayer[];
   preferredScopes?: MemoryScope[];
+  preferredSourceTags?: string[];
+  allowedSourceTags?: string[];
+  blockedSourceTags?: string[];
+  relationshipBoost?: boolean;
+  selfMemoryBoost?: boolean;
+  conversationBoost?: boolean;
 }

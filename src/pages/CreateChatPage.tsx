@@ -419,9 +419,9 @@ export default function CreateChatPage() {
   const closeMemberDialog = () => {
     setMemberDialogOpen(false);
   };
-  const openDeleteDialog = () => {
+  const openDeleteDialog = useCallback(() => {
     setDeleteConfirmOpen(true);
-  };
+  }, []);
   const closeDeleteDialog = () => {
     setDeleteConfirmOpen(false);
   };
@@ -450,9 +450,9 @@ export default function CreateChatPage() {
   const handleCreateAction = () => {
     void handleCreate();
   };
-  const handleAutofillAction = () => {
+  const handleAutofillAction = useCallback(() => {
     void handleAutofill();
-  };
+  }, [handleAutofill]);
   const handleDeleteAction = () => {
     void handleDelete();
   };
@@ -524,13 +524,16 @@ export default function CreateChatPage() {
         ) : null}
       </Box>
     );
+  }, [autofillLabel, canAutofill, deleteLabel, editingChat, handleAutofillAction, headerTitle, navigate, openDeleteDialog, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
+
+  useEffect(() => {
     return () => {
       setHeaderTitle(null);
       setHeaderBackAction(null);
       setHideMobileBottomNav(false);
       setHeaderActions(null);
     };
-  }, [autofillLabel, canAutofill, deleteLabel, editingChat, handleAutofillAction, headerTitle, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
+  }, [setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
 
   const desktopHeaderActions = null;
   void desktopHeaderActions;

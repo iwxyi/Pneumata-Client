@@ -89,6 +89,92 @@ function buildPrivateThreadPublicSummary(starterName: string, targetName: string
   return `${starterName} 私下和 ${targetName} 继续聊了刚才的话题：${content.slice(0, 48)}${content.length > 48 ? '…' : ''}`;
 }
 
+function buildPrivateThreadProjectionMetrics(params: {
+  starterId: string;
+  targetId: string;
+  starterName: string;
+  targetName: string;
+  content: string;
+  starterRelation?: AICharacter['relationships'][number] | null;
+  targetRelation?: AICharacter['relationships'][number] | null;
+}) {
+  return {
+    eventKind: 'pair_private_thread',
+    projectionKind: 'relationship_backflow',
+    participantIds: [params.starterId, params.targetId],
+    participantNames: [params.starterName, params.targetName],
+    topicSnippet: params.content.trim().replace(/\s+/g, ' ').slice(0, 48),
+    relationDelta: {
+      starterToTarget: params.starterRelation || null,
+      targetToStarter: params.targetRelation || null,
+    },
+  };
+}
+
+function buildPrivateThreadSummaryMetrics(params: {
+  starterId: string;
+  targetId: string;
+  starterName: string;
+  targetName: string;
+  content: string;
+}) {
+  return {
+    eventKind: 'pair_private_thread',
+    projectionKind: 'summary_backflow',
+    participantIds: [params.starterId, params.targetId],
+    participantNames: [params.starterName, params.targetName],
+    topicSnippet: params.content.trim().replace(/\s+/g, ' ').slice(0, 48),
+  };
+}
+
+function buildPrivateThreadSourcePatchMetrics(params: {
+  starterId: string;
+  targetId: string;
+  starterName: string;
+  targetName: string;
+  summary: string;
+}) {
+  return {
+    eventKind: 'pair_private_thread',
+    projectionKind: 'source_chat_patch',
+    participantIds: [params.starterId, params.targetId],
+    participantNames: [params.starterName, params.targetName],
+    summarySnippet: params.summary.slice(0, 80),
+  };
+}
+
+function buildPrivateThreadProjectionArtifact(sourceChat: GroupChat, starterId: string, targetId: string, starterName: string, targetName: string, summary: string) {
+  return createRuntimeEventV2({
+    conversationId: sourceChat.id,
+    kind: 'artifact',
+    summary: `${starterName} 与 ${targetName} 的私聊影响已结构化投影到群聊`,
+    actorIds: [starterId],
+    targetIds: [targetId],
+    visibility: 'derived_public',
+    payload: {
+      artifactType: 'private_thread_projection',
+      ...buildPrivateThreadSourcePatchMetrics({ starterId, targetId, starterName, targetName, summary }),
+    },
+  });
+}
+
+function updateSourceChatAfterPrivateThread(sourceChat: GroupChat, starterId: string, targetId: string, starterName: string, targetName: string, summary: string) {
+  const { effectEvent, summaryEvent, roomShiftEvent, nextStructuredRoomState } = buildPrivateThreadEffectEvents(sourceChat, starterId, targetId, summary);
+  const projectionArtifact = buildPrivateThreadProjectionArtifact(sourceChat, starterId, targetId, starterName, targetName, summary);
+  return withFrameworkPatch(sourceChat, {
+    lastMessageAt: Date.now(),
+    runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [effectEvent, summaryEvent, roomShiftEvent, projectionArtifact]),
+    worldState: {
+      ...DEFAULT_CONVERSATION_WORLD_STATE,
+      ...(sourceChat.worldState || {}),
+      structuredRoomState: nextStructuredRoomState,
+      recentEvent: buildPrivateThreadRecentEvent(starterName, targetName, summary),
+    },
+    ...accumulateChatRuntime(sourceChat, { type: 'event', content: buildPrivateThreadRecentEvent(starterName, targetName, summary) }),
+    runtimeSeed: mergeRuntimeSeedWithSummary(sourceChat, buildPrivateThreadPublicSummary(starterName, targetName, summary)),
+  });
+}
+
 function buildPrivateThreadEffectEvents(sourceChat: GroupChat, starterId: string, targetId: string, summary: string) {
   const context = createProjectionContext(sourceChat, openChatEngine.buildParticipants(sourceChat));
   const projected = projectRuntimeState(sourceChat, context);
@@ -145,21 +231,6 @@ function buildPrivateThreadEffectEvents(sourceChat: GroupChat, starterId: string
   };
 }
 
-function updateSourceChatAfterPrivateThread(sourceChat: GroupChat, starterId: string, targetId: string, starterName: string, targetName: string, summary: string) {
-  const { effectEvent, summaryEvent, roomShiftEvent, nextStructuredRoomState } = buildPrivateThreadEffectEvents(sourceChat, starterId, targetId, summary);
-  return withFrameworkPatch(sourceChat, {
-    lastMessageAt: Date.now(),
-    runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [effectEvent, summaryEvent, roomShiftEvent]),
-    worldState: {
-      ...DEFAULT_CONVERSATION_WORLD_STATE,
-      ...(sourceChat.worldState || {}),
-      structuredRoomState: nextStructuredRoomState,
-      recentEvent: buildPrivateThreadRecentEvent(starterName, targetName, summary),
-    },
-    ...accumulateChatRuntime(sourceChat, { type: 'event', content: buildPrivateThreadRecentEvent(starterName, targetName, summary) }),
-    runtimeSeed: mergeRuntimeSeedWithSummary(sourceChat, buildPrivateThreadPublicSummary(starterName, targetName, summary)),
-  });
-}
 
 function buildPostMomentSummary(actorName: string, payload: SocialEventCandidatePayload) {
   return payload.reasonType === 'celebration'
@@ -718,6 +789,7 @@ export async function applyAiDirectFeedback(params: {
       targetName: target.name,
       content: params.content,
       personalityDrift: starterDrift,
+      sourceEventTag: 'ai_direct_starter_message',
     }),
     runtimeTimeline: accumulateCharacterRuntime(starter, { type: 'relationship', text: `与 ${target.name} 的AI私聊带来了关系变化（${evolution.label}）` }).concat(
       Object.keys(starterDrift).length ? [{ type: 'drift', text: `与 ${target.name} 互动后产生性格漂移`, createdAt: Date.now() }] : []
@@ -734,6 +806,7 @@ export async function applyAiDirectFeedback(params: {
       targetName: starter.name,
       content: params.content,
       personalityDrift: targetDrift,
+      sourceEventTag: 'ai_direct_target_message',
     }),
     runtimeTimeline: accumulateCharacterRuntime(target, { type: 'relationship', text: `与 ${starter.name} 的AI私聊带来了关系变化（${evolution.label}）` }).concat(
       Object.keys(targetDrift).length ? [{ type: 'drift', text: `与 ${starter.name} 互动后产生性格漂移`, createdAt: Date.now() }] : []
@@ -753,10 +826,15 @@ export async function applyAiDirectFeedback(params: {
     title: `${starter.name} 与 ${target.name} 的AI私聊回流了影响`,
     summary: publicSummary,
     pair: [starter.name, target.name],
-    metrics: {
-      starterToTarget: starterRelation || null,
-      targetToStarter: targetRelation || null,
-    },
+    metrics: buildPrivateThreadProjectionMetrics({
+      starterId,
+      targetId,
+      starterName: starter.name,
+      targetName: target.name,
+      content: params.content,
+      starterRelation: starterRelation || null,
+      targetRelation: targetRelation || null,
+    }),
     visibilityScope: 'derived_public',
   });
 
@@ -765,6 +843,13 @@ export async function applyAiDirectFeedback(params: {
     title: `${starter.name} 与 ${target.name} 的私聊摘要`,
     summary: publicSummary,
     pair: [starter.name, target.name],
+    metrics: buildPrivateThreadSummaryMetrics({
+      starterId,
+      targetId,
+      starterName: starter.name,
+      targetName: target.name,
+      content: params.content,
+    }),
     visibilityScope: 'derived_public',
   });
 }

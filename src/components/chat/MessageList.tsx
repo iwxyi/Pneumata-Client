@@ -41,9 +41,11 @@ export default function MessageList({
   const hasJumpedToBottomRef = useRef(false);
   const prependRestoreRef = useRef<{ height: number; top: number } | null>(null);
   const autoFillTriggeredRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
   const previousRenderMetricsRef = useRef({
     itemCount: renderItems.length,
     liveContentLength: liveMessage?.content.length ?? 0,
+    liveMessageKey: liveMessage?.key ?? null,
   });
 
   const topStatusText = useMemo(() => {
@@ -69,6 +71,7 @@ export default function MessageList({
     if (!container) return;
     const top = Math.max(0, container.scrollHeight - container.clientHeight);
     container.scrollTop = top;
+    lastScrollTopRef.current = top;
   }, []);
 
   useLayoutEffect(() => {
@@ -89,10 +92,11 @@ export default function MessageList({
     updatePinnedState();
   }, [messages, updatePinnedState]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const currentMetrics = {
       itemCount: renderItems.length,
       liveContentLength: liveMessage?.content.length ?? 0,
+      liveMessageKey: liveMessage?.key ?? null,
     };
     const previousMetrics = previousRenderMetricsRef.current;
     previousRenderMetricsRef.current = currentMetrics;
@@ -102,12 +106,13 @@ export default function MessageList({
     if (
       currentMetrics.itemCount === previousMetrics.itemCount
       && currentMetrics.liveContentLength === previousMetrics.liveContentLength
+      && currentMetrics.liveMessageKey === previousMetrics.liveMessageKey
     ) {
       return;
     }
 
     scrollToBottom();
-  }, [liveMessage?.content, renderItems.length, scrollToBottom]);
+  }, [liveMessage?.content, liveMessage?.key, renderItems.length, scrollToBottom]);
 
   useEffect(() => {
     if (!isLoadingOlder) {
@@ -137,7 +142,14 @@ export default function MessageList({
         const container = containerRef.current;
         if (!container) return;
 
-        updatePinnedState();
+        const previousScrollTop = lastScrollTopRef.current;
+        const isScrollingUp = container.scrollTop < previousScrollTop - 2;
+        lastScrollTopRef.current = container.scrollTop;
+        if (isScrollingUp) {
+          shouldStickToBottomRef.current = false;
+        } else {
+          updatePinnedState();
+        }
 
         if (container.scrollTop > TOP_REACH_THRESHOLD) {
           topLoadTriggeredRef.current = false;

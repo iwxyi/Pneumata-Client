@@ -10,7 +10,7 @@ import { generateJsonResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildChatMessages } from './promptBuilder';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
-import { calculateWeights, getSpeakerSelectionResult, selectSpeaker } from './scheduler';
+import { calculateWeights, getSpeakerSelectionResult, resolvePendingReplyContext, selectSpeaker } from './scheduler';
 import { deriveSpeakIntentFromContext, describeIntentForPrompt } from './intentEngine';
 import { buildHumanizationPrompt, postProcessHumanChat } from './dialogueHumanizer';
 import { BASE_COOLDOWN_MS, MAX_HISTORY_FOR_PROMPT } from '../constants/defaults';
@@ -19,6 +19,8 @@ import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from '
 interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   interactionHint?: InteractionEventPayload | null;
   interactionHints?: InteractionEventPayload[] | null;
+  addressedTargetIds?: string[] | null;
+  primaryAddressedTargetId?: string | null;
   socialEventHints?: SocialEventHintEnvelope[] | null;
 }
 
@@ -257,6 +259,8 @@ function buildCompletedMessage(params: {
     emotion: params.emotion,
     interactionHint: interactionHints[0] || null,
     interactionHints,
+    addressedTargetIds: params.parsedEnvelope?.addressedTargets?.targetIds || null,
+    primaryAddressedTargetId: params.parsedEnvelope?.addressedTargets?.primaryTargetId || params.parsedEnvelope?.addressedTargets?.targetIds?.[0] || null,
     socialEventHints: params.parsedEnvelope?.socialEventHints || null,
   };
 }
@@ -290,7 +294,8 @@ export const runOneRound = async (
   generationContext?: {
     promptContext?: SessionGenerationPromptContext | null;
     buildPromptContext?: (speaker: AICharacter) => SessionGenerationPromptContext | null | undefined;
-  }
+  },
+  cooldownMap?: Record<string, number>
 ): Promise<void> => {
   const chatMembers = characters.filter((c) => chat.memberIds.includes(c.id));
   if (chatMembers.length === 0) {
@@ -298,14 +303,72 @@ export const runOneRound = async (
     return;
   }
 
-  const lastSpeakTimestamps: Record<string, number> = {};
+  const messageSpeakTimestamps: Record<string, number> = {};
   for (const msg of messages) {
-    if (msg.type === 'ai' && !msg.isDeleted) lastSpeakTimestamps[msg.senderId] = msg.timestamp;
+    if (msg.type === 'ai' && !msg.isDeleted) messageSpeakTimestamps[msg.senderId] = msg.timestamp;
   }
+  const effectiveCooldownMap = {
+    ...messageSpeakTimestamps,
+    ...(cooldownMap || {}),
+  };
 
   const activeMessages = messages.filter((m) => !m.isDeleted);
-  const candidates = calculateWeights(chatMembers, activeMessages, lastSpeakTimestamps, chat.speed, BASE_COOLDOWN_MS);
-  const speakerSelection = getSpeakerSelectionResult(chatMembers, lastSpeakTimestamps, chat.speed, BASE_COOLDOWN_MS, candidates);
+  const pendingReplyContext = chat.type === 'group' ? resolvePendingReplyContext(chatMembers, activeMessages) : null;
+  const candidates = calculateWeights(chatMembers, activeMessages, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, pendingReplyContext);
+  const speakerSelection = getSpeakerSelectionResult(chatMembers, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, candidates);
+  if (chat.type === 'group' && !speakerSelection.speakerId) {
+    console.info('[group-loop:idle]', {
+      chatId: chat.id,
+      mode: chat.mode,
+      reason: speakerSelection.reason,
+      pendingReplyContext,
+    });
+  }
+  if (!speakerSelection.speakerId) {
+    console.info('[group-loop:idle]', {
+      chatId: chat.id,
+      mode: chat.mode,
+      reason: speakerSelection.reason,
+      pendingReplyContext,
+      cooldownMap: effectiveCooldownMap,
+      recentAiTail: activeMessages.filter((message) => message.type === 'ai' && !message.isDeleted).slice(-5).map((message) => ({
+        id: message.id,
+        senderId: message.senderId,
+        senderName: message.senderName,
+        timestamp: message.timestamp,
+        content: message.content.slice(0, 80),
+      })),
+    });
+  }
+  if ((globalThis as { __AICHATGROUP_DEBUG_SCHEDULER__?: boolean }).__AICHATGROUP_DEBUG_SCHEDULER__) {
+    const selectionDebug = {
+      chatId: chat.id,
+      type: chat.type,
+      mode: chat.mode,
+      activeMessages: activeMessages.slice(-8).map((message) => ({
+        id: message.id,
+        senderId: message.senderId,
+        senderName: message.senderName,
+        type: message.type,
+        timestamp: message.timestamp,
+        content: message.content.slice(0, 80),
+      })),
+      messageSpeakTimestamps,
+      effectiveCooldownMap,
+      candidates: candidates
+        .map((candidate) => ({
+          ...candidate,
+          speakerName: chatMembers.find((member) => member.id === candidate.characterId)?.name || candidate.characterId,
+        }))
+        .sort((a, b) => b.weight - a.weight),
+      pickedSpeakerId: speakerSelection.speakerId,
+      pickedSpeakerName: chatMembers.find((member) => member.id === speakerSelection.speakerId)?.name || null,
+      idleReason: speakerSelection.reason,
+      pendingReplyContext,
+    };
+    console.log('[group-loop:selection]', selectionDebug);
+    console.log('[group-loop:selection:json]', JSON.stringify(selectionDebug));
+  }
   if (!speakerSelection.speakerId) {
     if (speakerSelection.reason) callbacks.onIdle?.(speakerSelection.reason);
     return;
@@ -317,9 +380,24 @@ export const runOneRound = async (
 
   const attemptSpeaker = async (activeSpeaker: AICharacter) => {
     const emotion = getEmotion(activeSpeaker.id);
-    const recentTargetId = activeMessages.filter((m) => m.type === 'ai' && !m.isDeleted).at(-1)?.senderId;
+    const fallbackRecentTargetId = activeMessages.filter((m) => m.type === 'ai' && !m.isDeleted).at(-1)?.senderId;
+    const recentTargetId = pendingReplyContext?.targetIds.includes(activeSpeaker.id)
+      ? pendingReplyContext.sourceSpeakerId || fallbackRecentTargetId
+      : fallbackRecentTargetId;
     const recentText = activeMessages.at(-1)?.content || '';
     const intent = deriveSpeakIntentFromContext(activeSpeaker, recentTargetId, recentText);
+    if (pendingReplyContext?.targetIds.includes(activeSpeaker.id) && pendingReplyContext.sourceSpeakerId) {
+      intent.target = pendingReplyContext.sourceSpeakerId;
+      if (intent.stance === 'deflect') {
+        intent.stance = 'support';
+      }
+      if (intent.delivery === 'group_redirect') {
+        intent.delivery = 'short_reply';
+      }
+      if (intent.messageShape === 'fragment') {
+        intent.messageShape = 'single_sentence';
+      }
+    }
     const characterMap = new Map(chatMembers.map((c) => [c.id, c]));
     const enginePromptContext = generationContext?.buildPromptContext?.(activeSpeaker) || generationContext?.promptContext;
     const promptPrefix = enginePromptContext?.promptPrefix ? `${enginePromptContext.promptPrefix.trim()}\n\n` : '';
@@ -327,7 +405,10 @@ export const runOneRound = async (
     const additionalConstraints = enginePromptContext?.additionalConstraints?.length
       ? `\n- ${enginePromptContext.additionalConstraints.join('\n- ')}`
       : '';
-    const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: activeSpeaker, chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(activeSpeaker, intent, activeMessages)}
+    const pendingReplyPrompt = pendingReplyContext?.targetIds.includes(activeSpeaker.id) && pendingReplyContext.sourceSpeakerId
+      ? `\nPending reply expectation:\n- You were explicitly addressed by ${characterMap.get(pendingReplyContext.sourceSpeakerId)?.name || pendingReplyContext.sourceSpeakerId}.\n- Reply to that character first instead of pivoting to another member.\n- Acknowledge their question or emotion before expanding to the room.`
+      : '';
+    const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: activeSpeaker, chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(activeSpeaker, intent, activeMessages)}${pendingReplyPrompt}
 
 Current speaking intent:
 - ${describeIntentForPrompt(intent)}

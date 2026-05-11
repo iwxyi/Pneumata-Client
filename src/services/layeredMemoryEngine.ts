@@ -98,6 +98,7 @@ function buildMemoryCandidatesFromStructuredEvents(chat: GroupChat, events: Runt
         subjectIds: normalizeSubjectIds([payload.actorId, payload.targetId]),
         text: buildRelationshipMemoryText(payload.actorId, payload.targetId, payload.kind, event.summary),
         sourceEventIds: [event.id],
+        sourceTag: event.kind,
         scoreBreakdown: { stability: 0.65, recurrence: 0.55, impact: 0.78, specificity: 0.75, durability: 0.65 },
       }];
     }
@@ -116,6 +117,7 @@ function buildMemoryCandidatesFromStructuredEvents(chat: GroupChat, events: Runt
         subjectIds: normalizeSubjectIds([payload.actorId, payload.targetId]),
         text: buildRelationshipMemoryText(payload.actorId, payload.targetId, payload.reason, event.summary),
         sourceEventIds: [event.id],
+        sourceTag: event.kind,
         scoreBreakdown: { stability: 0.72, recurrence: 0.58, impact: 0.82, specificity: 0.76, durability: 0.68 },
       }];
     }
@@ -130,6 +132,7 @@ function buildMemoryCandidatesFromStructuredEvents(chat: GroupChat, events: Runt
         subjectIds: normalizeSubjectIds(toParticipantNames(chat, event.actorIds)),
         text: buildRoomStateMemoryText(event.summary),
         sourceEventIds: [event.id],
+        sourceTag: event.kind,
         scoreBreakdown: { stability: 0.55, recurrence: 0.62, impact: 0.72, specificity: 0.74, durability: 0.52 },
       }];
     }
@@ -226,6 +229,7 @@ function buildMemoryCandidatesFromRuntimeEvents(chat: GroupChat, events: Runtime
         subjectIds: event.pair || [],
         text: `${event.title}：${event.summary}`.slice(0, 128),
         sourceEventIds: filterLegacyEventIds([event.eventType, String(event.createdAt || '')]),
+        sourceTag: event.eventType,
         scoreBreakdown: { stability: 0.65, recurrence: 0.55, impact: 0.8, specificity: 0.7, durability: 0.65 },
       }];
     }
@@ -239,6 +243,7 @@ function buildMemoryCandidatesFromRuntimeEvents(chat: GroupChat, events: Runtime
         subjectIds: event.pair || [],
         text: `${event.title}：${event.summary}`.slice(0, 128),
         sourceEventIds: filterLegacyEventIds([event.eventType, String(event.createdAt || '')]),
+        sourceTag: event.eventType,
         scoreBreakdown: { stability: 0.6, recurrence: 0.45, impact: 0.75, specificity: 0.7, durability: 0.6 },
       }];
     }
@@ -335,7 +340,7 @@ export function summarizeLayeredMemories(items: MemoryItem[]) {
   return items.slice(-3).map((item) => item.text).join(' / ');
 }
 
-export function getMemoryContext(items: MemoryItem[], speakerId: string, targetId: string | null | undefined, conversationId: string) {
+export function getMemoryContext(items: MemoryItem[], speakerId: string, targetId: string | null | undefined, conversationId: string, preferredSourceTags?: string[], allowedSourceTags?: string[], blockedSourceTags?: string[], boosts?: { relationshipBoost?: boolean; selfMemoryBoost?: boolean; conversationBoost?: boolean }) {
   return retrieveRelevantMemories(items, {
     speakerId,
     targetId,
@@ -343,5 +348,11 @@ export function getMemoryContext(items: MemoryItem[], speakerId: string, targetI
     maxItems: 6,
     preferredLayers: ['working', 'episodic', 'long_term'],
     preferredScopes: targetId ? ['relationship', 'conversation', 'thread', 'character_self', 'system_runtime'] : ['conversation', 'relationship', 'character_self', 'thread', 'system_runtime'],
+    preferredSourceTags,
+    allowedSourceTags,
+    blockedSourceTags,
+    relationshipBoost: boosts?.relationshipBoost,
+    selfMemoryBoost: boosts?.selfMemoryBoost,
+    conversationBoost: boosts?.conversationBoost,
   });
 }

@@ -7,6 +7,7 @@ type MaybeTypedConfig = APIConfig & Partial<Pick<AIModelProfile, 'type'>>;
 type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
 type GenerateResponseOptions = {
   responseFormat?: 'text' | 'json';
+  maxTokens?: number;
 };
 
 export interface AvailableModelInfo {
@@ -226,6 +227,7 @@ async function generateAnthropicResponse(
   systemPrompt: string,
   messages: ChatMessage[],
   onChunk?: (chunk: string) => void,
+  options: GenerateResponseOptions = {},
 ) {
   const payload = splitSystemMessages(messages, systemPrompt);
   const endpoint = buildAnthropicUrl(config.baseUrl);
@@ -246,7 +248,7 @@ async function generateAnthropicResponse(
           role: message.role,
           content: [{ type: 'text', text: message.content }],
         })),
-        max_tokens: 500,
+        max_tokens: options.maxTokens ?? 500,
         temperature: 0.8,
         stream: true,
       }),
@@ -276,7 +278,7 @@ async function generateAnthropicResponse(
         role: message.role,
         content: [{ type: 'text', text: message.content }],
       })),
-      max_tokens: 500,
+      max_tokens: options.maxTokens ?? 500,
       temperature: 0.8,
     }),
   });
@@ -310,7 +312,7 @@ async function generateGeminiResponse(
     })),
     generationConfig: {
       temperature: 0.8,
-      maxOutputTokens: 500,
+      maxOutputTokens: options.maxTokens ?? 500,
       responseMimeType: options.responseFormat === 'json' ? 'application/json' : undefined,
     },
   };
@@ -363,7 +365,7 @@ async function generateZhipuResponse(
     model: config.model,
     messages: buildOpenAICompatibleMessages(messages, systemPrompt),
     temperature: 0.8,
-    max_tokens: 500,
+    max_tokens: options.maxTokens ?? 500,
     stream: Boolean(onChunk),
     response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
   };
@@ -423,7 +425,7 @@ async function generateQwenResponse(
     },
     parameters: {
       temperature: 0.8,
-      max_tokens: 500,
+      max_tokens: options.maxTokens ?? 500,
       incremental_output: Boolean(onChunk),
       result_format: 'message',
       response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
@@ -493,7 +495,7 @@ async function generateOpenAICompatibleResponse(
       model: config.model,
       messages: buildOpenAICompatibleMessages(messages, systemPrompt),
       stream: true,
-      max_tokens: 500,
+      max_tokens: options.maxTokens ?? 500,
       temperature: 0.8,
     });
 
@@ -509,7 +511,7 @@ async function generateOpenAICompatibleResponse(
   const response = await client.chat.completions.create({
     model: config.model,
     messages: buildOpenAICompatibleMessages(messages, systemPrompt),
-    max_tokens: 500,
+    max_tokens: options.maxTokens ?? 500,
     temperature: 0.8,
     response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
   });
@@ -786,12 +788,13 @@ export const generateResponse = async (
   systemPrompt: string,
   messages: ChatMessage[],
   onChunk?: (chunk: string) => void,
+  options: GenerateResponseOptions = {},
 ): Promise<string> => {
   if (isOpenAICompatibleEndpoint(config)) {
-    return generateOpenAICompatibleResponse(config, systemPrompt, messages, onChunk);
+    return generateOpenAICompatibleResponse(config, systemPrompt, messages, onChunk, options);
   }
   const handler = providerHandlers[config.provider] || generateOpenAICompatibleResponse;
-  return handler(config, systemPrompt, messages, onChunk);
+  return handler(config, systemPrompt, messages, onChunk, options);
 };
 
 export const generateJsonResponse = async (

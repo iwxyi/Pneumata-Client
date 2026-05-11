@@ -23,9 +23,14 @@ interface ChatSidebarPanelProps {
   directMemoryContext?: {
     targetName: string | null;
     targetSummary: string;
+    targetResolutionLabel?: string;
     memoryVisibility: string;
     recentMemories: Array<{ id: string; text: string; layer: string; scope: string }>;
     recentRelationshipChanges: Array<{ type: string; text: string; createdAt: number }>;
+    recentMemoryWrites?: Array<{ id: string; text: string; layer: string; scope: string }>;
+    sourceTagSummary?: string;
+    sourceTagRows?: Array<{ tag: string; count: number; label: string }>;
+    targetResolution?: string;
   } | null;
   onSpeakAs: (charId: string) => void;
   onRemoveMember?: (charId: string) => void;
@@ -66,9 +71,15 @@ function DirectMemoryHint({ chat, members, directMemoryContext }: { chat: GroupC
           <Chip size="small" label={`时间线 ${(character.runtimeTimeline || []).length}`} />
         </Box>
         {directMemoryContext?.memoryVisibility ? <Typography variant="caption" color="text.secondary">{directMemoryContext.memoryVisibility}</Typography> : null}
+        {directMemoryContext?.sourceTagSummary ? <Typography variant="caption" color="text.secondary">来源：{directMemoryContext.sourceTagSummary}</Typography> : null}
         {directMemoryContext?.targetSummary ? <Typography variant="caption" color="text.secondary">{directMemoryContext.targetSummary}</Typography> : null}
+        {directMemoryContext?.targetResolutionLabel ? <Typography variant="caption" color="text.secondary">判断方式：{directMemoryContext.targetResolutionLabel}</Typography> : null}
+        {directMemoryContext?.targetResolution ? <Typography variant="caption" color="text.secondary">目标识别：{directMemoryContext.targetResolution}</Typography> : null}
         {directMemoryContext?.recentRelationshipChanges?.length ? (
           <Typography variant="caption" color="text.secondary">最近关系变化：{directMemoryContext.recentRelationshipChanges.slice(-2).map((item) => item.text).join(' / ')}</Typography>
+        ) : null}
+        {directMemoryContext?.recentMemoryWrites?.length ? (
+          <Typography variant="caption" color="text.secondary">最近记忆写入：{directMemoryContext.recentMemoryWrites.slice(0, 2).map((item) => item.text).join(' / ')}</Typography>
         ) : null}
       </Stack>
     </Box>

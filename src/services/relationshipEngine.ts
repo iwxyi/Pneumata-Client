@@ -16,8 +16,12 @@ export function getRelationshipBetween(character: AICharacter, targetCharacterId
 export function getRelationshipWeight(character: AICharacter, targetCharacterId: string) {
   const relation = getRelationshipBetween(character, targetCharacterId);
   if (!relation) return 0;
-  const positive = relation.warmth * 0.32 + relation.competence * 0.2 + relation.trust * 0.28;
-  const negative = relation.threat * 0.38;
+  const warmth = Number.isFinite(relation.warmth) ? relation.warmth : 0;
+  const competence = Number.isFinite(relation.competence) ? relation.competence : 0;
+  const trust = Number.isFinite(relation.trust) ? relation.trust : 0;
+  const threat = Number.isFinite(relation.threat) ? relation.threat : 0;
+  const positive = warmth * 0.32 + competence * 0.2 + trust * 0.28;
+  const negative = threat * 0.38;
   return (positive - negative) / 100;
 }
 

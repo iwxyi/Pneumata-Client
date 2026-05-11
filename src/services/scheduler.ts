@@ -21,14 +21,15 @@ function getEmotionalMomentum(character: AICharacter) {
 function getEmotionalReplyBias(character: AICharacter, lastSpeakerId?: string) {
   if (!lastSpeakerId) return 0;
   const relationWeight = getRelationshipWeight(character, lastSpeakerId);
+  const safeRelationWeight = Number.isFinite(relationWeight) ? relationWeight : 0;
   const emotional = character.emotionalState;
-  if (!emotional) return relationWeight > 0 ? relationWeight * 0.08 : Math.abs(relationWeight) * 0.1;
+  if (!emotional) return safeRelationWeight > 0 ? safeRelationWeight * 0.08 : Math.abs(safeRelationWeight) * 0.1;
 
-  const irritationBias = emotional.irritation > 55 ? Math.max(0, -relationWeight) * 0.14 : 0;
-  const affectionBias = emotional.affection > 45 ? Math.max(0, relationWeight) * 0.12 : 0;
-  const insecurityPenalty = emotional.insecurity > 65 && relationWeight < 0 ? -0.08 : 0;
+  const irritationBias = emotional.irritation > 55 ? Math.max(0, -safeRelationWeight) * 0.14 : 0;
+  const affectionBias = emotional.affection > 45 ? Math.max(0, safeRelationWeight) * 0.12 : 0;
+  const insecurityPenalty = emotional.insecurity > 65 && safeRelationWeight < 0 ? -0.08 : 0;
 
-  return (relationWeight > 0 ? relationWeight * 0.08 : Math.abs(relationWeight) * 0.1) + irritationBias + affectionBias + insecurityPenalty;
+  return (safeRelationWeight > 0 ? safeRelationWeight * 0.08 : Math.abs(safeRelationWeight) * 0.1) + irritationBias + affectionBias + insecurityPenalty;
 }
 
 function hasRecentSpeakerStreak(messages: Message[], charId: string) {
@@ -40,7 +41,12 @@ function hasRecentSameTargetLoop(messages: Message[], charId: string, targetId?:
   if (!targetId) return false;
   const recentAi = messages.filter((message) => message.type === 'ai' && !message.isDeleted).slice(-5);
   const sameSpeakerTurns = recentAi.filter((message) => message.senderId === charId);
-  return sameSpeakerTurns.length >= 2 && recentAi.at(-1)?.senderId === targetId;
+  const lastTwoAi = recentAi.slice(-2);
+  return sameSpeakerTurns.length >= 2
+    && recentAi.at(-1)?.senderId === charId
+    && lastTwoAi.length === 2
+    && lastTwoAi[0].senderId === targetId
+    && lastTwoAi[1].senderId === charId;
 }
 
 export interface WeightedCandidate {
@@ -48,12 +54,67 @@ export interface WeightedCandidate {
   weight: number;
 }
 
+export interface PendingReplyContext {
+  targetIds: string[];
+  primaryTargetId: string | null;
+  sourceSpeakerId: string | null;
+  sourceMessageId: string | null;
+  unmetTurns: number;
+  strength: 'soft' | 'strong';
+}
+
+function countUnmetTurns(recentAiMessages: Message[], primaryTargetId: string, sourceMessageId?: string | null) {
+  const sourceIndex = recentAiMessages.findIndex((message) => message.id === sourceMessageId);
+  const tail = sourceIndex >= 0 ? recentAiMessages.slice(sourceIndex + 1) : recentAiMessages.slice(-3);
+  let turns = 0;
+  for (const message of tail) {
+    if (message.senderId === primaryTargetId) break;
+    turns += 1;
+  }
+  return turns;
+}
+
+export function resolvePendingReplyContext(characters: AICharacter[], recentMessages: Message[]): PendingReplyContext | null {
+  const recentAiMessages = recentMessages.filter((message) => message.type === 'ai' && !message.isDeleted);
+  const lastAiMessage = recentAiMessages.at(-1) as (Message & { addressedTargetIds?: string[] | null; primaryAddressedTargetId?: string | null }) | undefined;
+  if (!lastAiMessage) return null;
+  const targetIds = (lastAiMessage.primaryAddressedTargetId ? [lastAiMessage.primaryAddressedTargetId] : [])
+    .concat(lastAiMessage.addressedTargetIds || [])
+    .filter((targetId, index, array): targetId is string => Boolean(targetId) && array.indexOf(targetId) === index)
+    .filter((targetId) => targetId !== lastAiMessage.senderId && characters.some((character) => character.id === targetId));
+  if (!targetIds.length) return null;
+
+  const primaryTargetId = targetIds[0] || null;
+  if (!primaryTargetId) return null;
+
+  const repeatedAddressingCount = recentAiMessages
+    .slice(-3)
+    .filter((message) => {
+      const candidate = message as Message & { addressedTargetIds?: string[] | null; primaryAddressedTargetId?: string | null };
+      const candidateTargets = (candidate.primaryAddressedTargetId ? [candidate.primaryAddressedTargetId] : []).concat(candidate.addressedTargetIds || []);
+      return message.senderId === lastAiMessage.senderId && candidateTargets.includes(primaryTargetId);
+    })
+    .length;
+
+  const unmetTurns = countUnmetTurns(recentAiMessages, primaryTargetId, lastAiMessage.id);
+
+  return {
+    targetIds,
+    primaryTargetId,
+    sourceSpeakerId: lastAiMessage.senderId,
+    sourceMessageId: lastAiMessage.id,
+    unmetTurns,
+    strength: repeatedAddressingCount >= 2 || unmetTurns >= 2 ? 'strong' : 'soft',
+  };
+}
+
 export function calculateWeights(
   characters: AICharacter[],
   recentMessages: Message[],
   cooldownMap: Record<string, number>,
   speed: number,
-  baseCooldownMs: number
+  baseCooldownMs: number,
+  pendingReplyContext?: PendingReplyContext | null
 ): WeightedCandidate[] {
   const recentAiMessages = recentMessages.filter((m) => m.type === 'ai' && !m.isDeleted);
   const lastSpeakerId = recentAiMessages.at(-1)?.senderId;
@@ -86,28 +147,72 @@ export function calculateWeights(
     .map((char) => {
       const runtimeBehavior = applyDriftToBehavior(char);
       const wasLastSpeaker = char.id === lastSpeakerId;
-      let weight = (char.personality.extroversion / 100) * 0.32 + (runtimeBehavior.proactivity / 100) * 0.22 + 0.25;
+      const extroversionWeight = (char.personality.extroversion / 100) * 0.32;
+      const proactivityWeight = (runtimeBehavior.proactivity / 100) * 0.22;
+      let weight = extroversionWeight + proactivityWeight + 0.25;
       const relevance = calculateTopicRelevance(keywords, char.expertise);
+      const emotionalMomentum = getEmotionalMomentum(char);
       weight += relevance * 0.2;
-      weight += getEmotionalMomentum(char);
+      weight += emotionalMomentum;
       const recentCount = recentSpeakCounts[char.id] || 0;
+      const pendingReplyBoost = pendingReplyContext?.targetIds.includes(char.id)
+        ? (char.id === pendingReplyContext.primaryTargetId
+            ? (pendingReplyContext.strength === 'strong' ? 0.85 : 0.45) + Math.min(0.45, pendingReplyContext.unmetTurns * 0.12)
+            : 0.18)
+        : 0;
+      const debugBase = {
+        characterId: char.id,
+        characterName: char.name,
+        personality: char.personality,
+        behavior: char.behavior,
+        runtimeBehavior,
+        expertise: char.expertise,
+        extroversionWeight,
+        proactivityWeight,
+        relevance,
+        emotionalMomentum,
+        recentCount,
+      };
+      if (Number.isNaN(weight)) {
+        console.error('[group-loop:nan-weight:base]', debugBase);
+      }
+
       weight -= recentCount * 0.5;
       if (recentCount === 0) weight += 0.06;
       if (recentCount >= 2) weight -= 0.18;
+      weight += pendingReplyBoost;
       const lastAiMessage = recentAiMessages.at(-1);
       if (lastAiMessage && lastAiMessage.senderId !== char.id) {
-        weight += getEmotionalReplyBias(char, lastAiMessage.senderId);
         const relationWeight = getRelationshipWeight(char, lastAiMessage.senderId);
+        const safeRelationWeight = Number.isFinite(relationWeight) ? relationWeight : 0;
+        const emotionalReplyBias = getEmotionalReplyBias(char, lastAiMessage.senderId);
+        weight += emotionalReplyBias;
         const repliedRecentlyToSameSpeaker = recentAiMessages.slice(-4, -1).some((message) => message.senderId === char.id) && recentAiMessages.slice(-4, -1).some((message) => message.senderId === lastAiMessage.senderId);
         if (repliedRecentlyToSameSpeaker) weight += 0.04;
         const dramaBoost = Boolean((globalThis as { __MIRAGETEA_DRAMA_BOOST__?: boolean }).__MIRAGETEA_DRAMA_BOOST__);
-        if (Math.abs(relationWeight) >= (dramaBoost ? 0.12 : 0.2)) {
-          weight += relationWeight > 0 ? 0.12 : (dramaBoost ? 0.24 : 0.16);
+        if (Math.abs(safeRelationWeight) >= (dramaBoost ? 0.12 : 0.2)) {
+          weight += safeRelationWeight > 0 ? 0.12 : (dramaBoost ? 0.24 : 0.16);
         }
         const directCue = lastAiMessage.content.includes(char.name) || /你|你这|不是吧|等等|可问题是|那你|你咋|你是不是|你先别/.test(lastAiMessage.content);
         if (directCue) weight += 0.18;
         if (lastAiMessage.content.length <= 18) weight += 0.06;
         if (lastAiMessage.content.length >= 90) weight -= 0.12;
+        if (Number.isNaN(weight)) {
+          console.error('[group-loop:nan-weight:reply]', {
+            ...debugBase,
+            emotionalReplyBias,
+            relationWeight: safeRelationWeight,
+            lastAiMessage: {
+              senderId: lastAiMessage.senderId,
+              senderName: lastAiMessage.senderName,
+              timestamp: lastAiMessage.timestamp,
+              content: lastAiMessage.content,
+            },
+            repliedRecentlyToSameSpeaker,
+            dramaBoost,
+            directCue,
+          });
+        }
       }
       if (runtimeBehavior.proactivity >= 65 && recentAiMessages.length > 0) {
         const latestContentLength = recentAiMessages[recentAiMessages.length - 1]?.content.length || 0;
@@ -124,6 +229,16 @@ export function calculateWeights(
       }
       weight += Math.random() * 0.03;
 
+      if (Number.isNaN(weight)) {
+        console.error('[group-loop:nan-weight:final]', {
+          ...debugBase,
+          finalWeight: weight,
+          pendingReplyContext,
+          lastSpeakerId,
+          consecutiveByLastSpeaker,
+          cooldownLastSpeak: cooldownMap[char.id] || null,
+        });
+      }
       return {
         characterId: char.id,
         weight: Math.max(0.05, weight),

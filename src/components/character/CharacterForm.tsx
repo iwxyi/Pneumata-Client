@@ -26,10 +26,10 @@ import {
   Autocomplete,
   Collapse,
   Tooltip,
+  Alert,
 } from '@mui/material';
 import {
   Save as SaveIcon,
-  Delete as DeleteIcon,
   Edit as EditIcon,
   Add as AddIcon,
   AutoAwesome as AutoAwesomeIcon,
@@ -38,7 +38,7 @@ import {
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile } from '../../types/character';
-import { getCharacterGroupList, getCharacterModelProfileId, normalizeCharacterGroup, normalizeCharacterModelProfileIds } from '../../types/character';
+import { getCharacterGroupList, normalizeCharacterGroup, normalizeCharacterModelProfileIds, getDuplicateCharacterNameKeys, getDuplicateCharacterWarningText, hasDuplicateCharacterName } from '../../types/character';
 import type { BubbleShadowLevel, BubbleStyleDefinition, BubbleStyleFormValues } from '../../types/bubbleStyle';
 import { DEFAULT_PERSONALITY, DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION } from '../../types/character';
 import { DEFAULT_BUBBLE_STYLE_FORM } from '../../types/bubbleStyle';
@@ -108,6 +108,7 @@ function formValuesToStyle(form: BubbleStyleFormValues, id: string): BubbleStyle
 interface CharacterFormProps {
   initial?: Partial<AICharacter>;
   existingNames?: string[];
+  saveError?: string | null;
   onSave: (data: {
     name: string;
     avatar: string;
@@ -130,7 +131,7 @@ interface CharacterFormProps {
   onCancel: () => void;
 }
 
-export default function CharacterForm({ initial, existingNames = [], onSave }: CharacterFormProps) {
+export default function CharacterForm({ initial, existingNames = [], saveError = null, onSave }: CharacterFormProps) {
   const { t, i18n } = useTranslation();
   const settings = useSettingsStore();
   const showSpeechStyle = settings.developerMode && settings.developerUI.showSpeechStyle;
@@ -168,6 +169,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
   const [modelConfigExpanded, setModelConfigExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const duplicateNameErrorText = i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists';
   const [generatedByAI, setGeneratedByAI] = useState(false);
   const [avatarTaskId, setAvatarTaskId] = useState<string | null>(null);
   const [avatarTaskStatus, setAvatarTaskStatus] = useState<AvatarGenerationStatus | null>(null);
@@ -194,6 +196,9 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
   const selectedBubblePreview = buildBubblePreview(selectedBubbleStyle);
   const bubblePreviewText = useMemo(() => (i18n.language.startsWith('zh') ? '这是角色气泡预览' : 'Bubble style preview'), [i18n.language]);
   const existingGroups = useMemo(() => getCharacterGroupList(characters.filter((character) => !character.isPreset)), [characters]);
+  const duplicateNameKeys = useMemo(() => getDuplicateCharacterNameKeys(characters.filter((character) => !character.isPreset)), [characters]);
+  const hasLegacyDuplicateName = Boolean(initial?.id && initial?.name && hasDuplicateCharacterName({ name: initial.name }, duplicateNameKeys));
+  const duplicateNameWarning = hasLegacyDuplicateName ? getDuplicateCharacterWarningText({ name: initial?.name || '', group: initial?.group || null }, i18n.language) : '';
   const profilesByType = useMemo(() => ({
     text: settings.aiProfiles.filter((profile) => (profile.type || 'text') === 'text'),
     image: settings.aiProfiles.filter((profile) => profile.type === 'image'),
@@ -329,6 +334,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
   };
 
   const isImageAvatar = isImageAvatarValue(avatar);
+  const inlineError = saveError || generateError;
 
   const handleSubmit = () => {
     const normalizedName = name.trim();
@@ -336,7 +342,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
     const isSameAsInitial = initial?.name?.trim().toLowerCase() === normalizedName.toLowerCase();
     const duplicated = !isSameAsInitial && existingNames.some((item) => item.trim().toLowerCase() === normalizedName.toLowerCase());
     if (duplicated) {
-      setGenerateError(i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists');
+      setGenerateError(duplicateNameErrorText);
       return;
     }
     const relationshipNotes = relationshipsText
@@ -686,7 +692,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
   const generateLabel = getGenerateButtonLabel(i18n.language, generating);
   const regenerateBubbleLabel = i18n.language.startsWith('zh') ? 'AI生成' : 'AI generate';
 
-  const helperText = getHelperText(i18n.language, generateError);
+  const helperText = getHelperText(i18n.language, inlineError);
   const generateAriaLabel = getGenerateAriaLabel(i18n.language);
   const avatarGenerateLabel = avatarTaskId
     ? (avatarTaskStatus === 'running'
@@ -698,32 +704,30 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.75, position: 'relative', pb: 10 }}>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr)' }, gap: 1.25, alignItems: 'start' }}>
-        <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
-          <Stack spacing={1} sx={{ flexShrink: 0 }}>
-            <Box onClick={() => setAvatarPickerOpen(true)} sx={{ width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', borderRadius: 3, cursor: 'pointer', border: 1, borderColor: 'divider', bgcolor: 'background.paper', boxShadow: 1, overflow: 'hidden', transition: 'transform 160ms ease, box-shadow 160ms ease', '&:hover': { transform: 'translateY(-1px)', boxShadow: 2 } }}>
-              {isImageAvatar ? <Box component="img" src={avatar} alt={name || 'avatar'} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatar}
-            </Box>
-          </Stack>
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
-            <TextField label={t('character.name')} placeholder={t('character.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} helperText={helperText} error={Boolean(generateError)} required fullWidth />
-            <Autocomplete
-              freeSolo
-              options={existingGroups}
-              value={normalizeCharacterGroup(group) || group || ''}
-              onChange={(_, value) => setGroup(typeof value === 'string' ? value : '')}
-              onInputChange={(_, value) => setGroup(value)}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label={i18n.language.startsWith('zh') ? '分组' : 'Group'}
-                  placeholder={i18n.language.startsWith('zh') ? '例如：喜羊羊与灰太狼' : 'e.g. Pleasant Goat and Big Big Wolf'}
-                  fullWidth
-                />
-              )}
-            />
-            <Button variant="outlined" onClick={handleGenerate} aria-label={generateAriaLabel} sx={{ minWidth: 88, height: 56, whiteSpace: 'nowrap' }} disabled={!name.trim() || generating}>{generateLabel}</Button>
+      <Box sx={{ display: 'grid', gap: 1 }}>
+        {duplicateNameWarning ? <Alert severity="warning">{duplicateNameWarning}</Alert> : null}
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '56px minmax(0, 1fr)', sm: '56px minmax(150px, 1.2fr) minmax(130px, 0.8fr) auto' }, gap: 1, alignItems: 'flex-start' }}>
+          <Box onClick={() => setAvatarPickerOpen(true)} sx={{ width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', borderRadius: 3, cursor: 'pointer', border: 1, borderColor: 'divider', bgcolor: 'background.paper', boxShadow: 1, overflow: 'hidden', transition: 'transform 160ms ease, box-shadow 160ms ease', '&:hover': { transform: 'translateY(-1px)', boxShadow: 2 } }}>
+            {isImageAvatar ? <Box component="img" src={avatar} alt={name || 'avatar'} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatar}
           </Box>
+          <TextField label={t('character.name')} placeholder={t('character.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} helperText={helperText} error={Boolean(inlineError)} required fullWidth />
+          <Autocomplete
+            freeSolo
+            options={existingGroups}
+            value={normalizeCharacterGroup(group) || group || ''}
+            onChange={(_, value) => setGroup(typeof value === 'string' ? value : '')}
+            onInputChange={(_, value) => setGroup(value)}
+            sx={{ gridColumn: { xs: '1 / 3', sm: 'auto' } }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label={i18n.language.startsWith('zh') ? '分组' : 'Group'}
+                placeholder={i18n.language.startsWith('zh') ? '例如：喜羊羊与灰太狼' : 'e.g. Pleasant Goat and Big Big Wolf'}
+                fullWidth
+              />
+            )}
+          />
+          <Button variant="outlined" onClick={handleGenerate} aria-label={generateAriaLabel} sx={{ gridColumn: { xs: '1 / 3', sm: 'auto' }, minWidth: 88, height: 56, whiteSpace: 'nowrap' }} disabled={!name.trim() || generating}>{generateLabel}</Button>
         </Box>
       </Box>
 
@@ -850,7 +854,7 @@ export default function CharacterForm({ initial, existingNames = [], onSave }: C
                 </Box>
               </Box>
             </Box>
-            {generateError ? <Typography variant="caption" color="error">{generateError}</Typography> : null}
+            {inlineError ? <Typography variant="caption" color="error">{inlineError}</Typography> : null}
             <Tabs value={bubbleTab} onChange={(_, value) => setBubbleTab(value)} variant="scrollable" allowScrollButtonsMobile>
               <Tab label={bubblePickerActionLabel.all} />
               <Tab label={bubblePickerActionLabel.rounded} />

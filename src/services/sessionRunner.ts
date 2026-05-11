@@ -135,6 +135,7 @@ export async function runSessionLoop(params: {
   appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number]) => Promise<void>;
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
   recordSpeak: (characterId: string) => void;
+  getCooldownMap?: () => Record<string, number>;
 }) {
   while (shouldContinueLoop(params)) {
     if (!isActiveLoop(params)) return;
@@ -234,7 +235,8 @@ export async function runSessionLoop(params: {
                 speaker,
               }) || null,
             }
-          : undefined
+          : undefined,
+        params.getCooldownMap?.()
       );
 
       if (params.isRunning() && !params.isPaused() && shouldWaitAfterSessionTick()) {

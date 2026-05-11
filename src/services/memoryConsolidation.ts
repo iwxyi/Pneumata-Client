@@ -45,6 +45,7 @@ export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: 
         reinforcementCount,
         layer: nextLayerForCandidate(candidate, reinforcementCount),
         sourceEventIds: Array.from(new Set([...item.sourceEventIds, ...candidate.sourceEventIds])).slice(-8),
+        sourceTag: candidate.sourceTag || item.sourceTag || null,
         updatedAt: now,
         archivedAt: null,
       };
@@ -65,6 +66,7 @@ export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: 
       recency: 1,
       reinforcementCount: 1,
       sourceEventIds: candidate.sourceEventIds,
+      sourceTag: candidate.sourceTag || null,
       createdAt: now,
       updatedAt: now,
       lastActivatedAt: null,

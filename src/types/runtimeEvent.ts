@@ -35,11 +35,27 @@ export interface InteractionEventPayload {
 
 export interface InteractionHintEnvelope {
   targetId?: string | null;
+  targetIds?: string[] | null;
   kind?: InteractionKind;
   tone?: InteractionEventPayload['tone'];
   intensity?: number;
   confidence?: number;
   reason?: string;
+}
+
+export interface AddressedTargetHintEnvelope {
+  targetIds?: string[] | null;
+  primaryTargetId?: string | null;
+  confidence?: number;
+  reason?: string;
+}
+
+export interface AddressedTargetHint {
+  actorId: string;
+  targetIds: string[];
+  primaryTargetId?: string | null;
+  confidence: number;
+  evidenceText: string;
 }
 
 export interface InteractionHintCollection {
@@ -52,14 +68,15 @@ export function isInteractionPayloadMeaningful(payload: Pick<InteractionEventPay
 }
 
 export function normalizeInteractionHintPayload(hint: InteractionHintEnvelope | null | undefined, actorId: string, content: string): InteractionEventPayload | null {
-  if (!hint?.targetId || !hint.kind || hint.kind === 'side_comment') return null;
+  const resolvedTargetId = hint?.targetId || hint?.targetIds?.[0] || null;
+  if (!resolvedTargetId || !hint?.kind || hint.kind === 'side_comment') return null;
   const rawIntensity = Number(hint.intensity || 0);
   const rawConfidence = Number(hint.confidence || 0);
   const intensity = Math.max(1, Math.min(5, rawIntensity > 5 ? Math.round(rawIntensity / 20) : rawIntensity));
   const confidence = Math.max(0, Math.min(1, rawConfidence > 1 ? rawConfidence / 100 : rawConfidence));
   return {
     actorId,
-    targetId: hint.targetId,
+    targetId: resolvedTargetId,
     kind: hint.kind,
     tone: hint.tone || 'cold',
     intensity,

@@ -4,12 +4,51 @@ import { generateCharacterProfile } from '../../services/characterGenerator';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../../types';
 import type { AICharacter } from '../../types/character';
 import type { ChatStyle } from '../../types/chat';
+import type { APIConfig, AIModelProfile } from '../../types/settings';
 import { getPreferredAIProfile } from '../../types/settings';
 import { enqueueAvatarGenerationForCharacters } from '../../services/avatarGeneration';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { chooseRandomBubbleStyleId, createCharacterBubbleStyleId } from '../../utils/bubbleStyle';
 
 const BATCH_GENERATE_GROUP_SIZE = 10;
+const HOT_TOPIC_RECOMMENDED_CHARACTER_GROUP = '自动推荐';
+
+function getErrorCode(error: unknown) {
+  return error && typeof error === 'object' && 'code' in error && typeof (error as { code?: unknown }).code === 'string'
+    ? (error as { code: string }).code
+    : '';
+}
+
+function getErrorStatus(error: unknown) {
+  return error && typeof error === 'object' && 'status' in error && typeof (error as { status?: unknown }).status === 'number'
+    ? (error as { status: number }).status
+    : null;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  if (typeof error === 'string' && error.trim()) return error.trim();
+  return '';
+}
+
+function buildCreateCharacterErrorMessage(error: unknown, isZh: boolean) {
+  const code = getErrorCode(error);
+  const status = getErrorStatus(error);
+  const message = getErrorMessage(error);
+  if (message === 'DUPLICATE_CHARACTER_NAME' || code === 'DUPLICATE_CHARACTER_NAME') {
+    return isZh ? '存在同名角色，已阻止创建' : 'Duplicate character names blocked creation';
+  }
+  if (code === 'DUPLICATE_CHARACTER_NAME_BATCH') {
+    return isZh ? '推荐角色列表中存在重复名字，已阻止创建' : 'Suggested characters contain duplicate names';
+  }
+  const detailParts = [
+    message,
+    code ? `code=${code}` : '',
+    status ? `HTTP ${status}` : '',
+  ].filter(Boolean);
+  const fallback = isZh ? '未知错误' : 'Unknown error';
+  return `${isZh ? '批量创建推荐角色失败' : 'Failed to create suggested characters'}：${detailParts.join(' · ') || fallback}`;
+}
 
 function getSourceTabs(sources: TopicSourceSummary[], isZh: boolean) {
   return (sources.length
@@ -33,8 +72,8 @@ async function runInBatches<T>(items: T[], batchSize: number, worker: (batch: T[
 
 export function useHotTopicDialog(params: {
   language: string;
-  apiConfig: any;
-  aiProfiles: any[];
+  apiConfig: APIConfig;
+  aiProfiles: AIModelProfile[];
   autoGenerateCharacterAvatar?: boolean;
   characters: AICharacter[];
   name: string;
@@ -56,7 +95,6 @@ export function useHotTopicDialog(params: {
   const [loading, setLoading] = useState(false);
   const [adapting, setAdapting] = useState(false);
   const [creatingCharacters, setCreatingCharacters] = useState(false);
-  const [sourceNote, setSourceNote] = useState('');
   const [selectedTopic, setSelectedTopic] = useState<TopicItem | null>(null);
   const [adaptation, setAdaptation] = useState<TopicAdaptationResult | null>(null);
   const [selectedCharacterNames, setSelectedCharacterNames] = useState<string[]>([]);
@@ -130,11 +168,9 @@ export function useHotTopicDialog(params: {
     try {
       const result = await backendApi.getTopics(sourceId);
       setTopics(result.items || []);
-      setSourceNote(result.note || '');
-    } catch (error) {
+    } catch {
       params.onError(isZh ? '热点加载失败' : 'Failed to load topics');
       setTopics([]);
-      setSourceNote('');
     } finally {
       setLoading(false);
     }
@@ -238,7 +274,7 @@ export function useHotTopicDialog(params: {
     return { alreadyExists, created };
   }, [params.characters, createdCharacterNames]);
 
-  const buildCharacterCreatePayload = useCallback(async (name: string, backgroundHint: string | undefined, config: any) => {
+  const buildCharacterCreatePayload = useCallback(async (name: string, backgroundHint: string | undefined, config: APIConfig | AIModelProfile) => {
     const generated = await generateCharacterProfile(config, name, isZh ? 'zh' : 'en');
     return {
       name,
@@ -248,6 +284,7 @@ export function useHotTopicDialog(params: {
       expertise: generated.expertise,
       speakingStyle: generated.speakingStyle,
       background: backgroundHint || generated.background,
+      group: HOT_TOPIC_RECOMMENDED_CHARACTER_GROUP,
       speechProfile: generated.speechProfile,
       bubbleStyle: { ...generated.bubbleStyle, id: createCharacterBubbleStyleId() },
       relationships: [],
@@ -259,11 +296,11 @@ export function useHotTopicDialog(params: {
       modelProfileIds: { text: null, image: null, audio: null, document: null },
       bubbleStyleId: chooseRandomBubbleStyleId({
         allCharacters: params.characters,
-        generatedGroup: params.topic?.trim() || null,
+        generatedGroup: HOT_TOPIC_RECOMMENDED_CHARACTER_GROUP,
         customStyleIds: [],
       }),
     };
-  }, [isZh]);
+  }, [isZh, params.characters]);
 
   const createQueue = useCallback(() => {
     const recommended = adaptation?.recommendedCharacters || [];
@@ -283,7 +320,11 @@ export function useHotTopicDialog(params: {
   const handleCreateCharacters = useCallback(async () => {
     if (creatingCharacters || creationInFlightRef.current) return;
     const activeConfig = getPreferredAIProfile(params.aiProfiles, 'text') || params.apiConfig;
-    if (!activeConfig?.apiKey || !activeConfig?.model || !adaptation?.recommendedCharacters?.length) return;
+    if (!activeConfig?.apiKey || !activeConfig?.model) {
+      params.onError(isZh ? '请先配置AI模型后再创建推荐角色' : 'Configure AI model before creating suggested characters');
+      return;
+    }
+    if (!adaptation?.recommendedCharacters?.length) return;
     const queue = createQueue();
     if (!queue.length) {
       params.setSnackbar({ open: true, message: isZh ? '没有需要创建的新角色' : 'No new characters needed', severity: 'success' });
@@ -295,7 +336,14 @@ export function useHotTopicDialog(params: {
     try {
       const createdIds: string[] = [];
       await runInBatches(queue, BATCH_GENERATE_GROUP_SIZE, async (batch) => {
-        const payloads = await Promise.all(batch.map((candidate) => buildCharacterCreatePayload(candidate.name, candidate.description, activeConfig)));
+        const payloads = await Promise.all(batch.map(async (candidate) => {
+          try {
+            return await buildCharacterCreatePayload(candidate.name, candidate.description, activeConfig);
+          } catch (error) {
+            const reason = getErrorMessage(error) || (isZh ? 'AI 生成角色档案失败' : 'AI profile generation failed');
+            throw new Error(`${isZh ? '生成角色失败' : 'Failed to generate character'}「${candidate.name}」：${reason}`);
+          }
+        }));
         const createdCharacters = await params.addCharacters(payloads);
         if (!createdCharacters.length) return;
         createdIds.push(...createdCharacters.map((character) => character.id));
@@ -330,8 +378,9 @@ export function useHotTopicDialog(params: {
       if (createdIds.length) {
         params.setSelectedMembers((prev) => Array.from(new Set([...prev, ...createdIds])).slice(0, params.maxMembers));
       }
-    } catch {
-      params.onError(isZh ? '批量创建推荐角色失败' : 'Failed to create suggested characters');
+    } catch (error) {
+      console.error('[hot-topic:create-characters:error]', { queue: queue.map((candidate) => candidate.name), error });
+      params.onError(buildCreateCharacterErrorMessage(error, isZh));
     } finally {
       creationInFlightRef.current = false;
       setCreatingCharacters(false);

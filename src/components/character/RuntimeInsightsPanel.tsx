@@ -141,8 +141,16 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
   const personalityDrift = character.personalityDrift || {};
   const layeredMemories = useMemo(() => {
     const items = buildCharacterLayeredMemories(character);
-    return isDeveloperView ? items : items.filter((item) => item.layer !== 'working').slice(0, 4);
+    return isDeveloperView ? items : items.filter((item) => item.layer !== 'working').slice(0, 12);
   }, [character, isDeveloperView]);
+  const layeredMemoryGroups = useMemo(() => ({
+    longTerm: layeredMemories.filter((item) => item.layer === 'long_term'),
+    episodic: layeredMemories.filter((item) => item.layer === 'episodic'),
+    working: layeredMemories.filter((item) => item.layer === 'working'),
+    relationship: layeredMemories.filter((item) => item.scope === 'relationship'),
+    self: layeredMemories.filter((item) => item.scope === 'character_self'),
+    conversation: layeredMemories.filter((item) => item.scope === 'conversation' || item.scope === 'thread'),
+  }), [layeredMemories]);
   const relationshipMemories = useMemo(() => {
     const items = buildRelationshipMemoryItems(character);
     return isDeveloperView ? items : items.slice(0, 4);
@@ -170,6 +178,25 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
       <SurfaceCard>
         <SectionHeader title={isDeveloperView ? '角色记忆' : '关键记忆'} dense />
         {layeredMemories.length ? <Stack spacing={1}>{layeredMemories.map((item) => <MemoryCard key={item.id} item={item} developerMode={isDeveloperView} />)}</Stack> : <Typography variant="caption" color="text.secondary">{isDeveloperView ? '暂无结构化记忆' : '暂无明显沉淀'}</Typography>}
+      </SurfaceCard>
+
+      <SurfaceCard>
+        <SectionHeader title="记忆分层检查" dense />
+        <Stack spacing={1}>
+          {([
+            ['长期记忆', layeredMemoryGroups.longTerm],
+            ['情节记忆', layeredMemoryGroups.episodic],
+            ['即时记忆', layeredMemoryGroups.working],
+            ['关系记忆', layeredMemoryGroups.relationship],
+            ['角色自我', layeredMemoryGroups.self],
+            ['会话/线程', layeredMemoryGroups.conversation],
+          ] as Array<[string, MemoryItem[]]>).map(([label, items]) => (
+            <Box key={String(label)} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+              <Typography variant="caption" color="text.secondary">{label} · {(items as MemoryItem[]).length} 条</Typography>
+              <Typography variant="body2">{((items as MemoryItem[]).length ? (items as MemoryItem[]).slice(0, 3).map((item) => item.text).join(' / ') : '暂无')}</Typography>
+            </Box>
+          ))}
+        </Stack>
       </SurfaceCard>
 
       {isDeveloperView ? (

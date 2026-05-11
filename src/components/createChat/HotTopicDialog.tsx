@@ -69,7 +69,7 @@ export default function HotTopicDialog({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-        <Typography variant="h6">{isZh ? '热点灵感' : 'Topic inspiration'}</Typography>
+        <Box component="span" sx={{ font: 'inherit' }}>{isZh ? '热点灵感' : 'Topic inspiration'}</Box>
         <Box sx={{ minWidth: 120, display: 'flex', justifyContent: 'flex-end' }}>
           {loadingText ? <Typography variant="body2" color="text.secondary">{loadingText}</Typography> : null}
         </Box>

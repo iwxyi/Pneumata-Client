@@ -35,6 +35,18 @@ export interface TopicAdaptationResult {
   recommendedCharacters?: TopicAdaptationCharacterSuggestion[];
 }
 
+export class ApiError extends Error {
+  code?: string;
+  status?: number;
+
+  constructor(message: string, options?: { code?: string; status?: number }) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = options?.code;
+    this.status = options?.status;
+  }
+}
+
 class ApiClient {
   private getToken(): string | null {
     return localStorage.getItem('miragetea-token');
@@ -72,8 +84,8 @@ class ApiClient {
     }
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: '请求失败' }));
-      throw new Error(error.error || `HTTP ${response.status}`);
+      const error = await response.json().catch(() => ({ error: '请求失败', code: 'REQUEST_FAILED' }));
+      throw new ApiError(error.error || `HTTP ${response.status}`, { code: error.code, status: response.status });
     }
 
     return response.json();

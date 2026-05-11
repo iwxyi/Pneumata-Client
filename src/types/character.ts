@@ -167,6 +167,50 @@ export function isPresetCharacterSelectable(character: AICharacter) {
   return !character.isPreset;
 }
 
+export function normalizeCharacterName(value?: string | null) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+export function getDuplicateCharacterNameKeys(characters: AICharacter[]) {
+  const counts = new Map<string, number>();
+  characters
+    .filter((character) => character.deletedAt == null)
+    .forEach((character) => {
+      const key = normalizeCharacterName(character.name);
+      if (!key) return;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
+}
+
+export function hasDuplicateCharacterName(character: Pick<AICharacter, 'name'>, duplicateKeys: Set<string>) {
+  return duplicateKeys.has(normalizeCharacterName(character.name));
+}
+
+export function getDuplicateCharacters(characters: AICharacter[]) {
+  const duplicateKeys = getDuplicateCharacterNameKeys(characters);
+  return characters.filter((character) => hasDuplicateCharacterName(character, duplicateKeys));
+}
+
+export function getDuplicateCharacterCount(characters: AICharacter[]) {
+  return getDuplicateCharacters(characters).length;
+}
+
+export function getDuplicateCharacterWarningText(character: Pick<AICharacter, 'name' | 'group'>, language: string) {
+  const groupLabel = normalizeCharacterGroup(character.group);
+  return language.startsWith('zh')
+    ? `该角色与其他“${character.name}”重名${groupLabel ? `（分组：${groupLabel}）` : ''}，可能导致目标识别歧义。`
+    : `This character shares the name "${character.name}"${groupLabel ? ` (group: ${groupLabel})` : ''}, which may cause target resolution ambiguity.`;
+}
+
+export function getDuplicateCharacterBannerText(characters: AICharacter[], language: string) {
+  const duplicates = getDuplicateCharacters(characters);
+  if (!duplicates.length) return '';
+  return language.startsWith('zh')
+    ? `发现 ${duplicates.length} 个历史重名角色，可能影响单聊目标识别。建议尽快改名。`
+    : `Found ${duplicates.length} legacy characters with duplicate names. Direct target resolution may be ambiguous until they are renamed.`;
+}
+
 export const DEFAULT_PERSONALITY: PersonalityParams = {
   openness: 50,
   extroversion: 50,

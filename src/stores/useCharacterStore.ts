@@ -139,6 +139,44 @@ function sortCharacters(characters: AICharacter[]) {
   return [...characters].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
 }
 
+function normalizeCharacterNameKey(name: string | null | undefined) {
+  return (name || '').trim().toLowerCase();
+}
+
+function assertUniqueCharacterNames(characters: AICharacter[], names: string[], excludedIds: string[] = []) {
+  const excluded = new Set(excludedIds);
+  const existing = new Set(
+    characters
+      .filter((character) => !excluded.has(character.id) && character.deletedAt == null)
+      .map((character) => normalizeCharacterNameKey(character.name))
+      .filter(Boolean)
+  );
+  const seen = new Set<string>();
+  for (const name of names) {
+    const key = normalizeCharacterNameKey(name);
+    if (!key) continue;
+    if (existing.has(key) || seen.has(key)) {
+      throw new Error('DUPLICATE_CHARACTER_NAME');
+    }
+    seen.add(key);
+  }
+}
+
+function assertUniqueCharacterNameUpdate(characters: AICharacter[], id: string, updates: Partial<AICharacter>) {
+  if (typeof updates.name !== 'string') return;
+  const nextName = normalizeCharacterNameKey(updates.name);
+  if (!nextName) return;
+  assertUniqueCharacterNames(characters, [updates.name], [id]);
+}
+
+function assertUniqueCharacterNameBatch(characters: AICharacter[], charsData: Array<Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>>) {
+  assertUniqueCharacterNames(characters, charsData.map((item) => item.name));
+}
+
+function isDuplicateCharacterNameError(error: unknown) {
+  return error instanceof Error && (error.message === 'DUPLICATE_CHARACTER_NAME' || ('code' in error && (error as { code?: string }).code === 'DUPLICATE_CHARACTER_NAME'));
+}
+
 function mergeCharacters(localCharacters: AICharacter[], remoteCharacters: AICharacter[], pendingOperations: PendingCharacterOperation[] = []) {
   const merged = new Map<string, AICharacter>();
   for (const character of normalizeCharacters(localCharacters)) merged.set(character.id, character);
@@ -484,6 +522,7 @@ export const useCharacterStore = create<CharacterStore>()(
 
         addCharacters: async (charsData) => {
           if (!charsData.length) return [];
+          assertUniqueCharacterNameBatch(get().characters, charsData);
           if (shouldSkipCloudSync()) {
             const createdCharacters: AICharacter[] = [];
             set((state) => {
@@ -506,6 +545,7 @@ export const useCharacterStore = create<CharacterStore>()(
         },
 
         updateCharacter: async (id, updates) => {
+          assertUniqueCharacterNameUpdate(get().characters, id, updates);
           if (shouldSkipCloudSync()) {
             set((state) => ({ characters: updateCharacterLocally(state, id, updates) }));
             return;
@@ -637,6 +677,7 @@ export const useCharacterStore = create<CharacterStore>()(
         getCustom: () => get().characters.filter((c) => !c.isPreset),
 
         importCharacters: async (chars) => {
+          assertUniqueCharacterNameBatch(get().characters, chars);
           if (shouldSkipCloudSync()) {
             set((state) => ({ characters: importCharactersBatchLocally(state, chars) }));
             return;

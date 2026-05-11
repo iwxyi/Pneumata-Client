@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
-import { Box, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Typography } from '@mui/material';
-import { Add as AddIcon, MoreVert as MoreIcon, ClearAll as ClearAllIcon, DeleteSweep as DeleteSweepIcon, DriveFileMove as DriveFileMoveIcon, AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
+import { Box, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Typography, Divider } from '@mui/material';
+import { Add as AddIcon, MoreVert as MoreIcon, ClearAll as ClearAllIcon, DeleteSweep as DeleteSweepIcon, Sort as SortIcon } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useCharacterStore } from '../stores/useCharacterStore';
@@ -9,13 +9,46 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import CharacterCard from '../components/character/CharacterCard';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmptyState from '../components/common/EmptyState';
-import { canDeleteCharacterGroup, getCharacterGroupList, getCharactersInGroup, isPresetCharacterSelectable, normalizeCharacterGroup } from '../types/character';
+import { canDeleteCharacterGroup, getCharacterGroupList, getCharactersInGroup, isPresetCharacterSelectable, normalizeCharacterGroup, getDuplicateCharacterBannerText, getDuplicateCharacterCount } from '../types/character';
 import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
 import { generateCharacterProfile } from '../services/characterGenerator';
 import { createCharacterBubbleStyleId } from '../utils/bubbleStyle';
 import { getPreferredAIProfile } from '../types/settings';
 import { useChatStore } from '../stores/useChatStore';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
+import type { AICharacter } from '../types/character';
+
+type CharacterSortField = 'name' | 'createdAt';
+type CharacterSortDirection = 'asc' | 'desc';
+
+function compareCharacterByField(a: AICharacter, b: AICharacter, field: CharacterSortField) {
+  if (field === 'createdAt') {
+    return (a.createdAt || 0) - (b.createdAt || 0);
+  }
+  return a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true, sensitivity: 'base' });
+}
+
+function getSortableGroupName(character: AICharacter) {
+  return normalizeCharacterGroup(character.group) || '\uffff';
+}
+
+function sortCharactersForLibrary(
+  characters: AICharacter[],
+  field: CharacterSortField,
+  direction: CharacterSortDirection,
+  groupFirst: boolean,
+) {
+  const directionMultiplier = direction === 'asc' ? 1 : -1;
+  return [...characters].sort((a, b) => {
+    if (groupFirst) {
+      const groupDiff = getSortableGroupName(a).localeCompare(getSortableGroupName(b), 'zh-Hans-CN', { numeric: true, sensitivity: 'base' });
+      if (groupDiff !== 0) return groupDiff;
+    }
+    const fieldDiff = compareCharacterByField(a, b, field);
+    if (fieldDiff !== 0) return fieldDiff * directionMultiplier;
+    return a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true, sensitivity: 'base' });
+  });
+}
 
 export default function CharacterLibraryPage() {
   const { t, i18n } = useTranslation();
@@ -35,8 +68,11 @@ export default function CharacterLibraryPage() {
   const [groupActionTarget, setGroupActionTarget] = useState<string | null>(null);
   const [groupActionDialogOpen, setGroupActionDialogOpen] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [sortMenuAnchorEl, setSortMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [sortField, setSortField] = useState<CharacterSortField>('name');
+  const [sortDirection, setSortDirection] = useState<CharacterSortDirection>('asc');
+  const [sortGroupFirst, setSortGroupFirst] = useState(false);
   const [selectionMenuAnchorEl, setSelectionMenuAnchorEl] = useState<null | HTMLElement>(null);
-  const [charactersBootstrapComplete, setCharactersBootstrapComplete] = useState(false);
   const groupPressTimerRef = useRef<number | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
@@ -45,28 +81,21 @@ export default function CharacterLibraryPage() {
   });
 
   useEffect(() => {
-    let cancelled = false;
-    setCharactersBootstrapComplete(false);
-
     void loadCharacters()
-      .then(() => initializePresets())
-      .finally(() => {
-        if (!cancelled) {
-          setCharactersBootstrapComplete(true);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
+      .then(() => initializePresets());
   }, [initializePresets, loadCharacters]);
 
 
   const presets = characters.filter((c) => c.isPreset);
   const custom = characters.filter((c) => !c.isPreset);
   const customGroups = useMemo(() => getCharacterGroupList(custom), [custom]);
+  const duplicateCharacterCount = useMemo(() => getDuplicateCharacterCount(custom), [custom]);
+  const duplicateCharacterBannerText = useMemo(() => getDuplicateCharacterBannerText(custom, i18n.language), [custom, i18n.language]);
   const filteredCustom = selectedGroup === 'all' ? custom : getCharactersInGroup(custom, selectedGroup);
-  const displayChars = tab === 0 ? filteredCustom : presets;
+  const displayChars = useMemo(
+    () => sortCharactersForLibrary(tab === 0 ? filteredCustom : presets, sortField, sortDirection, sortGroupFirst),
+    [filteredCustom, presets, sortDirection, sortField, sortGroupFirst, tab]
+  );
   const selectedIdSet = new Set(selectedIds);
   const selectedCustomCharacters = custom.filter((character) => selectedIdSet.has(character.id));
 
@@ -273,6 +302,39 @@ export default function CharacterLibraryPage() {
     </>
   );
 
+  const sortFieldLabel = sortField === 'name'
+    ? (i18n.language.startsWith('zh') ? '名称' : 'Name')
+    : (i18n.language.startsWith('zh') ? '创建时间' : 'Created time');
+  const sortDirectionLabel = sortDirection === 'asc'
+    ? (i18n.language.startsWith('zh') ? '正序' : 'Ascending')
+    : (i18n.language.startsWith('zh') ? '逆序' : 'Descending');
+  const renderSortMenu = (
+    <>
+      <IconButton onClick={(event) => setSortMenuAnchorEl(event.currentTarget)} aria-label={i18n.language.startsWith('zh') ? '排序' : 'Sort'}>
+        <SortIcon />
+      </IconButton>
+      <Menu anchorEl={sortMenuAnchorEl} open={Boolean(sortMenuAnchorEl)} onClose={() => setSortMenuAnchorEl(null)}>
+        <MenuItem selected={sortField === 'name'} onClick={() => { setSortField('name'); setSortMenuAnchorEl(null); }}>
+          {sortField === 'name' ? '✓ ' : ''}{i18n.language.startsWith('zh') ? '名称' : 'Name'}
+        </MenuItem>
+        <MenuItem selected={sortField === 'createdAt'} onClick={() => { setSortField('createdAt'); setSortMenuAnchorEl(null); }}>
+          {sortField === 'createdAt' ? '✓ ' : ''}{i18n.language.startsWith('zh') ? '创建时间' : 'Created time'}
+        </MenuItem>
+        <Divider />
+        <MenuItem selected={sortDirection === 'asc'} onClick={() => { setSortDirection('asc'); setSortMenuAnchorEl(null); }}>
+          {sortDirection === 'asc' ? '✓ ' : ''}{i18n.language.startsWith('zh') ? '正序' : 'Ascending'}
+        </MenuItem>
+        <MenuItem selected={sortDirection === 'desc'} onClick={() => { setSortDirection('desc'); setSortMenuAnchorEl(null); }}>
+          {sortDirection === 'desc' ? '✓ ' : ''}{i18n.language.startsWith('zh') ? '逆序' : 'Descending'}
+        </MenuItem>
+        <Divider />
+        <MenuItem selected={sortGroupFirst} onClick={() => { setSortGroupFirst((value) => !value); setSortMenuAnchorEl(null); }}>
+          {sortGroupFirst ? '✓ ' : ''}{i18n.language.startsWith('zh') ? '分组优先' : 'Group first'}
+        </MenuItem>
+      </Menu>
+    </>
+  );
+
   const showInlineMenu = true;
 
   const openCreateForm = () => {
@@ -303,8 +365,8 @@ export default function CharacterLibraryPage() {
         const chars = Array.isArray(data) ? data : [data];
         await importCharacters(chars);
         setSnackbar({ open: true, message: t('character.importSuccess'), severity: 'success' });
-      } catch {
-        setSnackbar({ open: true, message: t('character.importError'), severity: 'error' });
+      } catch (error) {
+        setSnackbar({ open: true, message: error instanceof Error ? error.message : t('character.importError'), severity: 'error' });
       }
     };
     input.click();
@@ -318,8 +380,15 @@ export default function CharacterLibraryPage() {
             <Tab label={`${t('character.myCharacters')} (${custom.length})`} />
             <Tab label={`${t('character.presets')} (${presets.length})`} />
           </Tabs>
-          {showInlineMenu ? renderListMenu : null}
+          {showInlineMenu ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+              <Chip size="small" label={`${sortFieldLabel} · ${sortDirectionLabel}${sortGroupFirst ? ` · ${i18n.language.startsWith('zh') ? '分组优先' : 'Group first'}` : ''}`} sx={{ display: { xs: 'none', sm: 'inline-flex' } }} />
+              {renderSortMenu}
+              {renderListMenu}
+            </Box>
+          ) : null}
         </Box>
+        {tab === 0 && duplicateCharacterCount > 0 ? <Alert severity="warning" sx={{ mb: 2 }}>{duplicateCharacterBannerText}</Alert> : null}
       {tab === 0 ? (
         <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 1.5, mb: 1.5 }}>
           <Chip label={`${i18n.language.startsWith('zh') ? '全部' : 'All'} (${custom.length})`} color={selectedGroup === 'all' ? 'primary' : 'default'} variant={selectedGroup === 'all' ? 'filled' : 'outlined'} onClick={() => setSelectedGroup('all')} />

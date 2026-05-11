@@ -76,7 +76,7 @@ function getCurrentOrBaseline(previous: RelationshipLedgerEntry | null | undefin
 }
 
 function roundDisplayValue(value: number) {
-  return Math.round(value * 100) / 100;
+  return Math.round(value);
 }
 
 export function roundRelationshipDisplayValue(value: number) {
@@ -84,15 +84,13 @@ export function roundRelationshipDisplayValue(value: number) {
 }
 
 export function formatRelationshipNumber(value: number) {
-  const rounded = roundDisplayValue(value);
-  if (Number.isInteger(rounded)) return String(rounded);
-  return rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return String(roundDisplayValue(value));
 }
 
 export function formatSignedRelationshipNumber(value: number) {
-  const formatted = formatRelationshipNumber(value);
-  if (value > 0) return `+${formatted}`;
-  return formatted;
+  const rounded = roundDisplayValue(value);
+  if (rounded > 0) return `+${rounded}`;
+  return String(rounded);
 }
 
 export function toRelationshipDisplayDelta(current: RelationshipLedgerEntry['current']) {

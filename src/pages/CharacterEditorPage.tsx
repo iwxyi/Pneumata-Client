@@ -21,7 +21,9 @@ export default function CharacterEditorPage() {
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
   const { characters, loadCharacters, addCharacter, updateCharacter, deleteCharacter, initializePresets } = useCharacterStore();
   const [bootstrapComplete, setBootstrapComplete] = useState(false);
+  const characterDataReady = bootstrapComplete || characters.length > 0;
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const goBack = useCallback(() => {
     if (returnTo) {
@@ -34,10 +36,8 @@ export default function CharacterEditorPage() {
   useEffect(() => {
     let cancelled = false;
     if (characters.length > 0) {
-      setBootstrapComplete(true);
       return undefined;
     }
-    setBootstrapComplete(false);
     void loadCharacters()
       .then(() => initializePresets())
       .finally(() => {
@@ -70,13 +70,14 @@ export default function CharacterEditorPage() {
     };
   }, [editId, goBack, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, t]);
 
+  const duplicateNameErrorText = i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists';
   const editChar = useMemo(() => (editId ? characters.find((character) => character.id === editId) : undefined), [characters, editId]);
 
   if (editId && !editChar) {
     return (
       <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
         <Typography variant="body2" color="text.secondary">
-          {bootstrapComplete
+          {characterDataReady
             ? (i18n.language.startsWith('zh') ? '未找到这个角色' : 'Character not found')
             : (i18n.language.startsWith('zh') ? '正在打开角色...' : 'Opening character...')}
         </Typography>
@@ -89,20 +90,30 @@ export default function CharacterEditorPage() {
       <CharacterForm
         initial={editChar}
         existingNames={characters.map((character) => character.name)}
+        saveError={saveError}
         onSave={async (data) => {
-          if (editId) {
-            await updateCharacter(editId, data);
-          } else {
-            const created = await addCharacter(data);
-            if (settings.avatarGeneration.autoGenerateCharacterAvatar && data.generatedByAI) {
-              try {
-                enqueueAvatarGenerationForCharacter(created, settings.aiProfiles, i18n.language.startsWith('zh') ? 'zh' : 'en', settings.avatarGeneration);
-              } catch (error) {
-                console.error('[character-editor:auto-avatar:error]', error);
+          setSaveError(null);
+          try {
+            if (editId) {
+              await updateCharacter(editId, data);
+            } else {
+              const created = await addCharacter(data);
+              if (settings.avatarGeneration.autoGenerateCharacterAvatar && data.generatedByAI) {
+                try {
+                  enqueueAvatarGenerationForCharacter(created, settings.aiProfiles, i18n.language.startsWith('zh') ? 'zh' : 'en', settings.avatarGeneration);
+                } catch (error) {
+                  console.error('[character-editor:auto-avatar:error]', error);
+                }
               }
             }
+            goBack();
+          } catch (error) {
+            if (error instanceof Error && error.message === 'DUPLICATE_CHARACTER_NAME') {
+              setSaveError(duplicateNameErrorText);
+              return;
+            }
+            throw error;
           }
-          goBack();
         }}
         onCancel={goBack}
       />
