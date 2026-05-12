@@ -80,8 +80,7 @@ function formatConflictMetrics(metrics: unknown) {
 
 function formatRuntimeEventSummary(event: RuntimeEventPayload) {
   if (event.eventType !== 'conflict_focus_shift') return event.summary;
-  const metricsText = formatConflictMetrics(event.metrics);
-  return [event.summary, metricsText].filter(Boolean).join('\n');
+  return event.summary;
 }
 
 export function formatRuntimeEventForDisplay(payload: RuntimeEventPayload) {

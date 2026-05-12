@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, Menu, MenuItem, keyframes } from '@mui/material';
+import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, Menu, MenuItem, Chip, keyframes } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -8,6 +8,36 @@ import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bub
 import { isImageAvatar } from '../../utils/avatar';
 import { formatTimestamp } from '../../utils/format';
 import { formatConflictMetricsForDisplay, formatRuntimeEventText, parseRuntimeEvent } from '../../services/runtimeEventFactory';
+
+function isMemoryDistillationEvent(metrics: unknown) {
+  return typeof metrics === 'object' && metrics !== null && 'ownerType' in metrics && 'candidateTexts' in metrics;
+}
+
+function renderMemoryDistillationMeta(payload: { metrics?: unknown }) {
+  if (!isMemoryDistillationEvent(payload.metrics)) return null;
+  const metrics = payload.metrics as Record<string, unknown>;
+  const ownerLabel = typeof metrics.ownerLabel === 'string' && metrics.ownerLabel ? metrics.ownerLabel : (metrics.ownerType === 'character' ? '角色记忆' : '群聊记忆');
+  const reasonLabel = typeof metrics.reasonLabel === 'string' && metrics.reasonLabel ? metrics.reasonLabel : '已完成蒸馏';
+  const mergeModeLabel = typeof metrics.mergeModeLabel === 'string' && metrics.mergeModeLabel ? metrics.mergeModeLabel : '同 bucket 强化合并';
+  const eligibleCount = typeof metrics.eligibleCount === 'number' ? metrics.eligibleCount : 0;
+  const evidenceCount = typeof metrics.newEvidenceCount === 'number' ? metrics.newEvidenceCount : 0;
+  const candidateTexts = Array.isArray(metrics.candidateTexts) ? metrics.candidateTexts.filter((item: unknown): item is string => typeof item === 'string') : [];
+  return (
+    <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
+      <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{`${ownerLabel} · ${reasonLabel}`}</Typography>
+      <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{`证据事件 ${evidenceCount} · 合并方式 ${mergeModeLabel}`}</Typography>
+    </Box>
+  );
+}
+
+function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { showRelationshipEvents: boolean; showAffectEvents: boolean; showConflictEvents: boolean; showMemoryDistillationEvents: boolean }) {
+  if (!payload?.eventType) return false;
+  if (['group_relationship_shift', 'relationship_shift'].includes(String(payload.eventType))) return flags.showRelationshipEvents;
+  if (['speaker_drift_shift', 'speaker_emotion_shift', 'target_emotion_shift'].includes(String(payload.eventType))) return flags.showAffectEvents;
+  if (payload.eventType === 'conflict_focus_shift') return flags.showConflictEvents;
+  if (payload.eventType === 'memory_distillation') return flags.showMemoryDistillationEvents;
+  return false;
+}
 
 interface MessageBubbleProps {
   message: Message;
@@ -73,6 +103,21 @@ function renderConflictEventMeta(payload: { metrics?: unknown }) {
   );
 }
 
+function buildEventTypeChip(payload: { eventType?: string }) {
+  const eventType = payload.eventType || 'event';
+  const config: Record<string, { label: string; color: 'primary' | 'secondary' | 'warning' | 'success' | 'info' | 'error' | 'default' }> = {
+    group_relationship_shift: { label: '关系', color: 'secondary' },
+    relationship_shift: { label: '关系', color: 'secondary' },
+    speaker_drift_shift: { label: '行为', color: 'warning' },
+    speaker_emotion_shift: { label: '情绪', color: 'success' },
+    target_emotion_shift: { label: '情绪', color: 'success' },
+    conflict_focus_shift: { label: '矛盾', color: 'error' },
+    memory_distillation: { label: '蒸馏', color: 'info' },
+  };
+  const item = config[eventType] || { label: '提示', color: 'default' as const };
+  return <Chip size="small" label={item.label} color={item.color} variant="outlined" />;
+}
+
 function renderEventBubble(payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }) {
   const displayText = formatRuntimeEventText({
     eventType: payload.eventType || 'event',
@@ -84,10 +129,16 @@ function renderEventBubble(payload: { eventType?: string; title?: string; summar
   return (
     <Box sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: 2 }}>
       <Box sx={{ maxWidth: 620, width: 'fit-content', minWidth: 420, px: 1.75, py: 1, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-        <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-          {displayText}
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, mb: 0.25 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {displayText}
+            </Typography>
+          </Box>
+          {buildEventTypeChip(payload)}
+        </Box>
         {payload.eventType === 'conflict_focus_shift' ? renderConflictEventMeta(payload) : null}
+        {payload.eventType === 'memory_distillation' ? renderMemoryDistillationMeta(payload) : null}
       </Box>
     </Box>
   );
@@ -99,6 +150,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const showRelationshipEvents = useSettingsStore((state) => state.developerUI.showRelationshipEvents);
   const showAffectEvents = useSettingsStore((state) => state.developerUI.showAffectEvents);
   const showConflictEvents = useSettingsStore((state) => state.developerUI.showConflictEvents);
+  const showMemoryDistillationEvents = useSettingsStore((state) => state.developerUI.showMemoryDistillationEvents);
   const navigate = useNavigate();
   const location = useLocation();
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -200,10 +252,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
     if (!developerMode) return null;
     const parsed = parseRuntimeEvent(message.content);
     const payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown } = parsed || { title: '事件', summary: message.content };
-    if (payload?.eventType && !['group_relationship_shift', 'relationship_shift', 'speaker_drift_shift', 'speaker_emotion_shift', 'target_emotion_shift', 'conflict_focus_shift'].includes(String(payload.eventType))) return null;
-    if ((payload?.eventType === 'group_relationship_shift' || payload?.eventType === 'relationship_shift') && !showRelationshipEvents) return null;
-    if ((payload?.eventType === 'speaker_drift_shift' || payload?.eventType === 'speaker_emotion_shift' || payload?.eventType === 'target_emotion_shift') && !showAffectEvents) return null;
-    if (payload?.eventType === 'conflict_focus_shift' && !showConflictEvents) return null;
+    if (!shouldRenderDeveloperEvent(payload, { showRelationshipEvents, showAffectEvents, showConflictEvents, showMemoryDistillationEvents })) return null;
     return renderEventBubble(payload);
   }
 

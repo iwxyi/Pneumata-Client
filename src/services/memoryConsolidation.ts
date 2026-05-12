@@ -38,7 +38,7 @@ export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: 
       const reinforcementCount = item.reinforcementCount + 1;
       next[existingIndex] = {
         ...item,
-        text: candidate.text.length >= item.text.length ? candidate.text : item.text,
+        text: candidate.text.length >= item.text.length || candidate.origin === 'distilled' ? candidate.text : item.text,
         salience: Math.max(item.salience, score),
         confidence: Math.min(1, (item.confidence || 0.5) + 0.08),
         recency: 1,
@@ -46,6 +46,10 @@ export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: 
         layer: nextLayerForCandidate(candidate, reinforcementCount),
         sourceEventIds: Array.from(new Set([...item.sourceEventIds, ...candidate.sourceEventIds])).slice(-8),
         sourceTag: candidate.sourceTag || item.sourceTag || null,
+        origin: candidate.origin || item.origin || 'runtime',
+        distilledFromIds: Array.from(new Set([...(item.distilledFromIds || []), ...(candidate.distilledFromIds || [])])).slice(-12),
+        distilledAt: candidate.distilledAt || item.distilledAt || null,
+        distillationVersion: candidate.distillationVersion || item.distillationVersion || null,
         updatedAt: now,
         archivedAt: null,
       };
@@ -67,6 +71,10 @@ export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: 
       reinforcementCount: 1,
       sourceEventIds: candidate.sourceEventIds,
       sourceTag: candidate.sourceTag || null,
+      origin: candidate.origin || 'runtime',
+      distilledFromIds: candidate.distilledFromIds || [],
+      distilledAt: candidate.distilledAt || null,
+      distillationVersion: candidate.distillationVersion || null,
       createdAt: now,
       updatedAt: now,
       lastActivatedAt: null,

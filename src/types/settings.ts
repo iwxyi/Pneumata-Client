@@ -32,6 +32,7 @@ export interface DeveloperUIPrefs {
   showRelationshipEvents: boolean;
   showAffectEvents: boolean;
   showConflictEvents: boolean;
+  showMemoryDistillationEvents: boolean;
   showSpeechStyle: boolean;
   showAdvancedRuntimePanels: boolean;
   dramaBoost: boolean;
@@ -57,6 +58,7 @@ export function normalizeDeveloperUiPrefs(input?: Partial<DeveloperUIPrefs> | nu
     showRelationshipEvents: Boolean(input?.showRelationshipEvents),
     showAffectEvents: Boolean(input?.showAffectEvents),
     showConflictEvents: Boolean(input?.showConflictEvents),
+    showMemoryDistillationEvents: Boolean(input?.showMemoryDistillationEvents),
     showSpeechStyle: Boolean(input?.showSpeechStyle),
     showAdvancedRuntimePanels: Boolean(input?.showAdvancedRuntimePanels),
     dramaBoost: Boolean(input?.dramaBoost),
@@ -80,7 +82,7 @@ export function getDeveloperUiVisibility(input: Partial<DeveloperUIPrefs> | null
 }
 
 export function getDeveloperUiToggleKeys() {
-  return ['showMemoryDebug', 'showRelationshipEvents', 'showAffectEvents', 'showSpeechStyle', 'showAdvancedRuntimePanels', 'dramaBoost'] as const;
+  return ['showMemoryDebug', 'showRelationshipEvents', 'showAffectEvents', 'showConflictEvents', 'showMemoryDistillationEvents', 'showSpeechStyle', 'showAdvancedRuntimePanels', 'dramaBoost'] as const;
 }
 
 export function getDeveloperUiAffectKey() {
@@ -327,6 +329,7 @@ export const DEFAULT_DEVELOPER_UI_PREFS: DeveloperUIPrefs = {
   showRelationshipEvents: false,
   showAffectEvents: false,
   showConflictEvents: false,
+  showMemoryDistillationEvents: false,
   showSpeechStyle: false,
   showAdvancedRuntimePanels: false,
   dramaBoost: false,

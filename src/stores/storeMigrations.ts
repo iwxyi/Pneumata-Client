@@ -88,7 +88,7 @@ export function migrateMessageStoreState<T extends { messages?: Array<Record<str
 
 export function migrateSettingsStoreState<T extends Record<string, unknown>>(persisted: VersionedPersistedState<T>): VersionedPersistedState<T> {
   if (!persisted) return persisted;
-  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; dramaBoost?: boolean } | undefined) || {};
+  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showMemoryDistillationEvents?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; dramaBoost?: boolean } | undefined) || {};
   return {
     ...persisted,
     developerUI: {
@@ -96,6 +96,7 @@ export function migrateSettingsStoreState<T extends Record<string, unknown>>(per
       showRelationshipEvents: Boolean(developerUI.showRelationshipEvents),
       showAffectEvents: Boolean(developerUI.showAffectEvents),
       showConflictEvents: Boolean(developerUI.showConflictEvents),
+      showMemoryDistillationEvents: Boolean(developerUI.showMemoryDistillationEvents),
       showSpeechStyle: Boolean(developerUI.showSpeechStyle),
       showAdvancedRuntimePanels: Boolean(developerUI.showAdvancedRuntimePanels),
       dramaBoost: Boolean(developerUI.dramaBoost),

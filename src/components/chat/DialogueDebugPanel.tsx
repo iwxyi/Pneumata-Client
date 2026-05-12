@@ -79,6 +79,83 @@ function buildConflictDebugState(chat: GroupChat) {
   };
 }
 
+function readMemoryDistillationPayload(item: RuntimeEventV2) {
+  const payload = item.payload as Record<string, unknown>;
+  return payload?.eventType === 'memory_distillation' ? payload : null;
+}
+
+function formatMemoryDistillationReason(reason: unknown, isZh: boolean) {
+  const value = typeof reason === 'string' ? reason : '';
+  const labels: Record<string, string> = {
+    distilled: isZh ? '已完成本地蒸馏' : 'Local distillation completed',
+    llm_distilled: isZh ? '已完成 LLM 蒸馏' : 'LLM distillation completed',
+    below_threshold: isZh ? '暂未达到蒸馏阈值' : 'Below the distillation threshold',
+    cooldown: isZh ? '仍在蒸馏冷却期' : 'Still in distillation cooldown',
+    already_distilled_recently: isZh ? '这批证据最近已蒸馏过' : 'This evidence was distilled recently',
+    insufficient_new_evidence: isZh ? '新增证据还不够' : 'Not enough new evidence yet',
+    no_candidates: isZh ? '本轮没有形成稳定候选' : 'No stable candidates this round',
+  };
+  return labels[value] || value;
+}
+
+function formatMemoryDistillationOwner(payload: Record<string, unknown>, isZh: boolean) {
+  if (typeof payload.ownerLabel === 'string' && payload.ownerLabel) return payload.ownerLabel;
+  return payload.ownerType === 'character' ? (isZh ? '角色记忆' : 'Character memory') : (isZh ? '群聊记忆' : 'Chat memory');
+}
+
+function formatMemoryDistillationMergeMode(payload: Record<string, unknown>, isZh: boolean) {
+  if (typeof payload.mergeModeLabel === 'string' && payload.mergeModeLabel) return payload.mergeModeLabel;
+  if (typeof payload.mergeMode === 'string' && payload.mergeMode) return payload.mergeMode;
+  return isZh ? '同 bucket 强化合并' : 'Reinforce within the same bucket';
+}
+
+function formatMemoryDistillationCounts(payload: Record<string, unknown>, isZh: boolean) {
+  const evidenceCount = typeof payload.newEvidenceCount === 'number' ? payload.newEvidenceCount : 0;
+  return isZh ? `证据事件 ${evidenceCount}` : `Evidence events ${evidenceCount}`;
+}
+
+function buildMemoryDistillationHeadline(payload: Record<string, unknown>, isZh: boolean) {
+  const owner = formatMemoryDistillationOwner(payload, isZh);
+  const reason = typeof payload.reasonLabel === 'string' && payload.reasonLabel ? payload.reasonLabel : formatMemoryDistillationReason(payload.reason, isZh);
+  return `${owner} · ${reason}`;
+}
+
+function buildMemoryDistillationBody(payload: Record<string, unknown>) {
+  const candidateTexts = Array.isArray(payload.candidateTexts) ? payload.candidateTexts.filter((value: unknown): value is string => typeof value === 'string') : [];
+  return candidateTexts;
+}
+
+function buildMemoryDistillationCaption(payload: Record<string, unknown>, isZh: boolean) {
+  return `${formatMemoryDistillationCounts(payload, isZh)} · ${isZh ? '合并方式' : 'Merge'} ${formatMemoryDistillationMergeMode(payload, isZh)}`;
+}
+
+function renderMemoryDistillationBlock(chat: GroupChat, isZh: boolean) {
+  const items = (chat.runtimeEventsV2 || [])
+    .filter((item) => item.kind === 'artifact' && readMemoryDistillationPayload(item))
+    .slice(-4)
+    .reverse();
+  if (!items.length) return null;
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary">{isZh ? '记忆蒸馏' : 'Memory distillation'}</Typography>
+      <Stack spacing={0.75} sx={{ mt: 0.75 }}>
+        {items.map((item) => {
+          const payload = readMemoryDistillationPayload(item) as Record<string, unknown>;
+          const candidateTexts = buildMemoryDistillationBody(payload);
+          return (
+            <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+              <Typography variant="caption" color="text.secondary">{new Date(item.createdAt).toLocaleString()}</Typography>
+              <Typography variant="body2">{buildMemoryDistillationHeadline(payload, isZh)}</Typography>
+              {candidateTexts.length ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'pre-wrap' }}>{candidateTexts.join(' / ')}</Typography> : null}
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{buildMemoryDistillationCaption(payload, isZh)}</Typography>
+            </Box>
+          );
+        })}
+      </Stack>
+    </Box>
+  );
+}
+
 function renderConflictDebugBlock(chat: GroupChat) {
   const state = buildConflictDebugState(chat);
   if (!state) return null;
@@ -146,6 +223,8 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
               </Stack>
             </Box>
           ) : null}
+
+          {renderMemoryDistillationBlock(chat, isZh)}
 
           <Box>
             <Typography variant="caption" color="text.secondary">{isZh ? '最近结构化事件' : 'Recent structured events'}</Typography>

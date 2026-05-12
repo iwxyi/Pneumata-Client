@@ -96,6 +96,10 @@ function readMemoryCandidateMeta(item: ProjectedRuntimeTimelineItem) {
   return item.meta?.memoryCandidate || null;
 }
 
+function readMemoryDistillationMeta(item: ProjectedRuntimeTimelineItem) {
+  return (item.meta as { memoryDistillation?: Record<string, unknown> } | undefined)?.memoryDistillation || null;
+}
+
 function formatEventKind(kind: RuntimeEventV2['kind']) {
   const labels: Record<RuntimeEventV2['kind'], string> = {
     message_generated: '消息生成',
@@ -143,9 +147,14 @@ function buildTimelineBody(item: ProjectedRuntimeTimelineItem) {
   const artifact = readSocialEventArtifactMeta(item);
   const effect = readSocialEventEffectMeta(item);
   const relation = readRelationshipDeltaMeta(item);
+  const distillation = readMemoryDistillationMeta(item);
   const payload = item.event?.payload as Record<string, unknown> | undefined;
   const topicSnippet = typeof payload?.topicSnippet === 'string' ? payload.topicSnippet : null;
   const participantNames = Array.isArray(payload?.participantNames) ? payload.participantNames.filter((value): value is string => typeof value === 'string') : [];
+  if (distillation) {
+    const candidateTexts = Array.isArray(distillation.candidateTexts) ? distillation.candidateTexts.filter((value: unknown): value is string => typeof value === 'string') : [];
+    return clip(cleanText(candidateTexts.join(' / ') || item.text), 88);
+  }
   if (relation) {
     const parts = [
       relation.delta.warmth ? `亲和${formatSigned(relation.delta.warmth)}` : '',
@@ -164,8 +173,15 @@ function buildTimelineMeta(item: ProjectedRuntimeTimelineItem) {
   const memory = readMemoryCandidateMeta(item);
   const candidate = readSocialEventCandidateMeta(item);
   const effect = readSocialEventEffectMeta(item);
+  const distillation = readMemoryDistillationMeta(item);
   const payload = item.event?.payload as Record<string, unknown> | undefined;
   const projectionKind = typeof payload?.projectionKind === 'string' ? payload.projectionKind : null;
+  if (distillation) {
+    const owner = distillation.ownerType === 'character' ? '角色' : '群聊';
+    const evidence = typeof distillation.newEvidenceCount === 'number' ? distillation.newEvidenceCount : 0;
+    const reason = typeof distillation.reason === 'string' ? distillation.reason : '';
+    return cleanText(`${owner}蒸馏 · 证据 ${evidence} · ${reason}`);
+  }
   if (candidate) return cleanText(`候选 · ${formatSocialEventKind(candidate.eventKind)}`);
   if (effect) return cleanText(`回流 · ${projectionKind || effect.effectType}`);
   if (relation) {
@@ -180,7 +196,9 @@ function buildTimelineMeta(item: ProjectedRuntimeTimelineItem) {
 
 function buildTimelineCaption(item: ProjectedRuntimeTimelineItem) {
   const cluster = readSocialEventClusterMeta(item);
+  const distillation = readMemoryDistillationMeta(item);
   if (cluster?.eventKind === 'pair_private_thread' && cluster.stage === 'opened') return null;
+  if (distillation) return null;
   if (item.event?.kind === 'interaction' || item.event?.kind === 'relationship_delta') return null;
   const actors = item.actorNames?.length ? item.actorNames.join('、') : null;
   const targets = item.targetNames?.length ? item.targetNames.join('、') : null;
@@ -558,8 +576,17 @@ function buildMemoryKindLabel(kind: MemoryItem['kind']) {
   return labels[kind] || kind;
 }
 
+function buildMemoryOriginLabel(origin: MemoryItem['origin']) {
+  const labels: Record<NonNullable<MemoryItem['origin']>, string> = {
+    runtime: '运行沉淀',
+    distilled: '核心蒸馏',
+    seeded: '手工种子',
+  };
+  return origin ? (labels[origin] || origin) : '运行沉淀';
+}
+
 function buildAdvancedMemoryRows(items: MemoryItem[]) {
-  return items.map((item) => ({ id: item.id, title: `${buildMemoryLayerLabel(item.layer)} · ${buildMemoryKindLabel(item.kind)}`, meta: `${buildMemoryScopeLabel(item.scope)} · 强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`, text: clip(cleanText(item.text), 96) }));
+  return items.map((item) => ({ id: item.id, title: `${buildMemoryLayerLabel(item.layer)} · ${buildMemoryKindLabel(item.kind)}`, meta: `${buildMemoryScopeLabel(item.scope)} · ${buildMemoryOriginLabel(item.origin)} · 强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`, text: clip(cleanText(item.text), 96) }));
 }
 
 function buildMemorySummaryLine(items: MemoryItem[]) {
@@ -580,7 +607,7 @@ function buildMemoryPanelState(items: MemoryItem[], expanded: boolean, isDevelop
     buttonText: expanded ? (isDeveloperView ? '收起调试细节' : '收起') : (isDeveloperView ? '展开调试细节' : '查看更多'),
     header: {
       title: isDeveloperView ? '聊天记忆' : '记忆与成长',
-      subtitle: items.length ? (isDeveloperView ? `展示 ${items.length} 条结构化记忆` : items.slice(0, 2).map((item) => `${buildMemoryLayerLabel(item.layer)}·${buildMemoryKindLabel(item.kind)}`).join(' / ')) : (isDeveloperView ? '暂无结构化聊天记忆' : undefined),
+      subtitle: items.length ? (isDeveloperView ? `展示 ${items.length} 条结构化记忆（含运行沉淀与核心蒸馏）` : items.slice(0, 2).map((item) => `${buildMemoryLayerLabel(item.layer)}·${buildMemoryKindLabel(item.kind)}`).join(' / ')) : (isDeveloperView ? '暂无结构化聊天记忆' : undefined),
     },
   };
 }

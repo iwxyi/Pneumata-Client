@@ -2,6 +2,8 @@ export type MemoryLayer = 'working' | 'episodic' | 'long_term';
 export type MemoryScope = 'conversation' | 'character_self' | 'relationship' | 'thread' | 'system_runtime';
 export type MemoryKind = 'decision' | 'conflict' | 'bond' | 'resentment' | 'status_shift' | 'trait_evidence' | 'bias' | 'taboo' | 'obsession' | 'artifact' | 'thread_effect';
 
+export type MemoryOrigin = 'runtime' | 'distilled' | 'seeded';
+
 export interface MemoryItem {
   id: string;
   scope: MemoryScope;
@@ -18,6 +20,10 @@ export interface MemoryItem {
   reinforcementCount: number;
   sourceEventIds: string[];
   sourceTag?: string | null;
+  origin?: MemoryOrigin;
+  distilledFromIds?: string[];
+  distilledAt?: number | null;
+  distillationVersion?: string | null;
   createdAt: number;
   updatedAt: number;
   lastActivatedAt?: number | null;
@@ -33,6 +39,10 @@ export interface MemoryCandidate {
   text: string;
   sourceEventIds: string[];
   sourceTag?: string;
+  origin?: MemoryOrigin;
+  distilledFromIds?: string[];
+  distilledAt?: number | null;
+  distillationVersion?: string | null;
   scoreBreakdown: {
     stability: number;
     recurrence: number;

@@ -128,6 +128,8 @@ function buildSocialEventCluster(event: RuntimeEventV2) {
 }
 
 function buildEventMeta(event: RuntimeEventV2) {
+  const payload = (typeof event.payload === 'object' && event.payload !== null ? event.payload : null) as Record<string, unknown> | null;
+  const isMemoryDistillation = event.kind === 'artifact' && payload?.eventType === 'memory_distillation';
   return {
     memoryCandidate: event.kind === 'memory_candidate' && isMemoryCandidatePayload(event.payload) ? event.payload : undefined,
     socialEventCandidate: event.kind === 'event_candidate' && isSocialEventCandidatePayload(event.payload) ? event.payload : undefined,
@@ -136,6 +138,7 @@ function buildEventMeta(event: RuntimeEventV2) {
     socialEventCluster: buildSocialEventCluster(event),
     relationshipDelta: event.kind === 'relationship_delta' && isRelationshipDeltaPayload(event.payload) ? event.payload : undefined,
     roomShift: event.kind === 'room_shift' && isRoomShiftPayload(event.payload) ? event.payload : undefined,
+    memoryDistillation: isMemoryDistillation ? payload : undefined,
   };
 }
 
@@ -210,6 +213,7 @@ function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: N
           socialEventCluster: baseMeta.socialEventCluster,
           relationshipDelta: baseMeta.relationshipDelta ? { reason: formatRelationshipReason(baseMeta.relationshipDelta.reason), delta: baseMeta.relationshipDelta.delta || {}, axisReasons: baseMeta.relationshipDelta.axisReasons || {}, spikeType: baseMeta.relationshipDelta.spikeType } : undefined,
           roomShift: baseMeta.roomShift,
+          memoryDistillation: baseMeta.memoryDistillation,
         };
       })(),
     }));

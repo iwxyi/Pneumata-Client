@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { ConversationConflictAxis, DriverCharacterPatch, DriverEventPayload, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
-import { deriveFallbackRelationshipDelta, updateCharacterRelationship, updateCharacterRelationshipFromDelta } from './relationshipEngine';
+import { deriveFallbackRelationshipDelta, updateCharacterRelationshipFromDelta } from './relationshipEngine';
 import { createBaselineRelationshipCurrent, inferRelationshipDelta, reduceRelationshipLedger } from './relationshipLedger';
 import type { ConflictFocusPayload, ConflictFocusState, ConflictRuntimeState, RuntimeEventV2 } from '../types/runtimeEvent';
 import { deriveEmotionalState, derivePersonalityDrift, getRuntimeAffectEventDriftLine, getRuntimeAffectEventEmotionLines } from './personalityDrift';
@@ -10,15 +10,65 @@ import { accumulateCharacterRuntime } from './characterRuntime';
 import { extractMemoryCandidate } from './memoryEngine';
 import { createDefaultConflictAxes, evolveConflictAxes, summarizeConflictAxes } from './conflictAxisEngine';
 import { appendMemoryCandidateEvents, buildMemoryCandidateEvents, updateLayeredMemoriesWithEvents } from './layeredMemoryEngine';
+import { consolidateMemoryCandidates } from './memoryConsolidation';
+import { buildMemoryDistillationEventSummary, buildMemoryDistillationEventTitle, buildMemoryDistillationRuntimePayload, debugCharacterMemoryDistillation, debugChatMemoryDistillation, distillChatMemoryCandidates, distillCharacterMemoryCandidates, shouldDistillChatMemories, shouldDistillCharacterMemories } from './memoryDistillation';
 import { normalizeRuntimeEvent } from './runtimeEventFactory';
 import { updateCharacterLayeredMemories } from './characterLayeredMemory';
 import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 
+const CHAT_DISTILLATION_TURN_COUNT = 8;
+const CHARACTER_DISTILLATION_TURN_COUNT = 6;
+
 function truncateWithEllipsis(text: string, maxLength: number) {
   const normalized = text.trim();
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function maybeDistillCharacterLayeredMemories(character: AICharacter, layeredMemories: AICharacter['layeredMemories']) {
+  if (!layeredMemories?.length) return layeredMemories;
+  const candidateCharacter = { ...character, layeredMemories };
+  if (!shouldDistillCharacterMemories(candidateCharacter, CHARACTER_DISTILLATION_TURN_COUNT)) return layeredMemories;
+  const distilled = distillCharacterMemoryCandidates(candidateCharacter);
+  return distilled.length ? consolidateMemoryCandidates(layeredMemories, distilled) : layeredMemories;
+}
+
+function maybeDistillChatLayeredMemories(chat: GroupChat, layeredMemories: GroupChat['layeredMemories']) {
+  if (!layeredMemories?.length) return layeredMemories;
+  const candidateChat = { ...chat, layeredMemories };
+  if (!shouldDistillChatMemories(candidateChat, CHAT_DISTILLATION_TURN_COUNT)) return layeredMemories;
+  const distilled = distillChatMemoryCandidates(candidateChat);
+  return distilled.length ? consolidateMemoryCandidates(layeredMemories, distilled) : layeredMemories;
+}
+
+function appendDistilledMemoryEvents(conversation: GroupChat, existingEvents: RuntimeEventV2[], nextLayeredMemories: GroupChat['layeredMemories']) {
+  const distilled = (nextLayeredMemories || []).filter((item) => item.origin === 'distilled');
+  const knownTexts = new Set(existingEvents.filter((event) => event.kind === 'memory_candidate').map((event) => String((event.payload as Record<string, unknown>).text || '')));
+  const newEvents = distilled
+    .filter((item) => !knownTexts.has(item.text))
+    .map<RuntimeEventV2>((item) => ({
+      id: `distilled-${item.id}`,
+      conversationId: conversation.id,
+      createdAt: item.distilledAt || item.updatedAt,
+      kind: 'memory_candidate',
+      actorIds: [],
+      targetIds: item.subjectIds,
+      evidenceMessageIds: [],
+      summary: item.text,
+      eventClass: 'artifact',
+      visibility: 'public',
+      visibleToIds: [],
+      visibleToRoles: [],
+      payload: {
+        kind: item.kind,
+        text: item.text,
+        salience: item.salience,
+        confidence: item.confidence,
+        origin: 'distilled',
+      },
+    }));
+  return [...existingEvents, ...newEvents];
 }
 
 function normalizeConflictFocus(payload: ConflictFocusPayload | null | undefined, conversation: GroupChat, message: Pick<Message, 'content' | 'senderId'>): ConflictFocusState | null {
@@ -77,7 +127,7 @@ export function buildNextWorldState(conversation: GroupChat, message: Pick<Messa
 
 function buildSeededRelationshipLedger(conversation: GroupChat, characters: AICharacter[]) {
   if ((conversation.relationshipLedger || []).length > 0) return conversation.relationshipLedger || [];
-  const seeded = characters.flatMap((character) => character.relationships
+  return characters.flatMap((character) => character.relationships
     .filter((relation) => !/^draft-\d+$/i.test(relation.characterId))
     .map((relation) => ({
       pairKey: `${character.id}->${relation.characterId}`,
@@ -95,7 +145,6 @@ function buildSeededRelationshipLedger(conversation: GroupChat, characters: AICh
       recentEvents: [],
       lastUpdatedAt: relation.updatedAt || conversation.updatedAt || Date.now(),
     })));
-  return seeded;
 }
 
 export function buildRelationshipTransition(params: {
@@ -133,18 +182,28 @@ export function buildRelationshipTransition(params: {
     const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier);
     const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
-    const driftEntries = localizedDriftSummary ? [
-      {
-        type: 'drift' as const,
-        text: localizedDriftSummary,
-        createdAt: Date.now(),
-      },
-    ] : [];
+    const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: Date.now() }] : [];
 
     const updatedSpeakerRelationships = targetEntries.reduce((relationships, { target, hint }) => {
       const explicitDelta = inferRelationshipDelta(hint)?.delta || deriveFallbackRelationshipDelta(params.message.content);
       return updateCharacterRelationshipFromDelta({ ...speaker, relationships }, target.id, explicitDelta, config.relationshipMultiplier).relationships;
     }, speaker.relationships);
+
+    const speakerLayered = maybeDistillCharacterLayeredMemories({
+      ...speaker,
+      relationships: updatedSpeakerRelationships,
+      emotionalState: speakerEmotion,
+    }, updateCharacterLayeredMemories({
+      character: {
+        ...speaker,
+        relationships: updatedSpeakerRelationships,
+        emotionalState: speakerEmotion,
+      },
+      targetId: targetEntries[0].target.id,
+      targetName: targetEntries.map(({ target }) => target.name).join('、'),
+      content: params.message.content,
+      personalityDrift: speakerDrift,
+    }));
 
     characterPatches.push({
       characterId: speaker.id,
@@ -152,17 +211,7 @@ export function buildRelationshipTransition(params: {
         relationships: updatedSpeakerRelationships,
         personalityDrift: speakerDrift,
         emotionalState: speakerEmotion,
-        layeredMemories: updateCharacterLayeredMemories({
-          character: {
-            ...speaker,
-            relationships: updatedSpeakerRelationships,
-            emotionalState: speakerEmotion,
-          },
-          targetId: targetEntries[0].target.id,
-          targetName: targetEntries.map(({ target }) => target.name).join('、'),
-          content: params.message.content,
-          personalityDrift: speakerDrift,
-        }),
+        layeredMemories: speakerLayered,
         runtimeTimeline: accumulateCharacterRuntime(speaker, {
           type: 'relationship',
           text: `对 ${targetEntries.map(({ target }) => target.name).join('、')} 的态度发生变化：${summary}`,
@@ -176,23 +225,28 @@ export function buildRelationshipTransition(params: {
       const reciprocalDelta = inferRelationshipDelta(hint)?.delta || deriveFallbackRelationshipDelta(params.message.content);
       const updatedTarget = updateCharacterRelationshipFromDelta(target, speaker.id, reciprocalDelta, config.reciprocalRelationshipMultiplier);
       const targetEmotion = deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias);
+      const targetLayered = maybeDistillCharacterLayeredMemories({
+        ...target,
+        relationships: updatedTarget.relationships,
+        emotionalState: targetEmotion,
+      }, updateCharacterLayeredMemories({
+        character: {
+          ...target,
+          relationships: updatedTarget.relationships,
+          emotionalState: targetEmotion,
+        },
+        targetId: speaker.id,
+        targetName: speaker.name,
+        content: params.message.content,
+        personalityDrift: {},
+      }));
 
       characterPatches.push({
         characterId: target.id,
         patch: {
           relationships: updatedTarget.relationships,
           emotionalState: targetEmotion,
-          layeredMemories: updateCharacterLayeredMemories({
-            character: {
-              ...target,
-              relationships: updatedTarget.relationships,
-              emotionalState: targetEmotion,
-            },
-            targetId: speaker.id,
-            targetName: speaker.name,
-            content: params.message.content,
-            personalityDrift: {},
-          }),
+          layeredMemories: targetLayered,
           runtimeTimeline: accumulateCharacterRuntime(target, {
             type: 'relationship',
             text: `${speaker.name} 的发言影响了对 TA 的态度：${truncateWithEllipsis(params.message.content, 36)}`,
@@ -364,15 +418,18 @@ export function buildChatPatch(conversation: GroupChat, message: Pick<Message, '
     worldState,
   };
 
-  const nextLayeredMemories = updateLayeredMemoriesWithEvents(
-    conversation.layeredMemories || [],
-    {
-      ...conversation,
-      ...chatPatch,
-      worldState,
-    } as GroupChat,
-    message,
-    runtimeEvents,
+  const nextLayeredMemories = maybeDistillChatLayeredMemories(
+    { ...conversation, ...chatPatch, worldState } as GroupChat,
+    updateLayeredMemoriesWithEvents(
+      conversation.layeredMemories || [],
+      {
+        ...conversation,
+        ...chatPatch,
+        worldState,
+      } as GroupChat,
+      message,
+      runtimeEvents,
+    )
   );
 
   const memoryCandidateEvents = buildMemoryCandidateEvents({
@@ -383,7 +440,11 @@ export function buildChatPatch(conversation: GroupChat, message: Pick<Message, '
   });
 
   chatPatch.layeredMemories = nextLayeredMemories;
-  chatPatch.runtimeEventsV2 = appendMemoryCandidateEvents(conversation.runtimeEventsV2 || [], memoryCandidateEvents);
+  chatPatch.runtimeEventsV2 = appendDistilledMemoryEvents(
+    conversation,
+    appendMemoryCandidateEvents(conversation.runtimeEventsV2 || [], memoryCandidateEvents),
+    nextLayeredMemories,
+  );
 
   return chatPatch;
 }
