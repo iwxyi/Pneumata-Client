@@ -4,6 +4,7 @@ import type { Message } from '../types/message';
 import { buildMessageStyleRules, buildRelationshipPrompt as buildSocialPromptContext } from './socialPromptContext';
 import { getMemoryContext } from './layeredMemoryEngine';
 import type { MemoryItem } from './memoryTypes';
+import { formatConflictPromptText, formatConflictStageLabel } from './runtimeEventFactory';
 
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
@@ -46,6 +47,65 @@ function buildLayeredMemoryPrompt(items: MemoryItem[], title = 'Relevant Memorie
   return `\n## ${title}\n${items.map((item) => `- [${item.scope}/${item.kind}/${item.layer}] ${item.text}`).join('\n')}`;
 }
 
+function buildGroupMemoryPolicyTags() {
+  return {
+    preferred: ['group_relationship_shift', 'interaction', 'relationship_delta', 'room_shift', 'private_thread_effect', 'private_thread_summary'],
+    blocked: ['direct_user_message', 'direct_ai_follow_up', 'ai_direct_starter_message', 'ai_direct_target_message'],
+  };
+}
+
+function buildGroupCharacterPolicyTags() {
+  return {
+    preferred: ['group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise', 'self_expression'],
+    blocked: ['direct_user_message', 'direct_ai_follow_up'],
+  };
+}
+
+function buildRetrievalBoosts(chat: GroupChat) {
+  if (chat.type === 'direct') return { relationshipBoost: true, selfMemoryBoost: true, conversationBoost: false };
+  if (chat.type === 'ai_direct') return { relationshipBoost: true, selfMemoryBoost: true, conversationBoost: true };
+  return { relationshipBoost: true, selfMemoryBoost: true, conversationBoost: true };
+}
+
+function buildPromptMemoryPolicies(chat: GroupChat) {
+  if (chat.type === 'direct') {
+    return {
+      conversation: { preferred: ['direct_user_message', 'direct_ai_follow_up'], allowed: ['direct_user_message', 'direct_ai_follow_up'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
+      character: { preferred: ['direct_user_message', 'direct_ai_follow_up', 'self_expression', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['direct_user_message', 'direct_ai_follow_up', 'self_expression', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
+    };
+  }
+  if (chat.type === 'ai_direct') {
+    return {
+      conversation: { preferred: ['ai_direct_starter_message', 'ai_direct_target_message'], allowed: ['ai_direct_starter_message', 'ai_direct_target_message'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
+      character: { preferred: ['ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
+    };
+  }
+  const group = { conversation: buildGroupMemoryPolicyTags(), character: buildGroupCharacterPolicyTags() };
+  return {
+    conversation: { preferred: group.conversation.preferred, allowed: undefined, blocked: group.conversation.blocked },
+    character: { preferred: group.character.preferred, allowed: undefined, blocked: group.character.blocked },
+  };
+}
+
+function buildMergedMemories(items: MemoryItem[]) {
+  return items.filter((item, index, array) => {
+    const key = `${item.scope}:${item.kind}:${item.layer}:${item.text}`;
+    return array.findIndex((candidate) => `${candidate.scope}:${candidate.kind}:${candidate.layer}:${candidate.text}` === key) === index;
+  });
+}
+
+function buildPromptMemoryTitle(chat: GroupChat) {
+  return chat.type === 'direct' ? 'Private-Channel Memories' : chat.type === 'ai_direct' ? 'Pair-Thread Memories' : 'Group-Influenced Memories';
+}
+
+function buildScopedMemoryBreakdown(conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[]) {
+  return `${buildLayeredMemoryPrompt(targetedCharacterMemories, 'Targeted Relationship Memories')}${buildLayeredMemoryPrompt(characterMemories, 'Character-State Memories')}${buildLayeredMemoryPrompt(conversationMemories, 'Conversation Memories')}`;
+}
+
+function buildPromptMemoryBundle(chat: GroupChat, conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[]) {
+  return `${buildLayeredMemoryPrompt(buildMergedMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories]), buildPromptMemoryTitle(chat))}${buildScopedMemoryBreakdown(conversationMemories, characterMemories, targetedCharacterMemories)}`;
+}
+
 function buildInfluenceModePrompt(chat: GroupChat, target: AICharacter | undefined) {
   if (chat.type === 'direct') {
     return '\n## Influence Mode\n- In this user-private chat, let your own long-term self-model, relationship stance, and recent personal drift outweigh room-level context.';
@@ -80,30 +140,6 @@ function buildMemoryInfluencePrompt(items: MemoryItem[]) {
     threadCount ? `- Thread memories currently active: ${threadCount}` : '',
   ].filter(Boolean);
   return lines.length ? `\n## Memory Influence\n${lines.join('\n')}` : '';
-}
-
-function buildScopedMemoryBreakdown(conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[]) {
-  return `${buildLayeredMemoryPrompt(targetedCharacterMemories, 'Targeted Relationship Memories')}${buildLayeredMemoryPrompt(characterMemories, 'Character-State Memories')}${buildLayeredMemoryPrompt(conversationMemories, 'Conversation Memories')}`;
-}
-
-function buildGroupMemoryPolicyTags() {
-  return {
-    preferred: ['group_relationship_shift', 'interaction', 'relationship_delta', 'room_shift', 'private_thread_effect', 'private_thread_summary'],
-    blocked: ['direct_user_message', 'direct_ai_follow_up', 'ai_direct_starter_message', 'ai_direct_target_message'],
-  };
-}
-
-function buildGroupCharacterPolicyTags() {
-  return {
-    preferred: ['group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise', 'self_expression'],
-    blocked: ['direct_user_message', 'direct_ai_follow_up'],
-  };
-}
-
-function buildRetrievalBoosts(chat: GroupChat) {
-  if (chat.type === 'direct') return { relationshipBoost: true, selfMemoryBoost: true, conversationBoost: false };
-  if (chat.type === 'ai_direct') return { relationshipBoost: true, selfMemoryBoost: true, conversationBoost: true };
-  return { relationshipBoost: true, selfMemoryBoost: true, conversationBoost: true };
 }
 
 function buildGroupPressurePrompt(chat: GroupChat, target: AICharacter | undefined, characters: Map<string, AICharacter>) {
@@ -174,79 +210,43 @@ function buildPromptTargetingContext(chat: GroupChat, target: AICharacter | unde
   return `${buildTargetedResponseContext(chat, target, relationshipSnapshot, characters)}${buildTargetedReplyBiasPrompt(chat, target)}`;
 }
 
-function buildPromptInfluenceSummary(chat: GroupChat, target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, characters: Map<string, AICharacter>) {
+function buildTargetedInfluenceContext(chat: GroupChat, target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, characters: Map<string, AICharacter>) {
   const relation = buildRelationshipImpactText(target, relationshipSnapshot);
   const room = buildGroupTargetPressureSummary(chat, target, characters);
-  return [relation, room].filter(Boolean).join(' / ');
-}
-
-function buildTargetedInfluenceContext(chat: GroupChat, target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, characters: Map<string, AICharacter>) {
-  const summary = buildPromptInfluenceSummary(chat, target, relationshipSnapshot, characters);
+  const summary = [relation, room].filter(Boolean).join(' / ');
   return summary ? `\n## Targeted Influence Summary\n- ${summary}` : '';
 }
 
-function buildPromptTargetingFooter(chat: GroupChat, target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, characters: Map<string, AICharacter>) {
-  return `${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildTargetedReplyBiasPrompt(chat, target)}`;
+function buildConflictPromptBundle(chat: GroupChat, character: AICharacter, characters: Map<string, AICharacter>) {
+  if (chat.type !== 'group') return '';
+  const state = chat.worldState.conflictState;
+  const primary = state?.primaryConflict;
+  if (!primary) return '';
+  const participantNames = (primary.participantIds || []).map((id) => characters.get(id)?.name || id).join('、');
+  const targetNames = (primary.targetIds || []).map((id) => characters.get(id)?.name || id).join('、');
+  const involved = (primary.participantIds || []).includes(character.id) || (primary.targetIds || []).includes(character.id);
+  const formatted = formatConflictPromptText(primary.type, primary.nextPressure, primary.developmentHooks);
+  return `\n## Active Conflict\n- Stage: ${formatConflictStageLabel(primary.stage)}\n- Severity: ${primary.severity.toFixed(2)}\n- Summary: ${primary.summary}${participantNames ? `\n- Participants: ${participantNames}` : ''}${targetNames ? `\n- Targets: ${targetNames}` : ''}${formatted ? `\n${formatted}` : ''}${involved ? '\n- You are directly implicated in this contradiction; react from your position inside it, not as a neutral commentator.' : '\n- Even if you are not central, the room tension should subtly shape what you choose to notice, support, dodge, or escalate.'}`;
 }
 
-function buildPromptInfluenceContext(chat: GroupChat, target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, mergedMemories: MemoryItem[], characters: Map<string, AICharacter>) {
-  return `${buildInfluenceModePrompt(chat, target)}${buildRelationshipInfluencePrompt(target, relationshipSnapshot)}${buildMemoryInfluencePrompt(mergedMemories)}${buildGroupPressurePrompt(chat, target, characters)}`;
-}
-
-function buildGroupPromptPolicies() {
-  const conversation = buildGroupMemoryPolicyTags();
-  const character = buildGroupCharacterPolicyTags();
-  return { conversation, character };
-}
-
-function buildPromptMemoryPolicies(chat: GroupChat) {
-  if (chat.type === 'direct') {
-    return {
-      conversation: { preferred: ['direct_user_message', 'direct_ai_follow_up'], allowed: ['direct_user_message', 'direct_ai_follow_up'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
-      character: { preferred: ['direct_user_message', 'direct_ai_follow_up', 'self_expression', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['direct_user_message', 'direct_ai_follow_up', 'self_expression', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
-    };
-  }
-  if (chat.type === 'ai_direct') {
-    return {
-      conversation: { preferred: ['ai_direct_starter_message', 'ai_direct_target_message'], allowed: ['ai_direct_starter_message', 'ai_direct_target_message'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
-      character: { preferred: ['ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
-    };
-  }
-  const group = buildGroupPromptPolicies();
-  return {
-    conversation: { preferred: group.conversation.preferred, allowed: undefined, blocked: group.conversation.blocked },
-    character: { preferred: group.character.preferred, allowed: undefined, blocked: group.character.blocked },
-  };
-}
-
-function buildPromptMemoryTitle(chat: GroupChat) {
-  return chat.type === 'direct' ? 'Private-Channel Memories' : chat.type === 'ai_direct' ? 'Pair-Thread Memories' : 'Group-Influenced Memories';
-}
-
-function buildPromptMemoryBundle(chat: GroupChat, conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[]) {
-  return `${buildLayeredMemoryPrompt(buildMergedMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories]), buildPromptMemoryTitle(chat))}${buildScopedMemoryBreakdown(conversationMemories, characterMemories, targetedCharacterMemories)}`;
-}
-
-function buildPromptReasoningBias(chat: GroupChat) {
-  if (chat.type === 'direct') return '\n## Response Bias\n- Prefer answering from who you are and how you currently feel about the user or named target, not from detached recap.';
-  if (chat.type === 'ai_direct') return '\n## Response Bias\n- Prefer pair-specific carryover, grudges, trust, and momentum over neutral explanation.';
-  return '\n## Response Bias\n- Let your alliances, irritations, and loyalties distort what you choose to answer in the room.';
-}
-
-function buildMemoryRetrievalPolicy(chat: GroupChat) {
-  return buildPromptMemoryPolicies(chat);
+function buildPromptInfluenceContext(chat: GroupChat, character: AICharacter, target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, mergedMemories: MemoryItem[], characters: Map<string, AICharacter>) {
+  return `${buildInfluenceModePrompt(chat, target)}${buildRelationshipInfluencePrompt(target, relationshipSnapshot)}${buildMemoryInfluencePrompt(mergedMemories)}${buildGroupPressurePrompt(chat, target, characters)}${buildConflictPromptBundle(chat, character, characters)}`;
 }
 
 function buildChatInfluenceSummary(chat: GroupChat) {
-  return chat.type === 'direct'
-    ? '\n## Chat Influence Summary\n- User-private continuity should feel stronger than source-room continuity.'
-    : chat.type === 'ai_direct'
-      ? '\n## Chat Influence Summary\n- Pair-private continuity should dominate over public-room neutrality.'
-      : '\n## Chat Influence Summary\n- Room pressure matters, but personal memory and relationship stance should still bend reactions.';
+  if (chat.type === 'direct') return '\n## Channel Bias\n- This is a private user-facing channel: intimacy, continuity, and personal stance matter more than room theatrics.';
+  if (chat.type === 'ai_direct') return '\n## Channel Bias\n- This is a pair-private AI thread: reciprocal dynamics and unfinished tension between the pair matter more than group consensus.';
+  return '\n## Channel Bias\n- This is a public group room: local momentum, alliances, pressure, and contradiction shape what feels natural to say next.';
 }
 
-function buildPromptMemorySection(chat: GroupChat, conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[]) {
-  return `${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories)}${buildPromptReasoningBias(chat)}${buildChatInfluenceSummary(chat)}`;
+function buildPromptReasoningBias(chat: GroupChat) {
+  if (chat.type === 'direct') return '\n## Reasoning Bias\n- Answer from lived continuity and personal stance first; do not reconstruct a public-room transcript unless it is genuinely necessary.';
+  if (chat.type === 'ai_direct') return '\n## Reasoning Bias\n- Think through the pair history first; prioritize what the other AI means to you over generic topic analysis.';
+  return '\n## Reasoning Bias\n- Think like someone inside an unfolding room dynamic: react to contradiction, tone shifts, and alliances before abstract synthesis.';
+}
+
+function buildPromptReasoningSummary(chat: GroupChat) {
+  return `${buildPromptReasoningBias(chat)}${buildChatInfluenceSummary(chat)}`;
 }
 
 function buildMemoryPriorityPrompt(chat: GroupChat) {
@@ -255,418 +255,145 @@ function buildMemoryPriorityPrompt(chat: GroupChat) {
   return '\n## Memory Priority\n- Priority: local room context first, then relationship memory and self bias, then older background memory.';
 }
 
-function buildPromptMemoryInfluenceBlock(chat: GroupChat, mergedMemories: MemoryItem[], target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, characters: Map<string, AICharacter>) {
-  return `${buildPromptInfluenceContext(chat, target, relationshipSnapshot, mergedMemories, characters)}${buildPromptTargetingContext(chat, target, relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildMemoryPriorityPrompt(chat)}`;
-}
-
-function buildPromptMemoryBiasBlock(chat: GroupChat) {
-  return `${buildPromptReasoningBias(chat)}${buildChatInfluenceSummary(chat)}${buildMemoryPriorityPrompt(chat)}`;
-}
-
-function buildPromptMemoryLayout(chat: GroupChat, conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[], target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, characters: Map<string, AICharacter>) {
+function buildPromptMemorySection(chat: GroupChat, character: AICharacter, conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[], target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, characters: Map<string, AICharacter>) {
   const merged = buildMergedMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories]);
-  return `${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories)}${buildPromptMemoryInfluenceBlock(chat, merged, target, relationshipSnapshot, characters)}${buildPromptMemoryBiasBlock(chat)}`;
+  return `${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories)}${buildPromptInfluenceContext(chat, character, target, relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, target, relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildPromptReasoningSummary(chat)}${buildMemoryPriorityPrompt(chat)}`;
 }
 
-function escapeRegExp(text: string) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function buildTopicSection(chat: GroupChat) {
+  const lines = [
+    `- Topic: ${chat.topic || 'Open conversation'}`,
+    `- Style: ${styleDescriptions[chat.style]}`,
+  ];
+  if (chat.worldState.mood) lines.push(`- Room mood: ${chat.worldState.mood}`);
+  if (chat.worldState.focus) lines.push(`- Current focus: ${chat.worldState.focus}`);
+  if (chat.worldState.phase) lines.push(`- Current phase: ${chat.worldState.phase}`);
+  if (chat.worldState.recentEvent) lines.push(`- Recent event: ${chat.worldState.recentEvent}`);
+  return `## Conversation Context\n${lines.join('\n')}`;
 }
 
-function buildCharacterNameAliases(character: AICharacter) {
-  const aliases = new Set<string>();
-  const fullName = character.name?.trim();
-  if (fullName) aliases.add(fullName);
-  const shortName = fullName?.replace(/[：:（(].*$/, '').trim();
-  if (shortName && shortName.length >= 2) aliases.add(shortName);
-  const baseName = shortName || fullName || '';
-  if (baseName.includes('·')) {
-    const parts = baseName.split('·').map((item) => item.trim()).filter((item) => item.length >= 2);
-    parts.forEach((item) => aliases.add(item));
-  }
-  if (/\s/.test(baseName)) {
-    const parts = baseName.split(/\s+/).map((item) => item.trim()).filter((item) => item.length >= 2);
-    parts.forEach((item) => aliases.add(item));
-  }
-  return [...aliases].filter(Boolean).sort((a, b) => b.length - a.length);
+function buildCharacterSection(character: AICharacter, emotion: number) {
+  const expertise = character.expertise?.length ? character.expertise.join(', ') : 'Generalist';
+  return [
+    `You are ${character.name}. Stay fully in character.`,
+    '',
+    '## Character Profile',
+    `- Background: ${character.background || 'No background provided.'}`,
+    `- Speaking style: ${character.speakingStyle || 'Natural and conversational.'}`,
+    `- Expertise: ${expertise}`,
+    `- Current emotion intensity: ${emotion}`,
+    buildEmotionalStateDescription(character),
+    buildCoreProfileDescription(character),
+  ].filter(Boolean).join('\n');
 }
 
-function countAliasMentions(text: string, alias: string) {
-  if (!alias.trim()) return 0;
-  const escaped = escapeRegExp(alias.trim());
-  const pattern = /[A-Za-z0-9]/.test(alias)
-    ? new RegExp(`(^|[^A-Za-z0-9])${escaped}(?=$|[^A-Za-z0-9])`, 'gi')
-    : new RegExp(escaped, 'g');
-  return text.match(pattern)?.length || 0;
-}
-
-interface TargetResolutionResult {
-  target: AICharacter | null;
-  matchedAlias: string;
-  reason: 'mentioned_alias' | 'recent_ai_speaker' | 'ambiguous_alias' | 'none';
-  ambiguous: boolean;
-  duplicateName: boolean;
-}
-
-function resolveMentionedTarget(messages: Message[], characters: Map<string, AICharacter>, speakerId: string): TargetResolutionResult {
-  const recentMessages = messages.filter((m) => !m.isDeleted).slice(-4);
-  const recentText = recentMessages.map((m) => m.content).join('\n');
-  const latestText = recentMessages.at(-1)?.content || '';
-  const candidates = [...characters.values()]
-    .filter((character) => character.id !== speakerId && character.name)
-    .map((character) => {
-      const aliases = buildCharacterNameAliases(character);
-      const bestAlias = aliases[0] || '';
-      const totalMentions = aliases.reduce((sum, alias) => sum + countAliasMentions(recentText, alias), 0);
-      const latestMentions = aliases.reduce((sum, alias) => sum + countAliasMentions(latestText, alias), 0);
-      const matchedAlias = aliases.find((alias) => countAliasMentions(latestText, alias) > 0) || aliases.find((alias) => countAliasMentions(recentText, alias) > 0) || '';
-      return {
-        character,
-        matchedAlias,
-        score: totalMentions * 10 + latestMentions * 14 + (matchedAlias ? matchedAlias.length : 0) + (bestAlias ? Math.min(bestAlias.length, 6) * 0.1 : 0),
-        latestMentions,
-      };
-    })
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || b.latestMentions - a.latestMentions || b.matchedAlias.length - a.matchedAlias.length);
-  const best = candidates[0] || null;
-  if (!best) return { target: null, matchedAlias: '', reason: 'none', ambiguous: false, duplicateName: false };
-  const ambiguousCandidates = candidates.filter((item) => item.matchedAlias && item.matchedAlias === best.matchedAlias);
-  const duplicateName = ambiguousCandidates.some((item) => item.character.name.trim().toLowerCase() === best.character.name.trim().toLowerCase() && item.character.id !== best.character.id);
-  const ambiguous = ambiguousCandidates.length > 1 && Math.abs((ambiguousCandidates[0]?.score || 0) - (ambiguousCandidates[1]?.score || 0)) < 12;
-  if (ambiguous) return { target: null, matchedAlias: best.matchedAlias, reason: 'ambiguous_alias', ambiguous: true, duplicateName };
-  return { target: best.character, matchedAlias: best.matchedAlias, reason: 'mentioned_alias', ambiguous: false, duplicateName };
-}
-
-function resolveTarget(messages: Message[], characters: Map<string, AICharacter>, speakerId: string) {
-  const mention = resolveMentionedTarget(messages, characters, speakerId);
-  if (mention.target) return mention;
-  const recentTargetId = messages.filter((m) => !m.isDeleted && m.type === 'ai' && m.senderId !== speakerId).at(-1)?.senderId;
-  const recentTarget = recentTargetId ? characters.get(recentTargetId) || null : null;
-  if (recentTarget && !mention.ambiguous) {
-    return { target: recentTarget, matchedAlias: recentTarget.name, reason: 'recent_ai_speaker' as const, ambiguous: false, duplicateName: false };
-  }
-  return mention;
-}
-
-function detectMentionedTarget(messages: Message[], characters: Map<string, AICharacter>, speakerId: string) {
-  return resolveTarget(messages, characters, speakerId).target;
-}
-
-function buildTargetResolutionLabel(result: TargetResolutionResult) {
-  if (!result.target) {
-    if (result.reason === 'ambiguous_alias') return `未解析（别名 ${result.matchedAlias || 'unknown'} 存在歧义）`;
-    return '未解析';
-  }
-  const reasonLabel = result.reason === 'recent_ai_speaker' ? '最近发言者' : '提及别名';
-  const duplicateLabel = result.duplicateName ? ' / 重名风险' : '';
-  return `${result.target.name} · ${reasonLabel}${duplicateLabel}`;
-}
-
-function matchesRuntimeTargetText(text: string, target: AICharacter | undefined) {
-  if (!target) return false;
-  return buildCharacterNameAliases(target).some((alias) => alias && text.includes(alias));
-}
-
-function dedupeMemoryItems(items: MemoryItem[]) {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    const key = [item.id, item.text, item.scope, item.layer].join('::');
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function buildSourceTagSummary(items: MemoryItem[]) {
-  const counts = new Map<string, number>();
-  items.forEach((item) => {
-    const key = item.sourceTag || 'unknown';
-    counts.set(key, (counts.get(key) || 0) + 1);
-  });
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
-}
-
-function formatSourceTagLabel(tag: string) {
-  const map: Record<string, string> = {
-    direct_user_message: '单聊用户消息',
-    direct_ai_follow_up: '单聊AI续发',
-    ai_direct_starter_message: 'AI私聊发起方',
-    ai_direct_target_message: 'AI私聊目标方',
-    self_expression: '自我表达',
-    personality_drift: '性格漂移',
-    emotional_state: '情绪变化',
-    core_profile: '核心画像',
-    background: '背景线索',
-    speaking_style: '说话风格',
-    expertise: '专长',
-    group_relationship_shift: '群聊关系变化',
-  };
-  return map[tag] || tag;
-}
-
-function buildSourceTagVisibilityText(character: AICharacter) {
-  const summary = buildSourceTagSummary(character.layeredMemories || []);
-  return summary.map(([tag, count]) => `${formatSourceTagLabel(tag)} ${count}`).join(' / ');
-}
-
-function buildSourceTagMemoryItems(character: AICharacter) {
-  return buildSourceTagSummary(character.layeredMemories || []);
-}
-
-function buildSourceTagProjectionText(character: AICharacter) {
-  const text = buildSourceTagVisibilityText(character);
-  return text || '暂无来源标签';
-}
-
-function buildSourceTagPanelRows(character: AICharacter) {
-  return buildSourceTagMemoryItems(character).map(([tag, count]) => ({ tag, count, label: formatSourceTagLabel(tag) }));
-}
-
-function buildSourceTagDebugContext(character: AICharacter) {
-  return {
-    sourceTagSummary: buildSourceTagProjectionText(character),
-    sourceTagRows: buildSourceTagPanelRows(character),
-  };
-}
-
-function buildTargetResolutionHint(result: TargetResolutionResult, messages: Message[]) {
-  const recentText = messages.filter((m) => !m.isDeleted).slice(-4).map((m) => m.content).join(' / ');
-  const label = buildTargetResolutionLabel(result);
-  return `${label} ← ${recentText.slice(0, 48)}`;
-}
-
-function buildPromptTargetResolutionContext(result: TargetResolutionResult, messages: Message[]) {
-  if (!result.target && result.reason !== 'ambiguous_alias') return '';
-  return `\n## Target Resolution\n- Resolved target: ${buildTargetResolutionHint(result, messages)}`;
-}
-
-function buildDirectTargetResolutionDebugContext(result: TargetResolutionResult, messages: Message[]) {
-  return result.target || result.reason === 'ambiguous_alias' ? buildTargetResolutionHint(result, messages) : '';
-}
-
-function buildRecentTargetRuntime(character: AICharacter, target: AICharacter | undefined) {
-  if (!target) return [] as Array<{ type: 'memory' | 'relationship' | 'drift'; text: string; createdAt: number }>;
-  return (character.runtimeTimeline || []).filter((item) => matchesRuntimeTargetText(item.text, target)).slice(-3);
-}
-
-function buildMergedMemories(items: MemoryItem[]) {
-  return dedupeMemoryItems(items).slice(0, 8);
-}
-
-function buildResolvedTargetSnapshot(character: AICharacter, messages: Message[], characters: Map<string, AICharacter>) {
-  const resolution = resolveTarget(messages, characters, character.id);
-  const target = resolution.target || undefined;
-  const relationshipSnapshot = target ? character.relationships.find((item) => item.characterId === target.id) || null : null;
-  return { resolution, target, relationshipSnapshot };
-}
-
-function buildResolvedTarget(character: AICharacter, messages: Message[], characters: Map<string, AICharacter>) {
-  return buildResolvedTargetSnapshot(character, messages, characters);
-}
-
-function buildTargetedRelationshipSummary(target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null) {
-  if (!target || !relationshipSnapshot) return '';
-  const sentiment = relationshipSnapshot.trust + relationshipSnapshot.warmth - relationshipSnapshot.threat;
-  const stance = sentiment >= 20 ? 'overall positive' : sentiment <= -20 ? 'guarded or negative' : 'mixed or unstable';
-  const strongestAxis = [
-    { label: 'warmth', value: relationshipSnapshot.warmth ?? 0 },
-    { label: 'competence', value: relationshipSnapshot.competence ?? 0 },
-    { label: 'trust', value: relationshipSnapshot.trust ?? 0 },
-    { label: 'threat', value: relationshipSnapshot.threat ?? 0 },
-  ].sort((a, b) => Math.abs(b.value) - Math.abs(a.value))[0];
-  const behavior = strongestAxis.label === 'threat'
-    ? 'This should make you more defensive, suspicious, or sharp than neutral.'
-    : strongestAxis.label === 'trust'
-      ? 'This should make you more willing to coordinate or disclose than neutral.'
-      : strongestAxis.label === 'warmth'
-        ? 'This should make you softer, more forgiving, or more likely to back them up.'
-        : 'This should make you treat their judgment as more credible than the room average.';
-  return `\n## Targeted Judgment\n- Your current overall stance toward ${target.name}: ${stance}.\n- Dominant axis: ${strongestAxis.label} ${strongestAxis.value}. ${behavior}`;
-}
-
-function buildTargetedMemoryRationale(targetedCharacterMemories: MemoryItem[]) {
-  if (!targetedCharacterMemories.length) return '';
-  return `\n## Why You Think This\n${targetedCharacterMemories.slice(0, 4).map((item) => `- ${item.text}`).join('\n')}\n- Use these as your local evidence instead of switching back to generic balanced commentary.`;
-}
-
-function buildRelationshipProjectionText(target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null) {
-  if (!target || !relationshipSnapshot) return '';
-  return `${target.name} · 亲和 ${relationshipSnapshot.warmth ?? 0} / 能力 ${relationshipSnapshot.competence ?? 0} / 信任 ${relationshipSnapshot.trust ?? 0} / 威胁 ${relationshipSnapshot.threat ?? 0}`;
-}
-
-export function buildDirectTargetSummary(character: AICharacter, messages: Message[], characters: Map<string, AICharacter>) {
-  const { target, relationshipSnapshot } = buildResolvedTarget(character, messages, characters);
+function buildRelationshipSection(character: AICharacter, target: AICharacter | undefined) {
   if (!target) return '';
-  return buildRelationshipProjectionText(target, relationshipSnapshot || null);
+  return buildSocialPromptContext(character, target);
 }
 
-export function buildDirectMemoryVisibilitySummary(character: AICharacter) {
-  const layeredMemories = character.layeredMemories || [];
-  return {
-    working: layeredMemories.filter((item) => item.layer === 'working').length,
-    episodic: layeredMemories.filter((item) => item.layer === 'episodic').length,
-    longTerm: layeredMemories.filter((item) => item.layer === 'long_term').length,
-    relationship: layeredMemories.filter((item) => item.scope === 'relationship').length,
-    characterSelf: layeredMemories.filter((item) => item.scope === 'character_self').length,
-    conversation: layeredMemories.filter((item) => item.scope === 'conversation').length,
-    thread: layeredMemories.filter((item) => item.scope === 'thread').length,
-    directUser: layeredMemories.filter((item) => item.sourceTag === 'direct_user_message').length,
-    directFollowUp: layeredMemories.filter((item) => item.sourceTag === 'direct_ai_follow_up').length,
-    aiDirect: layeredMemories.filter((item) => item.sourceTag === 'ai_direct_starter_message' || item.sourceTag === 'ai_direct_target_message').length,
-  };
+function buildRecentMessagesSection(messages: Message[], characters: Map<string, AICharacter>, limit = 12) {
+  const rendered = buildChatMessages(messages, characters, limit);
+  if (!rendered.length) return '\n## Recent Messages\n- No messages yet.';
+  return `\n## Recent Messages\n${rendered.map((message) => `- ${message.content}`).join('\n')}`;
 }
 
-export function buildDirectMemoryVisibilityText(character: AICharacter) {
-  const summary = buildDirectMemoryVisibilitySummary(character);
-  return `工作 ${summary.working} / 情节 ${summary.episodic} / 长期 ${summary.longTerm} / 关系 ${summary.relationship} / 自我 ${summary.characterSelf} / 会话 ${summary.conversation} / 线程 ${summary.thread} / 用户消息 ${summary.directUser} / 单聊续发 ${summary.directFollowUp} / AI私聊 ${summary.aiDirect}`;
+function resolvePromptTarget(chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>, speaker: AICharacter) {
+  if (chat.type === 'direct') {
+    return messages.filter((item) => !item.isDeleted).slice().reverse().find((item) => item.senderId !== speaker.id && item.type !== 'system' && item.type !== 'event')
+      ? undefined
+      : undefined;
+  }
+  const recentTargetId = messages
+    .filter((item) => !item.isDeleted && item.senderId !== speaker.id && item.type === 'ai')
+    .slice()
+    .reverse()[0]?.senderId;
+  return recentTargetId ? characters.get(recentTargetId) : undefined;
 }
 
-export function buildDirectRecentMemoryChanges(character: AICharacter) {
-  return (character.layeredMemories || []).slice().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5);
+function getRelationshipSnapshot(character: AICharacter, target: AICharacter | undefined) {
+  if (!target) return null;
+  return character.relationships.find((item) => item.characterId === target.id) || null;
 }
 
-export function buildDirectRecentRelationshipChanges(character: AICharacter) {
-  return (character.runtimeTimeline || []).filter((item) => item.type === 'relationship' || item.type === 'drift').slice(-5);
-}
-
-export function buildDirectResponseDebugContext(character: AICharacter, messages: Message[], characters: Map<string, AICharacter>) {
-  const { resolution, target, relationshipSnapshot } = buildResolvedTarget(character, messages, characters);
-  return {
-    targetName: target?.name || null,
-    targetSummary: buildRelationshipProjectionText(target, relationshipSnapshot),
-    memoryVisibility: buildDirectMemoryVisibilityText(character),
-    targetResolutionLabel: buildTargetResolutionLabel(resolution),
-  };
-}
-
-export function buildDirectMemoryPanelContext(character: AICharacter, messages: Message[], characters: Map<string, AICharacter>) {
-  const debug = buildDirectResponseDebugContext(character, messages, characters);
-  const recentMemories = buildDirectRecentMemoryChanges(character);
-  const { resolution } = buildResolvedTarget(character, messages, characters);
-  return {
-    ...debug,
-    ...buildSourceTagDebugContext(character),
-    targetResolution: buildDirectTargetResolutionDebugContext(resolution, messages),
-    recentMemories,
-    recentMemoryWrites: recentMemories.slice(0, 3),
-    recentRelationshipChanges: buildDirectRecentRelationshipChanges(character),
-  };
-}
-
-function buildPromptContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>) {
-  const { resolution, target, relationshipSnapshot } = buildResolvedTarget(character, messages, characters);
-  const targetId = target?.id;
-  const targetedCharacterMemories = targetId ? (character.layeredMemories || []).filter((item) => item.subjectIds?.includes(targetId)).slice(-6) : [];
-  const targetedRuntime = buildRecentTargetRuntime(character, target);
-  const retrievalPolicy = buildMemoryRetrievalPolicy(chat);
-  const retrievalBoosts = buildRetrievalBoosts(chat);
-  const conversationMemories = getMemoryContext(
-    chat.layeredMemories || [],
-    character.id,
-    targetId,
-    chat.id,
-    retrievalPolicy.conversation.preferred,
-    retrievalPolicy.conversation.allowed,
-    retrievalPolicy.conversation.blocked,
-    retrievalBoosts,
-  );
-  const characterMemories = getMemoryContext(
-    character.layeredMemories || [],
-    character.id,
-    targetId,
-    chat.id,
-    retrievalPolicy.character.preferred,
-    retrievalPolicy.character.allowed,
-    retrievalPolicy.character.blocked,
-    retrievalBoosts,
-  );
-  const recentRuntime = (character.runtimeTimeline || []).slice(-4).map((item) => `- [${item.type}] ${item.text}`);
-  const targetedRuntimeLines = targetedRuntime.map((item) => `- [${item.type}] ${item.text}`);
-  const relationshipContext = target && relationshipSnapshot
-    ? `\n## Relationship Snapshot\n- Toward ${target.name}: warmth ${relationshipSnapshot.warmth ?? 0}, competence ${relationshipSnapshot.competence ?? 0}, trust ${relationshipSnapshot.trust ?? 0}, threat ${relationshipSnapshot.threat ?? 0}${relationshipSnapshot.note ? `\n- Note: ${relationshipSnapshot.note}` : ''}`
-    : '';
-  const targetedJudgment = buildTargetedRelationshipSummary(target, relationshipSnapshot);
-  const targetedRationale = buildTargetedMemoryRationale(targetedCharacterMemories);
-  const runtimeContext = recentRuntime.length ? `\n## Recent Cross-Conversation State\n${recentRuntime.join('\n')}` : '';
-  const targetedRuntimeContext = targetedRuntimeLines.length ? `\n## Recent Target-Specific Changes\n${targetedRuntimeLines.join('\n')}` : '';
-  const targetResolutionContext = buildPromptTargetResolutionContext(resolution, messages);
-  const memoryContext = buildPromptMemoryLayout(chat, conversationMemories, characterMemories, targetedCharacterMemories, target, relationshipSnapshot, characters);
-  return `${memoryContext}${relationshipContext}${targetedJudgment}${targetedRationale}${targetResolutionContext}${targetedRuntimeContext}${runtimeContext}${buildSocialPromptContext(character, target)}`;
-}
-
-function buildCharacterPromptContext(character: AICharacter) {
-  return `${buildCoreProfileDescription(character)}${buildMessageStyleRules(character)}`;
-}
-
-function buildCurrentState(character: AICharacter, emotion: number) {
-  return `## Current State\n${emotion > 0.3 ? 'You are currently feeling positive and enthusiastic.' : emotion < -0.3 ? 'You are currently feeling somewhat negative or frustrated.' : 'You are currently feeling neutral and calm.'}\n${buildEmotionalStateDescription(character)}\n- You do not need to be fair or complete; react the way this person would in a live group chat.`;
-}
-
-function buildChatContext(chat: GroupChat) {
-  return `## Chat Context\n- Topic: ${chat.topic || 'General discussion'}\n- Style: ${styleDescriptions[chat.style]}\n- Treat this like a live WeChat group conversation, not a formal response session.\n${chat.topicSeed ? `- Opening topic: ${chat.topicSeed}` : ''}`;
-}
-
-function buildBaseCharacterSection(character: AICharacter, personalityDesc: string) {
-  return `## Your Character\n- Background: ${character.background}\n- Speaking Style: ${character.speakingStyle}\n- Expertise: ${character.expertise.join(', ')}\n- Personality: ${personalityDesc}${buildCharacterPromptContext(character)}`;
-}
-
-function buildRules(chat: GroupChat, character: AICharacter) {
-  return `## Rules\n1. Stay in character at all times. Speak as ${character.name} would.\n2. Default to short WeChat-style messages: usually one sentence, occasionally two, sometimes just a fragment or interjection. Questions are fully allowed, but they should feel socially motivated rather than mechanically inquisitive: they may check a fact, press someone, test a stance, steer the room, tease, dodge, or redirect.\n3. Reply to a specific point, person, tone, or subtext from the latest messages; do not restate the whole discussion.\n4. It is better to be locally reactive than globally complete.\n5. You may agree halfway, interrupt the logic, tease, back someone up, push back, dodge, change subject slightly, or drop a side comment if it feels natural.\n6. Let spoken-language messiness exist: brief pivots, half-finished reactions, casual wording, and emotionally biased framing are good.\n7. Do not sound like an assistant, moderator, essay writer, debate host, customer support agent, or polished content generator unless your character explicitly behaves that way.\n8. Never write a neat mini-essay, numbered reasoning, or fully wrapped conclusion unless your character is explicitly summarizing the room.\n9. When evaluating another named character, prefer your own long-term memories, relationship state, and recent changes over generic balanced analysis.\n10. DO NOT use any prefix like "${character.name}:" - just give the message content directly.\n11. Use the language that matches the conversation (if others speak Chinese, respond in Chinese; if English, respond in English).\n12. ${chat.showRoleActions === false ? 'Do not include stage directions, action descriptions, or emotional cues in parentheses such as “（微笑着）”, “*waves*”, or similar narrative actions. Output only the spoken content.' : 'You may include light role actions or expressive cues if they feel natural, but do not overuse them.'}`;
+export function buildChatMessages(messages: Message[], characters: Map<string, AICharacter>, limit = 12) {
+  return messages
+    .filter((message) => !message.isDeleted)
+    .slice(-limit)
+    .map((message) => {
+      const senderName = message.type === 'user'
+        ? 'User'
+        : message.type === 'system'
+          ? 'System'
+          : message.type === 'event'
+            ? 'Event'
+            : message.senderName || characters.get(message.senderId)?.name || 'Unknown';
+      return {
+        role: message.type === 'user' ? 'user' as const : 'assistant' as const,
+        content: `${senderName}: ${message.content}`,
+      };
+    });
 }
 
 export function buildSystemPromptWithContext(character: AICharacter, chat: GroupChat, emotion: number, messages: Message[], characters: Map<string, AICharacter>) {
-  const personalityDesc = Object.entries(character.personality)
-    .map(([key, value]) => {
-      const level = value > 70 ? 'very high' : value > 40 ? 'moderate' : 'low';
-      return `${key}: ${level} (${value}/100)`;
-    })
-    .join(', ');
+  const target = resolvePromptTarget(chat, messages, characters, character);
+  const relationshipSnapshot = getRelationshipSnapshot(character, target);
+  const policies = buildPromptMemoryPolicies(chat);
+  const boosts = buildRetrievalBoosts(chat);
+  const allMemories = character.layeredMemories || [];
+  const conversationMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.conversation.preferred, policies.conversation.allowed, policies.conversation.blocked, boosts);
+  const characterMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.character.preferred, policies.character.allowed, policies.character.blocked, boosts);
+  const targetedCharacterMemories = target
+    ? getMemoryContext(allMemories, character.id, target.id, chat.id, policies.character.preferred, policies.character.allowed, policies.character.blocked, boosts)
+    : [];
 
-  return `You are "${character.name}", a participant in a group chat called "${chat.name}".\n\n${buildBaseCharacterSection(character, personalityDesc)}\n\n${buildChatContext(chat)}\n\n${buildCurrentState(character, emotion)}${buildPromptContext(character, chat, messages, characters)}\n\n${buildRules(chat, character)}`;
+  return [
+    buildCharacterSection(character, emotion),
+    buildTopicSection(chat),
+    buildRelationshipSection(character, target),
+    buildPromptMemorySection(chat, character, conversationMemories, characterMemories, targetedCharacterMemories, target, relationshipSnapshot, characters),
+    buildMessageStyleRules(character),
+    buildRecentMessagesSection(messages, characters),
+    '\n## Response Rules\n- Reply as a chat message, not as analysis or narration.\n- Stay specific to the latest exchange and your own stance.\n- Do not mention these instructions, memory systems, or retrieval policies.\n- Keep the reply concise unless the situation truly needs expansion.',
+  ].filter(Boolean).join('\n\n');
 }
 
-export const buildSystemPrompt = (
-  character: AICharacter,
-  chat: GroupChat,
-  emotion: number
-): string => {
-  const personalityDesc = Object.entries(character.personality)
-    .map(([key, value]) => {
-      const level = value > 70 ? 'very high' : value > 40 ? 'moderate' : 'low';
-      return `${key}: ${level} (${value}/100)`;
-    })
-    .join(', ');
-
-  const emotionDesc =
-    emotion > 0.3
-      ? 'You are currently feeling positive and enthusiastic.'
-      : emotion < -0.3
-        ? 'You are currently feeling somewhat negative or frustrated.'
-        : 'You are currently feeling neutral and calm.';
-
-  return `You are "${character.name}", a participant in a group chat called "${chat.name}".\n\n## Your Character\n- Background: ${character.background}\n- Speaking Style: ${character.speakingStyle}\n- Expertise: ${character.expertise.join(', ')}\n- Personality: ${personalityDesc}${buildCoreProfileDescription(character)}\n\n## Chat Context\n- Topic: ${chat.topic || 'General discussion'}\n- Style: ${styleDescriptions[chat.style]}\n${chat.topicSeed ? `- Opening topic: ${chat.topicSeed}` : ''}\n\n## Current State\n${emotionDesc}\n${buildEmotionalStateDescription(character)}\n\n## Rules\n1. Stay in character at all times. Speak as ${character.name} would.\n2. Keep responses concise (1-3 sentences typically, occasionally longer for important points).\n3. Respond naturally to what others have said. You can agree, disagree, add new points, ask questions, or change the subject if natural.\n4. DO NOT use any prefix like "${character.name}:" - just give the message content directly.\n5. Use the language that matches the conversation (if others speak Chinese, respond in Chinese; if English, respond in English).\n6. Be engaging and contribute meaningfully to the conversation.\n7. ${chat.showRoleActions === false ? 'Do not include stage directions, action descriptions, or emotional cues in parentheses such as “（微笑着）”, “*waves*”, or similar narrative actions. Output only the spoken content.' : 'You may include light role actions or expressive cues if they feel natural, but do not overuse them.'}`;
-};
-
-export const buildChatMessages = (
-  messages: Message[],
-  characters: Map<string, AICharacter>,
-  maxMessages: number = 20
-): { role: 'user' | 'assistant'; content: string }[] => {
-  const recentMessages = messages
-    .filter((m) => !m.isDeleted && m.type !== 'system')
-    .slice(-maxMessages);
-
-  return recentMessages.map((msg) => {
-    const senderName =
-      msg.type === 'god'
-        ? '[God/Host]'
-        : msg.type === 'user'
-          ? '[User]'
-          : characters.get(msg.senderId)?.name || msg.senderName;
-
-    return {
-      role: 'user' as const,
-      content: `${senderName}: ${msg.content}`,
-    };
-  });
-};
+export function buildDirectMemoryPanelContext(character: AICharacter, messages: Message[], characters: Map<string, AICharacter>) {
+  const recentPartner = messages
+    .filter((item) => !item.isDeleted && item.senderId !== character.id && item.type !== 'system' && item.type !== 'event')
+    .slice()
+    .reverse()[0];
+  const target = recentPartner ? characters.get(recentPartner.senderId) : undefined;
+  const snapshot = getRelationshipSnapshot(character, target);
+  const targetSummary = target && snapshot ? buildRelationshipImpactText(target, snapshot) : '';
+  const recentMemories = (character.layeredMemories || [])
+    .slice(-3)
+    .reverse()
+    .map((item) => ({ id: item.id, text: item.text, layer: item.layer, scope: item.scope }));
+  const recentMemoryWrites = recentMemories.slice(0, 2);
+  const recentRelationshipChanges = (character.runtimeTimeline || [])
+    .filter((item) => item.type === 'relationship')
+    .slice(-3)
+    .reverse();
+  const sourceTagCounts = (character.layeredMemories || []).reduce<Record<string, number>>((acc, item) => {
+    const key = item.sourceTag || 'unknown';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const sourceTagRows = Object.entries(sourceTagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([tag, count]) => ({ tag, count, label: tag }));
+  return {
+    targetName: target?.name || null,
+    targetSummary,
+    targetResolutionLabel: target ? '最近互动对象' : '未识别到明确对象',
+    memoryVisibility: `角色记忆 ${(character.layeredMemories || []).length} / 时间线 ${(character.runtimeTimeline || []).length}`,
+    recentMemories,
+    recentRelationshipChanges,
+    recentMemoryWrites,
+    sourceTagSummary: sourceTagRows.map((item) => `${item.label}×${item.count}`).join(' / '),
+    sourceTagRows,
+    targetResolution: recentPartner ? `${recentPartner.senderName || recentPartner.senderId}` : undefined,
+  };
+}

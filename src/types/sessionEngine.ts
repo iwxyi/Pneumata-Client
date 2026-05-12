@@ -1349,7 +1349,7 @@ export interface SessionViewProjection {
 export interface SessionCommitContext {
   conversation: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null };
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null; conflictFocus?: import('./runtimeEvent').ConflictFocusPayload | null };
   previousAiMessage?: Pick<Message, 'senderId'> | null;
   recentMessages?: Message[];
   apiConfig?: APIConfig;
@@ -1529,7 +1529,7 @@ export function createDefaultConversationTurnPolicy(params: SessionGenerationCon
 export interface SessionCommitContext {
   conversation: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null };
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null; conflictFocus?: import('./runtimeEvent').ConflictFocusPayload | null };
   previousAiMessage?: Pick<Message, 'senderId'> | null;
   recentMessages?: Message[];
   apiConfig?: APIConfig;

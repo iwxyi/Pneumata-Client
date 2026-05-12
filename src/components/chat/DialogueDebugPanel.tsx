@@ -2,6 +2,7 @@ import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import type { GroupChat } from '../../types/chat';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
+import { formatConflictHookLabels, formatConflictPressureLabel, formatConflictStageLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 interface DialogueDebugPanelProps {
@@ -65,6 +66,37 @@ function buildDebugChipLabels(isZh: boolean) {
     : ['Speech fingerprint', 'Message archetype', 'Stance memory', 'Anti-answer filter'];
 }
 
+function buildConflictDebugState(chat: GroupChat) {
+  const primary = chat.worldState.conflictState?.primaryConflict;
+  if (!primary) return null;
+  return {
+    type: formatConflictTypeLabel(primary.type),
+    stage: formatConflictStageLabel(primary.stage),
+    severity: primary.severity.toFixed(2),
+    pressure: formatConflictPressureLabel(primary.nextPressure),
+    hooks: formatConflictHookLabels(primary.developmentHooks),
+    summary: primary.summary,
+  };
+}
+
+function renderConflictDebugBlock(chat: GroupChat) {
+  const state = buildConflictDebugState(chat);
+  if (!state) return null;
+  const chips = [state.type, state.stage, state.pressure ? `走向 ${state.pressure}` : ''].filter(Boolean);
+  return (
+    <>
+      <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+        <Typography variant="caption" color="text.secondary">当前矛盾焦点</Typography>
+        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{state.summary}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{`${state.type} · ${state.stage} · 强度 ${state.severity}`}</Typography>
+        {state.pressure ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{`走向：${state.pressure}`}</Typography> : null}
+        {state.hooks.length ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{`建议：${state.hooks.join(' / ')}`}</Typography> : null}
+      </Box>
+      {chips.length ? <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>{chips.map((item) => <Chip key={item} size="small" label={item} variant="outlined" />)}</Box> : null}
+    </>
+  );
+}
+
 export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith('zh');
@@ -75,7 +107,7 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
     const payload = item.payload as Record<string, unknown>;
     return typeof payload?.projectionKind === 'string';
   }).slice(0, 4);
-  const hasDebugContent = Boolean(signal.recentEvent && signal.recentEvent !== '暂无') || latestItems.length > 0 || projectionItems.length > 0;
+  const hasDebugContent = Boolean(signal.recentEvent && signal.recentEvent !== '暂无') || latestItems.length > 0 || projectionItems.length > 0 || Boolean(chat.worldState.conflictState?.primaryConflict);
   if (!hasDebugContent) return null;
 
   return (
@@ -97,6 +129,8 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
             <Typography variant="caption" color="text.secondary">{isZh ? '最近事件' : 'Recent event'}</Typography>
             <Typography variant="body2">{signal.recentEvent}</Typography>
           </Box>
+
+          {renderConflictDebugBlock(chat)}
 
           {projectionItems.length ? (
             <Box>

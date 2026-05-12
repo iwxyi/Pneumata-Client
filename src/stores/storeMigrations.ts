@@ -31,7 +31,7 @@ function migrateCharacter(input: AICharacter): AICharacter {
 function migrateChat(input: GroupChat): GroupChat {
   return {
     ...input,
-    members: Array.isArray(input.members) ? input.members : [],
+    memberIds: Array.isArray(input.memberIds) ? input.memberIds : [],
     governance: {
       ownerCharacterId: input.governance?.ownerCharacterId || null,
       adminCharacterIds: Array.isArray(input.governance?.adminCharacterIds) ? input.governance.adminCharacterIds : [],
@@ -88,13 +88,14 @@ export function migrateMessageStoreState<T extends { messages?: Array<Record<str
 
 export function migrateSettingsStoreState<T extends Record<string, unknown>>(persisted: VersionedPersistedState<T>): VersionedPersistedState<T> {
   if (!persisted) return persisted;
-  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; dramaBoost?: boolean } | undefined) || {};
+  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; dramaBoost?: boolean } | undefined) || {};
   return {
     ...persisted,
     developerUI: {
       showMemoryDebug: Boolean(developerUI.showMemoryDebug),
       showRelationshipEvents: Boolean(developerUI.showRelationshipEvents),
       showAffectEvents: Boolean(developerUI.showAffectEvents),
+      showConflictEvents: Boolean(developerUI.showConflictEvents),
       showSpeechStyle: Boolean(developerUI.showSpeechStyle),
       showAdvancedRuntimePanels: Boolean(developerUI.showAdvancedRuntimePanels),
       dramaBoost: Boolean(developerUI.dramaBoost),

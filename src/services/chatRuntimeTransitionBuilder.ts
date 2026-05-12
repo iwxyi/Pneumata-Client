@@ -3,11 +3,12 @@ import type { ConversationConflictAxis, DriverCharacterPatch, DriverEventPayload
 import type { Message } from '../types/message';
 import { deriveFallbackRelationshipDelta, updateCharacterRelationship, updateCharacterRelationshipFromDelta } from './relationshipEngine';
 import { createBaselineRelationshipCurrent, inferRelationshipDelta, reduceRelationshipLedger } from './relationshipLedger';
-import type { RuntimeEventV2 } from '../types/runtimeEvent';
-import { deriveEmotionalState, derivePersonalityDrift, getRuntimeAffectEventDriftLine, getRuntimeAffectEventEmotionLines } from './personalityDrift';import { accumulateChatRuntime } from './chatRuntime';
+import type { ConflictFocusPayload, ConflictFocusState, ConflictRuntimeState, RuntimeEventV2 } from '../types/runtimeEvent';
+import { deriveEmotionalState, derivePersonalityDrift, getRuntimeAffectEventDriftLine, getRuntimeAffectEventEmotionLines } from './personalityDrift';
+import { accumulateChatRuntime } from './chatRuntime';
 import { accumulateCharacterRuntime } from './characterRuntime';
 import { extractMemoryCandidate } from './memoryEngine';
-import { evolveConflictAxes, summarizeConflictAxes } from './conflictAxisEngine';
+import { createDefaultConflictAxes, evolveConflictAxes, summarizeConflictAxes } from './conflictAxisEngine';
 import { appendMemoryCandidateEvents, buildMemoryCandidateEvents, updateLayeredMemoriesWithEvents } from './layeredMemoryEngine';
 import { normalizeRuntimeEvent } from './runtimeEventFactory';
 import { updateCharacterLayeredMemories } from './characterLayeredMemory';
@@ -20,15 +21,57 @@ function truncateWithEllipsis(text: string, maxLength: number) {
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
-export function buildNextWorldState(conversation: GroupChat, message: Pick<Message, 'content' | 'type'>, config: RuntimeEvolutionConfig = resolveRuntimeEvolutionConfig(conversation.runtimeEvolutionIntensity)) {
-  const nextConflictAxes = message.type === 'ai' && config.worldMultiplier >= 0.7 ? evolveConflictAxes(conversation, message.content) : (conversation.worldState.conflictAxes || []);
+function normalizeConflictFocus(payload: ConflictFocusPayload | null | undefined, conversation: GroupChat, message: Pick<Message, 'content' | 'senderId'>): ConflictFocusState | null {
+  if (!payload?.present || !payload.type || !payload.summary) return null;
+  const severity = typeof payload.severity === 'number' && Number.isFinite(payload.severity) ? Math.max(0, Math.min(1, payload.severity)) : 0;
+  if (severity < 0.55) return null;
+  const participantIds = (payload.participantIds || [message.senderId]).filter((id) => conversation.memberIds.includes(id));
+  const targetIds = (payload.primaryTargetIds || []).filter((id) => conversation.memberIds.includes(id));
+  return {
+    id: `conflict-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    scope: conversation.type,
+    type: payload.type,
+    severity,
+    stage: payload.stage || (severity >= 0.85 ? 'escalating' : severity >= 0.7 ? 'open' : 'emerging'),
+    summary: payload.summary,
+    participantIds: participantIds.length ? participantIds : [message.senderId],
+    targetIds,
+    nextPressure: payload.nextPressure || 'stabilize',
+    developmentHooks: payload.developmentHooks || [],
+    sourceEventIds: [],
+    updatedAt: Date.now(),
+  };
+}
+
+function updateConflictRuntimeState(previous: ConflictRuntimeState | null | undefined, nextConflict: ConflictFocusState | null): ConflictRuntimeState | null {
+  if (!nextConflict) return previous || null;
+  const activeConflicts = [nextConflict, ...((previous?.activeConflicts || []).filter((item) => item.type !== nextConflict.type || item.summary !== nextConflict.summary))].slice(0, 6);
+  return {
+    primaryConflict: nextConflict,
+    activeConflicts,
+    developmentHooks: nextConflict.developmentHooks,
+    volatility: Math.max(nextConflict.severity, previous?.volatility || 0),
+    cooling: nextConflict.nextPressure === 'cool' ? Math.min(1, (previous?.cooling || 0) + 0.2) : Math.max(0, (previous?.cooling || 0) - 0.1),
+    updatedAt: Date.now(),
+  };
+}
+
+export function buildNextWorldState(conversation: GroupChat, message: Pick<Message, 'content' | 'type' | 'senderId'> & { conflictFocus?: ConflictFocusPayload | null }, config: RuntimeEvolutionConfig = resolveRuntimeEvolutionConfig(conversation.runtimeEvolutionIntensity)) {
+  const existingAxes = (conversation.worldState.conflictAxes || []).length ? (conversation.worldState.conflictAxes || []) : createDefaultConflictAxes(conversation);
+  const normalizedConflict = message.type === 'ai' ? normalizeConflictFocus(message.conflictFocus || null, conversation, message) : null;
+  const nextConflictAxes = normalizedConflict && message.type === 'ai' && config.worldMultiplier >= 0.7
+    ? evolveConflictAxes(conversation, message.content)
+    : existingAxes;
+  const nextConflictState = updateConflictRuntimeState(conversation.worldState.conflictState || null, normalizedConflict);
   return {
     worldState: {
       ...conversation.worldState,
       conflictAxes: nextConflictAxes,
-      recentEvent: message.type === 'ai' && nextConflictAxes.length ? summarizeConflictAxes(nextConflictAxes) : conversation.worldState.recentEvent,
+      conflictState: nextConflictState,
+      recentEvent: normalizedConflict?.summary || conversation.worldState.recentEvent || (nextConflictAxes.length ? summarizeConflictAxes(nextConflictAxes) : conversation.worldState.recentEvent),
     },
     nextConflictAxes,
+    nextConflictState,
   };
 }
 
@@ -58,7 +101,7 @@ function buildSeededRelationshipLedger(conversation: GroupChat, characters: AICh
 export function buildRelationshipTransition(params: {
   conversation: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('../types/runtimeEvent').InteractionEventPayload | null; interactionHints?: import('../types/runtimeEvent').InteractionEventPayload[] | null };
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('../types/runtimeEvent').InteractionEventPayload | null; interactionHints?: import('../types/runtimeEvent').InteractionEventPayload[] | null; conflictFocus?: ConflictFocusPayload | null };
   previousAiMessage?: Pick<Message, 'senderId'> | null;
   config?: RuntimeEvolutionConfig;
 }) {
@@ -195,6 +238,26 @@ export function buildRelationshipTransition(params: {
         pair: [speaker.name, targetEntries[0].target.name],
         metrics: null,
         timelineType: 'relationship',
+        eventClass: 'action',
+        visibilityScope: 'public',
+        createdAt: Date.now(),
+      }));
+    }
+
+    const normalizedConflict = normalizeConflictFocus(params.message.conflictFocus || null, params.conversation, params.message);
+    if (normalizedConflict) {
+      runtimeEvents.push(normalizeRuntimeEvent({
+        eventType: 'conflict_focus_shift',
+        title: `${speaker.name} 抓住了一个矛盾点`,
+        summary: normalizedConflict.summary,
+        metrics: {
+          type: normalizedConflict.type,
+          stage: normalizedConflict.stage,
+          severity: normalizedConflict.severity,
+          nextPressure: normalizedConflict.nextPressure,
+          developmentHooks: normalizedConflict.developmentHooks,
+        },
+        timelineType: 'note',
         eventClass: 'action',
         visibilityScope: 'public',
         createdAt: Date.now(),

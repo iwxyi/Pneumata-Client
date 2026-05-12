@@ -1,4 +1,5 @@
 import type { AICharacter } from '../types/character';
+import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import { extractKeywords, calculateTopicRelevance } from './topicExtractor';
 import { getRelationshipWeight } from './relationshipEngine';
@@ -63,6 +64,71 @@ export interface PendingReplyContext {
   strength: 'soft' | 'strong';
 }
 
+export interface ConflictSpeakerContext {
+  participantIds: string[];
+  targetIds: string[];
+  nextPressure: NonNullable<NonNullable<GroupChat['worldState']['conflictState']>['primaryConflict']>['nextPressure'];
+  developmentHooks: NonNullable<GroupChat['worldState']['conflictState']>['developmentHooks'];
+  severity: number;
+  stage: string;
+}
+
+function resolveConflictSpeakerContext(chat?: GroupChat | null): ConflictSpeakerContext | null {
+  const primary = chat?.type === 'group' ? chat.worldState.conflictState?.primaryConflict : null;
+  if (!primary) return null;
+  return {
+    participantIds: primary.participantIds || [],
+    targetIds: primary.targetIds || [],
+    nextPressure: primary.nextPressure,
+    developmentHooks: primary.developmentHooks || [],
+    severity: primary.severity,
+    stage: primary.stage,
+  };
+}
+
+function getConflictSpeakerBias(character: AICharacter, conflict: ConflictSpeakerContext | null, lastSpeakerId?: string) {
+  if (!conflict) return 0;
+  const isParticipant = conflict.participantIds.includes(character.id);
+  const isTarget = conflict.targetIds.includes(character.id);
+  const isCentral = isParticipant || isTarget;
+  const towardLastSpeaker = lastSpeakerId ? getRelationshipWeight(character, lastSpeakerId) : 0;
+  const safeTowardLastSpeaker = Number.isFinite(towardLastSpeaker) ? towardLastSpeaker : 0;
+  let bias = isCentral ? 0.24 + conflict.severity * 0.34 : conflict.severity * 0.08;
+
+  if (conflict.nextPressure === 'escalate') bias += isCentral ? 0.18 : 0.04;
+  if (conflict.nextPressure === 'spread') bias += isParticipant ? 0.14 : 0.1;
+  if (conflict.nextPressure === 'stabilize') bias += isTarget ? 0.12 : 0.02;
+  if (conflict.nextPressure === 'divert') bias += isCentral ? 0.05 : 0.12;
+  if (conflict.nextPressure === 'cool') bias -= isCentral ? 0.06 : 0.01;
+
+  if (conflict.developmentHooks.includes('invite_target_response') && isTarget) bias += 0.26;
+  if (conflict.developmentHooks.includes('force_side_taking') && !isCentral) bias += 0.2;
+  if (conflict.developmentHooks.includes('expose_contradiction') && isParticipant) bias += 0.18;
+  if (conflict.developmentHooks.includes('raise_stakes') && isCentral) bias += 0.16;
+  if (conflict.developmentHooks.includes('shift_public_private') && isCentral) bias += 0.08;
+  if (conflict.developmentHooks.includes('cool_down_with_residue') && isCentral) bias -= 0.04;
+  if (conflict.developmentHooks.includes('redirect_topic') && !isCentral) bias += 0.12;
+  if (conflict.developmentHooks.includes('trigger_memory_recall') && Math.abs(safeTowardLastSpeaker) > 0.15) bias += 0.08;
+
+  if (conflict.stage === 'escalating') bias += isCentral ? 0.1 : 0.03;
+  if (conflict.stage === 'open') bias += isCentral ? 0.06 : 0.02;
+  if (conflict.stage === 'cooling') bias -= isCentral ? 0.03 : 0;
+
+  return bias;
+}
+
+function getConflictDirectReplyBonus(character: AICharacter, conflict: ConflictSpeakerContext | null, lastSpeakerId?: string) {
+  if (!conflict || !lastSpeakerId) return 0;
+  const lastSpeakerInConflict = conflict.participantIds.includes(lastSpeakerId) || conflict.targetIds.includes(lastSpeakerId);
+  if (!lastSpeakerInConflict) return 0;
+  const relationWeight = getRelationshipWeight(character, lastSpeakerId);
+  const safeRelationWeight = Number.isFinite(relationWeight) ? relationWeight : 0;
+  const isCentral = conflict.participantIds.includes(character.id) || conflict.targetIds.includes(character.id);
+  if (isCentral && safeRelationWeight < 0) return 0.16 + conflict.severity * 0.1;
+  if (conflict.developmentHooks.includes('force_side_taking') && !isCentral) return 0.12;
+  return 0;
+}
+
 function countUnmetTurns(recentAiMessages: Message[], primaryTargetId: string, sourceMessageId?: string | null) {
   const sourceIndex = recentAiMessages.findIndex((message) => message.id === sourceMessageId);
   const tail = sourceIndex >= 0 ? recentAiMessages.slice(sourceIndex + 1) : recentAiMessages.slice(-3);
@@ -114,10 +180,12 @@ export function calculateWeights(
   cooldownMap: Record<string, number>,
   speed: number,
   baseCooldownMs: number,
-  pendingReplyContext?: PendingReplyContext | null
+  pendingReplyContext?: PendingReplyContext | null,
+  chat?: GroupChat | null
 ): WeightedCandidate[] {
   const recentAiMessages = recentMessages.filter((m) => m.type === 'ai' && !m.isDeleted);
   const lastSpeakerId = recentAiMessages.at(-1)?.senderId;
+  const conflictContext = resolveConflictSpeakerContext(chat);
   const recentSpeakerIds = recentAiMessages.slice(-6).map((m) => m.senderId);
   const recentSpeakCounts = recentSpeakerIds.reduce<Record<string, number>>((acc, speakerId) => {
     acc[speakerId] = (acc[speakerId] || 0) + 1;
@@ -160,6 +228,7 @@ export function calculateWeights(
             ? (pendingReplyContext.strength === 'strong' ? 0.85 : 0.45) + Math.min(0.45, pendingReplyContext.unmetTurns * 0.12)
             : 0.18)
         : 0;
+      const conflictBias = getConflictSpeakerBias(char, conflictContext, lastSpeakerId);
       const debugBase = {
         characterId: char.id,
         characterName: char.name,
@@ -181,6 +250,7 @@ export function calculateWeights(
       if (recentCount === 0) weight += 0.06;
       if (recentCount >= 2) weight -= 0.18;
       weight += pendingReplyBoost;
+      weight += conflictBias;
       const lastAiMessage = recentAiMessages.at(-1);
       if (lastAiMessage && lastAiMessage.senderId !== char.id) {
         const relationWeight = getRelationshipWeight(char, lastAiMessage.senderId);
@@ -195,6 +265,7 @@ export function calculateWeights(
         }
         const directCue = lastAiMessage.content.includes(char.name) || /你|你这|不是吧|等等|可问题是|那你|你咋|你是不是|你先别/.test(lastAiMessage.content);
         if (directCue) weight += 0.18;
+        weight += getConflictDirectReplyBonus(char, conflictContext, lastAiMessage.senderId);
         if (lastAiMessage.content.length <= 18) weight += 0.06;
         if (lastAiMessage.content.length >= 90) weight -= 0.12;
         if (Number.isNaN(weight)) {

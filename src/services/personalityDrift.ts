@@ -143,7 +143,7 @@ export function applyDriftToBehavior(character: AICharacter) {
 
 export function summarizeRuntimeAffect(character: AICharacter, language: string) {
   const drift = character.personalityDrift || {};
-  const emotion = character.emotionalState || {};
+  const emotion = character.emotionalState || { irritation: 0, affection: 0, insecurity: 0, excitement: 0, embarrassment: 0 };
   const driftItems = DRIFT_DISPLAY_AXES
     .map((key) => ({ key, value: Number(drift[key] || 0) }))
     .filter((item) => Math.abs(item.value) >= 6)
@@ -166,7 +166,7 @@ export function getAffectSummaryLines(character: AICharacter, language: string) 
 
 export function buildRuntimeAffectRadarValues(character: AICharacter) {
   const drift = character.personalityDrift || {};
-  const emotion = character.emotionalState || {};
+  const emotion = character.emotionalState || { irritation: 0, affection: 0, insecurity: 0, excitement: 0, embarrassment: 0 };
   return {
     assertiveness: Math.max(0, Math.min(100, 40 + Number(drift.assertiveness || 0) * 1.8 + Number(emotion.irritation || 0) * 0.18)),
     empathy: Math.max(0, Math.min(100, 40 + Number(drift.empathy || 0) * 1.8 + Number(emotion.affection || 0) * 0.22)),

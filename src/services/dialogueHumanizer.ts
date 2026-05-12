@@ -155,9 +155,9 @@ export function buildSpeechFingerprint(character: AICharacter): SpeechFingerprin
         : ['就这样', '差不多'];
   const explicitQuestionBias = speechProfile?.questionBias ?? 50;
   const asksForInformation = explicitQuestionBias >= 62 || (explicitQuestionBias >= 55 && character.behavior.empathyLevel >= 58);
-  const usesQuestionAsPushback = character.behavior.aggressiveness >= 68 || (explicitQuestionBias >= 58 && character.behavior.assertiveness >= 60);
+  const usesQuestionAsPushback = character.behavior.aggressiveness >= 68 || (explicitQuestionBias >= 58 && character.personality.assertiveness >= 60);
   const usesQuestionToSteer = character.behavior.summarizing >= 68 || (explicitQuestionBias >= 56 && character.behavior.proactivity >= 60);
-  const usesQuestionPlayfully = character.behavior.humorIntensity >= 68 || (explicitQuestionBias >= 54 && character.behavior.creativity >= 60);
+  const usesQuestionPlayfully = character.behavior.humorIntensity >= 68 || (explicitQuestionBias >= 54 && character.personality.creativity >= 60);
   return {
     fillers,
     openers,

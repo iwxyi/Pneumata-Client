@@ -7,6 +7,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import { isImageAvatar } from '../../utils/avatar';
 import { formatTimestamp } from '../../utils/format';
+import { formatConflictMetricsForDisplay, formatRuntimeEventText, parseRuntimeEvent } from '../../services/runtimeEventFactory';
 
 interface MessageBubbleProps {
   message: Message;
@@ -55,11 +56,49 @@ function renderPendingTypingDots() {
   );
 }
 
+function renderConflictEventMeta(payload: { metrics?: unknown }) {
+  const metrics = formatConflictMetricsForDisplay(payload.metrics);
+  if (!metrics) return null;
+  const items = [
+    metrics.type ? `类型：${metrics.type}` : '',
+    metrics.stage ? `阶段：${metrics.stage}` : '',
+    metrics.severity ? `强度：${metrics.severity}` : '',
+    metrics.nextPressure ? `走向：${metrics.nextPressure}` : '',
+  ].filter(Boolean);
+  return (
+    <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
+      {items.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{items.join(' · ')}</Typography> : null}
+      {metrics.hooks.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{`建议：${metrics.hooks.join(' / ')}`}</Typography> : null}
+    </Box>
+  );
+}
+
+function renderEventBubble(payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }) {
+  const displayText = formatRuntimeEventText({
+    eventType: payload.eventType || 'event',
+    title: payload.title || '事件',
+    summary: payload.summary || '',
+    pair: payload.pair as [string, string] | undefined,
+    metrics: payload.metrics,
+  });
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: 2 }}>
+      <Box sx={{ maxWidth: 620, width: 'fit-content', minWidth: 420, px: 1.75, py: 1, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+        <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {displayText}
+        </Typography>
+        {payload.eventType === 'conflict_focus_shift' ? renderConflictEventMeta(payload) : null}
+      </Box>
+    </Box>
+  );
+}
+
 export default function MessageBubble({ message, character, onDelete, onAnalyze, pending = false }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showRelationshipEvents = useSettingsStore((state) => state.developerUI.showRelationshipEvents);
   const showAffectEvents = useSettingsStore((state) => state.developerUI.showAffectEvents);
+  const showConflictEvents = useSettingsStore((state) => state.developerUI.showConflictEvents);
   const navigate = useNavigate();
   const location = useLocation();
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -159,28 +198,17 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
 
   if (message.type === 'event') {
     if (!developerMode) return null;
-    let payload: { eventType?: string; title?: string; summary?: string; pair?: string[] } | null = null;
-    try {
-      payload = JSON.parse(message.content);
-    } catch {
-      payload = { title: '事件', summary: message.content };
-    }
-    if (payload?.eventType && !['group_relationship_shift', 'relationship_shift', 'speaker_drift_shift', 'speaker_emotion_shift', 'target_emotion_shift'].includes(String(payload.eventType))) return null;
+    const parsed = parseRuntimeEvent(message.content);
+    const payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown } = parsed || { title: '事件', summary: message.content };
+    if (payload?.eventType && !['group_relationship_shift', 'relationship_shift', 'speaker_drift_shift', 'speaker_emotion_shift', 'target_emotion_shift', 'conflict_focus_shift'].includes(String(payload.eventType))) return null;
     if ((payload?.eventType === 'group_relationship_shift' || payload?.eventType === 'relationship_shift') && !showRelationshipEvents) return null;
     if ((payload?.eventType === 'speaker_drift_shift' || payload?.eventType === 'speaker_emotion_shift' || payload?.eventType === 'target_emotion_shift') && !showAffectEvents) return null;
-    const displayText = payload?.summary || payload?.title || '事件';
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: 2 }}>
-        <Box sx={{ maxWidth: 620, width: 'fit-content', minWidth: 420, px: 1.75, py: 1, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-            {displayText}
-          </Typography>
-        </Box>
-      </Box>
-    );
+    if (payload?.eventType === 'conflict_focus_shift' && !showConflictEvents) return null;
+    return renderEventBubble(payload);
   }
 
   const isUser = message.type === 'user' || message.type === 'god';
+
   const isGod = message.type === 'god';
   const senderName = message.senderName || character?.name || '';
   const senderAvatar = character?.avatar || message.senderName.charAt(0);

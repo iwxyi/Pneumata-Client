@@ -4533,7 +4533,7 @@ export const useMessageStore = create<MessageStore>()(
       name: 'mirageTea-messages',
       storage: messageStorage as never,
       version: CLIENT_STORE_SCHEMA_VERSION,
-      migrate: (persistedState) => migrateMessageStoreState(persistedState as Partial<MessageStore>) as Partial<MessageStore>,
+      migrate: (persistedState) => migrateMessageStoreState(persistedState as { messages?: Array<Record<string, unknown>>; messageWindowsByChatId?: Record<string, { messages?: Array<Record<string, unknown>> }> }) as Partial<MessageStore>,
       partialize: ((state: MessageStore) => ({
         messageWindowsByChatId: state.messageWindowsByChatId,
         pendingOperations: state.pendingOperations,

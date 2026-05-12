@@ -4,7 +4,7 @@ import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { SessionGenerationPromptContext } from '../types/sessionEngine';
 import { getPreferredAIProfile } from '../types/settings';
-import type { InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
+import type { ConflictFocusPayload, InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
 import { normalizeInteractionHintCollection } from '../types/runtimeEvent';
 import { generateJsonResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildChatMessages } from './promptBuilder';
@@ -22,6 +22,7 @@ interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDe
   addressedTargetIds?: string[] | null;
   primaryAddressedTargetId?: string | null;
   socialEventHints?: SocialEventHintEnvelope[] | null;
+  conflictFocus?: ConflictFocusPayload | null;
 }
 
 const emotionMap: Record<string, number> = {};
@@ -262,6 +263,7 @@ function buildCompletedMessage(params: {
     addressedTargetIds: params.parsedEnvelope?.addressedTargets?.targetIds || null,
     primaryAddressedTargetId: params.parsedEnvelope?.addressedTargets?.primaryTargetId || params.parsedEnvelope?.addressedTargets?.targetIds?.[0] || null,
     socialEventHints: params.parsedEnvelope?.socialEventHints || null,
+    conflictFocus: params.parsedEnvelope?.conflictFocus || null,
   };
 }
 
@@ -314,7 +316,7 @@ export const runOneRound = async (
 
   const activeMessages = messages.filter((m) => !m.isDeleted);
   const pendingReplyContext = chat.type === 'group' ? resolvePendingReplyContext(chatMembers, activeMessages) : null;
-  const candidates = calculateWeights(chatMembers, activeMessages, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, pendingReplyContext);
+  const candidates = calculateWeights(chatMembers, activeMessages, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, pendingReplyContext, chat);
   const speakerSelection = getSpeakerSelectionResult(chatMembers, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, candidates);
   if (chat.type === 'group' && !speakerSelection.speakerId) {
     console.info('[group-loop:idle]', {

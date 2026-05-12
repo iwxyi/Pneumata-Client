@@ -31,6 +31,7 @@ export interface DeveloperUIPrefs {
   showMemoryDebug: boolean;
   showRelationshipEvents: boolean;
   showAffectEvents: boolean;
+  showConflictEvents: boolean;
   showSpeechStyle: boolean;
   showAdvancedRuntimePanels: boolean;
   dramaBoost: boolean;
@@ -55,6 +56,7 @@ export function normalizeDeveloperUiPrefs(input?: Partial<DeveloperUIPrefs> | nu
     showMemoryDebug: Boolean(input?.showMemoryDebug),
     showRelationshipEvents: Boolean(input?.showRelationshipEvents),
     showAffectEvents: Boolean(input?.showAffectEvents),
+    showConflictEvents: Boolean(input?.showConflictEvents),
     showSpeechStyle: Boolean(input?.showSpeechStyle),
     showAdvancedRuntimePanels: Boolean(input?.showAdvancedRuntimePanels),
     dramaBoost: Boolean(input?.dramaBoost),
@@ -324,6 +326,7 @@ export const DEFAULT_DEVELOPER_UI_PREFS: DeveloperUIPrefs = {
   showMemoryDebug: false,
   showRelationshipEvents: false,
   showAffectEvents: false,
+  showConflictEvents: false,
   showSpeechStyle: false,
   showAdvancedRuntimePanels: false,
   dramaBoost: false,

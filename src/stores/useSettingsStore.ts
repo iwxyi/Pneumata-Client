@@ -391,7 +391,7 @@ export const useSettingsStore = create<SettingsStore>()(
     {
       name: 'mirageTea-settings',
       version: CLIENT_STORE_SCHEMA_VERSION,
-      migrate: (persistedState) => migrateSettingsStoreState(persistedState as Partial<SettingsStore>) as Partial<SettingsStore>,
+      migrate: (persistedState) => migrateSettingsStoreState(persistedState as Partial<SettingsStore>) as typeof DEFAULT_SETTINGS,
       partialize: (state) => ({
         api: state.api,
         aiProfiles: state.aiProfiles,

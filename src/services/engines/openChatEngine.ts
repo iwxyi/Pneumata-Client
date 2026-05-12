@@ -54,7 +54,7 @@ function createRuntimeEventV2(params: {
 
 async function resolveInteraction(params: {
   conversation: GroupChat;
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: InteractionEventPayload | null; socialEventHints?: SocialEventHintEnvelope[] | null };
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: InteractionEventPayload | null; socialEventHints?: SocialEventHintEnvelope[] | null; conflictFocus?: import('../../types/runtimeEvent').ConflictFocusPayload | null };
   characters: AICharacter[];
   recentMessages?: Message[];
   apiConfig?: APIConfig;
@@ -1147,7 +1147,7 @@ function buildMomentArtifactEventsAndOuting(params: {
 
 async function buildStructuredRuntime(params: {
   conversation: GroupChat;
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: InteractionEventPayload | null; socialEventHints?: SocialEventHintEnvelope[] | null };
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: InteractionEventPayload | null; socialEventHints?: SocialEventHintEnvelope[] | null; conflictFocus?: import('../../types/runtimeEvent').ConflictFocusPayload | null };
   characters: AICharacter[];
   recentMessages?: Message[];
   apiConfig?: APIConfig;
@@ -1172,6 +1172,7 @@ async function buildStructuredRuntime(params: {
   const enrichedMessage = {
     ...params.message,
     socialEventHints: resolvedSocialEventHints,
+    conflictFocus: params.message.conflictFocus || null,
   };
 
   const messageGeneratedEvent = createRuntimeEventV2({
@@ -1354,7 +1355,7 @@ function mergeRecentEvent(baseRecentEvent: string, structuredSummary: string | n
 async function onMessageCommitted(params: {
   conversation: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: InteractionEventPayload | null; socialEventHints?: SocialEventHintEnvelope[] | null };
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: InteractionEventPayload | null; socialEventHints?: SocialEventHintEnvelope[] | null; conflictFocus?: import('../../types/runtimeEvent').ConflictFocusPayload | null };
   previousAiMessage?: Pick<Message, 'senderId'> | null;
   recentMessages?: Message[];
   apiConfig?: APIConfig;
