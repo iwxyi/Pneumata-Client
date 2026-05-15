@@ -40,6 +40,30 @@ type RuntimeMemoryMonitorApi = {
   export: () => RuntimeMemoryMonitorRecord[];
   latest: (count?: number) => RuntimeMemoryMonitorRecord[];
   summary: () => RuntimeMemoryMonitorRecord | null;
+  snapshot: () => Promise<RuntimeMemoryForensicsSnapshot>;
+  mark: () => Promise<RuntimeMemoryForensicsSnapshot>;
+  diff: () => Promise<Record<string, number> | null>;
+  watch: (options?: { intervalMs?: number; limit?: number }) => () => void;
+};
+
+type SizedEntry = {
+  id: string;
+  label?: string;
+  size: number;
+  counts?: Record<string, number>;
+  fields?: Record<string, number>;
+};
+
+type RuntimeMemoryForensicsSnapshot = {
+  at: number;
+  memory: MemoryMeasure;
+  totals: Record<string, number>;
+  largest: {
+    chats: SizedEntry[];
+    characters: SizedEntry[];
+    messageWindows: SizedEntry[];
+    localStorage: SizedEntry[];
+  };
 };
 
 const STORAGE_KEY = 'mirageTea-runtime-memory-monitor';
@@ -48,6 +72,7 @@ const MAX_RECORDS = 200;
 const records: RuntimeMemoryMonitorRecord[] = [];
 const jsonSizeCache = new WeakMap<object, number>();
 let nextRecordId = 1;
+let markedForensicsSnapshot: RuntimeMemoryForensicsSnapshot | null = null;
 
 function getGlobalFlag() {
   return Boolean((globalThis as { __MIRAGETEA_MEMORY_MONITOR_ENABLED__?: boolean }).__MIRAGETEA_MEMORY_MONITOR_ENABLED__);
@@ -127,6 +152,148 @@ function safeJsonSize(value: unknown) {
   } catch {
     return -1;
   }
+}
+
+function directJsonSize(value: unknown) {
+  if (value == null) return 0;
+  try {
+    return JSON.stringify(value).length;
+  } catch {
+    return -1;
+  }
+}
+
+function topEntries(entries: SizedEntry[], limit = 10) {
+  return [...entries].sort((left, right) => right.size - left.size).slice(0, limit);
+}
+
+function sizeLocalStorageEntries() {
+  if (typeof localStorage === 'undefined') return [];
+  const entries: SizedEntry[] = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (!key) continue;
+    if (!key.toLowerCase().includes('miragetea')) continue;
+    const value = localStorage.getItem(key) || '';
+    entries.push({ id: key, size: value.length });
+  }
+  return entries;
+}
+
+async function readForensicsStores() {
+  const [{ useChatStore }, { useCharacterStore }, { useMessageStore }] = await Promise.all([
+    import('../stores/useChatStore'),
+    import('../stores/useCharacterStore'),
+    import('../stores/useMessageStore'),
+  ]);
+  return {
+    chatState: useChatStore.getState(),
+    characterState: useCharacterStore.getState(),
+    messageState: useMessageStore.getState(),
+  };
+}
+
+function sizeChatEntry(chat: GroupChat): SizedEntry {
+  const fields = {
+    worldState: directJsonSize(chat.worldState),
+    layeredMemories: directJsonSize(chat.layeredMemories),
+    runtimeSeed: directJsonSize(chat.runtimeSeed),
+    runtimeTimeline: directJsonSize(chat.runtimeTimeline),
+    runtimeEventsV2: directJsonSize(chat.runtimeEventsV2),
+    relationshipLedger: directJsonSize(chat.relationshipLedger),
+    modeState: directJsonSize(chat.modeState),
+    scenarioState: directJsonSize(chat.scenarioState),
+  };
+  return {
+    id: chat.id,
+    label: chat.name,
+    size: directJsonSize(chat),
+    counts: {
+      layeredMemories: chat.layeredMemories?.length || 0,
+      runtimeTimeline: chat.runtimeTimeline?.length || 0,
+      runtimeEventsV2: chat.runtimeEventsV2?.length || 0,
+      relationshipLedger: chat.relationshipLedger?.length || 0,
+      relationshipLedgerRecentEvents: (chat.relationshipLedger || []).reduce((sum, item) => sum + (item.recentEvents?.length || 0), 0),
+      conflictAxes: chat.worldState?.conflictAxes?.length || 0,
+      activeConflicts: chat.worldState?.conflictState?.activeConflicts?.length || 0,
+    },
+    fields,
+  };
+}
+
+function sizeCharacterEntry(character: AICharacter): SizedEntry {
+  const fields = {
+    relationships: directJsonSize(character.relationships),
+    layeredMemories: directJsonSize(character.layeredMemories),
+    runtimeTimeline: directJsonSize(character.runtimeTimeline),
+    memory: directJsonSize(character.memory),
+    emotionalState: directJsonSize(character.emotionalState),
+    personalityDrift: directJsonSize(character.personalityDrift),
+    behavior: directJsonSize(character.behavior),
+  };
+  return {
+    id: character.id,
+    label: character.name,
+    size: directJsonSize(character),
+    counts: {
+      relationships: character.relationships?.length || 0,
+      layeredMemories: character.layeredMemories?.length || 0,
+      runtimeTimeline: character.runtimeTimeline?.length || 0,
+      memoryLongTerm: character.memory?.longTerm?.length || 0,
+      memoryUser: character.memory?.userMemories?.length || 0,
+    },
+    fields,
+  };
+}
+
+function sizeMessageWindowEntry(chatId: string, window: { messages?: Message[]; updatedAt?: number }): SizedEntry {
+  const messages = window.messages || [];
+  return {
+    id: chatId,
+    size: directJsonSize(window),
+    counts: {
+      messages: messages.length,
+      eventMessages: messages.filter((message) => message.type === 'event').length,
+      streamingMessages: messages.filter((message) => message.isStreaming).length,
+      deletedMessages: messages.filter((message) => message.isDeleted).length,
+      totalContentChars: messages.reduce((sum, message) => sum + (message.content?.length || 0), 0),
+    },
+    fields: {
+      messages: directJsonSize(messages),
+    },
+  };
+}
+
+async function createForensicsSnapshot(limit = 10): Promise<RuntimeMemoryForensicsSnapshot> {
+  const { chatState, characterState, messageState } = await readForensicsStores();
+  const chatEntries = chatState.chats.map(sizeChatEntry);
+  const characterEntries = characterState.characters.map(sizeCharacterEntry);
+  const messageWindowEntries = Object.entries(messageState.messageWindowsByChatId)
+    .map(([chatId, window]) => sizeMessageWindowEntry(chatId, window));
+  const localStorageEntries = sizeLocalStorageEntries();
+  const snapshot = {
+    at: Date.now(),
+    memory: readMemory(),
+    totals: {
+      chats: directJsonSize(chatState.chats),
+      characters: directJsonSize(characterState.characters),
+      activeMessages: directJsonSize(messageState.messages),
+      messageWindows: directJsonSize(messageState.messageWindowsByChatId),
+      chatPendingOperations: directJsonSize(chatState.pendingOperations),
+      characterPendingOperations: directJsonSize(characterState.pendingOperations),
+      messagePendingOperations: directJsonSize(messageState.pendingOperations),
+      localStorage: localStorageEntries.reduce((sum, entry) => sum + Math.max(0, entry.size), 0),
+      domNodes: countDomNodes().domNodes,
+    },
+    largest: {
+      chats: topEntries(chatEntries, limit),
+      characters: topEntries(characterEntries, limit),
+      messageWindows: topEntries(messageWindowEntries, limit),
+      localStorage: topEntries(localStorageEntries, limit),
+    },
+  };
+  console.info('[memory-forensics] snapshot', snapshot);
+  return snapshot;
 }
 
 function countChatRuntime(chat: GroupChat | null | undefined) {
@@ -337,6 +504,47 @@ function buildMonitorApi(): RuntimeMemoryMonitorApi {
     export: () => records.slice(),
     latest: (count = 20) => records.slice(-count),
     summary: () => records.at(-1) || null,
+    snapshot: () => createForensicsSnapshot(),
+    mark: async () => {
+      markedForensicsSnapshot = await createForensicsSnapshot();
+      console.info('[memory-forensics] marked baseline', markedForensicsSnapshot);
+      return markedForensicsSnapshot;
+    },
+    diff: async () => {
+      if (!markedForensicsSnapshot) {
+        console.warn('[memory-forensics] no baseline; call mark() first');
+        return null;
+      }
+      const snapshot = await createForensicsSnapshot();
+      const delta = {
+        usedJSHeapSize: (snapshot.memory.usedJSHeapSize || 0) - (markedForensicsSnapshot.memory.usedJSHeapSize || 0),
+        totalJSHeapSize: (snapshot.memory.totalJSHeapSize || 0) - (markedForensicsSnapshot.memory.totalJSHeapSize || 0),
+        ...Object.fromEntries(Object.entries(snapshot.totals).map(([key, value]) => [key, value - (markedForensicsSnapshot?.totals[key] || 0)])),
+      };
+      console.info('[memory-forensics] diff from marked baseline', delta);
+      return delta;
+    },
+    watch: (options = {}) => {
+      const intervalMs = options.intervalMs ?? 5000;
+      const limit = options.limit ?? 5;
+      let previous: RuntimeMemoryForensicsSnapshot | null = null;
+      const timer = window.setInterval(() => {
+        void createForensicsSnapshot(limit).then((snapshot) => {
+          if (previous) {
+            console.info('[memory-forensics] delta', {
+              at: snapshot.at,
+              heapDelta: (snapshot.memory.usedJSHeapSize || 0) - (previous.memory.usedJSHeapSize || 0),
+              totalsDelta: Object.fromEntries(Object.entries(snapshot.totals).map(([key, value]) => [key, value - (previous?.totals[key] || 0)])),
+            });
+          }
+          previous = snapshot;
+        });
+      }, intervalMs);
+      void createForensicsSnapshot(limit).then((snapshot) => {
+        previous = snapshot;
+      });
+      return () => window.clearInterval(timer);
+    },
   };
 }
 
