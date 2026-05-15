@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Typography, IconButton, Avatar, TextField, InputAdornment, Chip } from '@mui/material';
 import { isImageAvatar } from '../utils/avatar';
-import { Search as SearchIcon, ChatBubbleOutlined as ChatIcon } from '@mui/icons-material';
+import SearchIcon from '@mui/icons-material/Search';
+import ChatIcon from '@mui/icons-material/ChatBubbleOutlined';
 import { useNavigate } from 'react-router-dom';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';

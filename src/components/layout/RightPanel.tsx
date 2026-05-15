@@ -1,5 +1,5 @@
 import { Box, Drawer, SwipeableDrawer, IconButton, Typography, Divider } from '@mui/material';
-import { Close as CloseIcon } from '@mui/icons-material';
+import CloseIcon from '@mui/icons-material/Close';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useUIStore } from '../../stores/useUIStore';
 

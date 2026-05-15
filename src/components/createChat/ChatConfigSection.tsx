@@ -1,4 +1,5 @@
-import { Add as AddIcon, LocalFireDepartment as HotIcon } from '@mui/icons-material';
+import AddIcon from '@mui/icons-material/Add';
+import HotIcon from '@mui/icons-material/LocalFireDepartment';
 import {
   Avatar,
   Box,

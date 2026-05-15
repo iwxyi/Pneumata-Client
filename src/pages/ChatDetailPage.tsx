@@ -4,12 +4,10 @@ import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
 import StatChipRow from '../components/common/StatChipRow';
-import {
-  People as PeopleIcon,
-  Info as InfoIcon,
-  PlayArrow as PlayIcon,
-  Pause as PauseIcon,
-} from '@mui/icons-material';
+import PeopleIcon from '@mui/icons-material/People';
+import InfoIcon from '@mui/icons-material/Info';
+import PlayIcon from '@mui/icons-material/PlayArrow';
+import PauseIcon from '@mui/icons-material/Pause';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';

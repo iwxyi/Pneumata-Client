@@ -2,7 +2,8 @@ import { Box, Typography, Avatar, IconButton, Menu, MenuItem, List, ListItem, Li
 import { RelationshipRadar } from './RelationshipPanel';
 import { getAffectChipColor, getRuntimeAffectMemberIndicators, getRuntimeAffectMemberShape, hasRuntimeAffectIndicators } from '../../services/personalityDrift';
 import { isImageAvatar } from '../../utils/avatar';
-import { MoreVert as MoreIcon, DragIndicator as DragIndicatorIcon } from '@mui/icons-material';
+import MoreIcon from '@mui/icons-material/MoreVert';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { useMemo, useState } from 'react';
 import SortableList from '../common/SortableList';
 import { useTranslation } from 'react-i18next';

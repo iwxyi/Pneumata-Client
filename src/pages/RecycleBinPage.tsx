@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Tabs, Tab, Typography, Button, Checkbox, Fab, Snackbar, Alert } from '@mui/material';
-import { DeleteSweep as DeleteSweepIcon, RestoreFromTrash as RestoreFromTrashIcon } from '@mui/icons-material';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import RestoreFromTrashIcon from '@mui/icons-material/RestoreFromTrash';
 import { useTranslation } from 'react-i18next';
 import EmptyState from '../components/common/EmptyState';
 import ConfirmDialog from '../components/common/ConfirmDialog';

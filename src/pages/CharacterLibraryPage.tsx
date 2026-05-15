@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { Box, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Typography, Divider } from '@mui/material';
-import { Add as AddIcon, MoreVert as MoreIcon, ClearAll as ClearAllIcon, DeleteSweep as DeleteSweepIcon, Sort as SortIcon } from '@mui/icons-material';
+import AddIcon from '@mui/icons-material/Add';
+import MoreIcon from '@mui/icons-material/MoreVert';
+import ClearAllIcon from '@mui/icons-material/ClearAll';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import SortIcon from '@mui/icons-material/Sort';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useCharacterStore } from '../stores/useCharacterStore';

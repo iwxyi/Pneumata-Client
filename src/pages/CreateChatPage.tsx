@@ -4,7 +4,8 @@ import {
   Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   Snackbar, Alert, Tabs, Tab,
 } from '@mui/material';
-import { Delete as DeleteIcon, AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
+import DeleteIcon from '@mui/icons-material/Delete';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';

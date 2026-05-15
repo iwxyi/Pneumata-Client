@@ -1,5 +1,6 @@
 import { Box, Collapse, IconButton, Typography } from '@mui/material';
-import { ExpandLess as ExpandLessIcon, ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 interface CollapsibleParamGroupProps {
   title: string;

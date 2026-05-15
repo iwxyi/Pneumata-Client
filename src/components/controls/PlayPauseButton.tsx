@@ -1,5 +1,6 @@
 import { Fab, Tooltip } from '@mui/material';
-import { PlayArrow as PlayIcon, Pause as PauseIcon } from '@mui/icons-material';
+import PlayIcon from '@mui/icons-material/PlayArrow';
+import PauseIcon from '@mui/icons-material/Pause';
 import { useTranslation } from 'react-i18next';
 
 interface PlayPauseButtonProps {

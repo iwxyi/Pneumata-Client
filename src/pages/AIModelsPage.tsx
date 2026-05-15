@@ -4,7 +4,9 @@ import {
   FormControl, InputLabel, Select, MenuItem,
   Snackbar, Alert, IconButton, InputAdornment, Autocomplete, Chip, Checkbox, Tooltip, FormControlLabel,
 } from '@mui/material';
-import { Visibility, VisibilityOff, Add as AddIcon } from '@mui/icons-material';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import AddIcon from '@mui/icons-material/Add';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useSettingsStore } from '../stores/useSettingsStore';

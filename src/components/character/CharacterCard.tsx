@@ -1,6 +1,7 @@
 import { Card, CardContent, CardActionArea, Box, Typography, Avatar, Chip, IconButton, Menu, MenuItem } from '@mui/material';
 import { isImageAvatar } from '../../utils/avatar';
-import { MoreVert as MoreIcon, CheckCircle as CheckCircleIcon } from '@mui/icons-material';
+import MoreIcon from '@mui/icons-material/MoreVert';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useRef, useState } from 'react';
 import type { AICharacter } from '../../types/character';
 import { useTranslation } from 'react-i18next';

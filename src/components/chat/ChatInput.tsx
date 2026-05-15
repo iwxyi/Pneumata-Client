@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Box, TextField, IconButton, Chip } from '@mui/material';
-import { Send as SendIcon, Close as CloseIcon } from '@mui/icons-material';
+import SendIcon from '@mui/icons-material/Send';
+import CloseIcon from '@mui/icons-material/Close';
 import { useTranslation } from 'react-i18next';
 
 interface ChatInputProps {

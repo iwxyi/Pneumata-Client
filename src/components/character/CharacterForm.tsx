@@ -28,14 +28,12 @@ import {
   Tooltip,
   Alert,
 } from '@mui/material';
-import {
-  Save as SaveIcon,
-  Edit as EditIcon,
-  Add as AddIcon,
-  AutoAwesome as AutoAwesomeIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-} from '@mui/icons-material';
+import SaveIcon from '@mui/icons-material/Save';
+import EditIcon from '@mui/icons-material/Edit';
+import AddIcon from '@mui/icons-material/Add';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile } from '../../types/character';
 import { getCharacterGroupList, normalizeCharacterGroup, normalizeCharacterModelProfileIds, getDuplicateCharacterNameKeys, getDuplicateCharacterWarningText, hasDuplicateCharacterName } from '../../types/character';

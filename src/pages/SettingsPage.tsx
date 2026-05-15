@@ -4,7 +4,10 @@ import {
   ToggleButtonGroup, ToggleButton,
   Snackbar, Alert, FormControlLabel, Switch,
 } from '@mui/material';
-import { Download as BackupIcon, Upload as RestoreIcon, Delete as ClearIcon, Logout as LogoutIcon } from '@mui/icons-material';
+import BackupIcon from '@mui/icons-material/Download';
+import RestoreIcon from '@mui/icons-material/Upload';
+import ClearIcon from '@mui/icons-material/Delete';
+import LogoutIcon from '@mui/icons-material/Logout';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useSettingsStore } from '../stores/useSettingsStore';

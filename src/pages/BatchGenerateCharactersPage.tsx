@@ -191,7 +191,7 @@ async function processCharacterBatch(params: {
   finishBatchProgress(params.setProgress);
 }
 
-import { Search as SearchIcon } from '@mui/icons-material';
+import SearchIcon from '@mui/icons-material/Search';
 import { useNavigate } from 'react-router-dom';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useTranslation } from 'react-i18next';
