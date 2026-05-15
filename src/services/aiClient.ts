@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 
 type ChatRole = 'user' | 'assistant' | 'system';
@@ -53,24 +52,6 @@ export interface AudioTranscriptionResult {
   text: string;
   raw?: JSONValue;
 }
-
-let clientInstance: OpenAI | null = null;
-let currentConfig: string = '';
-
-export const getAIClient = (config: APIConfig): OpenAI => {
-  const configKey = JSON.stringify(config);
-  if (clientInstance && currentConfig === configKey) {
-    return clientInstance;
-  }
-
-  clientInstance = new OpenAI({
-    apiKey: config.apiKey,
-    baseURL: config.baseUrl,
-    dangerouslyAllowBrowser: true,
-  });
-  currentConfig = configKey;
-  return clientInstance;
-};
 
 function trimTrailingSlashes(value: string) {
   return value.replace(/\/+$/, '');

@@ -42,6 +42,7 @@ type RuntimeMemoryMonitorApi = {
   latest: (count?: number) => RuntimeMemoryMonitorRecord[];
   summary: () => RuntimeMemoryMonitorRecord | null;
   snapshot: () => Promise<RuntimeMemoryForensicsSnapshot>;
+  gcSnapshot: () => Promise<RuntimeMemoryForensicsSnapshot>;
   mark: () => Promise<RuntimeMemoryForensicsSnapshot>;
   diff: () => Promise<Record<string, number> | null>;
   watch: (options?: { intervalMs?: number; limit?: number }) => () => void;
@@ -556,6 +557,7 @@ export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<R
   const resourceEntries = sizePerformanceResourceEntries();
   const activeMessageSummary = summarizeMessages(messageState.messages);
   const browserRuntime = getBrowserRuntimeCounters();
+  const domCounts = countDomNodes();
   const snapshot = {
     at: Date.now(),
     memory: await readSnapshotMemory(),
@@ -591,7 +593,7 @@ export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<R
       resourceTransferSize: resourceEntries.reduce((sum, entry) => sum + (entry.counts?.transferSize || 0), 0),
       resourceDecodedBodySize: resourceEntries.reduce((sum, entry) => sum + (entry.counts?.decodedBodySize || 0), 0),
       localStorage: localStorageEntries.reduce((sum, entry) => sum + Math.max(0, entry.size), 0),
-      domNodes: countDomNodes().domNodes,
+      ...domCounts,
       browserRuntimeActiveTimeouts: browserRuntime.activeTimeouts,
       browserRuntimeActiveIntervals: browserRuntime.activeIntervals,
       browserRuntimeActiveAnimationFrames: browserRuntime.activeAnimationFrames,
@@ -660,13 +662,36 @@ function countDomNodes() {
       messageDomNodes: 0,
       eventMessageDomNodes: 0,
       dialogDomNodes: 0,
+      imageNodes: 0,
+      loadedImageNodes: 0,
+      styleNodes: 0,
+      styleSheetCount: 0,
+      cssRuleCount: 0,
+      emotionStyleNodes: 0,
+      muiStyleNodes: 0,
     };
   }
+  const styleSheets = Array.from(document.styleSheets);
+  const cssRuleCount = styleSheets.reduce((sum, sheet) => {
+    try {
+      return sum + (sheet.cssRules?.length || 0);
+    } catch {
+      return sum;
+    }
+  }, 0);
+  const images = Array.from(document.images);
   return {
     domNodes: document.querySelectorAll('*').length,
     messageDomNodes: document.querySelectorAll('[data-message-id]').length,
     eventMessageDomNodes: document.querySelectorAll('[data-message-type="event"]').length,
     dialogDomNodes: document.querySelectorAll('[role="dialog"], .MuiModal-root').length,
+    imageNodes: images.length,
+    loadedImageNodes: images.filter((image) => image.complete && image.naturalWidth > 0).length,
+    styleNodes: document.querySelectorAll('style, link[rel="stylesheet"]').length,
+    styleSheetCount: styleSheets.length,
+    cssRuleCount,
+    emotionStyleNodes: document.querySelectorAll('style[data-emotion]').length,
+    muiStyleNodes: document.querySelectorAll('style[data-emotion*="mui"], style[data-emotion*="css"]').length,
   };
 }
 
@@ -838,6 +863,16 @@ function buildMonitorApi(): RuntimeMemoryMonitorApi {
     latest: (count = 20) => records.slice(-count),
     summary: () => records.at(-1) || null,
     snapshot: () => buildRuntimeMemoryForensicsSnapshot(),
+    gcSnapshot: async () => {
+      if (typeof window !== 'undefined' && typeof window.gc === 'function') {
+        window.gc();
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+        window.gc();
+      } else {
+        console.warn('[memory-forensics] window.gc is unavailable; start Chrome with --js-flags=--expose-gc or use DevTools Memory GC');
+      }
+      return buildRuntimeMemoryForensicsSnapshot();
+    },
     mark: async () => {
       markedForensicsSnapshot = await buildRuntimeMemoryForensicsSnapshot();
       console.info('[memory-forensics] marked baseline', markedForensicsSnapshot);
@@ -884,6 +919,7 @@ function buildMonitorApi(): RuntimeMemoryMonitorApi {
 declare global {
   interface Window {
     __MIRAGETEA_MEMORY_MONITOR__?: RuntimeMemoryMonitorApi;
+    gc?: () => void;
   }
 }
 
