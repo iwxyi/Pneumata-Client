@@ -88,4 +88,40 @@ describe('useMessageStore', () => {
     expect(state.messageWindowsByChatId[chatId]?.messages[0]?.id).toBe('message-281');
     expect(state.messageWindowsByChatId[chatId]?.messages.at(-1)?.id).toBe('message-400');
   });
+
+  it('strips non-message fields when merging fetched and persisted messages', async () => {
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const bloatedMessage = {
+      ...buildMessage(1, chatId),
+      debugPayload: { text: 'server-only' },
+      rawResponse: Array.from({ length: 8 }, (_, index) => ({ index })),
+    } as unknown as Message;
+
+    useMessageStore.setState({
+      messages: [bloatedMessage],
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: [bloatedMessage],
+          lastSyncedAt: 0,
+          updatedAt: 1,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: true,
+    });
+
+    useMessageStore.getState().upsertMessage(buildMessage(2, chatId));
+
+    const state = useMessageStore.getState();
+    const activeMessage = state.messages.find((message) => message.id === 'message-1') as unknown as Record<string, unknown>;
+    const cachedMessage = state.messageWindowsByChatId[chatId]?.messages.find((message) => message.id === 'message-1') as unknown as Record<string, unknown>;
+    expect(activeMessage.debugPayload).toBeUndefined();
+    expect(activeMessage.rawResponse).toBeUndefined();
+    expect(cachedMessage.debugPayload).toBeUndefined();
+    expect(cachedMessage.rawResponse).toBeUndefined();
+  });
 });

@@ -4257,6 +4257,24 @@ function buildMessageContentKey(message: Message) {
   return `${message.chatId}::${message.type}::${message.senderId}::${message.content}`;
 }
 
+function normalizeMessage(message: Message): Message {
+  return {
+    id: message.id,
+    clientKey: message.clientKey,
+    serverId: message.serverId,
+    chatId: message.chatId,
+    type: message.type,
+    senderId: message.senderId,
+    senderName: message.senderName,
+    content: message.content,
+    emotion: typeof message.emotion === 'number' ? message.emotion : 0,
+    timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
+    isDeleted: Boolean(message.isDeleted),
+    isOptimistic: message.isOptimistic,
+    isStreaming: message.isStreaming,
+  };
+}
+
 function compareMessagesByTimeline(left: Message, right: Message) {
   if (left.timestamp !== right.timestamp) return left.timestamp - right.timestamp;
   if (left.type === 'event' && right.type !== 'event') return 1;
@@ -4267,8 +4285,9 @@ function compareMessagesByTimeline(left: Message, right: Message) {
 }
 
 function dedupeMessages(messages: Message[]) {
+  const normalizedMessages = messages.map(normalizeMessage);
   const getIdentity = (message: Message) => message.serverId || message.id;
-  return messages.filter((message, index, array) => array.findIndex((item) => {
+  return normalizedMessages.filter((message, index, array) => array.findIndex((item) => {
     if (getIdentity(item) === getIdentity(message)) return true;
     if (buildMessageContentKey(item) !== buildMessageContentKey(message)) return false;
     return Math.abs(item.timestamp - message.timestamp) <= 5000;
@@ -4285,11 +4304,11 @@ function mergeMessages(localMessages: Message[], remoteMessages: Message[]) {
   const getIdentity = (message: Message) => message.serverId || message.id;
   const buildContentKey = (message: Message) => buildMessageContentKey(message);
 
-  for (const message of localMessages) {
+  for (const message of localMessages.map(normalizeMessage)) {
     merged.set(getIdentity(message), message);
   }
 
-  for (const remote of remoteMessages) {
+  for (const remote of remoteMessages.map(normalizeMessage)) {
     const remoteIdentity = getIdentity(remote);
     let local = merged.get(remoteIdentity) || null;
 
