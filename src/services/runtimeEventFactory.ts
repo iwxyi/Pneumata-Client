@@ -161,6 +161,51 @@ export function buildRuntimeEvent(payload: RuntimeEventPayload) {
   return JSON.stringify(normalizeRuntimeEvent(payload));
 }
 
+function compactRuntimeEventMetricsForMessage(payload: RuntimeEventPayload) {
+  if (!payload.metrics || typeof payload.metrics !== 'object') return payload.metrics;
+  const metrics = payload.metrics as Record<string, unknown>;
+  if (payload.eventType === 'memory_distillation') {
+    return {
+      ownerType: metrics.ownerType,
+      ownerLabel: metrics.ownerLabel,
+      reasonLabel: metrics.reasonLabel,
+      mergeModeLabel: metrics.mergeModeLabel,
+      newEvidenceCount: metrics.newEvidenceCount,
+    };
+  }
+  if (payload.eventType === 'conflict_focus_shift' || payload.eventType === 'conflict_axis_shift') {
+    return {
+      type: metrics.type,
+      stage: metrics.stage,
+      severity: metrics.severity,
+      nextPressure: metrics.nextPressure,
+      developmentHooks: metrics.developmentHooks,
+    };
+  }
+  return undefined;
+}
+
+export function buildRuntimeEventMessageContent(payload: RuntimeEventPayload) {
+  const event = normalizeRuntimeEvent(payload);
+  return buildRuntimeEvent({
+    eventType: event.eventType,
+    title: event.title,
+    summary: event.summary,
+    pair: event.pair,
+    metrics: compactRuntimeEventMetricsForMessage(event),
+    timelineType: event.timelineType,
+    visibilityScope: event.visibilityScope,
+    visibleToIds: event.visibleToIds,
+    visibleToRoles: event.visibleToRoles,
+    channelId: event.channelId,
+    causedByIntentId: event.causedByIntentId,
+    threadRef: event.threadRef,
+    eventClass: event.eventClass,
+    createdAt: event.createdAt,
+    sourceMessageId: event.sourceMessageId,
+  });
+}
+
 export function parseRuntimeEvent(content: string): RuntimeEventPayload | null {
   try {
     return normalizeRuntimeEvent(JSON.parse(content) as RuntimeEventPayload);

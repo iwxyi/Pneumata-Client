@@ -26,7 +26,7 @@ import SessionComposerHost from '../components/session/SessionComposerHost';
 import { buildDefaultSessionSurfaceProjection } from '../types/chat';
 import { buildActionRuntimeContract, buildRuntimeEventContract } from '../services/sessionRuntimeContract';
 import RightPanel from '../components/layout/RightPanel';
-import { buildRuntimeEvent, normalizeRuntimeEvent } from '../services/runtimeEventFactory';
+import { buildRuntimeEventMessageContent, normalizeRuntimeEvent } from '../services/runtimeEventFactory';
 import { createCommittedLocalMessage, persistLocalFirstMessage, persistLocalFirstMessages } from '../services/chatCommitMessage';
 import { buildPrivateSessionEvent } from '../services/directSessionHelpers';
 import { resolveCharacterOrDeleted } from '../utils/deletedEntity';
@@ -473,7 +473,7 @@ export default function ChatDetailPage() {
         type: 'event',
         senderId: 'system',
         senderName: 'System',
-        content: buildRuntimeEvent(eventPayload),
+        content: buildRuntimeEventMessageContent(eventPayload),
         emotion: 0,
       },
     });
@@ -495,7 +495,7 @@ export default function ChatDetailPage() {
             type: 'event' as const,
             senderId: 'system',
             senderName: 'System',
-            content: buildRuntimeEvent({
+            content: buildRuntimeEventMessageContent({
               ...eventPayload,
               createdAt,
               sourceMessageId: eventPayload.sourceMessageId || sourceMessageId,
