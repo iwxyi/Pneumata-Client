@@ -37,6 +37,7 @@ type RuntimeMemoryMonitorApi = {
   verbose: (enabled?: boolean) => boolean;
   isEnabled: () => boolean;
   clear: () => void;
+  cleanup: () => void;
   export: () => RuntimeMemoryMonitorRecord[];
   latest: (count?: number) => RuntimeMemoryMonitorRecord[];
   summary: () => RuntimeMemoryMonitorRecord | null;
@@ -66,6 +67,7 @@ type RuntimeMemoryForensicsSnapshot = {
     chatPendingOperations: SizedEntry[];
     characterPendingOperations: SizedEntry[];
     messagePendingOperations: SizedEntry[];
+    resources: SizedEntry[];
     localStorage: SizedEntry[];
   };
 };
@@ -129,16 +131,25 @@ function readMemory(): MemoryMeasure {
   };
 }
 
-async function readUserAgentSpecificMemory(recordId: number) {
+async function readUserAgentSpecificMemory() {
   const perf = globalThis.performance as MemoryPerformance | undefined;
-  if (typeof perf?.measureUserAgentSpecificMemory !== 'function') return;
+  if (typeof perf?.measureUserAgentSpecificMemory !== 'function') return null;
   try {
     const result = await perf.measureUserAgentSpecificMemory();
-    const record = records.find((item) => item.id === recordId);
-    if (record) record.memory.userAgentSpecificBytes = typeof result.bytes === 'number' ? result.bytes : null;
+    return typeof result.bytes === 'number' ? result.bytes : null;
   } catch {
     // Chromium may reject this API without cross-origin isolation.
+    return null;
   }
+}
+
+async function readSnapshotMemory(): Promise<MemoryMeasure> {
+  const memory = readMemory();
+  const userAgentSpecificBytes = await readUserAgentSpecificMemory();
+  return {
+    ...memory,
+    userAgentSpecificBytes,
+  };
 }
 
 function safeJsonSize(value: unknown) {
@@ -184,18 +195,38 @@ function sizeLocalStorageEntries() {
   return entries;
 }
 
+function sizePerformanceResourceEntries() {
+  if (typeof performance === 'undefined' || typeof performance.getEntriesByType !== 'function') return [];
+  return performance.getEntriesByType('resource').map((entry, index) => {
+    const resource = entry as PerformanceResourceTiming;
+    return {
+      id: resource.name || `resource-${index}`,
+      label: resource.initiatorType || entry.entryType,
+      size: Math.max(0, resource.decodedBodySize || resource.encodedBodySize || resource.transferSize || 0),
+      counts: {
+        durationMs: Math.round(resource.duration || 0),
+        transferSize: resource.transferSize || 0,
+        encodedBodySize: resource.encodedBodySize || 0,
+        decodedBodySize: resource.decodedBodySize || 0,
+      },
+    };
+  });
+}
+
 async function readForensicsStores() {
-  const [{ useChatStore }, { useCharacterStore }, { useMessageStore }, sessionCommitPipeline] = await Promise.all([
+  const [{ useChatStore }, { useCharacterStore }, { useMessageStore }, sessionCommitPipeline, sessionRunner] = await Promise.all([
     import('../stores/useChatStore'),
     import('../stores/useCharacterStore'),
     import('../stores/useMessageStore'),
     import('./sessionCommitPipeline'),
+    import('./sessionRunner'),
   ]);
   return {
     chatState: useChatStore.getState(),
     characterState: useCharacterStore.getState(),
     messageState: useMessageStore.getState(),
     deferredLlmDistillation: sessionCommitPipeline.getDeferredLlmDistillationDebugState(),
+    sessionLoops: sessionRunner.getSessionLoopDebugState(),
   };
 }
 
@@ -326,7 +357,7 @@ export function sizePendingOperationEntry(operation: unknown, index: number): Si
 }
 
 export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<RuntimeMemoryForensicsSnapshot> {
-  const { chatState, characterState, messageState, deferredLlmDistillation } = await readForensicsStores();
+  const { chatState, characterState, messageState, deferredLlmDistillation, sessionLoops } = await readForensicsStores();
   const chatEntries = chatState.chats.map(sizeChatEntry);
   const characterEntries = characterState.characters.map(sizeCharacterEntry);
   const activeMessageEntries = messageState.messages.map(sizeMessageEntry);
@@ -336,10 +367,11 @@ export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<R
   const characterPendingOperationEntries = characterState.pendingOperations.map(sizePendingOperationEntry);
   const messagePendingOperationEntries = messageState.pendingOperations.map(sizePendingOperationEntry);
   const localStorageEntries = sizeLocalStorageEntries();
+  const resourceEntries = sizePerformanceResourceEntries();
   const activeMessageSummary = summarizeMessages(messageState.messages);
   const snapshot = {
     at: Date.now(),
-    memory: readMemory(),
+    memory: await readSnapshotMemory(),
     totals: {
       chats: directJsonSize(chatState.chats),
       characters: directJsonSize(characterState.characters),
@@ -366,6 +398,11 @@ export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<R
       deferredLlmDistillationRunning: deferredLlmDistillation.running,
       deferredLlmDistillationRerunRequested: deferredLlmDistillation.rerunRequested,
       deferredLlmDistillationCancelled: deferredLlmDistillation.cancelled,
+      sessionLoopCount: sessionLoops.count,
+      sessionLoopIterations: sessionLoops.loops.reduce((sum, loop) => sum + loop.iterationCount, 0),
+      resourceEntries: resourceEntries.length,
+      resourceTransferSize: resourceEntries.reduce((sum, entry) => sum + (entry.counts?.transferSize || 0), 0),
+      resourceDecodedBodySize: resourceEntries.reduce((sum, entry) => sum + (entry.counts?.decodedBodySize || 0), 0),
       localStorage: localStorageEntries.reduce((sum, entry) => sum + Math.max(0, entry.size), 0),
       domNodes: countDomNodes().domNodes,
     },
@@ -377,6 +414,7 @@ export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<R
       chatPendingOperations: topEntries(chatPendingOperationEntries, limit),
       characterPendingOperations: topEntries(characterPendingOperationEntries, limit),
       messagePendingOperations: topEntries(messagePendingOperationEntries, limit),
+      resources: topEntries(resourceEntries, limit),
       localStorage: topEntries(localStorageEntries, limit),
     },
   };
@@ -533,7 +571,6 @@ export function recordRuntimeMemory(label: string, params: {
   nextRecordId += 1;
   records.push(record);
   if (records.length > MAX_RECORDS) records.splice(0, records.length - MAX_RECORDS);
-  void readUserAgentSpecificMemory(record.id);
   if (isRuntimeMemoryMonitorVerbose()) {
     console.info('[memory-monitor]', {
       id: record.id,
@@ -588,6 +625,16 @@ function buildMonitorApi(): RuntimeMemoryMonitorApi {
     isEnabled: isRuntimeMemoryMonitorEnabled,
     clear: () => {
       records.splice(0, records.length);
+    },
+    cleanup: () => {
+      records.splice(0, records.length);
+      markedForensicsSnapshot = null;
+      if (typeof performance !== 'undefined' && typeof performance.clearResourceTimings === 'function') {
+        performance.clearResourceTimings();
+      }
+      if (typeof console !== 'undefined' && typeof console.clear === 'function') {
+        console.clear();
+      }
     },
     export: () => records.slice(),
     latest: (count = 20) => records.slice(-count),

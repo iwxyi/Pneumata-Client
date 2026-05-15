@@ -14,6 +14,42 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+type SessionLoopPhase = 'starting' | 'waiting_commit' | 'selecting' | 'running_round' | 'sleeping' | 'error_sleeping';
+
+const activeSessionLoops = new Map<string, {
+  chatId: string;
+  startedAt: number;
+  updatedAt: number;
+  iterationCount: number;
+  phase: SessionLoopPhase;
+}>();
+
+function markSessionLoop(loopId: string, patch: Partial<Omit<NonNullable<ReturnType<typeof activeSessionLoops.get>>, 'chatId' | 'startedAt'>>) {
+  const current = activeSessionLoops.get(loopId);
+  if (!current) return;
+  activeSessionLoops.set(loopId, {
+    ...current,
+    ...patch,
+    updatedAt: Date.now(),
+  });
+}
+
+export function getSessionLoopDebugState() {
+  const now = Date.now();
+  const loops = Array.from(activeSessionLoops.entries()).map(([loopId, item]) => ({
+    loopId,
+    chatId: item.chatId,
+    ageMs: now - item.startedAt,
+    idleMs: now - item.updatedAt,
+    iterationCount: item.iterationCount,
+    phase: item.phase,
+  }));
+  return {
+    count: loops.length,
+    loops,
+  };
+}
+
 function buildEngineGenerationContext(chat: GroupChat, characters: AICharacter[], messages: Message[]): SessionGenerationContext {
   return {
     conversation: chat,
@@ -121,14 +157,27 @@ export async function runSessionLoop(params: {
   recordSpeak: (characterId: string) => void;
   getCooldownMap?: () => Record<string, number>;
 }) {
-  while (shouldContinueLoop(params)) {
-    if (!isActiveLoop(params)) return;
-    if (params.onCommitSettled && !params.onCommitSettled()) {
-      await sleep(80);
-      continue;
-    }
+  activeSessionLoops.set(params.loopId, {
+    chatId: params.chatId,
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    iterationCount: 0,
+    phase: 'starting',
+  });
+  try {
+    while (shouldContinueLoop(params)) {
+      if (!isActiveLoop(params)) return;
+      if (params.onCommitSettled && !params.onCommitSettled()) {
+        markSessionLoop(params.loopId, { phase: 'waiting_commit' });
+        await sleep(80);
+        continue;
+      }
 
-    try {
+      try {
+        markSessionLoop(params.loopId, {
+          phase: 'selecting',
+          iterationCount: (activeSessionLoops.get(params.loopId)?.iterationCount || 0) + 1,
+        });
       const currentMessages = getSessionMessages(params.getCurrentMessages);
       const currentChat = params.getCurrentChat?.() || params.chat;
       const currentCharacters = params.getCurrentCharacters?.() || params.characters;
@@ -166,6 +215,7 @@ export async function runSessionLoop(params: {
         continue;
       }
 
+      markSessionLoop(params.loopId, { phase: 'running_round' });
       await runOneRound(
         params.chat,
         effectiveCharacters,
@@ -233,12 +283,17 @@ export async function runSessionLoop(params: {
       );
 
       if (params.isRunning() && !params.isPaused() && shouldWaitAfterSessionTick()) {
+        markSessionLoop(params.loopId, { phase: 'sleeping' });
         await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(params.chat)));
       }
-    } catch (error) {
-      params.onLoopError(error);
-      if (!isActiveLoop(params)) return;
-      await new Promise((resolve) => setTimeout(resolve, getLoopErrorWaitTime()));
+      } catch (error) {
+        params.onLoopError(error);
+        if (!isActiveLoop(params)) return;
+        markSessionLoop(params.loopId, { phase: 'error_sleeping' });
+        await new Promise((resolve) => setTimeout(resolve, getLoopErrorWaitTime()));
+      }
     }
+  } finally {
+    activeSessionLoops.delete(params.loopId);
   }
 }
