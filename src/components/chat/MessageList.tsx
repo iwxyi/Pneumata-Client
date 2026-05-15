@@ -1,4 +1,5 @@
 import { Box, Typography } from '@mui/material';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -8,6 +9,7 @@ import { buildChatRenderItems } from './chatRenderModel';
 
 const TOP_REACH_THRESHOLD = 64;
 const BOTTOM_STICKY_THRESHOLD = 96;
+const MESSAGE_OVERSCAN = 8;
 
 interface MessageListProps {
   messages: Message[];
@@ -32,7 +34,7 @@ export default function MessageList({
   topHint,
   loadingText,
 }: MessageListProps) {
-  const renderItems = buildChatRenderItems(messages);
+  const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const topLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
@@ -44,6 +46,19 @@ export default function MessageList({
     itemCount: renderItems.length,
     lastItemKey: renderItems.at(-1)?.key ?? null,
     lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
+  });
+  const virtualizer = useVirtualizer({
+    count: renderItems.length,
+    getScrollElement: () => containerRef.current,
+    estimateSize: (index) => {
+      const item = renderItems[index];
+      if (!item) return 88;
+      if (item.message.type === 'event') return 76;
+      if (item.message.type === 'system') return 44;
+      const lineCount = Math.max(1, Math.ceil(item.message.content.length / 42));
+      return Math.min(220, 66 + lineCount * 19);
+    },
+    overscan: MESSAGE_OVERSCAN,
   });
 
   const topStatusText = useMemo(() => {
@@ -67,10 +82,17 @@ export default function MessageList({
   const scrollToBottom = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
-    const top = Math.max(0, container.scrollHeight - container.clientHeight);
-    container.scrollTop = top;
-    lastScrollTopRef.current = top;
-  }, []);
+    if (renderItems.length > 0) {
+      virtualizer.scrollToIndex(renderItems.length - 1, { align: 'end' });
+    }
+    requestAnimationFrame(() => {
+      const current = containerRef.current;
+      if (!current) return;
+      const top = Math.max(0, current.scrollHeight - current.clientHeight);
+      current.scrollTop = top;
+      lastScrollTopRef.current = top;
+    });
+  }, [renderItems.length, virtualizer]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -87,6 +109,7 @@ export default function MessageList({
     prependRestoreRef.current = null;
     const delta = container.scrollHeight - snapshot.height;
     container.scrollTop = snapshot.top + delta;
+    lastScrollTopRef.current = container.scrollTop;
     updatePinnedState();
   }, [messages, updatePinnedState]);
 
@@ -189,16 +212,40 @@ export default function MessageList({
             </Typography>
           </Box>
         ) : null}
-        {renderItems.map((item) => (
-          <MessageBubble
-            key={item.key}
-            message={item.message}
-            character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
-            onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
-            onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
-            pending={item.pending}
-          />
-        ))}
+        <Box
+          sx={{
+            height: virtualizer.getTotalSize(),
+            position: 'relative',
+            width: '100%',
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const item = renderItems[virtualRow.index];
+            if (!item) return null;
+            return (
+              <Box
+                key={item.key}
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+                sx={{
+                  left: 0,
+                  position: 'absolute',
+                  top: 0,
+                  transform: `translateY(${virtualRow.start}px)`,
+                  width: '100%',
+                }}
+              >
+                <MessageBubble
+                  message={item.message}
+                  character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
+                  onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
+                  onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
+                  pending={item.pending}
+                />
+              </Box>
+            );
+          })}
+        </Box>
       </Box>
     </Box>
   );
