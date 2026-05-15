@@ -47,6 +47,22 @@ type RuntimeMemoryMonitorApi = {
   watch: (options?: { intervalMs?: number; limit?: number }) => () => void;
 };
 
+type BrowserRuntimeCounters = {
+  activeTimeouts: number;
+  activeIntervals: number;
+  activeAnimationFrames: number;
+  activeFetches: number;
+  totalFetches: number;
+  fetchErrors: number;
+  activeEventListeners: number;
+  objectUrls: number;
+  createdObjectUrls: number;
+  revokedObjectUrls: number;
+};
+
+type BrowserTimeoutId = ReturnType<Window['setTimeout']>;
+type BrowserIntervalId = ReturnType<Window['setInterval']>;
+
 type SizedEntry = {
   id: string;
   label?: string;
@@ -69,6 +85,7 @@ type RuntimeMemoryForensicsSnapshot = {
     messagePendingOperations: SizedEntry[];
     resources: SizedEntry[];
     localStorage: SizedEntry[];
+    eventListeners: SizedEntry[];
   };
 };
 
@@ -79,6 +96,175 @@ const records: RuntimeMemoryMonitorRecord[] = [];
 const jsonSizeCache = new WeakMap<object, number>();
 let nextRecordId = 1;
 let markedForensicsSnapshot: RuntimeMemoryForensicsSnapshot | null = null;
+
+const browserRuntimeCounters: BrowserRuntimeCounters = {
+  activeTimeouts: 0,
+  activeIntervals: 0,
+  activeAnimationFrames: 0,
+  activeFetches: 0,
+  totalFetches: 0,
+  fetchErrors: 0,
+  activeEventListeners: 0,
+  objectUrls: 0,
+  createdObjectUrls: 0,
+  revokedObjectUrls: 0,
+};
+const activeTimeoutIds = new Set<BrowserTimeoutId>();
+const activeIntervalIds = new Set<BrowserIntervalId>();
+const activeAnimationFrameIds = new Set<number>();
+const eventListenerCounts = new Map<string, number>();
+const eventListenerKeys = new WeakMap<EventListenerOrEventListenerObject, string[]>();
+const objectUrls = new Set<string>();
+
+function incrementMapCount(map: Map<string, number>, key: string) {
+  map.set(key, (map.get(key) || 0) + 1);
+}
+
+function decrementMapCount(map: Map<string, number>, key: string) {
+  const next = (map.get(key) || 0) - 1;
+  if (next > 0) map.set(key, next);
+  else map.delete(key);
+}
+
+function trackListenerKey(listener: EventListenerOrEventListenerObject | null, key: string) {
+  if (!listener) return;
+  const keys = eventListenerKeys.get(listener) || [];
+  keys.push(key);
+  eventListenerKeys.set(listener, keys);
+}
+
+function untrackListenerKey(listener: EventListenerOrEventListenerObject | null, eventType: string) {
+  if (!listener) return null;
+  const keys = eventListenerKeys.get(listener);
+  if (!keys?.length) return null;
+  const index = keys.findIndex((key) => key.endsWith(`:${eventType}`));
+  if (index < 0) return null;
+  const [key] = keys.splice(index, 1);
+  if (keys.length) eventListenerKeys.set(listener, keys);
+  else eventListenerKeys.delete(listener);
+  return key;
+}
+
+function describeEventTarget(target: EventTarget) {
+  if (typeof window !== 'undefined' && target === window) return 'window';
+  if (typeof document !== 'undefined' && target === document) return 'document';
+  if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement) {
+    return target.tagName.toLowerCase();
+  }
+  return target.constructor?.name || 'EventTarget';
+}
+
+function topMapEntries(map: Map<string, number>, limit = 10): SizedEntry[] {
+  return topEntries(Array.from(map.entries()).map(([id, size]) => ({ id, size })), limit);
+}
+
+function getBrowserRuntimeCounters() {
+  browserRuntimeCounters.activeTimeouts = activeTimeoutIds.size;
+  browserRuntimeCounters.activeIntervals = activeIntervalIds.size;
+  browserRuntimeCounters.activeAnimationFrames = activeAnimationFrameIds.size;
+  browserRuntimeCounters.activeEventListeners = Array.from(eventListenerCounts.values()).reduce((sum, count) => sum + count, 0);
+  browserRuntimeCounters.objectUrls = objectUrls.size;
+  return { ...browserRuntimeCounters };
+}
+
+function installBrowserRuntimeInstrumentation() {
+  if (typeof window === 'undefined') return;
+  const win = window as Window & { __MIRAGETEA_BROWSER_RUNTIME_INSTRUMENTED__?: boolean };
+  if (win.__MIRAGETEA_BROWSER_RUNTIME_INSTRUMENTED__) return;
+  win.__MIRAGETEA_BROWSER_RUNTIME_INSTRUMENTED__ = true;
+
+  const originalSetTimeout = win.setTimeout.bind(win) as Window['setTimeout'];
+  const originalClearTimeout = win.clearTimeout.bind(win) as Window['clearTimeout'];
+  win.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+    const id = originalSetTimeout(() => {
+      activeTimeoutIds.delete(id);
+      if (typeof handler === 'function') {
+        handler(...args);
+      } else {
+        // Keep the browser-compatible string handler path for completeness.
+        originalSetTimeout(handler, 0);
+      }
+    }, timeout);
+    activeTimeoutIds.add(id);
+    return id;
+  }) as typeof window.setTimeout;
+  win.clearTimeout = ((id?: number) => {
+    activeTimeoutIds.delete(id as BrowserTimeoutId);
+    return originalClearTimeout(id);
+  }) as typeof window.clearTimeout;
+
+  const originalSetInterval = win.setInterval.bind(win) as Window['setInterval'];
+  const originalClearInterval = win.clearInterval.bind(win) as Window['clearInterval'];
+  win.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+    const id = originalSetInterval(handler, timeout, ...args);
+    activeIntervalIds.add(id);
+    return id;
+  }) as typeof window.setInterval;
+  win.clearInterval = ((id?: number) => {
+    activeIntervalIds.delete(id as BrowserIntervalId);
+    return originalClearInterval(id);
+  }) as typeof window.clearInterval;
+
+  const originalRequestAnimationFrame = win.requestAnimationFrame?.bind(win);
+  const originalCancelAnimationFrame = win.cancelAnimationFrame?.bind(win);
+  if (originalRequestAnimationFrame && originalCancelAnimationFrame) {
+    win.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      const id = originalRequestAnimationFrame((time) => {
+        activeAnimationFrameIds.delete(id);
+        callback(time);
+      });
+      activeAnimationFrameIds.add(id);
+      return id;
+    }) as typeof window.requestAnimationFrame;
+    win.cancelAnimationFrame = ((id: number) => {
+      activeAnimationFrameIds.delete(id);
+      return originalCancelAnimationFrame(id);
+    }) as typeof window.cancelAnimationFrame;
+  }
+
+  const originalFetch = win.fetch?.bind(win);
+  if (originalFetch) {
+    win.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      browserRuntimeCounters.totalFetches += 1;
+      browserRuntimeCounters.activeFetches += 1;
+      return originalFetch(input, init).catch((error) => {
+        browserRuntimeCounters.fetchErrors += 1;
+        throw error;
+      }).finally(() => {
+        browserRuntimeCounters.activeFetches = Math.max(0, browserRuntimeCounters.activeFetches - 1);
+      });
+    }) as typeof window.fetch;
+  }
+
+  const originalAddEventListener = EventTarget.prototype.addEventListener;
+  const originalRemoveEventListener = EventTarget.prototype.removeEventListener;
+  EventTarget.prototype.addEventListener = function patchedAddEventListener(type, listener, options) {
+    if (listener) {
+      const key = `${describeEventTarget(this)}:${String(type)}`;
+      incrementMapCount(eventListenerCounts, key);
+      trackListenerKey(listener, key);
+    }
+    return originalAddEventListener.call(this, type, listener, options);
+  };
+  EventTarget.prototype.removeEventListener = function patchedRemoveEventListener(type, listener, options) {
+    const key = untrackListenerKey(listener, String(type));
+    if (key) decrementMapCount(eventListenerCounts, key);
+    return originalRemoveEventListener.call(this, type, listener, options);
+  };
+
+  const originalCreateObjectURL = URL.createObjectURL.bind(URL);
+  const originalRevokeObjectURL = URL.revokeObjectURL.bind(URL);
+  URL.createObjectURL = ((object: Blob | MediaSource) => {
+    const url = originalCreateObjectURL(object);
+    objectUrls.add(url);
+    browserRuntimeCounters.createdObjectUrls += 1;
+    return url;
+  }) as typeof URL.createObjectURL;
+  URL.revokeObjectURL = ((url: string) => {
+    if (objectUrls.delete(url)) browserRuntimeCounters.revokedObjectUrls += 1;
+    return originalRevokeObjectURL(url);
+  }) as typeof URL.revokeObjectURL;
+}
 
 function getGlobalFlag() {
   return Boolean((globalThis as { __MIRAGETEA_MEMORY_MONITOR_ENABLED__?: boolean }).__MIRAGETEA_MEMORY_MONITOR_ENABLED__);
@@ -369,6 +555,7 @@ export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<R
   const localStorageEntries = sizeLocalStorageEntries();
   const resourceEntries = sizePerformanceResourceEntries();
   const activeMessageSummary = summarizeMessages(messageState.messages);
+  const browserRuntime = getBrowserRuntimeCounters();
   const snapshot = {
     at: Date.now(),
     memory: await readSnapshotMemory(),
@@ -405,6 +592,16 @@ export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<R
       resourceDecodedBodySize: resourceEntries.reduce((sum, entry) => sum + (entry.counts?.decodedBodySize || 0), 0),
       localStorage: localStorageEntries.reduce((sum, entry) => sum + Math.max(0, entry.size), 0),
       domNodes: countDomNodes().domNodes,
+      browserRuntimeActiveTimeouts: browserRuntime.activeTimeouts,
+      browserRuntimeActiveIntervals: browserRuntime.activeIntervals,
+      browserRuntimeActiveAnimationFrames: browserRuntime.activeAnimationFrames,
+      browserRuntimeActiveFetches: browserRuntime.activeFetches,
+      browserRuntimeTotalFetches: browserRuntime.totalFetches,
+      browserRuntimeFetchErrors: browserRuntime.fetchErrors,
+      browserRuntimeActiveEventListeners: browserRuntime.activeEventListeners,
+      browserRuntimeObjectUrls: browserRuntime.objectUrls,
+      browserRuntimeCreatedObjectUrls: browserRuntime.createdObjectUrls,
+      browserRuntimeRevokedObjectUrls: browserRuntime.revokedObjectUrls,
     },
     largest: {
       chats: topEntries(chatEntries, limit),
@@ -416,6 +613,7 @@ export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<R
       messagePendingOperations: topEntries(messagePendingOperationEntries, limit),
       resources: topEntries(resourceEntries, limit),
       localStorage: topEntries(localStorageEntries, limit),
+      eventListeners: topMapEntries(eventListenerCounts, limit),
     },
   };
   console.info('[memory-forensics] snapshot', snapshot);
@@ -690,5 +888,6 @@ declare global {
 }
 
 if (typeof window !== 'undefined') {
+  installBrowserRuntimeInstrumentation();
   window.__MIRAGETEA_MEMORY_MONITOR__ = window.__MIRAGETEA_MEMORY_MONITOR__ || buildMonitorApi();
 }

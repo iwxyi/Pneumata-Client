@@ -193,24 +193,29 @@ async function parseSSEStream(
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop() || '';
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
 
-    for (const part of parts) {
-      const lines = part.split('\n').map((line) => line.trim()).filter(Boolean);
-      const dataLines = lines.filter((line) => line.startsWith('data:'));
+      for (const part of parts) {
+        const lines = part.split('\n').map((line) => line.trim()).filter(Boolean);
+        const dataLines = lines.filter((line) => line.startsWith('data:'));
 
-      for (const line of dataLines) {
-        const data = line.slice(5).trim();
-        if (!data || data === '[DONE]') continue;
-        onData(JSON.parse(data) as Record<string, unknown>);
+        for (const line of dataLines) {
+          const data = line.slice(5).trim();
+          if (!data || data === '[DONE]') continue;
+          onData(JSON.parse(data) as Record<string, unknown>);
+        }
       }
     }
+  } finally {
+    decoder.decode();
+    reader.releaseLock();
   }
 }
 
