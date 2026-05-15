@@ -21,10 +21,15 @@ export async function commitGeneratedMessage(params: {
   }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>;
   upsertMessage: (message: Message) => void;
   updateCharacter: (id: string, patch: Partial<AICharacter>) => Promise<void>;
+  updateCharacters?: (patches: Array<{ id: string; patch: Partial<AICharacter> }>) => Promise<void>;
   appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number]) => Promise<void>;
+  appendEventMessages?: (chatId: string, payloads: DriverMessageCommitResult['runtimeEvents'], sourceMessageId?: string) => Promise<void>;
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
+  applyChatRuntimeDelta?: (id: string, delta: NonNullable<DriverMessageCommitResult['chatRuntimeDelta']>, patch?: Partial<GroupChat>) => Promise<void>;
   recordSpeak: (characterId: string) => void;
   clearStreamingState: () => void;
+  getCurrentChat?: (id: string) => GroupChat | undefined;
+  getCurrentCharacters?: () => AICharacter[];
 }) {
   params.clearStreamingState();
   await runSessionCommitPipeline({
@@ -37,8 +42,13 @@ export async function commitGeneratedMessage(params: {
     onCommit: params.onCommit,
     upsertMessage: params.upsertMessage,
     updateCharacter: params.updateCharacter,
+    updateCharacters: params.updateCharacters,
     appendEventMessage: params.appendEventMessage,
+    appendEventMessages: params.appendEventMessages,
     updateChat: params.updateChat,
+    applyChatRuntimeDelta: params.applyChatRuntimeDelta,
     recordSpeak: params.recordSpeak,
+    getCurrentChat: params.getCurrentChat,
+    getCurrentCharacters: params.getCurrentCharacters,
   });
 }

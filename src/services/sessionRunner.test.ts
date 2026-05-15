@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GroupChat } from '../types/chat';
-import { revealMessageContent, runSessionLoop } from './sessionRunner';
+import { runSessionLoop } from './sessionRunner';
 
 const runOneRoundMock = vi.fn();
 const runSessionActionExecutorMock = vi.fn();
@@ -107,7 +107,7 @@ globalThis.setTimeout = ((fn: (...args: unknown[]) => void) => {
   return 0 as unknown as ReturnType<typeof setTimeout>;
 }) as unknown as typeof setTimeout;
 
-globalThis.clearTimeout = ((..._args: unknown[]) => undefined) as unknown as typeof clearTimeout;
+globalThis.clearTimeout = (() => undefined) as unknown as typeof clearTimeout;
 Math.random = () => 0;
 
 afterAll(() => {
@@ -162,6 +162,9 @@ function buildLoopParams(chat: GroupChat) {
     isPaused: () => false,
     isActiveLoop: (loopId: string) => loopId === 'loop-1',
     onSpeakerSelected: vi.fn(),
+    getStreamingMessage: undefined as (() => unknown) | undefined,
+    onCommitStarted: undefined as (() => void) | undefined,
+    onCommitFinished: undefined as (() => void) | undefined,
     onMessageChunk: vi.fn(),
     onClearStreamingState: vi.fn(),
     onEngineError: vi.fn(),
@@ -176,17 +179,25 @@ function buildLoopParams(chat: GroupChat) {
 }
 
 describe('runSessionLoop', () => {
-  it('reveals the final content progressively', async () => {
-    const chunkCalls: string[] = [];
-    await revealMessageContent({
-      content: '最终文本',
-      isActive: () => true,
-      onChunk: (content) => {
-        chunkCalls.push(content);
-      },
+  it('passes model stream chunks directly to the live message callback', async () => {
+    runSessionCommitPipelineMock.mockImplementation(async () => undefined);
+    runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
+      hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
+      hooks.onMessageChunk('真');
+      hooks.onMessageChunk('真正');
+      hooks.onMessageChunk('真正流式');
+      await hooks.onMessageComplete({ id: 'msg-stream', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '真正流式', emotion: 0 });
     });
-    expect(chunkCalls.length).toBeGreaterThan(1);
-    expect(chunkCalls.at(-1)).toBe('最终文本');
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+    params.getCurrentMessages = () => [{ id: 'm1', chatId: 'chat-1', type: 'ai', senderId: 'b', senderName: '乙', content: '上一句', emotion: 0 }] as never[];
+    params.onClearStreamingState = vi.fn(() => {
+      params.onLoopError();
+    });
+    await runSessionLoop(params as never);
+    expect(params.onMessageChunk).toHaveBeenNthCalledWith(1, '真');
+    expect(params.onMessageChunk).toHaveBeenNthCalledWith(2, '真正');
+    expect(params.onMessageChunk).toHaveBeenNthCalledWith(3, '真正流式');
+    expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(1);
   });
 
   it('reports blocked interview actions when no executable schema action is available', async () => {
@@ -220,6 +231,43 @@ describe('runSessionLoop', () => {
     expect(runOneRoundMock).toHaveBeenCalledTimes(1);
     expect(params.onSpeakerSelected).toHaveBeenCalledWith('a');
     expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('tracks commit lifecycle and forwards the current streaming message', async () => {
+    const streamingMessage = {
+      id: 'stream-1',
+      chatId: 'chat-1',
+      type: 'ai',
+      senderId: 'a',
+      senderName: '甲',
+      content: '正在说',
+      emotion: 0,
+      timestamp: 1,
+      isDeleted: false,
+      isStreaming: true,
+    };
+    const commitStarted = vi.fn();
+    const commitFinished = vi.fn();
+    runSessionCommitPipelineMock.mockImplementation(async () => undefined);
+    runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
+      hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
+      await hooks.onMessageComplete({ id: 'msg-1', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '完整回复', emotion: 0 });
+    });
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+    params.getStreamingMessage = () => streamingMessage as never;
+    params.onCommitStarted = commitStarted;
+    params.onCommitFinished = commitFinished;
+    params.onClearStreamingState = vi.fn(() => {
+      params.onLoopError();
+    });
+
+    await runSessionLoop(params as never);
+
+    expect(commitStarted).toHaveBeenCalledTimes(1);
+    expect(commitFinished).toHaveBeenCalledTimes(1);
+    expect(runSessionCommitPipelineMock).toHaveBeenCalledWith(expect.objectContaining({
+      streamingMessage,
+    }));
   });
 
   it('passes engine prompt context through to chat rounds', async () => {

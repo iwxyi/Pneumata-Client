@@ -6,7 +6,7 @@ import type { SessionGenerationPromptContext } from '../types/sessionEngine';
 import { getPreferredAIProfile } from '../types/settings';
 import type { ConflictFocusPayload, InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
 import { normalizeInteractionHintCollection } from '../types/runtimeEvent';
-import { generateJsonResponse } from './aiClient';
+import { generateResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildChatMessages } from './promptBuilder';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
@@ -15,6 +15,7 @@ import { deriveSpeakIntentFromContext, describeIntentForPrompt } from './intentE
 import { buildHumanizationPrompt, postProcessHumanChat } from './dialogueHumanizer';
 import { BASE_COOLDOWN_MS, MAX_HISTORY_FOR_PROMPT } from '../constants/defaults';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
+import { resolveCommittedStreamContent } from './streamingMessageLifecycle';
 
 interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   interactionHint?: InteractionEventPayload | null;
@@ -124,26 +125,112 @@ function salvageEmptyResponse(raw: string, speakerName: string, showRoleActions?
   return normalizeForComparison(fallback) ? fallback : '';
 }
 
-function limitResponseShape(content: string) {
-  const trimmed = trimHumanChatStyle(content);
-  if (!trimmed) return trimmed;
-  const lines = trimmed.split(/\n+/).filter(Boolean);
-  const firstLine = lines[0] || trimmed;
-  const sentenceParts = firstLine.split(/(?<=[。！？!?])/).filter((part) => part.trim());
-  if (sentenceParts.length <= 2) return firstLine.trim();
-  return sentenceParts.slice(0, 2).join('').trim();
-}
-
 function finalizeResponse(content: string, intent: ReturnType<typeof deriveSpeakIntentFromContext>, speaker: AICharacter, recentMessages: Message[], showRoleActions?: boolean, intentionalRepeat = false) {
   const withoutPrefix = trimSpeakerPrefix(content, speaker.name);
-  const sanitized = showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix;
-  const processed = postProcessHumanChat(limitResponseShape(sanitized), intent, speaker, recentMessages, intentionalRepeat);
+  const sanitized = trimHumanChatStyle(showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix);
+  const processed = postProcessHumanChat(sanitized, intent, speaker, recentMessages, intentionalRepeat);
   if (normalizeForComparison(processed)) return processed;
   return salvageEmptyResponse(content, speaker.name, showRoleActions);
 }
 
 function buildRetryPrompt(basePrompt: string, priorAttempt: string) {
   return `${basePrompt}\n\nRetry rule:\n- Your previous draft was too close to recent chat or repetitive.\n- Write a meaningfully different line now.\n- Do not reuse this draft's surface or semantic core: ${priorAttempt.slice(0, 120)}`;
+}
+
+function cleanJsonLikeText(value: string) {
+  return value
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/i, '')
+    .trim();
+}
+
+function unescapeJsonStringContent(value: string) {
+  return value
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\\\/g, '\\');
+}
+
+function extractPartialJsonStringField(raw: string, fieldName: string) {
+  const cleaned = cleanJsonLikeText(raw);
+  const fieldPattern = new RegExp(`"${fieldName}"\\s*:\\s*"`);
+  const fieldMatch = fieldPattern.exec(cleaned);
+  if (!fieldMatch) return null;
+  let index = fieldMatch.index + fieldMatch[0].length;
+  let escaped = false;
+  let value = '';
+  while (index < cleaned.length) {
+    const char = cleaned[index];
+    if (escaped) {
+      value += `\\${char}`;
+      escaped = false;
+      index += 1;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      index += 1;
+      continue;
+    }
+    if (char === '"') break;
+    value += char;
+    index += 1;
+  }
+  return unescapeJsonStringContent(value);
+}
+
+function isPendingJsonEnvelopeChunk(raw: string) {
+  const cleaned = cleanJsonLikeText(raw).trimStart();
+  if (!cleaned) return false;
+  if (cleaned.startsWith('{')) return true;
+  if (cleaned.startsWith('"content"')) return true;
+  if (cleaned.startsWith('"intentionalRepeat"')) return true;
+  if (cleaned.startsWith('"interactionHints"')) return true;
+  if (cleaned.startsWith('"socialEventHints"')) return true;
+  if (cleaned.startsWith('"conflictFocus"')) return true;
+  return false;
+}
+
+function buildStreamingDisplayContent(raw: string, speaker: AICharacter, showRoleActions?: boolean) {
+  const extractedContent = extractPartialJsonStringField(raw, 'content');
+  if (extractedContent === null) {
+    if (isPendingJsonEnvelopeChunk(raw)) {
+      return null;
+    }
+  }
+  const content = extractedContent ?? raw;
+  const withoutPrefix = trimSpeakerPrefix(content, speaker.name);
+  return showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix;
+}
+
+function createStreamingDisplayBridge(
+  speaker: AICharacter,
+  showRoleActions: boolean | undefined,
+  onChunk?: (content: string) => void,
+) {
+  let lastContent = '';
+
+  return {
+    push(raw: string) {
+      if (!onChunk) return;
+      const nextContent = buildStreamingDisplayContent(raw, speaker, showRoleActions);
+      if (nextContent === null) return;
+      if (nextContent === lastContent) return;
+      lastContent = nextContent;
+      onChunk(nextContent);
+    },
+    flush(finalContent: string) {
+      if (!onChunk) return;
+      if (finalContent === lastContent) return;
+      lastContent = finalContent;
+      onChunk(finalContent);
+    },
+    getLastContent() {
+      return lastContent;
+    },
+  };
 }
 
 function normalizeForComparison(content: string) {
@@ -210,11 +297,25 @@ async function generateWithPrompt(params: {
   intent: ReturnType<typeof deriveSpeakIntentFromContext>;
   activeMessages: Message[];
   showRoleActions?: boolean;
+  onChunk?: (content: string) => void;
 }) {
-  const response = await generateJsonResponse(params.resolvedApi, params.systemPrompt, params.chatMessages);
+  const streamBridge = createStreamingDisplayBridge(params.speaker, params.showRoleActions, params.onChunk);
+  const jsonPrompt = `${params.systemPrompt}\n\nThe response must be exactly one valid JSON object. Do not wrap it in markdown.`;
+  const response = await generateResponse(
+    params.resolvedApi,
+    jsonPrompt,
+    params.chatMessages,
+    params.onChunk
+      ? (raw) => {
+          streamBridge.push(raw);
+        }
+      : undefined,
+  );
   const parsedEnvelope = parseInlineInteractionEnvelope(response);
   const rawContent = parsedEnvelope?.content || response;
-  const finalResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions);
+  const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions);
+  const finalResponse = resolveCommittedStreamContent(finalizedResponse, streamBridge.getLastContent());
+  streamBridge.flush(finalResponse);
   return { parsedEnvelope, rawContent, finalResponse };
 }
 
@@ -226,12 +327,13 @@ async function generateNonDuplicateResponse(params: {
   intent: ReturnType<typeof deriveSpeakIntentFromContext>;
   activeMessages: Message[];
   showRoleActions?: boolean;
+  onChunk?: (content: string) => void;
 }) {
   let prompt = params.systemPrompt;
   let lastParsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope> = null;
   let lastFinalResponse = '';
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const generated = await generateWithPrompt({ ...params, systemPrompt: prompt });
+    const generated = await generateWithPrompt({ ...params, systemPrompt: prompt, onChunk: attempt === 0 ? params.onChunk : undefined });
     lastParsedEnvelope = generated.parsedEnvelope;
     lastFinalResponse = generated.finalResponse;
     if (normalizeForComparison(generated.finalResponse)) {
@@ -280,10 +382,6 @@ function updateAllEmotions(chatMembers: AICharacter[], speakerId: string, msgEmo
 function resolveSpeakerFromCandidates(chatMembers: AICharacter[], candidates: ReturnType<typeof calculateWeights>) {
   const speakerId = selectSpeaker(candidates);
   return chatMembers.find((member) => member.id === speakerId) || null;
-}
-
-function buildSpeakerContext(chatMembers: AICharacter[]) {
-  return new Map(chatMembers.map((c) => [c.id, c]));
 }
 
 export const runOneRound = async (
@@ -422,7 +520,16 @@ Current speaking intent:
     const resolvedApi = resolveApiConfigForCharacter(activeSpeaker, apiConfig, profiles);
     return {
       emotion,
-      generated: await generateNonDuplicateResponse({ resolvedApi, systemPrompt, chatMessages, speaker: activeSpeaker, intent, activeMessages, showRoleActions: chat.showRoleActions }),
+      generated: await generateNonDuplicateResponse({
+        resolvedApi,
+        systemPrompt,
+        chatMessages,
+        speaker: activeSpeaker,
+        intent,
+        activeMessages,
+        showRoleActions: chat.showRoleActions,
+        onChunk: callbacks.onMessageChunk,
+      }),
     };
   };
 
@@ -452,4 +559,11 @@ Current speaking intent:
   } catch (error) {
     callbacks.onError(error instanceof Error ? error : new Error(String(error)));
   }
+};
+
+export const __chatEngineTestUtils = {
+  extractPartialJsonStringField,
+  buildStreamingDisplayContent,
+  isPendingJsonEnvelopeChunk,
+  finalizeResponse,
 };

@@ -1,10 +1,11 @@
 import type { AICharacter, CharacterRelationshipPreset } from '../types/character';
 import { normalizeCharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
+import { toRelationshipLedgerRecentEvent } from '../types/runtimeEvent';
 
 type VersionedPersistedState<T> = T | undefined;
 
-export const CLIENT_STORE_SCHEMA_VERSION = 1;
+export const CLIENT_STORE_SCHEMA_VERSION = 2;
 
 function clampRelationshipMetric(value: unknown, min: number, max: number) {
   const safeValue = typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -45,6 +46,17 @@ function migrateChat(input: GroupChat): GroupChat {
       allowAlliances: input.dramaRules?.allowAlliances ?? true,
       allowContempt: input.dramaRules?.allowContempt ?? false,
     },
+    relationshipLedger: (input.relationshipLedger || []).map((entry) => ({
+      ...entry,
+      recentEvents: (entry.recentEvents || []).map((event) => toRelationshipLedgerRecentEvent({
+        id: typeof event?.id === 'string' ? event.id : '',
+        kind: event?.kind,
+        createdAt: typeof event?.createdAt === 'number' ? event.createdAt : 0,
+        summary: typeof event?.summary === 'string' ? event.summary : '',
+        actorIds: Array.isArray(event?.actorIds) ? event.actorIds.filter((id): id is string => typeof id === 'string') : undefined,
+        targetIds: Array.isArray(event?.targetIds) ? event.targetIds.filter((id): id is string => typeof id === 'string') : undefined,
+      })),
+    })),
   };
 }
 
@@ -88,7 +100,7 @@ export function migrateMessageStoreState<T extends { messages?: Array<Record<str
 
 export function migrateSettingsStoreState<T extends Record<string, unknown>>(persisted: VersionedPersistedState<T>): VersionedPersistedState<T> {
   if (!persisted) return persisted;
-  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showMemoryDistillationEvents?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; dramaBoost?: boolean } | undefined) || {};
+  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showStateEvents?: boolean; showMemoryDistillationEvents?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; dramaBoost?: boolean } | undefined) || {};
   return {
     ...persisted,
     developerUI: {
@@ -96,6 +108,7 @@ export function migrateSettingsStoreState<T extends Record<string, unknown>>(per
       showRelationshipEvents: Boolean(developerUI.showRelationshipEvents),
       showAffectEvents: Boolean(developerUI.showAffectEvents),
       showConflictEvents: Boolean(developerUI.showConflictEvents),
+      showStateEvents: Boolean(developerUI.showStateEvents),
       showMemoryDistillationEvents: Boolean(developerUI.showMemoryDistillationEvents),
       showSpeechStyle: Boolean(developerUI.showSpeechStyle),
       showAdvancedRuntimePanels: Boolean(developerUI.showAdvancedRuntimePanels),
@@ -119,4 +132,5 @@ export function migrateUiStoreState<T extends Record<string, unknown>>(persisted
 
 export const CLIENT_STORE_MIGRATION_NOTES = {
   1: 'Normalize persisted relationships, governance, developer UI, and message payload shapes.',
+  2: 'Slim relationship ledger recent events down to lightweight snapshots.',
 } as const;

@@ -1,7 +1,24 @@
 import type { GroupChat, ConversationConflictAxis } from '../types/chat';
 
+const AXIS_DECAY_STEP = 8;
+const AXIS_DISPLAY_THRESHOLD = 12;
+
 function clampTilt(value: number) {
   return Math.max(-100, Math.min(100, Math.round(value)));
+}
+
+function relaxTilt(value: number) {
+  if (Math.abs(value) <= AXIS_DECAY_STEP) return 0;
+  return value > 0 ? value - AXIS_DECAY_STEP : value + AXIS_DECAY_STEP;
+}
+
+function isMeaningfulTilt(value: number | undefined) {
+  return Math.abs(value || 0) >= AXIS_DISPLAY_THRESHOLD;
+}
+
+function formatAxisSummary(axis: ConversationConflictAxis) {
+  if (!isMeaningfulTilt(axis.currentTilt)) return null;
+  return `${axis.title} ${(axis.currentTilt || 0) > 0 ? axis.poles[0] : axis.poles[1]}`;
 }
 
 function detectIdentityOwnershipSpike(text: string) {
@@ -56,7 +73,7 @@ export function evolveConflictAxes(chat: GroupChat, messageContent: string) {
   const contradictionSpike = detectContradictionSpike(text);
   return axes.map((axis) => ({
     ...axis,
-    currentTilt: clampTilt((axis.currentTilt || 0) + readAxisDelta(axis, text, identitySpike, contradictionSpike)),
+    currentTilt: clampTilt(relaxTilt(axis.currentTilt || 0) + readAxisDelta(axis, text, identitySpike, contradictionSpike)),
   }));
 }
 
@@ -64,8 +81,9 @@ export function summarizeConflictAxes(axes: ConversationConflictAxis[]) {
   return axes
     .slice()
     .sort((a, b) => Math.abs(b.currentTilt || 0) - Math.abs(a.currentTilt || 0))
+    .map(formatAxisSummary)
+    .filter((value): value is string => Boolean(value))
     .slice(0, 2)
-    .map((axis) => `${axis.title} ${axis.currentTilt && axis.currentTilt > 0 ? axis.poles[0] : axis.poles[1]}`)
     .join('；');
 }
 
@@ -74,7 +92,10 @@ export function getConflictAxesPriority(axes: ConversationConflictAxis[]) {
 }
 
 export function getConflictAxesSummaryLines(axes: ConversationConflictAxis[]) {
-  return getConflictAxesPriority(axes).slice(0, 2).map((axis) => `${axis.title} ${axis.currentTilt && axis.currentTilt > 0 ? axis.poles[0] : axis.poles[1]}`);
+  return getConflictAxesPriority(axes)
+    .map(formatAxisSummary)
+    .filter((value): value is string => Boolean(value))
+    .slice(0, 2);
 }
 
 export function getConflictAxesNarrative(axes: ConversationConflictAxis[]) {

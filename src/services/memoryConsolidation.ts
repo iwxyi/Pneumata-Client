@@ -1,12 +1,18 @@
 import type { MemoryCandidate, MemoryItem } from './memoryTypes';
 
+const MAX_TRACKED_SOURCE_EVENT_IDS = 32;
+
 function scoreCandidate(candidate: MemoryCandidate) {
   const s = candidate.scoreBreakdown;
   return s.stability * 0.25 + s.recurrence * 0.2 + s.impact * 0.25 + s.specificity * 0.15 + s.durability * 0.15;
 }
 
+function normalizeIds(ids: string[] = []) {
+  return [...ids].filter(Boolean).sort();
+}
+
 function sameBucket(item: MemoryItem, candidate: MemoryCandidate) {
-  const sameSubjects = JSON.stringify(item.subjectIds || []) === JSON.stringify(candidate.subjectIds || []);
+  const sameSubjects = JSON.stringify(normalizeIds(item.subjectIds || [])) === JSON.stringify(normalizeIds(candidate.subjectIds || []));
   return item.scope === candidate.scope && item.kind === candidate.kind && item.ownerId === candidate.ownerId && sameSubjects;
 }
 
@@ -24,6 +30,73 @@ function decayExistingMemory(item: MemoryItem): MemoryItem {
   };
 }
 
+function hasNovelSourceEvidence(item: MemoryItem, candidate: MemoryCandidate) {
+  const current = new Set(item.sourceEventIds || []);
+  return (candidate.sourceEventIds || []).some((id) => id && !current.has(id));
+}
+
+function shouldRefreshUpdatedAt(item: MemoryItem, candidate: MemoryCandidate) {
+  if (candidate.origin === 'distilled') return true;
+  return hasNovelSourceEvidence(item, candidate);
+}
+
+function mergeSourceEventIds(item: MemoryItem, candidate: MemoryCandidate) {
+  return Array.from(new Set([...(item.sourceEventIds || []), ...(candidate.sourceEventIds || [])])).slice(-MAX_TRACKED_SOURCE_EVENT_IDS);
+}
+
+function mergeDistilledFromIds(item: MemoryItem, candidate: MemoryCandidate) {
+  return Array.from(new Set([...(item.distilledFromIds || []), ...(candidate.distilledFromIds || [])])).slice(-24);
+}
+
+function createMemoryItem(candidate: MemoryCandidate, score: number, now: number): MemoryItem {
+  return {
+    id: `${candidate.ownerId}-${candidate.kind}-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    scope: candidate.scope,
+    layer: candidate.layerHint,
+    kind: candidate.kind,
+    ownerId: candidate.ownerId,
+    subjectIds: candidate.subjectIds || [],
+    relatedConversationId: null,
+    text: candidate.text,
+    salience: score,
+    confidence: 0.7,
+    recency: 1,
+    reinforcementCount: 1,
+    sourceEventIds: candidate.sourceEventIds,
+    sourceTag: candidate.sourceTag || null,
+    origin: candidate.origin || 'runtime',
+    distilledFromIds: candidate.distilledFromIds || [],
+    distilledAt: candidate.distilledAt || null,
+    distillationVersion: candidate.distillationVersion || null,
+    createdAt: now,
+    updatedAt: now,
+    lastActivatedAt: null,
+    archivedAt: null,
+  };
+}
+
+function mergeMemoryItem(item: MemoryItem, candidate: MemoryCandidate, score: number, now: number): MemoryItem {
+  const refresh = shouldRefreshUpdatedAt(item, candidate);
+  const reinforcementCount = refresh ? item.reinforcementCount + 1 : item.reinforcementCount;
+  return {
+    ...item,
+    text: candidate.text.length >= item.text.length || candidate.origin === 'distilled' ? candidate.text : item.text,
+    salience: Math.max(item.salience, score),
+    confidence: refresh ? Math.min(1, (item.confidence || 0.5) + 0.08) : item.confidence,
+    recency: refresh ? 1 : Math.max(item.recency, 0.88),
+    reinforcementCount,
+    layer: nextLayerForCandidate(candidate, reinforcementCount),
+    sourceEventIds: mergeSourceEventIds(item, candidate),
+    sourceTag: candidate.sourceTag || item.sourceTag || null,
+    origin: candidate.origin || item.origin || 'runtime',
+    distilledFromIds: mergeDistilledFromIds(item, candidate),
+    distilledAt: candidate.distilledAt || item.distilledAt || null,
+    distillationVersion: candidate.distillationVersion || item.distillationVersion || null,
+    updatedAt: refresh ? now : item.updatedAt,
+    archivedAt: null,
+  };
+}
+
 export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: MemoryCandidate[]) {
   const next = existing.map((item) => decayExistingMemory(item));
   const now = Date.now();
@@ -34,52 +107,11 @@ export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: 
 
     const existingIndex = next.findIndex((item) => sameBucket(item, candidate));
     if (existingIndex >= 0) {
-      const item = next[existingIndex];
-      const reinforcementCount = item.reinforcementCount + 1;
-      next[existingIndex] = {
-        ...item,
-        text: candidate.text.length >= item.text.length || candidate.origin === 'distilled' ? candidate.text : item.text,
-        salience: Math.max(item.salience, score),
-        confidence: Math.min(1, (item.confidence || 0.5) + 0.08),
-        recency: 1,
-        reinforcementCount,
-        layer: nextLayerForCandidate(candidate, reinforcementCount),
-        sourceEventIds: Array.from(new Set([...item.sourceEventIds, ...candidate.sourceEventIds])).slice(-8),
-        sourceTag: candidate.sourceTag || item.sourceTag || null,
-        origin: candidate.origin || item.origin || 'runtime',
-        distilledFromIds: Array.from(new Set([...(item.distilledFromIds || []), ...(candidate.distilledFromIds || [])])).slice(-12),
-        distilledAt: candidate.distilledAt || item.distilledAt || null,
-        distillationVersion: candidate.distillationVersion || item.distillationVersion || null,
-        updatedAt: now,
-        archivedAt: null,
-      };
+      next[existingIndex] = mergeMemoryItem(next[existingIndex], candidate, score, now);
       continue;
     }
 
-    next.push({
-      id: `${candidate.ownerId}-${candidate.kind}-${now}-${Math.random().toString(36).slice(2, 8)}`,
-      scope: candidate.scope,
-      layer: candidate.layerHint,
-      kind: candidate.kind,
-      ownerId: candidate.ownerId,
-      subjectIds: candidate.subjectIds || [],
-      relatedConversationId: null,
-      text: candidate.text,
-      salience: score,
-      confidence: 0.7,
-      recency: 1,
-      reinforcementCount: 1,
-      sourceEventIds: candidate.sourceEventIds,
-      sourceTag: candidate.sourceTag || null,
-      origin: candidate.origin || 'runtime',
-      distilledFromIds: candidate.distilledFromIds || [],
-      distilledAt: candidate.distilledAt || null,
-      distillationVersion: candidate.distillationVersion || null,
-      createdAt: now,
-      updatedAt: now,
-      lastActivatedAt: null,
-      archivedAt: null,
-    });
+    next.push(createMemoryItem(candidate, score, now));
   }
 
   return next.slice(-24);

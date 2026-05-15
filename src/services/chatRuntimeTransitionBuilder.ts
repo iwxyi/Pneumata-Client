@@ -11,14 +11,44 @@ import { extractMemoryCandidate } from './memoryEngine';
 import { createDefaultConflictAxes, evolveConflictAxes, summarizeConflictAxes } from './conflictAxisEngine';
 import { appendMemoryCandidateEvents, buildMemoryCandidateEvents, updateLayeredMemoriesWithEvents } from './layeredMemoryEngine';
 import { consolidateMemoryCandidates } from './memoryConsolidation';
-import { buildMemoryDistillationEventSummary, buildMemoryDistillationEventTitle, buildMemoryDistillationRuntimePayload, debugCharacterMemoryDistillation, debugChatMemoryDistillation, distillChatMemoryCandidates, distillCharacterMemoryCandidates, shouldDistillChatMemories, shouldDistillCharacterMemories } from './memoryDistillation';
+import { createMemoryDistillationRuntimeEvent, debugCharacterMemoryDistillation, debugChatMemoryDistillation, distillChatMemoryCandidates, distillCharacterMemoryCandidates, getLocalDistillationPolicy, localizeDistillationEventInfo, shouldDistillChatMemories, shouldDistillCharacterMemories } from './memoryDistillation';
 import { normalizeRuntimeEvent } from './runtimeEventFactory';
 import { updateCharacterLayeredMemories } from './characterLayeredMemory';
 import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 
-const CHAT_DISTILLATION_TURN_COUNT = 8;
-const CHARACTER_DISTILLATION_TURN_COUNT = 6;
+const { chatGap: CHAT_DISTILLATION_TURN_COUNT, characterGap: CHARACTER_DISTILLATION_TURN_COUNT } = getLocalDistillationPolicy();
+const PRIMARY_CONFLICT_DECAY_STEP = 0.12;
+const SECONDARY_CONFLICT_DECAY_STEP = 0.08;
+const CONFLICT_ACTIVE_THRESHOLD = 0.36;
+const CONFLICT_COOLING_THRESHOLD = 0.54;
+
+function areRuntimeValuesEqual(left: unknown, right: unknown) {
+  if (left === right) return true;
+  try {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  } catch {
+    return false;
+  }
+}
+
+function pruneUnchangedChatRuntimePatch(conversation: GroupChat, patch: Partial<GroupChat>) {
+  const keys: Array<keyof GroupChat> = [
+    'runtimeTimeline',
+    'runtimeSeed',
+    'worldState',
+    'layeredMemories',
+    'runtimeEventsV2',
+    'relationshipLedger',
+  ];
+  for (const key of keys) {
+    if (!(key in patch)) continue;
+    if (areRuntimeValuesEqual(patch[key], conversation[key])) {
+      delete patch[key];
+    }
+  }
+  return patch;
+}
 
 function truncateWithEllipsis(text: string, maxLength: number) {
   const normalized = text.trim();
@@ -26,20 +56,61 @@ function truncateWithEllipsis(text: string, maxLength: number) {
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
+function countAiTurnsFromLayeredMemories(items: { sourceEventIds?: string[] }[] | undefined) {
+  const turnIds = new Set<string>();
+  for (const item of items || []) {
+    for (const sourceEventId of item.sourceEventIds || []) {
+      if (!sourceEventId) continue;
+      turnIds.add(sourceEventId);
+    }
+  }
+  return turnIds.size;
+}
+
+function resolveCharacterDistillationTurnCount(layeredMemories: AICharacter['layeredMemories']) {
+  return Math.max(CHARACTER_DISTILLATION_TURN_COUNT, countAiTurnsFromLayeredMemories(layeredMemories));
+}
+
+function resolveChatDistillationTurnCount(layeredMemories: GroupChat['layeredMemories']) {
+  return Math.max(CHAT_DISTILLATION_TURN_COUNT, countAiTurnsFromLayeredMemories(layeredMemories));
+}
+
 function maybeDistillCharacterLayeredMemories(character: AICharacter, layeredMemories: AICharacter['layeredMemories']) {
-  if (!layeredMemories?.length) return layeredMemories;
+  if (!layeredMemories?.length) return { layeredMemories, debugInfo: null };
   const candidateCharacter = { ...character, layeredMemories };
-  if (!shouldDistillCharacterMemories(candidateCharacter, CHARACTER_DISTILLATION_TURN_COUNT)) return layeredMemories;
+  const turnCount = resolveCharacterDistillationTurnCount(layeredMemories);
+  const debugInfo = debugCharacterMemoryDistillation(candidateCharacter, turnCount);
+  if (!shouldDistillCharacterMemories(candidateCharacter, turnCount)) return { layeredMemories, debugInfo: null };
   const distilled = distillCharacterMemoryCandidates(candidateCharacter);
-  return distilled.length ? consolidateMemoryCandidates(layeredMemories, distilled) : layeredMemories;
+  if (!distilled.length) return { layeredMemories, debugInfo: null };
+  return {
+    layeredMemories: consolidateMemoryCandidates(layeredMemories, distilled),
+    debugInfo: {
+      ...debugInfo,
+      triggered: true,
+      reason: 'distilled',
+      candidateTexts: distilled.map((item) => item.text),
+    },
+  };
 }
 
 function maybeDistillChatLayeredMemories(chat: GroupChat, layeredMemories: GroupChat['layeredMemories']) {
-  if (!layeredMemories?.length) return layeredMemories;
+  if (!layeredMemories?.length) return { layeredMemories, debugInfo: null };
   const candidateChat = { ...chat, layeredMemories };
-  if (!shouldDistillChatMemories(candidateChat, CHAT_DISTILLATION_TURN_COUNT)) return layeredMemories;
+  const turnCount = resolveChatDistillationTurnCount(layeredMemories);
+  const debugInfo = debugChatMemoryDistillation(candidateChat, turnCount);
+  if (!shouldDistillChatMemories(candidateChat, turnCount)) return { layeredMemories, debugInfo: null };
   const distilled = distillChatMemoryCandidates(candidateChat);
-  return distilled.length ? consolidateMemoryCandidates(layeredMemories, distilled) : layeredMemories;
+  if (!distilled.length) return { layeredMemories, debugInfo: null };
+  return {
+    layeredMemories: consolidateMemoryCandidates(layeredMemories, distilled),
+    debugInfo: {
+      ...debugInfo,
+      triggered: true,
+      reason: 'distilled',
+      candidateTexts: distilled.map((item) => item.text),
+    },
+  };
 }
 
 function appendDistilledMemoryEvents(conversation: GroupChat, existingEvents: RuntimeEventV2[], nextLayeredMemories: GroupChat['layeredMemories']) {
@@ -93,17 +164,100 @@ function normalizeConflictFocus(payload: ConflictFocusPayload | null | undefined
   };
 }
 
+function normalizeIdList(ids: string[] | undefined) {
+  return Array.from(new Set((ids || []).filter(Boolean))).sort();
+}
+
+function buildConflictIdentity(conflict: ConflictFocusState | null | undefined) {
+  if (!conflict) return null;
+  return {
+    type: conflict.type,
+    stage: conflict.stage,
+    severityBand: Math.round(conflict.severity * 10) / 10,
+    summary: conflict.summary.trim(),
+    nextPressure: conflict.nextPressure,
+    participantIds: normalizeIdList(conflict.participantIds),
+    targetIds: normalizeIdList(conflict.targetIds),
+  };
+}
+
+function hasMeaningfulConflictChange(previous: ConflictFocusState | null | undefined, next: ConflictFocusState | null) {
+  if (!next) return false;
+  const previousIdentity = buildConflictIdentity(previous);
+  const nextIdentity = buildConflictIdentity(next);
+  if (!previousIdentity) return true;
+  return JSON.stringify(previousIdentity) !== JSON.stringify(nextIdentity);
+}
+
+function sameConflictBranch(left: ConflictFocusState | null | undefined, right: ConflictFocusState | null | undefined) {
+  const leftIdentity = buildConflictIdentity(left);
+  const rightIdentity = buildConflictIdentity(right);
+  return Boolean(leftIdentity && rightIdentity && JSON.stringify(leftIdentity) === JSON.stringify(rightIdentity));
+}
+
+function decayConflictFocus(conflict: ConflictFocusState, step: number): ConflictFocusState | null {
+  const severity = Math.max(0, Number((conflict.severity - step).toFixed(2)));
+  if (severity < CONFLICT_ACTIVE_THRESHOLD) return null;
+  return {
+    ...conflict,
+    severity,
+    stage: severity <= CONFLICT_COOLING_THRESHOLD ? 'cooling' : conflict.stage === 'escalating' ? 'open' : conflict.stage,
+    nextPressure: severity <= CONFLICT_COOLING_THRESHOLD ? 'cool' : conflict.nextPressure,
+    updatedAt: Date.now(),
+  };
+}
+
 function updateConflictRuntimeState(previous: ConflictRuntimeState | null | undefined, nextConflict: ConflictFocusState | null): ConflictRuntimeState | null {
-  if (!nextConflict) return previous || null;
-  const activeConflicts = [nextConflict, ...((previous?.activeConflicts || []).filter((item) => item.type !== nextConflict.type || item.summary !== nextConflict.summary))].slice(0, 6);
+  if (!nextConflict) {
+    const decayedActiveConflicts = (previous?.activeConflicts || [])
+      .map((item) => decayConflictFocus(item, PRIMARY_CONFLICT_DECAY_STEP))
+      .filter((item): item is ConflictFocusState => Boolean(item))
+      .slice(0, 6);
+    if (!decayedActiveConflicts.length) return null;
+    const primaryConflict = decayedActiveConflicts[0] || null;
+    return {
+      primaryConflict,
+      activeConflicts: decayedActiveConflicts,
+      developmentHooks: primaryConflict?.developmentHooks || [],
+      volatility: Math.max(0, Number(((previous?.volatility || 0) - 0.12).toFixed(2))),
+      cooling: Math.min(1, Number(((previous?.cooling || 0) + 0.18).toFixed(2))),
+      updatedAt: Date.now(),
+    };
+  }
+
+  const decayedPreviousConflicts = (previous?.activeConflicts || [])
+    .filter((item) => !sameConflictBranch(item, nextConflict))
+    .map((item) => decayConflictFocus(item, SECONDARY_CONFLICT_DECAY_STEP))
+    .filter((item): item is ConflictFocusState => Boolean(item));
+  const activeConflicts = [nextConflict, ...decayedPreviousConflicts].slice(0, 6);
   return {
     primaryConflict: nextConflict,
     activeConflicts,
     developmentHooks: nextConflict.developmentHooks,
-    volatility: Math.max(nextConflict.severity, previous?.volatility || 0),
+    volatility: Math.max(nextConflict.severity, Math.max(0, Number(((previous?.volatility || 0) - 0.06).toFixed(2)))),
     cooling: nextConflict.nextPressure === 'cool' ? Math.min(1, (previous?.cooling || 0) + 0.2) : Math.max(0, (previous?.cooling || 0) - 0.1),
     updatedAt: Date.now(),
   };
+}
+
+function buildConflictAxesSummary(axes: ConversationConflictAxis[]) {
+  return summarizeConflictAxes(axes).trim();
+}
+
+function shouldEmitConflictAxisShift(previousAxes: ConversationConflictAxis[] | undefined, nextAxes: ConversationConflictAxis[], messageType: Message['type'], config: RuntimeEvolutionConfig) {
+  if (messageType !== 'ai' || !nextAxes.length || config.worldMultiplier < 0.7) return false;
+  return buildConflictAxesSummary(previousAxes || []) !== buildConflictAxesSummary(nextAxes);
+}
+
+function buildWorldStateShiftSummary(worldState: GroupChat['worldState']) {
+  return [worldState.mood, worldState.focus, worldState.recentEvent].filter(Boolean).join(' / ').slice(0, 90);
+}
+
+function shouldEmitWorldStateShift(previousWorldState: GroupChat['worldState'], nextWorldState: GroupChat['worldState'], messageType: Message['type'], config: RuntimeEvolutionConfig) {
+  if (messageType !== 'ai' || config.worldMultiplier < 0.9) return false;
+  const nextSummary = buildWorldStateShiftSummary(nextWorldState);
+  if (!nextSummary) return false;
+  return buildWorldStateShiftSummary(previousWorldState) !== nextSummary;
 }
 
 export function buildNextWorldState(conversation: GroupChat, message: Pick<Message, 'content' | 'type' | 'senderId'> & { conflictFocus?: ConflictFocusPayload | null }, config: RuntimeEvolutionConfig = resolveRuntimeEvolutionConfig(conversation.runtimeEvolutionIntensity)) {
@@ -159,6 +313,7 @@ export function buildRelationshipTransition(params: {
   let relationshipLedger = buildSeededRelationshipLedger(params.conversation, params.characters);
   const previousAiMessage = params.previousAiMessage;
   const config = params.config || resolveRuntimeEvolutionConfig(params.conversation.runtimeEvolutionIntensity);
+  const distillationParticipants = params.characters.map((item) => ({ id: item.id, name: item.name }));
   const speaker = params.characters.find((item) => item.id === params.message.senderId);
   const explicitHints = params.message.interactionHints || (params.message.interactionHint ? [params.message.interactionHint] : []);
   const uniqueHints = explicitHints.filter((hint, index, array) => {
@@ -189,7 +344,7 @@ export function buildRelationshipTransition(params: {
       return updateCharacterRelationshipFromDelta({ ...speaker, relationships }, target.id, explicitDelta, config.relationshipMultiplier).relationships;
     }, speaker.relationships);
 
-    const speakerLayered = maybeDistillCharacterLayeredMemories({
+    const speakerLayeredResult = maybeDistillCharacterLayeredMemories({
       ...speaker,
       relationships: updatedSpeakerRelationships,
       emotionalState: speakerEmotion,
@@ -211,13 +366,16 @@ export function buildRelationshipTransition(params: {
         relationships: updatedSpeakerRelationships,
         personalityDrift: speakerDrift,
         emotionalState: speakerEmotion,
-        layeredMemories: speakerLayered,
+        layeredMemories: speakerLayeredResult.layeredMemories,
         runtimeTimeline: accumulateCharacterRuntime(speaker, {
           type: 'relationship',
           text: `对 ${targetEntries.map(({ target }) => target.name).join('、')} 的态度发生变化：${summary}`,
         }).concat(driftEntries).slice(-Math.max(20, config.maxTimeline)),
       },
     });
+    if (speakerLayeredResult.debugInfo) {
+      runtimeEvents.push(createMemoryDistillationRuntimeEvent(localizeDistillationEventInfo(speakerLayeredResult.debugInfo, distillationParticipants)));
+    }
 
     const relationshipLines: string[] = [];
 
@@ -225,7 +383,7 @@ export function buildRelationshipTransition(params: {
       const reciprocalDelta = inferRelationshipDelta(hint)?.delta || deriveFallbackRelationshipDelta(params.message.content);
       const updatedTarget = updateCharacterRelationshipFromDelta(target, speaker.id, reciprocalDelta, config.reciprocalRelationshipMultiplier);
       const targetEmotion = deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias);
-      const targetLayered = maybeDistillCharacterLayeredMemories({
+      const targetLayeredResult = maybeDistillCharacterLayeredMemories({
         ...target,
         relationships: updatedTarget.relationships,
         emotionalState: targetEmotion,
@@ -246,13 +404,16 @@ export function buildRelationshipTransition(params: {
         patch: {
           relationships: updatedTarget.relationships,
           emotionalState: targetEmotion,
-          layeredMemories: targetLayered,
+          layeredMemories: targetLayeredResult.layeredMemories,
           runtimeTimeline: accumulateCharacterRuntime(target, {
             type: 'relationship',
             text: `${speaker.name} 的发言影响了对 TA 的态度：${truncateWithEllipsis(params.message.content, 36)}`,
           }).slice(-Math.max(16, config.maxTimeline - 4)),
         },
       });
+      if (targetLayeredResult.debugInfo) {
+        runtimeEvents.push(createMemoryDistillationRuntimeEvent(localizeDistillationEventInfo(targetLayeredResult.debugInfo, distillationParticipants)));
+      }
 
       const relationshipDelta = inferRelationshipDelta(hint);
       if (!relationshipDelta) continue;
@@ -299,17 +460,17 @@ export function buildRelationshipTransition(params: {
     }
 
     const normalizedConflict = normalizeConflictFocus(params.message.conflictFocus || null, params.conversation, params.message);
-    if (normalizedConflict) {
+    if (hasMeaningfulConflictChange(params.conversation.worldState.conflictState?.primaryConflict || null, normalizedConflict)) {
       runtimeEvents.push(normalizeRuntimeEvent({
         eventType: 'conflict_focus_shift',
         title: `${speaker.name} 抓住了一个矛盾点`,
-        summary: normalizedConflict.summary,
+        summary: normalizedConflict?.summary || '',
         metrics: {
-          type: normalizedConflict.type,
-          stage: normalizedConflict.stage,
-          severity: normalizedConflict.severity,
-          nextPressure: normalizedConflict.nextPressure,
-          developmentHooks: normalizedConflict.developmentHooks,
+          type: normalizedConflict?.type,
+          stage: normalizedConflict?.stage,
+          severity: normalizedConflict?.severity,
+          nextPressure: normalizedConflict?.nextPressure,
+          developmentHooks: normalizedConflict?.developmentHooks,
         },
         timelineType: 'note',
         eventClass: 'action',
@@ -364,25 +525,31 @@ export function buildRelationshipTransition(params: {
   return { runtimeEvents, characterPatches, relationshipLedger };
 }
 
-export function buildWorldRuntimeEvents(message: Pick<Message, 'content' | 'type'>, worldState: GroupChat['worldState'], nextConflictAxes: ConversationConflictAxis[], config: RuntimeEvolutionConfig) {
+export function buildWorldRuntimeEvents(
+  message: Pick<Message, 'content' | 'type'>,
+  previousWorldState: GroupChat['worldState'],
+  worldState: GroupChat['worldState'],
+  nextConflictAxes: ConversationConflictAxis[],
+  config: RuntimeEvolutionConfig,
+) {
   const runtimeEvents: DriverEventPayload[] = [];
 
-  if (message.type === 'ai' && nextConflictAxes.length && config.worldMultiplier >= 0.7) {
+  if (shouldEmitConflictAxisShift(previousWorldState.conflictAxes || [], nextConflictAxes, message.type, config)) {
     runtimeEvents.push(normalizeRuntimeEvent({
       eventType: 'conflict_axis_shift',
       title: '群聊冲突轴发生偏移',
-      summary: summarizeConflictAxes(nextConflictAxes),
+      summary: buildConflictAxesSummary(nextConflictAxes),
       timelineType: 'note',
       eventClass: 'phase',
       visibilityScope: 'public',
     }));
   }
 
-  if (message.type === 'ai' && worldState.recentEvent && config.worldMultiplier >= 0.9) {
+  if (shouldEmitWorldStateShift(previousWorldState, worldState, message.type, config)) {
     runtimeEvents.push(normalizeRuntimeEvent({
       eventType: 'world_state_shift',
       title: '群聊状态发生变化',
-      summary: [worldState.mood, worldState.focus, worldState.recentEvent].filter(Boolean).join(' / ').slice(0, 90),
+      summary: buildWorldStateShiftSummary(worldState),
       timelineType: 'note',
       eventClass: 'phase',
       visibilityScope: 'public',
@@ -392,7 +559,14 @@ export function buildWorldRuntimeEvents(message: Pick<Message, 'content' | 'type
   return runtimeEvents;
 }
 
-export function buildChatPatch(conversation: GroupChat, message: Pick<Message, 'content' | 'type' | 'senderId'>, worldState: GroupChat['worldState'], runtimeEvents: DriverEventPayload[], config: RuntimeEvolutionConfig = resolveRuntimeEvolutionConfig(conversation.runtimeEvolutionIntensity)) {
+export function buildChatPatch(
+  conversation: GroupChat,
+  message: Pick<Message, 'content' | 'type' | 'senderId'>,
+  worldState: GroupChat['worldState'],
+  runtimeEvents: DriverEventPayload[],
+  config: RuntimeEvolutionConfig = resolveRuntimeEvolutionConfig(conversation.runtimeEvolutionIntensity),
+  participants: Array<{ id: string; name: string }> = [],
+) {
   const memoryCandidate = message.type === 'ai' ? extractMemoryCandidate(message.content) : null;
   const chatPatch: Partial<GroupChat> = {
     ...accumulateChatRuntime(
@@ -418,7 +592,7 @@ export function buildChatPatch(conversation: GroupChat, message: Pick<Message, '
     worldState,
   };
 
-  const nextLayeredMemories = maybeDistillChatLayeredMemories(
+  const chatDistillationResult = maybeDistillChatLayeredMemories(
     { ...conversation, ...chatPatch, worldState } as GroupChat,
     updateLayeredMemoriesWithEvents(
       conversation.layeredMemories || [],
@@ -432,6 +606,8 @@ export function buildChatPatch(conversation: GroupChat, message: Pick<Message, '
     )
   );
 
+  const nextLayeredMemories = chatDistillationResult.layeredMemories;
+
   const memoryCandidateEvents = buildMemoryCandidateEvents({
     chat: conversation,
     message,
@@ -440,11 +616,17 @@ export function buildChatPatch(conversation: GroupChat, message: Pick<Message, '
   });
 
   chatPatch.layeredMemories = nextLayeredMemories;
-  chatPatch.runtimeEventsV2 = appendDistilledMemoryEvents(
+  const runtimeEventsV2WithCandidates = appendDistilledMemoryEvents(
     conversation,
     appendMemoryCandidateEvents(conversation.runtimeEventsV2 || [], memoryCandidateEvents),
     nextLayeredMemories,
   );
+  chatPatch.runtimeEventsV2 = runtimeEventsV2WithCandidates;
 
-  return chatPatch;
+  return {
+    ...pruneUnchangedChatRuntimePatch(conversation, chatPatch),
+    localDistillationEvent: chatDistillationResult.debugInfo
+      ? createMemoryDistillationRuntimeEvent(localizeDistillationEventInfo(chatDistillationResult.debugInfo, participants))
+      : null,
+  } as Partial<GroupChat> & { localDistillationEvent?: DriverEventPayload | null };
 }

@@ -1,12 +1,17 @@
+import { unstable_batchedUpdates } from 'react-dom';
 import type { AICharacter } from '../types/character';
-import type { DriverMessageCommitTransition, GroupChat } from '../types/chat';
+import type { DriverCharacterPatch, DriverEventPayload, DriverMessageCommitTransition, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig } from '../types/settings';
+import { createRuntimeMemoryTimer } from './runtimeMemoryMonitor';
 
 export interface CommitRuntimeServices {
   updateCharacter: (id: string, patch: Partial<AICharacter>) => Promise<void>;
-  appendEventMessage: (chatId: string, payload: DriverMessageCommitTransition['runtimeEvents'][number]) => Promise<void>;
+  updateCharacters?: (patches: Array<{ id: string; patch: Partial<AICharacter> }>) => Promise<void>;
+  appendEventMessage: (chatId: string, payload: DriverMessageCommitTransition['runtimeEvents'][number], sourceMessageId?: string) => Promise<void>;
+  appendEventMessages?: (chatId: string, payloads: DriverMessageCommitTransition['runtimeEvents'], sourceMessageId?: string) => Promise<void>;
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
+  applyChatRuntimeDelta?: (id: string, delta: NonNullable<DriverMessageCommitTransition['chatRuntimeDelta']>, patch?: Partial<GroupChat>) => Promise<void>;
   recordSpeak: (characterId: string) => void;
 }
 
@@ -27,18 +32,180 @@ export interface CommitRuntimeRequest {
   }) => DriverMessageCommitTransition | Promise<DriverMessageCommitTransition>;
 }
 
+function mergeCharacterPatches(patches: DriverCharacterPatch[]) {
+  const merged = new Map<string, Partial<AICharacter>>();
+  for (const entry of patches) {
+    merged.set(entry.characterId, {
+      ...(merged.get(entry.characterId) || {}),
+      ...entry.patch,
+    });
+  }
+  return Array.from(merged.entries()).map(([characterId, patch]) => ({ characterId, patch }));
+}
+
+function dedupeRuntimeEvents(events: DriverEventPayload[]) {
+  const seen = new Set<string>();
+  return events.filter((event) => {
+    const key = [event.eventType, event.title, event.summary, event.channelId || '', event.threadRef || ''].join('::');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeCommitTransition(transition: DriverMessageCommitTransition, sourceMessageId?: string): DriverMessageCommitTransition {
+  let lastEventCreatedAt = 0;
+  const baseCreatedAt = Date.now();
+  return {
+    chatPatch: {
+      lastMessageAt: Date.now(),
+      ...transition.chatPatch,
+    },
+    chatRuntimeDelta: transition.chatRuntimeDelta,
+    characterPatches: mergeCharacterPatches(transition.characterPatches),
+    runtimeEvents: dedupeRuntimeEvents(transition.runtimeEvents).map((event, index) => {
+      const requestedCreatedAt = typeof event.createdAt === 'number' ? event.createdAt : (baseCreatedAt + index);
+      const createdAt = requestedCreatedAt <= lastEventCreatedAt ? lastEventCreatedAt + 1 : requestedCreatedAt;
+      lastEventCreatedAt = createdAt;
+      return {
+        ...event,
+        createdAt,
+        sourceMessageId: event.sourceMessageId || sourceMessageId,
+      };
+    }),
+  };
+}
+
+function deferCommitSideEffect(task: () => Promise<void>) {
+  const run = () => {
+    void task().catch((error) => {
+      console.error('[commit-apply] deferred side effect failed', error);
+    });
+  };
+  const scheduler = (globalThis as typeof globalThis & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+  }).requestIdleCallback;
+  if (typeof scheduler === 'function') {
+    scheduler(run, { timeout: 300 });
+    return;
+  }
+  setTimeout(run, 0);
+}
+
 export async function applyCommitTransition(params: {
   chatId: string;
   speakerId: string;
   transition: DriverMessageCommitTransition;
   services: CommitRuntimeServices;
+  sourceMessageId?: string;
 }) {
-  for (const patch of params.transition.characterPatches) {
-    await params.services.updateCharacter(patch.characterId, patch.patch);
+  const transition = normalizeCommitTransition(params.transition, params.sourceMessageId);
+  const timer = createRuntimeMemoryTimer('commit-apply', {
+    chatId: params.chatId,
+    speakerId: params.speakerId,
+    transition,
+    extra: {
+      characterPatchCount: transition.characterPatches.length,
+      runtimeEventCount: transition.runtimeEvents.length,
+      chatPatchKeys: Object.keys(transition.chatPatch),
+    },
+  });
+
+  const applyCharacterUpdates = () => {
+    if (params.services.updateCharacters) {
+      return params.services.updateCharacters(transition.characterPatches.map((patch) => ({
+        id: patch.characterId,
+        patch: patch.patch,
+      })));
+    }
+    return Promise.all(
+      transition.characterPatches.map((patch) => params.services.updateCharacter(patch.characterId, patch.patch))
+    ).then(() => undefined);
+  };
+
+  const applyChatUpdate = () => {
+    if (transition.chatRuntimeDelta && params.services.applyChatRuntimeDelta) {
+      const runtimePatch = { ...transition.chatPatch };
+      delete runtimePatch.runtimeEventsV2;
+      delete runtimePatch.relationshipLedger;
+      return params.services.applyChatRuntimeDelta(params.chatId, transition.chatRuntimeDelta, runtimePatch);
+    }
+    if (Object.keys(transition.chatPatch).length > 0) {
+      return params.services.updateChat(params.chatId, transition.chatPatch);
+    }
+    return Promise.resolve();
+  };
+
+  let characterUpdatePromise = Promise.resolve();
+  let chatUpdatePromise = Promise.resolve();
+  unstable_batchedUpdates(() => {
+    characterUpdatePromise = applyCharacterUpdates();
+    if (params.speakerId) params.services.recordSpeak(params.speakerId);
+    chatUpdatePromise = applyChatUpdate();
+  });
+  await characterUpdatePromise;
+  timer.mark('after-character-updates', {
+    transition,
+    extra: {
+      characterPatchCount: transition.characterPatches.length,
+    },
+  });
+
+  if (params.services.appendEventMessages) {
+    deferCommitSideEffect(() => params.services.appendEventMessages!(params.chatId, transition.runtimeEvents, params.sourceMessageId));
+  } else {
+    for (const eventPayload of transition.runtimeEvents) {
+      await params.services.appendEventMessage(params.chatId, eventPayload, eventPayload.sourceMessageId);
+    }
   }
-  for (const eventPayload of params.transition.runtimeEvents) {
-    await params.services.appendEventMessage(params.chatId, eventPayload);
+  timer.mark('after-event-messages', {
+    transition,
+    extra: {
+      runtimeEventCount: transition.runtimeEvents.length,
+    },
+  });
+
+  timer.mark('after-record-speak', { transition });
+
+  if (transition.chatRuntimeDelta && params.services.applyChatRuntimeDelta) {
+    const runtimePatch = { ...transition.chatPatch };
+    delete runtimePatch.runtimeEventsV2;
+    delete runtimePatch.relationshipLedger;
+    timer.mark('before-update-chat', {
+      transition: {
+        ...transition,
+        chatPatch: runtimePatch,
+      },
+      extra: {
+        chatPatchKeys: Object.keys(runtimePatch),
+        runtimeDeltaKeys: Object.keys(transition.chatRuntimeDelta),
+      },
+    });
+    await chatUpdatePromise;
+    timer.mark('after-update-chat', {
+      transition: {
+        ...transition,
+        chatPatch: runtimePatch,
+      },
+      extra: {
+        chatPatchKeys: Object.keys(runtimePatch),
+        runtimeDeltaKeys: Object.keys(transition.chatRuntimeDelta),
+      },
+    });
+  } else if (Object.keys(transition.chatPatch).length > 0) {
+    timer.mark('before-update-chat', {
+      transition,
+      extra: {
+        chatPatchKeys: Object.keys(transition.chatPatch),
+      },
+    });
+    await chatUpdatePromise;
+    timer.mark('after-update-chat', {
+      transition,
+      extra: {
+        chatPatchKeys: Object.keys(transition.chatPatch),
+      },
+    });
   }
-  params.services.recordSpeak(params.speakerId);
-  await params.services.updateChat(params.chatId, { lastMessageAt: Date.now(), ...params.transition.chatPatch });
+  timer.finish({ transition });
 }

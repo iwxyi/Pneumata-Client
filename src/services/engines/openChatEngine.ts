@@ -2,6 +2,7 @@ import type { DriverMessageCommitResult, GroupChat } from '../../types/chat';
 import { createDefaultConversationEngineDefinition } from '../../types/sessionEngine';
 import type { SessionEngineDefinition } from '../../types/sessionEngine';
 import type { AICharacter } from '../../types/character';
+import { } from '../memoryDistillation';
 import type { Message } from '../../types/message';
 import type {
   InteractionEventPayload,
@@ -21,6 +22,45 @@ import { calculateRoomShift } from '../roomStateSynthesizer';
 import { resolveRuntimeEvolutionConfig } from '../runtimeEvolutionConfig';
 import type { APIConfig } from '../../types/settings';
 import { generateResponse } from '../aiClient';
+
+const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
+
+function areRuntimeValuesEqual(left: unknown, right: unknown) {
+  if (left === right) return true;
+  try {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  } catch {
+    return false;
+  }
+}
+
+function setChangedChatPatchField<K extends keyof GroupChat>(patch: Partial<GroupChat>, conversation: GroupChat, key: K, value: GroupChat[K]) {
+  if (!areRuntimeValuesEqual(value, conversation[key])) {
+    patch[key] = value;
+  } else {
+    delete patch[key];
+  }
+}
+
+function buildRuntimeEventsDelta(conversation: GroupChat, nextEvents: RuntimeEventV2[]) {
+  const previousById = new Map((conversation.runtimeEventsV2 || []).map((event) => [event.id, event] as const));
+  const upserts = nextEvents.filter((event) => !areRuntimeValuesEqual(previousById.get(event.id), event));
+  if (!upserts.length && nextEvents.length === (conversation.runtimeEventsV2 || []).length) return undefined;
+  return {
+    orderedIds: nextEvents.map((event) => event.id),
+    upserts,
+  };
+}
+
+function buildRelationshipLedgerDelta(conversation: GroupChat, nextLedger: NonNullable<GroupChat['relationshipLedger']>) {
+  const previousByKey = new Map((conversation.relationshipLedger || []).map((entry) => [entry.pairKey, entry] as const));
+  const upserts = nextLedger.filter((entry) => !areRuntimeValuesEqual(previousByKey.get(entry.pairKey), entry));
+  if (!upserts.length && nextLedger.length === (conversation.relationshipLedger || []).length) return undefined;
+  return {
+    orderedPairKeys: nextLedger.map((entry) => entry.pairKey),
+    upserts,
+  };
+}
 
 function createRuntimeEventV2(params: {
   conversationId: string;
@@ -684,6 +724,14 @@ async function analyzePairPrivateThread(params: {
   }
 }
 
+function shouldAnalyzeSocialOuting(content: string) {
+  return /(今晚|明天|周末|改天|一起去|约饭|吃火锅|聚餐|看展|唱歌|散步|庆祝|线下|见面|出去玩|喝一杯|喝奶茶|吃饭)/i.test(content);
+}
+
+function shouldAnalyzePostMoment(content: string) {
+  return /(发个朋友圈|发条动态|想发|晒|记录一下|发出来|po一下|纪念一下|发成动态|发一条|朋友圈|动态)/i.test(content);
+}
+
 async function resolveSocialEventHints(params: {
   conversation: GroupChat;
   message: Pick<Message, 'content' | 'type' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
@@ -692,21 +740,9 @@ async function resolveSocialEventHints(params: {
   apiConfig?: APIConfig;
 }) {
   const baseHints = [...(params.message.socialEventHints || [])];
-  const hasPairThreadHint = baseHints.some((hint) => hint.eventKind === 'pair_private_thread');
   const hasOutingHint = baseHints.some((hint) => hint.eventKind === 'social_outing');
   const hasMomentHint = baseHints.some((hint) => hint.eventKind === 'post_moment');
-  if (!hasPairThreadHint) {
-    const analyzed = await analyzePairPrivateThread({
-      conversation: params.conversation,
-      message: params.message,
-      characters: params.characters,
-      recentMessages: params.recentMessages,
-      apiConfig: params.apiConfig,
-    });
-    const mapped = toPairPrivateThreadHint(analyzed, params.conversation, params.message.senderId);
-    if (mapped) baseHints.push(mapped);
-  }
-  if (!hasOutingHint) {
+  if (!hasOutingHint && shouldAnalyzeSocialOuting(params.message.content)) {
     const analyzed = await analyzeSocialOuting({
       conversation: params.conversation,
       message: params.message,
@@ -717,7 +753,7 @@ async function resolveSocialEventHints(params: {
     const mapped = toSocialOutingHint(analyzed, params.conversation, params.message.senderId);
     if (mapped) baseHints.push(mapped);
   }
-  if (!hasMomentHint) {
+  if (!hasMomentHint && shouldAnalyzePostMoment(params.message.content)) {
     const analyzed = await analyzePostMoment({
       conversation: params.conversation,
       message: params.message,
@@ -967,7 +1003,7 @@ function mergeRuntimeEventsWithCompaction(existingEvents: RuntimeEventV2[], comp
   const base = replaceCompactedExistingCandidates(existingEvents, compactedCandidates);
   const existingIds = new Set(base.map((event) => event.id));
   const newCandidates = compactedCandidates.filter((event) => !existingIds.has(event.id));
-  return [...base, ...newCandidates, ...additions].slice(-120);
+  return [...base, ...newCandidates, ...additions].slice(-MAX_OPEN_CHAT_RUNTIME_EVENTS);
 }
 
 function buildNonCandidateAdditions(params: { messageGeneratedEvent: RuntimeEventV2; interactionEvent?: RuntimeEventV2 | null; relationshipDeltaEvent?: RuntimeEventV2 | null; roomShiftEvent?: RuntimeEventV2 | null; memoryCandidateEvents?: RuntimeEventV2[]; momentArtifactEvents?: RuntimeEventV2[]; artifactEvent?: RuntimeEventV2 | null }) {
@@ -995,7 +1031,7 @@ function compactEventCandidateHistory(existingEvents: RuntimeEventV2[], compacte
 
 function mergeCompactedRuntimeEvents(existingEvents: RuntimeEventV2[], compactedCandidates: RuntimeEventV2[], additions: RuntimeEventV2[]) {
   const compactedBase = compactEventCandidateHistory(existingEvents, compactedCandidates);
-  return [...compactedBase, ...compactedCandidates, ...additions].slice(-120);
+  return [...compactedBase, ...compactedCandidates, ...additions].slice(-MAX_OPEN_CHAT_RUNTIME_EVENTS);
 }
 
 void replaceCompactedExistingCandidates;
@@ -1369,7 +1405,13 @@ async function onMessageCommitted(params: {
     previousAiMessage: params.previousAiMessage || null,
     config,
   });
-  const worldRuntimeEvents = buildWorldRuntimeEvents(params.message, nextWorldStateResult.worldState, nextWorldStateResult.nextConflictAxes, config);
+  const worldRuntimeEvents = buildWorldRuntimeEvents(
+    params.message,
+    params.conversation.worldState,
+    nextWorldStateResult.worldState,
+    nextWorldStateResult.nextConflictAxes,
+    config,
+  );
   const { interaction, runtimeEventsV2, relationshipLedger, structuredRoomState } = await buildStructuredRuntime({
     conversation: params.conversation,
     message: params.message,
@@ -1391,13 +1433,29 @@ async function onMessageCommitted(params: {
     ...buildStructuredLegacyEvents(nextStructuredEvents, effectiveRelationshipLedger, structuredRoomState),
   ];
 
-  const chatPatch = buildChatPatch(params.conversation, params.message, mergedWorldState, commitRuntimeEvents, config);
-  chatPatch.runtimeEventsV2 = runtimeEventsV2;
-  chatPatch.relationshipLedger = effectiveRelationshipLedger;
+  const chatPatch = buildChatPatch(
+    params.conversation,
+    params.message,
+    mergedWorldState,
+    commitRuntimeEvents,
+    config,
+    params.characters.map((item) => ({ id: item.id, name: item.name })),
+  ) as Partial<GroupChat> & { localDistillationEvent?: DriverMessageCommitResult['runtimeEvents'][number] | null };
+  const localDistillationEvent = chatPatch.localDistillationEvent || null;
+  delete chatPatch.localDistillationEvent;
+  setChangedChatPatchField(chatPatch, params.conversation, 'runtimeEventsV2', runtimeEventsV2);
+  setChangedChatPatchField(chatPatch, params.conversation, 'relationshipLedger', effectiveRelationshipLedger);
+  const chatRuntimeDelta = {
+    runtimeEventsV2: buildRuntimeEventsDelta(params.conversation, runtimeEventsV2),
+    relationshipLedger: buildRelationshipLedgerDelta(params.conversation, effectiveRelationshipLedger),
+  };
+  delete chatPatch.runtimeEventsV2;
+  delete chatPatch.relationshipLedger;
   return {
     chatPatch,
+    chatRuntimeDelta: Object.values(chatRuntimeDelta).some(Boolean) ? chatRuntimeDelta : undefined,
     characterPatches: relationshipTransition.characterPatches,
-    runtimeEvents: commitRuntimeEvents,
+    runtimeEvents: localDistillationEvent ? [...commitRuntimeEvents, localDistillationEvent] : commitRuntimeEvents,
   };
 }
 

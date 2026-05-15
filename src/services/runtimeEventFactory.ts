@@ -15,6 +15,7 @@ export interface RuntimeEventPayload {
   threadRef?: string;
   eventClass?: 'message' | 'action' | 'board' | 'phase' | 'score' | 'artifact';
   createdAt?: number;
+  sourceMessageId?: string;
 }
 
 const conflictTypeLabels: Record<ConflictType, string> = {

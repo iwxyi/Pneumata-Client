@@ -398,13 +398,22 @@ export default function CreateChatPage() {
         runtimeSeed: { notes: [], artifacts: [] },
         layeredMemories: [],
         runtimeTimeline: [],
+        runtimeEventsV2: [],
+        relationshipLedger: [],
+        growthSnapshots: [],
+        roleMemorySummaries: [],
+        scenarioMemorySummary: { conversationId: editingChat.id, summary: '' },
+        memoryLayerSummary: undefined,
         worldState: {
-          ...editingChat.worldState,
+          ...DEFAULT_CONVERSATION_WORLD_STATE,
           phase: DEFAULT_CONVERSATION_WORLD_STATE.phase,
           recentEvent: '',
           conflictAxes: [],
+          structuredRoomState: null,
+          conflictState: null,
         },
       });
+      await useChatStore.getState().loadChats();
       setClearMemoryConfirmOpen(false);
       setSnackbar({
         open: true,

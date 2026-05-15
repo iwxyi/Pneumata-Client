@@ -388,9 +388,11 @@ export interface DriverEventPayload {
   summary: string;
   pair?: [string, string];
   metrics?: unknown;
+  createdAt?: number;
   channelId?: string;
   causedByIntentId?: string;
   threadRef?: string;
+  sourceMessageId?: string;
   eventClass?: 'message' | 'action' | 'board' | 'phase' | 'score' | 'artifact';
   visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
   visibleToIds?: string[];
@@ -399,6 +401,16 @@ export interface DriverEventPayload {
 
 export interface DriverMessageCommitTransition {
   chatPatch: Partial<GroupChat>;
+  chatRuntimeDelta?: {
+    runtimeEventsV2?: {
+      orderedIds: string[];
+      upserts: RuntimeEventV2[];
+    };
+    relationshipLedger?: {
+      orderedPairKeys: string[];
+      upserts: RelationshipLedgerEntry[];
+    };
+  };
   characterPatches: DriverCharacterPatch[];
   runtimeEvents: DriverEventPayload[];
 }

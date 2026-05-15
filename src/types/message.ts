@@ -13,4 +13,5 @@ export interface Message {
   timestamp: number;
   isDeleted: boolean;
   isOptimistic?: boolean;
+  isStreaming?: boolean;
 }

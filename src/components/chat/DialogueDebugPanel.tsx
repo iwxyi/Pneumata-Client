@@ -130,16 +130,21 @@ function buildMemoryDistillationCaption(payload: Record<string, unknown>, isZh: 
 }
 
 function renderMemoryDistillationBlock(chat: GroupChat, isZh: boolean) {
-  const items = (chat.runtimeEventsV2 || [])
+  const runtimeEventItems = (chat.runtimeEventsV2 || [])
     .filter((item) => item.kind === 'artifact' && readMemoryDistillationPayload(item))
     .slice(-4)
     .reverse();
-  if (!items.length) return null;
+  const distilledMemoryItems = (chat.layeredMemories || [])
+    .filter((item) => item.origin === 'distilled')
+    .slice()
+    .sort((left, right) => (right.distilledAt || right.updatedAt || 0) - (left.distilledAt || left.updatedAt || 0))
+    .slice(0, 4);
+  if (!runtimeEventItems.length && !distilledMemoryItems.length) return null;
   return (
     <Box>
       <Typography variant="caption" color="text.secondary">{isZh ? '记忆蒸馏' : 'Memory distillation'}</Typography>
       <Stack spacing={0.75} sx={{ mt: 0.75 }}>
-        {items.map((item) => {
+        {runtimeEventItems.map((item) => {
           const payload = readMemoryDistillationPayload(item) as Record<string, unknown>;
           const candidateTexts = buildMemoryDistillationBody(payload);
           return (
@@ -151,6 +156,14 @@ function renderMemoryDistillationBlock(chat: GroupChat, isZh: boolean) {
             </Box>
           );
         })}
+        {!runtimeEventItems.length ? distilledMemoryItems.map((item) => (
+          <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+            <Typography variant="caption" color="text.secondary">{new Date(item.distilledAt || item.updatedAt).toLocaleString()}</Typography>
+            <Typography variant="body2">{`${item.ownerId === chat.id ? (isZh ? '群聊记忆' : 'Chat memory') : (isZh ? '角色记忆' : 'Character memory')} · ${isZh ? '已写入核心蒸馏' : 'Distilled into long-term memory'}`}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'pre-wrap' }}>{item.text}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{isZh ? `来源 ${item.sourceTag || 'memory_distillation'} · 强化 ${item.reinforcementCount}` : `Source ${item.sourceTag || 'memory_distillation'} · Reinforcement ${item.reinforcementCount}`}</Typography>
+          </Box>
+        )) : null}
       </Stack>
     </Box>
   );

@@ -1,4 +1,7 @@
-import type { InteractionEventPayload, RelationshipAxisReason, RelationshipDeltaPayload, RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
+import { toRelationshipLedgerRecentEvent, type InteractionEventPayload, type RelationshipAxisReason, type RelationshipDeltaPayload, type RelationshipLedgerEntry, type RuntimeEventV2 } from '../types/runtimeEvent';
+
+const MAX_RELATIONSHIP_AXIS_REASONS = 6;
+const MAX_RELATIONSHIP_RECENT_EVENTS = 8;
 
 export const RELATIONSHIP_BASELINE = {
   warmth: 0,
@@ -125,10 +128,10 @@ function buildAxisReasons(interaction: InteractionEventPayload, delta: Relations
 
 function appendAxisReasons(previous: RelationshipLedgerEntry | undefined, next: RelationshipDeltaPayload['axisReasons']) {
   const merged: NonNullable<RelationshipLedgerEntry['axisReasons']> = {
-    warmth: [...(previous?.axisReasons?.warmth || []), ...(next?.warmth || [])].slice(-6),
-    competence: [...(previous?.axisReasons?.competence || []), ...(next?.competence || [])].slice(-6),
-    trust: [...(previous?.axisReasons?.trust || []), ...(next?.trust || [])].slice(-6),
-    threat: [...(previous?.axisReasons?.threat || []), ...(next?.threat || [])].slice(-6),
+    warmth: [...(previous?.axisReasons?.warmth || []), ...(next?.warmth || [])].slice(-MAX_RELATIONSHIP_AXIS_REASONS),
+    competence: [...(previous?.axisReasons?.competence || []), ...(next?.competence || [])].slice(-MAX_RELATIONSHIP_AXIS_REASONS),
+    trust: [...(previous?.axisReasons?.trust || []), ...(next?.trust || [])].slice(-MAX_RELATIONSHIP_AXIS_REASONS),
+    threat: [...(previous?.axisReasons?.threat || []), ...(next?.threat || [])].slice(-MAX_RELATIONSHIP_AXIS_REASONS),
   };
   return merged;
 }
@@ -294,7 +297,7 @@ export function reduceRelationshipLedger(entries: RelationshipLedgerEntry[], int
     derived: computeDerived(normalizedExisting, nextCurrent, axisReasons),
     axisReasons,
     trend: inferTrend(normalizedExisting, delta.delta),
-    recentEvents: [...(normalizedExisting?.recentEvents || []), evidenceEvent].slice(-8),
+    recentEvents: [...(normalizedExisting?.recentEvents || []), toRelationshipLedgerRecentEvent(evidenceEvent)].slice(-MAX_RELATIONSHIP_RECENT_EVENTS),
     lastUpdatedAt: evidenceEvent.createdAt,
   };
   return existing ? entries.map((entry) => entry.pairKey === key ? updated : entry) : [...entries, updated];

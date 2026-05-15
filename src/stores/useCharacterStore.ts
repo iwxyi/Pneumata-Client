@@ -1,11 +1,11 @@
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
 import type { AICharacter } from '../types/character';
 import { normalizeCharacter, normalizeCharacterGroup } from '../types/character';
 import { api } from '../services/api';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { buildWarmState } from './storeWarmHelpers';
-import { createScopedStorage } from './storePersistenceScope';
+import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateCharacterStoreState } from './storeMigrations';
@@ -226,6 +226,49 @@ interface PersistedCharacterState {
   pendingOperations: PendingCharacterOperation[];
 }
 
+function persistCharacterAvatarForCloud(avatar: string) {
+  return /^data:/i.test(avatar) ? '' : avatar;
+}
+
+function compactCharacterPatchForCloud(patch: PendingCharacterOperation['patch']) {
+  if (!patch || typeof patch !== 'object') return {};
+  const nextPatch = { ...patch };
+  delete nextPatch.relationships;
+  delete nextPatch.layeredMemories;
+  delete nextPatch.runtimeTimeline;
+  delete nextPatch.emotionalState;
+  delete nextPatch.personalityDrift;
+  delete nextPatch.updatedAt;
+  return nextPatch;
+}
+
+function buildPersistedCharacterState(state: PersistedCharacterState): PersistedCharacterState {
+  if (shouldSkipCloudSync()) return state;
+  return {
+    characters: state.characters.map((character) => normalizeCharacter({
+      id: character.id,
+      name: character.name,
+      avatar: persistCharacterAvatarForCloud(character.avatar),
+      group: character.group,
+      bubbleStyle: character.bubbleStyle || null,
+      bubbleStyleId: character.bubbleStyleId || null,
+      modelProfileId: character.modelProfileId || null,
+      modelProfileIds: character.modelProfileIds,
+      isPreset: character.isPreset,
+      deletedAt: character.deletedAt ?? null,
+      createdAt: character.createdAt,
+      updatedAt: character.updatedAt,
+    } as AICharacter)),
+    lastSyncedAt: state.lastSyncedAt,
+    pendingOperations: state.pendingOperations
+      .map((operation) => ({
+        ...operation,
+        patch: compactCharacterPatchForCloud(operation.patch),
+      }))
+      .filter((operation) => Object.keys(operation.patch || {}).length > 0),
+  };
+}
+
 interface CharacterStore extends PersistedCharacterState {
   isLoading: boolean;
   pendingEditSyncCount: number;
@@ -250,6 +293,7 @@ interface CharacterStore extends PersistedCharacterState {
   addCharacter: (char: Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>) => Promise<AICharacter>;
   addCharacters: (chars: Array<Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>>) => Promise<AICharacter[]>;
   updateCharacter: (id: string, updates: Partial<AICharacter>) => Promise<void>;
+  updateCharacters: (patches: Array<{ id: string; updates: Partial<AICharacter> }>) => Promise<void>;
   deleteCharacter: (id: string) => Promise<void>;
   deleteCharacters: (ids: string[]) => Promise<void>;
   restoreCharacters: (ids: string[]) => Promise<void>;
@@ -300,12 +344,43 @@ function scheduleCharacterFlush(flush: () => Promise<void>, delay = 0) {
   characterSyncScheduler.schedule(flush, delay);
 }
 
+function mergeCharacterPatchOperations(operations: PendingCharacterOperation[]) {
+  const merged = new Map<string, PendingCharacterOperation>();
+  for (const operation of operations) {
+    const cloudPatch = compactCharacterPatchForCloud(operation.patch);
+    if (Object.keys(cloudPatch).length === 0) continue;
+    const compactedOperation = {
+      ...operation,
+      patch: cloudPatch,
+    };
+    const existing = merged.get(operation.entityId);
+    if (!existing) {
+      merged.set(operation.entityId, compactedOperation);
+      continue;
+    }
+    merged.set(operation.entityId, {
+      ...existing,
+      id: compactedOperation.id,
+      patch: {
+        ...(existing.patch || {}),
+        ...(compactedOperation.patch || {}),
+      },
+      clientTimestamp: compactedOperation.clientTimestamp,
+      status: existing.status === 'syncing' ? 'syncing' : compactedOperation.status,
+      attemptCount: Math.max(existing.attemptCount || 0, compactedOperation.attemptCount || 0),
+      lastError: compactedOperation.lastError || existing.lastError,
+      targetIds: compactedOperation.targetIds?.length ? compactedOperation.targetIds : existing.targetIds,
+    });
+  }
+  return Array.from(merged.values()).sort((left, right) => left.clientTimestamp - right.clientTimestamp);
+}
+
 function visibleCharactersFromState(state: CharacterStore) {
   return projectVisibleCharacters(state.characters, state.pendingOperations);
 }
 
 function queueAndProjectCharacters(state: CharacterStore, operations: PendingCharacterOperation[]) {
-  const pendingOperations = [...state.pendingOperations, ...operations];
+  const pendingOperations = mergeCharacterPatchOperations([...state.pendingOperations, ...operations]);
   return {
     pendingOperations,
     characters: projectVisibleCharacters(state.characters, pendingOperations),
@@ -341,6 +416,10 @@ function importCharactersBatchLocally(state: CharacterStore, chars: AICharacter[
 }
 
 async function executeCharacterOperation(operation: PendingCharacterOperation) {
+  const character = useCharacterStore.getState().characters.find((item) => item.id === operation.entityId);
+  if (character?.isPreset) {
+    return { success: true, character: null };
+  }
   return api.syncCharacterPatch(operation.entityId, {
     operationId: operation.id,
     clientTimestamp: operation.clientTimestamp,
@@ -384,6 +463,12 @@ export function clearPersistedCharacterStore() {
   localStorage.removeItem(getLegacyCharacterStorageKey());
 }
 
+const characterStorage = createScopedBufferedJsonStorage<PersistedCharacterState>({
+  getScopedKey: getCharacterStorageKey,
+  legacyKey: getLegacyCharacterStorageKey(),
+  flushDelayMs: 96,
+});
+
 let characterSyncLifecycleRegistered = false;
 let characterHydrationPromise: Promise<void> | null = null;
 
@@ -410,14 +495,13 @@ export const useCharacterStore = create<CharacterStore>()(
         try {
           await executeCharacterOperation(nextOperation);
           const nextQueue = removePendingCharacterOperation(get().pendingOperations, nextOperation.id);
-          const nextState = await reloadProjectedCharacterState(nextQueue);
-          set({
-            characters: nextState.visible,
+          set((current) => ({
+            characters: projectVisibleCharacters(current.characters, nextQueue),
             pendingOperations: nextQueue,
             pendingEditSyncCount: nextQueue.length,
             pendingEditSyncError: latestCharacterError(nextQueue),
             lastSyncedAt: Date.now(),
-          });
+          }));
           scheduleCharacterFlush(flushPendingOperations, 50);
         } catch (error) {
           const classified = classifySyncError(error);
@@ -488,9 +572,27 @@ export const useCharacterStore = create<CharacterStore>()(
         flushPendingOperations,
 
         queuePatch: (entityId, patch, kind = 'patch') => {
-          const operation = createPendingCharacterOperation({ kind, targetIds: entityId ? [entityId] : [], patch });
-          set((state) => queueAndProjectCharacters(state, [operation]));
-          scheduleCharacterFlush(flushPendingOperations, 50);
+          const character = get().characters.find((item) => item.id === entityId);
+          if (character?.isPreset) {
+            set((state) => ({ characters: updateCharacterLocally(state, entityId, patch as Partial<AICharacter>) }));
+            return;
+          }
+          const cloudPatch = compactCharacterPatchForCloud(patch);
+          const operation = Object.keys(cloudPatch).length > 0
+            ? createPendingCharacterOperation({ kind, targetIds: entityId ? [entityId] : [], patch: cloudPatch })
+            : null;
+          set((state) => {
+            const queued = operation ? queueAndProjectCharacters(state, [operation]) : queueAndProjectCharacters(state, []);
+            return {
+              ...queued,
+              characters: updateCharacterLocally({
+                ...state,
+                pendingOperations: queued.pendingOperations,
+                characters: queued.characters,
+              } as CharacterStore, entityId, patch as Partial<AICharacter>),
+            };
+          });
+          if (operation) scheduleCharacterFlush(flushPendingOperations, 120);
         },
 
         loadProjectedDeletedCharacters: async () => {
@@ -552,6 +654,47 @@ export const useCharacterStore = create<CharacterStore>()(
             return;
           }
           await get().syncPatch(id, updates, 'patch');
+        },
+
+        updateCharacters: async (patches) => {
+          const normalizedPatches = patches.filter((patch) => patch.id);
+          if (!normalizedPatches.length) return;
+          normalizedPatches.forEach((patch) => assertUniqueCharacterNameUpdate(get().characters, patch.id, patch.updates));
+          if (shouldSkipCloudSync()) {
+            set((state) => {
+              let nextCharacters = state.characters;
+              for (const patch of normalizedPatches) {
+                nextCharacters = updateCharacterLocally({ ...state, characters: nextCharacters } as CharacterStore, patch.id, patch.updates);
+              }
+              return { characters: nextCharacters };
+            });
+            return;
+          }
+          const operations = normalizedPatches
+            .map((patch) => {
+              const character = get().characters.find((item) => item.id === patch.id);
+              if (character?.isPreset) return null;
+              const cloudPatch = compactCharacterPatchForCloud(patch.updates as Record<string, unknown>);
+              if (Object.keys(cloudPatch).length === 0) return null;
+              return createPendingCharacterOperation({ kind: 'patch', targetIds: [patch.id], patch: cloudPatch });
+            })
+            .filter(Boolean) as PendingCharacterOperation[];
+          set((state) => {
+            const queued = queueAndProjectCharacters(state, operations);
+            let nextCharacters = queued.characters;
+            for (const patch of normalizedPatches) {
+              nextCharacters = updateCharacterLocally({
+                ...state,
+                pendingOperations: queued.pendingOperations,
+                characters: nextCharacters,
+              } as CharacterStore, patch.id, patch.updates);
+            }
+            return {
+              ...queued,
+              characters: nextCharacters,
+            };
+          });
+          if (operations.length) scheduleCharacterFlush(flushPendingOperations, 120);
         },
 
         deleteCharacter: async (id) => {
@@ -696,14 +839,14 @@ export const useCharacterStore = create<CharacterStore>()(
     },
     {
       name: getLegacyCharacterStorageKey(),
-      storage: createJSONStorage(() => createCharacterStorage()),
+      storage: characterStorage,
       version: CLIENT_STORE_SCHEMA_VERSION,
       migrate: (persistedState) => migrateCharacterStoreState(persistedState as PersistedCharacterState) as PersistedCharacterState,
-      partialize: (state) => ({
+      partialize: (state) => buildPersistedCharacterState({
         characters: state.characters,
         lastSyncedAt: state.lastSyncedAt,
         pendingOperations: state.pendingOperations,
-      } as PersistedCharacterState),
+      }),
       skipHydration: true,
     }
   )

@@ -14,31 +14,6 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function revealMessageContent(params: {
-  content: string;
-  isActive: () => boolean;
-  onChunk: (content: string) => void;
-}) {
-  const glyphs = Array.from(params.content);
-  if (glyphs.length === 0) {
-    params.onChunk('');
-    return;
-  }
-
-  const targetSteps = Math.min(28, Math.max(10, Math.ceil(glyphs.length / 3)));
-  const baseSize = Math.max(1, Math.ceil(glyphs.length / targetSteps));
-  let index = 0;
-
-  while (index < glyphs.length) {
-    if (!params.isActive()) return;
-    index = Math.min(glyphs.length, index + baseSize);
-    params.onChunk(glyphs.slice(0, index).join(''));
-    if (index < glyphs.length) {
-      await sleep(glyphs.length <= 24 ? 24 : 18);
-    }
-  }
-}
-
 function buildEngineGenerationContext(chat: GroupChat, characters: AICharacter[], messages: Message[]): SessionGenerationContext {
   return {
     conversation: chat,
@@ -83,7 +58,7 @@ async function maybeRunNonChatAction(chat: GroupChat, updateChat: (id: string, p
 }
 
 function getLoopWaitTime(chat: GroupChat) {
-  return (3000 / (chat.speed || 1)) + Math.random() * 2000;
+  return (900 / (chat.speed || 1)) + Math.random() * 600;
 }
 
 function getLoopErrorWaitTime() {
@@ -113,12 +88,16 @@ export async function runSessionLoop(params: {
   characters: AICharacter[];
   api: APIConfig;
   getCurrentMessages: () => Message[];
+  getStreamingMessage?: () => Message | null;
   getCurrentChat?: () => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
   isRunning: () => boolean;
   isPaused: () => boolean;
   isActiveLoop: (loopId: string) => boolean;
   onSpeakerSelected: (characterId: string) => void;
+  onCommitSettled?: () => boolean;
+  onCommitStarted?: () => void;
+  onCommitFinished?: () => void;
   onIdle?: (reason: string) => void;
   onMessageChunk: (content: string) => void;
   onClearStreamingState: () => void;
@@ -134,13 +113,20 @@ export async function runSessionLoop(params: {
   }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>;
   upsertMessage: (message: Message) => void;
   updateCharacter: (id: string, patch: Partial<AICharacter>) => Promise<void>;
+  updateCharacters?: (patches: Array<{ id: string; patch: Partial<AICharacter> }>) => Promise<void>;
   appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number]) => Promise<void>;
+  appendEventMessages?: (chatId: string, payloads: DriverMessageCommitResult['runtimeEvents'], sourceMessageId?: string) => Promise<void>;
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
+  applyChatRuntimeDelta?: (id: string, delta: NonNullable<DriverMessageCommitResult['chatRuntimeDelta']>, patch?: Partial<GroupChat>) => Promise<void>;
   recordSpeak: (characterId: string) => void;
   getCooldownMap?: () => Record<string, number>;
 }) {
   while (shouldContinueLoop(params)) {
     if (!isActiveLoop(params)) return;
+    if (params.onCommitSettled && !params.onCommitSettled()) {
+      await sleep(80);
+      continue;
+    }
 
     try {
       const currentMessages = getSessionMessages(params.getCurrentMessages);
@@ -200,27 +186,30 @@ export async function runSessionLoop(params: {
           },
           onMessageComplete: async (message) => {
             if (!isActiveLoop(params)) return;
+            params.onCommitStarted?.();
             try {
-              await revealMessageContent({
-                content: message.content,
-                isActive: () => isActiveLoop(params),
-                onChunk: params.onMessageChunk,
-              });
               await runSessionCommitPipeline({
                 api: params.api,
                 chatId: params.chatId,
                 chat: currentChat,
                 characters: currentCharacters,
                 message,
+                streamingMessage: params.getStreamingMessage?.() || null,
                 currentMessages: params.getCurrentMessages(),
                 onCommit: params.onCommit,
                 upsertMessage: params.upsertMessage,
                 updateCharacter: params.updateCharacter,
+                updateCharacters: params.updateCharacters,
                 appendEventMessage: params.appendEventMessage,
+                appendEventMessages: params.appendEventMessages,
                 updateChat: params.updateChat,
+                applyChatRuntimeDelta: params.applyChatRuntimeDelta,
                 recordSpeak: params.recordSpeak,
+                getCurrentChat: params.getCurrentChat,
+                getCurrentCharacters: params.getCurrentCharacters,
               });
             } finally {
+              params.onCommitFinished?.();
               if (isActiveLoop(params)) {
                 params.onClearStreamingState();
               }

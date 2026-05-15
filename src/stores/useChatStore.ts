@@ -1,14 +1,15 @@
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
 import type { GroupChat } from '../types/chat';
 import { normalizeConversation } from '../types/chat';
 import { api } from '../services/api';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { buildWarmState } from './storeWarmHelpers';
-import { createScopedStorage } from './storePersistenceScope';
+import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateChatStoreState } from './storeMigrations';
+import { isRuntimeMemoryMonitorEnabled, recordRuntimeMemory } from '../services/runtimeMemoryMonitor';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -137,6 +138,61 @@ interface PersistedChatState {
   pendingOperations: PendingChatOperation[];
 }
 
+function compactChatPatchForCloud(patch: PendingChatOperation['patch']) {
+  if (!patch || typeof patch !== 'object') return {};
+  const nextPatch = { ...patch };
+  delete nextPatch.layeredMemories;
+  delete nextPatch.runtimeSeed;
+  delete nextPatch.runtimeTimeline;
+  delete nextPatch.runtimeEventsV2;
+  delete nextPatch.relationshipLedger;
+  delete nextPatch.worldState;
+  delete nextPatch.updatedAt;
+  delete nextPatch.lastMessageAt;
+  return nextPatch;
+}
+
+function buildPersistedChatState(state: PersistedChatState): PersistedChatState {
+  if (shouldSkipCloudSync()) return state;
+  if (isRuntimeMemoryMonitorEnabled()) {
+    recordRuntimeMemory('chat-store:partialize:start', {
+      extra: {
+        chatCount: state.chats.length,
+        pendingOperationCount: state.pendingOperations.length,
+      },
+    });
+  }
+  const startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
+  const persisted = {
+    chats: state.chats.map((chat) => normalizeConversation({
+      ...chat,
+      layeredMemories: [],
+      runtimeSeed: { notes: [], artifacts: [] },
+      runtimeTimeline: [],
+      runtimeEventsV2: [],
+      relationshipLedger: [],
+    } as GroupChat)),
+    currentChatId: state.currentChatId,
+    lastSyncedAt: state.lastSyncedAt,
+    pendingOperations: state.pendingOperations
+      .map((operation) => ({
+        ...operation,
+        patch: compactChatPatchForCloud(operation.patch),
+      }))
+      .filter((operation) => Object.keys(operation.patch || {}).length > 0),
+  };
+  if (isRuntimeMemoryMonitorEnabled()) {
+    recordRuntimeMemory('chat-store:partialize:finish', {
+      extra: {
+        chatCount: persisted.chats.length,
+        pendingOperationCount: persisted.pendingOperations.length,
+        elapsedMs: typeof performance !== 'undefined' ? Math.round((performance.now() - startedAt) * 10) / 10 : 0,
+      },
+    });
+  }
+  return persisted;
+}
+
 interface ChatStore extends PersistedChatState {
   isLoading: boolean;
   pendingEditSyncCount: number;
@@ -160,6 +216,7 @@ interface ChatStore extends PersistedChatState {
   loadProjectedVisibleChats: () => Promise<GroupChat[]>;
   addChat: (chat: Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'>) => Promise<GroupChat>;
   updateChat: (id: string, updates: Partial<GroupChat>) => Promise<void>;
+  applyChatRuntimeDelta: (id: string, delta: NonNullable<import('../types/chat').DriverMessageCommitTransition['chatRuntimeDelta']>, patch?: Partial<GroupChat>) => Promise<void>;
   deleteChat: (id: string) => Promise<void>;
   restoreChats: (ids: string[]) => Promise<void>;
   purgeChats: (ids: string[]) => Promise<void>;
@@ -199,6 +256,32 @@ function normalizeChats(items: GroupChat[]) {
 
 function sortChats(chats: GroupChat[]) {
   return [...chats].sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+}
+
+function applyRuntimeEventsDelta(chat: GroupChat, delta: NonNullable<import('../types/chat').DriverMessageCommitTransition['chatRuntimeDelta']>['runtimeEventsV2']) {
+  if (!delta) return chat.runtimeEventsV2 || [];
+  const byId = new Map((chat.runtimeEventsV2 || []).map((item) => [item.id, item] as const));
+  delta.upserts.forEach((item) => byId.set(item.id, item));
+  return delta.orderedIds.map((id) => byId.get(id)).filter(Boolean) as NonNullable<GroupChat['runtimeEventsV2']>;
+}
+
+function applyRelationshipLedgerDelta(chat: GroupChat, delta: NonNullable<import('../types/chat').DriverMessageCommitTransition['chatRuntimeDelta']>['relationshipLedger']) {
+  if (!delta) return chat.relationshipLedger || [];
+  const byKey = new Map((chat.relationshipLedger || []).map((item) => [item.pairKey, item] as const));
+  delta.upserts.forEach((item) => byKey.set(item.pairKey, item));
+  return delta.orderedPairKeys.map((key) => byKey.get(key)).filter(Boolean) as NonNullable<GroupChat['relationshipLedger']>;
+}
+
+function applyLocalChatRuntimeDelta(
+  chat: GroupChat,
+  delta: NonNullable<import('../types/chat').DriverMessageCommitTransition['chatRuntimeDelta']>,
+  patch: Partial<GroupChat> = {},
+) {
+  return applyLocalChatUpdate(chat, {
+    ...patch,
+    ...(delta.runtimeEventsV2 ? { runtimeEventsV2: applyRuntimeEventsDelta(chat, delta.runtimeEventsV2) } : {}),
+    ...(delta.relationshipLedger ? { relationshipLedger: applyRelationshipLedgerDelta(chat, delta.relationshipLedger) } : {}),
+  });
 }
 
 function mergeChats(localChats: GroupChat[], remoteChats: GroupChat[], pendingOperations: PendingChatOperation[] = []) {
@@ -262,6 +345,37 @@ function scheduleChatFlush(flush: () => Promise<void>, delay = 0) {
   chatSyncScheduler.schedule(flush, delay);
 }
 
+function mergeChatPatchOperations(operations: PendingChatOperation[]) {
+  const merged = new Map<string, PendingChatOperation>();
+  for (const operation of operations) {
+    const cloudPatch = compactChatPatchForCloud(operation.patch);
+    if (Object.keys(cloudPatch).length === 0) continue;
+    const compactedOperation = {
+      ...operation,
+      patch: cloudPatch,
+    };
+    const existing = merged.get(operation.entityId);
+    if (!existing) {
+      merged.set(operation.entityId, compactedOperation);
+      continue;
+    }
+    merged.set(operation.entityId, {
+      ...existing,
+      id: compactedOperation.id,
+      patch: {
+        ...(existing.patch || {}),
+        ...(compactedOperation.patch || {}),
+      },
+      clientTimestamp: compactedOperation.clientTimestamp,
+      status: existing.status === 'syncing' ? 'syncing' : compactedOperation.status,
+      attemptCount: Math.max(existing.attemptCount || 0, compactedOperation.attemptCount || 0),
+      lastError: compactedOperation.lastError || existing.lastError,
+      targetIds: compactedOperation.targetIds?.length ? compactedOperation.targetIds : existing.targetIds,
+    });
+  }
+  return Array.from(merged.values()).sort((left, right) => left.clientTimestamp - right.clientTimestamp);
+}
+
 async function executeChatOperation(operation: PendingChatOperation) {
   return api.syncChatPatch(operation.entityId, {
     operationId: operation.id,
@@ -311,7 +425,11 @@ export function clearPersistedChatStore() {
   localStorage.removeItem(getLegacyChatStorageKey());
 }
 
-const chatStorage = createJSONStorage(() => createChatStorage());
+const chatStorage = createScopedBufferedJsonStorage<PersistedChatState>({
+  getScopedKey: getChatStorageKey,
+  legacyKey: getLegacyChatStorageKey(),
+  flushDelayMs: 96,
+});
 let chatSyncLifecycleRegistered = false;
 let chatHydrationPromise: Promise<void> | null = null;
 
@@ -337,15 +455,14 @@ export const useChatStore = create<ChatStore>()(
 
         try {
           await executeChatOperation(nextOperation);
-          const remoteChats = await api.getChats() as unknown as GroupChat[];
           const nextQueue = removePendingChatOperation(get().pendingOperations, nextOperation.id);
-          set({
-            chats: mergeChats(get().chats, remoteChats, nextQueue),
+          set((current) => ({
+            chats: projectEntities(current.chats, nextQueue).filter((chat) => chat.deletedAt == null),
             pendingOperations: nextQueue,
             pendingEditSyncCount: nextQueue.length,
             pendingEditSyncError: latestChatError(nextQueue),
             lastSyncedAt: Date.now(),
-          });
+          }));
           scheduleChatFlush(flushPendingOperations, 50);
         } catch (error) {
           const classified = classifySyncError(error);
@@ -433,17 +550,55 @@ export const useChatStore = create<ChatStore>()(
         flushPendingOperations,
 
         queuePatch: (entityId, patch, kind = 'patch') => {
-          const operation = createPendingChatOperation({ kind, targetIds: entityId ? [entityId] : [], patch });
+          const cloudPatch = compactChatPatchForCloud(patch);
+          const operation = Object.keys(cloudPatch).length > 0
+            ? createPendingChatOperation({ kind, targetIds: entityId ? [entityId] : [], patch: cloudPatch })
+            : null;
           set((state) => {
-            const pendingOperations = [...state.pendingOperations, operation];
+            const pendingOperations = operation
+              ? mergeChatPatchOperations([...state.pendingOperations, operation])
+              : mergeChatPatchOperations(state.pendingOperations);
+            if (isRuntimeMemoryMonitorEnabled()) {
+              recordRuntimeMemory('chat-store:queue-patch', {
+                chatId: entityId,
+                chat: state.chats.find((chat) => chat.id === entityId) || null,
+                extra: {
+                  kind,
+                  patchKeys: Object.keys(patch || {}),
+                  cloudPatchKeys: Object.keys(cloudPatch || {}),
+                  pendingOperationCount: pendingOperations.length,
+                  pendingOperationsJson: (() => {
+                    try {
+                      return JSON.stringify(pendingOperations).length;
+                    } catch {
+                      return -1;
+                    }
+                  })(),
+                  patchJson: (() => {
+                    try {
+                      return JSON.stringify(patch).length;
+                    } catch {
+                      return -1;
+                    }
+                  })(),
+                  cloudPatchJson: (() => {
+                    try {
+                      return JSON.stringify(cloudPatch).length;
+                    } catch {
+                      return -1;
+                    }
+                  })(),
+                },
+              });
+            }
             return {
               pendingOperations,
-              chats: projectEntities(state.chats, [operation]),
+              chats: state.chats.map((chat) => chat.id === entityId ? applyLocalChatUpdate(chat, patch as Partial<GroupChat>) : chat),
               pendingEditSyncCount: pendingOperations.length,
               pendingEditSyncError: latestChatError(pendingOperations),
             };
           });
-          scheduleChatFlush(flushPendingOperations, 50);
+          if (operation) scheduleChatFlush(flushPendingOperations, 120);
         },
 
         loadProjectedDeletedChats: async () => {
@@ -491,7 +646,19 @@ export const useChatStore = create<ChatStore>()(
             }));
             return;
           }
+          if (Object.keys(compactChatPatchForCloud(updates as Record<string, unknown>)).length === 0) {
+            set((state) => ({
+              chats: state.chats.map((chat) => chat.id === id ? applyLocalChatUpdate(chat, updates) : chat),
+            }));
+            return;
+          }
           await get().syncPatch(id, updates, 'patch');
+        },
+
+        applyChatRuntimeDelta: async (id, delta, patch = {}) => {
+          set((state) => ({
+            chats: state.chats.map((chat) => chat.id === id ? applyLocalChatRuntimeDelta(chat, delta, patch) : chat),
+          }));
         },
 
         deleteChat: async (id) => {
@@ -579,12 +746,12 @@ export const useChatStore = create<ChatStore>()(
       storage: chatStorage,
       version: CLIENT_STORE_SCHEMA_VERSION,
       migrate: (persistedState) => migrateChatStoreState(persistedState as PersistedChatState) as PersistedChatState,
-      partialize: (state) => ({
+      partialize: (state) => buildPersistedChatState({
         chats: state.chats,
         currentChatId: state.currentChatId,
         lastSyncedAt: state.lastSyncedAt,
         pendingOperations: state.pendingOperations,
-      } as PersistedChatState),
+      }),
       skipHydration: true,
     }
   )

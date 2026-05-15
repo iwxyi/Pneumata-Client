@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import './services/runtimeMemoryMonitor';
 
 const style = document.createElement('style');
 style.textContent = `

@@ -324,6 +324,26 @@ export interface RuntimeEventV2 {
   payload: InteractionEventPayload | RelationshipDeltaPayload | RoomShiftPayload | MemoryCandidatePayload | SocialEventCandidatePayload | SocialEventEffectPayload | SocialEventArtifactPayload | ConflictFocusPayload | Record<string, unknown>;
 }
 
+export interface RelationshipLedgerRecentEvent {
+  id: string;
+  kind: RuntimeEventKind;
+  createdAt: number;
+  summary: string;
+  actorIds?: string[];
+  targetIds?: string[];
+}
+
+export function toRelationshipLedgerRecentEvent(event: Pick<RuntimeEventV2, 'id' | 'kind' | 'createdAt' | 'summary' | 'actorIds' | 'targetIds'>): RelationshipLedgerRecentEvent {
+  return {
+    id: event.id,
+    kind: event.kind,
+    createdAt: event.createdAt,
+    summary: event.summary,
+    actorIds: event.actorIds,
+    targetIds: event.targetIds,
+  };
+}
+
 export interface RelationshipLedgerEntry {
   pairKey: string;
   actorId: string;
@@ -341,7 +361,7 @@ export interface RelationshipLedgerEntry {
   };
   axisReasons?: Partial<Record<'warmth' | 'competence' | 'trust' | 'threat', RelationshipAxisReason[]>>;
   trend: 'up' | 'down' | 'volatile' | 'flat';
-  recentEvents: RuntimeEventV2[];
+  recentEvents: RelationshipLedgerRecentEvent[];
   lastUpdatedAt: number;
 }
 

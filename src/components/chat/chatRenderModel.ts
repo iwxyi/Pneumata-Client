@@ -1,22 +1,9 @@
 import type { Message } from '../../types/message';
 
-export interface LiveChatMessage {
-  key: string;
-  chatId: string;
-  senderId: string;
-  senderName: string;
-  content: string;
-  startedAt: number;
-}
-
 export interface ChatRenderItem {
   key: string;
   message: Message;
   pending: boolean;
-}
-
-function normalizeContent(content: string) {
-  return content.replace(/\s+/g, ' ').trim();
 }
 
 function buildMessageIdentity(message: Message) {
@@ -24,68 +11,41 @@ function buildMessageIdentity(message: Message) {
   return `${message.chatId}:${message.id}`;
 }
 
-function buildLiveMessage(liveMessage: LiveChatMessage): Message {
-  return {
-    id: liveMessage.key,
-    clientKey: liveMessage.key,
-    chatId: liveMessage.chatId,
-    type: 'ai',
-    senderId: liveMessage.senderId,
-    senderName: liveMessage.senderName,
-    content: liveMessage.content,
-    emotion: 0,
-    timestamp: liveMessage.startedAt,
-    isDeleted: false,
-    isOptimistic: true,
-  };
+function buildStableTieBreaker(message: Message) {
+  return message.serverId || message.clientKey || message.id;
 }
 
-function shouldSuppressCommittedForLive(message: Message, liveMessage: LiveChatMessage) {
-  if (message.type !== 'ai') return false;
-  if (message.senderId !== liveMessage.senderId) return false;
-  if (!normalizeContent(liveMessage.content)) return false;
-  return normalizeContent(message.content) === normalizeContent(liveMessage.content);
-}
-
-
-export function buildChatRenderItems(messages: Message[], liveMessage: LiveChatMessage | null): ChatRenderItem[] {
+export function buildChatRenderItems(messages: Message[]): ChatRenderItem[] {
   const seenIds = new Set<string>();
-  const items: ChatRenderItem[] = [];
-  let liveMessageRenderedInPlace = false;
+  const items: Array<ChatRenderItem & { order: number }> = [];
 
-  for (const message of messages) {
+  for (const [order, message] of messages.entries()) {
     if (message.isDeleted) continue;
-    if (message.isOptimistic) continue;
 
     const identity = buildMessageIdentity(message);
     if (seenIds.has(identity)) continue;
     seenIds.add(identity);
 
-    if (liveMessage && shouldSuppressCommittedForLive(message, liveMessage)) {
-      items.push({
-        key: liveMessage.key,
-        message: buildLiveMessage(liveMessage),
-        pending: true,
-      });
-      liveMessageRenderedInPlace = true;
-      continue;
-    }
-
     items.push({
       key: message.clientKey || identity,
       message,
-      pending: false,
+      pending: Boolean(message.isStreaming),
+      order,
     });
   }
 
-  if (liveMessage && !liveMessageRenderedInPlace) {
-    const liveAsMessage = buildLiveMessage(liveMessage);
-    items.push({
-      key: liveMessage.key,
-      message: liveAsMessage,
-      pending: true,
-    });
-  }
-
-  return items;
+  return items
+    .sort((a, b) => {
+      if (a.message.timestamp !== b.message.timestamp) return a.message.timestamp - b.message.timestamp;
+      if (a.message.type === 'event' && b.message.type !== 'event') return 1;
+      if (a.message.type !== 'event' && b.message.type === 'event') return -1;
+      const stableOrder = buildStableTieBreaker(a.message).localeCompare(buildStableTieBreaker(b.message));
+      if (stableOrder !== 0) return stableOrder;
+      return a.order - b.order;
+    })
+    .map((item) => ({
+      key: item.key,
+      message: item.message,
+      pending: item.pending,
+    }));
 }

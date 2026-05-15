@@ -85,7 +85,8 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: '请求失败', code: 'REQUEST_FAILED' }));
-      throw new ApiError(error.error || `HTTP ${response.status}`, { code: error.code, status: response.status });
+      const detail = typeof error.detail === 'string' && error.detail ? ` (${error.detail})` : '';
+      throw new ApiError(`${error.error || `HTTP ${response.status}`}${detail}`, { code: error.code, status: response.status });
     }
 
     return response.json();

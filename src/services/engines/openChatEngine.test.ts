@@ -3,6 +3,7 @@ import { openChatEngine } from './openChatEngine';
 import { normalizeConversation } from '../../types/chat';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_EMOTIONAL_STATE, type AICharacter } from '../../types/character';
 import { DEFAULT_API_CONFIG } from '../../types/settings';
+import type { DriverMessageCommitResult } from '../../types/chat';
 
 const generateResponseMock = vi.fn();
 
@@ -82,6 +83,34 @@ function buildCharacter(id: string, name: string): AICharacter {
   };
 }
 
+function readRuntimeEvents(result: DriverMessageCommitResult) {
+  return result.chatPatch.runtimeEventsV2 || result.chatRuntimeDelta?.runtimeEventsV2?.upserts || [];
+}
+
+function applyResultToChat(chat: ReturnType<typeof buildChat>, result: DriverMessageCommitResult) {
+  const eventById = new Map((chat.runtimeEventsV2 || []).map((event) => [event.id, event] as const));
+  result.chatRuntimeDelta?.runtimeEventsV2?.upserts.forEach((event) => eventById.set(event.id, event));
+  const ledgerByKey = new Map((chat.relationshipLedger || []).map((entry) => [entry.pairKey, entry] as const));
+  result.chatRuntimeDelta?.relationshipLedger?.upserts.forEach((entry) => ledgerByKey.set(entry.pairKey, entry));
+  const isPresent = <T,>(value: T | undefined): value is T => Boolean(value);
+  return normalizeConversation({
+    ...chat,
+    ...result.chatPatch,
+    runtimeEventsV2: result.chatRuntimeDelta?.runtimeEventsV2
+      ? result.chatRuntimeDelta.runtimeEventsV2.orderedIds.map((id) => eventById.get(id)).filter(isPresent)
+      : (result.chatPatch.runtimeEventsV2 || chat.runtimeEventsV2),
+    relationshipLedger: result.chatRuntimeDelta?.relationshipLedger
+      ? result.chatRuntimeDelta.relationshipLedger.orderedPairKeys.map((key) => ledgerByKey.get(key)).filter(isPresent)
+      : (result.chatPatch.relationshipLedger || chat.relationshipLedger),
+    updatedAt: chat.updatedAt + 1,
+    lastMessageAt: chat.lastMessageAt + 1,
+  });
+}
+
+function readAppliedRuntimeEvents(chat: ReturnType<typeof buildChat>, result: DriverMessageCommitResult) {
+  return applyResultToChat(chat, result).runtimeEventsV2 || [];
+}
+
 describe('openChatEngine.onMessageCommitted', () => {
   it('produces structured runtime events for message, interaction, room shift, and memory', async () => {
     const chat = buildChat();
@@ -112,7 +141,7 @@ describe('openChatEngine.onMessageCommitted', () => {
         dedupeKey: 'pair-a-b-thread-1',
       }],
     };
-    const result = await openChatEngine.onMessageCommitted({
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
       conversation: chat,
       characters,
       message: message as Parameters<typeof openChatEngine.onMessageCommitted>[0]['message'],
@@ -120,13 +149,54 @@ describe('openChatEngine.onMessageCommitted', () => {
       recentMessages: [],
     });
 
-    const kinds = (result.chatPatch.runtimeEventsV2 || []).map((event) => event.kind);
+    expect(result.chatPatch.runtimeEventsV2).toBeUndefined();
+    expect(result.chatPatch.relationshipLedger).toBeUndefined();
+    expect(result.chatRuntimeDelta?.runtimeEventsV2?.upserts.length).toBeGreaterThan(0);
+    expect(result.chatRuntimeDelta?.relationshipLedger?.upserts.length).toBeGreaterThan(0);
+    const kinds = (readRuntimeEvents(result)).map((event) => event.kind);
     expect(kinds).toContain('message_generated');
     expect(kinds).toContain('interaction');
     expect(kinds).toContain('relationship_delta');
     expect(kinds).toContain('room_shift');
     expect(kinds).toContain('memory_candidate');
     expect(kinds).toContain('event_candidate');
+  });
+
+  it('keeps relationship ledger recent events lightweight across structured commits', async () => {
+    let chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+
+    for (let index = 0; index < 4; index += 1) {
+      const result = await openChatEngine.onMessageCommitted({
+        conversation: chat,
+        characters,
+        message: {
+          type: 'ai',
+          senderId: 'a',
+          content: `乙，你第 ${index + 1} 次这个说法我还是不同意。`,
+          interactionHint: {
+            kind: 'challenge',
+            actorId: 'a',
+            targetId: 'b',
+            intensity: 4,
+            tone: 'annoyed',
+            evidenceText: `乙，你第 ${index + 1} 次这个说法我还是不同意。`,
+            confidence: 0.92,
+          },
+        },
+        previousAiMessage: null,
+        recentMessages: [],
+      });
+
+      chat = applyResultToChat(chat, result);
+    }
+
+    const ledger = chat.relationshipLedger || [];
+    expect(ledger.length).toBeGreaterThan(0);
+    const recentEvent = ledger[0]?.recentEvents.at(-1);
+    expect(recentEvent && 'summary' in recentEvent).toBe(true);
+    expect(recentEvent && Object.prototype.hasOwnProperty.call(recentEvent, 'payload')).toBe(false);
+    expect(JSON.stringify(ledger).length).toBeLessThan(6000);
   });
 
   it('adds post moment candidate/events for celebratory room messages', async () => {
@@ -167,7 +237,7 @@ describe('openChatEngine.onMessageCommitted', () => {
       recentMessages: [],
     });
 
-    const events = result.chatPatch.runtimeEventsV2 || [];
+    const events = readRuntimeEvents(result);
     expect(events.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'post_moment')).toBe(true);
     expect(events.some((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'moment_text')).toBe(true);
     expect(events.some((event) => event.kind === 'event_candidate' && (event.payload as { sourceText?: string }).sourceText?.includes('吃火锅'))).toBe(true);
@@ -213,15 +283,13 @@ describe('openChatEngine.onMessageCommitted', () => {
       recentMessages: [],
     });
 
-    const events = result.chatPatch.runtimeEventsV2 || [];
+    const events = readRuntimeEvents(result);
     expect(events.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'social_outing')).toBe(true);
     expect(events.some((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'outing_summary')).toBe(true);
   });
 
   it('falls back to AI post moment analysis when no hint is provided', async () => {
     generateResponseMock
-      .mockResolvedValueOnce(jsonResponse({ shouldCreate: false, participantIds: null, targetIds: null, confidence: 0.2, reasonType: null, dedupeKey: null, seedIntent: null }))
-      .mockResolvedValueOnce(jsonResponse({ shouldCreate: false, title: null, activityType: null, timeHint: null, locationHint: null, participantIds: null, confidence: 0.2, reasonType: null, dedupeKey: null, seedIntent: null }))
       .mockResolvedValueOnce(jsonResponse({ shouldCreate: true, title: '朋友圈动态', activityType: '记录聚会', targetIds: ['b'], confidence: 0.91, reasonType: 'celebration', dedupeKey: 'moment-fallback-1', seedIntent: '想把刚才的开心时刻发成动态。' }));
 
     const chat = buildChat();
@@ -233,25 +301,31 @@ describe('openChatEngine.onMessageCommitted', () => {
         type: 'ai',
         senderId: 'a',
         content: '今天太开心了，刚才那一幕我都想发出来。',
-        interactionHint: null,
+        interactionHint: {
+          kind: 'support',
+          actorId: 'a',
+          targetId: 'b',
+          intensity: 3,
+          tone: 'warm',
+          evidenceText: '今天太开心了，刚才那一幕我都想发出来。',
+          confidence: 0.9,
+        },
       },
       previousAiMessage: null,
       recentMessages: [],
       apiConfig: buildApiConfig(),
     });
 
-    const events = result.chatPatch.runtimeEventsV2 || [];
+    const events = readRuntimeEvents(result);
     expect(events.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'post_moment')).toBe(true);
     expect(events.some((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'moment_text')).toBe(true);
-    expect(generateResponseMock.mock.calls.length).toBeGreaterThanOrEqual(4);
+    expect(generateResponseMock.mock.calls.length).toBe(1);
     expect(generateResponseMock.mock.calls.some(([, prompt]) => typeof prompt === 'string' && prompt.includes('朋友圈/动态'))).toBe(true);
   });
 
   it('ignores malformed AI post moment analysis and keeps runtime stable', async () => {
     generateResponseMock
-      .mockResolvedValueOnce('not-json')
-      .mockResolvedValueOnce(jsonResponse({ shouldCreate: false, title: null, activityType: null, timeHint: null, locationHint: null, participantIds: null, confidence: 0.1, reasonType: null, dedupeKey: null, seedIntent: null }))
-      .mockResolvedValueOnce('still-not-json');
+      .mockResolvedValueOnce('not-json');
 
     const chat = buildChat();
     const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
@@ -261,18 +335,56 @@ describe('openChatEngine.onMessageCommitted', () => {
       message: {
         type: 'ai',
         senderId: 'a',
-        content: '刚才这段我记一下就好。',
-        interactionHint: null,
+        content: '刚才这段我真想发出来记录一下。',
+        interactionHint: {
+          kind: 'support',
+          actorId: 'a',
+          targetId: 'b',
+          intensity: 3,
+          tone: 'warm',
+          evidenceText: '刚才这段我真想发出来记录一下。',
+          confidence: 0.9,
+        },
       },
       previousAiMessage: null,
       recentMessages: [],
       apiConfig: buildApiConfig(),
     });
 
-    const events = result.chatPatch.runtimeEventsV2 || [];
+    const events = readRuntimeEvents(result);
     expect(events.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'post_moment')).toBe(false);
     expect(events.some((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'moment_text')).toBe(false);
     expect(events.some((event) => event.kind === 'message_generated')).toBe(true);
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not run social event LLM analysis for ordinary messages without explicit hints', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '这事先这样吧，我听明白你的意思了。',
+        interactionHint: {
+          kind: 'support',
+          actorId: 'a',
+          targetId: 'b',
+          intensity: 3,
+          tone: 'warm',
+          evidenceText: '这事先这样吧，我听明白你的意思了。',
+          confidence: 0.9,
+        },
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+      apiConfig: buildApiConfig(),
+    });
+
+    expect(generateResponseMock).not.toHaveBeenCalled();
+    expect((readRuntimeEvents(result)).some((event) => event.kind === 'event_candidate')).toBe(false);
   });
 
   it('gates pair private thread candidates on actual interaction state', async () => {
@@ -309,7 +421,7 @@ describe('openChatEngine.onMessageCommitted', () => {
       previousAiMessage: null,
       recentMessages: [],
     });
-    expect((result.chatPatch.runtimeEventsV2 || []).some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'pair_private_thread')).toBe(false);
+    expect((readRuntimeEvents(result)).some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'pair_private_thread')).toBe(false);
   });
 
   it('uses warm room state to admit post moment candidates', async () => {
@@ -338,7 +450,7 @@ describe('openChatEngine.onMessageCommitted', () => {
       previousAiMessage: null,
       recentMessages: [],
     });
-    expect((result.chatPatch.runtimeEventsV2 || []).some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'post_moment')).toBe(true);
+    expect((readRuntimeEvents(result)).some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'post_moment')).toBe(true);
   });
 
   it('uses relationship and room state to admit outing candidates', async () => {
@@ -385,7 +497,7 @@ describe('openChatEngine.onMessageCommitted', () => {
       previousAiMessage: null,
       recentMessages: [],
     });
-    expect((result.chatPatch.runtimeEventsV2 || []).some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'social_outing')).toBe(true);
+    expect((readRuntimeEvents(result)).some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'social_outing')).toBe(true);
   });
 
   it('merges semantically similar outing candidates across nearby messages', async () => {
@@ -454,7 +566,7 @@ describe('openChatEngine.onMessageCommitted', () => {
       previousAiMessage: null,
       recentMessages: [],
     });
-    const events = result.chatPatch.runtimeEventsV2 || [];
+    const events = readAppliedRuntimeEvents(baseChat, result);
     const outingCandidates = events.filter((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'social_outing');
     expect(outingCandidates).toHaveLength(1);
     const latest = outingCandidates.at(-1);
@@ -516,7 +628,7 @@ describe('openChatEngine.onMessageCommitted', () => {
       previousAiMessage: null,
       recentMessages: [],
     });
-    const events = result.chatPatch.runtimeEventsV2 || [];
+    const events = readAppliedRuntimeEvents(baseChat, result);
     const moments = events.filter((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'post_moment');
     expect(moments).toHaveLength(1);
     const latest = moments.at(-1);
@@ -553,7 +665,7 @@ describe('openChatEngine.onMessageCommitted', () => {
       previousAiMessage: null,
       recentMessages: [],
     });
-    const events = result.chatPatch.runtimeEventsV2 || [];
+    const events = readRuntimeEvents(result);
     expect(events.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'status_update')).toBe(true);
     expect(events.some((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'status_note')).toBe(true);
   });
@@ -593,7 +705,7 @@ describe('openChatEngine.onMessageCommitted', () => {
       previousAiMessage: null,
       recentMessages: [],
     });
-    const events = result.chatPatch.runtimeEventsV2 || [];
+    const events = readRuntimeEvents(result);
     expect(events.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'conflict_expression')).toBe(true);
     expect(events.some((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'conflict_note')).toBe(true);
   });
@@ -633,7 +745,7 @@ describe('openChatEngine.onMessageCommitted', () => {
       previousAiMessage: null,
       recentMessages: [],
     });
-    const events = result.chatPatch.runtimeEventsV2 || [];
+    const events = readRuntimeEvents(result);
     expect(events.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'gift_exchange')).toBe(true);
     expect(events.some((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'gift_note')).toBe(true);
   });
@@ -654,6 +766,6 @@ describe('openChatEngine.onMessageCommitted', () => {
       recentMessages: [],
     });
 
-    expect((result.chatPatch.runtimeEventsV2 || []).some((event) => event.kind === 'artifact')).toBe(true);
+    expect((readRuntimeEvents(result)).some((event) => event.kind === 'artifact')).toBe(true);
   });
 });

@@ -305,6 +305,22 @@ function normalizeCatchphraseEcho(content: string, character?: AICharacter) {
   return content.replace(new RegExp(`^(${duplicated})+`), duplicated).trim();
 }
 
+function countMeaningfulChars(content: string) {
+  return content.replace(/[\p{P}\p{S}\s]/gu, '').length;
+}
+
+function shouldKeepQuestionFollowUp(content: string, question: string) {
+  if (!question) return false;
+  if (content.includes('\n')) return false;
+  const suffix = content.slice(content.indexOf(question) + question.length).trim();
+  if (!suffix) return false;
+  if (content.length > 48 || suffix.length > 24) return false;
+  if (countMeaningfulChars(suffix) < 2) return false;
+  if (/^(因为|首先|其次|另外|总结|总之|所以总体|简单来说|具体来说|一方面|另一方面)/.test(suffix)) return false;
+  if (/[{}[\]<>]/.test(suffix)) return false;
+  return true;
+}
+
 export function postProcessHumanChat(content: string, intent: SpeakIntent, character?: AICharacter, messages: Message[] = [], intentionalRepeat = false) {
   const trimmed = content.trim();
   if (!trimmed) return trimmed;
@@ -315,6 +331,9 @@ export function postProcessHumanChat(content: string, intent: SpeakIntent, chara
   if (intent.messageShape === 'question_only') {
     const fingerprint = character ? buildSpeechFingerprint(character) : null;
     const question = surfaceControlled.split(/(?<=[。！？!?])/).find((part) => /[?？]|吗|怎么|凭什么|是不是|要不/.test(part)) || surfaceControlled;
+    if (shouldKeepQuestionFollowUp(surfaceControlled, question.trim())) {
+      return surfaceControlled.trim();
+    }
     const hasRealQuestionCue = /[?？]|吗|怎么|凭什么|是不是|要不/.test(question);
     if (!fingerprint?.prefersQuestions && hasRealQuestionCue && intent.stance !== 'probe' && intent.delivery !== 'quick_question') {
       const firstSentence = surfaceControlled.split(/(?<=[。！？!?])/)[0]?.trim() || surfaceControlled;

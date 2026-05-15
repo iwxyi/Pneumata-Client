@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../types/message';
-import { buildChatRenderItems, type LiveChatMessage } from './chatRenderModel';
+import { buildChatRenderItems } from './chatRenderModel';
 
 function message(overrides: Partial<Message>): Message {
   return {
@@ -18,40 +18,31 @@ function message(overrides: Partial<Message>): Message {
 }
 
 describe('buildChatRenderItems', () => {
-  it('keeps a committed live message in place so following event hints stay below it', () => {
-    const liveMessage: LiveChatMessage = {
-      key: 'live-1',
-      chatId: 'chat-1',
-      senderId: 'character-1',
-      senderName: 'Character',
-      content: 'hello',
-      startedAt: 1,
-    };
-
+  it('keeps a single in-list streaming message pending', () => {
     const items = buildChatRenderItems([
-      message({ id: 'committed-1', content: 'hello' }),
+      message({ id: 'stream-1', content: '正在说', isStreaming: true }),
       message({ id: 'event-1', type: 'event', senderId: 'system', senderName: 'System', content: '{"eventType":"relationship_shift","summary":"关系变化"}', timestamp: 2 }),
-    ], liveMessage);
+    ]);
 
-    expect(items.map((item) => item.key)).toEqual(['live-1', 'chat-1:event-1']);
-    expect(items.map((item) => item.message.type)).toEqual(['ai', 'event']);
-    expect(items[0].pending).toBe(true);
+    expect(items.map((item) => item.key)).toEqual(['chat-1:stream-1', 'chat-1:event-1']);
+    expect(items.map((item) => item.pending)).toEqual([true, false]);
   });
 
-  it('appends live messages that do not have a committed match yet', () => {
-    const liveMessage: LiveChatMessage = {
-      key: 'live-2',
-      chatId: 'chat-1',
-      senderId: 'character-1',
-      senderName: 'Character',
-      content: 'streaming',
-      startedAt: 2,
-    };
-
+  it('keeps event messages after normal messages when timestamps tie', () => {
     const items = buildChatRenderItems([
-      message({ id: 'existing-1', content: 'previous' }),
-    ], liveMessage);
+      message({ id: 'ai-1', timestamp: 10 }),
+      message({ id: 'event-1', type: 'event', senderId: 'system', senderName: 'System', content: '{"eventType":"relationship_shift","summary":"关系变化"}', timestamp: 10 }),
+    ]);
 
-    expect(items.map((item) => item.key)).toEqual(['chat-1:existing-1', 'live-2']);
+    expect(items.map((item) => item.message.type)).toEqual(['ai', 'event']);
+  });
+
+  it('keeps a stable order for multiple event messages with the same timestamp', () => {
+    const items = buildChatRenderItems([
+      message({ id: 'event-2', clientKey: 'event-2', type: 'event', senderId: 'system', senderName: 'System', content: '{"eventType":"conflict_focus_shift","summary":"矛盾"}', timestamp: 10 }),
+      message({ id: 'event-1', clientKey: 'event-1', type: 'event', senderId: 'system', senderName: 'System', content: '{"eventType":"relationship_shift","summary":"关系"}', timestamp: 10 }),
+    ]);
+
+    expect(items.map((item) => item.message.id)).toEqual(['event-1', 'event-2']);
   });
 });

@@ -112,4 +112,36 @@ describe('relationshipLedger', () => {
     expect(replayed[0].current.threat).toBeGreaterThan(0);
     expect(['down', 'volatile']).toContain(replayed[0].trend);
   });
+
+  it('stores only lightweight recent event snapshots in relationship ledger', () => {
+    const interaction: InteractionEventPayload = {
+      kind: 'challenge',
+      actorId: 'a',
+      targetId: 'b',
+      intensity: 4,
+      tone: 'annoyed',
+      evidenceText: '你这句我不同意，而且理由站不住。',
+      confidence: 0.93,
+    };
+
+    const heavyEvent: RuntimeEventV2 = {
+      ...buildEvent(interaction),
+      payload: {
+        ...interaction,
+        giant: 'x'.repeat(50_000),
+      },
+    };
+
+    const result = reduceRelationshipLedger([], interaction, heavyEvent);
+    const recentEvent = result[0]?.recentEvents[0];
+    expect(recentEvent).toEqual({
+      id: heavyEvent.id,
+      kind: heavyEvent.kind,
+      createdAt: heavyEvent.createdAt,
+      summary: heavyEvent.summary,
+      actorIds: heavyEvent.actorIds,
+      targetIds: heavyEvent.targetIds,
+    });
+    expect(JSON.stringify(recentEvent).length).toBeLessThan(500);
+  });
 });

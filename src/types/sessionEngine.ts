@@ -1404,22 +1404,32 @@ export interface SessionEngineDefinition {
 
 export function mergeSessionChatPatch(engine: SessionEngineDefinition, conversation: GroupChat, patch: Partial<GroupChat> = {}): Partial<GroupChat> {
   const basePatch = engine.buildChatPatch?.(conversation) || {};
-  return {
-    ...basePatch,
-    ...patch,
-    sessionKind: patch.sessionKind || basePatch.sessionKind,
-    scenarioPackage: patch.scenarioPackage || basePatch.scenarioPackage,
-    scenarioState: patch.scenarioState || basePatch.scenarioState,
-    channels: patch.channels || basePatch.channels,
-    layoutState: patch.layoutState || basePatch.layoutState,
-    judgeAgent: patch.judgeAgent || basePatch.judgeAgent,
-    modeStateSummary: patch.modeStateSummary || basePatch.modeStateSummary,
-    memoryLayerSummary: patch.memoryLayerSummary || basePatch.memoryLayerSummary,
-    growthSnapshots: patch.growthSnapshots || basePatch.growthSnapshots,
-    roleMemorySummaries: patch.roleMemorySummaries || basePatch.roleMemorySummaries,
-    scenarioMemorySummary: patch.scenarioMemorySummary || basePatch.scenarioMemorySummary,
-    topologySummary: patch.topologySummary || basePatch.topologySummary,
-  };
+  const mergedPatch: Partial<GroupChat> = { ...patch };
+  const frameworkKeys: Array<keyof GroupChat> = [
+    'sessionKind',
+    'scenarioPackage',
+    'scenarioState',
+    'channels',
+    'layoutState',
+    'judgeAgent',
+    'modeStateSummary',
+    'memoryLayerSummary',
+    'growthSnapshots',
+    'roleMemorySummaries',
+    'scenarioMemorySummary',
+    'topologySummary',
+  ];
+
+  frameworkKeys.forEach((key) => {
+    if (key in mergedPatch) return;
+    if (conversation[key] !== undefined && conversation[key] !== null) return;
+    const value = basePatch[key];
+    if (value !== undefined && value !== null) {
+      (mergedPatch as Record<string, unknown>)[key] = value;
+    }
+  });
+
+  return mergedPatch;
 }
 
 export function createDefaultConversationFrameworkPatch(conversation: GroupChat): Partial<GroupChat> {

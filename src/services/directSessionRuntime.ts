@@ -19,10 +19,7 @@ import { buildThreadRef, getVisibilityChannelId } from './sessionTopology';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
-  return mergeSessionChatPatch(engine, chat, {
-    ...createDefaultConversationFrameworkPatch(chat),
-    ...patch,
-  });
+  return mergeSessionChatPatch(engine, chat, patch);
 }
 
 function createConversationThreadFrameworkPatch(sourceChat: GroupChat, memberIds: string[]) {
@@ -886,8 +883,39 @@ export interface SocialEventRuntimeOps {
   appendEventMessage: (chatId: string, payload: { eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown; visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public'; visibleToIds?: string[]; visibleToRoles?: string[] }) => Promise<void>;
 }
 
+function buildHandledSocialEventMarker(eventId: string) {
+  return `handled_social_event:${eventId}`;
+}
+
+function hasHandledSocialEvent(chat: GroupChat, eventId: string) {
+  return (chat.runtimeEventsV2 || []).some((event) => event.kind === 'artifact' && event.summary === buildHandledSocialEventMarker(eventId));
+}
+
+function buildHandledSocialEventRuntimeEvent(chat: GroupChat, eventId: string, actorId?: string | null) {
+  return createRuntimeEventV2({
+    conversationId: chat.id,
+    kind: 'artifact',
+    summary: buildHandledSocialEventMarker(eventId),
+    actorIds: actorId ? [actorId] : [],
+    visibility: 'derived_public',
+    payload: {
+      artifactType: 'handled_social_event',
+      eventId,
+    },
+  });
+}
+
+function appendHandledSocialEvent(chat: GroupChat, patch: Partial<GroupChat>, eventId: string, actorId?: string | null) {
+  const baseEvents = patch.runtimeEventsV2 || chat.runtimeEventsV2 || [];
+  return {
+    ...patch,
+    runtimeEventsV2: appendStructuredRuntimeEvents({ ...chat, runtimeEventsV2: baseEvents } as GroupChat, [buildHandledSocialEventRuntimeEvent(chat, eventId, actorId)]),
+  };
+}
+
 export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialEventRuntimeOps): Promise<{ privateChatId?: string | null; handledEventId?: string | null }> {
   const pairCandidate = pickAutoPairPrivateThreadCandidate(sourceChat);
+  if (pairCandidate && hasHandledSocialEvent(sourceChat, pairCandidate.id)) return { privateChatId: null, handledEventId: pairCandidate.id };
   if (pairCandidate) {
     const payload = pairCandidate.payload as SocialEventCandidatePayload;
     const [actorId, targetId] = payload.participantIds;
@@ -902,9 +930,9 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
       appendEventMessage: ops.appendEventMessage,
     });
     if (privateChat) {
-      await ops.updateChat(sourceChat.id, withFrameworkPatch(sourceChat, {
+      await ops.updateChat(sourceChat.id, appendHandledSocialEvent(sourceChat, withFrameworkPatch(sourceChat, {
         runtimeEventsV2: [...(sourceChat.runtimeEventsV2 || []), buildPrivateThreadOpenedEvent(sourceChat, pairCandidate)].slice(-160),
-      }));
+      }), pairCandidate.id, payload.initiatorId));
       return { privateChatId: privateChat.id, handledEventId: pairCandidate.id };
     }
   }
@@ -912,40 +940,45 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
   const momentCandidate = findLatestAutoPostMomentCandidate(sourceChat);
   if (momentCandidate) {
     const payload = momentCandidate.payload as SocialEventCandidatePayload;
+    if (hasHandledSocialEvent(sourceChat, momentCandidate.id)) return { handledEventId: momentCandidate.id };
     const actorName = ops.characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
-    await ops.updateChat(sourceChat.id, updateSourceChatAfterPostMoment(sourceChat, payload, actorName));
+    await ops.updateChat(sourceChat.id, appendHandledSocialEvent(sourceChat, updateSourceChatAfterPostMoment(sourceChat, payload, actorName), momentCandidate.id, payload.initiatorId));
     return { handledEventId: momentCandidate.id };
   }
 
   const outingCandidate = findLatestAutoSocialOutingCandidate(sourceChat);
   if (outingCandidate) {
     const payload = outingCandidate.payload as SocialEventCandidatePayload;
+    if (hasHandledSocialEvent(sourceChat, outingCandidate.id)) return { handledEventId: outingCandidate.id };
     const actorNames = payload.participantIds.map((id) => ops.characters.find((item) => item.id === id)?.name || id);
-    await ops.updateChat(sourceChat.id, updateSourceChatAfterSocialOuting(sourceChat, payload, actorNames));
+    await ops.updateChat(sourceChat.id, appendHandledSocialEvent(sourceChat, updateSourceChatAfterSocialOuting(sourceChat, payload, actorNames), outingCandidate.id, payload.initiatorId));
     return { handledEventId: outingCandidate.id };
   }
 
   const statusCandidate = findLatestAutoStatusUpdateCandidate(sourceChat);
   if (statusCandidate) {
     const payload = statusCandidate.payload as SocialEventCandidatePayload;
+    if (hasHandledSocialEvent(sourceChat, statusCandidate.id)) return { handledEventId: statusCandidate.id };
     const actorName = ops.characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
-    await ops.updateChat(sourceChat.id, updateSourceChatAfterStatusUpdate(sourceChat, payload, actorName));
+    await ops.updateChat(sourceChat.id, appendHandledSocialEvent(sourceChat, updateSourceChatAfterStatusUpdate(sourceChat, payload, actorName), statusCandidate.id, payload.initiatorId));
     return { handledEventId: statusCandidate.id };
   }
 
   const giftCandidate = findLatestAutoGiftExchangeCandidate(sourceChat);
   if (giftCandidate) {
     const payload = giftCandidate.payload as SocialEventCandidatePayload;
+    if (hasHandledSocialEvent(sourceChat, giftCandidate.id)) return { handledEventId: giftCandidate.id };
     const actorName = ops.characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
-    await ops.updateChat(sourceChat.id, updateSourceChatAfterGiftExchange(sourceChat, payload, actorName));
+    await ops.updateChat(sourceChat.id, appendHandledSocialEvent(sourceChat, updateSourceChatAfterGiftExchange(sourceChat, payload, actorName), giftCandidate.id, payload.initiatorId));
     return { handledEventId: giftCandidate.id };
   }
 
   const conflictCandidate = findLatestAutoConflictExpressionCandidate(sourceChat);
   if (conflictCandidate) {
     const payload = conflictCandidate.payload as SocialEventCandidatePayload;
+    if (hasHandledSocialEvent(sourceChat, conflictCandidate.id)) return { handledEventId: conflictCandidate.id };
     const actorName = ops.characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
-    await ops.updateChat(sourceChat.id, updateSourceChatAfterConflictExpression(sourceChat, payload, actorName));
+    await ops.updateChat(sourceChat.id, appendHandledSocialEvent(sourceChat, updateSourceChatAfterConflictExpression(sourceChat, payload, actorName), conflictCandidate.id, payload.initiatorId));
     return { handledEventId: conflictCandidate.id };
   }
 

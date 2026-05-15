@@ -4,7 +4,7 @@ import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import MessageBubble from './MessageBubble';
 import { resolveCharacterOrDeleted } from '../../utils/deletedEntity';
-import { buildChatRenderItems, type LiveChatMessage } from './chatRenderModel';
+import { buildChatRenderItems } from './chatRenderModel';
 
 const TOP_REACH_THRESHOLD = 64;
 const BOTTOM_STICKY_THRESHOLD = 96;
@@ -12,7 +12,6 @@ const BOTTOM_STICKY_THRESHOLD = 96;
 interface MessageListProps {
   messages: Message[];
   characters: AICharacter[];
-  liveMessage?: LiveChatMessage | null;
   onDeleteMessage?: (id: string) => void;
   onAnalyzeMessage?: (message: Message) => void;
   onReachTop?: () => void | Promise<void>;
@@ -25,7 +24,6 @@ interface MessageListProps {
 export default function MessageList({
   messages,
   characters,
-  liveMessage = null,
   onDeleteMessage,
   onAnalyzeMessage,
   onReachTop,
@@ -34,7 +32,7 @@ export default function MessageList({
   topHint,
   loadingText,
 }: MessageListProps) {
-  const renderItems = buildChatRenderItems(messages, liveMessage);
+  const renderItems = buildChatRenderItems(messages);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const topLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
@@ -44,8 +42,8 @@ export default function MessageList({
   const lastScrollTopRef = useRef(0);
   const previousRenderMetricsRef = useRef({
     itemCount: renderItems.length,
-    liveContentLength: liveMessage?.content.length ?? 0,
-    liveMessageKey: liveMessage?.key ?? null,
+    lastItemKey: renderItems.at(-1)?.key ?? null,
+    lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
   });
 
   const topStatusText = useMemo(() => {
@@ -95,8 +93,8 @@ export default function MessageList({
   useLayoutEffect(() => {
     const currentMetrics = {
       itemCount: renderItems.length,
-      liveContentLength: liveMessage?.content.length ?? 0,
-      liveMessageKey: liveMessage?.key ?? null,
+      lastItemKey: renderItems.at(-1)?.key ?? null,
+      lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
     };
     const previousMetrics = previousRenderMetricsRef.current;
     previousRenderMetricsRef.current = currentMetrics;
@@ -105,14 +103,14 @@ export default function MessageList({
     if (!shouldStickToBottomRef.current) return;
     if (
       currentMetrics.itemCount === previousMetrics.itemCount
-      && currentMetrics.liveContentLength === previousMetrics.liveContentLength
-      && currentMetrics.liveMessageKey === previousMetrics.liveMessageKey
+      && currentMetrics.lastItemContentLength === previousMetrics.lastItemContentLength
+      && currentMetrics.lastItemKey === previousMetrics.lastItemKey
     ) {
       return;
     }
 
     scrollToBottom();
-  }, [liveMessage?.content, liveMessage?.key, renderItems.length, scrollToBottom]);
+  }, [renderItems, scrollToBottom]);
 
   useEffect(() => {
     if (!isLoadingOlder) {

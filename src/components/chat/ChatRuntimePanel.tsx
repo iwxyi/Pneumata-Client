@@ -393,11 +393,86 @@ function buildConflictStatLine(chat: GroupChat) {
 function buildConflictDeveloperRows(chat: GroupChat) {
   const conflict = chat.worldState.conflictState;
   if (!conflict?.activeConflicts?.length) return [] as Array<{ key: string; label: string; value: string }>;
-  return conflict.activeConflicts.slice(0, 3).map((item, index) => ({
+  return conflict.activeConflicts.map((item, index) => ({
     key: `active-conflict-${index}`,
-    label: `${formatConflictTypeLabel(item.type)} · ${formatConflictStageLabel(item.stage)}`,
+    label: `支线 ${index + 1} · ${formatConflictTypeLabel(item.type)} · ${formatConflictStageLabel(item.stage)}`,
     value: cleanText(item.summary),
   }));
+}
+
+function buildConflictSectionSubtitle(chat: GroupChat, isDeveloperView: boolean) {
+  const base = buildConflictDeveloperSubtitle(chat);
+  const count = buildConflictDetailCount(chat);
+  if (!isDeveloperView || count <= 1) return base;
+  return base ? `${base} · 活跃矛盾 ${count}` : `活跃矛盾 ${count}`;
+}
+
+function buildConflictSectionRows(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean) {
+  return buildConflictRowsForDisplay(chat, members, isDeveloperView);
+}
+
+function buildConflictSectionSummary(chat: GroupChat) {
+  return buildConflictSummaryText(chat);
+}
+
+function shouldShowConflictSectionSummary(isDeveloperView: boolean) {
+  return isDeveloperView;
+}
+
+function renderConflictSectionSummary(summary: string | null, isDeveloperView: boolean) {
+  return summary && shouldShowConflictSectionSummary(isDeveloperView) ? <Typography variant="caption" color="text.secondary">{summary}</Typography> : null;
+}
+
+function buildConflictSectionStatItems(chat: GroupChat, summary: string | null) {
+  return !summary ? buildConflictStatItems(chat) : [];
+}
+
+function renderConflictSectionStats(chat: GroupChat, summary: string | null) {
+  const items = buildConflictSectionStatItems(chat, summary);
+  return items.length ? <StatChipRow items={items} /> : null;
+}
+
+function conflictRowShouldBeVisible(row: { key: string }, isDeveloperView: boolean) {
+  return isDeveloperView || row.key !== 'conflict-summary';
+}
+
+function buildConflictVisibleRows(rows: Array<{ key: string; label: string; value: string }>, isDeveloperView: boolean) {
+  return rows.filter((row) => conflictRowShouldBeVisible(row, isDeveloperView));
+}
+
+function renderConflictVisibleRows(rows: Array<{ key: string; label: string; value: string }>, isDeveloperView: boolean) {
+  return buildConflictVisibleRows(rows, isDeveloperView).map((row) => (
+    <Box key={row.key} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+      <Typography variant="caption" color="text.secondary">{row.label}</Typography>
+      <Typography variant="body2" sx={{ mt: 0.2, whiteSpace: 'pre-wrap' }}>{cleanText(row.value)}</Typography>
+    </Box>
+  ));
+}
+
+function renderConflictRowsOrEmpty(rows: Array<{ key: string; label: string; value: string }>, isDeveloperView: boolean) {
+  const visibleRows = buildConflictVisibleRows(rows, isDeveloperView);
+  return visibleRows.length ? renderConflictVisibleRows(rows, isDeveloperView) : <Typography variant="body2">{buildConflictEmptyText()}</Typography>;
+}
+
+function buildConflictSectionAction(chat: GroupChat, isDeveloperView: boolean) {
+  if (!hasConflictState(chat)) return isDeveloperView ? buildConflictDebugBadge() : undefined;
+  return isDeveloperView ? <Stack direction="row" spacing={0.75}>{buildConflictDebugBadge()}{buildConflictDetailChip(chat)}</Stack> : buildConflictDetailChip(chat);
+}
+
+function renderConflictSection(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean) {
+  if (!buildConflictSectionVisible(chat, isDeveloperView)) return null;
+  const rows = buildConflictSectionRows(chat, members, isDeveloperView);
+  const summary = buildConflictSectionSummary(chat);
+  return (
+    <SurfaceCard>
+      <SectionHeader title={buildConflictSectionTitle()} subtitle={buildConflictSectionSubtitle(chat, isDeveloperView)} dense action={buildConflictSectionAction(chat, isDeveloperView)} />
+      <Stack spacing={0.8}>
+        {renderConflictRowsOrEmpty(rows, isDeveloperView)}
+        {renderConflictSectionSummary(summary, isDeveloperView)}
+        {renderConflictSectionStats(chat, summary)}
+      </Stack>
+    </SurfaceCard>
+  );
 }
 
 function buildConflictHeaderSubtitle(chat: GroupChat) {
@@ -419,17 +494,6 @@ function buildConflictDebugBadge() {
 
 function buildConflictRowsForDisplay(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean) {
   return isDeveloperView ? [...buildConflictRows(chat, members), ...buildConflictDeveloperRows(chat)] : buildConflictRows(chat, members);
-}
-
-function buildConflictBodyRows(rows: Array<{ key: string; label: string; value: string }>, isDeveloperView: boolean) {
-  return rows
-    .filter((row) => isDeveloperView || row.key !== 'conflict-summary')
-    .map((row) => (
-      <Box key={row.key} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
-        <Typography variant="caption" color="text.secondary">{row.label}</Typography>
-        <Typography variant="body2" sx={{ mt: 0.2, whiteSpace: 'pre-wrap' }}>{cleanText(row.value)}</Typography>
-      </Box>
-    ));
 }
 
 function buildConflictSummaryText(chat: GroupChat) {
@@ -461,31 +525,6 @@ function buildConflictDetailLabel(chat: GroupChat) {
 function buildConflictDetailChip(chat: GroupChat) {
   const label = buildConflictDetailLabel(chat);
   return label ? <Chip size="small" label={label} variant="outlined" /> : undefined;
-}
-
-function buildConflictSectionAction(chat: GroupChat, isDeveloperView: boolean) {
-  if (!hasConflictState(chat)) return isDeveloperView ? buildConflictDebugBadge() : undefined;
-  return isDeveloperView ? <Stack direction="row" spacing={0.75}>{buildConflictDebugBadge()}{buildConflictDetailChip(chat)}</Stack> : buildConflictDetailChip(chat);
-}
-
-function shouldShowConflictDetailSummary() {
-  return false;
-}
-
-function renderConflictSection(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean) {
-  if (!buildConflictSectionVisible(chat, isDeveloperView)) return null;
-  const rows = buildConflictRowsForDisplay(chat, members, isDeveloperView);
-  const summary = buildConflictSummaryText(chat);
-  return (
-    <SurfaceCard>
-      <SectionHeader title={buildConflictSectionTitle()} subtitle={buildConflictDeveloperSubtitle(chat)} dense action={buildConflictSectionAction(chat, isDeveloperView)} />
-      <Stack spacing={0.8}>
-        {rows.length ? buildConflictBodyRows(rows, isDeveloperView) : <Typography variant="body2">{buildConflictEmptyText()}</Typography>}
-        {summary && shouldShowConflictDetailSummary() ? <Typography variant="caption" color="text.secondary">{summary}</Typography> : null}
-        {!summary && buildConflictStatItems(chat).length ? <StatChipRow items={buildConflictStatItems(chat)} /> : null}
-      </Stack>
-    </SurfaceCard>
-  );
 }
 
 function buildConflictCardStyle() {
@@ -595,12 +634,12 @@ function buildMemorySummaryLine(items: MemoryItem[]) {
 
 function buildMemoryPanelState(items: MemoryItem[], expanded: boolean, isDeveloperView: boolean) {
   const visible = isDeveloperView || items.length > 0;
-  const rows = (expanded || isDeveloperView)
-    ? buildAdvancedMemoryRows(items)
-    : items.slice(0, 2).map((item) => ({ id: item.id, title: `${buildMemoryLayerLabel(item.layer)} · ${buildMemoryKindLabel(item.kind)}`, text: clip(cleanText(item.text), 72) }));
+  const collapsedRows = items.slice(0, 2).map((item) => ({ id: item.id, title: `${buildMemoryLayerLabel(item.layer)} · ${buildMemoryKindLabel(item.kind)}`, text: clip(cleanText(item.text), 72) }));
+  const expandedRows = buildAdvancedMemoryRows(items);
+  const rows = expanded ? expandedRows : collapsedRows;
   return {
     visible,
-    canExpand: items.length > 1,
+    canExpand: expandedRows.length > collapsedRows.length,
     rows,
     summary: buildMemorySummaryLine(items),
     emptyText: '暂无明显沉淀',
