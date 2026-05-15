@@ -164,6 +164,12 @@ function buildOpenAICompatibleTranscriptionUrl(baseUrl: string) {
   return `${normalized}/audio/transcriptions`;
 }
 
+function buildOpenAICompatibleChatUrl(baseUrl: string) {
+  const normalized = trimTrailingSlashes(baseUrl);
+  if (normalized.endsWith('/chat/completions')) return normalized;
+  return `${normalized}/chat/completions`;
+}
+
 function buildOpenAICompatibleMessages(messages: ChatMessage[], systemPrompt: string) {
   return [{ role: 'system' as const, content: systemPrompt }, ...messages];
 }
@@ -493,34 +499,52 @@ async function generateOpenAICompatibleResponse(
   onChunk?: (chunk: string) => void,
   options: GenerateResponseOptions = {},
 ) {
-  const client = getAIClient(config);
-
-  if (onChunk) {
-    const stream = await client.chat.completions.create({
-      model: config.model,
-      messages: buildOpenAICompatibleMessages(messages, systemPrompt),
-      stream: true,
-      max_tokens: options.maxTokens ?? 500,
-      temperature: 0.8,
-    });
-
-    let fullResponse = '';
-    for await (const chunk of stream) {
-      const content = chunk.choices[0]?.delta?.content || '';
-      fullResponse += content;
-      onChunk(fullResponse);
-    }
-    return fullResponse;
-  }
-
-  const response = await client.chat.completions.create({
+  const endpoint = buildOpenAICompatibleChatUrl(config.baseUrl);
+  const requestBody = {
     model: config.model,
     messages: buildOpenAICompatibleMessages(messages, systemPrompt),
+    stream: Boolean(onChunk),
     max_tokens: options.maxTokens ?? 500,
     temperature: 0.8,
     response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
+  };
+
+  if (onChunk) {
+    let fullResponse = '';
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    await parseSSEStream(response, (parsed) => {
+      const choices = parsed.choices as Array<{ delta?: { content?: string } }> | undefined;
+      const content = choices?.[0]?.delta?.content || '';
+      if (content) {
+        fullResponse += content;
+        onChunk(fullResponse);
+      }
+    });
+    return fullResponse;
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
   });
-  return response.choices[0]?.message?.content || '';
+
+  const result = await parseJsonResponse<{
+    choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
+  } & Record<string, JSONValue>>(response, 'OpenAI-compatible request failed');
+  const content = result.choices?.[0]?.message?.content;
+  return Array.isArray(content) ? content.map((item) => item.text || '').join('') : (content || '');
 }
 
 const providerHandlers: Partial<Record<APIConfig['provider'], typeof generateOpenAICompatibleResponse>> = {
