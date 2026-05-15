@@ -88,6 +88,24 @@ export async function __flushDeferredLlmDistillationForTests() {
   await Promise.allSettled(Array.from(deferredLlmDistillationTasks));
 }
 
+export function getDeferredLlmDistillationDebugState() {
+  let running = 0;
+  let rerunRequested = 0;
+  let cancelled = 0;
+  for (const state of deferredLlmDistillationStates.values()) {
+    if (state.running) running += 1;
+    if (state.rerunRequested) rerunRequested += 1;
+    if (state.cancelled) cancelled += 1;
+  }
+  return {
+    stateCount: deferredLlmDistillationStates.size,
+    taskCount: deferredLlmDistillationTasks.size,
+    running,
+    rerunRequested,
+    cancelled,
+  };
+}
+
 function wrapCommitWithFrameworkPatch(params: Parameters<typeof runChatCommitPipeline>[0]): Parameters<typeof runChatCommitPipeline>[0]['onCommit'] {
   return async (args) => {
     const transition = await params.onCommit(args);

@@ -28,6 +28,10 @@ interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDe
 
 const emotionMap: Record<string, number> = {};
 
+function isSchedulerDebugEnabled() {
+  return Boolean((globalThis as { __AICHATGROUP_DEBUG_SCHEDULER__?: boolean }).__AICHATGROUP_DEBUG_SCHEDULER__);
+}
+
 function buildSessionSystemPrompt(args: {
   speaker: AICharacter;
   chat: GroupChat;
@@ -416,7 +420,7 @@ export const runOneRound = async (
   const pendingReplyContext = chat.type === 'group' ? resolvePendingReplyContext(chatMembers, activeMessages) : null;
   const candidates = calculateWeights(chatMembers, activeMessages, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, pendingReplyContext, chat);
   const speakerSelection = getSpeakerSelectionResult(chatMembers, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, candidates);
-  if (chat.type === 'group' && !speakerSelection.speakerId) {
+  if (isSchedulerDebugEnabled() && chat.type === 'group' && !speakerSelection.speakerId) {
     console.info('[group-loop:idle]', {
       chatId: chat.id,
       mode: chat.mode,
@@ -424,7 +428,7 @@ export const runOneRound = async (
       pendingReplyContext,
     });
   }
-  if (!speakerSelection.speakerId) {
+  if (isSchedulerDebugEnabled() && !speakerSelection.speakerId) {
     console.info('[group-loop:idle]', {
       chatId: chat.id,
       mode: chat.mode,
@@ -440,7 +444,7 @@ export const runOneRound = async (
       })),
     });
   }
-  if ((globalThis as { __AICHATGROUP_DEBUG_SCHEDULER__?: boolean }).__AICHATGROUP_DEBUG_SCHEDULER__) {
+  if (isSchedulerDebugEnabled()) {
     const selectionDebug = {
       chatId: chat.id,
       type: chat.type,

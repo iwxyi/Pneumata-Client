@@ -1185,5 +1185,10 @@ export function debugCharacterMemoryDistillation(character: AICharacter, turnCou
 }
 
 export function logMemoryDistillationTriggered(info: MemoryDistillationDebugInfo) {
-  if (info.triggered) console.info('[memory-distillation]', info);
+  if (!info.triggered) return;
+  if (!(globalThis as { __MIRAGETEA_DEBUG_MEMORY_DISTILLATION__?: boolean }).__MIRAGETEA_DEBUG_MEMORY_DISTILLATION__) return;
+  console.info('[memory-distillation]', {
+    ...info,
+    candidateTexts: info.candidateTexts?.map((text) => text.slice(0, 120)),
+  });
 }

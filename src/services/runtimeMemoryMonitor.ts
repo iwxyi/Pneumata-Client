@@ -185,15 +185,17 @@ function sizeLocalStorageEntries() {
 }
 
 async function readForensicsStores() {
-  const [{ useChatStore }, { useCharacterStore }, { useMessageStore }] = await Promise.all([
+  const [{ useChatStore }, { useCharacterStore }, { useMessageStore }, sessionCommitPipeline] = await Promise.all([
     import('../stores/useChatStore'),
     import('../stores/useCharacterStore'),
     import('../stores/useMessageStore'),
+    import('./sessionCommitPipeline'),
   ]);
   return {
     chatState: useChatStore.getState(),
     characterState: useCharacterStore.getState(),
     messageState: useMessageStore.getState(),
+    deferredLlmDistillation: sessionCommitPipeline.getDeferredLlmDistillationDebugState(),
   };
 }
 
@@ -324,7 +326,7 @@ export function sizePendingOperationEntry(operation: unknown, index: number): Si
 }
 
 export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<RuntimeMemoryForensicsSnapshot> {
-  const { chatState, characterState, messageState } = await readForensicsStores();
+  const { chatState, characterState, messageState, deferredLlmDistillation } = await readForensicsStores();
   const chatEntries = chatState.chats.map(sizeChatEntry);
   const characterEntries = characterState.characters.map(sizeCharacterEntry);
   const activeMessageEntries = messageState.messages.map(sizeMessageEntry);
@@ -356,6 +358,14 @@ export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<R
       characterPendingOperationCount: characterState.pendingOperations.length,
       messagePendingOperations: directJsonSize(messageState.pendingOperations),
       messagePendingOperationCount: messageState.pendingOperations.length,
+      monitorRecordCount: records.length,
+      monitorRecords: directJsonSize(records),
+      monitorMarkedSnapshot: directJsonSize(markedForensicsSnapshot),
+      deferredLlmDistillationStates: deferredLlmDistillation.stateCount,
+      deferredLlmDistillationTasks: deferredLlmDistillation.taskCount,
+      deferredLlmDistillationRunning: deferredLlmDistillation.running,
+      deferredLlmDistillationRerunRequested: deferredLlmDistillation.rerunRequested,
+      deferredLlmDistillationCancelled: deferredLlmDistillation.cancelled,
       localStorage: localStorageEntries.reduce((sum, entry) => sum + Math.max(0, entry.size), 0),
       domNodes: countDomNodes().domNodes,
     },
