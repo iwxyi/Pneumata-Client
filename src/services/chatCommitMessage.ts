@@ -48,6 +48,25 @@ function writeMessages(upsertMessages: (messages: Message[]) => void, messages: 
   upsertMessages(messages);
 }
 
+function mergeServerConfirmation(localMessage: Message, savedMessage: unknown): Message {
+  const saved = savedMessage as Partial<Message> | null | undefined;
+  return {
+    id: localMessage.id,
+    clientKey: localMessage.clientKey,
+    serverId: saved?.serverId || saved?.id,
+    chatId: localMessage.chatId,
+    type: localMessage.type,
+    senderId: localMessage.senderId,
+    senderName: localMessage.senderName,
+    content: localMessage.content,
+    emotion: localMessage.emotion,
+    timestamp: localMessage.timestamp,
+    isDeleted: Boolean(saved?.isDeleted ?? localMessage.isDeleted),
+    isOptimistic: false,
+    isStreaming: false,
+  };
+}
+
 export function createCommittedLocalMessage(
   message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>,
   options?: { timestamp?: number },
@@ -86,15 +105,7 @@ export async function persistLocalFirstMessage(params: PersistLocalFirstMessageP
     content: params.message.content,
     emotion: params.message.emotion,
   }).then((savedMessage) => {
-    const persistedMessage = {
-      ...(savedMessage as unknown as Message),
-      id: localMessage.id,
-      clientKey: localMessage.clientKey,
-      timestamp: localMessage.timestamp,
-      serverId: (savedMessage as unknown as Message).serverId || (savedMessage as unknown as Message).id,
-      isOptimistic: false,
-      isStreaming: false,
-    } as Message;
+    const persistedMessage = mergeServerConfirmation(localMessage, savedMessage);
     writeMessage(params.upsertMessage, persistedMessage, params.deferLocalUpsert);
     params.onPersisted?.(persistedMessage);
   }).catch((error) => {
@@ -117,15 +128,7 @@ export async function persistLocalFirstMessages(params: PersistLocalFirstMessage
     emotion: entry.message.emotion,
   }).then((savedMessage) => {
     const localMessage = localMessages[index];
-    const persistedMessage = {
-      ...(savedMessage as unknown as Message),
-      id: localMessage.id,
-      clientKey: localMessage.clientKey,
-      timestamp: localMessage.timestamp,
-      serverId: (savedMessage as unknown as Message).serverId || (savedMessage as unknown as Message).id,
-      isOptimistic: false,
-      isStreaming: false,
-    } as Message;
+    const persistedMessage = mergeServerConfirmation(localMessage, savedMessage);
     entry.onPersisted?.(persistedMessage);
     return persistedMessage;
   }))).then((persistedMessages) => {

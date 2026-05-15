@@ -15,6 +15,8 @@ vi.mock('./api', () => ({
       emotion: data.emotion ?? 0,
       timestamp: 999999,
       isDeleted: false,
+      relationshipDebug: { large: 'payload' },
+      rawResponse: Array.from({ length: 8 }, (_, index) => ({ index, text: 'server-only metadata' })),
     })),
   },
 }));
@@ -60,6 +62,8 @@ describe('persistLocalFirstMessage', () => {
     expect(upserts[1]?.serverId).toBe('server-message-1');
     expect(upserts[1]?.timestamp).toBe(123456);
     expect(upserts[1]?.isOptimistic).toBe(false);
+    expect('relationshipDebug' in (upserts[1] as unknown as Record<string, unknown>)).toBe(false);
+    expect('rawResponse' in (upserts[1] as unknown as Record<string, unknown>)).toBe(false);
   });
 
   it('reuses an existing local streaming message instead of creating a second bubble', async () => {
