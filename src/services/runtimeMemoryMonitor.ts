@@ -61,7 +61,11 @@ type RuntimeMemoryForensicsSnapshot = {
   largest: {
     chats: SizedEntry[];
     characters: SizedEntry[];
+    activeMessages: SizedEntry[];
     messageWindows: SizedEntry[];
+    chatPendingOperations: SizedEntry[];
+    characterPendingOperations: SizedEntry[];
+    messagePendingOperations: SizedEntry[];
     localStorage: SizedEntry[];
   };
 };
@@ -264,13 +268,73 @@ function sizeMessageWindowEntry(chatId: string, window: { messages?: Message[]; 
   };
 }
 
-async function createForensicsSnapshot(limit = 10): Promise<RuntimeMemoryForensicsSnapshot> {
+function sizeMessageEntry(message: Message): SizedEntry {
+  return {
+    id: message.id,
+    label: `${message.type}:${message.senderName || message.senderId || 'unknown'}`,
+    size: directJsonSize(message),
+    counts: {
+      contentChars: message.content?.length || 0,
+      isStreaming: message.isStreaming ? 1 : 0,
+      isDeleted: message.isDeleted ? 1 : 0,
+      hasServerId: message.serverId ? 1 : 0,
+    },
+    fields: {
+      content: message.content?.length || 0,
+      metadata: Math.max(0, directJsonSize(message) - (message.content?.length || 0)),
+    },
+  };
+}
+
+export function summarizeMessages(messages: Message[]) {
+  return {
+    count: messages.length,
+    ai: messages.filter((message) => message.type === 'ai').length,
+    user: messages.filter((message) => message.type === 'user' || message.type === 'god').length,
+    event: messages.filter((message) => message.type === 'event').length,
+    system: messages.filter((message) => message.type === 'system').length,
+    streaming: messages.filter((message) => message.isStreaming).length,
+    deleted: messages.filter((message) => message.isDeleted).length,
+    totalContentChars: messages.reduce((sum, message) => sum + (message.content?.length || 0), 0),
+    uniqueIds: new Set(messages.map((message) => message.id)).size,
+    uniqueServerIds: new Set(messages.map((message) => message.serverId).filter(Boolean)).size,
+    uniqueClientKeys: new Set(messages.map((message) => message.clientKey).filter(Boolean)).size,
+  };
+}
+
+export function sizePendingOperationEntry(operation: unknown, index: number): SizedEntry {
+  const record = typeof operation === 'object' && operation !== null ? operation as Record<string, unknown> : {};
+  const patch = typeof record.patch === 'object' && record.patch !== null ? record.patch as Record<string, unknown> : null;
+  const payload = typeof record.payload === 'object' && record.payload !== null ? record.payload as Record<string, unknown> : null;
+  return {
+    id: String(record.id || record.entityId || record.messageId || `operation-${index}`),
+    label: String(record.kind || record.status || 'operation'),
+    size: directJsonSize(operation),
+    counts: {
+      patchKeys: patch ? Object.keys(patch).length : 0,
+      payloadKeys: payload ? Object.keys(payload).length : 0,
+      attemptCount: typeof record.attemptCount === 'number' ? record.attemptCount : 0,
+    },
+    fields: {
+      patch: directJsonSize(patch),
+      payload: directJsonSize(payload),
+      lastError: typeof record.lastError === 'string' ? record.lastError.length : 0,
+    },
+  };
+}
+
+export async function buildRuntimeMemoryForensicsSnapshot(limit = 10): Promise<RuntimeMemoryForensicsSnapshot> {
   const { chatState, characterState, messageState } = await readForensicsStores();
   const chatEntries = chatState.chats.map(sizeChatEntry);
   const characterEntries = characterState.characters.map(sizeCharacterEntry);
+  const activeMessageEntries = messageState.messages.map(sizeMessageEntry);
   const messageWindowEntries = Object.entries(messageState.messageWindowsByChatId)
     .map(([chatId, window]) => sizeMessageWindowEntry(chatId, window));
+  const chatPendingOperationEntries = chatState.pendingOperations.map(sizePendingOperationEntry);
+  const characterPendingOperationEntries = characterState.pendingOperations.map(sizePendingOperationEntry);
+  const messagePendingOperationEntries = messageState.pendingOperations.map(sizePendingOperationEntry);
   const localStorageEntries = sizeLocalStorageEntries();
+  const activeMessageSummary = summarizeMessages(messageState.messages);
   const snapshot = {
     at: Date.now(),
     memory: readMemory(),
@@ -278,17 +342,31 @@ async function createForensicsSnapshot(limit = 10): Promise<RuntimeMemoryForensi
       chats: directJsonSize(chatState.chats),
       characters: directJsonSize(characterState.characters),
       activeMessages: directJsonSize(messageState.messages),
+      activeMessageCount: activeMessageSummary.count,
+      activeMessageEventCount: activeMessageSummary.event,
+      activeMessageStreamingCount: activeMessageSummary.streaming,
+      activeMessageContentChars: activeMessageSummary.totalContentChars,
+      activeMessageUniqueIds: activeMessageSummary.uniqueIds,
+      activeMessageUniqueServerIds: activeMessageSummary.uniqueServerIds,
+      activeMessageUniqueClientKeys: activeMessageSummary.uniqueClientKeys,
       messageWindows: directJsonSize(messageState.messageWindowsByChatId),
       chatPendingOperations: directJsonSize(chatState.pendingOperations),
+      chatPendingOperationCount: chatState.pendingOperations.length,
       characterPendingOperations: directJsonSize(characterState.pendingOperations),
+      characterPendingOperationCount: characterState.pendingOperations.length,
       messagePendingOperations: directJsonSize(messageState.pendingOperations),
+      messagePendingOperationCount: messageState.pendingOperations.length,
       localStorage: localStorageEntries.reduce((sum, entry) => sum + Math.max(0, entry.size), 0),
       domNodes: countDomNodes().domNodes,
     },
     largest: {
       chats: topEntries(chatEntries, limit),
       characters: topEntries(characterEntries, limit),
+      activeMessages: topEntries(activeMessageEntries, limit),
       messageWindows: topEntries(messageWindowEntries, limit),
+      chatPendingOperations: topEntries(chatPendingOperationEntries, limit),
+      characterPendingOperations: topEntries(characterPendingOperationEntries, limit),
+      messagePendingOperations: topEntries(messagePendingOperationEntries, limit),
       localStorage: topEntries(localStorageEntries, limit),
     },
   };
@@ -504,9 +582,9 @@ function buildMonitorApi(): RuntimeMemoryMonitorApi {
     export: () => records.slice(),
     latest: (count = 20) => records.slice(-count),
     summary: () => records.at(-1) || null,
-    snapshot: () => createForensicsSnapshot(),
+    snapshot: () => buildRuntimeMemoryForensicsSnapshot(),
     mark: async () => {
-      markedForensicsSnapshot = await createForensicsSnapshot();
+      markedForensicsSnapshot = await buildRuntimeMemoryForensicsSnapshot();
       console.info('[memory-forensics] marked baseline', markedForensicsSnapshot);
       return markedForensicsSnapshot;
     },
@@ -515,7 +593,7 @@ function buildMonitorApi(): RuntimeMemoryMonitorApi {
         console.warn('[memory-forensics] no baseline; call mark() first');
         return null;
       }
-      const snapshot = await createForensicsSnapshot();
+      const snapshot = await buildRuntimeMemoryForensicsSnapshot();
       const delta = {
         usedJSHeapSize: (snapshot.memory.usedJSHeapSize || 0) - (markedForensicsSnapshot.memory.usedJSHeapSize || 0),
         totalJSHeapSize: (snapshot.memory.totalJSHeapSize || 0) - (markedForensicsSnapshot.memory.totalJSHeapSize || 0),
@@ -529,7 +607,7 @@ function buildMonitorApi(): RuntimeMemoryMonitorApi {
       const limit = options.limit ?? 5;
       let previous: RuntimeMemoryForensicsSnapshot | null = null;
       const timer = window.setInterval(() => {
-        void createForensicsSnapshot(limit).then((snapshot) => {
+        void buildRuntimeMemoryForensicsSnapshot(limit).then((snapshot) => {
           if (previous) {
             console.info('[memory-forensics] delta', {
               at: snapshot.at,
@@ -540,7 +618,7 @@ function buildMonitorApi(): RuntimeMemoryMonitorApi {
           previous = snapshot;
         });
       }, intervalMs);
-      void createForensicsSnapshot(limit).then((snapshot) => {
+      void buildRuntimeMemoryForensicsSnapshot(limit).then((snapshot) => {
         previous = snapshot;
       });
       return () => window.clearInterval(timer);
