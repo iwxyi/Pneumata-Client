@@ -165,21 +165,30 @@ function compactRuntimeEventMetricsForMessage(payload: RuntimeEventPayload) {
   if (!payload.metrics || typeof payload.metrics !== 'object') return payload.metrics;
   const metrics = payload.metrics as Record<string, unknown>;
   if (payload.eventType === 'memory_distillation') {
+    const candidateTexts = Array.isArray(metrics.candidateTexts)
+      ? metrics.candidateTexts.filter((item): item is string => typeof item === 'string').slice(0, 2)
+      : [];
     return {
       ownerType: metrics.ownerType,
       ownerLabel: metrics.ownerLabel,
+      ownerName: metrics.ownerName,
       reasonLabel: metrics.reasonLabel,
+      sourceLabel: metrics.sourceLabel,
       mergeModeLabel: metrics.mergeModeLabel,
       newEvidenceCount: metrics.newEvidenceCount,
+      candidateTexts,
     };
   }
   if (payload.eventType === 'conflict_focus_shift' || payload.eventType === 'conflict_axis_shift') {
+    const developmentHooks = Array.isArray(metrics.developmentHooks)
+      ? metrics.developmentHooks.filter((item): item is string => typeof item === 'string').slice(0, 3)
+      : [];
     return {
       type: metrics.type,
       stage: metrics.stage,
       severity: metrics.severity,
       nextPressure: metrics.nextPressure,
-      developmentHooks: metrics.developmentHooks,
+      developmentHooks,
     };
   }
   return undefined;

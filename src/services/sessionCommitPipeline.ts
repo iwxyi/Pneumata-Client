@@ -218,6 +218,7 @@ async function applyDeferredLlmDistillation(params: {
     const llmInfo = {
       ownerType: 'chat' as const,
       ownerId: latestChat.id,
+      ownerName: latestChat.name,
       triggered: true,
       reason: 'llm_distilled',
       eligibleCount: llmDebug.eligibleCount,
@@ -329,6 +330,7 @@ async function applyDeferredLlmDistillation(params: {
       const llmInfo = {
         ownerType: 'character' as const,
         ownerId: latestCharacter.id,
+        ownerName: latestCharacter.name,
         triggered: true,
         reason: 'llm_distilled',
         eligibleCount: llmDebug.eligibleCount,

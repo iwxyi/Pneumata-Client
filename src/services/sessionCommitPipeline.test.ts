@@ -231,7 +231,7 @@ describe('runSessionCommitPipeline', () => {
       'chat-1',
       expect.objectContaining({
         eventType: 'memory_distillation',
-        title: '群聊核心记忆蒸馏',
+        title: 'LLM 蒸馏 · 群聊',
         summary: expect.stringContaining('乙'),
       }),
       'msg-1',

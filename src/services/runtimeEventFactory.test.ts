@@ -9,22 +9,27 @@ describe('runtime event message content', () => {
       summary: '完成记忆合并',
       metrics: {
         ownerType: 'character',
-        ownerLabel: '角色记忆',
-        reasonLabel: '已完成蒸馏',
+        ownerLabel: '角色：小灰灰',
+        ownerName: '小灰灰',
+        reasonLabel: '已完成 LLM 蒸馏',
+        sourceLabel: 'LLM 蒸馏',
         mergeModeLabel: '强化合并',
         newEvidenceCount: 3,
         candidateTexts: Array.from({ length: 20 }, (_, index) => `very long evidence ${index}`),
       },
     });
 
-    expect(content).not.toContain('candidateTexts');
+    expect(content).not.toContain('very long evidence 19');
     const parsed = parseRuntimeEvent(content);
     expect(parsed?.metrics).toMatchObject({
       ownerType: 'character',
-      ownerLabel: '角色记忆',
-      reasonLabel: '已完成蒸馏',
+      ownerLabel: '角色：小灰灰',
+      ownerName: '小灰灰',
+      reasonLabel: '已完成 LLM 蒸馏',
+      sourceLabel: 'LLM 蒸馏',
       mergeModeLabel: '强化合并',
       newEvidenceCount: 3,
+      candidateTexts: ['very long evidence 0', 'very long evidence 1'],
     });
   });
 

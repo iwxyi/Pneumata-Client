@@ -355,6 +355,7 @@ export function describeLocalDistillationDebugInfo() {
 export interface MemoryDistillationDebugInfo {
   ownerType: 'chat' | 'character';
   ownerId: string;
+  ownerName?: string;
   triggered: boolean;
   reason: string;
   eligibleCount: number;
@@ -375,6 +376,7 @@ export function localizeDistillationCandidateTexts(info: MemoryDistillationDebug
   const nameMap = new Map(participants.map((item) => [item.id, item.name]));
   return {
     ...info,
+    ownerName: info.ownerName || nameMap.get(info.ownerId),
     candidateTexts: info.candidateTexts.map((text) => replaceIdsWithNames(text, nameMap)),
   };
 }
@@ -672,10 +674,16 @@ export function getMemoryDistillationConsoleHint() {
 }
 
 export function buildMemoryDistillationRuntimePayload(info: MemoryDistillationDebugInfo) {
+  const source = info.reason === 'llm_distilled' ? 'llm' : 'local';
+  const sourceLabel = source === 'llm' ? 'LLM 蒸馏' : '本地蒸馏';
+  const ownerLabel = info.ownerType === 'chat'
+    ? (info.ownerName ? `群聊：${info.ownerName}` : '群聊记忆')
+    : (info.ownerName ? `角色：${info.ownerName}` : '角色记忆');
   return {
     ownerType: info.ownerType,
-    ownerLabel: info.ownerType === 'chat' ? '群聊记忆' : '角色记忆',
+    ownerLabel,
     ownerId: info.ownerId,
+    ownerName: info.ownerName,
     reason: info.reason,
     reasonLabel: formatMemoryDistillationReason(info.reason),
     eligibleCount: info.eligibleCount,
@@ -686,8 +694,8 @@ export function buildMemoryDistillationRuntimePayload(info: MemoryDistillationDe
     note: explainMemoryDistillationMerge(),
     strategy: describeMemoryDistillationStrategy(),
     usesLLM: info.reason === 'llm_distilled',
-    source: info.reason === 'llm_distilled' ? 'llm' : 'local',
-    sourceLabel: info.reason === 'llm_distilled' ? 'LLM 蒸馏' : '本地蒸馏',
+    source,
+    sourceLabel,
   };
 }
 
@@ -1036,7 +1044,9 @@ export function describeDistillationDebugBundle(localInfo: MemoryDistillationDeb
   return getDistillationDebugBundle(localInfo, llmInfo);
 }
 export function buildMemoryDistillationEventTitle(info: MemoryDistillationDebugInfo) {
-  return info.ownerType === 'chat' ? '群聊核心记忆蒸馏' : '角色核心记忆蒸馏';
+  const sourceLabel = info.reason === 'llm_distilled' ? 'LLM 蒸馏' : '本地蒸馏';
+  const owner = info.ownerType === 'chat' ? (info.ownerName || '群聊') : (info.ownerName || '角色');
+  return `${sourceLabel} · ${owner}`;
 }
 
 export function buildMemoryDistillationEventSummary(info: MemoryDistillationDebugInfo) {
@@ -1158,30 +1168,32 @@ export function distillCharacterMemoryCandidates(character: AICharacter): Memory
 
 export function debugChatMemoryDistillation(chat: GroupChat, turnCount: number) {
   const items = selectDistillationSource(recentEligibleItems(chat.layeredMemories || []), CHAT_DISTILLATION_MIN_ITEMS);
-  if (items.length < CHAT_DISTILLATION_MIN_ITEMS) return buildDebugInfo('chat', chat.id, false, 'below_threshold', items);
-  if (turnCount < CHAT_DISTILLATION_TURN_GAP) return buildDebugInfo('chat', chat.id, false, 'cooldown', items);
-  if (!hasEnoughRelationshipCoverage(items, 'chat')) return buildDebugInfo('chat', chat.id, false, 'insufficient_relationship_coverage', items);
-  if (!hasEnoughEventEvidence(items, 'chat')) return buildDebugInfo('chat', chat.id, false, 'insufficient_event_evidence', items);
+  const withName = (info: MemoryDistillationDebugInfo) => ({ ...info, ownerName: chat.name });
+  if (items.length < CHAT_DISTILLATION_MIN_ITEMS) return withName(buildDebugInfo('chat', chat.id, false, 'below_threshold', items));
+  if (turnCount < CHAT_DISTILLATION_TURN_GAP) return withName(buildDebugInfo('chat', chat.id, false, 'cooldown', items));
+  if (!hasEnoughRelationshipCoverage(items, 'chat')) return withName(buildDebugInfo('chat', chat.id, false, 'insufficient_relationship_coverage', items));
+  if (!hasEnoughEventEvidence(items, 'chat')) return withName(buildDebugInfo('chat', chat.id, false, 'insufficient_event_evidence', items));
   const latest = latestDistilledAt(chat.layeredMemories || []);
   const enoughGap = !latest || items.every((item) => item.updatedAt > latest);
-  if (!enoughGap) return buildDebugInfo('chat', chat.id, false, 'already_distilled_recently', items);
-  if (!hasEnoughNewEvidence(items)) return buildDebugInfo('chat', chat.id, false, 'insufficient_new_evidence', items);
+  if (!enoughGap) return withName(buildDebugInfo('chat', chat.id, false, 'already_distilled_recently', items));
+  if (!hasEnoughNewEvidence(items)) return withName(buildDebugInfo('chat', chat.id, false, 'insufficient_new_evidence', items));
   const candidates = distillChatMemoryCandidates(chat);
-  return buildDebugInfo('chat', chat.id, Boolean(candidates.length), candidates.length ? 'distilled' : 'no_candidates', items, candidates);
+  return withName(buildDebugInfo('chat', chat.id, Boolean(candidates.length), candidates.length ? 'distilled' : 'no_candidates', items, candidates));
 }
 
 export function debugCharacterMemoryDistillation(character: AICharacter, turnCount: number) {
   const items = selectDistillationSource(recentEligibleItems(character.layeredMemories || []), CHARACTER_DISTILLATION_MIN_ITEMS);
-  if (items.length < CHARACTER_DISTILLATION_MIN_ITEMS) return buildDebugInfo('character', character.id, false, 'below_threshold', items);
-  if (turnCount < CHARACTER_DISTILLATION_TURN_GAP) return buildDebugInfo('character', character.id, false, 'cooldown', items);
-  if (!hasEnoughRelationshipCoverage(items, 'character')) return buildDebugInfo('character', character.id, false, 'insufficient_relationship_coverage', items);
-  if (!hasEnoughEventEvidence(items, 'character')) return buildDebugInfo('character', character.id, false, 'insufficient_event_evidence', items);
+  const withName = (info: MemoryDistillationDebugInfo) => ({ ...info, ownerName: character.name });
+  if (items.length < CHARACTER_DISTILLATION_MIN_ITEMS) return withName(buildDebugInfo('character', character.id, false, 'below_threshold', items));
+  if (turnCount < CHARACTER_DISTILLATION_TURN_GAP) return withName(buildDebugInfo('character', character.id, false, 'cooldown', items));
+  if (!hasEnoughRelationshipCoverage(items, 'character')) return withName(buildDebugInfo('character', character.id, false, 'insufficient_relationship_coverage', items));
+  if (!hasEnoughEventEvidence(items, 'character')) return withName(buildDebugInfo('character', character.id, false, 'insufficient_event_evidence', items));
   const latest = latestDistilledAt(character.layeredMemories || []);
   const enoughGap = !latest || items.every((item) => item.updatedAt > latest);
-  if (!enoughGap) return buildDebugInfo('character', character.id, false, 'already_distilled_recently', items);
-  if (!hasEnoughNewEvidence(items)) return buildDebugInfo('character', character.id, false, 'insufficient_new_evidence', items);
+  if (!enoughGap) return withName(buildDebugInfo('character', character.id, false, 'already_distilled_recently', items));
+  if (!hasEnoughNewEvidence(items)) return withName(buildDebugInfo('character', character.id, false, 'insufficient_new_evidence', items));
   const candidates = distillCharacterMemoryCandidates(character);
-  return buildDebugInfo('character', character.id, Boolean(candidates.length), candidates.length ? 'distilled' : 'no_candidates', items, candidates);
+  return withName(buildDebugInfo('character', character.id, Boolean(candidates.length), candidates.length ? 'distilled' : 'no_candidates', items, candidates));
 }
 
 export function logMemoryDistillationTriggered(info: MemoryDistillationDebugInfo) {

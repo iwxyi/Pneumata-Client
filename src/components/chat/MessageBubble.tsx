@@ -7,26 +7,8 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import { isImageAvatar } from '../../utils/avatar';
 import { formatTimestamp } from '../../utils/format';
-import { formatConflictMetricsForDisplay, formatRuntimeEventText, parseRuntimeEvent } from '../../services/runtimeEventFactory';
-
-function isMemoryDistillationEvent(metrics: unknown) {
-  return typeof metrics === 'object' && metrics !== null && 'ownerType' in metrics && 'candidateTexts' in metrics;
-}
-
-function renderMemoryDistillationMeta(payload: { metrics?: unknown }) {
-  if (!isMemoryDistillationEvent(payload.metrics)) return null;
-  const metrics = payload.metrics as Record<string, unknown>;
-  const ownerLabel = typeof metrics.ownerLabel === 'string' && metrics.ownerLabel ? metrics.ownerLabel : (metrics.ownerType === 'character' ? '角色记忆' : '群聊记忆');
-  const reasonLabel = typeof metrics.reasonLabel === 'string' && metrics.reasonLabel ? metrics.reasonLabel : '已完成蒸馏';
-  const mergeModeLabel = typeof metrics.mergeModeLabel === 'string' && metrics.mergeModeLabel ? metrics.mergeModeLabel : '同 bucket 强化合并';
-  const evidenceCount = typeof metrics.newEvidenceCount === 'number' ? metrics.newEvidenceCount : 0;
-  return (
-    <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
-      <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{`${ownerLabel} · ${reasonLabel}`}</Typography>
-      <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{`证据事件 ${evidenceCount} · 合并方式 ${mergeModeLabel}`}</Typography>
-    </Box>
-  );
-}
+import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
+import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
 
 function isConflictDeveloperEvent(eventType: string | undefined) {
   return ['conflict_focus_shift', 'conflict_axis_shift'].includes(String(eventType || ''));
@@ -34,6 +16,18 @@ function isConflictDeveloperEvent(eventType: string | undefined) {
 
 function isStateDeveloperEvent(eventType: string | undefined) {
   return ['world_state_shift', 'room_state_snapshot_v2'].includes(String(eventType || ''));
+}
+
+function renderMemoryDistillationMeta(payload: { metrics?: unknown }) {
+  const meta = buildMemoryDistillationMeta(payload);
+  if (!meta) return null;
+  return (
+    <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
+      <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{[meta.sourceLabel, meta.ownerLabel, meta.reasonLabel].filter(Boolean).join(' · ')}</Typography>
+      <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{`证据事件 ${meta.evidenceCount} · 合并方式 ${meta.mergeModeLabel}`}</Typography>
+      {meta.candidateTexts.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{meta.candidateTexts.join(' / ')}</Typography> : null}
+    </Box>
+  );
 }
 
 function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { showRelationshipEvents: boolean; showAffectEvents: boolean; showConflictEvents: boolean; showStateEvents: boolean; showMemoryDistillationEvents: boolean; showMemoryDebug: boolean }) {
@@ -44,10 +38,6 @@ function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { sh
   if (isStateDeveloperEvent(payload.eventType)) return flags.showStateEvents;
   if (payload.eventType === 'memory_distillation') return flags.showMemoryDistillationEvents || flags.showMemoryDebug;
   return false;
-}
-
-function dedupeDisplayText(text: string) {
-  return text.replace(/^房间态势更新：/g, '').trim();
 }
 
 function buildEventTypeChip(payload: { eventType?: string }) {
@@ -69,7 +59,7 @@ function buildEventTypeChip(payload: { eventType?: string }) {
 }
 
 function renderConflictEventMeta(payload: { metrics?: unknown }) {
-  const metrics = formatConflictMetricsForDisplay(payload.metrics);
+  const metrics = buildConflictEventMeta(payload);
   if (!metrics) return null;
   const items = [
     metrics.type ? `类型：${metrics.type}` : '',
@@ -77,6 +67,7 @@ function renderConflictEventMeta(payload: { metrics?: unknown }) {
     metrics.severity ? `强度：${metrics.severity}` : '',
     metrics.nextPressure ? `走向：${metrics.nextPressure}` : '',
   ].filter(Boolean);
+  if (!items.length && !metrics.hooks.length) return null;
   return (
     <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
       {items.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{items.join(' · ')}</Typography> : null}
@@ -85,19 +76,8 @@ function renderConflictEventMeta(payload: { metrics?: unknown }) {
   );
 }
 
-function buildEventDisplayText(payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }) {
-  if (payload.eventType === 'room_state_snapshot_v2') return dedupeDisplayText(payload.summary || '');
-  if (payload.eventType === 'conflict_axis_shift') return dedupeDisplayText(payload.summary || '');
-  return dedupeDisplayText(formatRuntimeEventText({
-    eventType: payload.eventType || 'event',
-    title: payload.title || '事件',
-    summary: payload.summary || '',
-    pair: payload.pair as [string, string] | undefined,
-    metrics: payload.metrics,
-  }));
-}
-
 function renderEventBubble(messageId: string, payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }) {
+  if (shouldHideEmptyConflictEvent(payload)) return null;
   return (
     <Box data-message-id={messageId} data-message-type="event" sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: 2, pointerEvents: 'none' }}>
       <Box sx={{ maxWidth: 620, width: 'fit-content', minWidth: 420, px: 1.75, py: 1, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', pointerEvents: 'none' }}>
