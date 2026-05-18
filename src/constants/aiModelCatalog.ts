@@ -167,6 +167,17 @@ export const AI_PROVIDER_CATALOG: AIProviderCatalogEntry[] = [
     },
   },
   {
+    key: 'microsoft',
+    label: 'Microsoft Azure Speech',
+    family: 'Azure Speech',
+    defaults: {
+      audio: { baseUrl: 'https://eastasia.tts.speech.microsoft.com/cognitiveservices/v1', model: 'zh-CN-XiaoxiaoNeural' },
+    },
+    popularModels: {
+      audio: ['zh-CN-XiaoxiaoNeural', 'zh-CN-YunxiNeural', 'zh-CN-YunjianNeural', 'zh-CN-XiaoyiNeural', 'en-US-JennyNeural', 'en-US-GuyNeural'],
+    },
+  },
+  {
     key: 'custom',
     label: 'Custom',
     family: 'Custom',

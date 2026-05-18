@@ -7,25 +7,32 @@ import { useTranslation } from 'react-i18next';
 interface ChatInputProps {
   mode: 'guide' | 'speakAs';
   characterName?: string;
-  onSend: (content: string) => void;
+  onSend: (content: string) => void | Promise<void>;
   onClose?: () => void;
   placeholderOverride?: string;
 }
 
 export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride }: ChatInputProps) {
   const [text, setText] = useState('');
+  const [isSending, setIsSending] = useState(false);
   const { t } = useTranslation();
 
-  const handleSend = () => {
-    if (!text.trim()) return;
-    onSend(text.trim());
+  const handleSend = async () => {
+    const content = text.trim();
+    if (!content || isSending) return;
+    setIsSending(true);
     setText('');
+    try {
+      await onSend(content);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -77,8 +84,8 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
       />
       <IconButton
         color="primary"
-        onClick={handleSend}
-        disabled={!text.trim()}
+        onClick={() => void handleSend()}
+        disabled={!text.trim() || isSending}
         sx={{ flexShrink: 0 }}
       >
         <SendIcon />

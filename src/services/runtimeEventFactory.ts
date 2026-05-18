@@ -1,4 +1,5 @@
 import type { ConflictDevelopmentHook, ConflictNextPressure, ConflictType } from '../types/runtimeEvent';
+import { sanitizeDistillationTexts } from './distillationText';
 
 export interface RuntimeEventPayload {
   eventType: string;
@@ -166,7 +167,7 @@ function compactRuntimeEventMetricsForMessage(payload: RuntimeEventPayload) {
   const metrics = payload.metrics as Record<string, unknown>;
   if (payload.eventType === 'memory_distillation') {
     const candidateTexts = Array.isArray(metrics.candidateTexts)
-      ? metrics.candidateTexts.filter((item): item is string => typeof item === 'string').slice(0, 2)
+      ? sanitizeDistillationTexts(metrics.candidateTexts.filter((item): item is string => typeof item === 'string')).slice(0, 2)
       : [];
     return {
       ownerType: metrics.ownerType,

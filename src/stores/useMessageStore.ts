@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Message } from '../types/message';
 import { api } from '../services/api';
+import { hasLocalDataUrlMedia, scrubLocalMediaUrlsForCloud, uploadLocalMessageMediaToCloud } from '../services/richMessageMedia';
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateMessageStoreState } from './storeMigrations';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
@@ -10,16 +11,14 @@ function isLocalOnlyMode() {
   return useAuthStore.getState().authMode === 'local';
 }
 
-function createLocalMessageId() {
-  return `local-message-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function createLocalMessage(msgData: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>): Message {
+function createLocalMessage(msgData: Omit<Message, 'id' | 'timestamp' | 'isDeleted'> & { timestamp?: number }): Message {
+  const timestamp = typeof msgData.timestamp === 'number' ? msgData.timestamp : Date.now();
+  const id = `local-message-${timestamp}-${Math.random().toString(36).slice(2, 8)}`;
   return {
     ...msgData,
-    id: createLocalMessageId(),
-    clientKey: createLocalMessageId(),
-    timestamp: Date.now(),
+    id,
+    clientKey: id,
+    timestamp,
     isDeleted: false,
     isOptimistic: true,
   };
@@ -35,13 +34,17 @@ async function uploadGuestMessagesToCloud() {
     for (const chatId of Object.keys(windows)) {
       for (const message of windows[chatId]?.messages || []) {
         if (message.isDeleted || message.type === 'event') continue;
-        await api.createMessage(chatId, {
+        const cloudMessage = await api.createMessage(chatId, {
           type: message.type,
           senderId: message.senderId,
           senderName: message.senderName,
           content: message.content,
+          metadata: hasLocalDataUrlMedia(message) ? scrubLocalMediaUrlsForCloud(message) : message.metadata,
           emotion: message.emotion,
-        });
+        }) as unknown as Message;
+        if (hasLocalDataUrlMedia(message)) {
+          await uploadLocalMessageMediaToCloud({ localMessage: message, cloudMessage });
+        }
       }
     }
     localStorage.removeItem('mirageTea-messages-guest');
@@ -4267,6 +4270,7 @@ function normalizeMessage(message: Message): Message {
     senderId: message.senderId,
     senderName: message.senderName,
     content: message.content,
+    metadata: message.metadata,
     emotion: typeof message.emotion === 'number' ? message.emotion : 0,
     timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
     isDeleted: Boolean(message.isDeleted),
@@ -4279,9 +4283,7 @@ function compareMessagesByTimeline(left: Message, right: Message) {
   if (left.timestamp !== right.timestamp) return left.timestamp - right.timestamp;
   if (left.type === 'event' && right.type !== 'event') return 1;
   if (left.type !== 'event' && right.type === 'event') return -1;
-  const leftIdentity = left.serverId || left.clientKey || left.id;
-  const rightIdentity = right.serverId || right.clientKey || right.id;
-  return leftIdentity.localeCompare(rightIdentity);
+  return 0;
 }
 
 function dedupeMessages(messages: Message[]) {
@@ -4408,7 +4410,7 @@ interface MessageStore {
   prefetchMessages: (chatId: string, options?: { limit?: number }) => Promise<void>;
   hasMessageWindow: (chatId: string) => boolean;
   loadMessages: (chatId: string, options?: { append?: boolean; before?: number; limit?: number }) => Promise<void>;
-  addMessage: (msg: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>) => Promise<Message>;
+  addMessage: (msg: Omit<Message, 'id' | 'timestamp' | 'isDeleted'> & { timestamp?: number }) => Promise<Message>;
   upsertMessage: (message: Message) => void;
   upsertMessages: (messages: Message[]) => void;
   clearChatMessagesLocal: (chatId: string) => void;
@@ -4525,6 +4527,7 @@ export const useMessageStore = create<MessageStore>()(
           senderId: msgData.senderId,
           senderName: msgData.senderName,
           content: msgData.content,
+          metadata: msgData.metadata,
           emotion: msgData.emotion,
         });
         const message = result as unknown as Message;

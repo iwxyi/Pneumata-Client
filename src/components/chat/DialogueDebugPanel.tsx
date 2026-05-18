@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { GroupChat } from '../../types/chat';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 import { formatConflictHookLabels, formatConflictPressureLabel, formatConflictStageLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
+import { sanitizeDistillationTexts } from '../../services/distillationText';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 interface DialogueDebugPanelProps {
@@ -116,12 +117,13 @@ function formatMemoryDistillationCounts(payload: Record<string, unknown>, isZh: 
 
 function buildMemoryDistillationHeadline(payload: Record<string, unknown>, isZh: boolean) {
   const owner = formatMemoryDistillationOwner(payload, isZh);
-  const reason = typeof payload.reasonLabel === 'string' && payload.reasonLabel ? payload.reasonLabel : formatMemoryDistillationReason(payload.reason, isZh);
-  return `${owner} · ${reason}`;
+  return `${owner}蒸馏`;
 }
 
 function buildMemoryDistillationBody(payload: Record<string, unknown>) {
-  const candidateTexts = Array.isArray(payload.candidateTexts) ? payload.candidateTexts.filter((value: unknown): value is string => typeof value === 'string') : [];
+  const candidateTexts = Array.isArray(payload.candidateTexts)
+    ? sanitizeDistillationTexts(payload.candidateTexts.filter((value: unknown): value is string => typeof value === 'string'))
+    : [];
   return candidateTexts;
 }
 

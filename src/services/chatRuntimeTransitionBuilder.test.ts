@@ -125,7 +125,7 @@ describe('buildRelationshipTransition', () => {
 
     const distillationEvent = result.runtimeEvents.find((event) => event.eventType === 'memory_distillation');
     expect(distillationEvent).toBeTruthy();
-    expect(distillationEvent?.title).toBe('角色核心记忆蒸馏');
+    expect(distillationEvent?.title).toBe('本地蒸馏 · 甲');
     expect(distillationEvent?.summary).toContain('乙');
     expect(distillationEvent?.summary).toContain('丙');
     expect(distillationEvent?.summary).not.toContain('char-b');

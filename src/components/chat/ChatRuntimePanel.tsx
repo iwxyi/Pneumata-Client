@@ -12,6 +12,7 @@ import type { GroupChat } from '../../types/chat';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../../types/runtimeEvent';
 import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { sanitizeDistillationTexts } from '../../services/distillationText';
 import DialogueDebugPanel from './DialogueDebugPanel';
 import { projectRuntimeTimeline, type ProjectedRuntimeTimelineItem } from '../../services/sessionProjection';
 import { RelationshipRadar } from '../controls/RelationshipPanel';
@@ -152,7 +153,9 @@ function buildTimelineBody(item: ProjectedRuntimeTimelineItem) {
   const topicSnippet = typeof payload?.topicSnippet === 'string' ? payload.topicSnippet : null;
   const participantNames = Array.isArray(payload?.participantNames) ? payload.participantNames.filter((value): value is string => typeof value === 'string') : [];
   if (distillation) {
-    const candidateTexts = Array.isArray(distillation.candidateTexts) ? distillation.candidateTexts.filter((value: unknown): value is string => typeof value === 'string') : [];
+    const candidateTexts = Array.isArray(distillation.candidateTexts)
+      ? sanitizeDistillationTexts(distillation.candidateTexts.filter((value: unknown): value is string => typeof value === 'string'))
+      : [];
     return clip(cleanText(candidateTexts.join(' / ') || item.text), 88);
   }
   if (relation) {
@@ -579,7 +582,6 @@ function buildVisibleMemories(chat: GroupChat, isDeveloperView: boolean) {
     preferredLayers: ['working', 'episodic', 'long_term'],
     preferredScopes: ['relationship', 'conversation', 'thread', 'character_self', 'system_runtime'],
     preferredSourceTags: ['group_relationship_shift', 'interaction', 'relationship_delta', 'room_shift', 'private_thread_effect', 'private_thread_summary'],
-    blockedSourceTags: ['direct_user_message', 'direct_ai_follow_up', 'ai_direct_starter_message', 'ai_direct_target_message'],
     relationshipBoost: true,
     selfMemoryBoost: true,
     conversationBoost: true,

@@ -37,12 +37,21 @@ describe('buildChatRenderItems', () => {
     expect(items.map((item) => item.message.type)).toEqual(['ai', 'event']);
   });
 
-  it('keeps a stable order for multiple event messages with the same timestamp', () => {
+  it('preserves incoming order for multiple event messages with the same timestamp', () => {
     const items = buildChatRenderItems([
       message({ id: 'event-2', clientKey: 'event-2', type: 'event', senderId: 'system', senderName: 'System', content: '{"eventType":"conflict_focus_shift","summary":"矛盾"}', timestamp: 10 }),
       message({ id: 'event-1', clientKey: 'event-1', type: 'event', senderId: 'system', senderName: 'System', content: '{"eventType":"relationship_shift","summary":"关系"}', timestamp: 10 }),
     ]);
 
-    expect(items.map((item) => item.message.id)).toEqual(['event-1', 'event-2']);
+    expect(items.map((item) => item.message.id)).toEqual(['event-2', 'event-1']);
+  });
+
+  it('preserves incoming order for normal messages with the same timestamp', () => {
+    const items = buildChatRenderItems([
+      message({ id: 'user-1', type: 'user', senderId: 'user', senderName: 'User', timestamp: 10 }),
+      message({ id: 'ai-1', type: 'ai', senderId: 'character-1', senderName: 'Character', timestamp: 10 }),
+    ]);
+
+    expect(items.map((item) => item.message.id)).toEqual(['user-1', 'ai-1']);
   });
 });

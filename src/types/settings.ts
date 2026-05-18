@@ -1,6 +1,6 @@
 import type { RuntimeEvolutionIntensity } from './chat';
 
-export type AIProvider = 'openai' | 'anthropic' | 'google' | 'xai' | 'deepseek' | 'alibaba' | 'zhipu' | 'moonshot' | 'minimax' | 'bytedance' | 'custom';
+export type AIProvider = 'openai' | 'anthropic' | 'google' | 'xai' | 'deepseek' | 'alibaba' | 'zhipu' | 'moonshot' | 'minimax' | 'bytedance' | 'microsoft' | 'custom';
 export type AIModelType = 'text' | 'image' | 'audio' | 'document';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type Language = 'zh' | 'en';

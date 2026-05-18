@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat, DriverMessageCommitResult, DriverMessageCommitTransition } from '../types/chat';
 import type { Message } from '../types/message';
-import type { APIConfig } from '../types/settings';
+import type { APIConfig, AIModelProfile } from '../types/settings';
 import { mergeSessionChatPatch } from '../types/sessionEngine';
 import { runChatCommitPipeline } from './chatCommitPipeline';
 import { resolveSessionEngine } from './sessionEngineRegistry';
@@ -424,6 +424,7 @@ export async function runSessionCommitPipeline(params: {
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
   applyChatRuntimeDelta?: (id: string, delta: NonNullable<DriverMessageCommitResult['chatRuntimeDelta']>, patch?: Partial<GroupChat>) => Promise<void>;
   recordSpeak: (characterId: string) => void;
+  aiProfiles?: AIModelProfile[];
   getCurrentChat?: (id: string) => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
 }) {

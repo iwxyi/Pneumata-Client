@@ -21,6 +21,9 @@ import type { ChatStyle } from '../../types/chat';
 import { isImageAvatar } from '../../utils/avatar';
 
 interface ChatConfigSectionProps {
+  lockMembers?: boolean;
+  showMembers?: boolean;
+  maxMembers?: number;
   name: string;
   topic: string;
   style: ChatStyle;
@@ -51,7 +54,7 @@ interface ChatConfigSectionProps {
 export default function ChatConfigSection(props: ChatConfigSectionProps) {
   return (
     <Stack spacing={2}>
-      <Card variant="outlined">
+      {props.showMembers === false ? null : <Card variant="outlined">
         <CardContent>
           <TextField
             label={props.nameLabel}
@@ -78,7 +81,7 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
             }}
           />
         </CardContent>
-      </Card>
+      </Card>}
 
       <Card variant="outlined">
         <CardContent>
@@ -102,12 +105,12 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
                 {props.selectMembersLabel}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                {props.membersHintLabel} ({props.selectedMembers.length}/{MAX_MEMBERS})
+                {props.membersHintLabel} ({props.selectedMembers.length}/{props.maxMembers || MAX_MEMBERS})
               </Typography>
             </Box>
-            <IconButton color="primary" onClick={props.onOpenMemberDialog}>
+            {props.lockMembers ? null : <IconButton color="primary" onClick={props.onOpenMemberDialog}>
               <AddIcon />
-            </IconButton>
+            </IconButton>}
           </Box>
           {props.selectedCharacters.length > 0 ? (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
@@ -120,7 +123,7 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
                     </Avatar>
                   }
                   label={char.name}
-                  onDelete={() => props.onToggleMember(char.id)}
+                  onDelete={props.lockMembers ? undefined : () => props.onToggleMember(char.id)}
                 />
               ))}
             </Box>

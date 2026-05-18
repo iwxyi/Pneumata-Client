@@ -6,7 +6,7 @@ import type { SessionBoardComposerSubmission, SessionFormComposerSubmission, Ses
 
 interface SessionComposerHostProps {
   surfaces: SessionInputSurfaceDefinition[];
-  onSubmitText: (submission: SessionTextComposerSubmission, surface: SessionInputSurfaceDefinition) => void;
+  onSubmitText: (submission: SessionTextComposerSubmission, surface: SessionInputSurfaceDefinition) => void | Promise<void>;
   onSubmitForm?: (submission: SessionFormComposerSubmission, surface: SessionInputSurfaceDefinition) => void;
   onSubmitBoard?: (submission: SessionBoardComposerSubmission, surface: SessionInputSurfaceDefinition) => void;
   speakAsCharacterName?: string;

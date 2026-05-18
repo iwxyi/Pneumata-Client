@@ -120,7 +120,7 @@ class ApiClient {
     return this.request<Array<{
       id: string; name: string; avatar: string; personality: Record<string, number>;
       behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
-      speechProfile?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+      speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyle?: BubbleStyleDefinition | null; bubbleStyleId?: string | null;
       isPreset: boolean; deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number;
     }>>('GET', '/characters');
@@ -129,7 +129,7 @@ class ApiClient {
   async createCharacter(data: {
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
-    speechProfile?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+    speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyle?: BubbleStyleDefinition | null; bubbleStyleId?: string | null;
   }) {
     console.log('[api:createCharacter:request]', data);
@@ -139,7 +139,7 @@ class ApiClient {
   async createCharactersBatch(items: Array<{
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
-    speechProfile?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+    speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyleId?: string | null;
   }>) {
     return this.request<{ characters: Record<string, unknown>[] }>('POST', '/characters/batch', { items });
@@ -262,16 +262,26 @@ class ApiClient {
     const query = params.toString() ? `?${params.toString()}` : '';
     return this.request<Array<{
       id: string; chatId: string; type: string; senderId: string;
-      senderName: string; content: string; emotion: number;
+      senderName: string; content: string; metadata?: unknown; emotion: number;
       timestamp: number; isDeleted: boolean;
     }>>('GET', `/chats/${chatId}/messages${query}`);
   }
 
   async createMessage(chatId: string, data: {
     type: string; senderId: string; senderName: string;
-    content: string; emotion?: number;
+    content: string; emotion?: number; metadata?: unknown;
   }) {
     return this.request<Record<string, unknown>>('POST', `/chats/${chatId}/messages`, data);
+  }
+
+  async updateMessageMetadata(id: string, metadata: unknown) {
+    return this.request<Record<string, unknown>>('PATCH', `/messages/${id}/metadata`, { metadata });
+  }
+
+  async createMediaAsset(data: {
+    chatId: string; messageId: string; attachmentId: string; kind: 'image' | 'audio' | 'sticker' | 'thumbnail'; dataUrl: string;
+  }) {
+    return this.request<{ id: string; url: string; mimeType: string; sizeBytes: number; checksum?: string }>('POST', '/media-assets', data);
   }
 
   async clearChatMessages(chatId: string) {

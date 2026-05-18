@@ -6,6 +6,7 @@ import { retrieveRelevantMemories } from './memoryRetrieval';
 import type { MemoryCandidatePayload, RuntimeEventV2 } from '../types/runtimeEvent';
 import type { RuntimeEventPayload } from './runtimeEventFactory';
 import { normalizeRuntimeEvent } from './runtimeEventFactory';
+import { sanitizeMemoryText } from './distillationText';
 
 interface RuntimeEventLike extends RuntimeEventPayload {}
 
@@ -30,11 +31,11 @@ function summarizeInteractionKind(kind: string) {
 }
 
 function buildRelationshipMemoryText(actorId: string, targetId: string, reason: string, summary: string) {
-  return `${actorId}→${targetId} ${summarizeInteractionKind(reason)}：${summary}`.slice(0, 128);
+  return sanitizeMemoryText(`${actorId}→${targetId} ${summarizeInteractionKind(reason)}：${summary}`).slice(0, 128);
 }
 
 function buildRoomStateMemoryText(summary: string) {
-  return summary.slice(0, 128);
+  return sanitizeMemoryText(summary).slice(0, 128);
 }
 
 function toParticipantNames(chat: GroupChat, ids: string[] = []) {
@@ -163,7 +164,7 @@ function filterLegacyEventIds(ids: string[]) {
 }
 
 function compactStructuredSummary(text: string) {
-  return text.slice(0, 128);
+  return sanitizeMemoryText(text).slice(0, 128);
 }
 
 function buildDecisionCandidate(chat: GroupChat, text: string): MemoryCandidate | null {
@@ -173,7 +174,7 @@ function buildDecisionCandidate(chat: GroupChat, text: string): MemoryCandidate 
     layerHint: 'long_term',
     kind: 'decision',
     ownerId: chat.id,
-    text: text.slice(0, 120),
+    text: sanitizeMemoryText(text).slice(0, 120),
     sourceEventIds: [],
     scoreBreakdown: { stability: 0.8, recurrence: 0.4, impact: 0.7, specificity: 0.7, durability: 0.8 },
   };
@@ -186,7 +187,7 @@ function buildConflictCandidate(chat: GroupChat): MemoryCandidate | null {
     layerHint: 'episodic',
     kind: 'conflict',
     ownerId: chat.id,
-    text: `${chat.worldState.conflictAxes.map((axis) => `${axis.title}:${axis.currentTilt || 0}`).join('；')}`,
+    text: sanitizeMemoryText(`${chat.worldState.conflictAxes.map((axis) => `${axis.title}:${axis.currentTilt || 0}`).join('；')}`),
     sourceEventIds: [],
     scoreBreakdown: { stability: 0.55, recurrence: 0.6, impact: 0.7, specificity: 0.65, durability: 0.6 },
   };
@@ -199,7 +200,7 @@ function buildWorldStateCandidate(chat: GroupChat): MemoryCandidate | null {
     layerHint: 'working',
     kind: 'status_shift',
     ownerId: chat.id,
-    text: [chat.worldState.mood, chat.worldState.focus, chat.worldState.recentEvent].filter(Boolean).join(' / ').slice(0, 120),
+    text: sanitizeMemoryText([chat.worldState.mood, chat.worldState.focus, chat.worldState.recentEvent].filter(Boolean).join(' / ')).slice(0, 120),
     sourceEventIds: [],
     scoreBreakdown: { stability: 0.45, recurrence: 0.55, impact: 0.6, specificity: 0.6, durability: 0.45 },
   };
@@ -212,7 +213,7 @@ function buildRelationshipCandidate(chat: GroupChat, message: Pick<Message, 'con
     layerHint: 'episodic',
     kind: 'trait_evidence',
     ownerId: chat.id,
-    text: message.content.trim().slice(0, 120),
+    text: sanitizeMemoryText(message.content.trim()).slice(0, 120),
     sourceEventIds: [],
     scoreBreakdown: { stability: 0.5, recurrence: 0.5, impact: 0.65, specificity: 0.7, durability: 0.5 },
   };
@@ -227,7 +228,7 @@ function buildMemoryCandidatesFromRuntimeEvents(chat: GroupChat, events: Runtime
         kind: /升温|靠近|支持|保护/.test(event.summary) ? 'bond' : 'resentment',
         ownerId: chat.id,
         subjectIds: event.pair || [],
-        text: `${event.title}：${event.summary}`.slice(0, 128),
+        text: sanitizeMemoryText(`${event.title}：${event.summary}`).slice(0, 128),
         sourceEventIds: filterLegacyEventIds([event.eventType, String(event.createdAt || '')]),
         sourceTag: event.eventType,
         scoreBreakdown: { stability: 0.65, recurrence: 0.55, impact: 0.8, specificity: 0.7, durability: 0.65 },
@@ -241,7 +242,7 @@ function buildMemoryCandidatesFromRuntimeEvents(chat: GroupChat, events: Runtime
         kind: 'thread_effect',
         ownerId: chat.id,
         subjectIds: event.pair || [],
-        text: `${event.title}：${event.summary}`.slice(0, 128),
+        text: sanitizeMemoryText(`${event.title}：${event.summary}`).slice(0, 128),
         sourceEventIds: filterLegacyEventIds([event.eventType, String(event.createdAt || '')]),
         sourceTag: event.eventType,
         scoreBreakdown: { stability: 0.6, recurrence: 0.45, impact: 0.75, specificity: 0.7, durability: 0.6 },

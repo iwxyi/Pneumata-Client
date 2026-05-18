@@ -78,7 +78,18 @@ export default function CreateChatPage() {
   const memberPressTimerRef = useRef<number | null>(null);
 
   const showRuntimeTab = Boolean(editingChat);
-  const directorTabIndex = showRuntimeTab ? 3 : 2;
+  const isZh = i18n.language.startsWith('zh');
+  const conversationKind = editingChat?.type || 'group';
+  const isGroupConversation = conversationKind === 'group';
+  const showManagementTab = !editingChat || isGroupConversation;
+  const showDirectorTab = !editingChat || isGroupConversation;
+  const runtimeTabIndex = showManagementTab ? 2 : 1;
+  const directorTabIndex = showRuntimeTab ? (showManagementTab ? 3 : 2) : 2;
+  const conversationNoun = isZh
+    ? (conversationKind === 'group' ? '群聊' : conversationKind === 'ai_direct' ? 'AI私聊' : '单聊')
+    : (conversationKind === 'group' ? 'group chat' : conversationKind === 'ai_direct' ? 'AI direct chat' : 'direct chat');
+  const minRequiredMembers = isGroupConversation ? MIN_MEMBERS : 1;
+  const maxAllowedMembers = isGroupConversation ? MAX_MEMBERS : (conversationKind === 'ai_direct' ? 2 : 1);
 
   const showError = (message: string) => {
     setSnackbar({ open: true, message, severity: 'error' });
@@ -167,8 +178,8 @@ export default function CreateChatPage() {
   const toggleMember = (memberId: string) => {
     setSelectedMembers((prev) => {
       if (prev.includes(memberId)) return prev.filter((m) => m !== memberId);
-      if (prev.length >= MAX_MEMBERS) {
-        showError(i18n.language.startsWith('zh') ? `最多只能选择${MAX_MEMBERS}个AI成员` : `You can select up to ${MAX_MEMBERS} AI members`);
+      if (prev.length >= maxAllowedMembers) {
+        showError(isZh ? `当前${conversationNoun}最多选择${maxAllowedMembers}个AI角色` : `This ${conversationNoun} supports up to ${maxAllowedMembers} AI role(s)`);
         return prev;
       }
       return [...prev, memberId];
@@ -426,7 +437,7 @@ export default function CreateChatPage() {
     }
   }, [editingChat, i18n.language, updateChat]);
 
-  const headerTitle = editingChat ? t('chat.edit') : t('chat.create');
+  const headerTitle = editingChat ? (isZh ? `编辑${conversationNoun}` : `Edit ${conversationNoun}`) : t('chat.create');
   const autofillLabel = aiAutofilling ? t('common.loading') : (i18n.language.startsWith('zh') ? '自动补全' : 'Auto fill');
   const deleteLabel = t('common.delete');
   const closeMemberDialog = () => {
@@ -498,7 +509,7 @@ export default function CreateChatPage() {
     cursor: 'pointer', transition: 'all 0.18s ease', '&:hover': { boxShadow: 1, borderColor: 'primary.main' },
   });
 
-  const memberSummaryEmptyLabel = i18n.language.startsWith('zh') ? '未选择AI角色' : 'No AI members selected';
+  const memberSummaryEmptyLabel = isZh ? '未选择AI角色' : 'No AI roles selected';
   const memberDialogConfirmLabel = t('common.confirm');
   const startChatLabel = editingChat ? t('common.save') : '开始群聊';
   const runtimePhaseLabel = editingChat?.worldState.phase || 'idle';
@@ -509,13 +520,13 @@ export default function CreateChatPage() {
   const deleteChatConfirm = t('chat.deleteConfirm');
   const cancelLabel = t('common.cancel');
   const confirmDeleteLabel = t('common.delete');
-  const clearMessagesTitle = i18n.language.startsWith('zh') ? '清理聊天记录' : 'Clear chat messages';
-  const clearMessagesConfirm = i18n.language.startsWith('zh') ? '这会永久删除当前群聊的全部消息记录，但保留关系、情绪、记忆和运行态。此操作无法撤销。' : 'This permanently deletes all chat messages while keeping relationships, emotions, memories, and runtime state. This action cannot be undone.';
-  const clearMessagesLabel = i18n.language.startsWith('zh') ? '清理聊天记录' : 'Clear chat messages';
-  const clearMemoryTitle = i18n.language.startsWith('zh') ? '清理聊天记忆' : 'Clear chat memory';
-  const clearMemoryConfirm = i18n.language.startsWith('zh') ? '这会清除当前群聊自身的运行态、事件、会话级记忆与摘要，但保留聊天记录，以及角色自身的成长与记忆。此操作无法撤销。' : 'This clears session-level runtime state, events, and chat memory for this chat while keeping message history and character growth. This action cannot be undone.';
-  const clearMemoryLabel = i18n.language.startsWith('zh') ? '清理聊天记忆' : 'Clear chat memory';
-  const noOwnerLabel = i18n.language.startsWith('zh') ? '未设置' : 'None';
+  const clearMessagesTitle = isZh ? '清理聊天记录' : 'Clear chat messages';
+  const clearMessagesConfirm = isZh ? `这会永久删除当前${conversationNoun}的全部消息记录，但保留关系、情绪、记忆和运行态。此操作无法撤销。` : `This permanently deletes all messages in this ${conversationNoun} while keeping relationships, emotions, memories, and runtime state. This action cannot be undone.`;
+  const clearMessagesLabel = isZh ? '清理聊天记录' : 'Clear chat messages';
+  const clearMemoryTitle = isZh ? '清理会话记忆' : 'Clear session memory';
+  const clearMemoryConfirm = isZh ? `这会清除当前${conversationNoun}自身的运行态、事件、会话级记忆与摘要，但保留聊天记录，以及角色自身的成长与记忆。此操作无法撤销。` : `This clears session-level runtime state, events, and memory for this ${conversationNoun} while keeping message history and character growth. This action cannot be undone.`;
+  const clearMemoryLabel = isZh ? '清理会话记忆' : 'Clear session memory';
+  const noOwnerLabel = isZh ? '未设置' : 'None';
   const adminNotesValue = adminCharacterIds.length ? adminCharacterIds.map((memberId) => selectedCharacters.find((char) => char.id === memberId)?.name).filter(Boolean).join(', ') : noOwnerLabel;
   const topicPlaceholder = i18n.language.startsWith('zh') ? '创建后由用户发送首条消息启动讨论，可先写简介或目标' : 'After creation the user starts discussion with the first message; use this for description or goal';
 
@@ -549,10 +560,14 @@ export default function CreateChatPage() {
   }, [setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
 
   useEffect(() => {
-    if (configTab > directorTabIndex) {
-      setConfigTab(directorTabIndex);
+    const availableTabs = [0]
+      .concat(showManagementTab ? [1] : [])
+      .concat(showRuntimeTab ? [runtimeTabIndex] : [])
+      .concat(showDirectorTab ? [directorTabIndex] : []);
+    if (!availableTabs.includes(configTab)) {
+      setConfigTab(availableTabs[0] || 0);
     }
-  }, [configTab, directorTabIndex]);
+  }, [configTab, directorTabIndex, runtimeTabIndex, showDirectorTab, showManagementTab, showRuntimeTab]);
 
   const desktopHeaderActions = null;
   void desktopHeaderActions;
@@ -574,8 +589,8 @@ export default function CreateChatPage() {
       showError(i18n.language.startsWith('zh') ? '请填写群聊名称' : 'Please enter a chat name');
       return;
     }
-    if (validMemberIds.length < MIN_MEMBERS) {
-      showError(i18n.language.startsWith('zh') ? `请至少选择${MIN_MEMBERS}个AI成员` : `Please select at least ${MIN_MEMBERS} AI members`);
+    if (validMemberIds.length < minRequiredMembers) {
+      showError(isZh ? `当前${conversationNoun}至少需要${minRequiredMembers}个AI角色` : `This ${conversationNoun} needs at least ${minRequiredMembers} AI role(s)`);
       return;
     }
     if (selectedMembers.length !== validMemberIds.length) {
@@ -684,13 +699,16 @@ export default function CreateChatPage() {
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <Tabs value={configTab} onChange={handleTabChange} variant="scrollable" allowScrollButtonsMobile>
           <Tab value={0} label={i18n.language.startsWith('zh') ? '设定' : 'Config'} />
-          <Tab value={1} label={i18n.language.startsWith('zh') ? '管理' : 'Management'} />
-          {showRuntimeTab ? <Tab value={2} label={i18n.language.startsWith('zh') ? '运行态' : 'Runtime'} /> : null}
-          <Tab value={directorTabIndex} label={i18n.language.startsWith('zh') ? '导演控制' : 'Director'} />
+          {showManagementTab ? <Tab value={1} label={i18n.language.startsWith('zh') ? '管理' : 'Management'} /> : null}
+          {showRuntimeTab ? <Tab value={runtimeTabIndex} label={i18n.language.startsWith('zh') ? '运行态' : 'Runtime'} /> : null}
+          {showDirectorTab ? <Tab value={directorTabIndex} label={i18n.language.startsWith('zh') ? '导演控制' : 'Director'} /> : null}
         </Tabs>
 
         {configTab === 0 ? (
           <ChatConfigSection
+            lockMembers={Boolean(editingChat && !isGroupConversation)}
+            showMembers={Boolean(!editingChat || isGroupConversation)}
+            maxMembers={maxAllowedMembers}
             name={name}
             topic={topic}
             style={style}
@@ -711,15 +729,15 @@ export default function CreateChatPage() {
             nameLabel={t('chat.name')}
             namePlaceholder={t('chat.namePlaceholder')}
             topicLabel={t('chat.topic')}
-            selectMembersLabel={t('chat.selectMembers')}
-            membersHintLabel={t('chat.membersHint')}
+            selectMembersLabel={isGroupConversation ? t('chat.selectMembers') : (isZh ? '选择角色' : 'Select role')}
+            membersHintLabel={isGroupConversation ? t('chat.membersHint') : (isZh ? `${conversationNoun}中的AI角色` : `AI roles in this ${conversationNoun}`)}
             styleLabel={t('chat.style')}
             showRoleActionsLabel={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'}
             openTopicInspirationLabel={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}
           />
         ) : null}
 
-        {configTab === 1 ? (
+        {showManagementTab && configTab === 1 ? (
           <ManagementSection
             selectedCharacters={selectedCharacters}
             ownerCharacterId={ownerCharacterId}
@@ -732,6 +750,8 @@ export default function CreateChatPage() {
             allowCliques={allowCliques}
             allowMockery={allowMockery}
             editingChat={Boolean(editingChat)}
+            conversationKind={conversationKind}
+            conversationNoun={conversationNoun}
             language={i18n.language}
             clearMessagesLabel={clearMessagesLabel}
             clearMemoryLabel={clearMemoryLabel}
@@ -747,7 +767,7 @@ export default function CreateChatPage() {
           />
         ) : null}
 
-        {showRuntimeTab && configTab === 2 ? (
+        {showRuntimeTab && configTab === runtimeTabIndex ? (
           <Suspense fallback={null}>
             <RuntimeSeedSection
               editingChatId={editingChat?.id}
@@ -788,7 +808,7 @@ export default function CreateChatPage() {
           </Suspense>
         ) : null}
 
-        {configTab === directorTabIndex ? (
+        {showDirectorTab && configTab === directorTabIndex ? (
           <DirectorControlsSection
             runtimeEvolutionIntensity={runtimeEvolutionIntensity}
             setRuntimeEvolutionIntensity={setRuntimeEvolutionIntensity}

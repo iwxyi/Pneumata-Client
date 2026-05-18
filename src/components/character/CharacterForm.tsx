@@ -35,7 +35,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { useTranslation } from 'react-i18next';
-import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile } from '../../types/character';
+import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile, CharacterVoiceConfig } from '../../types/character';
 import { getCharacterGroupList, normalizeCharacterGroup, normalizeCharacterModelProfileIds, getDuplicateCharacterNameKeys, getDuplicateCharacterWarningText, hasDuplicateCharacterName } from '../../types/character';
 import type { BubbleShadowLevel, BubbleStyleDefinition, BubbleStyleFormValues } from '../../types/bubbleStyle';
 import { DEFAULT_PERSONALITY, DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION } from '../../types/character';
@@ -116,6 +116,7 @@ interface CharacterFormProps {
     speakingStyle: string;
     background: string;
     speechProfile?: CharacterSpeechProfile;
+    voiceConfig?: CharacterVoiceConfig;
     relationships: AICharacter['relationships'];
     group?: string | null;
     memory: CharacterMemoryConfig;
@@ -142,6 +143,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [speakingStyle, setSpeakingStyle] = useState(initial?.speakingStyle || '');
   const [background, setBackground] = useState(initial?.background || '');
   const [speechProfile, setSpeechProfile] = useState<CharacterSpeechProfile | undefined>(initial?.speechProfile);
+  const [voiceConfig, setVoiceConfig] = useState<CharacterVoiceConfig>(initial?.voiceConfig || { enabled: false });
   const [relationshipsText, setRelationshipsText] = useState(() => (initial?.relationships || []).map((item) => item.note || '').join('\n'));
   const [group, setGroup] = useState(initial?.group || '');
   const [memory, setMemory] = useState<CharacterMemoryConfig>(initial?.memory || DEFAULT_CHARACTER_MEMORY);
@@ -209,6 +211,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     setModelProfileIds((current) => {
       const next = { ...current };
       for (const type of modelTypeOrder) {
+        if (type === 'audio') continue;
         if (next[type]) continue;
         next[type] = getPreferredAIProfile(profilesByType[type], type)?.id || null;
       }
@@ -227,6 +230,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   useEffect(() => {
     if (!initial) return;
     setModelProfileIds(normalizeCharacterModelProfileIds(initial.modelProfileIds, initial.modelProfileId || null));
+    setVoiceConfig(initial.voiceConfig || { enabled: false });
   }, [initial?.id, initial?.modelProfileId, initial?.modelProfileIds]);
 
   useEffect(() => {
@@ -364,6 +368,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       speakingStyle,
       background,
       speechProfile,
+      voiceConfig,
       relationships: relationshipNotes,
       group: normalizeCharacterGroup(group),
       memory,
@@ -534,6 +539,46 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
                     </Select>
                   </FormControl>
                 ))}
+                <Collapse in={Boolean(modelProfileIds.audio)}>
+                  <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                    <CardContent sx={{ display: 'grid', gap: 1.25 }}>
+                      <FormControlLabel
+                        control={<Switch checked={Boolean(voiceConfig.enabled)} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, enabled: e.target.checked }))} />}
+                        label={i18n.language.startsWith('zh') ? '允许按需生成语音' : 'Allow on-demand voice'}
+                      />
+                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
+                        <TextField
+                          size="small"
+                          label={i18n.language.startsWith('zh') ? '音色' : 'Voice'}
+                          placeholder={i18n.language.startsWith('zh') ? '如 zh-CN-XiaoxiaoNeural' : 'e.g. en-US-JennyNeural'}
+                          value={voiceConfig.voiceName || ''}
+                          onChange={(e) => setVoiceConfig((prev) => ({ ...prev, voiceName: e.target.value }))}
+                        />
+                        <TextField
+                          size="small"
+                          label={i18n.language.startsWith('zh') ? '风格' : 'Style'}
+                          placeholder={i18n.language.startsWith('zh') ? '如 cheerful / sad' : 'e.g. cheerful / sad'}
+                          value={voiceConfig.style || ''}
+                          onChange={(e) => setVoiceConfig((prev) => ({ ...prev, style: e.target.value }))}
+                        />
+                        <TextField
+                          size="small"
+                          label={i18n.language.startsWith('zh') ? '语速' : 'Rate'}
+                          placeholder="+0%"
+                          value={voiceConfig.rate || ''}
+                          onChange={(e) => setVoiceConfig((prev) => ({ ...prev, rate: e.target.value }))}
+                        />
+                        <TextField
+                          size="small"
+                          label={i18n.language.startsWith('zh') ? '音调' : 'Pitch'}
+                          placeholder="+0Hz"
+                          value={voiceConfig.pitch || ''}
+                          onChange={(e) => setVoiceConfig((prev) => ({ ...prev, pitch: e.target.value }))}
+                        />
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Collapse>
               </Box>
             </Collapse>
           </CardContent>

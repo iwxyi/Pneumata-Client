@@ -74,7 +74,7 @@ export interface ConflictSpeakerContext {
 }
 
 function resolveConflictSpeakerContext(chat?: GroupChat | null): ConflictSpeakerContext | null {
-  const primary = chat?.type === 'group' ? chat.worldState.conflictState?.primaryConflict : null;
+  const primary = chat?.worldState.conflictState?.primaryConflict || null;
   if (!primary) return null;
   return {
     participantIds: primary.participantIds || [],

@@ -13,6 +13,8 @@ interface ManagementSectionProps {
   allowCliques: boolean;
   allowMockery: boolean;
   editingChat: boolean;
+  conversationKind: 'group' | 'direct' | 'ai_direct';
+  conversationNoun: string;
   language: string;
   clearMessagesLabel: string;
   clearMemoryLabel: string;
@@ -29,6 +31,9 @@ interface ManagementSectionProps {
 
 export default function ManagementSection(props: ManagementSectionProps) {
   const isZh = props.language.startsWith('zh');
+  const isGroup = props.conversationKind === 'group';
+  const ownerLabel = isGroup ? (isZh ? '群主' : 'Owner') : (isZh ? '主角色' : 'Primary role');
+  const adminLabel = isGroup ? (isZh ? '管理员' : 'Admins') : (isZh ? '协同角色' : 'Supporting roles');
 
   return (
     <Box sx={{ display: 'grid', gap: 2 }}>
@@ -45,7 +50,7 @@ export default function ManagementSection(props: ManagementSectionProps) {
           <Box sx={{ display: 'grid', gap: 2 }}>
             <TextField
               select
-              label={isZh ? '群主' : 'Owner'}
+              label={ownerLabel}
               value={props.ownerCharacterId}
               onChange={(e) => props.onOwnerChange(e.target.value)}
               fullWidth
@@ -59,7 +64,7 @@ export default function ManagementSection(props: ManagementSectionProps) {
             <TextField
               select
               slotProps={{ select: { multiple: true } }}
-              label={isZh ? '管理员' : 'Admins'}
+              label={adminLabel}
               value={props.adminCharacterIds}
               onChange={(e) => props.onAdminChange((typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value).filter(Boolean))}
               fullWidth
@@ -70,20 +75,22 @@ export default function ManagementSection(props: ManagementSectionProps) {
             </TextField>
 
             <TextField
-              label={isZh ? '管理员说明' : 'Admin notes'}
+              label={isZh ? `${adminLabel}说明` : `${adminLabel} notes`}
               value={props.adminNotesValue}
               slotProps={{ input: { readOnly: true } }}
               fullWidth
             />
 
             <Typography variant="caption" color="text.secondary">
-              {isZh ? '可多选管理员；群主不会重复加入管理员。' : 'You can select multiple admins; the owner is excluded automatically.'}
+              {isGroup
+                ? (isZh ? '可多选管理员；群主不会重复加入管理员。' : 'You can select multiple admins; the owner is excluded automatically.')
+                : (isZh ? `${props.conversationNoun}也使用同一套角色、关系、情绪和会话记忆；这些设置只影响权限和入口显示。` : `This ${props.conversationNoun} uses the same role, relationship, emotion, and session-memory runtime. These settings only affect permissions and display.`)}
             </Typography>
 
             <Box sx={{ display: 'grid', gap: 0.5 }}>
               <FormControlLabel control={<Switch checked={props.autoModeration} onChange={(e) => props.onAutoModerationChange(e.target.checked)} />} label={isZh ? '自动管理' : 'Auto moderation'} />
               <FormControlLabel control={<Switch checked={props.allowMute} onChange={(e) => props.onAllowMuteChange(e.target.checked)} />} label={isZh ? '允许禁言' : 'Allow mute'} />
-              <FormControlLabel control={<Switch checked={props.allowPrivateThreads} onChange={(e) => props.onAllowPrivateThreadsChange(e.target.checked)} />} label={isZh ? '允许拉私聊' : 'Allow private threads'} />
+              {isGroup ? <FormControlLabel control={<Switch checked={props.allowPrivateThreads} onChange={(e) => props.onAllowPrivateThreadsChange(e.target.checked)} />} label={isZh ? '允许拉私聊' : 'Allow private threads'} /> : null}
             </Box>
           </Box>
         </CardContent>
@@ -108,7 +115,7 @@ export default function ManagementSection(props: ManagementSectionProps) {
               {isZh ? '危险操作' : 'Danger zone'}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              {isZh ? '可分别清理消息记录或会话级记忆，不删除群聊本身。' : 'You can clear messages or session memory separately without deleting the chat itself.'}
+              {isZh ? `可分别清理消息记录或会话级记忆，不删除${props.conversationNoun}本身。` : `You can clear messages or session memory separately without deleting the ${props.conversationNoun} itself.`}
             </Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
               <Button color="error" variant="outlined" onClick={props.onOpenClearMessagesDialog}>

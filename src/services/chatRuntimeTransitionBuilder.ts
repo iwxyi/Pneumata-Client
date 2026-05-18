@@ -522,6 +522,63 @@ export function buildRelationshipTransition(params: {
     }
   }
 
+  if (params.message.type === 'ai' && speaker && !targetEntries.length) {
+    const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier * 0.75);
+    const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
+    const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
+    const speakerLayeredResult = maybeDistillCharacterLayeredMemories({
+      ...speaker,
+      emotionalState: speakerEmotion,
+    }, updateCharacterLayeredMemories({
+      character: { ...speaker, emotionalState: speakerEmotion },
+      content: params.message.content,
+      personalityDrift: speakerDrift,
+      sourceEventTag: params.conversation.type === 'ai_direct' ? 'ai_direct_self_message' : params.conversation.type === 'direct' ? 'direct_ai_message' : 'interaction',
+    }));
+    const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: Date.now() }] : [];
+
+    characterPatches.push({
+      characterId: speaker.id,
+      patch: {
+        personalityDrift: speakerDrift,
+        emotionalState: speakerEmotion,
+        layeredMemories: speakerLayeredResult.layeredMemories,
+        runtimeTimeline: accumulateCharacterRuntime(speaker, {
+          type: 'memory',
+          text: `在${params.conversation.type === 'group' ? '群聊' : params.conversation.type === 'ai_direct' ? 'AI私聊' : '单聊'}中表达了新状态：${truncateWithEllipsis(params.message.content, 48)}`,
+        }).concat(driftEntries).slice(-Math.max(20, config.maxTimeline)),
+      },
+    });
+    if (speakerLayeredResult.debugInfo) {
+      runtimeEvents.push(createMemoryDistillationRuntimeEvent(localizeDistillationEventInfo(speakerLayeredResult.debugInfo, distillationParticipants)));
+    }
+
+    if (localizedDriftSummary) {
+      runtimeEvents.push(normalizeRuntimeEvent({
+        eventType: 'speaker_drift_shift',
+        title: `${speaker.name} 出现人格偏移`,
+        summary: localizedDriftSummary,
+        timelineType: 'note',
+        eventClass: 'action',
+        visibilityScope: 'public',
+        createdAt: Date.now(),
+      }));
+    }
+
+    const speakerEmotionLines = getRuntimeAffectEventEmotionLines([{ name: speaker.name, emotion: speakerEmotion }], 'zh');
+    if (speakerEmotionLines.length) {
+      runtimeEvents.push(normalizeRuntimeEvent({
+        eventType: 'speaker_emotion_shift',
+        title: `${speaker.name} 出现情绪变化`,
+        summary: speakerEmotionLines.join('\n'),
+        timelineType: 'note',
+        eventClass: 'action',
+        visibilityScope: 'public',
+        createdAt: Date.now(),
+      }));
+    }
+  }
+
   return { runtimeEvents, characterPatches, relationshipLedger };
 }
 
@@ -537,7 +594,7 @@ export function buildWorldRuntimeEvents(
   if (shouldEmitConflictAxisShift(previousWorldState.conflictAxes || [], nextConflictAxes, message.type, config)) {
     runtimeEvents.push(normalizeRuntimeEvent({
       eventType: 'conflict_axis_shift',
-      title: '群聊冲突轴发生偏移',
+      title: '会话冲突轴发生偏移',
       summary: buildConflictAxesSummary(nextConflictAxes),
       timelineType: 'note',
       eventClass: 'phase',
@@ -548,7 +605,7 @@ export function buildWorldRuntimeEvents(
   if (shouldEmitWorldStateShift(previousWorldState, worldState, message.type, config)) {
     runtimeEvents.push(normalizeRuntimeEvent({
       eventType: 'world_state_shift',
-      title: '群聊状态发生变化',
+      title: '会话状态发生变化',
       summary: buildWorldStateShiftSummary(worldState),
       timelineType: 'note',
       eventClass: 'phase',

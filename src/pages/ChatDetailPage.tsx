@@ -33,10 +33,7 @@ import { updateCharacterLayeredMemories } from '../services/characterLayeredMemo
 import { accumulateCharacterRuntime } from '../services/characterRuntime';
 import { resolveRuntimeEvolutionConfig } from '../services/runtimeEvolutionConfig';
 import { getCharacterGroupLabel } from '../types/character';
-import { generateResponse } from '../services/aiClient';
-import { buildSystemPromptWithContext, buildChatMessages, buildDirectMemoryPanelContext } from '../services/promptBuilder';
-import { getCharacterModelProfileId } from '../types/character';
-import { getPreferredAIProfile } from '../types/settings';
+import { buildDirectMemoryPanelContext } from '../services/promptBuilder';
 import type { AICharacter } from '../types/character';
 import type { Message } from '../types/message';
 import { shouldDiscardStreamingDraft } from '../services/streamingMessageLifecycle';
@@ -268,6 +265,7 @@ export default function ChatDetailPage() {
   const pendingStreamingMessageRef = useRef<Message | null>(null);
   const lastAutoThreadCandidateIdRef = useRef<string | null>(null);
   const pendingCommitCountRef = useRef(0);
+  const runLoopRef = useRef<((loopId: string) => Promise<void>) | null>(null);
   const isCommitSettled = useCallback(() => pendingCommitCountRef.current === 0, []);
 
   useEffect(() => {
@@ -564,23 +562,25 @@ export default function ChatDetailPage() {
     }));
   }, [appendEventMessage, chat, triggerPairPrivateThread, updateChat]);
 
-  const shouldDirectCharacterFollowUp = useCallback(async (directCharacter: AICharacter, userContent: string) => {
-    const textProfileId = getCharacterModelProfileId(directCharacter, 'text');
-    const profile = aiProfiles.find((item) => item.id === textProfileId) || getPreferredAIProfile(aiProfiles, 'text') || api;
-    if (!profile?.apiKey || !profile?.model || !chat) return null;
-
-    const recentMessages = messages.filter((item) => item.chatId === chat.id && !item.isDeleted).slice(-8);
-    const characterMap = new Map(characters.map((item) => [item.id, item] as const));
-    const systemPrompt = `${buildSystemPromptWithContext(directCharacter, chat, 0, recentMessages, characterMap)}\n\n## Task\nDecide whether this character would naturally send one short follow-up message right after replying to the user's latest message. Return strict JSON only: {"shouldFollowUp":true|false,"content":"short follow-up if true"}. If there should be no follow-up, return shouldFollowUp false and empty content.`;
-    const raw = await generateResponse(profile, systemPrompt, [{ role: 'user', content: `Latest user message: ${userContent}\nRecent conversation:\n${buildChatMessages(recentMessages, characterMap, 8).map((item) => item.content).join('\n')}` }]);
-    const parsed = JSON.parse(raw.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '')) as { shouldFollowUp?: boolean; content?: string };
-    const contentText = typeof parsed.content === 'string' ? parsed.content.trim() : '';
-    return parsed.shouldFollowUp && contentText ? contentText : null;
-  }, [aiProfiles, api, characters, chat, messages]);
+  const startConversationLoopIfNeeded = useCallback((conversationChat: GroupChat) => {
+    if (conversationChat.type === 'direct') return;
+    if (isRunningRef.current && !isPausedRef.current) return;
+    const run = runLoopRef.current;
+    if (!run) return;
+    resetAllCooldowns();
+    const newLoopToken = `${conversationChat.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    loopTokenRef.current = newLoopToken;
+    activeChatIdRef.current = conversationChat.id;
+    isRunningRef.current = true;
+    isPausedRef.current = false;
+    start(newLoopToken);
+    updateChat(conversationChat.id, { isActive: true });
+    window.setTimeout(() => void run(newLoopToken), 100);
+  }, [resetAllCooldowns, start, updateChat]);
 
   const handleGuideSend = useCallback(async (content: string) => {
     if (!chat || !id) return;
-    await addMessageStable({ chatId: id, type: 'user', senderId: 'user', senderName: 'User', content, emotion: 0, timestamp: Date.now() });
+    const userMessage = await addMessageStable({ chatId: id, type: 'user', senderId: 'user', senderName: 'User', content, emotion: 0, timestamp: Date.now() });
     if (chat.type === 'direct') {
       const directCharacter = characters.find((item) => item.id === chat.memberIds[0]);
       if (directCharacter) {
@@ -603,36 +603,60 @@ export default function ChatDetailPage() {
             Object.keys(drift).length ? [{ type: 'drift' as const, text: '与用户互动后产生性格漂移', createdAt: Date.now() }] : []
           ).slice(-24),
         });
-        const followUp = await shouldDirectCharacterFollowUp(directCharacter, content);
-        if (followUp) {
-          await addMessageStable({ chatId: id, type: 'ai', senderId: directCharacter.id, senderName: directCharacter.name, content: followUp, emotion: 0, timestamp: Date.now() });
-          const followUpDrift = derivePersonalityDrift(directCharacter, followUp, evolution.driftMultiplier * 0.35);
-          const followUpEmotion = deriveEmotionalState(directCharacter, followUp, evolution.emotionMultiplier * 0.6, evolution.emotionDecayBias);
-          await updateCharacter(directCharacter.id, {
-            personalityDrift: followUpDrift,
-            emotionalState: followUpEmotion,
-            layeredMemories: updateCharacterLayeredMemories({
-              character: { ...directCharacter, emotionalState: followUpEmotion },
-              content: followUp,
-              personalityDrift: followUpDrift,
-              sourceEventTag: 'direct_ai_follow_up',
-            }),
-            runtimeTimeline: accumulateCharacterRuntime(directCharacter, {
-              type: 'memory',
-              text: `单聊续发：${followUp.slice(0, 48)}`,
-            }).concat(
-              Object.keys(followUpDrift).length ? [{ type: 'drift' as const, text: '续发后产生性格漂移', createdAt: Date.now() }] : []
-            ).slice(-24),
-          });
-        }
+        const [{ generateAndCommitAiMessage }, { getSessionEngine }] = await Promise.all([
+          import('../services/aiMessageOrchestrator'),
+          import('../services/sessionEngineRegistry'),
+        ]);
+        const sessionEngine = getSessionEngine(chat.mode);
+        await generateAndCommitAiMessage({
+          api,
+          aiProfiles,
+          chatId: id,
+          chat,
+          speaker: directCharacter,
+          characters,
+          timestamp: userMessage.timestamp + 1,
+          currentMessages: useMessageStore.getState().messages.some((message) => message.id === userMessage.id)
+            ? useMessageStore.getState().messages
+            : useMessageStore.getState().messages.concat(userMessage),
+          generationContext: {
+            buildPromptContext: (speaker) => sessionEngine.buildGenerationPromptContext?.({
+              conversation: chat,
+              characters,
+              messages: useMessageStore.getState().messages,
+              speaker,
+            }) || null,
+          },
+          onCommit: async (args) => await (sessionEngine.onMessageCommitted as (commitArgs: {
+            conversation: GroupChat;
+            characters: AICharacter[];
+            message: Pick<Message, 'content' | 'type' | 'senderId'>;
+            previousAiMessage: Pick<Message, 'senderId'> | null;
+            recentMessages?: Message[];
+            apiConfig?: import('../types/settings').APIConfig;
+          }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>)(args),
+          upsertMessage: upsertMessageStable,
+          updateCharacter,
+          updateCharacters: async (patches) => updateCharacters(patches.map((patch) => ({ id: patch.id, updates: patch.patch }))),
+          appendEventMessage: appendEventMessageStable,
+          appendEventMessages: appendEventMessagesStable,
+          updateChat,
+          applyChatRuntimeDelta,
+          recordSpeak,
+          getCurrentChat: (chatId) => useChatStore.getState().chats.find((item) => item.id === chatId),
+          getCurrentCharacters: () => useCharacterStore.getState().characters,
+        });
       }
       return;
     }
     if (chat.type === 'ai_direct') {
+      startConversationLoopIfNeeded(chat);
       const { applyAiDirectFeedback } = await import('../services/directSessionRuntime');
       await applyAiDirectFeedback({ chat, chats, characters, content, updateCharacter, updateChat, appendEventMessage });
+      return;
     }
-  }, [addMessage, appendEventMessage, characters, chat, chats, id, updateCharacter, updateChat]);
+    startConversationLoopIfNeeded(chat);
+  }, [addMessageStable, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, applyChatRuntimeDelta, characters, chat, chats, id, recordSpeak, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
 
   const handleSpeakAs = useCallback(async (content: string) => {
     if (!chat || !id || !speakAsCharacterId) return;
@@ -640,7 +664,7 @@ export default function ChatDetailPage() {
     if (!char) return;
     await addMessageStable({ chatId: id, type: 'ai', senderId: char.id, senderName: char.name, content, emotion: 0, timestamp: Date.now() });
     setSpeakAsCharacter(null);
-  }, [addMessage, characters, chat, id, setSpeakAsCharacter, speakAsCharacterId]);
+  }, [addMessageStable, characters, chat, id, setSpeakAsCharacter, speakAsCharacterId]);
 
   const runSurfaceIntent = useCallback(async (surfaceResult: SessionNormalizedIntentResult) => {
     if (!chat) return;
@@ -761,7 +785,7 @@ export default function ChatDetailPage() {
         chatId: id,
         chat,
         characters: activeMembers,
-        api,
+        api: aiProfiles,
         getCurrentMessages: () => useMessageStore.getState().messages,
         getStreamingMessage: () => streamingMessageRef.current,
         getCurrentChat: () => useChatStore.getState().chats.find((item) => item.id === id),
@@ -829,7 +853,7 @@ export default function ChatDetailPage() {
             message: Pick<Message, 'content' | 'type' | 'senderId'>;
             previousAiMessage: Pick<Message, 'senderId'> | null;
             recentMessages?: Message[];
-            apiConfig?: import('../types/settings').APIConfig;
+                apiConfig?: import('../types/settings').APIConfig;
           }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>)(args);
         },
         upsertMessage: upsertMessageStable,
@@ -846,6 +870,7 @@ export default function ChatDetailPage() {
       if (activeRunLoopTokenRef.current === loopId) activeRunLoopTokenRef.current = null;
     }
   }, [activeMembers, api, appendEventMessage, appendEventMessages, applyChatRuntimeDelta, chat, clearStreamingMessageRef, discardStreamingMessage, id, recordSpeak, setCurrentSpeaker, showErrorToast, t, updateCharacter, updateCharacters, updateChat, updateStreamingMessage, upsertMessage]);
+  runLoopRef.current = runLoop;
 
   const fromTab = useMemo(() => new URLSearchParams(window.location.search).get('fromTab'), []);
 
@@ -856,33 +881,16 @@ export default function ChatDetailPage() {
   const canAutoRunConversation = chat?.type !== 'direct';
 
   const handleHeaderPrimaryAction = useCallback(() => {
-    if (!id || !canAutoRunConversation) return;
-    if (!isRunning) {
-      resetAllCooldowns();
-      const newLoopToken = `${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      loopTokenRef.current = newLoopToken;
-      isRunningRef.current = true;
-      isPausedRef.current = false;
-      start(newLoopToken);
-      updateChat(id, { isActive: true });
-      setTimeout(() => void runLoop(newLoopToken), 100);
-    } else if (isPaused) {
-      isRunningRef.current = true;
-      isPausedRef.current = false;
+    if (!chat || !id || !canAutoRunConversation) return;
+    if (!isRunning || isPaused) {
       resume();
-      updateChat(id, { isActive: true });
-      if (!loopTokenRef.current || activeRunLoopTokenRef.current !== loopTokenRef.current) {
-        const newLoopToken = `${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        loopTokenRef.current = newLoopToken;
-        start(newLoopToken);
-        setTimeout(() => void runLoop(newLoopToken), 100);
-      }
+      startConversationLoopIfNeeded(chat);
     } else {
       isPausedRef.current = true;
       pause();
       updateChat(id, { isActive: false });
     }
-  }, [canAutoRunConversation, id, isPaused, isRunning, pause, resetAllCooldowns, resume, runLoop, start, updateChat]);
+  }, [canAutoRunConversation, chat, id, isPaused, isRunning, pause, resume, startConversationLoopIfNeeded, updateChat]);
 
   const headerPrimaryActionButton = canAutoRunConversation ? (
     <IconButton onClick={handleHeaderPrimaryAction} color={isRunning && !isPaused ? 'primary' : 'default'}>

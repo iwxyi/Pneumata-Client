@@ -24,13 +24,13 @@ describe('streamingMessageLifecycle', () => {
     expect(resolveCommittedStreamContent('最终内容', '逐字出现的内容')).toBe('最终内容');
   });
 
-  it('keeps a short natural streamed tail when the finalized content becomes an unexpected prefix', () => {
+  it('prefers the finalized content when the streamed draft is only a prefix', () => {
     expect(
       resolveCommittedStreamContent(
         '谁站你这边了？',
         '谁站你这边了？我只是看喜羊羊不顺眼',
       ),
-    ).toBe('谁站你这边了？我只是看喜羊羊不顺眼');
+    ).toBe('谁站你这边了？');
   });
 
   it('does not discard a draft when the same message is already committed', () => {

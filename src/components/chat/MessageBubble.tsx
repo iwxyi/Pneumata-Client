@@ -1,14 +1,16 @@
 import { useMemo, useRef, useState } from 'react';
-import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, Menu, MenuItem, Chip, Tooltip, keyframes } from '@mui/material';
+import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, Menu, MenuItem, Chip, Tooltip, keyframes, LinearProgress } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useAuthStore } from '../../stores/useAuthStore';
 import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import { isImageAvatar } from '../../utils/avatar';
 import { formatTimestamp } from '../../utils/format';
 import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
 import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
+import { getAttachmentErrorText } from './messageAttachmentDisplay';
 
 function isConflictDeveloperEvent(eventType: string | undefined) {
   return ['conflict_focus_shift', 'conflict_axis_shift'].includes(String(eventType || ''));
@@ -23,7 +25,6 @@ function renderMemoryDistillationMeta(payload: { metrics?: unknown }) {
   if (!meta) return null;
   return (
     <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
-      <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{[meta.sourceLabel, meta.ownerLabel, meta.reasonLabel].filter(Boolean).join(' · ')}</Typography>
       <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{`证据事件 ${meta.evidenceCount} · 合并方式 ${meta.mergeModeLabel}`}</Typography>
       {meta.candidateTexts.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{meta.candidateTexts.join(' / ')}</Typography> : null}
     </Box>
@@ -41,6 +42,7 @@ function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { sh
 }
 
 function buildEventTypeChip(payload: { eventType?: string }) {
+  if (payload.eventType === 'memory_distillation') return null;
   const eventType = payload.eventType || 'event';
   const config: Record<string, { label: string; color: 'primary' | 'secondary' | 'warning' | 'success' | 'info' | 'error' | 'default' }> = {
     group_relationship_shift: { label: '关系', color: 'secondary' },
@@ -116,10 +118,80 @@ const typingBounce = keyframes`
 `;
 
 function renderMessageContent(message: Message) {
+  const attachments = message.metadata?.attachments || [];
+  const getMediaFrameStyle = (attachment: { width?: number; height?: number }) => {
+    const width = Number(attachment.width || 0);
+    const height = Number(attachment.height || 0);
+    const ratio = width > 0 && height > 0 ? `${width} / ${height}` : '4 / 3';
+    return {
+      width: '100%',
+      maxWidth: 320,
+      aspectRatio: ratio,
+      borderRadius: 1.5,
+      border: '1px solid',
+      borderColor: 'divider',
+      overflow: 'hidden',
+      bgcolor: 'action.hover',
+      position: 'relative' as const,
+    };
+  };
   return (
-    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
-      {message.content}
-    </Typography>
+    <Box sx={{ display: 'grid', gap: 0.9 }}>
+      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
+        {message.content}
+      </Typography>
+      {attachments.map((attachment) => {
+        if (attachment.kind === 'image') {
+          if (attachment.status === 'ready' && attachment.url) {
+            return (
+              <Box key={attachment.id} sx={getMediaFrameStyle(attachment)}>
+                <Box
+                  component="img"
+                  src={attachment.url}
+                  alt={attachment.altText}
+                  sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+              </Box>
+            );
+          }
+          return (
+            <Box key={attachment.id} sx={getMediaFrameStyle(attachment)}>
+              <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', p: 1.5, textAlign: 'center' }}>
+                <Box sx={{ display: 'grid', gap: 0.75, maxWidth: '85%' }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+                    {attachment.status === 'failed' ? '图片生成失败' : '图片生成中'}
+                  </Typography>
+                  {attachment.status !== 'failed' ? <LinearProgress /> : (
+                    <Typography variant="caption" sx={{ color: 'error.main', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {getAttachmentErrorText(attachment)}
+                    </Typography>
+                  )}
+                  <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {attachment.altText}
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+          );
+        }
+        if (attachment.kind === 'audio') {
+          if (attachment.status === 'ready' && attachment.url) {
+            return (
+              <Box key={attachment.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 220 }}>
+                <Box component="audio" controls src={attachment.url} sx={{ width: '100%', maxWidth: 280 }} />
+              </Box>
+            );
+          }
+          return (
+            <Box key={attachment.id} sx={{ minWidth: 200, borderRadius: 999, border: '1px solid', borderColor: 'divider', px: 1.25, py: 0.75, bgcolor: 'action.hover' }}>
+              <Typography variant="caption" color="text.secondary">{attachment.status === 'failed' ? '语音生成失败' : '语音生成中'}</Typography>
+              {attachment.status !== 'failed' ? <LinearProgress sx={{ mt: 0.5 }} /> : null}
+            </Box>
+          );
+        }
+        return null;
+      })}
+    </Box>
   );
 }
 
@@ -145,6 +217,7 @@ function renderPendingTypingDots() {
 
 export default function MessageBubble({ message, character, onDelete, onAnalyze, pending = false }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
+  const currentUser = useAuthStore((state) => state.user);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showRelationshipEvents = useSettingsStore((state) => state.developerUI.showRelationshipEvents);
@@ -265,10 +338,12 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const bubblePreview = resolvedStyle ? buildBubblePreview(resolvedStyle, isUser) : null;
   const avatar = effectiveCharacter?.avatar;
   const wrapperJustify = isUser ? 'flex-end' : 'flex-start';
+  const selfAvatar = currentUser?.avatar?.trim() || message.senderName.slice(0, 1);
+  const selfAvatarAlt = currentUser?.nickname?.trim() || message.senderName;
 
   return (
     <>
-      <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', justifyContent: wrapperJustify, px: 2, py: 0.75, gap: 1.25, alignItems: 'flex-end' }}>
+      <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', justifyContent: wrapperJustify, px: 2, py: 0.75, gap: 1.25, alignItems: 'flex-start' }}>
         {!isUser ? (
           <Box onClick={handleAvatarClick} sx={{ cursor: message.type === 'ai' && !pending ? 'pointer' : 'default', flexShrink: 0 }}>
             {avatar && isImageAvatar(avatar) ? (
@@ -279,9 +354,9 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
           </Box>
         ) : null}
 
-        <Box sx={{ maxWidth: 'min(78%, 720px)', minWidth: 0, display: 'grid', gap: 0.35 }}>
+        <Box sx={{ maxWidth: 'min(78%, 720px)', minWidth: 0, display: 'grid', gap: 0.35, justifyItems: isUser ? 'end' : 'start' }}>
           <Tooltip title={formatTimestamp(message.timestamp)} placement="top" arrow>
-            <Typography variant="caption" sx={{ color: 'text.secondary', px: 0.5, width: 'fit-content' }}>
+            <Typography variant="caption" sx={{ color: 'text.secondary', px: 0.5, width: 'fit-content', textAlign: isUser ? 'right' : 'left' }}>
               {message.senderName}
             </Typography>
           </Tooltip>
@@ -300,6 +375,16 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
             {pending && !message.content ? renderPendingTypingDots() : renderMessageContent(message)}
           </Box>
         </Box>
+
+        {isUser ? (
+          <Box sx={{ flexShrink: 0 }}>
+            {currentUser?.avatar && isImageAvatar(currentUser.avatar) ? (
+              <Avatar src={currentUser.avatar} alt={selfAvatarAlt} sx={{ width: 38, height: 38 }} />
+            ) : (
+              <Avatar sx={{ width: 38, height: 38, bgcolor: 'primary.dark' }}>{selfAvatar}</Avatar>
+            )}
+          </Box>
+        ) : null}
       </Box>
 
       <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>

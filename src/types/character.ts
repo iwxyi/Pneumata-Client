@@ -57,6 +57,15 @@ export interface CharacterSpeechProfile {
   sarcasmBias: number;
 }
 
+export interface CharacterVoiceConfig {
+  enabled: boolean;
+  voiceName?: string;
+  style?: string;
+  role?: string;
+  rate?: string;
+  pitch?: string;
+}
+
 export interface CharacterCoreProfile {
   coreDesire?: string;
   coreFear?: string;
@@ -85,6 +94,7 @@ export interface AICharacter {
   emotionalState?: EmotionalState;
   coreProfile?: CharacterCoreProfile;
   speechProfile?: CharacterSpeechProfile;
+  voiceConfig?: CharacterVoiceConfig;
   behavior: CharacterBehaviorParams;
   expertise: string[];
   speakingStyle: string;
@@ -274,6 +284,15 @@ export const DEFAULT_SPEECH_PROFILE: CharacterSpeechProfile = {
   sarcasmBias: 50,
 };
 
+export const DEFAULT_VOICE_CONFIG: CharacterVoiceConfig = {
+  enabled: false,
+  voiceName: '',
+  style: '',
+  role: '',
+  rate: '',
+  pitch: '',
+};
+
 export const DEFAULT_CHARACTER_MODEL_PROFILE_IDS: Partial<Record<AIModelType, string | null>> = {
   text: null,
   image: null,
@@ -332,6 +351,10 @@ export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacte
       tabooPhrases: input.speechProfile?.tabooPhrases || [],
       preferredOpeners: input.speechProfile?.preferredOpeners || [],
       preferredClosers: input.speechProfile?.preferredClosers || [],
+    },
+    voiceConfig: {
+      ...DEFAULT_VOICE_CONFIG,
+      ...(input.voiceConfig || {}),
     },
     behavior: {
       ...DEFAULT_CHARACTER_BEHAVIOR,

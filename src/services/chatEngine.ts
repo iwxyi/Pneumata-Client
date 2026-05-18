@@ -2,6 +2,7 @@ import { getCharacterModelProfileId, type AICharacter } from '../types/character
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
+import type { MediaGenerationDecision, MessageAttachment, MessageMetadata } from '../types/message';
 import type { SessionGenerationPromptContext } from '../types/sessionEngine';
 import { getPreferredAIProfile } from '../types/settings';
 import type { ConflictFocusPayload, InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
@@ -17,7 +18,7 @@ import { BASE_COOLDOWN_MS, MAX_HISTORY_FOR_PROMPT } from '../constants/defaults'
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 import { resolveCommittedStreamContent } from './streamingMessageLifecycle';
 
-interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
+export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   interactionHint?: InteractionEventPayload | null;
   interactionHints?: InteractionEventPayload[] | null;
   addressedTargetIds?: string[] | null;
@@ -27,6 +28,13 @@ interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDe
 }
 
 const emotionMap: Record<string, number> = {};
+
+class EmptyGeneratedResponseError extends Error {
+  constructor(speakerName: string) {
+    super(`${speakerName} 连续生成了重复内容，本轮已跳过。`);
+    this.name = 'EmptyGeneratedResponseError';
+  }
+}
 
 function isSchedulerDebugEnabled() {
   return Boolean((globalThis as { __AICHATGROUP_DEBUG_SCHEDULER__?: boolean }).__AICHATGROUP_DEBUG_SCHEDULER__);
@@ -273,9 +281,8 @@ function buildGenerationConstraints(messages: Message[], speakerId: string) {
 - Do not repeat, paraphrase, summarize, or restate the same semantic point from the forbidden lines.
 - Do not sound like an assistant answer. Never use structures like “首先/其次/最后/总结一下”, “first/second/finally”, or “in summary”.
 - Do not give a balanced full explanation unless the room absolutely requires it.
-- Keep it short, reactive, colloquial, and socially situated.
-- Prefer one sharp move: a quick challenge, follow-up, jab, side remark, or clipped agreement.
-- If the intent shape is question_only, output only a question. If fragment, output a clipped fragment.${forbiddenBlock}`;
+- Prefer reactive, colloquial, and socially situated replies, but keep the full reply when the current context needs more than a short line.
+- Prefer one sharp move when it fits: a quick challenge, follow-up, jab, side remark, or clipped agreement.${forbiddenBlock}`;
 }
 
 function resolveApiConfigForCharacter(character: AICharacter, apiConfig: APIConfig | AIModelProfile[], profiles?: AIModelProfile[]) {
@@ -291,6 +298,89 @@ function resolveApiConfigForCharacter(character: AICharacter, apiConfig: APIConf
     } satisfies APIConfig;
   }
   return apiConfig as APIConfig;
+}
+
+function resolveProfileForCharacter(character: AICharacter, profiles: AIModelProfile[] | undefined, type: 'image' | 'audio') {
+  if (!profiles?.length) return null;
+  const profileId = getCharacterModelProfileId(character, type);
+  const matched = profileId
+    ? profiles.find((profile) => profile.id === profileId && profile.type === type)
+    : getPreferredAIProfile(profiles, type);
+  return matched?.apiKey && matched.model ? matched : null;
+}
+
+function buildMediaCapabilities(character: AICharacter, profiles?: AIModelProfile[]) {
+  const imageProfile = resolveProfileForCharacter(character, profiles, 'image');
+  const audioProfile = resolveProfileForCharacter(character, profiles, 'audio');
+  return {
+    image: Boolean(imageProfile),
+    audio: Boolean(audioProfile && character.voiceConfig?.enabled),
+  };
+}
+
+function createAttachmentId(kind: string) {
+  return `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeMediaDecision(decision: MediaGenerationDecision | null | undefined, capabilities: { image: boolean; audio: boolean }, content: string) {
+  const normalized: MediaGenerationDecision = {};
+  if (capabilities.image && decision?.image?.shouldGenerate && decision.image.prompt && decision.image.altText) {
+    normalized.image = {
+      shouldGenerate: true,
+      reason: decision.image.reason || '',
+      prompt: decision.image.prompt,
+      altText: decision.image.altText,
+    };
+  }
+  if (capabilities.audio && decision?.audio?.shouldGenerate) {
+    normalized.audio = {
+      shouldGenerate: true,
+      reason: decision.audio.reason || '',
+      text: decision.audio.text || content,
+      voiceProfileId: decision.audio.voiceProfileId || undefined,
+    };
+  }
+  return normalized.image || normalized.audio ? normalized : null;
+}
+
+function buildMessageMetadata(params: {
+  decision: MediaGenerationDecision | null | undefined;
+  capabilities: { image: boolean; audio: boolean };
+  content: string;
+}): MessageMetadata | undefined {
+  const decision = normalizeMediaDecision(params.decision, params.capabilities, params.content);
+  if (!decision) return undefined;
+  const now = Date.now();
+  const attachments: MessageAttachment[] = [];
+  if (decision.image?.shouldGenerate && decision.image.prompt && decision.image.altText) {
+    attachments.push({
+      id: createAttachmentId('image'),
+      kind: 'image',
+      status: 'queued',
+      altText: decision.image.altText,
+      promptText: decision.image.prompt,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  if (decision.audio?.shouldGenerate) {
+    attachments.push({
+      id: createAttachmentId('audio'),
+      kind: 'audio',
+      status: 'queued',
+      altText: `语音：${decision.audio.text || params.content}`,
+      promptText: decision.audio.text || params.content,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  return {
+    format: 'plain',
+    contextText: params.content,
+    attachments,
+    generationDecision: decision,
+    generation: { status: 'queued', updatedAt: now },
+  };
 }
 
 async function generateWithPrompt(params: {
@@ -355,6 +445,7 @@ function buildCompletedMessage(params: {
   finalResponse: string;
   emotion: number;
   parsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope>;
+  metadata?: MessageMetadata;
 }) {
   const interactionHints = normalizeInteractionHintCollection(params.parsedEnvelope?.interactionHints || null, params.speakerId, params.finalResponse);
   return {
@@ -363,6 +454,7 @@ function buildCompletedMessage(params: {
     senderId: params.speakerId,
     senderName: params.speakerName,
     content: params.finalResponse,
+    metadata: params.metadata,
     emotion: params.emotion,
     interactionHint: interactionHints[0] || null,
     interactionHints,
@@ -386,6 +478,95 @@ function updateAllEmotions(chatMembers: AICharacter[], speakerId: string, msgEmo
 function resolveSpeakerFromCandidates(chatMembers: AICharacter[], candidates: ReturnType<typeof calculateWeights>) {
   const speakerId = selectSpeaker(candidates);
   return chatMembers.find((member) => member.id === speakerId) || null;
+}
+
+export async function generateSpeakerMessage(params: {
+  chat: GroupChat;
+  speaker: AICharacter;
+  characters: AICharacter[];
+  messages: Message[];
+  apiConfig: APIConfig | AIModelProfile[];
+  profiles?: AIModelProfile[];
+  pendingReplyContext?: ReturnType<typeof resolvePendingReplyContext> | null;
+  generationContext?: {
+    promptContext?: SessionGenerationPromptContext | null;
+    buildPromptContext?: (speaker: AICharacter) => SessionGenerationPromptContext | null | undefined;
+  };
+  onChunk?: (content: string) => void;
+}) {
+  const chatMembers = params.characters.filter((character) => params.chat.memberIds.includes(character.id));
+  const effectiveMembers = chatMembers.length ? chatMembers : params.characters;
+  const activeMessages = params.messages.filter((message) => message.chatId === params.chat.id && !message.isDeleted);
+  const emotion = getEmotion(params.speaker.id);
+  const fallbackRecentTargetId = activeMessages.filter((message) => message.type === 'ai' && !message.isDeleted).at(-1)?.senderId;
+  const recentTargetId = params.pendingReplyContext?.targetIds.includes(params.speaker.id)
+    ? params.pendingReplyContext.sourceSpeakerId || fallbackRecentTargetId
+    : fallbackRecentTargetId;
+  const recentText = activeMessages.at(-1)?.content || '';
+  const intent = deriveSpeakIntentFromContext(params.speaker, recentTargetId, recentText);
+  if (params.pendingReplyContext?.targetIds.includes(params.speaker.id) && params.pendingReplyContext.sourceSpeakerId) {
+    intent.target = params.pendingReplyContext.sourceSpeakerId;
+    if (intent.stance === 'deflect') {
+      intent.stance = 'support';
+    }
+    if (intent.delivery === 'group_redirect') {
+      intent.delivery = 'short_reply';
+    }
+    if (intent.messageShape === 'fragment') {
+      intent.messageShape = 'single_sentence';
+    }
+  }
+
+  const characterMap = new Map(effectiveMembers.map((character) => [character.id, character]));
+  const enginePromptContext = params.generationContext?.buildPromptContext?.(params.speaker) || params.generationContext?.promptContext;
+  const promptPrefix = enginePromptContext?.promptPrefix ? `${enginePromptContext.promptPrefix.trim()}\n\n` : '';
+  const promptSuffix = enginePromptContext?.promptSuffix ? `\n\n${enginePromptContext.promptSuffix.trim()}` : '';
+  const additionalConstraints = enginePromptContext?.additionalConstraints?.length
+    ? `\n- ${enginePromptContext.additionalConstraints.join('\n- ')}`
+    : '';
+  const pendingReplyPrompt = params.pendingReplyContext?.targetIds.includes(params.speaker.id) && params.pendingReplyContext.sourceSpeakerId
+    ? `\nPending reply expectation:\n- You were explicitly addressed by ${characterMap.get(params.pendingReplyContext.sourceSpeakerId)?.name || params.pendingReplyContext.sourceSpeakerId}.\n- Reply to that character first instead of pivoting to another member.\n- Acknowledge their question or emotion before expanding to the room.`
+    : '';
+  const mediaCapabilities = buildMediaCapabilities(params.speaker, params.profiles);
+  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages)}${pendingReplyPrompt}
+
+Current speaking intent:
+- ${describeIntentForPrompt(intent)}
+- Treat the intent shape as style guidance, not a hard length cap. Do not truncate a useful reply just to fit one sentence or a fragment shape.
+- Respond like a WeChat message: quick, targeted, partial, reactive, and slightly messy. Do not write a balanced full answer unless the conversation truly needs it.
+- Prefer sounding impulsive, socially situated, colloquial, and slightly incomplete over sounding polished.
+- If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.${additionalConstraints}${buildGenerationConstraints(activeMessages, params.speaker.id)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, mediaCapabilities })}${promptSuffix}`;
+  const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT);
+  const resolvedApi = resolveApiConfigForCharacter(params.speaker, params.apiConfig, params.profiles);
+  const generated = await generateNonDuplicateResponse({
+    resolvedApi,
+    systemPrompt,
+    chatMessages,
+    speaker: params.speaker,
+    intent,
+    activeMessages,
+    showRoleActions: params.chat.showRoleActions,
+    onChunk: params.onChunk,
+  });
+  if (!normalizeForComparison(generated.finalResponse)) {
+    throw new EmptyGeneratedResponseError(params.speaker.name);
+  }
+
+  const msgEmotion = analyzeEmotion(generated.finalResponse);
+  updateAllEmotions(effectiveMembers, params.speaker.id, msgEmotion, emotion);
+  return buildCompletedMessage({
+    chat: params.chat,
+    speakerId: params.speaker.id,
+    speakerName: params.speaker.name,
+    finalResponse: generated.finalResponse,
+    emotion: getEmotion(params.speaker.id),
+    parsedEnvelope: generated.parsedEnvelope,
+    metadata: buildMessageMetadata({
+      decision: generated.parsedEnvelope?.mediaDecision,
+      capabilities: mediaCapabilities,
+      content: generated.finalResponse,
+    }),
+  });
 }
 
 export const runOneRound = async (
@@ -482,84 +663,40 @@ export const runOneRound = async (
   if (!speaker) return;
   callbacks.onSpeakerSelected(speaker.id, speaker);
 
-  const attemptSpeaker = async (activeSpeaker: AICharacter) => {
-    const emotion = getEmotion(activeSpeaker.id);
-    const fallbackRecentTargetId = activeMessages.filter((m) => m.type === 'ai' && !m.isDeleted).at(-1)?.senderId;
-    const recentTargetId = pendingReplyContext?.targetIds.includes(activeSpeaker.id)
-      ? pendingReplyContext.sourceSpeakerId || fallbackRecentTargetId
-      : fallbackRecentTargetId;
-    const recentText = activeMessages.at(-1)?.content || '';
-    const intent = deriveSpeakIntentFromContext(activeSpeaker, recentTargetId, recentText);
-    if (pendingReplyContext?.targetIds.includes(activeSpeaker.id) && pendingReplyContext.sourceSpeakerId) {
-      intent.target = pendingReplyContext.sourceSpeakerId;
-      if (intent.stance === 'deflect') {
-        intent.stance = 'support';
-      }
-      if (intent.delivery === 'group_redirect') {
-        intent.delivery = 'short_reply';
-      }
-      if (intent.messageShape === 'fragment') {
-        intent.messageShape = 'single_sentence';
-      }
-    }
-    const characterMap = new Map(chatMembers.map((c) => [c.id, c]));
-    const enginePromptContext = generationContext?.buildPromptContext?.(activeSpeaker) || generationContext?.promptContext;
-    const promptPrefix = enginePromptContext?.promptPrefix ? `${enginePromptContext.promptPrefix.trim()}\n\n` : '';
-    const promptSuffix = enginePromptContext?.promptSuffix ? `\n\n${enginePromptContext.promptSuffix.trim()}` : '';
-    const additionalConstraints = enginePromptContext?.additionalConstraints?.length
-      ? `\n- ${enginePromptContext.additionalConstraints.join('\n- ')}`
-      : '';
-    const pendingReplyPrompt = pendingReplyContext?.targetIds.includes(activeSpeaker.id) && pendingReplyContext.sourceSpeakerId
-      ? `\nPending reply expectation:\n- You were explicitly addressed by ${characterMap.get(pendingReplyContext.sourceSpeakerId)?.name || pendingReplyContext.sourceSpeakerId}.\n- Reply to that character first instead of pivoting to another member.\n- Acknowledge their question or emotion before expanding to the room.`
-      : '';
-    const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: activeSpeaker, chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(activeSpeaker, intent, activeMessages)}${pendingReplyPrompt}
-
-Current speaking intent:
-- ${describeIntentForPrompt(intent)}
-- Follow the intent shape strictly: fragment means a clipped phrase; question_only means only ask or challenge; single_sentence means one line; two_sentences is the max unless genuinely necessary.
-- Respond like a WeChat group message: quick, targeted, partial, reactive, and slightly messy. Do not write a balanced full answer unless the room truly needs it.
-- Prefer sounding impulsive, socially situated, colloquial, and slightly incomplete over sounding polished.
-- If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.${additionalConstraints}${buildGenerationConstraints(activeMessages, activeSpeaker.id)}${buildInlineInteractionContract({ chat, speaker: activeSpeaker, characters: chatMembers, recentMessages: activeMessages })}${promptSuffix}`;
-    const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT);
-    const resolvedApi = resolveApiConfigForCharacter(activeSpeaker, apiConfig, profiles);
-    return {
-      emotion,
-      generated: await generateNonDuplicateResponse({
-        resolvedApi,
-        systemPrompt,
-        chatMessages,
-        speaker: activeSpeaker,
-        intent,
-        activeMessages,
-        showRoleActions: chat.showRoleActions,
-        onChunk: callbacks.onMessageChunk,
-      }),
-    };
-  };
-
   try {
     let activeSpeaker = speaker;
-    let result = await attemptSpeaker(activeSpeaker);
-    if (!normalizeForComparison(result.generated.finalResponse)) {
+    let completedMessage: GeneratedRoundMessage;
+    try {
+      completedMessage = await generateSpeakerMessage({
+        chat,
+        speaker: activeSpeaker,
+        characters,
+        messages,
+        apiConfig,
+        profiles,
+        pendingReplyContext,
+        generationContext,
+        onChunk: callbacks.onMessageChunk,
+      });
+    } catch (error) {
+      if (!(error instanceof EmptyGeneratedResponseError)) throw error;
       const rotated = resolveSpeakerFromCandidates(chatMembers, candidates.filter((candidate) => candidate.characterId !== activeSpeaker.id));
       if (!rotated) throw new Error(`${activeSpeaker.name} 连续生成了重复内容，本轮已跳过。`);
       activeSpeaker = rotated;
       callbacks.onSpeakerSelected(activeSpeaker.id, activeSpeaker);
-      result = await attemptSpeaker(activeSpeaker);
-      if (!normalizeForComparison(result.generated.finalResponse)) {
-        throw new Error(`${activeSpeaker.name} 连续生成了重复内容，本轮已跳过。`);
-      }
+      completedMessage = await generateSpeakerMessage({
+        chat,
+        speaker: activeSpeaker,
+        characters,
+        messages,
+        apiConfig,
+        profiles,
+        pendingReplyContext,
+        generationContext,
+        onChunk: callbacks.onMessageChunk,
+      });
     }
-    const msgEmotion = analyzeEmotion(result.generated.finalResponse);
-    updateAllEmotions(chatMembers, activeSpeaker.id, msgEmotion, result.emotion);
-    await callbacks.onMessageComplete(buildCompletedMessage({
-      chat,
-      speakerId: activeSpeaker.id,
-      speakerName: activeSpeaker.name,
-      finalResponse: result.generated.finalResponse,
-      emotion: getEmotion(activeSpeaker.id),
-      parsedEnvelope: result.generated.parsedEnvelope,
-    }));
+    await callbacks.onMessageComplete(completedMessage);
   } catch (error) {
     callbacks.onError(error instanceof Error ? error : new Error(String(error)));
   }
@@ -567,6 +704,8 @@ Current speaking intent:
 
 export const __chatEngineTestUtils = {
   extractPartialJsonStringField,
+  buildMediaCapabilities,
+  buildMessageMetadata,
   buildStreamingDisplayContent,
   isPendingJsonEnvelopeChunk,
   finalizeResponse,

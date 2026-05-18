@@ -139,6 +139,12 @@ function buildOpenAICompatibleSpeechUrl(baseUrl: string) {
   return `${normalized}/audio/speech`;
 }
 
+function buildMicrosoftSpeechUrl(config: APIConfig) {
+  const normalized = trimTrailingSlashes(config.baseUrl);
+  if (normalized.includes('/cognitiveservices/v1')) return normalized;
+  return `${normalized}/cognitiveservices/v1`;
+}
+
 function buildOpenAICompatibleTranscriptionUrl(baseUrl: string) {
   const normalized = trimTrailingSlashes(baseUrl);
   if (normalized.endsWith('/audio/transcriptions')) return normalized;
@@ -587,6 +593,16 @@ async function listQwenModels(config: APIConfig) {
 }
 
 export async function listAvailableModels(config: APIConfig): Promise<AvailableModelInfo[]> {
+  if (config.provider === 'microsoft') {
+    return [
+      { id: 'zh-CN-XiaoxiaoNeural', label: 'zh-CN-XiaoxiaoNeural' },
+      { id: 'zh-CN-YunxiNeural', label: 'zh-CN-YunxiNeural' },
+      { id: 'zh-CN-YunjianNeural', label: 'zh-CN-YunjianNeural' },
+      { id: 'zh-CN-XiaoyiNeural', label: 'zh-CN-XiaoyiNeural' },
+      { id: 'en-US-JennyNeural', label: 'en-US-JennyNeural' },
+      { id: 'en-US-GuyNeural', label: 'en-US-GuyNeural' },
+    ];
+  }
   if (isOpenAICompatibleEndpoint(config)) {
     return listOpenAICompatibleModels(config);
   }
@@ -724,6 +740,42 @@ async function synthesizeOpenAICompatibleSpeech(config: APIConfig, options: Spee
   };
 }
 
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+async function synthesizeMicrosoftSpeech(config: APIConfig, options: SpeechSynthesisOptions): Promise<SpeechSynthesisResult> {
+  const voice = options.voice || config.model || 'zh-CN-XiaoxiaoNeural';
+  const ssml = `<speak version="1.0" xml:lang="zh-CN"><voice name="${escapeXml(voice)}">${escapeXml(options.input)}</voice></speak>`;
+  const response = await fetch(buildMicrosoftSpeechUrl(config), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/ssml+xml',
+      'Ocp-Apim-Subscription-Key': config.apiKey,
+      'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
+      'User-Agent': 'MirageTea',
+    },
+    body: ssml,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || `Microsoft speech request failed: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  return {
+    mimeType: blob.type || 'audio/mpeg',
+    blob,
+    objectUrl: createObjectUrl(blob),
+  };
+}
+
 async function synthesizeGeminiSpeech(config: APIConfig, options: SpeechSynthesisOptions): Promise<SpeechSynthesisResult> {
   const response = await fetch(`${buildGeminiUrl(config.baseUrl, config.model, false)}?key=${encodeURIComponent(config.apiKey)}`, {
     method: 'POST',
@@ -759,6 +811,9 @@ async function synthesizeGeminiSpeech(config: APIConfig, options: SpeechSynthesi
 }
 
 export async function synthesizeSpeech(config: APIConfig, options: SpeechSynthesisOptions): Promise<SpeechSynthesisResult> {
+  if (config.provider === 'microsoft') {
+    return synthesizeMicrosoftSpeech(config, options);
+  }
   if (isOpenAICompatibleEndpoint(config)) {
     return synthesizeOpenAICompatibleSpeech(config, options);
   }
@@ -849,6 +904,10 @@ async function testMetadataConnection(config: APIConfig) {
 
 export const testConnection = async (config: MaybeTypedConfig): Promise<boolean> => {
   try {
+    if (config.provider === 'microsoft') {
+      await synthesizeMicrosoftSpeech(config, { input: 'connection test', voice: config.model });
+      return true;
+    }
     if (config.type === 'image' || config.type === 'audio') {
       await testMetadataConnection(config);
     } else {

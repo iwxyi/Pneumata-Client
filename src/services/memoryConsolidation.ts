@@ -1,4 +1,5 @@
 import type { MemoryCandidate, MemoryItem } from './memoryTypes';
+import { sanitizeMemoryText } from './distillationText';
 
 const MAX_TRACKED_SOURCE_EVENT_IDS = 32;
 
@@ -49,6 +50,7 @@ function mergeDistilledFromIds(item: MemoryItem, candidate: MemoryCandidate) {
 }
 
 function createMemoryItem(candidate: MemoryCandidate, score: number, now: number): MemoryItem {
+  const text = sanitizeMemoryText(candidate.text);
   return {
     id: `${candidate.ownerId}-${candidate.kind}-${now}-${Math.random().toString(36).slice(2, 8)}`,
     scope: candidate.scope,
@@ -57,7 +59,7 @@ function createMemoryItem(candidate: MemoryCandidate, score: number, now: number
     ownerId: candidate.ownerId,
     subjectIds: candidate.subjectIds || [],
     relatedConversationId: null,
-    text: candidate.text,
+    text,
     salience: score,
     confidence: 0.7,
     recency: 1,
@@ -76,11 +78,12 @@ function createMemoryItem(candidate: MemoryCandidate, score: number, now: number
 }
 
 function mergeMemoryItem(item: MemoryItem, candidate: MemoryCandidate, score: number, now: number): MemoryItem {
+  const candidateText = sanitizeMemoryText(candidate.text);
   const refresh = shouldRefreshUpdatedAt(item, candidate);
   const reinforcementCount = refresh ? item.reinforcementCount + 1 : item.reinforcementCount;
   return {
     ...item,
-    text: candidate.text.length >= item.text.length || candidate.origin === 'distilled' ? candidate.text : item.text,
+    text: candidateText.length >= item.text.length || candidate.origin === 'distilled' ? candidateText : item.text,
     salience: Math.max(item.salience, score),
     confidence: refresh ? Math.min(1, (item.confidence || 0.5) + 0.08) : item.confidence,
     recency: refresh ? 1 : Math.max(item.recency, 0.88),

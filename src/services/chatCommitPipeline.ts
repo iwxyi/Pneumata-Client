@@ -7,6 +7,7 @@ import { buildChatCommitContext } from './chatCommitContext';
 import { finalizeChatCommitRuntime } from './chatCommitRuntime';
 import { applyChatCommitRuntime } from './chatCommitApply';
 import { createRuntimeMemoryTimer } from './runtimeMemoryMonitor';
+import { processRichMessageMedia } from './richMessageMedia';
 
 export interface ChatCommitPipelineResult {
   persistedMessage: Message;
@@ -37,6 +38,7 @@ export async function runChatCommitPipeline(params: {
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
   applyChatRuntimeDelta?: (id: string, delta: NonNullable<DriverMessageCommitResult['chatRuntimeDelta']>, patch?: Partial<GroupChat>) => Promise<void>;
   recordSpeak: (characterId: string) => void;
+  aiProfiles?: import('../types/settings').AIModelProfile[];
 }): Promise<ChatCommitPipelineResult> {
   const timer = createRuntimeMemoryTimer('chat-commit', {
     chatId: params.chatId,
@@ -54,6 +56,15 @@ export async function runChatCommitPipeline(params: {
       existingLocalMessage: params.streamingMessage,
       deferLocalUpsert: Boolean(params.streamingMessage),
     });
+    if (params.aiProfiles?.length && persistedMessage.metadata?.attachments?.some((item) => item.status === 'queued')) {
+      const speaker = params.characters.find((character) => character.id === persistedMessage.senderId);
+      void processRichMessageMedia({
+        message: persistedMessage,
+        character: speaker,
+        aiProfiles: params.aiProfiles,
+        upsertMessage: params.upsertMessage,
+      });
+    }
     timer.mark('after-persist-message', {
       messages: nextMessages.concat(persistedMessage),
       extra: {

@@ -124,4 +124,32 @@ describe('useMessageStore', () => {
     expect(cachedMessage.debugPayload).toBeUndefined();
     expect(cachedMessage.rawResponse).toBeUndefined();
   });
+
+  it('keeps rich message metadata and caller timestamps for local messages', async () => {
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const created = await useMessageStore.getState().addMessage({
+      chatId,
+      type: 'ai',
+      senderId: 'character-1',
+      senderName: '角色',
+      content: '给你看这张照片',
+      emotion: 0,
+      timestamp: 12345,
+      metadata: {
+        attachments: [{
+          id: 'image-1',
+          kind: 'image',
+          status: 'queued',
+          altText: '自拍照',
+          createdAt: 12345,
+          updatedAt: 12345,
+        }],
+      },
+    });
+
+    expect(created.timestamp).toBe(12345);
+    expect(created.metadata?.attachments?.[0]?.kind).toBe('image');
+    expect(useMessageStore.getState().messageWindowsByChatId[chatId]?.messages[0]?.metadata?.attachments?.[0]?.altText).toBe('自拍照');
+  });
 });

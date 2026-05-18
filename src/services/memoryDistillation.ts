@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { MemoryCandidate, MemoryItem } from './memoryTypes';
+import { sanitizeMemoryTexts } from './distillationText';
 
 export const DISTILLATION_VERSION = 'v1';
 const CHAT_DISTILLATION_MIN_ITEMS = 6;
@@ -377,7 +378,7 @@ export function localizeDistillationCandidateTexts(info: MemoryDistillationDebug
   return {
     ...info,
     ownerName: info.ownerName || nameMap.get(info.ownerId),
-    candidateTexts: info.candidateTexts.map((text) => replaceIdsWithNames(text, nameMap)),
+    candidateTexts: sanitizeMemoryTexts(info.candidateTexts.map((text) => replaceIdsWithNames(text, nameMap))),
   };
 }
 
@@ -602,7 +603,7 @@ function latestDistilledSourceIds(items: MemoryItem[]) {
 }
 
 function summarizeItems(items: MemoryItem[], max = 3) {
-  return items.slice(0, max).map((item) => item.text).join(' / ').slice(0, 140);
+  return sanitizeMemoryTexts(items.slice(0, max).map((item) => item.text)).join(' / ').slice(0, 140);
 }
 
 function buildSubjectIds(items: MemoryItem[]) {
@@ -658,7 +659,8 @@ function formatMemoryDistillationReason(reason: string) {
 }
 
 export function summarizeMemoryDistillationDebugInfo(info: MemoryDistillationDebugInfo) {
-  return info.candidateTexts.length ? info.candidateTexts.join(' / ') : formatMemoryDistillationReason(info.reason);
+  const candidateTexts = sanitizeMemoryTexts(info.candidateTexts);
+  return candidateTexts.length ? candidateTexts.join(' / ') : formatMemoryDistillationReason(info.reason);
 }
 
 export function explainMemoryDistillationMerge() {
@@ -674,6 +676,7 @@ export function getMemoryDistillationConsoleHint() {
 }
 
 export function buildMemoryDistillationRuntimePayload(info: MemoryDistillationDebugInfo) {
+  const candidateTexts = sanitizeMemoryTexts(info.candidateTexts);
   const source = info.reason === 'llm_distilled' ? 'llm' : 'local';
   const sourceLabel = source === 'llm' ? 'LLM 蒸馏' : '本地蒸馏';
   const ownerLabel = info.ownerType === 'chat'
@@ -688,7 +691,7 @@ export function buildMemoryDistillationRuntimePayload(info: MemoryDistillationDe
     reasonLabel: formatMemoryDistillationReason(info.reason),
     eligibleCount: info.eligibleCount,
     newEvidenceCount: info.newEvidenceCount,
-    candidateTexts: info.candidateTexts,
+    candidateTexts,
     mergeMode: 'bucket_reinforce',
     mergeModeLabel: '同 bucket 强化合并',
     note: explainMemoryDistillationMerge(),
@@ -714,7 +717,7 @@ export function buildLlmDistillationEventInfo(info: MemoryDistillationDebugInfo)
 }
 
 export function hasDistinctDistillationCandidateTexts(items: string[]) {
-  return Array.from(new Set(items.filter(Boolean))).length > 0;
+  return sanitizeMemoryTexts(items).length > 0;
 }
 
 export function shouldEmitLocalDistillationEvent(info: MemoryDistillationDebugInfo) {
@@ -726,7 +729,7 @@ export function shouldEmitLlmDistillationEvent(info: MemoryDistillationDebugInfo
 }
 
 export function buildDistillationEventKey(info: MemoryDistillationDebugInfo) {
-  return `${info.ownerType}:${info.ownerId}:${info.reason}:${info.candidateTexts.join('|')}`;
+  return `${info.ownerType}:${info.ownerId}:${info.reason}:${sanitizeMemoryTexts(info.candidateTexts).join('|')}`;
 }
 
 export function dedupeDistillationInfos(items: MemoryDistillationDebugInfo[]) {
@@ -1201,6 +1204,6 @@ export function logMemoryDistillationTriggered(info: MemoryDistillationDebugInfo
   if (!(globalThis as { __MIRAGETEA_DEBUG_MEMORY_DISTILLATION__?: boolean }).__MIRAGETEA_DEBUG_MEMORY_DISTILLATION__) return;
   console.info('[memory-distillation]', {
     ...info,
-    candidateTexts: info.candidateTexts?.map((text) => text.slice(0, 120)),
+    candidateTexts: sanitizeMemoryTexts(info.candidateTexts || []).map((text) => text.slice(0, 120)),
   });
 }

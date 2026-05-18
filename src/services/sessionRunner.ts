@@ -2,13 +2,14 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat, DriverMessageCommitResult } from '../types/chat';
 import type { SessionGenerationContext } from '../types/sessionEngine';
 import type { Message } from '../types/message';
-import type { APIConfig } from '../types/settings';
+import type { APIConfig, AIModelProfile } from '../types/settings';
 import { runOneRound } from './chatEngine';
 import { runSessionCommitPipeline } from './sessionCommitPipeline';
 import { resolveSessionEngine } from './sessionEngineRegistry';
 import { createSessionRuntimeContext } from './sessionEngineKernel';
 import { runSessionActionExecutor } from './sessionActionExecutors/sessionActionExecutorRegistry';
 import { createFamilyTurnPolicy, deriveFamilyLoopDecision, getFamilyActionChance } from './sessionFamilies';
+import { getPreferredAIProfile } from '../types/settings';
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -117,12 +118,23 @@ function shouldWaitAfterSessionTick() {
   return true;
 }
 
+function resolveCommitApiConfig(api: APIConfig | AIModelProfile[]): APIConfig {
+  if (!Array.isArray(api)) return api;
+  const profile = getPreferredAIProfile(api, 'text') || api.find((item) => (item.type || 'text') === 'text') || api[0];
+  return {
+    provider: profile.provider,
+    apiKey: profile.apiKey,
+    baseUrl: profile.baseUrl,
+    model: profile.model,
+  };
+}
+
 export async function runSessionLoop(params: {
   loopId: string;
   chatId: string;
   chat: GroupChat;
   characters: AICharacter[];
-  api: APIConfig;
+  api: APIConfig | AIModelProfile[];
   getCurrentMessages: () => Message[];
   getStreamingMessage?: () => Message | null;
   getCurrentChat?: () => GroupChat | undefined;
@@ -244,7 +256,7 @@ export async function runSessionLoop(params: {
             params.onCommitStarted?.();
             try {
               await runSessionCommitPipeline({
-                api: params.api,
+                api: resolveCommitApiConfig(params.api),
                 chatId: params.chatId,
                 chat: currentChat,
                 characters: currentCharacters,
@@ -260,6 +272,7 @@ export async function runSessionLoop(params: {
                 updateChat: params.updateChat,
                 applyChatRuntimeDelta: params.applyChatRuntimeDelta,
                 recordSpeak: params.recordSpeak,
+                aiProfiles: Array.isArray(params.api) ? params.api : undefined,
                 getCurrentChat: params.getCurrentChat,
                 getCurrentCharacters: params.getCurrentCharacters,
               });

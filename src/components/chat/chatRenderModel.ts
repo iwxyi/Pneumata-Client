@@ -11,10 +11,6 @@ function buildMessageIdentity(message: Message) {
   return `${message.chatId}:${message.id}`;
 }
 
-function buildStableTieBreaker(message: Message) {
-  return message.serverId || message.clientKey || message.id;
-}
-
 export function buildChatRenderItems(messages: Message[]): ChatRenderItem[] {
   const seenIds = new Set<string>();
   const items: Array<ChatRenderItem & { order: number }> = [];
@@ -39,8 +35,6 @@ export function buildChatRenderItems(messages: Message[]): ChatRenderItem[] {
       if (a.message.timestamp !== b.message.timestamp) return a.message.timestamp - b.message.timestamp;
       if (a.message.type === 'event' && b.message.type !== 'event') return 1;
       if (a.message.type !== 'event' && b.message.type === 'event') return -1;
-      const stableOrder = buildStableTieBreaker(a.message).localeCompare(buildStableTieBreaker(b.message));
-      if (stableOrder !== 0) return stableOrder;
       return a.order - b.order;
     })
     .map((item) => ({

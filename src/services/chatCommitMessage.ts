@@ -59,6 +59,7 @@ function mergeServerConfirmation(localMessage: Message, savedMessage: unknown): 
     senderId: localMessage.senderId,
     senderName: localMessage.senderName,
     content: localMessage.content,
+    metadata: localMessage.metadata,
     emotion: localMessage.emotion,
     timestamp: localMessage.timestamp,
     isDeleted: Boolean(saved?.isDeleted ?? localMessage.isDeleted),
@@ -89,6 +90,7 @@ export async function persistLocalFirstMessage(params: PersistLocalFirstMessageP
         ...params.existingLocalMessage,
         ...params.message,
         content: params.message.content,
+        metadata: params.message.metadata,
         emotion: params.message.emotion,
         timestamp: params.existingLocalMessage.timestamp,
         isDeleted: false,
@@ -125,6 +127,7 @@ export async function persistLocalFirstMessages(params: PersistLocalFirstMessage
     senderId: entry.message.senderId,
     senderName: entry.message.senderName,
     content: entry.message.content,
+    metadata: entry.message.metadata,
     emotion: entry.message.emotion,
   }).then((savedMessage) => {
     const localMessage = localMessages[index];
