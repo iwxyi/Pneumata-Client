@@ -36,6 +36,8 @@ type RuntimeMemoryMonitorApi = {
   disable: () => void;
   verbose: (enabled?: boolean) => boolean;
   isEnabled: () => boolean;
+  enableBrowserRuntimeCounters: () => boolean;
+  areBrowserRuntimeCountersEnabled: () => boolean;
   clear: () => void;
   cleanup: () => void;
   export: () => RuntimeMemoryMonitorRecord[];
@@ -265,6 +267,10 @@ function installBrowserRuntimeInstrumentation() {
     if (objectUrls.delete(url)) browserRuntimeCounters.revokedObjectUrls += 1;
     return originalRevokeObjectURL(url);
   }) as typeof URL.revokeObjectURL;
+}
+
+function isBrowserRuntimeInstrumentationInstalled() {
+  return Boolean((window as Window & { __MIRAGETEA_BROWSER_RUNTIME_INSTRUMENTED__?: boolean }).__MIRAGETEA_BROWSER_RUNTIME_INSTRUMENTED__);
 }
 
 function getGlobalFlag() {
@@ -846,6 +852,12 @@ function buildMonitorApi(): RuntimeMemoryMonitorApi {
       return isRuntimeMemoryMonitorVerbose();
     },
     isEnabled: isRuntimeMemoryMonitorEnabled,
+    enableBrowserRuntimeCounters: () => {
+      installBrowserRuntimeInstrumentation();
+      console.info('[memory-monitor] browser runtime counters enabled');
+      return isBrowserRuntimeInstrumentationInstalled();
+    },
+    areBrowserRuntimeCountersEnabled: isBrowserRuntimeInstrumentationInstalled,
     clear: () => {
       records.splice(0, records.length);
     },
@@ -924,6 +936,5 @@ declare global {
 }
 
 if (typeof window !== 'undefined') {
-  installBrowserRuntimeInstrumentation();
   window.__MIRAGETEA_MEMORY_MONITOR__ = window.__MIRAGETEA_MEMORY_MONITOR__ || buildMonitorApi();
 }
