@@ -14,6 +14,12 @@ export interface GeneratedCharacterProfile {
   background?: string;
   speechProfile?: Partial<CharacterSpeechProfile>;
   bubbleStyle?: Partial<BubbleStyleDefinition>;
+  visualIdentity?: {
+    description?: string;
+    styleHint?: string;
+    negativePrompt?: string;
+    seed?: string | number | null;
+  };
 }
 
 export const CHARACTER_GENERATOR_SYSTEM_PROMPT = `You generate structured AI role profiles for a group chat app.
@@ -55,6 +61,12 @@ Return strict JSON only, with this shape:
     "gradientFrom": "optional color string",
     "gradientTo": "optional color string",
     "gradientDirection": "135deg|160deg|180deg"
+  },
+  "visualIdentity": {
+    "description": "optional, 1-3 concise sentences describing a stable visual anchor for image generation",
+    "styleHint": "optional style guidance",
+    "negativePrompt": "optional negative prompt",
+    "seed": "optional seed"
   }
 }
 Rules:
@@ -157,6 +169,12 @@ export function normalizeGeneratedProfile(raw: GeneratedCharacterProfile) {
     background: typeof raw.background === 'string' ? raw.background.trim() : '',
     speechProfile,
     bubbleStyle: normalizeBubbleStyle(raw.bubbleStyle),
+    visualIdentity: {
+      description: typeof raw.visualIdentity?.description === 'string' ? raw.visualIdentity.description.trim() : '',
+      styleHint: typeof raw.visualIdentity?.styleHint === 'string' ? raw.visualIdentity.styleHint.trim() : '',
+      negativePrompt: typeof raw.visualIdentity?.negativePrompt === 'string' ? raw.visualIdentity.negativePrompt.trim() : '',
+      seed: raw.visualIdentity?.seed ?? null,
+    },
   };
 }
 
@@ -178,12 +196,12 @@ export function buildGeneratePrompt(name: string, language: 'zh' | 'en', theme?:
   const normalizedTheme = formatThemeHint(theme);
   if (language === 'zh') {
     return normalizedTheme
-      ? `请基于主题“${normalizedTheme}”中的角色“${name}”生成一个适合多人群聊讨论的 AI 角色档案。务必按该主题理解角色身份，避免混淆同名人物。输出字段必须完整，语气自然，专业领域用简洁短语。`
-      : `请基于名字“${name}”生成一个适合多人群聊讨论的 AI 角色档案。输出字段必须完整，语气自然，专业领域用简洁短语。`;
+    ? `请基于主题“${normalizedTheme}”中的角色“${name}”生成一个适合多人群聊讨论的 AI 角色档案。务必按该主题理解角色身份，避免混淆同名人物。输出字段必须完整，语气自然，专业领域用简洁短语。请额外生成适合后续图片参考的 visualIdentity 文本锚点。`
+      : `请基于名字“${name}”生成一个适合多人群聊讨论的 AI 角色档案。输出字段必须完整，语气自然，专业领域用简洁短语。请额外生成适合后续图片参考的 visualIdentity 文本锚点。`;
   }
   return normalizedTheme
-    ? `Generate a complete AI character profile for the character "${name}" from the theme "${normalizedTheme}" for a multi-person group chat app. Use the theme to disambiguate namesakes and keep the fields concise and usable.`
-    : `Generate a complete AI character profile for the name "${name}" for a multi-person group chat app. Keep the fields concise and usable.`;
+    ? `Generate a complete AI character profile for the character "${name}" from the theme "${normalizedTheme}" for a multi-person group chat app. Use the theme to disambiguate namesakes and keep the fields concise and usable. Also generate a visualIdentity text anchor for later image reference.`
+    : `Generate a complete AI character profile for the name "${name}" for a multi-person group chat app. Keep the fields concise and usable. Also generate a visualIdentity text anchor for later image reference.`;
 }
 
 function sanitizeBatchNames(names: string[]) {

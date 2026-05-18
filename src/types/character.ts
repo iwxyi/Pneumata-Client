@@ -75,6 +75,61 @@ export interface CharacterCoreProfile {
   interactionHabits?: string[];
 }
 
+export interface CharacterVisualReferenceImage {
+  id: string;
+  assetId: string;
+  url: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  checksum?: string;
+  label?: string;
+  source?: 'uploaded' | 'generated';
+  isPrimary?: boolean;
+  createdAt: number;
+}
+
+export interface CharacterVisualIdentityDefaults {
+  useReferenceImages?: boolean;
+}
+
+export interface CharacterVisualIdentity {
+  description?: string;
+  styleHint?: string;
+  negativePrompt?: string;
+  seed?: string | number | null;
+  referenceImages?: CharacterVisualReferenceImage[];
+  primaryReferenceImageId?: string | null;
+  defaults?: CharacterVisualIdentityDefaults;
+}
+
+export function normalizeCharacterVisualIdentity(input?: CharacterVisualIdentity | null): CharacterVisualIdentity {
+  const referenceImages = Array.isArray(input?.referenceImages)
+    ? input.referenceImages.map((image): CharacterVisualReferenceImage => ({
+        id: image.id,
+        assetId: image.assetId || image.id,
+        url: image.url,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        checksum: image.checksum,
+        label: image.label,
+        source: image.source === 'generated' ? 'generated' : 'uploaded',
+        isPrimary: Boolean(image.isPrimary),
+        createdAt: Number(image.createdAt || Date.now()),
+      }))
+    : [];
+  return {
+    description: typeof input?.description === 'string' ? input.description : '',
+    styleHint: typeof input?.styleHint === 'string' ? input.styleHint : '',
+    negativePrompt: typeof input?.negativePrompt === 'string' ? input.negativePrompt : '',
+    seed: input?.seed ?? null,
+    referenceImages,
+    primaryReferenceImageId: input?.primaryReferenceImageId ?? null,
+    defaults: {
+      useReferenceImages: Boolean(input?.defaults?.useReferenceImages),
+    },
+  };
+}
+
 export interface EmotionalState {
   irritation: number;
   affection: number;
@@ -93,6 +148,7 @@ export interface AICharacter {
   personalityDrift?: Partial<PersonalityParams>;
   emotionalState?: EmotionalState;
   coreProfile?: CharacterCoreProfile;
+  visualIdentity?: CharacterVisualIdentity | null;
   speechProfile?: CharacterSpeechProfile;
   voiceConfig?: CharacterVoiceConfig;
   behavior: CharacterBehaviorParams;
@@ -343,6 +399,7 @@ export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacte
       biases: input.coreProfile?.biases || [],
       interactionHabits: input.coreProfile?.interactionHabits || [],
     },
+    visualIdentity: normalizeCharacterVisualIdentity(input.visualIdentity),
     speechProfile: {
       ...DEFAULT_SPEECH_PROFILE,
       ...(input.speechProfile || {}),

@@ -1,6 +1,7 @@
 // HTTP API client for chat backend
 
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
+import type { CharacterVisualIdentity, CharacterVisualReferenceImage } from '../types/character';
 
 const API_BASE = '/api';
 
@@ -120,6 +121,8 @@ class ApiClient {
     return this.request<Array<{
       id: string; name: string; avatar: string; personality: Record<string, number>;
       behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
+      visualIdentity?: CharacterVisualIdentity | null;
+      visualReferenceImages?: CharacterVisualReferenceImage[];
       speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyle?: BubbleStyleDefinition | null; bubbleStyleId?: string | null;
       isPreset: boolean; deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number;
@@ -129,6 +132,8 @@ class ApiClient {
   async createCharacter(data: {
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
+    visualIdentity?: CharacterVisualIdentity | null;
+    visualReferenceImages?: CharacterVisualReferenceImage[];
     speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyle?: BubbleStyleDefinition | null; bubbleStyleId?: string | null;
   }) {
@@ -139,6 +144,8 @@ class ApiClient {
   async createCharactersBatch(items: Array<{
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
+    visualIdentity?: CharacterVisualIdentity | null;
+    visualReferenceImages?: CharacterVisualReferenceImage[];
     speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyleId?: string | null;
   }>) {
@@ -146,6 +153,13 @@ class ApiClient {
   }
 
   async updateCharacter(id: string, data: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('PUT', `/characters/${id}`, data);
+  }
+
+  async replaceCharacterVisualIdentity(id: string, data: {
+    visualIdentity?: CharacterVisualIdentity | null;
+    visualReferenceImages?: CharacterVisualReferenceImage[];
+  }) {
     return this.request<Record<string, unknown>>('PUT', `/characters/${id}`, data);
   }
 
@@ -282,6 +296,27 @@ class ApiClient {
     chatId: string; messageId: string; attachmentId: string; kind: 'image' | 'audio' | 'sticker' | 'thumbnail'; dataUrl: string;
   }) {
     return this.request<{ id: string; url: string; mimeType: string; sizeBytes: number; checksum?: string }>('POST', '/media-assets', data);
+  }
+
+  async listCharacterVisualAssets(characterId: string) {
+    return this.request<Array<{
+      id: string; characterId: string; url: string; mimeType: string; sizeBytes: number; checksum?: string; label?: string | null;
+      source: 'uploaded' | 'generated'; isPrimary: boolean; createdAt: number;
+    }>>('GET', `/characters/${characterId}/visual-assets`);
+  }
+
+  async createCharacterVisualAsset(characterId: string, data: {
+    dataUrl: string; label?: string | null; source?: 'uploaded' | 'generated'; isPrimary?: boolean;
+  }) {
+    return this.request<{ id: string; assetId?: string; characterId: string; url: string; mimeType: string; sizeBytes: number; checksum?: string; label?: string | null; source: 'uploaded' | 'generated'; isPrimary: boolean; createdAt: number }>('POST', `/characters/${characterId}/visual-assets`, data);
+  }
+
+  async updateCharacterVisualAsset(characterId: string, assetId: string, data: { isPrimary?: boolean }) {
+    return this.request<{ success: boolean }>('PATCH', `/characters/${characterId}/visual-assets/${assetId}`, data);
+  }
+
+  async deleteCharacterVisualAsset(characterId: string, assetId: string) {
+    return this.request<{ success: boolean }>('DELETE', `/characters/${characterId}/visual-assets/${assetId}`);
   }
 
   async clearChatMessages(chatId: string) {

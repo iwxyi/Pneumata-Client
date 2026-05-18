@@ -34,6 +34,11 @@ import AddIcon from '@mui/icons-material/Add';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ImageIcon from '@mui/icons-material/Image';
+import UploadIcon from '@mui/icons-material/Upload';
+import DeleteIcon from '@mui/icons-material/Delete';
+import StarIcon from '@mui/icons-material/Star';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile, CharacterVoiceConfig } from '../../types/character';
 import { getCharacterGroupList, normalizeCharacterGroup, normalizeCharacterModelProfileIds, getDuplicateCharacterNameKeys, getDuplicateCharacterWarningText, hasDuplicateCharacterName } from '../../types/character';
@@ -48,6 +53,8 @@ import { getPreferredAIProfile } from '../../types/settings';
 import { avatarGenerationQueue, type AvatarGenerationStatus } from '../../services/avatarGenerationQueue';
 import { canAutoGenerateAvatarDraft, enqueueAvatarGenerationForCharacter } from '../../services/avatarGeneration';
 import { isImageAvatar as isImageAvatarValue } from '../../utils/avatar';
+import { prepareAvatarUploadDataUrl } from '../../utils/avatarUpload';
+import { api } from '../../services/api';
 import PersonalitySliders from './PersonalitySliders';
 import NumericSliders from './NumericSliders';
 import RuntimeInsightsPanel, { CharacterMemoryInspector, CharacterRelationshipInspector } from './RuntimeInsightsPanel';
@@ -55,6 +62,7 @@ import CollapsibleParamGroup from './CollapsibleParamGroup';
 import { AVATAR_OPTIONS } from '../../constants/presets';
 import { BUILT_IN_BUBBLE_STYLES, DEFAULT_AI_BUBBLE_STYLE_ID } from '../../constants/bubbleStyles';
 import { buildBubblePreview, cloneBubbleStyle, createCharacterBubbleStyleId, resolveCharacterBubbleStyle, toBubbleStyleFormValues } from '../../utils/bubbleStyle';
+import type { CharacterVisualIdentity, CharacterVisualReferenceImage } from '../../types/character';
 
 function getGenerateButtonLabel(language: string, generating: boolean) {
   if (generating) return language.startsWith('zh') ? '生成中' : 'Generating';
@@ -125,6 +133,7 @@ interface CharacterFormProps {
     modelProfileIds?: Partial<Record<AIModelType, string | null>>;
     bubbleStyle?: BubbleStyleDefinition | null;
     bubbleStyleId?: string | null;
+    visualIdentity?: CharacterVisualIdentity | null;
     generatedByAI?: boolean;
   }) => void;
   onCancel: () => void;
@@ -142,6 +151,15 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [expertiseInput, setExpertiseInput] = useState('');
   const [speakingStyle, setSpeakingStyle] = useState(initial?.speakingStyle || '');
   const [background, setBackground] = useState(initial?.background || '');
+  const [visualIdentity, setVisualIdentity] = useState<CharacterVisualIdentity>(() => ({
+    description: initial?.visualIdentity?.description || '',
+    styleHint: initial?.visualIdentity?.styleHint || '',
+    negativePrompt: initial?.visualIdentity?.negativePrompt || '',
+    seed: initial?.visualIdentity?.seed ?? null,
+    referenceImages: initial?.visualIdentity?.referenceImages || [],
+    primaryReferenceImageId: initial?.visualIdentity?.primaryReferenceImageId ?? null,
+    defaults: initial?.visualIdentity?.defaults || { useReferenceImages: false },
+  }));
   const [speechProfile, setSpeechProfile] = useState<CharacterSpeechProfile | undefined>(initial?.speechProfile);
   const [voiceConfig, setVoiceConfig] = useState<CharacterVoiceConfig>(initial?.voiceConfig || { enabled: false });
   const [relationshipsText, setRelationshipsText] = useState(() => (initial?.relationships || []).map((item) => item.note || '').join('\n'));
@@ -174,7 +192,15 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [avatarTaskId, setAvatarTaskId] = useState<string | null>(null);
   const [avatarTaskStatus, setAvatarTaskStatus] = useState<AvatarGenerationStatus | null>(null);
   const [avatarTaskError, setAvatarTaskError] = useState<string | null>(null);
+  const [visualImageTaskId, setVisualImageTaskId] = useState<string | null>(null);
+  const [visualImageTaskStatus, setVisualImageTaskStatus] = useState<AvatarGenerationStatus | null>(null);
+  const [visualImageTaskError, setVisualImageTaskError] = useState<string | null>(null);
+  const [visualAssets, setVisualAssets] = useState<CharacterVisualReferenceImage[]>(initial?.visualIdentity?.referenceImages || []);
+  const visualAssetInputRef = useRef<HTMLInputElement | null>(null);
+  const visualAssetsRef = useRef<CharacterVisualReferenceImage[]>(initial?.visualIdentity?.referenceImages || []);
+  const processedVisualImageTaskIdsRef = useRef(new Set<string>());
   const avatarTaskTargetKey = initial?.id ? `character:${initial.id}` : 'character-form:draft';
+  const visualImageTargetKey = initial?.id ? `character-visual:${initial.id}` : 'character-form:visual-draft';
 
   const modelTypeLabels: Record<AIModelType, string> = {
     text: i18n.language.startsWith('zh') ? '文本' : 'Text',
@@ -231,7 +257,21 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     if (!initial) return;
     setModelProfileIds(normalizeCharacterModelProfileIds(initial.modelProfileIds, initial.modelProfileId || null));
     setVoiceConfig(initial.voiceConfig || { enabled: false });
+    setVisualIdentity({
+      description: initial.visualIdentity?.description || '',
+      styleHint: initial.visualIdentity?.styleHint || '',
+      negativePrompt: initial.visualIdentity?.negativePrompt || '',
+      seed: initial.visualIdentity?.seed ?? null,
+      referenceImages: initial.visualIdentity?.referenceImages || [],
+      primaryReferenceImageId: initial.visualIdentity?.primaryReferenceImageId ?? null,
+      defaults: initial.visualIdentity?.defaults || { useReferenceImages: false },
+    });
+    setVisualAssets(initial.visualIdentity?.referenceImages || []);
   }, [initial?.id, initial?.modelProfileId, initial?.modelProfileIds]);
+
+  useEffect(() => {
+    visualAssetsRef.current = visualAssets;
+  }, [visualAssets]);
 
   useEffect(() => {
     const current = avatarGenerationQueue.getLatestTaskForTarget(avatarTaskTargetKey);
@@ -253,6 +293,73 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       }
     });
   }, [avatarTaskTargetKey]);
+
+  useEffect(() => {
+    const current = avatarGenerationQueue.getLatestTaskForTarget(visualImageTargetKey);
+    if (current) {
+      setVisualImageTaskId(current.id);
+      setVisualImageTaskStatus(current.status);
+      setVisualImageTaskError(current.error);
+    }
+
+    return avatarGenerationQueue.subscribeTarget(visualImageTargetKey, async (state) => {
+      setVisualImageTaskStatus(state.status);
+      setVisualImageTaskError(state.error);
+      setVisualImageTaskId(state.status === 'queued' || state.status === 'running' ? state.id : null);
+      if (state.status === 'succeeded' && state.imageDataUrl) {
+        if (processedVisualImageTaskIdsRef.current.has(state.id)) return;
+        processedVisualImageTaskIdsRef.current.add(state.id);
+        const shouldBePrimary = visualAssetsRef.current.length === 0;
+        const localAsset: CharacterVisualReferenceImage = {
+          id: `local-visual-${Date.now()}`,
+          assetId: `local-visual-${Date.now()}`,
+          url: state.imageDataUrl,
+          mimeType: 'image/png',
+          source: 'generated',
+          isPrimary: shouldBePrimary,
+          createdAt: Date.now(),
+        };
+        if (initial?.id) {
+          try {
+            const prepared = await prepareAvatarUploadDataUrl(state.imageDataUrl, { maxSize: 1024, quality: 0.9 });
+            const saved = await api.createCharacterVisualAsset(initial.id, {
+              dataUrl: prepared,
+              label: i18n.language.startsWith('zh') ? '生成形象图' : 'Generated visual identity',
+              source: 'generated',
+              isPrimary: shouldBePrimary,
+            });
+            const savedAsset: CharacterVisualReferenceImage = {
+              id: saved.id,
+              assetId: saved.assetId || saved.id,
+              url: saved.url,
+              mimeType: saved.mimeType,
+              sizeBytes: saved.sizeBytes,
+              checksum: saved.checksum,
+              label: saved.label || undefined,
+              source: saved.source,
+              isPrimary: saved.isPrimary,
+              createdAt: saved.createdAt,
+            };
+            setVisualAssets((prev) => savedAsset.isPrimary ? [...prev.map((item) => ({ ...item, isPrimary: false })), savedAsset] : [...prev, savedAsset]);
+            setVisualIdentity((prev) => ({
+              ...prev,
+              primaryReferenceImageId: savedAsset.isPrimary ? savedAsset.id : prev.primaryReferenceImageId,
+            }));
+            return;
+          } catch (error) {
+            setVisualImageTaskStatus('failed');
+            setVisualImageTaskError(error instanceof Error ? error.message : String(error));
+            return;
+          }
+        }
+        setVisualAssets((prev) => [...prev, localAsset]);
+        setVisualIdentity((prev) => ({
+          ...prev,
+          primaryReferenceImageId: localAsset.isPrimary ? localAsset.id : prev.primaryReferenceImageId,
+        }));
+      }
+    });
+  }, [initial?.id, i18n.language, visualImageTargetKey]);
 
 
   const applyBubbleSelection = () => {
@@ -293,6 +400,13 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       setSpeakingStyle(generated.speakingStyle);
       setBackground(generated.background);
       setSpeechProfile(generated.speechProfile);
+      setVisualIdentity((prev) => ({
+        ...prev,
+        description: generated.visualIdentity?.description || prev.description || '',
+        styleHint: generated.visualIdentity?.styleHint || prev.styleHint || '',
+        negativePrompt: generated.visualIdentity?.negativePrompt || prev.negativePrompt || '',
+        seed: generated.visualIdentity?.seed ?? prev.seed ?? null,
+      }));
       setBubbleStyleId(generatedBubbleStyleId);
       setBubbleStyle({ ...generated.bubbleStyle, id: generatedBubbleStyleId });
       setDraftBubbleStyleId(generatedBubbleStyleId);
@@ -335,6 +449,123 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     }) || null);
   };
 
+  const syncVisualIdentityReferenceImages = (assets: CharacterVisualReferenceImage[], overrides?: Partial<CharacterVisualIdentity>) => {
+    setVisualIdentity((prev) => ({
+      ...prev,
+      ...overrides,
+      referenceImages: assets,
+      primaryReferenceImageId: overrides && Object.prototype.hasOwnProperty.call(overrides, 'primaryReferenceImageId')
+        ? overrides.primaryReferenceImageId ?? null
+        : prev.primaryReferenceImageId ?? assets.find((asset) => asset.isPrimary)?.id ?? assets[0]?.id ?? null,
+    }));
+  };
+
+  const handleVisualAssetUpload = async (file?: File | null) => {
+    if (!file) return;
+    setVisualImageTaskError(null);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const dataUrl = String(reader.result || '');
+        const prepared = await prepareAvatarUploadDataUrl(dataUrl, { maxSize: 1024, quality: 0.9 });
+        const shouldBePrimary = visualAssets.length === 0;
+        if (initial?.id) {
+          const saved = await api.createCharacterVisualAsset(initial.id, {
+            dataUrl: prepared,
+            label: file.name,
+            source: 'uploaded',
+            isPrimary: shouldBePrimary,
+          });
+          const asset: CharacterVisualReferenceImage = {
+            id: saved.id,
+            assetId: saved.assetId || saved.id,
+            url: saved.url,
+            mimeType: saved.mimeType,
+            sizeBytes: saved.sizeBytes,
+            checksum: saved.checksum,
+            label: saved.label || file.name,
+            source: saved.source,
+            isPrimary: saved.isPrimary,
+            createdAt: saved.createdAt,
+          };
+          const next = asset.isPrimary ? visualAssets.map((item) => ({ ...item, isPrimary: false })) : visualAssets;
+          const merged = [...next, asset];
+          setVisualAssets(merged);
+          syncVisualIdentityReferenceImages(merged, { primaryReferenceImageId: asset.isPrimary ? asset.id : undefined });
+          return;
+        }
+        const asset: CharacterVisualReferenceImage = {
+          id: `local-visual-${Date.now()}`,
+          assetId: `local-visual-${Date.now()}`,
+          url: prepared,
+          mimeType: file.type || 'image/webp',
+          label: file.name,
+          source: 'uploaded',
+          isPrimary: shouldBePrimary,
+          createdAt: Date.now(),
+        };
+        const merged = [...visualAssets, asset];
+        setVisualAssets(merged);
+        syncVisualIdentityReferenceImages(merged, { primaryReferenceImageId: asset.isPrimary ? asset.id : undefined });
+      } catch (error) {
+        setVisualImageTaskError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (visualAssetInputRef.current) visualAssetInputRef.current.value = '';
+      }
+    };
+    reader.onerror = () => {
+      setVisualImageTaskError(i18n.language.startsWith('zh') ? '读取图片失败' : 'Failed to read image');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSetPrimaryVisualAsset = async (assetId: string) => {
+    if (initial?.id && !assetId.startsWith('local-')) {
+      await api.updateCharacterVisualAsset(initial.id, assetId, { isPrimary: true });
+    }
+    const next = visualAssets.map((asset) => ({ ...asset, isPrimary: asset.id === assetId }));
+    setVisualAssets(next);
+    syncVisualIdentityReferenceImages(next, { primaryReferenceImageId: assetId });
+  };
+
+  const handleDeleteVisualAsset = async (assetId: string) => {
+    if (initial?.id && !assetId.startsWith('local-')) {
+      await api.deleteCharacterVisualAsset(initial.id, assetId);
+    }
+    const next = visualAssets.filter((asset) => asset.id !== assetId);
+    const nextPrimary = next.find((asset) => asset.isPrimary)?.id || next[0]?.id || null;
+    const normalized = next.map((asset, index) => ({ ...asset, isPrimary: nextPrimary ? asset.id === nextPrimary : index === 0 }));
+    setVisualAssets(normalized);
+    syncVisualIdentityReferenceImages(normalized, { primaryReferenceImageId: nextPrimary });
+  };
+
+  const handleGenerateVisualImage = () => {
+    if (visualImageTaskId) {
+      avatarGenerationQueue.cancel(visualImageTaskId);
+      return;
+    }
+    const imageProfile = getPreferredAIProfile(settings.aiProfiles, 'image');
+    if (!imageProfile?.apiKey || !imageProfile?.model) {
+      setVisualImageTaskStatus('failed');
+      setVisualImageTaskError(i18n.language.startsWith('zh') ? '请先配置默认图片模型' : 'Configure a default image model first.');
+      return;
+    }
+    const prompt = [
+      i18n.language.startsWith('zh') ? `为聊天角色“${name.trim() || '未命名角色'}”生成一张稳定形象参考图。` : `Generate a stable visual reference image for the chat character "${name.trim() || 'Unnamed character'}".`,
+      visualIdentity.description?.trim() ? (i18n.language.startsWith('zh') ? `视觉形象：${visualIdentity.description.trim()}` : `Visual identity: ${visualIdentity.description.trim()}`) : '',
+      background.trim() ? (i18n.language.startsWith('zh') ? `角色背景：${background.trim()}` : `Background: ${background.trim()}`) : '',
+      speakingStyle.trim() ? (i18n.language.startsWith('zh') ? `表达气质：${speakingStyle.trim()}` : `Speaking vibe: ${speakingStyle.trim()}`) : '',
+      visualIdentity.styleHint?.trim() ? (i18n.language.startsWith('zh') ? `风格：${visualIdentity.styleHint.trim()}` : `Style: ${visualIdentity.styleHint.trim()}`) : '',
+      i18n.language.startsWith('zh')
+        ? '要求：单人半身或全身清晰参考图，脸部、发型、体型、常见穿搭和标志性配饰清楚可见；适合作为后续聊天图片的身份参考；自然真实，避免文字、水印、多人、遮挡脸。'
+        : 'Requirements: one clear half-body or full-body reference image with visible face, hair, body type, common outfit, and signature accessories; suitable as identity reference for future chat images; natural and realistic, no text, no watermark, no multiple people, no covered face.',
+      visualIdentity.negativePrompt?.trim() ? (i18n.language.startsWith('zh') ? `避免：${visualIdentity.negativePrompt.trim()}` : `Avoid: ${visualIdentity.negativePrompt.trim()}`) : '',
+    ].filter(Boolean).join('\n');
+    setVisualImageTaskError(null);
+    setVisualImageTaskStatus('queued');
+    setVisualImageTaskId(avatarGenerationQueue.enqueue(imageProfile, prompt, { targetKey: visualImageTargetKey }) || null);
+  };
+
   const isImageAvatar = isImageAvatarValue(avatar);
   const inlineError = saveError || generateError;
 
@@ -359,6 +590,15 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
         threat: 0,
         note,
       }));
+    const normalizedVisualAssets = visualAssets.map((asset) => ({
+      ...asset,
+      isPrimary: asset.id === (visualIdentity.primaryReferenceImageId || visualAssets.find((item) => item.isPrimary)?.id || visualAssets[0]?.id),
+    }));
+    const normalizedVisualIdentity = {
+      ...visualIdentity,
+      referenceImages: normalizedVisualAssets,
+      primaryReferenceImageId: visualIdentity.primaryReferenceImageId || normalizedVisualAssets.find((asset) => asset.isPrimary)?.id || null,
+    };
     onSave({
       name: normalizedName,
       avatar,
@@ -367,6 +607,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       expertise,
       speakingStyle,
       background,
+      visualIdentity: normalizedVisualIdentity,
       speechProfile,
       voiceConfig,
       relationships: relationshipNotes,
@@ -477,6 +718,103 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
 
       <TextField label={t('character.speakingStyle')} placeholder={t('character.speakingStylePlaceholder')} value={speakingStyle} onChange={(e) => setSpeakingStyle(e.target.value)} multiline rows={2} fullWidth />
       <TextField label={t('character.background')} placeholder={t('character.backgroundPlaceholder')} value={background} onChange={(e) => setBackground(e.target.value)} multiline rows={3} fullWidth />
+
+      <Card variant="outlined">
+        <CardContent sx={{ display: 'grid', gap: 1.25 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? '视觉形象' : 'Visual identity'}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {i18n.language.startsWith('zh') ? '用于后续聊天图片的角色参考，不会强制每张图都使用。' : 'Character reference for future chat images. It is not forced into every generated image.'}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <input
+                ref={visualAssetInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(event) => void handleVisualAssetUpload(event.target.files?.[0] || null)}
+              />
+              <Button size="small" variant="outlined" startIcon={<UploadIcon />} onClick={() => visualAssetInputRef.current?.click()}>
+                {i18n.language.startsWith('zh') ? '上传' : 'Upload'}
+              </Button>
+              <Button size="small" variant="outlined" startIcon={<ImageIcon />} onClick={handleGenerateVisualImage}>
+                {visualImageTaskId ? (i18n.language.startsWith('zh') ? '取消生成' : 'Cancel') : (i18n.language.startsWith('zh') ? '生成形象图' : 'Generate')}
+              </Button>
+            </Box>
+          </Box>
+
+          <TextField
+            size="small"
+            label={i18n.language.startsWith('zh') ? '形象描述' : 'Visual description'}
+            placeholder={i18n.language.startsWith('zh') ? '例如：二十多岁，短发，清爽自然，常戴银色细框眼镜...' : 'e.g. mid 20s, short hair, natural look, thin silver glasses...'}
+            value={visualIdentity.description || ''}
+            onChange={(e) => setVisualIdentity((prev) => ({ ...prev, description: e.target.value }))}
+            multiline
+            rows={3}
+            fullWidth
+          />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1 }}>
+            <TextField
+              size="small"
+              label={i18n.language.startsWith('zh') ? '风格提示' : 'Style hint'}
+              value={visualIdentity.styleHint || ''}
+              onChange={(e) => setVisualIdentity((prev) => ({ ...prev, styleHint: e.target.value }))}
+            />
+            <TextField
+              size="small"
+              label={i18n.language.startsWith('zh') ? '避免内容' : 'Negative prompt'}
+              value={visualIdentity.negativePrompt || ''}
+              onChange={(e) => setVisualIdentity((prev) => ({ ...prev, negativePrompt: e.target.value }))}
+            />
+            <TextField
+              size="small"
+              label="Seed"
+              value={visualIdentity.seed ?? ''}
+              onChange={(e) => setVisualIdentity((prev) => ({ ...prev, seed: e.target.value || null }))}
+            />
+          </Box>
+          <FormControlLabel
+            control={<Switch checked={Boolean(visualIdentity.defaults?.useReferenceImages)} onChange={(e) => setVisualIdentity((prev) => ({ ...prev, defaults: { ...(prev.defaults || {}), useReferenceImages: e.target.checked } }))} />}
+            label={i18n.language.startsWith('zh') ? '聊天图片需要角色出镜时优先使用参考图' : 'Prefer reference images when the character appears in chat images'}
+          />
+
+          {visualImageTaskStatus === 'queued' || visualImageTaskStatus === 'running' ? (
+            <Alert severity="info">{i18n.language.startsWith('zh') ? '正在生成形象图...' : 'Generating visual identity image...'}</Alert>
+          ) : null}
+          {visualImageTaskError ? <Alert severity="error">{visualImageTaskError}</Alert> : null}
+
+          {visualAssets.length ? (
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 1 }}>
+              {visualAssets.map((asset) => (
+                <Card key={asset.id} variant="outlined" sx={{ overflow: 'hidden', borderColor: asset.isPrimary ? 'primary.main' : 'divider' }}>
+                  <Box component="img" src={asset.url} alt={asset.label || 'visual reference'} sx={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', display: 'block', bgcolor: 'action.hover' }} />
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 0.75, py: 0.5, gap: 0.5 }}>
+                    <Typography variant="caption" noWrap title={asset.label || asset.source || ''}>{asset.label || (asset.source === 'generated' ? (i18n.language.startsWith('zh') ? '生成图' : 'Generated') : (i18n.language.startsWith('zh') ? '参考图' : 'Reference'))}</Typography>
+                    <Box sx={{ display: 'flex', gap: 0.25 }}>
+                      <Tooltip title={asset.isPrimary ? (i18n.language.startsWith('zh') ? '主参考图' : 'Primary') : (i18n.language.startsWith('zh') ? '设为主图' : 'Set primary')}>
+                        <IconButton size="small" onClick={() => void handleSetPrimaryVisualAsset(asset.id)}>
+                          {asset.isPrimary ? <StarIcon fontSize="inherit" color="primary" /> : <StarBorderIcon fontSize="inherit" />}
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title={i18n.language.startsWith('zh') ? '删除' : 'Delete'}>
+                        <IconButton size="small" color="error" onClick={() => void handleDeleteVisualAsset(asset.id)}>
+                          <DeleteIcon fontSize="inherit" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  </Box>
+                </Card>
+              ))}
+            </Box>
+          ) : (
+            <Typography variant="caption" color="text.secondary">
+              {i18n.language.startsWith('zh') ? '可以只填写文字描述，也可以只上传参考图；都为空时聊天图片按上下文自由生成。' : 'Text only, image only, both, or neither are all allowed.'}
+            </Typography>
+          )}
+        </CardContent>
+      </Card>
 
       {showSpeechStyle ? (
         <Card variant="outlined">
