@@ -258,6 +258,7 @@ export default function ChatDetailPage() {
   const [detailBootstrapComplete, setDetailBootstrapComplete] = useState(false);
 
   const loopTokenRef = useRef<string | null>(null);
+  const activeRunLoopTokenRef = useRef<string | null>(null);
   const isRunningRef = useRef(false);
   const isPausedRef = useRef(false);
   const loadingMoreRef = useRef(false);
@@ -441,6 +442,7 @@ export default function ChatDetailPage() {
       return () => {
         activeChatIdRef.current = null;
         loopTokenRef.current = null;
+        activeRunLoopTokenRef.current = null;
         setThinkingId(null);
         discardStreamingMessage();
         setChatError(null);
@@ -746,97 +748,103 @@ export default function ChatDetailPage() {
 
   const runLoop = useCallback(async (loopId: string) => {
     if (!chat || !id) return;
+    if (activeRunLoopTokenRef.current === loopId) return;
+    activeRunLoopTokenRef.current = loopId;
     const [{ runChatLoop }, { getSessionEngine }] = await Promise.all([
       import('../services/chatLoopRunner'),
       import('../services/sessionEngineRegistry'),
     ]);
     const sessionEngine = getSessionEngine(chat.mode);
-    await runChatLoop({
-      loopId,
-      chatId: id,
-      chat,
-      characters: activeMembers,
-      api,
-      getCurrentMessages: () => useMessageStore.getState().messages,
-      getStreamingMessage: () => streamingMessageRef.current,
-      getCurrentChat: () => useChatStore.getState().chats.find((item) => item.id === id),
-      getCurrentCharacters: () => useCharacterStore.getState().characters,
-      isRunning: () => isRunningRef.current,
-      isPaused: () => isPausedRef.current,
-      isActiveLoop: (currentLoopId) => activeChatIdRef.current === id && loopTokenRef.current === currentLoopId,
-      onCommitSettled: isCommitSettled,
-      onCommitStarted: () => {
-        pendingCommitCountRef.current += 1;
-      },
-      onCommitFinished: () => {
-        pendingCommitCountRef.current = Math.max(0, pendingCommitCountRef.current - 1);
-      },
-      onSpeakerSelected: (charId) => {
-        const speaker = activeMembers.find((member) => member.id === charId);
-        const streamingMessage = createCommittedLocalMessage({
-          chatId: id,
-          type: 'ai',
-          senderId: charId,
-          senderName: speaker?.name || '',
-          content: '',
-          emotion: 0,
-        });
-        const nextStreamingMessage = { ...streamingMessage, isStreaming: true };
-        streamingMessageRef.current = nextStreamingMessage;
-        upsertMessage(nextStreamingMessage);
-        setRunLoopError(null);
-        setThinkingId(charId);
-        setCurrentSpeaker(charId);
-      },
-      onMessageChunk: (content) => {
-        updateStreamingMessage((current) => current ? { ...current, content, isStreaming: true } : current);
-        setChatError(null);
-      },
-      onIdle: (reason) => {
-        discardStreamingMessage();
-        setThinkingId(null);
-        setCurrentSpeaker(null);
-        setRunLoopError(reason);
-      },
-      onClearStreamingState: () => {
-        clearStreamingMessageRef();
-        setThinkingId(null);
-        setCurrentSpeaker(null);
-      },
-      onEngineError: (error) => {
-        discardStreamingMessage();
-        setThinkingId(null);
-        setCurrentSpeaker(null);
-        const message = error.message || t('common.error');
-        setChatError(message);
-        setRunLoopError(message);
-        showErrorToast(message);
-      },
-      onLoopError: (error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        const safeMessage = message || t('common.error');
-        setRunLoopError(safeMessage);
-      },
-      onCommit: async (args) => {
-        return await (sessionEngine.onMessageCommitted as (args: {
-          conversation: GroupChat;
-          characters: AICharacter[];
-          message: Pick<Message, 'content' | 'type' | 'senderId'>;
-          previousAiMessage: Pick<Message, 'senderId'> | null;
-          recentMessages?: Message[];
-          apiConfig?: import('../types/settings').APIConfig;
-        }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>)(args);
-      },
-      upsertMessage: upsertMessageStable,
-      updateCharacter,
-      updateCharacters: async (patches) => updateCharacters(patches.map((patch) => ({ id: patch.id, updates: patch.patch }))),
-      appendEventMessage: appendEventMessageStable,
-      appendEventMessages: appendEventMessagesStable,
-      updateChat,
-      applyChatRuntimeDelta,
-      recordSpeak,
-      getCooldownMap: () => useSchedulerStore.getState().lastSpeakTimestamps,
-    });
+    try {
+      await runChatLoop({
+        loopId,
+        chatId: id,
+        chat,
+        characters: activeMembers,
+        api,
+        getCurrentMessages: () => useMessageStore.getState().messages,
+        getStreamingMessage: () => streamingMessageRef.current,
+        getCurrentChat: () => useChatStore.getState().chats.find((item) => item.id === id),
+        getCurrentCharacters: () => useCharacterStore.getState().characters,
+        isRunning: () => isRunningRef.current,
+        isPaused: () => isPausedRef.current,
+        isActiveLoop: (currentLoopId) => activeChatIdRef.current === id && loopTokenRef.current === currentLoopId,
+        onCommitSettled: isCommitSettled,
+        onCommitStarted: () => {
+          pendingCommitCountRef.current += 1;
+        },
+        onCommitFinished: () => {
+          pendingCommitCountRef.current = Math.max(0, pendingCommitCountRef.current - 1);
+        },
+        onSpeakerSelected: (charId) => {
+          const speaker = activeMembers.find((member) => member.id === charId);
+          const streamingMessage = createCommittedLocalMessage({
+            chatId: id,
+            type: 'ai',
+            senderId: charId,
+            senderName: speaker?.name || '',
+            content: '',
+            emotion: 0,
+          });
+          const nextStreamingMessage = { ...streamingMessage, isStreaming: true };
+          streamingMessageRef.current = nextStreamingMessage;
+          upsertMessage(nextStreamingMessage);
+          setRunLoopError(null);
+          setThinkingId(charId);
+          setCurrentSpeaker(charId);
+        },
+        onMessageChunk: (content) => {
+          updateStreamingMessage((current) => current ? { ...current, content, isStreaming: true } : current);
+          setChatError(null);
+        },
+        onIdle: (reason) => {
+          discardStreamingMessage();
+          setThinkingId(null);
+          setCurrentSpeaker(null);
+          setRunLoopError(reason);
+        },
+        onClearStreamingState: () => {
+          clearStreamingMessageRef();
+          setThinkingId(null);
+          setCurrentSpeaker(null);
+        },
+        onEngineError: (error) => {
+          discardStreamingMessage();
+          setThinkingId(null);
+          setCurrentSpeaker(null);
+          const message = error.message || t('common.error');
+          setChatError(message);
+          setRunLoopError(message);
+          showErrorToast(message);
+        },
+        onLoopError: (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          const safeMessage = message || t('common.error');
+          setRunLoopError(safeMessage);
+        },
+        onCommit: async (args) => {
+          return await (sessionEngine.onMessageCommitted as (args: {
+            conversation: GroupChat;
+            characters: AICharacter[];
+            message: Pick<Message, 'content' | 'type' | 'senderId'>;
+            previousAiMessage: Pick<Message, 'senderId'> | null;
+            recentMessages?: Message[];
+            apiConfig?: import('../types/settings').APIConfig;
+          }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>)(args);
+        },
+        upsertMessage: upsertMessageStable,
+        updateCharacter,
+        updateCharacters: async (patches) => updateCharacters(patches.map((patch) => ({ id: patch.id, updates: patch.patch }))),
+        appendEventMessage: appendEventMessageStable,
+        appendEventMessages: appendEventMessagesStable,
+        updateChat,
+        applyChatRuntimeDelta,
+        recordSpeak,
+        getCooldownMap: () => useSchedulerStore.getState().lastSpeakTimestamps,
+      });
+    } finally {
+      if (activeRunLoopTokenRef.current === loopId) activeRunLoopTokenRef.current = null;
+    }
   }, [activeMembers, api, appendEventMessage, appendEventMessages, applyChatRuntimeDelta, chat, clearStreamingMessageRef, discardStreamingMessage, id, recordSpeak, setCurrentSpeaker, showErrorToast, t, updateCharacter, updateCharacters, updateChat, updateStreamingMessage, upsertMessage]);
 
   const fromTab = useMemo(() => new URLSearchParams(window.location.search).get('fromTab'), []);
@@ -853,15 +861,24 @@ export default function ChatDetailPage() {
       resetAllCooldowns();
       const newLoopToken = `${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       loopTokenRef.current = newLoopToken;
+      isRunningRef.current = true;
+      isPausedRef.current = false;
       start(newLoopToken);
       updateChat(id, { isActive: true });
       setTimeout(() => void runLoop(newLoopToken), 100);
     } else if (isPaused) {
-      const newLoopToken = `${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      loopTokenRef.current = newLoopToken;
-      start(newLoopToken);
+      isRunningRef.current = true;
+      isPausedRef.current = false;
       resume();
+      updateChat(id, { isActive: true });
+      if (!loopTokenRef.current || activeRunLoopTokenRef.current !== loopTokenRef.current) {
+        const newLoopToken = `${id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        loopTokenRef.current = newLoopToken;
+        start(newLoopToken);
+        setTimeout(() => void runLoop(newLoopToken), 100);
+      }
     } else {
+      isPausedRef.current = true;
       pause();
       updateChat(id, { isActive: false });
     }

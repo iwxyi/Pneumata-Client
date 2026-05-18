@@ -14,7 +14,7 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-type SessionLoopPhase = 'starting' | 'waiting_commit' | 'selecting' | 'running_round' | 'sleeping' | 'error_sleeping';
+type SessionLoopPhase = 'starting' | 'paused' | 'waiting_commit' | 'selecting' | 'running_round' | 'sleeping' | 'error_sleeping';
 
 const activeSessionLoops = new Map<string, {
   chatId: string;
@@ -101,8 +101,8 @@ function getLoopErrorWaitTime() {
   return 5000;
 }
 
-function shouldContinueLoop(params: { isRunning: () => boolean; isPaused: () => boolean }) {
-  return params.isRunning() && !params.isPaused();
+function shouldContinueLoop(params: { isRunning: () => boolean }) {
+  return params.isRunning();
 }
 
 function isActiveLoop(params: { isActiveLoop: (loopId: string) => boolean; loopId: string }) {
@@ -167,6 +167,11 @@ export async function runSessionLoop(params: {
   try {
     while (shouldContinueLoop(params)) {
       if (!isActiveLoop(params)) return;
+      if (params.isPaused()) {
+        markSessionLoop(params.loopId, { phase: 'paused' });
+        await sleep(120);
+        continue;
+      }
       if (params.onCommitSettled && !params.onCommitSettled()) {
         markSessionLoop(params.loopId, { phase: 'waiting_commit' });
         await sleep(80);
