@@ -20,6 +20,7 @@ import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
 import StatChipRow from '../components/common/StatChipRow';
+import { PAPER_SURFACE_VARIANTS, type PaperSurfaceVariant } from '../types/artifactAppearance';
 
 function buildPageSx() {
   return { p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 960, mx: 'auto' };
@@ -63,6 +64,22 @@ function buildDataChips(language: string) {
 
 function buildAboutChips() {
   return ['v1.0.0'];
+}
+
+function getPaperVariantLabel(variant: PaperSurfaceVariant, language: string) {
+  const zh: Record<PaperSurfaceVariant, string> = {
+    lined: '横线纸',
+    plain: '素纸',
+    letter: '信纸',
+    night: '夜色',
+  };
+  const en: Record<PaperSurfaceVariant, string> = {
+    lined: 'Lined',
+    plain: 'Plain',
+    letter: 'Letter',
+    night: 'Night',
+  };
+  return language.startsWith('zh') ? zh[variant] : en[variant];
 }
 
 export default function SettingsPage() {
@@ -212,6 +229,14 @@ export default function SettingsPage() {
               <ToggleButtonGroup value={settings.language} exclusive onChange={(_, v) => v && handleLanguageChange(v)} size="small" sx={buildToggleGroupSx()}>
                 <ToggleButton value="zh">中文</ToggleButton>
                 <ToggleButton value="en">English</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '信件背景' : 'Letter background'}</Typography>
+              <ToggleButtonGroup value={settings.artifactAppearance.paperVariant} exclusive onChange={(_, v) => v && settings.setArtifactAppearance({ paperVariant: v })} size="small" sx={buildToggleGroupSx()}>
+                {PAPER_SURFACE_VARIANTS.map((variant) => (
+                  <ToggleButton key={variant} value={variant}>{getPaperVariantLabel(variant, i18n.language)}</ToggleButton>
+                ))}
               </ToggleButtonGroup>
             </Box>
             <Box sx={{ display: 'grid', gap: 1 }}>

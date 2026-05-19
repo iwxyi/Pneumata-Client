@@ -71,6 +71,7 @@ import { buildBubblePreview, cloneBubbleStyle, createCharacterBubbleStyleId, res
 import type { CharacterVisualIdentity, CharacterVisualReferenceImage } from '../../types/character';
 import MarkdownText from '../common/MarkdownText';
 import PaperSurface from '../common/PaperSurface';
+import type { PaperSurfaceVariant } from '../../types/artifactAppearance';
 
 function getDiaryEntriesSorted<T extends { dateKey?: string | null; createdAt: number }>(entries: T[]) {
   return entries
@@ -135,7 +136,7 @@ function getWeekDays(date: Date) {
   });
 }
 
-function CharacterDiaryReader({ entries, language }: { entries: CharacterArtifactEntry[]; language: string }) {
+function CharacterDiaryReader({ entries, language, paperVariant }: { entries: CharacterArtifactEntry[]; language: string; paperVariant: PaperSurfaceVariant }) {
   const isZh = language.startsWith('zh');
   const datedEntries = useMemo(() => getDiaryEntriesSorted(entries), [entries]);
   const entriesByDate = useMemo(() => {
@@ -280,11 +281,11 @@ function CharacterDiaryReader({ entries, language }: { entries: CharacterArtifac
       </Box>
 
       <Box sx={{ position: 'relative', minHeight: 360 }}>
-        <PaperSurface minHeight={360}>
+        <PaperSurface variant={paperVariant} minHeight={360}>
           <Box className="paper-surface-content" sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1.5, mb: 1.5 }}>
             <Box sx={{ minWidth: 0 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 850, color: '#2f2a21' }}>{selectedEntry?.title || (isZh ? '日记' : 'Diary')}</Typography>
-              <Typography variant="caption" sx={{ color: 'rgba(47, 42, 33, 0.62)' }}>{selectedEntry?.dateKey}</Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 850 }}>{selectedEntry?.title || (isZh ? '日记' : 'Diary')}</Typography>
+              <Typography className="paper-surface-muted" variant="caption">{selectedEntry?.dateKey}</Typography>
             </Box>
             <Chip size="small" variant="outlined" label={`${selectedIndex >= 0 ? datedEntries.length - selectedIndex : 1}/${datedEntries.length}${isZh ? '篇' : ''}`} sx={{ bgcolor: 'rgba(255,255,255,0.55)' }} />
           </Box>
@@ -1569,7 +1570,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>{i18n.language.startsWith('zh') ? '自动日记' : 'Auto diary'}</Typography>
             </Box>
-            <CharacterDiaryReader entries={diaryEntries} language={i18n.language} />
+            <CharacterDiaryReader entries={diaryEntries} language={i18n.language} paperVariant={settings.artifactAppearance.paperVariant} />
           </CardContent>
         </Card>
       ) : null}

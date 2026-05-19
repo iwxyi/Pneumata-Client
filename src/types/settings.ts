@@ -1,4 +1,6 @@
 import type { RuntimeEvolutionIntensity } from './chat';
+import type { ArtifactAppearanceSettings } from './artifactAppearance';
+import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS } from './artifactAppearance';
 
 export type AIProvider = 'openai' | 'anthropic' | 'google' | 'xai' | 'deepseek' | 'alibaba' | 'zhipu' | 'moonshot' | 'minimax' | 'bytedance' | 'microsoft' | 'custom';
 export type AIModelType = 'text' | 'image' | 'audio' | 'document';
@@ -333,6 +335,7 @@ export interface AppSettings {
   developerUI: DeveloperUIPrefs;
   chatDraftDefaults: ChatDraftDefaults;
   customBubbleStyles: BubbleStyleDefinition[];
+  artifactAppearance: ArtifactAppearanceSettings;
 }
 
 export const DEFAULT_DEVELOPER_UI_PREFS: DeveloperUIPrefs = {
@@ -456,5 +459,6 @@ export const DEFAULT_SETTINGS: AppSettingsWithMemory = {
   developerUI: DEFAULT_DEVELOPER_UI_PREFS,
   chatDraftDefaults: DEFAULT_CHAT_DRAFT_DEFAULTS,
   customBubbleStyles: [],
+  artifactAppearance: DEFAULT_ARTIFACT_APPEARANCE_SETTINGS,
   memoryUI: { showDeveloperMemory: false },
 };

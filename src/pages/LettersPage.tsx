@@ -7,8 +7,10 @@ import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useCharacterArtifactStore, type CharacterArtifactEntry } from '../stores/useCharacterArtifactStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import MarkdownText from '../components/common/MarkdownText';
 import PaperSurface from '../components/common/PaperSurface';
+import type { PaperSurfaceVariant } from '../types/artifactAppearance';
 
 type LettersTab = 'letters' | 'diary';
 
@@ -69,11 +71,13 @@ function ArtifactCalendarReader({
   tab,
   language,
   characterNameMap,
+  paperVariant,
 }: {
   items: CharacterArtifactEntry[];
   tab: LettersTab;
   language: string;
   characterNameMap: Map<string, string>;
+  paperVariant: PaperSurfaceVariant;
 }) {
   const isZh = language.startsWith('zh');
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id || null);
@@ -177,11 +181,11 @@ function ArtifactCalendarReader({
       </Box>
 
       <Box sx={{ position: 'relative', minHeight: 260, px: { xs: 4.5, sm: 6, lg: 7 } }}>
-        <PaperSurface minHeight={260} sx={selectedItem?.unread ? { outline: '1px solid rgba(244, 67, 54, 0.18)' } : undefined}>
+        <PaperSurface variant={paperVariant} minHeight={260} sx={selectedItem?.unread ? { outline: '1px solid rgba(244, 67, 54, 0.18)' } : undefined}>
             <Box className="paper-surface-content" sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'flex-start', mb: 0.5 }}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{selectedItem?.title}</Typography>
-                <Typography variant="caption" sx={{ color: 'rgba(47, 42, 33, 0.62)' }}>
+                <Typography className="paper-surface-muted" variant="caption">
                   {characterNameMap.get(selectedItem?.characterId || '') || selectedItem?.characterName} · {formatDateLabel(selectedItem ? getEntryDateKey(selectedItem) : null, language)}
                 </Typography>
               </Box>
@@ -209,6 +213,7 @@ export default function LettersPage() {
   const items = useCharacterArtifactStore((state) => state.items);
   const unreadLetterCount = useCharacterArtifactStore((state) => state.unreadLetterCount);
   const markLettersRead = useCharacterArtifactStore((state) => state.markLettersRead);
+  const paperVariant = useSettingsStore((state) => state.artifactAppearance.paperVariant);
   const [tab, setTab] = useState<LettersTab>('letters');
   const [characterFilter, setCharacterFilter] = useState('all');
 
@@ -261,7 +266,7 @@ export default function LettersPage() {
           </FormControl>
         </Box>
 
-        <ArtifactCalendarReader items={visibleItems} tab={tab} language={i18n.language} characterNameMap={characterNameMap} />
+        <ArtifactCalendarReader items={visibleItems} tab={tab} language={i18n.language} characterNameMap={characterNameMap} paperVariant={paperVariant} />
       </Stack>
     </Box>
   );

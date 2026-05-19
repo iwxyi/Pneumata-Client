@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AppSettingsWithMemory, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults, DeveloperUIPrefs, AvatarGenerationSettings } from '../types/settings';
+import type { ArtifactAppearanceSettings } from '../types/artifactAppearance';
 
 type AppSettings = AppSettingsWithMemory;
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
 import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
+import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS, PAPER_SURFACE_VARIANTS } from '../types/artifactAppearance';
 import { api } from '../services/api';
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateSettingsStoreState } from './storeMigrations';
@@ -31,6 +33,7 @@ interface SettingsStore extends AppSettings {
   setDefaultSpeed: (speed: number) => void;
   setChatDraftDefaults: (defaults: Partial<ChatDraftDefaults>) => void;
   setCustomBubbleStyles: (styles: BubbleStyleDefinition[]) => void;
+  setArtifactAppearance: (appearance: Partial<ArtifactAppearanceSettings>) => void;
   resetSettings: () => void;
 }
 
@@ -95,6 +98,7 @@ function buildSettingsPayload(state: AppSettings) {
     avatarGeneration: state.avatarGeneration,
     developerUI: state.developerUI,
     memoryUI: state.memoryUI,
+    artifactAppearance: state.artifactAppearance,
   };
 }
 
@@ -126,6 +130,13 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
       runtimeEvolutionIntensity: state.chatDraftDefaults?.runtimeEvolutionIntensity || DEFAULT_CHAT_DRAFT_DEFAULTS.runtimeEvolutionIntensity,
     },
     customBubbleStyles: Array.isArray(state.customBubbleStyles) ? state.customBubbleStyles : [],
+    artifactAppearance: {
+      ...DEFAULT_ARTIFACT_APPEARANCE_SETTINGS,
+      ...(state.artifactAppearance || {}),
+      paperVariant: PAPER_SURFACE_VARIANTS.includes(state.artifactAppearance?.paperVariant || 'lined')
+        ? state.artifactAppearance?.paperVariant || DEFAULT_ARTIFACT_APPEARANCE_SETTINGS.paperVariant
+        : DEFAULT_ARTIFACT_APPEARANCE_SETTINGS.paperVariant,
+    },
   };
 }
 
@@ -176,6 +187,7 @@ export const useSettingsStore = create<SettingsStore>()(
                 ...((settings.chatDraftDefaults || DEFAULT_CHAT_DRAFT_DEFAULTS) as ChatDraftDefaults),
               },
               customBubbleStyles: settings.customBubbleStyles as BubbleStyleDefinition[] | undefined,
+              artifactAppearance: (settings as { artifactAppearance?: ArtifactAppearanceSettings }).artifactAppearance,
             }),
             _loaded: true,
             lastSyncedAt: Date.now(),
@@ -382,6 +394,21 @@ export const useSettingsStore = create<SettingsStore>()(
         });
       },
 
+      setArtifactAppearance: (artifactAppearance) => {
+        set((state) => {
+          const next = {
+            ...state,
+            artifactAppearance: {
+              ...state.artifactAppearance,
+              ...artifactAppearance,
+            },
+            lastSyncedAt: Date.now(),
+          };
+          syncToServer(buildSettingsPayload(next), set);
+          return next;
+        });
+      },
+
       resetSettings: () => {
         const next = { ...(syncState(DEFAULT_SETTINGS) as SettingsStore), lastSyncedAt: Date.now() };
         set(next);
@@ -405,6 +432,7 @@ export const useSettingsStore = create<SettingsStore>()(
         memoryUI: state.memoryUI,
         chatDraftDefaults: state.chatDraftDefaults,
         customBubbleStyles: state.customBubbleStyles,
+        artifactAppearance: state.artifactAppearance,
       }),
       merge: (persistedState, currentState) => ({
         ...currentState,
