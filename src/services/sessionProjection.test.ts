@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { openChatEngine } from './engines/openChatEngine';
-import { createProjectionContext, projectRuntimeState, projectActionSchema } from './sessionProjection';
+import { createProjectionContext, projectRuntimeState, projectActionSchema, projectRecentInteractionItems } from './sessionProjection';
 import { normalizeConversation } from '../types/chat';
 
 function buildChat() {
@@ -60,6 +60,56 @@ describe('sessionProjection', () => {
     const timeline = projectRuntimeState(chat, createProjectionContext(chat, openChatEngine.buildParticipants(chat), 'a', 'pair_private')).runtimeTimeline;
     const candidate = timeline.find((item) => item.event?.kind === 'event_candidate');
     expect(candidate?.meta?.socialEventCandidate?.eventKind).toBe('pair_private_thread');
+  });
+
+  it('projects recent interactions by conversation turn instead of raw relationship event slots', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'interaction-old',
+        conversationId: 'chat-1',
+        kind: 'interaction',
+        createdAt: 100,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '甲 → 乙 · 旧互动',
+        visibility: 'public',
+        payload: { kind: 'challenge', actorId: 'a', targetId: 'b', intensity: 3, tone: 'annoyed', evidenceText: '旧互动', confidence: 0.9 },
+      }, {
+        id: 'relationship-old',
+        conversationId: 'chat-1',
+        kind: 'relationship_delta',
+        createdAt: 101,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '甲→乙 旧关系变化',
+        visibility: 'public',
+        payload: { actorId: 'a', targetId: 'b', reason: 'challenge', delta: { trust: -1 } },
+      }, {
+        id: 'interaction-new',
+        conversationId: 'chat-1',
+        kind: 'interaction',
+        createdAt: 200,
+        actorIds: ['b'],
+        targetIds: ['a'],
+        summary: '乙 → 甲 · 新互动',
+        visibility: 'public',
+        payload: { kind: 'support', actorId: 'b', targetId: 'a', intensity: 4, tone: 'warm', evidenceText: '新互动', confidence: 0.95 },
+      }, {
+        id: 'relationship-new',
+        conversationId: 'chat-1',
+        kind: 'relationship_delta',
+        createdAt: 201,
+        actorIds: ['b'],
+        targetIds: ['a'],
+        summary: '乙→甲 新关系变化',
+        visibility: 'public',
+        payload: { actorId: 'b', targetId: 'a', reason: 'support', delta: { warmth: 2 } },
+      }],
+    });
+
+    const recent = projectRecentInteractionItems(chat);
+    expect(recent.map((item) => item.event?.id)).toEqual(['interaction-new', 'interaction-old']);
   });
 
   it('preserves social event artifact metadata in projected timeline', () => {

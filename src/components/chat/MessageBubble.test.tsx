@@ -15,7 +15,7 @@ describe('MessageBubble event rendering', () => {
       },
     });
 
-    expect(text).toBe('LLM角色蒸馏');
+    expect(text).toBe('LLM角色蒸馏 · 甲');
   });
 
   it('formats local memory distillation titles distinctly from LLM distillation', () => {
@@ -51,7 +51,27 @@ describe('MessageBubble event rendering', () => {
     });
 
     expect(meta?.candidateTexts).toEqual([
-      '群聊稳定关系趋势：灰太狼→沸羊羊 支持：灰太狼 → 沸羊羊 · 哟，沸羊羊你今天站我这边了？',
+      '群聊稳定关系趋势：支持：灰太狼 → 沸羊羊 · 哟，沸羊羊你今天站我这边了？',
+    ]);
+  });
+
+  it('removes raw relationship ids from distillation candidate text', () => {
+    const meta = buildMemoryDistillationMeta({
+      metrics: {
+        ownerType: 'character',
+        ownerLabel: '角色：灰太狼',
+        sourceLabel: '本地蒸馏',
+        reasonLabel: '已完成本地蒸馏',
+        mergeModeLabel: '同 bucket 强化合并',
+        newEvidenceCount: 4,
+        candidateTexts: [
+          '对人长期判断：对 257eb99a-9f5f-48b2-be44-7e98395aa8ba 的关系倾向：表现出挑衅；证据是近期发言“你好” / 19b22fbd-9d0c-45',
+        ],
+      },
+    });
+
+    expect(meta?.candidateTexts).toEqual([
+      '表现出挑衅；证据是近期发言“你好”',
     ]);
   });
 

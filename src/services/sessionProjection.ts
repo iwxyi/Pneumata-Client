@@ -222,6 +222,45 @@ function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: N
   return legacyTimeline.map<ProjectedRuntimeTimelineItem>((item) => ({ type: item.type, text: replaceIdsWithNames(item.text, participantNameMap), createdAt: item.createdAt, label: item.type, event: null, actorNames: [], targetNames: [] }));
 }
 
+function buildInteractionPairKey(item: ProjectedRuntimeTimelineItem) {
+  const actor = item.event?.actorIds?.[0] || item.actorNames?.[0] || '';
+  const target = item.event?.targetIds?.[0] || item.targetNames?.[0] || '';
+  return `${actor}->${target}`;
+}
+
+function isSameInteractionWindow(left: ProjectedRuntimeTimelineItem, right: ProjectedRuntimeTimelineItem) {
+  return (
+    buildInteractionPairKey(left) === buildInteractionPairKey(right)
+    && Math.abs((left.createdAt || 0) - (right.createdAt || 0)) < 5000
+  );
+}
+
+function isDuplicateRelationshipDelta(item: ProjectedRuntimeTimelineItem, selected: ProjectedRuntimeTimelineItem[], candidates: ProjectedRuntimeTimelineItem[]) {
+  const key = buildInteractionPairKey(item);
+  return selected.some((candidate) => candidate.event?.kind === 'interaction' && isSameInteractionWindow(candidate, item))
+    || candidates.some((candidate) => candidate.event?.kind === 'interaction' && buildInteractionPairKey(candidate) === key && isSameInteractionWindow(candidate, item));
+}
+
+export function projectRecentInteractionItems(
+  chat: GroupChat,
+  participants: Array<AICharacter | ParticipantInstance> = [],
+  limit = 2,
+) {
+  const selected: ProjectedRuntimeTimelineItem[] = [];
+  const candidates = projectRuntimeTimeline(chat, participants)
+    .filter((item) => item.event?.kind === 'interaction' || item.event?.kind === 'relationship_delta')
+    .slice()
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  for (const item of candidates) {
+    if (item.event?.kind === 'relationship_delta' && isDuplicateRelationshipDelta(item, selected, candidates)) continue;
+    selected.push(item);
+    if (selected.length >= limit) break;
+  }
+
+  return selected;
+}
+
 function latestStructuredEvent(events: RuntimeEventV2[]) {
   return events.length ? events[events.length - 1] : null;
 }

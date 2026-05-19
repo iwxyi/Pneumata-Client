@@ -1,40 +1,26 @@
 import { useMemo, useState } from 'react';
-import { Box, Chip, Dialog, DialogContent, DialogTitle, Stack, Typography, Button } from '@mui/material';
+import { Box, Chip, Stack, Typography } from '@mui/material';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import StatChipRow from '../common/StatChipRow';
 import PageSection from '../common/PageSection';
 import PrivatePayloadPanel from '../session/PrivatePayloadPanel';
-import { retrieveRelevantMemories } from '../../services/memoryRetrieval';
 import type { MemoryItem } from '../../services/memoryTypes';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
-import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../../types/runtimeEvent';
-import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
+import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { sanitizeDistillationTexts } from '../../services/distillationText';
 import DialogueDebugPanel from './DialogueDebugPanel';
-import { projectRuntimeTimeline, type ProjectedRuntimeTimelineItem } from '../../services/sessionProjection';
-import { RelationshipRadar } from '../controls/RelationshipPanel';
-import { normalizeRelationshipLedgerEntry } from '../../services/relationshipLedger';
+import { projectRecentInteractionItems, projectRuntimeTimeline, type ProjectedRuntimeTimelineItem } from '../../services/sessionProjection';
 import { formatConflictHookLabels, formatConflictPressureLabel, formatConflictStageLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
+import LayeredMemoryPanel from '../memory/LayeredMemoryPanel';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
   members: AICharacter[];
   privatePayloads?: Array<{ key: string; title: string; text: string }>;
 }
-
-type PairSummary = {
-  key: string;
-  source: string;
-  target: string;
-  score: number;
-  note: string;
-  relation: { warmth: number; competence: number; trust: number; threat: number };
-  derived?: { stability?: number; reciprocity?: number; salience?: number };
-  ledgerEntry: RelationshipLedgerEntry;
-};
 
 function cleanText(text: string) {
   return text
@@ -46,6 +32,31 @@ function cleanText(text: string) {
     .trim();
 }
 
+function buildChatMemoryTextFormatter(members: AICharacter[]) {
+  const knownIds = members
+    .map((member) => ({ id: member.id, name: member.name || '成员' }))
+    .filter((item) => item.id);
+  return (text: string) => {
+    let next = cleanText(text);
+    knownIds.forEach(({ id, name }) => {
+      next = next.replace(new RegExp(id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), name);
+    });
+    next = next
+      .replace(/([^\s：/]+→[^\s：/]+)\s+((?:支持|维护|挑战|嘲讽|轻视|追问)：)/g, '$2')
+      .replace(/(群聊(?:稳定关系趋势|长期拉扯主轴)：)[^：/]+?\s+((?:支持|维护|挑战|嘲讽|轻视|追问)：)/g, '$1$2')
+      .replace(/[0-9a-f]{8}(?:-[0-9a-f]{4}){0,4}(?:-[0-9a-f]{0,12})?/gi, '')
+      .replace(/\s*→\s*(?=(?:支持|维护|挑战|嘲讽|轻视|追问)：)/g, '')
+      .replace(/(?:^|：)\s*→\s*/g, (match) => match.startsWith('：') ? '：' : '')
+      .replace(/\s*\/\s*(?=\/|$)/g, '')
+      .replace(/\/\s*\/+/g, '/')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/：\s+/g, '：')
+      .replace(/\s+([，。！？、；：])/g, '$1')
+      .trim();
+    return next || cleanText(text);
+  };
+}
+
 function clip(text: string, max = 64) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
@@ -53,20 +64,6 @@ function clip(text: string, max = 64) {
 function formatSigned(value: number | undefined) {
   const safeValue = typeof value === 'number' && Number.isFinite(value) ? value : 0;
   return `${safeValue > 0 ? '+' : ''}${Math.round(safeValue)}`;
-}
-
-function formatPairLabel(source: string, target: string) {
-  return `${source} ↔ ${target}`;
-}
-
-function buildPairStatus(score: number) {
-  if (score >= 25) return `升温 ${Math.round(score)}`;
-  if (score <= -15) return `紧张 ${Math.abs(Math.round(score))}`;
-  return '有波动';
-}
-
-function pairStatusColor(score: number) {
-  return score >= 0 ? 'success' as const : 'warning' as const;
 }
 
 function readSocialEventClusterMeta(item: ProjectedRuntimeTimelineItem) {
@@ -236,9 +233,7 @@ function buildNaturalInteractionSummary(item: ProjectedRuntimeTimelineItem) {
 }
 
 function buildRecentInteractionSummary(chat: GroupChat, members: AICharacter[]) {
-  const interactions = projectRuntimeTimeline(chat, members)
-    .filter((item) => item.event?.kind === 'interaction' || item.event?.kind === 'relationship_delta')
-    .slice(-2);
+  const interactions = projectRecentInteractionItems(chat, members, 2);
   if (!interactions.length) return null;
   const [primary, secondary] = interactions;
   const primaryText = buildNaturalInteractionSummary(primary);
@@ -352,31 +347,55 @@ function buildTargetPressureState(chat: GroupChat, members: AICharacter[]) {
   return { rows, text, chips };
 }
 
-function buildConflictRows(chat: GroupChat, members: AICharacter[]) {
-  const conflict = chat.worldState.conflictState?.primaryConflict;
-  if (!conflict) return [] as Array<{ key: string; label: string; value: string }>;
+type DisplayConflict = NonNullable<NonNullable<GroupChat['worldState']['conflictState']>['primaryConflict']>;
+
+function resolveDisplayConflicts(chat: GroupChat): DisplayConflict[] {
+  const primary = chat.worldState.conflictState?.primaryConflict || null;
+  const active = chat.worldState.conflictState?.activeConflicts || [];
+  const byId = new Map<string, DisplayConflict>();
+  [primary, ...active].forEach((conflict) => {
+    if (!conflict) return;
+    byId.set(conflict.id, conflict);
+  });
+  return Array.from(byId.values()).sort((a, b) => {
+    if (primary?.id === a.id) return -1;
+    if (primary?.id === b.id) return 1;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  });
+}
+
+function resolveDisplayConflict(chat: GroupChat): DisplayConflict | null {
+  return resolveDisplayConflicts(chat)[0] || null;
+}
+
+function resolveLegacyConflictTimelineItems(chat: GroupChat) {
+  return (chat.runtimeTimeline || [])
+    .filter((item) => item.type === 'note' && /矛盾焦点|抓住了一个矛盾点/.test(item.text))
+    .slice(-4)
+    .reverse();
+}
+
+function buildConflictRows(conflict: DisplayConflict, members: AICharacter[], prefix = 'conflict') {
   const participantNames = (conflict.participantIds || []).map((id) => members.find((item) => item.id === id)?.name || id).join('、');
   const targetNames = (conflict.targetIds || []).map((id) => members.find((item) => item.id === id)?.name || id).join('、');
   const hookLabels = formatConflictHookLabels(conflict.developmentHooks);
   return [
-    { key: 'conflict-type', label: '矛盾类型', value: formatConflictTypeLabel(conflict.type) },
-    { key: 'conflict-stage', label: '阶段', value: `${formatConflictStageLabel(conflict.stage)} · 强度 ${conflict.severity.toFixed(2)}` },
-    { key: 'conflict-summary', label: '摘要', value: conflict.summary },
-    ...(participantNames ? [{ key: 'conflict-participants', label: '参与者', value: participantNames }] : []),
-    ...(targetNames ? [{ key: 'conflict-targets', label: '目标', value: targetNames }] : []),
-    ...(conflict.nextPressure ? [{ key: 'conflict-pressure', label: '推荐走向', value: formatConflictPressureLabel(conflict.nextPressure) }] : []),
-    ...(hookLabels.length ? [{ key: 'conflict-hooks', label: '发展建议', value: hookLabels.join(' / ') }] : []),
+    { key: `${prefix}-summary`, label: '摘要', value: conflict.summary },
+    ...(participantNames ? [{ key: `${prefix}-participants`, label: '参与者', value: participantNames }] : []),
+    ...(targetNames ? [{ key: `${prefix}-targets`, label: '目标', value: targetNames }] : []),
+    ...(conflict.nextPressure ? [{ key: `${prefix}-pressure`, label: '推荐走向', value: formatConflictPressureLabel(conflict.nextPressure) }] : []),
+    ...(hookLabels.length ? [{ key: `${prefix}-hooks`, label: '发展建议', value: hookLabels.join(' / ') }] : []),
   ];
 }
 
 function buildConflictOverviewSummary(chat: GroupChat) {
-  const conflict = chat.worldState.conflictState?.primaryConflict;
-  if (!conflict) return null;
+  const conflict = resolveDisplayConflict(chat);
+  if (!conflict) return cleanText(resolveLegacyConflictTimelineItems(chat)[0]?.text || '') || null;
   return cleanText(`${formatConflictTypeLabel(conflict.type)} / ${formatConflictStageLabel(conflict.stage)} / ${conflict.summary}`);
 }
 
 function hasConflictState(chat: GroupChat) {
-  return Boolean(chat.worldState.conflictState?.primaryConflict);
+  return Boolean(resolveDisplayConflict(chat) || resolveLegacyConflictTimelineItems(chat).length);
 }
 
 function buildConflictCardTone() {
@@ -388,19 +407,9 @@ function buildConflictCardBorder() {
 }
 
 function buildConflictStatLine(chat: GroupChat) {
-  const conflict = chat.worldState.conflictState?.primaryConflict;
+  const conflict = resolveDisplayConflict(chat);
   if (!conflict) return null;
   return `波动 ${Math.round((chat.worldState.conflictState?.volatility || 0) * 100)} / 冷却 ${Math.round((chat.worldState.conflictState?.cooling || 0) * 100)}`;
-}
-
-function buildConflictDeveloperRows(chat: GroupChat) {
-  const conflict = chat.worldState.conflictState;
-  if (!conflict?.activeConflicts?.length) return [] as Array<{ key: string; label: string; value: string }>;
-  return conflict.activeConflicts.map((item, index) => ({
-    key: `active-conflict-${index}`,
-    label: `支线 ${index + 1} · ${formatConflictTypeLabel(item.type)} · ${formatConflictStageLabel(item.stage)}`,
-    value: cleanText(item.summary),
-  }));
 }
 
 function buildConflictSectionSubtitle(chat: GroupChat, isDeveloperView: boolean) {
@@ -410,33 +419,13 @@ function buildConflictSectionSubtitle(chat: GroupChat, isDeveloperView: boolean)
   return base ? `${base} · 活跃矛盾 ${count}` : `活跃矛盾 ${count}`;
 }
 
-function buildConflictSectionRows(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean) {
-  return buildConflictRowsForDisplay(chat, members, isDeveloperView);
-}
-
-function buildConflictSectionSummary(chat: GroupChat) {
-  return buildConflictSummaryText(chat);
-}
-
-function shouldShowConflictSectionSummary(isDeveloperView: boolean) {
-  return isDeveloperView;
-}
-
-function renderConflictSectionSummary(summary: string | null, isDeveloperView: boolean) {
-  return summary && shouldShowConflictSectionSummary(isDeveloperView) ? <Typography variant="caption" color="text.secondary">{summary}</Typography> : null;
-}
-
-function buildConflictSectionStatItems(chat: GroupChat, summary: string | null) {
-  return !summary ? buildConflictStatItems(chat) : [];
-}
-
-function renderConflictSectionStats(chat: GroupChat, summary: string | null) {
-  const items = buildConflictSectionStatItems(chat, summary);
+function renderConflictSectionStats(chat: GroupChat) {
+  const items = buildConflictStatItems(chat);
   return items.length ? <StatChipRow items={items} /> : null;
 }
 
 function conflictRowShouldBeVisible(row: { key: string }, isDeveloperView: boolean) {
-  return isDeveloperView || row.key !== 'conflict-summary';
+  return isDeveloperView || !row.key.endsWith('-summary');
 }
 
 function buildConflictVisibleRows(rows: Array<{ key: string; label: string; value: string }>, isDeveloperView: boolean) {
@@ -452,9 +441,33 @@ function renderConflictVisibleRows(rows: Array<{ key: string; label: string; val
   ));
 }
 
-function renderConflictRowsOrEmpty(rows: Array<{ key: string; label: string; value: string }>, isDeveloperView: boolean) {
-  const visibleRows = buildConflictVisibleRows(rows, isDeveloperView);
-  return visibleRows.length ? renderConflictVisibleRows(rows, isDeveloperView) : <Typography variant="body2">{buildConflictEmptyText()}</Typography>;
+function buildConflictCardTitle(conflict: DisplayConflict, index: number, primaryConflictId?: string | null) {
+  const prefix = conflict.id === primaryConflictId ? '主线' : `支线 ${index + 1}`;
+  return `${prefix} · ${formatConflictTypeLabel(conflict.type)} · ${formatConflictStageLabel(conflict.stage)}`;
+}
+
+function renderConflictCards(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean) {
+  const conflicts = resolveDisplayConflicts(chat);
+  const primaryConflictId = chat.worldState.conflictState?.primaryConflict?.id || null;
+  const structuredCards = conflicts.map((conflict, index) => {
+    const rows = buildConflictVisibleRows(buildConflictRows(conflict, members, `conflict-${conflict.id}`), isDeveloperView);
+    if (!rows.length) return null;
+    return (
+      <Box key={conflict.id} sx={{ p: 1, borderRadius: 2, ...buildConflictCardStyle() }}>
+        <Typography variant="caption" color="text.secondary">{buildConflictCardTitle(conflict, index, primaryConflictId)}</Typography>
+        <Stack spacing={0.7} sx={{ mt: 0.75 }}>
+          {renderConflictVisibleRows(rows, isDeveloperView)}
+        </Stack>
+      </Box>
+    );
+  }).filter(Boolean);
+  if (structuredCards.length) return structuredCards;
+  return resolveLegacyConflictTimelineItems(chat).map((item, index) => (
+    <Box key={`legacy-conflict-${item.createdAt}-${index}`} sx={{ p: 1, borderRadius: 2, ...buildConflictCardStyle() }}>
+      <Typography variant="caption" color="text.secondary">矛盾焦点 · 记录</Typography>
+      <Typography variant="body2" sx={{ mt: 0.5, whiteSpace: 'pre-wrap' }}>{cleanText(item.text)}</Typography>
+    </Box>
+  ));
 }
 
 function buildConflictSectionAction(chat: GroupChat, isDeveloperView: boolean) {
@@ -464,15 +477,14 @@ function buildConflictSectionAction(chat: GroupChat, isDeveloperView: boolean) {
 
 function renderConflictSection(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean) {
   if (!buildConflictSectionVisible(chat, isDeveloperView)) return null;
-  const rows = buildConflictSectionRows(chat, members, isDeveloperView);
-  const summary = buildConflictSectionSummary(chat);
+  const cards = renderConflictCards(chat, members, isDeveloperView);
+  if (!cards.length) return null;
   return (
     <SurfaceCard>
       <SectionHeader title={buildConflictSectionTitle()} subtitle={buildConflictSectionSubtitle(chat, isDeveloperView)} dense action={buildConflictSectionAction(chat, isDeveloperView)} />
       <Stack spacing={0.8}>
-        {renderConflictRowsOrEmpty(rows, isDeveloperView)}
-        {renderConflictSectionSummary(summary, isDeveloperView)}
-        {renderConflictSectionStats(chat, summary)}
+        {cards}
+        {renderConflictSectionStats(chat)}
       </Stack>
     </SurfaceCard>
   );
@@ -483,10 +495,6 @@ function buildConflictHeaderSubtitle(chat: GroupChat) {
   return statLine || '当前无矛盾焦点';
 }
 
-function buildConflictEmptyText() {
-  return '当前无显性矛盾焦点';
-}
-
 function buildConflictSectionTitle() {
   return '矛盾焦点';
 }
@@ -495,21 +503,13 @@ function buildConflictDebugBadge() {
   return <Chip size="small" label="冲突" color="error" variant="outlined" />;
 }
 
-function buildConflictRowsForDisplay(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean) {
-  return isDeveloperView ? [...buildConflictRows(chat, members), ...buildConflictDeveloperRows(chat)] : buildConflictRows(chat, members);
-}
-
-function buildConflictSummaryText(chat: GroupChat) {
-  return buildConflictOverviewSummary(chat);
-}
-
 function buildConflictStatItems(chat: GroupChat) {
   const statLine = buildConflictStatLine(chat);
   return statLine ? [statLine] : [];
 }
 
-function buildConflictSectionVisible(chat: GroupChat, isDeveloperView: boolean) {
-  return hasConflictState(chat) || isDeveloperView;
+function buildConflictSectionVisible(chat: GroupChat, _isDeveloperView: boolean) {
+  return hasConflictState(chat);
 }
 
 function buildConflictDeveloperSubtitle(chat: GroupChat) {
@@ -517,7 +517,7 @@ function buildConflictDeveloperSubtitle(chat: GroupChat) {
 }
 
 function buildConflictDetailCount(chat: GroupChat) {
-  return chat.worldState.conflictState?.activeConflicts?.length || 0;
+  return resolveDisplayConflicts(chat).length || resolveLegacyConflictTimelineItems(chat).length;
 }
 
 function buildConflictDetailLabel(chat: GroupChat) {
@@ -557,141 +557,12 @@ function buildConflictNodes(chat: GroupChat, members: AICharacter[], isDeveloper
   };
 }
 
-function buildPairSummaries(chat: GroupChat, members: AICharacter[], isDeveloperView: boolean): PairSummary[] {
-  return buildPresentedRelationshipLedger(chat, members)
-    .map((item) => ({
-      key: item.key,
-      source: item.actorName,
-      target: item.targetName,
-      score: item.score,
-      note: item.evidence || '暂无最新证据',
-      relation: item.entry.current,
-      derived: item.entry.derived,
-      ledgerEntry: item.entry,
-    }))
-    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
-    .slice(0, isDeveloperView ? 4 : 3);
-}
-
-function buildVisibleMemories(chat: GroupChat, isDeveloperView: boolean) {
-  const all = retrieveRelevantMemories((chat.layeredMemories || []) as MemoryItem[], {
-    speakerId: chat.memberIds[0] || chat.id,
-    targetId: chat.memberIds[1] || null,
-    conversationId: chat.id,
-    maxItems: isDeveloperView ? 6 : 3,
-    preferredLayers: ['working', 'episodic', 'long_term'],
-    preferredScopes: ['relationship', 'conversation', 'thread', 'character_self', 'system_runtime'],
-    preferredSourceTags: ['group_relationship_shift', 'interaction', 'relationship_delta', 'room_shift', 'private_thread_effect', 'private_thread_summary'],
-    relationshipBoost: true,
-    selfMemoryBoost: true,
-    conversationBoost: true,
-  });
-  return isDeveloperView ? all : all.filter((item: MemoryItem) => item.layer !== 'working').slice(0, 8);
-}
-
-function buildChatMemoryGroups(chat: GroupChat) {
-  const items = (chat.layeredMemories || []) as MemoryItem[];
-  return {
-    longTerm: items.filter((item) => item.layer === 'long_term'),
-    episodic: items.filter((item) => item.layer === 'episodic'),
-    working: items.filter((item) => item.layer === 'working'),
-    relationship: items.filter((item) => item.scope === 'relationship'),
-    conversation: items.filter((item) => item.scope === 'conversation'),
-    thread: items.filter((item) => item.scope === 'thread'),
-    runtime: items.filter((item) => item.scope === 'system_runtime'),
-  };
-}
-
-function buildMemoryLayerLabel(layer: MemoryItem['layer']) {
-  const labels: Record<MemoryItem['layer'], string> = { working: '即时', episodic: '阶段', long_term: '长期' };
-  return labels[layer] || layer;
-}
-
-function buildMemoryScopeLabel(scope: MemoryItem['scope']) {
-  const labels: Record<MemoryItem['scope'], string> = { conversation: '会话', character_self: '角色', relationship: '关系', thread: '线程', system_runtime: '系统' };
-  return labels[scope] || scope;
-}
-
-function buildMemoryKindLabel(kind: MemoryItem['kind']) {
-  const labels: Record<MemoryItem['kind'], string> = { decision: '决策', conflict: '冲突', bond: '连接', resentment: '芥蒂', status_shift: '状态', trait_evidence: '特征', bias: '偏向', taboo: '禁忌', obsession: '执念', artifact: '产物', thread_effect: '线程影响' };
-  return labels[kind] || kind;
-}
-
-function buildMemoryOriginLabel(origin: MemoryItem['origin']) {
-  const labels: Record<NonNullable<MemoryItem['origin']>, string> = {
-    runtime: '运行沉淀',
-    distilled: '核心蒸馏',
-    seeded: '手工种子',
-  };
-  return origin ? (labels[origin] || origin) : '运行沉淀';
-}
-
-function buildAdvancedMemoryRows(items: MemoryItem[]) {
-  return items.map((item) => ({ id: item.id, title: `${buildMemoryLayerLabel(item.layer)} · ${buildMemoryKindLabel(item.kind)}`, meta: `${buildMemoryScopeLabel(item.scope)} · ${buildMemoryOriginLabel(item.origin)} · 强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`, text: clip(cleanText(item.text), 96) }));
-}
-
-function buildMemorySummaryLine(items: MemoryItem[]) {
-  return items.slice(0, 2).map((item) => clip(cleanText(item.text), 28)).join(' / ');
-}
-
-function buildMemoryPanelState(items: MemoryItem[], expanded: boolean, isDeveloperView: boolean) {
-  const visible = isDeveloperView || items.length > 0;
-  const collapsedRows = items.slice(0, 2).map((item) => ({ id: item.id, title: `${buildMemoryLayerLabel(item.layer)} · ${buildMemoryKindLabel(item.kind)}`, text: clip(cleanText(item.text), 72) }));
-  const expandedRows = buildAdvancedMemoryRows(items);
-  const rows = expanded ? expandedRows : collapsedRows;
-  return {
-    visible,
-    canExpand: expandedRows.length > collapsedRows.length,
-    rows,
-    summary: buildMemorySummaryLine(items),
-    emptyText: '暂无明显沉淀',
-    buttonText: expanded ? (isDeveloperView ? '收起调试细节' : '收起') : (isDeveloperView ? '展开调试细节' : '查看更多'),
-    header: {
-      title: isDeveloperView ? '聊天记忆' : '记忆与成长',
-      subtitle: items.length ? (isDeveloperView ? `展示 ${items.length} 条结构化记忆（含运行沉淀与核心蒸馏）` : items.slice(0, 2).map((item) => `${buildMemoryLayerLabel(item.layer)}·${buildMemoryKindLabel(item.kind)}`).join(' / ')) : (isDeveloperView ? '暂无结构化聊天记忆' : undefined),
-    },
-  };
-}
-
-function buildMemoryPanelButtonVariant() {
-  return 'text' as const;
-}
-
-function buildMemoryPanelOpenState(isDeveloperView: boolean) {
-  return isDeveloperView;
-}
-
-function buildMemoryPanelRowMeta(item: { meta?: string; text: string; title: string }) {
-  return item.meta || null;
-}
-
-function buildMemoryPanelRowText(item: { text: string; title: string; meta?: string }) {
-  return item.text;
-}
-
-function buildMemoryPanelRowTitle(item: { title: string; text: string; meta?: string }) {
-  return item.title;
-}
-
-function PairDetailDialog({ open, onClose, pair }: { open: boolean; onClose: () => void; pair: PairSummary | null }) {
-  if (!pair) return null;
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{formatPairLabel(pair.source, pair.target)}</DialogTitle>
-      <DialogContent>
-        <Stack spacing={1.25}>
-          <Typography variant="body2">{pair.note}</Typography>
-          <RelationshipRadar entry={normalizeRelationshipLedgerEntry(pair.ledgerEntry)} onOpenAxis={() => undefined} />
-        </Stack>
-      </DialogContent>
-    </Dialog>
-  );
+function buildMemorySummaryLine(items: MemoryItem[], formatMemoryText: (text: string) => string) {
+  return items.slice(0, 2).map((item) => clip(formatMemoryText(item.text), 28)).join(' / ');
 }
 
 export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }: ChatRuntimePanelProps) {
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'note' | 'artifact' | 'relationship'>('all');
-  const [activePairKey, setActivePairKey] = useState<string | null>(null);
-  const [memoryExpanded, setMemoryExpanded] = useState(buildMemoryPanelOpenState(false));
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showSpeechStyle = useSettingsStore((state) => state.developerUI.showSpeechStyle);
@@ -700,18 +571,15 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
   const isSpeechStyleView = developerMode && showSpeechStyle;
   const isAdvancedRuntimeView = developerMode && showAdvancedRuntimePanels;
 
-  const pairSummaries = useMemo(() => buildPairSummaries(chat, members, isDeveloperView), [chat, members, isDeveloperView]);
   const roomRows = useMemo(() => buildOverviewRows(chat, members), [chat, members]);
   const roomContext = useMemo(() => buildRoomContext(chat, members), [chat, members]);
   const targetPressure = useMemo(() => buildTargetPressureState(chat, members), [chat, members]);
   const conflictState = useMemo(() => buildConflictNodes(chat, members, isDeveloperView), [chat, members, isDeveloperView]);
-  const visibleMemories = useMemo(() => buildVisibleMemories(chat, isDeveloperView), [chat, isDeveloperView]);
-  const chatMemoryGroups = useMemo(() => buildChatMemoryGroups(chat), [chat]);
+  const chatMemories = useMemo(() => (chat.layeredMemories || []) as MemoryItem[], [chat.layeredMemories]);
+  const formatChatMemoryText = useMemo(() => buildChatMemoryTextFormatter(members), [members]);
   const projectedTimeline = useMemo(() => projectRuntimeTimeline(chat, members), [chat, members]);
   const displayTimeline = useMemo(() => projectedTimeline.filter((item) => timelineFilter === 'all' ? true : timelineFilter === 'artifact' ? item.type === 'artifact' || Boolean(readSocialEventClusterMeta(item)) : item.type === timelineFilter).slice().reverse().slice(0, isDeveloperView ? 8 : 5), [projectedTimeline, timelineFilter, isDeveloperView]);
-  const activePair = pairSummaries.find((item) => item.key === activePairKey) || null;
-  const memoryPanel = buildMemoryPanelState(visibleMemories, memoryExpanded, isDeveloperView);
-  const memorySummary = memoryPanel.summary;
+  const memorySummary = buildMemorySummaryLine(chatMemories, formatChatMemoryText);
   const structureRows = [...buildScenarioRows(chat, members), ...buildBoardRows(chat)];
 
   return (
@@ -738,59 +606,9 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
           </Stack>
         </SurfaceCard>
 
-        <SurfaceCard>
-          <SectionHeader title="关系脉络" dense />
-          <Stack spacing={0.9}>
-            {pairSummaries.map((pair) => (
-              <Box key={pair.key} sx={{ p: 1, borderRadius: 2, bgcolor: timelineTone({ type: 'relationship', text: '', label: '', event: null } as ProjectedRuntimeTimelineItem), cursor: 'pointer' }} onClick={() => setActivePairKey(pair.key)}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{formatPairLabel(pair.source, pair.target)}</Typography>
-                  <Chip size="small" label={buildPairStatus(pair.score)} color={pairStatusColor(pair.score)} variant="outlined" />
-                </Box>
-                <Typography variant="caption" color="text.secondary">{pair.note}</Typography>
-              </Box>
-            ))}
-            {!pairSummaries.length ? <Typography variant="body2">暂无明显关系变化</Typography> : null}
-          </Stack>
-        </SurfaceCard>
-
-        <SurfaceCard>
-          <SectionHeader title={memoryPanel.header.title} subtitle={memoryPanel.header.subtitle} dense action={isDeveloperView ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
-          <Stack spacing={0.8}>
-            {memoryPanel.visible ? memoryPanel.rows.map((item) => (
-              <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
-                <Typography variant="caption" color="text.secondary">{buildMemoryPanelRowTitle(item)}</Typography>
-                {buildMemoryPanelRowMeta(item) ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{buildMemoryPanelRowMeta(item)}</Typography> : null}
-                <Typography variant="body2">{buildMemoryPanelRowText(item)}</Typography>
-              </Box>
-            )) : <Typography variant="body2">{memoryPanel.emptyText}</Typography>}
-            {memoryPanel.canExpand ? <Button size="small" variant={buildMemoryPanelButtonVariant()} onClick={() => setMemoryExpanded((prev) => !prev)}>{memoryPanel.buttonText}</Button> : null}
-          </Stack>
-        </SurfaceCard>
+        <LayeredMemoryPanel memories={chatMemories} formatMemoryText={(text) => formatChatMemoryText(text)} />
 
         {conflictState.panel}
-
-        {isDeveloperView ? (
-          <SurfaceCard>
-            <SectionHeader title="聊天记忆分层" dense action={<Chip size="small" label="调试" color="warning" variant="outlined" />} />
-            <Stack spacing={0.8}>
-              {([
-                ['长期记忆', chatMemoryGroups.longTerm],
-                ['情节记忆', chatMemoryGroups.episodic],
-                ['即时记忆', chatMemoryGroups.working],
-                ['关系影响', chatMemoryGroups.relationship],
-                ['会话记忆', chatMemoryGroups.conversation],
-                ['线程记忆', chatMemoryGroups.thread],
-                ['系统运行态', chatMemoryGroups.runtime],
-              ] as Array<[string, MemoryItem[]]>).map(([label, items]) => (
-                <Box key={String(label)} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
-                  <Typography variant="caption" color="text.secondary">{label} · {(items as MemoryItem[]).length} 条</Typography>
-                  <Typography variant="body2">{((items as MemoryItem[]).length ? (items as MemoryItem[]).slice(0, 3).map((item) => cleanText(item.text)).join(' / ') : `暂无${label}`)}</Typography>
-                </Box>
-              ))}
-            </Stack>
-          </SurfaceCard>
-        ) : null}
 
         <SurfaceCard>
           <SectionHeader title="运行时间线" dense />
@@ -812,7 +630,6 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
         {privatePayloads.length ? <PrivatePayloadPanel payloads={privatePayloads} /> : null}
         {(isSpeechStyleView || isAdvancedRuntimeView) ? <DialogueDebugPanel chat={chat} /> : null}
       </PageSection>
-      <PairDetailDialog open={Boolean(activePair)} onClose={() => setActivePairKey(null)} pair={activePair} />
     </>
   );
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Chip, LinearProgress, Stack, Typography, Button } from '@mui/material';
+import { Box, Chip, LinearProgress, Stack, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter } from '../../types/character';
 import type { MemoryItem } from '../../services/memoryTypes';
@@ -14,6 +14,7 @@ import { useCharacterStore } from '../../stores/useCharacterStore';
 import { RelationshipRadar } from '../controls/RelationshipPanel';
 import type { RelationshipLedgerEntry } from '../../types/runtimeEvent';
 import { formatLocalizedDriftSummary, getDominantEmotionLabel, getAffectSummaryLines } from '../../services/personalityDrift';
+import LayeredMemoryPanel from '../memory/LayeredMemoryPanel';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -54,58 +55,6 @@ function buildRelationshipMemoryItems(character: Partial<AICharacter>): MemoryIt
     createdAt: relation.updatedAt || now,
     updatedAt: relation.updatedAt || now,
   }));
-}
-
-function getMemoryLayerLabel(layer: MemoryItem['layer']) {
-  const labels: Record<MemoryItem['layer'], string> = {
-    long_term: '长期记忆',
-    episodic: '情节记忆',
-    working: '即时记忆',
-  };
-  return labels[layer] || layer;
-}
-
-function getMemoryScopeLabel(scope: MemoryItem['scope']) {
-  const labels: Record<MemoryItem['scope'], string> = {
-    character_self: '角色自我',
-    relationship: '关系',
-    conversation: '会话',
-    thread: '线程',
-    system_runtime: '系统运行态',
-  };
-  return labels[scope] || scope;
-}
-
-function getMemoryKindLabel(kind: MemoryItem['kind']) {
-  const labels: Record<MemoryItem['kind'], string> = {
-    trait_evidence: '特征证据',
-    obsession: '执念',
-    taboo: '禁区',
-    bond: '连结',
-    resentment: '芥蒂',
-    bias: '偏向',
-    decision: '决策',
-    conflict: '冲突',
-    status_shift: '状态变化',
-    artifact: '产物',
-    thread_effect: '线程影响',
-  };
-  return labels[kind] || kind;
-}
-
-function MemoryCard({ item, title }: { item: MemoryItem; title?: string }) {
-  const bodyText = title && title === item.text ? null : item.text;
-  const evidenceTitle = item.evidenceText || item.summary || item.text;
-  return (
-    <Box sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
-      <Stack spacing={0.6}>
-        {title ? <Typography variant="body2" sx={{ fontWeight: 700 }} title={evidenceTitle}>{title}</Typography> : null}
-        <StatChipRow items={[getMemoryLayerLabel(item.layer), getMemoryScopeLabel(item.scope), getMemoryKindLabel(item.kind)]} />
-        {bodyText ? <Typography variant="body2" color="text.secondary" title={evidenceTitle}>{bodyText}</Typography> : null}
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', opacity: 0.85 }}>{`强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`}</Typography>
-      </Stack>
-    </Box>
-  );
 }
 
 function getTraitLabel(key: string, language: string) {
@@ -246,7 +195,7 @@ function RelationshipOverviewPanel({ relationships, relationshipMemories, resolv
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>{resolveCharacterName(relation.characterId, relation.note)}</Typography>
                 <StatChipRow items={[`亲和 ${formatRelationshipNumber(Number.isFinite(relation.warmth) ? relation.warmth : 0)}`, `能力 ${formatRelationshipNumber(Number.isFinite(relation.competence) ? relation.competence : 0)}`, `信任 ${formatRelationshipNumber(Number.isFinite(relation.trust) ? relation.trust : 0)}`, `威胁 ${formatRelationshipNumber(Number.isFinite(relation.threat) ? relation.threat : 0)}`]} />
                 {relation.note && relation.note !== relation.characterId ? <Typography variant="body2" color="text.secondary">{relation.note}</Typography> : null}
-                {memory ? <Typography variant="caption" color="text.secondary" title={memory.evidenceText || memory.text}>{`${getMemoryLayerLabel(memory.layer)} · ${getMemoryKindLabel(memory.kind)} · 强化 ${memory.reinforcementCount} · 置信 ${(memory.confidence * 100).toFixed(0)}%`}</Typography> : null}
+                {memory ? <Typography variant="caption" color="text.secondary" title={memory.evidenceText || memory.text}>{`强化 ${memory.reinforcementCount} · 置信 ${(memory.confidence * 100).toFixed(0)}%`}</Typography> : null}
               </Stack>
             </Box>
           </Box>
@@ -261,64 +210,11 @@ interface RuntimeInsightsPanelProps {
 }
 
 export function CharacterMemoryInspector({ character }: RuntimeInsightsPanelProps) {
-  const [expanded, setExpanded] = useState(false);
-  const [activeMemoryFilter, setActiveMemoryFilter] = useState<string | null>(null);
   const allLayeredMemories = useMemo(() => buildCharacterLayeredMemories(character), [character]);
-  const layeredMemoryGroups = useMemo(() => ({
-    longTerm: allLayeredMemories.filter((item) => item.layer === 'long_term'),
-    episodic: allLayeredMemories.filter((item) => item.layer === 'episodic'),
-    working: allLayeredMemories.filter((item) => item.layer === 'working'),
-    relationship: allLayeredMemories.filter((item) => item.scope === 'relationship'),
-    self: allLayeredMemories.filter((item) => item.scope === 'character_self'),
-    conversation: allLayeredMemories.filter((item) => item.scope === 'conversation' || item.scope === 'thread'),
-  }), [allLayeredMemories]);
-  const memoryFilters = useMemo(() => ([
-    { key: 'longTerm', label: '长期', items: layeredMemoryGroups.longTerm },
-    { key: 'episodic', label: '情节', items: layeredMemoryGroups.episodic },
-    { key: 'working', label: '即时', items: layeredMemoryGroups.working },
-    { key: 'relationship', label: '关系', items: layeredMemoryGroups.relationship },
-    { key: 'self', label: '角色自我', items: layeredMemoryGroups.self },
-    { key: 'conversation', label: '会话/线程', items: layeredMemoryGroups.conversation },
-  ]), [layeredMemoryGroups]);
-  const filteredAllLayeredMemories = useMemo(() => {
-    const selected = memoryFilters.find((item) => item.key === activeMemoryFilter);
-    return selected ? selected.items : allLayeredMemories;
-  }, [activeMemoryFilter, allLayeredMemories, memoryFilters]);
-  const layeredMemories = useMemo(() => {
-    return expanded ? filteredAllLayeredMemories.slice(0, 12) : filteredAllLayeredMemories.slice(0, 4);
-  }, [expanded, filteredAllLayeredMemories]);
-  const visibleTotal = filteredAllLayeredMemories.length;
 
   return (
     <PageSection spacing={2}>
-      <SurfaceCard>
-        <SectionHeader title="自动记忆沉淀" dense />
-        <Stack spacing={1}>
-          {allLayeredMemories.length ? (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-              <Chip
-                size="small"
-                label={`全部 ${allLayeredMemories.length}`}
-                color={activeMemoryFilter === null ? 'primary' : 'default'}
-                variant={activeMemoryFilter === null ? 'filled' : 'outlined'}
-                onClick={() => setActiveMemoryFilter(null)}
-              />
-              {memoryFilters.filter((item) => item.items.length).map((filter) => (
-                <Chip
-                  key={filter.key}
-                  size="small"
-                  label={`${filter.label} ${filter.items.length}`}
-                  color={activeMemoryFilter === filter.key ? 'primary' : 'default'}
-                  variant={activeMemoryFilter === filter.key ? 'filled' : 'outlined'}
-                  onClick={() => setActiveMemoryFilter((prev) => (prev === filter.key ? null : filter.key))}
-                />
-              ))}
-            </Box>
-          ) : null}
-          {layeredMemories.length ? <Stack spacing={1}>{layeredMemories.map((item) => <MemoryCard key={item.id} item={item} />)}</Stack> : <Typography variant="caption" color="text.secondary">暂无结构化记忆</Typography>}
-          {visibleTotal > 4 ? <Button size="small" variant="text" onClick={() => setExpanded((prev) => !prev)}>{expanded ? '收起' : '查看更多'}</Button> : null}
-        </Stack>
-      </SurfaceCard>
+      <LayeredMemoryPanel memories={allLayeredMemories} />
     </PageSection>
   );
 }

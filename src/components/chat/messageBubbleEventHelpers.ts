@@ -17,13 +17,24 @@ function buildMemoryDistillationSourcePrefix(metrics: Record<string, unknown> | 
   return '本地';
 }
 
+function buildMemoryDistillationOwnerSuffix(metrics: Record<string, unknown> | null) {
+  if (!metrics) return '';
+  const ownerLabel = typeof metrics.ownerLabel === 'string' ? metrics.ownerLabel : '';
+  const isCharacterOwner = metrics?.ownerType === 'character' || ownerLabel.startsWith('角色：');
+  if (!isCharacterOwner) return '';
+  const ownerName = typeof metrics.ownerName === 'string' ? metrics.ownerName : '';
+  const value = ownerName || ownerLabel.replace(/^角色：/, '').trim();
+  return value ? ` · ${value}` : '';
+}
+
 export function buildEventDisplayText(payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }) {
   if (payload.eventType === 'room_state_snapshot_v2') return dedupeDisplayText(payload.summary || '');
   if (payload.eventType === 'conflict_axis_shift') return dedupeDisplayText(payload.summary || '');
   if (payload.eventType === 'memory_distillation') {
     const metrics = payload.metrics && typeof payload.metrics === 'object' ? payload.metrics as Record<string, unknown> : null;
-    const ownerType = metrics?.ownerType === 'chat' ? '群聊' : '角色';
-    return `${buildMemoryDistillationSourcePrefix(metrics)}${ownerType}蒸馏`;
+    const ownerLabel = typeof metrics?.ownerLabel === 'string' ? metrics.ownerLabel : '';
+    const ownerType = metrics?.ownerType === 'chat' || ownerLabel.startsWith('群聊：') ? '群聊' : '角色';
+    return `${buildMemoryDistillationSourcePrefix(metrics)}${ownerType}蒸馏${buildMemoryDistillationOwnerSuffix(metrics)}`;
   }
   return dedupeDisplayText(formatRuntimeEventText({
     eventType: payload.eventType || 'event',
@@ -45,7 +56,7 @@ export function buildMemoryDistillationMeta(payload: { metrics?: unknown }) {
   return {
     mergeModeLabel,
     evidenceCount,
-    candidateTexts,
+    candidateTexts: candidateTexts.slice(0, 1),
   };
 }
 

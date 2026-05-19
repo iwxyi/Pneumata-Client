@@ -18,10 +18,10 @@ import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 
 const { chatGap: CHAT_DISTILLATION_TURN_COUNT, characterGap: CHARACTER_DISTILLATION_TURN_COUNT } = getLocalDistillationPolicy();
-const PRIMARY_CONFLICT_DECAY_STEP = 0.12;
-const SECONDARY_CONFLICT_DECAY_STEP = 0.08;
-const CONFLICT_ACTIVE_THRESHOLD = 0.36;
-const CONFLICT_COOLING_THRESHOLD = 0.54;
+const PRIMARY_CONFLICT_DECAY_STEP = 0.06;
+const SECONDARY_CONFLICT_DECAY_STEP = 0.04;
+const CONFLICT_ACTIVE_THRESHOLD = 0.24;
+const CONFLICT_COOLING_THRESHOLD = 0.62;
 
 function areRuntimeValuesEqual(left: unknown, right: unknown) {
   if (left === right) return true;
