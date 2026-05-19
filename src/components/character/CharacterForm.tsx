@@ -393,7 +393,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             const prepared = await prepareAvatarUploadDataUrl(state.imageDataUrl, { maxSize: 1024, quality: 0.9 });
             const saved = await api.createCharacterVisualAsset(initial.id, {
               dataUrl: prepared,
-              label: i18n.language.startsWith('zh') ? '生成形象图' : 'Generated visual identity',
+              label: i18n.language.startsWith('zh') ? '形象图' : 'Visual identity',
               source: 'generated',
               isPrimary: shouldBePrimary,
             });
@@ -892,14 +892,14 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
                     hidden
                     onChange={(event) => void handleVisualAssetUpload(event.target.files?.[0] || null)}
                   />
-                  <Button size="small" variant="outlined" startIcon={<UploadIcon />} onClick={() => visualAssetInputRef.current?.click()}>
-                    {i18n.language.startsWith('zh') ? '上传' : 'Upload'}
-                  </Button>
                   <Button size="small" variant="outlined" startIcon={<ImageIcon />} onClick={handleGenerateVisualImage}>
                     {visualImageTaskId ? (i18n.language.startsWith('zh') ? '取消生成' : 'Cancel') : (i18n.language.startsWith('zh') ? '生成形象图' : 'Generate')}
                   </Button>
+                  <Button size="small" variant="outlined" startIcon={<UploadIcon />} onClick={() => visualAssetInputRef.current?.click()}>
+                    {i18n.language.startsWith('zh') ? '上传' : 'Upload'}
+                  </Button>
                 </Box>
-                <Tooltip title={i18n.language.startsWith('zh') ? '聊天图片需要角色出镜时优先使用参考图' : 'Prefer reference images when the character appears in chat images'}>
+                <Tooltip title={i18n.language.startsWith('zh') ? '聊天图片需要角色出镜时优先使用参考图；只有当前图片模型在模型库启用并支持参考图功能时才会生效' : 'Prefer reference images when the character appears in chat images. This only works when the selected image model has reference-image capability enabled and supported.'}>
                   <FormControlLabel
                     control={<Switch checked={Boolean(visualIdentity.defaults?.useReferenceImages)} onChange={(e) => setVisualIdentity((prev) => ({ ...prev, defaults: { ...(prev.defaults || {}), useReferenceImages: e.target.checked } }))} />}
                     label={i18n.language.startsWith('zh') ? '出镜' : 'Reference'}
