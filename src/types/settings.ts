@@ -12,11 +12,20 @@ export interface APIConfig {
   model: string;
 }
 
+export interface AIModelImageCapabilities {
+  textToImage: boolean;
+  referenceImage: boolean;
+  multiReferenceImage: boolean;
+  seed: boolean;
+  negativePrompt: boolean;
+}
+
 export interface AIModelProfile extends APIConfig {
   id: string;
   name: string;
   type: AIModelType;
   isDefault?: boolean;
+  imageCapabilities?: Partial<AIModelImageCapabilities>;
 }
 
 export interface ChatDraftDefaults {
@@ -352,6 +361,14 @@ export const DEFAULT_API_CONFIG: APIConfig = {
   model: 'gpt-4o-mini',
 };
 
+export const DEFAULT_IMAGE_CAPABILITIES: AIModelImageCapabilities = {
+  textToImage: true,
+  referenceImage: false,
+  multiReferenceImage: false,
+  seed: false,
+  negativePrompt: false,
+};
+
 export const DEFAULT_AI_PROFILE: AIModelProfile = {
   id: 'default',
   name: 'Default',
@@ -359,6 +376,18 @@ export const DEFAULT_AI_PROFILE: AIModelProfile = {
   isDefault: true,
   ...DEFAULT_API_CONFIG,
 };
+
+export function normalizeImageCapabilities(input?: Partial<AIModelImageCapabilities> | null): AIModelImageCapabilities {
+  return {
+    ...DEFAULT_IMAGE_CAPABILITIES,
+    ...(input || {}),
+    textToImage: input?.textToImage ?? DEFAULT_IMAGE_CAPABILITIES.textToImage,
+    referenceImage: Boolean(input?.referenceImage),
+    multiReferenceImage: Boolean(input?.multiReferenceImage),
+    seed: Boolean(input?.seed),
+    negativePrompt: Boolean(input?.negativePrompt),
+  };
+}
 
 export function normalizeAIProfiles(aiProfiles?: AIModelProfile[], api?: APIConfig): AIModelProfile[] {
   const sourceProfiles = Array.isArray(aiProfiles) && aiProfiles.length > 0
@@ -384,6 +413,7 @@ export function normalizeAIProfiles(aiProfiles?: AIModelProfile[], api?: APIConf
       name: index === 0 ? (profile.name || 'Default') : (profile.name || `Model ${index + 1}`),
       type,
       isDefault,
+      imageCapabilities: type === 'image' ? normalizeImageCapabilities(profile.imageCapabilities) : undefined,
     };
   });
 

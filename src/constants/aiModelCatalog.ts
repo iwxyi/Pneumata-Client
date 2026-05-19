@@ -1,4 +1,5 @@
-import type { AIModelType, AIProvider } from '../types/settings';
+import type { AIModelImageCapabilities, AIModelType, AIProvider } from '../types/settings';
+import { normalizeImageCapabilities } from '../types/settings';
 
 export interface ProviderTypeDefaults {
   baseUrl: string;
@@ -212,4 +213,44 @@ export function getProviderDefaults(provider: AIProvider, type: AIModelType) {
 export function getPopularModels(provider: AIProvider, type: AIModelType) {
   const entry = getProviderCatalogEntry(provider);
   return entry.popularModels[type] || [];
+}
+
+export function inferImageCapabilities(provider: AIProvider, model: string): AIModelImageCapabilities {
+  const normalizedModel = model.trim().toLowerCase();
+  const base = normalizeImageCapabilities();
+
+  if (!normalizedModel) return base;
+
+  if (provider === 'openai') {
+    if (/^gpt-image-1(\.|-|$)/.test(normalizedModel) || normalizedModel === 'gpt-image-1') {
+      return { ...base, referenceImage: true, multiReferenceImage: true };
+    }
+    if (normalizedModel === 'dall-e-2') {
+      return { ...base, referenceImage: true };
+    }
+    return base;
+  }
+
+  if (provider === 'google') {
+    if (normalizedModel.includes('gemini') && normalizedModel.includes('image')) {
+      return { ...base, referenceImage: true, multiReferenceImage: true };
+    }
+    return base;
+  }
+
+  if (provider === 'alibaba') {
+    if (normalizedModel.includes('imageedit') || normalizedModel.includes('edit') || normalizedModel.includes('i2i')) {
+      return { ...base, referenceImage: true };
+    }
+    return base;
+  }
+
+  if (provider === 'bytedance') {
+    if (normalizedModel.includes('seedream-4') || normalizedModel.includes('seedream-5') || normalizedModel.includes('seededit') || normalizedModel.includes('i2i')) {
+      return { ...base, referenceImage: true, multiReferenceImage: true };
+    }
+    return base;
+  }
+
+  return base;
 }

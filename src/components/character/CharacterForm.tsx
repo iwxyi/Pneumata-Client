@@ -45,7 +45,7 @@ import { getCharacterGroupList, normalizeCharacterGroup, normalizeCharacterModel
 import type { BubbleShadowLevel, BubbleStyleDefinition, BubbleStyleFormValues } from '../../types/bubbleStyle';
 import { DEFAULT_PERSONALITY, DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION } from '../../types/character';
 import { DEFAULT_BUBBLE_STYLE_FORM } from '../../types/bubbleStyle';
-import { generateCharacterProfile } from '../../services/characterGenerator';
+import { generateCharacterProfile, generateCharacterVisualIdentityDraft } from '../../services/characterGenerator';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCharacterStore } from '../../stores/useCharacterStore';
 import type { AIModelType } from '../../types/settings';
@@ -110,6 +110,27 @@ function formValuesToStyle(form: BubbleStyleFormValues, id: string): BubbleStyle
     isBuiltIn: false,
   };
 }
+
+function pickRandomExample(options: string[]) {
+  return options[Math.floor(Math.random() * options.length)] || '';
+}
+
+function getVisualAssetIdentity(asset: CharacterVisualReferenceImage) {
+  return asset.assetId || asset.id || asset.checksum || asset.url;
+}
+
+function dedupeVisualAssets(assets: CharacterVisualReferenceImage[]) {
+  const seen = new Set<string>();
+  return assets.filter((asset) => {
+    const key = getVisualAssetIdentity(asset);
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+const processedVisualImageTaskIds = new Set<string>();
 
 interface CharacterFormProps {
   initial?: Partial<AICharacter>;
@@ -185,7 +206,9 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [socialExpanded, setSocialExpanded] = useState(true);
   const [discussionExpanded, setDiscussionExpanded] = useState(true);
   const [modelConfigExpanded, setModelConfigExpanded] = useState(false);
+  const [visualIdentityExpanded, setVisualIdentityExpanded] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [generatingVisualDescription, setGeneratingVisualDescription] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const duplicateNameErrorText = i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists';
   const [generatedByAI, setGeneratedByAI] = useState(false);
@@ -195,9 +218,9 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [visualImageTaskId, setVisualImageTaskId] = useState<string | null>(null);
   const [visualImageTaskStatus, setVisualImageTaskStatus] = useState<AvatarGenerationStatus | null>(null);
   const [visualImageTaskError, setVisualImageTaskError] = useState<string | null>(null);
-  const [visualAssets, setVisualAssets] = useState<CharacterVisualReferenceImage[]>(initial?.visualIdentity?.referenceImages || []);
+  const [visualAssets, setVisualAssets] = useState<CharacterVisualReferenceImage[]>(() => dedupeVisualAssets(initial?.visualIdentity?.referenceImages || []));
   const visualAssetInputRef = useRef<HTMLInputElement | null>(null);
-  const visualAssetsRef = useRef<CharacterVisualReferenceImage[]>(initial?.visualIdentity?.referenceImages || []);
+  const visualAssetsRef = useRef<CharacterVisualReferenceImage[]>(dedupeVisualAssets(initial?.visualIdentity?.referenceImages || []));
   const processedVisualImageTaskIdsRef = useRef(new Set<string>());
   const avatarTaskTargetKey = initial?.id ? `character:${initial.id}` : 'character-form:draft';
   const visualImageTargetKey = initial?.id ? `character-visual:${initial.id}` : 'character-form:visual-draft';
@@ -221,6 +244,52 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const selectedBubbleStyle = resolveCharacterBubbleStyle({ bubbleStyle, bubbleStyleId, customStyles: customBubbleStyles });
   const selectedBubblePreview = buildBubblePreview(selectedBubbleStyle);
   const bubblePreviewText = useMemo(() => (i18n.language.startsWith('zh') ? '这是角色气泡预览' : 'Bubble style preview'), [i18n.language]);
+  const visualIdentityExamples = useMemo(() => ({
+    description: i18n.language.startsWith('zh')
+      ? [
+          '二十多岁，短发，清爽自然，笑起来有点腼腆，常戴银色细框眼镜，日常穿搭干净利落。',
+          '三十岁上下，皮肤偏白，眼神很稳，头发随手扎起，偏爱宽松但有质感的衣服。',
+          '看起来像刚下班的人，神情放松但有点疲惫，发型利落，身上带着生活气息。',
+        ]
+      : [
+          'Mid-20s, short hair, natural look, a little shy when smiling, thin silver glasses, clean everyday outfits.',
+          'Around 30, fair skin, calm eyes, casually tied hair, prefers loose but textured clothes.',
+          'Looks like someone just off work, relaxed but slightly tired, neat hair, lived-in everyday vibe.',
+        ],
+    styleHint: i18n.language.startsWith('zh')
+      ? [
+          '偏手机随拍感，真实自然，少一点摆拍感，整体偏生活化。',
+          '更适合真实聊天截图里的照片感，光线自然，构图稍微随意一点。',
+          '保持现实感和亲切感，不要过度精修。',
+        ]
+      : [
+          'Prefer a candid phone-photo feel, natural and lived-in, not overly posed.',
+          'Better suited to a chat app snapshot, with natural light and slightly casual framing.',
+          'Keep it real and approachable, avoid over-polished portrait styling.',
+        ],
+    negativePrompt: i18n.language.startsWith('zh')
+      ? [
+          '避免水印、文字、过度磨皮、塑料感皮肤、夸张滤镜、额外肢体、多人误入。',
+          '不要文字叠加、不要海报感、不要棚拍感、不要脸部失真。',
+          '避免卡通化过强、AI 味太重、肢体重复、背景杂乱到看不清主体。',
+        ]
+      : [
+          'Avoid watermarks, text, heavy skin smoothing, plastic skin, extreme filters, extra limbs, accidental crowding.',
+          'No captions, no poster look, no studio-photo feel, no facial distortion.',
+          'Avoid overly cartoonish output, obvious AI look, duplicated limbs, or cluttered backgrounds that hide the subject.',
+        ],
+    seed: i18n.language.startsWith('zh')
+      ? [
+          '如果想稳定同一角色外观，可以填一个固定整数，例如 123456。',
+          '相同 seed 往往会让构图和气质更接近，但不同模型不一定完全一致。',
+          '不想固定风格时可以留空，让每次结果稍有变化。',
+        ]
+      : [
+          'Use a fixed integer like 123456 if you want a more stable look.',
+          'The same seed often keeps composition and vibe closer, but models can still vary.',
+          'Leave it empty if you want the result to vary a bit each time.',
+        ],
+  }), [i18n.language]);
   const existingGroups = useMemo(() => getCharacterGroupList(characters.filter((character) => !character.isPreset)), [characters]);
   const duplicateNameKeys = useMemo(() => getDuplicateCharacterNameKeys(characters.filter((character) => !character.isPreset)), [characters]);
   const hasLegacyDuplicateName = Boolean(initial?.id && initial?.name && hasDuplicateCharacterName({ name: initial.name }, duplicateNameKeys));
@@ -266,7 +335,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       primaryReferenceImageId: initial.visualIdentity?.primaryReferenceImageId ?? null,
       defaults: initial.visualIdentity?.defaults || { useReferenceImages: false },
     });
-    setVisualAssets(initial.visualIdentity?.referenceImages || []);
+    setVisualAssets(dedupeVisualAssets(initial.visualIdentity?.referenceImages || []));
   }, [initial?.id, initial?.modelProfileId, initial?.modelProfileIds]);
 
   useEffect(() => {
@@ -340,7 +409,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
               isPrimary: saved.isPrimary,
               createdAt: saved.createdAt,
             };
-            setVisualAssets((prev) => savedAsset.isPrimary ? [...prev.map((item) => ({ ...item, isPrimary: false })), savedAsset] : [...prev, savedAsset]);
+            setVisualAssets((prev) => dedupeVisualAssets(savedAsset.isPrimary ? [...prev.map((item) => ({ ...item, isPrimary: false })), savedAsset] : [...prev, savedAsset]));
             setVisualIdentity((prev) => ({
               ...prev,
               primaryReferenceImageId: savedAsset.isPrimary ? savedAsset.id : prev.primaryReferenceImageId,
@@ -352,7 +421,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             return;
           }
         }
-        setVisualAssets((prev) => [...prev, localAsset]);
+        setVisualAssets((prev) => dedupeVisualAssets([...prev, localAsset]));
         setVisualIdentity((prev) => ({
           ...prev,
           primaryReferenceImageId: localAsset.isPrimary ? localAsset.id : prev.primaryReferenceImageId,
@@ -412,10 +481,45 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       setDraftBubbleStyleId(generatedBubbleStyleId);
       setDraftBubbleStyle({ ...generated.bubbleStyle, id: generatedBubbleStyleId });
       setGeneratedByAI(true);
-    } catch {
-      setGenerateError(getGenerateError(i18n.language));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setGenerateError(detail && detail !== getGenerateError(i18n.language) ? `${getGenerateError(i18n.language)}：${detail}` : getGenerateError(i18n.language));
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleGenerateVisualDescription = async () => {
+    if (generatingVisualDescription) return;
+    const textModelProfileId = modelProfileIds.text || null;
+    const selectedProfile = settings.aiProfiles.find((profile) => profile.id === textModelProfileId)
+      || getPreferredAIProfile(settings.aiProfiles, 'text')
+      || settings.aiProfiles.find((profile) => profile.apiKey && profile.model);
+    if (!selectedProfile?.apiKey || !selectedProfile?.model) {
+      setVisualImageTaskError(getGenerateNoKeyError(i18n.language));
+      return;
+    }
+    setGeneratingVisualDescription(true);
+    setVisualImageTaskError(null);
+    try {
+      const draft = await generateCharacterVisualIdentityDraft(selectedProfile, {
+        name,
+        background,
+        speakingStyle,
+        expertise,
+        group,
+      }, i18n.language.startsWith('zh') ? 'zh' : 'en');
+      setVisualIdentity((prev) => ({
+        ...prev,
+        description: draft.description || prev.description || '',
+        styleHint: draft.styleHint || prev.styleHint || '',
+        negativePrompt: draft.negativePrompt || prev.negativePrompt || '',
+        seed: draft.seed ?? prev.seed ?? null,
+      }));
+    } catch (error) {
+      setVisualImageTaskError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGeneratingVisualDescription(false);
     }
   };
 
@@ -450,13 +554,14 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   };
 
   const syncVisualIdentityReferenceImages = (assets: CharacterVisualReferenceImage[], overrides?: Partial<CharacterVisualIdentity>) => {
+    const dedupedAssets = dedupeVisualAssets(assets);
     setVisualIdentity((prev) => ({
       ...prev,
       ...overrides,
-      referenceImages: assets,
+      referenceImages: dedupedAssets,
       primaryReferenceImageId: overrides && Object.prototype.hasOwnProperty.call(overrides, 'primaryReferenceImageId')
         ? overrides.primaryReferenceImageId ?? null
-        : prev.primaryReferenceImageId ?? assets.find((asset) => asset.isPrimary)?.id ?? assets[0]?.id ?? null,
+        : prev.primaryReferenceImageId ?? dedupedAssets.find((asset) => asset.isPrimary)?.id ?? dedupedAssets[0]?.id ?? null,
     }));
   };
 
@@ -489,7 +594,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             createdAt: saved.createdAt,
           };
           const next = asset.isPrimary ? visualAssets.map((item) => ({ ...item, isPrimary: false })) : visualAssets;
-          const merged = [...next, asset];
+          const merged = dedupeVisualAssets([...next, asset]);
           setVisualAssets(merged);
           syncVisualIdentityReferenceImages(merged, { primaryReferenceImageId: asset.isPrimary ? asset.id : undefined });
           return;
@@ -504,7 +609,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
           isPrimary: shouldBePrimary,
           createdAt: Date.now(),
         };
-        const merged = [...visualAssets, asset];
+        const merged = dedupeVisualAssets([...visualAssets, asset]);
         setVisualAssets(merged);
         syncVisualIdentityReferenceImages(merged, { primaryReferenceImageId: asset.isPrimary ? asset.id : undefined });
       } catch (error) {
@@ -523,7 +628,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     if (initial?.id && !assetId.startsWith('local-')) {
       await api.updateCharacterVisualAsset(initial.id, assetId, { isPrimary: true });
     }
-    const next = visualAssets.map((asset) => ({ ...asset, isPrimary: asset.id === assetId }));
+    const next = dedupeVisualAssets(visualAssets.map((asset) => ({ ...asset, isPrimary: asset.id === assetId })));
     setVisualAssets(next);
     syncVisualIdentityReferenceImages(next, { primaryReferenceImageId: assetId });
   };
@@ -532,7 +637,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     if (initial?.id && !assetId.startsWith('local-')) {
       await api.deleteCharacterVisualAsset(initial.id, assetId);
     }
-    const next = visualAssets.filter((asset) => asset.id !== assetId);
+    const next = dedupeVisualAssets(visualAssets.filter((asset) => asset.id !== assetId));
     const nextPrimary = next.find((asset) => asset.isPrimary)?.id || next[0]?.id || null;
     const normalized = next.map((asset, index) => ({ ...asset, isPrimary: nextPrimary ? asset.id === nextPrimary : index === 0 }));
     setVisualAssets(normalized);
@@ -596,7 +701,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     }));
     const normalizedVisualIdentity = {
       ...visualIdentity,
-      referenceImages: normalizedVisualAssets,
+      referenceImages: [],
       primaryReferenceImageId: visualIdentity.primaryReferenceImageId || normalizedVisualAssets.find((asset) => asset.isPrimary)?.id || null,
     };
     onSave({
@@ -722,97 +827,109 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       <Card variant="outlined">
         <CardContent sx={{ display: 'grid', gap: 1.25 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-            <Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? '视觉形象' : 'Visual identity'}</Typography>
-              <Typography variant="caption" color="text.secondary">
-                {i18n.language.startsWith('zh') ? '用于后续聊天图片的角色参考，不会强制每张图都使用。' : 'Character reference for future chat images. It is not forced into every generated image.'}
-              </Typography>
             </Box>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <input
-                ref={visualAssetInputRef}
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={(event) => void handleVisualAssetUpload(event.target.files?.[0] || null)}
+            <Button size="small" onClick={() => setVisualIdentityExpanded((prev) => !prev)} endIcon={visualIdentityExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}>
+              {visualIdentityExpanded ? (i18n.language.startsWith('zh') ? '收起' : 'Collapse') : (i18n.language.startsWith('zh') ? '展开' : 'Expand')}
+            </Button>
+          </Box>
+          <Collapse in={visualIdentityExpanded}>
+            <Box sx={{ display: 'grid', gap: 1.25, pt: 0.5 }}>
+              <TextField
+                size="small"
+                label={i18n.language.startsWith('zh') ? '形象描述' : 'Visual description'}
+                placeholder={visualIdentityExamples.description[0]}
+                value={visualIdentity.description || ''}
+                onChange={(e) => setVisualIdentity((prev) => ({ ...prev, description: e.target.value }))}
+                multiline
+                rows={3}
+                fullWidth
               />
-              <Button size="small" variant="outlined" startIcon={<UploadIcon />} onClick={() => visualAssetInputRef.current?.click()}>
-                {i18n.language.startsWith('zh') ? '上传' : 'Upload'}
-              </Button>
-              <Button size="small" variant="outlined" startIcon={<ImageIcon />} onClick={handleGenerateVisualImage}>
-                {visualImageTaskId ? (i18n.language.startsWith('zh') ? '取消生成' : 'Cancel') : (i18n.language.startsWith('zh') ? '生成形象图' : 'Generate')}
-              </Button>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
+                <Button size="small" variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={() => void handleGenerateVisualDescription()} disabled={generatingVisualDescription} sx={{ minWidth: 0, width: 'fit-content' }}>
+                  {generatingVisualDescription ? (i18n.language.startsWith('zh') ? '生成中' : 'Generating') : (i18n.language.startsWith('zh') ? '生成描述' : 'Generate description')}
+                </Button>
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1 }}>
+                <TextField
+                  size="small"
+                  label={i18n.language.startsWith('zh') ? '风格提示' : 'Style hint'}
+                  placeholder={pickRandomExample(visualIdentityExamples.styleHint)}
+                  value={visualIdentity.styleHint || ''}
+                  onChange={(e) => setVisualIdentity((prev) => ({ ...prev, styleHint: e.target.value }))}
+                />
+                <TextField
+                  size="small"
+                  label={i18n.language.startsWith('zh') ? '避免内容' : 'Negative prompt'}
+                  placeholder={pickRandomExample(visualIdentityExamples.negativePrompt)}
+                  value={visualIdentity.negativePrompt || ''}
+                  onChange={(e) => setVisualIdentity((prev) => ({ ...prev, negativePrompt: e.target.value }))}
+                />
+                <TextField
+                  size="small"
+                  label="Seed"
+                  placeholder={pickRandomExample(visualIdentityExamples.seed)}
+                  value={visualIdentity.seed ?? ''}
+                  onChange={(e) => setVisualIdentity((prev) => ({ ...prev, seed: e.target.value || null }))}
+                />
+              </Box>
+              {visualImageTaskStatus === 'queued' || visualImageTaskStatus === 'running' ? (
+                <Alert severity="info">{i18n.language.startsWith('zh') ? '正在生成形象图...' : 'Generating visual identity image...'}</Alert>
+              ) : null}
+              {visualImageTaskError ? <Alert severity="error">{visualImageTaskError}</Alert> : null}
+
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minWidth: 0 }}>
+                  <input
+                    ref={visualAssetInputRef}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(event) => void handleVisualAssetUpload(event.target.files?.[0] || null)}
+                  />
+                  <Button size="small" variant="outlined" startIcon={<UploadIcon />} onClick={() => visualAssetInputRef.current?.click()}>
+                    {i18n.language.startsWith('zh') ? '上传' : 'Upload'}
+                  </Button>
+                  <Button size="small" variant="outlined" startIcon={<ImageIcon />} onClick={handleGenerateVisualImage}>
+                    {visualImageTaskId ? (i18n.language.startsWith('zh') ? '取消生成' : 'Cancel') : (i18n.language.startsWith('zh') ? '生成形象图' : 'Generate')}
+                  </Button>
+                </Box>
+                <Tooltip title={i18n.language.startsWith('zh') ? '聊天图片需要角色出镜时优先使用参考图' : 'Prefer reference images when the character appears in chat images'}>
+                  <FormControlLabel
+                    control={<Switch checked={Boolean(visualIdentity.defaults?.useReferenceImages)} onChange={(e) => setVisualIdentity((prev) => ({ ...prev, defaults: { ...(prev.defaults || {}), useReferenceImages: e.target.checked } }))} />}
+                    label={i18n.language.startsWith('zh') ? '出镜' : 'Reference'}
+                    sx={{ mr: 0, flexShrink: 0 }}
+                  />
+                </Tooltip>
+              </Box>
+
+              {visualAssets.length ? (
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 1 }}>
+                  {visualAssets.map((asset) => (
+                    <Card key={asset.id} variant="outlined" sx={{ overflow: 'hidden', borderColor: asset.isPrimary ? 'primary.main' : 'divider' }}>
+                      <Box component="img" src={asset.url} alt={asset.label || 'visual reference'} sx={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', display: 'block', bgcolor: 'action.hover' }} />
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 0.75, py: 0.5, gap: 0.5 }}>
+                        <Typography variant="caption" noWrap title={asset.label || asset.source || ''}>{asset.label || (asset.source === 'generated' ? (i18n.language.startsWith('zh') ? '生成图' : 'Generated') : (i18n.language.startsWith('zh') ? '参考图' : 'Reference'))}</Typography>
+                        <Box sx={{ display: 'flex', gap: 0.25 }}>
+                          <Tooltip title={asset.isPrimary ? (i18n.language.startsWith('zh') ? '主参考图' : 'Primary') : (i18n.language.startsWith('zh') ? '设为主图' : 'Set primary')}>
+                            <IconButton size="small" onClick={() => void handleSetPrimaryVisualAsset(asset.id)}>
+                              {asset.isPrimary ? <StarIcon fontSize="inherit" color="primary" /> : <StarBorderIcon fontSize="inherit" />}
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title={i18n.language.startsWith('zh') ? '删除' : 'Delete'}>
+                            <IconButton size="small" color="error" onClick={() => void handleDeleteVisualAsset(asset.id)}>
+                              <DeleteIcon fontSize="inherit" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </Box>
+                    </Card>
+                  ))}
+                </Box>
+              ) : null}
             </Box>
-          </Box>
-
-          <TextField
-            size="small"
-            label={i18n.language.startsWith('zh') ? '形象描述' : 'Visual description'}
-            placeholder={i18n.language.startsWith('zh') ? '例如：二十多岁，短发，清爽自然，常戴银色细框眼镜...' : 'e.g. mid 20s, short hair, natural look, thin silver glasses...'}
-            value={visualIdentity.description || ''}
-            onChange={(e) => setVisualIdentity((prev) => ({ ...prev, description: e.target.value }))}
-            multiline
-            rows={3}
-            fullWidth
-          />
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1 }}>
-            <TextField
-              size="small"
-              label={i18n.language.startsWith('zh') ? '风格提示' : 'Style hint'}
-              value={visualIdentity.styleHint || ''}
-              onChange={(e) => setVisualIdentity((prev) => ({ ...prev, styleHint: e.target.value }))}
-            />
-            <TextField
-              size="small"
-              label={i18n.language.startsWith('zh') ? '避免内容' : 'Negative prompt'}
-              value={visualIdentity.negativePrompt || ''}
-              onChange={(e) => setVisualIdentity((prev) => ({ ...prev, negativePrompt: e.target.value }))}
-            />
-            <TextField
-              size="small"
-              label="Seed"
-              value={visualIdentity.seed ?? ''}
-              onChange={(e) => setVisualIdentity((prev) => ({ ...prev, seed: e.target.value || null }))}
-            />
-          </Box>
-          <FormControlLabel
-            control={<Switch checked={Boolean(visualIdentity.defaults?.useReferenceImages)} onChange={(e) => setVisualIdentity((prev) => ({ ...prev, defaults: { ...(prev.defaults || {}), useReferenceImages: e.target.checked } }))} />}
-            label={i18n.language.startsWith('zh') ? '聊天图片需要角色出镜时优先使用参考图' : 'Prefer reference images when the character appears in chat images'}
-          />
-
-          {visualImageTaskStatus === 'queued' || visualImageTaskStatus === 'running' ? (
-            <Alert severity="info">{i18n.language.startsWith('zh') ? '正在生成形象图...' : 'Generating visual identity image...'}</Alert>
-          ) : null}
-          {visualImageTaskError ? <Alert severity="error">{visualImageTaskError}</Alert> : null}
-
-          {visualAssets.length ? (
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 1 }}>
-              {visualAssets.map((asset) => (
-                <Card key={asset.id} variant="outlined" sx={{ overflow: 'hidden', borderColor: asset.isPrimary ? 'primary.main' : 'divider' }}>
-                  <Box component="img" src={asset.url} alt={asset.label || 'visual reference'} sx={{ width: '100%', aspectRatio: '1 / 1', objectFit: 'cover', display: 'block', bgcolor: 'action.hover' }} />
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 0.75, py: 0.5, gap: 0.5 }}>
-                    <Typography variant="caption" noWrap title={asset.label || asset.source || ''}>{asset.label || (asset.source === 'generated' ? (i18n.language.startsWith('zh') ? '生成图' : 'Generated') : (i18n.language.startsWith('zh') ? '参考图' : 'Reference'))}</Typography>
-                    <Box sx={{ display: 'flex', gap: 0.25 }}>
-                      <Tooltip title={asset.isPrimary ? (i18n.language.startsWith('zh') ? '主参考图' : 'Primary') : (i18n.language.startsWith('zh') ? '设为主图' : 'Set primary')}>
-                        <IconButton size="small" onClick={() => void handleSetPrimaryVisualAsset(asset.id)}>
-                          {asset.isPrimary ? <StarIcon fontSize="inherit" color="primary" /> : <StarBorderIcon fontSize="inherit" />}
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title={i18n.language.startsWith('zh') ? '删除' : 'Delete'}>
-                        <IconButton size="small" color="error" onClick={() => void handleDeleteVisualAsset(asset.id)}>
-                          <DeleteIcon fontSize="inherit" />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </Box>
-                </Card>
-              ))}
-            </Box>
-          ) : (
-            <Typography variant="caption" color="text.secondary">
-              {i18n.language.startsWith('zh') ? '可以只填写文字描述，也可以只上传参考图；都为空时聊天图片按上下文自由生成。' : 'Text only, image only, both, or neither are all allowed.'}
-            </Typography>
-          )}
+          </Collapse>
         </CardContent>
       </Card>
 
@@ -1087,7 +1204,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.75, position: 'relative', pb: 10 }}>
       <Box sx={{ display: 'grid', gap: 1 }}>
         {duplicateNameWarning ? <Alert severity="warning">{duplicateNameWarning}</Alert> : null}
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '56px minmax(0, 1fr)', sm: '56px minmax(150px, 1.2fr) minmax(130px, 0.8fr) auto' }, gap: 1, alignItems: 'flex-start' }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '56px minmax(0, 1fr) auto', sm: '56px minmax(150px, 1.2fr) minmax(130px, 0.8fr) auto' }, gap: 1, alignItems: 'flex-start' }}>
           <Box onClick={() => setAvatarPickerOpen(true)} sx={{ width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', borderRadius: 3, cursor: 'pointer', border: 1, borderColor: 'divider', bgcolor: 'background.paper', boxShadow: 1, overflow: 'hidden', transition: 'transform 160ms ease, box-shadow 160ms ease', '&:hover': { transform: 'translateY(-1px)', boxShadow: 2 } }}>
             {isImageAvatar ? <Box component="img" src={avatar} alt={name || 'avatar'} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatar}
           </Box>
@@ -1098,17 +1215,18 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             value={normalizeCharacterGroup(group) || group || ''}
             onChange={(_, value) => setGroup(typeof value === 'string' ? value : '')}
             onInputChange={(_, value) => setGroup(value)}
-            sx={{ gridColumn: { xs: '1 / 3', sm: 'auto' } }}
+            sx={{ gridColumn: { xs: '2 / 3', sm: 'auto' }, minWidth: 0 }}
             renderInput={(params) => (
               <TextField
                 {...params}
                 label={i18n.language.startsWith('zh') ? '分组' : 'Group'}
                 placeholder={i18n.language.startsWith('zh') ? '例如：喜羊羊与灰太狼' : 'e.g. Pleasant Goat and Big Big Wolf'}
                 fullWidth
+                size="small"
               />
             )}
           />
-          <Button variant="outlined" onClick={handleGenerate} aria-label={generateAriaLabel} sx={{ gridColumn: { xs: '1 / 3', sm: 'auto' }, minWidth: 88, height: 56, whiteSpace: 'nowrap' }} disabled={!name.trim() || generating}>{generateLabel}</Button>
+          <Button variant="outlined" onClick={handleGenerate} aria-label={generateAriaLabel} sx={{ gridColumn: { xs: '3 / 4', sm: 'auto' }, minWidth: { xs: 64, sm: 88 }, height: 40, whiteSpace: 'nowrap', px: { xs: 1.25, sm: 2 } }} disabled={!name.trim() || generating}>{generateLabel}</Button>
         </Box>
       </Box>
 

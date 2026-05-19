@@ -12,10 +12,11 @@ import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { listAvailableModels, testConnection } from '../services/aiClient';
-import type { AIModelType } from '../types/settings';
+import type { AIModelImageCapabilities, AIModelType } from '../types/settings';
+import { normalizeImageCapabilities } from '../types/settings';
 import { normalizeCharacterModelProfileIds } from '../types/character';
 import ConfirmDialog from '../components/common/ConfirmDialog';
-import { getPopularModels, getProviderCatalogEntry, getProviderDefaults, getProvidersForType } from '../constants/aiModelCatalog';
+import { getPopularModels, getProviderCatalogEntry, getProviderDefaults, getProvidersForType, inferImageCapabilities } from '../constants/aiModelCatalog';
 
 export default function AIModelsPage() {
   const { t, i18n } = useTranslation();
@@ -66,6 +67,19 @@ export default function AIModelsPage() {
     audio: i18n.language.startsWith('zh') ? '语音' : 'Audio',
     document: i18n.language.startsWith('zh') ? '文档' : 'Document',
   };
+  const imageCapabilityLabels: Array<{ key: keyof AIModelImageCapabilities; label: string; tooltip: string }> = i18n.language.startsWith('zh')
+    ? [
+        { key: 'referenceImage', label: '参考图', tooltip: '模型接口支持把图片作为参考输入，而不是只在提示词里描述形象。' },
+        { key: 'multiReferenceImage', label: '多参考图', tooltip: '模型接口支持一次传入多张参考图。' },
+        { key: 'seed', label: 'Seed', tooltip: '模型接口支持传入 seed 或等价的随机种子参数。' },
+        { key: 'negativePrompt', label: '避免内容', tooltip: '模型接口支持单独的 negative prompt 参数。' },
+      ]
+    : [
+        { key: 'referenceImage', label: 'Reference image', tooltip: 'The image API accepts an image as reference input, not only text prompt descriptions.' },
+        { key: 'multiReferenceImage', label: 'Multiple refs', tooltip: 'The image API accepts multiple reference images in one request.' },
+        { key: 'seed', label: 'Seed', tooltip: 'The image API accepts a seed or equivalent randomness control parameter.' },
+        { key: 'negativePrompt', label: 'Negative prompt', tooltip: 'The image API supports a separate negative prompt parameter.' },
+      ];
   const groupedModelLabels = {
     popular: i18n.language.startsWith('zh') ? '推荐模型' : 'Recommended models',
     remote: i18n.language.startsWith('zh') ? '远程可用模型' : 'Available from provider',
@@ -85,7 +99,11 @@ export default function AIModelsPage() {
   }, [setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, t]);
 
   const handleModelInputChange = useCallback((profileId: string, value: string) => {
-    settings.updateAIProfile(profileId, { model: value });
+    const profile = settings.aiProfiles.find((item) => item.id === profileId);
+    settings.updateAIProfile(profileId, {
+      model: value,
+      ...(profile?.type === 'image' ? { imageCapabilities: inferImageCapabilities(profile.provider, value) } : {}),
+    });
   }, [settings]);
 
   useEffect(() => {
@@ -208,36 +226,31 @@ export default function AIModelsPage() {
   }, [settings.aiProfiles, fetchedModelKeys]);
 
   return (
-    <Box sx={{ flex: 1, overflow: 'auto', p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 }, width: '100%', maxWidth: 960, mx: 'auto' }}>
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              {t('settings.apiConfig')}
-            </Typography>
-            <Chip
-              size="small"
-              color={saveStatusMeta.color}
-              variant={saveStatusMeta.color === 'default' ? 'outlined' : 'filled'}
-              label={saveStatusMeta.label}
-            />
-          </Box>
-          {settings.syncStatus === 'error' && settings.syncError ? (
-            <Alert severity="error" variant="outlined">
-              {settings.syncError}
-            </Alert>
-          ) : null}
+    <Box sx={{ flex: 1, overflow: 'auto', p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 }, width: '100%', maxWidth: 960, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+        <Chip
+          size="small"
+          color={saveStatusMeta.color}
+          variant={saveStatusMeta.color === 'default' ? 'outlined' : 'filled'}
+          label={saveStatusMeta.label}
+        />
+      </Box>
+      {settings.syncStatus === 'error' && settings.syncError ? (
+        <Alert severity="error" variant="outlined">
+          {settings.syncError}
+        </Alert>
+      ) : null}
 
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: '1fr',
-                xl: 'repeat(2, minmax(0, 1fr))',
-              },
-              gap: 2,
-            }}
-          >
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: {
+            xs: '1fr',
+            xl: 'repeat(2, minmax(0, 1fr))',
+          },
+          gap: 2,
+        }}
+      >
             {settings.aiProfiles.map((profile, index) => (
               <Card key={profile.id} variant="outlined" sx={{ bgcolor: 'background.default' }}>
                 <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -292,6 +305,7 @@ export default function AIModelsPage() {
                               provider: nextProvider,
                               baseUrl: nextDefaults.baseUrl,
                               model: nextDefaults.model,
+                              imageCapabilities: type === 'image' ? inferImageCapabilities(nextProvider, nextDefaults.model) : undefined,
                             });
                           }}
                         >
@@ -313,6 +327,17 @@ export default function AIModelsPage() {
                           label={i18n.language.startsWith('zh') ? '默认' : 'Default'}
                         />
                       </Tooltip>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => setConfirmAssignProfileId(profile.id)}
+                        disabled={assigningId === profile.id}
+                        sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                      >
+                        {assigningId === profile.id
+                          ? t('common.loading')
+                          : (i18n.language.startsWith('zh') ? '应用到角色' : 'Apply to roles')}
+                      </Button>
                     </Box>
                   </FormControl>
 
@@ -330,7 +355,12 @@ export default function AIModelsPage() {
                           return next;
                         });
                         setRemoteModelOptions((prev) => ({ ...prev, [profile.id]: [] }));
-                        settings.updateAIProfile(profile.id, { provider, baseUrl: nextDefaults.baseUrl, model: nextDefaults.model });
+                        settings.updateAIProfile(profile.id, {
+                          provider,
+                          baseUrl: nextDefaults.baseUrl,
+                          model: nextDefaults.model,
+                          imageCapabilities: activeType === 'image' ? inferImageCapabilities(provider, nextDefaults.model) : profile.imageCapabilities,
+                        });
                       }}
                     >
                       {providerOptions.map((option) => (
@@ -380,9 +410,13 @@ export default function AIModelsPage() {
                       return optionValue === selectedValue;
                     }}
                     value={profile.model}
-                    onChange={(_event, value) => settings.updateAIProfile(profile.id, {
-                      model: typeof value === 'string' ? value : (value?.value || ''),
-                    })}
+                    onChange={(_event, value) => {
+                      const nextModel = typeof value === 'string' ? value : (value?.value || '');
+                      settings.updateAIProfile(profile.id, {
+                        model: nextModel,
+                        ...(activeType === 'image' ? { imageCapabilities: inferImageCapabilities(profile.provider, nextModel) } : {}),
+                      });
+                    }}
                     onInputChange={(_event, value, reason) => {
                       if (reason === 'input' || reason === 'clear') {
                         handleModelInputChange(profile.id, value);
@@ -404,6 +438,47 @@ export default function AIModelsPage() {
                     )}
                   />
 
+                  {activeType === 'image' ? (
+                    <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                      <CardContent sx={{ display: 'grid', gap: 1, p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {i18n.language.startsWith('zh') ? '图片能力' : 'Image capabilities'}
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          {imageCapabilityLabels.map((item) => {
+                            const capabilities = normalizeImageCapabilities(profile.imageCapabilities);
+                            return (
+                              <Tooltip key={item.key} title={item.tooltip}>
+                                <FormControlLabel
+                                  sx={{ mr: 1, ml: 0 }}
+                                  control={(
+                                    <Checkbox
+                                      checked={Boolean(capabilities[item.key])}
+                                      onChange={(e) => {
+                                        const nextCapabilities = normalizeImageCapabilities({
+                                          ...capabilities,
+                                          [item.key]: e.target.checked,
+                                        });
+                                        if (item.key === 'referenceImage' && !e.target.checked) {
+                                          nextCapabilities.multiReferenceImage = false;
+                                        }
+                                        if (item.key === 'multiReferenceImage' && e.target.checked) {
+                                          nextCapabilities.referenceImage = true;
+                                        }
+                                        settings.updateAIProfile(profile.id, { imageCapabilities: nextCapabilities });
+                                      }}
+                                    />
+                                  )}
+                                  label={item.label}
+                                />
+                              </Tooltip>
+                            );
+                          })}
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                     <Button
                       variant="outlined"
@@ -412,15 +487,6 @@ export default function AIModelsPage() {
                     >
                       {testingId === profile.id ? t('common.loading') : t('settings.testConnection')}
                     </Button>
-                    <Button
-                      variant="outlined"
-                    onClick={() => setConfirmAssignProfileId(profile.id)}
-                    disabled={assigningId === profile.id}
-                  >
-                    {assigningId === profile.id
-                        ? t('common.loading')
-                        : (i18n.language.startsWith('zh') ? '为所有角色配置' : 'Assign To All Characters')}
-                  </Button>
                   </Box>
                       </>
                     );
@@ -429,8 +495,6 @@ export default function AIModelsPage() {
               </Card>
             ))}
           </Box>
-        </CardContent>
-      </Card>
 
       <Snackbar
         open={snackbar.open}

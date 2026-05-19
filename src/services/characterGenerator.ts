@@ -22,6 +22,14 @@ export interface GeneratedCharacterProfile {
   };
 }
 
+export interface CharacterVisualIdentityDraftInput {
+  name: string;
+  background?: string;
+  speakingStyle?: string;
+  expertise?: string[];
+  group?: string | null;
+}
+
 export const CHARACTER_GENERATOR_SYSTEM_PROMPT = `You generate structured AI role profiles for a group chat app.
 Return strict JSON only, with this shape:
 {
@@ -296,7 +304,46 @@ export async function generateCharacterProfile(config: APIConfig, name: string, 
   const response = await generateResponse(
     config,
     `${CHARACTER_GENERATOR_SYSTEM_PROMPT}\nOutput exactly one valid JSON object. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
-    [{ role: 'user', content: `${buildGeneratePrompt(name.trim(), language, theme)} ${language === 'zh' ? '只返回合法JSON。' : 'Return only valid JSON.'}` }]
+    [{ role: 'user', content: `${buildGeneratePrompt(name.trim(), language, theme)} ${language === 'zh' ? '只返回合法JSON。' : 'Return only valid JSON.'}` }],
+    undefined,
+    { maxTokens: 1500 }
   );
   return parseGeneratedProfile(response);
+}
+
+export async function generateCharacterVisualIdentityDraft(config: APIConfig, input: CharacterVisualIdentityDraftInput, language: 'zh' | 'en') {
+  const expertise = (input.expertise || []).filter(Boolean).join(language === 'zh' ? '、' : ', ');
+  const prompt = language === 'zh'
+    ? [
+        `请为聊天角色“${input.name.trim() || '未命名角色'}”生成稳定视觉形象描述。`,
+        input.group?.trim() ? `分组/主题：${input.group.trim()}` : '',
+        input.background?.trim() ? `背景：${input.background.trim()}` : '',
+        input.speakingStyle?.trim() ? `说话气质：${input.speakingStyle.trim()}` : '',
+        expertise ? `兴趣/专长：${expertise}` : '',
+        '返回严格 JSON：{"description":"1-3句稳定外观锚点，包含年龄感、发型、气质、常见穿搭或标志性元素，但不要写死每个场景","styleHint":"适合聊天图片的风格提示","negativePrompt":"需要避免的内容","seed":null}',
+        '不要输出 markdown，不要解释。',
+      ].filter(Boolean).join('\n')
+    : [
+        `Generate a stable visual identity draft for the chat character "${input.name.trim() || 'Unnamed character'}".`,
+        input.group?.trim() ? `Group/theme: ${input.group.trim()}` : '',
+        input.background?.trim() ? `Background: ${input.background.trim()}` : '',
+        input.speakingStyle?.trim() ? `Speaking vibe: ${input.speakingStyle.trim()}` : '',
+        expertise ? `Interests/expertise: ${expertise}` : '',
+        'Return strict JSON: {"description":"1-3 sentences with stable appearance anchors such as age impression, hair, vibe, common outfit, or signature elements, without locking every scene","styleHint":"style guidance suitable for chat images","negativePrompt":"things to avoid","seed":null}',
+        'Do not output markdown or explanations.',
+      ].filter(Boolean).join('\n');
+  const response = await generateResponse(
+    config,
+    `${CHARACTER_GENERATOR_SYSTEM_PROMPT}\nOutput exactly one valid JSON object containing only visualIdentity draft fields.`,
+    [{ role: 'user', content: prompt }],
+    undefined,
+    { maxTokens: 700 }
+  );
+  const parsed = JSON.parse(extractJsonBlock(response)) as GeneratedCharacterProfile['visualIdentity'];
+  return {
+    description: typeof parsed?.description === 'string' ? parsed.description.trim() : '',
+    styleHint: typeof parsed?.styleHint === 'string' ? parsed.styleHint.trim() : '',
+    negativePrompt: typeof parsed?.negativePrompt === 'string' ? parsed.negativePrompt.trim() : '',
+    seed: parsed?.seed ?? null,
+  };
 }

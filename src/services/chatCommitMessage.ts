@@ -105,6 +105,7 @@ export async function persistLocalFirstMessage(params: PersistLocalFirstMessageP
     senderId: params.message.senderId,
     senderName: params.message.senderName,
     content: params.message.content,
+    metadata: params.message.metadata,
     emotion: params.message.emotion,
   }).then((savedMessage) => {
     const persistedMessage = mergeServerConfirmation(localMessage, savedMessage);

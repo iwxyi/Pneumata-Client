@@ -78,7 +78,6 @@ async function createCharacterRemote(charData: Omit<AICharacter, 'id' | 'created
     background: charData.background,
     group: normalizeCharacterGroup(charData.group),
     visualIdentity: charData.visualIdentity,
-    visualReferenceImages: charData.visualIdentity?.referenceImages || [],
     speechProfile: charData.speechProfile,
     voiceConfig: charData.voiceConfig,
     relationships: charData.relationships,

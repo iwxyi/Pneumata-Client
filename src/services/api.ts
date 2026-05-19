@@ -330,7 +330,7 @@ class ApiClient {
   async getSettings() {
     return this.request<{
       api: { provider: string; apiKey: string; baseUrl: string; model: string };
-      aiProfiles?: Array<{ id: string; name: string; type?: 'text' | 'image' | 'audio' | 'document'; isDefault?: boolean; provider: string; apiKey: string; baseUrl: string; model: string }>;
+      aiProfiles?: Array<{ id: string; name: string; type?: 'text' | 'image' | 'audio' | 'document'; isDefault?: boolean; provider: string; apiKey: string; baseUrl: string; model: string; imageCapabilities?: { textToImage?: boolean; referenceImage?: boolean; multiReferenceImage?: boolean; seed?: boolean; negativePrompt?: boolean } }>;
       theme: string; themeColor: string; language: string; defaultSpeed: number;
       developerMode?: boolean;
       autoGenerateCharacterAvatar?: boolean;

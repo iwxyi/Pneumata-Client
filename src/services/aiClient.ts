@@ -229,6 +229,7 @@ async function generateAnthropicResponse(
 ) {
   const payload = splitSystemMessages(messages, systemPrompt);
   const endpoint = buildAnthropicUrl(config.baseUrl);
+  const maxTokensConfig = options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens };
 
   if (onChunk) {
     let fullResponse = '';
@@ -246,7 +247,7 @@ async function generateAnthropicResponse(
           role: message.role,
           content: [{ type: 'text', text: message.content }],
         })),
-        max_tokens: options.maxTokens ?? 500,
+        ...maxTokensConfig,
         temperature: 0.8,
         stream: true,
       }),
@@ -269,16 +270,16 @@ async function generateAnthropicResponse(
       'x-api-key': config.apiKey,
       'anthropic-version': '2023-06-01',
     },
-    body: JSON.stringify({
-      model: config.model,
-      system: payload.systemPrompt || undefined,
-      messages: payload.conversation.map((message) => ({
-        role: message.role,
-        content: [{ type: 'text', text: message.content }],
-      })),
-      max_tokens: options.maxTokens ?? 500,
-      temperature: 0.8,
-    }),
+      body: JSON.stringify({
+        model: config.model,
+        system: payload.systemPrompt || undefined,
+        messages: payload.conversation.map((message) => ({
+          role: message.role,
+          content: [{ type: 'text', text: message.content }],
+        })),
+        ...maxTokensConfig,
+        temperature: 0.8,
+      }),
   });
 
   if (!response.ok) {
@@ -300,6 +301,7 @@ async function generateGeminiResponse(
   const payload = splitSystemMessages(messages, systemPrompt);
   const query = `key=${encodeURIComponent(config.apiKey)}${onChunk ? '&alt=sse' : ''}`;
   const endpoint = `${buildGeminiUrl(config.baseUrl, config.model, Boolean(onChunk))}?${query}`;
+  const maxOutputTokens = options.maxTokens === undefined ? undefined : options.maxTokens;
   const requestBody = {
     systemInstruction: payload.systemPrompt
       ? { parts: [{ text: payload.systemPrompt }] }
@@ -310,7 +312,7 @@ async function generateGeminiResponse(
     })),
     generationConfig: {
       temperature: 0.8,
-      maxOutputTokens: options.maxTokens ?? 500,
+      ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
       responseMimeType: options.responseFormat === 'json' ? 'application/json' : undefined,
     },
   };
@@ -359,11 +361,12 @@ async function generateZhipuResponse(
   options: GenerateResponseOptions = {},
 ) {
   const endpoint = buildZhipuUrl(config.baseUrl);
+  const maxTokensConfig = options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens };
   const requestBody = {
     model: config.model,
     messages: buildOpenAICompatibleMessages(messages, systemPrompt),
     temperature: 0.8,
-    max_tokens: options.maxTokens ?? 500,
+    ...maxTokensConfig,
     stream: Boolean(onChunk),
     response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
   };
@@ -416,6 +419,7 @@ async function generateQwenResponse(
   options: GenerateResponseOptions = {},
 ) {
   const endpoint = buildQwenUrl(config.baseUrl);
+  const maxTokensConfig = options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens };
   const requestBody = {
     model: config.model,
     input: {
@@ -423,7 +427,7 @@ async function generateQwenResponse(
     },
     parameters: {
       temperature: 0.8,
-      max_tokens: options.maxTokens ?? 500,
+      ...maxTokensConfig,
       incremental_output: Boolean(onChunk),
       result_format: 'message',
       response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
@@ -487,11 +491,12 @@ async function generateOpenAICompatibleResponse(
   options: GenerateResponseOptions = {},
 ) {
   const endpoint = buildOpenAICompatibleChatUrl(config.baseUrl);
+  const maxTokensConfig = options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens };
   const requestBody = {
     model: config.model,
     messages: buildOpenAICompatibleMessages(messages, systemPrompt),
     stream: Boolean(onChunk),
-    max_tokens: options.maxTokens ?? 500,
+    ...maxTokensConfig,
     temperature: 0.8,
     response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
   };

@@ -8,7 +8,7 @@
     "home": "首页",
     "chats": "聊天",
     "characters": "角色库",
-    "models": "AI模型",
+    "models": "模型库",
     "account": "账号",
     "settings": "设置"
   },
@@ -114,7 +114,7 @@
   },
   "settings": {
     "title": "设置",
-    "apiConfig": "AI 模型配置",
+    "apiConfig": "模型配置",
     "provider": "服务商",
     "apiKey": "API 密钥",
     "apiKeyPlaceholder": "输入你的 API 密钥",

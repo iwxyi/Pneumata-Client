@@ -4328,27 +4328,26 @@ function mergeMessages(localMessages: Message[], remoteMessages: Message[]) {
     }
 
     const localIdentity = getIdentity(local);
+    const mergedMessage = {
+      ...local,
+      ...remote,
+      id: local.id,
+      clientKey: local.clientKey,
+      timestamp: local.timestamp,
+      serverId: remote.serverId || remote.id,
+      isOptimistic: false,
+      metadata: remote.metadata && Object.keys(remote.metadata as Record<string, unknown>).length > 0
+        ? remote.metadata
+        : local.metadata,
+    };
     if (remote.timestamp >= local.timestamp || remote.isDeleted !== local.isDeleted) {
       if (localIdentity !== remoteIdentity) merged.delete(localIdentity);
-      merged.set(remoteIdentity, {
-        ...local,
-        ...remote,
-        id: local.id,
-        clientKey: local.clientKey,
-        // Keep the first local timestamp so follow-up runtime hints stay stable
-        // relative to the originating message when the server confirmation arrives later.
-        timestamp: local.timestamp,
-        serverId: remote.serverId || remote.id,
-        isOptimistic: false,
-      });
+      merged.set(remoteIdentity, mergedMessage);
       continue;
     }
 
     if (localIdentity !== remoteIdentity) {
-      merged.set(remoteIdentity, {
-        ...local,
-        serverId: remote.serverId || remote.id,
-      });
+      merged.set(remoteIdentity, mergedMessage);
       merged.delete(localIdentity);
     }
   }

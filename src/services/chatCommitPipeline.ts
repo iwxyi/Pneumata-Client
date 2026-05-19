@@ -58,12 +58,28 @@ export async function runChatCommitPipeline(params: {
     });
     if (params.aiProfiles?.length && persistedMessage.metadata?.attachments?.some((item) => item.status === 'queued')) {
       const speaker = params.characters.find((character) => character.id === persistedMessage.senderId);
-      void processRichMessageMedia({
+      const startMediaProcessing = () => void processRichMessageMedia({
         message: persistedMessage,
         character: speaker,
-        aiProfiles: params.aiProfiles,
+        aiProfiles: params.aiProfiles || [],
         upsertMessage: params.upsertMessage,
       });
+      if (persistedMessage.serverId) {
+        startMediaProcessing();
+      } else {
+        params.upsertMessage({
+          ...persistedMessage,
+          metadata: {
+            ...(persistedMessage.metadata || {}),
+            generation: {
+              ...(persistedMessage.metadata?.generation || {}),
+              status: 'queued',
+              updatedAt: Date.now(),
+            },
+          },
+        });
+        void Promise.resolve().then(startMediaProcessing);
+      }
     }
     timer.mark('after-persist-message', {
       messages: nextMessages.concat(persistedMessage),
