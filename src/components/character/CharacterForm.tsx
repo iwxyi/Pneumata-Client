@@ -668,7 +668,11 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     ].filter(Boolean).join('\n');
     setVisualImageTaskError(null);
     setVisualImageTaskStatus('queued');
-    setVisualImageTaskId(avatarGenerationQueue.enqueue(imageProfile, prompt, { targetKey: visualImageTargetKey }) || null);
+    setVisualImageTaskId(avatarGenerationQueue.enqueue(imageProfile, prompt, {
+      targetKey: visualImageTargetKey,
+      negativePrompt: visualIdentity.negativePrompt,
+      seed: visualIdentity.seed,
+    }) || null);
   };
 
   const isImageAvatar = isImageAvatarValue(avatar);

@@ -19,6 +19,12 @@ export interface ImageGenerationOptions {
   prompt: string;
   size?: string;
   count?: number;
+  negativePrompt?: string;
+  seed?: string | number | null;
+  referenceImages?: Array<{
+    url: string;
+    mimeType?: string;
+  }>;
   signal?: AbortSignal;
 }
 
@@ -133,6 +139,13 @@ function buildOpenAICompatibleImageUrl(baseUrl: string) {
   return `${normalized}/images/generations`;
 }
 
+function buildOpenAICompatibleImageEditUrl(baseUrl: string) {
+  const normalized = trimTrailingSlashes(baseUrl);
+  if (normalized.endsWith('/images/edits')) return normalized;
+  if (normalized.endsWith('/images/generations')) return normalized.replace(/\/images\/generations$/, '/images/edits');
+  return `${normalized}/images/edits`;
+}
+
 function buildOpenAICompatibleSpeechUrl(baseUrl: string) {
   const normalized = trimTrailingSlashes(baseUrl);
   if (normalized.endsWith('/audio/speech')) return normalized;
@@ -218,6 +231,31 @@ async function parseJsonResponse<T>(response: Response, fallbackPrefix: string):
     throw new Error(errorText || `${fallbackPrefix}: ${response.status}`);
   }
   return response.json() as Promise<T>;
+}
+
+async function urlToBlob(value: string, fallbackMimeType = 'image/png') {
+  const response = await fetch(value);
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || `Failed to load reference image: ${response.status}`);
+  }
+  const blob = await response.blob();
+  return blob.type ? blob : new Blob([blob], { type: fallbackMimeType });
+}
+
+async function blobToBase64(blob: Blob) {
+  const buffer = await blob.arrayBuffer();
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function getBlobExtension(mimeType: string) {
+  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg';
+  if (mimeType.includes('webp')) return 'webp';
+  if (mimeType.includes('gif')) return 'gif';
+  return 'png';
 }
 
 async function generateAnthropicResponse(
@@ -625,6 +663,56 @@ export async function listAvailableModels(config: APIConfig): Promise<AvailableM
 }
 
 async function generateOpenAICompatibleImage(config: APIConfig, options: ImageGenerationOptions): Promise<GeneratedImage[]> {
+  if (options.referenceImages?.length) {
+    const formData = new FormData();
+    formData.append('model', config.model);
+    formData.append('prompt', options.prompt);
+    formData.append('n', String(options.count || 1));
+    formData.append('size', options.size || '1024x1024');
+    formData.append('response_format', 'b64_json');
+
+    for (const [index, reference] of options.referenceImages.entries()) {
+      const blob = await urlToBlob(reference.url, reference.mimeType || 'image/png');
+      formData.append('image[]', blob, `reference-${index + 1}.${getBlobExtension(reference.mimeType || blob.type || 'image/png')}`);
+    }
+
+    const response = await fetch(buildOpenAICompatibleImageEditUrl(config.baseUrl), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      signal: options.signal,
+      body: formData,
+    });
+
+    const result = await parseJsonResponse<{
+      data?: Array<{ b64_json?: string; revised_prompt?: string; url?: string }>;
+    }>(response, 'Image edit request failed');
+
+    const images: GeneratedImage[] = [];
+    for (const item of result.data || []) {
+      if (item.b64_json) {
+        images.push({
+          mimeType: 'image/png',
+          dataUrl: encodeDataUrl('image/png', item.b64_json),
+          revisedPrompt: item.revised_prompt,
+          url: item.url,
+        });
+        continue;
+      }
+
+      if (item.url) {
+        images.push({
+          mimeType: 'image/png',
+          dataUrl: item.url,
+          revisedPrompt: item.revised_prompt,
+          url: item.url,
+        });
+      }
+    }
+    return images;
+  }
+
   const response = await fetch(buildOpenAICompatibleImageUrl(config.baseUrl), {
     method: 'POST',
     headers: {
@@ -638,6 +726,8 @@ async function generateOpenAICompatibleImage(config: APIConfig, options: ImageGe
       n: options.count || 1,
       size: options.size || '1024x1024',
       response_format: 'b64_json',
+      negative_prompt: options.negativePrompt || undefined,
+      seed: options.seed ?? undefined,
     }),
   });
 
@@ -670,6 +760,17 @@ async function generateOpenAICompatibleImage(config: APIConfig, options: ImageGe
 }
 
 async function generateGeminiImage(config: APIConfig, options: ImageGenerationOptions): Promise<GeneratedImage[]> {
+  const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [{ text: options.prompt }];
+  for (const reference of options.referenceImages || []) {
+    const dataUrl = reference.url.startsWith('data:')
+      ? reference.url
+      : encodeDataUrl(reference.mimeType || 'image/png', await blobToBase64(await urlToBlob(reference.url, reference.mimeType || 'image/png')));
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+    }
+  }
+
   const response = await fetch(`${buildGeminiUrl(config.baseUrl, config.model, false)}?key=${encodeURIComponent(config.apiKey)}`, {
     method: 'POST',
     headers: {
@@ -677,7 +778,7 @@ async function generateGeminiImage(config: APIConfig, options: ImageGenerationOp
     },
     signal: options.signal,
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: options.prompt }] }],
+      contents: [{ role: 'user', parts }],
       generationConfig: {
         responseModalities: ['TEXT', 'IMAGE'],
       },

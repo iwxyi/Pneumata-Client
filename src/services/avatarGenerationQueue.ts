@@ -1,5 +1,5 @@
-import type { APIConfig } from '../types/settings';
-import { generateImage } from './aiClient';
+import type { AIModelProfile } from '../types/settings';
+import { generateImageWithAdapter } from './aiGenerationAdapter';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { api } from './api';
 import { prepareAvatarUploadDataUrl } from '../utils/avatarUpload';
@@ -13,11 +13,15 @@ export interface AvatarGenerationTaskState {
   error: string | null;
   imageDataUrl: string | null;
   characterId?: string | null;
+  negativePrompt?: string;
+  seed?: string | number | null;
 }
 
 interface AvatarGenerationTask extends AvatarGenerationTaskState {
   prompt: string;
-  config: APIConfig;
+  profile: AIModelProfile;
+  negativePrompt?: string;
+  seed?: string | number | null;
   controller: AbortController | null;
 }
 
@@ -31,7 +35,7 @@ class AvatarGenerationQueueService {
   private latestTaskIdByTarget = new Map<string, string>();
   private runningTaskId: string | null = null;
 
-  enqueue(config: APIConfig, prompt: string, options: { targetKey: string; characterId?: string | null }) {
+  enqueue(profile: AIModelProfile, prompt: string, options: { targetKey: string; characterId?: string | null; negativePrompt?: string; seed?: string | number | null }) {
     const previous = this.getLatestTaskForTarget(options.targetKey);
     if (previous && (previous.status === 'queued' || previous.status === 'running')) {
       this.cancel(previous.id);
@@ -43,7 +47,9 @@ class AvatarGenerationQueueService {
       targetKey: options.targetKey,
       characterId: options.characterId || null,
       prompt,
-      config,
+      profile,
+      negativePrompt: options.negativePrompt,
+      seed: options.seed,
       status: 'queued',
       error: null,
       imageDataUrl: null,
@@ -131,10 +137,14 @@ class AvatarGenerationQueueService {
     this.emit(task);
 
     try {
-      const images = await generateImage(task.config, {
+      const images = await generateImageWithAdapter({
+        profile: task.profile,
         prompt: task.prompt,
         count: 1,
         size: '1024x1024',
+        intent: 'character-reference',
+        negativePrompt: task.negativePrompt,
+        seed: task.seed,
         signal: task.controller.signal,
       });
       const firstImage = images[0];

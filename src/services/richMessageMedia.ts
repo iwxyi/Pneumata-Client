@@ -2,16 +2,7 @@ import type { AICharacter } from '../types/character';
 import type { Message, MessageAttachment, MessageMetadata } from '../types/message';
 import type { AIModelProfile } from '../types/settings';
 import { api } from './api';
-import { generateImage, synthesizeSpeech } from './aiClient';
-
-function profileToApi(profile: AIModelProfile) {
-  return {
-    provider: profile.provider,
-    apiKey: profile.apiKey,
-    baseUrl: profile.baseUrl,
-    model: profile.model,
-  };
-}
+import { generateImageWithAdapter, synthesizeSpeechWithAdapter } from './aiGenerationAdapter';
 
 function findProfile(profiles: AIModelProfile[], id?: string | null) {
   const profile = id ? profiles.find((item) => item.id === id) : null;
@@ -78,7 +69,16 @@ export async function processRichMessageMedia(params: {
       if (attachment.kind === 'image') {
         const profile = findGenerationProfile(params.aiProfiles, 'image', params.character?.modelProfileIds?.image);
         if (!profile || !attachment.promptText) throw new Error('图片模型未配置');
-        const images = await generateImage(profileToApi(profile), { prompt: attachment.promptText, count: 1 });
+        const images = await generateImageWithAdapter({
+          profile,
+          prompt: attachment.promptText,
+          count: 1,
+          intent: 'chat-image',
+          character: params.character,
+          allowCharacterReferenceImages: true,
+          negativePrompt: params.character?.visualIdentity?.negativePrompt,
+          seed: params.character?.visualIdentity?.seed,
+        });
         const first = images[0];
         if (!first?.dataUrl) throw new Error('图片生成失败');
         const dataUrl = await ensureDataUrl(first.dataUrl);
@@ -108,7 +108,9 @@ export async function processRichMessageMedia(params: {
         const profile = findGenerationProfile(params.aiProfiles, 'audio', params.character?.modelProfileIds?.audio);
         if (!profile) throw new Error('语音模型未配置');
         const voice = params.character?.voiceConfig?.voiceName || profile.model;
-        const audio = await synthesizeSpeech(profileToApi(profile), {
+        const audio = await synthesizeSpeechWithAdapter({
+          profile,
+          intent: 'chat-audio',
           input: attachment.promptText || currentMessage.content,
           voice,
           format: 'mp3',
