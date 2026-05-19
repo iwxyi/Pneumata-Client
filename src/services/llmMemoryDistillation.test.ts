@@ -51,6 +51,7 @@ function buildRuntimeMemoryItem(args: {
     kind: 'resentment',
     subjectIds: args.subjectIds,
     text: `${args.id}-evidence`,
+    evidenceText: `${args.id} 的完整原始对话证据：这是一段比摘要更完整的互动原文`,
     salience: 0.82,
     confidence: 0.85,
     recency: 0.92,
@@ -139,6 +140,12 @@ describe('llmMemoryDistillation', () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.sourceEventIds).toEqual(expect.arrayContaining(source.map((item) => item.sourceEventIds[0])));
     expect(new Set(result[0]?.sourceEventIds || []).size).toBe(18);
+    expect(result[0]?.evidenceText).toContain('完整原始对话证据');
+    expect(generateJsonResponseMock.mock.calls[0]?.[2]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        content: expect.stringContaining('原始证据'),
+      }),
+    ]));
   });
 
   it('does not rerun chat LLM distillation when post-distillation updates only reuse covered evidence', () => {
