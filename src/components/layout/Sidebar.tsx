@@ -8,6 +8,7 @@ import {
   IconButton,
   Divider,
   Tooltip,
+  Badge,
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import ChatIcon from '@mui/icons-material/Chat';
@@ -15,12 +16,14 @@ import PersonIcon from '@mui/icons-material/Person';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ModelsIcon from '@mui/icons-material/SmartToy';
 import AccountIcon from '@mui/icons-material/AccountCircle';
+import MailIcon from '@mui/icons-material/Mail';
 import CollapseIcon from '@mui/icons-material/ChevronLeft';
 import ExpandIcon from '@mui/icons-material/ChevronRight';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useUIStore } from '../../stores/useUIStore';
+import { useCharacterArtifactStore } from '../../stores/useCharacterArtifactStore';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -30,6 +33,7 @@ const navItems = [
   { path: '/', icon: <HomeIcon />, labelKey: 'nav.home' },
   { path: '/chats', icon: <ChatIcon />, labelKey: 'nav.chats' },
   { path: '/characters', icon: <PersonIcon />, labelKey: 'nav.characters' },
+  { path: '/letters', icon: <MailIcon />, labelKey: 'nav.letters' },
   { path: '/models', icon: <ModelsIcon />, labelKey: 'nav.models' },
   { path: '/account', icon: <AccountIcon />, labelKey: 'nav.account' },
   { path: '/settings', icon: <SettingsIcon />, labelKey: 'nav.settings' },
@@ -41,6 +45,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
   const { t } = useTranslation();
   const { isDesktop } = useResponsive();
   const { toggleSidebar, setSidebarOpen } = useUIStore();
+  const unreadLetterCount = useCharacterArtifactStore((state) => state.unreadLetterCount);
 
   const handleNav = (path: string) => {
     navigate(path);
@@ -121,7 +126,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
                   color: isActive ? 'primary.main' : 'text.secondary',
                 }}
               >
-                {item.icon}
+                {item.path === '/letters' ? <Badge badgeContent={unreadLetterCount} color="error" max={99}>{item.icon}</Badge> : item.icon}
               </ListItemIcon>
               {!collapsed && <ListItemText primary={t(item.labelKey)} />}
             </ListItemButton>

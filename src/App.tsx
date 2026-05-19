@@ -4,6 +4,8 @@ import { ThemeProvider, CssBaseline, useMediaQuery } from '@mui/material';
 import { createAppTheme } from './theme';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useAuthStore } from './stores/useAuthStore';
+import { useCharacterStore } from './stores/useCharacterStore';
+import { useCharacterArtifactStore } from './stores/useCharacterArtifactStore';
 import AppLayout from './components/layout/AppLayout';
 import HomePage from './pages/HomePage';
 import ChatListPage from './pages/ChatListPage';
@@ -20,6 +22,7 @@ const AIModelsPage = lazy(() => import('./pages/AIModelsPage'));
 const AccountPage = lazy(() => import('./pages/AccountPage'));
 const SyncStatusPage = lazy(() => import('./pages/SyncStatusPage'));
 const BatchGenerateCharactersPage = lazy(() => import('./pages/BatchGenerateCharactersPage'));
+const LettersPage = lazy(() => import('./pages/LettersPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 
 function RouteElement({ children }: { children: React.ReactNode }) {
@@ -53,7 +56,11 @@ function DataLoader({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isLoggedIn || authMode === 'local') {
-      loadSettings();
+      void loadSettings();
+      void useCharacterStore.getState().loadCharacters();
+      void Promise.resolve(useCharacterArtifactStore.persist.rehydrate()).then(() => {
+        void useCharacterArtifactStore.getState().resumeProcessing();
+      });
     }
   }, [authMode, isLoggedIn, loadSettings]);
 
@@ -79,6 +86,7 @@ function RoutedApp() {
         <Route path="/characters/create" element={<RouteElement><CharacterEditorPage /></RouteElement>} />
         <Route path="/characters/:id/edit" element={<RouteElement><CharacterEditorPage /></RouteElement>} />
         <Route path="/characters/batch-generate" element={<RouteElement><BatchGenerateCharactersPage /></RouteElement>} />
+        <Route path="/letters" element={<RouteElement><LettersPage /></RouteElement>} />
         <Route path="/models" element={<RouteElement><AIModelsPage /></RouteElement>} />
         <Route path="/account" element={<RouteElement><AccountPage /></RouteElement>} />
         <Route path="/account/sync-status" element={<RouteElement><SyncStatusPage /></RouteElement>} />

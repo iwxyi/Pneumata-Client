@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Box, Chip, LinearProgress, Stack, Typography } from '@mui/material';
+import { Box, Button, Chip, LinearProgress, Stack, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter } from '../../types/character';
 import type { MemoryItem } from '../../services/memoryTypes';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { getPreferredAIProfile } from '../../types/settings';
 import SimpleBarChart from '../common/SimpleBarChart';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
@@ -15,6 +16,12 @@ import { RelationshipRadar } from '../controls/RelationshipPanel';
 import type { RelationshipLedgerEntry } from '../../types/runtimeEvent';
 import { formatLocalizedDriftSummary, getDominantEmotionLabel, getAffectSummaryLines } from '../../services/personalityDrift';
 import LayeredMemoryPanel from '../memory/LayeredMemoryPanel';
+import {
+  buildCharacterExperienceArtifactContext,
+  buildLocalCharacterExperienceArtifact,
+  generateCharacterExperienceArtifact,
+  type CharacterExperienceArtifactKind,
+} from '../../services/characterExperienceArtifacts';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -205,6 +212,71 @@ function RelationshipOverviewPanel({ relationships, relationshipMemories, resolv
   ) : <Typography variant="caption" color="text.secondary">暂无关系数据</Typography>;
 }
 
+const EXPERIENCE_ARTIFACT_TABS: Array<{ key: CharacterExperienceArtifactKind; label: string }> = [
+  { key: 'birth_letter', label: '诞生' },
+  { key: 'diary', label: '日记' },
+  { key: 'growth', label: '成长' },
+  { key: 'final_letter', label: '信' },
+];
+
+function CharacterExperienceArtifactPanel({ character, relatedCharacters }: { character: Partial<AICharacter>; relatedCharacters: AICharacter[] }) {
+  const { i18n } = useTranslation();
+  const aiProfiles = useSettingsStore((state) => state.aiProfiles);
+  const selectedProfile = useMemo(() => getPreferredAIProfile(aiProfiles, 'text') || aiProfiles[0] || null, [aiProfiles]);
+  const [kind, setKind] = useState<CharacterExperienceArtifactKind>('diary');
+  const [generatedTexts, setGeneratedTexts] = useState<Partial<Record<CharacterExperienceArtifactKind, string>>>({});
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const context = useMemo(() => buildCharacterExperienceArtifactContext(character, relatedCharacters), [character, relatedCharacters]);
+  const localPreview = useMemo(() => buildLocalCharacterExperienceArtifact(kind, context), [kind, context]);
+  const displayedText = generatedTexts[kind] || localPreview;
+  const canGenerate = Boolean(selectedProfile?.apiKey && selectedProfile?.model);
+
+  const handleGenerate = async () => {
+    if (!selectedProfile || !canGenerate) return;
+    setGenerating(true);
+    setError(null);
+    try {
+      const text = await generateCharacterExperienceArtifact({
+        config: selectedProfile,
+        kind,
+        character,
+        relatedCharacters,
+        language: i18n.language.startsWith('zh') ? 'zh' : 'en',
+      });
+      setGeneratedTexts((prev) => ({ ...prev, [kind]: text.trim() || localPreview }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <SurfaceCard>
+      <SectionHeader title="角色经历" dense action={<Button size="small" variant="text" disabled={!canGenerate || generating} onClick={handleGenerate}>{generating ? '生成中' : '生成'}</Button>} />
+      <Stack spacing={1}>
+        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+          {EXPERIENCE_ARTIFACT_TABS.map((tab) => (
+            <Chip
+              key={tab.key}
+              size="small"
+              label={tab.label}
+              color={kind === tab.key ? 'primary' : 'default'}
+              variant={kind === tab.key ? 'filled' : 'outlined'}
+              onClick={() => setKind(tab.key)}
+            />
+          ))}
+        </Box>
+        <Box sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
+          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{displayedText}</Typography>
+        </Box>
+        {error ? <Typography variant="caption" color="error">{error}</Typography> : null}
+      </Stack>
+    </SurfaceCard>
+  );
+}
+
 interface RuntimeInsightsPanelProps {
   character: Partial<AICharacter>;
 }
@@ -253,6 +325,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
   const { i18n } = useTranslation();
   const [viewMode, setViewMode] = useState<'timeline' | 'graph'>('timeline');
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'memory' | 'relationship' | 'drift'>('all');
+  const characters = useCharacterStore((state) => state.characters);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const isDeveloperView = developerMode && Boolean(showDeveloperMemory);
@@ -292,6 +365,8 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
         <SectionHeader title="核心画像" dense />
         {hasCoreProfile ? <CoreProfilePanel character={character} /> : <Typography variant="caption" color="text.secondary">暂无核心画像</Typography>}
       </SurfaceCard>
+
+      <CharacterExperienceArtifactPanel character={character} relatedCharacters={characters} />
 
       <SurfaceCard>
         <SectionHeader title="行为 / 漂移" dense />

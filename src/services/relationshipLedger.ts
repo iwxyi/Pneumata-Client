@@ -65,9 +65,16 @@ function normalizeRuntimeEntryForComputation(entry: RelationshipLedgerEntry | un
 }
 
 export function normalizeRelationshipLedgerEntry(entry: RelationshipLedgerEntry): RelationshipLedgerEntry {
+  const current = normalizeCurrent(entry.current);
+  const axisReasons = entry.axisReasons || {};
   return {
     ...entry,
-    current: normalizeCurrent(entry.current),
+    current,
+    axisReasons,
+    derived: {
+      ...(entry.derived || {}),
+      semantic: entry.derived?.semantic || buildRelationshipSemanticProfile(current, axisReasons),
+    },
   };
 }
 
@@ -136,6 +143,48 @@ function appendAxisReasons(previous: RelationshipLedgerEntry | undefined, next: 
   return merged;
 }
 
+function buildRelationshipSemanticProfile(current: RelationshipLedgerEntry['current'], axisReasons: NonNullable<RelationshipLedgerEntry['axisReasons']>) {
+  const warmth = current.warmth || 0;
+  const trust = current.trust || 0;
+  const threat = current.threat || 0;
+  const competence = current.competence || 0;
+  const closeness = warmth + trust;
+  const tension = threat - Math.max(0, warmth) * 0.35;
+  const labels: string[] = [];
+
+  if (closeness >= 70 && threat < 28) labels.push('亲密', '依赖');
+  else if (closeness >= 42 && threat < 35) labels.push('好感', '亲近');
+  else if (warmth >= 24 && trust >= 18) labels.push('欣赏');
+
+  if (warmth >= 35 && trust >= 32 && threat <= 18) labels.push('喜欢');
+  if (warmth >= 50 && trust >= 45 && threat <= 14) labels.push('深度牵挂');
+  if (competence >= 30 && trust >= 18) labels.push('认可');
+  if (competence <= -24) labels.push('轻视');
+  if (trust <= -30) labels.push('失望');
+  if (threat >= 28 && trust <= 8) labels.push('戒备');
+  if (threat >= 44 && warmth <= 8) labels.push('厌烦');
+  if (threat >= 62 && warmth < -8) labels.push('憎恶');
+  if (threat >= 36 && competence >= 18) labels.push('竞争心');
+  if (threat >= 32 && warmth >= 24) labels.push('又在意又防备');
+
+  const recentReasons = Object.values(axisReasons).flat().slice(-4).map((item) => item.reason);
+  if (recentReasons.includes('defend')) labels.push('保护欲');
+  if (recentReasons.includes('support') && warmth >= 18) labels.push('同盟感');
+  if ((recentReasons.includes('challenge') || recentReasons.includes('mock')) && threat >= 22) labels.push('裂痕');
+
+  const uniqueLabels = Array.from(new Set(labels)).slice(0, 4);
+  const stage = tension >= 58 ? '破裂边缘'
+    : tension >= 34 ? '紧张对峙'
+      : uniqueLabels.includes('又在意又防备') ? '复杂拉扯'
+        : closeness >= 72 ? '深度绑定'
+          : closeness >= 40 ? '关系升温'
+            : uniqueLabels.includes('同盟感') ? '同盟形成'
+              : '普通互动';
+  const intensity = Math.max(0, Math.min(100, Math.abs(closeness) * 0.55 + Math.max(0, tension) * 0.75 + Math.abs(competence) * 0.2));
+  const summary = uniqueLabels.length ? `${stage}：${uniqueLabels.join('、')}` : stage;
+  return { stage, labels: uniqueLabels, summary, intensity };
+}
+
 function computeDerived(entry: RelationshipLedgerEntry | undefined, current: RelationshipLedgerEntry['current'], axisReasons: NonNullable<RelationshipLedgerEntry['axisReasons']>) {
   const previous = entry?.current;
   const totalMovement = Math.abs(current.warmth) + Math.abs(current.competence) + Math.abs(current.trust) + Math.abs(current.threat);
@@ -146,6 +195,7 @@ function computeDerived(entry: RelationshipLedgerEntry | undefined, current: Rel
     stability: Math.max(0, Math.min(100, 100 - volatility * 4)),
     reciprocity: entry?.derived?.reciprocity ?? 0,
     salience: Math.max(0, Math.min(100, totalMovement + Object.values(axisReasons).flat().length * 4)),
+    semantic: buildRelationshipSemanticProfile(current, axisReasons),
   };
 }
 

@@ -4,6 +4,7 @@ import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import StatChipRow from '../common/StatChipRow';
 import type { MemoryItem } from '../../services/memoryTypes';
+import { getExperienceLensLabel } from '../../services/experienceChangePresentation';
 
 function getMemoryLayerLabel(layer: MemoryItem['layer']) {
   const labels: Record<MemoryItem['layer'], string> = {
@@ -42,6 +43,15 @@ function getMemoryKindLabel(kind: MemoryItem['kind']) {
   return labels[kind] || kind;
 }
 
+function buildMemoryMetaItems(item: MemoryItem) {
+  return [
+    getExperienceLensLabel(item.sourceTag),
+    getMemoryLayerLabel(item.layer),
+    getMemoryScopeLabel(item.scope),
+    getMemoryKindLabel(item.kind),
+  ].filter(Boolean) as string[];
+}
+
 function MemoryCard({ item, formatMemoryText }: { item: MemoryItem; formatMemoryText?: (text: string, item: MemoryItem) => string }) {
   const displayText = formatMemoryText ? formatMemoryText(item.text, item) : item.text;
   const evidenceSource = item.evidenceText || item.summary || item.text;
@@ -50,7 +60,7 @@ function MemoryCard({ item, formatMemoryText }: { item: MemoryItem; formatMemory
     <Box sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
       <Stack spacing={0.6}>
         <Typography variant="body2" sx={{ fontWeight: 700 }} title={evidenceTitle}>{displayText}</Typography>
-        <StatChipRow items={[getMemoryLayerLabel(item.layer), getMemoryScopeLabel(item.scope), getMemoryKindLabel(item.kind)]} />
+        <StatChipRow items={buildMemoryMetaItems(item)} />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', opacity: 0.85 }}>{`强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`}</Typography>
       </Stack>
     </Box>

@@ -51,7 +51,7 @@ describe('MessageBubble event rendering', () => {
     });
 
     expect(meta?.candidateTexts).toEqual([
-      '群聊稳定关系趋势：支持：灰太狼 → 沸羊羊 · 哟，沸羊羊你今天站我这边了？',
+      '群聊稳定关系趋势：灰太狼→沸羊羊 支持：灰太狼 → 沸羊羊 · 哟，沸羊羊你今天站我这边了？',
     ]);
   });
 

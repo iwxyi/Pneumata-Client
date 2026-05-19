@@ -202,8 +202,11 @@ export function RelationshipRadar({ entry, onOpenAxis, compact = false }: { entr
 
 function RelationshipDerivedChips({ entry }: { entry: RelationshipLedgerEntry }) {
   if (!entry.derived) return null;
+  const semantic = entry.derived.semantic;
   return (
     <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }} useFlexGap>
+      {semantic ? <Tooltip title="根据关系四轴、近期趋势和证据推导的关系语义。" arrow><Chip size="small" color="primary" variant="outlined" label={semantic.stage} /></Tooltip> : null}
+      {semantic?.labels?.slice(0, 3).map((label) => <Chip key={label} size="small" variant="outlined" label={label} />)}
       {typeof entry.derived.stability === 'number' ? <Tooltip title="关系越高越稳，越低越容易继续变化。" arrow><Chip size="small" variant="outlined" label={`稳定 ${Math.round(entry.derived.stability)}`} /></Tooltip> : null}
       {typeof entry.derived.salience === 'number' ? <Tooltip title="最近证据密度与强度。" arrow><Chip size="small" variant="outlined" label={`显著 ${Math.round(entry.derived.salience)}`} /></Tooltip> : null}
       {typeof entry.derived.reciprocity === 'number' ? <Tooltip title="双向关系的一致程度。" arrow><Chip size="small" variant="outlined" label={`对称 ${Math.round(entry.derived.reciprocity)}`} /></Tooltip> : null}
@@ -267,6 +270,7 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
             <Chip size="small" variant="outlined" label={dominantSummary} sx={{ height: 22, fontSize: 11 }} />
           </Tooltip>
         </Box>
+        {presented.semanticSummary ? <Typography variant="caption" color="text.secondary" sx={{ px: 0.25 }}>{presented.semanticSummary}</Typography> : null}
         <RelationshipDerivedChips entry={normalizedEntry} />
         <RelationshipEvidenceCard speakerName={hideSpeakerName ? undefined : presented.speakerName} evidence={presented.evidence || '暂无明确证据'} />
         <RelationshipRadar entry={normalizedEntry} onOpenAxis={setActiveAxis} />
@@ -293,6 +297,7 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
     lastUpdatedAt: updatedAt,
   };
   const summary = buildRelationshipDisplaySummary(fallbackEntry);
+  const normalizedFallbackEntry = normalizeRelationshipLedgerEntry(fallbackEntry);
 
   if (!hasMeaningfulFallback) return null;
 
@@ -308,8 +313,9 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
             <Chip size="small" variant="outlined" label={summary} sx={{ height: 22, fontSize: 11 }} />
           </Tooltip>
         </Box>
+        <RelationshipDerivedChips entry={normalizedFallbackEntry} />
         <RelationshipEvidenceCard speakerName={memberName} evidence={fallbackEvidence} />
-        <RelationshipRadar entry={fallbackEntry} onOpenAxis={setActiveAxis} />
+        <RelationshipRadar entry={normalizedFallbackEntry} onOpenAxis={setActiveAxis} />
       </Stack>
       <AxisReasonDialog open={Boolean(activeAxis)} onClose={() => setActiveAxis(null)} axisLabel={activeMeta?.label || '关系轴'} reasons={[]} />
     </RelationshipCardFrame>

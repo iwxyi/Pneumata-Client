@@ -3,6 +3,7 @@ export type MemoryScope = 'conversation' | 'character_self' | 'relationship' | '
 export type MemoryKind = 'decision' | 'conflict' | 'bond' | 'resentment' | 'status_shift' | 'trait_evidence' | 'bias' | 'taboo' | 'obsession' | 'artifact' | 'thread_effect';
 
 export type MemoryOrigin = 'runtime' | 'distilled' | 'seeded';
+export type MemoryDecision = 'create' | 'reinforce' | 'revise' | 'merge' | 'archive' | 'ignore';
 
 export interface MemoryItem {
   id: string;
@@ -42,6 +43,7 @@ export interface MemoryCandidate {
   sourceEventIds: string[];
   sourceTag?: string;
   origin?: MemoryOrigin;
+  decision?: MemoryDecision;
   distilledFromIds?: string[];
   distilledAt?: number | null;
   distillationVersion?: string | null;

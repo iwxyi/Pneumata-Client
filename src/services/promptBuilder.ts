@@ -5,6 +5,7 @@ import { buildMessageStyleRules, buildRelationshipPrompt as buildSocialPromptCon
 import { getMemoryContext } from './layeredMemoryEngine';
 import type { MemoryItem } from './memoryTypes';
 import { formatConflictPromptText, formatConflictStageLabel } from './runtimeEventFactory';
+import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
@@ -64,14 +65,14 @@ function buildLayeredMemoryPrompt(items: MemoryItem[], title = 'Relevant Memorie
 
 function buildGroupMemoryPolicyTags() {
   return {
-    preferred: ['group_relationship_shift', 'interaction', 'relationship_delta', 'room_shift', 'private_thread_effect', 'private_thread_summary'],
+    preferred: ['llm_memory_objective_event', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', 'interaction', 'relationship_delta', 'room_shift', 'private_thread_effect', 'private_thread_summary'],
     blocked: ['direct_user_message', 'direct_ai_follow_up', 'ai_direct_starter_message', 'ai_direct_target_message'],
   };
 }
 
 function buildGroupCharacterPolicyTags() {
   return {
-    preferred: ['group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise', 'self_expression'],
+    preferred: ['llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise', 'self_expression'],
     blocked: ['direct_user_message', 'direct_ai_follow_up'],
   };
 }
@@ -86,13 +87,13 @@ function buildPromptMemoryPolicies(chat: GroupChat) {
   if (chat.type === 'direct') {
     return {
       conversation: { preferred: ['direct_user_message', 'direct_ai_follow_up'], allowed: ['direct_user_message', 'direct_ai_follow_up'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
-      character: { preferred: ['direct_user_message', 'direct_ai_follow_up', 'self_expression', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['direct_user_message', 'direct_ai_follow_up', 'self_expression', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
+      character: { preferred: ['llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'direct_user_message', 'direct_ai_follow_up', 'self_expression', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['direct_user_message', 'direct_ai_follow_up', 'self_expression', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
     };
   }
   if (chat.type === 'ai_direct') {
     return {
       conversation: { preferred: ['ai_direct_starter_message', 'ai_direct_target_message'], allowed: ['ai_direct_starter_message', 'ai_direct_target_message'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
-      character: { preferred: ['ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
+      character: { preferred: ['llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
     };
   }
   const group = { conversation: buildGroupMemoryPolicyTags(), character: buildGroupCharacterPolicyTags() };
@@ -172,6 +173,20 @@ function buildGroupPressurePrompt(chat: GroupChat, target: AICharacter | undefin
   return lines.length ? `\n## Group Pressure\n${lines.map((line) => `- ${line}`).join('\n')}` : '';
 }
 
+function buildRelationshipSemanticPrompt(chat: GroupChat, character: AICharacter, target: AICharacter | undefined, characters: Map<string, AICharacter>) {
+  const relevant = (chat.relationshipLedger || [])
+    .map(normalizeRelationshipLedgerEntry)
+    .filter((entry) => entry.actorId === character.id && (!target || entry.targetId === target.id))
+    .filter((entry) => entry.derived?.semantic?.summary)
+    .sort((a, b) => (b.lastUpdatedAt || 0) - (a.lastUpdatedAt || 0))
+    .slice(0, target ? 1 : 3);
+  if (!relevant.length) return '';
+  return `\n## Relationship Semantics\n${relevant.map((entry) => {
+    const targetName = characters.get(entry.targetId)?.name || entry.targetId;
+    return `- Toward ${targetName}: ${entry.derived?.semantic?.summary}`;
+  }).join('\n')}\n- Let these relationship meanings bend tone, omissions, willingness to defend, jealousy, rivalry, affection, or avoidance.`;
+}
+
 function buildTargetedReplyBiasPrompt(chat: GroupChat, target: AICharacter | undefined) {
   if (!target) return '';
   if (chat.type === 'group') {
@@ -245,7 +260,7 @@ function buildConflictPromptBundle(chat: GroupChat, character: AICharacter, char
 }
 
 function buildPromptInfluenceContext(chat: GroupChat, character: AICharacter, target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, mergedMemories: MemoryItem[], characters: Map<string, AICharacter>) {
-  return `${buildInfluenceModePrompt(chat, target)}${buildRelationshipInfluencePrompt(target, relationshipSnapshot)}${buildMemoryInfluencePrompt(mergedMemories)}${buildGroupPressurePrompt(chat, target, characters)}${buildConflictPromptBundle(chat, character, characters)}`;
+  return `${buildInfluenceModePrompt(chat, target)}${buildRelationshipInfluencePrompt(target, relationshipSnapshot)}${buildRelationshipSemanticPrompt(chat, character, target, characters)}${buildMemoryInfluencePrompt(mergedMemories)}${buildGroupPressurePrompt(chat, target, characters)}${buildConflictPromptBundle(chat, character, characters)}`;
 }
 
 function buildChatInfluenceSummary(chat: GroupChat) {

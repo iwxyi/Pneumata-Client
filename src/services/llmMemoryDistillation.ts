@@ -106,6 +106,44 @@ function hasEnoughNewEventEvidence(items: MemoryItem[], seenEventIds: Set<string
   return countNewEventEvidenceSince(items, seenEventIds) >= LLM_MEMORY_ANALYSIS_LIMITS[ownerType].minNewEventEvidence;
 }
 
+function buildSourceTag(item: LlmAnalyzedMemoryItem) {
+  return item.lens ? `llm_memory_${item.lens}` : 'llm_memory_distillation';
+}
+
+function buildCharacterAnalysisContext(character: AICharacter) {
+  const personality = character.personality
+    ? Object.entries(character.personality).map(([key, value]) => `${key}:${value}`).join(', ')
+    : '未设置';
+  const emotion = character.emotionalState
+    ? Object.entries(character.emotionalState).map(([key, value]) => `${key}:${value}`).join(', ')
+    : '未设置';
+  const core = character.coreProfile
+    ? [
+        character.coreProfile.coreDesire ? `核心欲望：${character.coreProfile.coreDesire}` : '',
+        character.coreProfile.coreFear ? `核心恐惧：${character.coreProfile.coreFear}` : '',
+        character.coreProfile.valuePriority?.length ? `价值优先：${character.coreProfile.valuePriority.join('、')}` : '',
+        character.coreProfile.socialMask ? `社交面具：${character.coreProfile.socialMask}` : '',
+        character.coreProfile.biases?.length ? `偏见：${character.coreProfile.biases.join('、')}` : '',
+        character.coreProfile.interactionHabits?.length ? `互动习惯：${character.coreProfile.interactionHabits.join('、')}` : '',
+      ].filter(Boolean).join('\n')
+    : '';
+  const relationships = (character.relationships || [])
+    .slice(0, 8)
+    .map((item) => `${item.characterId}: 亲和${item.warmth} 能力${item.competence} 信任${item.trust} 威胁${item.threat}${item.note ? `；备注：${item.note}` : ''}`)
+    .join('\n');
+  return [
+    `角色：${character.name}`,
+    character.group ? `身份/分组：${character.group}` : '',
+    character.background ? `背景：${character.background}` : '',
+    character.speakingStyle ? `说话风格：${character.speakingStyle}` : '',
+    character.expertise?.length ? `专长/兴趣：${character.expertise.join('、')}` : '',
+    `人格参数：${personality}`,
+    `当前情绪：${emotion}`,
+    core,
+    relationships ? `既有关系：\n${relationships}` : '',
+  ].filter(Boolean).join('\n');
+}
+
 function buildDistillationSource(owner: { layeredMemories?: MemoryItem[] }, ownerType: 'chat' | 'character') {
   const items = owner.layeredMemories || [];
   const latest = latestLlmDistilledAt(items);
@@ -129,8 +167,9 @@ function toCandidate(ownerId: string, source: MemoryItem[], item: LlmAnalyzedMem
     text: item.text,
     evidenceText: collectMemoryAnalysisEvidenceText(source),
     sourceEventIds: collectTrackedMemoryAnalysisSourceEventIds(source),
-    sourceTag: 'llm_memory_distillation',
+    sourceTag: buildSourceTag(item),
     origin: 'distilled',
+    decision: item.decision,
     distilledFromIds: source.map((entry) => entry.id),
     distilledAt: Date.now(),
     distillationVersion: LLM_MEMORY_ANALYSIS_VERSION,
@@ -186,7 +225,7 @@ export async function distillChatMemoriesWithLlm(api: APIConfig, chat: GroupChat
     { role: 'user', content: `群聊：${chat.name}\n主题：${chat.topic || '未设置'}\n最近高门槛证据：\n${buildMemoryAnalysisEvidenceBlock(source)}` },
   ]);
   const result = parseLlmMemoryAnalysisResult(raw);
-  return result.items.slice(0, 1).map((item) => toCandidate(chat.id, source, item));
+  return result.items.slice(0, 4).map((item) => toCandidate(chat.id, source, item));
 }
 
 export async function distillCharacterMemoriesWithLlm(api: APIConfig, character: AICharacter): Promise<MemoryCandidate[]> {
@@ -194,8 +233,8 @@ export async function distillCharacterMemoriesWithLlm(api: APIConfig, character:
   if (!source.length) return [];
   const systemPrompt = buildCharacterMemoryAnalysisPrompt();
   const raw = await generateJsonResponse(api, systemPrompt, [
-    { role: 'user', content: `角色：${character.name}\n最近高门槛证据：\n${buildMemoryAnalysisEvidenceBlock(source)}` },
+    { role: 'user', content: `${buildCharacterAnalysisContext(character)}\n\n最近高门槛证据：\n${buildMemoryAnalysisEvidenceBlock(source)}` },
   ]);
   const result = parseLlmMemoryAnalysisResult(raw);
-  return result.items.slice(0, 1).map((item) => toCandidate(character.id, source, item));
+  return result.items.slice(0, 4).map((item) => toCandidate(character.id, source, item));
 }

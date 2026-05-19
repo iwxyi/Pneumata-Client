@@ -13,6 +13,7 @@ export interface PresentedRelationshipEntry {
   entry: RelationshipLedgerEntry;
   delta: ReturnType<typeof toRelationshipDisplayDelta>;
   summary: string;
+  semanticSummary: string;
   evidence: string;
   hasMeaningfulDelta: boolean;
   score: number;
@@ -53,6 +54,7 @@ export function buildPresentedRelationshipEntry(entry: RelationshipLedgerEntry, 
     entry: normalizedEntry,
     delta,
     summary: buildRelationshipDisplaySummary(normalizedEntry),
+    semanticSummary: normalizedEntry.derived?.semantic?.summary || '',
     evidence,
     hasMeaningfulDelta: isMeaningfulRelationshipLedgerEntry(normalizedEntry),
     score: computeScore(delta),

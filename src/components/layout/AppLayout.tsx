@@ -21,6 +21,7 @@ const routeMeta = [
   { match: (pathname: string) => pathname === '/', titleKey: 'nav.home' },
   { match: (pathname: string) => pathname === '/chats' || pathname.startsWith('/chats/'), titleKey: 'nav.chats' },
   { match: (pathname: string) => pathname.startsWith('/characters'), titleKey: 'nav.characters' },
+  { match: (pathname: string) => pathname.startsWith('/letters'), titleKey: 'nav.letters' },
   { match: (pathname: string) => pathname.startsWith('/models'), titleKey: 'nav.models' },
   { match: (pathname: string) => pathname.startsWith('/settings'), titleKey: 'nav.settings' },
 ];

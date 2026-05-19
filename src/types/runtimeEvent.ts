@@ -358,6 +358,12 @@ export interface RelationshipLedgerEntry {
     stability?: number;
     reciprocity?: number;
     salience?: number;
+    semantic?: {
+      stage: string;
+      labels: string[];
+      summary: string;
+      intensity: number;
+    };
   };
   axisReasons?: Partial<Record<'warmth' | 'competence' | 'trust' | 'threat', RelationshipAxisReason[]>>;
   trend: 'up' | 'down' | 'volatile' | 'flat';

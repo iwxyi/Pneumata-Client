@@ -15,6 +15,7 @@ import DialogueDebugPanel from './DialogueDebugPanel';
 import { projectRecentInteractionItems, projectRuntimeTimeline, type ProjectedRuntimeTimelineItem } from '../../services/sessionProjection';
 import { formatConflictHookLabels, formatConflictPressureLabel, formatConflictStageLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
 import LayeredMemoryPanel from '../memory/LayeredMemoryPanel';
+import { buildRecentExperienceChanges, type PresentedExperienceChange } from '../../services/experienceChangePresentation';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -557,8 +558,26 @@ function buildConflictNodes(chat: GroupChat, members: AICharacter[], isDeveloper
   };
 }
 
-function buildMemorySummaryLine(items: MemoryItem[], formatMemoryText: (text: string) => string) {
-  return items.slice(0, 2).map((item) => clip(formatMemoryText(item.text), 28)).join(' / ');
+function experienceChangeTone(kind: PresentedExperienceChange['kind']) {
+  return kind === 'relationship' ? 'rgba(142, 36, 170, 0.05)' : 'rgba(25, 118, 210, 0.05)';
+}
+
+function renderRecentExperienceChanges(changes: PresentedExperienceChange[]) {
+  if (!changes.length) return null;
+  return (
+    <SurfaceCard>
+      <SectionHeader title="最近变化" dense />
+      <Stack spacing={0.8}>
+        {changes.map((item) => (
+          <Box key={item.key} sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: experienceChangeTone(item.kind) }}>
+            <Typography variant="caption" color="text.secondary">{item.title}</Typography>
+            <Typography variant="body2" sx={{ mt: 0.25 }}>{cleanText(item.text)}</Typography>
+            {item.chips.length ? <Box sx={{ mt: 0.65 }}><StatChipRow items={item.chips.map((chip) => cleanText(chip))} /></Box> : null}
+          </Box>
+        ))}
+      </Stack>
+    </SurfaceCard>
+  );
 }
 
 export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }: ChatRuntimePanelProps) {
@@ -577,9 +596,14 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
   const conflictState = useMemo(() => buildConflictNodes(chat, members, isDeveloperView), [chat, members, isDeveloperView]);
   const chatMemories = useMemo(() => (chat.layeredMemories || []) as MemoryItem[], [chat.layeredMemories]);
   const formatChatMemoryText = useMemo(() => buildChatMemoryTextFormatter(members), [members]);
+  const recentExperienceChanges = useMemo(() => buildRecentExperienceChanges({
+    chat,
+    members,
+    limit: 4,
+    formatMemoryText: (text) => formatChatMemoryText(text),
+  }), [chat, members, formatChatMemoryText]);
   const projectedTimeline = useMemo(() => projectRuntimeTimeline(chat, members), [chat, members]);
   const displayTimeline = useMemo(() => projectedTimeline.filter((item) => timelineFilter === 'all' ? true : timelineFilter === 'artifact' ? item.type === 'artifact' || Boolean(readSocialEventClusterMeta(item)) : item.type === timelineFilter).slice().reverse().slice(0, isDeveloperView ? 8 : 5), [projectedTimeline, timelineFilter, isDeveloperView]);
-  const memorySummary = buildMemorySummaryLine(chatMemories, formatChatMemoryText);
   const structureRows = [...buildScenarioRows(chat, members), ...buildBoardRows(chat)];
 
   return (
@@ -594,7 +618,6 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
                 <Typography variant="body2" sx={{ mt: 0.2 }}>{cleanText(row.value)}</Typography>
               </Box>
             )) : <Typography variant="body2">暂无结构化房间态势</Typography>}
-            {memorySummary ? <Typography variant="caption" color="text.secondary">{memorySummary}</Typography> : null}
             {conflictState.overview.card}
             {[...roomContext.slice(0, 2), ...targetPressure.chips.slice(0, 2)].length ? <StatChipRow items={[...roomContext.slice(0, 2), ...targetPressure.chips.slice(0, 2)].map((chip) => cleanText(chip))} /> : null}
             {structureRows.length && isDeveloperView ? (
@@ -605,6 +628,8 @@ export default function ChatRuntimePanel({ chat, members, privatePayloads = [] }
             ) : null}
           </Stack>
         </SurfaceCard>
+
+        {renderRecentExperienceChanges(recentExperienceChanges)}
 
         <LayeredMemoryPanel memories={chatMemories} formatMemoryText={(text) => formatChatMemoryText(text)} />
 

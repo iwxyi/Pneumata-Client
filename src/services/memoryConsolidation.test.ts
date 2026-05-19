@@ -16,6 +16,23 @@ function buildInteractionCandidate(index: number): MemoryCandidate {
   };
 }
 
+function buildDistilledCandidate(overrides: Partial<MemoryCandidate> = {}): MemoryCandidate {
+  return {
+    scope: 'relationship',
+    layerHint: 'long_term',
+    kind: 'resentment',
+    ownerId: 'char-a',
+    subjectIds: ['char-a', 'char-b'],
+    text: '乙长期让甲感到被轻视，但这种戒备开始从玩笑升级为稳定印象。',
+    sourceEventIds: ['llm-1'],
+    sourceTag: 'llm_memory_relationship_imprint',
+    origin: 'distilled',
+    decision: 'revise',
+    scoreBreakdown: { stability: 0.9, recurrence: 0.8, impact: 0.85, specificity: 0.85, durability: 0.95 },
+    ...overrides,
+  };
+}
+
 describe('consolidateMemoryCandidates', () => {
   it('does not promote raw interaction evidence to long-term memory directly', () => {
     const memories = [1, 2, 3, 4, 5].reduce(
@@ -25,5 +42,50 @@ describe('consolidateMemoryCandidates', () => {
 
     expect(memories[0]?.reinforcementCount).toBe(5);
     expect(memories[0]?.layer).toBe('episodic');
+  });
+
+  it('revises an existing memory when a distilled candidate updates the interpretation', () => {
+    const initial = consolidateMemoryCandidates([], [buildInteractionCandidate(1)]);
+    const revised = consolidateMemoryCandidates(initial, [buildDistilledCandidate()]);
+
+    expect(revised).toHaveLength(1);
+    expect(revised[0]?.text).toContain('稳定印象');
+    expect(revised[0]?.origin).toBe('distilled');
+    expect(revised[0]?.sourceEventIds).toEqual(expect.arrayContaining(['interaction-1', 'llm-1']));
+  });
+
+  it('merges a related memory with overlapping subjects instead of appending another item', () => {
+    const existing = consolidateMemoryCandidates([], [
+      buildDistilledCandidate({
+        text: '甲对乙保持戒备。',
+        sourceEventIds: ['old-1'],
+        subjectIds: ['char-a', 'char-b'],
+        decision: 'create',
+      }),
+    ]);
+    const merged = consolidateMemoryCandidates(existing, [
+      buildDistilledCandidate({
+        text: '甲把乙的多次调侃整合成一种稳定的被轻视感。',
+        sourceEventIds: ['new-1'],
+        subjectIds: ['char-b'],
+        decision: 'merge',
+      }),
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.text).toContain('被轻视感');
+    expect(merged[0]?.sourceEventIds).toEqual(expect.arrayContaining(['old-1', 'new-1']));
+  });
+
+  it('archives matching memories when the analysis decides the thread is no longer active', () => {
+    const existing = consolidateMemoryCandidates([], [buildDistilledCandidate({ decision: 'create' })]);
+    const archived = consolidateMemoryCandidates(existing, [
+      buildDistilledCandidate({
+        text: '这条旧关系线已经被新的长期结论吸收。',
+        decision: 'archive',
+      }),
+    ]);
+
+    expect(archived[0]?.archivedAt).toBeTruthy();
   });
 });

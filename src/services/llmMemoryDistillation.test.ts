@@ -148,6 +148,57 @@ describe('llmMemoryDistillation', () => {
     ]));
   });
 
+  it('accepts multi-lens experience analysis results as memory candidates', async () => {
+    generateJsonResponseMock.mockResolvedValue(JSON.stringify({
+      objectiveEvents: [
+        {
+          scope: 'conversation',
+          kind: 'conflict',
+          subjectIds: ['char-a', 'char-b'],
+          text: '群聊围绕谁有资格评价发明形成了持续拉扯。',
+          confidence: 0.86,
+          decision: 'create',
+        },
+      ],
+      relationshipImprints: [
+        {
+          scope: 'relationship',
+          kind: 'resentment',
+          subjectIds: ['char-a', 'char-b'],
+          text: '红太狼开始把沸羊羊视为总爱拆台的人，戒备和厌烦都在加重。',
+          confidence: 0.88,
+          decision: 'reinforce',
+        },
+      ],
+      emotionEffects: [
+        {
+          scope: 'conversation',
+          kind: 'status_shift',
+          subjectIds: ['char-a', 'char-b'],
+          text: '群聊里围绕发明的玩笑留下了防御和看热闹并存的情绪惯性。',
+          confidence: 0.8,
+          decision: 'create',
+        },
+      ],
+    }));
+    const source = buildRuntimeBatch({ prefix: 'lens', eventStart: 30, count: 18, updatedAt: 400, eventsPerItem: 1 });
+    const chat = buildChat(source);
+
+    const result = await distillChatMemoriesWithLlm(DEFAULT_API_CONFIG, chat);
+
+    expect(result).toHaveLength(3);
+    expect(result.map((item) => item.sourceTag)).toEqual([
+      'llm_memory_objective_event',
+      'llm_memory_relationship_imprint',
+      'llm_memory_emotion_effect',
+    ]);
+    expect(result.map((item) => item.text)).toEqual(expect.arrayContaining([
+      expect.stringContaining('持续拉扯'),
+      expect.stringContaining('戒备和厌烦'),
+      expect.stringContaining('情绪惯性'),
+    ]));
+  });
+
   it('does not rerun chat LLM distillation when post-distillation updates only reuse covered evidence', () => {
     const coveredSource = buildRuntimeBatch({ prefix: 'covered', eventStart: 1, count: 12, updatedAt: 3200, eventsPerItem: 2 });
     const coveredEventIds = Array.from(new Set(coveredSource.flatMap((item) => item.sourceEventIds)));

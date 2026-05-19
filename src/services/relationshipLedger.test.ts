@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InteractionEventPayload, RuntimeEventV2 } from '../types/runtimeEvent';
-import { RELATIONSHIP_BASELINE, reduceRelationshipLedger, replayRelationshipLedger } from './relationshipLedger';
+import { RELATIONSHIP_BASELINE, normalizeRelationshipLedgerEntry, reduceRelationshipLedger, replayRelationshipLedger } from './relationshipLedger';
 
 function buildEvent(interaction: InteractionEventPayload): RuntimeEventV2 {
   return {
@@ -143,5 +143,35 @@ describe('relationshipLedger', () => {
       targetIds: heavyEvent.targetIds,
     });
     expect(JSON.stringify(recentEvent).length).toBeLessThan(500);
+  });
+
+  it('derives human-readable relationship semantics from relationship axes', () => {
+    const normalized = normalizeRelationshipLedgerEntry({
+      pairKey: 'a->b',
+      actorId: 'a',
+      targetId: 'b',
+      current: { warmth: 48, competence: 12, trust: 42, threat: 8 },
+      trend: 'up',
+      recentEvents: [],
+      lastUpdatedAt: 1,
+    });
+
+    expect(normalized.derived?.semantic?.stage).toBe('深度绑定');
+    expect(normalized.derived?.semantic?.labels).toEqual(expect.arrayContaining(['亲密', '喜欢']));
+  });
+
+  it('marks tense mixed relationships as complex instead of only negative numbers', () => {
+    const normalized = normalizeRelationshipLedgerEntry({
+      pairKey: 'a->b',
+      actorId: 'a',
+      targetId: 'b',
+      current: { warmth: 30, competence: 28, trust: 8, threat: 42 },
+      trend: 'volatile',
+      recentEvents: [],
+      lastUpdatedAt: 1,
+    });
+
+    expect(normalized.derived?.semantic?.stage).toBe('复杂拉扯');
+    expect(normalized.derived?.semantic?.labels).toEqual(expect.arrayContaining(['竞争心', '又在意又防备']));
   });
 });

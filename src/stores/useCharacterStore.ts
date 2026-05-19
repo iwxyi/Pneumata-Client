@@ -9,6 +9,7 @@ import { createScopedBufferedJsonStorage, createScopedStorage } from './storePer
 import { createSyncScheduler } from './storeSyncScheduler';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateCharacterStoreState } from './storeMigrations';
+import { useCharacterArtifactStore } from './useCharacterArtifactStore';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -134,6 +135,64 @@ function buildLocalImportedCharacters(chars: AICharacter[]) {
     fieldVersions: character.fieldVersions,
     deletedAt: character.deletedAt,
   }));
+}
+
+let artifactHydrationPromise: Promise<void> | null = null;
+let artifactSyncScheduled = false;
+let pendingArtifactSyncCharacters: AICharacter[] | null = null;
+
+function ensureCharacterArtifactStoreHydrated() {
+  if (useCharacterArtifactStore.persist.hasHydrated()) return Promise.resolve();
+  artifactHydrationPromise ??= Promise.resolve(useCharacterArtifactStore.persist.rehydrate()).finally(() => {
+    artifactHydrationPromise = null;
+  });
+  return artifactHydrationPromise;
+}
+
+function syncCharacterArtifacts(characters: AICharacter[]) {
+  pendingArtifactSyncCharacters = characters;
+  if (artifactSyncScheduled) return;
+  artifactSyncScheduled = true;
+  queueMicrotask(() => {
+    artifactSyncScheduled = false;
+    const nextCharacters = pendingArtifactSyncCharacters;
+    pendingArtifactSyncCharacters = null;
+    if (!nextCharacters) return;
+    void ensureCharacterArtifactStoreHydrated().then(() => {
+      useCharacterArtifactStore.getState().syncCharacters(nextCharacters);
+    });
+  });
+}
+
+function enqueueFinalLettersForDeletion(characters: AICharacter[], ids: string[]) {
+  const normalizedIds = new Set(ids);
+  const deleted = characters.filter((character) => normalizedIds.has(character.id) && !character.isPreset);
+  if (!deleted.length) return;
+    void ensureCharacterArtifactStoreHydrated().then(() => {
+      deleted.forEach((character) => {
+        useCharacterArtifactStore.getState().enqueueLetterArtifact({
+          kind: 'final_letter',
+          character,
+          relatedCharacters: characters.filter((item) => item.id !== character.id).map((item) => ({ id: item.id, name: item.name })),
+          sourceKey: character.deletedAt ? `${character.deletedAt}` : `${Date.now()}`,
+        });
+      });
+    });
+}
+
+function enqueueBirthLettersForCreation(createdCharacters: AICharacter[], characters: AICharacter[]) {
+  const created = createdCharacters.filter((character) => !character.isPreset && character.deletedAt == null);
+  if (!created.length) return;
+    void ensureCharacterArtifactStoreHydrated().then(() => {
+      created.forEach((character) => {
+        useCharacterArtifactStore.getState().enqueueLetterArtifact({
+          kind: 'birth_letter',
+          character,
+          relatedCharacters: characters.filter((item) => item.id !== character.id).map((item) => ({ id: item.id, name: item.name })),
+          sourceKey: `${character.createdAt || Date.now()}`,
+        });
+      });
+    });
 }
 
 function normalizeCharacters(items: AICharacter[]) {
@@ -549,6 +608,7 @@ export const useCharacterStore = create<CharacterStore>()(
             }),
             characters: visibleCharactersFromState(state),
           }));
+          syncCharacterArtifacts(get().characters);
           if (shouldSkipCloudSync()) {
             set({ isLoading: false });
             return;
@@ -563,6 +623,7 @@ export const useCharacterStore = create<CharacterStore>()(
               pendingEditSyncCount: get().pendingOperations.length,
               pendingEditSyncError: latestCharacterError(get().pendingOperations),
             });
+            syncCharacterArtifacts(visible);
           } catch (error) {
             set({ isLoading: false, pendingEditSyncError: classifySyncError(error) });
           }
@@ -579,7 +640,11 @@ export const useCharacterStore = create<CharacterStore>()(
         queuePatch: (entityId, patch, kind = 'patch') => {
           const character = get().characters.find((item) => item.id === entityId);
           if (character?.isPreset) {
-            set((state) => ({ characters: updateCharacterLocally(state, entityId, patch as Partial<AICharacter>) }));
+            set((state) => {
+              const characters = updateCharacterLocally(state, entityId, patch as Partial<AICharacter>);
+              syncCharacterArtifacts(characters);
+              return { characters };
+            });
             return;
           }
           const cloudPatch = compactCharacterPatchForCloud(patch);
@@ -588,13 +653,15 @@ export const useCharacterStore = create<CharacterStore>()(
             : null;
           set((state) => {
             const queued = operation ? queueAndProjectCharacters(state, [operation]) : queueAndProjectCharacters(state, []);
+            const nextCharacters = updateCharacterLocally({
+              ...state,
+              pendingOperations: queued.pendingOperations,
+              characters: queued.characters,
+            } as CharacterStore, entityId, patch as Partial<AICharacter>);
+            syncCharacterArtifacts(nextCharacters);
             return {
               ...queued,
-              characters: updateCharacterLocally({
-                ...state,
-                pendingOperations: queued.pendingOperations,
-                characters: queued.characters,
-              } as CharacterStore, entityId, patch as Partial<AICharacter>),
+              characters: nextCharacters,
             };
           });
           if (operation) scheduleCharacterFlush(flushPendingOperations, 120);
@@ -642,6 +709,7 @@ export const useCharacterStore = create<CharacterStore>()(
               }
               return { characters: nextCharacters };
             });
+            enqueueBirthLettersForCreation(createdCharacters, get().characters);
             return createdCharacters;
           }
           const createdCharacters = await Promise.all(charsData.map((charData) => createCharacterRemote(charData)));
@@ -649,13 +717,18 @@ export const useCharacterStore = create<CharacterStore>()(
             characters: mergeCharacters(state.characters, [...createdCharacters, ...state.characters], state.pendingOperations).filter((item) => item.deletedAt == null),
             lastSyncedAt: Date.now(),
           }));
+          enqueueBirthLettersForCreation(createdCharacters, get().characters);
           return createdCharacters;
         },
 
         updateCharacter: async (id, updates) => {
           assertUniqueCharacterNameUpdate(get().characters, id, updates);
           if (shouldSkipCloudSync()) {
-            set((state) => ({ characters: updateCharacterLocally(state, id, updates) }));
+            set((state) => {
+              const characters = updateCharacterLocally(state, id, updates);
+              syncCharacterArtifacts(characters);
+              return { characters };
+            });
             return;
           }
           await get().syncPatch(id, updates, 'patch');
@@ -671,6 +744,7 @@ export const useCharacterStore = create<CharacterStore>()(
               for (const patch of normalizedPatches) {
                 nextCharacters = updateCharacterLocally({ ...state, characters: nextCharacters } as CharacterStore, patch.id, patch.updates);
               }
+              syncCharacterArtifacts(nextCharacters);
               return { characters: nextCharacters };
             });
             return;
@@ -705,8 +779,13 @@ export const useCharacterStore = create<CharacterStore>()(
         deleteCharacter: async (id) => {
           const normalizedIds = Array.from(new Set([id].filter(Boolean)));
           if (!normalizedIds.length) return;
+          enqueueFinalLettersForDeletion(get().characters, normalizedIds);
           if (shouldSkipCloudSync()) {
-            set((state) => ({ characters: deleteCharactersLocally(state, normalizedIds) }));
+            set((state) => {
+              const characters = deleteCharactersLocally(state, normalizedIds);
+              syncCharacterArtifacts(characters);
+              return { characters };
+            });
             return;
           }
           await Promise.all(normalizedIds.map((characterId) => api.deleteCharacter(characterId)));
@@ -717,13 +796,19 @@ export const useCharacterStore = create<CharacterStore>()(
             pendingEditSyncCount: get().pendingOperations.length,
             pendingEditSyncError: latestCharacterError(get().pendingOperations),
           });
+          syncCharacterArtifacts(projectedState.visible);
         },
 
         deleteCharacters: async (ids) => {
           const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
           if (!normalizedIds.length) return;
+          enqueueFinalLettersForDeletion(get().characters, normalizedIds);
           if (shouldSkipCloudSync()) {
-            set((state) => ({ characters: deleteCharactersLocally(state, normalizedIds) }));
+            set((state) => {
+              const characters = deleteCharactersLocally(state, normalizedIds);
+              syncCharacterArtifacts(characters);
+              return { characters };
+            });
             return;
           }
           if (normalizedIds.length === 1) {
@@ -738,13 +823,18 @@ export const useCharacterStore = create<CharacterStore>()(
             pendingEditSyncCount: get().pendingOperations.length,
             pendingEditSyncError: latestCharacterError(get().pendingOperations),
           });
+          syncCharacterArtifacts(projectedState.visible);
         },
 
         restoreCharacters: async (ids) => {
           const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
           if (!normalizedIds.length) return;
           if (shouldSkipCloudSync()) {
-            set((state) => ({ characters: restoreCharactersLocally(state, normalizedIds) }));
+            set((state) => {
+              const characters = restoreCharactersLocally(state, normalizedIds);
+              syncCharacterArtifacts(characters);
+              return { characters };
+            });
             return;
           }
           await applyCharacterRestore(normalizedIds);
@@ -755,13 +845,18 @@ export const useCharacterStore = create<CharacterStore>()(
             pendingEditSyncCount: get().pendingOperations.length,
             pendingEditSyncError: latestCharacterError(get().pendingOperations),
           });
+          syncCharacterArtifacts(projectedState.visible);
         },
 
         purgeCharacters: async (ids) => {
           const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
           if (!normalizedIds.length) return;
           if (shouldSkipCloudSync()) {
-            set((state) => ({ characters: sortCharacters(applyLocalCharacterPurge(state.characters, normalizedIds)) }));
+            set((state) => {
+              const characters = sortCharacters(applyLocalCharacterPurge(state.characters, normalizedIds));
+              syncCharacterArtifacts(characters);
+              return { characters };
+            });
             return;
           }
           await applyCharacterPurge(normalizedIds);
@@ -772,11 +867,16 @@ export const useCharacterStore = create<CharacterStore>()(
             pendingEditSyncCount: get().pendingOperations.length,
             pendingEditSyncError: latestCharacterError(get().pendingOperations),
           });
+          syncCharacterArtifacts(projectedState.visible);
         },
 
         emptyDeletedCharacters: async () => {
           if (shouldSkipCloudSync()) {
-            set((state) => ({ characters: sortCharacters(applyLocalEmptyDeletedCharacters(state.characters)) }));
+            set((state) => {
+              const characters = sortCharacters(applyLocalEmptyDeletedCharacters(state.characters));
+              syncCharacterArtifacts(characters);
+              return { characters };
+            });
             return;
           }
           await applyEmptyDeletedCharacters();
@@ -787,6 +887,7 @@ export const useCharacterStore = create<CharacterStore>()(
             pendingEditSyncCount: get().pendingOperations.length,
             pendingEditSyncError: latestCharacterError(get().pendingOperations),
           });
+          syncCharacterArtifacts(projectedState.visible);
         },
 
         loadDeletedCharacters: async () => {
@@ -800,9 +901,13 @@ export const useCharacterStore = create<CharacterStore>()(
           if (!normalizedIds.length) return;
           if (shouldSkipCloudSync()) {
             set((state) => ({
-              characters: sortCharacters(state.characters.map((character) => normalizedIds.includes(character.id)
-                ? applyLocalCharacterUpdate(character, { group: normalizedGroup })
-                : character)),
+              characters: (() => {
+                const characters = sortCharacters(state.characters.map((character) => normalizedIds.includes(character.id)
+                  ? applyLocalCharacterUpdate(character, { group: normalizedGroup })
+                  : character));
+                syncCharacterArtifacts(characters);
+                return characters;
+              })(),
             }));
             return;
           }
@@ -828,13 +933,18 @@ export const useCharacterStore = create<CharacterStore>()(
         importCharacters: async (chars) => {
           assertUniqueCharacterNameBatch(get().characters, chars);
           if (shouldSkipCloudSync()) {
-            set((state) => ({ characters: importCharactersBatchLocally(state, chars) }));
+            set((state) => {
+              const characters = importCharactersBatchLocally(state, chars);
+              syncCharacterArtifacts(characters);
+              return { characters };
+            });
             return;
           }
           const created = await Promise.all(chars.map((c) => createCharacterRemote(c)));
           set((state) => ({
             characters: mergeCharacters(state.characters, [...created, ...state.characters], state.pendingOperations).filter((item) => item.deletedAt == null),
           }));
+          syncCharacterArtifacts(get().characters);
         },
 
         initializePresets: async () => {

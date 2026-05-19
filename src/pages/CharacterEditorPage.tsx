@@ -24,6 +24,7 @@ export default function CharacterEditorPage() {
   const characterDataReady = bootstrapComplete || characters.length > 0;
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState('');
 
   const goBack = useCallback(() => {
     if (returnTo) {
@@ -48,8 +49,14 @@ export default function CharacterEditorPage() {
     };
   }, [characters.length, initializePresets, loadCharacters]);
 
+  const headerTitle = useMemo(() => {
+    const baseTitle = editId ? t('character.edit') : t('character.create');
+    const normalizedName = draftName.trim();
+    return normalizedName ? `${baseTitle} · ${normalizedName}` : baseTitle;
+  }, [draftName, editId, t]);
+
   useEffect(() => {
-    setHeaderTitle(editId ? t('character.edit') : t('character.create'));
+    setHeaderTitle(headerTitle);
     setHeaderBackAction(() => () => goBack());
     setHideMobileBottomNav(true);
     setHeaderActions(
@@ -68,12 +75,11 @@ export default function CharacterEditorPage() {
       setHeaderBackAction(null);
       setHideMobileBottomNav(false);
     };
-  }, [editId, goBack, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, t]);
+  }, [editId, goBack, headerTitle, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, t]);
 
   const duplicateNameErrorText = i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists';
   const editChar = useMemo(() => (editId ? characters.find((character) => character.id === editId) : undefined), [characters, editId]);
   const shouldWaitForCharacter = Boolean(editId && !editChar && !characterDataReady);
-
   if (editId && !editChar && !shouldWaitForCharacter) {
     return (
       <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
@@ -97,11 +103,12 @@ export default function CharacterEditorPage() {
   }
 
   return (
-    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
+    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 'none', mx: 'auto' }}>
       <CharacterForm
         initial={editChar}
         existingNames={characters.map((character) => character.name)}
         saveError={saveError}
+        onDraftNameChange={setDraftName}
         onSave={async (data) => {
           setSaveError(null);
           try {

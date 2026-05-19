@@ -17,6 +17,32 @@ function sameBucket(item: MemoryItem, candidate: MemoryCandidate) {
   return item.scope === candidate.scope && item.kind === candidate.kind && item.ownerId === candidate.ownerId && sameSubjects;
 }
 
+function sameOwnerScope(item: MemoryItem, candidate: MemoryCandidate) {
+  return item.scope === candidate.scope && item.ownerId === candidate.ownerId;
+}
+
+function findMergeTargetIndex(items: MemoryItem[], candidate: MemoryCandidate) {
+  const sameBucketIndex = items.findIndex((item) => sameBucket(item, candidate));
+  if (sameBucketIndex >= 0) return sameBucketIndex;
+  if (candidate.decision !== 'merge') return -1;
+  const candidateSubjects = new Set(candidate.subjectIds || []);
+  return items.findIndex((item) => {
+    if (!sameOwnerScope(item, candidate)) return false;
+    if (item.kind !== candidate.kind) return false;
+    if (!candidateSubjects.size) return true;
+    return (item.subjectIds || []).some((id) => candidateSubjects.has(id));
+  });
+}
+
+function shouldArchiveByCandidate(item: MemoryItem, candidate: MemoryCandidate) {
+  if (candidate.decision !== 'archive') return false;
+  return sameBucket(item, candidate) || (
+    sameOwnerScope(item, candidate)
+    && item.kind === candidate.kind
+    && normalizeIds(item.subjectIds || []).some((id) => normalizeIds(candidate.subjectIds || []).includes(id))
+  );
+}
+
 function nextLayerForCandidate(candidate: MemoryCandidate, reinforcementCount: number) {
   if (candidate.origin !== 'distilled' && candidate.sourceTag === 'interaction') {
     return reinforcementCount >= 4 ? 'episodic' as const : candidate.layerHint;
@@ -85,9 +111,13 @@ function mergeMemoryItem(item: MemoryItem, candidate: MemoryCandidate, score: nu
   const candidateText = sanitizeMemoryText(candidate.text);
   const refresh = shouldRefreshUpdatedAt(item, candidate);
   const reinforcementCount = refresh ? item.reinforcementCount + 1 : item.reinforcementCount;
+  const shouldRewriteText = candidate.origin === 'distilled'
+    || candidate.decision === 'revise'
+    || candidate.decision === 'merge'
+    || candidateText.length >= item.text.length;
   return {
     ...item,
-    text: candidateText.length >= item.text.length || candidate.origin === 'distilled' ? candidateText : item.text,
+    text: shouldRewriteText ? candidateText : item.text,
     evidenceText: candidate.evidenceText || item.evidenceText,
     salience: Math.max(item.salience, score),
     confidence: refresh ? Math.min(1, (item.confidence || 0.5) + 0.08) : item.confidence,
@@ -110,10 +140,19 @@ export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: 
   const now = Date.now();
 
   for (const candidate of candidates) {
+    if (candidate.decision === 'ignore') continue;
+    if (candidate.decision === 'archive') {
+      next.forEach((item, index) => {
+        if (shouldArchiveByCandidate(item, candidate)) {
+          next[index] = { ...item, archivedAt: item.archivedAt || now, updatedAt: now };
+        }
+      });
+      continue;
+    }
     const score = scoreCandidate(candidate);
     if (score < 0.55) continue;
 
-    const existingIndex = next.findIndex((item) => sameBucket(item, candidate));
+    const existingIndex = findMergeTargetIndex(next, candidate);
     if (existingIndex >= 0) {
       next[existingIndex] = mergeMemoryItem(next[existingIndex], candidate, score, now);
       continue;
