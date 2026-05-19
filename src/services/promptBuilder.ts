@@ -42,6 +42,21 @@ function buildCoreProfileDescription(character: AICharacter) {
   return lines.length ? `\n## Deeper Motivation\n${lines.join('\n')}` : '';
 }
 
+function buildManualMemorySeedPrompt(character: AICharacter) {
+  const memory = character.memory;
+  if (!memory) return '';
+  const lines = [
+    memory.shortTermSummary?.trim() ? `- Current private summary: ${memory.shortTermSummary.trim()}` : '',
+    memory.longTerm?.length ? `- Stable long-term memories: ${memory.longTerm.slice(-6).join(' / ')}` : '',
+    memory.secrets?.length ? `- Private secrets you know but should not reveal casually: ${memory.secrets.slice(-6).join(' / ')}` : '',
+    memory.obsessions?.length ? `- Obsessions that may leak into your attention and wording: ${memory.obsessions.slice(-6).join(' / ')}` : '',
+    memory.tabooTopics?.length ? `- Taboo or sensitive topics that trigger avoidance, defensiveness, or careful wording: ${memory.tabooTopics.slice(-6).join(' / ')}` : '',
+    memory.userMemories?.length ? `- Memories about the user: ${memory.userMemories.slice(-6).join(' / ')}` : '',
+  ].filter(Boolean);
+  if (!lines.length) return '';
+  return `\n## Manual Memory Seeds\n${lines.join('\n')}\n- Treat these as authored character continuity. Let them shape tone, attention, omissions, and reactions; do not list them unless the conversation naturally calls for it.`;
+}
+
 function buildLayeredMemoryPrompt(items: MemoryItem[], title = 'Relevant Memories') {
   if (!items.length) return '';
   return `\n## ${title}\n${items.map((item) => `- [${item.scope}/${item.kind}/${item.layer}] ${item.text}`).join('\n')}`;
@@ -257,7 +272,7 @@ function buildMemoryPriorityPrompt(chat: GroupChat) {
 
 function buildPromptMemorySection(chat: GroupChat, character: AICharacter, conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[], target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, characters: Map<string, AICharacter>) {
   const merged = buildMergedMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories]);
-  return `${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories)}${buildPromptInfluenceContext(chat, character, target, relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, target, relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildPromptReasoningSummary(chat)}${buildMemoryPriorityPrompt(chat)}`;
+  return `${buildManualMemorySeedPrompt(character)}${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories)}${buildPromptInfluenceContext(chat, character, target, relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, target, relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildPromptReasoningSummary(chat)}${buildMemoryPriorityPrompt(chat)}`;
 }
 
 function buildTopicSection(chat: GroupChat) {

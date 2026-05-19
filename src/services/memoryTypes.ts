@@ -14,6 +14,7 @@ export interface MemoryItem {
   relatedConversationId?: string | null;
   text: string;
   summary?: string;
+  evidenceText?: string;
   salience: number;
   confidence: number;
   recency: number;
@@ -37,6 +38,7 @@ export interface MemoryCandidate {
   ownerId: string;
   subjectIds?: string[];
   text: string;
+  evidenceText?: string;
   sourceEventIds: string[];
   sourceTag?: string;
   origin?: MemoryOrigin;

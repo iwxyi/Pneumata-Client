@@ -93,15 +93,16 @@ function getMemoryKindLabel(kind: MemoryItem['kind']) {
   return labels[kind] || kind;
 }
 
-function MemoryCard({ item, developerMode, title }: { item: MemoryItem; developerMode: boolean; title?: string }) {
+function MemoryCard({ item, title }: { item: MemoryItem; title?: string }) {
   const bodyText = title && title === item.text ? null : item.text;
+  const evidenceTitle = item.evidenceText || item.summary || item.text;
   return (
     <Box sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
       <Stack spacing={0.6}>
-        {title ? <Typography variant="body2" sx={{ fontWeight: 700 }}>{title}</Typography> : null}
-        {developerMode ? <StatChipRow items={[getMemoryLayerLabel(item.layer), getMemoryScopeLabel(item.scope), getMemoryKindLabel(item.kind)]} /> : null}
-        {bodyText ? <Typography variant="body2" color="text.secondary">{bodyText}</Typography> : null}
-        {developerMode ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', opacity: 0.85 }}>{`强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`}</Typography> : null}
+        {title ? <Typography variant="body2" sx={{ fontWeight: 700 }} title={evidenceTitle}>{title}</Typography> : null}
+        <StatChipRow items={[getMemoryLayerLabel(item.layer), getMemoryScopeLabel(item.scope), getMemoryKindLabel(item.kind)]} />
+        {bodyText ? <Typography variant="body2" color="text.secondary" title={evidenceTitle}>{bodyText}</Typography> : null}
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', opacity: 0.85 }}>{`强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`}</Typography>
       </Stack>
     </Box>
   );
@@ -215,21 +216,54 @@ function RelationshipGraphPanel({ relationships, developerMode, resolveCharacter
   ) : <Typography variant="caption" color="text.secondary">暂无关系图谱数据</Typography>;
 }
 
+function RelationshipOverviewPanel({ relationships, relationshipMemories, resolveCharacterName }: { relationships: NonNullable<AICharacter['relationships']>; relationshipMemories: MemoryItem[]; resolveCharacterName: (id: string, fallback?: string) => string }) {
+  const memoryByTarget = new Map(relationshipMemories.map((item) => [item.subjectIds?.[1] || '', item]));
+  return relationships.length ? (
+    <Stack spacing={1}>
+      {relationships.slice(0, 8).map((relation, index) => {
+        const radarEntry: RelationshipLedgerEntry = {
+          pairKey: `character:${relation.characterId}`,
+          actorId: 'character',
+          targetId: relation.characterId,
+          current: normalizeCurrent({
+            warmth: Number.isFinite(relation.warmth) ? relation.warmth : 0,
+            competence: Number.isFinite(relation.competence) ? relation.competence : 0,
+            trust: Number.isFinite(relation.trust) ? relation.trust : 0,
+            threat: Number.isFinite(relation.threat) ? relation.threat : 0,
+          }),
+          derived: {},
+          axisReasons: {},
+          trend: 'flat',
+          recentEvents: [],
+          lastUpdatedAt: relation.updatedAt || Date.now(),
+        };
+        const memory = memoryByTarget.get(relation.characterId);
+        return (
+          <Box key={`${relation.characterId}-overview-${index}`} sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '72px minmax(0, 1fr)', gap: 1.1, alignItems: 'center' }}>
+              <RelationshipRadar entry={radarEntry} onOpenAxis={() => undefined} compact />
+              <Stack spacing={0.6} sx={{ minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>{resolveCharacterName(relation.characterId, relation.note)}</Typography>
+                <StatChipRow items={[`亲和 ${formatRelationshipNumber(Number.isFinite(relation.warmth) ? relation.warmth : 0)}`, `能力 ${formatRelationshipNumber(Number.isFinite(relation.competence) ? relation.competence : 0)}`, `信任 ${formatRelationshipNumber(Number.isFinite(relation.trust) ? relation.trust : 0)}`, `威胁 ${formatRelationshipNumber(Number.isFinite(relation.threat) ? relation.threat : 0)}`]} />
+                {relation.note && relation.note !== relation.characterId ? <Typography variant="body2" color="text.secondary">{relation.note}</Typography> : null}
+                {memory ? <Typography variant="caption" color="text.secondary" title={memory.evidenceText || memory.text}>{`${getMemoryLayerLabel(memory.layer)} · ${getMemoryKindLabel(memory.kind)} · 强化 ${memory.reinforcementCount} · 置信 ${(memory.confidence * 100).toFixed(0)}%`}</Typography> : null}
+              </Stack>
+            </Box>
+          </Box>
+        );
+      })}
+    </Stack>
+  ) : <Typography variant="caption" color="text.secondary">暂无关系数据</Typography>;
+}
+
 interface RuntimeInsightsPanelProps {
   character: Partial<AICharacter>;
 }
 
 export function CharacterMemoryInspector({ character }: RuntimeInsightsPanelProps) {
-  const developerMode = useSettingsStore((state) => state.developerMode);
-  const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
-  const isDeveloperView = developerMode && Boolean(showDeveloperMemory);
-  const [expanded, setExpanded] = useState(isDeveloperView);
+  const [expanded, setExpanded] = useState(false);
+  const [activeMemoryFilter, setActiveMemoryFilter] = useState<string | null>(null);
   const allLayeredMemories = useMemo(() => buildCharacterLayeredMemories(character), [character]);
-  const layeredMemories = useMemo(() => {
-    if (isDeveloperView) return allLayeredMemories;
-    const visible = allLayeredMemories.filter((item) => item.layer !== 'working');
-    return expanded ? visible.slice(0, 12) : visible.slice(0, 4);
-  }, [allLayeredMemories, expanded, isDeveloperView]);
   const layeredMemoryGroups = useMemo(() => ({
     longTerm: allLayeredMemories.filter((item) => item.layer === 'long_term'),
     episodic: allLayeredMemories.filter((item) => item.layer === 'episodic'),
@@ -238,52 +272,59 @@ export function CharacterMemoryInspector({ character }: RuntimeInsightsPanelProp
     self: allLayeredMemories.filter((item) => item.scope === 'character_self'),
     conversation: allLayeredMemories.filter((item) => item.scope === 'conversation' || item.scope === 'thread'),
   }), [allLayeredMemories]);
-  const summaryItems = [
-    layeredMemoryGroups.longTerm.length ? `长期 ${layeredMemoryGroups.longTerm.length}` : '',
-    layeredMemoryGroups.episodic.length ? `情节 ${layeredMemoryGroups.episodic.length}` : '',
-    layeredMemoryGroups.relationship.length ? `关系 ${layeredMemoryGroups.relationship.length}` : '',
-  ].filter(Boolean);
+  const memoryFilters = useMemo(() => ([
+    { key: 'longTerm', label: '长期', items: layeredMemoryGroups.longTerm },
+    { key: 'episodic', label: '情节', items: layeredMemoryGroups.episodic },
+    { key: 'working', label: '即时', items: layeredMemoryGroups.working },
+    { key: 'relationship', label: '关系', items: layeredMemoryGroups.relationship },
+    { key: 'self', label: '角色自我', items: layeredMemoryGroups.self },
+    { key: 'conversation', label: '会话/线程', items: layeredMemoryGroups.conversation },
+  ]), [layeredMemoryGroups]);
+  const filteredAllLayeredMemories = useMemo(() => {
+    const selected = memoryFilters.find((item) => item.key === activeMemoryFilter);
+    return selected ? selected.items : allLayeredMemories;
+  }, [activeMemoryFilter, allLayeredMemories, memoryFilters]);
+  const layeredMemories = useMemo(() => {
+    return expanded ? filteredAllLayeredMemories.slice(0, 12) : filteredAllLayeredMemories.slice(0, 4);
+  }, [expanded, filteredAllLayeredMemories]);
+  const visibleTotal = filteredAllLayeredMemories.length;
 
   return (
     <PageSection spacing={2}>
       <SurfaceCard>
-        <SectionHeader title={isDeveloperView ? '角色记忆' : '关键记忆'} dense action={isDeveloperView ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
+        <SectionHeader title="自动记忆沉淀" dense />
         <Stack spacing={1}>
-          {summaryItems.length ? <StatChipRow items={summaryItems} /> : null}
-          {layeredMemories.length ? <Stack spacing={1}>{layeredMemories.map((item) => <MemoryCard key={item.id} item={item} developerMode={isDeveloperView} />)}</Stack> : <Typography variant="caption" color="text.secondary">{isDeveloperView ? '暂无结构化记忆' : '暂无明显沉淀'}</Typography>}
-          {!isDeveloperView && allLayeredMemories.filter((item) => item.layer !== 'working').length > 4 ? <Button size="small" variant="text" onClick={() => setExpanded((prev) => !prev)}>{expanded ? '收起' : '查看更多'}</Button> : null}
+          {allLayeredMemories.length ? (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+              <Chip
+                size="small"
+                label={`全部 ${allLayeredMemories.length}`}
+                color={activeMemoryFilter === null ? 'primary' : 'default'}
+                variant={activeMemoryFilter === null ? 'filled' : 'outlined'}
+                onClick={() => setActiveMemoryFilter(null)}
+              />
+              {memoryFilters.filter((item) => item.items.length).map((filter) => (
+                <Chip
+                  key={filter.key}
+                  size="small"
+                  label={`${filter.label} ${filter.items.length}`}
+                  color={activeMemoryFilter === filter.key ? 'primary' : 'default'}
+                  variant={activeMemoryFilter === filter.key ? 'filled' : 'outlined'}
+                  onClick={() => setActiveMemoryFilter((prev) => (prev === filter.key ? null : filter.key))}
+                />
+              ))}
+            </Box>
+          ) : null}
+          {layeredMemories.length ? <Stack spacing={1}>{layeredMemories.map((item) => <MemoryCard key={item.id} item={item} />)}</Stack> : <Typography variant="caption" color="text.secondary">暂无结构化记忆</Typography>}
+          {visibleTotal > 4 ? <Button size="small" variant="text" onClick={() => setExpanded((prev) => !prev)}>{expanded ? '收起' : '查看更多'}</Button> : null}
         </Stack>
       </SurfaceCard>
-
-      {isDeveloperView ? (
-        <SurfaceCard>
-          <SectionHeader title="记忆分层检查" dense action={<Chip size="small" label="调试" color="warning" variant="outlined" />} />
-          <Stack spacing={1}>
-            {([
-              ['长期记忆', layeredMemoryGroups.longTerm],
-              ['情节记忆', layeredMemoryGroups.episodic],
-              ['即时记忆', layeredMemoryGroups.working],
-              ['关系记忆', layeredMemoryGroups.relationship],
-              ['角色自我', layeredMemoryGroups.self],
-              ['会话/线程', layeredMemoryGroups.conversation],
-            ] as Array<[string, MemoryItem[]]>).map(([label, items]) => (
-              <Box key={String(label)} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
-                <Typography variant="caption" color="text.secondary">{label} · {items.length} 条</Typography>
-                <Typography variant="body2">{items.length ? items.slice(0, 3).map((item) => item.text).join(' / ') : `暂无${label}`}</Typography>
-              </Box>
-            ))}
-          </Stack>
-        </SurfaceCard>
-      ) : null}
     </PageSection>
   );
 }
 
 export function CharacterRelationshipInspector({ character }: RuntimeInsightsPanelProps) {
-  const developerMode = useSettingsStore((state) => state.developerMode);
-  const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const characters = useCharacterStore((state) => state.characters);
-  const isDeveloperView = developerMode && Boolean(showDeveloperMemory);
   const relationships = character.relationships || [];
   const resolveCharacterName = useMemo(() => {
     const byId = new Map(characters.map((item) => [item.id, item.name]));
@@ -299,19 +340,14 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       ...item,
       text: resolveCharacterName(item.subjectIds?.[1] || '', item.text),
     }));
-    return isDeveloperView ? items : items.slice(0, 8);
-  }, [character, isDeveloperView, resolveCharacterName]);
+    return items.slice(0, 8);
+  }, [character, resolveCharacterName]);
 
   return (
     <PageSection spacing={2}>
       <SurfaceCard>
-        <SectionHeader title={isDeveloperView ? '关系记忆' : '关系变化'} dense action={isDeveloperView ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
-        {relationshipMemories.length ? <Stack spacing={1}>{relationshipMemories.map((item) => <MemoryCard key={item.id} item={item} title={item.text} developerMode={isDeveloperView} />)}</Stack> : <Typography variant="caption" color="text.secondary">{isDeveloperView ? '暂无关系记忆' : '暂无突出关系变化'}</Typography>}
-      </SurfaceCard>
-
-      <SurfaceCard>
-        <SectionHeader title="关系图谱" dense />
-        <RelationshipGraphPanel relationships={relationships} developerMode={isDeveloperView} resolveCharacterName={resolveCharacterName} />
+        <SectionHeader title="关系概览" dense />
+        <RelationshipOverviewPanel relationships={relationships} relationshipMemories={relationshipMemories} resolveCharacterName={resolveCharacterName} />
       </SurfaceCard>
     </PageSection>
   );

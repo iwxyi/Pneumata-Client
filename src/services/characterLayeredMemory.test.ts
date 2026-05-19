@@ -52,4 +52,24 @@ describe('updateCharacterLayeredMemories', () => {
 
     expect(layeredMemories[0]?.sourceTag).toBe('interaction');
   });
+
+  it('stores relationship memories as summarized tendencies instead of raw copied dialogue', () => {
+    const character = buildCharacter();
+    const content = '蕉太狼你倒是会看人下菜碟啊，懒羊羊一开口你就闭嘴，刚才跟我抬杠的时候怎么不这么听话？';
+    const layeredMemories = updateCharacterLayeredMemories({
+      character: {
+        ...character,
+        relationships: [{ characterId: 'char-b', warmth: 0, competence: 0, trust: 0, threat: 20 }],
+      },
+      targetId: 'char-b',
+      targetName: '蕉太狼',
+      content,
+      personalityDrift: {},
+    });
+
+    expect(layeredMemories[0]?.text).toContain('对 蕉太狼 的关系倾向');
+    expect(layeredMemories[0]?.text).toContain('表现出挑衅、防备、嘲弄或不满');
+    expect(layeredMemories[0]?.evidenceText).toBe(content);
+    expect(layeredMemories[0]?.text).not.toBe(`对 蕉太狼 的态度发生变化：${content.slice(0, 96)}`);
+  });
 });

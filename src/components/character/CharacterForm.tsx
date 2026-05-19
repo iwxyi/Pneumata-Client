@@ -1253,6 +1253,9 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
           <CharacterMemoryInspector character={runtimeCharacter} />
           <Card variant="outlined">
             <CardContent sx={{ display: 'grid', gap: 1.5 }}>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>{i18n.language.startsWith('zh') ? '手工记忆设定' : 'Manual memory seeds'}</Typography>
+              </Box>
               <TextField
                 label={i18n.language.startsWith('zh') ? '短期记忆摘要' : 'Short-term summary'}
                 value={memory.shortTermSummary}

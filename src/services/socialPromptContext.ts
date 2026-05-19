@@ -72,13 +72,7 @@ function buildCharacterLayeredMemoryPrompt(character: AICharacter, messages: Mes
 }
 
 export function buildMemoryPressurePrompt(character: AICharacter, messages: Message[]) {
-  const lines = [
-    character.memory.obsessions?.length ? `- Obsessions likely to leak into the conversation: ${character.memory.obsessions.join(', ')}` : '',
-    character.memory.tabooTopics?.length ? `- Topics that trigger avoidance or defensiveness: ${character.memory.tabooTopics.join(', ')}` : '',
-    character.memory.longTerm?.length ? `- Long-term memories shaping your reactions: ${character.memory.longTerm.slice(-3).join(' / ')}` : '',
-  ].filter(Boolean);
-  const legacyPrompt = lines.length ? `\n## Personal Pressure\n${lines.join('\n')}` : '';
-  return `${buildCharacterLayeredMemoryPrompt(character, messages)}${legacyPrompt}`;
+  return buildCharacterLayeredMemoryPrompt(character, messages);
 }
 
 export function buildConflictPrompt(character: AICharacter) {

@@ -18,6 +18,9 @@ function sameBucket(item: MemoryItem, candidate: MemoryCandidate) {
 }
 
 function nextLayerForCandidate(candidate: MemoryCandidate, reinforcementCount: number) {
+  if (candidate.origin !== 'distilled' && candidate.sourceTag === 'interaction') {
+    return reinforcementCount >= 4 ? 'episodic' as const : candidate.layerHint;
+  }
   if (candidate.layerHint === 'working' && reinforcementCount >= 2) return 'episodic' as const;
   if (candidate.layerHint === 'episodic' && reinforcementCount >= 3) return 'long_term' as const;
   return candidate.layerHint;
@@ -60,6 +63,7 @@ function createMemoryItem(candidate: MemoryCandidate, score: number, now: number
     subjectIds: candidate.subjectIds || [],
     relatedConversationId: null,
     text,
+    evidenceText: candidate.evidenceText,
     salience: score,
     confidence: 0.7,
     recency: 1,
@@ -84,6 +88,7 @@ function mergeMemoryItem(item: MemoryItem, candidate: MemoryCandidate, score: nu
   return {
     ...item,
     text: candidateText.length >= item.text.length || candidate.origin === 'distilled' ? candidateText : item.text,
+    evidenceText: candidate.evidenceText || item.evidenceText,
     salience: Math.max(item.salience, score),
     confidence: refresh ? Math.min(1, (item.confidence || 0.5) + 0.08) : item.confidence,
     recency: refresh ? 1 : Math.max(item.recency, 0.88),
