@@ -246,7 +246,8 @@ export default function AIModelsPage() {
           display: 'grid',
           gridTemplateColumns: {
             xs: '1fr',
-            xl: 'repeat(2, minmax(0, 1fr))',
+            md: 'repeat(2, minmax(0, 1fr))',
+            xl: 'repeat(3, minmax(0, 1fr))',
           },
           gap: 2,
         }}

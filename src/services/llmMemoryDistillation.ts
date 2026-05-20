@@ -1,4 +1,5 @@
-import type { AICharacter } from '../types/character';
+import type { AICharacter, CharacterCoreProfile } from '../types/character';
+import { DEFAULT_CORE_PROFILE } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { APIConfig } from '../types/settings';
 import { generateJsonResponse } from './aiClient';
@@ -122,9 +123,17 @@ function buildCharacterAnalysisContext(character: AICharacter) {
         character.coreProfile.coreDesire ? `核心欲望：${character.coreProfile.coreDesire}` : '',
         character.coreProfile.coreFear ? `核心恐惧：${character.coreProfile.coreFear}` : '',
         character.coreProfile.valuePriority?.length ? `价值优先：${character.coreProfile.valuePriority.join('、')}` : '',
+        character.coreProfile.values?.length ? `价值：${character.coreProfile.values.join('、')}` : '',
         character.coreProfile.socialMask ? `社交面具：${character.coreProfile.socialMask}` : '',
         character.coreProfile.biases?.length ? `偏见：${character.coreProfile.biases.join('、')}` : '',
+        character.coreProfile.sensitivities?.length ? `敏感点：${character.coreProfile.sensitivities.join('、')}` : '',
+        character.coreProfile.perceptionBiases?.length ? `认知滤镜：${character.coreProfile.perceptionBiases.join('、')}` : '',
         character.coreProfile.interactionHabits?.length ? `互动习惯：${character.coreProfile.interactionHabits.join('、')}` : '',
+        character.coreProfile.attachmentStyle ? `依恋/关系倾向：${character.coreProfile.attachmentStyle}` : '',
+        character.coreProfile.conflictStyle ? `冲突方式：${character.coreProfile.conflictStyle}` : '',
+        character.coreProfile.unmetNeeds?.length ? `未满足需求：${character.coreProfile.unmetNeeds.join('、')}` : '',
+        character.coreProfile.selfImage ? `自我形象：${character.coreProfile.selfImage}` : '',
+        character.coreProfile.hiddenSoftSpots?.length ? `隐秘柔软点：${character.coreProfile.hiddenSoftSpots.join('、')}` : '',
       ].filter(Boolean).join('\n')
     : '';
   const relationships = (character.relationships || [])
@@ -237,4 +246,125 @@ export async function distillCharacterMemoriesWithLlm(api: APIConfig, character:
   ]);
   const result = parseLlmMemoryAnalysisResult(raw);
   return result.items.slice(0, 4).map((item) => toCandidate(character.id, source, item));
+}
+
+type CoreProfilePatch = Partial<CharacterCoreProfile>;
+
+function normalizeString(value: unknown) {
+  return typeof value === 'string' ? value.trim().slice(0, 220) : '';
+}
+
+function normalizeStringList(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean).slice(0, 8)
+    : [];
+}
+
+function normalizeCoreProfilePatch(raw: unknown): CoreProfilePatch | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const record = raw as Record<string, unknown>;
+  const patch: CoreProfilePatch = {
+    coreDesire: normalizeString(record.coreDesire),
+    coreFear: normalizeString(record.coreFear),
+    socialMask: normalizeString(record.socialMask),
+    values: normalizeStringList(record.values),
+    valuePriority: normalizeStringList(record.values),
+    sensitivities: normalizeStringList(record.sensitivities),
+    perceptionBiases: normalizeStringList(record.perceptionBiases),
+    biases: normalizeStringList(record.perceptionBiases),
+    interactionHabits: normalizeStringList(record.interactionHabits),
+    attachmentStyle: normalizeString(record.attachmentStyle),
+    conflictStyle: normalizeString(record.conflictStyle),
+    unmetNeeds: normalizeStringList(record.unmetNeeds),
+    selfImage: normalizeString(record.selfImage),
+    hiddenSoftSpots: normalizeStringList(record.hiddenSoftSpots),
+  };
+  return Object.fromEntries(Object.entries(patch).filter(([, value]) => Array.isArray(value) ? value.length > 0 : Boolean(value))) as CoreProfilePatch;
+}
+
+function buildCoreProfileDistillationPrompt() {
+  return `你是角色心理档案蒸馏器。根据角色资料、已有核心画像和最近高门槛证据，输出严格 JSON。
+目标：更新角色的长期心理档案，而不是复述聊天内容。
+要求：
+- 支持任意语言输入，输出中文。
+- 不要因为单句玩笑就过度改写长期人格。
+- 如果已有字段合理，可以保留；只有证据足够时才修正。
+- 不要输出解释、markdown 或多余字段。
+
+JSON 结构：
+{
+  "coreProfile": {
+    "coreDesire": "长期想得到什么",
+    "coreFear": "长期回避或害怕什么",
+    "socialMask": "在人前如何保护自己",
+    "values": ["价值优先级"],
+    "sensitivities": ["敏感点/痛点"],
+    "perceptionBiases": ["容易如何误读他人或局面"],
+    "interactionHabits": ["互动习惯"],
+    "attachmentStyle": "关系/依恋倾向",
+    "conflictStyle": "冲突处理方式",
+    "unmetNeeds": ["未满足需求"],
+    "selfImage": "他以为自己是什么样的人",
+    "hiddenSoftSpots": ["不轻易承认的柔软点"]
+  }
+}`;
+}
+
+export function mergeCoreProfilePatch(current: CharacterCoreProfile | undefined, patch: CoreProfilePatch | null): CharacterCoreProfile {
+  const base = {
+    ...DEFAULT_CORE_PROFILE,
+    ...(current || {}),
+    valuePriority: current?.valuePriority || [],
+    values: current?.values || current?.valuePriority || [],
+    biases: current?.biases || [],
+    sensitivities: current?.sensitivities || [],
+    perceptionBiases: current?.perceptionBiases || current?.biases || [],
+    interactionHabits: current?.interactionHabits || [],
+    unmetNeeds: current?.unmetNeeds || [],
+    hiddenSoftSpots: current?.hiddenSoftSpots || [],
+  };
+  if (!patch) return base;
+  const pickText = (key: keyof CharacterCoreProfile) => normalizeString(patch[key]) || normalizeString(base[key]) || '';
+  const mergeList = (currentList: string[] | undefined, patchList: string[] | undefined) => {
+    const seen = new Set<string>();
+    return [...(currentList || []), ...(patchList || [])]
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .filter((item) => {
+        if (seen.has(item)) return false;
+        seen.add(item);
+        return true;
+      })
+      .slice(-8);
+  };
+  const values = mergeList(base.values || base.valuePriority, patch.values || patch.valuePriority);
+  const perceptionBiases = mergeList(base.perceptionBiases || base.biases, patch.perceptionBiases || patch.biases);
+  return {
+    ...base,
+    coreDesire: pickText('coreDesire'),
+    coreFear: pickText('coreFear'),
+    socialMask: pickText('socialMask'),
+    values,
+    valuePriority: values,
+    sensitivities: mergeList(base.sensitivities, patch.sensitivities),
+    perceptionBiases,
+    biases: perceptionBiases,
+    interactionHabits: mergeList(base.interactionHabits, patch.interactionHabits),
+    attachmentStyle: pickText('attachmentStyle'),
+    conflictStyle: pickText('conflictStyle'),
+    unmetNeeds: mergeList(base.unmetNeeds, patch.unmetNeeds),
+    selfImage: pickText('selfImage'),
+    hiddenSoftSpots: mergeList(base.hiddenSoftSpots, patch.hiddenSoftSpots),
+  };
+}
+
+export async function distillCharacterCoreProfileWithLlm(api: APIConfig, character: AICharacter): Promise<CharacterCoreProfile | null> {
+  const source = buildDistillationSource(character, 'character');
+  if (!source.length) return null;
+  const raw = await generateJsonResponse(api, buildCoreProfileDistillationPrompt(), [
+    { role: 'user', content: `${buildCharacterAnalysisContext(character)}\n\n最近高门槛证据：\n${buildMemoryAnalysisEvidenceBlock(source)}` },
+  ]);
+  const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const patch = normalizeCoreProfilePatch(record.coreProfile || raw);
+  return patch ? mergeCoreProfilePatch(character.coreProfile, patch) : null;
 }

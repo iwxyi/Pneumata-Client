@@ -135,7 +135,7 @@ export default function HotTopicDialog({
               {suggestedMembers.length ? (
                 <Box>
                   <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{isZh ? '推荐已有成员' : 'Suggested existing members'}</Typography>
-                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1, mt: 0.75 }}>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1, mt: 0.75 }}>
                     {suggestedMembers.map((character) => {
                       const checked = selectedSuggestedMemberIds.includes(character.id);
                       return (

@@ -16,6 +16,7 @@ import { normalizeRuntimeEvent } from './runtimeEventFactory';
 import { updateCharacterLayeredMemories } from './characterLayeredMemory';
 import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
+import { evolveCharacterCoreProfile } from './coreProfileEvolution';
 
 const { chatGap: CHAT_DISTILLATION_TURN_COUNT, characterGap: CHARACTER_DISTILLATION_TURN_COUNT } = getLocalDistillationPolicy();
 const PRIMARY_CONFLICT_DECAY_STEP = 0.06;
@@ -336,6 +337,7 @@ export function buildRelationshipTransition(params: {
     const summary = truncateWithEllipsis(params.message.content, 48);
     const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier);
     const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
+    const speakerCoreProfile = evolveCharacterCoreProfile({ character: speaker, content: params.message.content, emotionalState: speakerEmotion });
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
     const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: Date.now() }] : [];
 
@@ -366,6 +368,7 @@ export function buildRelationshipTransition(params: {
         relationships: updatedSpeakerRelationships,
         personalityDrift: speakerDrift,
         emotionalState: speakerEmotion,
+        coreProfile: speakerCoreProfile,
         layeredMemories: speakerLayeredResult.layeredMemories,
         runtimeTimeline: accumulateCharacterRuntime(speaker, {
           type: 'relationship',
@@ -383,6 +386,7 @@ export function buildRelationshipTransition(params: {
       const reciprocalDelta = inferRelationshipDelta(hint)?.delta || deriveFallbackRelationshipDelta(params.message.content);
       const updatedTarget = updateCharacterRelationshipFromDelta(target, speaker.id, reciprocalDelta, config.reciprocalRelationshipMultiplier);
       const targetEmotion = deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias);
+      const targetCoreProfile = evolveCharacterCoreProfile({ character: target, content: params.message.content, emotionalState: targetEmotion });
       const targetLayeredResult = maybeDistillCharacterLayeredMemories({
         ...target,
         relationships: updatedTarget.relationships,
@@ -404,6 +408,7 @@ export function buildRelationshipTransition(params: {
         patch: {
           relationships: updatedTarget.relationships,
           emotionalState: targetEmotion,
+          coreProfile: targetCoreProfile,
           layeredMemories: targetLayeredResult.layeredMemories,
           runtimeTimeline: accumulateCharacterRuntime(target, {
             type: 'relationship',
@@ -525,6 +530,7 @@ export function buildRelationshipTransition(params: {
   if (params.message.type === 'ai' && speaker && !targetEntries.length) {
     const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier * 0.75);
     const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
+    const speakerCoreProfile = evolveCharacterCoreProfile({ character: speaker, content: params.message.content, emotionalState: speakerEmotion });
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
     const speakerLayeredResult = maybeDistillCharacterLayeredMemories({
       ...speaker,
@@ -542,6 +548,7 @@ export function buildRelationshipTransition(params: {
       patch: {
         personalityDrift: speakerDrift,
         emotionalState: speakerEmotion,
+        coreProfile: speakerCoreProfile,
         layeredMemories: speakerLayeredResult.layeredMemories,
         runtimeTimeline: accumulateCharacterRuntime(speaker, {
           type: 'memory',

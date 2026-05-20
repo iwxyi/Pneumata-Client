@@ -16,7 +16,7 @@ interface NumericSlidersProps<T extends string> {
 
 export default function NumericSliders<T extends string>({ values, items, onChange, disabled, drift }: NumericSlidersProps<T>) {
   return (
-    <Box sx={{ display: 'grid', gap: 0.375, gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, alignItems: 'start', columnGap: 1.5 }}>
+    <Box sx={{ display: 'grid', gap: 0.375, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, alignItems: 'start', columnGap: 1.5 }}>
       {items.map((item) => {
         const driftValue = drift?.[item.key] || 0;
         const snappedValue = Math.round(values[item.key] / 10) * 10;

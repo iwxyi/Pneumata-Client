@@ -45,10 +45,10 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import { useTranslation } from 'react-i18next';
-import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile, CharacterVoiceConfig } from '../../types/character';
+import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile, CharacterVoiceConfig, CharacterCoreProfile } from '../../types/character';
 import { getCharacterGroupList, normalizeCharacterGroup, normalizeCharacterModelProfileIds, getDuplicateCharacterNameKeys, getDuplicateCharacterWarningText, hasDuplicateCharacterName } from '../../types/character';
 import type { BubbleShadowLevel, BubbleStyleDefinition, BubbleStyleFormValues } from '../../types/bubbleStyle';
-import { DEFAULT_PERSONALITY, DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION } from '../../types/character';
+import { DEFAULT_PERSONALITY, DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CORE_PROFILE } from '../../types/character';
 import { DEFAULT_BUBBLE_STYLE_FORM } from '../../types/bubbleStyle';
 import { generateCharacterProfile, generateCharacterVisualIdentityDraft } from '../../services/characterGenerator';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -253,7 +253,7 @@ function CharacterDiaryReader({ entries, language, paperVariant }: { entries: Ch
       <Box>
         <Card variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
           <CardContent sx={{ p: 1.25, pt: 1.5, '&:last-child': { pb: 1.25 } }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr) 32px 32px', alignItems: 'center', gap: 0.5, mb: 1 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr) 32px auto', alignItems: 'center', gap: 0.5, mb: 1 }}>
               <IconButton size="small" onClick={() => setVisibleMonth((prev) => addMonths(prev, -1))} aria-label={isZh ? '上个月' : 'Previous month'}>
                 <ChevronLeftIcon fontSize="small" />
               </IconButton>
@@ -264,11 +264,14 @@ function CharacterDiaryReader({ entries, language, paperVariant }: { entries: Ch
               <IconButton size="small" onClick={() => setVisibleMonth((prev) => addMonths(prev, 1))} aria-label={isZh ? '下个月' : 'Next month'}>
                 <ChevronRightIcon fontSize="small" />
               </IconButton>
-              <Tooltip title={calendarExpanded ? (isZh ? '只显示本周' : 'Show this week') : (isZh ? '展开整月' : 'Show full month')}>
-                <IconButton size="small" onClick={() => setCalendarExpanded((value) => !value)} aria-label={calendarExpanded ? (isZh ? '折叠日历' : 'Collapse calendar') : (isZh ? '展开日历' : 'Expand calendar')}>
-                  {calendarExpanded ? <UnfoldLessIcon fontSize="small" /> : <UnfoldMoreIcon fontSize="small" />}
-                </IconButton>
-              </Tooltip>
+              <Button
+                size="small"
+                onClick={() => setCalendarExpanded((value) => !value)}
+                aria-label={calendarExpanded ? (isZh ? '折叠日历' : 'Collapse calendar') : (isZh ? '展开日历' : 'Expand calendar')}
+                endIcon={calendarExpanded ? <UnfoldLessIcon fontSize="small" /> : <UnfoldMoreIcon fontSize="small" />}
+              >
+                {calendarExpanded ? (isZh ? '收起' : 'Collapse') : (isZh ? '展开' : 'Expand')}
+              </Button>
             </Box>
             <Box sx={{ display: { xs: 'block', lg: 'none' } }}>
               {renderCalendarMonth(visibleMonth)}
@@ -400,6 +403,7 @@ interface CharacterFormProps {
     relationships: AICharacter['relationships'];
     group?: string | null;
     memory: CharacterMemoryConfig;
+    coreProfile: CharacterCoreProfile;
     intervention: CharacterInterventionConfig;
     modelProfileId?: string | null;
     modelProfileIds?: Partial<Record<AIModelType, string | null>>;
@@ -438,6 +442,18 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [relationshipsText, setRelationshipsText] = useState(() => (initial?.relationships || []).map((item) => item.note || '').join('\n'));
   const [group, setGroup] = useState(initial?.group || '');
   const [memory, setMemory] = useState<CharacterMemoryConfig>(initial?.memory || DEFAULT_CHARACTER_MEMORY);
+  const [coreProfile, setCoreProfile] = useState<CharacterCoreProfile>(() => ({
+    ...DEFAULT_CORE_PROFILE,
+    ...(initial?.coreProfile || {}),
+      valuePriority: initial?.coreProfile?.valuePriority || [],
+      biases: initial?.coreProfile?.biases || [],
+      values: initial?.coreProfile?.values || initial?.coreProfile?.valuePriority || [],
+      sensitivities: initial?.coreProfile?.sensitivities || [],
+      perceptionBiases: initial?.coreProfile?.perceptionBiases || initial?.coreProfile?.biases || [],
+      interactionHabits: initial?.coreProfile?.interactionHabits || [],
+      unmetNeeds: initial?.coreProfile?.unmetNeeds || [],
+      hiddenSoftSpots: initial?.coreProfile?.hiddenSoftSpots || [],
+  }));
   const [intervention, setIntervention] = useState<CharacterInterventionConfig>(initial?.intervention || DEFAULT_CHARACTER_INTERVENTION);
   const [modelProfileIds, setModelProfileIds] = useState(() => normalizeCharacterModelProfileIds(initial?.modelProfileIds, initial?.modelProfileId || null));
   const [bubbleStyleId, setBubbleStyleId] = useState<string>(initial?.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID);
@@ -459,6 +475,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [socialExpanded, setSocialExpanded] = useState(true);
   const [discussionExpanded, setDiscussionExpanded] = useState(true);
   const [modelConfigExpanded, setModelConfigExpanded] = useState(false);
+  const [coreProfileExpanded, setCoreProfileExpanded] = useState(false);
   const [visualIdentityExpanded, setVisualIdentityExpanded] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [generatingVisualDescription, setGeneratingVisualDescription] = useState(false);
@@ -593,6 +610,18 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       defaults: initial.visualIdentity?.defaults || { useReferenceImages: false },
     });
     setVisualAssets(dedupeVisualAssets(initial.visualIdentity?.referenceImages || []));
+    setCoreProfile({
+      ...DEFAULT_CORE_PROFILE,
+      ...(initial.coreProfile || {}),
+      valuePriority: initial.coreProfile?.valuePriority || [],
+      biases: initial.coreProfile?.biases || [],
+      values: initial.coreProfile?.values || initial.coreProfile?.valuePriority || [],
+      sensitivities: initial.coreProfile?.sensitivities || [],
+      perceptionBiases: initial.coreProfile?.perceptionBiases || initial.coreProfile?.biases || [],
+      interactionHabits: initial.coreProfile?.interactionHabits || [],
+      unmetNeeds: initial.coreProfile?.unmetNeeds || [],
+      hiddenSoftSpots: initial.coreProfile?.hiddenSoftSpots || [],
+    });
   }, [initial?.id, initial?.modelProfileId, initial?.modelProfileIds]);
 
   useEffect(() => {
@@ -726,6 +755,18 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       setSpeakingStyle(generated.speakingStyle);
       setBackground(generated.background);
       setSpeechProfile(generated.speechProfile);
+      setCoreProfile({
+        ...DEFAULT_CORE_PROFILE,
+        ...generated.coreProfile,
+        values: generated.coreProfile.values || generated.coreProfile.valuePriority || [],
+        valuePriority: generated.coreProfile.valuePriority || generated.coreProfile.values || [],
+        perceptionBiases: generated.coreProfile.perceptionBiases || generated.coreProfile.biases || [],
+        biases: generated.coreProfile.biases || generated.coreProfile.perceptionBiases || [],
+        sensitivities: generated.coreProfile.sensitivities || [],
+        interactionHabits: generated.coreProfile.interactionHabits || [],
+        unmetNeeds: generated.coreProfile.unmetNeeds || [],
+        hiddenSoftSpots: generated.coreProfile.hiddenSoftSpots || [],
+      });
       setVisualIdentity((prev) => ({
         ...prev,
         description: generated.visualIdentity?.description || prev.description || '',
@@ -979,6 +1020,18 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       relationships: relationshipNotes,
       group: normalizeCharacterGroup(group),
       memory,
+      coreProfile: {
+        ...DEFAULT_CORE_PROFILE,
+        ...coreProfile,
+        valuePriority: coreProfile.valuePriority || [],
+        biases: coreProfile.biases || [],
+        values: coreProfile.values || coreProfile.valuePriority || [],
+        sensitivities: coreProfile.sensitivities || [],
+        perceptionBiases: coreProfile.perceptionBiases || coreProfile.biases || [],
+        interactionHabits: coreProfile.interactionHabits || [],
+        unmetNeeds: coreProfile.unmetNeeds || [],
+        hiddenSoftSpots: coreProfile.hiddenSoftSpots || [],
+      },
       intervention,
       modelProfileId: modelProfileIds.text || null,
       modelProfileIds,
@@ -1043,6 +1096,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     behavior,
     relationships: initial?.relationships || [],
     memory,
+    coreProfile,
     intervention,
   };
   const diaryEntries = useMemo(() => {
@@ -1054,6 +1108,101 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const generateLabel = getGenerateButtonLabel(i18n.language, generating);
   const helperText = getHelperText(i18n.language, inlineError);
   const generateAriaLabel = getGenerateAriaLabel(i18n.language);
+
+  const coreProfileCard = (
+    <Card variant="outlined">
+      <CardContent sx={{ display: 'grid', gap: 1.25 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+          <Tooltip title={i18n.language.startsWith('zh') ? '会随角色发言和记忆自动更新，也允许留空' : 'Auto-updates from speech and memories. You can leave it empty.'}>
+            <Typography variant="body2" sx={{ fontWeight: 600, width: 'fit-content' }}>{i18n.language.startsWith('zh') ? '核心画像' : 'Core profile'}</Typography>
+          </Tooltip>
+          <Button size="small" onClick={() => setCoreProfileExpanded((prev) => !prev)} endIcon={coreProfileExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}>
+            {coreProfileExpanded ? (i18n.language.startsWith('zh') ? '收起' : 'Collapse') : (i18n.language.startsWith('zh') ? '展开' : 'Expand')}
+          </Button>
+        </Box>
+        <Collapse in={coreProfileExpanded}>
+          <Box sx={{ display: 'grid', gap: 1.25, pt: 0.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
+              <TextField
+                size="small"
+                label={i18n.language.startsWith('zh') ? '核心欲望' : 'Core desire'}
+                value={coreProfile.coreDesire || ''}
+                onChange={(e) => setCoreProfile((prev) => ({ ...prev, coreDesire: e.target.value }))}
+                multiline
+                rows={2}
+              />
+              <TextField
+                size="small"
+                label={i18n.language.startsWith('zh') ? '核心恐惧' : 'Core fear'}
+                value={coreProfile.coreFear || ''}
+                onChange={(e) => setCoreProfile((prev) => ({ ...prev, coreFear: e.target.value }))}
+                multiline
+                rows={2}
+              />
+              <TextField
+                size="small"
+                label={i18n.language.startsWith('zh') ? '社交面具' : 'Social mask'}
+                value={coreProfile.socialMask || ''}
+                onChange={(e) => setCoreProfile((prev) => ({ ...prev, socialMask: e.target.value }))}
+                multiline
+                rows={2}
+                sx={{ gridColumn: { md: '1 / -1' } }}
+              />
+              <TextField
+                size="small"
+                label={i18n.language.startsWith('zh') ? '依恋/关系倾向' : 'Attachment style'}
+                value={coreProfile.attachmentStyle || ''}
+                onChange={(e) => setCoreProfile((prev) => ({ ...prev, attachmentStyle: e.target.value }))}
+                multiline
+                rows={2}
+              />
+              <TextField
+                size="small"
+                label={i18n.language.startsWith('zh') ? '冲突方式' : 'Conflict style'}
+                value={coreProfile.conflictStyle || ''}
+                onChange={(e) => setCoreProfile((prev) => ({ ...prev, conflictStyle: e.target.value }))}
+                multiline
+                rows={2}
+              />
+              <TextField
+                size="small"
+                label={i18n.language.startsWith('zh') ? '自我形象' : 'Self image'}
+                value={coreProfile.selfImage || ''}
+                onChange={(e) => setCoreProfile((prev) => ({ ...prev, selfImage: e.target.value }))}
+                multiline
+                rows={2}
+                sx={{ gridColumn: { md: '1 / -1' } }}
+              />
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '价值优先级' : 'Value priorities'}</Typography>
+              {renderTagEditor(coreProfile.values || coreProfile.valuePriority || [], (next) => setCoreProfile((prev) => ({ ...prev, values: next, valuePriority: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '敏感点' : 'Sensitivities'}</Typography>
+              {renderTagEditor(coreProfile.sensitivities || [], (next) => setCoreProfile((prev) => ({ ...prev, sensitivities: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '认知滤镜 / 误读倾向' : 'Perception biases'}</Typography>
+              {renderTagEditor(coreProfile.perceptionBiases || coreProfile.biases || [], (next) => setCoreProfile((prev) => ({ ...prev, perceptionBiases: next, biases: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '未满足需求' : 'Unmet needs'}</Typography>
+              {renderTagEditor(coreProfile.unmetNeeds || [], (next) => setCoreProfile((prev) => ({ ...prev, unmetNeeds: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '隐秘柔软点' : 'Hidden soft spots'}</Typography>
+              {renderTagEditor(coreProfile.hiddenSoftSpots || [], (next) => setCoreProfile((prev) => ({ ...prev, hiddenSoftSpots: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '互动习惯' : 'Interaction habits'}</Typography>
+              {renderTagEditor(coreProfile.interactionHabits || [], (next) => setCoreProfile((prev) => ({ ...prev, interactionHabits: next })), i18n.language.startsWith('zh') ? '输入后回车' : 'Type and press Enter')}
+            </Box>
+          </Box>
+        </Collapse>
+      </CardContent>
+    </Card>
+  );
 
   const openBubblePicker = () => {
     setDraftBubbleStyleId(bubbleStyleId);
@@ -1347,15 +1496,34 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
 
   const behaviorTab = (
     <Box sx={{ display: 'grid', gap: 1.25 }}>
-      <CollapsibleParamGroup title={t('character.personality')} open={personalityExpanded} onToggle={() => setPersonalityExpanded((prev) => !prev)}>
-        <PersonalitySliders values={personality} onChange={setPersonality} drift={initial?.personalityDrift} />
-      </CollapsibleParamGroup>
-      <CollapsibleParamGroup title={behaviorGroups[0].title} open={socialExpanded} onToggle={() => setSocialExpanded((prev) => !prev)}>
-        <NumericSliders values={behavior} items={behaviorGroups[0].items} onChange={setBehavior} />
-      </CollapsibleParamGroup>
-      <CollapsibleParamGroup title={behaviorGroups[1].title} open={discussionExpanded} onToggle={() => setDiscussionExpanded((prev) => !prev)}>
-        <NumericSliders values={behavior} items={behaviorGroups[1].items} onChange={setBehavior} />
-      </CollapsibleParamGroup>
+      {coreProfileCard}
+      <Card variant="outlined">
+        <CardContent>
+          <CollapsibleParamGroup title={t('character.personality')} open={personalityExpanded} onToggle={() => setPersonalityExpanded((prev) => !prev)} contentSx={{ pl: 0, ml: 0, borderLeft: 'none' }}>
+            <Box>
+              <PersonalitySliders values={personality} onChange={setPersonality} drift={initial?.personalityDrift} />
+            </Box>
+          </CollapsibleParamGroup>
+        </CardContent>
+      </Card>
+      <Card variant="outlined">
+        <CardContent>
+          <CollapsibleParamGroup title={behaviorGroups[0].title} open={socialExpanded} onToggle={() => setSocialExpanded((prev) => !prev)} contentSx={{ pl: 0, ml: 0, borderLeft: 'none' }}>
+            <Box>
+              <NumericSliders values={behavior} items={behaviorGroups[0].items} onChange={setBehavior} />
+            </Box>
+          </CollapsibleParamGroup>
+        </CardContent>
+      </Card>
+      <Card variant="outlined">
+        <CardContent>
+          <CollapsibleParamGroup title={behaviorGroups[1].title} open={discussionExpanded} onToggle={() => setDiscussionExpanded((prev) => !prev)} contentSx={{ pl: 0, ml: 0, borderLeft: 'none' }}>
+            <Box>
+              <NumericSliders values={behavior} items={behaviorGroups[1].items} onChange={setBehavior} />
+            </Box>
+          </CollapsibleParamGroup>
+        </CardContent>
+      </Card>
     </Box>
   );
 
@@ -1512,7 +1680,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
         }}
       >
         <Tab label={i18n.language.startsWith('zh') ? '设定' : 'Config'} />
-        <Tab label={i18n.language.startsWith('zh') ? '行为' : 'Behavior'} />
+        <Tab label={i18n.language.startsWith('zh') ? '人格' : 'Persona'} />
         <Tab label={i18n.language.startsWith('zh') ? '关系' : 'Relations'} />
         <Tab label={i18n.language.startsWith('zh') ? '记忆' : 'Memory'} />
         <Tab label={i18n.language.startsWith('zh') ? '运行态' : 'Runtime'} />
@@ -1650,8 +1818,8 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
           </Box>
 
           <Box sx={{ overflowY: 'auto', px: 3, pb: 2, pt: 2 }}>
-            {customBubbleStyles.length > 0 ? <><Typography variant="subtitle2" sx={{ mb: 1 }}>{bubblePickerActionLabel.custom}</Typography><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1.25 }}>{customBubbleStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={{ borderColor: isStyleSelected(style.id) ? 'primary.main' : 'divider', cursor: 'pointer' }} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography><Box sx={{ display: 'flex', gap: 0.5 }}><Button size="small" onClick={(e) => { e.stopPropagation(); selectBubbleStyle(style.id); setDraftBubbleStyle({ ...style }); }}>{bubblePickerActionLabel.use}</Button><IconButton size="small" onClick={(e) => { e.stopPropagation(); openBubbleEditor(style); }}><EditIcon fontSize="small" /></IconButton></Box></Box><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>{renderAvatarPreview(avatar, isImageAvatar, 30)}<Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box><Divider sx={{ my: 2.5 }} /></> : null}
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1.25 }}>{currentBuiltInStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={{ borderColor: isStyleSelected(style.id) ? 'primary.main' : 'divider', cursor: 'pointer' }} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>{renderAvatarPreview(avatar, isImageAvatar, 30)}<Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box>
+            {customBubbleStyles.length > 0 ? <><Typography variant="subtitle2" sx={{ mb: 1 }}>{bubblePickerActionLabel.custom}</Typography><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.25 }}>{customBubbleStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={{ borderColor: isStyleSelected(style.id) ? 'primary.main' : 'divider', cursor: 'pointer' }} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography><Box sx={{ display: 'flex', gap: 0.5 }}><Button size="small" onClick={(e) => { e.stopPropagation(); selectBubbleStyle(style.id); setDraftBubbleStyle({ ...style }); }}>{bubblePickerActionLabel.use}</Button><IconButton size="small" onClick={(e) => { e.stopPropagation(); openBubbleEditor(style); }}><EditIcon fontSize="small" /></IconButton></Box></Box><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>{renderAvatarPreview(avatar, isImageAvatar, 30)}<Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box><Divider sx={{ my: 2.5 }} /></> : null}
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.25 }}>{currentBuiltInStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={{ borderColor: isStyleSelected(style.id) ? 'primary.main' : 'divider', cursor: 'pointer' }} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>{renderAvatarPreview(avatar, isImageAvatar, 30)}<Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box>
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>

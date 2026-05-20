@@ -1,7 +1,7 @@
 import { generateResponse } from './aiClient';
 import type { APIConfig } from '../types/settings';
-import type { PersonalityParams, CharacterSpeechProfile } from '../types/character';
-import { DEFAULT_PERSONALITY, DEFAULT_SPEECH_PROFILE } from '../types/character';
+import type { PersonalityParams, CharacterSpeechProfile, CharacterCoreProfile } from '../types/character';
+import { DEFAULT_PERSONALITY, DEFAULT_SPEECH_PROFILE, DEFAULT_CORE_PROFILE } from '../types/character';
 import type { BubbleStyleDefinition, BubbleBorderStyle, BubbleGradientDirection, BubbleShadowLevel } from '../types/bubbleStyle';
 import { DEFAULT_BUBBLE_STYLE_FORM } from '../types/bubbleStyle';
 import { AVATAR_OPTIONS } from '../constants/presets';
@@ -13,6 +13,7 @@ export interface GeneratedCharacterProfile {
   speakingStyle?: string;
   background?: string;
   speechProfile?: Partial<CharacterSpeechProfile>;
+  coreProfile?: Partial<CharacterCoreProfile>;
   bubbleStyle?: Partial<BubbleStyleDefinition>;
   visualIdentity?: {
     description?: string;
@@ -57,6 +58,20 @@ Return strict JSON only, with this shape:
     "questionBias": 0-100,
     "sarcasmBias": 0-100
   },
+  "coreProfile": {
+    "coreDesire": "long-term desire or need",
+    "coreFear": "long-term fear, avoidance, or vulnerable point",
+    "socialMask": "how they protect themselves in public interactions",
+    "values": ["0-5 value priorities"],
+    "sensitivities": ["0-5 sensitive points"],
+    "perceptionBiases": ["0-5 likely misreadings or attention filters"],
+    "interactionHabits": ["0-5 interaction habits"],
+    "attachmentStyle": "relationship or attachment tendency",
+    "conflictStyle": "how they handle conflict",
+    "unmetNeeds": ["0-5 unmet emotional needs"],
+    "selfImage": "how they tend to see themselves",
+    "hiddenSoftSpots": ["0-5 private soft spots"]
+  },
   "bubbleStyle": {
     "name": "2-4 word style name",
     "backgroundColor": "#RRGGBB or rgba(...)",
@@ -81,6 +96,7 @@ Rules:
 - Infer the profile from the provided name and likely public persona/archetype.
 - If the name is fictional, meme-like, or ambiguous, still create a vivid but usable role profile.
 - Keep expertise practical for conversation.
+- Make coreProfile psychologically specific to this role, not generic labels. It should describe long-term inner drives, vulnerabilities, relationship style, conflict style, self-image, and likely perception filters.
 - Make bubbleStyle visually distinctive and aligned with the character's vibe, role, and speaking style.
 - Keep bubbleStyle practical for chat readability with strong text/background contrast.
 - Do not wrap in markdown fences.
@@ -95,6 +111,10 @@ function normalizeStringList(value: unknown, limit: number) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean).slice(0, limit)
     : [];
+}
+
+function normalizeShortText(value: unknown, limit = 220) {
+  return typeof value === 'string' ? value.trim().slice(0, limit) : '';
 }
 
 function clampInteger(value: unknown, min: number, max: number, fallback: number) {
@@ -169,6 +189,27 @@ export function normalizeGeneratedProfile(raw: GeneratedCharacterProfile) {
     sarcasmBias: clampScore(raw.speechProfile?.sarcasmBias, DEFAULT_SPEECH_PROFILE.sarcasmBias),
   };
 
+  const rawCoreProfile = raw.coreProfile || {};
+  const values = normalizeStringList(rawCoreProfile.values || rawCoreProfile.valuePriority, 6);
+  const perceptionBiases = normalizeStringList(rawCoreProfile.perceptionBiases || rawCoreProfile.biases, 6);
+  const coreProfile: CharacterCoreProfile = {
+    ...DEFAULT_CORE_PROFILE,
+    coreDesire: normalizeShortText(rawCoreProfile.coreDesire),
+    coreFear: normalizeShortText(rawCoreProfile.coreFear),
+    socialMask: normalizeShortText(rawCoreProfile.socialMask),
+    values,
+    valuePriority: values,
+    sensitivities: normalizeStringList(rawCoreProfile.sensitivities, 6),
+    perceptionBiases,
+    biases: perceptionBiases,
+    interactionHabits: normalizeStringList(rawCoreProfile.interactionHabits, 6),
+    attachmentStyle: normalizeShortText(rawCoreProfile.attachmentStyle),
+    conflictStyle: normalizeShortText(rawCoreProfile.conflictStyle),
+    unmetNeeds: normalizeStringList(rawCoreProfile.unmetNeeds, 6),
+    selfImage: normalizeShortText(rawCoreProfile.selfImage),
+    hiddenSoftSpots: normalizeStringList(rawCoreProfile.hiddenSoftSpots, 6),
+  };
+
   return {
     avatar: AVATAR_OPTIONS.includes(avatar) ? avatar : '🤖',
     personality,
@@ -176,6 +217,7 @@ export function normalizeGeneratedProfile(raw: GeneratedCharacterProfile) {
     speakingStyle: typeof raw.speakingStyle === 'string' ? raw.speakingStyle.trim() : '',
     background: typeof raw.background === 'string' ? raw.background.trim() : '',
     speechProfile,
+    coreProfile,
     bubbleStyle: normalizeBubbleStyle(raw.bubbleStyle),
     visualIdentity: {
       description: typeof raw.visualIdentity?.description === 'string' ? raw.visualIdentity.description.trim() : '',
@@ -204,12 +246,12 @@ export function buildGeneratePrompt(name: string, language: 'zh' | 'en', theme?:
   const normalizedTheme = formatThemeHint(theme);
   if (language === 'zh') {
     return normalizedTheme
-    ? `请基于主题“${normalizedTheme}”中的角色“${name}”生成一个适合多人群聊讨论的 AI 角色档案。务必按该主题理解角色身份，避免混淆同名人物。输出字段必须完整，语气自然，专业领域用简洁短语。请额外生成适合后续图片参考的 visualIdentity 文本锚点。`
-      : `请基于名字“${name}”生成一个适合多人群聊讨论的 AI 角色档案。输出字段必须完整，语气自然，专业领域用简洁短语。请额外生成适合后续图片参考的 visualIdentity 文本锚点。`;
+    ? `请基于主题“${normalizedTheme}”中的角色“${name}”生成一个适合多人群聊讨论的 AI 角色档案。务必按该主题理解角色身份，避免混淆同名人物。输出字段必须完整，语气自然，专业领域用简洁短语。请额外生成适合后续图片参考的 visualIdentity 文本锚点，以及适合长期演化的 coreProfile 心理画像。`
+      : `请基于名字“${name}”生成一个适合多人群聊讨论的 AI 角色档案。输出字段必须完整，语气自然，专业领域用简洁短语。请额外生成适合后续图片参考的 visualIdentity 文本锚点，以及适合长期演化的 coreProfile 心理画像。`;
   }
   return normalizedTheme
-    ? `Generate a complete AI character profile for the character "${name}" from the theme "${normalizedTheme}" for a multi-person group chat app. Use the theme to disambiguate namesakes and keep the fields concise and usable. Also generate a visualIdentity text anchor for later image reference.`
-    : `Generate a complete AI character profile for the name "${name}" for a multi-person group chat app. Keep the fields concise and usable. Also generate a visualIdentity text anchor for later image reference.`;
+    ? `Generate a complete AI character profile for the character "${name}" from the theme "${normalizedTheme}" for a multi-person group chat app. Use the theme to disambiguate namesakes and keep the fields concise and usable. Also generate a visualIdentity text anchor for later image reference and a coreProfile psychological profile for long-term evolution.`
+    : `Generate a complete AI character profile for the name "${name}" for a multi-person group chat app. Keep the fields concise and usable. Also generate a visualIdentity text anchor for later image reference and a coreProfile psychological profile for long-term evolution.`;
 }
 
 function sanitizeBatchNames(names: string[]) {
@@ -231,12 +273,12 @@ function buildBatchGeneratePrompt(names: string[], language: 'zh' | 'en', theme?
   const normalizedTheme = formatThemeHint(theme);
   if (language === 'zh') {
     return normalizedTheme
-      ? `请基于主题“${normalizedTheme}”为以下角色批量生成档案：${normalizedNames.join('、')}。每个角色都必须按该主题中的身份来理解，避免混淆同名人物。返回严格 JSON 数组，格式必须是 [{"name":"名字1","avatar":"😀","personality":{...},"expertise":[...],"speakingStyle":"...","background":"..."}]。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`
-      : `请为以下名字批量生成角色档案：${normalizedNames.join('、')}。返回严格 JSON 数组，格式必须是 [{"name":"名字1","avatar":"😀","personality":{...},"expertise":[...],"speakingStyle":"...","background":"..."}]。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`;
+      ? `请基于主题“${normalizedTheme}”为以下角色批量生成档案：${normalizedNames.join('、')}。每个角色都必须按该主题中的身份来理解，避免混淆同名人物。返回严格 JSON 数组，每项都包含 name、avatar、personality、expertise、speakingStyle、background、speechProfile、coreProfile、bubbleStyle、visualIdentity。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`
+      : `请为以下名字批量生成角色档案：${normalizedNames.join('、')}。返回严格 JSON 数组，每项都包含 name、avatar、personality、expertise、speakingStyle、background、speechProfile、coreProfile、bubbleStyle、visualIdentity。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`;
   }
   return normalizedTheme
-    ? `Generate character profiles for these characters from the theme "${normalizedTheme}": ${normalizedNames.join(', ')}. Use the theme to disambiguate namesakes for every character. Return a strict JSON array in this exact shape: [{"name":"name1","avatar":"😀","personality":{...},"expertise":[...],"speakingStyle":"...","background":"..."}]. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`
-    : `Generate character profiles for these names: ${normalizedNames.join(', ')}. Return a strict JSON array in this exact shape: [{"name":"name1","avatar":"😀","personality":{...},"expertise":[...],"speakingStyle":"...","background":"..."}]. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`;
+    ? `Generate character profiles for these characters from the theme "${normalizedTheme}": ${normalizedNames.join(', ')}. Use the theme to disambiguate namesakes for every character. Return a strict JSON array. Every item must include name, avatar, personality, expertise, speakingStyle, background, speechProfile, coreProfile, bubbleStyle, and visualIdentity. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`
+    : `Generate character profiles for these names: ${normalizedNames.join(', ')}. Return a strict JSON array. Every item must include name, avatar, personality, expertise, speakingStyle, background, speechProfile, coreProfile, bubbleStyle, and visualIdentity. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`;
 }
 
 export function parseGeneratedProfileMap(content: string, names: string[]) {
@@ -294,7 +336,7 @@ export async function generateCharacterProfiles(config: APIConfig, names: string
   if (!normalizedNames.length) return [];
   const response = await generateResponse(
     config,
-    `${CHARACTER_GENERATOR_SYSTEM_PROMPT}\nWhen generating multiple characters, return exactly one valid JSON object with a top-level "profiles" map. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
+    `${CHARACTER_GENERATOR_SYSTEM_PROMPT}\nWhen generating multiple characters, return exactly one valid JSON array. Each item must include the requested name plus the same profile fields as a single-character result. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
     [{ role: 'user', content: buildBatchGeneratePrompt(normalizedNames, language, theme) }]
   );
   return parseGeneratedProfileMap(response, normalizedNames);
@@ -306,7 +348,7 @@ export async function generateCharacterProfile(config: APIConfig, name: string, 
     `${CHARACTER_GENERATOR_SYSTEM_PROMPT}\nOutput exactly one valid JSON object. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
     [{ role: 'user', content: `${buildGeneratePrompt(name.trim(), language, theme)} ${language === 'zh' ? '只返回合法JSON。' : 'Return only valid JSON.'}` }],
     undefined,
-    { maxTokens: 1500 }
+    { maxTokens: 2400 }
   );
   return parseGeneratedProfile(response);
 }

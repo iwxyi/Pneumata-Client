@@ -7,6 +7,7 @@ import {
   buildLlmDistillationSource,
   debugLlmCharacterDistillation,
   debugLlmChatDistillation,
+  distillCharacterCoreProfileWithLlm,
   distillCharacterMemoriesWithLlm,
   distillChatMemoriesWithLlm,
   shouldRunLlmCharacterDistillation,
@@ -274,10 +275,13 @@ export async function scheduleAsyncMemoryAnalysis(params: {
         characters: [currentCharacter],
         extra: { fingerprintLength: startFingerprint.length },
       });
-      const distilled = await distillCharacterMemoriesWithLlm(params.api, currentCharacter);
+      const [distilled, coreProfile] = await Promise.all([
+        distillCharacterMemoriesWithLlm(params.api, currentCharacter),
+        distillCharacterCoreProfileWithLlm(params.api, currentCharacter),
+      ]);
       timer.mark('after-generate', {
         characters: [getCurrentCharacters().find((item) => item.id === characterId) || currentCharacter],
-        extra: { distilledCount: distilled.length },
+        extra: { distilledCount: distilled.length, coreProfileUpdated: Boolean(coreProfile) },
       });
       const latestCharacter = getCurrentCharacters().find((item) => item.id === characterId) || currentCharacter;
       const latestFingerprint = buildMemoryAnalysisFingerprint(latestCharacter);
@@ -298,7 +302,7 @@ export async function scheduleAsyncMemoryAnalysis(params: {
       }
 
       state.lastSettledFingerprint = startFingerprint;
-      if (!distilled.length) {
+      if (!distilled.length && !coreProfile) {
         timer.finish({
           characters: [latestCharacter],
           extra: { result: 'empty-distilled' },
@@ -308,10 +312,10 @@ export async function scheduleAsyncMemoryAnalysis(params: {
 
       const layeredMemories = consolidateMemoryCandidates(latestCharacter.layeredMemories || [], distilled);
       timer.mark('after-consolidate', {
-        characters: [{ ...latestCharacter, layeredMemories } as AICharacter],
+        characters: [{ ...latestCharacter, layeredMemories, ...(coreProfile ? { coreProfile } : {}) } as AICharacter],
         extra: { layeredMemoryCount: layeredMemories.length },
       });
-      await params.updateCharacter(latestCharacter.id, { layeredMemories });
+      await params.updateCharacter(latestCharacter.id, { layeredMemories, ...(coreProfile ? { coreProfile } : {}) });
       timer.mark('after-update-character', {
         characters: [getCurrentCharacters().find((item) => item.id === characterId) || latestCharacter],
         extra: { layeredMemoryCount: layeredMemories.length },

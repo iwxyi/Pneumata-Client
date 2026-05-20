@@ -72,7 +72,15 @@ export interface CharacterCoreProfile {
   valuePriority?: string[];
   socialMask?: string;
   biases?: string[];
+  values?: string[];
+  sensitivities?: string[];
+  perceptionBiases?: string[];
   interactionHabits?: string[];
+  attachmentStyle?: string;
+  conflictStyle?: string;
+  unmetNeeds?: string[];
+  selfImage?: string;
+  hiddenSoftSpots?: string[];
 }
 
 export interface CharacterVisualReferenceImage {
@@ -326,7 +334,15 @@ export const DEFAULT_CORE_PROFILE: CharacterCoreProfile = {
   valuePriority: [],
   socialMask: '',
   biases: [],
+  values: [],
+  sensitivities: [],
+  perceptionBiases: [],
   interactionHabits: [],
+  attachmentStyle: '',
+  conflictStyle: '',
+  unmetNeeds: [],
+  selfImage: '',
+  hiddenSoftSpots: [],
 };
 
 export const DEFAULT_SPEECH_PROFILE: CharacterSpeechProfile = {
@@ -397,7 +413,12 @@ export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacte
       ...(input.coreProfile || {}),
       valuePriority: input.coreProfile?.valuePriority || [],
       biases: input.coreProfile?.biases || [],
+      values: input.coreProfile?.values || input.coreProfile?.valuePriority || [],
+      sensitivities: input.coreProfile?.sensitivities || [],
+      perceptionBiases: input.coreProfile?.perceptionBiases || input.coreProfile?.biases || [],
       interactionHabits: input.coreProfile?.interactionHabits || [],
+      unmetNeeds: input.coreProfile?.unmetNeeds || [],
+      hiddenSoftSpots: input.coreProfile?.hiddenSoftSpots || [],
     },
     visualIdentity: normalizeCharacterVisualIdentity(input.visualIdentity),
     speechProfile: {

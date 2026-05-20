@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import type { AICharacter } from '../../types/character';
 import type { MemoryItem } from '../../services/memoryTypes';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { getPreferredAIProfile } from '../../types/settings';
 import SimpleBarChart from '../common/SimpleBarChart';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
@@ -14,8 +13,9 @@ import { formatRelationshipNumber, normalizeCurrent } from '../../services/relat
 import { useCharacterStore } from '../../stores/useCharacterStore';
 import { RelationshipRadar } from '../controls/RelationshipPanel';
 import type { RelationshipLedgerEntry } from '../../types/runtimeEvent';
-import { formatLocalizedDriftSummary, getDominantEmotionLabel, getAffectSummaryLines } from '../../services/personalityDrift';
+import { applyDriftToBehavior, formatLocalizedDriftSummary, getDominantEmotionLabel, getAffectSummaryLines } from '../../services/personalityDrift';
 import LayeredMemoryPanel from '../memory/LayeredMemoryPanel';
+import { getPreferredAIProfile } from '../../types/settings';
 import {
   buildCharacterExperienceArtifactContext,
   buildLocalCharacterExperienceArtifact,
@@ -80,6 +80,12 @@ function getTraitLabel(key: string, language: string) {
     insecurity: isZh ? '不安' : 'Insecurity',
     excitement: isZh ? '兴奋' : 'Excitement',
     embarrassment: isZh ? '尴尬' : 'Embarrassment',
+    proactivity: isZh ? '主动性' : 'Proactivity',
+    aggressiveness: isZh ? '攻击性' : 'Aggressiveness',
+    humorIntensity: isZh ? '幽默感' : 'Humor intensity',
+    empathyLevel: isZh ? '共情度' : 'Empathy level',
+    summarizing: isZh ? '总结倾向' : 'Summarizing',
+    offTopic: isZh ? '跑题倾向' : 'Off-topic',
   };
   return labels[key] || key;
 }
@@ -105,20 +111,6 @@ function EmotionPanel({ character }: { character: Partial<AICharacter> }) {
           <LinearProgress variant="determinate" value={Number(value)} sx={{ height: 5, borderRadius: 999 }} />
         </Box>
       ))}
-    </Stack>
-  );
-}
-
-function CoreProfilePanel({ character }: { character: Partial<AICharacter> }) {
-  const profile = character.coreProfile;
-  if (!profile) return <Typography variant="caption" color="text.secondary">暂无核心画像</Typography>;
-  return (
-    <Stack spacing={0.75}>
-      {profile.coreDesire ? <Typography variant="caption" color="text.secondary">欲望：{profile.coreDesire}</Typography> : null}
-      {profile.coreFear ? <Typography variant="caption" color="text.secondary">恐惧：{profile.coreFear}</Typography> : null}
-      {profile.socialMask ? <Typography variant="caption" color="text.secondary">面具：{profile.socialMask}</Typography> : null}
-      {profile.biases?.length ? <Typography variant="caption" color="text.secondary">偏见：{profile.biases.join(' / ')}</Typography> : null}
-      {profile.interactionHabits?.length ? <Typography variant="caption" color="text.secondary">习惯：{profile.interactionHabits.join(' / ')}</Typography> : null}
     </Stack>
   );
 }
@@ -229,6 +221,7 @@ function CharacterExperienceArtifactPanel({ character, relatedCharacters }: { ch
   const [error, setError] = useState<string | null>(null);
   const context = useMemo(() => buildCharacterExperienceArtifactContext(character, relatedCharacters), [character, relatedCharacters]);
   const localPreview = useMemo(() => buildLocalCharacterExperienceArtifact(kind, context), [kind, context]);
+  const hasGeneratedText = Boolean(generatedTexts[kind]);
   const displayedText = generatedTexts[kind] || localPreview;
   const canGenerate = Boolean(selectedProfile?.apiKey && selectedProfile?.model);
 
@@ -254,7 +247,16 @@ function CharacterExperienceArtifactPanel({ character, relatedCharacters }: { ch
 
   return (
     <SurfaceCard>
-      <SectionHeader title="角色经历" dense action={<Button size="small" variant="text" disabled={!canGenerate || generating} onClick={handleGenerate}>{generating ? '生成中' : '生成'}</Button>} />
+      <SectionHeader
+        title="角色经历"
+        dense
+        action={(
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <Button size="small" variant="text" disabled={!canGenerate || generating} onClick={handleGenerate}>{generating ? '生成中' : '生成'}</Button>
+            <Chip size="small" label="调试" color="warning" variant="outlined" />
+          </Box>
+        )}
+      />
       <Stack spacing={1}>
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
           {EXPERIENCE_ARTIFACT_TABS.map((tab) => (
@@ -269,7 +271,7 @@ function CharacterExperienceArtifactPanel({ character, relatedCharacters }: { ch
           ))}
         </Box>
         <Box sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
-          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{displayedText}</Typography>
+          <Typography variant="body2" color={hasGeneratedText ? 'text.primary' : 'text.secondary'} sx={{ whiteSpace: 'pre-wrap' }}>{displayedText}</Typography>
         </Box>
         {error ? <Typography variant="caption" color="error">{error}</Typography> : null}
       </Stack>
@@ -332,6 +334,10 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
   const relationships = character.relationships || [];
   const behavior = character.behavior;
   const personalityDrift = character.personalityDrift || {};
+  const effectiveBehavior = useMemo(
+    () => (character.behavior ? applyDriftToBehavior(character as AICharacter) : null),
+    [character]
+  );
   const timeline = useMemo(() => character.runtimeTimeline || [
     ...relationships.slice(-3).map((relation) => ({ type: 'relationship' as const, text: `${relation.note || relation.characterId} · ${relation.updatedAt ? new Date(relation.updatedAt).toLocaleString() : '最近更新'}`, createdAt: relation.updatedAt || Date.now() })),
     ...(formatLocalizedDriftSummary(personalityDrift, i18n.language) ? [{ type: 'drift' as const, text: formatLocalizedDriftSummary(personalityDrift, i18n.language), createdAt: Date.now() }] : []),
@@ -342,9 +348,43 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
     ...Object.entries(personalityDrift).slice(0, 1).map(([key, value]) => `${getTraitLabel(key, i18n.language)} ${value > 0 ? '+' : ''}${value}`),
     character.emotionalState ? `情绪 ${getDominantEmotionLabel(character.emotionalState, i18n.language)}` : '',
   ].filter(Boolean);
+  const behaviorFormulaHints = useMemo(() => {
+    const drift = personalityDrift || {};
+    const d = (key: string) => Number(drift[key as keyof typeof drift] || 0);
+    const isZh = i18n.language.startsWith('zh');
+    const fmt = (value: number) => (value > 0 ? `+${value}` : `${value}`);
+    return {
+      proactivity: isZh
+        ? `主动性 = 基础值 + 外向性×0.6 + 果断度×0.35\n当前值：${fmt(Math.round(d('extroversion') * 0.6))} + ${fmt(Math.round(d('assertiveness') * 0.35))}`
+        : `Proactivity = base + extroversion×0.6 + assertiveness×0.35\nCurrent: ${fmt(Math.round(d('extroversion') * 0.6))} + ${fmt(Math.round(d('assertiveness') * 0.35))}`,
+      aggressiveness: isZh
+        ? `攻击性 = 基础值 + 敏感度×0.5 + 果断度×0.3\n当前值：${fmt(Math.round(d('neuroticism') * 0.5))} + ${fmt(Math.round(d('assertiveness') * 0.3))}`
+        : `Aggressiveness = base + neuroticism×0.5 + assertiveness×0.3\nCurrent: ${fmt(Math.round(d('neuroticism') * 0.5))} + ${fmt(Math.round(d('assertiveness') * 0.3))}`,
+      humorIntensity: isZh
+        ? `幽默感 = 基础值 + 幽默×0.45 + 创造力×0.25\n当前值：${fmt(Math.round(d('humor') * 0.45))} + ${fmt(Math.round(d('creativity') * 0.25))}`
+        : `Humor = base + humor×0.45 + creativity×0.25\nCurrent: ${fmt(Math.round(d('humor') * 0.45))} + ${fmt(Math.round(d('creativity') * 0.25))}`,
+      empathyLevel: isZh
+        ? `共情度 = 基础值 + 共情力×0.8 + 宜人性×0.35\n当前值：${fmt(Math.round(d('empathy') * 0.8))} + ${fmt(Math.round(d('agreeableness') * 0.35))}`
+        : `Empathy = base + empathy×0.8 + agreeableness×0.35\nCurrent: ${fmt(Math.round(d('empathy') * 0.8))} + ${fmt(Math.round(d('agreeableness') * 0.35))}`,
+      summarizing: isZh
+        ? `总结倾向 = 基础值 + 开放性×0.35\n当前值：${fmt(Math.round(d('openness') * 0.35))}`
+        : `Summarizing = base + openness×0.35\nCurrent: ${fmt(Math.round(d('openness') * 0.35))}`,
+      offTopic: isZh
+        ? `跑题倾向 = 基础值 + 开放性×0.25 + 创造力×0.2\n当前值：${fmt(Math.round(d('openness') * 0.25))} + ${fmt(Math.round(d('creativity') * 0.2))}`
+        : `Off-topic = base + openness×0.25 + creativity×0.2\nCurrent: ${fmt(Math.round(d('openness') * 0.25))} + ${fmt(Math.round(d('creativity') * 0.2))}`,
+    } as Record<string, string>;
+  }, [i18n.language, personalityDrift]);
+
+  const behaviorChartItems = useMemo(
+    () => Object.entries(effectiveBehavior || behavior || {}).map(([key, value]) => ({
+      label: getTraitLabel(key, i18n.language),
+      value: Number(value),
+      hint: behaviorFormulaHints[key] || undefined,
+    })),
+    [behavior, behaviorFormulaHints, effectiveBehavior, i18n.language]
+  );
   const runtimeAffectHints = getAffectSummaryLines(character as AICharacter, i18n.language).slice(0, isDeveloperView ? 4 : 2);
   const hasRuntimeSummary = runtimeSummaryItems.length > 0;
-  const hasCoreProfile = Boolean(character.coreProfile?.coreDesire || character.coreProfile?.coreFear || character.coreProfile?.socialMask || character.coreProfile?.biases?.length || character.coreProfile?.interactionHabits?.length);
 
   return (
     <PageSection spacing={2}>
@@ -352,6 +392,8 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
         <SectionHeader title="运行态观察" dense action={isDeveloperView ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
         {hasRuntimeSummary ? <Box sx={{ mt: 0.5 }}><StatChipRow items={runtimeSummaryItems} /></Box> : <Typography variant="caption" color="text.secondary">暂无运行态观察结果</Typography>}
       </SurfaceCard>
+
+      {developerMode ? <CharacterExperienceArtifactPanel character={character} relatedCharacters={characters} /> : null}
 
       <SurfaceCard>
         <SectionHeader title="情绪状态" dense action={isDeveloperView && runtimeAffectHints.length ? <Chip size="small" label="变化" color="warning" variant="outlined" /> : undefined} />
@@ -362,17 +404,22 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
       </SurfaceCard>
 
       <SurfaceCard>
-        <SectionHeader title="核心画像" dense />
-        {hasCoreProfile ? <CoreProfilePanel character={character} /> : <Typography variant="caption" color="text.secondary">暂无核心画像</Typography>}
-      </SurfaceCard>
-
-      <CharacterExperienceArtifactPanel character={character} relatedCharacters={characters} />
-
-      <SurfaceCard>
         <SectionHeader title="行为 / 漂移" dense />
         <Stack spacing={1.25}>
-          {isDeveloperView ? <SimpleBarChart title="行为强度" items={Object.entries(behavior || {}).map(([key, value]) => ({ label: key, value: Number(value) }))} /> : null}
-          {Object.keys(personalityDrift).length ? <StatChipRow items={Object.entries(personalityDrift).map(([key, value]) => `${getTraitLabel(key, i18n.language)} ${value > 0 ? '+' : ''}${value}`)} /> : null}
+          {isDeveloperView ? (
+            <SimpleBarChart
+              title={i18n.language.startsWith('zh') ? '行为强度' : 'Behavior intensity'}
+              items={behaviorChartItems}
+            />
+          ) : null}
+          <Stack spacing={0.75}>
+            <Typography variant="subtitle2" color="text.primary" sx={{ fontWeight: 700 }}>
+              {i18n.language.startsWith('zh') ? '人格漂移' : 'Personality drift'}
+            </Typography>
+            {Object.keys(personalityDrift).length
+              ? <StatChipRow items={Object.entries(personalityDrift).map(([key, value]) => `${getTraitLabel(key, i18n.language)} ${value > 0 ? '+' : ''}${value}`)} />
+              : <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '暂无显著漂移' : 'No significant drift yet'}</Typography>}
+          </Stack>
         </Stack>
       </SurfaceCard>
 

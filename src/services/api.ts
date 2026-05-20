@@ -131,7 +131,7 @@ class ApiClient {
 
   async createCharacter(data: {
     name: string; avatar?: string; personality: Record<string, number>;
-    behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
+    behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null; coreProfile?: object;
     visualIdentity?: CharacterVisualIdentity | null;
     visualReferenceImages?: CharacterVisualReferenceImage[];
     speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
@@ -143,7 +143,7 @@ class ApiClient {
 
   async createCharactersBatch(items: Array<{
     name: string; avatar?: string; personality: Record<string, number>;
-    behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
+    behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null; coreProfile?: object;
     visualIdentity?: CharacterVisualIdentity | null;
     visualReferenceImages?: CharacterVisualReferenceImage[];
     speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;

@@ -90,7 +90,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
         </Typography>
         {chat?.type === 'group' && onUpdateSeats ? <Button size="small" variant="text" onClick={openSeatDialog}>调整座位</Button> : null}
       </Box>
-      <List dense disablePadding>
+      <List dense disablePadding sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 0.5 }}>
         {visibleMembers.map((member) => {
           const memberStatus = buildMemberStatus(member);
           const runtimeAffect = getRuntimeAffectMemberIndicators(member, i18n.language);
@@ -113,7 +113,6 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
               }
               sx={{
                 borderRadius: 2,
-                mb: 0.5,
                 bgcolor: thinkingId === member.id ? 'action.selected' : 'transparent',
               }}
             >

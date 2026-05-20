@@ -17,7 +17,6 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import ModelsIcon from '@mui/icons-material/SmartToy';
 import AccountIcon from '@mui/icons-material/AccountCircle';
 import MailIcon from '@mui/icons-material/Mail';
-import AddIcon from '@mui/icons-material/Add';
 import CollapseIcon from '@mui/icons-material/ChevronLeft';
 import ExpandIcon from '@mui/icons-material/ChevronRight';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -34,9 +33,8 @@ const navItems = [
   { path: '/', icon: <HomeIcon />, labelKey: 'nav.home' },
   { path: '/chats', icon: <ChatIcon />, labelKey: 'nav.chats' },
   { path: '/characters', icon: <PersonIcon />, labelKey: 'nav.characters' },
-  { path: '/letters', icon: <MailIcon />, labelKey: 'nav.letters' },
   { path: '/models', icon: <ModelsIcon />, labelKey: 'nav.models' },
-  { path: '/chats/create', icon: <AddIcon />, labelKey: 'nav.new' },
+  { path: '/letters', icon: <MailIcon />, labelKey: 'nav.letters' },
   { path: '/account', icon: <AccountIcon />, labelKey: 'nav.account' },
   { path: '/settings', icon: <SettingsIcon />, labelKey: 'nav.settings' },
 ];

@@ -206,6 +206,46 @@ describe('buildRelationshipTransition', () => {
 
     expect(result.runtimeEvents.some((event) => event.eventType === 'conflict_focus_shift')).toBe(false);
   });
+
+  it('evolves core profile from runtime speech without replacing existing manual anchors', () => {
+    const chat = buildChat();
+    const speaker = buildCharacter('char-a', '甲');
+    const target = buildCharacter('char-b', '乙');
+    speaker.coreProfile = {
+      coreDesire: '想被当作可靠的人。',
+      coreFear: '',
+      socialMask: '',
+      valuePriority: [],
+      biases: [],
+      interactionHabits: [],
+    };
+
+    const result = buildRelationshipTransition({
+      conversation: chat,
+      characters: [speaker, target],
+      message: {
+        type: 'ai',
+        senderId: 'char-a',
+        content: '乙你别老抢着接话，凭什么总是一副要管全场的样子？你是不是看不起我？',
+        interactionHint: {
+          kind: 'challenge',
+          actorId: 'char-a',
+          targetId: 'char-b',
+          intensity: 4,
+          tone: 'annoyed',
+          evidenceText: '乙你别老抢着接话，凭什么总是一副要管全场的样子？你是不是看不起我？',
+          confidence: 0.94,
+        },
+      },
+      previousAiMessage: null,
+    });
+
+    const speakerPatch = result.characterPatches.find((patch) => patch.characterId === 'char-a')?.patch;
+    expect(speakerPatch?.coreProfile?.coreDesire).toBe('想被当作可靠的人。');
+    expect(speakerPatch?.coreProfile?.coreFear).toContain('轻视');
+    expect(speakerPatch?.coreProfile?.biases?.some((item) => item.includes('打断'))).toBe(true);
+    expect(speakerPatch?.coreProfile?.interactionHabits?.some((item) => item.includes('追问'))).toBe(true);
+  });
 });
 
 describe('buildWorldRuntimeEvents', () => {

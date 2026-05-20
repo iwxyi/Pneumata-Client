@@ -191,6 +191,7 @@ export async function runSessionLoop(params: {
       }
 
       try {
+      let roundStreamingMessage: Message | null = null;
         markSessionLoop(params.loopId, {
           phase: 'selecting',
           iterationCount: (activeSessionLoops.get(params.loopId)?.iterationCount || 0) + 1,
@@ -242,6 +243,7 @@ export async function runSessionLoop(params: {
           onSpeakerSelected: (charId) => {
             if (!isActiveLoop(params)) return;
             params.onSpeakerSelected(charId);
+            roundStreamingMessage = params.getStreamingMessage?.() || null;
           },
           onMessageChunk: (content) => {
             if (!isActiveLoop(params)) return;
@@ -261,7 +263,7 @@ export async function runSessionLoop(params: {
                 chat: currentChat,
                 characters: currentCharacters,
                 message,
-                streamingMessage: params.getStreamingMessage?.() || null,
+                streamingMessage: roundStreamingMessage || params.getStreamingMessage?.() || null,
                 currentMessages: params.getCurrentMessages(),
                 onCommit: params.onCommit,
                 upsertMessage: params.upsertMessage,

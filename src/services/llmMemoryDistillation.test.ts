@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { normalizeConversation, type GroupChat } from '../types/chat';
 import { DEFAULT_API_CONFIG } from '../types/settings';
 import type { MemoryItem } from './memoryTypes';
-import { distillChatMemoriesWithLlm, shouldRunLlmChatDistillation } from './llmMemoryDistillation';
+import { distillChatMemoriesWithLlm, mergeCoreProfilePatch, shouldRunLlmChatDistillation } from './llmMemoryDistillation';
 
 const generateJsonResponseMock = vi.fn();
 
@@ -215,5 +215,38 @@ describe('llmMemoryDistillation', () => {
     const chat = buildChat([latestLlmItem, ...novelSource]);
 
     expect(shouldRunLlmChatDistillation(chat, 0)).toBe(true);
+  });
+
+  it('merges LLM core profile patches without dropping manual anchors or legacy fields', () => {
+    const merged = mergeCoreProfilePatch({
+      coreDesire: '想被认真当成可靠的人。',
+      coreFear: '害怕被轻视。',
+      socialMask: '用逞强保护自己。',
+      valuePriority: ['可靠'],
+      biases: ['容易把沉默理解为否定'],
+      interactionHabits: ['先追问再表态'],
+    }, {
+      coreDesire: '',
+      values: ['可靠', '被认可'],
+      perceptionBiases: ['容易把玩笑听成挑衅'],
+      sensitivities: ['被当众否定'],
+      attachmentStyle: '越在意越会试探。',
+      conflictStyle: '被压过时会追问和反驳。',
+      unmetNeeds: ['稳定的认可'],
+      selfImage: '觉得自己应该撑住场面。',
+      hiddenSoftSpots: ['被真诚维护时会动摇'],
+    });
+
+    expect(merged.coreDesire).toBe('想被认真当成可靠的人。');
+    expect(merged.coreFear).toBe('害怕被轻视。');
+    expect(merged.socialMask).toBe('用逞强保护自己。');
+    expect(merged.values).toEqual(['可靠', '被认可']);
+    expect(merged.valuePriority).toEqual(merged.values);
+    expect(merged.perceptionBiases).toEqual(['容易把沉默理解为否定', '容易把玩笑听成挑衅']);
+    expect(merged.biases).toEqual(merged.perceptionBiases);
+    expect(merged.sensitivities).toContain('被当众否定');
+    expect(merged.attachmentStyle).toContain('试探');
+    expect(merged.unmetNeeds).toContain('稳定的认可');
+    expect(merged.hiddenSoftSpots?.some((item) => item.includes('真诚维护'))).toBe(true);
   });
 });
