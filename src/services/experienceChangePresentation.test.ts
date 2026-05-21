@@ -59,6 +59,45 @@ describe('experienceChangePresentation', () => {
     expect(changes[0].title).toBe('灰太狼 → 小灰灰');
     expect(changes[0].chips).toContain('关系升温');
     expect(changes[0].text).toContain('灰太狼');
+    expect(changes[0].chips.some((chip) => /信任|威胁|亲和|能力/.test(chip))).toBe(false);
     expect(changes[1].chips).toContain('客观事件');
+  });
+
+  it('uses memory summary and masks unknown UUIDs without corrupting short member ids', () => {
+    const chat = {
+      layeredMemories: [memory({
+        text: 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67 对 a 的原始证据',
+        summary: 'a 记住了这次冲突的结果',
+        sourceTag: 'llm_memory_objective_event',
+      })],
+      relationshipLedger: [],
+    } as Pick<GroupChat, 'layeredMemories' | 'relationshipLedger'>;
+
+    const changes = buildRecentExperienceChanges({
+      chat,
+      members: [{ id: 'a', name: '灰太狼' }] as never,
+    });
+
+    expect(changes[0].text).toBe('灰太狼 记住了这次冲突的结果');
+    expect(changes[0].text).not.toContain('e055aa1d');
+  });
+
+  it('does not show raw runtime parameter changes as recent memory changes', () => {
+    const chat = {
+      layeredMemories: [
+        memory({ id: 'room', scope: 'system_runtime', layer: 'working', sourceTag: 'room_shift', text: '房间态势更新：热度 100' }),
+        memory({ id: 'relation', sourceTag: 'relationship_delta', text: '喜羊羊 触发关系变化：信任+3' }),
+        memory({ id: 'distilled', sourceTag: 'relationship_delta', origin: 'distilled', layer: 'long_term', text: '喜羊羊和沸羊羊的关系裂痕已经稳定影响群聊。' }),
+      ],
+      relationshipLedger: [],
+    } as Pick<GroupChat, 'layeredMemories' | 'relationshipLedger'>;
+
+    const changes = buildRecentExperienceChanges({
+      chat,
+      members: [{ id: 'a', name: '灰太狼' }, { id: 'b', name: '小灰灰' }] as never,
+    });
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0].text).toContain('关系裂痕');
   });
 });

@@ -427,7 +427,7 @@ describe('openChatEngine.onMessageCommitted', () => {
   it('uses warm room state to admit post moment candidates', async () => {
     const chat = normalizeConversation({
       ...buildChat(),
-      worldState: { ...buildChat().worldState, structuredRoomState: { heat: 26, cohesion: 64, topicDrift: 4, dominantThread: ['a', 'b'], alliances: [['a', 'b']], conflictPairs: [], pileOnTarget: null, silencedActors: [] } },
+      worldState: { ...buildChat().worldState, structuredRoomState: { heat: 26, cohesion: 14, topicDrift: 4, dominantThread: ['a', 'b'], alliances: [['a', 'b']], conflictPairs: [], pileOnTarget: null, silencedActors: [] } },
     });
     const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
     const result = await openChatEngine.onMessageCommitted({
@@ -465,7 +465,7 @@ describe('openChatEngine.onMessageCommitted', () => {
         recentEvents: [],
         lastUpdatedAt: 1,
       }],
-      worldState: { ...buildChat().worldState, structuredRoomState: { heat: 14, cohesion: 58, topicDrift: 3, dominantThread: ['a', 'b'], alliances: [['a', 'b']], conflictPairs: [], pileOnTarget: null, silencedActors: [] } },
+      worldState: { ...buildChat().worldState, structuredRoomState: { heat: 14, cohesion: 8, topicDrift: 3, dominantThread: ['a', 'b'], alliances: [['a', 'b']], conflictPairs: [], pileOnTarget: null, silencedActors: [] } },
     });
     const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
     const result = await openChatEngine.onMessageCommitted({

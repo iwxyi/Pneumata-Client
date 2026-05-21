@@ -49,7 +49,10 @@ describe('WEREWOLF_ENGINE', () => {
     expect(schema?.actions.find((action) => action.type === 'wolf_vote')?.visibility).toBe('pair_private');
     expect(schema?.actions.find((action) => action.type === 'inspect_player')?.visibility).toBe('role_private');
     expect(schema?.actions.find((action) => action.type === 'vote_player')?.visibility).toBe('public');
-    expect(schema?.actions.find((action) => action.type === 'director_intervention')?.visibility).toBe('moderator_only');
+    const director = schema?.actions.find((action) => action.type === 'director_intervention');
+    expect(director?.visibility).toBe('moderator_only');
+    expect(director?.fields?.map((field) => field.key)).toEqual(['intent', 'targetId', 'maxTurns', 'prompt']);
+    expect(director?.fields?.find((field) => field.key === 'intent')?.options?.map((option) => option.value)).toContain('reveal');
   });
 
   it('resolves werewolf turn policy by phase', () => {

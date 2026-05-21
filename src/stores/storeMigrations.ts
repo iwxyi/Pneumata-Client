@@ -6,7 +6,7 @@ import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS, PAPER_SURFACE_VARIANTS } from '..
 
 type VersionedPersistedState<T> = T | undefined;
 
-export const CLIENT_STORE_SCHEMA_VERSION = 2;
+export const CLIENT_STORE_SCHEMA_VERSION = 3;
 
 function clampRelationshipMetric(value: unknown, min: number, max: number) {
   const safeValue = typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -30,7 +30,18 @@ function migrateCharacter(input: AICharacter): AICharacter {
   });
 }
 
+function migrateRoomCohesion(input: unknown) {
+  const value = typeof input === 'number' && Number.isFinite(input) ? input : 0;
+  return Math.max(-100, Math.min(100, value - 50));
+}
+
 function migrateChat(input: GroupChat): GroupChat {
+  const structuredRoomState = input.worldState?.structuredRoomState
+    ? {
+        ...input.worldState.structuredRoomState,
+        cohesion: migrateRoomCohesion(input.worldState.structuredRoomState.cohesion),
+      }
+    : input.worldState?.structuredRoomState;
   return {
     ...input,
     memberIds: Array.isArray(input.memberIds) ? input.memberIds : [],
@@ -58,6 +69,10 @@ function migrateChat(input: GroupChat): GroupChat {
         targetIds: Array.isArray(event?.targetIds) ? event.targetIds.filter((id): id is string => typeof id === 'string') : undefined,
       })),
     })),
+    worldState: {
+      ...input.worldState,
+      structuredRoomState,
+    },
   };
 }
 
@@ -134,11 +149,12 @@ export function migrateUiStoreState<T extends Record<string, unknown>>(persisted
     godModeActive: Boolean(persisted.godModeActive),
     topicGuideOpen: Boolean(persisted.topicGuideOpen),
     speakAsCharacterId: typeof persisted.speakAsCharacterId === 'string' ? persisted.speakAsCharacterId : null,
-    rightPanelTab: persisted.rightPanelTab === 'world' || persisted.rightPanelTab === 'actions' ? persisted.rightPanelTab : 'members',
+    rightPanelTab: persisted.rightPanelTab === 'world' || persisted.rightPanelTab === 'actions' || persisted.rightPanelTab === 'narrative' ? persisted.rightPanelTab : 'members',
   } as T;
 }
 
 export const CLIENT_STORE_MIGRATION_NOTES = {
   1: 'Normalize persisted relationships, governance, developer UI, and message payload shapes.',
   2: 'Slim relationship ledger recent events down to lightweight snapshots.',
+  3: 'Shift room cohesion to a signed zero-centered scale.',
 } as const;

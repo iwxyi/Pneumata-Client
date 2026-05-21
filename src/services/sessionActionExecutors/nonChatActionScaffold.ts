@@ -1,4 +1,5 @@
 import type { GroupChat } from '../../types/chat';
+import type { DirectorInterventionPayload, RuntimeEventV2 } from '../../types/runtimeEvent';
 import type { SessionActionDefinition, SessionActionExecutionResult } from '../../types/sessionEngine';
 import { buildStartPrivateThreadExecutionResult } from '../directSessionRuntime';
 import { buildActionRuntimeContract } from '../sessionRuntimeContract';
@@ -39,6 +40,15 @@ function getPrompt(action: SessionActionDefinition) {
   return typeof action.payload?.prompt === 'string' ? action.payload.prompt : '';
 }
 
+function readNumber(value: unknown) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 function prepareAction(action: SessionActionDefinition) {
   const targetId = typeof action.payload?.targetId === 'string' ? action.payload.targetId : undefined;
   return {
@@ -63,6 +73,44 @@ function buildPhasePatch(chat: GroupChat, phase: GroupChat['worldState']['phase'
   };
 }
 
+function resolveDirectorInterventionIntent(value: unknown): DirectorInterventionPayload['intent'] {
+  const allowed: DirectorInterventionPayload['intent'][] = ['force_reply', 'escalate', 'cool_down', 'inject_event', 'summarize', 'reveal', 'redirect'];
+  if (typeof value === 'string' && allowed.includes(value as DirectorInterventionPayload['intent'])) return value as DirectorInterventionPayload['intent'];
+  return 'inject_event';
+}
+
+function buildDirectorInterventionRuntimeEvent(chat: GroupChat, action: SessionActionDefinition, summary: string): RuntimeEventV2 {
+  const prompt = getPrompt(action);
+  const targetActorIds = action.targetIds || [];
+  const now = Date.now();
+  const requestedMaxTurns = readNumber(action.payload?.maxTurns);
+  const maxTurns = typeof requestedMaxTurns === 'number' ? Math.max(1, Math.min(5, Math.round(requestedMaxTurns))) : 1;
+  const requestedExpiresAt = readNumber(action.payload?.expiresAt);
+  const requestedPressure = readNumber(action.payload?.pressure);
+  const payload: DirectorInterventionPayload = {
+    intent: resolveDirectorInterventionIntent(action.payload?.intent),
+    targetActorIds,
+    targetLineId: typeof action.payload?.targetLineId === 'string' ? action.payload.targetLineId : undefined,
+    pressure: typeof requestedPressure === 'number' ? Math.max(0, Math.min(1, requestedPressure)) : 0.9,
+    text: prompt || summary,
+    maxTurns,
+    expiresAt: typeof requestedExpiresAt === 'number' ? requestedExpiresAt : now + 10 * 60_000,
+  };
+  return {
+    id: `evt_${now}_${Math.random().toString(36).slice(2, 8)}`,
+    conversationId: chat.id,
+    kind: 'director_intervention',
+    createdAt: now,
+    actorIds: action.actorId ? [action.actorId] : ['user'],
+    targetIds: targetActorIds,
+    summary,
+    channelId: 'moderator',
+    eventClass: 'action',
+    visibility: action.visibility || 'moderator_only',
+    payload,
+  };
+}
+
 function handleAskQuestion(chat: GroupChat, action: SessionActionDefinition) {
   const summary = `提问${getTargetLabel(chat, action)}：${truncate(getPrompt(action), 48)}`;
   return buildActionResult(chat, action, '面试官发起提问', summary, 'interview_question', {
@@ -74,9 +122,17 @@ function handleAskQuestion(chat: GroupChat, action: SessionActionDefinition) {
 function handleDirectorIntervention(chat: GroupChat, action: SessionActionDefinition) {
   const prompt = getPrompt(action);
   const summary = prompt ? `导演推进：${truncate(prompt, 48)}` : '执行了导演推进';
-  return buildActionResult(chat, action, '面试阶段推进', summary, 'interview_phase_control', {
+  const result = buildActionResult(chat, action, '面试阶段推进', summary, 'interview_phase_control', {
     prompt,
   });
+  const event = buildDirectorInterventionRuntimeEvent(chat, action, summary);
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      runtimeEventsV2: [...(chat.runtimeEventsV2 || []), event].slice(-160),
+    },
+  };
 }
 
 function handleStartPrivateThread(chat: GroupChat, action: SessionActionDefinition) {

@@ -14,6 +14,8 @@ import {
   shouldRunLlmChatDistillation,
 } from './llmMemoryDistillation';
 import { createRuntimeMemoryTimer, recordRuntimeMemory } from './runtimeMemoryMonitor';
+import type { MemoryCandidate } from './memoryTypes';
+import { normalizeRuntimeSeedArtifactLines } from './runtimeSeed';
 
 interface DeferredMemoryAnalysisState {
   running: boolean;
@@ -54,6 +56,26 @@ function buildMemoryAnalysisFingerprint(owner: { layeredMemories?: AICharacter['
       (item.sourceEventIds || []).join(','),
     ].join(':'))
     .join('|');
+}
+
+function uniqueSeedLines(items: string[]) {
+  return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
+}
+
+function buildArtifactSeedPatch(chat: GroupChat, distilled: MemoryCandidate[]) {
+  const artifacts = normalizeRuntimeSeedArtifactLines(distilled
+    .filter((item) => item.kind === 'artifact' && (item.scoreBreakdown?.specificity || 0) >= 0.7 && (item.scoreBreakdown?.durability || 0) >= 0.7)
+    .map((item) => item.text.trim())
+    .filter(Boolean));
+  if (!artifacts.length) return null;
+  const nextArtifacts = uniqueSeedLines([...(chat.runtimeSeed?.artifacts || []), ...artifacts]).slice(-8);
+  if (nextArtifacts.join('\n') === (chat.runtimeSeed?.artifacts || []).join('\n')) return null;
+  return {
+    runtimeSeed: {
+      notes: chat.runtimeSeed?.notes || [],
+      artifacts: nextArtifacts,
+    },
+  } satisfies Partial<GroupChat>;
 }
 
 function scheduleDeferredMemoryAnalysis(ownerKey: string, runner: (state: DeferredMemoryAnalysisState) => Promise<void>) {
@@ -199,7 +221,11 @@ export async function scheduleAsyncMemoryAnalysis(params: {
       characters: getCurrentCharacters(),
       extra: { layeredMemoryCount: layeredMemories.length },
     });
-    await params.updateChat(latestChat.id, { layeredMemories });
+    const artifactSeedPatch = buildArtifactSeedPatch(latestChat, distilled);
+    await params.updateChat(latestChat.id, {
+      layeredMemories,
+      ...(artifactSeedPatch || {}),
+    });
     timer.mark('after-update-chat', {
       chat: getCurrentChat(),
       characters: getCurrentCharacters(),

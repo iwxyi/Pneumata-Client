@@ -3,6 +3,8 @@ import { Badge, Box, Button, Card, CardContent, Chip, FormControl, IconButton, I
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
@@ -50,6 +52,22 @@ function getCalendarDays(monthDate: Date) {
   });
 }
 
+function getWeekStart(date: Date) {
+  const start = new Date(date);
+  const weekday = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - weekday);
+  return start;
+}
+
+function getWeekDays(date: Date) {
+  const start = getWeekStart(date);
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return day;
+  });
+}
+
 function formatDateLabel(dateKey?: string | null, language = 'zh') {
   if (!dateKey) return language.startsWith('zh') ? '未标注日期' : 'No date';
   return dateKey;
@@ -85,9 +103,15 @@ function ArtifactCalendarReader({
   const selectedIndex = selectedItem ? items.findIndex((item) => item.id === selectedItem.id) : -1;
   const selectedDate = selectedItem ? parseDateKey(getEntryDateKey(selectedItem)) : null;
   const [visibleMonth, setVisibleMonth] = useState(() => selectedDate || new Date());
+  const [calendarExpanded, setCalendarExpanded] = useState(true);
   const currentMonthKey = toMonthKey(visibleMonth);
   const monthLabel = visibleMonth.toLocaleDateString(isZh ? 'zh-CN' : 'en-US', { year: 'numeric', month: 'long' });
   const weekdays = isZh ? ['一', '二', '三', '四', '五', '六', '日'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const collapsedWeekAnchor = selectedDate && toMonthKey(selectedDate) === currentMonthKey ? selectedDate : visibleMonth;
+  const calendarDays = useMemo(
+    () => calendarExpanded ? getCalendarDays(visibleMonth) : getWeekDays(collapsedWeekAnchor),
+    [calendarExpanded, collapsedWeekAnchor, visibleMonth],
+  );
   const itemsByDate = useMemo(() => {
     const map = new Map<string, CharacterArtifactEntry>();
     items.forEach((item) => {
@@ -130,7 +154,7 @@ function ArtifactCalendarReader({
       <Box sx={{ px: { xs: 4.5, sm: 6, lg: 7 } }}>
         <Card variant="outlined" sx={{ borderRadius: 3 }}>
           <CardContent sx={{ display: 'grid', gap: 1, p: 1.25, '&:last-child': { pb: 1.25 } }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '36px minmax(0, 1fr) 36px', alignItems: 'center', gap: 0.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '36px minmax(0, 1fr) 36px auto', alignItems: 'center', gap: 0.5 }}>
               <IconButton size="small" onClick={() => setVisibleMonth((prev) => addMonths(prev, -1))} aria-label={isZh ? '上个月' : 'Previous month'}>
                 <ChevronLeftIcon fontSize="small" />
               </IconButton>
@@ -141,12 +165,20 @@ function ArtifactCalendarReader({
               <IconButton size="small" onClick={() => setVisibleMonth((prev) => addMonths(prev, 1))} aria-label={isZh ? '下个月' : 'Next month'}>
                 <ChevronRightIcon fontSize="small" />
               </IconButton>
+              <Button
+                size="small"
+                onClick={() => setCalendarExpanded((value) => !value)}
+                aria-label={calendarExpanded ? (isZh ? '折叠日历' : 'Collapse calendar') : (isZh ? '展开日历' : 'Expand calendar')}
+                endIcon={calendarExpanded ? <UnfoldLessIcon fontSize="small" /> : <UnfoldMoreIcon fontSize="small" />}
+              >
+                {calendarExpanded ? (isZh ? '收起' : 'Collapse') : (isZh ? '展开' : 'Expand')}
+              </Button>
             </Box>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5 }}>
               {weekdays.map((weekday, index) => <Typography key={`${weekday}-${index}`} variant="caption" color="text.secondary" sx={{ textAlign: 'center', fontWeight: 700 }}>{weekday}</Typography>)}
             </Box>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5 }}>
-              {getCalendarDays(visibleMonth).map((day) => {
+              {calendarDays.map((day) => {
                 const dateKey = toDateKey(day);
                 const item = itemsByDate.get(dateKey);
                 const selected = selectedItem ? getEntryDateKey(selectedItem) === dateKey : false;
@@ -249,21 +281,29 @@ export default function LettersPage() {
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 1100, mx: 'auto' }}>
       <Stack spacing={2}>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'auto minmax(180px, 220px)' }, gap: { xs: 1, sm: 2 }, alignItems: 'center', justifyContent: 'space-between' }}>
-          <Tabs value={tab} onChange={(_, value) => setTab(value)} variant="standard" sx={{ minWidth: 0, justifySelf: 'start', '& .MuiTabs-flexContainer': { gap: 0.25 }, '& .MuiTab-root': { minWidth: 0, px: { xs: 1.25, sm: 1.75 }, whiteSpace: 'nowrap' } }}>
-            <Tab value="letters" label={(
-              <Badge badgeContent={unreadLetterCount} color="error" max={99}>
-                <span>{i18n.language.startsWith('zh') ? '信件' : 'Letters'}</span>
-              </Badge>
-            )} />
-            <Tab value="diary" label={i18n.language.startsWith('zh') ? '日记' : 'Diary'} />
-          </Tabs>
-          <FormControl size="small" fullWidth>
-            <InputLabel>{i18n.language.startsWith('zh') ? '角色' : 'Character'}</InputLabel>
-            <Select label={i18n.language.startsWith('zh') ? '角色' : 'Character'} value={characterFilter} onChange={(event) => setCharacterFilter(event.target.value)}>
-              {characterOptions.map((option) => <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>)}
-            </Select>
-          </FormControl>
+        <Box sx={{ px: { xs: 4.5, sm: 6, lg: 7 } }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(140px, 220px)', gap: 1.5, alignItems: 'center' }}>
+            <Tabs
+              value={tab}
+              onChange={(_, value) => setTab(value)}
+              variant="scrollable"
+              allowScrollButtonsMobile
+              sx={{ minWidth: 0, '& .MuiTabs-flexContainer': { gap: 0.25 }, '& .MuiTab-root': { minWidth: 0, px: { xs: 1.25, sm: 1.75 }, whiteSpace: 'nowrap' } }}
+            >
+              <Tab value="letters" label={(
+                <Badge badgeContent={unreadLetterCount} color="error" max={99}>
+                  <span>{i18n.language.startsWith('zh') ? '信件' : 'Letters'}</span>
+                </Badge>
+              )} />
+              <Tab value="diary" label={i18n.language.startsWith('zh') ? '日记' : 'Diary'} />
+            </Tabs>
+            <FormControl size="small" fullWidth>
+              <InputLabel>{i18n.language.startsWith('zh') ? '角色' : 'Character'}</InputLabel>
+              <Select label={i18n.language.startsWith('zh') ? '角色' : 'Character'} value={characterFilter} onChange={(event) => setCharacterFilter(event.target.value)}>
+                {characterOptions.map((option) => <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Box>
         </Box>
 
         <ArtifactCalendarReader items={visibleItems} tab={tab} language={i18n.language} characterNameMap={characterNameMap} paperVariant={paperVariant} />

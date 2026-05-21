@@ -48,6 +48,9 @@ describe('INTERVIEW_ENGINE', () => {
     const askQuestion = schema?.actions.find((action) => action.type === 'ask_question');
     const targetField = askQuestion?.fields?.find((field) => field.key === 'targetId');
     expect(targetField?.options?.map((option) => option.value)).toEqual(['candidate-a', 'candidate-b']);
+    const director = schema?.actions.find((action) => action.type === 'director_intervention');
+    expect(director?.fields?.map((field) => field.key)).toEqual(['intent', 'targetId', 'maxTurns', 'prompt']);
+    expect(director?.fields?.find((field) => field.key === 'intent')?.options?.map((option) => option.value)).toContain('force_reply');
   });
 
   it('resolves turn policy by interview phase', () => {

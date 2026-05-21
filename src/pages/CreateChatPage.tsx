@@ -27,6 +27,7 @@ import DirectorControlsSection from '../components/createChat/DirectorControlsSe
 import ChatConfigSection from '../components/createChat/ChatConfigSection';
 import ManagementSection from '../components/createChat/ManagementSection';
 import MemberSelectionDialog from '../components/createChat/MemberSelectionDialog';
+import { normalizeRuntimeSeedLines } from '../services/runtimeSeed';
 
 const HotTopicDialogContainer = lazy(() => import('../components/createChat/HotTopicDialogContainer'));
 const RuntimeSeedSection = lazy(() => import('../components/createChat/RuntimeSeedSection'));
@@ -620,8 +621,8 @@ export default function CreateChatPage() {
           showRoleActions,
           topicSeed: '',
           runtimeSeed: {
-            notes: seedMemoryText.split('\n').map((item) => item.trim()).filter(Boolean),
-            artifacts: seedArtifactText.split('\n').map((item) => item.trim()).filter(Boolean),
+            notes: normalizeRuntimeSeedLines(seedMemoryText, 'note'),
+            artifacts: normalizeRuntimeSeedLines(seedArtifactText, 'artifact'),
           },
           runtimeTimeline: editingChat.runtimeTimeline || [],
           governance: {
@@ -700,7 +701,7 @@ export default function CreateChatPage() {
         <Tabs value={configTab} onChange={handleTabChange} variant="scrollable" allowScrollButtonsMobile>
           <Tab value={0} label={i18n.language.startsWith('zh') ? '设定' : 'Config'} />
           {showManagementTab ? <Tab value={1} label={i18n.language.startsWith('zh') ? '管理' : 'Management'} /> : null}
-          {showRuntimeTab ? <Tab value={runtimeTabIndex} label={i18n.language.startsWith('zh') ? '运行态' : 'Runtime'} /> : null}
+          {showRuntimeTab ? <Tab value={runtimeTabIndex} label={i18n.language.startsWith('zh') ? '记忆' : 'Memory'} /> : null}
           {showDirectorTab ? <Tab value={directorTabIndex} label={i18n.language.startsWith('zh') ? '导演控制' : 'Director'} /> : null}
         </Tabs>
 
@@ -775,6 +776,11 @@ export default function CreateChatPage() {
               editingChatUpdatedAt={editingChat?.updatedAt}
               editingChatLastMessageAt={editingChat?.lastMessageAt}
               editingChatTimeline={editingChat?.runtimeTimeline}
+              editingChatRuntimeEvents={editingChat?.runtimeEventsV2}
+              editingChatRelationshipLedger={editingChat?.relationshipLedger}
+              editingChatLayeredMemories={editingChat?.layeredMemories}
+              editingChatConflictAxes={editingChat?.worldState.conflictAxes}
+              editingChatConflictState={editingChat?.worldState.conflictState}
               name={name}
               topic={topic}
               style={style}

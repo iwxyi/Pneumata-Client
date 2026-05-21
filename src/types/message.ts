@@ -50,6 +50,26 @@ export interface MessageMetadata {
     updatedAt?: number;
     error?: string;
   };
+  runtimeDecision?: {
+    directorIntent?: {
+      source: string;
+      beatType: string;
+      targetLineId?: string;
+      targetActorIds?: string[];
+      pressure?: number;
+      reason?: string;
+    };
+    narrativeLines?: Array<{
+      id: string;
+      type: string;
+      title: string;
+      salience: number;
+      tension: number;
+      status: string;
+      participantIds?: string[];
+    }>;
+    speakerScore?: Record<string, unknown>;
+  };
   visibility?: string;
   cachePolicy?: Record<string, unknown>;
 }

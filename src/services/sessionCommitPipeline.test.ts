@@ -16,6 +16,7 @@ const shouldRunLlmChatDistillationMock = vi.fn();
 const shouldRunLlmCharacterDistillationMock = vi.fn();
 const distillChatMemoriesWithLlmMock = vi.fn();
 const distillCharacterMemoriesWithLlmMock = vi.fn();
+const distillCharacterCoreProfileWithLlmMock = vi.fn();
 const debugLlmChatDistillationMock = vi.fn();
 const debugLlmCharacterDistillationMock = vi.fn();
 const buildLlmDistillationSourceMock = vi.fn();
@@ -29,6 +30,7 @@ vi.mock('./llmMemoryDistillation', () => ({
   debugLlmCharacterDistillation: (...args: unknown[]) => debugLlmCharacterDistillationMock(...args),
   debugLlmChatDistillation: (...args: unknown[]) => debugLlmChatDistillationMock(...args),
   distillChatMemoriesWithLlm: (...args: unknown[]) => distillChatMemoriesWithLlmMock(...args),
+  distillCharacterCoreProfileWithLlm: (...args: unknown[]) => distillCharacterCoreProfileWithLlmMock(...args),
   distillCharacterMemoriesWithLlm: (...args: unknown[]) => distillCharacterMemoriesWithLlmMock(...args),
   shouldRunLlmCharacterDistillation: (...args: unknown[]) => shouldRunLlmCharacterDistillationMock(...args),
   shouldRunLlmChatDistillation: (...args: unknown[]) => shouldRunLlmChatDistillationMock(...args),
@@ -40,6 +42,8 @@ beforeEach(() => {
   shouldRunLlmChatDistillationMock.mockReset();
   shouldRunLlmCharacterDistillationMock.mockReset();
   distillChatMemoriesWithLlmMock.mockReset();
+  distillCharacterCoreProfileWithLlmMock.mockReset();
+  distillCharacterCoreProfileWithLlmMock.mockResolvedValue(null);
   distillCharacterMemoriesWithLlmMock.mockReset();
   debugLlmChatDistillationMock.mockReset();
   debugLlmCharacterDistillationMock.mockReset();
@@ -124,13 +128,13 @@ function buildMemoryItem(id: string, ownerId: string, subjectIds: string[], text
   };
 }
 
-function buildDistilledCandidate(ownerId: string, text: string): MemoryCandidate {
+function buildDistilledCandidate(ownerId: string, text: string, kind: MemoryCandidate['kind'] = 'resentment'): MemoryCandidate {
   return {
-    scope: 'relationship',
+    scope: kind === 'artifact' ? 'conversation' : 'relationship',
     layerHint: 'long_term',
-    kind: 'resentment',
+    kind,
     ownerId,
-    subjectIds: ['char-b'],
+    subjectIds: kind === 'artifact' ? [] : ['char-b'],
     text,
     sourceEventIds: ['e1', 'e2'],
     sourceTag: 'llm_memory_distillation',
@@ -236,6 +240,114 @@ describe('runSessionCommitPipeline', () => {
       }),
       'msg-1',
     );
+  });
+
+  it('syncs LLM-distilled artifact memories into runtime artifact seeds', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('char-a', '甲'), buildCharacter('char-b', '乙')];
+    const freshChatMemory = buildMemoryItem('chat-fresh', 'chat-1', ['char-a', 'char-b'], 'fresh-chat-evidence', 'evt-chat');
+    const transition: DriverMessageCommitTransition = {
+      chatPatch: { layeredMemories: [freshChatMemory] },
+      characterPatches: [],
+      runtimeEvents: [],
+    };
+    const updateChat = vi.fn(async () => undefined);
+
+    runChatCommitPipelineMock.mockResolvedValue({
+      persistedMessage: { id: 'msg-1' },
+      transition,
+    });
+    shouldRunLlmChatDistillationMock.mockReturnValue(true);
+    shouldRunLlmCharacterDistillationMock.mockReturnValue(false);
+    distillChatMemoriesWithLlmMock.mockResolvedValue([
+      buildDistilledCandidate('chat-1', '计划：先整理公开时间线，再核对矛盾焦点', 'artifact'),
+    ]);
+    debugLlmChatDistillationMock.mockReturnValue({ eligibleCount: 1, evidenceCount: 1 });
+    buildLlmDistillationSourceMock.mockImplementation(({ layeredMemories }: { layeredMemories?: MemoryItem[] }) => layeredMemories || []);
+
+    await runSessionCommitPipeline({
+      api: DEFAULT_API_CONFIG,
+      chatId: chat.id,
+      chat,
+      characters,
+      message: {
+        chatId: chat.id,
+        type: 'ai',
+        senderId: 'char-a',
+        senderName: '甲',
+        content: '测试消息',
+        emotion: 0,
+      },
+      currentMessages: [],
+      onCommit: vi.fn(async () => transition),
+      upsertMessage: vi.fn(),
+      updateCharacter: vi.fn(),
+      appendEventMessage: vi.fn(),
+      updateChat,
+      recordSpeak: vi.fn(),
+    });
+
+    await vi.waitFor(() => {
+      expect(updateChat).toHaveBeenCalledWith('chat-1', expect.objectContaining({
+        runtimeSeed: {
+          notes: [],
+          artifacts: ['计划：先整理公开时间线，再核对矛盾焦点'],
+        },
+      }));
+    });
+  });
+
+  it('does not sync question-like LLM artifact memories into runtime artifact seeds', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('char-a', '甲'), buildCharacter('char-b', '乙')];
+    const freshChatMemory = buildMemoryItem('chat-fresh', 'chat-1', ['char-a', 'char-b'], 'fresh-chat-evidence', 'evt-chat');
+    const transition: DriverMessageCommitTransition = {
+      chatPatch: { layeredMemories: [freshChatMemory] },
+      characterPatches: [],
+      runtimeEvents: [],
+    };
+    const updateChat = vi.fn(async () => undefined);
+
+    runChatCommitPipelineMock.mockResolvedValue({
+      persistedMessage: { id: 'msg-1' },
+      transition,
+    });
+    shouldRunLlmChatDistillationMock.mockReturnValue(true);
+    shouldRunLlmCharacterDistillationMock.mockReturnValue(false);
+    distillChatMemoriesWithLlmMock.mockResolvedValue([
+      buildDistilledCandidate('chat-1', '计划：哪里不靠谱了', 'artifact'),
+    ]);
+    debugLlmChatDistillationMock.mockReturnValue({ eligibleCount: 1, evidenceCount: 1 });
+    buildLlmDistillationSourceMock.mockImplementation(({ layeredMemories }: { layeredMemories?: MemoryItem[] }) => layeredMemories || []);
+
+    await runSessionCommitPipeline({
+      api: DEFAULT_API_CONFIG,
+      chatId: chat.id,
+      chat,
+      characters,
+      message: {
+        chatId: chat.id,
+        type: 'ai',
+        senderId: 'char-a',
+        senderName: '甲',
+        content: '测试消息',
+        emotion: 0,
+      },
+      currentMessages: [],
+      onCommit: vi.fn(async () => transition),
+      upsertMessage: vi.fn(),
+      updateCharacter: vi.fn(),
+      appendEventMessage: vi.fn(),
+      updateChat,
+      recordSpeak: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(distillChatMemoriesWithLlmMock).toHaveBeenCalled());
+    expect(updateChat).not.toHaveBeenCalledWith('chat-1', expect.objectContaining({
+      runtimeSeed: expect.objectContaining({
+        artifacts: expect.arrayContaining(['计划：哪里不靠谱了']),
+      }),
+    }));
   });
 
   it('coalesces overlapping deferred chat distillation runs for the same chat', async () => {

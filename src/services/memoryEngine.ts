@@ -25,18 +25,32 @@ function isLowValueUtterance(text: string) {
   return false;
 }
 
+function isQuestionLikeArtifactText(text: string) {
+  return /[？?]|哪里|怎么|为什么|凭什么|是不是|难道|吗|嘛|呢|呀/.test(text);
+}
+
+function extractArtifactCandidate(normalized: string) {
+  const artifactMatch = normalized.match(/(?:^|[。；;]\s*)(总结|共识|方案|清单|计划|summary|conclusion|plan|checklist)[:：]\s*([^。！？!?]{6,60})/i);
+  if (!artifactMatch) return null;
+  const body = artifactMatch[2].trim();
+  if (isQuestionLikeArtifactText(body)) return null;
+  return `${artifactMatch[1]}：${body}`.slice(0, 96);
+}
+
 export function extractMemoryCandidate(text: string): MemoryCandidate | null {
   const normalized = normalizeText(text);
-  if (!normalized || isLowValueUtterance(normalized)) return null;
+  if (!normalized) return null;
 
-  const artifactMatch = normalized.match(/(总结|共识|方案|清单|计划|summary|conclusion|plan|checklist)[:：]?([^。！？!?]{6,40})/i);
-  if (artifactMatch) {
+  const artifactText = extractArtifactCandidate(normalized);
+  if (artifactText) {
     return {
       kind: 'artifact',
-      text: `${artifactMatch[1]}：${artifactMatch[2]}`.slice(0, 96),
+      text: artifactText,
       reason: 'contains explicit outcome language',
     };
   }
+
+  if (isLowValueUtterance(normalized)) return null;
 
   const noteMatch = normalized.match(/([^。！？!?]{8,50})(应该|需要|必须|最好|不能|关键是|问题在于)([^。！？!?]{4,30})/);
   if (noteMatch) {

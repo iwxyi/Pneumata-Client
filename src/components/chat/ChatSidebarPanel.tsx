@@ -2,17 +2,20 @@ import { lazy, Suspense } from 'react';
 import { Box, Tabs, Tab, Stack, Typography, Chip } from '@mui/material';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
+import type { Message } from '../../types/message';
 import MemberList from '../controls/MemberList';
 
 const RelationshipPanel = lazy(() => import('../controls/RelationshipPanel'));
 const ChatRuntimePanel = lazy(() => import('./ChatRuntimePanel'));
+const ChatNarrativePanel = lazy(() => import('./ChatNarrativePanel'));
 
 interface ChatSidebarPanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
   members: AICharacter[];
+  messages?: Message[];
   thinkingId: string | null;
   rightPanelTab: string;
-  setRightPanelTab: (value: 'members' | 'world' | 'actions') => void;
+  setRightPanelTab: (value: 'members' | 'narrative' | 'world' | 'actions') => void;
   showMemberTab: boolean;
   showRuntimeTab: boolean;
   showActionTab?: boolean;
@@ -37,15 +40,22 @@ interface ChatSidebarPanelProps {
   onUpdateSeats?: (memberIds: string[]) => void;
 }
 
-function ChatScenarioCard({ chat }: { chat: GroupChat }) {
+function memberName(id: string | null | undefined, members: AICharacter[]) {
+  if (!id) return '成员';
+  return members.find((member) => member.id === id)?.name || '成员';
+}
+
+function ChatScenarioCard({ chat, members }: { chat: GroupChat; members: AICharacter[] }) {
   const rows = [] as string[];
-  if (chat.scenarioState?.roleAssignments?.length) rows.push(`角色位 ${chat.scenarioState.roleAssignments.slice(0, 4).map((item) => item.roleId).join(' / ')}`);
+  if (chat.scenarioState?.roleAssignments?.length) {
+    rows.push(`角色位 ${chat.scenarioState.roleAssignments.slice(0, 4).map((item) => `${memberName(item.actorId, members)}${item.roleId ? `：${item.roleId}` : ''}`).join(' / ')}`);
+  }
   if (chat.scenarioState?.factions?.length) rows.push(`阵营 ${chat.scenarioState.factions.slice(0, 4).map((item) => item.label).join(' / ')}`);
-  if (chat.scenarioState?.currentTurnActorId) rows.push(`当前轮次 ${chat.scenarioState.currentTurnActorId}`);
+  if (chat.scenarioState?.currentTurnActorId) rows.push(`当前轮次 ${memberName(chat.scenarioState.currentTurnActorId, members)}`);
   if (!rows.length) return null;
   return (
     <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
-      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.75 }}>场景结构</Typography>
+      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.75 }}>场景规则</Typography>
       <Stack spacing={0.5}>
         {rows.map((row) => <Typography key={row} variant="body2">{row}</Typography>)}
       </Stack>
@@ -89,6 +99,7 @@ function DirectMemoryHint({ chat, members, directMemoryContext }: { chat: GroupC
 export default function ChatSidebarPanel({
   chat,
   members,
+  messages,
   thinkingId,
   rightPanelTab,
   setRightPanelTab,
@@ -109,6 +120,7 @@ export default function ChatSidebarPanel({
       {showMemberTab || showRuntimeTab || showActionTab ? (
         <Tabs value={rightPanelTab} onChange={(_, value) => setRightPanelTab(value)}>
           {showMemberTab ? <Tab value="members" label={memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} /> : null}
+          {showRuntimeTab ? <Tab value="narrative" label="叙事线" /> : null}
           {showRuntimeTab ? <Tab value="world" label={runtimePanelTitle || '状态'} /> : null}
           {showActionTab ? <Tab value="actions" label="动作" /> : null}
         </Tabs>
@@ -130,12 +142,18 @@ export default function ChatSidebarPanel({
         </Stack>
       ) : null}
 
+      {rightPanelTab === 'narrative' && showRuntimeTab ? (
+        <Suspense fallback={<PanelFallback />}>
+          <ChatNarrativePanel chat={chat} members={members} messages={messages} />
+        </Suspense>
+      ) : null}
+
       {rightPanelTab === 'world' && showRuntimeTab ? (
         <Stack spacing={2}>
-          <ChatScenarioCard chat={chat} />
+          <ChatScenarioCard chat={chat} members={members} />
           <DirectMemoryHint chat={chat} members={members} directMemoryContext={directMemoryContext} />
           <Suspense fallback={<PanelFallback />}>
-            <ChatRuntimePanel chat={chat} members={members} privatePayloads={privatePayloads} />
+            <ChatRuntimePanel chat={chat} members={members} messages={messages} privatePayloads={privatePayloads} />
           </Suspense>
         </Stack>
       ) : null}

@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { api } from '../services/api';
-import { clearPersistedChatStore } from './useChatStore';
-import { clearPersistedCharacterStore } from './useCharacterStore';
+import { clearPersistedChatStore, useChatStore } from './useChatStore';
+import { clearPersistedCharacterStore, useCharacterStore } from './useCharacterStore';
 import { clearPersistedMessageStore } from './useMessageStore';
+import { useSettingsStore } from './useSettingsStore';
 
 interface User {
   id: string;
@@ -30,6 +31,14 @@ interface AuthStore {
   updateProfile: (updates: Partial<User>) => Promise<void>;
   sendChangePhoneCode: (phone: string) => Promise<{ success: boolean; mock?: boolean; code?: string }>;
   changePhone: (phone: string, code: string) => Promise<void>;
+}
+
+async function refreshStoresAfterCloudAuth() {
+  await Promise.allSettled([
+    useSettingsStore.getState().loadSettings(),
+    useChatStore.getState().loadChats(),
+    useCharacterStore.getState().loadCharacters(),
+  ]);
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -70,6 +79,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         isLoading: false,
         authMode: 'cloud',
       });
+      await refreshStoresAfterCloudAuth();
     } catch (error) {
       set({ isLoading: false });
       throw error;
@@ -111,6 +121,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const user = await api.getMe();
       localStorage.setItem('miragetea-user', JSON.stringify(user));
       set({ user, isLoggedIn: true, authMode: 'cloud' });
+      void refreshStoresAfterCloudAuth();
       return true;
     } catch {
       // Token invalid

@@ -1,4 +1,5 @@
 import type { AICharacter } from '../types/character';
+import type { DirectorIntent } from './directorIntent';
 import { getRelationshipWeight } from './relationshipEngine';
 
 export interface SpeakIntent {
@@ -189,7 +190,87 @@ export function describeIntentForPrompt(intent: SpeakIntent) {
   return `reason=${intent.reason}; target=${intent.target}; stance=${intent.stance}; tone=${intent.emotionalTone}; delivery=${intent.delivery}; shape=${intent.messageShape}`;
 }
 
-export function deriveSpeakIntentFromContext(character: AICharacter, recentTargetId?: string, recentText: string = ''): SpeakIntent {
+function deriveSpeakIntentFromDirectorIntent(character: AICharacter, directorIntent?: DirectorIntent | null): SpeakIntent | null {
+  if (!directorIntent) return null;
+  const isTargeted = directorIntent.targetActorIds.includes(character.id);
+  if (!isTargeted && directorIntent.beatType !== 'summarize' && directorIntent.beatType !== 'invite') return null;
+  const target = directorIntent.targetActorIds.find((actorId) => actorId !== character.id) || 'group';
+  if (directorIntent.beatType === 'answer') {
+    return withMessageShape({
+      shouldSpeak: true,
+      reason: 'was pulled into the current pressure',
+      target,
+      stance: 'probe',
+      emotionalTone: character.emotionalState?.insecurity && character.emotionalState.insecurity > 60 ? 'defensive' : 'cold',
+      delivery: 'short_reply',
+    });
+  }
+  if (directorIntent.beatType === 'defend') {
+    return withMessageShape({
+      shouldSpeak: true,
+      reason: 'wants to protect the current target',
+      target,
+      stance: 'back_up',
+      emotionalTone: 'warm',
+      delivery: 'short_reply',
+    });
+  }
+  if (directorIntent.beatType === 'challenge' || directorIntent.beatType === 'escalate') {
+    return withMessageShape({
+      shouldSpeak: true,
+      reason: 'wants to press the active conflict',
+      target,
+      stance: 'challenge',
+      emotionalTone: character.emotionalState?.irritation && character.emotionalState.irritation > 70 ? 'sarcastic' : 'annoyed',
+      delivery: 'sharp_followup',
+    });
+  }
+  if (directorIntent.beatType === 'cool_down') {
+    return withMessageShape({
+      shouldSpeak: true,
+      reason: 'wants to reduce the room pressure',
+      target: 'group',
+      stance: 'cool_down',
+      emotionalTone: 'warm',
+      delivery: 'group_redirect',
+    });
+  }
+  if (directorIntent.beatType === 'summarize') {
+    return withMessageShape({
+      shouldSpeak: true,
+      reason: 'wants to structure the discussion',
+      target: 'group',
+      stance: 'summarize',
+      emotionalTone: 'cold',
+      delivery: 'group_redirect',
+    });
+  }
+  if (directorIntent.beatType === 'deflect') {
+    return withMessageShape({
+      shouldSpeak: true,
+      reason: 'wants to redirect the pressure',
+      target: 'group',
+      stance: 'deflect',
+      emotionalTone: 'defensive',
+      delivery: 'side_remark',
+    });
+  }
+  if (directorIntent.beatType === 'reveal') {
+    return withMessageShape({
+      shouldSpeak: true,
+      reason: 'wants to expose one piece of the hidden thread',
+      target,
+      stance: 'probe',
+      emotionalTone: 'cold',
+      delivery: 'quick_question',
+    });
+  }
+  return null;
+}
+
+export function deriveSpeakIntentFromContext(character: AICharacter, recentTargetId?: string, recentText: string = '', directorIntent?: DirectorIntent | null): SpeakIntent {
+  const directedIntent = deriveSpeakIntentFromDirectorIntent(character, directorIntent);
+  if (directedIntent) return adaptBaseIntent(character, directedIntent);
   const base = deriveSpeakIntent(character, recentTargetId);
   const pressure = getRecentConversationPressure(recentText);
   if (mentionsTarget(recentText) && base.stance === 'challenge') {

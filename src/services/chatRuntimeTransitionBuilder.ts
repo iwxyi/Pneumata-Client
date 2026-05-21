@@ -7,7 +7,6 @@ import type { ConflictFocusPayload, ConflictFocusState, ConflictRuntimeState, Ru
 import { deriveEmotionalState, derivePersonalityDrift, getRuntimeAffectEventDriftLine, getRuntimeAffectEventEmotionLines } from './personalityDrift';
 import { accumulateChatRuntime } from './chatRuntime';
 import { accumulateCharacterRuntime } from './characterRuntime';
-import { extractMemoryCandidate } from './memoryEngine';
 import { createDefaultConflictAxes, evolveConflictAxes, summarizeConflictAxes } from './conflictAxisEngine';
 import { appendMemoryCandidateEvents, buildMemoryCandidateEvents, updateLayeredMemoriesWithEvents } from './layeredMemoryEngine';
 import { consolidateMemoryCandidates } from './memoryConsolidation';
@@ -631,7 +630,6 @@ export function buildChatPatch(
   config: RuntimeEvolutionConfig = resolveRuntimeEvolutionConfig(conversation.runtimeEvolutionIntensity),
   participants: Array<{ id: string; name: string }> = [],
 ) {
-  const memoryCandidate = message.type === 'ai' ? extractMemoryCandidate(message.content) : null;
   const chatPatch: Partial<GroupChat> = {
     ...accumulateChatRuntime(
       conversation,
@@ -643,16 +641,6 @@ export function buildChatPatch(
       notes: conversation.runtimeSeed?.notes || [],
       artifacts: conversation.runtimeSeed?.artifacts || [],
     },
-    ...(memoryCandidate ? {
-      runtimeSeed: {
-        notes: memoryCandidate.kind === 'note'
-          ? [...(conversation.runtimeSeed?.notes || []), memoryCandidate.text].slice(-config.maxNotes)
-          : (conversation.runtimeSeed?.notes || []),
-        artifacts: memoryCandidate.kind === 'artifact'
-          ? [...(conversation.runtimeSeed?.artifacts || []), memoryCandidate.text].slice(-config.maxArtifacts)
-          : (conversation.runtimeSeed?.artifacts || []),
-      },
-    } : {}),
     worldState,
   };
 

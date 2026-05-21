@@ -3,7 +3,10 @@ export function createGuestUploadFlag<T>(storageKey: string) {
     read(): T[] {
       try {
         const raw = localStorage.getItem(storageKey);
-        return raw ? (JSON.parse(raw) as T[]) : [];
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed as T[];
+        return [];
       } catch {
         return [];
       }

@@ -96,4 +96,37 @@ describe('chatEngine streaming preview', () => {
       altText: '一杯杨枝甘露甜品',
     });
   });
+
+  it('stores compact runtime decision metadata without requiring media generation', () => {
+    const metadata = __chatEngineTestUtils.buildMessageMetadata({
+      decision: null,
+      capabilities: { image: false, audio: false },
+      content: '我来接一下这个话题。',
+      runtimeDecision: {
+        directorIntent: {
+          source: 'conflict',
+          beatType: 'challenge',
+          targetLineId: 'conflict-1',
+          targetActorIds: ['a', 'b'],
+          pressure: 0.8,
+          reason: '冲突线正在升温',
+        },
+        narrativeLines: [{
+          id: 'conflict-1',
+          type: 'conflict',
+          title: '当前矛盾',
+          salience: 0.9,
+          tension: 0.8,
+          status: 'escalating',
+          participantIds: ['a', 'b'],
+        }],
+        speakerScore: { actorId: 'a', finalScore: 1.2, reasons: ['conflict'] },
+      },
+    });
+
+    expect(metadata?.attachments).toEqual([]);
+    expect(metadata?.generationDecision).toBeUndefined();
+    expect(metadata?.runtimeDecision?.directorIntent?.targetLineId).toBe('conflict-1');
+    expect(metadata?.runtimeDecision?.speakerScore).toMatchObject({ actorId: 'a', finalScore: 1.2 });
+  });
 });

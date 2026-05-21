@@ -137,7 +137,6 @@ class ApiClient {
     speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyle?: BubbleStyleDefinition | null; bubbleStyleId?: string | null;
   }) {
-    console.log('[api:createCharacter:request]', data);
     return this.request<Record<string, unknown>>('POST', '/characters', data);
   }
 

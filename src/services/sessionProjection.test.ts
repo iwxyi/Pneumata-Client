@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { openChatEngine } from './engines/openChatEngine';
-import { createProjectionContext, projectRuntimeState, projectActionSchema, projectRecentInteractionItems } from './sessionProjection';
+import { buildProjectedSessionActions, createProjectionContext, projectRuntimeState, projectActionSchema, projectRecentInteractionItems } from './sessionProjection';
 import { normalizeConversation } from '../types/chat';
 
 function buildChat() {
@@ -60,6 +60,25 @@ describe('sessionProjection', () => {
     const timeline = projectRuntimeState(chat, createProjectionContext(chat, openChatEngine.buildParticipants(chat), 'a', 'pair_private')).runtimeTimeline;
     const candidate = timeline.find((item) => item.event?.kind === 'event_candidate');
     expect(candidate?.meta?.socialEventCandidate?.eventKind).toBe('pair_private_thread');
+  });
+
+  it('replaces participant ids without corrupting unknown UUIDs in projected timeline', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'evt-uuid',
+        conversationId: 'chat-1',
+        kind: 'message_generated',
+        createdAt: 10,
+        actorIds: ['a'],
+        summary: 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67 对 a 说话',
+        visibility: 'public',
+        payload: { text: '测试' },
+      }],
+    });
+    const participants = [{ id: 'a', name: '甲' }] as never;
+    const timeline = projectRuntimeState(chat, createProjectionContext(chat, participants, 'a', 'participant')).runtimeTimeline;
+    expect(timeline[0]?.text).toBe('成员 对 甲 说话');
   });
 
   it('projects recent interactions by conversation turn instead of raw relationship event slots', () => {
@@ -299,5 +318,20 @@ describe('sessionProjection', () => {
     const context = createProjectionContext(chat, openChatEngine.buildParticipants(chat));
     const schema = projectActionSchema(openChatEngine, context);
     expect(schema?.actions.some((action) => action.type === 'start_private_thread')).toBe(true);
+  });
+
+  it('uses real member names for injected private-thread action fields', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      id: 'group-1',
+      type: 'group',
+      memberIds: ['a', 'b'],
+    });
+    const actions = buildProjectedSessionActions(chat, [], [{ id: 'a', name: '喜羊羊' }, { id: 'b', name: '灰太狼' }] as never);
+    const action = actions.find((item) => item.type === 'start_private_thread');
+    expect(action?.fields?.[0]?.options).toEqual([
+      { value: 'a', label: '喜羊羊' },
+      { value: 'b', label: '灰太狼' },
+    ]);
   });
 });

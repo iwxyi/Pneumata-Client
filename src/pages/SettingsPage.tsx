@@ -209,7 +209,7 @@ export default function SettingsPage() {
         <SurfaceCard contentSx={buildCardBodySx()}>
           <Box sx={buildSectionBodySx()}>
             <SectionHeader title={i18n.language.startsWith('zh') ? 'AI模型' : 'AI Models'} />
-            <Button variant="outlined" onClick={() => navigate('/models')} sx={{ justifyContent: 'flex-start' }}>{i18n.language.startsWith('zh') ? '管理AI模型列表' : 'Manage AI model list'}</Button>
+            <Button variant="outlined" onClick={() => navigate('/models')} sx={{ alignSelf: 'flex-start' }}>{i18n.language.startsWith('zh') ? '管理' : 'Manage'}</Button>
           </Box>
         </SurfaceCard>
 

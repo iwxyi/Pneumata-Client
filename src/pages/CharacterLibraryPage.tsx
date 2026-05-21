@@ -76,6 +76,7 @@ export default function CharacterLibraryPage() {
   const [sortField, setSortField] = useState<CharacterSortField>('name');
   const [sortDirection, setSortDirection] = useState<CharacterSortDirection>('asc');
   const [sortGroupFirst, setSortGroupFirst] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectionMenuAnchorEl, setSelectionMenuAnchorEl] = useState<null | HTMLElement>(null);
   const groupPressTimerRef = useRef<number | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
@@ -86,8 +87,14 @@ export default function CharacterLibraryPage() {
 
   useEffect(() => {
     void loadCharacters()
-      .then(() => initializePresets());
-  }, [initializePresets, loadCharacters]);
+      .then(() => {
+        setLoadError(null);
+        return initializePresets();
+      })
+      .catch((error) => {
+        setLoadError(error instanceof Error ? error.message : (i18n.language.startsWith('zh') ? '角色加载失败' : 'Failed to load characters'));
+      });
+  }, [i18n.language, initializePresets, loadCharacters]);
 
 
   const presets = characters.filter((c) => c.isPreset);
@@ -392,6 +399,19 @@ export default function CharacterLibraryPage() {
             </Box>
           ) : null}
         </Box>
+        {loadError ? (
+          <Alert
+            severity="error"
+            sx={{ mb: 2 }}
+            action={<Button color="inherit" size="small" onClick={() => {
+              void loadCharacters()
+                .then(() => setLoadError(null))
+                .catch((error) => setLoadError(error instanceof Error ? error.message : (i18n.language.startsWith('zh') ? '角色加载失败' : 'Failed to load characters')));
+            }}>{i18n.language.startsWith('zh') ? '重试' : 'Retry'}</Button>}
+          >
+            {loadError}
+          </Alert>
+        ) : null}
         {tab === 0 && duplicateCharacterCount > 0 ? <Alert severity="warning" sx={{ mb: 2 }}>{duplicateCharacterBannerText}</Alert> : null}
       {tab === 0 ? (
         <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 1.5, mb: 1.5 }}>

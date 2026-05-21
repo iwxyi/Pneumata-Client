@@ -50,7 +50,7 @@ function onMessageCommitted(params: {
   const runtimeEventsV2 = [
     ...(params.conversation.runtimeEventsV2 || []),
     createStructuredWerewolfEvent({ conversationId: params.conversation.id, kind: 'message_generated', summary, actorIds: [params.message.senderId], payload: { text: summary, phase: params.conversation.worldState.phase, role: speakerRole } }),
-    createStructuredWerewolfEvent({ conversationId: params.conversation.id, kind: 'room_shift', summary: `局势变化：${speakerName} 发言推进了白天讨论`, actorIds: [params.message.senderId], payload: { heat: params.conversation.worldState.phase === 'debating' ? 34 : 18, cohesion: 42, topicDrift: 8, delta: { heat: 4, cohesion: -1, topicDrift: 0 } } }),
+    createStructuredWerewolfEvent({ conversationId: params.conversation.id, kind: 'room_shift', summary: `局势变化：${speakerName} 发言推进了白天讨论`, actorIds: [params.message.senderId], payload: { heat: params.conversation.worldState.phase === 'debating' ? 34 : 18, cohesion: -8, topicDrift: 8, delta: { heat: 4, cohesion: -1, topicDrift: 0 } } }),
     ...(params.conversation.worldState.phase === 'warming'
       ? [createStructuredWerewolfEvent({
           conversationId: params.conversation.id,

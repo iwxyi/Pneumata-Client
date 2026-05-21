@@ -45,6 +45,7 @@ const SessionActionPanel = lazy(() => import('../components/session/SessionActio
 type SessionProjectionData = Awaited<ReturnType<typeof import('../services/sessionEngineKernel')['resolveSessionProjectionData']>>;
 type ProjectedChatDetailState = ReturnType<typeof import('../services/sessionProjection')['buildProjectedChatDetailState']>;
 type AnalysisSection = { index: number; title: string; content: string };
+type ChatWithProjectedRuntime = GroupChat & { primaryRecentEvent?: string };
 
 function PanelFallback() {
   return null;
@@ -52,6 +53,46 @@ function PanelFallback() {
 
 function LazyPanel({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PanelFallback />}>{children}</Suspense>;
+}
+
+function enrichParticipantActionOptions(actions: SessionActionDefinition[], members: AICharacter[]): SessionActionDefinition[] {
+  if (!actions.length || !members.length) return actions;
+  const memberNames = new Map(members.map((member) => [member.id, member.name] as const));
+  return actions.map((action) => ({
+    ...action,
+    fields: action.fields?.map((field) => {
+      const shouldResolveMember = field.targetSource === 'participants' || field.key === 'actorId' || field.key === 'targetId';
+      if (!shouldResolveMember || !field.options?.length) return field;
+      return {
+        ...field,
+        options: field.options.map((option) => ({
+          ...option,
+          label: memberNames.get(option.value) || option.label,
+        })),
+      };
+    }),
+  }));
+}
+
+function mergeProjectedRuntimeChat(chat: GroupChat, projected?: ChatWithProjectedRuntime | null, primaryRecentEvent?: string): ChatWithProjectedRuntime {
+  if (!projected) return { ...chat, primaryRecentEvent };
+  return {
+    ...chat,
+    ...projected,
+    worldState: {
+      ...chat.worldState,
+      ...(projected.worldState || {}),
+      conflictAxes: projected.worldState?.conflictAxes || chat.worldState.conflictAxes,
+      conflictState: projected.worldState?.conflictState ?? chat.worldState.conflictState,
+      structuredRoomState: projected.worldState?.structuredRoomState ?? chat.worldState.structuredRoomState,
+    },
+    layeredMemories: projected.layeredMemories?.length ? projected.layeredMemories : chat.layeredMemories,
+    runtimeSeed: projected.runtimeSeed || chat.runtimeSeed,
+    runtimeTimeline: projected.runtimeTimeline?.length ? projected.runtimeTimeline : chat.runtimeTimeline,
+    runtimeEventsV2: projected.runtimeEventsV2?.length ? projected.runtimeEventsV2 : chat.runtimeEventsV2,
+    relationshipLedger: projected.relationshipLedger?.length ? projected.relationshipLedger : chat.relationshipLedger,
+    primaryRecentEvent: projected.primaryRecentEvent || primaryRecentEvent,
+  };
 }
 
 function parseAnalysisSections(text: string): AnalysisSection[] {
@@ -211,7 +252,7 @@ export default function ChatDetailPage() {
   const privatePayloads = projectionData?.privatePayloads || [];
   const actionSchema = projectionData?.actionSchema || null;
   const inputSurfaces = frameworkState?.surfaces.surfaces || [];
-  const actionTabActions = useMemo(() => actionSchema?.actions || [], [actionSchema]);
+  const actionTabActions = useMemo(() => enrichParticipantActionOptions(actionSchema?.actions || [], members), [actionSchema, members]);
   const speakAsChar = useMemo(
     () => speakAsCharacterId ? characters.find((c) => c.id === speakAsCharacterId) ?? null : null,
     [characters, speakAsCharacterId]
@@ -221,6 +262,7 @@ export default function ChatDetailPage() {
   const showActionTab = projectedDetailState?.showActionTab ?? (chat?.type === 'group');
   const activeSidebarTab = projectedDetailState?.activeSidebarTab
     || (showMemberTab && rightPanelTab === 'members' ? 'members'
+      : showRuntimeTab && rightPanelTab === 'narrative' ? 'narrative'
       : showRuntimeTab && rightPanelTab === 'world' ? 'world'
         : showMemberTab ? 'members' : 'world');
   const memberTabTitle = projectedDetailState?.memberTabTitle || (chat?.type === 'group' ? '成员' : '角色');
@@ -229,7 +271,7 @@ export default function ChatDetailPage() {
     if (!chat || chat.type !== 'direct' || !activeMembers[0]) return null;
     return buildDirectMemoryPanelContext(activeMembers[0], messages.filter((item) => item.chatId === chat.id), new Map(characters.map((item) => [item.id, item] as const)));
   }, [activeMembers, characters, chat, messages]);
-  const sidebarTitle = projectedDetailState?.sidebarTitle || (activeSidebarTab === 'members' ? memberTabTitle : activeSidebarTab === 'actions' ? '动作' : runtimeTabTitle);
+  const sidebarTitle = projectedDetailState?.sidebarTitle || (activeSidebarTab === 'members' ? memberTabTitle : activeSidebarTab === 'actions' ? '动作' : activeSidebarTab === 'narrative' ? '叙事线' : runtimeTabTitle);
   const runtimePanelLoading = !projectionData && Boolean(chat);
 
   const manualPrivateThreadAction: SessionActionDefinition = {
@@ -245,6 +287,14 @@ export default function ChatDetailPage() {
   const sessionActions = chat?.type === 'group'
     ? [manualPrivateThreadAction, ...actionTabActions.filter((action: SessionActionDefinition) => action.type !== 'start_private_thread')]
     : actionTabActions;
+  const projectedSidebarChat = useMemo(
+    () => chat ? mergeProjectedRuntimeChat(chat, projectedDetailState?.sidebarChat.chat, projectedRuntimeState?.primaryRecentEvent) : null,
+    [chat, projectedDetailState, projectedRuntimeState]
+  );
+  const projectedActionPanelActions = useMemo(
+    () => enrichParticipantActionOptions(projectedDetailState?.actionPanel.actions || [], members),
+    [projectedDetailState, members]
+  );
   const actionPanelTitle = chat?.type === 'group' ? '动作与派生' : actionSchema?.title;
   const composerSurfaces = projectedDetailState?.composerSurfaces || (inputSurfaces.length ? inputSurfaces : (chat ? buildDefaultSessionSurfaceProjection(chat).surfaces : []));
   const actionPanel = sessionActions.length ? <LazyPanel><SessionActionPanel title={actionPanelTitle} actions={sessionActions} onRunAction={() => undefined} /></LazyPanel> : null;
@@ -341,13 +391,14 @@ export default function ChatDetailPage() {
         rightPanelTab,
         frameworkState: nextProjectionData.frameworkState,
         speakAsChar,
+        members,
       }) : null);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [chat, rightPanelTab, speakAsChar]);
+  }, [chat, members, rightPanelTab, speakAsChar]);
 
 
   useEffect(() => {
@@ -901,8 +952,9 @@ export default function ChatDetailPage() {
           ) : null}
           <LazyPanel>
             {runtimePanelLoading ? <Box sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">加载中…</Typography></Box> : <ChatSidebarPanel
-              chat={projectedDetailState?.sidebarChat.chat || { ...chat, primaryRecentEvent: projectedRuntimeState?.primaryRecentEvent }}
+              chat={projectedSidebarChat || { ...chat, primaryRecentEvent: projectedRuntimeState?.primaryRecentEvent }}
               members={members}
+              messages={messages}
               thinkingId={thinkingId}
               rightPanelTab={activeSidebarTab}
               setRightPanelTab={setRightPanelTab}
@@ -913,7 +965,7 @@ export default function ChatDetailPage() {
               privatePayloads={projectedDetailState?.sidebarChat.privatePayloads || privatePayloads}
               directMemoryContext={directMemoryPanelContext}
               showActionTab={showActionTab}
-              actionPanel={showActionTab ? <LazyPanel><SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedDetailState?.actionPanel.actions || sessionActions} onRunAction={runSessionAction} /></LazyPanel> : null}
+              actionPanel={showActionTab ? <LazyPanel><SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} /></LazyPanel> : null}
               onSpeakAs={(charId) => setSpeakAsCharacter(charId)}
               onRemoveMember={chat.type === 'group' ? (charId) => {
                 const newMembers = chat.memberIds.filter((m) => m !== charId);

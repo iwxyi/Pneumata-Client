@@ -3,6 +3,7 @@ import type { SessionActionSchema } from '../../types/sessionEngine';
 import type { AICharacter } from '../../types/character';
 import type { Message } from '../../types/message';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
+import { buildDirectorInterventionFields } from '../../types/directorInterventionAction';
 
 export const INTERVIEW_PHASES: Array<{ key: ConversationPhase; label: string; allowedActions: string[] }> = [
   { key: 'idle', label: 'Idle', allowedActions: ['ask_question', 'director_intervention'] },
@@ -117,9 +118,12 @@ export function buildInterviewActionSchema(conversation: GroupChat): SessionActi
         label: '推进轮次',
         description: '推进到追问、评价或总结阶段。',
         actorId: interviewerId || undefined,
-        fields: [
-          { key: 'prompt', label: '推进说明', type: 'textarea', required: true, placeholder: '例如：进入追问轮次，要求回答更具体' },
-        ],
+        fields: buildDirectorInterventionFields({
+          preset: 'interview',
+          targetLabel: '影响对象',
+          targetOptions: candidateOptions,
+          promptPlaceholder: '例如：进入追问轮次，要求回答更具体',
+        }),
       },
     ],
   };

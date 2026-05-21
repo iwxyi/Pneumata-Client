@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeConversation } from '../../types/chat';
+import { normalizeConversation, type GroupChat } from '../../types/chat';
 import { executeNonChatActionScaffold } from './nonChatActionScaffold';
 
 function buildInterviewChat() {
@@ -69,10 +69,15 @@ describe('executeNonChatActionScaffold', () => {
   it('turns director_intervention into interview phase control output', () => {
     const result = executeNonChatActionScaffold(buildInterviewChat(), {
       type: 'director_intervention',
-      payload: { prompt: '进入追问轮次，要求回答更具体。' },
+      targetIds: ['candidate-a'],
+      payload: { prompt: '进入追问轮次，要求回答更具体。', intent: 'force_reply', pressure: '0.95', maxTurns: '2' },
     });
     expect(result?.chatPatch?.worldState?.recentEvent).toContain('导演推进');
     expect(result?.runtimeEvents?.[0]?.eventType).toBe('interview_phase_control');
+    const structuredEvent = (result?.chatPatch as Partial<GroupChat> | undefined)?.runtimeEventsV2?.at(-1);
+    expect(structuredEvent?.kind).toBe('director_intervention');
+    expect(structuredEvent?.targetIds).toEqual(['candidate-a']);
+    expect(structuredEvent?.payload).toMatchObject({ intent: 'force_reply', targetActorIds: ['candidate-a'], pressure: 0.95, maxTurns: 2 });
   });
 
   it('turns wolf_vote into night resolution output', () => {

@@ -8,13 +8,13 @@ interface UIStore {
   godModeActive: boolean;
   topicGuideOpen: boolean;
   speakAsCharacterId: string | null;
-  rightPanelTab: 'members' | 'world' | 'actions';
+  rightPanelTab: 'members' | 'narrative' | 'world' | 'actions';
 
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleRightPanel: () => void;
   setRightPanelOpen: (open: boolean) => void;
-  setRightPanelTab: (tab: 'members' | 'world' | 'actions') => void;
+  setRightPanelTab: (tab: 'members' | 'narrative' | 'world' | 'actions') => void;
   setGodModeActive: (active: boolean) => void;
   setTopicGuideOpen: (open: boolean) => void;
   setSpeakAsCharacter: (id: string | null) => void;

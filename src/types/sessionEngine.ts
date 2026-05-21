@@ -2,6 +2,7 @@ import type { AICharacter } from './character';
 import type { GroupChat, ParticipantInstance, RuntimeAction, RuntimePanelDefinition } from './chat';
 import type { Message } from './message';
 import type { APIConfig } from './settings';
+import { buildDirectorInterventionFields } from './directorInterventionAction';
 
 export type SessionFamily = 'conversation' | 'interview' | 'deduction' | 'mystery' | 'study' | 'analysis' | 'board_game';
 export type SessionSurfaceProfile = 'text' | 'form' | 'board' | 'hybrid';
@@ -1487,16 +1488,33 @@ export function createDefaultConversationPanels(context: SessionProjectionContex
 
 export function createDefaultConversationActions(context: SessionProjectionContext): RuntimeAction[] {
   const actions: RuntimeAction[] = [{ type: 'speak' }];
+  if (context.conversation.type === 'group' && context.conversation.modeConfig?.allowDirectorInterventions !== false && context.conversation.directorControls.allowDirectorMode) actions.push({ type: 'director_intervention' });
   if (context.conversation.type === 'group' && context.conversation.governance.allowPrivateThreads) actions.push({ type: 'start_private_thread' });
   return actions;
 }
 
 export function createDefaultConversationActionSchema(context: SessionEngineActionContext): SessionActionSchema | null {
-  if (context.conversation.type !== 'group' || !context.conversation.governance.allowPrivateThreads) return null;
-  const options = context.participants.map((participant, index) => ({ label: participant.displayName || `成员 ${index + 1}`, value: participant.entityRefId }));
-  return {
-    title: '开放聊天动作',
-    actions: [{
+  if (context.conversation.type !== 'group') return null;
+  const options = context.participants
+    .map((participant, index) => ({ label: participant.displayName || `成员 ${index + 1}`, value: participant.entityRefId || '' }))
+    .filter((option) => option.value);
+  const actions: SessionActionDefinition[] = [];
+  if (context.conversation.modeConfig?.allowDirectorInterventions !== false && context.conversation.directorControls.allowDirectorMode) {
+    actions.push({
+      type: 'director_intervention',
+      label: '导演干预',
+      description: '临时影响下一轮自由发言的走向。',
+      visibility: 'moderator_only',
+      fields: buildDirectorInterventionFields({
+        preset: 'conversation',
+        targetLabel: '影响成员',
+        targetOptions: options,
+        promptPlaceholder: '例如：先让甲回应乙的质疑，暂时不要换话题',
+      }),
+    });
+  }
+  if (context.conversation.governance.allowPrivateThreads) {
+    actions.push({
       type: 'start_private_thread',
       label: '发起 AI 私聊',
       description: '从主群中派生一条仅私聊双方可见的 AI 线程。',
@@ -1505,7 +1523,12 @@ export function createDefaultConversationActionSchema(context: SessionEngineActi
         { key: 'targetId', label: '对象', type: 'single_select', required: true, options, targetSource: 'participants' },
         { key: 'prompt', label: '私聊起因', type: 'textarea', placeholder: '例如：继续私下追问刚才的话题' },
       ],
-    }],
+    });
+  }
+  if (!actions.length) return null;
+  return {
+    title: '开放聊天动作',
+    actions,
   };
 }
 

@@ -407,7 +407,7 @@ function buildGiftExchangeCandidate(params: {
   const giftLanguage = /(送你|给你带|小礼物|给你买了|请你喝|红包|纪念品|伴手礼)/i.test(text);
   const warmTargeted = Boolean(params.interaction?.targetId && ['support', 'defend'].includes(params.interaction.kind));
   const roomCohesion = params.structuredRoomState?.cohesion || 0;
-  if (!giftLanguage && !(warmTargeted && roomCohesion >= 55)) return null;
+  if (!giftLanguage && !(warmTargeted && roomCohesion >= 5)) return null;
   return {
     ...hinted,
     payload: {
@@ -781,13 +781,13 @@ function buildPostMomentCandidate(params: {
   const roomHeat = params.structuredRoomState?.heat || 0;
   const roomCohesion = params.structuredRoomState?.cohesion || 0;
   const emotionalPush = params.interaction && params.interaction.confidence >= 0.85 && (params.interaction.intensity >= 3 || params.interaction.kind === 'side_comment');
-  if (!expressive && !emotionalPush && !(roomHeat >= 18 && roomCohesion >= 52)) return null;
+  if (!expressive && !emotionalPush && !(roomHeat >= 18 && roomCohesion >= 2)) return null;
   return {
     ...hinted,
     payload: {
       ...payload,
       confidence: Math.max(payload.confidence, expressive ? 0.92 : emotionalPush ? 0.86 : 0.82),
-      reasonType: payload.reasonType || (roomCohesion >= 60 ? 'celebration' : 'emotion_release'),
+      reasonType: payload.reasonType || (roomCohesion >= 10 ? 'celebration' : 'emotion_release'),
     },
   } satisfies RuntimeEventV2;
 }
@@ -1057,13 +1057,13 @@ function buildSocialOutingCandidate(params: {
     return Boolean(relation && (relation.current.warmth + relation.current.competence + relation.current.trust) >= 12);
   })());
   const positiveInteraction = params.interaction && params.interaction.confidence >= 0.85 && getRelationshipDeltaDirection(inferRelationshipDelta(params.interaction)?.delta || {}) === 'up';
-  if (!outingLanguage && !relationshipBoost && !(positiveInteraction && roomHeat >= 12 && roomCohesion >= 55)) return null;
+  if (!outingLanguage && !relationshipBoost && !(positiveInteraction && roomHeat >= 12 && roomCohesion >= 5)) return null;
   return {
     ...hinted,
     payload: {
       ...payload,
       confidence: Math.max(payload.confidence, outingLanguage ? 0.92 : relationshipBoost ? 0.87 : 0.82),
-      reasonType: payload.reasonType || (roomCohesion >= 60 ? 'celebration' : 'follow_up_hangout'),
+      reasonType: payload.reasonType || (roomCohesion >= 10 ? 'celebration' : 'follow_up_hangout'),
     },
   } satisfies RuntimeEventV2;
 }
@@ -1354,7 +1354,7 @@ function buildStructuredLegacyEvents(runtimeEventsV2: RuntimeEventV2[], relation
     events.push({
       eventType: 'room_state_snapshot_v2',
       title: '房间态势更新',
-      summary: `热度 ${structuredRoomState.heat} / 凝聚 ${structuredRoomState.cohesion} / 跑题 ${structuredRoomState.topicDrift}`,
+      summary: `热度 ${structuredRoomState.heat} / 凝聚 ${structuredRoomState.cohesion} / 话题漂移 ${structuredRoomState.topicDrift}`,
       metrics: structuredRoomState,
     });
   }

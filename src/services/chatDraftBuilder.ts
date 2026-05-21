@@ -8,6 +8,7 @@ import {
   DEFAULT_OPEN_CHAT_MODE_STATE,
   createDefaultSessionKind,
 } from '../types/chat';
+import { normalizeRuntimeSeedLines } from './runtimeSeed';
 
 export interface ChatDraftInput {
   type: 'group' | 'direct';
@@ -37,8 +38,8 @@ export interface ChatDraftInput {
 
 function buildRuntimeSeed(input: Pick<ChatDraftInput, 'seedMemoryText' | 'seedArtifactText'>) {
   return {
-    notes: input.seedMemoryText.split('\n').map((item) => item.trim()).filter(Boolean),
-    artifacts: input.seedArtifactText.split('\n').map((item) => item.trim()).filter(Boolean),
+    notes: normalizeRuntimeSeedLines(input.seedMemoryText, 'note'),
+    artifacts: normalizeRuntimeSeedLines(input.seedArtifactText, 'artifact'),
   };
 }
 

@@ -6,6 +6,8 @@ export type RuntimeEventKind =
   | 'memory_candidate'
   | 'artifact'
   | 'event_candidate'
+  | 'director_intervention'
+  | 'decision_trace'
   | 'phase_transition'
   | 'action_resolution'
   | 'board_state'
@@ -143,6 +145,24 @@ export interface MemoryCandidatePayload {
   text: string;
   salience: number;
   confidence: number;
+}
+
+export interface DirectorInterventionPayload {
+  intent: 'force_reply' | 'escalate' | 'cool_down' | 'inject_event' | 'summarize' | 'reveal' | 'redirect';
+  targetActorIds?: string[];
+  targetLineId?: string;
+  pressure: number;
+  text: string;
+  maxTurns?: number;
+  expiresAt?: number;
+}
+
+export interface DecisionTracePayload {
+  directorIntent?: Record<string, unknown>;
+  activeLineIds?: string[];
+  speakerScores?: Array<Record<string, unknown>>;
+  selectedActorId?: string;
+  reason?: string;
 }
 
 export type SocialEventKind = 'pair_private_thread' | 'social_outing' | 'post_moment' | 'status_update' | 'gift_exchange' | 'conflict_expression' | 'custom';
@@ -321,7 +341,7 @@ export interface RuntimeEventV2 {
   visibility?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
   visibleToIds?: string[];
   visibleToRoles?: string[];
-  payload: InteractionEventPayload | RelationshipDeltaPayload | RoomShiftPayload | MemoryCandidatePayload | SocialEventCandidatePayload | SocialEventEffectPayload | SocialEventArtifactPayload | ConflictFocusPayload | Record<string, unknown>;
+  payload: InteractionEventPayload | RelationshipDeltaPayload | RoomShiftPayload | MemoryCandidatePayload | DirectorInterventionPayload | DecisionTracePayload | SocialEventCandidatePayload | SocialEventEffectPayload | SocialEventArtifactPayload | ConflictFocusPayload | Record<string, unknown>;
 }
 
 export interface RelationshipLedgerRecentEvent {

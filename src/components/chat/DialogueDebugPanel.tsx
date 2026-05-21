@@ -26,6 +26,8 @@ function formatEventKind(kind: RuntimeEventV2['kind'], isZh: boolean) {
     memory_candidate: isZh ? '记忆候选' : 'Memory candidate',
     artifact: isZh ? '产物' : 'Artifact',
     event_candidate: isZh ? '事件候选' : 'Event candidate',
+    director_intervention: isZh ? '导演干预' : 'Director intervention',
+    decision_trace: isZh ? '决策痕迹' : 'Decision trace',
     phase_transition: isZh ? '阶段切换' : 'Phase transition',
     action_resolution: isZh ? '动作结算' : 'Action resolution',
     board_state: isZh ? '棋盘状态' : 'Board state',
@@ -34,24 +36,28 @@ function formatEventKind(kind: RuntimeEventV2['kind'], isZh: boolean) {
   return labels[kind] || kind;
 }
 
-function buildProjectionMeta(item: RuntimeEventV2) {
+function buildProjectionMeta(item: RuntimeEventV2, isZh: boolean) {
   const payload = item.payload as Record<string, unknown>;
   const projectionKind = typeof payload?.projectionKind === 'string' ? payload.projectionKind : null;
   const topicSnippet = typeof payload?.topicSnippet === 'string' ? payload.topicSnippet : typeof payload?.summarySnippet === 'string' ? payload.summarySnippet : null;
   const participantNames = Array.isArray(payload?.participantNames) ? payload.participantNames.filter((value): value is string => typeof value === 'string') : [];
   if (!projectionKind && !topicSnippet && !participantNames.length) return null;
-  return [projectionKind, participantNames.length ? participantNames.join(' ↔ ') : null, topicSnippet].filter(Boolean).join(' · ');
+  return [formatProjectionKind(projectionKind, isZh), participantNames.length ? participantNames.join(' ↔ ') : null, topicSnippet].filter(Boolean).join(' · ');
 }
 
-function buildProjectionTitle(item: RuntimeEventV2, isZh: boolean) {
-  const payload = item.payload as Record<string, unknown>;
-  const projectionKind = typeof payload?.projectionKind === 'string' ? payload.projectionKind : '';
+function formatProjectionKind(projectionKind: string | null | undefined, isZh = true) {
   const map: Record<string, string> = {
     relationship_backflow: isZh ? '关系回流' : 'Relationship backflow',
     summary_backflow: isZh ? '摘要回流' : 'Summary backflow',
     source_chat_patch: isZh ? '群聊投影' : 'Source chat projection',
   };
-  return map[projectionKind] || formatEventKind(item.kind, isZh);
+  return projectionKind ? map[projectionKind] || projectionKind : '';
+}
+
+function buildProjectionTitle(item: RuntimeEventV2, isZh: boolean) {
+  const payload = item.payload as Record<string, unknown>;
+  const projectionKind = typeof payload?.projectionKind === 'string' ? payload.projectionKind : '';
+  return formatProjectionKind(projectionKind, isZh) || formatEventKind(item.kind, isZh);
 }
 
 function buildProjectionDescription(item: RuntimeEventV2) {
@@ -106,8 +112,29 @@ function formatMemoryDistillationOwner(payload: Record<string, unknown>, isZh: b
 
 function formatMemoryDistillationMergeMode(payload: Record<string, unknown>, isZh: boolean) {
   if (typeof payload.mergeModeLabel === 'string' && payload.mergeModeLabel) return payload.mergeModeLabel;
-  if (typeof payload.mergeMode === 'string' && payload.mergeMode) return payload.mergeMode;
+  if (typeof payload.mergeMode === 'string' && payload.mergeMode) {
+    const labels: Record<string, string> = {
+      reinforce_same_bucket: isZh ? '同类证据强化' : 'Reinforce similar evidence',
+      revise_existing: isZh ? '修订已有记忆' : 'Revise existing memory',
+      merge_related: isZh ? '合并相关记忆' : 'Merge related memories',
+      append_new: isZh ? '新增记忆' : 'Append new memory',
+    };
+    return labels[payload.mergeMode] || payload.mergeMode;
+  }
   return isZh ? '同 bucket 强化合并' : 'Reinforce within the same bucket';
+}
+
+function formatMemorySourceTag(sourceTag: string | null | undefined, isZh: boolean) {
+  const labels: Record<string, string> = {
+    llm_memory_objective_event: isZh ? '客观事件' : 'Objective event',
+    llm_memory_character_perspective: isZh ? '主观理解' : 'Character perspective',
+    llm_memory_relationship_imprint: isZh ? '关系印记' : 'Relationship imprint',
+    llm_memory_emotion_effect: isZh ? '情绪后效' : 'Emotion effect',
+    llm_memory_growth_signal: isZh ? '成长信号' : 'Growth signal',
+    llm_memory_distillation: isZh ? 'LLM 蒸馏' : 'LLM distillation',
+    memory_distillation: isZh ? '记忆蒸馏' : 'Memory distillation',
+  };
+  return sourceTag ? labels[sourceTag] || sourceTag : labels.memory_distillation;
 }
 
 function formatMemoryDistillationCounts(payload: Record<string, unknown>, isZh: boolean) {
@@ -163,7 +190,7 @@ function renderMemoryDistillationBlock(chat: GroupChat, isZh: boolean) {
             <Typography variant="caption" color="text.secondary">{new Date(item.distilledAt || item.updatedAt).toLocaleString()}</Typography>
             <Typography variant="body2">{`${item.ownerId === chat.id ? (isZh ? '群聊记忆' : 'Chat memory') : (isZh ? '角色记忆' : 'Character memory')} · ${isZh ? '已写入核心蒸馏' : 'Distilled into long-term memory'}`}</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'pre-wrap' }}>{item.text}</Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{isZh ? `来源 ${item.sourceTag || 'memory_distillation'} · 强化 ${item.reinforcementCount}` : `Source ${item.sourceTag || 'memory_distillation'} · Reinforcement ${item.reinforcementCount}`}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{isZh ? `来源 ${formatMemorySourceTag(item.sourceTag, isZh)} · 强化 ${item.reinforcementCount}` : `Source ${formatMemorySourceTag(item.sourceTag, isZh)} · Reinforcement ${item.reinforcementCount}`}</Typography>
           </Box>
         )) : null}
       </Stack>
@@ -205,7 +232,7 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
   return (
     <Card variant="outlined">
       <CardContent>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{isZh ? '发言调试' : 'Speech debug'}</Typography>
           <Chip size="small" label={isZh ? '调试' : 'Debug'} color="warning" variant="outlined" />
         </Box>
@@ -246,7 +273,7 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
             {latestItems.length ? (
               <Stack spacing={0.75} sx={{ mt: 0.75 }}>
                 {latestItems.map((item) => {
-                  const projectionMeta = buildProjectionMeta(item);
+                  const projectionMeta = buildProjectionMeta(item, isZh);
                   return (
                     <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
                       <Typography variant="caption" color="text.secondary">{formatEventKind(item.kind, isZh)} · {new Date(item.createdAt).toLocaleString()}</Typography>

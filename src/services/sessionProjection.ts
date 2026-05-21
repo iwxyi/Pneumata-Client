@@ -157,6 +157,8 @@ function formatRuntimeEventLabel(kind: RuntimeEventKind) {
     memory_candidate: '记忆候选',
     artifact: '产物',
     event_candidate: '事件候选',
+    director_intervention: '导演干预',
+    decision_trace: '决策痕迹',
     phase_transition: '阶段切换',
     action_resolution: '动作结算',
     board_state: '棋盘状态',
@@ -180,16 +182,19 @@ function buildParticipantNameMap(participants: Array<AICharacter | ParticipantIn
 }
 
 function resolveActorTargetNames(ids: string[] | undefined, participantNameMap: Map<string, string>) {
-  return (ids || []).map((id) => participantNameMap.get(id) || id);
+  return (ids || []).map((id) => participantNameMap.get(id) || '成员');
 }
 
 function replaceIdsWithNames(text: string, participantNameMap: Map<string, string>) {
   let result = text;
   participantNameMap.forEach((name, id) => {
     const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    result = result.replace(new RegExp(escapedId, 'g'), name);
+    const pattern = id.length < 8
+      ? new RegExp(`(^|[^\\p{L}\\p{N}_-])${escapedId}(?=$|[^\\p{L}\\p{N}_-])`, 'gu')
+      : new RegExp(escapedId, 'g');
+    result = result.replace(pattern, (match, prefix = '') => `${prefix}${name || '成员'}`);
   });
-  return result;
+  return result.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '成员');
 }
 
 function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: NonNullable<GroupChat['runtimeTimeline']>, participants: Array<AICharacter | ParticipantInstance> = []) {
@@ -444,6 +449,7 @@ export function buildProjectedSpeakAsSummary(speakAsChar?: { name?: string; laye
 
 export function buildProjectedChatDetailState(params: {
   chat: GroupChat;
+  members?: AICharacter[];
   runtimeState: ProjectedRuntimeState | null;
   privatePayloads: Array<{ key: string; title: string; text: string }>;
   visiblePanels: RuntimePanelDefinition[];
@@ -459,7 +465,13 @@ export function buildProjectedChatDetailState(params: {
   const showRuntimeTab = Boolean(runtimePanel);
   const actionList = params.schemaActions || [];
   const showActionTab = params.chat.type === 'group' || Boolean(actionList.length);
-  const activeSidebarTab = (showMemberTab && params.rightPanelTab === 'members') ? 'members' : (showRuntimeTab && params.rightPanelTab === 'world') ? 'world' : showActionTab ? 'actions' : 'world';
+  const activeSidebarTab = (showMemberTab && params.rightPanelTab === 'members')
+    ? 'members'
+    : (showRuntimeTab && params.rightPanelTab === 'narrative')
+      ? 'narrative'
+      : (showRuntimeTab && params.rightPanelTab === 'world')
+        ? 'world'
+        : showActionTab ? 'actions' : 'world';
   return {
     memberPanel,
     runtimePanel,
@@ -471,7 +483,7 @@ export function buildProjectedChatDetailState(params: {
     memberTabTitle: memberPanel?.title || (params.chat.type === 'group' ? '成员' : '角色'),
     runtimeTabTitle: runtimePanel?.title || '状态',
     sidebarChat: buildProjectedSidebarChat(params.chat, params.runtimeState, params.privatePayloads),
-    actionPanel: buildProjectedActionPanel(buildProjectedSessionActions(params.chat, actionList, []), buildProjectedActionPanelTitle(params.chat, params.schemaTitle) || '动作'),
+    actionPanel: buildProjectedActionPanel(buildProjectedSessionActions(params.chat, actionList, params.members || []), buildProjectedActionPanelTitle(params.chat, params.schemaTitle) || '动作'),
     composerSurfaces: buildProjectedComposerSurfaces(params.chat, params.frameworkState),
     compactCharacterMemorySummary: buildProjectedCompactMemorySummary(params.speakAsChar),
     speakAsSummary: buildProjectedSpeakAsSummary(params.speakAsChar),

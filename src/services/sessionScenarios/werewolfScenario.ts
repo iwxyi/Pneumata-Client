@@ -2,6 +2,7 @@ import type { ConversationPhase, GroupChat, RuntimeContext } from '../../types/c
 import type { SessionActionSchema } from '../../types/sessionEngine';
 import type { AICharacter } from '../../types/character';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
+import { buildDirectorInterventionFields } from '../../types/directorInterventionAction';
 
 export const WEREWOLF_PHASES: Array<{ key: ConversationPhase; label: string; allowedActions: string[] }> = [
   { key: 'idle', label: 'Lobby', allowedActions: ['director_intervention'] },
@@ -95,7 +96,7 @@ export function buildWerewolfActionSchema(conversation: GroupChat): SessionActio
       { type: 'wolf_vote', label: '夜晚袭击', description: '狼人夜晚选择一名目标作为刀口。', visibility: 'pair_private', fields: [{ key: 'targetId', label: '袭击目标', type: 'single_select', required: true, options: targetOptions, targetSource: 'participants' }, { key: 'prompt', label: '协商备注', type: 'textarea', placeholder: '例如：优先处理发言最强势的玩家' }] },
       { type: 'inspect_player', label: '夜晚查验', description: '预言家夜晚查验一名玩家的阵营。', visibility: 'role_private', fields: [{ key: 'targetId', label: '查验目标', type: 'single_select', required: true, options: targetOptions, targetSource: 'participants' }] },
       { type: 'vote_player', label: '白天投票', description: '白天公投一名嫌疑目标。', visibility: 'public', fields: [{ key: 'targetId', label: '投票目标', type: 'single_select', required: true, options: targetOptions, targetSource: 'participants' }, { key: 'prompt', label: '投票理由', type: 'textarea', placeholder: '例如：他的站边前后矛盾' }] },
-      { type: 'director_intervention', label: '主持推进', description: '切换昼夜、结算结果或推动发言。', visibility: 'moderator_only', fields: [{ key: 'prompt', label: '推进说明', type: 'textarea', required: true, placeholder: '例如：天亮了，昨夜是平安夜，进入白天讨论' }] },
+      { type: 'director_intervention', label: '主持推进', description: '切换昼夜、结算结果或推动发言。', visibility: 'moderator_only', fields: buildDirectorInterventionFields({ preset: 'deduction', targetLabel: '影响玩家', targetOptions, promptPlaceholder: '例如：天亮了，昨夜是平安夜，进入白天讨论' }) },
     ],
   };
 }

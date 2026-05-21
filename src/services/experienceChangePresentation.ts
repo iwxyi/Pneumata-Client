@@ -1,8 +1,9 @@
 import type { MemoryItem } from './memoryTypes';
-import { normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from './relationshipLedger';
+import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
+import { isUserFacingMemoryItem } from './memoryPresentation';
 
 export type ExperienceChangeKind = 'memory' | 'relationship';
 
@@ -25,12 +26,6 @@ const EXPERIENCE_LENS_LABELS: Record<string, string> = {
   memory_distillation: '本地蒸馏',
 };
 
-const MEMORY_LAYER_LABELS: Record<MemoryItem['layer'], string> = {
-  long_term: '长期',
-  episodic: '情节',
-  working: '即时',
-};
-
 const MEMORY_SCOPE_LABELS: Record<MemoryItem['scope'], string> = {
   character_self: '角色',
   relationship: '关系',
@@ -50,9 +45,13 @@ function memberNameMap(members: AICharacter[]) {
 function replaceMemberIds(text: string, names: Map<string, string>) {
   let next = text;
   names.forEach((name, id) => {
-    next = next.replace(new RegExp(id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), name);
+    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = id.length < 8
+      ? new RegExp(`(^|[^\\p{L}\\p{N}_-])${escaped}(?=$|[^\\p{L}\\p{N}_-])`, 'gu')
+      : new RegExp(escaped, 'g');
+    next = next.replace(pattern, (match, prefix = '') => `${prefix}${name || '成员'}`);
   });
-  return next;
+  return next.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '成员');
 }
 
 function compactText(text: string, max = 82) {
@@ -62,29 +61,23 @@ function compactText(text: string, max = 82) {
 
 function summarizeMemoryChange(item: MemoryItem, names: Map<string, string>, formatMemoryText?: (text: string, item: MemoryItem) => string): PresentedExperienceChange {
   const lens = getExperienceLensLabel(item.sourceTag);
-  const displayText = formatMemoryText ? formatMemoryText(item.text, item) : replaceMemberIds(item.text, names);
+  const sourceText = item.summary || item.text;
+  const displayText = formatMemoryText ? formatMemoryText(sourceText, item) : replaceMemberIds(sourceText, names);
   return {
     key: `memory-${item.id}`,
     kind: 'memory',
     title: lens || '记忆沉淀',
     text: compactText(displayText),
-    chips: [lens, MEMORY_LAYER_LABELS[item.layer], MEMORY_SCOPE_LABELS[item.scope]].filter(Boolean) as string[],
+    chips: [lens, item.scope === 'relationship' ? '关系' : item.scope === 'character_self' ? '角色' : MEMORY_SCOPE_LABELS[item.scope]].filter(Boolean) as string[],
     updatedAt: item.updatedAt || item.createdAt || 0,
   };
 }
 
-function strongestRelationshipAxes(entry: RelationshipLedgerEntry) {
-  const delta = toRelationshipDisplayDelta(entry.current);
-  return [
-    { label: '亲和', value: delta.warmth },
-    { label: '能力', value: delta.competence },
-    { label: '信任', value: delta.trust },
-    { label: '威胁', value: delta.threat },
-  ]
-    .filter((item) => item.value)
-    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
-    .slice(0, 2)
-    .map((item) => `${item.label}${item.value > 0 ? '+' : ''}${item.value}`);
+function combineRelationshipSummary(semanticSummary: string | undefined, evidence: string) {
+  if (!semanticSummary) return evidence;
+  if (!evidence) return semanticSummary;
+  if (semanticSummary.includes(evidence) || evidence.includes(semanticSummary)) return semanticSummary;
+  return `${semanticSummary}：${evidence}`;
 }
 
 function summarizeRelationshipChange(entry: RelationshipLedgerEntry, names: Map<string, string>): PresentedExperienceChange {
@@ -94,12 +87,13 @@ function summarizeRelationshipChange(entry: RelationshipLedgerEntry, names: Map<
   const semantic = normalized.derived?.semantic;
   const latestEvidence = normalized.recentEvents.at(-1)?.summary || semantic?.summary || '';
   const evidence = compactText(replaceMemberIds(latestEvidence, names), 76);
+  const semanticSummary = semantic?.summary ? replaceMemberIds(semantic.summary, names) : '';
   return {
     key: `relationship-${normalized.pairKey}`,
     kind: 'relationship',
     title: `${actor} → ${target}`,
-    text: semantic?.summary ? compactText(`${semantic.summary}${evidence ? `：${evidence}` : ''}`) : evidence,
-    chips: [semantic?.stage, ...(semantic?.labels || []).slice(0, 2), ...strongestRelationshipAxes(normalized).slice(0, 1)].filter(Boolean) as string[],
+    text: compactText(combineRelationshipSummary(semanticSummary, evidence)),
+    chips: [semantic?.stage, ...(semantic?.labels || []).slice(0, 2)].filter(Boolean) as string[],
     updatedAt: normalized.lastUpdatedAt || 0,
   };
 }
@@ -112,7 +106,7 @@ export function buildRecentExperienceChanges(params: {
 }) {
   const names = memberNameMap(params.members);
   const memoryChanges = ((params.chat.layeredMemories || []) as MemoryItem[])
-    .filter((item) => !item.archivedAt)
+    .filter(isUserFacingMemoryItem)
     .map((item) => summarizeMemoryChange(item, names, params.formatMemoryText));
   const relationshipChanges = (params.chat.relationshipLedger || [])
     .map((item) => summarizeRelationshipChange(item, names));

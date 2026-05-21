@@ -501,9 +501,7 @@ export default function BatchGenerateCharactersPage() {
         `${NAMES_SYSTEM_PROMPT}\nOutput exactly one valid JSON object. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
         [{ role: 'user', content: i18n.language.startsWith('zh') ? `主题：${topic}\n请列出一个适合放进同一群聊的角色阵容，不要只给主角。需要同时包含主角、重要配角、反派/对手、老师/家人/同伴，以及少量但强相关的边缘角色。并请额外判断哪些角色应该默认选中作为初始群聊阵容。只返回合法JSON，格式必须是 {"names":["名字1","名字2"],"defaultSelectedNames":["名字1"]}` : `Theme: ${topic}\nReturn a cast suitable for the same group chat, not just protagonists. Include main characters, important supporting characters, rivals/antagonists, mentors/family/allies, and a few strongly related peripheral figures. Also decide which characters should be selected by default as the initial cast. Return only valid JSON in the format {"names":["name1","name2"],"defaultSelectedNames":["name1"]}.` }]
       );
-      console.log('[batch-generate:names:raw]', response);
       const parsed = parseNames(response);
-      console.log('[batch-generate:names:parsed]', parsed);
       setCandidateNames(parsed.names);
       setSelectedNames(parsed.defaultSelectedNames.length ? parsed.defaultSelectedNames : parsed.names.slice(0, Math.min(4, parsed.names.length)));
     } catch (error) {

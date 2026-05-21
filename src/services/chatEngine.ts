@@ -13,6 +13,10 @@ import { buildEngineAwarePrompt } from './promptContextAssembler';
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
 import { calculateWeights, getSpeakerSelectionResult, resolvePendingReplyContext, selectSpeaker } from './scheduler';
 import { deriveSpeakIntentFromContext, describeIntentForPrompt } from './intentEngine';
+import { describeDirectorIntent, type DirectorIntent } from './directorIntent';
+import type { NarrativeLineProjection } from './narrativeProjection';
+import { projectRuntimePressure } from './runtimeDecision';
+import type { SpeakerScoreBreakdown } from './speakerScoring';
 import { buildHumanizationPrompt, postProcessHumanChat } from './dialogueHumanizer';
 import { BASE_COOLDOWN_MS, MAX_HISTORY_FOR_PROMPT } from '../constants/defaults';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
@@ -347,12 +351,13 @@ function buildMessageMetadata(params: {
   decision: MediaGenerationDecision | null | undefined;
   capabilities: { image: boolean; audio: boolean };
   content: string;
+  runtimeDecision?: MessageMetadata['runtimeDecision'];
 }): MessageMetadata | undefined {
   const decision = normalizeMediaDecision(params.decision, params.capabilities, params.content);
-  if (!decision) return undefined;
+  if (!decision && !params.runtimeDecision) return undefined;
   const now = Date.now();
   const attachments: MessageAttachment[] = [];
-  if (decision.image?.shouldGenerate && decision.image.prompt && decision.image.altText) {
+  if (decision?.image?.shouldGenerate && decision.image.prompt && decision.image.altText) {
     attachments.push({
       id: createAttachmentId('image'),
       kind: 'image',
@@ -363,7 +368,7 @@ function buildMessageMetadata(params: {
       updatedAt: now,
     });
   }
-  if (decision.audio?.shouldGenerate) {
+  if (decision?.audio?.shouldGenerate) {
     attachments.push({
       id: createAttachmentId('audio'),
       kind: 'audio',
@@ -378,8 +383,51 @@ function buildMessageMetadata(params: {
     format: 'plain',
     contextText: params.content,
     attachments,
-    generationDecision: decision,
-    generation: { status: 'queued', updatedAt: now },
+    ...(decision ? {
+      generationDecision: decision,
+      generation: { status: 'queued' as const, updatedAt: now },
+    } : {}),
+    ...(params.runtimeDecision ? { runtimeDecision: params.runtimeDecision } : {}),
+  };
+}
+
+function buildRuntimeDecisionMetadata(params: {
+  directorIntent?: DirectorIntent | null;
+  narrativeLines?: NarrativeLineProjection[];
+  speakerScore?: SpeakerScoreBreakdown | null;
+}): MessageMetadata['runtimeDecision'] | undefined {
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore) return undefined;
+  return {
+    directorIntent: params.directorIntent ? {
+      source: params.directorIntent.source,
+      beatType: params.directorIntent.beatType,
+      targetLineId: params.directorIntent.targetLineId,
+      targetActorIds: params.directorIntent.targetActorIds,
+      pressure: Number(params.directorIntent.pressure.toFixed(3)),
+      reason: params.directorIntent.reason,
+    } : undefined,
+    narrativeLines: (params.narrativeLines || []).slice(0, 5).map((line) => ({
+      id: line.id,
+      type: line.type,
+      title: line.title,
+      salience: Number(line.salience.toFixed(3)),
+      tension: Number(line.tension.toFixed(3)),
+      status: line.status,
+      participantIds: line.participantIds,
+    })),
+    speakerScore: params.speakerScore ? {
+      actorId: params.speakerScore.actorId,
+      finalScore: Number(params.speakerScore.finalScore.toFixed(3)),
+      addressed: Number(params.speakerScore.addressed.toFixed(3)),
+      topicRelevance: Number(params.speakerScore.topicRelevance.toFixed(3)),
+      lineInvolvement: Number(params.speakerScore.lineInvolvement.toFixed(3)),
+      emotionalPressure: Number(params.speakerScore.emotionalPressure.toFixed(3)),
+      relationshipPressure: Number(params.speakerScore.relationshipPressure.toFixed(3)),
+      factionPressure: Number(params.speakerScore.factionPressure.toFixed(3)),
+      personalityDrive: Number(params.speakerScore.personalityDrive.toFixed(3)),
+      repetitionPenalty: Number(params.speakerScore.repetitionPenalty.toFixed(3)),
+      reasons: params.speakerScore.reasons,
+    } : undefined,
   };
 }
 
@@ -487,8 +535,11 @@ export async function generateSpeakerMessage(params: {
   messages: Message[];
   apiConfig: APIConfig | AIModelProfile[];
   profiles?: AIModelProfile[];
-  pendingReplyContext?: ReturnType<typeof resolvePendingReplyContext> | null;
-  generationContext?: {
+	  pendingReplyContext?: ReturnType<typeof resolvePendingReplyContext> | null;
+	  directorIntent?: DirectorIntent | null;
+	  narrativeLines?: NarrativeLineProjection[];
+	  speakerScore?: SpeakerScoreBreakdown | null;
+	  generationContext?: {
     promptContext?: SessionGenerationPromptContext | null;
     buildPromptContext?: (speaker: AICharacter) => SessionGenerationPromptContext | null | undefined;
   };
@@ -503,7 +554,7 @@ export async function generateSpeakerMessage(params: {
     ? params.pendingReplyContext.sourceSpeakerId || fallbackRecentTargetId
     : fallbackRecentTargetId;
   const recentText = activeMessages.at(-1)?.content || '';
-  const intent = deriveSpeakIntentFromContext(params.speaker, recentTargetId, recentText);
+  const intent = deriveSpeakIntentFromContext(params.speaker, recentTargetId, recentText, params.directorIntent);
   if (params.pendingReplyContext?.targetIds.includes(params.speaker.id) && params.pendingReplyContext.sourceSpeakerId) {
     intent.target = params.pendingReplyContext.sourceSpeakerId;
     if (intent.stance === 'deflect') {
@@ -528,7 +579,11 @@ export async function generateSpeakerMessage(params: {
     ? `\nPending reply expectation:\n- You were explicitly addressed by ${characterMap.get(params.pendingReplyContext.sourceSpeakerId)?.name || params.pendingReplyContext.sourceSpeakerId}.\n- Reply to that character first instead of pivoting to another member.\n- Acknowledge their question or emotion before expanding to the room.`
     : '';
   const mediaCapabilities = buildMediaCapabilities(params.speaker, params.profiles);
-  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages)}${pendingReplyPrompt}
+	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages)}${pendingReplyPrompt}
+
+Current director intent:
+- ${params.directorIntent ? describeDirectorIntent(params.directorIntent) : 'none'}
+- Treat this as the current room pressure, not as a fixed plot script.
 
 Current speaking intent:
 - ${describeIntentForPrompt(intent)}
@@ -561,12 +616,17 @@ Current speaking intent:
     finalResponse: generated.finalResponse,
     emotion: getEmotion(params.speaker.id),
     parsedEnvelope: generated.parsedEnvelope,
-    metadata: buildMessageMetadata({
-      decision: generated.parsedEnvelope?.mediaDecision,
-      capabilities: mediaCapabilities,
-      content: generated.finalResponse,
-    }),
-  });
+	    metadata: buildMessageMetadata({
+	      decision: generated.parsedEnvelope?.mediaDecision,
+	      capabilities: mediaCapabilities,
+	      content: generated.finalResponse,
+	      runtimeDecision: buildRuntimeDecisionMetadata({
+	        directorIntent: params.directorIntent,
+	        narrativeLines: params.narrativeLines,
+	        speakerScore: params.speakerScore,
+	      }),
+	    }),
+	  });
 }
 
 export const runOneRound = async (
@@ -599,23 +659,30 @@ export const runOneRound = async (
 
   const activeMessages = messages.filter((m) => !m.isDeleted);
   const pendingReplyContext = chat.type === 'group' ? resolvePendingReplyContext(chatMembers, activeMessages) : null;
-  const candidates = calculateWeights(chatMembers, activeMessages, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, pendingReplyContext, chat);
+  const runtimePressure = projectRuntimePressure({ chat, characters: chatMembers, messages: activeMessages, pendingReplyContext });
+  const narrativeLines = runtimePressure.narrativeLines;
+  const directorIntent = runtimePressure.directorIntent;
+  const candidates = calculateWeights(chatMembers, activeMessages, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, pendingReplyContext, chat, directorIntent);
   const speakerSelection = getSpeakerSelectionResult(chatMembers, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, candidates);
   if (isSchedulerDebugEnabled() && chat.type === 'group' && !speakerSelection.speakerId) {
     console.info('[group-loop:idle]', {
       chatId: chat.id,
       mode: chat.mode,
       reason: speakerSelection.reason,
-      pendingReplyContext,
-    });
-  }
+	      pendingReplyContext,
+	      directorIntent,
+	      narrativeLines,
+	    });
+	  }
   if (isSchedulerDebugEnabled() && !speakerSelection.speakerId) {
     console.info('[group-loop:idle]', {
       chatId: chat.id,
       mode: chat.mode,
       reason: speakerSelection.reason,
-      pendingReplyContext,
-      cooldownMap: effectiveCooldownMap,
+	      pendingReplyContext,
+	      directorIntent,
+	      narrativeLines,
+	      cooldownMap: effectiveCooldownMap,
       recentAiTail: activeMessages.filter((message) => message.type === 'ai' && !message.isDeleted).slice(-5).map((message) => ({
         id: message.id,
         senderId: message.senderId,
@@ -649,8 +716,10 @@ export const runOneRound = async (
       pickedSpeakerId: speakerSelection.speakerId,
       pickedSpeakerName: chatMembers.find((member) => member.id === speakerSelection.speakerId)?.name || null,
       idleReason: speakerSelection.reason,
-      pendingReplyContext,
-    };
+	      pendingReplyContext,
+	      directorIntent,
+	      narrativeLines,
+	    };
     console.log('[group-loop:selection]', selectionDebug);
     console.log('[group-loop:selection:json]', JSON.stringify(selectionDebug));
   }
@@ -661,6 +730,7 @@ export const runOneRound = async (
 
   const speaker = chatMembers.find((c) => c.id === speakerSelection.speakerId);
   if (!speaker) return;
+  const selectedCandidate = candidates.find((candidate) => candidate.characterId === speaker.id);
   callbacks.onSpeakerSelected(speaker.id, speaker);
 
   try {
@@ -674,25 +744,32 @@ export const runOneRound = async (
         messages,
         apiConfig,
         profiles,
-        pendingReplyContext,
-        generationContext,
+	        pendingReplyContext,
+	        directorIntent,
+	        narrativeLines,
+	        speakerScore: selectedCandidate?.scoreBreakdown || null,
+	        generationContext,
         onChunk: callbacks.onMessageChunk,
       });
     } catch (error) {
       if (!(error instanceof EmptyGeneratedResponseError)) throw error;
-      const rotated = resolveSpeakerFromCandidates(chatMembers, candidates.filter((candidate) => candidate.characterId !== activeSpeaker.id));
-      if (!rotated) throw new Error(`${activeSpeaker.name} 连续生成了重复内容，本轮已跳过。`);
-      activeSpeaker = rotated;
-      callbacks.onSpeakerSelected(activeSpeaker.id, activeSpeaker);
-      completedMessage = await generateSpeakerMessage({
+	      const rotated = resolveSpeakerFromCandidates(chatMembers, candidates.filter((candidate) => candidate.characterId !== activeSpeaker.id));
+	      if (!rotated) throw new Error(`${activeSpeaker.name} 连续生成了重复内容，本轮已跳过。`);
+	      activeSpeaker = rotated;
+	      const rotatedCandidate = candidates.find((candidate) => candidate.characterId === activeSpeaker.id);
+	      callbacks.onSpeakerSelected(activeSpeaker.id, activeSpeaker);
+	      completedMessage = await generateSpeakerMessage({
         chat,
         speaker: activeSpeaker,
         characters,
         messages,
         apiConfig,
         profiles,
-        pendingReplyContext,
-        generationContext,
+	        pendingReplyContext,
+	        directorIntent,
+	        narrativeLines,
+	        speakerScore: rotatedCandidate?.scoreBreakdown || null,
+	        generationContext,
         onChunk: callbacks.onMessageChunk,
       });
     }
