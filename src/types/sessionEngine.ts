@@ -1350,7 +1350,7 @@ export interface SessionViewProjection {
 export interface SessionCommitContext {
   conversation: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null; conflictFocus?: import('./runtimeEvent').ConflictFocusPayload | null };
+  message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null; conflictFocus?: import('./runtimeEvent').ConflictFocusPayload | null };
   previousAiMessage?: Pick<Message, 'senderId'> | null;
   recentMessages?: Message[];
   apiConfig?: APIConfig;
@@ -1366,6 +1366,8 @@ export interface SessionGenerationPromptContext {
   promptPrefix?: string;
   promptSuffix?: string;
   additionalConstraints?: string[];
+  responseStyle?: 'chat' | 'professional' | 'creative' | 'longform';
+  allowMarkdown?: boolean;
 }
 
 export interface SessionTurnPolicy {
@@ -1562,7 +1564,7 @@ export function createDefaultConversationTurnPolicy(params: SessionGenerationCon
 export interface SessionCommitContext {
   conversation: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null; conflictFocus?: import('./runtimeEvent').ConflictFocusPayload | null };
+  message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null; conflictFocus?: import('./runtimeEvent').ConflictFocusPayload | null };
   previousAiMessage?: Pick<Message, 'senderId'> | null;
   recentMessages?: Message[];
   apiConfig?: APIConfig;

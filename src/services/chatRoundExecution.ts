@@ -2,7 +2,7 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat, DriverMessageCommitResult } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig } from '../types/settings';
-import { runSessionCommitPipeline } from './sessionCommitPipeline';
+import { commitGeneratedMessageTurn } from './generatedMessageTurnCommit';
 
 export async function commitGeneratedMessage(params: {
   api: APIConfig;
@@ -32,7 +32,7 @@ export async function commitGeneratedMessage(params: {
   getCurrentCharacters?: () => AICharacter[];
 }) {
   params.clearStreamingState();
-  await runSessionCommitPipeline({
+  await commitGeneratedMessageTurn({
     api: params.api,
     chatId: params.chatId,
     chat: params.chat,

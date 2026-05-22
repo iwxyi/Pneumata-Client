@@ -4,13 +4,11 @@ import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { MemoryItem } from './memoryTypes';
 import type { NarrativeLineProjection, NarrativeLineType } from './narrativeProjection';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 import { formatKnownReason } from './runtimeInsightPresentation';
 
 export function cleanNarrativeText(text: string) {
-  return text
-    .replace(/\{[\s\S]*"eventType"[\s\S]*\}/g, '系统事件')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+  return sanitizeUserFacingText(text);
 }
 
 function clip(text: string, max = 96) {
@@ -19,18 +17,7 @@ function clip(text: string, max = 96) {
 }
 
 export function formatNarrativeLineText(text: string, members: AICharacter[]) {
-  let next = cleanNarrativeText(text);
-  members.forEach((member) => {
-    if (!member.id) return;
-    const escaped = member.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = member.id.length < 8
-      ? new RegExp(`(^|[^\\p{L}\\p{N}_-])${escaped}(?=$|[^\\p{L}\\p{N}_-])`, 'gu')
-      : new RegExp(escaped, 'g');
-    next = next.replace(pattern, (match, prefix = '') => `${prefix}${member.name || '成员'}`);
-  });
-  return next
-    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '成员')
-    .trim();
+  return sanitizeUserFacingText(text, members);
 }
 
 export function getNarrativeLineParticipantNames(line: NarrativeLineProjection, members: AICharacter[]) {
@@ -86,11 +73,16 @@ function findRelationshipEvidence(line: NarrativeLineProjection, chat: GroupChat
   const pairKey = line.id.startsWith('relationship:') ? line.id.slice('relationship:'.length) : '';
   const entry = (chat.relationshipLedger || []).find((item) => item.pairKey === pairKey);
   if (!entry) return null;
+  const repairActor = members.find((member) => [entry.actorId, entry.targetId].includes(member.id) && member.soulState?.lastImpulse === 'repair');
   const axisEvidence = Object.values(entry.axisReasons || {}).flat().slice(-1)[0]?.evidence;
   const recentSummary = entry.recentEvents?.at(-1)?.summary;
   const semantic = entry.derived?.semantic?.summary;
   const evidence = axisEvidence || recentSummary || semantic;
-  return evidence ? `最近关系证据：${formatNarrativeLineText(evidence, members)}` : null;
+  const evidenceLine = evidence ? `最近关系证据：${formatNarrativeLineText(evidence, members)}` : '';
+  const repairLine = repairActor?.soulState?.lastImpulseReason
+    ? `${repairActor.name}的内在余波：${formatNarrativeLineText(repairActor.soulState.lastImpulseReason, members)}`
+    : '';
+  return [evidenceLine, repairLine].filter(Boolean).join('\n') || null;
 }
 
 function isGrowthMemory(item: MemoryItem) {

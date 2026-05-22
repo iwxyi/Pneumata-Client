@@ -4,6 +4,7 @@ import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { MediaGenerationDecision, MessageAttachment, MessageMetadata } from '../types/message';
 import type { SessionGenerationPromptContext } from '../types/sessionEngine';
+import type { MemoryItem } from './memoryTypes';
 import { getPreferredAIProfile } from '../types/settings';
 import type { ConflictFocusPayload, InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
 import { normalizeInteractionHintCollection } from '../types/runtimeEvent';
@@ -18,9 +19,12 @@ import type { NarrativeLineProjection } from './narrativeProjection';
 import { projectRuntimePressure } from './runtimeDecision';
 import type { SpeakerScoreBreakdown } from './speakerScoring';
 import { buildHumanizationPrompt, postProcessHumanChat } from './dialogueHumanizer';
+import { buildInnerLifeMetadata, buildInnerLifePromptBlock, projectInnerLife, type InnerLifeProjection } from './innerLifeEngine';
+import { maybeAutoWithdrawMessage } from './messageWithdrawal';
 import { BASE_COOLDOWN_MS, MAX_HISTORY_FOR_PROMPT } from '../constants/defaults';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 import { resolveCommittedStreamContent } from './streamingMessageLifecycle';
+import { getExpressionFeedbackCategoryLabel, summarizeExpressionFeedbackInfluence } from './expressionFeedbackInfluence';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   interactionHint?: InteractionEventPayload | null;
@@ -30,6 +34,18 @@ export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' 
   socialEventHints?: SocialEventHintEnvelope[] | null;
   conflictFocus?: ConflictFocusPayload | null;
 }
+
+type ResponseSurfaceKind = 'chat' | 'professional' | 'creative' | 'longform';
+
+interface ResponseSurface {
+  kind: ResponseSurfaceKind;
+  allowMarkdown: boolean;
+  preserveParagraphs: boolean;
+  roleFit: 'limited' | 'ordinary' | 'capable';
+  basis: string[];
+}
+
+type ExpressionFeedbackTrace = NonNullable<NonNullable<MessageMetadata['runtimeDecision']>['expressionFeedback']>;
 
 const emotionMap: Record<string, number> = {};
 
@@ -103,6 +119,38 @@ export interface ChatEngineCallbacks {
   onError: (error: Error) => void;
 }
 
+function isTestRuntime() {
+  return Boolean((globalThis as { __vitest_worker__?: unknown; __VITEST__?: unknown }).__vitest_worker__ || (globalThis as { __VITEST__?: unknown }).__VITEST__);
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveInnerLifeTypingDelayMs(projection: InnerLifeProjection, chat: GroupChat) {
+  const baseDelay = projection.expressionPlan.delayMs || 0;
+  const impulseExtra: Record<string, number> = {
+    repair: 520,
+    defend_face: 420,
+    mock: 220,
+    avoid: 360,
+    seek_attention: 180,
+    withdraw: 620,
+  };
+  const residueExtra = (projection.expressionPlan.allowWithdraw ? 360 : 0)
+    + Math.max(0, (projection.state.repression || 0) - 56) * 8
+    + Math.max(0, (projection.state.shame || 0) - 56) * 7;
+  const speed = Math.max(0.5, Math.min(3, chat.speed || 1));
+  return Math.round(Math.max(250, Math.min(2600, (baseDelay + (impulseExtra[projection.impulse] || 0) + residueExtra) / speed)));
+}
+
+async function waitForInnerLifeTypingDelay(projection: InnerLifeProjection, chat: GroupChat, delay?: (ms: number) => Promise<void>) {
+  const ms = resolveInnerLifeTypingDelayMs(projection, chat);
+  if (isTestRuntime() || ms <= 0) return ms;
+  await (delay || sleep)(ms);
+  return ms;
+}
+
 export function stripRoleActions(content: string) {
   return content
     .replace(/（[^（）]{1,24}）/g, '')
@@ -117,11 +165,11 @@ function trimSpeakerPrefix(content: string, speakerName: string) {
   return content.replace(new RegExp(`^${escapedName}\\s*[:：]\\s*`), '').trim();
 }
 
-function trimHumanChatStyle(content: string) {
+function trimHumanChatStyle(content: string, preserveParagraphs = false) {
   const trimmed = content.trim();
   if (!trimmed) return trimmed;
-  return trimmed
-    .replace(/\n{2,}/g, '\n')
+  const paragraphControlled = preserveParagraphs ? trimmed.replace(/\n{3,}/g, '\n\n') : trimmed.replace(/\n{2,}/g, '\n');
+  return paragraphControlled
     .replace(/([。！？.!?])\s*([。！？.!?])+/g, '$1')
     .replace(/^(好的|明白了|我认为|我觉得是这样|总结一下|总的来说)[，,:：\s]*/i, '')
     .replace(/(总之|所以总体来说|综上)[，,:：\s]*$/i, '')
@@ -141,9 +189,10 @@ function salvageEmptyResponse(raw: string, speakerName: string, showRoleActions?
   return normalizeForComparison(fallback) ? fallback : '';
 }
 
-function finalizeResponse(content: string, intent: ReturnType<typeof deriveSpeakIntentFromContext>, speaker: AICharacter, recentMessages: Message[], showRoleActions?: boolean, intentionalRepeat = false) {
+function finalizeResponse(content: string, intent: ReturnType<typeof deriveSpeakIntentFromContext>, speaker: AICharacter, recentMessages: Message[], showRoleActions?: boolean, intentionalRepeat = false, surface?: ResponseSurface) {
   const withoutPrefix = trimSpeakerPrefix(content, speaker.name);
-  const sanitized = trimHumanChatStyle(showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix);
+  const sanitized = trimHumanChatStyle(showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix, surface?.preserveParagraphs);
+  if (surface?.kind !== 'chat' && normalizeForComparison(sanitized)) return sanitized;
   const processed = postProcessHumanChat(sanitized, intent, speaker, recentMessages, intentionalRepeat);
   if (normalizeForComparison(processed)) return processed;
   return salvageEmptyResponse(content, speaker.name, showRoleActions);
@@ -277,16 +326,121 @@ function collectRecentConstraintLines(messages: Message[], speakerId: string) {
   });
 }
 
-function buildGenerationConstraints(messages: Message[], speakerId: string) {
+function inferResponseSurfaceFromText(text: string, style: GroupChat['style']): { kind: ResponseSurfaceKind | null; basis: string[] } {
+  const basis: string[] = [];
+  const creativeSignal = /(小说|正文|章节|片段|大纲|人设|世界观|剧本|诗|散文|创作|续写|改写|文风|角色小传|分镜)/i.test(text);
+  const professionalSignal = /(面试|系统设计|技术方案|报告|分析|评审|复盘|教案|课堂|论文|长文|详细|展开|Markdown|表格|列表|富文本|会议纪要|需求|架构|案例题|case)/i.test(text);
+  if (creativeSignal) basis.push('topic:creative-task');
+  if (professionalSignal) basis.push('topic:professional-task');
+  if (style === 'roleplay' && creativeSignal) basis.push('style:roleplay-creative');
+  if ((style === 'debate' || style === 'brainstorm') && professionalSignal) basis.push(`style:${style}-structured`);
+  if (creativeSignal) return { kind: 'creative', basis };
+  if (professionalSignal) return { kind: 'professional', basis };
+  if ((style === 'debate' || style === 'brainstorm') && /(为什么|怎么|如何|利弊|对比|设计|规划|讨论|判断)/i.test(text)) {
+    return { kind: 'professional', basis: basis.concat(`style:${style}-reasoning`) };
+  }
+  return { kind: null, basis };
+}
+
+function inferCharacterRoleFit(character: AICharacter, text: string): ResponseSurface['roleFit'] {
+  const profileText = [
+    character.name,
+    character.background,
+    character.speakingStyle,
+    character.group,
+    character.expertise.join(' '),
+    character.coreProfile?.selfImage,
+    character.coreProfile?.socialMask,
+  ].filter(Boolean).join('\n');
+  const childLike = /(小孩|孩子|幼儿|小学生|宝宝|天真|幼稚|小灰灰|小朋友|儿童)/i.test(profileText);
+  const expertLike = character.expertise.length >= 2
+    || /(专家|教授|老师|工程师|医生|律师|作家|编辑|面试官|研究员|顾问|经理|架构师|评论家|编剧|导演)/i.test(profileText)
+    || character.behavior.summarizing >= 72
+    || character.speechProfile?.sentenceLengthBias === 'long';
+  const explicitPersonalTask = new RegExp(`${character.name}.{0,12}(写|分析|讲|解释|出题|评审|展开)`).test(text);
+  if (expertLike || explicitPersonalTask) return 'capable';
+  if (childLike || character.speechProfile?.sentenceLengthBias === 'short' || character.behavior.summarizing <= 28) return 'limited';
+  return 'ordinary';
+}
+
+function resolveSurfaceFromMode(chat: GroupChat): ResponseSurfaceKind | null {
+  if (chat.mode === 'interview' || chat.mode === 'classroom' || chat.mode === 'group_discussion' || chat.mode === 'roundtable') return 'professional';
+  return null;
+}
+
+function resolveResponseSurface(chat: GroupChat, context: SessionGenerationPromptContext | null | undefined, messages: Message[], speaker: AICharacter): ResponseSurface {
+  const explicit = context?.responseStyle;
+  const topic = [chat.topic, chat.name, chat.worldState?.focus, messages.at(-1)?.content].filter(Boolean).join('\n');
+  const inferred = inferResponseSurfaceFromText(topic, chat.style);
+  const roleFit = inferCharacterRoleFit(speaker, topic);
+  const modeSurface = resolveSurfaceFromMode(chat);
+  const kind: ResponseSurfaceKind = explicit || inferred.kind || modeSurface || 'chat';
+  const allowRichText = Boolean(context?.allowMarkdown || (kind !== 'chat' && roleFit !== 'limited'));
+  return {
+    kind,
+    allowMarkdown: allowRichText,
+    preserveParagraphs: kind !== 'chat',
+    roleFit,
+    basis: [
+      ...(explicit ? [`context:${explicit}`] : []),
+      ...inferred.basis,
+      ...(modeSurface ? [`mode:${chat.mode}`] : []),
+      `style:${chat.style}`,
+      `role:${roleFit}`,
+    ],
+  };
+}
+
+function buildResponseSurfacePrompt(surface: ResponseSurface) {
+  const roleFitHint = surface.roleFit === 'limited'
+    ? '\n- The speaker has limited longform/professional capacity. Do not suddenly turn them into an essayist or expert; let them answer in their own simpler voice, ask for help, or give a short concrete reaction when that is truer to the role.'
+    : surface.roleFit === 'capable'
+      ? '\n- The speaker has enough role/expertise support for structured or longer output when the task asks for it.'
+      : '\n- Match the speaker’s actual background and speech profile; use structure only when the task and character both support it.';
+  if (surface.kind === 'chat') {
+    return `\nResponse surface:\n- Default to live chat style: concise when possible, but keep necessary context.${roleFitHint}`;
+  }
+  if (surface.kind === 'creative') {
+    return `\nResponse surface:\n- Creative longform is allowed when the task, topic, and speaker make it natural. You may write fiction, outlines, scene drafts, dialogue, critique, or rich discussion when useful.\n- Do not use a fixed template. Choose form from the actual request, character voice, room style, and discussion topic.\n- Do not limit word count artificially, but do not inflate beyond what this speaker would plausibly write.\n- Preserve paragraphs, lists, headings, and quoted excerpts only when they improve readability.${roleFitHint}`;
+  }
+  return `\nResponse surface:\n- Professional longform is allowed when the task, topic, and speaker make it natural. You may ask or answer detailed interview, analysis, teaching, design, review, or planning content when useful.\n- Do not use a fixed template. Choose form from the actual request, character voice, room style, and discussion topic.\n- Do not limit word count artificially, but do not inflate beyond what this speaker would plausibly write.\n- Preserve paragraphs, lists, headings, and tables only when they improve readability.${roleFitHint}`;
+}
+
+function buildGenerationConstraints(messages: Message[], speakerId: string, surface: ResponseSurface) {
   const recentLines = collectRecentConstraintLines(messages, speakerId);
   const forbiddenBlock = recentLines.length ? `\nForbidden semantic overlap:\n${recentLines.join('\n')}` : '';
+  if (surface.kind !== 'chat') {
+    return `\nHard constraints for this reply:
+- Write one response turn only. No self-explanation about being an AI, no meta commentary about these instructions.
+- Markdown is allowed when it helps the task. Do not wrap the whole answer in a code block unless the content itself is code.
+- No artificial word limit: professional questions, long answers, outlines, fiction, and critique may be as long as the room genuinely needs.
+- Stay in character and socially situated even when writing professionally; do not become a generic assistant.
+- Respect the speaker's plausible ability, age, expertise, and speech profile; an inexpert or childlike role should not suddenly produce a polished paper.
+- Do not repeat, paraphrase, summarize, or restate the same semantic point from the forbidden lines.${forbiddenBlock}`;
+  }
   return `\nHard constraints for this reply:
-- Write exactly one chat message only. No self-explanation, no meta commentary.
+- Write one response turn only. No self-explanation, no meta commentary.
 - Do not repeat, paraphrase, summarize, or restate the same semantic point from the forbidden lines.
 - Do not sound like an assistant answer. Never use structures like “首先/其次/最后/总结一下”, “first/second/finally”, or “in summary”.
 - Do not give a balanced full explanation unless the room absolutely requires it.
 - Prefer reactive, colloquial, and socially situated replies, but keep the full reply when the current context needs more than a short line.
 - Prefer one sharp move when it fits: a quick challenge, follow-up, jab, side remark, or clipped agreement.${forbiddenBlock}`;
+}
+
+function buildExpressionFeedbackPrompt(feedback: ExpressionFeedbackTrace) {
+  if (!feedback.length) return '';
+  const labels = Array.from(new Set(feedback.map((item) => item.label).filter(Boolean)));
+  const lines = feedback.slice(0, 3).map((item) => `- ${item.label}: ${item.text}`);
+  const hardHints = [
+    labels.includes('控制长度') ? '- The user has corrected this character for being too long before. Unless the current task clearly needs longform, keep this turn tighter and avoid splitting into extra explanatory beats.' : '',
+    labels.includes('降低正式感') ? '- The user has corrected this character for sounding too formal. Avoid report-like structure and let the character voice stay conversational.' : '',
+    labels.includes('减少助手腔') ? '- The user has corrected this character for sounding like a generic assistant. Do not use neutral service phrasing, balanced summaries, or standard answer cadence; speak from this character’s situated view.' : '',
+    labels.includes('贴近角色') ? '- The user has corrected this character for going out of character. Prioritize age, background, relationship stance, habits, and limitations over polished usefulness.' : '',
+  ].filter(Boolean);
+  return `\n## Expression Feedback Memory
+These are user corrections from previous messages. Treat them as soft but important style memory, not as something to mention.
+${lines.join('\n')}
+${hardHints.join('\n')}`;
 }
 
 function resolveApiConfigForCharacter(character: AICharacter, apiConfig: APIConfig | AIModelProfile[], profiles?: AIModelProfile[]) {
@@ -352,6 +506,7 @@ function buildMessageMetadata(params: {
   capabilities: { image: boolean; audio: boolean };
   content: string;
   runtimeDecision?: MessageMetadata['runtimeDecision'];
+  surface?: ResponseSurface;
 }): MessageMetadata | undefined {
   const decision = normalizeMediaDecision(params.decision, params.capabilities, params.content);
   if (!decision && !params.runtimeDecision) return undefined;
@@ -380,7 +535,7 @@ function buildMessageMetadata(params: {
     });
   }
   return {
-    format: 'plain',
+    format: params.surface?.allowMarkdown ? 'markdown' : 'plain',
     contextText: params.content,
     attachments,
     ...(decision ? {
@@ -395,8 +550,11 @@ function buildRuntimeDecisionMetadata(params: {
   directorIntent?: DirectorIntent | null;
   narrativeLines?: NarrativeLineProjection[];
   speakerScore?: SpeakerScoreBreakdown | null;
+  innerLife?: InnerLifeProjection | null;
+  surface?: ResponseSurface | null;
+  expressionFeedback?: ExpressionFeedbackTrace;
 }): MessageMetadata['runtimeDecision'] | undefined {
-  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore) return undefined;
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.expressionFeedback?.length) return undefined;
   return {
     directorIntent: params.directorIntent ? {
       source: params.directorIntent.source,
@@ -422,13 +580,65 @@ function buildRuntimeDecisionMetadata(params: {
       topicRelevance: Number(params.speakerScore.topicRelevance.toFixed(3)),
       lineInvolvement: Number(params.speakerScore.lineInvolvement.toFixed(3)),
       emotionalPressure: Number(params.speakerScore.emotionalPressure.toFixed(3)),
+      innerLifePressure: Number((params.speakerScore.innerLifePressure || 0).toFixed(3)),
       relationshipPressure: Number(params.speakerScore.relationshipPressure.toFixed(3)),
       factionPressure: Number(params.speakerScore.factionPressure.toFixed(3)),
       personalityDrive: Number(params.speakerScore.personalityDrive.toFixed(3)),
       repetitionPenalty: Number(params.speakerScore.repetitionPenalty.toFixed(3)),
       reasons: params.speakerScore.reasons,
     } : undefined,
+    innerLife: params.innerLife ? buildInnerLifeMetadata(params.innerLife) : undefined,
+    responseSurface: params.surface ? {
+      kind: params.surface.kind,
+      allowMarkdown: params.surface.allowMarkdown,
+      preserveParagraphs: params.surface.preserveParagraphs,
+      roleFit: params.surface.roleFit,
+      basis: params.surface.basis.slice(0, 8),
+    } : undefined,
+    expressionFeedback: params.expressionFeedback?.length ? params.expressionFeedback.slice(0, 3) : undefined,
   };
+}
+
+function inferExpressionFeedbackLabel(item: MemoryItem) {
+  const signal = summarizeExpressionFeedbackInfluence([item])[0];
+  if (signal) return getExpressionFeedbackCategoryLabel(signal.category);
+  return '表达反馈';
+}
+
+function inferExpressionFeedbackEffects(label: string, strength: number, innerLife?: InnerLifeProjection | null) {
+  const plan = innerLife?.expressionPlan;
+  const effects: string[] = [];
+  if (label === '控制长度' && (plan?.length === 'micro' || plan?.length === 'short')) effects.push('表达计划已收短');
+  if ((label === '控制长度' || label === '减少助手腔') && plan?.messageCount === 1) effects.push('气泡数收敛为单条');
+  if ((label === '降低正式感' || label === '减少助手腔') && plan?.tone === 'casual') effects.push('语气偏向口语');
+  if (strength >= 0.72 && (label === '控制长度' || label === '减少助手腔')) effects.push('累积反馈较强，收敛力度提高');
+  if (label === '贴近角色') effects.push('提示词优先角色身份与说话习惯');
+  if (label === '减少助手腔') effects.push('提示词加强反助手腔约束');
+  if (label === '降低正式感') effects.push('提示词降低报告腔');
+  return Array.from(new Set(effects));
+}
+
+function collectExpressionFeedbackTrace(character: AICharacter, innerLife?: InnerLifeProjection | null): ExpressionFeedbackTrace {
+  return summarizeExpressionFeedbackInfluence(character.layeredMemories || [])
+    .slice(0, 3)
+    .map((signal) => {
+      const item = signal.items[0];
+      const label = signal.label || inferExpressionFeedbackLabel(item);
+      const effects = inferExpressionFeedbackEffects(label, signal.strength, innerLife);
+      return {
+        id: `${signal.category}:${item.id}`,
+        label,
+        text: item.summary || item.text,
+        evidence: item.evidenceText,
+        kind: item.kind,
+        layer: item.layer,
+        confidence: Number(signal.strength.toFixed(3)),
+        count: signal.count,
+        positiveCount: signal.positiveCount,
+        applied: effects.length > 0,
+        effects,
+      };
+    });
 }
 
 async function generateWithPrompt(params: {
@@ -439,6 +649,7 @@ async function generateWithPrompt(params: {
   intent: ReturnType<typeof deriveSpeakIntentFromContext>;
   activeMessages: Message[];
   showRoleActions?: boolean;
+  surface?: ResponseSurface;
   onChunk?: (content: string) => void;
 }) {
   const streamBridge = createStreamingDisplayBridge(params.speaker, params.showRoleActions, params.onChunk);
@@ -455,7 +666,7 @@ async function generateWithPrompt(params: {
   );
   const parsedEnvelope = parseInlineInteractionEnvelope(response);
   const rawContent = parsedEnvelope?.content || response;
-  const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions);
+  const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions, false, params.surface);
   const finalResponse = resolveCommittedStreamContent(finalizedResponse, streamBridge.getLastContent());
   streamBridge.flush(finalResponse);
   return { parsedEnvelope, rawContent, finalResponse };
@@ -469,6 +680,7 @@ async function generateNonDuplicateResponse(params: {
   intent: ReturnType<typeof deriveSpeakIntentFromContext>;
   activeMessages: Message[];
   showRoleActions?: boolean;
+  surface?: ResponseSurface;
   onChunk?: (content: string) => void;
 }) {
   let prompt = params.systemPrompt;
@@ -544,6 +756,7 @@ export async function generateSpeakerMessage(params: {
     buildPromptContext?: (speaker: AICharacter) => SessionGenerationPromptContext | null | undefined;
   };
   onChunk?: (content: string) => void;
+  delay?: (ms: number) => Promise<void>;
 }) {
   const chatMembers = params.characters.filter((character) => params.chat.memberIds.includes(character.id));
   const effectiveMembers = chatMembers.length ? chatMembers : params.characters;
@@ -555,6 +768,8 @@ export async function generateSpeakerMessage(params: {
     : fallbackRecentTargetId;
   const recentText = activeMessages.at(-1)?.content || '';
   const intent = deriveSpeakIntentFromContext(params.speaker, recentTargetId, recentText, params.directorIntent);
+  const innerLife = projectInnerLife({ chat: params.chat, character: params.speaker, messages: activeMessages });
+  await waitForInnerLifeTypingDelay(innerLife, params.chat, params.delay);
   if (params.pendingReplyContext?.targetIds.includes(params.speaker.id) && params.pendingReplyContext.sourceSpeakerId) {
     intent.target = params.pendingReplyContext.sourceSpeakerId;
     if (intent.stance === 'deflect') {
@@ -579,7 +794,9 @@ export async function generateSpeakerMessage(params: {
     ? `\nPending reply expectation:\n- You were explicitly addressed by ${characterMap.get(params.pendingReplyContext.sourceSpeakerId)?.name || params.pendingReplyContext.sourceSpeakerId}.\n- Reply to that character first instead of pivoting to another member.\n- Acknowledge their question or emotion before expanding to the room.`
     : '';
   const mediaCapabilities = buildMediaCapabilities(params.speaker, params.profiles);
-	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages)}${pendingReplyPrompt}
+  const responseSurface = resolveResponseSurface(params.chat, enginePromptContext, activeMessages, params.speaker);
+  const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
+	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}
 
 Current director intent:
 - ${params.directorIntent ? describeDirectorIntent(params.directorIntent) : 'none'}
@@ -588,9 +805,9 @@ Current director intent:
 Current speaking intent:
 - ${describeIntentForPrompt(intent)}
 - Treat the intent shape as style guidance, not a hard length cap. Do not truncate a useful reply just to fit one sentence or a fragment shape.
-- Respond like a WeChat message: quick, targeted, partial, reactive, and slightly messy. Do not write a balanced full answer unless the conversation truly needs it.
-- Prefer sounding impulsive, socially situated, colloquial, and slightly incomplete over sounding polished.
-- If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.${additionalConstraints}${buildGenerationConstraints(activeMessages, params.speaker.id)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, mediaCapabilities })}${promptSuffix}`;
+- ${responseSurface.kind === 'chat' ? 'Respond like a WeChat message: quick, targeted, partial, reactive, and slightly messy. Do not write a balanced full answer unless the conversation truly needs it.' : 'Respond in the surface the scene requires: professional or creative longform is allowed, including Markdown, while keeping this speaker’s personality and social position.'}
+- ${responseSurface.kind === 'chat' ? 'Prefer sounding impulsive, socially situated, colloquial, and slightly incomplete over sounding polished.' : 'Prefer clarity, useful structure, and role-specific judgment over forced brevity; keep warmth, bias, doubts, or personality where they belong.'}
+- ${responseSurface.kind === 'chat' ? 'If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.' : 'If the room asks for a professional question, long answer, fiction draft, outline, or critique, satisfy that task fully instead of compressing it into chat banter.'}${additionalConstraints}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildResponseSurfacePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, mediaCapabilities })}${promptSuffix}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT);
   const resolvedApi = resolveApiConfigForCharacter(params.speaker, params.apiConfig, params.profiles);
   const generated = await generateNonDuplicateResponse({
@@ -601,6 +818,7 @@ Current speaking intent:
     intent,
     activeMessages,
     showRoleActions: params.chat.showRoleActions,
+    surface: responseSurface,
     onChunk: params.onChunk,
   });
   if (!normalizeForComparison(generated.finalResponse)) {
@@ -609,7 +827,7 @@ Current speaking intent:
 
   const msgEmotion = analyzeEmotion(generated.finalResponse);
   updateAllEmotions(effectiveMembers, params.speaker.id, msgEmotion, emotion);
-  return buildCompletedMessage({
+  const completedMessage = buildCompletedMessage({
     chat: params.chat,
     speakerId: params.speaker.id,
     speakerName: params.speaker.name,
@@ -620,13 +838,30 @@ Current speaking intent:
 	      decision: generated.parsedEnvelope?.mediaDecision,
 	      capabilities: mediaCapabilities,
 	      content: generated.finalResponse,
+        surface: responseSurface,
 	      runtimeDecision: buildRuntimeDecisionMetadata({
 	        directorIntent: params.directorIntent,
 	        narrativeLines: params.narrativeLines,
 	        speakerScore: params.speakerScore,
+	        innerLife,
+          surface: responseSurface,
+          expressionFeedback: expressionFeedbackTrace,
 	      }),
 	    }),
 	  });
+  const visibleMessage = maybeAutoWithdrawMessage(completedMessage, { language: 'zh' });
+  if (visibleMessage.metadata?.withdrawal?.withdrawn) {
+    return {
+      ...visibleMessage,
+      interactionHint: null,
+      interactionHints: null,
+      addressedTargetIds: null,
+      primaryAddressedTargetId: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    };
+  }
+  return visibleMessage;
 }
 
 export const runOneRound = async (
@@ -786,4 +1021,5 @@ export const __chatEngineTestUtils = {
   buildStreamingDisplayContent,
   isPendingJsonEnvelopeChunk,
   finalizeResponse,
+  resolveInnerLifeTypingDelayMs,
 };

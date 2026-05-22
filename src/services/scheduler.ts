@@ -6,6 +6,7 @@ import { getRelationshipWeight } from './relationshipEngine';
 import { applyDriftToBehavior } from './personalityDrift';
 import type { DirectorIntent } from './directorIntent';
 import { buildSpeakerScoreBreakdown, getDirectorIntentSpeakerBias, type SpeakerScoreBreakdown } from './speakerScoring';
+import { getInnerLifeSpeakerBias, projectInnerLife } from './innerLifeEngine';
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -21,6 +22,17 @@ function getEmotionalMomentum(character: AICharacter) {
   return clamp(positiveDrive + tensionDrive - inhibition, -0.18, 0.26);
 }
 
+function getEmotionalSpeakerReason(character: AICharacter) {
+  const emotional = character.emotionalState;
+  if (!emotional) return '';
+  const tension = emotional.irritation + emotional.insecurity * 0.7;
+  const warmth = emotional.affection + emotional.excitement * 0.45;
+  if (tension >= 18) return 'emotion:tension';
+  if (warmth >= 18) return 'emotion:warmth';
+  if (emotional.excitement >= 14) return 'emotion:energy';
+  return '';
+}
+
 function getEmotionalReplyBias(character: AICharacter, lastSpeakerId?: string) {
   if (!lastSpeakerId) return 0;
   const relationWeight = getRelationshipWeight(character, lastSpeakerId);
@@ -28,8 +40,8 @@ function getEmotionalReplyBias(character: AICharacter, lastSpeakerId?: string) {
   const emotional = character.emotionalState;
   if (!emotional) return safeRelationWeight > 0 ? safeRelationWeight * 0.08 : Math.abs(safeRelationWeight) * 0.1;
 
-  const irritationBias = emotional.irritation > 55 ? Math.max(0, -safeRelationWeight) * 0.14 : 0;
-  const affectionBias = emotional.affection > 45 ? Math.max(0, safeRelationWeight) * 0.12 : 0;
+  const irritationBias = emotional.irritation >= 8 ? Math.max(0, -safeRelationWeight) * 0.16 : 0;
+  const affectionBias = emotional.affection >= 8 ? Math.max(0, safeRelationWeight) * 0.14 : 0;
   const insecurityPenalty = emotional.insecurity > 65 && safeRelationWeight < 0 ? -0.08 : 0;
 
   return (safeRelationWeight > 0 ? safeRelationWeight * 0.08 : Math.abs(safeRelationWeight) * 0.1) + irritationBias + affectionBias + insecurityPenalty;
@@ -225,6 +237,7 @@ export function calculateWeights(
       let weight = personalityDrive;
       const relevance = calculateTopicRelevance(keywords, char.expertise);
       const emotionalMomentum = getEmotionalMomentum(char);
+      const emotionalReason = getEmotionalSpeakerReason(char);
       weight += relevance * 0.2;
       weight += emotionalMomentum;
       const recentCount = recentSpeakCounts[char.id] || 0;
@@ -235,6 +248,8 @@ export function calculateWeights(
 	        : 0;
       const conflictBias = getConflictSpeakerBias(char, conflictContext, lastSpeakerId);
       const directorBias = getDirectorIntentSpeakerBias({ character: char, directorIntent, chat, lastSpeakerId });
+      const innerLife = projectInnerLife({ chat, character: char, messages: recentMessages, now });
+      const innerLifeBias = getInnerLifeSpeakerBias(innerLife);
       const debugBase = {
         characterId: char.id,
         characterName: char.name,
@@ -258,6 +273,7 @@ export function calculateWeights(
       weight += pendingReplyBoost;
       weight += conflictBias;
       weight += directorBias.bias;
+      weight += innerLifeBias.bias;
       let relationshipPressure = 0;
       let directCueBoost = 0;
       let contentLengthAdjustment = 0;
@@ -345,6 +361,7 @@ export function calculateWeights(
           topicRelevance: relevance * 0.2 + contentLengthAdjustment,
           lineInvolvement: conflictBias + directorBias.bias,
           emotionalPressure: emotionalMomentum,
+          innerLifePressure: innerLifeBias.bias,
           relationshipPressure,
           factionPressure: directorIntent?.source === 'faction' ? directorBias.bias : 0,
           personalityDrive,
@@ -354,8 +371,10 @@ export function calculateWeights(
           finalScore,
           reasons: [
             pendingReplyBoost ? 'pending_reply' : '',
+            emotionalReason,
             conflictBias ? 'conflict' : '',
             ...directorBias.reasons,
+            innerLifeBias.bias ? innerLifeBias.reason : '',
             relationshipPressure ? 'relationship' : '',
             repetitionMultiplier < 1 ? 'repetition_penalty' : '',
           ].filter(Boolean),

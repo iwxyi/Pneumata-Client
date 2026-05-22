@@ -1,8 +1,9 @@
 import { formatConflictMetricsForDisplay, formatRuntimeEventText } from '../../services/runtimeEventFactory';
 import { sanitizeDistillationTexts } from '../../services/distillationText';
+import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 
 function dedupeDisplayText(text: string) {
-  return text.replace(/^房间态势更新：/g, '').trim();
+  return sanitizeUserFacingText(text.replace(/^房间态势更新：/g, '').trim());
 }
 
 function isMemoryDistillationEvent(metrics: unknown) {
@@ -27,6 +28,21 @@ function buildMemoryDistillationOwnerSuffix(metrics: Record<string, unknown> | n
   return value ? ` · ${value}` : '';
 }
 
+function formatMemoryDistillationMergeLabel(value: unknown) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  const labels: Record<string, string> = {
+    reinforce_same_bucket: '同类证据强化',
+    bucket_reinforce: '同类证据强化',
+    revise_existing: '修订已有记忆',
+    merge_related: '合并相关记忆',
+    append_new: '新增记忆',
+    '同 bucket 强化合并': '同类证据强化合并',
+    '同 bucket 强化': '同类证据强化',
+  };
+  if (!raw) return '同类证据强化合并';
+  return labels[raw] || sanitizeUserFacingText(raw).replace(/bucket/gi, '同类证据');
+}
+
 export function buildEventDisplayText(payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }) {
   if (payload.eventType === 'room_state_snapshot_v2') return dedupeDisplayText(payload.summary || '');
   if (payload.eventType === 'conflict_axis_shift') return dedupeDisplayText(payload.summary || '');
@@ -48,10 +64,12 @@ export function buildEventDisplayText(payload: { eventType?: string; title?: str
 export function buildMemoryDistillationMeta(payload: { metrics?: unknown }) {
   if (!isMemoryDistillationEvent(payload.metrics)) return null;
   const metrics = payload.metrics as Record<string, unknown>;
-  const mergeModeLabel = typeof metrics.mergeModeLabel === 'string' && metrics.mergeModeLabel ? metrics.mergeModeLabel : '同 bucket 强化合并';
+  const mergeModeLabel = formatMemoryDistillationMergeLabel(metrics.mergeModeLabel || metrics.mergeMode);
   const evidenceCount = typeof metrics.newEvidenceCount === 'number' ? metrics.newEvidenceCount : 0;
   const candidateTexts = Array.isArray(metrics.candidateTexts)
     ? sanitizeDistillationTexts(metrics.candidateTexts.filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))).slice(0, 2)
+      .map((text) => sanitizeUserFacingText(text))
+      .filter(Boolean)
     : [];
   return {
     mergeModeLabel,

@@ -5,6 +5,7 @@ import type { AICharacter } from '../../types/character';
 import MessageBubble from './MessageBubble';
 import { resolveCharacterOrDeleted } from '../../utils/deletedEntity';
 import { buildChatRenderItems } from './chatRenderModel';
+import type { ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 
 const TOP_REACH_THRESHOLD = 64;
 const BOTTOM_STICKY_THRESHOLD = 96;
@@ -14,6 +15,7 @@ interface MessageListProps {
   characters: AICharacter[];
   onDeleteMessage?: (id: string) => void;
   onAnalyzeMessage?: (message: Message) => void;
+  onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
   onReachTop?: () => void | Promise<void>;
   isLoadingOlder?: boolean;
   hasMore?: boolean;
@@ -26,6 +28,7 @@ export default function MessageList({
   characters,
   onDeleteMessage,
   onAnalyzeMessage,
+  onExpressionFeedback,
   onReachTop,
   isLoadingOlder = false,
   hasMore = false,
@@ -196,6 +199,7 @@ export default function MessageList({
             character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
             onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
             onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
+            onExpressionFeedback={item.pending || item.message.type !== 'ai' ? undefined : onExpressionFeedback}
             pending={item.pending}
           />
         ))}

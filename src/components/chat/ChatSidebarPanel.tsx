@@ -4,6 +4,8 @@ import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import type { Message } from '../../types/message';
 import MemberList from '../controls/MemberList';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 
 const RelationshipPanel = lazy(() => import('../controls/RelationshipPanel'));
 const ChatRuntimePanel = lazy(() => import('./ChatRuntimePanel'));
@@ -68,29 +70,43 @@ function PanelFallback() {
 }
 
 function DirectMemoryHint({ chat, members, directMemoryContext }: { chat: GroupChat; members: AICharacter[]; directMemoryContext?: ChatSidebarPanelProps['directMemoryContext'] }) {
+  const developerMode = useSettingsStore((state) => state.developerMode);
+  const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   if (chat.type !== 'direct' || !members[0]) return null;
   const character = members[0];
+  const showDebugDetails = developerMode && showMemoryDebug;
+  const memoryChips = showDebugDetails
+    ? [
+      `角色记忆 ${(character.layeredMemories || []).length}`,
+      `关系 ${(character.relationships || []).length}`,
+      `时间线 ${(character.runtimeTimeline || []).length}`,
+    ]
+    : [
+      (character.layeredMemories || []).length ? '会参考长期记忆' : '',
+      (character.relationships || []).length ? '会参考关系线索' : '',
+      (character.runtimeTimeline || []).length ? '会参考最近变化' : '',
+    ].filter(Boolean);
+  const recentRelationshipText = directMemoryContext?.recentRelationshipChanges?.slice(-2).map((item) => sanitizeUserFacingText(item.text)).filter(Boolean).join(' / ');
+  const recentMemoryText = directMemoryContext?.recentMemoryWrites?.slice(0, 2).map((item) => sanitizeUserFacingText(item.text)).filter(Boolean).join(' / ');
   return (
     <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
       <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.75 }}>单聊记忆主轴</Typography>
       <Stack spacing={0.75}>
         <Typography variant="caption" color="text.secondary">该角色会优先读取自己的长期记忆、关系记忆与最近变化，而不是优先回溯来源群聊。</Typography>
-        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-          <Chip size="small" label={`角色记忆 ${(character.layeredMemories || []).length}`} />
-          <Chip size="small" label={`关系 ${(character.relationships || []).length}`} />
-          <Chip size="small" label={`时间线 ${(character.runtimeTimeline || []).length}`} />
-        </Box>
-        {directMemoryContext?.memoryVisibility ? <Typography variant="caption" color="text.secondary">{directMemoryContext.memoryVisibility}</Typography> : null}
-        {directMemoryContext?.sourceTagSummary ? <Typography variant="caption" color="text.secondary">来源：{directMemoryContext.sourceTagSummary}</Typography> : null}
-        {directMemoryContext?.targetSummary ? <Typography variant="caption" color="text.secondary">{directMemoryContext.targetSummary}</Typography> : null}
-        {directMemoryContext?.targetResolutionLabel ? <Typography variant="caption" color="text.secondary">判断方式：{directMemoryContext.targetResolutionLabel}</Typography> : null}
-        {directMemoryContext?.targetResolution ? <Typography variant="caption" color="text.secondary">目标识别：{directMemoryContext.targetResolution}</Typography> : null}
-        {directMemoryContext?.recentRelationshipChanges?.length ? (
-          <Typography variant="caption" color="text.secondary">最近关系变化：{directMemoryContext.recentRelationshipChanges.slice(-2).map((item) => item.text).join(' / ')}</Typography>
+        {memoryChips.length ? (
+          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+            {memoryChips.map((chip) => <Chip key={chip} size="small" label={chip} />)}
+          </Box>
         ) : null}
-        {directMemoryContext?.recentMemoryWrites?.length ? (
-          <Typography variant="caption" color="text.secondary">最近记忆写入：{directMemoryContext.recentMemoryWrites.slice(0, 2).map((item) => item.text).join(' / ')}</Typography>
+        {directMemoryContext?.targetSummary ? <Typography variant="caption" color="text.secondary">{sanitizeUserFacingText(directMemoryContext.targetSummary)}</Typography> : null}
+        {recentRelationshipText ? (
+          <Typography variant="caption" color="text.secondary">最近关系变化：{recentRelationshipText}</Typography>
         ) : null}
+        {recentMemoryText ? <Typography variant="caption" color="text.secondary">最近记忆：{recentMemoryText}</Typography> : null}
+        {showDebugDetails && directMemoryContext?.memoryVisibility ? <Typography variant="caption" color="text.secondary">{directMemoryContext.memoryVisibility}</Typography> : null}
+        {showDebugDetails && directMemoryContext?.sourceTagSummary ? <Typography variant="caption" color="text.secondary">来源：{directMemoryContext.sourceTagSummary}</Typography> : null}
+        {showDebugDetails && directMemoryContext?.targetResolutionLabel ? <Typography variant="caption" color="text.secondary">判断方式：{directMemoryContext.targetResolutionLabel}</Typography> : null}
+        {showDebugDetails && directMemoryContext?.targetResolution ? <Typography variant="caption" color="text.secondary">目标识别：{sanitizeUserFacingText(directMemoryContext.targetResolution)}</Typography> : null}
       </Stack>
     </Box>
   );

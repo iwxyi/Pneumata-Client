@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact } from './characterExperienceArtifacts';
+import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact } from './characterExperienceArtifacts';
 import type { AICharacter } from '../types/character';
 
 vi.mock('./aiClient', () => ({
@@ -54,6 +54,14 @@ describe('characterExperienceArtifacts', () => {
     const context = buildCharacterExperienceArtifactContext(buildCharacter(), [{ id: 'c2', name: '小雨' } as AICharacter]);
     expect(buildLocalCharacterExperienceArtifact('diary', context)).toContain('苏苏的日记');
     expect(buildLocalCharacterExperienceArtifact('final_letter', context)).toContain('最后一次被看见');
+  });
+
+  it('builds final letter context from existing memory, relationships, and future handoff', () => {
+    const context = buildCharacterFinalLetterContext(buildCharacter(), [{ id: 'c2', name: '小雨' } as AICharacter]);
+    expect(context.farewellAnchors.join(' / ')).toContain('最想被记住的一件事');
+    expect(context.unresolvedTies.join(' / ')).toContain('小雨');
+    expect(context.futureHandoff).toContain('后来');
+    expect(buildLocalCharacterExperienceArtifact('final_letter', context)).toContain('我不想只说再见');
   });
 
   it('builds birth letter context and preview from identity anchors', () => {

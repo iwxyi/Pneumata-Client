@@ -126,6 +126,38 @@ function applyDriftToBaseIntent(character: AICharacter, base: SpeakIntent): Spea
 
 function applyEmotionToBaseIntent(character: AICharacter, base: SpeakIntent): SpeakIntent {
   const emotional = character.emotionalState || { irritation: 0, affection: 0, insecurity: 0, excitement: 0, embarrassment: 0 };
+  if (emotional.irritation >= 28 && base.stance !== 'summarize' && base.stance !== 'cool_down') {
+    return withMessageShape({
+      ...base,
+      reason: base.reason === 'has something to add' ? 'still carries tension from recent interaction' : base.reason,
+      stance: base.target === 'group' ? 'probe' : 'challenge',
+      emotionalTone: emotional.irritation >= 45 ? 'annoyed' : 'defensive',
+      delivery: base.delivery === 'group_redirect' ? 'quick_question' : base.delivery,
+    });
+  }
+  if (emotional.affection >= 28 && (base.stance === 'deflect' || base.stance === 'side_comment' || base.emotionalTone === 'cold')) {
+    return withMessageShape({
+      ...base,
+      reason: base.reason === 'has something to add' ? 'wants to stay close to the current exchange' : base.reason,
+      stance: base.target === 'group' ? 'side_comment' : 'support',
+      emotionalTone: 'warm',
+      delivery: base.delivery === 'group_redirect' ? 'short_reply' : base.delivery,
+    });
+  }
+  if (emotional.excitement >= 28 && base.delivery === 'short_reply' && base.stance !== 'summarize') {
+    return withMessageShape({
+      ...base,
+      emotionalTone: 'excited',
+      delivery: 'side_remark',
+    });
+  }
+  if (emotional.insecurity >= 28 && base.emotionalTone === 'cold' && base.stance !== 'summarize') {
+    return withMessageShape({
+      ...base,
+      emotionalTone: 'defensive',
+      stance: base.stance === 'deflect' && base.target !== 'group' ? 'probe' : base.stance,
+    });
+  }
   if (emotional.embarrassment >= 65 && base.stance !== 'summarize') {
     return withMessageShape({ ...base, stance: 'side_comment', delivery: 'side_remark', emotionalTone: 'defensive' });
   }
@@ -167,8 +199,55 @@ function adaptQuestionIntent(character: AICharacter, intent: SpeakIntent) {
   return adjustQuestionIntentByDrift(character, adjustQuestionIntentByEmotion(character, intent));
 }
 
+function applySoulStateToIntent(character: AICharacter, base: SpeakIntent): SpeakIntent {
+  const soul = character.soulState;
+  if (!soul) return base;
+
+  if (soul.loneliness >= 68 && soul.ignoredStreak >= 2 && base.target === 'group') {
+    return withExplicitShape({
+      ...base,
+      reason: 'wants to be noticed without admitting it',
+      stance: 'side_comment',
+      emotionalTone: soul.shame >= 55 ? 'defensive' : 'cold',
+      delivery: 'side_remark',
+    }, 'fragment');
+  }
+
+  if (soul.lastImpulse === 'repair') {
+    return withExplicitShape({
+      ...base,
+      reason: 'wants to repair the relationship without sounding too soft',
+      stance: base.target === 'group' ? 'side_comment' : 'support',
+      emotionalTone: 'warm',
+      delivery: base.delivery === 'group_redirect' ? 'short_reply' : base.delivery,
+    }, base.messageShape === 'two_sentences' ? 'single_sentence' : base.messageShape);
+  }
+
+  if ((soul.repression >= 66 || soul.shame >= 64) && base.stance !== 'summarize') {
+    return withExplicitShape({
+      ...base,
+      reason: soul.shame >= soul.repression ? 'wants to save face and repair the moment' : 'has swallowed too many words',
+      stance: base.stance === 'support' || base.stance === 'back_up' ? 'probe' : 'deflect',
+      emotionalTone: 'defensive',
+      delivery: base.delivery === 'group_redirect' ? 'side_remark' : base.delivery,
+    }, base.messageShape === 'two_sentences' ? 'single_sentence' : base.messageShape);
+  }
+
+  if (soul.trustInRoom >= 68 && soul.repression <= 35 && soul.loneliness <= 38 && (base.stance === 'deflect' || base.emotionalTone === 'cold')) {
+    return withMessageShape({
+      ...base,
+      reason: 'feels safe enough to soften a little',
+      stance: base.target === 'group' ? 'side_comment' : 'support',
+      emotionalTone: 'warm',
+      delivery: base.delivery === 'group_redirect' ? 'short_reply' : base.delivery,
+    });
+  }
+
+  return base;
+}
+
 function adaptBaseIntent(character: AICharacter, base: SpeakIntent) {
-  return applyDriftToBaseIntent(character, applyEmotionToBaseIntent(character, base));
+  return applySoulStateToIntent(character, applyDriftToBaseIntent(character, applyEmotionToBaseIntent(character, base)));
 }
 
 function maybePromoteToQuestionIntent(character: AICharacter, base: SpeakIntent, recentTargetId?: string, recentText: string = '') {

@@ -8,6 +8,8 @@ interface PersistLocalFirstMessageParams {
   timestamp?: number;
   existingLocalMessage?: Message | null;
   deferLocalUpsert?: boolean;
+  withdrawalRevealDelayMs?: number;
+  delay?: (ms: number) => Promise<void>;
 }
 
 interface PersistLocalFirstMessagesParams {
@@ -68,6 +70,26 @@ function mergeServerConfirmation(localMessage: Message, savedMessage: unknown): 
   };
 }
 
+function delayMs(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function buildPreWithdrawalRevealMessage(message: Message): Message | null {
+  const withdrawal = message.metadata?.withdrawal;
+  if (!withdrawal?.withdrawn || !withdrawal.originalContent) return null;
+  return {
+    ...message,
+    content: withdrawal.originalContent,
+    metadata: {
+      ...(message.metadata || {}),
+      withdrawal: {
+        ...withdrawal,
+        visiblePending: true,
+      },
+    },
+  };
+}
+
 export function createCommittedLocalMessage(
   message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>,
   options?: { timestamp?: number },
@@ -98,6 +120,11 @@ export async function persistLocalFirstMessage(params: PersistLocalFirstMessageP
         isStreaming: false,
       }
     : createCommittedLocalMessage(params.message, { timestamp: params.timestamp });
+  const revealMessage = buildPreWithdrawalRevealMessage(localMessage);
+  if (revealMessage) {
+    writeMessage(params.upsertMessage, revealMessage, params.deferLocalUpsert);
+    await (params.delay || delayMs)(params.withdrawalRevealDelayMs ?? 1200);
+  }
   writeMessage(params.upsertMessage, localMessage, params.deferLocalUpsert);
 
   void api.createMessage(params.message.chatId, {

@@ -6,6 +6,7 @@ import StatChipRow from '../common/StatChipRow';
 import type { MemoryItem } from '../../services/memoryTypes';
 import { getExperienceLensLabel } from '../../services/experienceChangePresentation';
 import { isUserFacingMemoryItem } from '../../services/memoryPresentation';
+import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 
 function getMemoryLayerLabel(layer: MemoryItem['layer']) {
   const labels: Record<MemoryItem['layer'], string> = {
@@ -59,9 +60,9 @@ function buildMemoryMetaItems(item: MemoryItem, includeDebugDetails: boolean) {
 
 function MemoryCard({ item, includeDebugDetails, formatMemoryText }: { item: MemoryItem; includeDebugDetails: boolean; formatMemoryText?: (text: string, item: MemoryItem) => string }) {
   const sourceText = item.summary || item.text;
-  const displayText = formatMemoryText ? formatMemoryText(sourceText, item) : sourceText;
+  const displayText = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(sourceText, item) : sourceText);
   const evidenceSource = item.evidenceText || item.summary || item.text;
-  const evidenceTitle = formatMemoryText ? formatMemoryText(evidenceSource, item) : evidenceSource;
+  const evidenceTitle = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(evidenceSource, item) : evidenceSource);
   return (
     <Box sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
       <Stack spacing={0.6}>
@@ -74,6 +75,7 @@ function MemoryCard({ item, includeDebugDetails, formatMemoryText }: { item: Mem
 }
 
 function buildMemoryGroups(items: MemoryItem[]) {
+  const expressionFeedback = items.filter((item) => item.sourceTag === 'expression_feedback');
   return {
     longTerm: items.filter((item) => item.layer === 'long_term'),
     episodic: items.filter((item) => item.layer === 'episodic'),
@@ -81,6 +83,7 @@ function buildMemoryGroups(items: MemoryItem[]) {
     relationship: items.filter((item) => item.scope === 'relationship'),
     self: items.filter((item) => item.scope === 'character_self'),
     conversation: items.filter((item) => item.scope === 'conversation' || item.scope === 'thread'),
+    expressionFeedback,
   };
 }
 
@@ -89,6 +92,7 @@ function buildMemoryFilters(groups: ReturnType<typeof buildMemoryGroups>, includ
     { key: 'longTerm', label: '长期', items: groups.longTerm },
     { key: 'episodic', label: '情节', items: groups.episodic },
     includeDebugDetails ? { key: 'working', label: '即时', items: groups.working } : null,
+    includeDebugDetails ? { key: 'expressionFeedback', label: '表达反馈', items: groups.expressionFeedback } : null,
     { key: 'relationship', label: '关系', items: groups.relationship },
     { key: 'self', label: '角色', items: groups.self },
     { key: 'conversation', label: '会话', items: groups.conversation },
@@ -132,7 +136,7 @@ export default function LayeredMemoryPanel({
 
   return (
     <SurfaceCard>
-      <SectionHeader title={title} dense />
+      <SectionHeader title={title} dense action={includeRuntimeEvidence ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
       <Stack spacing={1}>
         {visibleSourceMemories.length ? (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>

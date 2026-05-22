@@ -640,6 +640,7 @@ export default function CreateChatPage() {
           },
           worldState: {
             ...DEFAULT_CONVERSATION_WORLD_STATE,
+            ...editingChat.worldState,
             mood,
             focus,
             recentEvent,

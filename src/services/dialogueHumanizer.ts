@@ -130,6 +130,29 @@ function buildRecentPhraseConstraint(messages: Message[]) {
   return '\n- The room is already echoing repeated phrasing. Deliberately enter from another angle instead of matching the same catchphrase, prefix, or framing.';
 }
 
+function buildInnerResidueChatHint(character: AICharacter) {
+  const soul = character.soulState;
+  if (!soul) return '';
+  const hints = [
+    soul.loneliness >= 68 && soul.ignoredStreak >= 2
+      ? 'You feel a little unseen. Let it leak as a small test, a half-joke, or a brief “fine, ignore me then” energy; do not directly explain loneliness.'
+      : '',
+    soul.repression >= 66
+      ? 'You have swallowed words for a while. A tiny edge, correction, or delayed “actually...” is more human than a clean explanation.'
+      : '',
+    soul.shame >= 64
+      ? 'There is face-saving pressure. You may dodge, soften, or repair without fully admitting fault.'
+      : '',
+    soul.lastImpulse === 'repair'
+      ? 'You want to repair a bruise without becoming sentimental: a small concession, a softened joke, or “算了我刚才话重了点” energy works better than a formal apology.'
+      : '',
+    soul.trustInRoom >= 68 && soul.repression <= 35
+      ? 'The room feels safe enough for a warmer, slightly clumsy line.'
+      : '',
+  ].filter(Boolean);
+  return hints.length ? `\n- Inner residue style: ${hints.join(' ')}` : '';
+}
+
 export function buildSpeechFingerprint(character: AICharacter): SpeechFingerprint {
   const speechProfile = character.speechProfile;
   const openers = speechProfile?.preferredOpeners?.length
@@ -234,7 +257,7 @@ export function buildHumanizationPrompt(character: AICharacter, intent: SpeakInt
 - For opening turns, do not mechanically default to asking. Open with whatever fits this person in this room: a view, a joke, a vibe check, a side-eye, a provocation, or occasionally a question.
 - If a question appears, it should feel socially motivated: seeking information, fishing for reactions, steering the room, changing the subject, teasing, or putting someone on the spot.
 - Question tendency: ${fingerprint.prefersQuestions ? [fingerprint.asksForInformation ? 'info-seeking' : '', fingerprint.usesQuestionAsPushback ? 'pushback' : '', fingerprint.usesQuestionToSteer ? 'steering' : '', fingerprint.usesQuestionPlayfully ? 'playful' : ''].filter(Boolean).join(' / ') : 'not preferred'}
-- Terse bias: ${fingerprint.terseBias}/100
+- Terse bias: ${fingerprint.terseBias}/100${buildInnerResidueChatHint(character)}
 - Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}`;
   }
   const stanceMemory = buildStanceMemory(messages, character.id, recentTargetId);
@@ -253,7 +276,7 @@ export function buildHumanizationPrompt(character: AICharacter, intent: SpeakInt
 - Questions are welcome when they feel socially useful: to get information, pressure someone, test a stance, redirect the topic, dodge a point, fish for alignment, or make the room more playful.
 - If you ask, let it sound like a live human move rather than a formal interviewer move.
 - Question tendency: ${fingerprint.prefersQuestions ? [fingerprint.asksForInformation ? 'info-seeking' : '', fingerprint.usesQuestionAsPushback ? 'pushback' : '', fingerprint.usesQuestionToSteer ? 'steering' : '', fingerprint.usesQuestionPlayfully ? 'playful' : ''].filter(Boolean).join(' / ') : 'not preferred'}
-- Terse bias: ${fingerprint.terseBias}/100
+- Terse bias: ${fingerprint.terseBias}/100${buildInnerResidueChatHint(character)}
 - Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}${buildRecentSurfaceHint(messages)}${buildRecentPhraseConstraint(messages)}
 - Keep the reply socially sticky: continue the same vibe instead of resetting into neutral analysis.`;
 }

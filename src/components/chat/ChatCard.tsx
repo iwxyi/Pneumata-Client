@@ -8,6 +8,7 @@ import type { Message } from '../../types/message';
 import { formatRelativeTime } from '../../utils/format';
 import { useTranslation } from 'react-i18next';
 import { useMessageStore } from '../../stores/useMessageStore';
+import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 
 interface ChatCardProps {
   chat: GroupChat;
@@ -46,14 +47,15 @@ function buildLatestMessagePreview(message: Message | null, members: AICharacter
     : message.type === 'god'
       ? 'God Mode'
       : members.find((member) => member.id === message.senderId)?.name || message.senderName || '未知';
-  return clipPreview(`${senderName}：${message.content}`);
+  return clipPreview(sanitizeUserFacingText(`${senderName}：${message.content}`, members));
 }
 
 function buildChatSubtitle(chat: GroupChat, members: AICharacter[], latestMessage: Message | null) {
   const latestMessagePreview = buildLatestMessagePreview(latestMessage, members);
   const relationshipPreview = buildRelationshipPreview(members);
-  const memorySummary = (chat.layeredMemories || []).slice(-2).map((item) => item.text).join(' / ');
-  return latestMessagePreview || clipPreview(relationshipPreview || memorySummary || chat.worldState?.recentEvent || chat.topic || '');
+  const memorySummary = sanitizeUserFacingText((chat.layeredMemories || []).slice(-2).map((item) => item.text).join(' / '), members);
+  const recentEvent = sanitizeUserFacingText(chat.worldState?.recentEvent || '', members);
+  return latestMessagePreview || clipPreview(sanitizeUserFacingText(relationshipPreview || memorySummary || recentEvent || chat.topic || '', members));
 }
 
 export default function ChatCard({ chat, characters, onClick, onPrefetch }: ChatCardProps) {

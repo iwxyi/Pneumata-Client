@@ -25,6 +25,9 @@ export default function MarkdownText({ text }: { text: string }) {
   const lines = text.split(/\r?\n/);
   const blocks: React.ReactNode[] = [];
   let listItems: Array<{ ordered: boolean; text: string }> = [];
+  let tableRows: string[][] = [];
+  let codeLines: string[] = [];
+  let inCodeBlock = false;
 
   const flushList = () => {
     if (!listItems.length) return;
@@ -37,16 +40,70 @@ export default function MarkdownText({ text }: { text: string }) {
       </Box>
     );
   };
+  const flushTable = () => {
+    if (!tableRows.length) return;
+    const rows = tableRows;
+    tableRows = [];
+    blocks.push(
+      <Box key={`table-${blocks.length}`} sx={{ overflowX: 'auto' }}>
+        <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', fontSize: 'inherit' }}>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {row.map((cell, cellIndex) => (
+                  <Box
+                    key={cellIndex}
+                    component={rowIndex === 0 ? 'th' : 'td'}
+                    sx={{ border: '1px solid', borderColor: 'divider', px: 0.75, py: 0.45, textAlign: 'left', verticalAlign: 'top', fontWeight: rowIndex === 0 ? 800 : 400 }}
+                  >
+                    {renderInlineMarkdown(cell)}
+                  </Box>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </Box>
+      </Box>
+    );
+  };
+  const flushCode = () => {
+    if (!codeLines.length) return;
+    const code = codeLines.join('\n');
+    codeLines = [];
+    blocks.push(
+      <Box key={`code-${blocks.length}`} component="pre" sx={{ m: 0, p: 1, borderRadius: 1, bgcolor: 'action.hover', overflowX: 'auto', fontFamily: 'monospace', fontSize: '0.92em', lineHeight: 1.65, whiteSpace: 'pre' }}>
+        <code>{code}</code>
+      </Box>
+    );
+  };
 
   lines.forEach((rawLine) => {
+    if (/^```/.test(rawLine.trim())) {
+      flushList();
+      flushTable();
+      if (inCodeBlock) flushCode();
+      inCodeBlock = !inCodeBlock;
+      return;
+    }
+    if (inCodeBlock) {
+      codeLines.push(rawLine);
+      return;
+    }
     const line = rawLine.trim();
     if (!line) {
       flushList();
+      flushTable();
+      return;
+    }
+    if (/^\|.+\|$/.test(line) && !/^\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(line)) {
+      flushList();
+      tableRows.push(line.replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim()));
       return;
     }
     const heading = line.match(/^(#{1,4})\s+(.+)$/);
     if (heading) {
       flushList();
+      flushTable();
       blocks.push(
         <Box key={`heading-${blocks.length}`} sx={{ mt: blocks.length ? 1 : 0, mb: 0.5, fontWeight: 850, fontSize: 'inherit', lineHeight: 1.75 }}>
           {renderInlineMarkdown(heading[2])}
@@ -67,6 +124,7 @@ export default function MarkdownText({ text }: { text: string }) {
     const quote = line.match(/^>\s+(.+)$/);
     if (quote) {
       flushList();
+      flushTable();
       blocks.push(
         <Box key={`quote-${blocks.length}`} sx={{ borderLeft: '3px solid', borderColor: 'divider', pl: 1, py: 0.25, fontStyle: 'italic', lineHeight: 1.75 }}>
           {renderInlineMarkdown(quote[1])}
@@ -75,6 +133,7 @@ export default function MarkdownText({ text }: { text: string }) {
       return;
     }
     flushList();
+    flushTable();
     blocks.push(
       <Box key={`p-${blocks.length}`} sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.75, mb: 0.5, fontSize: 'inherit' }}>
         {renderInlineMarkdown(line)}
@@ -82,6 +141,8 @@ export default function MarkdownText({ text }: { text: string }) {
     );
   });
   flushList();
+  flushTable();
+  flushCode();
 
   return <>{blocks}</>;
 }

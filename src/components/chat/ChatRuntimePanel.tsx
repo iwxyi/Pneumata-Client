@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Button, Chip, Stack, Typography } from '@mui/material';
+import { Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import StatChipRow from '../common/StatChipRow';
@@ -15,6 +15,8 @@ import DialogueDebugPanel from './DialogueDebugPanel';
 import { projectRuntimeTimeline, type ProjectedRuntimeTimelineItem } from '../../services/sessionProjection';
 import { projectRuntimeDecisionTrace, type RuntimeDecisionTraceItem } from '../../services/runtimeDecisionTrace';
 import { formatConflictPressureLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
+import { buildMemberInnerLifeSummary } from '../../services/memberInnerLifePresentation';
+import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -24,31 +26,13 @@ interface ChatRuntimePanelProps {
 }
 
 function cleanText(text: string) {
-  return text
-    .replace(/\{[\s\S]*"eventType"[\s\S]*\}/g, '系统事件')
+  return sanitizeUserFacingText(text)
     .replace(/relationship_backflow/g, '关系回流')
     .replace(/summary_backflow/g, '摘要回流')
     .replace(/source_chat_patch/g, '群聊投影')
-    .replace(/memory_candidate/g, '记忆候选')
-    .replace(/relationship_delta/g, '关系变化')
-    .replace(/room_shift/g, '房间态势')
-    .replace(/message_generated/g, '消息生成')
-    .replace(/trait_evidence/g, '性格证据')
-    .replace(/status_shift/g, '状态变化')
-    .replace(/thread_effect/g, '线程影响')
-    .replace(/long_term/g, '长期记忆')
-    .replace(/episodic/g, '片段记忆')
-    .replace(/working/g, '工作记忆')
-    .replace(/resentment/g, '不满')
-    .replace(/conflict/g, '冲突')
-    .replace(/bond/g, '亲近')
-    .replace(/artifact/g, '产物')
-    .replace(/decision/g, '决策')
     .replace(/亲近/g, '亲和')
     .replace(/尊重/g, '能力')
     .replace(/态度发生变化/g, '关系发生变化')
-    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '成员')
-    .replace(/\bNaN\b/g, '0')
     .trim();
 }
 
@@ -63,6 +47,38 @@ function clip(text: string, max = 64) {
 function formatSigned(value: number | undefined) {
   const safeValue = typeof value === 'number' && Number.isFinite(value) ? value : 0;
   return `${safeValue > 0 ? '+' : ''}${Math.round(safeValue)}`;
+}
+
+function roomHeatLabel(value: number | undefined) {
+  const safeValue = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  if (safeValue >= 70) return '互动很热';
+  if (safeValue >= 35) return '互动偏热';
+  if (safeValue <= 8) return '互动安静';
+  return '互动平稳';
+}
+
+function roomCohesionLabel(value: number | undefined) {
+  const safeValue = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  if (safeValue >= 24) return '氛围靠拢';
+  if (safeValue >= 8) return '氛围略合';
+  if (safeValue <= -24) return '氛围分裂';
+  if (safeValue <= -8) return '氛围分散';
+  return '氛围中性';
+}
+
+function roomTopicLabel(value: number | undefined) {
+  const safeValue = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  if (safeValue >= 70) return '话题明显发散';
+  if (safeValue >= 35) return '话题有点发散';
+  return '话题稳定';
+}
+
+function roomDeltaLabel(kind: 'heat' | 'cohesion' | 'topic', value: number | undefined) {
+  const safeValue = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0;
+  if (safeValue === 0) return '';
+  if (kind === 'heat') return safeValue > 0 ? '互动升温' : '互动降温';
+  if (kind === 'cohesion') return safeValue > 0 ? '氛围靠拢' : '氛围分散';
+  return safeValue > 0 ? '话题发散' : '回到主线';
 }
 
 function readSocialEventClusterMeta(item: ProjectedRuntimeTimelineItem) {
@@ -207,8 +223,14 @@ function buildTimelineMeta(item: ProjectedRuntimeTimelineItem) {
     const to = item.targetNames?.join('、') || '某成员';
     return cleanText(`${from} → ${to}`);
   }
-  if (room?.delta?.heat || room?.delta?.cohesion || room?.delta?.topicDrift) return `热度 ${formatSigned(room.delta?.heat)} / 凝聚 ${formatSigned(room.delta?.cohesion)}`;
-  if (memory) return cleanText(`${formatMemoryKind(memory.kind)} · ${Math.round(memory.confidence * 100)}%`);
+  if (room?.delta?.heat || room?.delta?.cohesion || room?.delta?.topicDrift) {
+    return [
+      roomDeltaLabel('heat', room.delta?.heat),
+      roomDeltaLabel('cohesion', room.delta?.cohesion),
+      roomDeltaLabel('topic', room.delta?.topicDrift),
+    ].filter(Boolean).join(' / ');
+  }
+  if (memory) return cleanText(`${formatMemoryKind(memory.kind)} · 有记忆沉淀`);
   return null;
 }
 
@@ -225,7 +247,7 @@ function buildTimelineCaption(item: ProjectedRuntimeTimelineItem) {
 }
 
 function buildOverviewRoomLabel(room: NonNullable<GroupChat['worldState']['structuredRoomState']>) {
-  return `热度 ${Math.round(room.heat)} / 凝聚 ${Math.round(room.cohesion)} / 话题漂移 ${Math.round(room.topicDrift)}`;
+  return [roomHeatLabel(room.heat), roomCohesionLabel(room.cohesion), roomTopicLabel(room.topicDrift)].join(' / ');
 }
 
 function buildOverviewStageLabel(chat: GroupChat) {
@@ -272,9 +294,9 @@ function buildRoomShiftChips(item: ProjectedRuntimeTimelineItem) {
   const room = readRoomShiftMeta(item);
   if (!room?.delta) return [];
   return [
-    room.delta.heat ? `热度 ${formatSigned(room.delta.heat)}` : '',
-    room.delta.cohesion ? `凝聚 ${formatSigned(room.delta.cohesion)}` : '',
-    room.delta.topicDrift ? `漂移 ${formatSigned(room.delta.topicDrift)}` : '',
+    room.delta.heat ? roomDeltaLabel('heat', room.delta.heat) : '',
+    room.delta.cohesion ? roomDeltaLabel('cohesion', room.delta.cohesion) : '',
+    room.delta.topicDrift ? roomDeltaLabel('topic', room.delta.topicDrift) : '',
   ].filter(Boolean);
 }
 
@@ -371,23 +393,186 @@ function renderConflictPanel(chat: GroupChat, members: AICharacter[]) {
   );
 }
 
+function formatSoulKey(key: string) {
+  const labels: Record<string, string> = {
+    energy: '能量',
+    attention: '注意',
+    loneliness: '被忽视感',
+    repression: '压抑',
+    shame: '面子风险',
+    envy: '酸意',
+    trustInRoom: '房间安全感',
+    ignoredStreak: '未被接住',
+  };
+  return labels[key] || key;
+}
+
+function formatInnerImpulse(impulse: string | undefined) {
+  const labels: Record<string, string> = {
+    answer: '回应',
+    show_off: '证明自己',
+    defend_face: '维护面子',
+    seek_attention: '想被看见',
+    comfort: '安慰',
+    repair: '找补/靠近',
+    mock: '调侃/挑刺',
+    avoid: '回避',
+    change_topic: '岔开话题',
+    stay_silent: '沉默',
+    send_emoji: '发表情',
+    withdraw: '撤回/吞话',
+  };
+  return impulse ? labels[impulse] || impulse : '未形成';
+}
+
+function renderInnerLifePanel(members: AICharacter[]) {
+  const items = members
+    .filter((member) => member.soulState)
+    .slice()
+    .sort((a, b) => (b.soulState?.updatedAt || 0) - (a.soulState?.updatedAt || 0))
+    .slice(0, 6);
+  if (!items.length) return null;
+  return (
+    <SurfaceCard>
+      <SectionHeader title="内心状态" dense action={buildDebugChip()} />
+      <Stack spacing={0.8}>
+        {items.map((member) => {
+          const state = member.soulState;
+          if (!state) return null;
+          const summary = buildMemberInnerLifeSummary(member, 'zh-CN');
+          const chips = summary?.chips.map((chip) => chip.label) || [`冲动 ${formatInnerImpulse(state.lastImpulse)}`];
+          return (
+            <Box key={member.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                <Typography variant="caption" color="text.secondary">{member.name}</Typography>
+                <Tooltip title={summary?.debugHint || ''} arrow>
+                  <Chip size="small" label="参数" color="warning" variant="outlined" sx={{ height: 20, cursor: 'help' }} />
+                </Tooltip>
+              </Box>
+              <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 650 }}>{summary?.title || formatInnerImpulse(state.lastImpulse)}</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>
+                {cleanText(summary?.text || state.lastImpulseReason || '最近互动还没有留下特别清晰的内心余波。')}
+              </Typography>
+              <Box sx={{ mt: 0.6 }}><StatChipRow items={chips} /></Box>
+            </Box>
+          );
+        })}
+      </Stack>
+    </SurfaceCard>
+  );
+}
+
+function reasonTone(reason: string) {
+  if (/矛盾|冲突|挑战|对立|升级|压力/.test(reason)) return 'rgba(244, 67, 54, 0.08)';
+  if (/关系|维护|共情|降温|安慰|亲近/.test(reason)) return 'rgba(46, 125, 50, 0.08)';
+  if (/内在|面子|证明|想被看见|找补|回避|沉默/.test(reason)) return 'rgba(156, 39, 176, 0.08)';
+  if (/被点名|回应|邀请|待回应/.test(reason)) return 'rgba(25, 118, 210, 0.08)';
+  return 'action.hover';
+}
+
+function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem) {
+  const groups: Array<{ key: string; label: string; items: string[]; hint?: string; tone?: string }> = [];
+  const speakerReasons = item.reasonLabels.slice(0, 4).map((reason) => cleanText(reason));
+  if (speakerReasons.length) {
+    groups.push({
+      key: 'speaker',
+      label: '发言原因',
+      items: speakerReasons,
+      hint: item.rawReasons.map((reason) => cleanText(reason)).join(' / '),
+      tone: reasonTone(speakerReasons.join(' ')),
+    });
+  }
+  if (item.primaryLineLabel || item.directorLabel !== '无调度意图') {
+    groups.push({
+      key: 'narrative',
+      label: '剧情压力',
+      items: [item.directorLabel !== '无调度意图' ? cleanText(item.directorLabel) : '', item.primaryLineLabel ? cleanText(item.primaryLineLabel) : ''].filter(Boolean),
+      hint: [item.rawDirector, item.rawPrimaryLine].filter(Boolean).map((text) => cleanText(text || '')).join(' / '),
+      tone: 'rgba(25, 118, 210, 0.06)',
+    });
+  }
+  if (item.innerLifeLabel) {
+    groups.push({
+      key: 'inner',
+      label: '内心冲动',
+      items: [cleanText(item.innerLifeLabel)],
+      hint: [item.innerLifeReason, ...item.innerLifeEvidence].filter(Boolean).map((text) => cleanText(text || '')).join(' / '),
+      tone: 'rgba(156, 39, 176, 0.06)',
+    });
+  }
+  if (item.surfaceLabel || item.expressionLabel) {
+    groups.push({
+      key: 'expression',
+      label: '表达形态',
+      items: [item.surfaceLabel ? cleanText(item.surfaceLabel) : '', item.expressionLabel ? cleanText(item.expressionLabel) : ''].filter(Boolean),
+      hint: [...item.surfaceBasis, ...item.expressionReasons].map((reason) => cleanText(reason)).join(' / '),
+      tone: 'rgba(245, 124, 0, 0.06)',
+    });
+  }
+  if (item.expressionFeedbackRetrievedLabels.length || item.expressionFeedbackAppliedLabels.length) {
+    groups.push({
+      key: 'feedback',
+      label: '表达反馈',
+      items: [
+        ...item.expressionFeedbackRetrievedLabels.slice(0, 2).map((label) => `已检索 ${cleanText(label)}`),
+        ...item.expressionFeedbackAppliedLabels.slice(0, 2).map((label) => `已影响 ${cleanText(label)}`),
+      ],
+      hint: [...item.expressionFeedbackRetrievedReasons, ...item.expressionFeedbackAppliedReasons].map((reason) => cleanText(reason)).join(' / '),
+      tone: 'rgba(255, 152, 0, 0.08)',
+    });
+  }
+  return groups;
+}
+
+function renderDecisionReasonGroup(group: ReturnType<typeof buildDecisionReasonGroups>[number]) {
+  const content = (
+    <Box sx={{ p: 0.85, borderRadius: 2, bgcolor: group.tone || 'action.hover' }}>
+      <Typography className="decision-group-title" variant="caption" color="text.secondary">{group.label}</Typography>
+      <Box sx={{ mt: 0.55 }}>
+        <StatChipRow items={group.items} />
+      </Box>
+    </Box>
+  );
+  if (!group.hint) return content;
+  return (
+    <Tooltip key={group.key} title={group.hint} arrow>
+      <Box sx={{ '&:hover .decision-group-title': { textDecoration: 'underline' } }}>
+        {content}
+      </Box>
+    </Tooltip>
+  );
+}
+
 function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedRuntimeView: boolean) {
   if (!items.length) return null;
   return (
     <SurfaceCard>
-      <SectionHeader title="调度痕迹" dense action={buildDebugChip()} />
+      <SectionHeader title="发言调度" subtitle="解释本轮为什么由这个角色发言，以及表达形态如何被影响。" dense action={buildDebugChip()} />
       <Stack spacing={0.8}>
-        {items.map((item) => (
+        {items.map((item) => {
+          const groups = buildDecisionReasonGroups(item);
+          return (
           <Box key={item.messageId} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
-            <Typography variant="caption" color="text.secondary">{cleanText(item.senderName)}</Typography>
-            <Typography variant="body2" sx={{ mt: 0.2 }}>{cleanText(item.directorLabel)}</Typography>
-            {item.primaryLineLabel ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{cleanText(item.primaryLineLabel)}</Typography> : null}
-            {item.score ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{cleanText(item.score)}</Typography> : null}
-            {item.reasonLabels.length ? <Box sx={{ mt: 0.65 }}><StatChipRow items={item.reasonLabels.slice(0, 3).map((reason) => cleanText(reason))} /></Box> : null}
-            {isAdvancedRuntimeView ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{cleanText(item.rawDirector)}{item.rawPrimaryLine ? ` / ${cleanText(item.rawPrimaryLine)}` : ''}</Typography> : null}
-            {isAdvancedRuntimeView && item.reasonLabels.length ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{item.reasonLabels.slice(0, 4).map((reason) => cleanText(reason)).join(' / ')}</Typography> : null}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>{cleanText(item.senderName)}</Typography>
+              {item.score ? <Chip size="small" label={cleanText(item.score)} variant="outlined" sx={{ height: 22 }} /> : null}
+            </Box>
+            {groups.length ? (
+              <Stack spacing={0.65} sx={{ mt: 0.75 }}>
+                {groups.map((group) => <Box key={group.key}>{renderDecisionReasonGroup(group)}</Box>)}
+              </Stack>
+            ) : (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>暂无可读调度原因</Typography>
+            )}
+            {isAdvancedRuntimeView ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{cleanText(item.rawDirector)}{item.rawPrimaryLine ? ` / ${cleanText(item.rawPrimaryLine)}` : ''}{item.rawSurface ? ` / ${cleanText(item.rawSurface)}` : ''}{item.rawExpression ? ` / ${cleanText(item.rawExpression)}` : ''}</Typography> : null}
+            {isAdvancedRuntimeView && item.innerLifeState ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                {Object.entries(item.innerLifeState).slice(0, 6).map(([key, value]) => `${formatSoulKey(key)} ${String(value)}`).join(' / ')}
+              </Typography>
+            ) : null}
           </Box>
-        ))}
+          );
+        })}
       </Stack>
     </SurfaceCard>
   );
@@ -458,10 +643,11 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
           </Stack>
         </SurfaceCard>
 
+        {isAdvancedRuntimeView ? renderInnerLifePanel(members) : null}
         {isAdvancedRuntimeView ? renderDecisionTracePanel(decisionTrace, isAdvancedRuntimeView) : null}
 
         {privatePayloads.length ? <PrivatePayloadPanel payloads={privatePayloads} /> : null}
-        {(isSpeechStyleView || isAdvancedRuntimeView) ? <DialogueDebugPanel chat={chat} /> : null}
+        {(isSpeechStyleView || isAdvancedRuntimeView) ? <DialogueDebugPanel chat={chat} members={members} /> : null}
       </PageSection>
     </>
   );

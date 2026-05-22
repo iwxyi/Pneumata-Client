@@ -122,6 +122,26 @@ beforeEach(() => {
   runSessionCommitPipelineMock.mockReset();
 });
 
+function buildCommitPipelineResult(args: { message: Partial<import('../types/message').Message>; chat: GroupChat; characters: unknown[] }) {
+  return {
+    persistedMessage: {
+      id: `persisted-${Math.random()}`,
+      chatId: 'chat-1',
+      type: 'ai',
+      senderId: args.message.senderId || 'a',
+      senderName: args.message.senderName || '甲',
+      content: args.message.content || '',
+      emotion: 0,
+      timestamp: 1,
+      isDeleted: false,
+      ...args.message,
+    },
+    transition: { chatPatch: {}, characterPatches: [], runtimeEvents: [] },
+    nextChat: args.chat,
+    nextCharacters: args.characters,
+  };
+}
+
 function buildChat(overrides: Partial<GroupChat> = {}): GroupChat {
   return {
     id: 'chat-1',
@@ -180,7 +200,7 @@ function buildLoopParams(chat: GroupChat) {
 
 describe('runSessionLoop', () => {
   it('passes model stream chunks directly to the live message callback', async () => {
-    runSessionCommitPipelineMock.mockImplementation(async () => undefined);
+    runSessionCommitPipelineMock.mockImplementation(async (args) => buildCommitPipelineResult(args));
     runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
       hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
       hooks.onMessageChunk('真');
@@ -217,7 +237,7 @@ describe('runSessionLoop', () => {
   });
 
   it('runs speaking ticks and commits the generated message', async () => {
-    runSessionCommitPipelineMock.mockImplementation(async () => undefined);
+    runSessionCommitPipelineMock.mockImplementation(async (args) => buildCommitPipelineResult(args));
     runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
       hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
       await hooks.onMessageComplete({ id: 'msg-1', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '完整回复', emotion: 0 });
@@ -248,7 +268,7 @@ describe('runSessionLoop', () => {
     };
     const commitStarted = vi.fn();
     const commitFinished = vi.fn();
-    runSessionCommitPipelineMock.mockImplementation(async () => undefined);
+    runSessionCommitPipelineMock.mockImplementation(async (args) => buildCommitPipelineResult(args));
     runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
       hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
       await hooks.onMessageComplete({ id: 'msg-1', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '完整回复', emotion: 0 });
@@ -271,7 +291,7 @@ describe('runSessionLoop', () => {
   });
 
   it('passes engine prompt context through to chat rounds', async () => {
-    runSessionCommitPipelineMock.mockImplementation(async () => undefined);
+    runSessionCommitPipelineMock.mockImplementation(async (args) => buildCommitPipelineResult(args));
     runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
       hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
       await hooks.onMessageComplete({ id: 'msg-2', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '另一条回复', emotion: 0 });

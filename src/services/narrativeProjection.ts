@@ -73,6 +73,36 @@ function describeRelationshipState(entry: RelationshipLedgerEntry, characters: A
   return axes.length ? `${actor} 对 ${target}：${axes.slice(0, 2).join('，')}。` : `${actor} 和 ${target} 的互动正在形成新的关系倾向。`;
 }
 
+function findCharacter(id: string | undefined, characters: AICharacter[]) {
+  return id ? characters.find((character) => character.id === id) || null : null;
+}
+
+function hasRepairImpulse(entry: RelationshipLedgerEntry, characters: AICharacter[]) {
+  const actor = findCharacter(entry.actorId, characters);
+  const target = findCharacter(entry.targetId, characters);
+  return actor?.soulState?.lastImpulse === 'repair' || target?.soulState?.lastImpulse === 'repair';
+}
+
+function describeRelationshipLineSummary(entry: RelationshipLedgerEntry, characters: AICharacter[]) {
+  const semantic = entry.derived?.semantic;
+  if (hasRepairImpulse(entry, characters)) {
+    return semantic?.summary
+      ? `${semantic.summary}，但最近出现了找补或缓和的冲动。`
+      : `${characterName(entry.actorId, characters)}与${characterName(entry.targetId, characters)}的拉扯后出现了找补或缓和的冲动。`;
+  }
+  return semantic?.summary || describeRelationshipState(entry, characters);
+}
+
+function relationshipNextBeat(entry: RelationshipLedgerEntry, tension: number, characters: AICharacter[]): NarrativeBeatType {
+  if (hasRepairImpulse(entry, characters)) return 'defend';
+  return tension > 0.5 ? 'challenge' : 'invite';
+}
+
+function relationshipOpenQuestion(entry: RelationshipLedgerEntry, tension: number, characters: AICharacter[]) {
+  if (hasRepairImpulse(entry, characters)) return '这段关系会被别扭地找补、缓和，还是继续嘴硬？';
+  return tension > 0.38 ? '这段关系会继续拉扯、缓和还是破裂？' : '';
+}
+
 function mapConflictStatus(stage?: string): NarrativeLineStatus {
   if (stage === 'resolved') return 'resolved';
   if (stage === 'cooling') return 'cooling';
@@ -208,12 +238,14 @@ function buildRelationshipLines(chat: GroupChat, characters: AICharacter[], now:
       const actor = characterName(entry.actorId, characters);
       const target = characterName(entry.targetId, characters);
       const salience = clamp01((entry.derived?.salience || 0) / 100 * 0.42 + tension * 0.38 + momentum * 0.2);
+      const summary = describeRelationshipLineSummary(entry, characters);
+      const nextBeat = relationshipNextBeat(entry, tension, characters);
       return {
         id: `relationship:${entry.pairKey}`,
         conversationId: chat.id,
         type: 'relationship',
         title: semantic?.stage || `${actor}与${target}`,
-        summary: semantic?.summary || describeRelationshipState(entry, characters),
+        summary,
         participantIds: unique([entry.actorId, entry.targetId]),
         visibility: 'public',
         status: tension > 0.58 ? 'escalating' : salience > 0.3 ? 'active' : 'latent',
@@ -222,12 +254,12 @@ function buildRelationshipLines(chat: GroupChat, characters: AICharacter[], now:
         salience,
         sourceEventIds: entry.recentEvents.map((event) => event.id),
         lastTouchedAt: entry.lastUpdatedAt || now,
-        openQuestions: tension > 0.38 ? ['这段关系会继续拉扯、缓和还是破裂？'] : [],
+        openQuestions: [relationshipOpenQuestion(entry, tension, characters)].filter(Boolean),
         possibleNextBeats: [{
-          beatType: tension > 0.5 ? 'challenge' : 'invite',
+          beatType: nextBeat,
           targetActorIds: unique([entry.actorId, entry.targetId]),
-          pressure: clamp01(0.32 + salience * 0.44),
-          reason: semantic?.summary || '关系账本中的变化已经足够显著。',
+          pressure: clamp01((nextBeat === 'defend' ? 0.38 : 0.32) + salience * 0.44),
+          reason: summary || '关系账本中的变化已经足够显著。',
         }],
       } satisfies NarrativeLineProjection;
     })

@@ -2,6 +2,7 @@ import type { AICharacter } from '../types/character';
 import type { DirectorIntent } from './directorIntent';
 import type { NarrativeBeat, NarrativeLineProjection } from './narrativeProjection';
 import type { RuntimePressureProjection } from './runtimeDecision';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 
 export interface PresentedRuntimeDirectorIntent {
   title: string;
@@ -42,17 +43,7 @@ function clip(text: string, max = 72) {
 }
 
 function cleanPresentationText(text: string, members: AICharacter[]) {
-  let next = text
-    .replace(/\{[\s\S]*"eventType"[\s\S]*\}/g, '系统事件')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-  members.forEach((member) => {
-    if (!member.id) return;
-    next = next.replace(new RegExp(member.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), member.name || '成员');
-  });
-  return next
-    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '成员')
-    .trim();
+  return sanitizeUserFacingText(text, members);
 }
 
 export function formatNarrativeLineType(type: NarrativeLineProjection['type']) {

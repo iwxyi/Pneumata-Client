@@ -146,7 +146,24 @@ function ArtifactCalendarReader({
   };
 
   if (!items.length) {
-    return <Typography variant="body2" color="text.secondary">{tab === 'letters' ? (isZh ? '暂无信件' : 'No letters yet') : (isZh ? '暂无日记' : 'No diary entries yet')}</Typography>;
+    return (
+      <Box sx={{ px: { xs: 4.5, sm: 6, lg: 7 } }}>
+        <PaperSurface variant={paperVariant} minHeight={220}>
+          <Box className="paper-surface-content" sx={{ maxWidth: 560 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 850 }}>
+              {tab === 'letters'
+                ? (isZh ? '还没有寄出的信' : 'No letters have arrived yet')
+                : (isZh ? '还没有写下的日记' : 'No diary pages yet')}
+            </Typography>
+            <Typography className="paper-surface-muted" variant="body2" sx={{ mt: 1.1, lineHeight: 1.8 }}>
+              {tab === 'letters'
+                ? (isZh ? '等角色真正经历过相遇、告别、牵挂和改变，这里会留下它们想认真说完的话。' : 'When a character has lived through enough meetings, partings, attachments, and change, the words they need to finish will rest here.')
+                : (isZh ? '日记不会急着出现。它会等某一天的关系余波、没说出口的话，或一点明天还想继续的理由。' : 'Diaries are not rushed. They wait for relationship residue, unsent words, or one small reason to keep going tomorrow.')}
+            </Typography>
+          </Box>
+        </PaperSurface>
+      </Box>
+    );
   }
 
   return (

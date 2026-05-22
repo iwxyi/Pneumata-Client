@@ -24,8 +24,8 @@ function hasAny(text: string, pattern: RegExp) {
 }
 
 function buildSocialSignal(text: string) {
-  const challengeCount = countMatches(text, /反对|攻击|讨厌|差|烂|wrong|hate|terrible|胡扯|闭嘴|有病|离谱|轮不到|少插嘴|别来指手画脚/gi);
-  const supportCount = countMatches(text, /喜欢|支持|同意|欣赏|love|agree|great|可以|有道理|确实|说得对/gi);
+  const challengeCount = countMatches(text, /反对|攻击|讨厌|差|烂|wrong|hate|terrible|胡扯|闭嘴|有病|离谱|轮不到|少插嘴|别来指手画脚|急什么|你急什么|不靠谱|哪里不靠谱|就这|也配|少来|别装|阴阳怪气|凭什么|审批一下|火气|怼|嘲讽/gi);
+  const supportCount = countMatches(text, /喜欢|支持|同意|欣赏|love|agree|great|可以|有道理|确实|说得对|对呀|对啊|没错|我站|挺你|你真好|你最好|靠谱|赞同/gi);
   const questionCount = countMatches(text, /[?？]|吗|咋|怎么|为什么|是不是|要不|凭什么/gi);
   const excitementCount = countMatches(text, /！|!|太好了|太棒|amazing|great|哈哈|笑死|绝了|离大谱|哟|欸/gi);
   const embarrassmentCount = countMatches(text, /尴尬|丢脸|embarrassed|社死|无语|好吧算了/gi);
@@ -120,8 +120,8 @@ export function deriveEmotionalState(character: AICharacter, messageContent: str
   const scaleGain = (value: number) => Math.round(value * multiplier);
   const scaleDecay = (value: number) => Math.max(1, Math.round(value * decayBias));
   return {
-    irritation: clampPercent(current.irritation + (signal.challengeCount > 0 ? scaleGain(Math.min(10, 4 + signal.challengeCount * 2 + signal.intensityBoost)) : -scaleDecay(5))),
-    affection: clampPercent(current.affection + (signal.supportCount >= 2 ? scaleGain(Math.min(8, 3 + signal.supportCount + signal.intensityBoost)) : -scaleDecay(3))),
+    irritation: clampPercent(current.irritation + (signal.challengeCount > 0 ? scaleGain(Math.min(14, 9 + signal.challengeCount * 2 + signal.intensityBoost)) : -scaleDecay(5))),
+    affection: clampPercent(current.affection + (signal.supportCount > 0 ? scaleGain(Math.min(14, 8 + signal.supportCount * 2 + signal.intensityBoost)) : -scaleDecay(3))),
     insecurity: clampPercent(current.insecurity + ((signal.uncertaintyCount >= 2 || signal.embarrassmentCount > 0) ? scaleGain(Math.min(8, 3 + signal.uncertaintyCount + signal.embarrassmentCount)) : -scaleDecay(3))),
     excitement: clampPercent(current.excitement + ((signal.excitementCount >= 2 || signal.playfulCount >= 2 || (signal.hasQuestion && signal.hasExclamation && !signal.isLightRemark)) ? scaleGain(Math.min(9, 3 + signal.excitementCount + signal.playfulCount)) : -scaleDecay(4))),
     embarrassment: clampPercent(current.embarrassment + (signal.embarrassmentCount > 0 ? scaleGain(Math.min(9, 4 + signal.embarrassmentCount)) : -scaleDecay(3))),

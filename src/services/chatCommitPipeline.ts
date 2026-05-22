@@ -94,7 +94,7 @@ export async function runChatCommitPipeline(params: {
       api: params.api,
       chat: params.chat,
       characters: params.characters,
-      message: params.message,
+      message: persistedMessage,
       previousAiMessage: commitContext.previousAiMessage,
       recentMessages: nextMessages,
       onCommit: params.onCommit,

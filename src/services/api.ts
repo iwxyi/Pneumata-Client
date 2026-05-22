@@ -123,6 +123,7 @@ class ApiClient {
       behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null;
       visualIdentity?: CharacterVisualIdentity | null;
       visualReferenceImages?: CharacterVisualReferenceImage[];
+      personalityDrift?: object; emotionalState?: object; soulState?: object; coreProfile?: object;
       speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyle?: BubbleStyleDefinition | null; bubbleStyleId?: string | null;
       isPreset: boolean; deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number;
@@ -131,7 +132,7 @@ class ApiClient {
 
   async createCharacter(data: {
     name: string; avatar?: string; personality: Record<string, number>;
-    behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null; coreProfile?: object;
+    behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null; personalityDrift?: object; emotionalState?: object; soulState?: object; coreProfile?: object;
     visualIdentity?: CharacterVisualIdentity | null;
     visualReferenceImages?: CharacterVisualReferenceImage[];
     speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
@@ -142,7 +143,7 @@ class ApiClient {
 
   async createCharactersBatch(items: Array<{
     name: string; avatar?: string; personality: Record<string, number>;
-    behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null; coreProfile?: object;
+    behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null; personalityDrift?: object; emotionalState?: object; soulState?: object; coreProfile?: object;
     visualIdentity?: CharacterVisualIdentity | null;
     visualReferenceImages?: CharacterVisualReferenceImage[];
     speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;

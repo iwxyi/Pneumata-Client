@@ -103,4 +103,23 @@ describe('scheduler speaker scoring', () => {
     expect(b?.scoreBreakdown?.lineInvolvement).toBeGreaterThan(0);
     expect(b?.scoreBreakdown?.reasons).toContain('director:answer:target');
   });
+
+  it('surfaces emotional aftermath as a speaker reason', () => {
+    const candidates = calculateWeights(
+      [
+        buildCharacter('a', '甲'),
+        buildCharacter('b', '乙', { emotionalState: { irritation: 18, affection: 0, insecurity: 6, excitement: 0, embarrassment: 0 } }),
+      ],
+      [buildMessage({ senderId: 'a', senderName: '甲', content: '你这也太不靠谱了吧？' })],
+      {},
+      1,
+      0,
+      null,
+      buildChat(),
+    );
+
+    const b = candidates.find((candidate) => candidate.characterId === 'b');
+    expect(b?.scoreBreakdown?.emotionalPressure).toBeGreaterThan(0);
+    expect(b?.scoreBreakdown?.reasons).toContain('emotion:tension');
+  });
 });

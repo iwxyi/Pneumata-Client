@@ -273,6 +273,20 @@ function buildMemoryCandidatesFromRuntimeEvents(chat: GroupChat, events: Runtime
       }];
     }
 
+    if (event.eventType === 'message_withdrawn') {
+      return [{
+        scope: 'conversation',
+        layerHint: 'episodic',
+        kind: 'status_shift',
+        ownerId: chat.id,
+        subjectIds: event.metrics && typeof event.metrics === 'object' && 'actorId' in event.metrics && typeof event.metrics.actorId === 'string' ? [event.metrics.actorId] : [],
+        text: sanitizeMemoryText(`${event.title}：撤回本身成为公开可见的余波，原文不进入公开记忆。`).slice(0, 128),
+        sourceEventIds: filterLegacyEventIds([event.eventType, String(event.createdAt || '')]),
+        sourceTag: event.eventType,
+        scoreBreakdown: { stability: 0.56, recurrence: 0.45, impact: 0.72, specificity: 0.7, durability: 0.52 },
+      }];
+    }
+
     return [];
   });
 }

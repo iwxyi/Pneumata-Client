@@ -7,13 +7,13 @@ export async function buildChatCommitTransition(params: {
   api: APIConfig;
   chat: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'>;
+  message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'>;
   previousAiMessage: Pick<Message, 'senderId'> | null;
   recentMessages?: Message[];
   onCommit: (args: {
     conversation: GroupChat;
     characters: AICharacter[];
-    message: Pick<Message, 'content' | 'type' | 'senderId'>;
+    message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'>;
     previousAiMessage: Pick<Message, 'senderId'> | null;
     recentMessages?: Message[];
     apiConfig?: APIConfig;
@@ -38,13 +38,13 @@ export async function finalizeChatCommitRuntime(params: {
   api: APIConfig;
   chat: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'chatId' | 'content' | 'type' | 'senderId' | 'senderName' | 'emotion'>;
+  message: Pick<Message, 'chatId' | 'content' | 'type' | 'senderId' | 'senderName' | 'emotion' | 'metadata'>;
   previousAiMessage: Pick<Message, 'senderId'> | null;
   recentMessages?: Message[];
   onCommit: (args: {
     conversation: GroupChat;
     characters: AICharacter[];
-    message: Pick<Message, 'content' | 'type' | 'senderId'>;
+    message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'>;
     previousAiMessage: Pick<Message, 'senderId'> | null;
     recentMessages?: Message[];
     apiConfig?: APIConfig;

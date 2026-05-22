@@ -162,6 +162,47 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect(kinds).toContain('event_candidate');
   });
 
+  it('records withdrawal residue without preserving the withdrawn text as public runtime', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '甲撤回了一条消息',
+        metadata: {
+          withdrawal: {
+            withdrawn: true,
+            originalContent: '乙，你这说法真的太离谱了。',
+            reason: '前面的刺留下了关系修复压力。',
+            withdrawnAt: 123,
+          },
+        },
+        interactionHint: {
+          kind: 'challenge',
+          actorId: 'a',
+          targetId: 'b',
+          intensity: 4,
+          tone: 'annoyed',
+          evidenceText: '乙，你这说法真的太离谱了。',
+          confidence: 0.95,
+        },
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+
+    const applied = applyResultToChat(chat, result);
+    const events = applied.runtimeEventsV2 || [];
+    expect(events.some((event) => event.kind === 'message_generated' && event.summary.includes('撤回了一条消息'))).toBe(true);
+    expect(events.some((event) => event.summary.includes('太离谱'))).toBe(false);
+    expect(events.some((event) => event.payload && JSON.stringify(event.payload).includes('太离谱'))).toBe(false);
+    expect(events.some((event) => event.kind === 'memory_candidate' && event.summary.includes('撤回本身'))).toBe(true);
+    expect(applied.relationshipLedger?.length || 0).toBe(0);
+  });
+
   it('keeps relationship ledger recent events lightweight across structured commits', async () => {
     let chat = buildChat();
     const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];

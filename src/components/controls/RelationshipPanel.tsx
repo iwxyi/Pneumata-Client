@@ -35,22 +35,62 @@ const AFFECT_LABELS: Record<keyof EmotionalState, string> = {
 };
 
 const AFFECT_ORDER: Array<keyof EmotionalState> = ['irritation', 'affection', 'insecurity', 'excitement', 'embarrassment'];
-const AFFECT_THRESHOLD = 12;
+const AFFECT_THRESHOLD = 8;
 
-function buildAffectLines(member: AICharacter) {
-  if (!member.emotionalState) return [] as string[];
+function buildAffectTone(key: keyof EmotionalState, value: number) {
+  const rounded = Math.round(value);
+  const intensity = rounded >= 55 ? 'high' : rounded >= 28 ? 'mid' : 'low';
+  const labelMap: Record<keyof EmotionalState, Record<typeof intensity, string>> = {
+    irritation: { high: '明显烦躁', mid: '有点烦躁', low: '略有刺感' },
+    affection: { high: '明显亲近', mid: '更亲近', low: '有些靠近' },
+    insecurity: { high: '明显戒备', mid: '有点防备', low: '略微不安' },
+    excitement: { high: '兴致很高', mid: '有兴致', low: '被带动' },
+    embarrassment: { high: '明显尴尬', mid: '有点尴尬', low: '略不自在' },
+  };
+  const colorMap: Record<keyof EmotionalState, 'warning' | 'success' | 'info' | 'secondary' | 'default'> = {
+    irritation: 'warning',
+    affection: 'success',
+    insecurity: 'secondary',
+    excitement: 'info',
+    embarrassment: 'default',
+  };
+  return {
+    key,
+    value: rounded,
+    label: labelMap[key][intensity],
+    color: colorMap[key],
+    hint: `${AFFECT_LABELS[key]} ${rounded}，来自角色最近发言、被点名和关系互动后的情绪后效。`,
+  };
+}
+
+function buildAffectItems(member: AICharacter) {
+  if (!member.emotionalState) return [] as Array<ReturnType<typeof buildAffectTone>>;
   return AFFECT_ORDER
     .map((key) => ({ key, value: member.emotionalState?.[key] || 0 }))
     .filter((item) => Math.abs(item.value) >= AFFECT_THRESHOLD)
     .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
-    .map((item) => `${AFFECT_LABELS[item.key]} ${Math.round(item.value)}`);
+    .map((item) => buildAffectTone(item.key, item.value));
 }
 
 function RelationshipAffectCard({ member }: { member: AICharacter }) {
-  const lines = buildAffectLines(member);
+  const items = buildAffectItems(member);
   return (
     <Box sx={(theme) => ({ p: 1, borderRadius: 2, bgcolor: alpha(theme.palette.success.main, 0.06), border: `1px solid ${alpha(theme.palette.success.main, 0.18)}` })}>
-      <Typography variant="body2">{lines.length ? lines.join(' / ') : '无情绪波动'}</Typography>
+      {items.length ? (
+        <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }} useFlexGap>
+          {items.slice(0, 3).map((item) => (
+            <Tooltip key={item.key} title={item.hint} arrow>
+              <Chip size="small" color={item.color} variant="outlined" label={item.label} sx={{ height: 22, fontSize: 11 }} />
+            </Tooltip>
+          ))}
+        </Stack>
+      ) : (
+        <Tooltip title="当前没有明显情绪后效；新互动会继续改变角色的状态。" arrow>
+          <Typography variant="body2" color="text.secondary" sx={{ width: 'fit-content', cursor: 'help', '&:hover': { textDecoration: 'underline dotted', textUnderlineOffset: '3px' } }}>
+            情绪暂稳
+          </Typography>
+        </Tooltip>
+      )}
     </Box>
   );
 }
@@ -203,13 +243,19 @@ export function RelationshipRadar({ entry, onOpenAxis, compact = false }: { entr
 function RelationshipDerivedChips({ entry }: { entry: RelationshipLedgerEntry }) {
   if (!entry.derived) return null;
   const semantic = entry.derived.semantic;
+  const stability = typeof entry.derived.stability === 'number' ? Math.round(entry.derived.stability) : null;
+  const salience = typeof entry.derived.salience === 'number' ? Math.round(entry.derived.salience) : null;
+  const reciprocity = typeof entry.derived.reciprocity === 'number' ? Math.round(entry.derived.reciprocity) : null;
+  const stabilityLabel = stability === null ? '' : stability >= 70 ? '关系稳定' : stability >= 42 ? '仍在变化' : '容易摇摆';
+  const salienceLabel = salience === null ? '' : salience >= 70 ? '证据显著' : salience >= 42 ? '证据增强' : '证据较轻';
+  const reciprocityLabel = reciprocity === null ? '' : reciprocity >= 70 ? '双向接近' : reciprocity >= 42 ? '有来有回' : '单向明显';
   return (
     <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }} useFlexGap>
       {semantic ? <Tooltip title="根据关系四轴、近期趋势和证据推导的关系语义。" arrow><Chip size="small" color="primary" variant="outlined" label={semantic.stage} /></Tooltip> : null}
       {semantic?.labels?.slice(0, 3).map((label) => <Chip key={label} size="small" variant="outlined" label={label} />)}
-      {typeof entry.derived.stability === 'number' ? <Tooltip title="关系越高越稳，越低越容易继续变化。" arrow><Chip size="small" variant="outlined" label={`稳定 ${Math.round(entry.derived.stability)}`} /></Tooltip> : null}
-      {typeof entry.derived.salience === 'number' ? <Tooltip title="最近证据密度与强度。" arrow><Chip size="small" variant="outlined" label={`显著 ${Math.round(entry.derived.salience)}`} /></Tooltip> : null}
-      {typeof entry.derived.reciprocity === 'number' ? <Tooltip title="双向关系的一致程度。" arrow><Chip size="small" variant="outlined" label={`对称 ${Math.round(entry.derived.reciprocity)}`} /></Tooltip> : null}
+      {stability !== null ? <Tooltip title={`关系越高越稳，越低越容易继续变化。当前 ${stability}`} arrow><Chip size="small" variant="outlined" label={stabilityLabel} /></Tooltip> : null}
+      {salience !== null ? <Tooltip title={`最近证据密度与强度。当前 ${salience}`} arrow><Chip size="small" variant="outlined" label={salienceLabel} /></Tooltip> : null}
+      {reciprocity !== null ? <Tooltip title={`双向关系的一致程度。当前 ${reciprocity}`} arrow><Chip size="small" variant="outlined" label={reciprocityLabel} /></Tooltip> : null}
     </Stack>
   );
 }

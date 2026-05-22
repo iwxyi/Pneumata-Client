@@ -116,7 +116,7 @@ export function migrateMessageStoreState<T extends { messages?: Array<Record<str
 
 export function migrateSettingsStoreState<T extends Record<string, unknown>>(persisted: VersionedPersistedState<T>): VersionedPersistedState<T> {
   if (!persisted) return persisted;
-  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showStateEvents?: boolean; showMemoryDistillationEvents?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; dramaBoost?: boolean } | undefined) || {};
+  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showStateEvents?: boolean; showMemoryDistillationEvents?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; showWithdrawnMessageContent?: boolean; dramaBoost?: boolean } | undefined) || {};
   const artifactAppearance = (persisted.artifactAppearance as { paperVariant?: string } | undefined) || {};
   return {
     ...persisted,
@@ -129,6 +129,7 @@ export function migrateSettingsStoreState<T extends Record<string, unknown>>(per
       showMemoryDistillationEvents: Boolean(developerUI.showMemoryDistillationEvents),
       showSpeechStyle: Boolean(developerUI.showSpeechStyle),
       showAdvancedRuntimePanels: Boolean(developerUI.showAdvancedRuntimePanels),
+      showWithdrawnMessageContent: Boolean(developerUI.showWithdrawnMessageContent),
       dramaBoost: Boolean(developerUI.dramaBoost),
     },
     artifactAppearance: {

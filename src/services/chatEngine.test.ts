@@ -129,4 +129,64 @@ describe('chatEngine streaming preview', () => {
     expect(metadata?.runtimeDecision?.directorIntent?.targetLineId).toBe('conflict-1');
     expect(metadata?.runtimeDecision?.speakerScore).toMatchObject({ actorId: 'a', finalScore: 1.2 });
   });
+
+  it('adds a larger typing delay for repair and withdrawal pressure', () => {
+    const slow = __chatEngineTestUtils.resolveInnerLifeTypingDelayMs({
+      actorId: 'a',
+      impulse: 'repair',
+      tone: 'vulnerable',
+      reason: '想找补',
+      pressure: 0.75,
+      evidence: [],
+      state: {
+        mood: { pleasure: -10, arousal: 50, dominance: 40 },
+        energy: 42,
+        attention: 50,
+        loneliness: 10,
+        repression: 72,
+        shame: 70,
+        envy: 0,
+        trustInRoom: 52,
+        ignoredStreak: 0,
+      },
+      expressionPlan: {
+        tone: 'vulnerable',
+        length: 'short',
+        messageCount: 1,
+        typoLevel: 0,
+        delayMs: 1700,
+        allowWithdraw: true,
+      },
+    }, { speed: 1 } as never);
+    const fast = __chatEngineTestUtils.resolveInnerLifeTypingDelayMs({
+      actorId: 'a',
+      impulse: 'answer',
+      tone: 'casual',
+      reason: '被点名',
+      pressure: 0.5,
+      evidence: [],
+      state: {
+        mood: { pleasure: 0, arousal: 20, dominance: 50 },
+        energy: 70,
+        attention: 70,
+        loneliness: 0,
+        repression: 10,
+        shame: 10,
+        envy: 0,
+        trustInRoom: 60,
+        ignoredStreak: 0,
+      },
+      expressionPlan: {
+        tone: 'casual',
+        length: 'short',
+        messageCount: 1,
+        typoLevel: 0,
+        delayMs: 800,
+        allowWithdraw: false,
+      },
+    }, { speed: 2 } as never);
+
+    expect(slow).toBeGreaterThan(fast);
+    expect(slow).toBeLessThanOrEqual(2600);
+  });
 });

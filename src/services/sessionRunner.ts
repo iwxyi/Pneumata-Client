@@ -4,7 +4,7 @@ import type { SessionGenerationContext } from '../types/sessionEngine';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import { runOneRound } from './chatEngine';
-import { runSessionCommitPipeline } from './sessionCommitPipeline';
+import { commitGeneratedMessageTurn } from './generatedMessageTurnCommit';
 import { resolveSessionEngine } from './sessionEngineRegistry';
 import { createSessionRuntimeContext } from './sessionEngineKernel';
 import { runSessionActionExecutor } from './sessionActionExecutors/sessionActionExecutorRegistry';
@@ -257,7 +257,7 @@ export async function runSessionLoop(params: {
             if (!isActiveLoop(params)) return;
             params.onCommitStarted?.();
             try {
-              await runSessionCommitPipeline({
+              await commitGeneratedMessageTurn({
                 api: resolveCommitApiConfig(params.api),
                 chatId: params.chatId,
                 chat: currentChat,

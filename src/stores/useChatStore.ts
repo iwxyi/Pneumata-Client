@@ -138,15 +138,51 @@ interface PersistedChatState {
   pendingOperations: PendingChatOperation[];
 }
 
+const CHAT_RUNTIME_PERSIST_LIMITS = {
+  layeredMemories: 80,
+  runtimeSeedNotes: 40,
+  runtimeSeedArtifacts: 40,
+  runtimeTimeline: 80,
+  runtimeEventsV2: 120,
+  relationshipLedger: 120,
+};
+
+function takeRecentItems<T>(items: T[] | undefined, limit: number): T[] {
+  if (!Array.isArray(items)) return [];
+  return items.length > limit ? items.slice(-limit) : items;
+}
+
+function compactRuntimeSeedForPersistence(runtimeSeed: GroupChat['runtimeSeed']): GroupChat['runtimeSeed'] {
+  return {
+    notes: takeRecentItems(runtimeSeed?.notes, CHAT_RUNTIME_PERSIST_LIMITS.runtimeSeedNotes),
+    artifacts: takeRecentItems(runtimeSeed?.artifacts, CHAT_RUNTIME_PERSIST_LIMITS.runtimeSeedArtifacts),
+  };
+}
+
+function compactChatRuntimeFieldsForPersistence<T extends Partial<GroupChat>>(chat: T): T {
+  return {
+    ...chat,
+    ...(chat.layeredMemories !== undefined ? {
+      layeredMemories: takeRecentItems(chat.layeredMemories, CHAT_RUNTIME_PERSIST_LIMITS.layeredMemories),
+    } : {}),
+    ...(chat.runtimeSeed !== undefined ? {
+      runtimeSeed: compactRuntimeSeedForPersistence(chat.runtimeSeed),
+    } : {}),
+    ...(chat.runtimeTimeline !== undefined ? {
+      runtimeTimeline: takeRecentItems(chat.runtimeTimeline, CHAT_RUNTIME_PERSIST_LIMITS.runtimeTimeline),
+    } : {}),
+    ...(chat.runtimeEventsV2 !== undefined ? {
+      runtimeEventsV2: takeRecentItems(chat.runtimeEventsV2, CHAT_RUNTIME_PERSIST_LIMITS.runtimeEventsV2),
+    } : {}),
+    ...(chat.relationshipLedger !== undefined ? {
+      relationshipLedger: takeRecentItems(chat.relationshipLedger, CHAT_RUNTIME_PERSIST_LIMITS.relationshipLedger),
+    } : {}),
+  };
+}
+
 function compactChatPatchForCloud(patch: PendingChatOperation['patch']) {
   if (!patch || typeof patch !== 'object') return {};
-  const nextPatch = { ...patch };
-  delete nextPatch.layeredMemories;
-  delete nextPatch.runtimeSeed;
-  delete nextPatch.runtimeTimeline;
-  delete nextPatch.runtimeEventsV2;
-  delete nextPatch.relationshipLedger;
-  delete nextPatch.worldState;
+  const nextPatch = compactChatRuntimeFieldsForPersistence({ ...patch } as Partial<GroupChat>) as Record<string, unknown>;
   delete nextPatch.updatedAt;
   delete nextPatch.lastMessageAt;
   return nextPatch;
@@ -165,12 +201,7 @@ function buildPersistedChatState(state: PersistedChatState): PersistedChatState 
   const startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
   const persisted = {
     chats: state.chats.map((chat) => normalizeConversation({
-      ...chat,
-      layeredMemories: [],
-      runtimeSeed: { notes: [], artifacts: [] },
-      runtimeTimeline: [],
-      runtimeEventsV2: [],
-      relationshipLedger: [],
+      ...compactChatRuntimeFieldsForPersistence(chat),
     } as GroupChat)),
     currentChatId: state.currentChatId,
     lastSyncedAt: state.lastSyncedAt,
@@ -756,3 +787,9 @@ export const useChatStore = create<ChatStore>()(
     }
   )
 );
+
+export const __chatRuntimePersistenceForTests = {
+  compactChatPatchForCloud,
+  buildPersistedChatState,
+  limits: CHAT_RUNTIME_PERSIST_LIMITS,
+};

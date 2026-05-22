@@ -1,17 +1,21 @@
 import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import type { GroupChat } from '../../types/chat';
+import type { AICharacter } from '../../types/character';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 import { formatConflictHookLabels, formatConflictPressureLabel, formatConflictStageLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
 import { sanitizeDistillationTexts } from '../../services/distillationText';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { getExperienceLensLabel } from '../../services/experienceChangePresentation';
 
 interface DialogueDebugPanelProps {
   chat: GroupChat;
+  members?: AICharacter[];
 }
 
-function buildRecentSignal(chat: GroupChat) {
-  const recentEvent = chat.worldState.recentEvent || '暂无';
+function buildRecentSignal(chat: GroupChat, members: AICharacter[] = []) {
+  const recentEvent = sanitizeUserFacingText(chat.worldState.recentEvent || '暂无', members);
   const focus = chat.worldState.focus || '未设置';
   const mood = chat.worldState.mood || '未设置';
   return { recentEvent, focus, mood };
@@ -60,11 +64,11 @@ function buildProjectionTitle(item: RuntimeEventV2, isZh: boolean) {
   return formatProjectionKind(projectionKind, isZh) || formatEventKind(item.kind, isZh);
 }
 
-function buildProjectionDescription(item: RuntimeEventV2) {
+function buildProjectionDescription(item: RuntimeEventV2, members: AICharacter[] = []) {
   const payload = item.payload as Record<string, unknown>;
   const participantNames = Array.isArray(payload?.participantNames) ? payload.participantNames.filter((value): value is string => typeof value === 'string') : [];
   const topicSnippet = typeof payload?.topicSnippet === 'string' ? payload.topicSnippet : typeof payload?.summarySnippet === 'string' ? payload.summarySnippet : null;
-  return [participantNames.length ? participantNames.join(' ↔ ') : null, topicSnippet].filter(Boolean).join(' · ');
+  return sanitizeUserFacingText([participantNames.length ? participantNames.join(' ↔ ') : null, topicSnippet].filter(Boolean).join(' · '), members);
 }
 
 function buildDebugChipLabels(isZh: boolean) {
@@ -73,7 +77,7 @@ function buildDebugChipLabels(isZh: boolean) {
     : ['Speech fingerprint', 'Message archetype', 'Stance memory', 'Anti-answer filter'];
 }
 
-function buildConflictDebugState(chat: GroupChat) {
+function buildConflictDebugState(chat: GroupChat, members: AICharacter[] = []) {
   const primary = chat.worldState.conflictState?.primaryConflict;
   if (!primary) return null;
   return {
@@ -82,7 +86,7 @@ function buildConflictDebugState(chat: GroupChat) {
     severity: primary.severity.toFixed(2),
     pressure: formatConflictPressureLabel(primary.nextPressure),
     hooks: formatConflictHookLabels(primary.developmentHooks),
-    summary: primary.summary,
+    summary: sanitizeUserFacingText(primary.summary, members),
   };
 }
 
@@ -121,10 +125,12 @@ function formatMemoryDistillationMergeMode(payload: Record<string, unknown>, isZ
     };
     return labels[payload.mergeMode] || payload.mergeMode;
   }
-  return isZh ? '同 bucket 强化合并' : 'Reinforce within the same bucket';
+  return isZh ? '同类证据强化合并' : 'Reinforce similar evidence';
 }
 
 function formatMemorySourceTag(sourceTag: string | null | undefined, isZh: boolean) {
+  const lensLabel = getExperienceLensLabel(sourceTag);
+  if (lensLabel && isZh) return lensLabel;
   const labels: Record<string, string> = {
     llm_memory_objective_event: isZh ? '客观事件' : 'Objective event',
     llm_memory_character_perspective: isZh ? '主观理解' : 'Character perspective',
@@ -147,18 +153,18 @@ function buildMemoryDistillationHeadline(payload: Record<string, unknown>, isZh:
   return `${owner}蒸馏`;
 }
 
-function buildMemoryDistillationBody(payload: Record<string, unknown>) {
+function buildMemoryDistillationBody(payload: Record<string, unknown>, members: AICharacter[] = []) {
   const candidateTexts = Array.isArray(payload.candidateTexts)
     ? sanitizeDistillationTexts(payload.candidateTexts.filter((value: unknown): value is string => typeof value === 'string'))
     : [];
-  return candidateTexts;
+  return candidateTexts.map((text) => sanitizeUserFacingText(text, members));
 }
 
 function buildMemoryDistillationCaption(payload: Record<string, unknown>, isZh: boolean) {
   return `${formatMemoryDistillationCounts(payload, isZh)} · ${isZh ? '合并方式' : 'Merge'} ${formatMemoryDistillationMergeMode(payload, isZh)}`;
 }
 
-function renderMemoryDistillationBlock(chat: GroupChat, isZh: boolean) {
+function renderMemoryDistillationBlock(chat: GroupChat, isZh: boolean, members: AICharacter[] = []) {
   const runtimeEventItems = (chat.runtimeEventsV2 || [])
     .filter((item) => item.kind === 'artifact' && readMemoryDistillationPayload(item))
     .slice(-4)
@@ -175,7 +181,7 @@ function renderMemoryDistillationBlock(chat: GroupChat, isZh: boolean) {
       <Stack spacing={0.75} sx={{ mt: 0.75 }}>
         {runtimeEventItems.map((item) => {
           const payload = readMemoryDistillationPayload(item) as Record<string, unknown>;
-          const candidateTexts = buildMemoryDistillationBody(payload);
+          const candidateTexts = buildMemoryDistillationBody(payload, members);
           return (
             <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
               <Typography variant="caption" color="text.secondary">{new Date(item.createdAt).toLocaleString()}</Typography>
@@ -189,7 +195,7 @@ function renderMemoryDistillationBlock(chat: GroupChat, isZh: boolean) {
           <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
             <Typography variant="caption" color="text.secondary">{new Date(item.distilledAt || item.updatedAt).toLocaleString()}</Typography>
             <Typography variant="body2">{`${item.ownerId === chat.id ? (isZh ? '群聊记忆' : 'Chat memory') : (isZh ? '角色记忆' : 'Character memory')} · ${isZh ? '已写入核心蒸馏' : 'Distilled into long-term memory'}`}</Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'pre-wrap' }}>{item.text}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'pre-wrap' }}>{sanitizeUserFacingText(item.text, members)}</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{isZh ? `来源 ${formatMemorySourceTag(item.sourceTag, isZh)} · 强化 ${item.reinforcementCount}` : `Source ${formatMemorySourceTag(item.sourceTag, isZh)} · Reinforcement ${item.reinforcementCount}`}</Typography>
           </Box>
         )) : null}
@@ -198,8 +204,8 @@ function renderMemoryDistillationBlock(chat: GroupChat, isZh: boolean) {
   );
 }
 
-function renderConflictDebugBlock(chat: GroupChat) {
-  const state = buildConflictDebugState(chat);
+function renderConflictDebugBlock(chat: GroupChat, members: AICharacter[] = []) {
+  const state = buildConflictDebugState(chat, members);
   if (!state) return null;
   const chips = [state.type, state.stage, state.pressure ? `走向 ${state.pressure}` : ''].filter(Boolean);
   return (
@@ -216,11 +222,11 @@ function renderConflictDebugBlock(chat: GroupChat) {
   );
 }
 
-export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
+export default function DialogueDebugPanel({ chat, members = [] }: DialogueDebugPanelProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith('zh');
   const dramaBoost = useSettingsStore((state) => state.developerUI.dramaBoost);
-  const signal = buildRecentSignal(chat);
+  const signal = buildRecentSignal(chat, members);
   const latestItems = (chat.runtimeEventsV2 || []).slice(-5).reverse();
   const projectionItems = latestItems.filter((item) => {
     const payload = item.payload as Record<string, unknown>;
@@ -233,7 +239,10 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
     <Card variant="outlined">
       <CardContent>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{isZh ? '发言调试' : 'Speech debug'}</Typography>
+          <Box>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{isZh ? '发言调试' : 'Speech debug'}</Typography>
+            <Typography variant="caption" color="text.secondary">{isZh ? '用于排查发言调度、记忆蒸馏和事件投影。' : 'For inspecting speech routing, memory distillation, and event projection.'}</Typography>
+          </Box>
           <Chip size="small" label={isZh ? '调试' : 'Debug'} color="warning" variant="outlined" />
         </Box>
         <Stack spacing={1.25}>
@@ -249,7 +258,7 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
             <Typography variant="body2">{signal.recentEvent}</Typography>
           </Box>
 
-          {renderConflictDebugBlock(chat)}
+          {renderConflictDebugBlock(chat, members)}
 
           {projectionItems.length ? (
             <Box>
@@ -258,15 +267,15 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
                 {projectionItems.map((item) => (
                   <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
                     <Typography variant="caption" color="text.secondary">{buildProjectionTitle(item, isZh)} · {new Date(item.createdAt).toLocaleString()}</Typography>
-                    <Typography variant="body2">{item.summary}</Typography>
-                    {buildProjectionDescription(item) ? <Typography variant="caption" color="text.secondary">{buildProjectionDescription(item)}</Typography> : null}
+                    <Typography variant="body2">{sanitizeUserFacingText(item.summary, members)}</Typography>
+                    {buildProjectionDescription(item, members) ? <Typography variant="caption" color="text.secondary">{buildProjectionDescription(item, members)}</Typography> : null}
                   </Box>
                 ))}
               </Stack>
             </Box>
           ) : null}
 
-          {renderMemoryDistillationBlock(chat, isZh)}
+          {renderMemoryDistillationBlock(chat, isZh, members)}
 
           <Box>
             <Typography variant="caption" color="text.secondary">{isZh ? '最近结构化事件' : 'Recent structured events'}</Typography>
@@ -277,8 +286,8 @@ export default function DialogueDebugPanel({ chat }: DialogueDebugPanelProps) {
                   return (
                     <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
                       <Typography variant="caption" color="text.secondary">{formatEventKind(item.kind, isZh)} · {new Date(item.createdAt).toLocaleString()}</Typography>
-                      <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>{item.summary}</Typography>
-                      {projectionMeta ? <Typography variant="caption" color="text.secondary">{projectionMeta}</Typography> : null}
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>{sanitizeUserFacingText(item.summary, members)}</Typography>
+                      {projectionMeta ? <Typography variant="caption" color="text.secondary">{sanitizeUserFacingText(projectionMeta, members)}</Typography> : null}
                     </Box>
                   );
                 })}

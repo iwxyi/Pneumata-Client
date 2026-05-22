@@ -25,6 +25,12 @@ import { generateResponse } from '../aiClient';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
+type OpenChatCommittedMessage = Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'> & {
+  interactionHint?: InteractionEventPayload | null;
+  socialEventHints?: SocialEventHintEnvelope[] | null;
+  conflictFocus?: import('../../types/runtimeEvent').ConflictFocusPayload | null;
+};
+
 function areRuntimeValuesEqual(left: unknown, right: unknown) {
   if (left === right) return true;
   try {
@@ -1391,22 +1397,31 @@ function mergeRecentEvent(baseRecentEvent: string, structuredSummary: string | n
 async function onMessageCommitted(params: {
   conversation: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: InteractionEventPayload | null; socialEventHints?: SocialEventHintEnvelope[] | null; conflictFocus?: import('../../types/runtimeEvent').ConflictFocusPayload | null };
+  message: OpenChatCommittedMessage;
   previousAiMessage?: Pick<Message, 'senderId'> | null;
   recentMessages?: Message[];
   apiConfig?: APIConfig;
 }): Promise<DriverMessageCommitResult> {
   const config = resolveRuntimeEvolutionConfig(params.conversation.runtimeEvolutionIntensity);
-  const nextWorldStateResult = buildNextWorldState(params.conversation, params.message, config);
+  const publicMessage = params.message.metadata?.withdrawal?.withdrawn
+    ? {
+        ...params.message,
+        interactionHint: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }
+    : params.message;
+  const nextWorldStateResult = buildNextWorldState(params.conversation, publicMessage, config);
   const relationshipTransition = buildRelationshipTransition({
     conversation: params.conversation,
     characters: params.characters,
-    message: params.message,
+    message: publicMessage,
     previousAiMessage: params.previousAiMessage || null,
+    recentMessages: params.recentMessages,
     config,
   });
   const worldRuntimeEvents = buildWorldRuntimeEvents(
-    params.message,
+    publicMessage,
     params.conversation.worldState,
     nextWorldStateResult.worldState,
     nextWorldStateResult.nextConflictAxes,
@@ -1414,7 +1429,7 @@ async function onMessageCommitted(params: {
   );
   const { interaction, runtimeEventsV2, relationshipLedger, structuredRoomState } = await buildStructuredRuntime({
     conversation: params.conversation,
-    message: params.message,
+    message: publicMessage,
     characters: params.characters,
     recentMessages: params.recentMessages,
     apiConfig: params.apiConfig,
@@ -1429,13 +1444,41 @@ async function onMessageCommitted(params: {
   const effectiveRelationshipLedger = relationshipLedger.length ? relationshipLedger : fallbackRelationshipLedger;
   const commitRuntimeEvents = [
     ...relationshipTransition.runtimeEvents,
+    ...(params.message.metadata?.withdrawal?.withdrawn ? [{
+      eventType: 'message_withdrawn',
+      title: `${params.characters.find((item) => item.id === params.message.senderId)?.name || '成员'} 撤回了一条消息`,
+      summary: '这次撤回留下了一点迟疑、尴尬或关系余波，但原文不进入公开运行态。',
+      metrics: {
+        actorId: params.message.senderId,
+        reason: params.message.metadata.withdrawal.reason,
+      },
+      timelineType: 'note',
+      eventClass: 'message' as const,
+      visibilityScope: 'public' as const,
+      createdAt: Date.now(),
+    }] : []),
     ...worldRuntimeEvents,
     ...buildStructuredLegacyEvents(nextStructuredEvents, effectiveRelationshipLedger, structuredRoomState),
   ];
+  const withdrawalRuntimeEventsV2: RuntimeEventV2[] = publicMessage.metadata?.withdrawal?.withdrawn ? [
+    createRuntimeEventV2({
+      conversationId: params.conversation.id,
+      kind: 'memory_candidate',
+      summary: `${params.characters.find((item) => item.id === publicMessage.senderId)?.name || '成员'} 撤回了一条消息：撤回本身成为公开可见的余波，原文不进入公开记忆。`,
+      actorIds: [publicMessage.senderId],
+      payload: {
+        kind: 'topic',
+        text: `${params.characters.find((item) => item.id === publicMessage.senderId)?.name || '成员'} 撤回了一条消息：撤回本身成为公开可见的余波，原文不进入公开记忆。`,
+        salience: 0.59,
+        confidence: 0.7,
+      },
+      visibility: 'public',
+    }),
+  ] : [];
 
   const chatPatch = buildChatPatch(
     params.conversation,
-    params.message,
+    publicMessage,
     mergedWorldState,
     commitRuntimeEvents,
     config,
@@ -1443,10 +1486,11 @@ async function onMessageCommitted(params: {
   ) as Partial<GroupChat> & { localDistillationEvent?: DriverMessageCommitResult['runtimeEvents'][number] | null };
   const localDistillationEvent = chatPatch.localDistillationEvent || null;
   delete chatPatch.localDistillationEvent;
-  setChangedChatPatchField(chatPatch, params.conversation, 'runtimeEventsV2', runtimeEventsV2);
+  const nextRuntimeEventsV2 = [...runtimeEventsV2, ...withdrawalRuntimeEventsV2].slice(-MAX_OPEN_CHAT_RUNTIME_EVENTS);
+  setChangedChatPatchField(chatPatch, params.conversation, 'runtimeEventsV2', nextRuntimeEventsV2);
   setChangedChatPatchField(chatPatch, params.conversation, 'relationshipLedger', effectiveRelationshipLedger);
   const chatRuntimeDelta = {
-    runtimeEventsV2: buildRuntimeEventsDelta(params.conversation, runtimeEventsV2),
+    runtimeEventsV2: buildRuntimeEventsDelta(params.conversation, nextRuntimeEventsV2),
     relationshipLedger: buildRelationshipLedgerDelta(params.conversation, effectiveRelationshipLedger),
   };
   delete chatPatch.runtimeEventsV2;

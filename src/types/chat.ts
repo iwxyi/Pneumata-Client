@@ -427,7 +427,7 @@ export interface OpenChatModeDriver {
   onMessageCommitted: (params: {
     conversation: GroupChat;
     characters: AICharacter[];
-    message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null };
+    message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'> & { interactionHint?: import('./runtimeEvent').InteractionEventPayload | null };
     previousAiMessage?: Pick<Message, 'senderId'> | null;
     recentMessages?: Message[];
     apiConfig?: APIConfig;

@@ -73,6 +73,144 @@ function buildSelfStateMemoryCandidate(character: AICharacter, content: string):
   };
 }
 
+function createSoulMemoryCandidate(params: {
+  character: AICharacter;
+  targetId?: string;
+  targetName?: string;
+  content: string;
+  scope: MemoryCandidate['scope'];
+  layerHint: MemoryCandidate['layerHint'];
+  kind: MemoryCandidate['kind'];
+  text: string;
+  sourceTag: string;
+  scoreBreakdown?: MemoryCandidate['scoreBreakdown'];
+}): MemoryCandidate {
+  return {
+    scope: params.scope,
+    layerHint: params.layerHint,
+    kind: params.kind,
+    ownerId: params.character.id,
+    subjectIds: params.scope === 'relationship' && params.targetId ? [params.character.id, params.targetId] : undefined,
+    text: params.text,
+    evidenceText: params.content,
+    sourceEventIds: [buildSourceEventId(params.sourceTag, params.character.id, params.targetId, params.text)],
+    sourceTag: params.sourceTag,
+    scoreBreakdown: params.scoreBreakdown || { stability: 0.52, recurrence: 0.48, impact: 0.68, specificity: 0.72, durability: 0.5 },
+  };
+}
+
+function buildSoulStateMemoryCandidates(character: AICharacter, targetId: string | undefined, targetName: string | undefined, content: string): MemoryCandidate[] {
+  const soul = character.soulState;
+  if (!soul?.lastImpulse) return [];
+  const evidence = normalizeContentSnippet(content);
+  const evidenceLine = evidence ? `；证据是“${evidence}”` : '';
+  const candidates: MemoryCandidate[] = [];
+
+  if (soul.lastImpulse === 'repair') {
+    candidates.push(createSoulMemoryCandidate({
+      character,
+      targetId,
+      targetName,
+      content,
+      scope: 'character_self',
+      layerHint: 'episodic',
+      kind: 'trait_evidence',
+      text: `近期表达余波：话说重或嘴硬之后，会出现别扭找补、缓和关系的倾向${evidenceLine}`,
+      sourceTag: 'inner_life_repair',
+      scoreBreakdown: { stability: 0.56, recurrence: 0.5, impact: 0.72, specificity: 0.76, durability: 0.55 },
+    }));
+    if (targetId && targetName) {
+      candidates.push(createSoulMemoryCandidate({
+        character,
+        targetId,
+        targetName,
+        content,
+        scope: 'relationship',
+        layerHint: 'episodic',
+        kind: 'bond',
+        text: `对 ${targetName} 的关系余波：前面留下刺感后，仍有找补或缓和的倾向${evidenceLine}`,
+        sourceTag: 'inner_life_repair',
+        scoreBreakdown: { stability: 0.56, recurrence: 0.48, impact: 0.76, specificity: 0.74, durability: 0.54 },
+      }));
+    }
+  }
+
+  if (soul.lastImpulse === 'seek_attention' && (soul.ignoredStreak >= 2 || soul.loneliness >= 58)) {
+    candidates.push(createSoulMemoryCandidate({
+      character,
+      targetId,
+      targetName,
+      content,
+      scope: 'character_self',
+      layerHint: 'working',
+      kind: 'status_shift',
+      text: `近期群内状态：发言没被接住时，会用半句玩笑或侧面插话试探存在感${evidenceLine}`,
+      sourceTag: 'inner_life_attention',
+    }));
+  }
+
+  if (soul.lastImpulse === 'defend_face' && (soul.shame >= 52 || soul.repression >= 56)) {
+    candidates.push(createSoulMemoryCandidate({
+      character,
+      targetId,
+      targetName,
+      content,
+      scope: 'character_self',
+      layerHint: 'working',
+      kind: 'trait_evidence',
+      text: `近期面子反应：被戳到或压住话时，更容易嘴硬、岔开或把语气收尖${evidenceLine}`,
+      sourceTag: 'inner_life_face',
+      scoreBreakdown: { stability: 0.5, recurrence: 0.48, impact: 0.7, specificity: 0.72, durability: 0.5 },
+    }));
+  }
+
+  if (soul.lastImpulse === 'mock' && targetId && targetName && soul.repression >= 42) {
+    candidates.push(createSoulMemoryCandidate({
+      character,
+      targetId,
+      targetName,
+      content,
+      scope: 'relationship',
+      layerHint: 'episodic',
+      kind: 'resentment',
+      text: `对 ${targetName} 的关系刺感：压着不满时，容易用调侃、反驳或挑刺保持距离${evidenceLine}`,
+      sourceTag: 'inner_life_mock',
+      scoreBreakdown: { stability: 0.54, recurrence: 0.5, impact: 0.74, specificity: 0.74, durability: 0.52 },
+    }));
+  }
+
+  if (soul.lastImpulse === 'comfort' && targetId && targetName && soul.trustInRoom >= 48) {
+    candidates.push(createSoulMemoryCandidate({
+      character,
+      targetId,
+      targetName,
+      content,
+      scope: 'relationship',
+      layerHint: 'episodic',
+      kind: 'bond',
+      text: `对 ${targetName} 的关系暖意：在房间安全感足够时，会倾向接住或照顾对方${evidenceLine}`,
+      sourceTag: 'inner_life_comfort',
+      scoreBreakdown: { stability: 0.54, recurrence: 0.46, impact: 0.72, specificity: 0.72, durability: 0.52 },
+    }));
+  }
+
+  if (soul.repression >= 68 && !['repair', 'defend_face'].includes(soul.lastImpulse)) {
+    candidates.push(createSoulMemoryCandidate({
+      character,
+      targetId,
+      targetName,
+      content,
+      scope: 'character_self',
+      layerHint: 'working',
+      kind: 'status_shift',
+      text: `近期内在余波：有些话被压住，后续表达更容易带一点边缘感或迟疑${evidenceLine}`,
+      sourceTag: 'inner_life_repression',
+    }));
+  }
+
+  return candidates;
+}
+
 function buildDriftMemoryCandidates(character: AICharacter, drift: Partial<AICharacter['personality']>): MemoryCandidate[] {
   const entries = Object.entries(drift || {}).filter(([, value]) => typeof value === 'number' && value !== 0);
   if (!entries.length) return [];
@@ -180,6 +318,7 @@ export function updateCharacterLayeredMemories(params: {
 
   const candidates: MemoryCandidate[] = [
     primaryCandidate,
+    ...buildSoulStateMemoryCandidates(params.character, params.targetId, params.targetName, params.content),
     ...buildDriftMemoryCandidates(params.character, params.personalityDrift),
     ...buildEmotionMemoryCandidates(params.character),
     ...buildCoreProfileMemoryCandidates(params.character),

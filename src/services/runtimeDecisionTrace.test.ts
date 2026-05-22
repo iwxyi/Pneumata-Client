@@ -30,6 +30,37 @@ describe('runtimeDecisionTrace', () => {
             directorIntent: { source: 'conflict', beatType: 'challenge', pressure: 0.82, reason: '矛盾升温' },
             narrativeLines: [{ id: 'conflict-1', type: 'conflict', title: '当前矛盾', salience: 0.91, tension: 0.8, status: 'escalating' }],
             speakerScore: { actorId: 'b', finalScore: 1.234, reasons: ['conflict', 'director:challenge:target'] },
+            innerLife: {
+              impulse: 'show_off',
+              tone: 'casual',
+              reason: '想证明自己',
+              pressure: 0.64,
+              expressionPlan: {
+                length: 'normal',
+                messageCount: 2,
+                typoLevel: 1,
+                delayMs: 1600,
+                allowWithdraw: false,
+              },
+            },
+            responseSurface: {
+              kind: 'professional',
+              allowMarkdown: true,
+              preserveParagraphs: true,
+              roleFit: 'capable',
+              basis: ['mode:interview', 'topic:professional-task', 'role:capable'],
+            },
+            expressionFeedback: [{
+              id: 'fb-1',
+              label: '减少助手腔',
+              text: '用户反馈：这类回复太像通用助手',
+              evidence: '作为一个AI助手，我建议你',
+              kind: 'taboo',
+              layer: 'episodic',
+              confidence: 0.8,
+              applied: true,
+              effects: ['提示词加强反助手腔约束'],
+            }],
           },
         },
       }),
@@ -47,6 +78,17 @@ describe('runtimeDecisionTrace', () => {
       reasons: ['conflict', 'director:challenge:target'],
       reasonLabels: ['卷入当前矛盾', '适合挑战当前目标'],
       rawReasons: ['conflict', 'director:challenge:target'],
+      innerLifeLabel: '内在冲动：证明自己 · 随意 · 压力 0.64',
+      expressionLabel: '表达 常规 · 2 条气泡倾向 · 富文本',
+      expressionReasons: expect.arrayContaining(['内在冲动：证明自己', '语气：随意', '延迟：1600ms', '内心表达计划倾向拆成几拍', '输出形态允许 Markdown / 段落保留']),
+      expressionFeedbackRetrievedLabels: ['减少助手腔'],
+      expressionFeedbackAppliedLabels: ['减少助手腔'],
+      expressionFeedbackRetrievedReasons: ['已检索 · 减少助手腔 · 强度 80% · 用户反馈：这类回复太像通用助手 · 证据：作为一个AI助手，我建议你'],
+      expressionFeedbackAppliedReasons: ['已影响 · 减少助手腔 · 影响：提示词加强反助手腔约束 · 用户反馈：这类回复太像通用助手'],
+      rawExpression: 'normal/count:2/delay:1600/typo:1/withdraw:false',
+      surfaceLabel: '专业表达 · 角色能力支持 · Markdown',
+      surfaceBasis: ['面试模式', '主题请求专业表达', '角色能力支持长文'],
+      rawSurface: 'professional/capable/markdown',
     });
   });
 
@@ -70,6 +112,8 @@ describe('runtimeDecisionTrace', () => {
 
   it('formats known speaker score reasons into readable labels', () => {
     expect(formatSpeakerScoreReason('pending_reply')).toBe('有待回应对象');
+    expect(formatSpeakerScoreReason('emotion:tension')).toBe('情绪后效：想反驳或防备');
+    expect(formatSpeakerScoreReason('emotion:warmth')).toBe('情绪后效：想接话或靠近');
     expect(formatSpeakerScoreReason('director:answer:target')).toBe('被点名回应');
     expect(formatSpeakerScoreReason('director:escalate:opposition')).toBe('与目标存在对立，适合升级');
     expect(formatSpeakerScoreReason('unknown_code')).toBe('unknown_code');

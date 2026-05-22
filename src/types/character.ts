@@ -146,6 +146,40 @@ export interface EmotionalState {
   embarrassment: number;
 }
 
+export type InnerImpulse =
+  | 'answer'
+  | 'show_off'
+  | 'defend_face'
+  | 'seek_attention'
+  | 'comfort'
+  | 'repair'
+  | 'mock'
+  | 'avoid'
+  | 'change_topic'
+  | 'stay_silent'
+  | 'send_emoji'
+  | 'withdraw';
+
+export interface CharacterSoulState {
+  mood: {
+    pleasure: number;
+    arousal: number;
+    dominance: number;
+  };
+  energy: number;
+  attention: number;
+  loneliness: number;
+  repression: number;
+  shame: number;
+  envy: number;
+  trustInRoom: number;
+  ignoredStreak: number;
+  lastImpulse?: InnerImpulse;
+  lastImpulseReason?: string;
+  lastSpokeAt?: number;
+  updatedAt?: number;
+}
+
 import type { MemoryItem } from '../services/memoryTypes';
 
 export interface AICharacter {
@@ -155,6 +189,7 @@ export interface AICharacter {
   personality: PersonalityParams;
   personalityDrift?: Partial<PersonalityParams>;
   emotionalState?: EmotionalState;
+  soulState?: CharacterSoulState;
   coreProfile?: CharacterCoreProfile;
   visualIdentity?: CharacterVisualIdentity | null;
   speechProfile?: CharacterSpeechProfile;

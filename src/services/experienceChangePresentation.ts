@@ -24,6 +24,15 @@ const EXPERIENCE_LENS_LABELS: Record<string, string> = {
   llm_memory_growth_signal: '成长信号',
   llm_memory_distillation: 'LLM沉淀',
   memory_distillation: '本地蒸馏',
+  expression_feedback: '表达反馈',
+  interaction: '互动',
+  relationship_delta: '关系变化',
+  room_shift: '房间态势',
+  message_generated: '消息生成',
+  inner_life_repair: '内心找补',
+  inner_life_attention: '想被看见',
+  ai_direct_starter_message: 'AI私聊',
+  ai_direct_target_message: 'AI私聊',
 };
 
 const MEMORY_SCOPE_LABELS: Record<MemoryItem['scope'], string> = {

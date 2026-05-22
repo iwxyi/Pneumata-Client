@@ -16,6 +16,7 @@ import { updateCharacterLayeredMemories } from './characterLayeredMemory';
 import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { evolveCharacterCoreProfile } from './coreProfileEvolution';
+import { projectInnerLife } from './innerLifeEngine';
 
 const { chatGap: CHAT_DISTILLATION_TURN_COUNT, characterGap: CHARACTER_DISTILLATION_TURN_COUNT } = getLocalDistillationPolicy();
 const PRIMARY_CONFLICT_DECAY_STEP = 0.06;
@@ -306,6 +307,7 @@ export function buildRelationshipTransition(params: {
   characters: AICharacter[];
   message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('../types/runtimeEvent').InteractionEventPayload | null; interactionHints?: import('../types/runtimeEvent').InteractionEventPayload[] | null; conflictFocus?: ConflictFocusPayload | null };
   previousAiMessage?: Pick<Message, 'senderId'> | null;
+  recentMessages?: Message[];
   config?: RuntimeEvolutionConfig;
 }) {
   const runtimeEvents: DriverEventPayload[] = [];
@@ -344,16 +346,23 @@ export function buildRelationshipTransition(params: {
       const explicitDelta = inferRelationshipDelta(hint)?.delta || deriveFallbackRelationshipDelta(params.message.content);
       return updateCharacterRelationshipFromDelta({ ...speaker, relationships }, target.id, explicitDelta, config.relationshipMultiplier).relationships;
     }, speaker.relationships);
+    const projectedSpeakerSoul = projectInnerLife({
+      chat: params.conversation,
+      character: { ...speaker, relationships: updatedSpeakerRelationships, emotionalState: speakerEmotion },
+      messages: params.recentMessages || [],
+    }).state;
 
     const speakerLayeredResult = maybeDistillCharacterLayeredMemories({
       ...speaker,
       relationships: updatedSpeakerRelationships,
       emotionalState: speakerEmotion,
+      soulState: projectedSpeakerSoul,
     }, updateCharacterLayeredMemories({
       character: {
         ...speaker,
         relationships: updatedSpeakerRelationships,
         emotionalState: speakerEmotion,
+        soulState: projectedSpeakerSoul,
       },
       targetId: targetEntries[0].target.id,
       targetName: targetEntries.map(({ target }) => target.name).join('、'),
@@ -367,6 +376,7 @@ export function buildRelationshipTransition(params: {
         relationships: updatedSpeakerRelationships,
         personalityDrift: speakerDrift,
         emotionalState: speakerEmotion,
+        soulState: projectedSpeakerSoul,
         coreProfile: speakerCoreProfile,
         layeredMemories: speakerLayeredResult.layeredMemories,
         runtimeTimeline: accumulateCharacterRuntime(speaker, {
@@ -386,15 +396,22 @@ export function buildRelationshipTransition(params: {
       const updatedTarget = updateCharacterRelationshipFromDelta(target, speaker.id, reciprocalDelta, config.reciprocalRelationshipMultiplier);
       const targetEmotion = deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias);
       const targetCoreProfile = evolveCharacterCoreProfile({ character: target, content: params.message.content, emotionalState: targetEmotion });
+      const projectedTargetSoul = projectInnerLife({
+        chat: params.conversation,
+        character: { ...target, relationships: updatedTarget.relationships, emotionalState: targetEmotion },
+        messages: params.recentMessages || [],
+      }).state;
       const targetLayeredResult = maybeDistillCharacterLayeredMemories({
         ...target,
         relationships: updatedTarget.relationships,
         emotionalState: targetEmotion,
+        soulState: projectedTargetSoul,
       }, updateCharacterLayeredMemories({
         character: {
           ...target,
           relationships: updatedTarget.relationships,
           emotionalState: targetEmotion,
+          soulState: projectedTargetSoul,
         },
         targetId: speaker.id,
         targetName: speaker.name,
@@ -407,6 +424,7 @@ export function buildRelationshipTransition(params: {
         patch: {
           relationships: updatedTarget.relationships,
           emotionalState: targetEmotion,
+          soulState: projectedTargetSoul,
           coreProfile: targetCoreProfile,
           layeredMemories: targetLayeredResult.layeredMemories,
           runtimeTimeline: accumulateCharacterRuntime(target, {
@@ -531,11 +549,17 @@ export function buildRelationshipTransition(params: {
     const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
     const speakerCoreProfile = evolveCharacterCoreProfile({ character: speaker, content: params.message.content, emotionalState: speakerEmotion });
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
+    const projectedSpeakerSoul = projectInnerLife({
+      chat: params.conversation,
+      character: { ...speaker, emotionalState: speakerEmotion },
+      messages: params.recentMessages || [],
+    }).state;
     const speakerLayeredResult = maybeDistillCharacterLayeredMemories({
       ...speaker,
       emotionalState: speakerEmotion,
+      soulState: projectedSpeakerSoul,
     }, updateCharacterLayeredMemories({
-      character: { ...speaker, emotionalState: speakerEmotion },
+      character: { ...speaker, emotionalState: speakerEmotion, soulState: projectedSpeakerSoul },
       content: params.message.content,
       personalityDrift: speakerDrift,
       sourceEventTag: params.conversation.type === 'ai_direct' ? 'ai_direct_self_message' : params.conversation.type === 'direct' ? 'direct_ai_message' : 'interaction',
@@ -547,6 +571,7 @@ export function buildRelationshipTransition(params: {
       patch: {
         personalityDrift: speakerDrift,
         emotionalState: speakerEmotion,
+        soulState: projectedSpeakerSoul,
         coreProfile: speakerCoreProfile,
         layeredMemories: speakerLayeredResult.layeredMemories,
         runtimeTimeline: accumulateCharacterRuntime(speaker, {

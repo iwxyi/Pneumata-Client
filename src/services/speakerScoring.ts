@@ -10,6 +10,7 @@ export interface SpeakerScoreBreakdown {
   topicRelevance: number;
   lineInvolvement: number;
   emotionalPressure: number;
+  innerLifePressure: number;
   relationshipPressure: number;
   factionPressure: number;
   personalityDrive: number;
@@ -88,6 +89,7 @@ export function buildSpeakerScoreBreakdown(params: {
   topicRelevance: number;
   lineInvolvement: number;
   emotionalPressure: number;
+  innerLifePressure?: number;
   relationshipPressure: number;
   factionPressure?: number;
   personalityDrive: number;
@@ -105,6 +107,7 @@ export function buildSpeakerScoreBreakdown(params: {
     topicRelevance: params.topicRelevance,
     lineInvolvement: params.lineInvolvement,
     emotionalPressure: params.emotionalPressure,
+    innerLifePressure: params.innerLifePressure || 0,
     relationshipPressure: params.relationshipPressure,
     factionPressure: params.factionPressure || 0,
     personalityDrive: params.personalityDrive,

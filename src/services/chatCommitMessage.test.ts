@@ -110,4 +110,56 @@ describe('persistLocalFirstMessage', () => {
     expect(upserts[1]?.id).toBe(existingLocalMessage.id);
     expect(upserts[1]?.serverId).toBe('server-message-1');
   });
+
+  it('briefly reveals the original text before writing the withdrawn notice', async () => {
+    const upserts: Message[] = [];
+    const delays: number[] = [];
+    const existingLocalMessage: Message = {
+      id: 'local-stream-2',
+      clientKey: 'local-stream-2',
+      chatId: 'chat-1',
+      type: 'ai',
+      senderId: 'char-1',
+      senderName: '甲',
+      content: '原文',
+      emotion: 0,
+      timestamp: 333333,
+      isDeleted: false,
+      isStreaming: true,
+    };
+
+    const localMessage = await persistLocalFirstMessage({
+      existingLocalMessage,
+      message: {
+        chatId: 'chat-1',
+        type: 'ai',
+        senderId: 'char-1',
+        senderName: '甲',
+        content: '甲撤回了一条消息',
+        metadata: {
+          withdrawal: {
+            withdrawn: true,
+            originalContent: '刚才话重了点。',
+            reason: '前面的刺留下了关系修复压力。',
+            withdrawnAt: 123,
+          },
+        },
+        emotion: 0,
+      },
+      upsertMessage: (message) => {
+        upserts.push(message);
+      },
+      withdrawalRevealDelayMs: 50,
+      delay: async (ms) => {
+        delays.push(ms);
+      },
+    });
+
+    expect(localMessage.content).toBe('甲撤回了一条消息');
+    expect(delays).toEqual([50]);
+    expect(upserts[0]?.content).toBe('刚才话重了点。');
+    expect(upserts[0]?.metadata?.withdrawal?.visiblePending).toBe(true);
+    expect(upserts[1]?.content).toBe('甲撤回了一条消息');
+    expect(upserts[1]?.metadata?.withdrawal?.visiblePending).toBeUndefined();
+  });
 });

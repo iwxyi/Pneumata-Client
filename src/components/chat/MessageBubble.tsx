@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, Menu, MenuItem, Chip, Tooltip, keyframes, LinearProgress } from '@mui/material';
+import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, Menu, MenuItem, Chip, Tooltip, keyframes, LinearProgress, Divider } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -11,6 +11,8 @@ import { formatTimestamp } from '../../utils/format';
 import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
 import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
 import { getAttachmentErrorText } from './messageAttachmentDisplay';
+import MarkdownText from '../common/MarkdownText';
+import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 
 function isConflictDeveloperEvent(eventType: string | undefined) {
   return ['conflict_focus_shift', 'conflict_axis_shift'].includes(String(eventType || ''));
@@ -103,6 +105,7 @@ interface MessageBubbleProps {
   character?: AICharacter;
   onDelete?: (id: string) => void;
   onAnalyze?: (message: Message) => void;
+  onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
   pending?: boolean;
 }
 
@@ -137,9 +140,15 @@ function renderMessageContent(message: Message) {
   };
   return (
     <Box sx={{ display: 'grid', gap: 0.9 }}>
-      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
-        {message.content}
-      </Typography>
+      {message.metadata?.format === 'markdown' ? (
+        <Box sx={{ typography: 'body2', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text', '& table': { width: '100%', borderCollapse: 'collapse' }, '& th, & td': { border: '1px solid', borderColor: 'divider', px: 0.75, py: 0.4 } }}>
+          <MarkdownText text={message.content} />
+        </Box>
+      ) : (
+        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
+          {message.content}
+        </Typography>
+      )}
       {attachments.map((attachment) => {
         if (attachment.kind === 'image') {
           if (attachment.status === 'ready' && attachment.url) {
@@ -215,7 +224,24 @@ function renderPendingTypingDots() {
   );
 }
 
-export default function MessageBubble({ message, character, onDelete, onAnalyze, pending = false }: MessageBubbleProps) {
+function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>['withdrawal'] | null) {
+  if (!withdrawal?.originalContent) return '';
+  return (
+    <Box sx={{ maxWidth: 360 }}>
+      <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, mb: 0.5 }}>撤回原文</Typography>
+      <Typography variant="caption" sx={{ display: 'block', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        {withdrawal.originalContent}
+      </Typography>
+      {withdrawal.reason ? (
+        <Typography variant="caption" sx={{ display: 'block', mt: 0.75, opacity: 0.78, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {withdrawal.reason}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+}
+
+export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, pending = false }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const currentUser = useAuthStore((state) => state.user);
   const developerMode = useSettingsStore((state) => state.developerMode);
@@ -225,13 +251,16 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const showConflictEvents = useSettingsStore((state) => state.developerUI.showConflictEvents);
   const showStateEvents = useSettingsStore((state) => state.developerUI.showStateEvents);
   const showMemoryDistillationEvents = useSettingsStore((state) => state.developerUI.showMemoryDistillationEvents);
+  const showWithdrawnMessageContent = useSettingsStore((state) => state.developerUI.showWithdrawnMessageContent);
   const navigate = useNavigate();
   const location = useLocation();
   const [viewerOpen, setViewerOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
+  const [feedbackAnchorEl, setFeedbackAnchorEl] = useState<HTMLElement | null>(null);
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartRef = useRef<MenuPosition | null>(null);
   const canDelete = useMemo(() => !pending && message.type !== 'system' && Boolean(onDelete), [message.type, onDelete, pending]);
+  const canFeedback = useMemo(() => !pending && message.type === 'ai' && Boolean(onExpressionFeedback), [message.type, onExpressionFeedback, pending]);
 
   const clearPressTimer = () => {
     if (pressTimerRef.current) {
@@ -243,6 +272,11 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const openMenuAt = (x: number, y: number) => {
     if (pending) return;
     setMenuPosition({ mouseX: x, mouseY: y });
+  };
+
+  const closeMenus = () => {
+    setFeedbackAnchorEl(null);
+    setMenuPosition(null);
   };
 
   const handlePressStart = (x: number, y: number) => {
@@ -270,17 +304,22 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content);
-    setMenuPosition(null);
+    closeMenus();
   };
 
   const handleDelete = () => {
     if (onDelete) onDelete(message.id);
-    setMenuPosition(null);
+    closeMenus();
   };
 
   const handleAnalyze = () => {
     if (onAnalyze) onAnalyze(message);
-    setMenuPosition(null);
+    closeMenus();
+  };
+
+  const handleExpressionFeedback = (kind: ExpressionFeedbackKind) => {
+    if (onExpressionFeedback) onExpressionFeedback(message, kind);
+    closeMenus();
   };
 
   const handleAvatarClick = () => {
@@ -340,6 +379,19 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const wrapperJustify = isUser ? 'flex-end' : 'flex-start';
   const selfAvatar = currentUser?.avatar?.trim() || message.senderName.slice(0, 1);
   const selfAvatarAlt = currentUser?.nickname?.trim() || message.senderName;
+  const withdrawal = message.metadata?.withdrawal;
+  const isFinalWithdrawn = Boolean(withdrawal?.withdrawn && !withdrawal.visiblePending);
+  const finalWithdrawal = isFinalWithdrawn ? withdrawal : null;
+  const showWithdrawalDebug = developerMode && showWithdrawnMessageContent && Boolean(finalWithdrawal?.originalContent);
+  const withdrawalNotice = message.content || `${message.senderName}撤回了一条消息`;
+  const withdrawalNoticeNode = (
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1.25, minWidth: 0 }}>
+      <Typography variant="body2" sx={{ color: isUser ? 'rgba(15, 23, 42, 0.72)' : 'text.secondary', fontStyle: 'italic', userSelect: 'text', WebkitUserSelect: 'text', minWidth: 0 }}>
+        {withdrawalNotice}
+      </Typography>
+      {showWithdrawalDebug ? <Chip size="small" label="调试" color="warning" variant="outlined" sx={{ height: 20, flexShrink: 0 }} /> : null}
+    </Box>
+  );
 
   return (
     <>
@@ -372,7 +424,15 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
               boxShadow: bubblePreview?.boxShadow || '0 8px 24px rgba(15, 23, 42, 0.08)',
             }}
           >
-            {pending && !message.content ? renderPendingTypingDots() : renderMessageContent(message)}
+            {pending && !message.content ? renderPendingTypingDots() : isFinalWithdrawn ? (
+              showWithdrawalDebug ? (
+                <Tooltip title={buildWithdrawalDebugTitle(finalWithdrawal)} arrow placement="top" enterTouchDelay={0}>
+                  <Box sx={{ cursor: 'help', '&:hover .MuiTypography-root': { textDecoration: 'underline' } }}>
+                    {withdrawalNoticeNode}
+                  </Box>
+                </Tooltip>
+              ) : withdrawalNoticeNode
+            ) : renderMessageContent(message)}
           </Box>
         </Box>
 
@@ -394,13 +454,42 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
 
       <Menu
         open={Boolean(menuPosition)}
-        onClose={() => setMenuPosition(null)}
+        onClose={closeMenus}
         anchorReference="anchorPosition"
         anchorPosition={menuPosition ? { top: menuPosition.mouseY, left: menuPosition.mouseX } : undefined}
       >
         <MenuItem onClick={handleCopy}>复制</MenuItem>
         {onAnalyze ? <MenuItem onClick={handleAnalyze}>AI分析</MenuItem> : null}
+        {canFeedback ? (
+          <MenuItem
+            onMouseEnter={(event) => setFeedbackAnchorEl(event.currentTarget)}
+            onClick={(event) => setFeedbackAnchorEl((prev) => prev ? null : event.currentTarget)}
+            sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}
+          >
+            <Typography variant="body2">表达反馈</Typography>
+            <Typography variant="body2" color="text.secondary">›</Typography>
+          </MenuItem>
+        ) : null}
         {canDelete ? <MenuItem onClick={handleDelete}>删除</MenuItem> : null}
+      </Menu>
+      <Menu
+        open={Boolean(feedbackAnchorEl)}
+        anchorEl={feedbackAnchorEl}
+        onClose={() => setFeedbackAnchorEl(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+      >
+        {EXPRESSION_FEEDBACK_MENU_GROUPS.map((group, index) => (
+          <Box key={group.key}>
+            {index > 0 ? <Divider /> : null}
+            <Box sx={{ px: 1.5, py: 0.75 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>{group.title}</Typography>
+            </Box>
+            {group.items.map((item) => (
+              <MenuItem key={item.kind} onClick={() => handleExpressionFeedback(item.kind)}>{item.label}</MenuItem>
+            ))}
+          </Box>
+        ))}
       </Menu>
     </>
   );

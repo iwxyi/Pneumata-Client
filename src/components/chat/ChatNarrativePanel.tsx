@@ -73,11 +73,15 @@ function simplifyRelationshipSummary(summary: string) {
 function relationshipSummaryChips(summary: string) {
   const compact = simplifyRelationshipSummary(summary);
   if (!compact) return [];
-  return compact
+  const chips = compact
     .split(/[，、/]/)
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 3);
+  if (/找补|缓和|靠近/.test(summary) && !chips.some((item) => /找补|缓和|靠近/.test(item))) {
+    return ['找补/缓和', ...chips].slice(0, 3);
+  }
+  return chips;
 }
 
 function renderRelationshipChips(items: string[], tooltip: string) {
@@ -98,7 +102,7 @@ function renderRelationshipChips(items: string[], tooltip: string) {
   );
 }
 
-function renderRelationshipLine(line: NarrativeLineProjection, chat: GroupChat, members: AICharacter[], messages: Message[], showDebugDetails: boolean) {
+function renderRelationshipLine(line: NarrativeLineProjection, chat: GroupChat, members: AICharacter[], messages: Message[]) {
   const tooltip = buildNarrativeLineTooltip({ line, chat, members, messages });
   const nextBeat = line.possibleNextBeats[0];
   const title = formatNarrativeLineText(line.title, members);
@@ -113,9 +117,9 @@ function renderRelationshipLine(line: NarrativeLineProjection, chat: GroupChat, 
       {chips.length ? renderRelationshipChips(chips, tooltip) : (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.45 }}>{simplifyRelationshipSummary(summary)}</Typography>
       )}
-      {showDebugDetails && nextBeat ? (
+      {nextBeat ? (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.55 }}>
-          {hoverableText(`可能走向: ${formatBeatType(nextBeat.beatType)} · ${Math.round(nextBeat.pressure * 100)}%`, '调试信息：关系线的调度倾向，不会强制锁定剧情。')}
+          {hoverableText(`可能走向：${formatBeatType(nextBeat.beatType)}`, '用于提示这条线接下来可能发展的方向，不会强制锁定剧情。')}
         </Typography>
       ) : null}
     </Box>
@@ -123,7 +127,7 @@ function renderRelationshipLine(line: NarrativeLineProjection, chat: GroupChat, 
 }
 
 function renderLine(line: NarrativeLineProjection, chat: GroupChat, members: AICharacter[], messages: Message[], isZh: boolean, showDebugDetails: boolean) {
-  if (line.type === 'relationship') return renderRelationshipLine(line, chat, members, messages, showDebugDetails);
+  if (line.type === 'relationship') return renderRelationshipLine(line, chat, members, messages);
   const names = getNarrativeLineParticipantNames(line, members);
   const tooltip = buildNarrativeLineTooltip({ line, chat, members, messages });
   const nextBeat = line.possibleNextBeats[0];
@@ -147,9 +151,7 @@ function renderLine(line: NarrativeLineProjection, chat: GroupChat, members: AIC
       {nextBeat ? (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
           {hoverableText(
-            showDebugDetails
-              ? `${isZh ? '可能走向' : 'Likely direction'}: ${formatBeatType(nextBeat.beatType)} · ${Math.round(nextBeat.pressure * 100)}%`
-              : `${isZh ? '可能走向' : 'Likely direction'}: ${formatBeatType(nextBeat.beatType)}`,
+            `${isZh ? '可能走向' : 'Likely direction'}：${formatBeatType(nextBeat.beatType)}`,
             `${isZh ? '用于提示这条线接下来可能发展的方向，不会强制锁定剧情。' : 'A hint for where this line may develop next, not a forced plot path.'}${showDebugDetails && nextReason ? `\n${nextReason}` : ''}`,
           )}
         </Typography>

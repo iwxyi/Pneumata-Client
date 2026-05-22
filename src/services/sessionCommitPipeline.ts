@@ -11,6 +11,13 @@ export const __resetDeferredLlmDistillationStateForTests = __resetDeferredMemory
 export const __flushDeferredLlmDistillationForTests = __flushDeferredMemoryAnalysisForTests;
 export const getDeferredLlmDistillationDebugState = getDeferredMemoryAnalysisDebugState;
 
+export interface SessionCommitPipelineResult {
+  persistedMessage: Message;
+  transition: DriverMessageCommitResult;
+  nextChat: GroupChat;
+  nextCharacters: AICharacter[];
+}
+
 function wrapCommitWithFrameworkPatch(params: Parameters<typeof runChatCommitPipeline>[0]): Parameters<typeof runChatCommitPipeline>[0]['onCommit'] {
   return async (args) => {
     const transition = await params.onCommit(args);
@@ -90,7 +97,7 @@ export async function runSessionCommitPipeline(params: {
   aiProfiles?: AIModelProfile[];
   getCurrentChat?: (id: string) => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
-}) {
+}): Promise<SessionCommitPipelineResult> {
   const { persistedMessage, transition } = await runChatCommitPipeline({
     ...params,
     onCommit: wrapCommitWithFrameworkPatch(params),
@@ -112,4 +119,10 @@ export async function runSessionCommitPipeline(params: {
     getCurrentChat: params.getCurrentChat,
     getCurrentCharacters: params.getCurrentCharacters,
   });
+  return {
+    persistedMessage,
+    transition,
+    nextChat,
+    nextCharacters,
+  };
 }

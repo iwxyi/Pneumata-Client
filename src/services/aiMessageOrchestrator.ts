@@ -4,7 +4,7 @@ import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { SessionGenerationPromptContext } from '../types/sessionEngine';
 import { createCommittedLocalMessage } from './chatCommitMessage';
-import { runSessionCommitPipeline } from './sessionCommitPipeline';
+import { commitGeneratedMessageTurn } from './generatedMessageTurnCommit';
 import { generateSpeakerMessage } from './chatEngine';
 
 export async function generateAndCommitAiMessage(params: {
@@ -67,7 +67,7 @@ export async function generateAndCommitAiMessage(params: {
     },
   });
 
-  return runSessionCommitPipeline({
+  return commitGeneratedMessageTurn({
     api: params.api,
     chatId: params.chatId,
     chat: params.chat,

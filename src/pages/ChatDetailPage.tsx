@@ -38,6 +38,7 @@ import { buildDirectMemoryPanelContext } from '../services/promptBuilder';
 import type { AICharacter } from '../types/character';
 import type { Message } from '../types/message';
 import { shouldDiscardStreamingDraft } from '../services/streamingMessageLifecycle';
+import { buildExpressionFeedbackPatch, getExpressionFeedbackLabel, type ExpressionFeedbackKind } from '../services/characterExpressionFeedback';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -633,6 +634,18 @@ export default function ChatDetailPage() {
     setSpeakAsCharacter(null);
   }, [addMessageStable, characters, chat, id, setSpeakAsCharacter, speakAsCharacterId]);
 
+  const handleExpressionFeedback = useCallback(async (message: Message, kind: ExpressionFeedbackKind) => {
+    if (message.type !== 'ai') return;
+    const character = characters.find((item) => item.id === message.senderId);
+    if (!character) {
+      setSnackbar({ open: true, message: '未找到这个角色，无法记录反馈', severity: 'error' });
+      return;
+    }
+    const patch = buildExpressionFeedbackPatch({ character, message, kind });
+    await updateCharacter(character.id, patch);
+    setSnackbar({ open: true, message: `已记录反馈：${getExpressionFeedbackLabel(kind)}`, severity: 'success' });
+  }, [characters, updateCharacter]);
+
   const runSurfaceIntent = useCallback(async (surfaceResult: SessionNormalizedIntentResult) => {
     if (!chat) return;
     const { buildActionFromIntent, buildBoardArtifactEventSummary } = await import('../types/sessionEngine');
@@ -910,6 +923,7 @@ export default function ChatDetailPage() {
             characters={characters}
             onDeleteMessage={deleteMessage}
             onAnalyzeMessage={handleAnalyzeMessage}
+            onExpressionFeedback={handleExpressionFeedback}
             onReachTop={handleNearTop}
             isLoadingOlder={isLoadingOlder}
             hasMore={hasMore}

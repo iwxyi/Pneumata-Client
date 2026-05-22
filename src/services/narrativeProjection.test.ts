@@ -177,7 +177,49 @@ describe('projectNarrativeLines', () => {
     });
     const relationship = lines.find((line) => line.id === 'relationship:a->b');
     expect(relationship?.summary).toBe('甲 对 乙：信任偏低，亲和偏低。');
-    expect(relationship?.possibleNextBeats[0]?.reason).toBe('关系账本中的变化已经足够显著。');
+    expect(relationship?.possibleNextBeats[0]?.reason).toBe('甲 对 乙：信任偏低，亲和偏低。');
+  });
+
+  it('projects relationship repair impulse as a softening relationship line', () => {
+    const repairingCharacter: AICharacter = {
+      ...buildCharacter('a', '甲'),
+      soulState: {
+        mood: { pleasure: -5, arousal: 36, dominance: 42 },
+        energy: 55,
+        attention: 58,
+        loneliness: 12,
+        repression: 48,
+        shame: 62,
+        envy: 0,
+        trustInRoom: 56,
+        ignoredStreak: 0,
+        lastImpulse: 'repair',
+        lastImpulseReason: '前面的刺或嘴硬留下了关系余波，现在有一点找补、缓和或别扭靠近的冲动。',
+      },
+    };
+    const lines = projectNarrativeLines({
+      chat: buildChat({
+        relationshipLedger: [{
+          pairKey: 'a->b',
+          actorId: 'a',
+          targetId: 'b',
+          current: { warmth: -8, competence: 5, trust: -16, threat: 28 },
+          derived: { salience: 84, semantic: { stage: '复杂拉扯', labels: ['又在意又防备'], summary: '复杂拉扯：又在意又防备', intensity: 70 } },
+          axisReasons: {},
+          trend: 'volatile',
+          recentEvents: [{ id: 'event-repair', kind: 'relationship_delta', createdAt: 10, summary: '甲刚才话说重了' }],
+          lastUpdatedAt: 10,
+        }],
+      }),
+      characters: [repairingCharacter, buildCharacter('b', '乙')],
+      messages: [buildMessage({ content: '行，当我没说。' })],
+      now: 20,
+    });
+
+    const relationship = lines.find((line) => line.id === 'relationship:a->b');
+    expect(relationship?.summary).toContain('找补');
+    expect(relationship?.openQuestions[0]).toContain('找补');
+    expect(relationship?.possibleNextBeats[0]?.beatType).toBe('defend');
   });
 
   it('projects soft faction lines from character groups', () => {

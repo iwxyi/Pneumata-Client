@@ -1,4 +1,4 @@
-import { Box, Typography, Avatar, IconButton, Menu, MenuItem, List, ListItem, ListItemAvatar, Chip, Stack, Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
+import { Box, Typography, Avatar, IconButton, Menu, MenuItem, List, ListItem, ListItemAvatar, Chip, Stack, Dialog, DialogTitle, DialogContent, DialogActions, Button, Tooltip } from '@mui/material';
 import { RelationshipRadar } from './RelationshipPanel';
 import { getAffectChipColor, getRuntimeAffectMemberIndicators, getRuntimeAffectMemberShape, hasRuntimeAffectIndicators } from '../../services/personalityDrift';
 import { isImageAvatar } from '../../utils/avatar';
@@ -9,6 +9,8 @@ import SortableList from '../common/SortableList';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
+import { buildMemberExpressionFeedbackChips, buildMemberInnerLifeChips } from '../../services/memberInnerLifePresentation';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 
 interface MemberListProps {
   members: AICharacter[];
@@ -34,9 +36,12 @@ function buildMemberSubtitle(member: AICharacter, thinkingId: string | null, thi
 
 export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onUpdateSeats }: MemberListProps) {
   const { t, i18n } = useTranslation();
+  const developerMode = useSettingsStore((state) => state.developerMode);
+  const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [menuCharId, setMenuCharId] = useState<string | null>(null);
   const [seatDialogOpen, setSeatDialogOpen] = useState(false);
+  const showDebugDetails = developerMode && showAdvancedRuntimePanels;
 
   const resolvedSeatOrder = useMemo(() => {
     const orderedSeatIds = chat?.scenarioState?.seats
@@ -93,6 +98,8 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
       <List dense disablePadding sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 0.5 }}>
         {visibleMembers.map((member) => {
           const memberStatus = buildMemberStatus(member);
+          const innerLifeChips = buildMemberInnerLifeChips(member, i18n.language);
+          const expressionFeedbackChips = buildMemberExpressionFeedbackChips(member, i18n.language, showDebugDetails);
           const runtimeAffect = getRuntimeAffectMemberIndicators(member, i18n.language);
           const runtimeAffectVisible = hasRuntimeAffectIndicators(member);
           const runtimeAffectRadar = getRuntimeAffectMemberShape(member);
@@ -130,6 +137,28 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                       {memberStatus.map((label) => <Chip key={`${member.id}-${label}`} size="small" label={label} variant="outlined" />)}
+                      {innerLifeChips.map((item) => (
+                        <Tooltip key={`${member.id}-inner-${item.label}`} title={item.hint} arrow placement="top">
+                          <Chip
+                            size="small"
+                            label={item.label}
+                            color={item.color}
+                            variant="outlined"
+                            sx={{ height: 20, cursor: 'help', '& .MuiChip-label': { px: 0.8 } }}
+                          />
+                        </Tooltip>
+                      ))}
+                      {expressionFeedbackChips.map((item) => (
+                        <Tooltip key={`${member.id}-expression-${item.label}`} title={item.hint} arrow placement="top">
+                          <Chip
+                            size="small"
+                            label={item.label}
+                            color={item.color}
+                            variant="outlined"
+                            sx={{ height: 20, cursor: 'help', '& .MuiChip-label': { px: 0.8 } }}
+                          />
+                        </Tooltip>
+                      ))}
                     </Box>
                     {runtimeAffectVisible ? (
                       <Box sx={{ mt: 0.25, display: 'grid', gridTemplateColumns: '48px minmax(0, 1fr)', gap: 0.6, alignItems: 'center' }}>

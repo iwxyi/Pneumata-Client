@@ -73,7 +73,9 @@ describe('INTERVIEW_ENGINE', () => {
     const chat = buildChat();
     const context = INTERVIEW_ENGINE.buildGenerationPromptContext?.({ conversation: chat, characters: [], messages: [], speaker: buildCharacter('candidate-a', '候选人甲') });
     expect(context?.promptPrefix).toContain('replying inside a structured interview');
-    expect(context?.additionalConstraints?.[0]).toContain('compact answer');
+    expect(context?.responseStyle).toBe('professional');
+    expect(context?.allowMarkdown).toBe(true);
+    expect(context?.additionalConstraints?.[0]).toContain('do not artificially shorten');
   });
 
   it('commits interviewer turns into moderator-only structured events and debating phase', async () => {

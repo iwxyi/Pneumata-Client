@@ -664,15 +664,15 @@ export function summarizeMemoryDistillationDebugInfo(info: MemoryDistillationDeb
 }
 
 export function explainMemoryDistillationMerge() {
-  return 'same bucket memories reinforce/update; different buckets coexist in layeredMemories';
+  return '同类记忆会强化或修订，主题不同的记忆会并存于多层记忆中';
 }
 
 export function describeMemoryDistillationStrategy() {
-  return 'distillation uses recent working/episodic evidence and writes distilled long_term candidates back into layeredMemories';
+  return '记忆蒸馏会读取近期工作记忆和片段记忆，把稳定沉淀写回长期记忆';
 }
 
 export function getMemoryDistillationConsoleHint() {
-  return 'Check [memory-distillation] console logs and memory_distillation runtime events.';
+  return '查看 [memory-distillation] 控制台日志和记忆蒸馏运行事件。';
 }
 
 export function buildMemoryDistillationRuntimePayload(info: MemoryDistillationDebugInfo) {
@@ -692,8 +692,8 @@ export function buildMemoryDistillationRuntimePayload(info: MemoryDistillationDe
     eligibleCount: info.eligibleCount,
     newEvidenceCount: info.newEvidenceCount,
     candidateTexts,
-    mergeMode: 'bucket_reinforce',
-    mergeModeLabel: '同 bucket 强化合并',
+    mergeMode: 'reinforce_same_bucket',
+    mergeModeLabel: '同类证据强化合并',
     note: explainMemoryDistillationMerge(),
     strategy: describeMemoryDistillationStrategy(),
     usesLLM: info.reason === 'llm_distilled',

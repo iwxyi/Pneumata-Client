@@ -7,6 +7,7 @@ import type { ConflictFocusState } from '../../types/runtimeEvent';
 import { isUserFacingMemoryItem } from '../../services/memoryPresentation';
 import { classifyRuntimeArtifactSeedLine } from '../../services/runtimeSeed';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 
 interface RuntimeSeedSectionProps {
   editingChatId?: string;
@@ -101,30 +102,14 @@ function buildNameMap(characters: AICharacter[]) {
 }
 
 function cleanRuntimeText(text: string | undefined, nameMap: Map<string, string>) {
-  let next = String(text || '').trim();
-  nameMap.forEach((name, id) => {
-    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = id.length < 8
-      ? new RegExp(`(^|[^\\p{L}\\p{N}_-])${escaped}(?=$|[^\\p{L}\\p{N}_-])`, 'gu')
-      : new RegExp(escaped, 'g');
-    next = next.replace(pattern, (match, prefix = '') => `${prefix}${name || '成员'}`);
-  });
-  return next
-    .replace(/memory_candidate/g, '记忆候选')
-    .replace(/relationship_delta/g, '关系变化')
-    .replace(/room_shift/g, '房间态势')
-    .replace(/message_generated/g, '消息生成')
-    .replace(/episodic/g, '片段记忆')
-    .replace(/long_term/g, '长期记忆')
-    .replace(/working/g, '工作记忆')
-    .replace(/resentment/g, '不满')
-    .replace(/status_shift/g, '状态变化')
-    .replace(/trait_evidence/g, '性格证据')
-    .replace(/thread_effect/g, '线程影响')
-    .replace(/bond/g, '亲近')
-    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '成员')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+  return sanitizeUserFacingText(String(text || '').trim(), Array.from(nameMap.entries()).map(([id, name]) => ({ id, name })));
+}
+
+function memoryStrengthLabel(salience: number | undefined) {
+  const value = typeof salience === 'number' && Number.isFinite(salience) ? salience : 0;
+  if (value >= 0.78) return '印象很深';
+  if (value >= 0.5) return '印象明确';
+  return '印象较轻';
 }
 
 function clampDisplayMetric(value: number | undefined) {
@@ -326,7 +311,16 @@ export default function RuntimeSeedSection(props: RuntimeSeedSectionProps) {
     `更新 ${formatDateTime(props.editingChatUpdatedAt)}`,
     `最后消息 ${formatDateTime(props.editingChatLastMessageAt)}`,
   ].join('\n');
-  const runtimeSummary = `${props.runtimePhaseLabel} · ${props.runtimeMoodLabel} · ${props.runtimeFocusLabel} · ${props.selectedMembers.length} 人`;
+  const memorySourceSummary = `${STYLE_LABELS[props.style] || props.style} · ${props.selectedMembers.length} 名成员 · 变化${runtimeIntensityLabel(props.runtimeEvolutionIntensity)}`;
+  const memorySourceTooltip = [
+    `会话：${props.name || '未命名'} / ${STYLE_LABELS[props.style] || props.style}`,
+    `主题：${props.topic || '未设置'}`,
+    `成员：${props.selectedMembers.length} 人`,
+    `变化强度：${runtimeIntensityLabel(props.runtimeEvolutionIntensity)}`,
+    includeDebug ? `阶段：${props.runtimePhaseLabel} / 气氛：${props.runtimeMoodLabel} / 焦点：${props.runtimeFocusLabel}` : '',
+    includeDebug ? `最近事件：${cleanRuntimeText(props.runtimeRecentEventLabel, nameMap)}` : '',
+    includeDebug ? summarizeLifecycleTitle(lifecycleTitle) : '',
+  ].filter(Boolean).join('\n');
   const conflictSummary = `活跃 ${conflictProjection.counts.active} / 张力 ${conflictProjection.counts.axes} / 历史 ${conflictProjection.counts.history}`;
   const relationshipSummary = `关系 ${relationshipItems.length} 条`;
   const memorySummary = `记忆 ${allMemoryItems.length} 条`;
@@ -359,7 +353,7 @@ export default function RuntimeSeedSection(props: RuntimeSeedSectionProps) {
                 <Typography variant="caption" color="text.secondary">
                   {includeDebug
                     ? `${MEMORY_LAYER_LABELS[item.layer]} / ${MEMORY_KIND_LABELS[item.kind]} / 显著性 ${Math.round(item.salience * 100)}`
-                    : `${MEMORY_KIND_LABELS[item.kind]}`}
+                    : `${MEMORY_KIND_LABELS[item.kind]} · ${memoryStrengthLabel(item.salience)}`}
                 </Typography>
                 <Typography variant="body2">{cleanRuntimeText(item.summary || item.text, nameMap)}</Typography>
               </Box>
@@ -418,17 +412,17 @@ export default function RuntimeSeedSection(props: RuntimeSeedSectionProps) {
         </CardContent>
       </Card>
 
-      <Typography variant="caption" color="text.secondary">下面是当前会话记忆的来源与结构，用于整理前情、关系和矛盾。</Typography>
+      <Typography variant="caption" color="text.secondary">下面只整理会话级记忆来源。当前轮运行、最近发言和调度原因请在聊天页运行态查看。</Typography>
 
       <Card variant="outlined">
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>会话记忆概况</Typography>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>记忆来源</Typography>
             {includeDebug ? <Box sx={{ ml: 'auto' }}><DebugChip /></Box> : null}
           </Box>
           <Stack spacing={0.75}>
-            <Typography variant="body2">{tooltipText(runtimeSummary, `会话：${props.name || '未命名'} / ${STYLE_LABELS[props.style] || props.style}\n主题：${props.topic || '未设置'}\n最近事件：${cleanRuntimeText(props.runtimeRecentEventLabel, nameMap)}\n变化强度：${runtimeIntensityLabel(props.runtimeEvolutionIntensity)}\n${includeDebug ? summarizeLifecycleTitle(lifecycleTitle) : '时间信息'}`)}</Typography>
-            <Typography variant="caption" color="text.secondary">{includeDebug ? summarizeLifecycleTitle(lifecycleTitle) : '来自当前会话的阶段、焦点和最近事件'}</Typography>
+            <Typography variant="body2">{tooltipText(memorySourceSummary, memorySourceTooltip)}</Typography>
+            <Typography variant="caption" color="text.secondary">用于决定前情、长期记忆、矛盾记忆和关系记忆如何沉淀，不展示当前聊天页的动态运行状态。</Typography>
           </Stack>
         </CardContent>
       </Card>

@@ -145,9 +145,11 @@ export function buildInterviewGenerationPromptContext(params: { conversation: Gr
   const role = getInterviewScenarioRole(params.conversation, params.speaker.id);
   return {
     promptPrefix: role === 'interviewer'
-      ? 'You are currently driving a structured interview. Ask concise, targeted questions that move evaluation forward.'
-      : 'You are replying inside a structured interview. Answer concretely, stay on topic, and avoid group-chat drift.',
-    additionalConstraints: [role === 'interviewer' ? 'Prefer one high-signal question or follow-up.' : 'Prefer a compact answer with one concrete supporting detail.'],
+      ? 'You are currently driving a structured interview. Ask targeted, high-signal questions that move evaluation forward. The question may be short or a professional long case prompt when the interview needs it.'
+      : 'You are replying inside a structured interview. Answer concretely, stay on topic, and avoid group-chat drift. Use enough detail when the question requires professional reasoning.',
+    responseStyle: 'professional' as const,
+    allowMarkdown: true,
+    additionalConstraints: [role === 'interviewer' ? 'Prefer one high-signal question or follow-up; do not artificially shorten a case prompt, system-design prompt, or scenario question.' : 'Prefer a concrete answer with supporting details; do not artificially shorten technical or professional reasoning.'],
   };
 }
 

@@ -78,6 +78,9 @@ async function createCharacterRemote(charData: Omit<AICharacter, 'id' | 'created
     speakingStyle: charData.speakingStyle,
     background: charData.background,
     group: normalizeCharacterGroup(charData.group),
+    personalityDrift: charData.personalityDrift,
+    emotionalState: charData.emotionalState,
+    soulState: charData.soulState,
     coreProfile: charData.coreProfile,
     visualIdentity: charData.visualIdentity,
     speechProfile: charData.speechProfile,
@@ -291,18 +294,35 @@ interface PersistedCharacterState {
   pendingOperations: PendingCharacterOperation[];
 }
 
+const CHARACTER_RUNTIME_PERSIST_LIMITS = {
+  layeredMemories: 80,
+  runtimeTimeline: 80,
+};
+
+function takeRecentItems<T>(items: T[] | undefined, limit: number): T[] {
+  if (!Array.isArray(items)) return [];
+  return items.length > limit ? items.slice(-limit) : items;
+}
+
+function compactCharacterRuntimeFieldsForPersistence<T extends Partial<AICharacter>>(character: T): T {
+  return {
+    ...character,
+    ...(character.layeredMemories !== undefined ? {
+      layeredMemories: takeRecentItems(character.layeredMemories, CHARACTER_RUNTIME_PERSIST_LIMITS.layeredMemories),
+    } : {}),
+    ...(character.runtimeTimeline !== undefined ? {
+      runtimeTimeline: takeRecentItems(character.runtimeTimeline, CHARACTER_RUNTIME_PERSIST_LIMITS.runtimeTimeline),
+    } : {}),
+  };
+}
+
 function persistCharacterAvatarForCloud(avatar: string) {
   return /^data:/i.test(avatar) ? '' : avatar;
 }
 
 function compactCharacterPatchForCloud(patch: PendingCharacterOperation['patch']) {
   if (!patch || typeof patch !== 'object') return {};
-  const nextPatch = { ...patch };
-  delete nextPatch.relationships;
-  delete nextPatch.layeredMemories;
-  delete nextPatch.runtimeTimeline;
-  delete nextPatch.emotionalState;
-  delete nextPatch.personalityDrift;
+  const nextPatch = compactCharacterRuntimeFieldsForPersistence({ ...patch } as Partial<AICharacter>) as Record<string, unknown>;
   delete nextPatch.updatedAt;
   return nextPatch;
 }
@@ -320,6 +340,22 @@ function buildPersistedCharacterState(state: PersistedCharacterState): Persisted
       bubbleStyleId: character.bubbleStyleId || null,
       modelProfileId: character.modelProfileId || null,
       modelProfileIds: character.modelProfileIds,
+      personality: character.personality,
+      personalityDrift: character.personalityDrift,
+      emotionalState: character.emotionalState,
+      soulState: character.soulState,
+      coreProfile: character.coreProfile,
+      speechProfile: character.speechProfile,
+      voiceConfig: character.voiceConfig,
+      behavior: character.behavior,
+      expertise: character.expertise,
+      speakingStyle: character.speakingStyle,
+      background: character.background,
+      relationships: character.relationships,
+      memory: character.memory,
+      layeredMemories: takeRecentItems(character.layeredMemories, CHARACTER_RUNTIME_PERSIST_LIMITS.layeredMemories),
+      intervention: character.intervention,
+      runtimeTimeline: takeRecentItems(character.runtimeTimeline, CHARACTER_RUNTIME_PERSIST_LIMITS.runtimeTimeline),
       isPreset: character.isPreset,
       deletedAt: character.deletedAt ?? null,
       createdAt: character.createdAt,
@@ -968,3 +1004,9 @@ export const useCharacterStore = create<CharacterStore>()(
     }
   )
 );
+
+export const __characterRuntimePersistenceForTests = {
+  compactCharacterPatchForCloud,
+  buildPersistedCharacterState,
+  limits: CHARACTER_RUNTIME_PERSIST_LIMITS,
+};
