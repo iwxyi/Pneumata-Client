@@ -1,6 +1,5 @@
 import { Box, Typography, Avatar, IconButton, Menu, MenuItem, List, ListItem, ListItemAvatar, Chip, Stack, Dialog, DialogTitle, DialogContent, DialogActions, Button, Tooltip } from '@mui/material';
-import { RelationshipRadar } from './RelationshipPanel';
-import { getAffectChipColor, getRuntimeAffectMemberIndicators, getRuntimeAffectMemberShape, hasRuntimeAffectIndicators } from '../../services/personalityDrift';
+import { getAffectChipColor, getRuntimeAxisLabel } from '../../services/personalityDrift';
 import { isImageAvatar } from '../../utils/avatar';
 import MoreIcon from '@mui/icons-material/MoreVert';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
@@ -21,17 +20,28 @@ interface MemberListProps {
   onUpdateSeats?: (memberIds: string[]) => void;
 }
 
-function buildMemberStatus(member: AICharacter) {
-  const chips = [] as string[];
-  if (member.relationships.some((relation) => relation.warmth >= 12 || relation.competence >= 12 || relation.trust >= 12)) chips.push('高好感');
-  if (member.relationships.some((relation) => relation.threat >= 12 || relation.warmth <= -12 || relation.trust <= -12)) chips.push('有冲突');
-  return chips;
-}
-
 function buildMemberSubtitle(member: AICharacter, thinkingId: string | null, thinkingLabel: string) {
   if (thinkingId === member.id) return thinkingLabel;
-  if (member.group?.trim()) return member.group;
-  return member.expertise.slice(0, 2).join(', ');
+  return '';
+}
+
+function buildMemberEmotionChips(member: AICharacter, language: string) {
+  const emotionalState = member.emotionalState;
+  if (!emotionalState) return [];
+  return Object.entries(emotionalState)
+    .map(([key, value]) => ({ key, value: Number(value) || 0 }))
+    .filter((item) => item.value >= 12)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 2)
+    .map((item) => {
+      const label = getRuntimeAxisLabel(item.key, language);
+      return {
+        label: `${label} ${Math.round(item.value)}`,
+        hint: language.startsWith('zh')
+          ? `${label}来自最近几轮互动造成的短时情绪，不代表永久人格。`
+          : `${label} is a short-term emotion from recent interactions, not a permanent trait.`,
+      };
+    });
 }
 
 export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onUpdateSeats }: MemberListProps) {
@@ -97,12 +107,10 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
       </Box>
       <List dense disablePadding sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 0.5 }}>
         {visibleMembers.map((member) => {
-          const memberStatus = buildMemberStatus(member);
           const innerLifeChips = buildMemberInnerLifeChips(member, i18n.language);
           const expressionFeedbackChips = buildMemberExpressionFeedbackChips(member, i18n.language, showDebugDetails);
-          const runtimeAffect = getRuntimeAffectMemberIndicators(member, i18n.language);
-          const runtimeAffectVisible = hasRuntimeAffectIndicators(member);
-          const runtimeAffectRadar = getRuntimeAffectMemberShape(member);
+          const emotionChips = buildMemberEmotionChips(member, i18n.language);
+          const subtitle = buildMemberSubtitle(member, thinkingId, t('controls.thinking'));
           return (
             <ListItem
               key={member.id}
@@ -132,11 +140,12 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>{member.name}</Typography>
                 <Box sx={{ mt: 0.25 }}>
                   <Stack spacing={0.5}>
-                    <Typography variant="caption" color={thinkingId === member.id ? 'primary.main' : 'text.secondary'}>
-                      {buildMemberSubtitle(member, thinkingId, t('controls.thinking'))}
-                    </Typography>
+                    {subtitle ? (
+                      <Typography variant="caption" color={thinkingId === member.id ? 'primary.main' : 'text.secondary'}>
+                        {subtitle}
+                      </Typography>
+                    ) : null}
                     <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                      {memberStatus.map((label) => <Chip key={`${member.id}-${label}`} size="small" label={label} variant="outlined" />)}
                       {innerLifeChips.map((item) => (
                         <Tooltip key={`${member.id}-inner-${item.label}`} title={item.hint} arrow placement="top">
                           <Chip
@@ -160,12 +169,19 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                         </Tooltip>
                       ))}
                     </Box>
-                    {runtimeAffectVisible ? (
-                      <Box sx={{ mt: 0.25, display: 'grid', gridTemplateColumns: '48px minmax(0, 1fr)', gap: 0.6, alignItems: 'center' }}>
-                        <RelationshipRadar entry={runtimeAffectRadar} onOpenAxis={() => undefined} compact />
-                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                          {runtimeAffect.map((label) => <Chip key={`${member.id}-affect-${label}`} size="small" label={label} variant="filled" color={getAffectChipColor(label)} sx={{ height: 20, '& .MuiChip-label': { px: 0.8 } }} />)}
-                        </Box>
+                    {emotionChips.length ? (
+                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                        {emotionChips.map((item) => (
+                          <Tooltip key={`${member.id}-emotion-${item.label}`} title={item.hint} arrow placement="top">
+                            <Chip
+                              size="small"
+                              label={item.label}
+                              variant="filled"
+                              color={getAffectChipColor(item.label)}
+                              sx={{ height: 20, cursor: 'help', '& .MuiChip-label': { px: 0.8 } }}
+                            />
+                          </Tooltip>
+                        ))}
                       </Box>
                     ) : null}
                   </Stack>

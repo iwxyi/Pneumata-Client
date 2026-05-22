@@ -6,7 +6,7 @@ import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import { useMemo, useState, type ReactNode } from 'react';
-import type { AICharacter, EmotionalState } from '../../types/character';
+import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import type { RelationshipAxisReason, RelationshipLedgerEntry } from '../../types/runtimeEvent';
 import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
@@ -25,75 +25,6 @@ const METRIC_META = [
 ] as const;
 
 type AxisKey = typeof METRIC_META[number]['key'];
-
-const AFFECT_LABELS: Record<keyof EmotionalState, string> = {
-  irritation: '烦躁',
-  affection: '好感',
-  insecurity: '不安',
-  excitement: '兴奋',
-  embarrassment: '尴尬',
-};
-
-const AFFECT_ORDER: Array<keyof EmotionalState> = ['irritation', 'affection', 'insecurity', 'excitement', 'embarrassment'];
-const AFFECT_THRESHOLD = 8;
-
-function buildAffectTone(key: keyof EmotionalState, value: number) {
-  const rounded = Math.round(value);
-  const intensity = rounded >= 55 ? 'high' : rounded >= 28 ? 'mid' : 'low';
-  const labelMap: Record<keyof EmotionalState, Record<typeof intensity, string>> = {
-    irritation: { high: '明显烦躁', mid: '有点烦躁', low: '略有刺感' },
-    affection: { high: '明显亲近', mid: '更亲近', low: '有些靠近' },
-    insecurity: { high: '明显戒备', mid: '有点防备', low: '略微不安' },
-    excitement: { high: '兴致很高', mid: '有兴致', low: '被带动' },
-    embarrassment: { high: '明显尴尬', mid: '有点尴尬', low: '略不自在' },
-  };
-  const colorMap: Record<keyof EmotionalState, 'warning' | 'success' | 'info' | 'secondary' | 'default'> = {
-    irritation: 'warning',
-    affection: 'success',
-    insecurity: 'secondary',
-    excitement: 'info',
-    embarrassment: 'default',
-  };
-  return {
-    key,
-    value: rounded,
-    label: labelMap[key][intensity],
-    color: colorMap[key],
-    hint: `${AFFECT_LABELS[key]} ${rounded}，来自角色最近发言、被点名和关系互动后的情绪后效。`,
-  };
-}
-
-function buildAffectItems(member: AICharacter) {
-  if (!member.emotionalState) return [] as Array<ReturnType<typeof buildAffectTone>>;
-  return AFFECT_ORDER
-    .map((key) => ({ key, value: member.emotionalState?.[key] || 0 }))
-    .filter((item) => Math.abs(item.value) >= AFFECT_THRESHOLD)
-    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
-    .map((item) => buildAffectTone(item.key, item.value));
-}
-
-function RelationshipAffectCard({ member }: { member: AICharacter }) {
-  const items = buildAffectItems(member);
-  return (
-    <Box sx={(theme) => ({ p: 1, borderRadius: 2, bgcolor: alpha(theme.palette.success.main, 0.06), border: `1px solid ${alpha(theme.palette.success.main, 0.18)}` })}>
-      {items.length ? (
-        <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }} useFlexGap>
-          {items.slice(0, 3).map((item) => (
-            <Tooltip key={item.key} title={item.hint} arrow>
-              <Chip size="small" color={item.color} variant="outlined" label={item.label} sx={{ height: 22, fontSize: 11 }} />
-            </Tooltip>
-          ))}
-        </Stack>
-      ) : (
-        <Tooltip title="当前没有明显情绪后效；新互动会继续改变角色的状态。" arrow>
-          <Typography variant="body2" color="text.secondary" sx={{ width: 'fit-content', cursor: 'help', '&:hover': { textDecoration: 'underline dotted', textUnderlineOffset: '3px' } }}>
-            情绪暂稳
-          </Typography>
-        </Tooltip>
-      )}
-    </Box>
-  );
-}
 
 function buildMetricPolygon(values: number[], size = 84) {
   const center = size / 2;
@@ -135,6 +66,19 @@ function trendHint(trend: RelationshipLedgerEntry['trend']) {
 function summaryHint(summary: string) {
   if (summary === '中性') return '当前没有哪个关系轴足够突出。';
   return `当前最突出的关系轴：${summary}。`;
+}
+
+function buildRelationshipStateChips(delta: ReturnType<typeof toRelationshipDisplayDelta>) {
+  const chips: Array<{ label: string; color?: 'success' | 'warning' | 'info' | 'default'; hint: string }> = [];
+  const warmth = delta.warmth || 0;
+  const competence = delta.competence || 0;
+  const trust = delta.trust || 0;
+  const threat = delta.threat || 0;
+  if (warmth >= 12 || trust >= 12) chips.push({ label: '高好感', color: 'success', hint: '亲和或信任较高，表示这一方更愿意靠近或接住对方。' });
+  if (threat >= 12 || warmth <= -12 || trust <= -12) chips.push({ label: '有冲突', color: 'warning', hint: '威胁感较高，或亲和/信任明显偏低，表示这一方对对方有防备或摩擦。' });
+  if (competence >= 12) chips.push({ label: '认可能力', color: 'info', hint: '能力判断较高，表示这一方更认可对方的判断力或本事。' });
+  if (competence <= -12) chips.push({ label: '不太服气', color: 'warning', hint: '能力判断偏低，表示这一方不太认可对方的判断或表现。' });
+  return chips.slice(0, 3);
 }
 
 function formatSignedDelta(value: number) {
@@ -296,6 +240,8 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
   const normalizedEntry = normalizeRelationshipLedgerEntry(entry);
   const presented = buildPresentedRelationshipLedger({ relationshipLedger: [normalizedEntry] } as GroupChat, members)[0];
   const dominantSummary = buildRelationshipDisplaySummary(normalizedEntry);
+  const delta = toRelationshipDisplayDelta(normalizedEntry.current);
+  const stateChips = buildRelationshipStateChips(delta);
   const [activeAxis, setActiveAxis] = useState<AxisKey | null>(null);
   const axisReasonMap = normalizedEntry.axisReasons || {};
   const activeMeta = useMemo(() => METRIC_META.find((item) => item.key === activeAxis) || null, [activeAxis]);
@@ -308,7 +254,7 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
     <RelationshipCardFrame>
       <Stack spacing={0.85} sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75, px: 0.25, pt: 0.25 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{reverseView ? presented.actorName : presented.targetName}</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{presented.actorName} → {presented.targetName}</Typography>
           <Tooltip title={trendHint(normalizedEntry.trend)} arrow>
             <Chip size="small" label={trendLabel(normalizedEntry.trend)} sx={{ height: 22, fontSize: 11 }} />
           </Tooltip>
@@ -316,6 +262,15 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
             <Chip size="small" variant="outlined" label={dominantSummary} sx={{ height: 22, fontSize: 11 }} />
           </Tooltip>
         </Box>
+        {stateChips.length ? (
+          <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }} useFlexGap>
+            {stateChips.map((chip) => (
+              <Tooltip key={chip.label} title={chip.hint} arrow>
+                <Chip size="small" color={chip.color || 'default'} variant="outlined" label={chip.label} sx={{ height: 22, fontSize: 11 }} />
+              </Tooltip>
+            ))}
+          </Stack>
+        ) : null}
         {presented.semanticSummary ? <Typography variant="caption" color="text.secondary" sx={{ px: 0.25 }}>{presented.semanticSummary}</Typography> : null}
         <RelationshipDerivedChips entry={normalizedEntry} />
         <RelationshipEvidenceCard speakerName={hideSpeakerName ? undefined : presented.speakerName} evidence={presented.evidence || '暂无明确证据'} />
@@ -344,6 +299,7 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
   };
   const summary = buildRelationshipDisplaySummary(fallbackEntry);
   const normalizedFallbackEntry = normalizeRelationshipLedgerEntry(fallbackEntry);
+  const stateChips = buildRelationshipStateChips(toRelationshipDisplayDelta(normalizedFallbackEntry.current));
 
   if (!hasMeaningfulFallback) return null;
 
@@ -351,7 +307,7 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
     <RelationshipCardFrame>
       <Stack spacing={0.85} sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75, px: 0.25, pt: 0.25 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{targetName}</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{memberName} → {targetName}</Typography>
           <Tooltip title="近期没有新证据驱动明显变化。" arrow>
             <Chip size="small" label="持平" sx={{ height: 22, fontSize: 11 }} />
           </Tooltip>
@@ -359,6 +315,15 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
             <Chip size="small" variant="outlined" label={summary} sx={{ height: 22, fontSize: 11 }} />
           </Tooltip>
         </Box>
+        {stateChips.length ? (
+          <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }} useFlexGap>
+            {stateChips.map((chip) => (
+              <Tooltip key={chip.label} title={chip.hint} arrow>
+                <Chip size="small" color={chip.color || 'default'} variant="outlined" label={chip.label} sx={{ height: 22, fontSize: 11 }} />
+              </Tooltip>
+            ))}
+          </Stack>
+        ) : null}
         <RelationshipDerivedChips entry={normalizedFallbackEntry} />
         <RelationshipEvidenceCard speakerName={memberName} evidence={fallbackEvidence} />
         <RelationshipRadar entry={normalizedFallbackEntry} onOpenAxis={setActiveAxis} />
@@ -477,7 +442,6 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
                 </Box>
                 {!collapsed ? (
                   <Stack spacing={1} sx={{ mt: 0.5 }}>
-                    <RelationshipAffectCard member={member} />
                     {items.map((entry) => <RelationshipLedgerCard key={entry.pairKey} entry={entry} members={members} hideSpeakerName={false} reverseView={reverseLedger} />)}
                   </Stack>
                 ) : null}
@@ -501,7 +465,6 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
                 </Box>
                 {!collapsed ? (
                   <Stack spacing={1} sx={{ mt: 0.5 }}>
-                    <RelationshipAffectCard member={member} />
                     {items.map((relation, index) => {
                       const target = members.find((item) => item.id === relation.characterId);
                       const targetName = target?.name || relation.characterId;
