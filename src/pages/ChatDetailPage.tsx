@@ -18,7 +18,7 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
-import { type DriverMessageCommitResult, type GroupChat } from '../types/chat';
+import { type GroupChat } from '../types/chat';
 import type { SessionActionDefinition, SessionNormalizedIntentResult } from '../types/sessionEngine';
 import MessageList from '../components/chat/MessageList';
 import SessionComposerHost from '../components/session/SessionComposerHost';
@@ -26,21 +26,19 @@ import { buildDefaultSessionSurfaceProjection } from '../types/chat';
 import { buildActionRuntimeContract, buildRuntimeEventContract } from '../services/sessionRuntimeContract';
 import RightPanel from '../components/layout/RightPanel';
 import { buildRuntimeEventMessageContent, normalizeRuntimeEvent } from '../services/runtimeEventFactory';
-import { createCommittedLocalMessage, persistLocalFirstMessage, persistLocalFirstMessages } from '../services/chatCommitMessage';
+import { persistLocalFirstMessage, persistLocalFirstMessages } from '../services/chatCommitMessage';
 import { buildPrivateSessionEvent } from '../services/directSessionHelpers';
 import { resolveCharacterOrDeleted } from '../utils/deletedEntity';
-import { deriveEmotionalState, derivePersonalityDrift } from '../services/personalityDrift';
-import { updateCharacterLayeredMemories } from '../services/characterLayeredMemory';
-import { accumulateCharacterRuntime } from '../services/characterRuntime';
-import { resolveRuntimeEvolutionConfig } from '../services/runtimeEvolutionConfig';
-import { getCharacterGroupLabel } from '../types/character';
 import { buildDirectMemoryPanelContext } from '../services/promptBuilder';
 import type { AICharacter } from '../types/character';
 import type { Message } from '../types/message';
-import { shouldDiscardStreamingDraft } from '../services/streamingMessageLifecycle';
 import { buildExpressionFeedbackPatch, getExpressionFeedbackLabel, type ExpressionFeedbackKind } from '../services/characterExpressionFeedback';
 import { useAuthStore } from '../stores/useAuthStore';
-import { projectCurrentChatMessages } from '../services/currentChatMessages';
+import { useCurrentChatMessages } from '../hooks/useCurrentChatMessages';
+import { useManualInputQueue } from '../hooks/useManualInputQueue';
+import { useStreamingMessageState } from '../hooks/useStreamingMessageState';
+import { useChatRunLoop } from '../hooks/useChatRunLoop';
+import { runDirectUserReplyFlow } from '../services/directUserReplyFlow';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -202,9 +200,6 @@ export default function ChatDetailPage() {
   const dramaBoost = useSettingsStore((s) => s.developerUI.dramaBoost);
   const currentUser = useAuthStore((s) => s.user);
 
-  const [thinkingId, setThinkingId] = useState<string | null>(null);
-  const [chatError, setChatError] = useState<string | null>(null);
-  const [runLoopError, setRunLoopError] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' }>({ open: false, message: '', severity: 'error' });
   const [projectionData, setProjectionData] = useState<SessionProjectionData | null>(null);
   const [projectedDetailState, setProjectedDetailState] = useState<ProjectedChatDetailState | null>(null);
@@ -216,20 +211,18 @@ export default function ChatDetailPage() {
   const [detailBootstrapComplete, setDetailBootstrapComplete] = useState(false);
 
   const loopTokenRef = useRef<string | null>(null);
-  const activeRunLoopTokenRef = useRef<string | null>(null);
   const isRunningRef = useRef(false);
   const isPausedRef = useRef(false);
   const loadingMoreRef = useRef(false);
   const activeChatIdRef = useRef<string | null>(id ?? null);
-  const streamingMessageRef = useRef<Message | null>(null);
-  const streamingFlushFrameRef = useRef<number | null>(null);
-  const pendingStreamingMessageRef = useRef<Message | null>(null);
   const lastAutoThreadCandidateIdRef = useRef<string | null>(null);
-  const pendingCommitCountRef = useRef(0);
-  const runLoopRef = useRef<((loopId: string) => Promise<void>) | null>(null);
-  const manualInputQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const manualInputPendingRef = useRef(false);
-  const isCommitSettled = useCallback(() => pendingCommitCountRef.current === 0, []);
+  const isManualInputPendingRef = useRef<() => boolean>(() => false);
+  const {
+    streamingMessageRef,
+    updateStreamingMessage,
+    discardStreamingMessage,
+    clearStreamingMessageRef,
+  } = useStreamingMessageState(upsertMessage);
 
   useEffect(() => {
     let cancelled = false;
@@ -245,9 +238,7 @@ export default function ChatDetailPage() {
   }, [loadCharacters, loadChats, markCharactersWarm, markChatsWarm]);
 
   const chat = chats.find((c) => c.id === id);
-  const currentChatMessages = useMemo(() => (
-    id ? projectCurrentChatMessages({ chatId: id, activeMessages: messages, cachedWindow: messageWindowsByChatId[id] }) : []
-  ), [id, messageWindowsByChatId, messages]);
+  const currentChatMessages = useCurrentChatMessages({ chatId: id, activeMessages: messages, cachedWindows: messageWindowsByChatId });
   const members = useMemo(
     () => chat ? chat.memberIds.map((memberId) => resolveCharacterOrDeleted(characters, memberId)) : [],
     [characters, chat]
@@ -307,8 +298,6 @@ export default function ChatDetailPage() {
   const actionPanelTitle = chat?.type === 'group' ? '动作与派生' : actionSchema?.title;
   const composerSurfaces = projectedDetailState?.composerSurfaces || (inputSurfaces.length ? inputSurfaces : (chat ? buildDefaultSessionSurfaceProjection(chat).surfaces : []));
   const actionPanel = sessionActions.length ? <LazyPanel><SessionActionPanel title={actionPanelTitle} actions={sessionActions} onRunAction={() => undefined} /></LazyPanel> : null;
-  void runLoopError;
-  void chatError;
   void dramaBoost;
   void rightPanelOpen;
   void actionPanel;
@@ -319,57 +308,6 @@ export default function ChatDetailPage() {
 
   const closeSnackbar = useCallback(() => {
     setSnackbar((prev) => ({ ...prev, open: false }));
-  }, []);
-
-  const updateStreamingMessage = useCallback((updater: (current: Message | null) => Message | null, options?: { immediate?: boolean }) => {
-    const next = updater(streamingMessageRef.current);
-    streamingMessageRef.current = next;
-    if (!next) return;
-    pendingStreamingMessageRef.current = next;
-    if (options?.immediate) {
-      if (streamingFlushFrameRef.current != null) {
-        cancelAnimationFrame(streamingFlushFrameRef.current);
-        streamingFlushFrameRef.current = null;
-      }
-      pendingStreamingMessageRef.current = null;
-      upsertMessage(next);
-      return;
-    }
-    if (streamingFlushFrameRef.current != null) return;
-    streamingFlushFrameRef.current = requestAnimationFrame(() => {
-      streamingFlushFrameRef.current = null;
-      const pending = pendingStreamingMessageRef.current;
-      pendingStreamingMessageRef.current = null;
-      if (pending) upsertMessage(pending);
-    });
-  }, [upsertMessage]);
-
-  const discardStreamingMessage = useCallback(() => {
-    if (streamingFlushFrameRef.current != null) {
-      cancelAnimationFrame(streamingFlushFrameRef.current);
-      streamingFlushFrameRef.current = null;
-    }
-    pendingStreamingMessageRef.current = null;
-    const current = streamingMessageRef.current;
-    if (current) {
-      const state = useMessageStore.getState();
-      const persisted = state.messageWindowsByChatId[current.chatId]?.messages.find((message) => message.id === current.id)
-        || state.messages.find((message) => message.id === current.id)
-        || null;
-      if (shouldDiscardStreamingDraft(current, persisted)) {
-        upsertMessage({ ...current, isDeleted: true, isStreaming: false });
-      }
-    }
-    streamingMessageRef.current = null;
-  }, [upsertMessage]);
-
-  const clearStreamingMessageRef = useCallback(() => {
-    if (streamingFlushFrameRef.current != null) {
-      cancelAnimationFrame(streamingFlushFrameRef.current);
-      streamingFlushFrameRef.current = null;
-    }
-    pendingStreamingMessageRef.current = null;
-    streamingMessageRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -408,23 +346,6 @@ export default function ChatDetailPage() {
       cancelled = true;
     };
   }, [chat, members, rightPanelTab, speakAsChar]);
-
-
-  useEffect(() => {
-    if (id) {
-      void openChatWindow(id, { limit: 20, revalidate: true });
-      return () => {
-        activeChatIdRef.current = null;
-        loopTokenRef.current = null;
-        activeRunLoopTokenRef.current = null;
-        setThinkingId(null);
-        discardStreamingMessage();
-        setChatError(null);
-        closeChatWindow(id, { clearActiveOnly: true });
-        stop();
-      };
-    }
-  }, [closeChatWindow, discardStreamingMessage, id, openChatWindow, stop]);
 
   useEffect(() => {
     isRunningRef.current = isRunning;
@@ -538,51 +459,65 @@ export default function ChatDetailPage() {
     }));
   }, [appendEventMessage, chat, triggerPairPrivateThread, updateChat]);
 
-  const startConversationLoopIfNeeded = useCallback((conversationChat: GroupChat) => {
-    if (conversationChat.type === 'direct') return;
-    if (isRunningRef.current && !isPausedRef.current) return;
-    const run = runLoopRef.current;
-    if (!run) return;
-    resetAllCooldowns();
-    const newLoopToken = `${conversationChat.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    loopTokenRef.current = newLoopToken;
-    activeChatIdRef.current = conversationChat.id;
-    isRunningRef.current = true;
-    isPausedRef.current = false;
-    start(newLoopToken);
-    updateChat(conversationChat.id, { isActive: true });
-    window.setTimeout(() => void run(newLoopToken), 100);
-  }, [resetAllCooldowns, start, updateChat]);
+  const {
+    thinkingId,
+    chatError,
+    runLoopError,
+    hasPendingTurnWork,
+    startConversationLoopIfNeeded,
+    resetRunLoopUiState,
+  } = useChatRunLoop({
+    chat,
+    chatId: id,
+    activeMembers,
+    api,
+    aiProfiles,
+    isRunningRef,
+    isPausedRef,
+    loopTokenRef,
+    activeChatIdRef,
+    streamingMessageRef,
+    updateStreamingMessage,
+    discardStreamingMessage,
+    clearStreamingMessageRef,
+    isManualInputPending: () => isManualInputPendingRef.current(),
+    setCurrentSpeaker,
+    resetAllCooldowns,
+    start,
+    updateChat,
+    showErrorToast,
+    t,
+    upsertMessage,
+    updateCharacter,
+    updateCharacters,
+    appendEventMessage: appendEventMessageStable,
+    appendEventMessages: appendEventMessagesStable,
+    applyChatRuntimeDelta,
+    recordSpeak,
+  });
+  const { enqueueManualInput, isManualInputPending } = useManualInputQueue({
+    isRunningRef,
+    isPausedRef,
+    hasPendingTurnWork,
+    pause,
+  });
+  isManualInputPendingRef.current = isManualInputPending;
+  void runLoopError;
+  void chatError;
 
-  const waitForCurrentTurnToSettle = useCallback(async () => {
-    const startedAt = Date.now();
-    while ((streamingMessageRef.current || pendingCommitCountRef.current > 0) && Date.now() - startedAt < 45_000) {
-      await new Promise((resolve) => window.setTimeout(resolve, 80));
+  useEffect(() => {
+    if (id) {
+      void openChatWindow(id, { limit: 20, revalidate: true });
+      return () => {
+        activeChatIdRef.current = null;
+        loopTokenRef.current = null;
+        resetRunLoopUiState();
+        discardStreamingMessage();
+        closeChatWindow(id, { clearActiveOnly: true });
+        stop();
+      };
     }
-    if (streamingMessageRef.current || pendingCommitCountRef.current > 0) {
-      throw new Error('当前发言一直没有结束，请稍后重试');
-    }
-  }, []);
-
-  const enqueueManualInput = useCallback((task: () => Promise<void>) => {
-    const queued = manualInputQueueRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        manualInputPendingRef.current = true;
-        try {
-          await waitForCurrentTurnToSettle();
-          if (isRunningRef.current && !isPausedRef.current) {
-            isPausedRef.current = true;
-            pause();
-          }
-          await task();
-        } finally {
-          manualInputPendingRef.current = false;
-        }
-      });
-    manualInputQueueRef.current = queued.then(() => undefined, () => undefined);
-    return queued;
-  }, [pause, waitForCurrentTurnToSettle]);
+  }, [closeChatWindow, discardStreamingMessage, id, openChatWindow, resetRunLoopUiState, stop]);
 
   const handleGuideSend = useCallback(async (content: string) => {
     if (!chat || !id) return;
@@ -590,77 +525,23 @@ export default function ChatDetailPage() {
       const userMessage = await addMessageStable({ chatId: id, type: 'user', senderId: 'user', senderName: 'User', content, emotion: 0, timestamp: Date.now() });
       void updateChat(id, { lastMessageAt: userMessage.timestamp });
       if (chat.type === 'direct') {
-        const directCharacter = characters.find((item) => item.id === chat.memberIds[0]);
-        if (directCharacter) {
-          const evolution = resolveRuntimeEvolutionConfig(chat.runtimeEvolutionIntensity);
-          const drift = derivePersonalityDrift(directCharacter, content, evolution.driftMultiplier * 0.5);
-          const emotion = deriveEmotionalState(directCharacter, content, evolution.emotionMultiplier * 0.85, evolution.emotionDecayBias);
-          await updateCharacter(directCharacter.id, {
-            personalityDrift: drift,
-            emotionalState: emotion,
-            layeredMemories: updateCharacterLayeredMemories({
-              character: { ...directCharacter, emotionalState: emotion },
-              content,
-              personalityDrift: drift,
-              sourceEventTag: 'direct_user_message',
-            }),
-            runtimeTimeline: accumulateCharacterRuntime(directCharacter, {
-              type: 'memory',
-              text: `${getCharacterGroupLabel(directCharacter.group) || '单聊'}中与用户互动：${content.slice(0, 48)}`,
-            }).concat(
-              Object.keys(drift).length ? [{ type: 'drift' as const, text: '与用户互动后产生性格漂移', createdAt: Date.now() }] : []
-            ).slice(-24),
-          });
-          const [{ generateAndCommitAiMessage }, { getSessionEngine }] = await Promise.all([
-            import('../services/aiMessageOrchestrator'),
-            import('../services/sessionEngineRegistry'),
-          ]);
-          const sessionEngine = getSessionEngine(chat.mode);
-          await generateAndCommitAiMessage({
-            api,
-            aiProfiles,
-            chatId: id,
-            chat,
-            speaker: directCharacter,
-            characters,
-            timestamp: userMessage.timestamp + 1,
-            currentMessages: projectCurrentChatMessages({
-              chatId: id,
-              activeMessages: useMessageStore.getState().messages,
-              cachedWindow: useMessageStore.getState().messageWindowsByChatId[id],
-            }),
-            generationContext: {
-              buildPromptContext: (speaker) => sessionEngine.buildGenerationPromptContext?.({
-                conversation: chat,
-                characters,
-                messages: projectCurrentChatMessages({
-                  chatId: id,
-                  activeMessages: useMessageStore.getState().messages,
-                  cachedWindow: useMessageStore.getState().messageWindowsByChatId[id],
-                }),
-                speaker,
-              }) || null,
-            },
-            onCommit: async (args) => await (sessionEngine.onMessageCommitted as (commitArgs: {
-              conversation: GroupChat;
-              characters: AICharacter[];
-              message: Pick<Message, 'content' | 'type' | 'senderId'>;
-              previousAiMessage: Pick<Message, 'senderId'> | null;
-              recentMessages?: Message[];
-              apiConfig?: import('../types/settings').APIConfig;
-            }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>)(args),
-            upsertMessage: upsertMessageStable,
-            updateCharacter,
-            updateCharacters: async (patches) => updateCharacters(patches.map((patch) => ({ id: patch.id, updates: patch.patch }))),
-            appendEventMessage: appendEventMessageStable,
-            appendEventMessages: appendEventMessagesStable,
-            updateChat,
-            applyChatRuntimeDelta,
-            recordSpeak,
-            getCurrentChat: (chatId) => useChatStore.getState().chats.find((item) => item.id === chatId),
-            getCurrentCharacters: () => useCharacterStore.getState().characters,
-          });
-        }
+        await runDirectUserReplyFlow({
+          api,
+          aiProfiles,
+          chatId: id,
+          chat,
+          userMessage,
+          content,
+          characters,
+          updateCharacter,
+          updateCharacters,
+          upsertMessage: upsertMessageStable,
+          appendEventMessage: appendEventMessageStable,
+          appendEventMessages: appendEventMessagesStable,
+          updateChat,
+          applyChatRuntimeDelta,
+          recordSpeak,
+        });
         return;
       }
       if (chat.type === 'ai_direct') {
@@ -815,112 +696,6 @@ export default function ChatDetailPage() {
       setAnalysisLoading(false);
     }
   }, [api, characters, chat, currentChatMessages, t]);
-
-  const runLoop = useCallback(async (loopId: string) => {
-    if (!chat || !id) return;
-    if (activeRunLoopTokenRef.current === loopId) return;
-    activeRunLoopTokenRef.current = loopId;
-    const [{ runChatLoop }, { getSessionEngine }] = await Promise.all([
-      import('../services/chatLoopRunner'),
-      import('../services/sessionEngineRegistry'),
-    ]);
-    const sessionEngine = getSessionEngine(chat.mode);
-    try {
-      await runChatLoop({
-        loopId,
-        chatId: id,
-        chat,
-        characters: activeMembers,
-        api: aiProfiles,
-        getCurrentMessages: () => projectCurrentChatMessages({
-          chatId: id,
-          activeMessages: useMessageStore.getState().messages,
-          cachedWindow: useMessageStore.getState().messageWindowsByChatId[id],
-        }),
-        getStreamingMessage: () => streamingMessageRef.current,
-        getCurrentChat: () => useChatStore.getState().chats.find((item) => item.id === id),
-        getCurrentCharacters: () => useCharacterStore.getState().characters,
-        isRunning: () => isRunningRef.current,
-        isPaused: () => isPausedRef.current || (manualInputPendingRef.current && !streamingMessageRef.current && pendingCommitCountRef.current === 0),
-        isActiveLoop: (currentLoopId) => activeChatIdRef.current === id && loopTokenRef.current === currentLoopId,
-        onCommitSettled: isCommitSettled,
-        onCommitStarted: () => {
-          pendingCommitCountRef.current += 1;
-        },
-        onCommitFinished: () => {
-          pendingCommitCountRef.current = Math.max(0, pendingCommitCountRef.current - 1);
-        },
-        onSpeakerSelected: (charId) => {
-          const speaker = activeMembers.find((member) => member.id === charId);
-          const streamingMessage = createCommittedLocalMessage({
-            chatId: id,
-            type: 'ai',
-            senderId: charId,
-            senderName: speaker?.name || '',
-            content: '',
-            emotion: 0,
-          });
-          const nextStreamingMessage = { ...streamingMessage, isStreaming: true };
-          streamingMessageRef.current = nextStreamingMessage;
-          upsertMessage(nextStreamingMessage);
-          setRunLoopError(null);
-          setThinkingId(charId);
-          setCurrentSpeaker(charId);
-        },
-        onMessageChunk: (content) => {
-          updateStreamingMessage((current) => current ? { ...current, content, isStreaming: true } : current);
-          setChatError(null);
-        },
-        onIdle: (reason) => {
-          discardStreamingMessage();
-          setThinkingId(null);
-          setCurrentSpeaker(null);
-          setRunLoopError(reason);
-        },
-        onClearStreamingState: () => {
-          clearStreamingMessageRef();
-          setThinkingId(null);
-          setCurrentSpeaker(null);
-        },
-        onEngineError: (error) => {
-          discardStreamingMessage();
-          setThinkingId(null);
-          setCurrentSpeaker(null);
-          const message = error.message || t('common.error');
-          setChatError(message);
-          setRunLoopError(message);
-          showErrorToast(message);
-        },
-        onLoopError: (error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          const safeMessage = message || t('common.error');
-          setRunLoopError(safeMessage);
-        },
-        onCommit: async (args) => {
-          return await (sessionEngine.onMessageCommitted as (args: {
-            conversation: GroupChat;
-            characters: AICharacter[];
-            message: Pick<Message, 'content' | 'type' | 'senderId'>;
-            previousAiMessage: Pick<Message, 'senderId'> | null;
-            recentMessages?: Message[];
-                apiConfig?: import('../types/settings').APIConfig;
-          }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>)(args);
-        },
-        upsertMessage: upsertMessageStable,
-        updateCharacter,
-        updateCharacters: async (patches) => updateCharacters(patches.map((patch) => ({ id: patch.id, updates: patch.patch }))),
-        appendEventMessage: appendEventMessageStable,
-        appendEventMessages: appendEventMessagesStable,
-        updateChat,
-        applyChatRuntimeDelta,
-        recordSpeak,
-        getCooldownMap: () => useSchedulerStore.getState().lastSpeakTimestamps,
-      });
-    } finally {
-      if (activeRunLoopTokenRef.current === loopId) activeRunLoopTokenRef.current = null;
-    }
-  }, [activeMembers, api, appendEventMessage, appendEventMessages, applyChatRuntimeDelta, chat, clearStreamingMessageRef, discardStreamingMessage, id, recordSpeak, setCurrentSpeaker, showErrorToast, t, updateCharacter, updateCharacters, updateChat, updateStreamingMessage, upsertMessage]);
-  runLoopRef.current = runLoop;
 
   const fromTab = useMemo(() => new URLSearchParams(window.location.search).get('fromTab'), []);
 
