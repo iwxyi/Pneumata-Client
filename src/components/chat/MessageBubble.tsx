@@ -4,7 +4,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useAuthStore } from '../../stores/useAuthStore';
 import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import { isImageAvatar } from '../../utils/avatar';
 import { formatTimestamp } from '../../utils/format';
@@ -107,6 +106,7 @@ interface MessageBubbleProps {
   onAnalyze?: (message: Message) => void;
   onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
   pending?: boolean;
+  currentUser?: { nickname?: string; avatar?: string };
 }
 
 interface MenuPosition {
@@ -241,9 +241,8 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, pending = false }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, pending = false, currentUser }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
-  const currentUser = useAuthStore((state) => state.user);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showRelationshipEvents = useSettingsStore((state) => state.developerUI.showRelationshipEvents);
@@ -369,6 +368,8 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
     return renderEventBubble(message.id, payload);
   }
 
+  const manualSpeaker = message.metadata?.manualSpeaker;
+  const isManualSpeaker = message.type === 'user' && Boolean(manualSpeaker);
   const isUser = message.type === 'user' || message.type === 'god';
   const effectiveCharacter = message.type === 'ai' ? character : undefined;
   const resolvedStyle = effectiveCharacter
@@ -377,8 +378,10 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const bubblePreview = resolvedStyle ? buildBubblePreview(resolvedStyle, isUser) : null;
   const avatar = effectiveCharacter?.avatar;
   const wrapperJustify = isUser ? 'flex-end' : 'flex-start';
-  const selfAvatar = currentUser?.avatar?.trim() || message.senderName.slice(0, 1);
-  const selfAvatarAlt = currentUser?.nickname?.trim() || message.senderName;
+  const selfAvatarValue = isManualSpeaker ? manualSpeaker?.avatar?.trim() : currentUser?.avatar?.trim();
+  const selfAvatarText = (isManualSpeaker ? manualSpeaker?.actorName : currentUser?.nickname)?.trim() || message.senderName;
+  const selfAvatar = selfAvatarValue || selfAvatarText.slice(0, 1);
+  const selfAvatarAlt = selfAvatarText || message.senderName;
   const withdrawal = message.metadata?.withdrawal;
   const isFinalWithdrawn = Boolean(withdrawal?.withdrawn && !withdrawal.visiblePending);
   const finalWithdrawal = isFinalWithdrawn ? withdrawal : null;
@@ -438,8 +441,8 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
 
         {isUser ? (
           <Box sx={{ flexShrink: 0 }}>
-            {currentUser?.avatar && isImageAvatar(currentUser.avatar) ? (
-              <Avatar src={currentUser.avatar} alt={selfAvatarAlt} sx={{ width: 38, height: 38 }} />
+            {selfAvatarValue && isImageAvatar(selfAvatarValue) ? (
+              <Avatar src={selfAvatarValue} alt={selfAvatarAlt} sx={{ width: 38, height: 38 }} />
             ) : (
               <Avatar sx={{ width: 38, height: 38, bgcolor: 'primary.dark' }}>{selfAvatar}</Avatar>
             )}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Box, TextField, IconButton, Chip } from '@mui/material';
+import { Box, TextField, IconButton, Chip, Typography, CircularProgress } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import CloseIcon from '@mui/icons-material/Close';
 import { useTranslation } from 'react-i18next';
@@ -10,9 +10,11 @@ interface ChatInputProps {
   onSend: (content: string) => void | Promise<void>;
   onClose?: () => void;
   placeholderOverride?: string;
+  sendingLabel?: string;
+  onSendError?: (message: string) => void;
 }
 
-export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride }: ChatInputProps) {
+export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, sendingLabel, onSendError }: ChatInputProps) {
   const [text, setText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const { t } = useTranslation();
@@ -21,9 +23,12 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     const content = text.trim();
     if (!content || isSending) return;
     setIsSending(true);
-    setText('');
     try {
       await onSend(content);
+      setText('');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      onSendError?.(message || '发送失败，请稍后重试');
     } finally {
       setIsSending(false);
     }
@@ -52,8 +57,11 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         pb: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
         borderTop: 1,
         borderColor: 'divider',
-        bgcolor: 'background.paper',
+        bgcolor: isSending ? 'action.disabledBackground' : 'background.paper',
         flexShrink: 0,
+        opacity: isSending ? 0.72 : 1,
+        pointerEvents: isSending ? 'none' : 'auto',
+        position: 'relative',
       }}
     >
       {mode === 'speakAs' && onClose ? (
@@ -76,6 +84,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
+        disabled={isSending}
         sx={{
           '& .MuiOutlinedInput-root': {
             borderRadius: 3,
@@ -88,8 +97,13 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         disabled={!text.trim() || isSending}
         sx={{ flexShrink: 0 }}
       >
-        <SendIcon />
+        {isSending ? <CircularProgress size={22} /> : <SendIcon />}
       </IconButton>
+      {isSending ? (
+        <Typography variant="caption" color="text.secondary" sx={{ position: 'absolute', right: 56, bottom: 2 }}>
+          {sendingLabel || '等待发送…'}
+        </Typography>
+      ) : null}
     </Box>
   );
 }

@@ -690,10 +690,11 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
     ...(formatLocalizedDriftSummary(personalityDrift, i18n.language) ? [{ type: 'drift' as const, text: formatLocalizedDriftSummary(personalityDrift, i18n.language), createdAt: Date.now() }] : []),
   ], [character.runtimeTimeline, relationships, personalityDrift]);
   const filteredTimeline = timelineFilter === 'all' ? timeline : timeline.filter((item) => item.type === timelineFilter);
+  const dominantEmotionLabel = getDominantEmotionLabel(character.emotionalState, i18n.language);
   const runtimeSummaryItems = [
     relationships[0] ? `关系 ${relationships[0].warmth + relationships[0].competence + relationships[0].trust >= relationships[0].threat + 12 ? '升温' : '紧张'}` : '',
     ...buildDriftChips(personalityDrift, i18n.language, isDeveloperView).slice(0, 1),
-    character.emotionalState ? `情绪 ${getDominantEmotionLabel(character.emotionalState, i18n.language)}` : '',
+    dominantEmotionLabel ? `情绪 ${dominantEmotionLabel}` : '',
   ].filter(Boolean);
   const behaviorFormulaHints = useMemo(() => {
     const drift = personalityDrift || {};
@@ -743,8 +744,6 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
       </SurfaceCard>
 
       <SoulStatePanel character={character} developerMode={isDeveloperView} />
-
-      {developerMode ? <CharacterExperienceArtifactPanel character={character} relatedCharacters={characters} /> : null}
 
       <SurfaceCard>
         <SectionHeader title="情绪状态" dense action={isDeveloperView && runtimeAffectHints.length ? <Chip size="small" label="变化" color="warning" variant="outlined" /> : undefined} />
@@ -798,6 +797,8 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
           <RelationshipGraphPanel relationships={relationships} developerMode={isDeveloperView} resolveCharacterName={resolveCharacterName} />
         )}
       </SurfaceCard>
+
+      {developerMode ? <CharacterExperienceArtifactPanel character={character} relatedCharacters={characters} /> : null}
     </PageSection>
   );
 }

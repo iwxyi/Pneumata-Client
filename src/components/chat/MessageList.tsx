@@ -13,6 +13,7 @@ const BOTTOM_STICKY_THRESHOLD = 96;
 interface MessageListProps {
   messages: Message[];
   characters: AICharacter[];
+  currentUser?: { nickname?: string; avatar?: string };
   onDeleteMessage?: (id: string) => void;
   onAnalyzeMessage?: (message: Message) => void;
   onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
@@ -26,6 +27,7 @@ interface MessageListProps {
 export default function MessageList({
   messages,
   characters,
+  currentUser,
   onDeleteMessage,
   onAnalyzeMessage,
   onExpressionFeedback,
@@ -197,6 +199,7 @@ export default function MessageList({
             key={item.key}
             message={item.message}
             character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
+            currentUser={currentUser}
             onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
             onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
             onExpressionFeedback={item.pending || item.message.type !== 'ai' ? undefined : onExpressionFeedback}

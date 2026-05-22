@@ -11,6 +11,8 @@ interface SessionComposerHostProps {
   onSubmitBoard?: (submission: SessionBoardComposerSubmission, surface: SessionInputSurfaceDefinition) => void;
   speakAsCharacterName?: string;
   onCloseSpeakAs?: () => void;
+  sendingLabel?: string;
+  onSendError?: (message: string) => void;
 }
 
 function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
@@ -22,7 +24,7 @@ function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
   ) as Record<string, Record<string, string>>;
 }
 
-export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs }: SessionComposerHostProps) {
+export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, onSendError }: SessionComposerHostProps) {
   const primarySurface = surfaces.find((surface) => surface.type === 'text') || surfaces[0];
   const secondarySurfaces = surfaces.filter((surface) => surface !== primarySurface && surface.type === 'board');
   const [fieldState, setFieldState] = useState<Record<string, Record<string, string>>>(() => buildInitialFieldState(surfaces));
@@ -121,16 +123,20 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
           characterName={speakAsCharacterName || undefined}
           onSend={(content) => onSubmitText({ content }, { key: 'fallback-text', type: 'text', mode: speakAsCharacterName ? 'speakAs' : 'guide' })}
           onClose={speakAsCharacterName ? onCloseSpeakAs : undefined}
+          sendingLabel={sendingLabel}
+          onSendError={onSendError}
         />
       ) : (() => {
-        const mode = primarySurface.mode || (speakAsCharacterName ? 'speakAs' : 'guide');
+        const mode = speakAsCharacterName ? 'speakAs' : (primarySurface.mode || 'guide');
         return (
           <ChatInput
             mode={mode}
             characterName={mode === 'speakAs' ? speakAsCharacterName : undefined}
-            placeholderOverride={primarySurface.placeholder || (boardSurface ? '输入聊天内容或解释本次操作' : undefined)}
+            placeholderOverride={mode === 'speakAs' ? undefined : (primarySurface.placeholder || (boardSurface ? '输入聊天内容或解释本次操作' : undefined))}
             onSend={(content) => onSubmitText({ content, actorId: primarySurface.actorId }, primarySurface)}
             onClose={mode === 'speakAs' ? onCloseSpeakAs : undefined}
+            sendingLabel={sendingLabel}
+            onSendError={onSendError}
           />
         );
       })()}

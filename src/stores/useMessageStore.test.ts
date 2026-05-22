@@ -152,4 +152,5 @@ describe('useMessageStore', () => {
     expect(created.metadata?.attachments?.[0]?.kind).toBe('image');
     expect(useMessageStore.getState().messageWindowsByChatId[chatId]?.messages[0]?.metadata?.attachments?.[0]?.altText).toBe('自拍照');
   });
+
 });

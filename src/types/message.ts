@@ -43,6 +43,11 @@ export interface MessageMetadata {
   format?: 'plain' | 'markdown';
   contextText?: string;
   renderText?: string;
+  manualSpeaker?: {
+    actorId: string;
+    actorName: string;
+    avatar?: string;
+  };
   withdrawal?: {
     withdrawn: boolean;
     originalContent?: string;
