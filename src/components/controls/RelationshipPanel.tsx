@@ -1,6 +1,5 @@
 import { alpha } from '@mui/material/styles';
 import { Box, Chip, Dialog, DialogContent, DialogTitle, Divider, IconButton, Stack, Tooltip, Typography } from '@mui/material';
-import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import SurfaceCard from '../common/SurfaceCard';
@@ -236,7 +235,7 @@ function RelationshipCardFrame({ children }: { children: ReactNode }) {
   );
 }
 
-function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, reverseView = false }: { entry: RelationshipLedgerEntry; members: AICharacter[]; hideSpeakerName?: boolean; reverseView?: boolean }) {
+function RelationshipLedgerCard({ entry, members, hideSpeakerName = false }: { entry: RelationshipLedgerEntry; members: AICharacter[]; hideSpeakerName?: boolean }) {
   const normalizedEntry = normalizeRelationshipLedgerEntry(entry);
   const presented = buildPresentedRelationshipLedger({ relationshipLedger: [normalizedEntry] } as GroupChat, members)[0];
   const dominantSummary = buildRelationshipDisplaySummary(normalizedEntry);
@@ -336,7 +335,6 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
 export default function RelationshipPanel({ chat, members }: RelationshipPanelProps) {
   const isGroupChat = chat.type === 'group';
   const collapseStorageKey = `relationship-panel-collapse:${chat.id}`;
-  const [reverseLedger, setReverseLedger] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
     try {
       const raw = localStorage.getItem(collapseStorageKey);
@@ -372,7 +370,7 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
   const groupedLedgerSections = members
     .map((member) => ({
       member,
-      items: ledgerEntries.filter((entry) => (reverseLedger ? entry.targetId === member.id : entry.actorId === member.id)).slice(0, 8),
+      items: ledgerEntries.filter((entry) => entry.actorId === member.id).slice(0, 8),
     }))
     .filter((section) => section.items.length > 0);
 
@@ -388,8 +386,8 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
     .filter((section) => section.items.length > 0);
 
   const sectionKeys = [
-    ...groupedLedgerSections.map(({ member }) => `${reverseLedger ? 'reverse' : 'forward'}-${member.id}`),
-    ...fallbackSections.map(({ member }) => `fallback-${reverseLedger ? 'reverse' : 'forward'}-${member.id}`),
+    ...groupedLedgerSections.map(({ member }) => member.id),
+    ...fallbackSections.map(({ member }) => `fallback-${member.id}`),
   ];
 
   const collapsedCount = sectionKeys.filter((key) => collapsedSections[key]).length;
@@ -408,17 +406,11 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
   };
 
   return (
-
     <SurfaceCard>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-        <SectionHeader title={isGroupChat ? '关系脉络' : '成员信息'} dense />
+        <SectionHeader title={chat.type === 'group' ? '关系脉络' : '成员信息'} dense />
         {isGroupChat && sectionKeys.length ? (
           <Stack direction="row" spacing={0.5}>
-            <Tooltip title={reverseLedger ? '切换为“该成员对其他人”' : '切换为“其他人对该成员”'} arrow>
-              <IconButton size="small" onClick={() => setReverseLedger((value) => !value)}>
-                <SwapHorizRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
             <Tooltip title={shouldCollapseAll ? '全部折叠' : '全部展开'} arrow>
               <IconButton size="small" onClick={toggleAllSections}>
                 {shouldCollapseAll ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
@@ -430,19 +422,19 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
       {groupedLedgerSections.length ? (
         <Stack spacing={1.25}>
           {groupedLedgerSections.map(({ member, items }) => {
-            const sectionKey = `${reverseLedger ? 'reverse' : 'forward'}-${member.id}`;
+            const sectionKey = member.id;
             const collapsed = Boolean(collapsedSections[sectionKey]);
             return (
               <Box key={member.id}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}{reverseLedger ? ' ← 他人视角' : ' → 对外视角'}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name} · 对外关系</Typography>
                   <IconButton size="small" onClick={() => toggleSection(sectionKey)}>
                     {collapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ExpandMoreRoundedIcon fontSize="small" />}
                   </IconButton>
                 </Box>
                 {!collapsed ? (
                   <Stack spacing={1} sx={{ mt: 0.5 }}>
-                    {items.map((entry) => <RelationshipLedgerCard key={entry.pairKey} entry={entry} members={members} hideSpeakerName={false} reverseView={reverseLedger} />)}
+                    {items.map((entry) => <RelationshipLedgerCard key={entry.pairKey} entry={entry} members={members} hideSpeakerName={false} />)}
                   </Stack>
                 ) : null}
                 <Divider sx={{ mt: 1 }} />
@@ -453,12 +445,12 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
       ) : fallbackSections.length === 0 ? <Typography variant="caption" color="text.secondary">暂无结构化关系数据</Typography> : (
         <Stack spacing={1.25}>
           {fallbackSections.map(({ member, items }) => {
-            const sectionKey = `fallback-${reverseLedger ? 'reverse' : 'forward'}-${member.id}`;
+            const sectionKey = `fallback-${member.id}`;
             const collapsed = Boolean(collapsedSections[sectionKey]);
             return (
               <Box key={member.id}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}{reverseLedger ? ' ← 他人视角' : ' → 对外视角'}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name} · 对外关系</Typography>
                   <IconButton size="small" onClick={() => toggleSection(sectionKey)}>
                     {collapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ExpandMoreRoundedIcon fontSize="small" />}
                   </IconButton>
