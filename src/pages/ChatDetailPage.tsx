@@ -1,10 +1,9 @@
 import { lazy, Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Box, IconButton, Button, Snackbar, Alert, Typography, Dialog, DialogTitle, DialogContent, CircularProgress, Chip, Stack } from '@mui/material';
+import { Box, IconButton, Button, Snackbar, Alert, Typography } from '@mui/material';
 import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
 import StatChipRow from '../components/common/StatChipRow';
-import MarkdownText from '../components/common/MarkdownText';
 import PeopleIcon from '@mui/icons-material/People';
 import InfoIcon from '@mui/icons-material/Info';
 import PlayIcon from '@mui/icons-material/PlayArrow';
@@ -19,18 +18,16 @@ import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
 import { type GroupChat } from '../types/chat';
-import type { SessionActionDefinition, SessionNormalizedIntentResult } from '../types/sessionEngine';
+import type { SessionNormalizedIntentResult } from '../types/sessionEngine';
 import MessageList from '../components/chat/MessageList';
+import { MessageAnalysisDialog } from '../components/chat/MessageAnalysisDialog';
 import SessionComposerHost from '../components/session/SessionComposerHost';
-import { buildDefaultSessionSurfaceProjection } from '../types/chat';
 import { buildActionRuntimeContract, buildRuntimeEventContract } from '../services/sessionRuntimeContract';
 import RightPanel from '../components/layout/RightPanel';
 import { buildRuntimeEventMessageContent, normalizeRuntimeEvent } from '../services/runtimeEventFactory';
 import { persistLocalFirstMessage, persistLocalFirstMessages } from '../services/chatCommitMessage';
 import { buildPrivateSessionEvent } from '../services/directSessionHelpers';
 import { resolveCharacterOrDeleted } from '../utils/deletedEntity';
-import { buildDirectMemoryPanelContext } from '../services/promptBuilder';
-import type { AICharacter } from '../types/character';
 import type { Message } from '../types/message';
 import { buildExpressionFeedbackPatch, getExpressionFeedbackLabel, type ExpressionFeedbackKind } from '../services/characterExpressionFeedback';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -38,15 +35,12 @@ import { useCurrentChatMessages } from '../hooks/useCurrentChatMessages';
 import { useManualInputQueue } from '../hooks/useManualInputQueue';
 import { useStreamingMessageState } from '../hooks/useStreamingMessageState';
 import { useChatRunLoop } from '../hooks/useChatRunLoop';
+import { useChatSidebarProjection } from '../hooks/useChatSidebarProjection';
+import { useMessageAnalysis } from '../hooks/useMessageAnalysis';
 import { runDirectUserReplyFlow } from '../services/directUserReplyFlow';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
-
-type SessionProjectionData = Awaited<ReturnType<typeof import('../services/sessionEngineKernel')['resolveSessionProjectionData']>>;
-type ProjectedChatDetailState = ReturnType<typeof import('../services/sessionProjection')['buildProjectedChatDetailState']>;
-type AnalysisSection = { index: number; title: string; content: string };
-type ChatWithProjectedRuntime = GroupChat & { primaryRecentEvent?: string };
 
 function PanelFallback() {
   return null;
@@ -54,134 +48,6 @@ function PanelFallback() {
 
 function LazyPanel({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PanelFallback />}>{children}</Suspense>;
-}
-
-function enrichParticipantActionOptions(actions: SessionActionDefinition[], members: AICharacter[]): SessionActionDefinition[] {
-  if (!actions.length || !members.length) return actions;
-  const memberNames = new Map(members.map((member) => [member.id, member.name] as const));
-  return actions.map((action) => ({
-    ...action,
-    fields: action.fields?.map((field) => {
-      const shouldResolveMember = field.targetSource === 'participants' || field.key === 'actorId' || field.key === 'targetId';
-      if (!shouldResolveMember || !field.options?.length) return field;
-      return {
-        ...field,
-        options: field.options.map((option) => ({
-          ...option,
-          label: memberNames.get(option.value) || option.label,
-        })),
-      };
-    }),
-  }));
-}
-
-function mergeProjectedRuntimeChat(chat: GroupChat, projected?: ChatWithProjectedRuntime | null, primaryRecentEvent?: string): ChatWithProjectedRuntime {
-  if (!projected) return { ...chat, primaryRecentEvent };
-  return {
-    ...chat,
-    ...projected,
-    worldState: {
-      ...chat.worldState,
-      ...(projected.worldState || {}),
-      conflictAxes: projected.worldState?.conflictAxes || chat.worldState.conflictAxes,
-      conflictState: projected.worldState?.conflictState ?? chat.worldState.conflictState,
-      structuredRoomState: projected.worldState?.structuredRoomState ?? chat.worldState.structuredRoomState,
-    },
-    layeredMemories: projected.layeredMemories?.length ? projected.layeredMemories : chat.layeredMemories,
-    runtimeSeed: projected.runtimeSeed || chat.runtimeSeed,
-    runtimeTimeline: projected.runtimeTimeline?.length ? projected.runtimeTimeline : chat.runtimeTimeline,
-    runtimeEventsV2: projected.runtimeEventsV2?.length ? projected.runtimeEventsV2 : chat.runtimeEventsV2,
-    relationshipLedger: projected.relationshipLedger?.length ? projected.relationshipLedger : chat.relationshipLedger,
-    primaryRecentEvent: projected.primaryRecentEvent || primaryRecentEvent,
-  };
-}
-
-function parseAnalysisSections(text: string): AnalysisSection[] {
-  const sections: AnalysisSection[] = [];
-  let current: AnalysisSection | null = null;
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine
-      .trim()
-      .replace(/^#{1,6}\s+/, '')
-      .replace(/^\*\*(.+)\*\*$/, '$1')
-      .replace(/^__(.+)__$/, '$1')
-      .trim();
-    const headingMatch = line.match(/^(\d{1,2})[.、]\s*(.+)$/);
-    if (headingMatch) {
-      if (current) sections.push(current);
-      const heading = headingMatch[2].trim();
-      const splitMatch = heading.match(/^(.+?)(?:[:：]\s*)(.+)$/);
-      current = {
-        index: Number(headingMatch[1]),
-        title: splitMatch?.[1]?.trim() || heading,
-        content: splitMatch?.[2]?.trim() || '',
-      };
-      continue;
-    }
-    if (current) {
-      current.content = [current.content, rawLine].filter((item) => item.trim()).join('\n');
-    }
-  }
-  if (current) sections.push(current);
-  return sections;
-}
-
-function getAnalysisSectionTone(index: number) {
-  if (index === 1) return { color: '#2563eb', bgcolor: 'rgba(37,99,235,0.10)' };
-  if ([3, 4, 8].includes(index)) return { color: '#7c3aed', bgcolor: 'rgba(124,58,237,0.10)' };
-  if ([5, 7].includes(index)) return { color: '#0f766e', bgcolor: 'rgba(15,118,110,0.10)' };
-  if (index === 9) return { color: '#b45309', bgcolor: 'rgba(180,83,9,0.10)' };
-  return { color: '#475569', bgcolor: 'rgba(71,85,105,0.10)' };
-}
-
-function AnalysisResultView({ text }: { text: string }) {
-  const sections = useMemo(() => parseAnalysisSections(text), [text]);
-  if (!sections.length) {
-    return (
-      <Box sx={{ userSelect: 'text', WebkitUserSelect: 'text' }}>
-        <MarkdownText text={text} />
-      </Box>
-    );
-  }
-
-  const summary = sections.find((section) => section.index === 1) || sections[0];
-  const followUps = sections.find((section) => section.index === 9);
-  const bodySections = sections.filter((section) => section !== summary && section !== followUps);
-
-  return (
-    <Stack spacing={1.5} sx={{ userSelect: 'text', WebkitUserSelect: 'text' }}>
-      <Box sx={{ p: 1.75, borderRadius: 2, bgcolor: 'primary.main', color: 'primary.contrastText' }}>
-        <Typography variant="caption" sx={{ display: 'block', opacity: 0.78, mb: 0.5 }}>一句话总评</Typography>
-        <Box sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.7, fontWeight: 650 }}>
-          <MarkdownText text={summary.content || summary.title} />
-        </Box>
-      </Box>
-
-      <Box sx={{ columnCount: { xs: 1, sm: 2 }, columnGap: 1.25 }}>
-        {bodySections.map((section) => {
-          const tone = getAnalysisSectionTone(section.index);
-          return (
-            <Box key={section.index} sx={{ display: 'inline-block', width: '100%', mb: 1.25, p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', minWidth: 0, breakInside: 'avoid' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
-                <Box sx={{ width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: tone.bgcolor, color: tone.color, fontSize: 12, fontWeight: 800, flexShrink: 0 }}>
-                  {section.index}
-                </Box>
-                <Typography variant="subtitle2" sx={{ fontWeight: 800, minWidth: 0 }}>{section.title}</Typography>
-              </Box>
-              <MarkdownText text={section.content || '无'} />
-            </Box>
-          );
-        })}
-      </Box>
-
-      {followUps ? (
-        <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: (theme) => theme.palette.mode === 'light' ? '#fff7ed' : 'rgba(180,83,9,0.16)', border: '1px solid', borderColor: (theme) => theme.palette.mode === 'light' ? '#fed7aa' : 'rgba(251,146,60,0.35)' }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.75 }}>{followUps.title}</Typography>
-          <MarkdownText text={followUps.content} />
-        </Box>
-      ) : null}
-    </Stack>
-  );
 }
 
 export default function ChatDetailPage() {
@@ -201,13 +67,6 @@ export default function ChatDetailPage() {
   const currentUser = useAuthStore((s) => s.user);
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' }>({ open: false, message: '', severity: 'error' });
-  const [projectionData, setProjectionData] = useState<SessionProjectionData | null>(null);
-  const [projectedDetailState, setProjectedDetailState] = useState<ProjectedChatDetailState | null>(null);
-  const [analysisTarget, setAnalysisTarget] = useState<Message | null>(null);
-  const [analysisText, setAnalysisText] = useState('');
-  const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false);
   const [detailBootstrapComplete, setDetailBootstrapComplete] = useState(false);
 
   const loopTokenRef = useRef<string | null>(null);
@@ -239,6 +98,21 @@ export default function ChatDetailPage() {
 
   const chat = chats.find((c) => c.id === id);
   const currentChatMessages = useCurrentChatMessages({ chatId: id, activeMessages: messages, cachedWindows: messageWindowsByChatId });
+  const {
+    analysisDialogOpen,
+    analysisError,
+    analysisLoading,
+    analysisTarget,
+    analysisText,
+    analyzeMessage,
+    closeAnalysisDialog,
+  } = useMessageAnalysis({
+    api,
+    chat,
+    messages: currentChatMessages,
+    characters,
+    fallbackError: t('common.error'),
+  });
   const members = useMemo(
     () => chat ? chat.memberIds.map((memberId) => resolveCharacterOrDeleted(characters, memberId)) : [],
     [characters, chat]
@@ -247,60 +121,40 @@ export default function ChatDetailPage() {
     () => chat ? characters.filter((c) => chat.memberIds.includes(c.id)) : [],
     [characters, chat]
   );
-  const projectedRuntimeState = projectionData?.runtimeState || null;
-  const frameworkState = projectionData?.frameworkState || null;
-  const privatePayloads = projectionData?.privatePayloads || [];
-  const actionSchema = projectionData?.actionSchema || null;
-  const inputSurfaces = frameworkState?.surfaces.surfaces || [];
-  const actionTabActions = useMemo(() => enrichParticipantActionOptions(actionSchema?.actions || [], members), [actionSchema, members]);
   const speakAsChar = useMemo(
     () => speakAsCharacterId ? characters.find((c) => c.id === speakAsCharacterId) ?? null : null,
     [characters, speakAsCharacterId]
   );
-  const showMemberTab = projectedDetailState?.showMemberTab ?? true;
-  const showRuntimeTab = projectedDetailState?.showRuntimeTab ?? true;
-  const showActionTab = projectedDetailState?.showActionTab ?? (chat?.type === 'group');
-  const activeSidebarTab = projectedDetailState?.activeSidebarTab
-    || (showMemberTab && rightPanelTab === 'members' ? 'members'
-      : showRuntimeTab && rightPanelTab === 'narrative' ? 'narrative'
-      : showRuntimeTab && rightPanelTab === 'world' ? 'world'
-        : showMemberTab ? 'members' : 'world');
-  const memberTabTitle = projectedDetailState?.memberTabTitle || (chat?.type === 'group' ? '成员' : '角色');
-  const runtimeTabTitle = projectedDetailState?.runtimeTabTitle || (chat?.type === 'group' ? '运行态' : '状态');
-  const directMemoryPanelContext = useMemo(() => {
-    if (!chat || chat.type !== 'direct' || !activeMembers[0]) return null;
-    return buildDirectMemoryPanelContext(activeMembers[0], currentChatMessages, new Map(characters.map((item) => [item.id, item] as const)));
-  }, [activeMembers, characters, chat, currentChatMessages]);
-  const sidebarTitle = projectedDetailState?.sidebarTitle || (activeSidebarTab === 'members' ? memberTabTitle : activeSidebarTab === 'actions' ? '动作' : activeSidebarTab === 'narrative' ? '叙事线' : runtimeTabTitle);
-  const runtimePanelLoading = !projectionData && Boolean(chat);
-
-  const manualPrivateThreadAction: SessionActionDefinition = {
-    type: 'start_private_thread',
-    label: '发起 AI 私聊',
-    description: '从群聊中手动选择两名成员，派生一条独立 AI 私聊。',
-    visibility: 'public',
-    fields: [
-      { key: 'actorId', label: '发起者', type: 'single_select', required: true, options: members.map((member) => ({ value: member.id, label: member.name })) },
-      { key: 'targetId', label: '对象', type: 'single_select', required: true, options: members.map((member) => ({ value: member.id, label: member.name })) },
-    ],
-  };
-  const sessionActions = chat?.type === 'group'
-    ? [manualPrivateThreadAction, ...actionTabActions.filter((action: SessionActionDefinition) => action.type !== 'start_private_thread')]
-    : actionTabActions;
-  const projectedSidebarChat = useMemo(
-    () => chat ? mergeProjectedRuntimeChat(chat, projectedDetailState?.sidebarChat.chat, projectedRuntimeState?.primaryRecentEvent) : null,
-    [chat, projectedDetailState, projectedRuntimeState]
-  );
-  const projectedActionPanelActions = useMemo(
-    () => enrichParticipantActionOptions(projectedDetailState?.actionPanel.actions || [], members),
-    [projectedDetailState, members]
-  );
-  const actionPanelTitle = chat?.type === 'group' ? '动作与派生' : actionSchema?.title;
-  const composerSurfaces = projectedDetailState?.composerSurfaces || (inputSurfaces.length ? inputSurfaces : (chat ? buildDefaultSessionSurfaceProjection(chat).surfaces : []));
-  const actionPanel = sessionActions.length ? <LazyPanel><SessionActionPanel title={actionPanelTitle} actions={sessionActions} onRunAction={() => undefined} /></LazyPanel> : null;
+  const {
+    actionSchema,
+    actionPanelTitle,
+    activeSidebarTab,
+    composerSurfaces,
+    directMemoryPanelContext,
+    memberTabTitle,
+    privatePayloads,
+    projectedActionPanelActions,
+    projectedDetailState,
+    projectedRuntimeState,
+    projectedSidebarChat,
+    runtimePanelLoading,
+    runtimeTabTitle,
+    sessionActions,
+    showActionTab,
+    showMemberTab,
+    showRuntimeTab,
+    sidebarTitle,
+  } = useChatSidebarProjection({
+    chat,
+    members,
+    activeMembers,
+    characters,
+    currentChatMessages,
+    rightPanelTab,
+    speakAsChar,
+  });
   void dramaBoost;
   void rightPanelOpen;
-  void actionPanel;
 
   const showErrorToast = useCallback((message: string) => {
     setSnackbar({ open: true, message, severity: 'error' });
@@ -309,43 +163,6 @@ export default function ChatDetailPage() {
   const closeSnackbar = useCallback(() => {
     setSnackbar((prev) => ({ ...prev, open: false }));
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!chat) {
-      setProjectionData(null);
-      setProjectedDetailState(null);
-      return undefined;
-    }
-
-    void Promise.all([
-      import('../services/sessionEngineRegistry'),
-      import('../services/sessionEngineKernel'),
-      import('../services/sessionProjection'),
-    ]).then(([registry, kernel, projection]) => {
-      if (cancelled) return;
-      const engine = registry.getSessionEngine(chat.mode);
-      const runtimeContext = kernel.createSessionRuntimeContext(engine, chat);
-      const nextProjectionData = kernel.resolveSessionProjectionData(engine, runtimeContext);
-      setProjectionData(nextProjectionData);
-      setProjectedDetailState(nextProjectionData.frameworkState.definition ? projection.buildProjectedChatDetailState({
-        chat,
-        runtimeState: nextProjectionData.runtimeState,
-        privatePayloads: nextProjectionData.privatePayloads,
-        visiblePanels: nextProjectionData.view.visiblePanels,
-        schemaActions: nextProjectionData.actionSchema?.actions || [],
-        schemaTitle: nextProjectionData.actionSchema?.title,
-        rightPanelTab,
-        frameworkState: nextProjectionData.frameworkState,
-        speakAsChar,
-        members,
-      }) : null);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [chat, members, rightPanelTab, speakAsChar]);
 
   useEffect(() => {
     isRunningRef.current = isRunning;
@@ -673,30 +490,6 @@ export default function ChatDetailPage() {
     void handleLoadOlderMessages();
   }, [handleLoadOlderMessages]);
 
-  const handleAnalyzeMessage = useCallback(async (targetMessage: Message) => {
-    if (!chat) return;
-    setAnalysisTarget(targetMessage);
-    setAnalysisDialogOpen(true);
-    setAnalysisLoading(true);
-    setAnalysisError(null);
-    setAnalysisText('');
-    try {
-      const { analyzeChatMessage } = await import('../services/messageAnalysis');
-      const result = await analyzeChatMessage(api, {
-        chat,
-        message: targetMessage,
-        messages: currentChatMessages,
-        characters,
-      });
-      setAnalysisText(result.trim() || '未生成有效分析结果。');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setAnalysisError(message || t('common.error'));
-    } finally {
-      setAnalysisLoading(false);
-    }
-  }, [api, characters, chat, currentChatMessages, t]);
-
   const fromTab = useMemo(() => new URLSearchParams(window.location.search).get('fromTab'), []);
 
   const handleHeaderBack = useCallback(() => {
@@ -768,7 +561,7 @@ export default function ChatDetailPage() {
             characters={characters}
             currentUser={currentUser ? { nickname: currentUser.nickname, avatar: currentUser.avatar } : undefined}
             onDeleteMessage={deleteMessage}
-            onAnalyzeMessage={handleAnalyzeMessage}
+            onAnalyzeMessage={analyzeMessage}
             onExpressionFeedback={handleExpressionFeedback}
             onReachTop={handleNearTop}
             isLoadingOlder={isLoadingOlder}
@@ -868,33 +661,14 @@ export default function ChatDetailPage() {
         </PageSection>
       </RightPanel>
 
-      <Dialog open={analysisDialogOpen} onClose={() => setAnalysisDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ pb: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-            <Typography component="span" variant="h6" sx={{ fontWeight: 800 }}>AI分析</Typography>
-            {analysisTarget ? <Chip size="small" label={analysisTarget.senderName || '消息'} /> : null}
-          </Box>
-        </DialogTitle>
-        <DialogContent sx={{ maxHeight: '72vh', overflowY: 'auto', pb: 3 }}>
-          {analysisTarget ? (
-            <Box sx={{ mb: 1.75, p: 1.25, borderRadius: 2, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>目标消息</Typography>
-              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.65 }}>
-                {analysisTarget.content}
-              </Typography>
-            </Box>
-          ) : null}
-          {analysisLoading ? (
-            <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
-              <CircularProgress size={28} />
-            </Box>
-          ) : analysisError ? (
-            <Typography variant="body2" color="error">{analysisError}</Typography>
-          ) : (
-            <AnalysisResultView text={analysisText} />
-          )}
-        </DialogContent>
-      </Dialog>
+      <MessageAnalysisDialog
+        open={analysisDialogOpen}
+        target={analysisTarget}
+        text={analysisText}
+        loading={analysisLoading}
+        error={analysisError}
+        onClose={closeAnalysisDialog}
+      />
 
       <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={closeSnackbar}>
         <Alert severity={snackbar.severity} onClose={closeSnackbar}>{snackbar.message}</Alert>
