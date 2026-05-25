@@ -67,6 +67,7 @@ describe('mediaGenerationPresentation', () => {
       statusLabel: '生成中',
       title: '美羊羊 · 图片',
       summary: '灰太狼证件照',
+      detailText: '正在生成图片，完成后会自动更新。',
       chips: expect.arrayContaining(['生成中', '图片', '来自显式发图请求', 'AI 决策：生成图片']),
     });
     expect(item.debugHint).toContain('提示词：A certificate photo of Grey Wolf');
@@ -92,7 +93,8 @@ describe('mediaGenerationPresentation', () => {
     ]);
 
     expect(item.statusLabel).toBe('生成失败');
-    expect(item.chips).toEqual(expect.arrayContaining(['失败原因：语音模型未配置']));
+    expect(item.detailText).toBe('失败原因：语音模型未配置');
+    expect(item.chips).not.toEqual(expect.arrayContaining(['失败原因：语音模型未配置']));
     expect(item.tone).toBe('rgba(244, 67, 54, 0.08)');
   });
 });

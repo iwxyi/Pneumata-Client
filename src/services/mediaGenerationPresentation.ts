@@ -1,4 +1,5 @@
 import type { Message, MessageAttachment, MessageAttachmentStatus } from '../types/message';
+import { getAttachmentErrorText } from './messageAttachmentDisplay';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 
 export interface ProjectedMediaGenerationItem {
@@ -10,6 +11,7 @@ export interface ProjectedMediaGenerationItem {
   statusLabel: string;
   title: string;
   summary: string;
+  detailText: string;
   chips: string[];
   debugHint: string;
   tone: string;
@@ -67,6 +69,15 @@ function buildGuidanceChip(message: Message) {
   return '来自话题引导';
 }
 
+function buildStatusDetail(attachment: MessageAttachment, kindLabel: string) {
+  if (attachment.status === 'failed') return `失败原因：${getAttachmentErrorText(attachment)}`;
+  if (attachment.status === 'placeholder' || attachment.status === 'queued') return `${kindLabel}已加入生成队列，等待开始。`;
+  if (attachment.status === 'generating') return `正在生成${kindLabel}，完成后会自动更新。`;
+  if (attachment.status === 'ready') return attachment.url ? `${kindLabel}已生成。` : `${kindLabel}已生成，但资源地址暂不可用。`;
+  if (attachment.status === 'deleted') return `${kindLabel}已删除。`;
+  return `${kindLabel}正在处理。`;
+}
+
 function buildAttachmentItem(message: Message, attachment: MessageAttachment, members: DisplayTextMember[]): ProjectedMediaGenerationItem {
   const kindLabel = formatKind(attachment.kind);
   const statusLabel = formatStatus(attachment.status);
@@ -75,7 +86,7 @@ function buildAttachmentItem(message: Message, attachment: MessageAttachment, me
   const summary = clip(altText || content || `${kindLabel}附件`);
   const decisionChip = buildDecisionChip(message, attachment);
   const guidanceChip = buildGuidanceChip(message);
-  const error = attachment.status === 'failed' && attachment.error ? `失败原因：${clean(attachment.error, members)}` : '';
+  const detailText = clean(buildStatusDetail(attachment, kindLabel), members);
   const size = typeof attachment.sizeBytes === 'number' && attachment.sizeBytes > 0 ? `${Math.round(attachment.sizeBytes / 1024)}KB` : '';
   const chips = [
     statusLabel,
@@ -83,7 +94,6 @@ function buildAttachmentItem(message: Message, attachment: MessageAttachment, me
     guidanceChip,
     decisionChip,
     size,
-    error,
   ].filter(Boolean);
   const prompt = clean(attachment.promptText, members);
   return {
@@ -95,10 +105,11 @@ function buildAttachmentItem(message: Message, attachment: MessageAttachment, me
     statusLabel,
     title: `${clean(message.senderName, members) || '成员'} · ${kindLabel}`,
     summary,
+    detailText,
     chips,
     debugHint: [
       prompt ? `提示词：${prompt}` : '',
-      error,
+      attachment.status === 'failed' ? detailText : '',
       `附件 ${attachment.id}`,
       attachment.assetId ? `资产 ${attachment.assetId}` : '',
       attachment.url ? '已有资源地址' : '',

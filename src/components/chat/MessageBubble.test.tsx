@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getAttachmentErrorText } from './messageAttachmentDisplay';
+import { getAttachmentErrorText, getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
 import { buildEventDisplayText, buildMemoryDistillationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
 
 describe('MessageBubble event rendering', () => {
@@ -107,5 +107,12 @@ describe('MessageBubble event rendering', () => {
 
   it('falls back to a useful failed media message when no concrete error exists', () => {
     expect(getAttachmentErrorText({ error: '   ' })).toBe('生成任务失败，请检查模型配置或稍后重试。');
+  });
+
+  it('formats attachment status labels and details for queued and failed media', () => {
+    expect(getAttachmentStatusLabel({ kind: 'image', status: 'queued' })).toBe('图片排队中');
+    expect(getAttachmentStatusDetail({ kind: 'image', status: 'queued' })).toBe('图片已加入生成队列，等待开始。');
+    expect(getAttachmentStatusLabel({ kind: 'audio', status: 'generating' })).toBe('语音生成中');
+    expect(getAttachmentStatusDetail({ kind: 'audio', status: 'failed', error: '语音模型未配置' })).toBe('语音模型未配置');
   });
 });

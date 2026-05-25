@@ -9,7 +9,7 @@ import { isImageAvatar } from '../../utils/avatar';
 import { formatTimestamp } from '../../utils/format';
 import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
 import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationMeta, buildMemoryReactivationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
-import { getAttachmentErrorText } from './messageAttachmentDisplay';
+import { getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
 import MarkdownText from '../common/MarkdownText';
 import DebugChip from '../common/DebugChip';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
@@ -143,6 +143,11 @@ const typingBounce = keyframes`
 
 function renderMessageContent(message: Message) {
   const attachments = message.metadata?.attachments || [];
+  const statusChipColor = (status: string | undefined): 'error' | 'success' | 'primary' => {
+    if (status === 'failed') return 'error';
+    if (status === 'ready') return 'success';
+    return 'primary';
+  };
   const getMediaFrameStyle = (attachment: { width?: number; height?: number }) => {
     const width = Number(attachment.width || 0);
     const height = Number(attachment.height || 0);
@@ -188,14 +193,13 @@ function renderMessageContent(message: Message) {
             <Box key={attachment.id} sx={getMediaFrameStyle(attachment)}>
               <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', p: 1.5, textAlign: 'center' }}>
                 <Box sx={{ display: 'grid', gap: 0.75, maxWidth: '85%' }}>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                    {attachment.status === 'failed' ? '图片生成失败' : '图片生成中'}
+                  <Box>
+                    <Chip size="small" label={getAttachmentStatusLabel(attachment)} color={statusChipColor(attachment.status)} variant="outlined" sx={{ height: 22 }} />
+                  </Box>
+                  {attachment.status !== 'failed' ? <LinearProgress /> : null}
+                  <Typography variant="caption" sx={{ color: attachment.status === 'failed' ? 'error.main' : 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {getAttachmentStatusDetail(attachment)}
                   </Typography>
-                  {attachment.status !== 'failed' ? <LinearProgress /> : (
-                    <Typography variant="caption" sx={{ color: 'error.main', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                      {getAttachmentErrorText(attachment)}
-                    </Typography>
-                  )}
                   <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                     {attachment.altText}
                   </Typography>
@@ -214,8 +218,14 @@ function renderMessageContent(message: Message) {
           }
           return (
             <Box key={attachment.id} sx={{ minWidth: 200, borderRadius: 999, border: '1px solid', borderColor: 'divider', px: 1.25, py: 0.75, bgcolor: 'action.hover' }}>
-              <Typography variant="caption" color="text.secondary">{attachment.status === 'failed' ? '语音生成失败' : '语音生成中'}</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                <Typography variant="caption" color="text.secondary">{getAttachmentStatusLabel(attachment)}</Typography>
+                <Chip size="small" label={attachment.status === 'failed' ? '失败' : '处理中'} color={statusChipColor(attachment.status)} variant="outlined" sx={{ height: 20 }} />
+              </Box>
               {attachment.status !== 'failed' ? <LinearProgress sx={{ mt: 0.5 }} /> : null}
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.45, color: attachment.status === 'failed' ? 'error.main' : 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {getAttachmentStatusDetail(attachment)}
+              </Typography>
             </Box>
           );
         }

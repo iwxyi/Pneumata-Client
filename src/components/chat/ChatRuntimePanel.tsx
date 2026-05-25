@@ -472,6 +472,11 @@ function renderMediaGenerationPanel(items: ProjectedMediaGenerationItem[], isAdv
                 </Box>
                 <Chip size="small" label={item.statusLabel} color={item.status === 'failed' ? 'error' : item.status === 'ready' ? 'success' : 'primary'} variant="outlined" sx={{ height: 22 }} />
               </Box>
+              {item.detailText ? (
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: item.status === 'failed' ? 'error.main' : 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {cleanText(item.detailText, members)}
+                </Typography>
+              ) : null}
               <Box sx={{ mt: 0.7 }}>
                 <StatChipRow items={item.chips.map((chip) => cleanText(chip, members))} />
               </Box>
