@@ -694,6 +694,16 @@ function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem) {
       tone: reasonTone(speakerReasons.join(' ')),
     });
   }
+  const memoryClues = item.runtimeClueSections.find((section) => section.key === 'memory');
+  if (memoryClues?.items.length) {
+    groups.push({
+      key: 'memory',
+      label: '记忆线索',
+      items: memoryClues.items.slice(0, 4).map((text) => cleanText(text)),
+      hint: memoryClues.items.map((text) => cleanText(text)).join(' / '),
+      tone: 'rgba(255, 152, 0, 0.08)',
+    });
+  }
   if (item.primaryLineLabel || item.directorLabel !== '无调度意图') {
     groups.push({
       key: 'narrative',

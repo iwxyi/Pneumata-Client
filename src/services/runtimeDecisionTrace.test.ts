@@ -50,6 +50,16 @@ describe('runtimeDecisionTrace', () => {
               roleFit: 'capable',
               basis: ['mode:interview', 'topic:professional-task', 'role:capable'],
             },
+            memoryContext: {
+              recalledArchives: [{
+                id: 'archive-1',
+                scope: 'relationship',
+                kind: 'resentment',
+                layer: 'long_term',
+                summary: '雨夜失约',
+                recallReason: '当前对话提到旧承诺',
+              }],
+            },
             expressionFeedback: [{
               id: 'fb-1',
               label: '减少助手腔',
@@ -89,6 +99,12 @@ describe('runtimeDecisionTrace', () => {
       surfaceLabel: '专业表达 · 角色能力支持 · Markdown',
       surfaceBasis: ['面试模式', '主题请求专业表达', '角色能力支持长文'],
       rawSurface: 'professional/capable/markdown',
+      runtimeClueSections: expect.arrayContaining([
+        expect.objectContaining({
+          key: 'memory',
+          items: expect.arrayContaining(['旧档注入：雨夜失约', '原因：当前对话提到旧承诺']),
+        }),
+      ]),
     });
   });
 

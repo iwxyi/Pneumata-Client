@@ -1,4 +1,5 @@
 import type { Message } from '../types/message';
+import { projectMessageRuntimeClues, type MessageRuntimeClueSection } from './messageRuntimeClues';
 import { formatBeatType, formatDirectorSource, formatNarrativeLineType } from './runtimeInsightPresentation';
 
 type RuntimeDecisionDirectorIntentMeta = NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['directorIntent'];
@@ -41,6 +42,7 @@ export interface RuntimeDecisionTraceItem {
   surfaceLabel: string | null;
   surfaceBasis: string[];
   rawSurface: string | null;
+  runtimeClueSections: MessageRuntimeClueSection[];
 }
 
 function clip(value: string, max = 72) {
@@ -252,6 +254,7 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): Run
         ? `${formatResponseSurfaceKind(surface.kind)} · ${formatRoleFit(surface.roleFit)}${surface.allowMarkdown ? ' · Markdown' : ''}`
         : null;
       const expression = buildExpressionTrace(innerLife, surface);
+      const runtimeClueSections = projectMessageRuntimeClues(message);
       const expressionFeedback = Array.isArray(decision?.expressionFeedback) ? decision.expressionFeedback : [];
       const expressionFeedbackRetrievedLabels = expressionFeedback
         .map((item) => typeof item.label === 'string' ? item.label : '')
@@ -308,6 +311,7 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): Run
         surfaceLabel,
         surfaceBasis,
         rawSurface,
+        runtimeClueSections,
       };
     });
 }
