@@ -115,6 +115,16 @@ export async function runSessionCommitPipeline(params: {
     if (recallPatch) {
       await params.updateCharacter(persistedMessage.senderId, recallPatch);
     }
+    const recallEvents = transitionWithRecall.runtimeEvents.slice(transition.runtimeEvents.length);
+    if (recallEvents.length) {
+      if (params.appendEventMessages) {
+        await params.appendEventMessages(params.chatId, recallEvents, persistedMessage.id);
+      } else {
+        for (const event of recallEvents) {
+          await params.appendEventMessage(params.chatId, event, persistedMessage.id);
+        }
+      }
+    }
   }
   const nextCharacters = applyTransitionToCharacters(params.characters, transitionWithRecall);
   const nextChat = applyTransitionToChat(params.chat, transitionWithRecall);

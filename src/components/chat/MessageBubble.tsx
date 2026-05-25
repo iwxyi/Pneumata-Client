@@ -8,7 +8,7 @@ import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bub
 import { isImageAvatar } from '../../utils/avatar';
 import { formatTimestamp } from '../../utils/format';
 import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
-import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
+import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationMeta, buildMemoryReactivationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
 import { getAttachmentErrorText } from './messageAttachmentDisplay';
 import MarkdownText from '../common/MarkdownText';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
@@ -32,6 +32,21 @@ function renderMemoryDistillationMeta(payload: { metrics?: unknown }) {
   );
 }
 
+function renderMemoryReactivationMeta(payload: { metrics?: unknown }) {
+  const meta = buildMemoryReactivationMeta(payload);
+  if (!meta) return null;
+  return (
+    <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
+      {meta.matchedTokens.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{`命中词：${meta.matchedTokens.join(' / ')}`}</Typography> : null}
+      {meta.recalledMemories.map((item, index) => (
+        <Typography key={`${item.summary}-${index}`} variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>
+          {item.matchedTokens.length ? `${item.summary} · ${item.matchedTokens.join(' / ')}` : item.summary}
+        </Typography>
+      ))}
+    </Box>
+  );
+}
+
 function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { showRelationshipEvents: boolean; showAffectEvents: boolean; showConflictEvents: boolean; showStateEvents: boolean; showMemoryDistillationEvents: boolean; showMemoryDebug: boolean }) {
   if (!payload?.eventType) return false;
   if (['group_relationship_shift', 'relationship_shift'].includes(String(payload.eventType))) return flags.showRelationshipEvents;
@@ -39,6 +54,7 @@ function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { sh
   if (isConflictDeveloperEvent(payload.eventType)) return flags.showConflictEvents;
   if (isStateDeveloperEvent(payload.eventType)) return flags.showStateEvents;
   if (payload.eventType === 'memory_distillation') return flags.showMemoryDistillationEvents || flags.showMemoryDebug;
+  if (payload.eventType === 'memory_reactivation') return flags.showMemoryDebug;
   return false;
 }
 
@@ -56,6 +72,7 @@ function buildEventTypeChip(payload: { eventType?: string }) {
     world_state_shift: { label: '态势', color: 'primary' },
     room_state_snapshot_v2: { label: '态势', color: 'primary' },
     memory_distillation: { label: '蒸馏', color: 'info' },
+    memory_reactivation: { label: '回温', color: 'warning' },
   };
   const item = config[eventType] || { label: '提示', color: 'default' as const };
   return <Chip size="small" label={item.label} color={item.color} variant="outlined" />;
@@ -94,6 +111,7 @@ function renderEventBubble(messageId: string, payload: { eventType?: string; tit
         </Box>
         {isConflictDeveloperEvent(payload.eventType) ? renderConflictEventMeta(payload) : null}
         {payload.eventType === 'memory_distillation' ? renderMemoryDistillationMeta(payload) : null}
+        {payload.eventType === 'memory_reactivation' ? renderMemoryReactivationMeta(payload) : null}
       </Box>
     </Box>
   );

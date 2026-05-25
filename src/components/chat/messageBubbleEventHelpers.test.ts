@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildEventDisplayText, buildMemoryDistillationMeta } from './messageBubbleEventHelpers';
+import { buildEventDisplayText, buildMemoryDistillationMeta, buildMemoryReactivationMeta } from './messageBubbleEventHelpers';
 
 describe('messageBubbleEventHelpers', () => {
   it('sanitizes raw event JSON and UUIDs from event summaries', () => {
@@ -44,5 +44,30 @@ describe('messageBubbleEventHelpers', () => {
 
     expect(meta?.mergeModeLabel).toBe('同类证据强化合并');
     expect(meta?.mergeModeLabel).not.toContain('bucket');
+  });
+
+  it('sanitizes memory reactivation summaries and keeps concrete matched cues', () => {
+    const text = buildEventDisplayText({
+      eventType: 'memory_reactivation',
+      title: '旧记忆回温',
+      summary: '旧记忆回温：3c78729f-e52d-4dde-b27f-01a949960bb8b 在雨夜失约',
+    });
+    const meta = buildMemoryReactivationMeta({
+      metrics: {
+        matchedTokens: ['雨夜', '失约'],
+        recalledMemories: [
+          {
+            summary: 'episodic / 3c78729f-e52d-4dde-b27f-01a949960bb8b / 雨夜失约',
+            matchedTokens: ['雨夜', '失约'],
+          },
+        ],
+      },
+    });
+
+    expect(text).toContain('雨夜失约');
+    expect(text).not.toContain('3c78729f');
+    expect(meta?.matchedTokens).toEqual(['雨夜', '失约']);
+    expect(meta?.recalledMemories[0]?.summary).toContain('片段记忆');
+    expect(meta?.recalledMemories[0]?.summary).not.toContain('3c78729f');
   });
 });

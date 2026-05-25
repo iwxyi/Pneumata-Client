@@ -46,6 +46,7 @@ function formatMemoryDistillationMergeLabel(value: unknown) {
 export function buildEventDisplayText(payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }) {
   if (payload.eventType === 'room_state_snapshot_v2') return dedupeDisplayText(payload.summary || '');
   if (payload.eventType === 'conflict_axis_shift') return dedupeDisplayText(payload.summary || '');
+  if (payload.eventType === 'memory_reactivation') return dedupeDisplayText(payload.summary || payload.title || '旧记忆回温');
   if (payload.eventType === 'memory_distillation') {
     const metrics = payload.metrics && typeof payload.metrics === 'object' ? payload.metrics as Record<string, unknown> : null;
     const ownerLabel = typeof metrics?.ownerLabel === 'string' ? metrics.ownerLabel : '';
@@ -76,6 +77,28 @@ export function buildMemoryDistillationMeta(payload: { metrics?: unknown }) {
     evidenceCount,
     candidateTexts: candidateTexts.slice(0, 1),
   };
+}
+
+export function buildMemoryReactivationMeta(payload: { metrics?: unknown }) {
+  if (!payload.metrics || typeof payload.metrics !== 'object') return null;
+  const metrics = payload.metrics as Record<string, unknown>;
+  const matchedTokens = Array.isArray(metrics.matchedTokens)
+    ? metrics.matchedTokens.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).slice(0, 8)
+    : [];
+  const recalledMemories = Array.isArray(metrics.recalledMemories)
+    ? metrics.recalledMemories
+      .filter((value): value is Record<string, unknown> => typeof value === 'object' && value !== null)
+      .map((item) => ({
+        summary: sanitizeUserFacingText(String(item.summary || '')),
+        matchedTokens: Array.isArray(item.matchedTokens)
+          ? item.matchedTokens.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).slice(0, 4)
+          : [],
+      }))
+      .filter((item) => item.summary)
+      .slice(0, 2)
+    : [];
+  if (!matchedTokens.length && !recalledMemories.length) return null;
+  return { matchedTokens, recalledMemories };
 }
 
 export function shouldHideEmptyConflictEvent(payload: { eventType?: string; summary?: string; metrics?: unknown }) {

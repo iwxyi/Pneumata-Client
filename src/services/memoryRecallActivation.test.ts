@@ -122,6 +122,13 @@ describe('applyRecalledMemoryActivation', () => {
     expect(activated?.archivedAt).toBeFalsy();
     expect(activated?.recency).toBeGreaterThan(0.7);
     expect(patch?.runtimeTimeline?.at(-1)?.text).toContain('旧记忆被当前发言重新唤醒');
+    expect(result.runtimeEvents[0]).toMatchObject({
+      eventType: 'memory_reactivation',
+      title: '旧记忆回温',
+      metrics: {
+        matchedTokens: expect.arrayContaining(['雨夜', '失约']),
+      },
+    });
   });
 
   it('does not reactivate archived memories when the generated message does not use the cue', () => {
@@ -168,6 +175,9 @@ describe('applyRecalledMemoryActivation', () => {
 
     expect(activated?.archivedAt).toBeFalsy();
     expect(patch?.runtimeTimeline?.at(-1)?.text).toContain('重新唤醒');
+    expect(result.runtimeEvents[0]?.metrics).toMatchObject({
+      matchedTokens: expect.arrayContaining(['蓝色', '石头']),
+    });
   });
 
   it('does not reactivate prompt-injected archives without a specific memory cue', () => {

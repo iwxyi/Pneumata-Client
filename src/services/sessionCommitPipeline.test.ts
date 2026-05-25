@@ -153,6 +153,104 @@ function buildDistilledCandidate(ownerId: string, text: string, kind: MemoryCand
 }
 
 describe('runSessionCommitPipeline', () => {
+  it('persists memory reactivation events after old memories are used in a generated reply', async () => {
+    const chat = buildChat();
+    const archivedMemory: MemoryItem = {
+      ...buildMemoryItem('archive-1', 'char-a', ['char-b'], '雨夜失约时，甲把蓝色石头收了起来。', 'evt-old'),
+      layer: 'long_term',
+      summary: '雨夜失约和蓝色石头',
+      archivedAt: 80,
+      recallReason: '当前发言重新提到了雨夜旧事',
+      recallTokens: ['雨夜', '失约', '蓝色', '石头'],
+    };
+    const characters = [buildCharacter('char-a', '甲', [archivedMemory]), buildCharacter('char-b', '乙')];
+    const transition: DriverMessageCommitTransition = {
+      chatPatch: {},
+      characterPatches: [],
+      runtimeEvents: [],
+    };
+    const updateCharacter = vi.fn(async () => undefined);
+    const appendEventMessage = vi.fn(async () => undefined);
+    const appendEventMessages = vi.fn(async () => undefined);
+
+    runChatCommitPipelineMock.mockResolvedValue({
+      persistedMessage: {
+        id: 'msg-1',
+        chatId: chat.id,
+        type: 'ai',
+        senderId: 'char-a',
+        senderName: '甲',
+        content: '雨夜那次失约，我还留着那块蓝色石头。',
+        emotion: 0,
+        timestamp: 200,
+        isDeleted: false,
+        metadata: {
+          runtimeDecision: {
+            memoryContext: {
+              recalledArchives: [{
+                id: 'archive-1',
+                scope: 'relationship',
+                kind: 'resentment',
+                layer: 'long_term',
+                summary: '雨夜失约和蓝色石头',
+                recallReason: '当前发言重新提到了雨夜旧事',
+                recallTokens: ['雨夜', '失约', '蓝色', '石头'],
+                recallScore: 0.92,
+              }],
+            },
+          },
+        },
+      },
+      transition,
+    });
+    shouldRunLlmChatDistillationMock.mockReturnValue(false);
+    shouldRunLlmCharacterDistillationMock.mockReturnValue(false);
+
+    const result = await runSessionCommitPipeline({
+      api: DEFAULT_API_CONFIG,
+      chatId: chat.id,
+      chat,
+      characters,
+      message: {
+        chatId: chat.id,
+        type: 'ai',
+        senderId: 'char-a',
+        senderName: '甲',
+        content: '雨夜那次失约，我还留着那块蓝色石头。',
+        emotion: 0,
+      },
+      currentMessages: [],
+      onCommit: vi.fn(async () => transition),
+      upsertMessage: vi.fn(),
+      updateCharacter,
+      appendEventMessage,
+      appendEventMessages,
+      updateChat: vi.fn(),
+      recordSpeak: vi.fn(),
+    });
+
+    expect(updateCharacter).toHaveBeenCalledWith('char-a', expect.objectContaining({
+      layeredMemories: expect.arrayContaining([expect.objectContaining({
+        id: 'archive-1',
+        archivedAt: null,
+      })]),
+    }));
+    expect(appendEventMessages).toHaveBeenCalledWith(
+      'chat-1',
+      [expect.objectContaining({
+        eventType: 'memory_reactivation',
+        title: '旧记忆回温',
+        metrics: expect.objectContaining({
+          characterId: 'char-a',
+          matchedTokens: expect.arrayContaining(['雨夜', '失约', '蓝色', '石头']),
+        }),
+      })],
+      'msg-1',
+    );
+    expect(appendEventMessage).not.toHaveBeenCalled();
+    expect(result.transition.runtimeEvents).toHaveLength(1);
+  });
+
   it('runs LLM distillation against the post-commit layered memories and emits debug events', async () => {
     const chat = buildChat();
     const characters = [buildCharacter('char-a', '甲'), buildCharacter('char-b', '乙')];

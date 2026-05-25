@@ -24,9 +24,7 @@ function buildRecallCue(messages: Array<Pick<Message, 'senderName' | 'senderId' 
 }
 
 function generatedTextMatchesRecall(item: MemoryItem, generatedText: string) {
-  const normalized = generatedText.toLowerCase();
-  const tokens = buildRecallMatchTokens(item);
-  return tokens.some((token) => token.length >= 2 && normalized.includes(token.toLowerCase()));
+  return matchedRecallTokens(item, generatedText).length > 0;
 }
 
 function buildRecallMatchTokens(item: MemoryItem) {
@@ -45,6 +43,13 @@ function buildRecallMatchTokens(item: MemoryItem) {
   return Array.from(new Set(tokens.map((item) => item.trim()).filter((item) => item.length >= 2 && !stopTokens.has(item)))).slice(0, 28);
 }
 
+function matchedRecallTokens(item: MemoryItem, generatedText: string) {
+  const normalized = generatedText.toLowerCase();
+  return buildRecallMatchTokens(item)
+    .filter((token) => token.length >= 2 && normalized.includes(token.toLowerCase()))
+    .slice(0, 6);
+}
+
 function shouldActivateRecall(item: MemoryItem, generatedText: string) {
   if (!item.archivedAt || !item.recallReason) return false;
   return generatedTextMatchesRecall(item, generatedText);
@@ -53,6 +58,38 @@ function shouldActivateRecall(item: MemoryItem, generatedText: string) {
 function mergeRecallTokens(item: MemoryItem, tokens: string[] | undefined) {
   const merged = Array.from(new Set([...(tokens || []), ...(item.recallTokens || [])].filter(Boolean)));
   return merged.length ? merged : undefined;
+}
+
+function buildMemoryReactivationEvent(params: {
+  speaker: AICharacter;
+  recalled: Array<{ item: MemoryItem; matchedTokens: string[] }>;
+}) {
+  const summaries = params.recalled
+    .slice(0, 2)
+    .map(({ item }) => item.summary || item.text)
+    .filter(Boolean);
+  const matchedTokens = Array.from(new Set(params.recalled.flatMap(({ matchedTokens }) => matchedTokens))).slice(0, 8);
+  return {
+    eventType: 'memory_reactivation',
+    title: '旧记忆回温',
+    summary: `${params.speaker.name} 的旧记忆被当前发言重新唤醒：${summaries.join(' / ')}`,
+    timelineType: 'note' as const,
+    metrics: {
+      characterId: params.speaker.id,
+      characterName: params.speaker.name,
+      matchedTokens,
+      recalledMemories: params.recalled.slice(0, 4).map(({ item, matchedTokens: itemTokens }) => ({
+        id: item.id,
+        summary: item.summary || item.text,
+        scope: item.scope,
+        kind: item.kind,
+        layer: item.layer,
+        recallReason: item.recallReason,
+        recallScore: item.recallScore,
+        matchedTokens: itemTokens,
+      })),
+    },
+  };
 }
 
 function recalledFromPromptMetadata(
@@ -129,11 +166,14 @@ export function applyRecalledMemoryActivation(params: {
     maxArchivedItems: 3,
     preferredLayers: ['long_term', 'episodic', 'working'],
     preferredScopes: ['relationship', 'character_self', 'conversation', 'thread', 'system_runtime'],
-  })).filter((item) => shouldActivateRecall(item, params.message.content));
+  }))
+    .filter((item) => shouldActivateRecall(item, params.message.content))
+    .map((item) => ({ item, matchedTokens: matchedRecallTokens(item, params.message.content) }))
+    .filter((item) => item.matchedTokens.length > 0);
   if (!recalled.length) return params.transition;
 
   const now = Date.now();
-  const recalledIds = new Set(recalled.map((item) => item.id));
+  const recalledIds = new Set(recalled.map(({ item }) => item.id));
   const nextMemories = compactMemoryItems(layeredMemories.map((item) => (
     recalledIds.has(item.id) ? activateMemoryItem(item, now) : item
   )), now);
@@ -142,11 +182,18 @@ export function applyRecalledMemoryActivation(params: {
     ...(speakerPatch || {}),
   } as AICharacter, {
     type: 'memory',
-    text: `旧记忆被当前发言重新唤醒：${recalled.slice(0, 2).map((item) => item.summary || item.text).join(' / ')}`,
+    text: `旧记忆被当前发言重新唤醒：${recalled.slice(0, 2).map(({ item }) => item.summary || item.text).join(' / ')}`,
   }).slice(-80);
 
-  return mergeSpeakerPatch(params.transition, speaker.id, {
+  const transitionWithCharacterPatch = mergeSpeakerPatch(params.transition, speaker.id, {
     layeredMemories: nextMemories,
     runtimeTimeline,
   });
+  return {
+    ...transitionWithCharacterPatch,
+    runtimeEvents: [
+      ...transitionWithCharacterPatch.runtimeEvents,
+      buildMemoryReactivationEvent({ speaker, recalled }),
+    ],
+  };
 }
