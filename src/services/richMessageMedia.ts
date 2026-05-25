@@ -57,6 +57,7 @@ function updateAttachment(metadata: MessageMetadata | undefined, attachmentId: s
 export async function processRichMessageMedia(params: {
   message: Message;
   character?: AICharacter | null;
+  characters?: AICharacter[];
   aiProfiles: AIModelProfile[];
   upsertMessage: (message: Message) => void;
 }) {
@@ -74,15 +75,20 @@ export async function processRichMessageMedia(params: {
       if (attachment.kind === 'image') {
         const profile = findGenerationProfile(params.aiProfiles, 'image', params.character?.modelProfileIds?.image);
         if (!profile || !attachment.promptText) throw new Error('图片模型未配置');
+        const referenceCharacters = (attachment.referenceCharacterIds || [])
+          .map((id) => params.characters?.find((character) => character.id === id))
+          .filter(Boolean) as AICharacter[];
+        const visualCharacter = referenceCharacters[0] || params.character || null;
         const images = await generateImageWithAdapter({
           profile,
           prompt: attachment.promptText,
           count: 1,
           intent: 'chat-image',
-          character: params.character,
+          character: referenceCharacters.length ? null : params.character,
+          characters: referenceCharacters,
           allowCharacterReferenceImages: true,
-          negativePrompt: params.character?.visualIdentity?.negativePrompt,
-          seed: params.character?.visualIdentity?.seed,
+          negativePrompt: visualCharacter?.visualIdentity?.negativePrompt,
+          seed: visualCharacter?.visualIdentity?.seed,
         });
         const first = images[0];
         if (!first?.dataUrl) throw new Error('图片生成失败');
@@ -157,6 +163,7 @@ export async function retryRichMessageMedia(params: {
   message: Message;
   attachmentId: string;
   character?: AICharacter | null;
+  characters?: AICharacter[];
   aiProfiles: AIModelProfile[];
   upsertMessage: (message: Message) => void;
 }) {
@@ -177,6 +184,7 @@ export async function retryRichMessageMedia(params: {
   await processRichMessageMedia({
     message: retryMessage,
     character: params.character,
+    characters: params.characters,
     aiProfiles: params.aiProfiles,
     upsertMessage: params.upsertMessage,
   });

@@ -463,6 +463,7 @@ export default function ChatDetailPage() {
       message,
       attachmentId,
       character,
+      characters,
       aiProfiles,
       upsertMessage: upsertMessageStable,
     });

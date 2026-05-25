@@ -17,6 +17,7 @@ export interface MessageAttachment {
   height?: number;
   generationJobId?: string;
   promptText?: string;
+  referenceCharacterIds?: string[];
   thumbnailAssetId?: string;
   checksum?: string;
   error?: string;
@@ -30,6 +31,7 @@ export interface MediaGenerationDecision {
     reason?: string;
     prompt?: string;
     altText?: string;
+    referenceCharacterIds?: string[];
   } | null;
   audio?: {
     shouldGenerate: boolean;

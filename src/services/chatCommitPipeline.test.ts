@@ -214,6 +214,7 @@ describe('runChatCommitPipeline', () => {
 
     expect(processRichMessageMediaMock).toHaveBeenCalledWith(expect.objectContaining({
       message: serverMessage,
+      characters: expect.arrayContaining([expect.objectContaining({ id: 'char-1' })]),
       aiProfiles: expect.arrayContaining([expect.objectContaining({ id: 'image-default' })]),
       upsertMessage,
     }));

@@ -60,6 +60,7 @@ export async function runChatCommitPipeline(params: {
       void processRichMessageMedia({
         message,
         character: speaker,
+        characters: params.characters,
         aiProfiles: params.aiProfiles || [],
         upsertMessage: params.upsertMessage,
       });

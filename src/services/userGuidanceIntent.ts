@@ -65,7 +65,7 @@ function firstMentionBeforeAction(text: string, mentioned: Array<{ character: AI
 function namesAfterDirectivePrefix(text: string, mentioned: Array<{ character: AICharacter; index: number }>) {
   const prefixMatch = /(让|请|叫|安排|指定|点名|让一下|麻烦|想让)/i.exec(text);
   if (!prefixMatch) return [];
-  const firstActionAfterPrefix = /(发|画|拍|写|说|讲|回答|回应|回复|解释|评价|吐槽|问|出题|总结|分析|展开)/i.exec(text.slice(prefixMatch.index + prefixMatch[0].length));
+  const firstActionAfterPrefix = /(帮|替|给|发|画|拍|写|说|讲|回答|回应|回复|解释|评价|吐槽|问|出题|总结|分析|展开)/i.exec(text.slice(prefixMatch.index + prefixMatch[0].length));
   const actionIndex = firstActionAfterPrefix
     ? prefixMatch.index + prefixMatch[0].length + firstActionAfterPrefix.index
     : Math.min(text.length, prefixMatch.index + 36);
@@ -81,11 +81,21 @@ function startsWithMentionedActor(text: string, mentioned: Array<{ character: AI
     .map((item) => item.character.id);
 }
 
+function mentionedActorsBeforeFirstAction(text: string, mentioned: Array<{ character: AICharacter; index: number }>) {
+  const actionMatch = /(帮|替|给|发|画|拍|写|说|讲|回答|回应|回复|解释|评价|吐槽|问|出题|总结|分析|展开)/i.exec(text);
+  if (!actionMatch) return [];
+  return mentioned
+    .filter((item) => item.index < actionMatch.index)
+    .map((item) => item.character.id);
+}
+
 function resolveActionActors(text: string, characters: AICharacter[], imageRequest: boolean) {
   const mentioned = sortByNamePosition(text, characters);
   if (!mentioned.length) return [];
   const prefixActors = namesAfterDirectivePrefix(text, mentioned);
   if (prefixActors.length) return unique(prefixActors);
+  const actorsBeforeAction = mentionedActorsBeforeFirstAction(text, mentioned);
+  if (actorsBeforeAction.length > 1 && (imageRequest || isDirectSpeakRequest(text))) return unique(actorsBeforeAction);
   const leadingActors = startsWithMentionedActor(text, mentioned);
   if (leadingActors.length && (imageRequest || isDirectSpeakRequest(text))) return unique(leadingActors);
   const beforeActionActors = firstMentionBeforeAction(text, mentioned);

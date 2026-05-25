@@ -12,7 +12,7 @@ export interface RuntimePressureProjection {
   directorIntent: DirectorIntent | null;
 }
 
-interface HumanGuidanceResolution {
+export interface HumanGuidanceResolution {
   intent: DirectorIntent | null;
   timestamp: number | null;
 }
@@ -62,6 +62,60 @@ function hasImageAttachment(message: Message) {
   );
 }
 
+const TOPIC_GUIDANCE_STOP_WORDS = new Set([
+  '新话题',
+  '换话题',
+  '换个',
+  '话题',
+  '讨论',
+  '聊聊',
+  '说说',
+  '继续',
+  '回到',
+  '围绕',
+  '一下',
+  '这个',
+  '那个',
+  '什么',
+  '怎么',
+  '应该',
+]);
+
+function normalizeTopicMatchText(text: string) {
+  return text.replace(/\s+/g, '').replace(/[，。！？、,.!?:：；;"“”'‘’（）()[\]{}<>《》]/g, '');
+}
+
+function extractTopicMatchTokens(text: string) {
+  const normalized = normalizeTopicMatchText(text.replace(/^(新话题|换个话题|切换话题|回到|继续说|讨论|聊聊)[:：]*/i, ''));
+  const tokens: string[] = [];
+  const chunks = normalized.match(/[\u4e00-\u9fff]{2,}|[A-Za-z0-9_]{3,}/g) || [];
+  for (const chunk of chunks) {
+    if (/^[A-Za-z0-9_]+$/.test(chunk)) {
+      tokens.push(chunk.toLowerCase());
+      continue;
+    }
+    if (chunk.length <= 4) {
+      tokens.push(chunk);
+      continue;
+    }
+    for (let index = 0; index < chunk.length - 1; index += 1) {
+      tokens.push(chunk.slice(index, index + 2));
+    }
+  }
+  return tokens
+    .map((token) => token.trim())
+    .filter((token, index, array) => token.length >= 2 && !TOPIC_GUIDANCE_STOP_WORDS.has(token) && array.indexOf(token) === index);
+}
+
+function looksLikeTopicGuidanceHandled(message: Message, guidance: UserGuidanceIntent) {
+  if (guidance.kind !== 'topic_shift') return false;
+  const tokens = extractTopicMatchTokens(guidance.focusText || guidance.rawText);
+  if (!tokens.length) return true;
+  const content = normalizeTopicMatchText(message.content || '').toLowerCase();
+  const matched = tokens.filter((token) => content.includes(token.toLowerCase()));
+  return matched.length >= Math.min(2, tokens.length) || matched.some((token) => token.length >= 3);
+}
+
 function isSameGuidance(left: UserGuidanceIntent | null | undefined, right: UserGuidanceIntent | null | undefined) {
   if (!left || !right) return false;
   return left.kind === right.kind && left.rawText === right.rawText;
@@ -85,12 +139,24 @@ function hasCompletedGuidance(message: Message, guidance: UserGuidanceIntent) {
   return looksLikeMediaRequestHandled(message, guidance);
 }
 
+function hasConsumedHumanGuidanceTurn(message: Message, guidance: UserGuidanceIntent) {
+  if (message.type !== 'ai' || message.isDeleted) return false;
+  if (guidance.actorIds.length && !guidance.actorIds.includes(message.senderId)) return false;
+  if (guidance.kind === 'media_request') return looksLikeMediaRequestHandled(message, guidance);
+  if (guidance.kind === 'topic_shift') return looksLikeTopicGuidanceHandled(message, guidance);
+  return true;
+}
+
 function getCompletedGuidanceActorIdsAfter(messages: Message[], timestamp: number, guidance: UserGuidanceIntent) {
   return new Set(
     messages
       .filter((message) => message.timestamp > timestamp && hasCompletedGuidance(message, guidance))
       .map((message) => message.senderId),
   );
+}
+
+function countConsumedGuidanceTurnsAfter(messages: Message[], timestamp: number, guidance: UserGuidanceIntent) {
+  return messages.filter((message) => message.timestamp > timestamp && hasConsumedHumanGuidanceTurn(message, guidance)).length;
 }
 
 function isExplicitPersistentGuidance(guidance: UserGuidanceIntent) {
@@ -110,7 +176,7 @@ function guidanceIntentToDirectorIntent(guidance: UserGuidanceIntent, targetActo
   };
 }
 
-function getLatestHumanGuidanceResolution(characters: AICharacter[], messages: Message[], now: number): HumanGuidanceResolution {
+export function resolveLatestActiveUserGuidance(characters: AICharacter[], messages: Message[], now = Date.now()): HumanGuidanceResolution {
   const humanMessages = messages
     .filter((message) => !message.isDeleted && (message.type === 'user' || message.type === 'god'))
     .slice()
@@ -133,7 +199,7 @@ function getLatestHumanGuidanceResolution(characters: AICharacter[], messages: M
       return { intent: null, timestamp: message.timestamp };
     }
 
-    if (countAiResponsesAfter(messages, message.timestamp) >= guidance.maxTurns) {
+    if (countConsumedGuidanceTurnsAfter(messages, message.timestamp, guidance) >= guidance.maxTurns) {
       return { intent: null, timestamp: message.timestamp };
     }
     return {
@@ -215,7 +281,7 @@ export function projectRuntimePressure(params: {
     messages: activeMessages,
     now,
   });
-  const latestHumanGuidance = getLatestHumanGuidanceResolution(params.characters, activeMessages, now);
+  const latestHumanGuidance = resolveLatestActiveUserGuidance(params.characters, activeMessages, now);
   const directorIntervention = getLatestDirectorInterventionIntent(params.chat, params.characters, activeMessages, now, latestHumanGuidance.timestamp);
   if (directorIntervention) {
     return {

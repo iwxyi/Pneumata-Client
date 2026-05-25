@@ -269,15 +269,76 @@ describe('chatEngine streaming preview', () => {
       shouldGenerate: true,
       reason: '用户明确要求这个角色发送或创作图片。',
       altText: '美羊羊发来的灰太狼图片',
+      referenceCharacterIds: ['hui'],
     });
     expect(message.metadata?.attachments).toHaveLength(1);
     expect(message.metadata?.attachments?.[0]).toMatchObject({
       kind: 'image',
       status: 'queued',
       altText: '美羊羊发来的灰太狼图片',
+      referenceCharacterIds: ['hui'],
     });
     expect(message.metadata?.attachments?.[0]?.promptText).toContain('美羊羊发个灰太狼证件照的图片');
     expect(message.metadata?.attachments?.[0]?.promptText).toContain('灰太狼');
+  });
+
+  it('recovers the latest unresolved media guidance from messages even without a passed directorIntent', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '来啦来啦，灰太狼先生的证件照我画好了～',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const hui = buildCharacter('hui', '灰太狼', {
+      visualIdentity: { description: '灰色狼，黄色补丁帽，两撇胡子' },
+    });
+    const lan = buildCharacter('lan', '懒羊羊');
+    const now = Date.now();
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['mei', 'hui', 'lan'] }),
+      speaker: mei,
+      characters: [mei, hui, lan],
+      messages: [
+        {
+          id: 'guide',
+          chatId: 'chat-1',
+          type: 'god',
+          senderId: 'user',
+          senderName: '开发者',
+          content: '美羊羊发个灰太狼证件照的图片',
+          emotion: 0,
+          timestamp: now - 2000,
+          isDeleted: false,
+        },
+        {
+          id: 'slipped',
+          chatId: 'chat-1',
+          type: 'ai',
+          senderId: 'hui',
+          senderName: '灰太狼',
+          content: '我看看你画得够不够帅，别把我胡子画歪了！',
+          emotion: 0,
+          timestamp: now - 1000,
+          isDeleted: false,
+        },
+      ],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.senderId).toBe('mei');
+    expect(message.metadata?.runtimeDecision?.directorIntent?.userGuidance).toMatchObject({
+      kind: 'media_request',
+      actorIds: ['mei'],
+      mediaRequest: { subjectActorIds: ['hui'] },
+    });
+    expect(message.metadata?.attachments?.[0]).toMatchObject({
+      kind: 'image',
+      status: 'queued',
+      referenceCharacterIds: ['hui'],
+    });
   });
 
   it('locks explicit media guidance to the requested speaker instead of letting other members抢话', async () => {

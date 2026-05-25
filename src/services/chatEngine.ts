@@ -16,7 +16,7 @@ import { calculateWeights, getSpeakerSelectionResult, resolvePendingReplyContext
 import { deriveSpeakIntentFromContext, describeIntentForPrompt } from './intentEngine';
 import { describeDirectorIntent, type DirectorIntent } from './directorIntent';
 import type { NarrativeLineProjection } from './narrativeProjection';
-import { projectRuntimePressure } from './runtimeDecision';
+import { projectRuntimePressure, resolveLatestActiveUserGuidance } from './runtimeDecision';
 import type { SpeakerScoreBreakdown } from './speakerScoring';
 import { buildHumanizationPrompt, postProcessHumanChat } from './dialogueHumanizer';
 import { buildInnerLifeMetadata, buildInnerLifePromptBlock, projectInnerLife, type InnerLifeProjection } from './innerLifeEngine';
@@ -481,6 +481,7 @@ function buildForcedImagePrompt(params: {
 }) {
   const request = params.guidance.mediaRequest;
   if (!request) return null;
+  const referenceCharacterIds = request.subjectActorIds.length ? request.subjectActorIds : [];
   const subjectCharacters = request.subjectActorIds
     .map((id) => params.characters.find((character) => character.id === id))
     .filter(Boolean) as AICharacter[];
@@ -505,6 +506,7 @@ function buildForcedImagePrompt(params: {
   return {
     prompt,
     altText: `${params.speaker.name}发来的${subjectText}图片`,
+    referenceCharacterIds,
   };
 }
 
@@ -523,7 +525,17 @@ function mergeGuidanceMediaDecision(params: {
     content: params.content,
   });
   if (!forced) return params.decision;
-  if (params.decision?.image?.shouldGenerate && params.decision.image.prompt && params.decision.image.altText) return params.decision;
+  if (params.decision?.image?.shouldGenerate && params.decision.image.prompt && params.decision.image.altText) {
+    return {
+      ...(params.decision || {}),
+      image: {
+        ...params.decision.image,
+        referenceCharacterIds: params.decision.image.referenceCharacterIds?.length
+          ? params.decision.image.referenceCharacterIds
+          : forced.referenceCharacterIds,
+      },
+    };
+  }
   return {
     ...(params.decision || {}),
     image: {
@@ -531,6 +543,7 @@ function mergeGuidanceMediaDecision(params: {
       reason: '用户明确要求这个角色发送或创作图片。',
       prompt: forced.prompt,
       altText: forced.altText,
+      referenceCharacterIds: forced.referenceCharacterIds,
     },
   };
 }
@@ -585,6 +598,7 @@ function normalizeMediaDecision(decision: MediaGenerationDecision | null | undef
       reason: decision.image.reason || '',
       prompt: decision.image.prompt,
       altText: decision.image.altText,
+      referenceCharacterIds: decision.image.referenceCharacterIds?.filter(Boolean),
     };
   }
   if (capabilities.audio && decision?.audio?.shouldGenerate) {
@@ -616,6 +630,7 @@ function buildMessageMetadata(params: {
       status: 'queued',
       altText: decision.image.altText,
       promptText: decision.image.prompt,
+      referenceCharacterIds: decision.image.referenceCharacterIds?.filter(Boolean),
       createdAt: now,
       updatedAt: now,
     });
@@ -894,13 +909,17 @@ export async function generateSpeakerMessage(params: {
   const chatMembers = params.characters.filter((character) => params.chat.memberIds.includes(character.id));
   const effectiveMembers = chatMembers.length ? chatMembers : params.characters;
   const activeMessages = params.messages.filter((message) => message.chatId === params.chat.id && !message.isDeleted);
+  const latestActiveUserGuidance = resolveLatestActiveUserGuidance(effectiveMembers, activeMessages).intent;
+  const effectiveDirectorIntent = params.directorIntent?.source === 'user_message'
+    ? params.directorIntent
+    : latestActiveUserGuidance || params.directorIntent || null;
   const emotion = getEmotion(params.speaker.id);
   const fallbackRecentTargetId = activeMessages.filter((message) => message.type === 'ai' && !message.isDeleted).at(-1)?.senderId;
   const recentTargetId = params.pendingReplyContext?.targetIds.includes(params.speaker.id)
     ? params.pendingReplyContext.sourceSpeakerId || fallbackRecentTargetId
     : fallbackRecentTargetId;
   const recentText = activeMessages.at(-1)?.content || '';
-  const intent = deriveSpeakIntentFromContext(params.speaker, recentTargetId, recentText, params.directorIntent);
+  const intent = deriveSpeakIntentFromContext(params.speaker, recentTargetId, recentText, effectiveDirectorIntent);
   const innerLife = projectInnerLife({ chat: params.chat, character: params.speaker, messages: activeMessages });
   await waitForInnerLifeTypingDelay(innerLife, params.chat, params.delay);
   if (params.pendingReplyContext?.targetIds.includes(params.speaker.id) && params.pendingReplyContext.sourceSpeakerId) {
@@ -931,11 +950,11 @@ export async function generateSpeakerMessage(params: {
   const responseSurface = resolveResponseSurface(params.chat, enginePromptContext, activeMessages, params.speaker);
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
-  const userGuidance = params.directorIntent?.userGuidance || null;
+  const userGuidance = effectiveDirectorIntent?.userGuidance || null;
 	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}
 
 Current director intent:
-- ${params.directorIntent ? describeDirectorIntent(params.directorIntent) : 'none'}
+- ${effectiveDirectorIntent ? describeDirectorIntent(effectiveDirectorIntent) : 'none'}
 - Treat this as the current room pressure, not as a fixed plot script.
 
 Current speaking intent:
@@ -982,7 +1001,7 @@ Current speaking intent:
 	      content: generated.finalResponse,
         surface: responseSurface,
 	      runtimeDecision: buildRuntimeDecisionMetadata({
-	        directorIntent: params.directorIntent,
+	        directorIntent: effectiveDirectorIntent,
 	        narrativeLines: params.narrativeLines,
 	        speakerScore: params.speakerScore,
           innerLife,

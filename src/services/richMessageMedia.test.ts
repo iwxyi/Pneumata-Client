@@ -35,6 +35,17 @@ const character = {
   modelProfileIds: {},
 } as AICharacter;
 
+const subjectCharacter = {
+  id: 'hui',
+  name: '灰太狼',
+  avatar: '',
+  visualIdentity: {
+    description: '灰色狼，黄色补丁帽，两撇胡子',
+    negativePrompt: 'no sheep ears',
+    seed: 777,
+  },
+} as AICharacter;
+
 function buildQueuedImageMessage(patch: Partial<Message> = {}): Message {
   return {
     id: patch.id || 'm-image',
@@ -104,6 +115,46 @@ describe('processRichMessageMedia', () => {
       mimeType: 'image/png',
     });
     expect(upserts.at(-1)?.metadata?.generation?.status).toBe('ready');
+  });
+
+  it('uses referenced subject characters for image generation instead of the sending character', async () => {
+    vi.mocked(generateImageWithAdapter).mockResolvedValue([{
+      dataUrl: 'data:image/png;base64,subject',
+      mimeType: 'image/png',
+    }]);
+    const upserts: Message[] = [];
+
+    await processRichMessageMedia({
+      message: buildQueuedImageMessage({
+        metadata: {
+          attachments: [{
+            id: 'image-1',
+            kind: 'image',
+            status: 'queued',
+            promptText: '灰太狼证件照',
+            altText: '灰太狼证件照',
+            referenceCharacterIds: ['hui'],
+            createdAt: 123,
+            updatedAt: 123,
+          }],
+        },
+      }),
+      character,
+      characters: [character, subjectCharacter],
+      aiProfiles: [imageProfile],
+      upsertMessage: (message) => upserts.push(message),
+    });
+
+    expect(generateImageWithAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      character: null,
+      characters: [subjectCharacter],
+      negativePrompt: 'no sheep ears',
+      seed: 777,
+    }));
+    expect(upserts.at(-1)?.metadata?.attachments?.[0]).toMatchObject({
+      status: 'ready',
+      url: 'data:image/png;base64,subject',
+    });
   });
 
   it('retries a failed media attachment by resetting it to queued and running the same pipeline', async () => {
