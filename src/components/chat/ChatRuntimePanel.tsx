@@ -16,12 +16,12 @@ import { sanitizeDistillationTexts } from '../../services/distillationText';
 import DialogueDebugPanel from './DialogueDebugPanel';
 import { projectRuntimeTimeline, type ProjectedRuntimeTimelineItem } from '../../services/sessionProjection';
 import { projectRuntimeDecisionTrace, type RuntimeDecisionTraceItem } from '../../services/runtimeDecisionTrace';
-import { formatConflictPressureLabel, formatConflictTypeLabel, parseRuntimeEvent } from '../../services/runtimeEventFactory';
+import { formatConflictPressureLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
 import { buildMemberInnerLifeSummary } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from '../../services/displayTextSanitizer';
-import { retrieveRelevantMemories } from '../../services/memoryRetrieval';
 import { formatInnerImpulseLabel, formatSoulMetricLabel } from '../../services/runtimeDecisionLabels';
 import { formatScenarioBoardKind, formatScenarioRoleLabel } from '../../services/scenarioPresentation';
+import { projectMemoryReactivationItems, projectMemoryRecallItems } from '../../services/memoryRecallPresentation';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -434,213 +434,39 @@ function renderInnerLifePanel(members: AICharacter[], isZh: boolean) {
   );
 }
 
-function buildRecallCue(messages: Message[], members: AICharacter[]) {
-  const memberNames = members.map((member) => member.name).join('、');
-  const recentText = messages
-    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
-    .slice(-6)
-    .map((message) => `${message.senderName || memberName(message.senderId, members)}：${message.content}`)
-    .join('\n');
-  return [memberNames, recentText].filter(Boolean).join('\n').slice(-1000);
-}
-
-function latestCharacterTargetId(messages: Message[], member: AICharacter, members: AICharacter[]) {
-  const memberIds = new Set(members.map((item) => item.id));
-  return messages
-    .filter((message) => !message.isDeleted && message.senderId !== member.id && memberIds.has(message.senderId))
-    .slice()
-    .reverse()[0]?.senderId || null;
-}
-
-interface MemoryRecallDisplayItem {
-  id: string;
-  summary: string;
-  recallReason?: string;
-  recallTokens?: string[];
-  recallScore?: number;
-  recallCue?: string;
-  evidenceText?: string;
-}
-
-function buildActualMemoryRecallItems(members: AICharacter[], messages: Message[]) {
-  const memberById = new Map(members.map((member) => [member.id, member] as const));
-  const seen = new Set<string>();
-  return messages
-    .filter((message) => !message.isDeleted && message.type === 'ai')
-    .slice(-8)
-    .flatMap((message) => {
-      const member = memberById.get(message.senderId);
-      const recalled = message.metadata?.runtimeDecision?.memoryContext?.recalledArchives || [];
-      if (!member || !recalled.length) return [];
-      return recalled.map((item) => {
-        const key = `${message.id}:${item.id}`;
-        if (seen.has(key)) return null;
-        seen.add(key);
-        return {
-          member,
-          source: 'actual' as const,
-          item: {
-            id: item.id,
-            summary: item.summary,
-            recallReason: item.recallReason,
-            recallTokens: item.recallTokens,
-            recallScore: item.recallScore,
-          },
-        };
-      }).filter(Boolean) as Array<{ member: AICharacter; source: 'actual'; item: MemoryRecallDisplayItem }>;
-    })
-    .slice(-8)
-    .reverse();
-}
-
-function buildMemoryRecallItems(chat: GroupChat, members: AICharacter[], messages: Message[]) {
-  const actual = buildActualMemoryRecallItems(members, messages);
-  if (actual.length) return actual;
-  const cueText = buildRecallCue(messages, members);
-  if (!cueText.trim()) return [];
-  return members.flatMap((member) => {
-    const recalled = retrieveRelevantMemories(member.layeredMemories || [], {
-      speakerId: member.id,
-      targetId: latestCharacterTargetId(messages, member, members),
-      conversationId: chat.id,
-      maxItems: 4,
-      cueText,
-      includeArchivedRecall: true,
-      maxArchivedItems: 2,
-      preferredLayers: ['long_term', 'episodic', 'working'],
-      preferredScopes: ['relationship', 'character_self', 'conversation', 'thread', 'system_runtime'],
-    }).filter((item) => item.archivedAt && item.recallReason);
-    return recalled.slice(0, 2).map((item) => ({ member, source: 'candidate' as const, item: {
-      id: item.id,
-      summary: item.summary || item.text,
-      recallReason: item.recallReason,
-      recallTokens: item.recallTokens,
-      recallScore: item.recallScore,
-      recallCue: item.recallCue,
-      evidenceText: item.evidenceText,
-    } }));
-  }).slice(0, 8);
-}
-
-interface MemoryReactivationDisplayItem {
-  key: string;
-  memberName: string;
-  summary: string;
-  matchedTokens: string[];
-  reason?: string;
-  createdAt?: number;
-}
-
-function readReactivationMetrics(metrics: unknown) {
-  if (!metrics || typeof metrics !== 'object') return null;
-  const record = metrics as Record<string, unknown>;
-  const recalledMemories = Array.isArray(record.recalledMemories)
-    ? record.recalledMemories.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    : [];
-  return {
-    characterId: typeof record.characterId === 'string' ? record.characterId : '',
-    characterName: typeof record.characterName === 'string' ? record.characterName : '',
-    matchedTokens: Array.isArray(record.matchedTokens)
-      ? record.matchedTokens.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 6)
-      : [],
-    recalledMemories,
-  };
-}
-
-function buildMemoryReactivationItems(members: AICharacter[], messages: Message[]) {
-  const memberById = new Map(members.map((member) => [member.id, member] as const));
-  const eventItems = messages
-    .filter((message) => !message.isDeleted && message.type === 'event')
-    .flatMap((message): MemoryReactivationDisplayItem[] => {
-      const event = parseRuntimeEvent(message.content);
-      if (event?.eventType !== 'memory_reactivation') return [];
-      const metrics = readReactivationMetrics(event.metrics);
-      if (!metrics) return [];
-      const memories = metrics.recalledMemories
-        .map((item) => ({
-          summary: typeof item.summary === 'string' ? cleanText(item.summary, members) : '',
-          reason: typeof item.recallReason === 'string' ? cleanText(item.recallReason, members) : '',
-          matchedTokens: Array.isArray(item.matchedTokens)
-            ? item.matchedTokens
-              .filter((token): token is string => typeof token === 'string' && Boolean(token.trim()))
-              .map((token) => cleanText(token, members))
-              .filter(Boolean)
-              .slice(0, 4)
-            : [],
-        }))
-        .filter((item) => item.summary);
-      const memberName = memberById.get(metrics.characterId)?.name || cleanText(metrics.characterName, members) || '某成员';
-      return [{
-        key: `${message.id}-${metrics.characterId || memberName}`,
-        memberName,
-        summary: memories.slice(0, 2).map((item) => item.summary).join(' / ') || cleanText(event.summary, members),
-        reason: memories.find((item) => item.reason)?.reason,
-        matchedTokens: metrics.matchedTokens.length
-          ? metrics.matchedTokens.map((token) => cleanText(token, members)).filter(Boolean)
-          : Array.from(new Set(memories.flatMap((item) => item.matchedTokens))).slice(0, 6),
-        createdAt: event.createdAt || message.timestamp,
-      }];
-    })
-    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0))
-    .slice(0, 6);
-  if (eventItems.length) return eventItems;
-
-  const fallbackItems: MemoryReactivationDisplayItem[] = members
-    .flatMap((member) => (member.runtimeTimeline || [])
-      .filter((item) => item.type === 'memory' && /旧记忆.*重新唤醒|重新激活|回温/.test(item.text))
-      .map((item) => ({
-        key: `${member.id}-${item.createdAt}-${item.text}`,
-        memberName: member.name,
-        summary: cleanText(item.text, members),
-        matchedTokens: [],
-        createdAt: item.createdAt,
-      })))
-    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0))
-    .slice(0, 6);
-  return fallbackItems;
-}
-
-function recallHint(item: MemoryRecallDisplayItem, members: DisplayTextMember[] = []) {
-  return [
-    item.recallReason ? cleanText(item.recallReason, members) : '',
-    item.recallCue ? `线索：${cleanText(item.recallCue, members)}` : '',
-    item.evidenceText ? `证据：${cleanText(item.evidenceText, members)}` : '',
-    item.recallScore ? `召回强度 ${item.recallScore.toFixed(2)}` : '',
-  ].filter(Boolean).join('\n');
-}
-
 function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messages: Message[]) {
-  const items = buildMemoryRecallItems(chat, members, messages);
-  const reactivatedItems = buildMemoryReactivationItems(members, messages);
+  const items = projectMemoryRecallItems(chat, members, messages);
+  const reactivatedItems = projectMemoryReactivationItems(members, messages);
   if (!items.length && !reactivatedItems.length) return null;
   return (
     <SurfaceCard>
-      <SectionHeader title="记忆唤醒" subtitle="旧档不会常驻进入上下文，只有被人物、话题或旧梗命中时才会回流。" dense action={<DebugChip />} />
+      <SectionHeader title="记忆唤醒" subtitle="本轮注入才表示旧档进入 prompt；候选线索只说明当前上下文可命中旧档。" dense action={<DebugChip />} />
       <Stack spacing={0.8}>
-        {items.map(({ member, item, source }) => (
-          <Tooltip key={`${member.id}-${source}-${item.id}`} title={recallHint(item, members)} arrow placement="top-start">
+        {items.map((item) => (
+          <Tooltip key={item.key} title={item.tooltip} arrow placement="top-start">
             <Box sx={{ p: 0.9, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.08)', '&:hover .recall-title': { textDecoration: 'underline' } }}>
               <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                <Chip size="small" label={member.name} variant="outlined" sx={{ height: 22 }} />
-                <Chip size="small" label={source === 'actual' ? '本轮注入' : '候选回流'} color="warning" variant="outlined" sx={{ height: 22 }} />
-                {item.recallTokens?.slice(0, 3).map((token) => <Chip key={token} size="small" label={cleanText(token, members)} sx={{ height: 22 }} />)}
+                <Chip size="small" label={item.memberName} variant="outlined" sx={{ height: 22 }} />
+                <Chip size="small" label={item.statusLabel} color="warning" variant="outlined" sx={{ height: 22 }} />
+                {item.secondaryLabel ? <Chip size="small" label={item.secondaryLabel} variant="outlined" sx={{ height: 22 }} /> : null}
+                {item.tokens.map((token) => <Chip key={token} size="small" label={token} sx={{ height: 22 }} />)}
               </Stack>
-              <Typography className="recall-title" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.summary, members)}</Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{cleanText(item.recallReason || '旧记忆被当前上下文唤醒', members)}</Typography>
+              <Typography className="recall-title" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{item.summary}</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{item.caption}</Typography>
             </Box>
           </Tooltip>
         ))}
         {reactivatedItems.length ? (
           <Stack spacing={0.75} sx={{ pt: items.length ? 0.25 : 0 }}>
             {reactivatedItems.map((item) => (
-              <Tooltip key={item.key} title={[item.createdAt ? new Date(item.createdAt).toLocaleString() : '', item.reason ? cleanText(item.reason, members) : '', cleanText(item.summary, members)].filter(Boolean).join('\n')} arrow placement="top-start">
+              <Tooltip key={item.key} title={item.tooltip} arrow placement="top-start">
                 <Box sx={{ p: 0.9, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.12)', '&:hover .reactivated-memory': { textDecoration: 'underline' } }}>
                   <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                     <Chip size="small" label={item.memberName} variant="outlined" sx={{ height: 22 }} />
                     <Chip size="small" label="已重新激活" color="warning" variant="outlined" sx={{ height: 22 }} />
-                    {item.matchedTokens.slice(0, 4).map((token) => <Chip key={token} size="small" label={cleanText(token, members)} sx={{ height: 22 }} />)}
+                    {item.matchedTokens.slice(0, 4).map((token) => <Chip key={token} size="small" label={token} sx={{ height: 22 }} />)}
                   </Stack>
-                  <Typography className="reactivated-memory" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.summary, members)}</Typography>
+                  <Typography className="reactivated-memory" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{item.summary}</Typography>
                 </Box>
               </Tooltip>
             ))}
