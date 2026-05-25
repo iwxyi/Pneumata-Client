@@ -8,8 +8,9 @@ import {
   type AICharacter,
 } from '../types/character';
 import { DEFAULT_API_CONFIG } from '../types/settings';
+import type { Message } from '../types/message';
 import type { MemoryCandidate, MemoryItem } from './memoryTypes';
-import { __resetDeferredLlmDistillationStateForTests, runSessionCommitPipeline } from './sessionCommitPipeline';
+import { __resetDeferredLlmDistillationStateForTests, runPersistedSessionCommitRuntime, runSessionCommitPipeline } from './sessionCommitPipeline';
 
 const runChatCommitPipelineMock = vi.fn();
 const shouldRunLlmChatDistillationMock = vi.fn();
@@ -619,6 +620,73 @@ describe('runSessionCommitPipeline', () => {
     });
 
     expect(Object.keys(wrappedTransition.chatPatch)).toEqual(['runtimeTimeline']);
+  });
+
+  it('applies runtime for already persisted manual messages without creating another message', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('char-a', '甲'), buildCharacter('char-b', '乙')];
+    const persistedMessage: Message = {
+      id: 'msg-user-1',
+      chatId: chat.id,
+      type: 'user',
+      senderId: 'char-a',
+      senderName: '甲',
+      content: '乙，这里我想手动接一句。',
+      emotion: 0,
+      timestamp: 200,
+      isDeleted: false,
+      metadata: { manualSpeaker: { actorId: 'char-a', actorName: '甲' } },
+    };
+    const previousMessage: Message = {
+      id: 'msg-ai-1',
+      chatId: chat.id,
+      type: 'ai',
+      senderId: 'char-b',
+      senderName: '乙',
+      content: '上一句。',
+      emotion: 0,
+      timestamp: 100,
+      isDeleted: false,
+    };
+    const transition: DriverMessageCommitTransition = {
+      chatPatch: { worldState: { ...chat.worldState, focus: '手动接话' } },
+      characterPatches: [{ characterId: 'char-a', patch: { soulState: { energy: 58 } as AICharacter['soulState'] } }],
+      runtimeEvents: [{ eventType: 'manual_runtime', title: '手动发言', summary: '甲手动接话' }],
+    };
+    const onCommit = vi.fn(async (args: {
+      message: Pick<Message, 'content' | 'type' | 'senderId'>;
+      previousAiMessage: Pick<Message, 'senderId'> | null;
+    }) => {
+      expect(args.message.content).toBe(persistedMessage.content);
+      expect(args.previousAiMessage?.senderId).toBe('char-b');
+      return transition;
+    });
+    const updateCharacters = vi.fn(async () => undefined);
+    const updateChat = vi.fn(async () => undefined);
+    const appendEventMessage = vi.fn(async () => undefined);
+    const recordSpeak = vi.fn();
+
+    const result = await runPersistedSessionCommitRuntime({
+      api: DEFAULT_API_CONFIG,
+      chatId: chat.id,
+      chat,
+      characters,
+      message: persistedMessage,
+      currentMessages: [previousMessage],
+      onCommit,
+      updateCharacter: vi.fn(async () => undefined),
+      updateCharacters,
+      appendEventMessage,
+      updateChat,
+      recordSpeak,
+    });
+
+    expect(result.persistedMessage).toBe(persistedMessage);
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(updateCharacters).toHaveBeenCalledWith([{ id: 'char-a', patch: transition.characterPatches[0].patch }]);
+    expect(updateChat).toHaveBeenCalledWith(chat.id, expect.objectContaining({ worldState: transition.chatPatch.worldState }));
+    expect(appendEventMessage).toHaveBeenCalledWith(chat.id, expect.objectContaining({ eventType: 'manual_runtime', sourceMessageId: persistedMessage.id }), persistedMessage.id);
+    expect(recordSpeak).toHaveBeenCalledWith('char-a');
   });
 
 });

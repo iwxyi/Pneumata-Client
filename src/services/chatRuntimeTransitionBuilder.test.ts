@@ -246,6 +246,39 @@ describe('buildRelationshipTransition', () => {
     expect(speakerPatch?.coreProfile?.biases?.some((item) => item.includes('打断'))).toBe(true);
     expect(speakerPatch?.coreProfile?.interactionHabits?.some((item) => item.includes('追问'))).toBe(true);
   });
+
+  it('treats speak-as user messages as character-authored runtime speech', () => {
+    const chat = buildChat();
+    const speaker = buildCharacter('char-a', '甲');
+    const target = buildCharacter('char-b', '乙');
+
+    const result = buildRelationshipTransition({
+      conversation: chat,
+      characters: [speaker, target],
+      message: {
+        type: 'user',
+        senderId: 'char-a',
+        content: '乙你先别急着下结论，我觉得这里还有问题。',
+        interactionHint: {
+          kind: 'challenge',
+          actorId: 'char-a',
+          targetId: 'char-b',
+          intensity: 3,
+          tone: 'annoyed',
+          evidenceText: '乙你先别急着下结论，我觉得这里还有问题。',
+          confidence: 0.91,
+        },
+      },
+      previousAiMessage: null,
+    });
+
+    const speakerPatch = result.characterPatches.find((patch) => patch.characterId === 'char-a')?.patch;
+    const targetPatch = result.characterPatches.find((patch) => patch.characterId === 'char-b')?.patch;
+    expect(speakerPatch?.soulState?.lastImpulse).toBeTruthy();
+    expect(speakerPatch?.emotionalState).toBeTruthy();
+    expect(targetPatch?.soulState?.lastImpulse).toBeTruthy();
+    expect(result.runtimeEvents.some((event) => event.eventType === 'group_relationship_shift')).toBe(true);
+  });
 });
 
 describe('buildWorldRuntimeEvents', () => {

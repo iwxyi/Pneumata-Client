@@ -162,6 +162,28 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect(kinds).toContain('event_candidate');
   });
 
+  it('records plain user guidance as conversation focus and a topic memory cue', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'user',
+        senderId: 'user',
+        content: '聊聊今晚要不要一起去看烟花。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+
+    const applied = applyResultToChat(chat, result);
+    expect(applied.worldState.focus).toBe('聊聊今晚要不要一起去看烟花。');
+    expect(applied.worldState.recentEvent).toBe('用户引导：聊聊今晚要不要一起去看烟花。');
+    expect(applied.runtimeEventsV2?.some((event) => event.kind === 'memory_candidate' && event.summary.includes('用户引导'))).toBe(true);
+    expect(result.characterPatches).toHaveLength(0);
+  });
+
   it('records withdrawal residue without preserving the withdrawn text as public runtime', async () => {
     const chat = buildChat();
     const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];

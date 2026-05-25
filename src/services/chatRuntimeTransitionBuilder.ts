@@ -317,6 +317,7 @@ export function buildRelationshipTransition(params: {
   const config = params.config || resolveRuntimeEvolutionConfig(params.conversation.runtimeEvolutionIntensity);
   const distillationParticipants = params.characters.map((item) => ({ id: item.id, name: item.name }));
   const speaker = params.characters.find((item) => item.id === params.message.senderId);
+  const isCharacterAuthoredMessage = Boolean(speaker && (params.message.type === 'ai' || params.message.type === 'user'));
   const explicitHints = params.message.interactionHints || (params.message.interactionHint ? [params.message.interactionHint] : []);
   const uniqueHints = explicitHints.filter((hint, index, array) => {
     if (!hint?.targetId) return false;
@@ -334,7 +335,7 @@ export function buildRelationshipTransition(params: {
       ? [{ hint: params.message.interactionHint, target: fallbackTarget }]
       : []);
 
-  if (params.message.type === 'ai' && speaker && targetEntries.length) {
+  if (isCharacterAuthoredMessage && speaker && targetEntries.length) {
     const summary = truncateWithEllipsis(params.message.content, 48);
     const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier);
     const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
@@ -544,7 +545,7 @@ export function buildRelationshipTransition(params: {
     }
   }
 
-  if (params.message.type === 'ai' && speaker && !targetEntries.length) {
+  if (isCharacterAuthoredMessage && speaker && !targetEntries.length) {
     const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier * 0.75);
     const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
     const speakerCoreProfile = evolveCharacterCoreProfile({ character: speaker, content: params.message.content, emotionalState: speakerEmotion });

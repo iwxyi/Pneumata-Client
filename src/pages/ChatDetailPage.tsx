@@ -17,7 +17,7 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
-import { type GroupChat } from '../types/chat';
+import { type DriverMessageCommitResult, type GroupChat } from '../types/chat';
 import type { SessionNormalizedIntentResult } from '../types/sessionEngine';
 import MessageList from '../components/chat/MessageList';
 import { MessageAnalysisDialog } from '../components/chat/MessageAnalysisDialog';
@@ -322,6 +322,40 @@ export default function ChatDetailPage() {
   void runLoopError;
   void chatError;
 
+  const commitPersistedManualRuntime = useCallback(async (message: Message, recentMessages: Message[]) => {
+    if (!chat || !id) return;
+    const [{ runPersistedSessionCommitRuntime }, { resolveSessionEngine }] = await Promise.all([
+      import('../services/sessionCommitPipeline'),
+      import('../services/sessionEngineRegistry'),
+    ]);
+    const sessionEngine = resolveSessionEngine(chat);
+    await runPersistedSessionCommitRuntime({
+      api,
+      chatId: id,
+      chat,
+      characters,
+      message,
+      currentMessages: recentMessages,
+      onCommit: async (args) => await (sessionEngine.onMessageCommitted as (commitArgs: {
+        conversation: GroupChat;
+        characters: typeof characters;
+        message: Pick<Message, 'content' | 'type' | 'senderId'>;
+        previousAiMessage: Pick<Message, 'senderId'> | null;
+        recentMessages?: Message[];
+        apiConfig?: typeof api;
+      }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>)(args),
+      updateCharacter,
+      updateCharacters: async (patches) => updateCharacters(patches.map((patch) => ({ id: patch.id, updates: patch.patch }))),
+      appendEventMessage: appendEventMessageStable,
+      appendEventMessages: appendEventMessagesStable,
+      updateChat,
+      applyChatRuntimeDelta,
+      recordSpeak,
+      getCurrentChat: (chatId) => useChatStore.getState().chats.find((item) => item.id === chatId),
+      getCurrentCharacters: () => useCharacterStore.getState().characters,
+    });
+  }, [api, appendEventMessageStable, appendEventMessagesStable, applyChatRuntimeDelta, characters, chat, id, recordSpeak, updateCharacter, updateCharacters, updateChat]);
+
   useEffect(() => {
     if (id) {
       void openChatWindow(id, { limit: 20, revalidate: true });
@@ -339,7 +373,16 @@ export default function ChatDetailPage() {
   const handleGuideSend = useCallback(async (content: string) => {
     if (!chat || !id) return;
     await enqueueManualInput(async () => {
-      const userMessage = await addMessageStable({ chatId: id, type: 'user', senderId: 'user', senderName: 'User', content, emotion: 0, timestamp: Date.now() });
+      const recentMessages = currentChatMessages;
+      const userMessage = await addMessageStable({
+        chatId: id,
+        type: 'user',
+        senderId: 'user',
+        senderName: currentUser?.nickname?.trim() || '我',
+        content,
+        emotion: 0,
+        timestamp: Date.now(),
+      });
       void updateChat(id, { lastMessageAt: userMessage.timestamp });
       if (chat.type === 'direct') {
         await runDirectUserReplyFlow({
@@ -361,6 +404,7 @@ export default function ChatDetailPage() {
         });
         return;
       }
+      await commitPersistedManualRuntime(userMessage, recentMessages);
       if (chat.type === 'ai_direct') {
         startConversationLoopIfNeeded(chat);
         const { applyAiDirectFeedback } = await import('../services/directSessionRuntime');
@@ -369,13 +413,14 @@ export default function ChatDetailPage() {
       }
       startConversationLoopIfNeeded(chat);
     });
-  }, [addMessageStable, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, applyChatRuntimeDelta, characters, chat, chats, enqueueManualInput, id, recordSpeak, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
+  }, [addMessageStable, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, applyChatRuntimeDelta, characters, chat, chats, commitPersistedManualRuntime, currentChatMessages, currentUser?.nickname, enqueueManualInput, id, recordSpeak, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
 
   const handleSpeakAs = useCallback(async (content: string) => {
     if (!chat || !id || !speakAsCharacterId) return;
     const char = characters.find((c) => c.id === speakAsCharacterId);
     if (!char) return;
     await enqueueManualInput(async () => {
+      const recentMessages = currentChatMessages;
       const spokeMessage = await addMessageStable({
         chatId: id,
         type: 'user',
@@ -393,10 +438,11 @@ export default function ChatDetailPage() {
         },
       });
       void updateChat(id, { lastMessageAt: spokeMessage.timestamp });
+      await commitPersistedManualRuntime(spokeMessage, recentMessages);
       setSpeakAsCharacter(null);
       startConversationLoopIfNeeded(chat);
     });
-  }, [addMessageStable, characters, chat, enqueueManualInput, id, setSpeakAsCharacter, speakAsCharacterId, startConversationLoopIfNeeded, updateChat]);
+  }, [addMessageStable, characters, chat, commitPersistedManualRuntime, currentChatMessages, enqueueManualInput, id, setSpeakAsCharacter, speakAsCharacterId, startConversationLoopIfNeeded, updateChat]);
 
   const handleExpressionFeedback = useCallback(async (message: Message, kind: ExpressionFeedbackKind) => {
     if (message.type !== 'ai') return;

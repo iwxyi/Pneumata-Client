@@ -4,6 +4,8 @@ import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import { mergeSessionChatPatch } from '../types/sessionEngine';
 import { runChatCommitPipeline } from './chatCommitPipeline';
+import { applyChatCommitRuntime } from './chatCommitApply';
+import { finalizeChatCommitRuntime } from './chatCommitRuntime';
 import { resolveSessionEngine } from './sessionEngineRegistry';
 import { __flushDeferredMemoryAnalysisForTests, __resetDeferredMemoryAnalysisStateForTests, getDeferredMemoryAnalysisDebugState, scheduleAsyncMemoryAnalysis } from './asyncMemoryAnalysis';
 import { applyRecalledMemoryActivation } from './memoryRecallActivation';
@@ -19,15 +21,21 @@ export interface SessionCommitPipelineResult {
   nextCharacters: AICharacter[];
 }
 
-function wrapCommitWithFrameworkPatch(params: Parameters<typeof runChatCommitPipeline>[0]): Parameters<typeof runChatCommitPipeline>[0]['onCommit'] {
+type SessionCommitHandler = Parameters<typeof runChatCommitPipeline>[0]['onCommit'];
+
+function withFrameworkChatPatch(onCommit: SessionCommitHandler): SessionCommitHandler {
   return async (args) => {
-    const transition = await params.onCommit(args);
+    const transition = await onCommit(args);
     const engine = resolveSessionEngine(args.conversation);
     return {
       ...transition,
       chatPatch: mergeSessionChatPatch(engine, args.conversation, transition.chatPatch),
     };
   };
+}
+
+function wrapCommitWithFrameworkPatch(params: Parameters<typeof runChatCommitPipeline>[0]): SessionCommitHandler {
+  return withFrameworkChatPatch(params.onCommit);
 }
 
 function applyTransitionToChat(chat: GroupChat, transition: DriverMessageCommitTransition) {
@@ -71,6 +79,72 @@ function applyTransitionToCharacters(characters: AICharacter[], transition: Driv
   });
 }
 
+async function finishAppliedSessionTransition(params: {
+  api: APIConfig;
+  chatId: string;
+  chat: GroupChat;
+  characters: AICharacter[];
+  persistedMessage: Message;
+  currentMessages: Message[];
+  transition: DriverMessageCommitTransition;
+  updateCharacter: (id: string, patch: Partial<AICharacter>) => Promise<void>;
+  appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number], sourceMessageId?: string) => Promise<void>;
+  appendEventMessages?: (chatId: string, payloads: DriverMessageCommitResult['runtimeEvents'], sourceMessageId?: string) => Promise<void>;
+  updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
+  getCurrentChat?: (id: string) => GroupChat | undefined;
+  getCurrentCharacters?: () => AICharacter[];
+}) {
+  const transitionWithRecall = applyRecalledMemoryActivation({
+    chat: params.chat,
+    characters: params.characters,
+    message: params.persistedMessage,
+    recentMessages: params.currentMessages,
+    transition: params.transition,
+  });
+  if (transitionWithRecall !== params.transition) {
+    const recallPatch = transitionWithRecall.characterPatches.find((item) => item.characterId === params.persistedMessage.senderId)?.patch;
+    if (recallPatch) {
+      await params.updateCharacter(params.persistedMessage.senderId, recallPatch);
+    }
+    const recallEvents = transitionWithRecall.runtimeEvents.slice(params.transition.runtimeEvents.length);
+    if (recallEvents.length) {
+      if (params.appendEventMessages) {
+        await params.appendEventMessages(params.chatId, recallEvents, params.persistedMessage.id);
+      } else {
+        for (const event of recallEvents) {
+          await params.appendEventMessage(params.chatId, event, params.persistedMessage.id);
+        }
+      }
+    }
+  }
+  const nextCharacters = applyTransitionToCharacters(params.characters, transitionWithRecall);
+  const nextChat = applyTransitionToChat(params.chat, transitionWithRecall);
+  const characterIdsToCheck = transitionWithRecall.characterPatches
+    .filter((item) => Array.isArray(item.patch.layeredMemories))
+    .map((item) => item.characterId);
+  void scheduleAsyncMemoryAnalysis({
+    api: params.api,
+    chat: nextChat,
+    characters: nextCharacters,
+    characterIdsToCheck,
+    updateChat: params.updateChat,
+    updateCharacter: params.updateCharacter,
+    appendEventMessage: params.appendEventMessage,
+    sourceMessageId: params.persistedMessage.id,
+    getCurrentChat: params.getCurrentChat,
+    getCurrentCharacters: params.getCurrentCharacters,
+  });
+  return {
+    transition: transitionWithRecall,
+    nextChat,
+    nextCharacters,
+  };
+}
+
+function getPreviousAiMessage(messages: Message[]) {
+  return [...messages].reverse().find((message) => !message.isDeleted && message.type === 'ai') || null;
+}
+
 export async function runSessionCommitPipeline(params: {
   api: APIConfig;
   chatId: string;
@@ -103,50 +177,70 @@ export async function runSessionCommitPipeline(params: {
     ...params,
     onCommit: wrapCommitWithFrameworkPatch(params),
   });
-  const transitionWithRecall = applyRecalledMemoryActivation({
-    chat: params.chat,
-    characters: params.characters,
-    message: persistedMessage,
-    recentMessages: params.currentMessages,
+  const completed = await finishAppliedSessionTransition({
+    ...params,
+    persistedMessage,
     transition,
-  });
-  if (transitionWithRecall !== transition) {
-    const recallPatch = transitionWithRecall.characterPatches.find((item) => item.characterId === persistedMessage.senderId)?.patch;
-    if (recallPatch) {
-      await params.updateCharacter(persistedMessage.senderId, recallPatch);
-    }
-    const recallEvents = transitionWithRecall.runtimeEvents.slice(transition.runtimeEvents.length);
-    if (recallEvents.length) {
-      if (params.appendEventMessages) {
-        await params.appendEventMessages(params.chatId, recallEvents, persistedMessage.id);
-      } else {
-        for (const event of recallEvents) {
-          await params.appendEventMessage(params.chatId, event, persistedMessage.id);
-        }
-      }
-    }
-  }
-  const nextCharacters = applyTransitionToCharacters(params.characters, transitionWithRecall);
-  const nextChat = applyTransitionToChat(params.chat, transitionWithRecall);
-  const characterIdsToCheck = transitionWithRecall.characterPatches
-    .filter((item) => Array.isArray(item.patch.layeredMemories))
-    .map((item) => item.characterId);
-  void scheduleAsyncMemoryAnalysis({
-    api: params.api,
-    chat: nextChat,
-    characters: nextCharacters,
-    characterIdsToCheck,
-    updateChat: params.updateChat,
-    updateCharacter: params.updateCharacter,
-    appendEventMessage: params.appendEventMessage,
-    sourceMessageId: persistedMessage.id,
-    getCurrentChat: params.getCurrentChat,
-    getCurrentCharacters: params.getCurrentCharacters,
   });
   return {
     persistedMessage,
-    transition: transitionWithRecall,
-    nextChat,
-    nextCharacters,
+    transition: completed.transition,
+    nextChat: completed.nextChat,
+    nextCharacters: completed.nextCharacters,
+  };
+}
+
+export async function runPersistedSessionCommitRuntime(params: {
+  api: APIConfig;
+  chatId: string;
+  chat: GroupChat;
+  characters: AICharacter[];
+  message: Message;
+  currentMessages: Message[];
+  onCommit: SessionCommitHandler;
+  updateCharacter: (id: string, patch: Partial<AICharacter>) => Promise<void>;
+  updateCharacters?: (patches: Array<{ id: string; patch: Partial<AICharacter> }>) => Promise<void>;
+  appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number], sourceMessageId?: string) => Promise<void>;
+  appendEventMessages?: (chatId: string, payloads: DriverMessageCommitResult['runtimeEvents'], sourceMessageId?: string) => Promise<void>;
+  updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
+  applyChatRuntimeDelta?: (id: string, delta: NonNullable<DriverMessageCommitResult['chatRuntimeDelta']>, patch?: Partial<GroupChat>) => Promise<void>;
+  recordSpeak: (characterId: string) => void;
+  getCurrentChat?: (id: string) => GroupChat | undefined;
+  getCurrentCharacters?: () => AICharacter[];
+}): Promise<SessionCommitPipelineResult> {
+  const recentMessages = params.currentMessages.filter((message) => !message.isDeleted && message.id !== params.message.id);
+  const transition = await finalizeChatCommitRuntime({
+    api: params.api,
+    chat: params.chat,
+    characters: params.characters,
+    message: params.message,
+    previousAiMessage: getPreviousAiMessage(recentMessages),
+    recentMessages,
+    onCommit: withFrameworkChatPatch(params.onCommit),
+  });
+  await applyChatCommitRuntime({
+    chatId: params.chatId,
+    transition,
+    updateCharacter: params.updateCharacter,
+    updateCharacters: params.updateCharacters,
+    appendEventMessage: params.appendEventMessage,
+    appendEventMessages: params.appendEventMessages,
+    updateChat: params.updateChat,
+    applyChatRuntimeDelta: params.applyChatRuntimeDelta,
+    recordSpeak: params.recordSpeak,
+    speakerId: params.message.senderId,
+    sourceMessageId: params.message.id,
+  });
+  const completed = await finishAppliedSessionTransition({
+    ...params,
+    persistedMessage: params.message,
+    currentMessages: recentMessages,
+    transition,
+  });
+  return {
+    persistedMessage: params.message,
+    transition: completed.transition,
+    nextChat: completed.nextChat,
+    nextCharacters: completed.nextCharacters,
   };
 }

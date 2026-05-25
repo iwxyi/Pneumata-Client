@@ -1194,7 +1194,31 @@ async function buildStructuredRuntime(params: {
   apiConfig?: APIConfig;
 }) {
   const existingEvents = params.conversation.runtimeEventsV2 || [];
-  if (params.message.type !== 'ai') {
+  const speaker = params.characters.find((character) => character.id === params.message.senderId);
+  const isCharacterAuthoredMessage = params.message.type === 'ai' || Boolean(speaker);
+  if (params.message.type === 'user' && !speaker) {
+    const summary = params.message.content.trim().slice(0, 128);
+    const cueEvent = summary ? createRuntimeEventV2({
+      conversationId: params.conversation.id,
+      kind: 'memory_candidate',
+      summary: `用户引导：${summary}`,
+      actorIds: [params.message.senderId],
+      payload: {
+        kind: 'topic',
+        text: `用户引导：${summary}`,
+        salience: 0.62,
+        confidence: 0.74,
+      } satisfies MemoryCandidatePayload,
+    }) : null;
+    return {
+      interaction: null,
+      runtimeEventsV2: cueEvent ? mergeCompactedRuntimeEvents(existingEvents, [], [cueEvent]) : existingEvents,
+      relationshipLedger: params.conversation.relationshipLedger || [],
+      structuredRoomState: params.conversation.worldState.structuredRoomState || null,
+    };
+  }
+
+  if (!isCharacterAuthoredMessage) {
     return {
       interaction: null,
       runtimeEventsV2: existingEvents,
@@ -1411,6 +1435,15 @@ async function onMessageCommitted(params: {
       }
     : params.message;
   const nextWorldStateResult = buildNextWorldState(params.conversation, publicMessage, config);
+  const isPlainUserGuidance = publicMessage.type === 'user' && !params.characters.some((character) => character.id === publicMessage.senderId);
+  const userGuidanceSummary = isPlainUserGuidance ? publicMessage.content.trim().slice(0, 96) : '';
+  const nextWorldState = isPlainUserGuidance && userGuidanceSummary
+    ? {
+        ...nextWorldStateResult.worldState,
+        focus: userGuidanceSummary,
+        recentEvent: `用户引导：${userGuidanceSummary}`,
+      }
+    : nextWorldStateResult.worldState;
   const relationshipTransition = buildRelationshipTransition({
     conversation: params.conversation,
     characters: params.characters,
@@ -1422,7 +1455,7 @@ async function onMessageCommitted(params: {
   const worldRuntimeEvents = buildWorldRuntimeEvents(
     publicMessage,
     params.conversation.worldState,
-    nextWorldStateResult.worldState,
+    nextWorldState,
     nextWorldStateResult.nextConflictAxes,
     config,
   );
@@ -1434,9 +1467,9 @@ async function onMessageCommitted(params: {
     apiConfig: params.apiConfig,
   });
   const mergedWorldState = {
-    ...nextWorldStateResult.worldState,
+    ...nextWorldState,
     structuredRoomState,
-    recentEvent: mergeRecentEvent(nextWorldStateResult.worldState.recentEvent, buildStructuredSummary(interaction, params.characters)),
+    recentEvent: mergeRecentEvent(nextWorldState.recentEvent, buildStructuredSummary(interaction, params.characters)),
   };
   const nextStructuredEvents = runtimeEventsV2.slice((params.conversation.runtimeEventsV2 || []).length);
   const fallbackRelationshipLedger = relationshipTransition.relationshipLedger;
