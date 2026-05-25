@@ -1,5 +1,5 @@
 import { Box, Typography, Avatar, IconButton, Menu, MenuItem, List, ListItem, ListItemAvatar, Chip, Stack, Dialog, DialogTitle, DialogContent, DialogActions, Button, Tooltip } from '@mui/material';
-import { getAffectChipColor, getRuntimeAxisLabel } from '../../services/personalityDrift';
+import { formatEmotionStateLabel, getAffectChipColor, getRuntimeAxisLabel } from '../../services/personalityDrift';
 import { isImageAvatar } from '../../utils/avatar';
 import MoreIcon from '@mui/icons-material/MoreVert';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
@@ -25,7 +25,7 @@ function buildMemberSubtitle(member: AICharacter, thinkingId: string | null, thi
   return '';
 }
 
-function buildMemberEmotionChips(member: AICharacter, language: string) {
+function buildMemberEmotionChips(member: AICharacter, language: string, showDebugDetails: boolean) {
   const emotionalState = member.emotionalState;
   if (!emotionalState) return [];
   return Object.entries(emotionalState)
@@ -35,11 +35,12 @@ function buildMemberEmotionChips(member: AICharacter, language: string) {
     .slice(0, 2)
     .map((item) => {
       const label = getRuntimeAxisLabel(item.key, language);
+      const semanticLabel = formatEmotionStateLabel(item.key, item.value, language);
       return {
-        label: `${label} ${Math.round(item.value)}`,
+        label: showDebugDetails ? `${semanticLabel} ${Math.round(item.value)}` : semanticLabel,
         hint: language.startsWith('zh')
-          ? `${label}来自最近几轮互动造成的短时情绪，不代表永久人格。`
-          : `${label} is a short-term emotion from recent interactions, not a permanent trait.`,
+          ? `${label}来自最近几轮互动造成的短时情绪，不代表永久人格。${showDebugDetails ? `当前 ${Math.round(item.value)}` : ''}`
+          : `${label} is a short-term emotion from recent interactions, not a permanent trait.${showDebugDetails ? ` Current ${Math.round(item.value)}` : ''}`,
       };
     });
 }
@@ -109,7 +110,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
         {visibleMembers.map((member) => {
           const innerLifeChips = buildMemberInnerLifeChips(member, i18n.language);
           const expressionFeedbackChips = buildMemberExpressionFeedbackChips(member, i18n.language, showDebugDetails);
-          const emotionChips = buildMemberEmotionChips(member, i18n.language);
+          const emotionChips = buildMemberEmotionChips(member, i18n.language, showDebugDetails);
           const subtitle = buildMemberSubtitle(member, thinkingId, t('controls.thinking'));
           return (
             <ListItem

@@ -6,7 +6,7 @@ import {
   DEFAULT_EMOTIONAL_STATE,
   type AICharacter,
 } from '../types/character';
-import { deriveEmotionalState, formatLocalizedEmotionSummary } from './personalityDrift';
+import { deriveEmotionalState, formatEmotionStateLabel, formatLocalizedEmotionSummary } from './personalityDrift';
 
 function buildCharacter(patch: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -53,5 +53,11 @@ describe('deriveEmotionalState', () => {
 
     expect(emotion.affection).toBeGreaterThanOrEqual(12);
     expect(formatLocalizedEmotionSummary(emotion, 'zh-CN', 2, 12)).toContain('亲近');
+  });
+
+  it('formats moderate emotion as semantic labels for ordinary UI', () => {
+    expect(formatEmotionStateLabel('irritation', 13, 'zh-CN')).toBe('略有刺感');
+    expect(formatEmotionStateLabel('affection', 34, 'zh-CN')).toBe('更亲近');
+    expect(formatEmotionStateLabel('excitement', 60, 'zh-CN')).toBe('兴致很高');
   });
 });

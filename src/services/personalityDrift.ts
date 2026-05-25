@@ -75,6 +75,26 @@ export function getRuntimeAxisLabel(key: string, language: string) {
   return labels[key] || key;
 }
 
+export function formatEmotionStateLabel(key: string, value: number, language: string) {
+  const intensity = value >= 55 ? 'high' : value >= 28 ? 'mid' : 'low';
+  const isZh = language.startsWith('zh');
+  const zhLabels: Record<string, Record<typeof intensity, string>> = {
+    irritation: { high: '明显烦躁', mid: '有点烦躁', low: '略有刺感' },
+    affection: { high: '明显亲近', mid: '更亲近', low: '有些靠近' },
+    insecurity: { high: '明显戒备', mid: '有点防备', low: '略微不安' },
+    excitement: { high: '兴致很高', mid: '有兴致', low: '被带动' },
+    embarrassment: { high: '明显尴尬', mid: '有点尴尬', low: '略不自在' },
+  };
+  const enLabels: Record<string, Record<typeof intensity, string>> = {
+    irritation: { high: 'Clearly irritated', mid: 'A little irritated', low: 'Slightly sharp' },
+    affection: { high: 'Clearly warm', mid: 'Warmer', low: 'Slightly closer' },
+    insecurity: { high: 'Clearly guarded', mid: 'A little guarded', low: 'Slightly uneasy' },
+    excitement: { high: 'Highly engaged', mid: 'Interested', low: 'Drawn in' },
+    embarrassment: { high: 'Clearly awkward', mid: 'A little awkward', low: 'Slightly uneasy' },
+  };
+  return (isZh ? zhLabels : enLabels)[key]?.[intensity] || `${getRuntimeAxisLabel(key, language)} ${Math.round(value)}`;
+}
+
 export function getEmotionalBaseline(): EmotionalState {
   return { irritation: 0, affection: 0, insecurity: 0, excitement: 0, embarrassment: 0 };
 }

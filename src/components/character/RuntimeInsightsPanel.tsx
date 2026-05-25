@@ -14,7 +14,7 @@ import { formatRelationshipNumber, normalizeCurrent } from '../../services/relat
 import { useCharacterStore } from '../../stores/useCharacterStore';
 import { RelationshipRadar } from '../controls/RelationshipPanel';
 import type { RelationshipLedgerEntry } from '../../types/runtimeEvent';
-import { applyDriftToBehavior, formatLocalizedDriftSummary, getDominantEmotionLabel, getAffectSummaryLines } from '../../services/personalityDrift';
+import { applyDriftToBehavior, formatLocalizedDriftSummary, getDominantEmotionLabel, getAffectSummaryLines, formatEmotionStateLabel } from '../../services/personalityDrift';
 import LayeredMemoryPanel from '../memory/LayeredMemoryPanel';
 import { getPreferredAIProfile } from '../../types/settings';
 import {
@@ -136,27 +136,6 @@ function buildDriftChips(drift: Partial<AICharacter['personality']>, language: s
     .filter(Boolean);
 }
 
-function describeEmotionValue(key: string, value: number, language: string) {
-  const isZh = language.startsWith('zh');
-  if (value < 12) return '';
-  const intensity = value >= 58 ? 'high' : value >= 28 ? 'mid' : 'low';
-  const zhLabels: Record<string, Record<typeof intensity, string>> = {
-    irritation: { high: '明显烦躁', mid: '有点烦躁', low: '略有刺感' },
-    affection: { high: '明显亲近', mid: '更亲近', low: '有些靠近' },
-    insecurity: { high: '明显戒备', mid: '有点防备', low: '略微不安' },
-    excitement: { high: '兴致很高', mid: '有兴致', low: '被带动' },
-    embarrassment: { high: '明显尴尬', mid: '有点尴尬', low: '略不自在' },
-  };
-  const enLabels: Record<string, Record<typeof intensity, string>> = {
-    irritation: { high: 'Clearly irritated', mid: 'A little irritated', low: 'Slightly sharp' },
-    affection: { high: 'Clearly warm', mid: 'Warmer', low: 'Slightly closer' },
-    insecurity: { high: 'Clearly guarded', mid: 'A little guarded', low: 'Slightly uneasy' },
-    excitement: { high: 'Highly engaged', mid: 'Interested', low: 'Drawn in' },
-    embarrassment: { high: 'Clearly awkward', mid: 'A little awkward', low: 'Slightly uneasy' },
-  };
-  return (isZh ? zhLabels : enLabels)[key]?.[intensity] || `${getTraitLabel(key, language)} ${value}`;
-}
-
 function buildEmotionChips(character: Partial<AICharacter>, language: string) {
   const emotional = character.emotionalState;
   if (!emotional) return [];
@@ -172,7 +151,7 @@ function buildEmotionChips(character: Partial<AICharacter>, language: string) {
     .sort((a, b) => b.value - a.value)
     .slice(0, 3)
     .map((item) => ({
-      label: describeEmotionValue(item.key, item.value, language),
+      label: formatEmotionStateLabel(item.key, item.value, language),
       hint: `${getTraitLabel(item.key, language)} ${item.value}`,
     }));
 }
