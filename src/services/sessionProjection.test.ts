@@ -81,6 +81,28 @@ describe('sessionProjection', () => {
     expect(timeline[0]?.text).toBe('成员 对 甲 说话');
   });
 
+  it('projects known UUID participants to names without leaking replace offsets', () => {
+    const memberId = '3c78729f-e52d-4dde-b27f-01a949960bb8b';
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'evt-known-uuid',
+        conversationId: 'chat-1',
+        kind: 'message_generated',
+        createdAt: 10,
+        actorIds: [memberId],
+        summary: `${memberId} 接住了 b 的话题`,
+        visibility: 'public',
+        payload: { text: '测试' },
+      }],
+    });
+    const participants = [{ id: memberId, name: '喜羊羊' }, { id: 'b', name: '沸羊羊' }] as never;
+    const timeline = projectRuntimeState(chat, createProjectionContext(chat, participants, memberId, 'participant')).runtimeTimeline;
+
+    expect(timeline[0]?.text).toBe('喜羊羊 接住了 沸羊羊 的话题');
+    expect(timeline[0]?.actorNames).toEqual(['喜羊羊']);
+  });
+
   it('projects recent interactions by conversation turn instead of raw relationship event slots', () => {
     const chat = normalizeConversation({
       ...buildChat(),

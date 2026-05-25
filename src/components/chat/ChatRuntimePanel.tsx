@@ -18,7 +18,7 @@ import { projectRuntimeTimeline, type ProjectedRuntimeTimelineItem } from '../..
 import { projectRuntimeDecisionTrace, type RuntimeDecisionTraceItem } from '../../services/runtimeDecisionTrace';
 import { formatConflictPressureLabel, formatConflictTypeLabel, parseRuntimeEvent } from '../../services/runtimeEventFactory';
 import { buildMemberInnerLifeSummary } from '../../services/memberInnerLifePresentation';
-import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { sanitizeUserFacingText, type DisplayTextMember } from '../../services/displayTextSanitizer';
 import { retrieveRelevantMemories } from '../../services/memoryRetrieval';
 import { formatInnerImpulseLabel, formatSoulMetricLabel } from '../../services/runtimeDecisionLabels';
 import { formatScenarioBoardKind, formatScenarioRoleLabel } from '../../services/scenarioPresentation';
@@ -30,8 +30,8 @@ interface ChatRuntimePanelProps {
   privatePayloads?: Array<{ key: string; title: string; text: string }>;
 }
 
-function cleanText(text: string) {
-  return sanitizeUserFacingText(text)
+function cleanText(text: string | undefined | null, members: DisplayTextMember[] = []) {
+  return sanitizeUserFacingText(text || '', members)
     .replace(/relationship_backflow/g, '关系回流')
     .replace(/summary_backflow/g, '摘要回流')
     .replace(/source_chat_patch/g, '群聊投影')
@@ -175,7 +175,7 @@ function buildTimelineTitle(item: ProjectedRuntimeTimelineItem) {
   return item.event ? formatEventKind(item.event.kind) : item.label;
 }
 
-function buildTimelineBody(item: ProjectedRuntimeTimelineItem) {
+function buildTimelineBody(item: ProjectedRuntimeTimelineItem, members: DisplayTextMember[] = []) {
   const candidate = readSocialEventCandidateMeta(item);
   const artifact = readSocialEventArtifactMeta(item);
   const effect = readSocialEventEffectMeta(item);
@@ -186,9 +186,11 @@ function buildTimelineBody(item: ProjectedRuntimeTimelineItem) {
   const participantNames = Array.isArray(payload?.participantNames) ? payload.participantNames.filter((value): value is string => typeof value === 'string') : [];
   if (distillation) {
     const candidateTexts = Array.isArray(distillation.candidateTexts)
-      ? sanitizeDistillationTexts(distillation.candidateTexts.filter((value: unknown): value is string => typeof value === 'string'))
+      ? sanitizeDistillationTexts(distillation.candidateTexts
+        .filter((value: unknown): value is string => typeof value === 'string')
+        .map((value) => cleanText(value, members)))
       : [];
-    return clip(cleanText(candidateTexts.join(' / ') || item.text), 88);
+    return clip(cleanText(candidateTexts.join(' / ') || item.text, members), 88);
   }
   if (relation) {
     const parts = [
@@ -199,10 +201,10 @@ function buildTimelineBody(item: ProjectedRuntimeTimelineItem) {
     ].filter(Boolean);
     return clip(parts.join(' / '), 88);
   }
-  return clip(cleanText(candidate?.title || artifact?.title || artifact?.activityType || (participantNames.length ? `${participantNames.join(' ↔ ')} · ${topicSnippet || effect?.summary || item.text}` : null) || topicSnippet || effect?.summary || item.text), 88);
+  return clip(cleanText(candidate?.title || artifact?.title || artifact?.activityType || (participantNames.length ? `${participantNames.join(' ↔ ')} · ${topicSnippet || effect?.summary || item.text}` : null) || topicSnippet || effect?.summary || item.text, members), 88);
 }
 
-function buildTimelineMeta(item: ProjectedRuntimeTimelineItem) {
+function buildTimelineMeta(item: ProjectedRuntimeTimelineItem, members: DisplayTextMember[] = []) {
   const relation = readRelationshipDeltaMeta(item);
   const room = readRoomShiftMeta(item);
   const memory = readMemoryCandidateMeta(item);
@@ -214,15 +216,15 @@ function buildTimelineMeta(item: ProjectedRuntimeTimelineItem) {
   if (distillation) {
     const owner = distillation.ownerType === 'character' ? '角色' : '群聊';
     const evidence = typeof distillation.newEvidenceCount === 'number' ? distillation.newEvidenceCount : 0;
-    const reason = typeof distillation.reason === 'string' ? cleanText(distillation.reason) : '';
-    return cleanText(`${owner}蒸馏 · 证据 ${evidence} · ${reason}`);
+    const reason = typeof distillation.reason === 'string' ? cleanText(distillation.reason, members) : '';
+    return cleanText(`${owner}蒸馏 · 证据 ${evidence} · ${reason}`, members);
   }
-  if (candidate) return cleanText(`候选 · ${formatSocialEventKind(candidate.eventKind)}`);
-  if (effect) return cleanText(`回流 · ${projectionKind || effect.effectType}`);
+  if (candidate) return cleanText(`候选 · ${formatSocialEventKind(candidate.eventKind)}`, members);
+  if (effect) return cleanText(`回流 · ${projectionKind || effect.effectType}`, members);
   if (relation) {
     const from = item.actorNames?.join('、') || '某成员';
     const to = item.targetNames?.join('、') || '某成员';
-    return cleanText(`${from} → ${to}`);
+    return cleanText(`${from} → ${to}`, members);
   }
   if (room?.delta?.heat || room?.delta?.cohesion || room?.delta?.topicDrift) {
     return [
@@ -231,11 +233,11 @@ function buildTimelineMeta(item: ProjectedRuntimeTimelineItem) {
       roomDeltaLabel('topic', room.delta?.topicDrift),
     ].filter(Boolean).join(' / ');
   }
-  if (memory) return cleanText(`${formatMemoryKind(memory.kind)} · 有记忆沉淀`);
+  if (memory) return cleanText(`${formatMemoryKind(memory.kind)} · 有记忆沉淀`, members);
   return null;
 }
 
-function buildTimelineCaption(item: ProjectedRuntimeTimelineItem) {
+function buildTimelineCaption(item: ProjectedRuntimeTimelineItem, members: DisplayTextMember[] = []) {
   const cluster = readSocialEventClusterMeta(item);
   const distillation = readMemoryDistillationMeta(item);
   if (cluster?.eventKind === 'pair_private_thread' && cluster.stage === 'opened') return null;
@@ -244,7 +246,7 @@ function buildTimelineCaption(item: ProjectedRuntimeTimelineItem) {
   const actors = item.actorNames?.length ? item.actorNames.join('、') : null;
   const targets = item.targetNames?.length ? item.targetNames.join('、') : null;
   if (!actors && !targets) return null;
-  return clip(cleanText(actors && targets ? `${actors} → ${targets}` : actors || targets || ''), 36);
+  return clip(cleanText(actors && targets ? `${actors} → ${targets}` : actors || targets || '', members), 36);
 }
 
 function buildOverviewRoomLabel(room: NonNullable<GroupChat['worldState']['structuredRoomState']>) {
@@ -301,7 +303,7 @@ function buildRoomShiftChips(item: ProjectedRuntimeTimelineItem) {
   ].filter(Boolean);
 }
 
-function renderTimelineBody(item: ProjectedRuntimeTimelineItem) {
+function renderTimelineBody(item: ProjectedRuntimeTimelineItem, members: DisplayTextMember[] = []) {
   const relationshipChips = buildRelationshipDeltaChips(item);
   if (relationshipChips.length) {
     return <Box sx={{ mt: 0.55 }}><StatChipRow items={relationshipChips} /></Box>;
@@ -310,7 +312,7 @@ function renderTimelineBody(item: ProjectedRuntimeTimelineItem) {
   if (roomChips.length) {
     return <Box sx={{ mt: 0.55 }}><StatChipRow items={roomChips} /></Box>;
   }
-  return <Typography variant="body2" sx={{ mt: 0.35 }}>{buildTimelineBody(item)}</Typography>;
+  return <Typography variant="body2" sx={{ mt: 0.35 }}>{buildTimelineBody(item, members)}</Typography>;
 }
 
 function buildScenarioRows(chat: GroupChat, members: AICharacter[], language: string) {
@@ -357,7 +359,7 @@ function buildConflictItems(chat: GroupChat, members: AICharacter[]) {
       return {
         key: item?.id || `conflict-${seen.size}`,
         title: formatConflictTypeLabel(item?.type),
-        text: cleanText(item?.summary || ''),
+        text: cleanText(item?.summary || '', members),
         chips: [
           item?.stage === 'cooling' ? '降温中' : item?.stage === 'escalating' ? '升温中' : item?.stage === 'open' ? '公开拉扯' : item?.stage === 'emerging' ? '正在浮现' : '',
           item?.nextPressure ? formatConflictPressureLabel(item.nextPressure) : '',
@@ -369,9 +371,9 @@ function buildConflictItems(chat: GroupChat, members: AICharacter[]) {
     .filter((axis) => Math.abs(axis.currentTilt || 0) >= 8)
     .map((axis, index) => ({
       key: `axis-${axis.title}-${index}`,
-      title: axis.title,
-      text: `${axis.poles[0]} / ${axis.poles[1]}`,
-      chips: [axis.currentTilt && axis.currentTilt < 0 ? axis.poles[1] : axis.poles[0]].filter(Boolean) as string[],
+      title: cleanText(axis.title, members),
+      text: cleanText(`${axis.poles[0]} / ${axis.poles[1]}`, members),
+      chips: [axis.currentTilt && axis.currentTilt < 0 ? axis.poles[1] : axis.poles[0]].filter(Boolean).map((chip) => cleanText(chip, members)) as string[],
     }));
   return [...active, ...axes];
 }
@@ -386,7 +388,7 @@ function renderConflictPanel(chat: GroupChat, members: AICharacter[]) {
           <Box key={item.key} sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: 'rgba(244, 67, 54, 0.06)' }}>
             <Typography variant="caption" color="text.secondary">{item.title}</Typography>
             {item.text ? <Typography variant="body2" sx={{ mt: 0.25 }}>{item.text}</Typography> : null}
-            {item.chips.length ? <Box sx={{ mt: 0.65 }}><StatChipRow items={item.chips.map((chip) => cleanText(chip))} /></Box> : null}
+            {item.chips.length ? <Box sx={{ mt: 0.65 }}><StatChipRow items={item.chips.map((chip) => cleanText(chip, members))} /></Box> : null}
           </Box>
         )) : <Typography variant="caption" color="text.secondary">暂无正在生效的矛盾</Typography>}
       </Stack>
@@ -421,7 +423,7 @@ function renderInnerLifePanel(members: AICharacter[], isZh: boolean) {
               </Box>
               <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 650 }}>{summary?.title || formatInnerImpulseLabel(state.lastImpulse, language)}</Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>
-                {cleanText(summary?.text || state.lastImpulseReason || '最近互动还没有留下特别清晰的内心余波。')}
+                {cleanText(summary?.text || state.lastImpulseReason || '最近互动还没有留下特别清晰的内心余波。', members)}
               </Typography>
               <Box sx={{ mt: 0.6 }}><StatChipRow items={chips} /></Box>
             </Box>
@@ -556,20 +558,26 @@ function buildMemoryReactivationItems(members: AICharacter[], messages: Message[
       if (!metrics) return [];
       const memories = metrics.recalledMemories
         .map((item) => ({
-          summary: typeof item.summary === 'string' ? item.summary : '',
-          reason: typeof item.recallReason === 'string' ? item.recallReason : '',
+          summary: typeof item.summary === 'string' ? cleanText(item.summary, members) : '',
+          reason: typeof item.recallReason === 'string' ? cleanText(item.recallReason, members) : '',
           matchedTokens: Array.isArray(item.matchedTokens)
-            ? item.matchedTokens.filter((token): token is string => typeof token === 'string' && Boolean(token.trim())).slice(0, 4)
+            ? item.matchedTokens
+              .filter((token): token is string => typeof token === 'string' && Boolean(token.trim()))
+              .map((token) => cleanText(token, members))
+              .filter(Boolean)
+              .slice(0, 4)
             : [],
         }))
         .filter((item) => item.summary);
-      const memberName = metrics.characterName || memberById.get(metrics.characterId)?.name || '某成员';
+      const memberName = memberById.get(metrics.characterId)?.name || cleanText(metrics.characterName, members) || '某成员';
       return [{
         key: `${message.id}-${metrics.characterId || memberName}`,
         memberName,
-        summary: memories.slice(0, 2).map((item) => item.summary).join(' / ') || event.summary,
+        summary: memories.slice(0, 2).map((item) => item.summary).join(' / ') || cleanText(event.summary, members),
         reason: memories.find((item) => item.reason)?.reason,
-        matchedTokens: metrics.matchedTokens.length ? metrics.matchedTokens : Array.from(new Set(memories.flatMap((item) => item.matchedTokens))).slice(0, 6),
+        matchedTokens: metrics.matchedTokens.length
+          ? metrics.matchedTokens.map((token) => cleanText(token, members)).filter(Boolean)
+          : Array.from(new Set(memories.flatMap((item) => item.matchedTokens))).slice(0, 6),
         createdAt: event.createdAt || message.timestamp,
       }];
     })
@@ -583,7 +591,7 @@ function buildMemoryReactivationItems(members: AICharacter[], messages: Message[
       .map((item) => ({
         key: `${member.id}-${item.createdAt}-${item.text}`,
         memberName: member.name,
-        summary: item.text,
+        summary: cleanText(item.text, members),
         matchedTokens: [],
         createdAt: item.createdAt,
       })))
@@ -592,11 +600,11 @@ function buildMemoryReactivationItems(members: AICharacter[], messages: Message[
   return fallbackItems;
 }
 
-function recallHint(item: MemoryRecallDisplayItem) {
+function recallHint(item: MemoryRecallDisplayItem, members: DisplayTextMember[] = []) {
   return [
-    item.recallReason,
-    item.recallCue ? `线索：${cleanText(item.recallCue)}` : '',
-    item.evidenceText ? `证据：${cleanText(item.evidenceText)}` : '',
+    item.recallReason ? cleanText(item.recallReason, members) : '',
+    item.recallCue ? `线索：${cleanText(item.recallCue, members)}` : '',
+    item.evidenceText ? `证据：${cleanText(item.evidenceText, members)}` : '',
     item.recallScore ? `召回强度 ${item.recallScore.toFixed(2)}` : '',
   ].filter(Boolean).join('\n');
 }
@@ -610,29 +618,29 @@ function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messag
       <SectionHeader title="记忆唤醒" subtitle="旧档不会常驻进入上下文，只有被人物、话题或旧梗命中时才会回流。" dense action={<DebugChip />} />
       <Stack spacing={0.8}>
         {items.map(({ member, item, source }) => (
-          <Tooltip key={`${member.id}-${source}-${item.id}`} title={recallHint(item)} arrow placement="top-start">
+          <Tooltip key={`${member.id}-${source}-${item.id}`} title={recallHint(item, members)} arrow placement="top-start">
             <Box sx={{ p: 0.9, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.08)', '&:hover .recall-title': { textDecoration: 'underline' } }}>
               <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                 <Chip size="small" label={member.name} variant="outlined" sx={{ height: 22 }} />
                 <Chip size="small" label={source === 'actual' ? '本轮注入' : '候选回流'} color="warning" variant="outlined" sx={{ height: 22 }} />
-                {item.recallTokens?.slice(0, 3).map((token) => <Chip key={token} size="small" label={cleanText(token)} sx={{ height: 22 }} />)}
+                {item.recallTokens?.slice(0, 3).map((token) => <Chip key={token} size="small" label={cleanText(token, members)} sx={{ height: 22 }} />)}
               </Stack>
-              <Typography className="recall-title" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.summary)}</Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{cleanText(item.recallReason || '旧记忆被当前上下文唤醒')}</Typography>
+              <Typography className="recall-title" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.summary, members)}</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{cleanText(item.recallReason || '旧记忆被当前上下文唤醒', members)}</Typography>
             </Box>
           </Tooltip>
         ))}
         {reactivatedItems.length ? (
           <Stack spacing={0.75} sx={{ pt: items.length ? 0.25 : 0 }}>
             {reactivatedItems.map((item) => (
-              <Tooltip key={item.key} title={[item.createdAt ? new Date(item.createdAt).toLocaleString() : '', item.reason ? cleanText(item.reason) : '', cleanText(item.summary)].filter(Boolean).join('\n')} arrow placement="top-start">
+              <Tooltip key={item.key} title={[item.createdAt ? new Date(item.createdAt).toLocaleString() : '', item.reason ? cleanText(item.reason, members) : '', cleanText(item.summary, members)].filter(Boolean).join('\n')} arrow placement="top-start">
                 <Box sx={{ p: 0.9, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.12)', '&:hover .reactivated-memory': { textDecoration: 'underline' } }}>
                   <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                     <Chip size="small" label={item.memberName} variant="outlined" sx={{ height: 22 }} />
                     <Chip size="small" label="已重新激活" color="warning" variant="outlined" sx={{ height: 22 }} />
-                    {item.matchedTokens.slice(0, 4).map((token) => <Chip key={token} size="small" label={cleanText(token)} sx={{ height: 22 }} />)}
+                    {item.matchedTokens.slice(0, 4).map((token) => <Chip key={token} size="small" label={cleanText(token, members)} sx={{ height: 22 }} />)}
                   </Stack>
-                  <Typography className="reactivated-memory" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.summary)}</Typography>
+                  <Typography className="reactivated-memory" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.summary, members)}</Typography>
                 </Box>
               </Tooltip>
             ))}
@@ -651,15 +659,15 @@ function reasonTone(reason: string) {
   return 'action.hover';
 }
 
-function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem) {
+function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem, members: DisplayTextMember[] = []) {
   const groups: Array<{ key: string; label: string; items: string[]; hint?: string; tone?: string }> = [];
-  const speakerReasons = item.reasonLabels.slice(0, 4).map((reason) => cleanText(reason));
+  const speakerReasons = item.reasonLabels.slice(0, 4).map((reason) => cleanText(reason, members));
   if (speakerReasons.length) {
     groups.push({
       key: 'speaker',
       label: '发言原因',
       items: speakerReasons,
-      hint: item.rawReasons.map((reason) => cleanText(reason)).join(' / '),
+      hint: item.rawReasons.map((reason) => cleanText(reason, members)).join(' / '),
       tone: reasonTone(speakerReasons.join(' ')),
     });
   }
@@ -668,8 +676,8 @@ function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem) {
     groups.push({
       key: 'memory',
       label: '记忆线索',
-      items: memoryClues.items.slice(0, 4).map((text) => cleanText(text)),
-      hint: memoryClues.items.map((text) => cleanText(text)).join(' / '),
+      items: memoryClues.items.slice(0, 4).map((text) => cleanText(text, members)),
+      hint: memoryClues.items.map((text) => cleanText(text, members)).join(' / '),
       tone: 'rgba(255, 152, 0, 0.08)',
     });
   }
@@ -677,8 +685,8 @@ function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem) {
     groups.push({
       key: 'narrative',
       label: '剧情压力',
-      items: [item.directorLabel !== '无调度意图' ? cleanText(item.directorLabel) : '', item.primaryLineLabel ? cleanText(item.primaryLineLabel) : ''].filter(Boolean),
-      hint: [item.rawDirector, item.rawPrimaryLine].filter(Boolean).map((text) => cleanText(text || '')).join(' / '),
+      items: [item.directorLabel !== '无调度意图' ? cleanText(item.directorLabel, members) : '', item.primaryLineLabel ? cleanText(item.primaryLineLabel, members) : ''].filter(Boolean),
+      hint: [item.rawDirector, item.rawPrimaryLine].filter(Boolean).map((text) => cleanText(text || '', members)).join(' / '),
       tone: 'rgba(25, 118, 210, 0.06)',
     });
   }
@@ -686,8 +694,8 @@ function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem) {
     groups.push({
       key: 'inner',
       label: '内心冲动',
-      items: [cleanText(item.innerLifeLabel)],
-      hint: [item.innerLifeReason, ...item.innerLifeEvidence].filter(Boolean).map((text) => cleanText(text || '')).join(' / '),
+      items: [cleanText(item.innerLifeLabel, members)],
+      hint: [item.innerLifeReason, ...item.innerLifeEvidence].filter(Boolean).map((text) => cleanText(text || '', members)).join(' / '),
       tone: 'rgba(156, 39, 176, 0.06)',
     });
   }
@@ -695,8 +703,8 @@ function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem) {
     groups.push({
       key: 'expression',
       label: '表达形态',
-      items: [item.surfaceLabel ? cleanText(item.surfaceLabel) : '', item.expressionLabel ? cleanText(item.expressionLabel) : ''].filter(Boolean),
-      hint: [...item.surfaceBasis, ...item.expressionReasons].map((reason) => cleanText(reason)).join(' / '),
+      items: [item.surfaceLabel ? cleanText(item.surfaceLabel, members) : '', item.expressionLabel ? cleanText(item.expressionLabel, members) : ''].filter(Boolean),
+      hint: [...item.surfaceBasis, ...item.expressionReasons].map((reason) => cleanText(reason, members)).join(' / '),
       tone: 'rgba(245, 124, 0, 0.06)',
     });
   }
@@ -705,10 +713,10 @@ function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem) {
       key: 'feedback',
       label: '表达反馈',
       items: [
-        ...item.expressionFeedbackRetrievedLabels.slice(0, 2).map((label) => `已检索 ${cleanText(label)}`),
-        ...item.expressionFeedbackAppliedLabels.slice(0, 2).map((label) => `已影响 ${cleanText(label)}`),
+        ...item.expressionFeedbackRetrievedLabels.slice(0, 2).map((label) => `已检索 ${cleanText(label, members)}`),
+        ...item.expressionFeedbackAppliedLabels.slice(0, 2).map((label) => `已影响 ${cleanText(label, members)}`),
       ],
-      hint: [...item.expressionFeedbackRetrievedReasons, ...item.expressionFeedbackAppliedReasons].map((reason) => cleanText(reason)).join(' / '),
+      hint: [...item.expressionFeedbackRetrievedReasons, ...item.expressionFeedbackAppliedReasons].map((reason) => cleanText(reason, members)).join(' / '),
       tone: 'rgba(255, 152, 0, 0.08)',
     });
   }
@@ -734,7 +742,7 @@ function renderDecisionReasonGroup(group: ReturnType<typeof buildDecisionReasonG
   );
 }
 
-function renderAdvancedDecisionDetail(item: RuntimeDecisionTraceItem) {
+function renderAdvancedDecisionDetail(item: RuntimeDecisionTraceItem, members: DisplayTextMember[] = []) {
   if (!item.debugDetailLabel) return null;
   const content = (
     <Typography
@@ -743,12 +751,12 @@ function renderAdvancedDecisionDetail(item: RuntimeDecisionTraceItem) {
       color="text.secondary"
       sx={{ display: 'block', mt: 0.5 }}
     >
-      {cleanText(item.debugDetailLabel)}
+      {cleanText(item.debugDetailLabel, members)}
     </Typography>
   );
   if (!item.rawDebugHint) return content;
   return (
-    <Tooltip title={cleanText(item.rawDebugHint)} arrow>
+    <Tooltip title={cleanText(item.rawDebugHint, members)} arrow>
       <Box sx={{ '&:hover .decision-advanced-detail': { textDecoration: 'underline' } }}>
         {content}
       </Box>
@@ -756,19 +764,19 @@ function renderAdvancedDecisionDetail(item: RuntimeDecisionTraceItem) {
   );
 }
 
-function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedRuntimeView: boolean) {
+function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedRuntimeView: boolean, members: DisplayTextMember[] = []) {
   if (!items.length) return null;
   return (
     <SurfaceCard>
       <SectionHeader title="发言调度" subtitle="解释本轮为什么由这个角色发言，以及表达形态如何被影响。" dense action={<DebugChip />} />
       <Stack spacing={0.8}>
         {items.map((item) => {
-          const groups = buildDecisionReasonGroups(item);
+          const groups = buildDecisionReasonGroups(item, members);
           return (
           <Box key={item.messageId} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-              <Typography variant="body2" sx={{ fontWeight: 700 }}>{cleanText(item.senderName)}</Typography>
-              {item.score ? <Chip size="small" label={cleanText(item.score)} variant="outlined" sx={{ height: 22 }} /> : null}
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>{cleanText(item.senderName, members)}</Typography>
+              {item.score ? <Chip size="small" label={cleanText(item.score, members)} variant="outlined" sx={{ height: 22 }} /> : null}
             </Box>
             {groups.length ? (
               <Stack spacing={0.65} sx={{ mt: 0.75 }}>
@@ -777,7 +785,7 @@ function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedR
             ) : (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>暂无可读调度原因</Typography>
             )}
-            {isAdvancedRuntimeView ? renderAdvancedDecisionDetail(item) : null}
+            {isAdvancedRuntimeView ? renderAdvancedDecisionDetail(item, members) : null}
             {isAdvancedRuntimeView && item.innerLifeState ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                 {Object.entries(item.innerLifeState).slice(0, 6).map(([key, value]) => `${formatSoulMetricLabel(key)} ${String(value)}`).join(' / ')}
@@ -811,7 +819,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
     .slice()
     .reverse()
     .slice(0, timelineExpanded ? 16 : 6), [projectedTimeline, timelineFilter, timelineExpanded]);
-  const decisionTrace = useMemo(() => projectRuntimeDecisionTrace(messages, 5), [messages]);
+  const decisionTrace = useMemo(() => projectRuntimeDecisionTrace(messages, 5, members), [members, messages]);
   const structureRows = [...buildScenarioRows(chat, members, i18n.language), ...buildBoardRows(chat, i18n.language)];
 
   return (
@@ -823,13 +831,13 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
             {roomRows.length ? roomRows.map((row) => (
               <Box key={row.key} sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: 'action.hover' }}>
                 <Typography variant="caption" color="text.secondary">{row.label}</Typography>
-                <Typography variant="body2" sx={{ mt: 0.2 }}>{cleanText(row.value)}</Typography>
+                <Typography variant="body2" sx={{ mt: 0.2 }}>{cleanText(row.value, members)}</Typography>
               </Box>
             )) : <Typography variant="body2">暂无结构化房间态势</Typography>}
             {structureRows.length && isDeveloperView ? (
               <Box sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: 'action.hover' }}>
                 <Typography variant="caption" color="text.secondary">场景规则</Typography>
-                <Typography variant="body2" sx={{ mt: 0.2 }}>{structureRows.map((row) => cleanText(`${row.label} ${row.value}`)).join(' / ')}</Typography>
+                <Typography variant="body2" sx={{ mt: 0.2 }}>{structureRows.map((row) => cleanText(`${row.label} ${row.value}`, members)).join(' / ')}</Typography>
               </Box>
             ) : null}
           </Stack>
@@ -848,10 +856,10 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
                 <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                   <Chip size="small" label={timelineTypeLabel(item)} variant="outlined" sx={{ height: 22 }} />
                   <Typography variant="caption" color="text.secondary">{buildTimelineTitle(item)}</Typography>
-                  {buildTimelineMeta(item) ? <Typography variant="caption" color="text.secondary">{buildTimelineMeta(item)}</Typography> : null}
+                  {buildTimelineMeta(item, members) ? <Typography variant="caption" color="text.secondary">{buildTimelineMeta(item, members)}</Typography> : null}
                 </Stack>
-                {renderTimelineBody(item)}
-                {buildTimelineCaption(item) ? <Typography variant="caption" color="text.secondary">{buildTimelineCaption(item)}</Typography> : null}
+                {renderTimelineBody(item, members)}
+                {buildTimelineCaption(item, members) ? <Typography variant="caption" color="text.secondary">{buildTimelineCaption(item, members)}</Typography> : null}
               </Box>
             )) : <Typography variant="body2">暂无运行事件</Typography>}
             {projectedTimeline.length > 6 ? <Button size="small" variant="text" onClick={() => setTimelineExpanded((prev) => !prev)}>{timelineExpanded ? '收起' : '展开更多'}</Button> : null}
@@ -860,7 +868,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
 
         {isDeveloperView ? renderMemoryRecallPanel(chat, members, messages) : null}
         {isAdvancedRuntimeView ? renderInnerLifePanel(members, isZh) : null}
-        {isAdvancedRuntimeView ? renderDecisionTracePanel(decisionTrace, isAdvancedRuntimeView) : null}
+        {isAdvancedRuntimeView ? renderDecisionTracePanel(decisionTrace, isAdvancedRuntimeView, members) : null}
 
         {privatePayloads.length ? <PrivatePayloadPanel payloads={privatePayloads} /> : null}
         {(isSpeechStyleView || isAdvancedRuntimeView) ? <DialogueDebugPanel chat={chat} members={members} /> : null}

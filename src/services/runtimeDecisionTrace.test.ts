@@ -158,4 +158,38 @@ describe('runtimeDecisionTrace', () => {
     expect(trace.rawReasons).toEqual(['relationship', 'director:defend:relationship', 'director:cool_down:empathy']);
     expect(trace.reasonLabels).toEqual(['关系压力较高', '适合维护相关对象', '共情较高，适合降温']);
   });
+
+  it('projects member ids in decision trace labels and runtime clues', () => {
+    const memberId = '3c78729f-e52d-4dde-b27f-01a949960bb8b';
+    const [trace] = projectRuntimeDecisionTrace([
+      buildMessage({
+        id: 'm4',
+        timestamp: 4,
+        senderId: memberId,
+        senderName: '喜羊羊',
+        metadata: {
+          runtimeDecision: {
+            directorIntent: { source: 'relationship', beatType: 'defend', pressure: 0.7, reason: `${memberId} 被点名` },
+            narrativeLines: [{ id: 'line-1', type: 'relationship', title: `${memberId} 的关系线`, salience: 0.8, tension: 0.3, status: 'active' }],
+            speakerScore: { actorId: memberId, finalScore: 0.8, reasons: ['relationship'] },
+            memoryContext: {
+              recalledArchives: [{
+                id: 'archive-1',
+                scope: 'relationship',
+                kind: 'bond',
+                layer: 'long_term',
+                summary: `${memberId} 记得旧约定`,
+                recallReason: `${memberId} 再次提到旧事`,
+              }],
+            },
+          },
+        },
+      }),
+    ], 1, [{ id: memberId, name: '喜羊羊' }]);
+
+    expect(trace.primaryLineLabel).toContain('喜羊羊 的关系线');
+    expect(trace.rawDirector).toContain('喜羊羊 被点名');
+    expect(trace.runtimeClueSections.flatMap((section) => section.items).join(' / ')).toContain('喜羊羊 记得旧约定');
+    expect(trace.runtimeClueSections.flatMap((section) => section.items).join(' / ')).not.toContain(memberId);
+  });
 });

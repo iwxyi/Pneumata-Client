@@ -2,6 +2,7 @@ import type { Message } from '../types/message';
 import { projectMessageRuntimeClues, type MessageRuntimeClueSection } from './messageRuntimeClues';
 import { formatExpressionLengthLabel, formatInnerImpulseLabel, formatInnerToneLabel, formatResponseSurfaceKindLabel, formatRoleFitLabel, formatSurfaceBasisLabel } from './runtimeDecisionLabels';
 import { formatBeatType, formatDirectorSource, formatKnownReason, formatNarrativeLineType } from './runtimeInsightPresentation';
+import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 
 type RuntimeDecisionDirectorIntentMeta = NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['directorIntent'];
 type RuntimeDecisionLineMeta = {
@@ -52,6 +53,10 @@ function clip(value: string, max = 72) {
   return value.length > max ? `${value.slice(0, max)}...` : value;
 }
 
+function cleanTraceText(value: string | undefined | null, members: DisplayTextMember[] = []) {
+  return sanitizeUserFacingText(value || '', members);
+}
+
 function formatPressure(value?: number) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '0.00';
 }
@@ -63,9 +68,9 @@ function formatDirectorLabel(intent: RuntimeDecisionDirectorIntentMeta) {
   return `${source} · ${beat} · 压力 ${formatPressure(intent.pressure)}`;
 }
 
-function formatPrimaryLineLabel(line: RuntimeDecisionLineMeta) {
+function formatPrimaryLineLabel(line: RuntimeDecisionLineMeta, members: DisplayTextMember[] = []) {
   const type = typeof line.type === 'string' ? formatNarrativeLineType(line.type as never) : '线索';
-  return `${type} · ${line.title} · 显著 ${formatPressure(line.salience)}`;
+  return `${type} · ${cleanTraceText(line.title, members) || '未命名线索'} · 显著 ${formatPressure(line.salience)}`;
 }
 
 function formatDirectorReason(reason: string | undefined) {
@@ -147,7 +152,7 @@ export function formatSpeakerScoreReason(reason: string) {
   return reason;
 }
 
-export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): RuntimeDecisionTraceItem[] {
+export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, members: DisplayTextMember[] = []): RuntimeDecisionTraceItem[] {
   return messages
     .filter((message) => !message.isDeleted && Boolean(message.metadata?.runtimeDecision))
     .slice()
@@ -155,14 +160,15 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): Run
     .slice(0, limit)
     .map((message) => {
       const decision = message.metadata?.runtimeDecision;
+      const directorReason = cleanTraceText(decision?.directorIntent?.reason, members);
       const director = decision?.directorIntent
-        ? `${decision.directorIntent.source}/${decision.directorIntent.beatType} · ${formatPressure(decision.directorIntent.pressure)} · ${clip(decision.directorIntent.reason || '')}`
+        ? `${decision.directorIntent.source}/${decision.directorIntent.beatType} · ${formatPressure(decision.directorIntent.pressure)} · ${clip(directorReason)}`
         : 'none';
       const directorLabel = formatDirectorLabel(decision?.directorIntent);
       const primaryLine = decision?.narrativeLines?.[0]
-        ? `${decision.narrativeLines[0].type}:${decision.narrativeLines[0].title} · 显著 ${formatPressure(decision.narrativeLines[0].salience)}`
+        ? `${decision.narrativeLines[0].type}:${cleanTraceText(decision.narrativeLines[0].title, members) || '未命名线索'} · 显著 ${formatPressure(decision.narrativeLines[0].salience)}`
         : null;
-      const primaryLineLabel = decision?.narrativeLines?.[0] ? formatPrimaryLineLabel(decision.narrativeLines[0]) : null;
+      const primaryLineLabel = decision?.narrativeLines?.[0] ? formatPrimaryLineLabel(decision.narrativeLines[0], members) : null;
       const score = decision?.speakerScore
         ? `得分 ${formatPressure(typeof decision.speakerScore.finalScore === 'number' ? decision.speakerScore.finalScore : undefined)}`
         : null;
@@ -185,7 +191,7 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): Run
         ? `${formatResponseSurfaceKindLabel(surface.kind)} · ${formatRoleFitLabel(surface.roleFit)}${surface.allowMarkdown ? ' · Markdown' : ''}`
         : null;
       const expression = buildExpressionTrace(innerLife, surface);
-      const readableDirectorReason = formatDirectorReason(decision?.directorIntent?.reason);
+      const readableDirectorReason = cleanTraceText(formatDirectorReason(decision?.directorIntent?.reason) || directorReason, members);
       const debugDetailLabel = [
         directorLabel !== '无调度意图' ? `调度：${directorLabel}${readableDirectorReason ? ` · ${readableDirectorReason}` : ''}` : '',
         primaryLineLabel ? `线索：${primaryLineLabel}` : '',
@@ -198,7 +204,7 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): Run
         rawSurface ? `surface=${rawSurface}` : '',
         expression.raw ? `expression=${expression.raw}` : '',
       ].filter(Boolean).join(' / ') || null;
-      const runtimeClueSections = projectMessageRuntimeClues(message);
+      const runtimeClueSections = projectMessageRuntimeClues(message, members);
       const expressionFeedback = Array.isArray(decision?.expressionFeedback) ? decision.expressionFeedback : [];
       const expressionFeedbackRetrievedLabels = expressionFeedback
         .map((item) => typeof item.label === 'string' ? item.label : '')
@@ -206,8 +212,8 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): Run
       const expressionFeedbackRetrievedReasons = expressionFeedback
         .map((item) => {
           const label = typeof item.label === 'string' ? item.label : '表达反馈';
-          const text = typeof item.text === 'string' ? item.text : '';
-          const evidence = typeof item.evidence === 'string' ? item.evidence : '';
+          const text = cleanTraceText(typeof item.text === 'string' ? item.text : '', members);
+          const evidence = cleanTraceText(typeof item.evidence === 'string' ? item.evidence : '', members);
           const confidence = typeof item.confidence === 'number' ? `强度 ${(item.confidence * 100).toFixed(0)}%` : '';
           const count = typeof item.count === 'number' ? `次数 ${item.count}` : '';
           const positiveCount = typeof item.positiveCount === 'number' && item.positiveCount > 0 ? `正向 ${item.positiveCount}` : '';
@@ -222,7 +228,7 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): Run
         .map((item) => {
           const label = typeof item.label === 'string' ? item.label : '表达反馈';
           const effects = Array.isArray(item.effects) ? item.effects.filter((effect): effect is string => typeof effect === 'string') : [];
-          const text = typeof item.text === 'string' ? item.text : '';
+          const text = cleanTraceText(typeof item.text === 'string' ? item.text : '', members);
           return ['已影响', label, effects.length ? `影响：${effects.join('、')}` : '', text].filter(Boolean).join(' · ');
         })
         .filter(Boolean);
@@ -242,8 +248,8 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): Run
         reasonLabels,
         rawReasons: reasons,
         innerLifeLabel,
-        innerLifeReason: typeof innerLife?.reason === 'string' ? innerLife.reason : null,
-        innerLifeEvidence: Array.isArray(innerLife?.evidence) ? innerLife.evidence.filter((item): item is string => typeof item === 'string') : [],
+        innerLifeReason: typeof innerLife?.reason === 'string' ? cleanTraceText(innerLife.reason, members) : null,
+        innerLifeEvidence: Array.isArray(innerLife?.evidence) ? innerLife.evidence.filter((item): item is string => typeof item === 'string').map((item) => cleanTraceText(item, members)) : [],
         innerLifeState: innerLife?.state || null,
         expressionLabel: expression.label,
         expressionReasons: expression.reasons,

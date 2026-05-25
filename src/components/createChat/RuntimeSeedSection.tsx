@@ -279,6 +279,7 @@ export default function RuntimeSeedSection(props: RuntimeSeedSectionProps) {
         includeRuntimeEvidence={includeDebug}
         showDebugChip={false}
         formatMemoryText={(value) => cleanRuntimeText(value, nameMap)}
+        members={props.selectedCharacters}
       />
 
       <Card variant="outlined">

@@ -7,6 +7,7 @@ import { buildSessionSurfaceProjectionFromSchema } from '../types/sessionEngine'
 import { canProjectScope } from '../types/sessionVisibility';
 import { projectSessionRecentEvent } from './directSessionHelpers';
 import { buildRolePrivateParticipantStates, buildRolePrivatePayloads, projectPrivateParticipantPayloads } from './privateRuntimePayloads';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 
 export interface ProjectedRuntimeTimelineItem {
   type: 'note' | 'artifact' | 'relationship';
@@ -186,15 +187,10 @@ function resolveActorTargetNames(ids: string[] | undefined, participantNameMap: 
 }
 
 function replaceIdsWithNames(text: string, participantNameMap: Map<string, string>) {
-  let result = text;
-  participantNameMap.forEach((name, id) => {
-    const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = id.length < 8
-      ? new RegExp(`(^|[^\\p{L}\\p{N}_-])${escapedId}(?=$|[^\\p{L}\\p{N}_-])`, 'gu')
-      : new RegExp(escapedId, 'g');
-    result = result.replace(pattern, (match, prefix = '') => `${prefix}${name || '成员'}`);
-  });
-  return result.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '成员');
+  return sanitizeUserFacingText(
+    text,
+    Array.from(participantNameMap.entries()).map(([id, name]) => ({ id, name })),
+  );
 }
 
 function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: NonNullable<GroupChat['runtimeTimeline']>, participants: Array<AICharacter | ParticipantInstance> = []) {

@@ -594,13 +594,18 @@ interface RuntimeInsightsPanelProps {
 
 export function CharacterMemoryInspector({ character }: RuntimeInsightsPanelProps) {
   const allLayeredMemories = useMemo(() => buildCharacterLayeredMemories(character), [character]);
+  const characters = useCharacterStore((state) => state.characters);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const includeRuntimeEvidence = developerMode && Boolean(showDeveloperMemory);
+  const memoryMembers = useMemo(() => {
+    const selfMember = character.id ? [{ id: character.id, name: character.name || '当前角色' }] : [];
+    return [...characters, ...selfMember];
+  }, [character.id, character.name, characters]);
 
   return (
     <PageSection spacing={2}>
-      <LayeredMemoryPanel title="记忆沉淀" memories={allLayeredMemories} emptyText="暂无沉淀记忆" includeRuntimeEvidence={includeRuntimeEvidence} />
+      <LayeredMemoryPanel title="记忆沉淀" memories={allLayeredMemories} emptyText="暂无沉淀记忆" includeRuntimeEvidence={includeRuntimeEvidence} members={memoryMembers} />
     </PageSection>
   );
 }

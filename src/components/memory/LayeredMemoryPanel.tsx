@@ -8,7 +8,7 @@ import DebugChip from '../common/DebugChip';
 import type { MemoryItem } from '../../services/memoryTypes';
 import { getExperienceLensLabel } from '../../services/experienceChangePresentation';
 import { isRuntimeEvidenceMemory } from '../../services/memoryPresentation';
-import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { sanitizeUserFacingText, type DisplayTextMember } from '../../services/displayTextSanitizer';
 import { isMemoryAnchorCandidate } from '../../services/memoryLifecycle';
 
 function isZh(language: string) {
@@ -87,16 +87,16 @@ function newestFirst(items: MemoryItem[]) {
   return items.slice().sort((left, right) => memoryDisplayTime(right) - memoryDisplayTime(left));
 }
 
-function buildEvidenceTitle(item: MemoryItem, language: string, formatMemoryText?: (text: string, item: MemoryItem) => string) {
+function buildEvidenceTitle(item: MemoryItem, language: string, formatMemoryText?: (text: string, item: MemoryItem) => string, members: DisplayTextMember[] = []) {
   const evidenceSource = item.evidenceText || item.summary || item.text;
-  const evidenceTitle = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(evidenceSource, item) : evidenceSource);
+  const evidenceTitle = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(evidenceSource, item) : evidenceSource, members);
   return evidenceTitle || (isZh(language) ? '暂无证据文本' : 'No evidence text yet');
 }
 
-function MemoryCard({ item, includeDebugDetails, language, formatMemoryText }: { item: MemoryItem; includeDebugDetails: boolean; language: string; formatMemoryText?: (text: string, item: MemoryItem) => string }) {
+function MemoryCard({ item, includeDebugDetails, language, formatMemoryText, members = [] }: { item: MemoryItem; includeDebugDetails: boolean; language: string; formatMemoryText?: (text: string, item: MemoryItem) => string; members?: DisplayTextMember[] }) {
   const sourceText = item.summary || item.text;
-  const displayText = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(sourceText, item) : sourceText);
-  const evidenceTitle = buildEvidenceTitle(item, language, formatMemoryText);
+  const displayText = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(sourceText, item) : sourceText, members);
+  const evidenceTitle = buildEvidenceTitle(item, language, formatMemoryText, members);
   const metaItems = [memoryStrengthLabel(item, language), ...buildMemoryMetaItems(item, includeDebugDetails, language)].filter(Boolean) as string[];
   const debugText = isZh(language)
     ? `强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}% · 显著性 ${(item.salience * 100).toFixed(0)}%`
@@ -170,6 +170,7 @@ interface LayeredMemoryPanelProps {
   includeRuntimeEvidence?: boolean;
   showDebugChip?: boolean;
   formatMemoryText?: (text: string, item: MemoryItem) => string;
+  members?: DisplayTextMember[];
 }
 
 export default function LayeredMemoryPanel({
@@ -182,6 +183,7 @@ export default function LayeredMemoryPanel({
   includeRuntimeEvidence = false,
   showDebugChip = true,
   formatMemoryText,
+  members = [],
 }: LayeredMemoryPanelProps) {
   const { i18n } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -220,7 +222,7 @@ export default function LayeredMemoryPanel({
           </Tabs>
         ) : null}
         {activeMeta ? <Typography variant="caption" color="text.secondary">{activeMeta.hint}</Typography> : null}
-        {visibleMemories.length ? <Stack spacing={1}>{visibleMemories.map((item) => <MemoryCard key={item.id} item={item} includeDebugDetails={includeRuntimeEvidence} language={language} formatMemoryText={formatMemoryText} />)}</Stack> : <Typography variant="caption" color="text.secondary">{displayEmptyText}</Typography>}
+        {visibleMemories.length ? <Stack spacing={1}>{visibleMemories.map((item) => <MemoryCard key={item.id} item={item} includeDebugDetails={includeRuntimeEvidence} language={language} formatMemoryText={formatMemoryText} members={members} />)}</Stack> : <Typography variant="caption" color="text.secondary">{displayEmptyText}</Typography>}
         {!showAll && filteredMemories.length > collapsedCount ? <Button size="small" variant="text" onClick={() => setExpanded((prev) => !prev)}>{expanded ? (isZh(language) ? '收起' : 'Collapse') : `${isZh(language) ? '查看更多' : 'Show more'} ${filteredMemories.length}`}</Button> : null}
       </Stack>
     </SurfaceCard>
