@@ -162,9 +162,9 @@ describe('scheduler speaker scoring', () => {
 
     const a = candidates.find((candidate) => candidate.characterId === 'a');
     const b = candidates.find((candidate) => candidate.characterId === 'b');
+    expect(candidates.map((candidate) => candidate.characterId)).toEqual(['b']);
+    expect(a).toBeUndefined();
     expect(b).toBeTruthy();
-    expect(b?.weight).toBeGreaterThan(a?.weight || 0);
     expect(b?.scoreBreakdown?.reasons).toContain('director:media_request:target');
-    expect(a?.scoreBreakdown?.reasons).toContain('director:user_guidance:non_target_penalty');
   });
 });

@@ -516,7 +516,8 @@ export function buildChatMessages(messages: Message[], characters: Map<string, A
     .filter((message) => !message.isDeleted)
     .slice(-limit)
     .map((message) => {
-      const senderName = message.type === 'user'
+      const isHumanGuidance = message.type === 'user' || message.type === 'god';
+      const senderName = isHumanGuidance
         ? 'User'
         : message.type === 'system'
           ? 'System'
@@ -524,7 +525,7 @@ export function buildChatMessages(messages: Message[], characters: Map<string, A
             ? 'Event'
             : message.senderName || characters.get(message.senderId)?.name || 'Unknown';
       return {
-        role: message.type === 'user' ? 'user' as const : 'assistant' as const,
+        role: isHumanGuidance ? 'user' as const : 'assistant' as const,
         content: `${senderName}: ${message.content}`,
       };
     });

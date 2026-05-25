@@ -227,6 +227,7 @@ export function calculateWeights(
 
   return characters
     .filter((char) => {
+      if (forcedUserGuidanceActorIds.length && !forcedUserGuidanceActorIds.includes(char.id)) return false;
       if (forcedUserGuidanceActorIds.includes(char.id)) return true;
       const lastSpeak = cooldownMap[char.id];
       if (!lastSpeak) return true;
@@ -252,12 +253,6 @@ export function calculateWeights(
 	        : 0;
       const conflictBias = getConflictSpeakerBias(char, conflictContext, lastSpeakerId);
       const directorBias = getDirectorIntentSpeakerBias({ character: char, directorIntent, chat, lastSpeakerId });
-      const hardUserGuidanceTargets = directorIntent?.source === 'user_message' && directorIntent.userGuidance?.actorIds.length
-        ? (directorIntent.targetActorIds.length ? directorIntent.targetActorIds : directorIntent.userGuidance.actorIds)
-        : [];
-      const hardUserGuidancePenalty = hardUserGuidanceTargets.length && !hardUserGuidanceTargets.includes(char.id)
-        ? (directorIntent?.userGuidance?.kind === 'media_request' ? 0.02 : 0.12)
-        : 1;
       const innerLife = projectInnerLife({ chat, character: char, messages: recentMessages, now });
       const innerLifeBias = getInnerLifeSpeakerBias(innerLife);
       const debugBase = {
@@ -349,7 +344,6 @@ export function calculateWeights(
         repetitionMultiplier *= 0.35;
       }
       weight *= repetitionMultiplier;
-      if (hardUserGuidancePenalty < 1) weight *= hardUserGuidancePenalty;
       weight += Math.random() * 0.03;
 
       if (Number.isNaN(weight)) {
@@ -385,7 +379,6 @@ export function calculateWeights(
             emotionalReason,
             conflictBias ? 'conflict' : '',
             ...directorBias.reasons,
-            hardUserGuidancePenalty < 1 ? 'director:user_guidance:non_target_penalty' : '',
             innerLifeBias.bias ? innerLifeBias.reason : '',
             relationshipPressure ? 'relationship' : '',
             repetitionMultiplier < 1 ? 'repetition_penalty' : '',

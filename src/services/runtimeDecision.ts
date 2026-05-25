@@ -56,8 +56,14 @@ function isDirectorInterventionActive(event: NonNullable<GroupChat['runtimeEvent
   return countAiResponsesAfter(messages, event.createdAt) < maxTurns;
 }
 
+function isDirectorInterventionExpired(event: NonNullable<GroupChat['runtimeEventsV2']>[number], now: number) {
+  const payload = event.payload as Record<string, unknown>;
+  const expiresAt = typeof payload.expiresAt === 'number' ? payload.expiresAt : event.createdAt + 10 * 60_000;
+  return now > expiresAt;
+}
+
 function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AICharacter[], messages: Message[], now: number): DirectorIntent | null {
-  const event = (chat.runtimeEventsV2 || []).slice().reverse().find((item) => item.kind === 'director_intervention' && isDirectorInterventionActive(item, messages, now));
+  const event = (chat.runtimeEventsV2 || []).slice().reverse().find((item) => item.kind === 'director_intervention' && !isDirectorInterventionExpired(item, now) && isDirectorInterventionActive(item, messages, now));
   if (!event) return null;
   const payload = event.payload as Record<string, unknown>;
   const text = typeof payload.text === 'string' ? payload.text : event.summary;
@@ -68,6 +74,7 @@ function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AIChar
   const pendingGuidanceActorIds = guidance?.actorIds.length
     ? guidance.actorIds.filter((actorId) => !respondedActorIds.has(actorId))
     : [];
+  if (guidance?.actorIds.length && !pendingGuidanceActorIds.length) return null;
   const targetActorIds = uniqueKnownActorIds(payload.targetActorIds, characters);
   const guidanceTargetActorIds = uniqueKnownActorIds(getGuidanceTargetActorIds(guidance), characters);
   const activeTargetActorIds = pendingGuidanceActorIds.length

@@ -63,6 +63,10 @@ function getLatestVisibleMessage(messages: Message[]) {
   return messages.filter((message) => !message.isDeleted).at(-1) || null;
 }
 
+function isHumanGuidanceMessage(message: Message | null | undefined): message is Message {
+  return message?.type === 'user' || message?.type === 'god';
+}
+
 function getLatestAiMessage(messages: Message[]) {
   return messages.filter((message) => message.type === 'ai' && !message.isDeleted).at(-1) || null;
 }
@@ -148,6 +152,10 @@ export function resolveDirectorIntent(params: {
   const latestMessage = getLatestVisibleMessage(params.messages);
   const latestAiMessage = getLatestAiMessage(params.messages);
   const pending = params.pendingReplyContext;
+  if (isHumanGuidanceMessage(latestMessage)) {
+    return resolveUserMessageDirectorIntent(latestMessage, params.characters);
+  }
+
   if (pending?.targetIds.length) {
     return {
       source: 'user_message',
@@ -158,10 +166,6 @@ export function resolveDirectorIntent(params: {
         ? '被点名角色还有未回应的期待。'
         : '有角色被点名，需要在房间漂移前接住回应。',
     };
-  }
-
-  if (latestMessage?.type === 'user') {
-    return resolveUserMessageDirectorIntent(latestMessage, params.characters);
   }
 
   const primaryLine = selectPrimaryNarrativeLine(params.narrativeLines || []);

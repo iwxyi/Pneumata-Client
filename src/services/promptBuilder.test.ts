@@ -8,7 +8,7 @@ import {
 } from '../types/character';
 import type { Message } from '../types/message';
 import type { MemoryItem } from './memoryTypes';
-import { buildPromptMemoryTrace, buildSystemPromptWithContext } from './promptBuilder';
+import { buildChatMessages, buildPromptMemoryTrace, buildSystemPromptWithContext } from './promptBuilder';
 
 function buildCharacter(overrides: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -117,6 +117,17 @@ const leakySpeakerId = '3c78729f-e52d-4dde-b27f-01a949960bb8b';
 const leakyTargetId = '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321';
 
 describe('buildSystemPromptWithContext', () => {
+  it('passes developer guidance messages to the model as user turns', () => {
+    const rendered = buildChatMessages([
+      buildMessage({ type: 'god', senderId: 'user', senderName: '开发者', content: '新话题：狼抓羊有过错吗？' }),
+    ], new Map(), 12);
+
+    expect(rendered).toEqual([{
+      role: 'user',
+      content: 'User: 新话题：狼抓羊有过错吗？',
+    }]);
+  });
+
   it('includes every manual memory seed field in the unified prompt', () => {
     const character = buildCharacter({
       memory: {

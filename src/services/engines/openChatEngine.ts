@@ -1198,7 +1198,7 @@ async function buildStructuredRuntime(params: {
   const existingEvents = params.conversation.runtimeEventsV2 || [];
   const speaker = params.characters.find((character) => character.id === params.message.senderId);
   const isCharacterAuthoredMessage = params.message.type === 'ai' || Boolean(speaker);
-  if (params.message.type === 'user' && !speaker) {
+  if ((params.message.type === 'user' || params.message.type === 'god') && !speaker) {
     const summary = params.message.content.trim().slice(0, 128);
     const guidance = parseUserGuidanceIntent(params.message.content, params.characters);
     const targetActorIds = getGuidanceTargetActorIds(guidance);
@@ -1469,7 +1469,7 @@ async function onMessageCommitted(params: {
       }
     : params.message;
   const nextWorldStateResult = buildNextWorldState(params.conversation, publicMessage, config);
-  const isPlainUserGuidance = publicMessage.type === 'user' && !params.characters.some((character) => character.id === publicMessage.senderId);
+  const isPlainUserGuidance = (publicMessage.type === 'user' || publicMessage.type === 'god') && !params.characters.some((character) => character.id === publicMessage.senderId);
   const userGuidanceSummary = isPlainUserGuidance ? publicMessage.content.trim().slice(0, 96) : '';
   const nextWorldState = isPlainUserGuidance && userGuidanceSummary
     ? {
