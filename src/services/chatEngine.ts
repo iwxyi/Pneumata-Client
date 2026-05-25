@@ -667,9 +667,12 @@ function buildRuntimeDecisionMetadata(params: {
   memoryTrace?: PromptMemoryTrace | null;
   expressionFeedback?: ExpressionFeedbackTrace;
 }): MessageMetadata['runtimeDecision'] | undefined {
-  const memoryContext = params.memoryTrace && (params.memoryTrace.injectedIds.length || params.memoryTrace.recalledArchives.length)
+  const memoryContext = params.memoryTrace && (params.memoryTrace.injectedIds.length || params.memoryTrace.recalledArchives.length || params.memoryTrace.targetActorId)
     ? {
       injectedIds: params.memoryTrace.injectedIds.slice(0, 18),
+      targetActorId: params.memoryTrace.targetActorId,
+      targetActorName: params.memoryTrace.targetActorName,
+      targetReason: params.memoryTrace.targetReason,
       recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
     }
     : undefined;

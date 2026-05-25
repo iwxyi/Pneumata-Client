@@ -115,6 +115,22 @@ describe('activeUserGuidancePresentation', () => {
     expect(projection?.chips).toEqual(expect.arrayContaining(['图片请求', '锁定待回应', '非目标不抢占', '待回应：美羊羊', '执行：美羊羊', '图片对象：灰太狼', '未配置图片模型']));
   });
 
+  it('shows the object used for memory recall on direct reply guidance', () => {
+    const projection = projectActiveUserGuidance({
+      chat: buildChat(),
+      members,
+      messages: [buildMessage({ type: 'god', senderName: '开发者', content: '美羊羊说说你怎么看灰太狼' })],
+      aiProfiles: [],
+      now: 40,
+    });
+
+    expect(projection?.detailRows).toEqual(expect.arrayContaining([
+      { label: '锁定角色', value: '美羊羊', tone: 'primary' },
+      { label: '记忆对象', value: '灰太狼', tone: 'neutral' },
+    ]));
+    expect(projection?.chips).toEqual(expect.arrayContaining(['点名回应', '待回应：美羊羊', '执行：美羊羊', '记忆对象：灰太狼']));
+  });
+
   it('explains topic shifts as replacing stale banter and steering speaker scoring', () => {
     const projection = projectActiveUserGuidance({
       chat: buildChat(),

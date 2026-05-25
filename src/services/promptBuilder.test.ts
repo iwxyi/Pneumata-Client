@@ -206,6 +206,11 @@ describe('buildSystemPromptWithContext', () => {
     ]));
 
     expect(trace.injectedIds).toContain('about-target');
+    expect(trace).toMatchObject({
+      targetActorId: 'char-c',
+      targetActorName: '林北',
+      targetReason: '来自人工点名中的被谈论对象',
+    });
     expect(trace.recalledArchives[0]).toMatchObject({
       id: 'about-target',
       recallReason: expect.stringContaining('旧档'),
@@ -238,6 +243,11 @@ describe('buildSystemPromptWithContext', () => {
     ]));
 
     expect(trace.injectedIds).toContain('gray-wolf-portrait-memory');
+    expect(trace).toMatchObject({
+      targetActorId: 'char-c',
+      targetActorName: '灰太狼',
+      targetReason: '来自人工发图请求的图片对象',
+    });
     expect(trace.recalledArchives[0]?.summary).toContain('灰太狼');
   });
 

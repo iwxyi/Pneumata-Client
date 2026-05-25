@@ -56,10 +56,11 @@ describe('messageRuntimeClues', () => {
       statusKind: 'debug_explanation',
       statusLabel: '调试解释',
     });
-    expect(sections[0]?.items[0]).toContain('片段记忆');
-    expect(sections[0]?.items[0]).toContain('雨夜失约');
-    expect(sections[0]?.items[0]).not.toContain('3c78729f');
-    expect(sections[0]?.items[1]).toBe('原因：关系账本中的变化已经足够显著');
+    const memoryItems = sections[0]?.items || [];
+    expect(memoryItems.join(' / ')).toContain('片段记忆');
+    expect(memoryItems.join(' / ')).toContain('雨夜失约');
+    expect(memoryItems.join(' / ')).not.toContain('3c78729f');
+    expect(memoryItems).toContain('原因：关系账本中的变化已经足够显著');
     expect(sections[2]?.items).toEqual(expect.arrayContaining(['长段落表达', '角色适合展开', '允许富文本']));
   });
 
@@ -77,8 +78,29 @@ describe('messageRuntimeClues', () => {
   it('uses member names when runtime clues are projected with member context', () => {
     const sections = projectMessageRuntimeClues(buildMessage(), [{ id: '3c78729f-e52d-4dde-b27f-01a949960bb8b', name: '乙' }]);
 
-    expect(sections[0]?.items[0]).toContain('乙');
-    expect(sections[0]?.items[0]).not.toContain('3c78729f');
+    expect((sections[0]?.items || []).join(' / ')).toContain('乙');
+    expect((sections[0]?.items || []).join(' / ')).not.toContain('3c78729f');
+  });
+
+  it('shows the prompt memory target even when no archived memory was injected', () => {
+    const sections = projectMessageRuntimeClues({
+      metadata: {
+        runtimeDecision: {
+          memoryContext: {
+            targetActorId: 'hui',
+            targetActorName: '灰太狼',
+            targetReason: '来自人工发图请求的图片对象',
+            injectedIds: [],
+            recalledArchives: [],
+          },
+        },
+      },
+    }, [{ id: 'hui', name: '灰太狼' }]);
+
+    expect(sections.find((section) => section.key === 'memory')?.items).toEqual([
+      '召回对象：灰太狼',
+      '对象依据：来自人工发图请求的图片对象',
+    ]);
   });
 
   it('localizes runtime enum values before display or prompt use', () => {

@@ -133,6 +133,9 @@ export interface MessageMetadata {
     };
     memoryContext?: {
       injectedIds?: string[];
+      targetActorId?: string;
+      targetActorName?: string;
+      targetReason?: string;
       recalledArchives?: Array<{
         id: string;
         scope: string;

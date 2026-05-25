@@ -44,6 +44,13 @@ function formatMemberNames(ids: string[] | undefined, members: DisplayTextMember
   return ids.map((id) => members.find((member) => member.id === id)?.name || id).join('、');
 }
 
+function formatMemoryTargetName(memoryContext: NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['memoryContext'], members: DisplayTextMember[] = []) {
+  if (!memoryContext?.targetActorId && !memoryContext?.targetActorName) return '';
+  if (memoryContext.targetActorName) return memoryContext.targetActorName;
+  const matched = members.find((member) => member.id === memoryContext.targetActorId);
+  return matched?.name || '成员';
+}
+
 function formatGuidanceKind(kind: string | undefined) {
   const labels: Record<string, string> = {
     topic_shift: '话题引导',
@@ -59,18 +66,26 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
 
   const sections: MessageRuntimeClueSection[] = [];
   const recalled = decision.memoryContext?.recalledArchives || [];
+  const memoryTargetName = formatMemoryTargetName(decision.memoryContext, members);
+  const hasInjectedMemory = Boolean(recalled.length);
   pushSection(sections, {
     key: 'memory',
     label: '记忆',
     promptLabel: '记忆线索',
     statusKind: 'prompt_context',
-    statusLabel: '本轮注入',
-    statusHint: '这些旧档已经进入本轮生成上下文，可用于解释角色为什么想起旧事。',
-    items: recalled.flatMap((item) => [
+    statusLabel: hasInjectedMemory ? '本轮注入' : '召回目标',
+    statusHint: hasInjectedMemory
+      ? '这些旧档已经进入本轮生成上下文，可用于解释角色为什么想起旧事。'
+      : '本轮 prompt 已按这个对象检索关系和记忆；如果没有命中旧档，只表示目标解析已生效。',
+    items: [
+      memoryTargetName ? `召回对象：${memoryTargetName}` : '',
+      decision.memoryContext?.targetReason ? `对象依据：${decision.memoryContext.targetReason}` : '',
+      ...recalled.flatMap((item) => [
       item.summary ? `旧档注入：${item.summary}` : '',
       item.recallReason ? `原因：${item.recallReason}` : '',
-    ]),
-    maxItems: 8,
+      ]),
+    ],
+    maxItems: 10,
   }, members);
   pushSection(sections, {
     key: 'inner',

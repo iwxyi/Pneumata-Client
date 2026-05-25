@@ -8,7 +8,7 @@ import { formatConflictPromptText, formatConflictStageLabel } from './runtimeEve
 import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 import { getExperienceLensLabel } from './experienceChangePresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
-import { parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
+import { getGuidanceMemoryTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
 
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
@@ -31,6 +31,9 @@ export interface PromptMemoryTraceItem {
 export interface PromptMemoryTrace {
   injectedIds: string[];
   recalledArchives: PromptMemoryTraceItem[];
+  targetActorId?: string;
+  targetActorName?: string;
+  targetReason?: string;
 }
 
 function buildEmotionalStateDescription(character: AICharacter) {
@@ -407,7 +410,7 @@ function traceMemoryItem(item: MemoryItem, members: DisplayTextMember[]): Prompt
   };
 }
 
-function buildTraceFromPromptMemories(items: MemoryItem[], members: DisplayTextMember[]): PromptMemoryTrace {
+function buildTraceFromPromptMemories(items: MemoryItem[], members: DisplayTextMember[], target?: { actorId: string; actorName: string; reason: string }): PromptMemoryTrace {
   const merged = buildMergedMemories(items);
   return {
     injectedIds: merged.map((item) => item.id),
@@ -415,11 +418,15 @@ function buildTraceFromPromptMemories(items: MemoryItem[], members: DisplayTextM
       .filter((item) => item.archivedAt && item.recallReason)
       .map((item) => traceMemoryItem(item, members))
       .slice(0, 4),
+    targetActorId: target?.actorId,
+    targetActorName: target?.actorName ? cleanPromptText(target.actorName, members, 80) : undefined,
+    targetReason: target?.reason ? cleanPromptText(target.reason, members, 120) : undefined,
   };
 }
 
 function resolvePromptMemoryContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>) {
-  const target = resolvePromptTarget(chat, messages, characters, character);
+  const targetResolution = resolvePromptTarget(chat, messages, characters, character);
+  const target = targetResolution?.target;
   const relationshipSnapshot = getRelationshipSnapshot(character, target);
   const policies = buildPromptMemoryPolicies(chat);
   const boosts = buildRetrievalBoosts(chat);
@@ -437,7 +444,15 @@ function resolvePromptMemoryContext(character: AICharacter, chat: GroupChat, mes
     conversationMemories,
     characterMemories,
     targetedCharacterMemories,
-    trace: buildTraceFromPromptMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories], members),
+    trace: buildTraceFromPromptMemories(
+      [...targetedCharacterMemories, ...characterMemories, ...conversationMemories],
+      members,
+      target ? {
+        actorId: target.id,
+        actorName: target.name,
+        reason: targetResolution.reason,
+      } : undefined,
+    ),
   };
 }
 
@@ -494,10 +509,6 @@ function buildRecentMessagesSection(messages: Message[], characters: Map<string,
   return `\n## Recent Messages\n${rendered.map((message) => `- ${message.content}`).join('\n')}`;
 }
 
-function uniqueKnownIds(ids: Array<string | undefined>, characters: Map<string, AICharacter>) {
-  return ids.filter((id, index, array): id is string => Boolean(id && characters.has(id) && array.indexOf(id) === index));
-}
-
 function normalizeStoredGuidance(message: Message): UserGuidanceIntent | null {
   const stored = message.metadata?.runtimeDecision?.directorIntent?.userGuidance;
   if (!stored?.rawText || !stored.kind) return null;
@@ -526,17 +537,14 @@ function parsePromptGuidance(message: Message, characters: Map<string, AICharact
 }
 
 function pickGuidanceTarget(guidance: UserGuidanceIntent, speaker: AICharacter, characters: Map<string, AICharacter>) {
-  const actorIds = uniqueKnownIds(guidance.actorIds || [], characters);
-  const subjectActorIds = uniqueKnownIds(guidance.mediaRequest?.subjectActorIds || [], characters);
-  const mentionedActorIds = uniqueKnownIds(guidance.mentionedActorIds || [], characters);
-  const candidateGroups = [
-    subjectActorIds.filter((id) => id !== speaker.id),
-    mentionedActorIds.filter((id) => id !== speaker.id && !actorIds.includes(id)),
-    mentionedActorIds.filter((id) => id !== speaker.id),
-    actorIds.filter((id) => id !== speaker.id),
-  ];
-  const candidateId = candidateGroups.find((group) => group.length)?.[0];
+  const candidateId = getGuidanceMemoryTargetActorIds(guidance, Array.from(characters.values()), speaker.id)[0];
   return candidateId ? characters.get(candidateId) : undefined;
+}
+
+function describeGuidanceMemoryTarget(guidance: UserGuidanceIntent) {
+  if (guidance.kind === 'media_request') return '来自人工发图请求的图片对象';
+  if (guidance.kind === 'direct_reply') return '来自人工点名中的被谈论对象';
+  return '来自人工话题引导中提到的角色';
 }
 
 function resolveHumanGuidanceTarget(messages: Message[], characters: Map<string, AICharacter>, speaker: AICharacter) {
@@ -548,7 +556,7 @@ function resolveHumanGuidanceTarget(messages: Message[], characters: Map<string,
     const guidance = parsePromptGuidance(message, characters);
     if (!guidance) continue;
     const target = pickGuidanceTarget(guidance, speaker, characters);
-    if (target) return target;
+    if (target) return { target, reason: describeGuidanceMemoryTarget(guidance) };
   }
   return undefined;
 }
@@ -565,7 +573,8 @@ function resolvePromptTarget(chat: GroupChat, messages: Message[], characters: M
     .filter((item) => !item.isDeleted && item.senderId !== speaker.id && item.type === 'ai')
     .slice()
     .reverse()[0]?.senderId;
-  return recentTargetId ? characters.get(recentTargetId) : undefined;
+  const recentTarget = recentTargetId ? characters.get(recentTargetId) : undefined;
+  return recentTarget ? { target: recentTarget, reason: '来自最近 AI 发言者' } : undefined;
 }
 
 function getRelationshipSnapshot(character: AICharacter, target: AICharacter | undefined) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AICharacter } from '../types/character';
-import { parseUserGuidanceIntent } from './userGuidanceIntent';
+import { getGuidanceMemoryTargetActorIds, parseUserGuidanceIntent } from './userGuidanceIntent';
 
 function character(id: string, name: string): AICharacter {
   return {
@@ -79,5 +79,18 @@ describe('userGuidanceIntent', () => {
     expect(intent?.actorIds).toEqual(['mei', 'xi']);
     expect(intent?.mediaRequest?.subjectActorIds).toEqual(['hui']);
     expect(intent?.maxTurns).toBe(2);
+  });
+
+  it('resolves image subjects as memory recall targets instead of the requested sender', () => {
+    const intent = parseUserGuidanceIntent('美羊羊发个灰太狼证件照的图片', members);
+
+    expect(getGuidanceMemoryTargetActorIds(intent, members, 'mei')).toEqual(['hui']);
+  });
+
+  it('resolves the discussed person as memory recall target for direct replies', () => {
+    const intent = parseUserGuidanceIntent('美羊羊说说你怎么看灰太狼', members);
+
+    expect(intent?.actorIds).toEqual(['mei']);
+    expect(getGuidanceMemoryTargetActorIds(intent, members, 'mei')).toEqual(['hui']);
   });
 });

@@ -464,6 +464,13 @@ describe('chatEngine streaming preview', () => {
           },
         },
       },
+      memoryTrace: {
+        injectedIds: [],
+        recalledArchives: [],
+        targetActorId: 'hui',
+        targetActorName: '灰太狼',
+        targetReason: '来自人工发图请求的图片对象',
+      },
     });
 
     expect(runtimeDecision?.directorIntent?.userGuidance).toMatchObject({
@@ -473,6 +480,11 @@ describe('chatEngine streaming preview', () => {
         kind: 'image',
         subjectActorIds: ['hui'],
       },
+    });
+    expect(runtimeDecision?.memoryContext).toMatchObject({
+      targetActorId: 'hui',
+      targetActorName: '灰太狼',
+      targetReason: '来自人工发图请求的图片对象',
     });
   });
 

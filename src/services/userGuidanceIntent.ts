@@ -190,3 +190,27 @@ export function getGuidanceTargetActorIds(guidance: UserGuidanceIntent | null | 
   if (guidance.kind === 'media_request') return guidance.mentionedActorIds;
   return guidance.mentionedActorIds;
 }
+
+function knownUniqueIds(ids: Array<string | undefined>, characters: AICharacter[]) {
+  const known = new Set(characters.map((character) => character.id));
+  return ids.filter((id, index, array): id is string => Boolean(id && known.has(id) && array.indexOf(id) === index));
+}
+
+export function getGuidanceMemoryTargetActorIds(
+  guidance: UserGuidanceIntent | null | undefined,
+  characters: AICharacter[],
+  speakerId?: string | null,
+) {
+  if (!guidance) return [];
+  const actorIds = knownUniqueIds(guidance.actorIds || [], characters);
+  const subjectActorIds = knownUniqueIds(guidance.mediaRequest?.subjectActorIds || [], characters);
+  const mentionedActorIds = knownUniqueIds(guidance.mentionedActorIds || [], characters);
+  const withoutSpeaker = (ids: string[]) => speakerId ? ids.filter((id) => id !== speakerId) : ids;
+  const candidateGroups = [
+    withoutSpeaker(subjectActorIds),
+    withoutSpeaker(mentionedActorIds.filter((id) => !actorIds.includes(id))),
+    withoutSpeaker(mentionedActorIds),
+    withoutSpeaker(actorIds),
+  ];
+  return candidateGroups.find((group) => group.length) || [];
+}

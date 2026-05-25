@@ -4,6 +4,7 @@ import type { Message } from '../types/message';
 import { getPreferredAIProfile, type AIModelProfile } from '../types/settings';
 import { projectRuntimePressure } from './runtimeDecision';
 import { formatBeatType } from './runtimeInsightPresentation';
+import { getGuidanceMemoryTargetActorIds } from './userGuidanceIntent';
 
 export interface ActiveUserGuidanceProjection {
   title: string;
@@ -123,12 +124,14 @@ function buildGuidanceDetailRows(params: {
   actorNames: string;
   completedActorNames: string;
   subjectNames: string;
+  memoryTargetNames: string;
   imageCapability?: ReturnType<typeof buildImageCapabilityLabel> | null;
 }) {
   if (params.guidanceKind === 'media_request') {
     return [
       params.activeTargetNames ? { label: '锁定角色', value: params.activeTargetNames, tone: 'primary' as const } : null,
       params.subjectNames ? { label: '图片对象', value: params.subjectNames, tone: 'neutral' as const } : null,
+      params.memoryTargetNames && params.memoryTargetNames !== params.subjectNames ? { label: '记忆对象', value: params.memoryTargetNames, tone: 'neutral' as const } : null,
       params.imageCapability ? { label: '图片能力', value: params.imageCapability.label, tone: params.imageCapability.tone } : null,
       params.completedActorNames ? { label: '已完成', value: params.completedActorNames, tone: 'success' as const } : null,
     ].filter((item): item is NonNullable<typeof item> => Boolean(item));
@@ -136,14 +139,16 @@ function buildGuidanceDetailRows(params: {
   if (params.guidanceKind === 'direct_reply') {
     return [
       params.activeTargetNames ? { label: '锁定角色', value: params.activeTargetNames, tone: 'primary' as const } : null,
+      params.memoryTargetNames ? { label: '记忆对象', value: params.memoryTargetNames, tone: 'neutral' as const } : null,
       params.actorNames && !params.activeTargetNames ? { label: '点名角色', value: params.actorNames, tone: 'neutral' as const } : null,
       params.completedActorNames ? { label: '已回应', value: params.completedActorNames, tone: 'success' as const } : null,
     ].filter((item): item is NonNullable<typeof item> => Boolean(item));
   }
   return [
     { label: '当前焦点', value: clipText(params.focusText, 48), tone: 'primary' as const },
+    params.memoryTargetNames ? { label: '记忆对象', value: params.memoryTargetNames, tone: 'neutral' as const } : null,
     { label: '调度要求', value: '先回应新问题，旧梗只作收束', tone: 'neutral' as const },
-  ];
+  ].filter((item): item is NonNullable<typeof item> => Boolean(item));
 }
 
 export function projectActiveUserGuidance(params: {
@@ -170,6 +175,10 @@ export function projectActiveUserGuidance(params: {
   const subjectNames = guidance.mediaRequest?.subjectActorIds?.length
     ? formatMemberNames(guidance.mediaRequest.subjectActorIds, params.members)
     : guidance.mediaRequest?.subjectText || '';
+  const memoryTargetIds = getGuidanceMemoryTargetActorIds(guidance, params.members)
+    .filter((id) => !guidance.actorIds.includes(id) || Boolean(guidance.mediaRequest?.subjectActorIds?.includes(id)));
+  const memoryTargetNames = formatMemberNames(memoryTargetIds, params.members);
+  const shouldShowMemoryTarget = Boolean(memoryTargetNames && memoryTargetNames !== subjectNames);
   const imageCapability = guidance.kind === 'media_request'
     ? buildImageCapabilityLabel(guidance.actorIds, params.members, params.aiProfiles)
     : null;
@@ -185,6 +194,7 @@ export function projectActiveUserGuidance(params: {
     actorNames ? `执行：${actorNames}` : '',
     completedActorNames ? `已回应：${completedActorNames}` : '',
     subjectNames ? `图片对象：${subjectNames}` : '',
+    shouldShowMemoryTarget ? `记忆对象：${memoryTargetNames}` : '',
     imageCapability?.label || '',
   ].filter(Boolean);
 
@@ -222,6 +232,7 @@ export function projectActiveUserGuidance(params: {
       actorNames,
       completedActorNames,
       subjectNames,
+      memoryTargetNames: shouldShowMemoryTarget ? memoryTargetNames : '',
       imageCapability,
     }),
     chips,
