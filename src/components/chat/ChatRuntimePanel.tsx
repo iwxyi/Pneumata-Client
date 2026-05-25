@@ -460,12 +460,7 @@ function renderMediaGenerationPanel(items: ProjectedMediaGenerationItem[], isAdv
               ) : null}
             </Box>
           );
-          if (!item.debugHint || isAdvancedRuntimeView) return <Box key={item.key}>{body}</Box>;
-          return (
-            <Tooltip key={item.key} title={<Box sx={{ whiteSpace: 'pre-line' }}>{cleanText(item.debugHint, members)}</Box>} arrow placement="top-start">
-              <Box sx={{ '&:hover': { textDecoration: 'none' } }}>{body}</Box>
-            </Tooltip>
-          );
+          return <Box key={item.key}>{body}</Box>;
         })}
       </Stack>
     </SurfaceCard>
