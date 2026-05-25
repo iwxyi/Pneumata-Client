@@ -317,7 +317,7 @@ describe('projectNarrativeLines', () => {
     const scenarioLine = lines.find((line) => line.type === 'scenario');
     expect(scenarioLine?.id).toBe('scenario:structure');
     expect(scenarioLine?.title).toBe('阵营局势');
-    expect(scenarioLine?.summary).toContain('甲：leader');
+    expect(scenarioLine?.summary).toContain('甲：领队');
     expect(scenarioLine?.summary).not.toContain('当前场景骨架');
     expect(scenarioLine?.participantIds).toContain('a');
   });

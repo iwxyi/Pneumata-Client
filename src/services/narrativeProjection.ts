@@ -4,6 +4,7 @@ import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
 import type { MemoryItem } from './memoryTypes';
 import { projectFactionClusters } from './factionProjection';
+import { formatScenarioBoardKind, formatScenarioRoleLabel } from './scenarioPresentation';
 
 export type NarrativeLineType = 'conflict' | 'relationship' | 'topic' | 'goal' | 'mystery' | 'faction' | 'growth' | 'scenario';
 export type NarrativeLineStatus = 'latent' | 'active' | 'escalating' | 'cooling' | 'resolved' | 'abandoned';
@@ -483,10 +484,10 @@ function buildScenarioLine(chat: GroupChat, characters: AICharacter[], now: numb
   };
   const title = hasBoard ? '棋盘进程' : factionCount > 0 ? '阵营局势' : scenario.currentTurnActorId ? '固定轮次' : '角色分工';
   const summaryParts = [
-    roleAssignments.slice(0, 3).map((item) => `${actorNameFromId(item.actorId)}${item.roleId ? `：${item.roleId}` : ''}`).join(' / '),
+    roleAssignments.slice(0, 3).map((item) => `${actorNameFromId(item.actorId)}${item.roleId ? `：${formatScenarioRoleLabel(item.roleId)}` : ''}`).join(' / '),
     factionCount ? `阵营：${(scenario.factions || []).slice(0, 3).map((item) => item.label).join(' / ')}` : '',
     scenario.currentTurnActorId ? `当前轮到 ${actorNameFromId(scenario.currentTurnActorId)}` : '',
-    hasBoard ? `棋盘 ${scenario.board?.schema.kind}` : '',
+    hasBoard ? `棋盘 ${formatScenarioBoardKind(scenario.board?.schema.kind)}` : '',
   ].filter(Boolean);
   return {
     id: 'scenario:structure',

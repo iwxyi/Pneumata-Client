@@ -6,6 +6,7 @@ import type { Message } from '../../types/message';
 import MemberList from '../controls/MemberList';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { formatScenarioRoleLabel } from '../../services/scenarioPresentation';
 
 const RelationshipPanel = lazy(() => import('../controls/RelationshipPanel'));
 const ChatRuntimePanel = lazy(() => import('./ChatRuntimePanel'));
@@ -50,7 +51,7 @@ function memberName(id: string | null | undefined, members: AICharacter[]) {
 function ChatScenarioCard({ chat, members }: { chat: GroupChat; members: AICharacter[] }) {
   const rows = [] as string[];
   if (chat.scenarioState?.roleAssignments?.length) {
-    rows.push(`角色位 ${chat.scenarioState.roleAssignments.slice(0, 4).map((item) => `${memberName(item.actorId, members)}${item.roleId ? `：${item.roleId}` : ''}`).join(' / ')}`);
+    rows.push(`角色位 ${chat.scenarioState.roleAssignments.slice(0, 4).map((item) => `${memberName(item.actorId, members)}${item.roleId ? `：${formatScenarioRoleLabel(item.roleId)}` : ''}`).join(' / ')}`);
   }
   if (chat.scenarioState?.factions?.length) rows.push(`阵营 ${chat.scenarioState.factions.slice(0, 4).map((item) => item.label).join(' / ')}`);
   if (chat.scenarioState?.currentTurnActorId) rows.push(`当前轮次 ${memberName(chat.scenarioState.currentTurnActorId, members)}`);

@@ -21,6 +21,7 @@ import { buildMemberInnerLifeSummary } from '../../services/memberInnerLifePrese
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { retrieveRelevantMemories } from '../../services/memoryRetrieval';
 import { formatInnerImpulseLabel, formatSoulMetricLabel } from '../../services/runtimeDecisionLabels';
+import { formatScenarioBoardKind, formatScenarioRoleLabel } from '../../services/scenarioPresentation';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -312,10 +313,10 @@ function renderTimelineBody(item: ProjectedRuntimeTimelineItem) {
   return <Typography variant="body2" sx={{ mt: 0.35 }}>{buildTimelineBody(item)}</Typography>;
 }
 
-function buildScenarioRows(chat: GroupChat, members: AICharacter[]) {
+function buildScenarioRows(chat: GroupChat, members: AICharacter[], language: string) {
   const scenario = chat.scenarioState;
   if (!scenario) return [];
-  const roleSummary = (scenario.roleAssignments || []).slice(0, 4).map((item) => `${members.find((member) => member.id === item.actorId)?.name || '成员'}${item.roleId ? `：${item.roleId}` : ''}`).join(' / ');
+  const roleSummary = (scenario.roleAssignments || []).slice(0, 4).map((item) => `${members.find((member) => member.id === item.actorId)?.name || '成员'}${item.roleId ? `：${formatScenarioRoleLabel(item.roleId, language)}` : ''}`).join(' / ');
   const factionSummary = (scenario.factions || []).slice(0, 4).map((item) => item.label).join(' / ');
   const rows = [] as Array<{ key: string; label: string; value: string }>;
   if (roleSummary) rows.push({ key: 'roles', label: '角色位', value: roleSummary });
@@ -324,11 +325,11 @@ function buildScenarioRows(chat: GroupChat, members: AICharacter[]) {
   return rows;
 }
 
-function buildBoardRows(chat: GroupChat) {
+function buildBoardRows(chat: GroupChat, language: string) {
   const board = chat.scenarioState?.board;
   if (!board) return [];
   return [
-    { key: 'boardKind', label: '棋盘', value: board.schema.kind },
+    { key: 'boardKind', label: '棋盘', value: formatScenarioBoardKind(board.schema.kind, language) },
     { key: 'boardSize', label: '尺寸', value: `${board.schema.columns || 0} × ${board.schema.rows || 0}` },
     { key: 'pieces', label: '棋子', value: `${board.pieces?.length || 0}` },
   ];
@@ -811,7 +812,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
     .reverse()
     .slice(0, timelineExpanded ? 16 : 6), [projectedTimeline, timelineFilter, timelineExpanded]);
   const decisionTrace = useMemo(() => projectRuntimeDecisionTrace(messages, 5), [messages]);
-  const structureRows = [...buildScenarioRows(chat, members), ...buildBoardRows(chat)];
+  const structureRows = [...buildScenarioRows(chat, members, i18n.language), ...buildBoardRows(chat, i18n.language)];
 
   return (
     <>

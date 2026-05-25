@@ -5,6 +5,7 @@ import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { MemoryItem } from './memoryTypes';
 import type { NarrativeLineProjection, NarrativeLineType } from './narrativeProjection';
 import { sanitizeUserFacingText } from './displayTextSanitizer';
+import { formatScenarioBoardKind, formatScenarioRoleLabel } from './scenarioPresentation';
 import { formatKnownReason } from './runtimeInsightPresentation';
 
 export function cleanNarrativeText(text: string) {
@@ -128,10 +129,10 @@ function findScenarioEvidence(chat: GroupChat, members: AICharacter[]) {
   if (!scenario) return null;
   const roleNames = (scenario.roleAssignments || [])
     .slice(0, 4)
-    .map((item) => `${members.find((member) => member.id === item.actorId)?.name || item.actorId}·${item.roleId || '角色位'}`);
+    .map((item) => `${members.find((member) => member.id === item.actorId)?.name || '成员'}·${formatScenarioRoleLabel(item.roleId)}`);
   const factionNames = (scenario.factions || []).slice(0, 4).map((item) => item.label);
   const boardKind = scenario.board?.schema?.kind;
-  const parts = [roleNames.length ? `角色位：${roleNames.join(' / ')}` : '', factionNames.length ? `阵营：${factionNames.join(' / ')}` : '', boardKind ? `棋盘：${boardKind}` : ''].filter(Boolean);
+  const parts = [roleNames.length ? `角色位：${roleNames.join(' / ')}` : '', factionNames.length ? `阵营：${factionNames.join(' / ')}` : '', boardKind ? `棋盘：${formatScenarioBoardKind(boardKind)}` : ''].filter(Boolean);
   return parts.length ? `场景结构：${parts.join('；')}` : null;
 }
 
