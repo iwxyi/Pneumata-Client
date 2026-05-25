@@ -42,40 +42,43 @@ export function useChatRunLoop(params: {
   const [thinkingId, setThinkingId] = useState<string | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
   const [runLoopError, setRunLoopError] = useState<string | null>(null);
+  const paramsRef = useRef(params);
   const activeRunLoopTokenRef = useRef<string | null>(null);
   const pendingCommitCountRef = useRef(0);
   const runLoopRef = useRef<((loopId: string) => Promise<void>) | null>(null);
 
+  paramsRef.current = params;
   const isCommitSettled = useCallback(() => pendingCommitCountRef.current === 0, []);
-  const hasPendingTurnWork = useCallback(() => Boolean(params.streamingMessageRef.current || pendingCommitCountRef.current > 0), [params.streamingMessageRef]);
+  const hasPendingTurnWork = useCallback(() => Boolean(paramsRef.current.streamingMessageRef.current || pendingCommitCountRef.current > 0), []);
 
   const runLoop = useCallback(async (loopId: string) => {
-    if (!params.chat || !params.chatId) return;
+    const current = paramsRef.current;
+    if (!current.chat || !current.chatId) return;
     if (activeRunLoopTokenRef.current === loopId) return;
     activeRunLoopTokenRef.current = loopId;
     const [{ runChatLoop }, { getSessionEngine }] = await Promise.all([
       import('../services/chatLoopRunner'),
       import('../services/sessionEngineRegistry'),
     ]);
-    const sessionEngine = getSessionEngine(params.chat.mode);
+    const sessionEngine = getSessionEngine(current.chat.mode);
     try {
       await runChatLoop({
         loopId,
-        chatId: params.chatId,
-        chat: params.chat,
-        characters: params.activeMembers,
-        api: params.aiProfiles,
+        chatId: current.chatId,
+        chat: current.chat,
+        characters: current.activeMembers,
+        api: current.aiProfiles,
         getCurrentMessages: () => projectCurrentChatMessages({
-          chatId: params.chatId!,
+          chatId: current.chatId!,
           activeMessages: useMessageStore.getState().messages,
-          cachedWindow: useMessageStore.getState().messageWindowsByChatId[params.chatId!],
+          cachedWindow: useMessageStore.getState().messageWindowsByChatId[current.chatId!],
         }),
-        getStreamingMessage: () => params.streamingMessageRef.current,
-        getCurrentChat: () => useChatStore.getState().chats.find((item) => item.id === params.chatId),
+        getStreamingMessage: () => current.streamingMessageRef.current,
+        getCurrentChat: () => useChatStore.getState().chats.find((item) => item.id === current.chatId),
         getCurrentCharacters: () => useCharacterStore.getState().characters,
-        isRunning: () => params.isRunningRef.current,
-        isPaused: () => params.isPausedRef.current || (params.isManualInputPending() && !params.streamingMessageRef.current && pendingCommitCountRef.current === 0),
-        isActiveLoop: (currentLoopId) => params.activeChatIdRef.current === params.chatId && params.loopTokenRef.current === currentLoopId,
+        isRunning: () => current.isRunningRef.current,
+        isPaused: () => current.isPausedRef.current || (current.isManualInputPending() && !current.streamingMessageRef.current && pendingCommitCountRef.current === 0),
+        isActiveLoop: (currentLoopId) => current.activeChatIdRef.current === current.chatId && current.loopTokenRef.current === currentLoopId,
         onCommitSettled: isCommitSettled,
         onCommitStarted: () => {
           pendingCommitCountRef.current += 1;
@@ -84,9 +87,9 @@ export function useChatRunLoop(params: {
           pendingCommitCountRef.current = Math.max(0, pendingCommitCountRef.current - 1);
         },
         onSpeakerSelected: (charId) => {
-          const speaker = params.activeMembers.find((member) => member.id === charId);
+          const speaker = current.activeMembers.find((member) => member.id === charId);
           const streamingMessage = createCommittedLocalMessage({
-            chatId: params.chatId!,
+            chatId: current.chatId!,
             type: 'ai',
             senderId: charId,
             senderName: speaker?.name || '',
@@ -94,39 +97,39 @@ export function useChatRunLoop(params: {
             emotion: 0,
           });
           const nextStreamingMessage = { ...streamingMessage, isStreaming: true };
-          params.streamingMessageRef.current = nextStreamingMessage;
-          params.upsertMessage(nextStreamingMessage);
+          current.streamingMessageRef.current = nextStreamingMessage;
+          current.upsertMessage(nextStreamingMessage);
           setRunLoopError(null);
           setThinkingId(charId);
-          params.setCurrentSpeaker(charId);
+          current.setCurrentSpeaker(charId);
         },
         onMessageChunk: (content) => {
-          params.updateStreamingMessage((current) => current ? { ...current, content, isStreaming: true } : current);
+          current.updateStreamingMessage((message) => message ? { ...message, content, isStreaming: true } : message);
           setChatError(null);
         },
         onIdle: (reason) => {
-          params.discardStreamingMessage();
+          current.discardStreamingMessage();
           setThinkingId(null);
-          params.setCurrentSpeaker(null);
+          current.setCurrentSpeaker(null);
           setRunLoopError(reason);
         },
         onClearStreamingState: () => {
-          params.clearStreamingMessageRef();
+          current.clearStreamingMessageRef();
           setThinkingId(null);
-          params.setCurrentSpeaker(null);
+          current.setCurrentSpeaker(null);
         },
         onEngineError: (error) => {
-          params.discardStreamingMessage();
+          current.discardStreamingMessage();
           setThinkingId(null);
-          params.setCurrentSpeaker(null);
-          const message = error.message || params.t('common.error');
+          current.setCurrentSpeaker(null);
+          const message = error.message || current.t('common.error');
           setChatError(message);
           setRunLoopError(message);
-          params.showErrorToast(message);
+          current.showErrorToast(message);
         },
         onLoopError: (error) => {
           const message = error instanceof Error ? error.message : String(error);
-          const safeMessage = message || params.t('common.error');
+          const safeMessage = message || current.t('common.error');
           setRunLoopError(safeMessage);
         },
         onCommit: async (args) => {
@@ -139,37 +142,38 @@ export function useChatRunLoop(params: {
             apiConfig?: APIConfig;
           }) => DriverMessageCommitResult | Promise<DriverMessageCommitResult>)(args);
         },
-        upsertMessage: params.upsertMessage,
-        updateCharacter: params.updateCharacter,
-        updateCharacters: async (patches) => params.updateCharacters(patches.map((patch) => ({ id: patch.id, updates: patch.patch }))),
-        appendEventMessage: params.appendEventMessage,
-        appendEventMessages: params.appendEventMessages,
-        updateChat: params.updateChat,
-        applyChatRuntimeDelta: params.applyChatRuntimeDelta,
-        recordSpeak: params.recordSpeak,
+        upsertMessage: current.upsertMessage,
+        updateCharacter: current.updateCharacter,
+        updateCharacters: async (patches) => current.updateCharacters(patches.map((patch) => ({ id: patch.id, updates: patch.patch }))),
+        appendEventMessage: current.appendEventMessage,
+        appendEventMessages: current.appendEventMessages,
+        updateChat: current.updateChat,
+        applyChatRuntimeDelta: current.applyChatRuntimeDelta,
+        recordSpeak: current.recordSpeak,
         getCooldownMap: () => useSchedulerStore.getState().lastSpeakTimestamps,
       });
     } finally {
       if (activeRunLoopTokenRef.current === loopId) activeRunLoopTokenRef.current = null;
     }
-  }, [isCommitSettled, params]);
+  }, [isCommitSettled]);
   runLoopRef.current = runLoop;
 
   const startConversationLoopIfNeeded = useCallback((conversationChat: GroupChat) => {
+    const current = paramsRef.current;
     if (conversationChat.type === 'direct') return;
-    if (params.isRunningRef.current && !params.isPausedRef.current) return;
+    if (current.isRunningRef.current && !current.isPausedRef.current) return;
     const run = runLoopRef.current;
     if (!run) return;
-    params.resetAllCooldowns();
+    current.resetAllCooldowns();
     const newLoopToken = `${conversationChat.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    params.loopTokenRef.current = newLoopToken;
-    params.activeChatIdRef.current = conversationChat.id;
-    params.isRunningRef.current = true;
-    params.isPausedRef.current = false;
-    params.start(newLoopToken);
-    params.updateChat(conversationChat.id, { isActive: true });
+    current.loopTokenRef.current = newLoopToken;
+    current.activeChatIdRef.current = conversationChat.id;
+    current.isRunningRef.current = true;
+    current.isPausedRef.current = false;
+    current.start(newLoopToken);
+    current.updateChat(conversationChat.id, { isActive: true });
     window.setTimeout(() => void run(newLoopToken), 100);
-  }, [params]);
+  }, []);
 
   const resetRunLoopUiState = useCallback(() => {
     activeRunLoopTokenRef.current = null;

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildMemoryDistillationRuntimePayload, describeMemoryDistillationStrategy, explainMemoryDistillationMerge, type MemoryDistillationDebugInfo } from './memoryDistillation';
+import { buildMemoryDistillationRuntimePayload, describeMemoryDistillationStrategy, distillChatMemoryCandidates, explainMemoryDistillationMerge, type MemoryDistillationDebugInfo } from './memoryDistillation';
+import type { GroupChat } from '../types/chat';
+import type { MemoryItem } from './memoryTypes';
 
 function debugInfo(overrides: Partial<MemoryDistillationDebugInfo> = {}): MemoryDistillationDebugInfo {
   return {
@@ -25,5 +27,44 @@ describe('memoryDistillation display payload', () => {
     expect(payload.strategy).not.toContain('layeredMemories');
     expect(explainMemoryDistillationMerge()).not.toContain('bucket');
     expect(describeMemoryDistillationStrategy()).not.toContain('long_term');
+  });
+
+  it('projects member names before writing distilled long-term memory candidates', () => {
+    const actorId = '3c78729f-e52d-4dde-b27f-01a949960bb8b';
+    const targetId = '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321';
+    const memories = Array.from({ length: 6 }, (_, index): MemoryItem => ({
+      id: `memory-${index}`,
+      scope: 'relationship',
+      layer: index % 2 ? 'working' : 'episodic',
+      kind: index % 2 ? 'bond' : 'resentment',
+      ownerId: 'chat-1',
+      subjectIds: [actorId, targetId],
+      text: `${actorId} → ${targetId} 支持：${actorId} 记得 ${targetId} 上次帮过忙`,
+      salience: 0.7,
+      confidence: 0.8,
+      recency: 0.8,
+      reinforcementCount: 1,
+      sourceEventIds: [`event-${index}`],
+      sourceTag: 'relationship_delta',
+      origin: 'runtime',
+      createdAt: index,
+      updatedAt: index + 1,
+    }));
+
+    const candidates = distillChatMemoryCandidates({
+      id: 'chat-1',
+      name: '羊村大家庭闲聊',
+      layeredMemories: memories,
+    } as GroupChat, [
+      { id: actorId, name: '喜羊羊' },
+      { id: targetId, name: '沸羊羊' },
+    ]);
+    const text = candidates.map((item) => item.text).join(' / ');
+
+    expect(text).toContain('喜羊羊');
+    expect(text).toContain('沸羊羊');
+    expect(text).not.toContain(actorId);
+    expect(text).not.toContain(targetId);
+    expect(text).not.toContain('0喜羊羊');
   });
 });

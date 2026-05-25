@@ -2,6 +2,7 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { MemoryCandidate, MemoryItem } from './memoryTypes';
 import { sanitizeMemoryTexts } from './distillationText';
+import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 
 export const DISTILLATION_VERSION = 'v1';
 const CHAT_DISTILLATION_MIN_ITEMS = 6;
@@ -91,25 +92,16 @@ export interface MemoryDistillationDebugInfo {
   candidateTexts: string[];
 }
 
-function replaceIdsWithNames(text: string, nameMap: Map<string, string>) {
-  let result = text;
-  nameMap.forEach((name, id) => {
-    const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    result = result.replace(new RegExp(escapedId, 'g'), name);
-  });
-  return result;
-}
-
-function localizeDistillationCandidateTexts(info: MemoryDistillationDebugInfo, participants: Array<{ id: string; name: string }>) {
+function localizeDistillationCandidateTexts(info: MemoryDistillationDebugInfo, participants: DisplayTextMember[]) {
   const nameMap = new Map(participants.map((item) => [item.id, item.name]));
   return {
     ...info,
     ownerName: info.ownerName || nameMap.get(info.ownerId),
-    candidateTexts: sanitizeMemoryTexts(info.candidateTexts.map((text) => replaceIdsWithNames(text, nameMap))),
+    candidateTexts: sanitizeMemoryTexts(info.candidateTexts.map((text) => sanitizeUserFacingText(text, participants))),
   };
 }
 
-export function localizeDistillationEventInfo(info: MemoryDistillationDebugInfo, participants: Array<{ id: string; name: string }>) {
+export function localizeDistillationEventInfo(info: MemoryDistillationDebugInfo, participants: DisplayTextMember[]) {
   return localizeDistillationCandidateTexts(info, participants);
 }
 
@@ -129,8 +121,8 @@ function latestDistilledSourceIds(items: MemoryItem[]) {
   return new Set(items.filter((item) => item.origin === 'distilled').flatMap((item) => item.distilledFromIds || []));
 }
 
-function summarizeItems(items: MemoryItem[], max = 3) {
-  return sanitizeMemoryTexts(items.slice(0, max).map((item) => item.text)).join(' / ').slice(0, 140);
+function summarizeItems(items: MemoryItem[], max = 3, participants: DisplayTextMember[] = []) {
+  return sanitizeMemoryTexts(items.slice(0, max).map((item) => sanitizeUserFacingText(item.text, participants))).join(' / ').slice(0, 140);
 }
 
 function buildSubjectIds(items: MemoryItem[]) {
@@ -274,7 +266,7 @@ export function shouldDistillCharacterMemories(character: AICharacter, turnCount
   return enoughGap && hasEnoughNewEvidence(eligible);
 }
 
-export function distillChatMemoryCandidates(chat: GroupChat): MemoryCandidate[] {
+export function distillChatMemoryCandidates(chat: GroupChat, participants: DisplayTextMember[] = []): MemoryCandidate[] {
   const source = selectDistillationSource(recentEligibleItems(chat.layeredMemories || []), CHAT_DISTILLATION_MIN_ITEMS);
   if (source.length < CHAT_DISTILLATION_MIN_ITEMS) return [];
   const topBond = source.find((item) => item.kind === 'bond');
@@ -289,7 +281,7 @@ export function distillChatMemoryCandidates(chat: GroupChat): MemoryCandidate[] 
       kind: topRelationship.kind === 'bond' || topRelationship.kind === 'resentment' ? topRelationship.kind : 'status_shift',
       ownerId: chat.id,
       subjectIds: topRelationship.subjectIds || buildSubjectIds(source),
-      text: `群聊稳定关系趋势：${summarizeItems([topRelationship, ...source.filter((item) => item !== topRelationship)], 3)}`,
+      text: `群聊稳定关系趋势：${summarizeItems([topRelationship, ...source.filter((item) => item !== topRelationship)], 3, participants)}`,
       sourceEventIds: source.flatMap((item) => item.sourceEventIds || []).slice(-8),
       sourceTag: 'memory_distillation',
       origin: 'distilled',
@@ -307,7 +299,7 @@ export function distillChatMemoryCandidates(chat: GroupChat): MemoryCandidate[] 
       kind: 'conflict',
       ownerId: chat.id,
       subjectIds: buildSubjectIds(source),
-      text: `群聊长期拉扯主轴：${summarizeItems([topResentment, topBond, ...source.filter((item) => item !== topResentment && item !== topBond)], 3)}`,
+      text: `群聊长期拉扯主轴：${summarizeItems([topResentment, topBond, ...source.filter((item) => item !== topResentment && item !== topBond)], 3, participants)}`,
       sourceEventIds: source.flatMap((item) => item.sourceEventIds || []).slice(-8),
       sourceTag: 'memory_distillation',
       origin: 'distilled',
@@ -321,7 +313,7 @@ export function distillChatMemoryCandidates(chat: GroupChat): MemoryCandidate[] 
   return candidates.slice(0, 2);
 }
 
-export function distillCharacterMemoryCandidates(character: AICharacter): MemoryCandidate[] {
+export function distillCharacterMemoryCandidates(character: AICharacter, participants: DisplayTextMember[] = []): MemoryCandidate[] {
   const source = selectDistillationSource(recentEligibleItems(character.layeredMemories || []), CHARACTER_DISTILLATION_MIN_ITEMS);
   if (source.length < CHARACTER_DISTILLATION_MIN_ITEMS) return [];
   const relationshipItem = source[0] || null;
@@ -334,7 +326,7 @@ export function distillCharacterMemoryCandidates(character: AICharacter): Memory
       kind: relationshipItem.kind === 'bond' || relationshipItem.kind === 'resentment' ? relationshipItem.kind : 'bias',
       ownerId: character.id,
       subjectIds: relationshipItem.subjectIds || buildSubjectIds(source),
-      text: `对人长期判断：${summarizeItems([relationshipItem, ...source.filter((item) => item !== relationshipItem)], 3)}`,
+      text: `对人长期判断：${summarizeItems([relationshipItem, ...source.filter((item) => item !== relationshipItem)], 3, participants)}`,
       sourceEventIds: source.flatMap((item) => item.sourceEventIds || []).slice(-8),
       sourceTag: 'memory_distillation',
       origin: 'distilled',
@@ -348,7 +340,7 @@ export function distillCharacterMemoryCandidates(character: AICharacter): Memory
   return candidates.slice(0, 1);
 }
 
-export function debugChatMemoryDistillation(chat: GroupChat, turnCount: number) {
+export function debugChatMemoryDistillation(chat: GroupChat, turnCount: number, participants: DisplayTextMember[] = []) {
   const items = selectDistillationSource(recentEligibleItems(chat.layeredMemories || []), CHAT_DISTILLATION_MIN_ITEMS);
   const withName = (info: MemoryDistillationDebugInfo) => ({ ...info, ownerName: chat.name });
   if (items.length < CHAT_DISTILLATION_MIN_ITEMS) return withName(buildDebugInfo('chat', chat.id, false, 'below_threshold', items));
@@ -359,11 +351,11 @@ export function debugChatMemoryDistillation(chat: GroupChat, turnCount: number) 
   const enoughGap = !latest || items.every((item) => item.updatedAt > latest);
   if (!enoughGap) return withName(buildDebugInfo('chat', chat.id, false, 'already_distilled_recently', items));
   if (!hasEnoughNewEvidence(items)) return withName(buildDebugInfo('chat', chat.id, false, 'insufficient_new_evidence', items));
-  const candidates = distillChatMemoryCandidates(chat);
+  const candidates = distillChatMemoryCandidates(chat, participants);
   return withName(buildDebugInfo('chat', chat.id, Boolean(candidates.length), candidates.length ? 'distilled' : 'no_candidates', items, candidates));
 }
 
-export function debugCharacterMemoryDistillation(character: AICharacter, turnCount: number) {
+export function debugCharacterMemoryDistillation(character: AICharacter, turnCount: number, participants: DisplayTextMember[] = []) {
   const items = selectDistillationSource(recentEligibleItems(character.layeredMemories || []), CHARACTER_DISTILLATION_MIN_ITEMS);
   const withName = (info: MemoryDistillationDebugInfo) => ({ ...info, ownerName: character.name });
   if (items.length < CHARACTER_DISTILLATION_MIN_ITEMS) return withName(buildDebugInfo('character', character.id, false, 'below_threshold', items));
@@ -374,7 +366,7 @@ export function debugCharacterMemoryDistillation(character: AICharacter, turnCou
   const enoughGap = !latest || items.every((item) => item.updatedAt > latest);
   if (!enoughGap) return withName(buildDebugInfo('character', character.id, false, 'already_distilled_recently', items));
   if (!hasEnoughNewEvidence(items)) return withName(buildDebugInfo('character', character.id, false, 'insufficient_new_evidence', items));
-  const candidates = distillCharacterMemoryCandidates(character);
+  const candidates = distillCharacterMemoryCandidates(character, participants);
   return withName(buildDebugInfo('character', character.id, Boolean(candidates.length), candidates.length ? 'distilled' : 'no_candidates', items, candidates));
 }
 

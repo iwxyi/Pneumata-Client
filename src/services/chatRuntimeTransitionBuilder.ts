@@ -76,13 +76,13 @@ function resolveChatDistillationTurnCount(layeredMemories: GroupChat['layeredMem
   return Math.max(CHAT_DISTILLATION_TURN_COUNT, countAiTurnsFromLayeredMemories(layeredMemories));
 }
 
-function maybeDistillCharacterLayeredMemories(character: AICharacter, layeredMemories: AICharacter['layeredMemories']) {
+function maybeDistillCharacterLayeredMemories(character: AICharacter, layeredMemories: AICharacter['layeredMemories'], participants: Array<{ id: string; name: string }> = []) {
   if (!layeredMemories?.length) return { layeredMemories, debugInfo: null };
   const candidateCharacter = { ...character, layeredMemories };
   const turnCount = resolveCharacterDistillationTurnCount(layeredMemories);
-  const debugInfo = debugCharacterMemoryDistillation(candidateCharacter, turnCount);
+  const debugInfo = debugCharacterMemoryDistillation(candidateCharacter, turnCount, participants);
   if (!shouldDistillCharacterMemories(candidateCharacter, turnCount)) return { layeredMemories, debugInfo: null };
-  const distilled = distillCharacterMemoryCandidates(candidateCharacter);
+  const distilled = distillCharacterMemoryCandidates(candidateCharacter, participants);
   if (!distilled.length) return { layeredMemories, debugInfo: null };
   return {
     layeredMemories: consolidateMemoryCandidates(layeredMemories, distilled),
@@ -95,13 +95,13 @@ function maybeDistillCharacterLayeredMemories(character: AICharacter, layeredMem
   };
 }
 
-function maybeDistillChatLayeredMemories(chat: GroupChat, layeredMemories: GroupChat['layeredMemories']) {
+function maybeDistillChatLayeredMemories(chat: GroupChat, layeredMemories: GroupChat['layeredMemories'], participants: Array<{ id: string; name: string }> = []) {
   if (!layeredMemories?.length) return { layeredMemories, debugInfo: null };
   const candidateChat = { ...chat, layeredMemories };
   const turnCount = resolveChatDistillationTurnCount(layeredMemories);
-  const debugInfo = debugChatMemoryDistillation(candidateChat, turnCount);
+  const debugInfo = debugChatMemoryDistillation(candidateChat, turnCount, participants);
   if (!shouldDistillChatMemories(candidateChat, turnCount)) return { layeredMemories, debugInfo: null };
-  const distilled = distillChatMemoryCandidates(candidateChat);
+  const distilled = distillChatMemoryCandidates(candidateChat, participants);
   if (!distilled.length) return { layeredMemories, debugInfo: null };
   return {
     layeredMemories: consolidateMemoryCandidates(layeredMemories, distilled),
@@ -369,7 +369,7 @@ export function buildRelationshipTransition(params: {
       targetName: targetEntries.map(({ target }) => target.name).join('、'),
       content: params.message.content,
       personalityDrift: speakerDrift,
-    }));
+    }), distillationParticipants);
 
     characterPatches.push({
       characterId: speaker.id,
@@ -418,7 +418,7 @@ export function buildRelationshipTransition(params: {
         targetName: speaker.name,
         content: params.message.content,
         personalityDrift: {},
-      }));
+      }), distillationParticipants);
 
       characterPatches.push({
         characterId: target.id,
@@ -564,7 +564,7 @@ export function buildRelationshipTransition(params: {
       content: params.message.content,
       personalityDrift: speakerDrift,
       sourceEventTag: params.conversation.type === 'ai_direct' ? 'ai_direct_self_message' : params.conversation.type === 'direct' ? 'direct_ai_message' : 'interaction',
-    }));
+    }), distillationParticipants);
     const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: Date.now() }] : [];
 
     characterPatches.push({
@@ -681,7 +681,8 @@ export function buildChatPatch(
       } as GroupChat,
       message,
       runtimeEvents,
-    )
+    ),
+    participants,
   );
 
   const nextLayeredMemories = chatDistillationResult.layeredMemories;
