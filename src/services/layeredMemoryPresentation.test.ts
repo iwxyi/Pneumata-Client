@@ -1,0 +1,96 @@
+import { describe, expect, it } from 'vitest';
+import type { MemoryItem } from './memoryTypes';
+import {
+  buildLayeredMemoryFilters,
+  buildLayeredMemoryGroups,
+  filterVisibleLayeredMemories,
+  getMemoryStrengthLabel,
+  projectLayeredMemoryItem,
+} from './layeredMemoryPresentation';
+
+function memory(overrides: Partial<MemoryItem> = {}): MemoryItem {
+  return {
+    id: overrides.id || 'mem-1',
+    scope: overrides.scope || 'conversation',
+    layer: overrides.layer || 'episodic',
+    kind: overrides.kind || 'conflict',
+    ownerId: overrides.ownerId || 'chat-1',
+    text: overrides.text || '喜羊羊和沸羊羊的争执开始稳定影响群聊气氛。',
+    salience: overrides.salience ?? 0.72,
+    confidence: overrides.confidence ?? 0.75,
+    recency: overrides.recency ?? 0.8,
+    reinforcementCount: overrides.reinforcementCount ?? 1,
+    sourceEventIds: overrides.sourceEventIds || ['evt-1'],
+    createdAt: overrides.createdAt ?? 100,
+    updatedAt: overrides.updatedAt ?? 100,
+    ...overrides,
+  };
+}
+
+describe('layeredMemoryPresentation', () => {
+  it('filters runtime evidence out of normal memory projection but keeps it in debug mode', () => {
+    const stableMemory = memory({ id: 'stable', sourceTag: 'memory_distillation', origin: 'distilled' });
+    const roomShift = memory({ id: 'runtime', scope: 'system_runtime', layer: 'working', sourceTag: 'room_shift' });
+
+    expect(filterVisibleLayeredMemories([stableMemory, roomShift], false).map((item) => item.id)).toEqual(['stable']);
+    expect(filterVisibleLayeredMemories([stableMemory, roomShift], true).map((item) => item.id)).toEqual(['stable', 'runtime']);
+  });
+
+  it('builds layer tabs from the same grouped memory projection', () => {
+    const longTerm = memory({ id: 'anchor', layer: 'long_term', origin: 'distilled', salience: 0.86 });
+    const relationship = memory({ id: 'relationship', scope: 'relationship', kind: 'bond' });
+    const archived = memory({ id: 'archive', archivedAt: 300, updatedAt: 300 });
+    const groups = buildLayeredMemoryGroups([relationship, archived, longTerm]);
+    const filters = buildLayeredMemoryFilters(groups, false, 'zh-CN');
+
+    expect(groups.all.map((item) => item.id)).toEqual(['relationship', 'anchor']);
+    expect(filters.map((item) => item.key)).toEqual(expect.arrayContaining(['all', 'anchors', 'longTerm', 'relationship', 'archived']));
+    expect(filters.find((item) => item.key === 'anchors')?.items.map((item) => item.id)).toEqual(['anchor']);
+    expect(filters.find((item) => item.key === 'archived')?.items.map((item) => item.id)).toEqual(['archive']);
+  });
+
+  it('projects display text, evidence, semantic labels, and debug metrics without leaking raw ids', () => {
+    const speakerId = '3c78729f-e52d-4dde-b27f-01a949960bb8';
+    const targetId = '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321';
+    const projected = projectLayeredMemoryItem({
+      item: memory({
+        id: 'clean',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'resentment',
+        sourceTag: 'llm_memory_relationship_imprint',
+        text: `${speakerId} 对 ${targetId} 留下了 relationship_delta 旧账。`,
+        evidenceText: `${speakerId} 当时提到了 ${targetId} 的追问。`,
+        salience: 0.8,
+        confidence: 0.9,
+        reinforcementCount: 3,
+      }),
+      includeDebugDetails: true,
+      language: 'zh-CN',
+      members: [
+        { id: speakerId, name: '喜羊羊' },
+        { id: targetId, name: '沸羊羊' },
+      ],
+    });
+
+    expect(projected.displayText).toContain('喜羊羊');
+    expect(projected.displayText).toContain('沸羊羊');
+    expect(projected.displayText).toContain('关系变化');
+    expect(projected.displayText).not.toContain(speakerId);
+    expect(projected.evidenceTitle).toContain('追问');
+    expect(projected.metaItems).toEqual(expect.arrayContaining(['锚点候选', '关系印记', '芥蒂', '长期记忆', '关系']));
+    expect(projected.debugText).toBe('强化 3 · 置信 90% · 显著性 80%');
+  });
+
+  it('marks recently reactivated memories before generic strength labels', () => {
+    const now = 1_000_000;
+    const reactivated = memory({
+      layer: 'long_term',
+      lastActivatedAt: now - 60_000,
+      salience: 0.4,
+      confidence: 0.4,
+    });
+
+    expect(getMemoryStrengthLabel(reactivated, 'zh-CN', now)).toBe('最近回温');
+  });
+});
