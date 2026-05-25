@@ -220,6 +220,55 @@ describe('runtimeDecision', () => {
     expect(projection.directorIntent?.targetActorIds).toEqual([]);
   });
 
+  it('lets newer human guidance replace older active director interventions', () => {
+    const intervention: RuntimeEventV2 = {
+      id: 'evt-old-director',
+      conversationId: 'chat-1',
+      kind: 'director_intervention',
+      createdAt: 30,
+      summary: '继续让乙回应旧梗',
+      visibility: 'moderator_only',
+      payload: {
+        intent: 'force_reply',
+        targetActorIds: ['b'],
+        pressure: 0.95,
+        text: '让乙继续回应旧梗',
+        maxTurns: 4,
+        expiresAt: 1000,
+      },
+    };
+    const projection = projectRuntimePressure({
+      chat: buildChat({ runtimeEventsV2: [intervention] }),
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      messages: [
+        buildMessage({ type: 'ai', senderId: 'a', senderName: '甲', content: '旧梗还没完。', timestamp: 35 }),
+        buildMessage({ type: 'god', senderId: 'user', senderName: '开发者', content: '新话题：狼抓羊有过错吗？狼应该抓羊吗？', timestamp: 40 }),
+      ],
+      now: 50,
+    });
+
+    expect(projection.directorIntent?.userGuidance).toMatchObject({
+      kind: 'topic_shift',
+      rawText: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
+    });
+    expect(projection.directorIntent?.targetActorIds).toEqual([]);
+  });
+
+  it('does not resurrect older guidance after a newer targeted request is completed', () => {
+    const projection = projectRuntimePressure({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼')],
+      messages: [
+        buildMessage({ id: 'old-guide', type: 'god', senderId: 'user', senderName: '开发者', content: '新话题：狼抓羊有过错吗？狼应该抓羊吗？', timestamp: 10 }),
+        buildMessage({ id: 'new-guide', type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 30 }),
+        buildMessage({ id: 'done', type: 'ai', senderId: 'a', senderName: '美羊羊', content: '画好啦。', timestamp: 40 }),
+      ],
+      now: 50,
+    });
+
+    expect(projection.directorIntent?.userGuidance?.rawText).not.toBe('新话题：狼抓羊有过错吗？狼应该抓羊吗？');
+  });
+
   it('keeps only unanswered requested actors active for multi-actor guidance', () => {
     const intervention: RuntimeEventV2 = {
       id: 'evt-director',

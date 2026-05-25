@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AICharacter } from '../types/character';
-import { deriveSpeakIntent } from './intentEngine';
+import { deriveSpeakIntent, deriveSpeakIntentFromContext } from './intentEngine';
 
 function character(patch: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -23,6 +23,31 @@ function character(patch: Partial<AICharacter> = {}): AICharacter {
 }
 
 describe('intentEngine soul state adaptation', () => {
+  it('treats topic guidance as a concrete room answer intent instead of drifting with old banter', () => {
+    const intent = deriveSpeakIntentFromContext(character(), undefined, '香蕉证件照也不是不行。', {
+      source: 'user_message',
+      beatType: 'invite',
+      targetActorIds: [],
+      pressure: 0.58,
+      reason: '用户正在明确改变群聊焦点。',
+      userGuidance: {
+        kind: 'topic_shift',
+        rawText: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
+        actorIds: [],
+        mentionedActorIds: [],
+        focusText: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
+        beatType: 'invite',
+        pressure: 0.58,
+        maxTurns: 3,
+        reason: '用户正在明确改变群聊焦点。',
+      },
+    });
+
+    expect(intent.reason).toContain('user topic guidance');
+    expect(intent.target).toBe('group');
+    expect(intent.delivery).toBe('short_reply');
+  });
+
   it('lets moderate affection soften a default reply intent', () => {
     const intent = deriveSpeakIntent(character({
       emotionalState: { irritation: 0, affection: 32, insecurity: 0, excitement: 0, embarrassment: 0 },

@@ -274,6 +274,16 @@ function deriveSpeakIntentFromDirectorIntent(character: AICharacter, directorInt
   const isTargeted = directorIntent.targetActorIds.includes(character.id);
   if (!isTargeted && directorIntent.beatType !== 'summarize' && directorIntent.beatType !== 'invite') return null;
   const target = directorIntent.targetActorIds.find((actorId) => actorId !== character.id) || 'group';
+  if (directorIntent.userGuidance?.kind === 'topic_shift') {
+    return withMessageShape({
+      shouldSpeak: true,
+      reason: 'is answering the latest user topic guidance',
+      target: 'group',
+      stance: 'probe',
+      emotionalTone: character.emotionalState?.irritation && character.emotionalState.irritation > 60 ? 'annoyed' : 'cold',
+      delivery: 'short_reply',
+    });
+  }
   if (directorIntent.beatType === 'answer') {
     return withMessageShape({
       shouldSpeak: true,

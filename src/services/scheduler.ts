@@ -158,6 +158,7 @@ function countUnmetTurns(recentAiMessages: Message[], primaryTargetId: string, s
 function buildSchedulerTopicText(recentMessages: Message[], directorIntent?: DirectorIntent | null) {
   const guidanceFocus = directorIntent?.source === 'user_message' ? directorIntent.userGuidance?.focusText?.trim() : '';
   if (guidanceFocus) {
+    if (directorIntent?.userGuidance?.kind === 'topic_shift') return guidanceFocus;
     const recentTail = recentMessages.slice(-2).map((message) => message.content).join(' ');
     return [guidanceFocus, guidanceFocus, recentTail].filter(Boolean).join(' ');
   }

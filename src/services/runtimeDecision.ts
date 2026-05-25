@@ -12,6 +12,11 @@ export interface RuntimePressureProjection {
   directorIntent: DirectorIntent | null;
 }
 
+interface HumanGuidanceResolution {
+  intent: DirectorIntent | null;
+  timestamp: number | null;
+}
+
 export function shouldUseFreeSpeechRuntimeDecision(chat: GroupChat) {
   if (chat.type !== 'group') return false;
   if (chat.scenarioState?.currentTurnActorId) return false;
@@ -65,7 +70,7 @@ function guidanceIntentToDirectorIntent(guidance: UserGuidanceIntent, targetActo
   };
 }
 
-function getLatestActiveHumanGuidanceIntent(characters: AICharacter[], messages: Message[], now: number): DirectorIntent | null {
+function getLatestHumanGuidanceResolution(characters: AICharacter[], messages: Message[], now: number): HumanGuidanceResolution {
   const humanMessages = messages
     .filter((message) => !message.isDeleted && (message.type === 'user' || message.type === 'god'))
     .slice()
@@ -74,20 +79,30 @@ function getLatestActiveHumanGuidanceIntent(characters: AICharacter[], messages:
   for (const message of humanMessages) {
     const guidance = parseUserGuidanceIntent(message.content, characters);
     if (!guidance || !isExplicitPersistentGuidance(guidance)) continue;
-    if (now > message.timestamp + 10 * 60_000) continue;
+    if (now > message.timestamp + 10 * 60_000) return { intent: null, timestamp: message.timestamp };
 
     const respondedActorIds = getAiRespondersAfter(messages, message.timestamp);
     if (guidance.actorIds.length) {
       const pendingActorIds = uniqueKnownActorIds(guidance.actorIds.filter((actorId) => !respondedActorIds.has(actorId)), characters);
-      if (pendingActorIds.length) return guidanceIntentToDirectorIntent(guidance, pendingActorIds);
-      continue;
+      if (pendingActorIds.length) {
+        return {
+          intent: guidanceIntentToDirectorIntent(guidance, pendingActorIds),
+          timestamp: message.timestamp,
+        };
+      }
+      return { intent: null, timestamp: message.timestamp };
     }
 
-    if (countAiResponsesAfter(messages, message.timestamp) >= guidance.maxTurns) continue;
-    return guidanceIntentToDirectorIntent(guidance, uniqueKnownActorIds(getGuidanceTargetActorIds(guidance), characters));
+    if (countAiResponsesAfter(messages, message.timestamp) >= guidance.maxTurns) {
+      return { intent: null, timestamp: message.timestamp };
+    }
+    return {
+      intent: guidanceIntentToDirectorIntent(guidance, uniqueKnownActorIds(getGuidanceTargetActorIds(guidance), characters)),
+      timestamp: message.timestamp,
+    };
   }
 
-  return null;
+  return { intent: null, timestamp: null };
 }
 
 function isDirectorInterventionActive(event: NonNullable<GroupChat['runtimeEventsV2']>[number], messages: Message[], now: number) {
@@ -104,9 +119,10 @@ function isDirectorInterventionExpired(event: NonNullable<GroupChat['runtimeEven
   return now > expiresAt;
 }
 
-function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AICharacter[], messages: Message[], now: number): DirectorIntent | null {
+function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AICharacter[], messages: Message[], now: number, ignoreBefore?: number | null): DirectorIntent | null {
   const events = (chat.runtimeEventsV2 || []).slice().reverse().filter((item) => item.kind === 'director_intervention' && !isDirectorInterventionExpired(item, now));
   for (const event of events) {
+    if (typeof ignoreBefore === 'number' && event.createdAt < ignoreBefore) continue;
     const payload = event.payload as Record<string, unknown>;
     const text = typeof payload.text === 'string' ? payload.text : event.summary;
     const storedGuidance = typeof payload.userGuidance === 'object' && payload.userGuidance
@@ -160,7 +176,8 @@ export function projectRuntimePressure(params: {
     messages: activeMessages,
     now,
   });
-  const directorIntervention = getLatestDirectorInterventionIntent(params.chat, params.characters, activeMessages, now);
+  const latestHumanGuidance = getLatestHumanGuidanceResolution(params.characters, activeMessages, now);
+  const directorIntervention = getLatestDirectorInterventionIntent(params.chat, params.characters, activeMessages, now, latestHumanGuidance.timestamp);
   if (directorIntervention) {
     return {
       narrativeLines,
@@ -168,12 +185,11 @@ export function projectRuntimePressure(params: {
       directorIntent: directorIntervention,
     };
   }
-  const activeHumanGuidance = getLatestActiveHumanGuidanceIntent(params.characters, activeMessages, now);
-  if (activeHumanGuidance) {
+  if (latestHumanGuidance.intent) {
     return {
       narrativeLines,
       primaryLine: selectPrimaryNarrativeLine(narrativeLines),
-      directorIntent: activeHumanGuidance,
+      directorIntent: latestHumanGuidance.intent,
     };
   }
   const directorIntent = resolveDirectorIntent({
