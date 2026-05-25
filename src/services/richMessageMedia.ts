@@ -38,12 +38,17 @@ function updateAttachment(metadata: MessageMetadata | undefined, attachmentId: s
   const attachments = (metadata?.attachments || []).map((attachment) => (
     attachment.id === attachmentId ? { ...attachment, ...patch, updatedAt: Date.now() } : attachment
   ));
+  const generationStatus = attachments.some((item) => item.status === 'queued' || item.status === 'generating')
+    ? 'generating'
+    : attachments.some((item) => item.status === 'failed')
+      ? 'failed'
+      : 'ready';
   return {
     ...(metadata || {}),
     attachments,
     generation: {
       ...(metadata?.generation || {}),
-      status: attachments.some((item) => item.status === 'queued' || item.status === 'generating') ? 'generating' : 'ready',
+      status: generationStatus,
       updatedAt: Date.now(),
     },
   };
