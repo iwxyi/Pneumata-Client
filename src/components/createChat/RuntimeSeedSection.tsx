@@ -332,7 +332,6 @@ export default function RuntimeSeedSection(props: RuntimeSeedSectionProps) {
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>长期记忆</Typography>
-            {includeDebug ? <Box sx={{ ml: 'auto' }}><DebugChip /></Box> : null}
           </Box>
           <Stack spacing={1}>
             <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
