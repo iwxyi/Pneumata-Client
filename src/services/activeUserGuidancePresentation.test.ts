@@ -123,9 +123,9 @@ describe('activeUserGuidancePresentation', () => {
     expect(projection).toMatchObject({
       title: '话题切换：新话题：狼抓羊有过错吗？狼应该抓羊吗…',
       statusLabel: '生效中',
-      effectText: '旧话题已被覆盖，接下来会按“新话题：狼抓羊有过错吗？狼应该抓羊吗？”重新选择发言者。',
+      effectText: '旧话题已被覆盖，下一轮需要先围绕“新话题：狼抓羊有过错吗？狼应该抓羊吗？”回答、表态或追问；旧梗只能顺手收束，不能继续带跑。',
     });
-    expect(projection?.chips).toEqual(expect.arrayContaining(['话题引导', '旧话题已覆盖', '按新话题调度']));
+    expect(projection?.chips).toEqual(expect.arrayContaining(['话题引导', '旧话题已覆盖', '先回答新问题', '旧梗收束']));
   });
 
   it('shows only unanswered requested actors for multi-actor guidance', () => {

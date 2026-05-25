@@ -89,7 +89,7 @@ function buildGuidanceEffectText(params: {
     if (params.completedActorNames) return `${params.completedActorNames}已经回应过这次点名，之后会恢复普通聊天。`;
     return '这是一条点名回应，引导会先压过旧梗和关系压力。';
   }
-  return `旧话题已被覆盖，接下来会按“${clipText(params.focusText)}”重新选择发言者。`;
+  return `旧话题已被覆盖，下一轮需要先围绕“${clipText(params.focusText)}”回答、表态或追问；旧梗只能顺手收束，不能继续带跑。`;
 }
 
 export function projectActiveUserGuidance(params: {
@@ -123,7 +123,8 @@ export function projectActiveUserGuidance(params: {
   const chips = [
     formatGuidanceKind(guidance.kind),
     guidance.kind === 'topic_shift' ? '旧话题已覆盖' : '',
-    guidance.kind === 'topic_shift' ? '按新话题调度' : '',
+    guidance.kind === 'topic_shift' ? '先回答新问题' : '',
+    guidance.kind === 'topic_shift' ? '旧梗收束' : '',
     guidance.actorIds.length && activeTargetNames ? '锁定待回应' : '',
     guidance.actorIds.length ? '非目标不抢占' : '',
     activeTargetNames ? `待回应：${activeTargetNames}` : '',
