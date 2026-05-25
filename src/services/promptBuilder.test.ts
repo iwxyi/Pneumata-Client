@@ -167,6 +167,80 @@ describe('buildSystemPromptWithContext', () => {
     });
   });
 
+  it('prioritizes the person named by human guidance over the latest AI speaker', () => {
+    const speaker = buildCharacter({
+      id: 'char-a',
+      name: '苏苏',
+      layeredMemories: [
+        memory({
+          id: 'about-target',
+          ownerId: 'char-a',
+          subjectIds: ['char-c'],
+          text: '苏苏记得林北上次替她挡了一句难听话。',
+          summary: '林北曾替苏苏解围。',
+          archivedAt: 10,
+        }),
+        memory({
+          id: 'about-latest-speaker',
+          ownerId: 'char-a',
+          subjectIds: ['char-b'],
+          text: '苏苏记得阿远昨天跑题。',
+          summary: '阿远昨天跑题。',
+          archivedAt: null,
+          salience: 0.95,
+          confidence: 0.95,
+          recency: 1,
+        }),
+      ],
+    });
+    const latestSpeaker = buildCharacter({ id: 'char-b', name: '阿远' });
+    const namedTarget = buildCharacter({ id: 'char-c', name: '林北' });
+    const chat = { ...buildChat(), memberIds: ['char-a', 'char-b', 'char-c'] };
+    const trace = buildPromptMemoryTrace(speaker, chat, [
+      buildMessage({ id: 'ai-latest', senderId: 'char-b', senderName: '阿远', content: '继续刚才那个梗。', timestamp: 2 }),
+      buildMessage({ id: 'user-guidance', type: 'god', senderId: 'user', senderName: '开发者', content: '苏苏说说你怎么看林北', timestamp: 3 }),
+    ], new Map([
+      [speaker.id, speaker],
+      [latestSpeaker.id, latestSpeaker],
+      [namedTarget.id, namedTarget],
+    ]));
+
+    expect(trace.injectedIds).toContain('about-target');
+    expect(trace.recalledArchives[0]).toMatchObject({
+      id: 'about-target',
+      recallReason: expect.stringContaining('旧档'),
+    });
+  });
+
+  it('uses media request subjects as targeted memory subjects instead of only the sender', () => {
+    const sender = buildCharacter({
+      id: 'char-a',
+      name: '美羊羊',
+      layeredMemories: [memory({
+        id: 'gray-wolf-portrait-memory',
+        ownerId: 'char-a',
+        subjectIds: ['char-c'],
+        text: '美羊羊记得灰太狼特别在意胡子有没有画歪。',
+        summary: '灰太狼很在意胡子是否对称。',
+        archivedAt: 10,
+      })],
+    });
+    const latestSpeaker = buildCharacter({ id: 'char-b', name: '懒羊羊' });
+    const subject = buildCharacter({ id: 'char-c', name: '灰太狼' });
+    const chat = { ...buildChat(), memberIds: ['char-a', 'char-b', 'char-c'] };
+    const trace = buildPromptMemoryTrace(sender, chat, [
+      buildMessage({ id: 'ai-latest', senderId: 'char-b', senderName: '懒羊羊', content: '我想继续聊零食。', timestamp: 2 }),
+      buildMessage({ id: 'user-image', type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 3 }),
+    ], new Map([
+      [sender.id, sender],
+      [latestSpeaker.id, latestSpeaker],
+      [subject.id, subject],
+    ]));
+
+    expect(trace.injectedIds).toContain('gray-wolf-portrait-memory');
+    expect(trace.recalledArchives[0]?.summary).toContain('灰太狼');
+  });
+
   it('injects readable memory context into generation prompts without raw ids or enum labels', () => {
     const speaker = buildCharacter({
       id: leakySpeakerId,

@@ -8,6 +8,7 @@ import { formatConflictPromptText, formatConflictStageLabel } from './runtimeEve
 import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 import { getExperienceLensLabel } from './experienceChangePresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
+import { parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
 
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
@@ -493,7 +494,68 @@ function buildRecentMessagesSection(messages: Message[], characters: Map<string,
   return `\n## Recent Messages\n${rendered.map((message) => `- ${message.content}`).join('\n')}`;
 }
 
+function uniqueKnownIds(ids: Array<string | undefined>, characters: Map<string, AICharacter>) {
+  return ids.filter((id, index, array): id is string => Boolean(id && characters.has(id) && array.indexOf(id) === index));
+}
+
+function normalizeStoredGuidance(message: Message): UserGuidanceIntent | null {
+  const stored = message.metadata?.runtimeDecision?.directorIntent?.userGuidance;
+  if (!stored?.rawText || !stored.kind) return null;
+  return {
+    kind: stored.kind === 'media_request' || stored.kind === 'direct_reply' ? stored.kind : 'topic_shift',
+    rawText: stored.rawText,
+    actorIds: stored.actorIds || [],
+    mentionedActorIds: stored.mentionedActorIds || [],
+    mediaRequest: stored.mediaRequest?.kind === 'image' ? {
+      kind: 'image',
+      subjectActorIds: stored.mediaRequest.subjectActorIds || [],
+      subjectText: stored.mediaRequest.subjectText || '',
+      actionText: stored.mediaRequest.actionText || stored.rawText,
+    } : undefined,
+    focusText: stored.focusText || stored.rawText,
+    beatType: stored.beatType as UserGuidanceIntent['beatType'] || 'invite',
+    pressure: stored.pressure || 0,
+    maxTurns: stored.maxTurns || 1,
+    reason: stored.reason || '用户明确引导当前互动。',
+  };
+}
+
+function parsePromptGuidance(message: Message, characters: Map<string, AICharacter>) {
+  const members = Array.from(characters.values());
+  return parseUserGuidanceIntent(message.content, members) || normalizeStoredGuidance(message);
+}
+
+function pickGuidanceTarget(guidance: UserGuidanceIntent, speaker: AICharacter, characters: Map<string, AICharacter>) {
+  const actorIds = uniqueKnownIds(guidance.actorIds || [], characters);
+  const subjectActorIds = uniqueKnownIds(guidance.mediaRequest?.subjectActorIds || [], characters);
+  const mentionedActorIds = uniqueKnownIds(guidance.mentionedActorIds || [], characters);
+  const candidateGroups = [
+    subjectActorIds.filter((id) => id !== speaker.id),
+    mentionedActorIds.filter((id) => id !== speaker.id && !actorIds.includes(id)),
+    mentionedActorIds.filter((id) => id !== speaker.id),
+    actorIds.filter((id) => id !== speaker.id),
+  ];
+  const candidateId = candidateGroups.find((group) => group.length)?.[0];
+  return candidateId ? characters.get(candidateId) : undefined;
+}
+
+function resolveHumanGuidanceTarget(messages: Message[], characters: Map<string, AICharacter>, speaker: AICharacter) {
+  const recentHumanMessages = messages
+    .filter((item) => !item.isDeleted && (item.type === 'user' || item.type === 'god'))
+    .slice(-8)
+    .reverse();
+  for (const message of recentHumanMessages) {
+    const guidance = parsePromptGuidance(message, characters);
+    if (!guidance) continue;
+    const target = pickGuidanceTarget(guidance, speaker, characters);
+    if (target) return target;
+  }
+  return undefined;
+}
+
 function resolvePromptTarget(chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>, speaker: AICharacter) {
+  const guidanceTarget = resolveHumanGuidanceTarget(messages, characters, speaker);
+  if (guidanceTarget) return guidanceTarget;
   if (chat.type === 'direct') {
     return messages.filter((item) => !item.isDeleted).slice().reverse().find((item) => item.senderId !== speaker.id && item.type !== 'system' && item.type !== 'event')
       ? undefined
