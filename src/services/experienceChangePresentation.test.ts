@@ -83,6 +83,37 @@ describe('experienceChangePresentation', () => {
     expect(changes[0].text).not.toContain('e055aa1d');
   });
 
+  it('projects known UUID members without leaking replace offsets', () => {
+    const actorId = '3c78729f-e52d-4dde-b27f-01a949960bb8b';
+    const targetId = '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321';
+    const chat = {
+      layeredMemories: [memory({
+        text: `${actorId} 记得 ${targetId} 上次帮过忙`,
+        sourceTag: 'llm_memory_relationship_imprint',
+        updatedAt: 300,
+      })],
+      relationshipLedger: [relationship({
+        pairKey: `${actorId}->${targetId}`,
+        actorId,
+        targetId,
+        recentEvents: [{ id: 'evt-uuid', kind: 'relationship_delta', createdAt: 310, summary: `${actorId} 支持 ${targetId}`, actorIds: [actorId], targetIds: [targetId] }],
+        lastUpdatedAt: 310,
+      })],
+    } as Pick<GroupChat, 'layeredMemories' | 'relationshipLedger'>;
+
+    const changes = buildRecentExperienceChanges({
+      chat,
+      members: [{ id: actorId, name: '喜羊羊' }, { id: targetId, name: '沸羊羊' }] as never,
+    });
+
+    expect(changes[0].title).toBe('喜羊羊 → 沸羊羊');
+    expect(changes.map((item) => `${item.title} ${item.text}`).join(' / ')).toContain('喜羊羊');
+    expect(changes.map((item) => `${item.title} ${item.text}`).join(' / ')).toContain('沸羊羊');
+    expect(changes.map((item) => `${item.title} ${item.text}`).join(' / ')).not.toContain('0喜羊羊');
+    expect(changes.map((item) => `${item.title} ${item.text}`).join(' / ')).not.toContain(actorId);
+    expect(changes.map((item) => `${item.title} ${item.text}`).join(' / ')).not.toContain(targetId);
+  });
+
   it('does not show raw runtime parameter changes as recent memory changes', () => {
     const chat = {
       layeredMemories: [

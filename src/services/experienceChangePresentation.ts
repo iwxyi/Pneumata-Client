@@ -4,6 +4,7 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
 import { isUserFacingMemoryItem } from './memoryPresentation';
+import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 
 export type ExperienceChangeKind = 'memory' | 'relationship';
 
@@ -54,16 +55,12 @@ function memberNameMap(members: AICharacter[]) {
   return new Map(members.map((member) => [member.id, member.name || '成员']));
 }
 
-function replaceMemberIds(text: string, names: Map<string, string>) {
-  let next = text;
-  names.forEach((name, id) => {
-    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = id.length < 8
-      ? new RegExp(`(^|[^\\p{L}\\p{N}_-])${escaped}(?=$|[^\\p{L}\\p{N}_-])`, 'gu')
-      : new RegExp(escaped, 'g');
-    next = next.replace(pattern, (match, prefix = '') => `${prefix}${name || '成员'}`);
-  });
-  return next.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '成员');
+function displayMembers(names: Map<string, string>): DisplayTextMember[] {
+  return Array.from(names.entries()).map(([id, name]) => ({ id, name }));
+}
+
+function cleanDisplayText(text: string, names: Map<string, string>) {
+  return sanitizeUserFacingText(text, displayMembers(names));
 }
 
 function compactText(text: string, max = 82) {
@@ -74,7 +71,7 @@ function compactText(text: string, max = 82) {
 function summarizeMemoryChange(item: MemoryItem, names: Map<string, string>, formatMemoryText?: (text: string, item: MemoryItem) => string): PresentedExperienceChange {
   const lens = getExperienceLensLabel(item.sourceTag);
   const sourceText = item.summary || item.text;
-  const displayText = formatMemoryText ? formatMemoryText(sourceText, item) : replaceMemberIds(sourceText, names);
+  const displayText = cleanDisplayText(formatMemoryText ? formatMemoryText(sourceText, item) : sourceText, names);
   return {
     key: `memory-${item.id}`,
     kind: 'memory',
@@ -94,12 +91,12 @@ function combineRelationshipSummary(semanticSummary: string | undefined, evidenc
 
 function summarizeRelationshipChange(entry: RelationshipLedgerEntry, names: Map<string, string>): PresentedExperienceChange {
   const normalized = normalizeRelationshipLedgerEntry(entry);
-  const actor = names.get(normalized.actorId) || normalized.actorId;
-  const target = names.get(normalized.targetId) || normalized.targetId;
+  const actor = names.get(normalized.actorId) || cleanDisplayText(normalized.actorId, names) || '成员';
+  const target = names.get(normalized.targetId) || cleanDisplayText(normalized.targetId, names) || '成员';
   const semantic = normalized.derived?.semantic;
   const latestEvidence = normalized.recentEvents.at(-1)?.summary || semantic?.summary || '';
-  const evidence = compactText(replaceMemberIds(latestEvidence, names), 76);
-  const semanticSummary = semantic?.summary ? replaceMemberIds(semantic.summary, names) : '';
+  const evidence = compactText(cleanDisplayText(latestEvidence, names), 76);
+  const semanticSummary = semantic?.summary ? cleanDisplayText(semantic.summary, names) : '';
   return {
     key: `relationship-${normalized.pairKey}`,
     kind: 'relationship',
