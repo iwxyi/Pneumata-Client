@@ -551,6 +551,15 @@ function buildMemoryRecallItems(chat: GroupChat, members: AICharacter[], message
   }).slice(0, 8);
 }
 
+function buildMemoryReactivationItems(members: AICharacter[]) {
+  return members
+    .flatMap((member) => (member.runtimeTimeline || [])
+      .filter((item) => item.type === 'memory' && /旧记忆.*重新唤醒|重新激活|回温/.test(item.text))
+      .map((item) => ({ member, item })))
+    .sort((left, right) => (right.item.createdAt || 0) - (left.item.createdAt || 0))
+    .slice(0, 6);
+}
+
 function recallHint(item: MemoryRecallDisplayItem) {
   return [
     item.recallReason,
@@ -562,7 +571,8 @@ function recallHint(item: MemoryRecallDisplayItem) {
 
 function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messages: Message[]) {
   const items = buildMemoryRecallItems(chat, members, messages);
-  if (!items.length) return null;
+  const reactivatedItems = buildMemoryReactivationItems(members);
+  if (!items.length && !reactivatedItems.length) return null;
   return (
     <SurfaceCard>
       <SectionHeader title="记忆唤醒" subtitle="旧档不会常驻进入上下文，只有被人物、话题或旧梗命中时才会回流。" dense action={buildDebugChip()} />
@@ -580,6 +590,21 @@ function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messag
             </Box>
           </Tooltip>
         ))}
+        {reactivatedItems.length ? (
+          <Stack spacing={0.75} sx={{ pt: items.length ? 0.25 : 0 }}>
+            {reactivatedItems.map(({ member, item }, index) => (
+              <Tooltip key={`${member.id}-reactivated-${item.createdAt}-${index}`} title={`${new Date(item.createdAt).toLocaleString()}\n${cleanText(item.text)}`} arrow placement="top-start">
+                <Box sx={{ p: 0.9, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.12)', '&:hover .reactivated-memory': { textDecoration: 'underline' } }}>
+                  <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                    <Chip size="small" label={member.name} variant="outlined" sx={{ height: 22 }} />
+                    <Chip size="small" label="已重新激活" color="warning" variant="outlined" sx={{ height: 22 }} />
+                  </Stack>
+                  <Typography className="reactivated-memory" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.text)}</Typography>
+                </Box>
+              </Tooltip>
+            ))}
+          </Stack>
+        ) : null}
       </Stack>
     </SurfaceCard>
   );

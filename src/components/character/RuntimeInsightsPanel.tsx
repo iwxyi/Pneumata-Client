@@ -422,13 +422,27 @@ function RuntimeTimelinePanel({
   developerMode: boolean;
   members?: Array<{ id: string; name?: string }>;
 }) {
+  const typeLabel = (type: 'memory' | 'relationship' | 'drift') => type === 'memory' ? '记忆' : type === 'relationship' ? '关系' : '漂移';
+  const isReactivated = (text: string) => /旧记忆.*重新唤醒|重新激活|回温/.test(text);
+  const tone = (item: { type: 'memory' | 'relationship' | 'drift'; text: string }) => {
+    if (isReactivated(item.text)) return 'rgba(255, 152, 0, 0.08)';
+    if (item.type === 'relationship') return 'rgba(46, 125, 50, 0.08)';
+    if (item.type === 'drift') return 'rgba(25, 118, 210, 0.08)';
+    return 'action.hover';
+  };
   return filteredTimeline.length ? (
     <Stack spacing={0.85}>
       {filteredTimeline.slice().reverse().slice(0, developerMode ? 8 : 5).map((item, index) => (
-        <Box key={`${item.type}-${item.createdAt}-${index}`} sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'action.hover' }}>
-          {developerMode ? <Typography variant="caption" color="text.secondary">{item.type} · {new Date(item.createdAt).toLocaleString()}</Typography> : null}
-          <Typography variant="body2">{sanitizeUserFacingText(item.text, members)}</Typography>
-        </Box>
+        <Tooltip key={`${item.type}-${item.createdAt}-${index}`} title={developerMode ? sanitizeUserFacingText(item.text, members) : ''} arrow placement="top-start">
+          <Box sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: tone(item), '&:hover .timeline-text': { textDecoration: developerMode ? 'underline' : 'none' } }}>
+            <Stack direction="row" spacing={0.65} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.55 }}>
+              <Chip size="small" label={typeLabel(item.type)} variant="outlined" sx={{ height: 22 }} />
+              {isReactivated(item.text) ? <Chip size="small" label="旧记忆回温" color="warning" variant="outlined" sx={{ height: 22 }} /> : null}
+              {developerMode ? <Typography variant="caption" color="text.secondary">{new Date(item.createdAt).toLocaleString()}</Typography> : null}
+            </Stack>
+            <Typography className="timeline-text" variant="body2">{sanitizeUserFacingText(item.text, members)}</Typography>
+          </Box>
+        </Tooltip>
       ))}
     </Stack>
   ) : <Typography variant="caption" color="text.secondary">{developerMode ? '当前筛选下暂无时间线数据' : '当前暂无关键变化'}</Typography>;
