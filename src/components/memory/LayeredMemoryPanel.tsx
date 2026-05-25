@@ -62,6 +62,7 @@ function buildMemoryMetaItems(item: MemoryItem, includeDebugDetails: boolean) {
 function memoryStrengthLabel(item: MemoryItem) {
   const salience = Number.isFinite(item.salience) ? item.salience : 0;
   if (item.archivedAt) return '已沉入旧档';
+  if (item.lastActivatedAt && Date.now() - item.lastActivatedAt < 7 * 24 * 60 * 60 * 1000) return '最近回温';
   if (item.layer === 'long_term' && (item.origin === 'distilled' || item.reinforcementCount >= 3 || salience >= 0.78)) return '锚点候选';
   if (salience >= 0.78) return '印象很深';
   if (salience >= 0.5) return '印象明确';
