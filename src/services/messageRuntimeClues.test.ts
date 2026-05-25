@@ -168,6 +168,15 @@ describe('messageRuntimeClues', () => {
               },
             },
           },
+          guidanceExecution: {
+            status: 'accepted_after_retry',
+            validated: true,
+            retryCount: 1,
+            rejectedDraftCount: 1,
+            rejectedReasons: ['missing_requested_image'],
+            finalReason: 'matched',
+            forcedMediaQueued: true,
+          },
         },
       },
     };
@@ -187,7 +196,21 @@ describe('messageRuntimeClues', () => {
       '执行角色：美羊羊',
       '图片对象：灰太狼',
     ]));
-    expect(formatMessageRuntimeCluesForPrompt(message, [{ id: 'mei', name: '美羊羊' }, { id: 'hui', name: '灰太狼' }])).toContain('用户引导：类型：媒体请求');
+    const execution = sections.find((section) => section.key === 'guidance_execution');
+    expect(execution).toMatchObject({
+      label: '引导执行',
+      statusLabel: '已通过',
+    });
+    expect(execution?.items).toEqual(expect.arrayContaining([
+      '状态：重试后执行',
+      '重试：1 次',
+      '丢弃原因：没有执行发图动作',
+      '媒体动作：已按显式请求补入图片队列',
+    ]));
+    const prompt = formatMessageRuntimeCluesForPrompt(message, [{ id: 'mei', name: '美羊羊' }, { id: 'hui', name: '灰太狼' }]);
+    expect(prompt).toContain('用户引导：类型：媒体请求');
+    expect(prompt).toContain('引导执行：状态：重试后执行');
+    expect(prompt).not.toContain('missing_requested_image');
   });
 
   it('marks expression feedback as retrieved or applied without treating it as a hard fact', () => {

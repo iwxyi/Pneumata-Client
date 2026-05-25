@@ -4,7 +4,7 @@ import { formatInnerImpulseLabel, formatInnerToneLabel, formatResponseSurfaceKin
 import { formatBeatType, formatKnownReason } from './runtimeInsightPresentation';
 
 export interface MessageRuntimeClueSection {
-  key: 'memory' | 'inner' | 'surface' | 'director' | 'guidance' | 'narrative' | 'feedback';
+  key: 'memory' | 'inner' | 'surface' | 'director' | 'guidance' | 'guidance_execution' | 'narrative' | 'feedback';
   label: string;
   promptLabel: string;
   statusKind: 'prompt_context' | 'debug_explanation' | 'soft_signal' | 'applied_signal';
@@ -58,6 +58,28 @@ function formatGuidanceKind(kind: string | undefined) {
     media_request: '媒体请求',
   };
   return kind ? labels[kind] || kind : '';
+}
+
+function formatGuidanceExecutionStatus(status: string | undefined) {
+  const labels: Record<string, string> = {
+    accepted: '已执行',
+    accepted_after_retry: '重试后执行',
+    failed_after_retry: '重试后仍偏航',
+  };
+  return status ? labels[status] || status : '';
+}
+
+function formatGuidanceExecutionReason(reason: string | undefined) {
+  const labels: Record<string, string> = {
+    matched: '已回应用户要求',
+    wrong_speaker: '发言角色不匹配',
+    missing_requested_image: '没有执行发图动作',
+    missing_requested_subject: '没有对准图片对象',
+    missing_topic_focus: '没有回到新话题',
+    missing_direct_reply_focus: '没有先回应点名要求',
+    empty_content: '生成内容为空',
+  };
+  return reason ? labels[reason] || reason : '';
 }
 
 export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | null | undefined, members: DisplayTextMember[] = []): MessageRuntimeClueSection[] {
@@ -141,6 +163,23 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       guidance.mediaRequest?.subjectActorIds?.length ? `图片对象：${formatMemberNames(guidance.mediaRequest.subjectActorIds, members)}` : '',
       guidance.mediaRequest?.subjectText && !guidance.mediaRequest.subjectActorIds?.length ? `图片对象：${guidance.mediaRequest.subjectText}` : '',
       guidance.mediaRequest?.actionText ? `图片动作：${guidance.mediaRequest.actionText}` : '',
+    ] : [],
+    maxItems: 8,
+  }, members);
+  const execution = decision.guidanceExecution;
+  pushSection(sections, {
+    key: 'guidance_execution',
+    label: '引导执行',
+    promptLabel: '引导执行',
+    statusKind: 'debug_explanation',
+    statusLabel: execution?.validated ? '已通过' : '需排查',
+    statusHint: '用于排查用户明确要求是否被本轮生成真正执行，包括偏航重试和强制媒体动作。',
+    items: execution ? [
+      execution.status ? `状态：${formatGuidanceExecutionStatus(execution.status)}` : '',
+      typeof execution.retryCount === 'number' && execution.retryCount > 0 ? `重试：${execution.retryCount} 次` : '',
+      execution.rejectedReasons?.length ? `丢弃原因：${execution.rejectedReasons.map(formatGuidanceExecutionReason).join('、')}` : '',
+      execution.finalReason ? `最终校验：${formatGuidanceExecutionReason(execution.finalReason)}` : '',
+      execution.forcedMediaQueued ? '媒体动作：已按显式请求补入图片队列' : '',
     ] : [],
     maxItems: 8,
   }, members);

@@ -147,6 +147,15 @@ export interface MessageMetadata {
         recallScore?: number;
       }>;
     };
+    guidanceExecution?: {
+      status: 'accepted' | 'accepted_after_retry' | 'failed_after_retry';
+      validated: boolean;
+      retryCount: number;
+      rejectedDraftCount: number;
+      rejectedReasons?: Array<'wrong_speaker' | 'missing_requested_image' | 'missing_requested_subject' | 'missing_topic_focus' | 'missing_direct_reply_focus' | 'empty_content'>;
+      finalReason?: 'matched' | 'wrong_speaker' | 'missing_requested_image' | 'missing_requested_subject' | 'missing_topic_focus' | 'missing_direct_reply_focus' | 'empty_content';
+      forcedMediaQueued?: boolean;
+    };
     expressionFeedback?: Array<{
       id: string;
       label: string;

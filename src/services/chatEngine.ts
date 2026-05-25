@@ -47,6 +47,14 @@ interface ResponseSurface {
 }
 
 type ExpressionFeedbackTrace = NonNullable<NonNullable<MessageMetadata['runtimeDecision']>['expressionFeedback']>;
+type GuidanceExecutionTrace = NonNullable<NonNullable<MessageMetadata['runtimeDecision']>['guidanceExecution']>;
+type GuidanceExecutionReason = NonNullable<GuidanceExecutionTrace['finalReason']>;
+type GuidanceRejectionReason = NonNullable<GuidanceExecutionTrace['rejectedReasons']>[number];
+type GenerationWithGuidanceTrace = {
+  parsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope>;
+  finalResponse: string;
+  guidanceExecution?: GuidanceExecutionTrace;
+};
 
 const emotionMap: Record<string, number> = {};
 
@@ -527,28 +535,40 @@ function topicGuidanceMatchesContent(content: string, guidance: UserGuidanceInte
     const matched = tokens.filter((token) => normalizedContent.includes(token.toLowerCase()));
     if (matched.length >= Math.min(2, tokens.length)) return true;
     if (matched.some((token) => token.length >= 3)) return true;
+    return false;
   }
   const topicChars = extractGuidanceTopicChars(guidance.focusText || guidance.rawText);
   if (!topicChars.length) return true;
   return topicChars.filter((char) => normalizedContent.includes(char)).length >= Math.min(2, topicChars.length);
 }
 
-function mediaGuidanceMatchesContent(content: string, guidance: UserGuidanceIntent) {
+function evaluateMediaGuidanceContent(content: string, guidance: UserGuidanceIntent): GuidanceExecutionReason {
   const request = guidance.mediaRequest;
-  if (!request) return true;
+  if (!request) return 'matched';
   const normalizedContent = normalizeGuidanceMatchText(content);
   const subjectTokens = extractGuidanceMatchTokens(request.subjectText).concat(extractGuidanceMatchTokens(request.actionText));
   const artifactMatched = /(图|图片|照片|相片|证件照|画|画好|拍|看|发|来啦|好了|出图|生成)/i.test(content);
-  if (!subjectTokens.length) return artifactMatched;
-  return artifactMatched && subjectTokens.some((token) => normalizedContent.includes(token.toLowerCase()));
+  if (!artifactMatched) return 'missing_requested_image';
+  if (subjectTokens.length && !subjectTokens.some((token) => normalizedContent.includes(token.toLowerCase()))) {
+    return 'missing_requested_subject';
+  }
+  return 'matched';
 }
 
-function guidanceMatchesGeneratedContent(content: string, guidance: UserGuidanceIntent | null | undefined, speaker: AICharacter) {
-  if (!guidance) return true;
-  if (guidance.actorIds.length && !guidance.actorIds.includes(speaker.id)) return false;
-  if (guidance.kind === 'media_request') return mediaGuidanceMatchesContent(content, guidance);
-  if (guidance.kind === 'topic_shift') return topicGuidanceMatchesContent(content, guidance);
-  return topicGuidanceMatchesContent(content, guidance);
+function evaluateGuidanceGeneratedContent(content: string, guidance: UserGuidanceIntent | null | undefined, speaker: AICharacter): { matched: boolean; reason: GuidanceExecutionReason } {
+  if (!guidance) return { matched: true, reason: 'matched' };
+  if (!normalizeForComparison(content)) return { matched: false, reason: 'empty_content' };
+  if (guidance.actorIds.length && !guidance.actorIds.includes(speaker.id)) return { matched: false, reason: 'wrong_speaker' };
+  if (guidance.kind === 'media_request') {
+    const reason = evaluateMediaGuidanceContent(content, guidance);
+    return { matched: reason === 'matched', reason };
+  }
+  const matched = topicGuidanceMatchesContent(content, guidance);
+  if (matched) return { matched: true, reason: 'matched' };
+  return {
+    matched: false,
+    reason: guidance.kind === 'direct_reply' ? 'missing_direct_reply_focus' : 'missing_topic_focus',
+  };
 }
 
 function buildGuidanceRetryPrompt(params: {
@@ -777,6 +797,7 @@ function buildRuntimeDecisionMetadata(params: {
   surface?: ResponseSurface | null;
   memoryTrace?: PromptMemoryTrace | null;
   expressionFeedback?: ExpressionFeedbackTrace;
+  guidanceExecution?: GuidanceExecutionTrace | null;
 }): MessageMetadata['runtimeDecision'] | undefined {
   const memoryContext = params.memoryTrace && (params.memoryTrace.injectedIds.length || params.memoryTrace.recalledArchives.length || params.memoryTrace.targetActorId)
     ? {
@@ -787,7 +808,7 @@ function buildRuntimeDecisionMetadata(params: {
       recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
     }
     : undefined;
-  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !memoryContext && !params.expressionFeedback?.length) return undefined;
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !memoryContext && !params.expressionFeedback?.length && !params.guidanceExecution) return undefined;
   return {
     directorIntent: params.directorIntent ? {
       source: params.directorIntent.source,
@@ -846,6 +867,15 @@ function buildRuntimeDecisionMetadata(params: {
       basis: params.surface.basis.slice(0, 8),
     } : undefined,
     memoryContext,
+    guidanceExecution: params.guidanceExecution ? {
+      status: params.guidanceExecution.status,
+      validated: params.guidanceExecution.validated,
+      retryCount: params.guidanceExecution.retryCount,
+      rejectedDraftCount: params.guidanceExecution.rejectedDraftCount,
+      rejectedReasons: params.guidanceExecution.rejectedReasons?.slice(0, 3),
+      finalReason: params.guidanceExecution.finalReason,
+      forcedMediaQueued: params.guidanceExecution.forcedMediaQueued,
+    } : undefined,
     expressionFeedback: params.expressionFeedback?.length ? params.expressionFeedback.slice(0, 3) : undefined,
   };
 }
@@ -935,17 +965,22 @@ async function generateNonDuplicateResponse(params: {
   surface?: ResponseSurface;
   guidance?: UserGuidanceIntent | null;
   onChunk?: (content: string) => void;
-}) {
+}): Promise<GenerationWithGuidanceTrace> {
   let prompt = params.systemPrompt;
   let lastParsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope> = null;
   let lastFinalResponse = '';
+  const rejectedReasons: GuidanceRejectionReason[] = [];
+  let finalReason: GuidanceExecutionReason = params.guidance ? 'empty_content' : 'matched';
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const shouldStreamAttempt = !params.guidance && attempt === 0;
     const generated = await generateWithPrompt({ ...params, systemPrompt: prompt, onChunk: shouldStreamAttempt ? params.onChunk : undefined });
     lastParsedEnvelope = generated.parsedEnvelope;
     lastFinalResponse = generated.finalResponse;
     if (normalizeForComparison(generated.finalResponse)) {
-      if (params.guidance && !guidanceMatchesGeneratedContent(generated.finalResponse, params.guidance, params.speaker) && attempt < 2) {
+      const guidanceEvaluation = evaluateGuidanceGeneratedContent(generated.finalResponse, params.guidance, params.speaker);
+      finalReason = guidanceEvaluation.reason;
+      if (params.guidance && !guidanceEvaluation.matched && attempt < 2) {
+        rejectedReasons.push(guidanceEvaluation.reason as GuidanceRejectionReason);
         prompt = buildGuidanceRetryPrompt({
           systemPrompt: params.systemPrompt,
           guidance: params.guidance,
@@ -956,11 +991,47 @@ async function generateNonDuplicateResponse(params: {
         continue;
       }
       if (params.guidance) params.onChunk?.(generated.finalResponse);
-      return { parsedEnvelope: generated.parsedEnvelope, finalResponse: generated.finalResponse };
+      return {
+        parsedEnvelope: generated.parsedEnvelope,
+        finalResponse: generated.finalResponse,
+        guidanceExecution: params.guidance ? {
+          status: guidanceEvaluation.matched
+            ? (rejectedReasons.length ? 'accepted_after_retry' : 'accepted')
+            : 'failed_after_retry',
+          validated: guidanceEvaluation.matched,
+          retryCount: rejectedReasons.length,
+          rejectedDraftCount: rejectedReasons.length,
+          rejectedReasons,
+          finalReason: guidanceEvaluation.reason,
+        } : undefined,
+      };
     }
-    prompt = buildRetryPrompt(params.systemPrompt, generated.rawContent);
+    if (params.guidance) {
+      rejectedReasons.push('empty_content');
+      finalReason = 'empty_content';
+      prompt = buildGuidanceRetryPrompt({
+        systemPrompt: params.systemPrompt,
+        guidance: params.guidance,
+        speaker: params.speaker,
+        characters: params.characters || [],
+        previousDraft: generated.rawContent,
+      });
+    } else {
+      prompt = buildRetryPrompt(params.systemPrompt, generated.rawContent);
+    }
   }
-  return { parsedEnvelope: lastParsedEnvelope, finalResponse: lastFinalResponse };
+  return {
+    parsedEnvelope: lastParsedEnvelope,
+    finalResponse: lastFinalResponse,
+    guidanceExecution: params.guidance ? {
+      status: 'failed_after_retry',
+      validated: false,
+      retryCount: rejectedReasons.length,
+      rejectedDraftCount: rejectedReasons.length,
+      rejectedReasons,
+      finalReason,
+    } : undefined,
+  };
 }
 
 function buildCompletedMessage(params: {
@@ -1112,6 +1183,31 @@ Current speaking intent:
 
   const msgEmotion = analyzeEmotion(generated.finalResponse);
   updateAllEmotions(effectiveMembers, params.speaker.id, msgEmotion, emotion);
+  const modelMediaDecision = generated.parsedEnvelope?.mediaDecision;
+  const mergedMediaDecision = mergeGuidanceMediaDecision({
+    decision: modelMediaDecision,
+    guidance: userGuidance,
+    speaker: params.speaker,
+    characters: effectiveMembers,
+    content: generated.finalResponse,
+  });
+  const forcedMediaQueued = Boolean(
+    userGuidance?.mediaRequest
+    && shouldForceGuidanceMedia(userGuidance, params.speaker)
+    && mergedMediaDecision?.image?.shouldGenerate
+    && !(modelMediaDecision?.image?.shouldGenerate && modelMediaDecision.image.prompt && modelMediaDecision.image.altText),
+  );
+  const guidanceExecution = generated.guidanceExecution || forcedMediaQueued
+    ? {
+      status: generated.guidanceExecution?.status || 'accepted',
+      validated: generated.guidanceExecution?.validated ?? true,
+      retryCount: generated.guidanceExecution?.retryCount || 0,
+      rejectedDraftCount: generated.guidanceExecution?.rejectedDraftCount || 0,
+      rejectedReasons: generated.guidanceExecution?.rejectedReasons || [],
+      finalReason: generated.guidanceExecution?.finalReason || 'matched',
+      forcedMediaQueued,
+    } satisfies GuidanceExecutionTrace
+    : undefined;
   const completedMessage = buildCompletedMessage({
     chat: params.chat,
     speakerId: params.speaker.id,
@@ -1120,13 +1216,7 @@ Current speaking intent:
     emotion: getEmotion(params.speaker.id),
     parsedEnvelope: generated.parsedEnvelope,
 	    metadata: buildMessageMetadata({
-	      decision: mergeGuidanceMediaDecision({
-          decision: generated.parsedEnvelope?.mediaDecision,
-          guidance: userGuidance,
-          speaker: params.speaker,
-          characters: effectiveMembers,
-          content: generated.finalResponse,
-        }),
+	      decision: mergedMediaDecision,
 	      capabilities: mediaCapabilities,
 	      content: generated.finalResponse,
         surface: responseSurface,
@@ -1138,6 +1228,7 @@ Current speaking intent:
           surface: responseSurface,
           memoryTrace,
           expressionFeedback: expressionFeedbackTrace,
+          guidanceExecution,
 	      }),
 	    }),
 	  });

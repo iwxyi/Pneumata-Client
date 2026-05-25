@@ -280,6 +280,14 @@ describe('chatEngine streaming preview', () => {
     });
     expect(message.metadata?.attachments?.[0]?.promptText).toContain('美羊羊发个灰太狼证件照的图片');
     expect(message.metadata?.attachments?.[0]?.promptText).toContain('灰太狼');
+    expect(message.metadata?.runtimeDecision?.guidanceExecution).toMatchObject({
+      status: 'accepted',
+      validated: true,
+      retryCount: 0,
+      rejectedDraftCount: 0,
+      finalReason: 'matched',
+      forcedMediaQueued: true,
+    });
   });
 
   it('retries explicit media guidance when the first draft keeps chatting instead of sending the requested image', async () => {
@@ -351,6 +359,15 @@ describe('chatEngine streaming preview', () => {
       status: 'queued',
       referenceCharacterIds: ['hui'],
     });
+    expect(message.metadata?.runtimeDecision?.guidanceExecution).toMatchObject({
+      status: 'accepted_after_retry',
+      validated: true,
+      retryCount: 1,
+      rejectedDraftCount: 1,
+      rejectedReasons: ['missing_requested_image'],
+      finalReason: 'matched',
+      forcedMediaQueued: true,
+    });
   });
 
   it('retries topic guidance when the first draft ignores the new topic and continues stale banter', async () => {
@@ -408,6 +425,14 @@ describe('chatEngine streaming preview', () => {
     expect(message.content).toContain('狼');
     expect(message.content).toContain('羊');
     expect(message.content).not.toContain('香蕉');
+    expect(message.metadata?.runtimeDecision?.guidanceExecution).toMatchObject({
+      status: 'accepted_after_retry',
+      validated: true,
+      retryCount: 1,
+      rejectedDraftCount: 1,
+      rejectedReasons: ['missing_topic_focus'],
+      finalReason: 'matched',
+    });
   });
 
   it('recovers the latest unresolved media guidance from messages even without a passed directorIntent', async () => {
