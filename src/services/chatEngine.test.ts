@@ -3,7 +3,7 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE } from '../types/chat';
 import type { AIModelProfile } from '../types/settings';
-import { __chatEngineTestUtils, generateSpeakerMessage } from './chatEngine';
+import { __chatEngineTestUtils, generateSpeakerMessage, runOneRound } from './chatEngine';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 import type { SpeakIntent } from './intentEngine';
 import type { DirectorIntent } from './directorIntent';
@@ -278,6 +278,70 @@ describe('chatEngine streaming preview', () => {
     });
     expect(message.metadata?.attachments?.[0]?.promptText).toContain('美羊羊发个灰太狼证件照的图片');
     expect(message.metadata?.attachments?.[0]?.promptText).toContain('灰太狼');
+  });
+
+  it('locks explicit media guidance to the requested speaker instead of letting other members抢话', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '来啦，我把灰太狼先生画成最帅证件照～',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊', {
+      visualIdentity: { description: '粉白色小羊，温柔爱画画', styleHint: '柔和童话插画' },
+    });
+    const hui = buildCharacter('hui', '灰太狼', {
+      background: '灰太狼，戴黄色补丁帽，脸部有胡须。',
+      visualIdentity: { description: '灰色狼，黄色补丁帽，两撇胡子' },
+    });
+    const lan = buildCharacter('lan', '懒羊羊');
+    const completed: unknown[] = [];
+    const selected: string[] = [];
+    const now = Date.now();
+
+    await runOneRound(
+      buildChat({ memberIds: ['mei', 'hui', 'lan'] }),
+      [mei, hui, lan],
+      [
+        {
+          id: 'guide',
+          chatId: 'chat-1',
+          type: 'god',
+          senderId: 'user',
+          senderName: '开发者',
+          content: '美羊羊发个灰太狼证件照的图片',
+          emotion: 0,
+          timestamp: now - 2000,
+          isDeleted: false,
+        },
+        {
+          id: 'non-target',
+          chatId: 'chat-1',
+          type: 'ai',
+          senderId: 'hui',
+          senderName: '灰太狼',
+          content: '我看看你画得够不够帅，别把我胡子画歪了！',
+          emotion: 0,
+          timestamp: now - 1000,
+          isDeleted: false,
+        },
+      ],
+      buildProfiles(),
+      {
+        onSpeakerSelected: (characterId) => selected.push(characterId),
+        onMessageChunk: () => undefined,
+        onMessageComplete: (message) => { completed.push(message); },
+        onError: (error) => { throw error; },
+      },
+      undefined,
+      undefined,
+      {},
+    );
+
+    expect(selected[0]).toBe('mei');
+    expect(completed[0]).toMatchObject({ senderId: 'mei' });
+    expect((completed[0] as { metadata?: { attachments?: unknown[] } }).metadata?.attachments).toHaveLength(1);
   });
 
   it('stores compact runtime decision metadata without requiring media generation', () => {

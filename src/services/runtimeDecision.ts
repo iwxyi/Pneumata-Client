@@ -49,8 +49,48 @@ function countAiResponsesAfter(messages: Message[], timestamp: number) {
   return messages.filter((message) => message.type === 'ai' && !message.isDeleted && message.timestamp > timestamp).length;
 }
 
-function getAiRespondersAfter(messages: Message[], timestamp: number) {
-  return new Set(messages.filter((message) => message.type === 'ai' && !message.isDeleted && message.timestamp > timestamp).map((message) => message.senderId));
+function getMessageRuntimeGuidance(message: Message): UserGuidanceIntent | null {
+  const guidance = message.metadata?.runtimeDecision?.directorIntent?.userGuidance;
+  if (!guidance || typeof guidance.kind !== 'string') return null;
+  return guidance as UserGuidanceIntent;
+}
+
+function hasImageAttachment(message: Message) {
+  return Boolean(
+    message.metadata?.generationDecision?.image?.shouldGenerate
+    || message.metadata?.attachments?.some((attachment) => attachment.kind === 'image' && attachment.status !== 'deleted' && attachment.status !== 'failed'),
+  );
+}
+
+function isSameGuidance(left: UserGuidanceIntent | null | undefined, right: UserGuidanceIntent | null | undefined) {
+  if (!left || !right) return false;
+  return left.kind === right.kind && left.rawText === right.rawText;
+}
+
+function looksLikeMediaRequestHandled(message: Message, guidance: UserGuidanceIntent) {
+  if (!guidance.mediaRequest) return false;
+  if (hasImageAttachment(message)) return true;
+  if (!isSameGuidance(getMessageRuntimeGuidance(message), guidance)) return false;
+  const text = message.content || '';
+  const subject = guidance.mediaRequest.subjectText || '';
+  const subjectMentioned = subject ? text.includes(subject) : true;
+  const imageAction = /(图|图片|照片|相片|证件照|画好|画了|发来|发给|你看|看这|出图|生成|发不了|没法|无法|不能)/i.test(text);
+  return subjectMentioned && imageAction;
+}
+
+function hasCompletedGuidance(message: Message, guidance: UserGuidanceIntent) {
+  if (message.type !== 'ai' || message.isDeleted) return false;
+  if (guidance.actorIds.length && !guidance.actorIds.includes(message.senderId)) return false;
+  if (guidance.kind !== 'media_request') return true;
+  return looksLikeMediaRequestHandled(message, guidance);
+}
+
+function getCompletedGuidanceActorIdsAfter(messages: Message[], timestamp: number, guidance: UserGuidanceIntent) {
+  return new Set(
+    messages
+      .filter((message) => message.timestamp > timestamp && hasCompletedGuidance(message, guidance))
+      .map((message) => message.senderId),
+  );
 }
 
 function isExplicitPersistentGuidance(guidance: UserGuidanceIntent) {
@@ -81,9 +121,9 @@ function getLatestHumanGuidanceResolution(characters: AICharacter[], messages: M
     if (!guidance || !isExplicitPersistentGuidance(guidance)) continue;
     if (now > message.timestamp + 10 * 60_000) return { intent: null, timestamp: message.timestamp };
 
-    const respondedActorIds = getAiRespondersAfter(messages, message.timestamp);
     if (guidance.actorIds.length) {
-      const pendingActorIds = uniqueKnownActorIds(guidance.actorIds.filter((actorId) => !respondedActorIds.has(actorId)), characters);
+      const completedActorIds = getCompletedGuidanceActorIdsAfter(messages, message.timestamp, guidance);
+      const pendingActorIds = uniqueKnownActorIds(guidance.actorIds.filter((actorId) => !completedActorIds.has(actorId)), characters);
       if (pendingActorIds.length) {
         return {
           intent: guidanceIntentToDirectorIntent(guidance, pendingActorIds),
@@ -129,9 +169,8 @@ function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AIChar
       ? payload.userGuidance as UserGuidanceIntent
       : null;
     const guidance = storedGuidance || parseUserGuidanceIntent(text || '', characters);
-    const respondedActorIds = getAiRespondersAfter(messages, event.createdAt);
     const pendingGuidanceActorIds = storedGuidance?.actorIds.length
-      ? storedGuidance.actorIds.filter((actorId) => !respondedActorIds.has(actorId))
+      ? storedGuidance.actorIds.filter((actorId) => !getCompletedGuidanceActorIdsAfter(messages, event.createdAt, storedGuidance).has(actorId))
       : [];
     const hasTargetedGuidance = Boolean(storedGuidance?.actorIds.length);
     if (!hasTargetedGuidance && !isDirectorInterventionActive(event, messages, now)) continue;

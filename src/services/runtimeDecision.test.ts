@@ -306,7 +306,20 @@ describe('runtimeDecision', () => {
     const afterFirst = projectRuntimePressure({
       chat: buildChat({ runtimeEventsV2: [intervention] }),
       characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
-      messages: [buildMessage({ type: 'ai', senderId: 'a', senderName: '甲', content: '我先发。', timestamp: 40 })],
+      messages: [{
+        ...buildMessage({ type: 'ai', senderId: 'a', senderName: '甲', content: '我先发。', timestamp: 40 }),
+        metadata: {
+          attachments: [{
+            id: 'image-a',
+            kind: 'image',
+            status: 'queued',
+            altText: '甲发的图',
+            promptText: '甲发的图',
+            createdAt: 40,
+            updatedAt: 40,
+          }],
+        },
+      }],
       now: 50,
     });
     expect(afterFirst.directorIntent).toMatchObject({ source: 'user_message', targetActorIds: ['b'] });
@@ -315,8 +328,34 @@ describe('runtimeDecision', () => {
       chat: buildChat({ runtimeEventsV2: [intervention] }),
       characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
       messages: [
-        buildMessage({ id: 'm-a', type: 'ai', senderId: 'a', senderName: '甲', content: '我先发。', timestamp: 40 }),
-        buildMessage({ id: 'm-b', type: 'ai', senderId: 'b', senderName: '乙', content: '我也发。', timestamp: 45 }),
+        {
+          ...buildMessage({ id: 'm-a', type: 'ai', senderId: 'a', senderName: '甲', content: '我先发。', timestamp: 40 }),
+          metadata: {
+            attachments: [{
+              id: 'image-a',
+              kind: 'image',
+              status: 'queued',
+              altText: '甲发的图',
+              promptText: '甲发的图',
+              createdAt: 40,
+              updatedAt: 40,
+            }],
+          },
+        },
+        {
+          ...buildMessage({ id: 'm-b', type: 'ai', senderId: 'b', senderName: '乙', content: '我也发。', timestamp: 45 }),
+          metadata: {
+            attachments: [{
+              id: 'image-b',
+              kind: 'image',
+              status: 'queued',
+              altText: '乙发的图',
+              promptText: '乙发的图',
+              createdAt: 45,
+              updatedAt: 45,
+            }],
+          },
+        },
       ],
       now: 50,
     });
@@ -395,6 +434,52 @@ describe('runtimeDecision', () => {
       actorIds: ['a'],
       mediaRequest: { kind: 'image', subjectActorIds: ['b'] },
     });
+  });
+
+  it('does not treat requested actor banter as completing a media request unless the image request was actually handled', () => {
+    const projection = projectRuntimePressure({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼'), buildCharacter('c', '蕉太狼')],
+      messages: [
+        buildMessage({ id: 'guide', type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 30 }),
+        buildMessage({ id: 'target-banter', type: 'ai', senderId: 'a', senderName: '美羊羊', content: '蕉太狼你这一天天的，满脑子都是香蕉。', timestamp: 40 }),
+      ],
+      now: 50,
+    });
+
+    expect(projection.directorIntent).toMatchObject({
+      source: 'user_message',
+      beatType: 'answer',
+      targetActorIds: ['a'],
+    });
+    expect(projection.directorIntent?.userGuidance?.kind).toBe('media_request');
+  });
+
+  it('completes a targeted media request after the requested actor commits an image attachment', () => {
+    const projection = projectRuntimePressure({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼')],
+      messages: [
+        buildMessage({ id: 'guide', type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 30 }),
+        {
+          ...buildMessage({ id: 'done', type: 'ai', senderId: 'a', senderName: '美羊羊', content: '来啦，证件照画好了。', timestamp: 40 }),
+          metadata: {
+            attachments: [{
+              id: 'image-1',
+              kind: 'image',
+              status: 'queued',
+              altText: '灰太狼证件照',
+              promptText: '灰太狼证件照',
+              createdAt: 40,
+              updatedAt: 40,
+            }],
+          },
+        },
+      ],
+      now: 50,
+    });
+
+    expect(projection.directorIntent?.userGuidance?.rawText).not.toBe('美羊羊发个灰太狼证件照的图片');
   });
 
   it('keeps explicit topic guidance active for its short focus window after one reply', () => {
