@@ -65,4 +65,43 @@ describe('runtime event message content', () => {
       developmentHooks: ['force_side_taking'],
     });
   });
+
+  it('keeps compact memory reactivation evidence for debug display', () => {
+    const content = buildRuntimeEventMessageContent({
+      eventType: 'memory_reactivation',
+      title: '旧记忆回温',
+      summary: '甲 的旧记忆被当前发言重新唤醒：雨夜失约和蓝色石头',
+      metrics: {
+        characterId: 'char-a',
+        characterName: '甲',
+        matchedTokens: ['雨夜', '失约', '蓝色', '石头', '额外1', '额外2', '额外3', '额外4', '额外5'],
+        recalledMemories: [
+          {
+            id: 'archive-1',
+            summary: '雨夜失约和蓝色石头',
+            scope: 'relationship',
+            kind: 'resentment',
+            layer: 'long_term',
+            recallReason: '当前发言重新提到了雨夜旧事',
+            recallScore: 0.92,
+            matchedTokens: ['雨夜', '失约', '蓝色', '石头', '多余1', '多余2', '多余3'],
+            sourceEventIds: Array.from({ length: 20 }, (_, index) => `evt-${index}`),
+          },
+        ],
+      },
+    });
+
+    expect(content).not.toContain('sourceEventIds');
+    const parsed = parseRuntimeEvent(content);
+    const metrics = parsed?.metrics as { matchedTokens?: string[]; recalledMemories?: Array<{ matchedTokens?: string[] }> } | undefined;
+    expect(metrics?.matchedTokens).toHaveLength(8);
+    expect(metrics?.matchedTokens).toEqual(expect.arrayContaining(['雨夜', '失约', '蓝色', '石头']));
+    expect(metrics?.recalledMemories?.[0]).toMatchObject({
+      id: 'archive-1',
+      summary: '雨夜失约和蓝色石头',
+      recallReason: '当前发言重新提到了雨夜旧事',
+      recallScore: 0.92,
+    });
+    expect(metrics?.recalledMemories?.[0]?.matchedTokens).toHaveLength(6);
+  });
 });

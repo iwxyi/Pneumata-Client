@@ -180,6 +180,35 @@ function compactRuntimeEventMetricsForMessage(payload: RuntimeEventPayload) {
       candidateTexts,
     };
   }
+  if (payload.eventType === 'memory_reactivation') {
+    const matchedTokens = Array.isArray(metrics.matchedTokens)
+      ? metrics.matchedTokens.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 8)
+      : [];
+    const recalledMemories = Array.isArray(metrics.recalledMemories)
+      ? metrics.recalledMemories
+        .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+        .map((item) => ({
+          id: typeof item.id === 'string' ? item.id : undefined,
+          summary: typeof item.summary === 'string' ? item.summary : '',
+          scope: typeof item.scope === 'string' ? item.scope : undefined,
+          kind: typeof item.kind === 'string' ? item.kind : undefined,
+          layer: typeof item.layer === 'string' ? item.layer : undefined,
+          recallReason: typeof item.recallReason === 'string' ? item.recallReason : undefined,
+          recallScore: typeof item.recallScore === 'number' ? item.recallScore : undefined,
+          matchedTokens: Array.isArray(item.matchedTokens)
+            ? item.matchedTokens.filter((token): token is string => typeof token === 'string' && Boolean(token.trim())).slice(0, 6)
+            : [],
+        }))
+        .filter((item) => item.summary)
+        .slice(0, 4)
+      : [];
+    return {
+      characterId: typeof metrics.characterId === 'string' ? metrics.characterId : undefined,
+      characterName: typeof metrics.characterName === 'string' ? metrics.characterName : undefined,
+      matchedTokens,
+      recalledMemories,
+    };
+  }
   if (payload.eventType === 'conflict_focus_shift' || payload.eventType === 'conflict_axis_shift') {
     const developmentHooks = Array.isArray(metrics.developmentHooks)
       ? metrics.developmentHooks.filter((item): item is string => typeof item === 'string').slice(0, 3)

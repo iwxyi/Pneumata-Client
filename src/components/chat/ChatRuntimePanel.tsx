@@ -14,7 +14,7 @@ import { sanitizeDistillationTexts } from '../../services/distillationText';
 import DialogueDebugPanel from './DialogueDebugPanel';
 import { projectRuntimeTimeline, type ProjectedRuntimeTimelineItem } from '../../services/sessionProjection';
 import { projectRuntimeDecisionTrace, type RuntimeDecisionTraceItem } from '../../services/runtimeDecisionTrace';
-import { formatConflictPressureLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
+import { formatConflictPressureLabel, formatConflictTypeLabel, parseRuntimeEvent } from '../../services/runtimeEventFactory';
 import { buildMemberInnerLifeSummary } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { retrieveRelevantMemories } from '../../services/memoryRetrieval';
@@ -551,13 +551,76 @@ function buildMemoryRecallItems(chat: GroupChat, members: AICharacter[], message
   }).slice(0, 8);
 }
 
-function buildMemoryReactivationItems(members: AICharacter[]) {
-  return members
+interface MemoryReactivationDisplayItem {
+  key: string;
+  memberName: string;
+  summary: string;
+  matchedTokens: string[];
+  reason?: string;
+  createdAt?: number;
+}
+
+function readReactivationMetrics(metrics: unknown) {
+  if (!metrics || typeof metrics !== 'object') return null;
+  const record = metrics as Record<string, unknown>;
+  const recalledMemories = Array.isArray(record.recalledMemories)
+    ? record.recalledMemories.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    : [];
+  return {
+    characterId: typeof record.characterId === 'string' ? record.characterId : '',
+    characterName: typeof record.characterName === 'string' ? record.characterName : '',
+    matchedTokens: Array.isArray(record.matchedTokens)
+      ? record.matchedTokens.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 6)
+      : [],
+    recalledMemories,
+  };
+}
+
+function buildMemoryReactivationItems(members: AICharacter[], messages: Message[]) {
+  const memberById = new Map(members.map((member) => [member.id, member] as const));
+  const eventItems = messages
+    .filter((message) => !message.isDeleted && message.type === 'event')
+    .flatMap((message): MemoryReactivationDisplayItem[] => {
+      const event = parseRuntimeEvent(message.content);
+      if (event?.eventType !== 'memory_reactivation') return [];
+      const metrics = readReactivationMetrics(event.metrics);
+      if (!metrics) return [];
+      const memories = metrics.recalledMemories
+        .map((item) => ({
+          summary: typeof item.summary === 'string' ? item.summary : '',
+          reason: typeof item.recallReason === 'string' ? item.recallReason : '',
+          matchedTokens: Array.isArray(item.matchedTokens)
+            ? item.matchedTokens.filter((token): token is string => typeof token === 'string' && Boolean(token.trim())).slice(0, 4)
+            : [],
+        }))
+        .filter((item) => item.summary);
+      const memberName = metrics.characterName || memberById.get(metrics.characterId)?.name || '某成员';
+      return [{
+        key: `${message.id}-${metrics.characterId || memberName}`,
+        memberName,
+        summary: memories.slice(0, 2).map((item) => item.summary).join(' / ') || event.summary,
+        reason: memories.find((item) => item.reason)?.reason,
+        matchedTokens: metrics.matchedTokens.length ? metrics.matchedTokens : Array.from(new Set(memories.flatMap((item) => item.matchedTokens))).slice(0, 6),
+        createdAt: event.createdAt || message.timestamp,
+      }];
+    })
+    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0))
+    .slice(0, 6);
+  if (eventItems.length) return eventItems;
+
+  const fallbackItems: MemoryReactivationDisplayItem[] = members
     .flatMap((member) => (member.runtimeTimeline || [])
       .filter((item) => item.type === 'memory' && /旧记忆.*重新唤醒|重新激活|回温/.test(item.text))
-      .map((item) => ({ member, item })))
-    .sort((left, right) => (right.item.createdAt || 0) - (left.item.createdAt || 0))
+      .map((item) => ({
+        key: `${member.id}-${item.createdAt}-${item.text}`,
+        memberName: member.name,
+        summary: item.text,
+        matchedTokens: [],
+        createdAt: item.createdAt,
+      })))
+    .sort((left, right) => (right.createdAt || 0) - (left.createdAt || 0))
     .slice(0, 6);
+  return fallbackItems;
 }
 
 function recallHint(item: MemoryRecallDisplayItem) {
@@ -571,7 +634,7 @@ function recallHint(item: MemoryRecallDisplayItem) {
 
 function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messages: Message[]) {
   const items = buildMemoryRecallItems(chat, members, messages);
-  const reactivatedItems = buildMemoryReactivationItems(members);
+  const reactivatedItems = buildMemoryReactivationItems(members, messages);
   if (!items.length && !reactivatedItems.length) return null;
   return (
     <SurfaceCard>
@@ -592,14 +655,15 @@ function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messag
         ))}
         {reactivatedItems.length ? (
           <Stack spacing={0.75} sx={{ pt: items.length ? 0.25 : 0 }}>
-            {reactivatedItems.map(({ member, item }, index) => (
-              <Tooltip key={`${member.id}-reactivated-${item.createdAt}-${index}`} title={`${new Date(item.createdAt).toLocaleString()}\n${cleanText(item.text)}`} arrow placement="top-start">
+            {reactivatedItems.map((item) => (
+              <Tooltip key={item.key} title={[item.createdAt ? new Date(item.createdAt).toLocaleString() : '', item.reason ? cleanText(item.reason) : '', cleanText(item.summary)].filter(Boolean).join('\n')} arrow placement="top-start">
                 <Box sx={{ p: 0.9, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.12)', '&:hover .reactivated-memory': { textDecoration: 'underline' } }}>
                   <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                    <Chip size="small" label={member.name} variant="outlined" sx={{ height: 22 }} />
+                    <Chip size="small" label={item.memberName} variant="outlined" sx={{ height: 22 }} />
                     <Chip size="small" label="已重新激活" color="warning" variant="outlined" sx={{ height: 22 }} />
+                    {item.matchedTokens.slice(0, 4).map((token) => <Chip key={token} size="small" label={cleanText(token)} sx={{ height: 22 }} />)}
                   </Stack>
-                  <Typography className="reactivated-memory" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.text)}</Typography>
+                  <Typography className="reactivated-memory" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.summary)}</Typography>
                 </Box>
               </Tooltip>
             ))}
