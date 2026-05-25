@@ -177,11 +177,10 @@ function buildEmotionChips(character: Partial<AICharacter>, language: string) {
     }));
 }
 
-function EmotionPanel({ character, developerMode }: { character: Partial<AICharacter>; developerMode: boolean }) {
+function EmotionPanel({ character, developerMode, emotionChips }: { character: Partial<AICharacter>; developerMode: boolean; emotionChips: Array<{ label: string; hint: string }> }) {
   const { i18n } = useTranslation();
   const emotional = character.emotionalState;
   if (!emotional) return <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '暂无情绪轨迹' : 'No emotion trace yet'}</Typography>;
-  const emotionChips = buildEmotionChips(character, i18n.language);
   if (!developerMode) {
     return emotionChips.length ? (
       <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }} useFlexGap>
@@ -191,7 +190,7 @@ function EmotionPanel({ character, developerMode }: { character: Partial<AIChara
           </Tooltip>
         ))}
       </Stack>
-    ) : <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '情绪暂稳' : 'Emotion steady'}</Typography>;
+    ) : null;
   }
   return (
     <Stack spacing={1}>
@@ -735,6 +734,8 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
   );
   const runtimeAffectHints = getAffectSummaryLines(character as AICharacter, i18n.language).slice(0, isDeveloperView ? 4 : 2);
   const hasRuntimeSummary = runtimeSummaryItems.length > 0;
+  const emotionChips = buildEmotionChips(character, i18n.language);
+  const shouldShowEmotionCard = isDeveloperView || !character.emotionalState || emotionChips.length > 0;
 
   return (
     <PageSection spacing={2}>
@@ -747,13 +748,15 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
 
       <SoulStatePanel character={character} developerMode={isDeveloperView} />
 
-      <SurfaceCard>
-        <SectionHeader title="情绪状态" dense action={isDeveloperView && runtimeAffectHints.length ? <Chip size="small" label="变化" color="warning" variant="outlined" /> : undefined} />
-        <Stack spacing={1}>
-          <EmotionPanel character={character} developerMode={isDeveloperView} />
-          {isDeveloperView && runtimeAffectHints.length ? <StatChipRow items={runtimeAffectHints} /> : null}
-        </Stack>
-      </SurfaceCard>
+      {shouldShowEmotionCard ? (
+        <SurfaceCard>
+          <SectionHeader title="情绪状态" dense action={isDeveloperView && runtimeAffectHints.length ? <Chip size="small" label="变化" color="warning" variant="outlined" /> : undefined} />
+          <Stack spacing={1}>
+            <EmotionPanel character={character} developerMode={isDeveloperView} emotionChips={emotionChips} />
+            {isDeveloperView && runtimeAffectHints.length ? <StatChipRow items={runtimeAffectHints} /> : null}
+          </Stack>
+        </SurfaceCard>
+      ) : null}
 
       <SurfaceCard>
         <SectionHeader title="行为 / 漂移" dense />
