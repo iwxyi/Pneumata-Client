@@ -112,6 +112,19 @@ export interface MessageMetadata {
       roleFit: 'limited' | 'ordinary' | 'capable';
       basis: string[];
     };
+    memoryContext?: {
+      injectedIds?: string[];
+      recalledArchives?: Array<{
+        id: string;
+        scope: string;
+        kind: string;
+        layer: string;
+        summary: string;
+        recallReason?: string;
+        recallTokens?: string[];
+        recallScore?: number;
+      }>;
+    };
     expressionFeedback?: Array<{
       id: string;
       label: string;

@@ -34,6 +34,26 @@ function shouldActivateRecall(item: MemoryItem, generatedText: string) {
   return generatedTextMatchesRecall(item, generatedText) || (item.recallScore || 0) >= 1.2;
 }
 
+function recalledFromPromptMetadata(
+  layeredMemories: MemoryItem[],
+  message: Pick<Message, 'metadata'>,
+): MemoryItem[] {
+  const recalledArchives = message.metadata?.runtimeDecision?.memoryContext?.recalledArchives || [];
+  if (!recalledArchives.length) return [];
+  const traceById = new Map(recalledArchives.map((item) => [item.id, item] as const));
+  return layeredMemories
+    .filter((item) => item.archivedAt && traceById.has(item.id))
+    .map((item) => {
+      const trace = traceById.get(item.id);
+      return {
+        ...item,
+        recallReason: trace?.recallReason || '旧档被本轮提示词注入',
+        recallTokens: trace?.recallTokens,
+        recallScore: trace?.recallScore,
+      };
+    });
+}
+
 function activateMemoryItem(item: MemoryItem, now: number): MemoryItem {
   return {
     ...item,
@@ -63,7 +83,7 @@ function mergeSpeakerPatch(transition: DriverMessageCommitTransition, characterI
 export function applyRecalledMemoryActivation(params: {
   chat: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId' | 'senderName' | 'isDeleted'>;
+  message: Pick<Message, 'content' | 'type' | 'senderId' | 'senderName' | 'isDeleted' | 'metadata'>;
   recentMessages: Message[];
   transition: DriverMessageCommitTransition;
 }) {
@@ -77,7 +97,8 @@ export function applyRecalledMemoryActivation(params: {
   if (!layeredMemories.some((item) => item.archivedAt)) return params.transition;
 
   const cueText = buildRecallCue(params.recentMessages, params.message);
-  const recalled = retrieveRelevantMemories(layeredMemories, {
+  const promptRecalled = recalledFromPromptMetadata(layeredMemories, params.message);
+  const recalled = (promptRecalled.length ? promptRecalled : retrieveRelevantMemories(layeredMemories, {
     speakerId: speaker.id,
     targetId: latestTargetId(params.recentMessages, speaker.id, params.chat.memberIds),
     conversationId: params.chat.id,
@@ -87,7 +108,7 @@ export function applyRecalledMemoryActivation(params: {
     maxArchivedItems: 3,
     preferredLayers: ['long_term', 'episodic', 'working'],
     preferredScopes: ['relationship', 'character_self', 'conversation', 'thread', 'system_runtime'],
-  }).filter((item) => shouldActivateRecall(item, params.message.content));
+  })).filter((item) => shouldActivateRecall(item, params.message.content));
   if (!recalled.length) return params.transition;
 
   const now = Date.now();

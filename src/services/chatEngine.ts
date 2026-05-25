@@ -9,7 +9,7 @@ import { getPreferredAIProfile } from '../types/settings';
 import type { ConflictFocusPayload, InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
 import { normalizeInteractionHintCollection } from '../types/runtimeEvent';
 import { generateResponse } from './aiClient';
-import { buildSystemPromptWithContext, buildChatMessages } from './promptBuilder';
+import { buildSystemPromptWithContext, buildChatMessages, buildPromptMemoryTrace, type PromptMemoryTrace } from './promptBuilder';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
 import { calculateWeights, getSpeakerSelectionResult, resolvePendingReplyContext, selectSpeaker } from './scheduler';
@@ -552,9 +552,16 @@ function buildRuntimeDecisionMetadata(params: {
   speakerScore?: SpeakerScoreBreakdown | null;
   innerLife?: InnerLifeProjection | null;
   surface?: ResponseSurface | null;
+  memoryTrace?: PromptMemoryTrace | null;
   expressionFeedback?: ExpressionFeedbackTrace;
 }): MessageMetadata['runtimeDecision'] | undefined {
-  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.expressionFeedback?.length) return undefined;
+  const memoryContext = params.memoryTrace && (params.memoryTrace.injectedIds.length || params.memoryTrace.recalledArchives.length)
+    ? {
+      injectedIds: params.memoryTrace.injectedIds.slice(0, 18),
+      recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
+    }
+    : undefined;
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !memoryContext && !params.expressionFeedback?.length) return undefined;
   return {
     directorIntent: params.directorIntent ? {
       source: params.directorIntent.source,
@@ -595,6 +602,7 @@ function buildRuntimeDecisionMetadata(params: {
       roleFit: params.surface.roleFit,
       basis: params.surface.basis.slice(0, 8),
     } : undefined,
+    memoryContext,
     expressionFeedback: params.expressionFeedback?.length ? params.expressionFeedback.slice(0, 3) : undefined,
   };
 }
@@ -796,6 +804,7 @@ export async function generateSpeakerMessage(params: {
   const mediaCapabilities = buildMediaCapabilities(params.speaker, params.profiles);
   const responseSurface = resolveResponseSurface(params.chat, enginePromptContext, activeMessages, params.speaker);
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
+  const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
 	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}
 
 Current director intent:
@@ -843,8 +852,9 @@ Current speaking intent:
 	        directorIntent: params.directorIntent,
 	        narrativeLines: params.narrativeLines,
 	        speakerScore: params.speakerScore,
-	        innerLife,
+          innerLife,
           surface: responseSurface,
+          memoryTrace,
           expressionFeedback: expressionFeedbackTrace,
 	      }),
 	    }),

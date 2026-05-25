@@ -18,7 +18,6 @@ import { formatConflictPressureLabel, formatConflictTypeLabel } from '../../serv
 import { buildMemberInnerLifeSummary } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { retrieveRelevantMemories } from '../../services/memoryRetrieval';
-import type { MemoryItem } from '../../services/memoryTypes';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -482,7 +481,50 @@ function latestCharacterTargetId(messages: Message[], member: AICharacter, membe
     .reverse()[0]?.senderId || null;
 }
 
+interface MemoryRecallDisplayItem {
+  id: string;
+  summary: string;
+  recallReason?: string;
+  recallTokens?: string[];
+  recallScore?: number;
+  recallCue?: string;
+  evidenceText?: string;
+}
+
+function buildActualMemoryRecallItems(members: AICharacter[], messages: Message[]) {
+  const memberById = new Map(members.map((member) => [member.id, member] as const));
+  const seen = new Set<string>();
+  return messages
+    .filter((message) => !message.isDeleted && message.type === 'ai')
+    .slice(-8)
+    .flatMap((message) => {
+      const member = memberById.get(message.senderId);
+      const recalled = message.metadata?.runtimeDecision?.memoryContext?.recalledArchives || [];
+      if (!member || !recalled.length) return [];
+      return recalled.map((item) => {
+        const key = `${message.id}:${item.id}`;
+        if (seen.has(key)) return null;
+        seen.add(key);
+        return {
+          member,
+          source: 'actual' as const,
+          item: {
+            id: item.id,
+            summary: item.summary,
+            recallReason: item.recallReason,
+            recallTokens: item.recallTokens,
+            recallScore: item.recallScore,
+          },
+        };
+      }).filter(Boolean) as Array<{ member: AICharacter; source: 'actual'; item: MemoryRecallDisplayItem }>;
+    })
+    .slice(-8)
+    .reverse();
+}
+
 function buildMemoryRecallItems(chat: GroupChat, members: AICharacter[], messages: Message[]) {
+  const actual = buildActualMemoryRecallItems(members, messages);
+  if (actual.length) return actual;
   const cueText = buildRecallCue(messages, members);
   if (!cueText.trim()) return [];
   return members.flatMap((member) => {
@@ -497,11 +539,19 @@ function buildMemoryRecallItems(chat: GroupChat, members: AICharacter[], message
       preferredLayers: ['long_term', 'episodic', 'working'],
       preferredScopes: ['relationship', 'character_self', 'conversation', 'thread', 'system_runtime'],
     }).filter((item) => item.archivedAt && item.recallReason);
-    return recalled.slice(0, 2).map((item) => ({ member, item }));
+    return recalled.slice(0, 2).map((item) => ({ member, source: 'candidate' as const, item: {
+      id: item.id,
+      summary: item.summary || item.text,
+      recallReason: item.recallReason,
+      recallTokens: item.recallTokens,
+      recallScore: item.recallScore,
+      recallCue: item.recallCue,
+      evidenceText: item.evidenceText,
+    } }));
   }).slice(0, 8);
 }
 
-function recallHint(item: MemoryItem) {
+function recallHint(item: MemoryRecallDisplayItem) {
   return [
     item.recallReason,
     item.recallCue ? `线索：${cleanText(item.recallCue)}` : '',
@@ -517,15 +567,15 @@ function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messag
     <SurfaceCard>
       <SectionHeader title="记忆唤醒" subtitle="旧档不会常驻进入上下文，只有被人物、话题或旧梗命中时才会回流。" dense action={buildDebugChip()} />
       <Stack spacing={0.8}>
-        {items.map(({ member, item }) => (
-          <Tooltip key={`${member.id}-${item.id}`} title={recallHint(item)} arrow placement="top-start">
+        {items.map(({ member, item, source }) => (
+          <Tooltip key={`${member.id}-${source}-${item.id}`} title={recallHint(item)} arrow placement="top-start">
             <Box sx={{ p: 0.9, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.08)', '&:hover .recall-title': { textDecoration: 'underline' } }}>
               <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
                 <Chip size="small" label={member.name} variant="outlined" sx={{ height: 22 }} />
-                <Chip size="small" label="旧档回流" color="warning" variant="outlined" sx={{ height: 22 }} />
+                <Chip size="small" label={source === 'actual' ? '本轮注入' : '候选回流'} color="warning" variant="outlined" sx={{ height: 22 }} />
                 {item.recallTokens?.slice(0, 3).map((token) => <Chip key={token} size="small" label={cleanText(token)} sx={{ height: 22 }} />)}
               </Stack>
-              <Typography className="recall-title" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.summary || item.text)}</Typography>
+              <Typography className="recall-title" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.summary)}</Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{cleanText(item.recallReason || '旧记忆被当前上下文唤醒')}</Typography>
             </Box>
           </Tooltip>

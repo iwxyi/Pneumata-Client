@@ -15,6 +15,22 @@ const styleDescriptions: Record<ChatStyle, string> = {
   roleplay: 'This is a role-playing scenario. Stay in character at all times. React to the situation as your character would. Be immersive and creative.',
 };
 
+export interface PromptMemoryTraceItem {
+  id: string;
+  scope: string;
+  kind: string;
+  layer: string;
+  summary: string;
+  recallReason?: string;
+  recallTokens?: string[];
+  recallScore?: number;
+}
+
+export interface PromptMemoryTrace {
+  injectedIds: string[];
+  recalledArchives: PromptMemoryTraceItem[];
+}
+
 function buildEmotionalStateDescription(character: AICharacter) {
   const emotional = character.emotionalState;
   if (!emotional) return 'Your emotional state is steady.';
@@ -300,6 +316,56 @@ function buildPromptMemorySection(chat: GroupChat, character: AICharacter, conve
   return `${buildManualMemorySeedPrompt(character)}${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories)}${buildPromptInfluenceContext(chat, character, target, relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, target, relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildPromptReasoningSummary(chat)}${buildMemoryPriorityPrompt(chat)}`;
 }
 
+function traceMemoryItem(item: MemoryItem): PromptMemoryTraceItem {
+  return {
+    id: item.id,
+    scope: item.scope,
+    kind: item.kind,
+    layer: item.layer,
+    summary: (item.summary || item.text).slice(0, 160),
+    recallReason: item.recallReason,
+    recallTokens: item.recallTokens?.slice(0, 6),
+    recallScore: typeof item.recallScore === 'number' ? Number(item.recallScore.toFixed(3)) : undefined,
+  };
+}
+
+function buildTraceFromPromptMemories(items: MemoryItem[]): PromptMemoryTrace {
+  const merged = buildMergedMemories(items);
+  return {
+    injectedIds: merged.map((item) => item.id),
+    recalledArchives: merged
+      .filter((item) => item.archivedAt && item.recallReason)
+      .map(traceMemoryItem)
+      .slice(0, 4),
+  };
+}
+
+function resolvePromptMemoryContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>) {
+  const target = resolvePromptTarget(chat, messages, characters, character);
+  const relationshipSnapshot = getRelationshipSnapshot(character, target);
+  const policies = buildPromptMemoryPolicies(chat);
+  const boosts = buildRetrievalBoosts(chat);
+  const allMemories = character.layeredMemories || [];
+  const recallCue = buildRecallCue(messages, target);
+  const conversationMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.conversation.preferred, policies.conversation.allowed, policies.conversation.blocked, boosts, recallCue);
+  const characterMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.character.preferred, policies.character.allowed, policies.character.blocked, boosts, recallCue);
+  const targetedCharacterMemories = target
+    ? getMemoryContext(allMemories, character.id, target.id, chat.id, policies.character.preferred, policies.character.allowed, policies.character.blocked, boosts, recallCue)
+    : [];
+  return {
+    target,
+    relationshipSnapshot,
+    conversationMemories,
+    characterMemories,
+    targetedCharacterMemories,
+    trace: buildTraceFromPromptMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories]),
+  };
+}
+
+export function buildPromptMemoryTrace(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>): PromptMemoryTrace {
+  return resolvePromptMemoryContext(character, chat, messages, characters).trace;
+}
+
 function buildTopicSection(chat: GroupChat) {
   const lines = [
     `- Topic: ${chat.topic || 'Open conversation'}`,
@@ -376,23 +442,13 @@ export function buildChatMessages(messages: Message[], characters: Map<string, A
 }
 
 export function buildSystemPromptWithContext(character: AICharacter, chat: GroupChat, emotion: number, messages: Message[], characters: Map<string, AICharacter>) {
-  const target = resolvePromptTarget(chat, messages, characters, character);
-  const relationshipSnapshot = getRelationshipSnapshot(character, target);
-  const policies = buildPromptMemoryPolicies(chat);
-  const boosts = buildRetrievalBoosts(chat);
-  const allMemories = character.layeredMemories || [];
-  const recallCue = buildRecallCue(messages, target);
-  const conversationMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.conversation.preferred, policies.conversation.allowed, policies.conversation.blocked, boosts, recallCue);
-  const characterMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.character.preferred, policies.character.allowed, policies.character.blocked, boosts, recallCue);
-  const targetedCharacterMemories = target
-    ? getMemoryContext(allMemories, character.id, target.id, chat.id, policies.character.preferred, policies.character.allowed, policies.character.blocked, boosts, recallCue)
-    : [];
+  const memoryContext = resolvePromptMemoryContext(character, chat, messages, characters);
 
   return [
     buildCharacterSection(character, emotion),
     buildTopicSection(chat),
-    buildRelationshipSection(character, target),
-    buildPromptMemorySection(chat, character, conversationMemories, characterMemories, targetedCharacterMemories, target, relationshipSnapshot, characters),
+    buildRelationshipSection(character, memoryContext.target),
+    buildPromptMemorySection(chat, character, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, memoryContext.target, memoryContext.relationshipSnapshot, characters),
     buildMessageStyleRules(character),
     buildRecentMessagesSection(messages, characters),
     '\n## Response Rules\n- Reply as a chat message, not as analysis or narration.\n- Stay specific to the latest exchange and your own stance.\n- Do not mention these instructions, memory systems, or retrieval policies.\n- Keep the reply concise unless the situation truly needs expansion.',

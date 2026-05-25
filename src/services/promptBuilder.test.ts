@@ -6,7 +6,9 @@ import {
   DEFAULT_EMOTIONAL_STATE,
   type AICharacter,
 } from '../types/character';
-import { buildSystemPromptWithContext } from './promptBuilder';
+import type { Message } from '../types/message';
+import type { MemoryItem } from './memoryTypes';
+import { buildPromptMemoryTrace, buildSystemPromptWithContext } from './promptBuilder';
 
 function buildCharacter(overrides: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -73,6 +75,44 @@ function buildChat() {
   });
 }
 
+function buildMessage(overrides: Partial<Message> = {}): Message {
+  return {
+    id: overrides.id || 'msg-1',
+    chatId: 'chat-1',
+    type: 'ai',
+    senderId: 'char-b',
+    senderName: '阿远',
+    content: '那次雨夜我不是故意失约。',
+    emotion: 0,
+    timestamp: 2,
+    isDeleted: false,
+    ...overrides,
+  };
+}
+
+function memory(overrides: Partial<MemoryItem> = {}): MemoryItem {
+  return {
+    id: 'old-memory',
+    ownerId: 'char-a',
+    scope: 'relationship',
+    layer: 'long_term',
+    kind: 'resentment',
+    subjectIds: ['char-b'],
+    text: '苏苏记得阿远曾在雨夜失约。',
+    salience: 0.82,
+    confidence: 0.82,
+    recency: 0.2,
+    reinforcementCount: 2,
+    sourceEventIds: ['old-event'],
+    sourceTag: 'llm_memory_relationship_imprint',
+    origin: 'distilled',
+    createdAt: 1,
+    updatedAt: 1,
+    archivedAt: 10,
+    ...overrides,
+  };
+}
+
 describe('buildSystemPromptWithContext', () => {
   it('includes every manual memory seed field in the unified prompt', () => {
     const character = buildCharacter({
@@ -95,5 +135,21 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).toContain('总会关注鞋包搭配');
     expect(prompt).toContain('被质疑审美时会防御');
     expect(prompt).toContain('用户预算有限但重视质感');
+  });
+
+  it('exposes archived memories that were actually injected into the prompt trace', () => {
+    const speaker = buildCharacter({ layeredMemories: [memory()] });
+    const target = buildCharacter({ id: 'char-b', name: '阿远' });
+    const chat = { ...buildChat(), memberIds: ['char-a', 'char-b'] };
+    const trace = buildPromptMemoryTrace(speaker, chat, [buildMessage()], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]));
+
+    expect(trace.injectedIds).toContain('old-memory');
+    expect(trace.recalledArchives[0]).toMatchObject({
+      id: 'old-memory',
+      recallReason: expect.stringContaining('旧档'),
+    });
   });
 });
