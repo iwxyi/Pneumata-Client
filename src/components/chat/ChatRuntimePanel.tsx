@@ -626,7 +626,7 @@ function recallHint(item: MemoryRecallDisplayItem) {
     item.recallReason,
     item.recallCue ? `线索：${cleanText(item.recallCue)}` : '',
     item.evidenceText ? `证据：${cleanText(item.evidenceText)}` : '',
-    item.recallScore ? `score ${item.recallScore.toFixed(2)}` : '',
+    item.recallScore ? `召回强度 ${item.recallScore.toFixed(2)}` : '',
   ].filter(Boolean).join('\n');
 }
 
