@@ -763,6 +763,28 @@ function renderDecisionReasonGroup(group: ReturnType<typeof buildDecisionReasonG
   );
 }
 
+function renderAdvancedDecisionDetail(item: RuntimeDecisionTraceItem) {
+  if (!item.debugDetailLabel) return null;
+  const content = (
+    <Typography
+      className="decision-advanced-detail"
+      variant="caption"
+      color="text.secondary"
+      sx={{ display: 'block', mt: 0.5 }}
+    >
+      {cleanText(item.debugDetailLabel)}
+    </Typography>
+  );
+  if (!item.rawDebugHint) return content;
+  return (
+    <Tooltip title={cleanText(item.rawDebugHint)} arrow>
+      <Box sx={{ '&:hover .decision-advanced-detail': { textDecoration: 'underline' } }}>
+        {content}
+      </Box>
+    </Tooltip>
+  );
+}
+
 function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedRuntimeView: boolean) {
   if (!items.length) return null;
   return (
@@ -784,7 +806,7 @@ function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedR
             ) : (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>暂无可读调度原因</Typography>
             )}
-            {isAdvancedRuntimeView ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{cleanText(item.rawDirector)}{item.rawPrimaryLine ? ` / ${cleanText(item.rawPrimaryLine)}` : ''}{item.rawSurface ? ` / ${cleanText(item.rawSurface)}` : ''}{item.rawExpression ? ` / ${cleanText(item.rawExpression)}` : ''}</Typography> : null}
+            {isAdvancedRuntimeView ? renderAdvancedDecisionDetail(item) : null}
             {isAdvancedRuntimeView && item.innerLifeState ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                 {Object.entries(item.innerLifeState).slice(0, 6).map(([key, value]) => `${formatSoulKey(key)} ${String(value)}`).join(' / ')}

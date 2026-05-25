@@ -1,6 +1,6 @@
 import type { Message } from '../types/message';
 import { projectMessageRuntimeClues, type MessageRuntimeClueSection } from './messageRuntimeClues';
-import { formatBeatType, formatDirectorSource, formatNarrativeLineType } from './runtimeInsightPresentation';
+import { formatBeatType, formatDirectorSource, formatKnownReason, formatNarrativeLineType } from './runtimeInsightPresentation';
 
 type RuntimeDecisionDirectorIntentMeta = NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['directorIntent'];
 type RuntimeDecisionLineMeta = {
@@ -42,6 +42,8 @@ export interface RuntimeDecisionTraceItem {
   surfaceLabel: string | null;
   surfaceBasis: string[];
   rawSurface: string | null;
+  debugDetailLabel: string | null;
+  rawDebugHint: string | null;
   runtimeClueSections: MessageRuntimeClueSection[];
 }
 
@@ -63,6 +65,10 @@ function formatDirectorLabel(intent: RuntimeDecisionDirectorIntentMeta) {
 function formatPrimaryLineLabel(line: RuntimeDecisionLineMeta) {
   const type = typeof line.type === 'string' ? formatNarrativeLineType(line.type as never) : '线索';
   return `${type} · ${line.title} · 显著 ${formatPressure(line.salience)}`;
+}
+
+function formatDirectorReason(reason: string | undefined) {
+  return reason ? formatKnownReason(reason) : null;
 }
 
 function formatInnerTone(tone: string | undefined) {
@@ -254,6 +260,19 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): Run
         ? `${formatResponseSurfaceKind(surface.kind)} · ${formatRoleFit(surface.roleFit)}${surface.allowMarkdown ? ' · Markdown' : ''}`
         : null;
       const expression = buildExpressionTrace(innerLife, surface);
+      const readableDirectorReason = formatDirectorReason(decision?.directorIntent?.reason);
+      const debugDetailLabel = [
+        directorLabel !== '无调度意图' ? `调度：${directorLabel}${readableDirectorReason ? ` · ${readableDirectorReason}` : ''}` : '',
+        primaryLineLabel ? `线索：${primaryLineLabel}` : '',
+        surfaceLabel ? `表达：${surfaceLabel}` : '',
+        expression.label ? `节奏：${expression.label}` : '',
+      ].filter(Boolean).join(' / ') || null;
+      const rawDebugHint = [
+        decision?.directorIntent ? `director=${director}` : '',
+        primaryLine ? `line=${primaryLine}` : '',
+        rawSurface ? `surface=${rawSurface}` : '',
+        expression.raw ? `expression=${expression.raw}` : '',
+      ].filter(Boolean).join(' / ') || null;
       const runtimeClueSections = projectMessageRuntimeClues(message);
       const expressionFeedback = Array.isArray(decision?.expressionFeedback) ? decision.expressionFeedback : [];
       const expressionFeedbackRetrievedLabels = expressionFeedback
@@ -311,6 +330,8 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): Run
         surfaceLabel,
         surfaceBasis,
         rawSurface,
+        debugDetailLabel,
+        rawDebugHint,
         runtimeClueSections,
       };
     });

@@ -99,6 +99,8 @@ describe('runtimeDecisionTrace', () => {
       surfaceLabel: '专业表达 · 角色能力支持 · Markdown',
       surfaceBasis: ['面试模式', '主题请求专业表达', '角色能力支持长文'],
       rawSurface: 'professional/capable/markdown',
+      debugDetailLabel: '调度：矛盾 · 挑战 · 压力 0.82 · 矛盾升温 / 线索：矛盾线 · 当前矛盾 · 显著 0.91 / 表达：专业表达 · 角色能力支持 · Markdown / 节奏：表达 常规 · 2 条气泡倾向 · 富文本',
+      rawDebugHint: 'director=conflict/challenge · 0.82 · 矛盾升温 / line=conflict:当前矛盾 · 显著 0.91 / surface=professional/capable/markdown / expression=normal/count:2/delay:1600/typo:1/withdraw:false',
       runtimeClueSections: expect.arrayContaining([
         expect.objectContaining({
           key: 'memory',
