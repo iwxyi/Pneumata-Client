@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { MemoryCandidate } from './memoryTypes';
 import { consolidateMemoryCandidates } from './memoryConsolidation';
 
-function buildInteractionCandidate(index: number): MemoryCandidate {
+function buildInteractionCandidate(index: number, subjectIds = ['char-a', 'char-b']): MemoryCandidate {
   return {
     scope: 'relationship',
     layerHint: 'episodic',
     kind: 'resentment',
     ownerId: 'char-a',
-    subjectIds: ['char-a', 'char-b'],
+    subjectIds,
     text: `对 乙 的关系倾向：表现出挑衅、防备、嘲弄或不满；证据 ${index}`,
     sourceEventIds: [`interaction-${index}`],
     sourceTag: 'interaction',
@@ -87,5 +87,38 @@ describe('consolidateMemoryCandidates', () => {
     ]);
 
     expect(archived[0]?.archivedAt).toBeTruthy();
+  });
+
+  it('keeps overflow memories as cold archive instead of dropping them outright', () => {
+    const memories = Array.from({ length: 46 }, (_, index) => index + 1).reduce(
+      (items, index) => consolidateMemoryCandidates(items, [
+        buildInteractionCandidate(index, [`char-a`, `char-${index}`]),
+      ]),
+      [] as ReturnType<typeof consolidateMemoryCandidates>,
+    );
+
+    expect(memories.length).toBeGreaterThan(32);
+    expect(memories.some((item) => item.archivedAt)).toBe(true);
+  });
+
+  it('keeps distilled long-term anchors active while older ordinary memories cool down', () => {
+    const withAnchor = consolidateMemoryCandidates([], [
+      buildDistilledCandidate({
+        text: '乙对甲造成过一次很重的公开羞辱，这成了甲之后回避乙的长期锚点。',
+        sourceEventIds: ['anchor-1'],
+        subjectIds: ['char-a', 'char-anchor'],
+        decision: 'create',
+      }),
+    ]);
+    const memories = Array.from({ length: 46 }, (_, index) => index + 1).reduce(
+      (items, index) => consolidateMemoryCandidates(items, [
+        buildInteractionCandidate(index, [`char-a`, `char-${index}`]),
+      ]),
+      withAnchor,
+    );
+    const anchor = memories.find((item) => item.sourceEventIds.includes('anchor-1'));
+
+    expect(anchor).toBeTruthy();
+    expect(anchor?.archivedAt).toBeFalsy();
   });
 });

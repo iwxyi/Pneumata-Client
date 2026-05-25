@@ -61,11 +61,20 @@ export function buildGroupDynamicsPrompt(chat: GroupChat, dramaBoost = false) {
 
 function buildCharacterLayeredMemoryPrompt(character: AICharacter, messages: Message[]) {
   const targetId = messages.filter((msg) => !msg.isDeleted && msg.type === 'ai' && msg.senderId !== character.id).at(-1)?.senderId;
+  const cueText = messages
+    .filter((msg) => !msg.isDeleted && msg.type !== 'system' && msg.type !== 'event')
+    .slice(-4)
+    .map((msg) => msg.content)
+    .join('\n')
+    .slice(-900);
   const memories = retrieveRelevantMemories(character.layeredMemories || [], {
     speakerId: character.id,
     targetId,
     conversationId: `character:${character.id}`,
     maxItems: 4,
+    cueText,
+    includeArchivedRecall: Boolean(cueText.trim()),
+    maxArchivedItems: 1,
   });
   if (!memories.length) return '';
   return `\n## Character Memory\n${memories.map((item) => `- [${item.scope}/${item.kind}/${item.layer}] ${item.text}`).join('\n')}`;

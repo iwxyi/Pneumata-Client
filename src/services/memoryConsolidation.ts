@@ -1,5 +1,6 @@
 import type { MemoryCandidate, MemoryItem } from './memoryTypes';
 import { sanitizeMemoryText } from './distillationText';
+import { compactMemoryItems } from './memoryLifecycle';
 
 const MAX_TRACKED_SOURCE_EVENT_IDS = 32;
 
@@ -161,5 +162,5 @@ export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: 
     next.push(createMemoryItem(candidate, score, now));
   }
 
-  return next.slice(-24);
+  return compactMemoryItems(next, now);
 }

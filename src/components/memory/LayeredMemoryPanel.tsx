@@ -5,8 +5,9 @@ import SectionHeader from '../common/SectionHeader';
 import StatChipRow from '../common/StatChipRow';
 import type { MemoryItem } from '../../services/memoryTypes';
 import { getExperienceLensLabel } from '../../services/experienceChangePresentation';
-import { isUserFacingMemoryItem } from '../../services/memoryPresentation';
+import { isRuntimeEvidenceMemory } from '../../services/memoryPresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { isMemoryAnchorCandidate } from '../../services/memoryLifecycle';
 
 function getMemoryLayerLabel(layer: MemoryItem['layer']) {
   const labels: Record<MemoryItem['layer'], string> = {
@@ -93,16 +94,12 @@ function MemoryCard({ item, includeDebugDetails, formatMemoryText }: { item: Mem
 
 type MemoryFilterKey = 'all' | 'anchors' | 'longTerm' | 'episodic' | 'working' | 'relationship' | 'self' | 'conversation' | 'expressionFeedback' | 'archived';
 
-function isAnchorCandidate(item: MemoryItem) {
-  return item.layer === 'long_term' && !item.archivedAt && (item.origin === 'distilled' || item.reinforcementCount >= 3 || item.salience >= 0.78);
-}
-
 function buildMemoryGroups(items: MemoryItem[]) {
   const activeItems = items.filter((item) => !item.archivedAt);
   const expressionFeedback = activeItems.filter((item) => item.sourceTag === 'expression_feedback');
   return {
     all: activeItems,
-    anchors: activeItems.filter(isAnchorCandidate),
+    anchors: activeItems.filter(isMemoryAnchorCandidate),
     longTerm: activeItems.filter((item) => item.layer === 'long_term'),
     episodic: activeItems.filter((item) => item.layer === 'episodic'),
     working: activeItems.filter((item) => item.layer === 'working'),
@@ -125,7 +122,7 @@ function buildMemoryFilters(groups: ReturnType<typeof buildMemoryGroups>, includ
     { key: 'self', label: '自我', items: groups.self, hint: '角色如何理解自己、偏好、创伤或成长。' },
     { key: 'conversation', label: '会话/线程', items: groups.conversation, hint: '群聊、单聊或私聊线程里的共同记忆。' },
     includeDebugDetails ? { key: 'expressionFeedback', label: '表达反馈', items: groups.expressionFeedback, hint: '用户对表达风格的纠偏记忆。' } : null,
-    includeDebugDetails ? { key: 'archived', label: '旧档', items: groups.archived, hint: '已归档或沉下去的记忆，普通生成不会优先使用。' } : null,
+    groups.archived.length ? { key: 'archived', label: '旧档', items: groups.archived, hint: '已归档或沉下去的记忆，只有被人物、话题或旧梗唤醒时才会回到上下文。' } : null,
   ].filter(Boolean)) as Array<{ key: MemoryFilterKey; label: string; items: MemoryItem[]; hint: string }>;
 }
 
@@ -155,7 +152,7 @@ export default function LayeredMemoryPanel({
   const [expanded, setExpanded] = useState(false);
   const [activeFilter, setActiveFilter] = useState<MemoryFilterKey>('all');
   const visibleSourceMemories = useMemo(
-    () => memories.filter((item) => includeRuntimeEvidence ? true : isUserFacingMemoryItem(item)),
+    () => memories.filter((item) => includeRuntimeEvidence ? true : !isRuntimeEvidenceMemory(item)),
     [includeRuntimeEvidence, memories],
   );
   const groups = useMemo(() => buildMemoryGroups(visibleSourceMemories), [visibleSourceMemories]);

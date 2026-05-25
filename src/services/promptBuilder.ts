@@ -64,6 +64,15 @@ function buildLayeredMemoryPrompt(items: MemoryItem[], title = 'Relevant Memorie
   return `\n## ${title}\n${items.map((item) => `- [${item.scope}/${item.kind}/${item.layer}] ${item.text}`).join('\n')}`;
 }
 
+function buildRecallCue(messages: Message[], target?: AICharacter | null) {
+  const recentText = messages
+    .filter((item) => !item.isDeleted && item.type !== 'system' && item.type !== 'event')
+    .slice(-4)
+    .map((item) => item.content)
+    .join('\n');
+  return [target?.name, recentText].filter(Boolean).join('\n').slice(-900);
+}
+
 function buildGroupMemoryPolicyTags() {
   return {
     preferred: ['llm_memory_objective_event', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', 'interaction', 'relationship_delta', 'room_shift', 'private_thread_effect', 'private_thread_summary'],
@@ -372,10 +381,11 @@ export function buildSystemPromptWithContext(character: AICharacter, chat: Group
   const policies = buildPromptMemoryPolicies(chat);
   const boosts = buildRetrievalBoosts(chat);
   const allMemories = character.layeredMemories || [];
-  const conversationMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.conversation.preferred, policies.conversation.allowed, policies.conversation.blocked, boosts);
-  const characterMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.character.preferred, policies.character.allowed, policies.character.blocked, boosts);
+  const recallCue = buildRecallCue(messages, target);
+  const conversationMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.conversation.preferred, policies.conversation.allowed, policies.conversation.blocked, boosts, recallCue);
+  const characterMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.character.preferred, policies.character.allowed, policies.character.blocked, boosts, recallCue);
   const targetedCharacterMemories = target
-    ? getMemoryContext(allMemories, character.id, target.id, chat.id, policies.character.preferred, policies.character.allowed, policies.character.blocked, boosts)
+    ? getMemoryContext(allMemories, character.id, target.id, chat.id, policies.character.preferred, policies.character.allowed, policies.character.blocked, boosts, recallCue)
     : [];
 
   return [
