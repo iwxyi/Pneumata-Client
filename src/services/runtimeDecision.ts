@@ -44,6 +44,10 @@ function countAiResponsesAfter(messages: Message[], timestamp: number) {
   return messages.filter((message) => message.type === 'ai' && !message.isDeleted && message.timestamp > timestamp).length;
 }
 
+function getAiRespondersAfter(messages: Message[], timestamp: number) {
+  return new Set(messages.filter((message) => message.type === 'ai' && !message.isDeleted && message.timestamp > timestamp).map((message) => message.senderId));
+}
+
 function isDirectorInterventionActive(event: NonNullable<GroupChat['runtimeEventsV2']>[number], messages: Message[], now: number) {
   const payload = event.payload as Record<string, unknown>;
   const expiresAt = typeof payload.expiresAt === 'number' ? payload.expiresAt : event.createdAt + 10 * 60_000;
@@ -60,13 +64,23 @@ function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AIChar
   const guidance = typeof payload.userGuidance === 'object' && payload.userGuidance
     ? payload.userGuidance as UserGuidanceIntent
     : parseUserGuidanceIntent(text || '', characters);
+  const respondedActorIds = getAiRespondersAfter(messages, event.createdAt);
+  const pendingGuidanceActorIds = guidance?.actorIds.length
+    ? guidance.actorIds.filter((actorId) => !respondedActorIds.has(actorId))
+    : [];
   const targetActorIds = uniqueKnownActorIds(payload.targetActorIds, characters);
   const guidanceTargetActorIds = uniqueKnownActorIds(getGuidanceTargetActorIds(guidance), characters);
+  const activeTargetActorIds = pendingGuidanceActorIds.length
+    ? uniqueKnownActorIds(pendingGuidanceActorIds, characters)
+    : targetActorIds.length
+      ? targetActorIds
+      : guidanceTargetActorIds;
+  if (guidance?.actorIds.length && !activeTargetActorIds.length) return null;
   return {
     source: 'user_message',
     targetLineId: typeof payload.targetLineId === 'string' ? payload.targetLineId : undefined,
     beatType: resolveDirectorBeatType(payload.intent),
-    targetActorIds: targetActorIds.length ? targetActorIds : guidanceTargetActorIds,
+    targetActorIds: activeTargetActorIds,
     pressure: clamp01(typeof payload.pressure === 'number' ? payload.pressure : 0.86),
     reason: text || 'A director intervention is steering the next room beat.',
     userGuidance: guidance,

@@ -174,6 +174,60 @@ describe('runtimeDecision', () => {
     });
   });
 
+  it('keeps only unanswered requested actors active for multi-actor guidance', () => {
+    const intervention: RuntimeEventV2 = {
+      id: 'evt-director',
+      conversationId: 'chat-1',
+      kind: 'director_intervention',
+      createdAt: 30,
+      summary: '让甲乙都发图',
+      visibility: 'moderator_only',
+      payload: {
+        intent: 'force_reply',
+        targetActorIds: ['a', 'b'],
+        pressure: 0.98,
+        text: '让甲和乙都发一张图',
+        maxTurns: 2,
+        expiresAt: 1000,
+        userGuidance: {
+          kind: 'media_request',
+          rawText: '让甲和乙都发一张图',
+          actorIds: ['a', 'b'],
+          mentionedActorIds: ['a', 'b'],
+          mediaRequest: {
+            kind: 'image',
+            subjectActorIds: [],
+            subjectText: '当前话题',
+            actionText: '发一张图',
+          },
+          focusText: '让甲和乙都发一张图',
+          beatType: 'answer',
+          pressure: 0.98,
+          maxTurns: 2,
+          reason: '用户指定角色发送或创作图片。',
+        },
+      },
+    };
+    const afterFirst = projectRuntimePressure({
+      chat: buildChat({ runtimeEventsV2: [intervention] }),
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      messages: [buildMessage({ type: 'ai', senderId: 'a', senderName: '甲', content: '我先发。', timestamp: 40 })],
+      now: 50,
+    });
+    expect(afterFirst.directorIntent).toMatchObject({ source: 'user_message', targetActorIds: ['b'] });
+
+    const afterBoth = projectRuntimePressure({
+      chat: buildChat({ runtimeEventsV2: [intervention] }),
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      messages: [
+        buildMessage({ id: 'm-a', type: 'ai', senderId: 'a', senderName: '甲', content: '我先发。', timestamp: 40 }),
+        buildMessage({ id: 'm-b', type: 'ai', senderId: 'b', senderName: '乙', content: '我也发。', timestamp: 45 }),
+      ],
+      now: 50,
+    });
+    expect(afterBoth.directorIntent?.source).not.toBe('user_message');
+  });
+
   it('expires a director intervention after one AI response by default', () => {
     const intervention: RuntimeEventV2 = {
       id: 'evt-director',

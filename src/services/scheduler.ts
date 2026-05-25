@@ -222,7 +222,7 @@ export function calculateWeights(
   const recentText = recentMessages.slice(-5).map((m) => m.content).join(' ');
   const keywords = extractKeywords(recentText);
   const forcedUserGuidanceActorIds = directorIntent?.source === 'user_message' && directorIntent.userGuidance?.actorIds.length
-    ? directorIntent.userGuidance.actorIds
+    ? (directorIntent.targetActorIds.length ? directorIntent.targetActorIds : directorIntent.userGuidance.actorIds)
     : [];
 
   return characters
@@ -253,7 +253,7 @@ export function calculateWeights(
       const conflictBias = getConflictSpeakerBias(char, conflictContext, lastSpeakerId);
       const directorBias = getDirectorIntentSpeakerBias({ character: char, directorIntent, chat, lastSpeakerId });
       const hardUserGuidanceTargets = directorIntent?.source === 'user_message' && directorIntent.userGuidance?.actorIds.length
-        ? directorIntent.userGuidance.actorIds
+        ? (directorIntent.targetActorIds.length ? directorIntent.targetActorIds : directorIntent.userGuidance.actorIds)
         : [];
       const hardUserGuidancePenalty = hardUserGuidanceTargets.length && !hardUserGuidanceTargets.includes(char.id)
         ? (directorIntent?.userGuidance?.kind === 'media_request' ? 0.02 : 0.12)
