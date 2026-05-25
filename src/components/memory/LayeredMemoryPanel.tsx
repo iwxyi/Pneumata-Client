@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Button, Chip, Stack, Typography } from '@mui/material';
+import { Box, Button, Chip, Stack, Tab, Tabs, Tooltip, Typography } from '@mui/material';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import StatChipRow from '../common/StatChipRow';
@@ -58,45 +58,75 @@ function buildMemoryMetaItems(item: MemoryItem, includeDebugDetails: boolean) {
   ].filter(Boolean) as string[];
 }
 
+function memoryStrengthLabel(item: MemoryItem) {
+  const salience = Number.isFinite(item.salience) ? item.salience : 0;
+  if (item.archivedAt) return '已沉入旧档';
+  if (item.layer === 'long_term' && (item.origin === 'distilled' || item.reinforcementCount >= 3 || salience >= 0.78)) return '锚点候选';
+  if (salience >= 0.78) return '印象很深';
+  if (salience >= 0.5) return '印象明确';
+  return '印象较轻';
+}
+
+function buildEvidenceTitle(item: MemoryItem, formatMemoryText?: (text: string, item: MemoryItem) => string) {
+  const evidenceSource = item.evidenceText || item.summary || item.text;
+  const evidenceTitle = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(evidenceSource, item) : evidenceSource);
+  return evidenceTitle || '暂无证据文本';
+}
+
 function MemoryCard({ item, includeDebugDetails, formatMemoryText }: { item: MemoryItem; includeDebugDetails: boolean; formatMemoryText?: (text: string, item: MemoryItem) => string }) {
   const sourceText = item.summary || item.text;
   const displayText = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(sourceText, item) : sourceText);
-  const evidenceSource = item.evidenceText || item.summary || item.text;
-  const evidenceTitle = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(evidenceSource, item) : evidenceSource);
+  const evidenceTitle = buildEvidenceTitle(item, formatMemoryText);
+  const metaItems = [memoryStrengthLabel(item), ...buildMemoryMetaItems(item, includeDebugDetails)].filter(Boolean) as string[];
   return (
-    <Box sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
-      <Stack spacing={0.6}>
-        <Typography variant="body2" sx={{ fontWeight: 700 }} title={evidenceTitle}>{displayText}</Typography>
-        <StatChipRow items={buildMemoryMetaItems(item, includeDebugDetails)} />
-        {includeDebugDetails ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', opacity: 0.85 }}>{`强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}%`}</Typography> : null}
-      </Stack>
-    </Box>
+    <Tooltip title={evidenceTitle} arrow placement="top-start">
+      <Box sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2, bgcolor: item.archivedAt ? 'transparent' : 'action.hover', border: '1px solid', borderColor: item.archivedAt ? 'divider' : 'rgba(148, 163, 184, 0.12)', opacity: item.archivedAt ? 0.72 : 1 }}>
+        <Stack spacing={0.6}>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{displayText}</Typography>
+          <StatChipRow items={metaItems} />
+          {includeDebugDetails ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', opacity: 0.85 }}>{`强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}% · 显著性 ${(item.salience * 100).toFixed(0)}%`}</Typography> : null}
+        </Stack>
+      </Box>
+    </Tooltip>
   );
 }
 
+type MemoryFilterKey = 'all' | 'anchors' | 'longTerm' | 'episodic' | 'working' | 'relationship' | 'self' | 'conversation' | 'expressionFeedback' | 'archived';
+
+function isAnchorCandidate(item: MemoryItem) {
+  return item.layer === 'long_term' && !item.archivedAt && (item.origin === 'distilled' || item.reinforcementCount >= 3 || item.salience >= 0.78);
+}
+
 function buildMemoryGroups(items: MemoryItem[]) {
-  const expressionFeedback = items.filter((item) => item.sourceTag === 'expression_feedback');
+  const activeItems = items.filter((item) => !item.archivedAt);
+  const expressionFeedback = activeItems.filter((item) => item.sourceTag === 'expression_feedback');
   return {
-    longTerm: items.filter((item) => item.layer === 'long_term'),
-    episodic: items.filter((item) => item.layer === 'episodic'),
-    working: items.filter((item) => item.layer === 'working'),
-    relationship: items.filter((item) => item.scope === 'relationship'),
-    self: items.filter((item) => item.scope === 'character_self'),
-    conversation: items.filter((item) => item.scope === 'conversation' || item.scope === 'thread'),
+    all: activeItems,
+    anchors: activeItems.filter(isAnchorCandidate),
+    longTerm: activeItems.filter((item) => item.layer === 'long_term'),
+    episodic: activeItems.filter((item) => item.layer === 'episodic'),
+    working: activeItems.filter((item) => item.layer === 'working'),
+    relationship: activeItems.filter((item) => item.scope === 'relationship'),
+    self: activeItems.filter((item) => item.scope === 'character_self'),
+    conversation: activeItems.filter((item) => item.scope === 'conversation' || item.scope === 'thread'),
     expressionFeedback,
+    archived: items.filter((item) => item.archivedAt),
   };
 }
 
 function buildMemoryFilters(groups: ReturnType<typeof buildMemoryGroups>, includeDebugDetails: boolean) {
   return ([
-    { key: 'longTerm', label: '长期', items: groups.longTerm },
-    { key: 'episodic', label: '情节', items: groups.episodic },
-    includeDebugDetails ? { key: 'working', label: '即时', items: groups.working } : null,
-    includeDebugDetails ? { key: 'expressionFeedback', label: '表达反馈', items: groups.expressionFeedback } : null,
-    { key: 'relationship', label: '关系', items: groups.relationship },
-    { key: 'self', label: '角色', items: groups.self },
-    { key: 'conversation', label: '会话', items: groups.conversation },
-  ].filter(Boolean)) as Array<{ key: string; label: string; items: MemoryItem[] }>;
+    { key: 'all', label: '全部', items: groups.all, hint: '当前活跃记忆池，会进入后续检索与表达。' },
+    { key: 'anchors', label: '锚点', items: groups.anchors, hint: '由长期、反复强化或蒸馏记忆投影出的生命锚点候选。' },
+    { key: 'longTerm', label: '长期', items: groups.longTerm, hint: '稳定判断、长期关系模式和可复用结论。' },
+    { key: 'episodic', label: '片段', items: groups.episodic, hint: '阶段性事件和仍有上下文温度的经历。' },
+    includeDebugDetails ? { key: 'working', label: '即时', items: groups.working, hint: '当前几轮或运行态证据，通常只在调试时查看。' } : null,
+    { key: 'relationship', label: '关系', items: groups.relationship, hint: '围绕具体对象形成的关系印象。' },
+    { key: 'self', label: '自我', items: groups.self, hint: '角色如何理解自己、偏好、创伤或成长。' },
+    { key: 'conversation', label: '会话/线程', items: groups.conversation, hint: '群聊、单聊或私聊线程里的共同记忆。' },
+    includeDebugDetails ? { key: 'expressionFeedback', label: '表达反馈', items: groups.expressionFeedback, hint: '用户对表达风格的纠偏记忆。' } : null,
+    includeDebugDetails ? { key: 'archived', label: '旧档', items: groups.archived, hint: '已归档或沉下去的记忆，普通生成不会优先使用。' } : null,
+  ].filter(Boolean)) as Array<{ key: MemoryFilterKey; label: string; items: MemoryItem[]; hint: string }>;
 }
 
 interface LayeredMemoryPanelProps {
@@ -107,6 +137,7 @@ interface LayeredMemoryPanelProps {
   expandedCount?: number;
   showAll?: boolean;
   includeRuntimeEvidence?: boolean;
+  showDebugChip?: boolean;
   formatMemoryText?: (text: string, item: MemoryItem) => string;
 }
 
@@ -118,49 +149,44 @@ export default function LayeredMemoryPanel({
   expandedCount = 12,
   showAll = false,
   includeRuntimeEvidence = false,
+  showDebugChip = true,
   formatMemoryText,
 }: LayeredMemoryPanelProps) {
   const [expanded, setExpanded] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<MemoryFilterKey>('all');
   const visibleSourceMemories = useMemo(
-    () => memories.filter((item) => includeRuntimeEvidence ? !item.archivedAt : isUserFacingMemoryItem(item)),
+    () => memories.filter((item) => includeRuntimeEvidence ? true : isUserFacingMemoryItem(item)),
     [includeRuntimeEvidence, memories],
   );
   const groups = useMemo(() => buildMemoryGroups(visibleSourceMemories), [visibleSourceMemories]);
   const filters = useMemo(() => buildMemoryFilters(groups, includeRuntimeEvidence), [groups, includeRuntimeEvidence]);
   const filteredMemories = useMemo(() => {
-    const selected = filters.find((item) => item.key === activeFilter);
-    return selected ? selected.items : visibleSourceMemories;
-  }, [activeFilter, filters, visibleSourceMemories]);
+    const selected = filters.find((item) => item.key === activeFilter) || filters[0];
+    return selected ? selected.items : [];
+  }, [activeFilter, filters]);
+  const activeMeta = filters.find((item) => item.key === activeFilter) || filters[0];
   const visibleMemories = showAll ? filteredMemories : expanded ? filteredMemories.slice(0, expandedCount) : filteredMemories.slice(0, collapsedCount);
 
   return (
     <SurfaceCard>
-      <SectionHeader title={title} dense action={includeRuntimeEvidence ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
-      <Stack spacing={1}>
+      <SectionHeader title={title} dense action={includeRuntimeEvidence && showDebugChip ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
+      <Stack spacing={1.15}>
         {visibleSourceMemories.length ? (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-            <Chip
-              size="small"
-              label={`全部 ${visibleSourceMemories.length}`}
-              color={activeFilter === null ? 'primary' : 'default'}
-              variant={activeFilter === null ? 'filled' : 'outlined'}
-              onClick={() => setActiveFilter(null)}
-            />
-            {filters.filter((item) => item.items.length).map((filter) => (
-              <Chip
-                key={filter.key}
-                size="small"
-                label={`${filter.label} ${filter.items.length}`}
-                color={activeFilter === filter.key ? 'primary' : 'default'}
-                variant={activeFilter === filter.key ? 'filled' : 'outlined'}
-                onClick={() => setActiveFilter((prev) => (prev === filter.key ? null : filter.key))}
-              />
+          <Tabs
+            value={activeFilter}
+            onChange={(_, value) => { setActiveFilter(value); setExpanded(false); }}
+            variant="scrollable"
+            allowScrollButtonsMobile
+            sx={{ minHeight: 34, borderBottom: '1px solid', borderColor: 'divider', '& .MuiTab-root': { minHeight: 34, px: 1.25, py: 0.5, fontSize: 13 } }}
+          >
+            {filters.map((filter) => (
+              <Tab key={filter.key} value={filter.key} label={`${filter.label} ${filter.items.length}`} />
             ))}
-          </Box>
+          </Tabs>
         ) : null}
+        {activeMeta ? <Typography variant="caption" color="text.secondary">{activeMeta.hint}</Typography> : null}
         {visibleMemories.length ? <Stack spacing={1}>{visibleMemories.map((item) => <MemoryCard key={item.id} item={item} includeDebugDetails={includeRuntimeEvidence} formatMemoryText={formatMemoryText} />)}</Stack> : <Typography variant="caption" color="text.secondary">{emptyText}</Typography>}
-        {!showAll && filteredMemories.length > collapsedCount ? <Button size="small" variant="text" onClick={() => setExpanded((prev) => !prev)}>{expanded ? '收起' : '查看更多'}</Button> : null}
+        {!showAll && filteredMemories.length > collapsedCount ? <Button size="small" variant="text" onClick={() => setExpanded((prev) => !prev)}>{expanded ? '收起' : `查看更多 ${filteredMemories.length}`}</Button> : null}
       </Stack>
     </SurfaceCard>
   );

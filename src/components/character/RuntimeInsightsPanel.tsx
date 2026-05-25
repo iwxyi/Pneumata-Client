@@ -623,7 +623,7 @@ export function CharacterMemoryInspector({ character }: RuntimeInsightsPanelProp
 
   return (
     <PageSection spacing={2}>
-      <LayeredMemoryPanel memories={allLayeredMemories} includeRuntimeEvidence={includeRuntimeEvidence} />
+      <LayeredMemoryPanel title="记忆沉淀" memories={allLayeredMemories} emptyText="暂无沉淀记忆" includeRuntimeEvidence={includeRuntimeEvidence} />
     </PageSection>
   );
 }

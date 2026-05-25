@@ -1,13 +1,13 @@
-import { useMemo, useState } from 'react';
-import { Button, Card, CardContent, Chip, Stack, TextField, Typography, Tooltip, Box } from '@mui/material';
+import { useState } from 'react';
+import { Card, CardContent, Chip, Stack, TextField, Typography, Tooltip, Box } from '@mui/material';
 import type { AICharacter } from '../../types/character';
 import type { ChatStyle, GroupChat, RuntimeEvolutionIntensity } from '../../types/chat';
 import { formatConflictPressureLabel, formatConflictStageLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
 import type { ConflictFocusState } from '../../types/runtimeEvent';
-import { isUserFacingMemoryItem } from '../../services/memoryPresentation';
 import { classifyRuntimeArtifactSeedLine } from '../../services/runtimeSeed';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import LayeredMemoryPanel from '../memory/LayeredMemoryPanel';
 
 interface RuntimeSeedSectionProps {
   editingChatId?: string;
@@ -58,30 +58,7 @@ const STYLE_LABELS: Partial<Record<ChatStyle, string>> = {
   roleplay: '角色扮演',
 };
 
-const MEMORY_LAYER_LABELS = {
-  working: '工作记忆',
-  episodic: '片段记忆',
-  long_term: '长期记忆',
-} as const;
-
-const MEMORY_KIND_LABELS = {
-  decision: '决策',
-  conflict: '冲突',
-  bond: '亲近',
-  resentment: '不满',
-  status_shift: '状态变化',
-  trait_evidence: '性格证据',
-  bias: '偏见',
-  taboo: '禁忌',
-  obsession: '执念',
-  artifact: '产物',
-  thread_effect: '线程影响',
-} as const;
-
 type ConflictRelationFilter = 'all' | 'active' | 'axis' | 'history' | 'relationship';
-type MemoryLayerKey = keyof typeof MEMORY_LAYER_LABELS;
-type MemoryKindKey = keyof typeof MEMORY_KIND_LABELS;
-type MemoryFilter = 'all' | `layer:${MemoryLayerKey}` | `kind:${MemoryKindKey}`;
 
 function formatDateTime(value?: number) {
   if (!value) return '无';
@@ -103,13 +80,6 @@ function buildNameMap(characters: AICharacter[]) {
 
 function cleanRuntimeText(text: string | undefined, nameMap: Map<string, string>) {
   return sanitizeUserFacingText(String(text || '').trim(), Array.from(nameMap.entries()).map(([id, name]) => ({ id, name })));
-}
-
-function memoryStrengthLabel(salience: number | undefined) {
-  const value = typeof salience === 'number' && Number.isFinite(salience) ? salience : 0;
-  if (value >= 0.78) return '印象很深';
-  if (value >= 0.5) return '印象明确';
-  return '印象较轻';
 }
 
 function clampDisplayMetric(value: number | undefined) {
@@ -259,23 +229,12 @@ function buildArtifactWarning(seedArtifactText: string, nameMap: Map<string, str
 
 export default function RuntimeSeedSection(props: RuntimeSeedSectionProps) {
   const [conflictRelationFilter, setConflictRelationFilter] = useState<ConflictRelationFilter>('all');
-  const [memoryFilter, setMemoryFilter] = useState<MemoryFilter>('all');
-  const [memoryExpanded, setMemoryExpanded] = useState(false);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showRuntimeDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug || state.developerUI.showAdvancedRuntimePanels);
   const includeDebug = developerMode && showRuntimeDebug;
   const nameMap = buildNameMap(props.selectedCharacters);
   const conflictProjection = buildConflictItems(props, nameMap, includeDebug);
-  const allMemoryItems = useMemo(
-    () => (props.editingChatLayeredMemories || []).filter(isUserFacingMemoryItem).slice().reverse(),
-    [props.editingChatLayeredMemories],
-  );
-  const memoryItems = allMemoryItems.filter((item) => {
-    if (memoryFilter === 'all') return true;
-    if (memoryFilter.startsWith('layer:')) return item.layer === memoryFilter.slice('layer:'.length);
-    if (memoryFilter.startsWith('kind:')) return item.kind === memoryFilter.slice('kind:'.length);
-    return true;
-  });
+  const layeredMemoryItems = (props.editingChatLayeredMemories || []).slice().reverse();
   const relationshipItems = (props.editingChatRelationshipLedger || [])
     .slice()
     .sort((left, right) => (right.derived?.salience || 0) - (left.derived?.salience || 0))
@@ -287,24 +246,6 @@ export default function RuntimeSeedSection(props: RuntimeSeedSectionProps) {
     { value: 'axis', label: '长期张力', count: conflictProjection.counts.axes },
     { value: 'history', label: '历史冲突', count: conflictProjection.counts.history },
   ];
-  const memoryLayerChips: Array<{ value: MemoryFilter; label: string; count: number }> = (Object.keys(MEMORY_LAYER_LABELS) as MemoryLayerKey[])
-    .filter((layer) => includeDebug || layer !== 'working')
-    .map((layer) => ({
-      value: `layer:${layer}`,
-      label: MEMORY_LAYER_LABELS[layer],
-      count: allMemoryItems.filter((item) => item.layer === layer).length,
-    }));
-  const memoryKindChips: Array<{ value: MemoryFilter; label: string; count: number }> = (Object.keys(MEMORY_KIND_LABELS) as MemoryKindKey[]).map((kind) => ({
-    value: `kind:${kind}`,
-    label: MEMORY_KIND_LABELS[kind],
-    count: allMemoryItems.filter((item) => item.kind === kind).length,
-  }));
-  const rawMemoryChips: Array<{ value: MemoryFilter; label: string; count: number }> = [
-    { value: 'all', label: '全部', count: allMemoryItems.length },
-    ...memoryLayerChips,
-    ...memoryKindChips,
-  ];
-  const memoryChips = rawMemoryChips.filter((item) => item.value === 'all' || item.count > 0);
   const { artifacts, suspicious } = buildArtifactWarning(props.seedArtifactText, nameMap);
   const lifecycleTitle = [
     `创建 ${formatDateTime(props.editingChatCreatedAt)}`,
@@ -323,48 +264,18 @@ export default function RuntimeSeedSection(props: RuntimeSeedSectionProps) {
   ].filter(Boolean).join('\n');
   const conflictSummary = `活跃 ${conflictProjection.counts.active} / 张力 ${conflictProjection.counts.axes} / 历史 ${conflictProjection.counts.history}`;
   const relationshipSummary = `关系 ${relationshipItems.length} 条`;
-  const memorySummary = `记忆 ${allMemoryItems.length} 条`;
-  const visibleMemoryItems = memoryExpanded ? memoryItems.slice(0, 16) : memoryItems.slice(0, 4);
-
   return (
     <Stack spacing={2}>
-      <Card variant="outlined">
-        <CardContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>长期记忆</Typography>
-          </Box>
-          <Stack spacing={1}>
-            <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
-              {memoryChips.map((item) => (
-                <Chip
-                  key={item.value}
-                  size="small"
-                  label={`${item.label} ${item.count}`}
-                  color={memoryFilter === item.value ? 'primary' : 'default'}
-                  variant={memoryFilter === item.value ? 'filled' : 'outlined'}
-                  onClick={() => setMemoryFilter(item.value)}
-                />
-              ))}
-            </Stack>
-            <Typography variant="body2">{tooltipText(memorySummary, '这里展示的是可长期保留的记忆，不是运行日志。')}</Typography>
-            {visibleMemoryItems.length ? visibleMemoryItems.map((item) => (
-              <Box key={item.id} sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
-                <Typography variant="caption" color="text.secondary">
-                  {includeDebug
-                    ? `${MEMORY_LAYER_LABELS[item.layer]} / ${MEMORY_KIND_LABELS[item.kind]} / 显著性 ${Math.round(item.salience * 100)}`
-                    : `${MEMORY_KIND_LABELS[item.kind]} · ${memoryStrengthLabel(item.salience)}`}
-                </Typography>
-                <Typography variant="body2">{cleanRuntimeText(item.summary || item.text, nameMap)}</Typography>
-              </Box>
-            )) : <Typography variant="body2" color="text.secondary">暂无沉淀记忆</Typography>}
-            {memoryItems.length > 4 ? (
-              <Button size="small" variant="text" onClick={() => setMemoryExpanded((prev) => !prev)}>
-                {memoryExpanded ? '收起' : `查看更多 ${memoryItems.length}`}
-              </Button>
-            ) : null}
-          </Stack>
-        </CardContent>
-      </Card>
+      <LayeredMemoryPanel
+        title="记忆沉淀"
+        memories={layeredMemoryItems}
+        emptyText="暂无沉淀记忆"
+        collapsedCount={4}
+        expandedCount={16}
+        includeRuntimeEvidence={includeDebug}
+        showDebugChip={false}
+        formatMemoryText={(value) => cleanRuntimeText(value, nameMap)}
+      />
 
       <Card variant="outlined">
         <CardContent>
