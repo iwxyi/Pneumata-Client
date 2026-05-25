@@ -48,6 +48,14 @@ describe('messageRuntimeClues', () => {
     const sections = projectMessageRuntimeClues(buildMessage());
 
     expect(sections.map((section) => section.key)).toEqual(['memory', 'inner', 'surface']);
+    expect(sections[0]).toMatchObject({
+      statusKind: 'prompt_context',
+      statusLabel: '本轮注入',
+    });
+    expect(sections[1]).toMatchObject({
+      statusKind: 'debug_explanation',
+      statusLabel: '调试解释',
+    });
     expect(sections[0]?.items[0]).toContain('片段记忆');
     expect(sections[0]?.items[0]).toContain('雨夜失约');
     expect(sections[0]?.items[0]).not.toContain('3c78729f');
@@ -108,5 +116,44 @@ describe('messageRuntimeClues', () => {
     expect(prompt).not.toContain('show_off');
     expect(prompt).not.toContain('casual');
     expect(prompt).not.toContain('relationship ledger');
+  });
+
+  it('marks expression feedback as retrieved or applied without treating it as a hard fact', () => {
+    const retrievedOnly = projectMessageRuntimeClues({
+      metadata: {
+        runtimeDecision: {
+          expressionFeedback: [{
+            id: 'fb-1',
+            label: '减少助手腔',
+            text: '用户反馈：这类回复太像通用助手',
+            confidence: 0.6,
+            applied: false,
+          }],
+        },
+      },
+    });
+    expect(retrievedOnly.find((section) => section.key === 'feedback')).toMatchObject({
+      statusKind: 'soft_signal',
+      statusLabel: '已检索',
+    });
+
+    const applied = projectMessageRuntimeClues({
+      metadata: {
+        runtimeDecision: {
+          expressionFeedback: [{
+            id: 'fb-2',
+            label: '控制长度',
+            text: '用户反馈：这类回复偏长',
+            confidence: 0.8,
+            applied: true,
+            effects: ['收敛长度'],
+          }],
+        },
+      },
+    });
+    expect(applied.find((section) => section.key === 'feedback')).toMatchObject({
+      statusKind: 'applied_signal',
+      statusLabel: '已影响',
+    });
   });
 });

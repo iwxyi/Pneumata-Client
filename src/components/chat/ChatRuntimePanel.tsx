@@ -486,7 +486,7 @@ function reasonTone(reason: string) {
 }
 
 function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem, members: DisplayTextMember[] = []) {
-  const groups: Array<{ key: string; label: string; items: string[]; hint?: string; tone?: string }> = [];
+  const groups: Array<{ key: string; label: string; items: string[]; hint?: string; tone?: string; statusLabel?: string; statusHint?: string }> = [];
   const speakerReasons = item.reasonLabels.slice(0, 4).map((reason) => cleanText(reason, members));
   if (speakerReasons.length) {
     groups.push({
@@ -504,6 +504,8 @@ function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem, members: Disp
       label: '记忆线索',
       items: memoryClues.items.slice(0, 4).map((text) => cleanText(text, members)),
       hint: memoryClues.items.map((text) => cleanText(text, members)).join(' / '),
+      statusLabel: memoryClues.statusLabel,
+      statusHint: memoryClues.statusHint,
       tone: 'rgba(255, 152, 0, 0.08)',
     });
   }
@@ -552,7 +554,14 @@ function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem, members: Disp
 function renderDecisionReasonGroup(group: ReturnType<typeof buildDecisionReasonGroups>[number]) {
   const content = (
     <Box sx={{ p: 0.85, borderRadius: 2, bgcolor: group.tone || 'action.hover' }}>
-      <Typography className="decision-group-title" variant="caption" color="text.secondary">{group.label}</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 0.75 }}>
+        <Typography className="decision-group-title" variant="caption" color="text.secondary">{group.label}</Typography>
+        {group.statusLabel ? (
+          <Tooltip title={group.statusHint || ''} arrow>
+            <Chip size="small" label={group.statusLabel} color="warning" variant="outlined" sx={{ height: 20, '& .MuiChip-label': { px: 0.75, fontSize: 11 } }} />
+          </Tooltip>
+        ) : null}
+      </Box>
       <Box sx={{ mt: 0.55 }}>
         <StatChipRow items={group.items} />
       </Box>

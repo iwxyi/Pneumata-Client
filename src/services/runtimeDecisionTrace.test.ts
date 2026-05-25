@@ -104,7 +104,12 @@ describe('runtimeDecisionTrace', () => {
       runtimeClueSections: expect.arrayContaining([
         expect.objectContaining({
           key: 'memory',
+          statusLabel: '本轮注入',
           items: expect.arrayContaining(['旧档注入：雨夜失约', '原因：当前对话提到旧承诺']),
+        }),
+        expect.objectContaining({
+          key: 'feedback',
+          statusLabel: '已影响',
         }),
       ]),
     });

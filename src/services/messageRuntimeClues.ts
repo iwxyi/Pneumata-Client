@@ -7,6 +7,9 @@ export interface MessageRuntimeClueSection {
   key: 'memory' | 'inner' | 'surface' | 'director' | 'narrative' | 'feedback';
   label: string;
   promptLabel: string;
+  statusKind: 'prompt_context' | 'debug_explanation' | 'soft_signal' | 'applied_signal';
+  statusLabel: string;
+  statusHint: string;
   items: string[];
 }
 
@@ -29,6 +32,9 @@ function pushSection(
     key: section.key,
     label: section.label,
     promptLabel: section.promptLabel,
+    statusKind: section.statusKind,
+    statusLabel: section.statusLabel,
+    statusHint: section.statusHint,
     items,
   });
 }
@@ -43,6 +49,9 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     key: 'memory',
     label: '记忆',
     promptLabel: '记忆线索',
+    statusKind: 'prompt_context',
+    statusLabel: '本轮注入',
+    statusHint: '这些旧档已经进入本轮生成上下文，可用于解释角色为什么想起旧事。',
     items: recalled.flatMap((item) => [
       item.summary ? `旧档注入：${item.summary}` : '',
       item.recallReason ? `原因：${item.recallReason}` : '',
@@ -53,6 +62,9 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     key: 'inner',
     label: '内心',
     promptLabel: '内心线索',
+    statusKind: 'debug_explanation',
+    statusLabel: '调试解释',
+    statusHint: '用于解释本轮语气、冲动和余波，不等于公开剧情事实。',
     items: decision.innerLife ? [
       decision.innerLife.tone ? `语气倾向：${formatInnerToneLabel(decision.innerLife.tone)}` : '',
       decision.innerLife.impulse ? `表达冲动：${formatInnerImpulseLabel(decision.innerLife.impulse)}` : '',
@@ -63,6 +75,9 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     key: 'surface',
     label: '表达',
     promptLabel: '表达形态',
+    statusKind: 'debug_explanation',
+    statusLabel: '调试解释',
+    statusHint: '用于解释本轮为什么采用闲聊、长文、富文本或专业表达。',
     items: decision.responseSurface ? [
       formatResponseSurfaceKindLabel(decision.responseSurface.kind, 'zh', 'clue'),
       formatRoleFitLabel(decision.responseSurface.roleFit, 'zh', 'clue'),
@@ -74,6 +89,9 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     key: 'director',
     label: '调度',
     promptLabel: '调度线索',
+    statusKind: 'debug_explanation',
+    statusLabel: '调试解释',
+    statusHint: '用于解释本轮调度和推进压力，不是角色公开说出的事实。',
     items: decision.directorIntent ? [
       decision.directorIntent.beatType ? `推进动作：${formatBeatType(decision.directorIntent.beatType as never)}` : '',
       decision.directorIntent.reason ? `原因：${formatKnownReason(decision.directorIntent.reason)}` : '',
@@ -83,13 +101,23 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     key: 'narrative',
     label: '叙事线',
     promptLabel: '叙事线索',
+    statusKind: 'debug_explanation',
+    statusLabel: '调试解释',
+    statusHint: '用于解释本轮关注了哪些线索，不代表剧情已经确定。',
     items: (decision.narrativeLines || []).map((item) => item.title),
   }, members);
+  const feedback = decision.expressionFeedback || [];
+  const feedbackApplied = feedback.some((item) => item.applied);
   pushSection(sections, {
     key: 'feedback',
     label: '反馈',
     promptLabel: '表达反馈',
-    items: (decision.expressionFeedback || []).map((item) => item.label || item.text),
+    statusKind: feedbackApplied ? 'applied_signal' : 'soft_signal',
+    statusLabel: feedbackApplied ? '已影响' : '已检索',
+    statusHint: feedbackApplied
+      ? '这些用户表达反馈已经影响本轮提示词或表达约束。'
+      : '这些用户表达反馈只是被检索到，属于软信号，不一定影响本轮。',
+    items: feedback.map((item) => item.label || item.text),
   }, members);
 
   return sections;

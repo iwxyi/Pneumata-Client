@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Box, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, Stack, Typography } from '@mui/material';
+import { Box, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, Stack, Tooltip, Typography } from '@mui/material';
 import MarkdownText from '../common/MarkdownText';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -47,11 +47,17 @@ function getAnalysisSectionTone(index: number) {
   return { color: '#475569', bgcolor: 'rgba(71,85,105,0.10)' };
 }
 
-function renderRuntimeClueSection(label: string, items: string[]) {
+function renderRuntimeClueSection(section: ReturnType<typeof projectMessageRuntimeClues>[number]) {
+  const { label, items, statusLabel, statusHint } = section;
   if (!items.length) return null;
   return (
     <Box sx={{ display: 'grid', gap: 0.55 }}>
-      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>{label}</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>{label}</Typography>
+        <Tooltip title={statusHint} arrow>
+          <Chip size="small" label={statusLabel} color="warning" variant="outlined" sx={{ height: 20, '& .MuiChip-label': { px: 0.75, fontSize: 11 } }} />
+        </Tooltip>
+      </Box>
       <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
         {items.map((item, index) => (
           <Chip key={`${label}-${item}-${index}`} size="small" label={item} sx={{ maxWidth: '100%', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }} />
@@ -76,7 +82,7 @@ function MessageRuntimeCluesCard({ target, members }: { target: Message | null; 
       </Box>
       {sections.map((section) => (
         <Box key={section.key}>
-          {renderRuntimeClueSection(section.label, section.items)}
+          {renderRuntimeClueSection(section)}
         </Box>
       ))}
     </Box>
