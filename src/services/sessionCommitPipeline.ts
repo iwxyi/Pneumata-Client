@@ -6,6 +6,7 @@ import { mergeSessionChatPatch } from '../types/sessionEngine';
 import { runChatCommitPipeline } from './chatCommitPipeline';
 import { resolveSessionEngine } from './sessionEngineRegistry';
 import { __flushDeferredMemoryAnalysisForTests, __resetDeferredMemoryAnalysisStateForTests, getDeferredMemoryAnalysisDebugState, scheduleAsyncMemoryAnalysis } from './asyncMemoryAnalysis';
+import { applyRecalledMemoryActivation } from './memoryRecallActivation';
 
 export const __resetDeferredLlmDistillationStateForTests = __resetDeferredMemoryAnalysisStateForTests;
 export const __flushDeferredLlmDistillationForTests = __flushDeferredMemoryAnalysisForTests;
@@ -102,9 +103,22 @@ export async function runSessionCommitPipeline(params: {
     ...params,
     onCommit: wrapCommitWithFrameworkPatch(params),
   });
-  const nextCharacters = applyTransitionToCharacters(params.characters, transition);
-  const nextChat = applyTransitionToChat(params.chat, transition);
-  const characterIdsToCheck = transition.characterPatches
+  const transitionWithRecall = applyRecalledMemoryActivation({
+    chat: params.chat,
+    characters: params.characters,
+    message: persistedMessage,
+    recentMessages: params.currentMessages,
+    transition,
+  });
+  if (transitionWithRecall !== transition) {
+    const recallPatch = transitionWithRecall.characterPatches.find((item) => item.characterId === persistedMessage.senderId)?.patch;
+    if (recallPatch) {
+      await params.updateCharacter(persistedMessage.senderId, recallPatch);
+    }
+  }
+  const nextCharacters = applyTransitionToCharacters(params.characters, transitionWithRecall);
+  const nextChat = applyTransitionToChat(params.chat, transitionWithRecall);
+  const characterIdsToCheck = transitionWithRecall.characterPatches
     .filter((item) => Array.isArray(item.patch.layeredMemories))
     .map((item) => item.characterId);
   void scheduleAsyncMemoryAnalysis({
@@ -121,7 +135,7 @@ export async function runSessionCommitPipeline(params: {
   });
   return {
     persistedMessage,
-    transition,
+    transition: transitionWithRecall,
     nextChat,
     nextCharacters,
   };
