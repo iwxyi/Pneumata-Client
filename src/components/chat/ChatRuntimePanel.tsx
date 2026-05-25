@@ -509,6 +509,18 @@ function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem, members: Disp
       tone: 'rgba(255, 152, 0, 0.08)',
     });
   }
+  const guidanceClues = item.runtimeClueSections.find((section) => section.key === 'guidance');
+  if (guidanceClues?.items.length) {
+    groups.push({
+      key: 'guidance',
+      label: '用户引导',
+      items: guidanceClues.items.slice(0, 4).map((text) => cleanText(text, members)),
+      hint: guidanceClues.items.map((text) => cleanText(text, members)).join(' / '),
+      statusLabel: guidanceClues.statusLabel,
+      statusHint: guidanceClues.statusHint,
+      tone: 'rgba(25, 118, 210, 0.08)',
+    });
+  }
   if (item.primaryLineLabel || item.directorLabel !== '无调度意图') {
     groups.push({
       key: 'narrative',

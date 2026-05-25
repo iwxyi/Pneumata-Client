@@ -128,6 +128,9 @@ export function formatSpeakerScoreReason(reason: string) {
     'director:proactive': '主动性适合接话',
     'director:cool_down:empathy': '共情较高，适合降温',
     'director:faction:shared': '与目标存在同阵营倾向',
+    'director:media_request:target': '用户明确要求发图',
+    'director:user_guidance:target': '用户明确点名回应',
+    'director:user_guidance:non_target_penalty': '非用户点名对象，被压低插话概率',
   };
   if (labels[reason]) return labels[reason];
   const innerImpulse = reason.match(/^inner:(.+)$/);
@@ -194,12 +197,14 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
       const readableDirectorReason = cleanTraceText(formatDirectorReason(decision?.directorIntent?.reason) || directorReason, members);
       const debugDetailLabel = [
         directorLabel !== '无调度意图' ? `调度：${directorLabel}${readableDirectorReason ? ` · ${readableDirectorReason}` : ''}` : '',
+        decision?.directorIntent?.userGuidance?.rawText ? `用户引导：${cleanTraceText(decision.directorIntent.userGuidance.rawText, members)}` : '',
         primaryLineLabel ? `线索：${primaryLineLabel}` : '',
         surfaceLabel ? `表达：${surfaceLabel}` : '',
         expression.label ? `节奏：${expression.label}` : '',
       ].filter(Boolean).join(' / ') || null;
       const rawDebugHint = [
         decision?.directorIntent ? `director=${director}` : '',
+        decision?.directorIntent?.userGuidance ? `guidance=${JSON.stringify(decision.directorIntent.userGuidance)}` : '',
         primaryLine ? `line=${primaryLine}` : '',
         rawSurface ? `surface=${rawSurface}` : '',
         expression.raw ? `expression=${expression.raw}` : '',

@@ -50,6 +50,35 @@ function buildProjectionMeta(item: RuntimeEventV2, isZh: boolean) {
   return [formatProjectionKind(projectionKind, isZh), participantNames.length ? participantNames.join(' ↔ ') : null, topicSnippet].filter(Boolean).join(' · ');
 }
 
+function formatActorNames(ids: unknown, members: AICharacter[] = []) {
+  if (!Array.isArray(ids)) return '';
+  return ids
+    .filter((id): id is string => typeof id === 'string')
+    .map((id) => members.find((member) => member.id === id)?.name || id)
+    .join('、');
+}
+
+function buildUserGuidanceMeta(item: RuntimeEventV2, isZh: boolean, members: AICharacter[] = []) {
+  if (item.kind !== 'director_intervention') return null;
+  const payload = item.payload as Record<string, unknown>;
+  const guidance = typeof payload.userGuidance === 'object' && payload.userGuidance ? payload.userGuidance as Record<string, unknown> : null;
+  if (!guidance) return null;
+  const mediaRequest = typeof guidance.mediaRequest === 'object' && guidance.mediaRequest ? guidance.mediaRequest as Record<string, unknown> : null;
+  const kindLabel = guidance.kind === 'media_request'
+    ? (isZh ? '媒体请求' : 'Media request')
+    : guidance.kind === 'direct_reply'
+      ? (isZh ? '点名回应' : 'Direct reply')
+      : (isZh ? '话题引导' : 'Topic guidance');
+  const actorNames = formatActorNames(guidance.actorIds, members);
+  const subjectNames = mediaRequest ? formatActorNames(mediaRequest.subjectActorIds, members) : '';
+  return [
+    kindLabel,
+    actorNames ? `${isZh ? '执行' : 'Actors'} ${actorNames}` : '',
+    subjectNames ? `${isZh ? '图片对象' : 'Image subject'} ${subjectNames}` : '',
+    !subjectNames && typeof mediaRequest?.subjectText === 'string' ? `${isZh ? '图片对象' : 'Image subject'} ${mediaRequest.subjectText}` : '',
+  ].filter(Boolean).join(' · ');
+}
+
 function formatProjectionKind(projectionKind: string | null | undefined, isZh = true) {
   const map: Record<string, string> = {
     relationship_backflow: isZh ? '关系回流' : 'Relationship backflow',
@@ -284,10 +313,12 @@ export default function DialogueDebugPanel({ chat, members = [] }: DialogueDebug
               <Stack spacing={0.75} sx={{ mt: 0.75 }}>
                 {latestItems.map((item) => {
                   const projectionMeta = buildProjectionMeta(item, isZh);
+                  const guidanceMeta = buildUserGuidanceMeta(item, isZh, members);
                   return (
                     <Box key={item.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
                       <Typography variant="caption" color="text.secondary">{formatEventKind(item.kind, isZh)} · {new Date(item.createdAt).toLocaleString()}</Typography>
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>{sanitizeUserFacingText(item.summary, members)}</Typography>
+                      {guidanceMeta ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{sanitizeUserFacingText(guidanceMeta, members)}</Typography> : null}
                       {projectionMeta ? <Typography variant="caption" color="text.secondary">{sanitizeUserFacingText(projectionMeta, members)}</Typography> : null}
                     </Box>
                   );

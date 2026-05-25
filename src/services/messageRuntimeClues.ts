@@ -4,7 +4,7 @@ import { formatInnerImpulseLabel, formatInnerToneLabel, formatResponseSurfaceKin
 import { formatBeatType, formatKnownReason } from './runtimeInsightPresentation';
 
 export interface MessageRuntimeClueSection {
-  key: 'memory' | 'inner' | 'surface' | 'director' | 'narrative' | 'feedback';
+  key: 'memory' | 'inner' | 'surface' | 'director' | 'guidance' | 'narrative' | 'feedback';
   label: string;
   promptLabel: string;
   statusKind: 'prompt_context' | 'debug_explanation' | 'soft_signal' | 'applied_signal';
@@ -37,6 +37,20 @@ function pushSection(
     statusHint: section.statusHint,
     items,
   });
+}
+
+function formatMemberNames(ids: string[] | undefined, members: DisplayTextMember[] = []) {
+  if (!ids?.length) return '';
+  return ids.map((id) => members.find((member) => member.id === id)?.name || id).join('、');
+}
+
+function formatGuidanceKind(kind: string | undefined) {
+  const labels: Record<string, string> = {
+    topic_shift: '话题引导',
+    direct_reply: '点名回应',
+    media_request: '媒体请求',
+  };
+  return kind ? labels[kind] || kind : '';
 }
 
 export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | null | undefined, members: DisplayTextMember[] = []): MessageRuntimeClueSection[] {
@@ -96,6 +110,24 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       decision.directorIntent.beatType ? `推进动作：${formatBeatType(decision.directorIntent.beatType as never)}` : '',
       decision.directorIntent.reason ? `原因：${formatKnownReason(decision.directorIntent.reason)}` : '',
     ] : [],
+  }, members);
+  const guidance = decision.directorIntent?.userGuidance || null;
+  pushSection(sections, {
+    key: 'guidance',
+    label: '用户引导',
+    promptLabel: '用户引导',
+    statusKind: 'debug_explanation',
+    statusLabel: guidance?.kind === 'media_request' ? '显式请求' : '调度输入',
+    statusHint: '用于解释用户输入如何影响本轮发言者、话题焦点和媒体生成。',
+    items: guidance ? [
+      guidance.kind ? `类型：${formatGuidanceKind(guidance.kind)}` : '',
+      guidance.rawText ? `用户要求：${guidance.rawText}` : '',
+      guidance.actorIds?.length ? `执行角色：${formatMemberNames(guidance.actorIds, members)}` : '',
+      guidance.mediaRequest?.subjectActorIds?.length ? `图片对象：${formatMemberNames(guidance.mediaRequest.subjectActorIds, members)}` : '',
+      guidance.mediaRequest?.subjectText && !guidance.mediaRequest.subjectActorIds?.length ? `图片对象：${guidance.mediaRequest.subjectText}` : '',
+      guidance.mediaRequest?.actionText ? `图片动作：${guidance.mediaRequest.actionText}` : '',
+    ] : [],
+    maxItems: 8,
   }, members);
   pushSection(sections, {
     key: 'narrative',

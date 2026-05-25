@@ -118,6 +118,56 @@ describe('messageRuntimeClues', () => {
     expect(prompt).not.toContain('relationship ledger');
   });
 
+  it('shows explicit user guidance with actors and image subjects', () => {
+    const message: Pick<Message, 'metadata'> = {
+      metadata: {
+        runtimeDecision: {
+          directorIntent: {
+            source: 'user_message',
+            beatType: 'answer',
+            pressure: 0.98,
+            reason: '用户指定角色发送或创作图片。',
+            targetActorIds: ['mei'],
+            userGuidance: {
+              kind: 'media_request',
+              rawText: '美羊羊发个灰太狼证件照的图片',
+              actorIds: ['mei'],
+              mentionedActorIds: ['mei', 'hui'],
+              focusText: '美羊羊发个灰太狼证件照的图片',
+              beatType: 'answer',
+              pressure: 0.98,
+              maxTurns: 1,
+              reason: '用户指定角色发送或创作图片。',
+              mediaRequest: {
+                kind: 'image',
+                subjectActorIds: ['hui'],
+                subjectText: '灰太狼',
+                actionText: '发个灰太狼证件照的图片',
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const sections = projectMessageRuntimeClues(message, [
+      { id: 'mei', name: '美羊羊' },
+      { id: 'hui', name: '灰太狼' },
+    ]);
+    const guidance = sections.find((section) => section.key === 'guidance');
+
+    expect(guidance).toMatchObject({
+      label: '用户引导',
+      statusLabel: '显式请求',
+    });
+    expect(guidance?.items).toEqual(expect.arrayContaining([
+      '类型：媒体请求',
+      '执行角色：美羊羊',
+      '图片对象：灰太狼',
+    ]));
+    expect(formatMessageRuntimeCluesForPrompt(message, [{ id: 'mei', name: '美羊羊' }, { id: 'hui', name: '灰太狼' }])).toContain('用户引导：类型：媒体请求');
+  });
+
   it('marks expression feedback as retrieved or applied without treating it as a hard fact', () => {
     const retrievedOnly = projectMessageRuntimeClues({
       metadata: {

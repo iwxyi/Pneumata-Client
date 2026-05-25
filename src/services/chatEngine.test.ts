@@ -130,6 +130,44 @@ describe('chatEngine streaming preview', () => {
     expect(metadata?.runtimeDecision?.speakerScore).toMatchObject({ actorId: 'a', finalScore: 1.2 });
   });
 
+  it('stores explicit user guidance inside runtime decision metadata', () => {
+    const runtimeDecision = __chatEngineTestUtils.buildRuntimeDecisionMetadata({
+      directorIntent: {
+        source: 'user_message',
+        beatType: 'answer',
+        targetActorIds: ['mei'],
+        pressure: 0.98,
+        reason: '用户指定角色发送或创作图片。',
+        userGuidance: {
+          kind: 'media_request',
+          rawText: '美羊羊发个灰太狼证件照的图片',
+          actorIds: ['mei'],
+          mentionedActorIds: ['mei', 'hui'],
+          focusText: '美羊羊发个灰太狼证件照的图片',
+          beatType: 'answer',
+          pressure: 0.98,
+          maxTurns: 1,
+          reason: '用户指定角色发送或创作图片。',
+          mediaRequest: {
+            kind: 'image',
+            subjectActorIds: ['hui'],
+            subjectText: '灰太狼',
+            actionText: '发个灰太狼证件照的图片',
+          },
+        },
+      },
+    });
+
+    expect(runtimeDecision?.directorIntent?.userGuidance).toMatchObject({
+      kind: 'media_request',
+      actorIds: ['mei'],
+      mediaRequest: {
+        kind: 'image',
+        subjectActorIds: ['hui'],
+      },
+    });
+  });
+
   it('adds a larger typing delay for repair and withdrawal pressure', () => {
     const slow = __chatEngineTestUtils.resolveInnerLifeTypingDelayMs({
       actorId: 'a',

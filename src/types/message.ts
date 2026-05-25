@@ -70,6 +70,23 @@ export interface MessageMetadata {
       targetActorIds?: string[];
       pressure?: number;
       reason?: string;
+      userGuidance?: {
+        kind: string;
+        rawText: string;
+        actorIds?: string[];
+        mentionedActorIds?: string[];
+        focusText?: string;
+        beatType?: string;
+        pressure?: number;
+        maxTurns?: number;
+        reason?: string;
+        mediaRequest?: {
+          kind: string;
+          subjectActorIds?: string[];
+          subjectText?: string;
+          actionText?: string;
+        } | null;
+      } | null;
     };
     narrativeLines?: Array<{
       id: string;
