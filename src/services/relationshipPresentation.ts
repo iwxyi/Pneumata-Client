@@ -2,6 +2,7 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
 import { buildRelationshipDisplaySummary, buildRelationshipEvidenceText, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from './relationshipLedger';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 
 export interface PresentedRelationshipEntry {
   key: string;
@@ -34,23 +35,36 @@ function computeScore(delta: ReturnType<typeof toRelationshipDisplayDelta>) {
   return (delta.warmth || 0) + (delta.competence || 0) + (delta.trust || 0) - (delta.threat || 0);
 }
 
+function isLikelyInternalId(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    || /^[0-9a-f-]{18,}$/i.test(value)
+    || /^draft-\d+$/i.test(value);
+}
+
+function resolveRelationshipName(id: string, members: AICharacter[]) {
+  const member = members.find((item) => item.id === id);
+  if (member?.name) return member.name;
+  if (!id || isLikelyInternalId(id)) return '未知成员';
+  return id;
+}
+
 export function buildPresentedRelationshipEntry(entry: RelationshipLedgerEntry, members: AICharacter[]): PresentedRelationshipEntry {
   const normalizedEntry = normalizeRelationshipLedgerEntry(entry);
-  const actor = members.find((member) => member.id === normalizedEntry.actorId);
-  const target = members.find((member) => member.id === normalizedEntry.targetId);
   const latestEventActorId = normalizedEntry.recentEvents.at(-1)?.actorIds?.[0] || normalizedEntry.actorId;
-  const speaker = members.find((member) => member.id === latestEventActorId);
+  const actorName = resolveRelationshipName(normalizedEntry.actorId, members);
+  const targetName = resolveRelationshipName(normalizedEntry.targetId, members);
+  const speakerName = resolveRelationshipName(latestEventActorId, members);
   const delta = toRelationshipDisplayDelta(normalizedEntry.current);
-  const evidenceText = cleanRelationshipText(buildRelationshipEvidenceText(normalizedEntry));
-  const evidence = evidenceText ? `${speaker?.name || actor?.name || normalizedEntry.actorId}：${evidenceText}` : '';
+  const evidenceText = sanitizeUserFacingText(cleanRelationshipText(buildRelationshipEvidenceText(normalizedEntry)), members);
+  const evidence = evidenceText ? `${speakerName || actorName}：${evidenceText}` : '';
 
   return {
     key: normalizedEntry.pairKey,
     actorId: normalizedEntry.actorId,
     targetId: normalizedEntry.targetId,
-    actorName: actor?.name || normalizedEntry.actorId,
-    targetName: target?.name || normalizedEntry.targetId,
-    speakerName: speaker?.name || actor?.name || normalizedEntry.actorId,
+    actorName,
+    targetName,
+    speakerName,
     entry: normalizedEntry,
     delta,
     summary: buildRelationshipDisplaySummary(normalizedEntry),

@@ -10,10 +10,8 @@ import SectionHeader from '../common/SectionHeader';
 import PageSection from '../common/PageSection';
 import StatChipRow from '../common/StatChipRow';
 import DebugChip from '../common/DebugChip';
-import { formatRelationshipNumber, normalizeCurrent } from '../../services/relationshipLedger';
+import { formatRelationshipNumber } from '../../services/relationshipLedger';
 import { useCharacterStore } from '../../stores/useCharacterStore';
-import { RelationshipRadar } from '../controls/RelationshipPanel';
-import type { RelationshipLedgerEntry } from '../../types/runtimeEvent';
 import { applyDriftToBehavior, formatLocalizedDriftSummary, getDominantEmotionLabel, getAffectSummaryLines, formatEmotionStateLabel } from '../../services/personalityDrift';
 import LayeredMemoryPanel from '../memory/LayeredMemoryPanel';
 import { getPreferredAIProfile } from '../../types/settings';
@@ -298,7 +296,7 @@ function buildRelationshipReadableChips(relation: NonNullable<AICharacter['relat
     .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
     .slice(0, 3)
     .map((item) => `${item.label}${relationshipLevel(item.value)}`);
-  return visible.length ? visible : ['关系仍在形成'];
+  return visible;
 }
 
 function buildRelationshipDebugChips(relation: NonNullable<AICharacter['relationships']>[number]) {
@@ -312,6 +310,23 @@ function buildRelationshipDebugChips(relation: NonNullable<AICharacter['relation
 
 function buildRelationshipDebugHint(relation: NonNullable<AICharacter['relationships']>[number]) {
   return buildRelationshipDebugChips(relation).join(' / ');
+}
+
+function buildRelationshipUserHint(relation: NonNullable<AICharacter['relationships']>[number], members: Array<{ id: string; name?: string }>) {
+  const readable = buildRelationshipReadableChips(relation).join(' / ');
+  const note = relation.note && relation.note !== relation.characterId ? sanitizeUserFacingText(relation.note, members) : '';
+  return [readable ? `当前倾向：${readable}` : '', note ? `最近证据：${note}` : ''].filter(Boolean).join('\n') || '这段关系来自角色资料和最近互动的累计印象。';
+}
+
+function isLikelyInternalCharacterId(value: string) {
+  return /^[0-9a-f-]{18,}$/i.test(value);
+}
+
+function resolveFallbackCharacterName(id: string, fallback?: string) {
+  if (fallback && fallback !== id) return fallback;
+  if (id.startsWith('draft-')) return '未命名关系';
+  if (!id || isLikelyInternalCharacterId(id)) return '未知角色';
+  return id;
 }
 
 function getStrongestRelationship(character: Partial<AICharacter>, resolveCharacterName: (id: string, fallback?: string) => string) {
@@ -415,44 +430,37 @@ function RuntimeTimelinePanel({
   ) : <Typography variant="caption" color="text.secondary">{developerMode ? '当前筛选下暂无时间线数据' : '当前暂无关键变化'}</Typography>;
 }
 
-function RelationshipGraphPanel({ relationships, developerMode, resolveCharacterName }: { relationships: NonNullable<AICharacter['relationships']>; developerMode: boolean; resolveCharacterName: (id: string, fallback?: string) => string }) {
+function RelationshipAxisPills({
+  relation,
+  developerMode,
+}: {
+  relation: NonNullable<AICharacter['relationships']>[number];
+  developerMode: boolean;
+}) {
+  const items = developerMode ? buildRelationshipDebugChips(relation) : buildRelationshipReadableChips(relation);
+  return items.length ? <StatChipRow items={items} /> : null;
+}
+
+function RelationshipGraphPanel({ relationships, developerMode, resolveCharacterName, members }: { relationships: NonNullable<AICharacter['relationships']>; developerMode: boolean; resolveCharacterName: (id: string, fallback?: string) => string; members: AICharacter[] }) {
   return relationships.length ? (
     <Stack spacing={1}>
       {relationships.slice(0, developerMode ? 8 : 4).map((relation, index) => {
-        const radarEntry: RelationshipLedgerEntry = {
-          pairKey: `character:${relation.characterId}`,
-          actorId: 'character',
-          targetId: relation.characterId,
-          current: normalizeCurrent({
-            warmth: Number.isFinite(relation.warmth) ? relation.warmth : 0,
-            competence: Number.isFinite(relation.competence) ? relation.competence : 0,
-            trust: Number.isFinite(relation.trust) ? relation.trust : 0,
-            threat: Number.isFinite(relation.threat) ? relation.threat : 0,
-          }),
-          derived: {},
-          axisReasons: {},
-          trend: 'flat',
-          recentEvents: [],
-          lastUpdatedAt: relation.updatedAt || Date.now(),
-        };
         return (
           <Box key={`${relation.characterId}-graph-${index}`} sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '72px minmax(0, 1fr)', gap: 1.1, alignItems: 'center' }}>
-              <RelationshipRadar entry={radarEntry} onOpenAxis={() => undefined} compact />
-              <Stack spacing={0.6} sx={{ minWidth: 0 }}>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>{resolveCharacterName(relation.characterId, relation.note)}</Typography>
-                <Tooltip title={buildRelationshipDebugHint(relation)} arrow>
-                  <Box sx={{ width: 'fit-content' }}>
-                    <StatChipRow items={developerMode ? buildRelationshipDebugChips(relation) : buildRelationshipReadableChips(relation)} />
-                  </Box>
-                </Tooltip>
-              </Stack>
-            </Box>
+            <Stack spacing={0.65} sx={{ minWidth: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>{resolveCharacterName(relation.characterId, relation.note)}</Typography>
+              <Tooltip title={developerMode ? buildRelationshipDebugHint(relation) : buildRelationshipUserHint(relation, members)} arrow placement="top-start">
+                <Box sx={{ width: 'fit-content', '&:hover': { textDecoration: 'underline' } }}>
+                  <RelationshipAxisPills relation={relation} developerMode={developerMode} />
+                </Box>
+              </Tooltip>
+              {relation.note && relation.note !== relation.characterId ? <Typography variant="body2" color="text.secondary">{sanitizeUserFacingText(relation.note, members)}</Typography> : null}
+            </Stack>
           </Box>
         );
       })}
     </Stack>
-  ) : <Typography variant="caption" color="text.secondary">暂无关系图谱数据</Typography>;
+  ) : <Typography variant="caption" color="text.secondary">暂无关系数据</Typography>;
 }
 
 function RelationshipOverviewPanel({
@@ -472,44 +480,28 @@ function RelationshipOverviewPanel({
   return relationships.length ? (
     <Stack spacing={1}>
       {relationships.slice(0, 8).map((relation, index) => {
-        const radarEntry: RelationshipLedgerEntry = {
-          pairKey: `character:${relation.characterId}`,
-          actorId: 'character',
-          targetId: relation.characterId,
-          current: normalizeCurrent({
-            warmth: Number.isFinite(relation.warmth) ? relation.warmth : 0,
-            competence: Number.isFinite(relation.competence) ? relation.competence : 0,
-            trust: Number.isFinite(relation.trust) ? relation.trust : 0,
-            threat: Number.isFinite(relation.threat) ? relation.threat : 0,
-          }),
-          derived: {},
-          axisReasons: {},
-          trend: 'flat',
-          recentEvents: [],
-          lastUpdatedAt: relation.updatedAt || Date.now(),
-        };
         const memory = memoryByTarget.get(relation.characterId);
+        const readableChips = buildRelationshipReadableChips(relation);
         return (
           <Box key={`${relation.characterId}-overview-${index}`} sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '72px minmax(0, 1fr)', gap: 1.1, alignItems: 'center' }}>
-              <RelationshipRadar entry={radarEntry} onOpenAxis={() => undefined} compact />
-              <Stack spacing={0.6} sx={{ minWidth: 0 }}>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>{resolveCharacterName(relation.characterId, relation.note)}</Typography>
-                <Tooltip title={buildRelationshipDebugHint(relation)} arrow>
-                  <Box sx={{ width: 'fit-content' }}>
-                    <StatChipRow items={buildRelationshipReadableChips(relation)} />
+            <Stack spacing={0.6} sx={{ minWidth: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>{resolveCharacterName(relation.characterId, relation.note)}</Typography>
+              {readableChips.length ? (
+                <Tooltip title={developerMode ? buildRelationshipDebugHint(relation) : buildRelationshipUserHint(relation, members)} arrow placement="top-start">
+                  <Box sx={{ width: 'fit-content', '&:hover': { textDecoration: 'underline' } }}>
+                    <StatChipRow items={developerMode ? buildRelationshipDebugChips(relation) : readableChips} />
                   </Box>
                 </Tooltip>
-                {relation.note && relation.note !== relation.characterId ? <Typography variant="body2" color="text.secondary">{sanitizeUserFacingText(relation.note, members)}</Typography> : null}
-                {memory ? (
-                  <Tooltip title={sanitizeUserFacingText(memory.evidenceText || memory.text, members)} arrow>
-                    <Typography variant="caption" color="text.secondary" sx={{ width: 'fit-content', cursor: 'help', '&:hover': { textDecoration: 'underline' } }}>
-                      {developerMode ? `强化 ${memory.reinforcementCount} · 置信 ${(memory.confidence * 100).toFixed(0)}%` : '有记忆沉淀'}
-                    </Typography>
-                  </Tooltip>
-                ) : null}
-              </Stack>
-            </Box>
+              ) : null}
+              {relation.note && relation.note !== relation.characterId ? <Typography variant="body2" color="text.secondary">{sanitizeUserFacingText(relation.note, members)}</Typography> : null}
+              {memory ? (
+                <Tooltip title={sanitizeUserFacingText(memory.evidenceText || memory.text, members)} arrow>
+                  <Typography variant="caption" color="text.secondary" sx={{ width: 'fit-content', cursor: 'help', '&:hover': { textDecoration: 'underline' } }}>
+                    {developerMode ? `强化 ${memory.reinforcementCount} · 置信 ${(memory.confidence * 100).toFixed(0)}%` : '有记忆沉淀'}
+                  </Typography>
+                </Tooltip>
+              ) : null}
+            </Stack>
           </Box>
         );
       })}
@@ -624,8 +616,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
     return (id: string, fallback?: string) => {
       const matched = byId.get(id);
       if (matched) return matched;
-      if (fallback && fallback !== id) return fallback;
-      return id.startsWith('draft-') ? '未命名关系' : `角色 ${id.slice(0, 6)}`;
+      return resolveFallbackCharacterName(id, fallback);
     };
   }, [characters]);
   const relationshipMemories = useMemo(() => {
@@ -660,8 +651,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
     return (id: string, fallback?: string) => {
       const matched = byId.get(id);
       if (matched) return matched;
-      if (fallback && fallback !== id) return fallback;
-      return id.startsWith('draft-') ? '未命名关系' : `角色 ${id.slice(0, 6)}`;
+      return resolveFallbackCharacterName(id, fallback);
     };
   }, [characters]);
   const behavior = character.behavior;
@@ -763,10 +753,10 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
       </SurfaceCard>
 
       <SurfaceCard>
-        <SectionHeader title="运行时间线" dense action={<StatChipRow items={[viewMode === 'timeline' ? '时间线' : '关系图谱']} />} />
+        <SectionHeader title="运行时间线" dense action={<StatChipRow items={[viewMode === 'timeline' ? '时间线' : '关系摘要']} />} />
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 1.25 }}>
           <Chip size="small" label="时间线" color={viewMode === 'timeline' ? 'primary' : 'default'} variant={viewMode === 'timeline' ? 'filled' : 'outlined'} onClick={() => setViewMode('timeline')} />
-          <Chip size="small" label="关系图谱" color={viewMode === 'graph' ? 'primary' : 'default'} variant={viewMode === 'graph' ? 'filled' : 'outlined'} onClick={() => setViewMode('graph')} />
+          <Chip size="small" label="关系摘要" color={viewMode === 'graph' ? 'primary' : 'default'} variant={viewMode === 'graph' ? 'filled' : 'outlined'} onClick={() => setViewMode('graph')} />
         </Box>
         {viewMode === 'timeline' ? (
           <>
@@ -783,7 +773,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
             <RuntimeTimelinePanel filteredTimeline={filteredTimeline} developerMode={isDeveloperView} members={characters} />
           </>
         ) : (
-          <RelationshipGraphPanel relationships={relationships} developerMode={isDeveloperView} resolveCharacterName={resolveCharacterName} />
+          <RelationshipGraphPanel relationships={relationships} developerMode={isDeveloperView} resolveCharacterName={resolveCharacterName} members={characters} />
         )}
       </SurfaceCard>
 
