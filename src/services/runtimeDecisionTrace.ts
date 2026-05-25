@@ -87,7 +87,7 @@ function buildExpressionTrace(innerLife: NonNullable<NonNullable<Message['metada
   const length = formatExpressionLengthLabel(plan?.length);
   const labelParts = [
     `表达 ${length}`,
-    messageCount > 1 ? `${messageCount} 条气泡倾向` : '单条倾向',
+    messageCount > 1 ? `${messageCount} 拍表达倾向` : '单条表达倾向',
     surface?.allowMarkdown ? '富文本' : '',
     allowWithdraw ? '可撤回' : '',
   ].filter(Boolean);
@@ -96,7 +96,7 @@ function buildExpressionTrace(innerLife: NonNullable<NonNullable<Message['metada
     innerLife?.tone ? `语气：${formatInnerToneLabel(innerLife.tone)}` : '',
     delayMs >= 1800 ? `延迟较长：${delayMs}ms` : delayMs > 0 ? `延迟：${delayMs}ms` : '',
     typoLevel >= 5 ? `手滑/粗糙度较高：${typoLevel}` : typoLevel > 0 ? `手滑/粗糙度：${typoLevel}` : '',
-    messageCount > 1 ? '内心表达计划倾向拆成几拍' : '当前更适合一条说完',
+    messageCount > 1 ? '内心表达计划倾向分成几拍；提交阶段仍保留单条完整消息' : '当前更适合一条说完',
     surface?.allowMarkdown ? '输出形态允许 Markdown / 段落保留' : '',
     surface?.roleFit === 'limited' ? '角色适配度限制长篇或正式格式' : '',
   ].filter(Boolean);

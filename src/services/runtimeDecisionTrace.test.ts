@@ -89,8 +89,8 @@ describe('runtimeDecisionTrace', () => {
       reasonLabels: ['卷入当前矛盾', '适合挑战当前目标'],
       rawReasons: ['conflict', 'director:challenge:target'],
       innerLifeLabel: '内在冲动：证明自己 · 随意 · 压力 0.64',
-      expressionLabel: '表达 常规 · 2 条气泡倾向 · 富文本',
-      expressionReasons: expect.arrayContaining(['内在冲动：证明自己', '语气：随意', '延迟：1600ms', '内心表达计划倾向拆成几拍', '输出形态允许 Markdown / 段落保留']),
+      expressionLabel: '表达 常规 · 2 拍表达倾向 · 富文本',
+      expressionReasons: expect.arrayContaining(['内在冲动：证明自己', '语气：随意', '延迟：1600ms', '内心表达计划倾向分成几拍；提交阶段仍保留单条完整消息', '输出形态允许 Markdown / 段落保留']),
       expressionFeedbackRetrievedLabels: ['减少助手腔'],
       expressionFeedbackAppliedLabels: ['减少助手腔'],
       expressionFeedbackRetrievedReasons: ['已检索 · 减少助手腔 · 强度 80% · 用户反馈：这类回复太像通用助手 · 证据：作为一个AI助手，我建议你'],
@@ -99,7 +99,7 @@ describe('runtimeDecisionTrace', () => {
       surfaceLabel: '专业表达 · 角色能力支持 · Markdown',
       surfaceBasis: ['面试模式', '主题请求专业表达', '角色能力支持长文'],
       rawSurface: 'professional/capable/markdown',
-      debugDetailLabel: '调度：矛盾 · 挑战 · 压力 0.82 · 矛盾升温 / 线索：矛盾线 · 当前矛盾 · 显著 0.91 / 表达：专业表达 · 角色能力支持 · Markdown / 节奏：表达 常规 · 2 条气泡倾向 · 富文本',
+      debugDetailLabel: '调度：矛盾 · 挑战 · 压力 0.82 · 矛盾升温 / 线索：矛盾线 · 当前矛盾 · 显著 0.91 / 表达：专业表达 · 角色能力支持 · Markdown / 节奏：表达 常规 · 2 拍表达倾向 · 富文本',
       rawDebugHint: 'director=conflict/challenge · 0.82 · 矛盾升温 / line=conflict:当前矛盾 · 显著 0.91 / surface=professional/capable/markdown / expression=normal/count:2/delay:1600/typo:1/withdraw:false',
       runtimeClueSections: expect.arrayContaining([
         expect.objectContaining({
