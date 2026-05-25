@@ -8,6 +8,7 @@ import { formatBeatType } from './runtimeInsightPresentation';
 export interface ActiveUserGuidanceProjection {
   title: string;
   rawText: string;
+  effectText: string;
   statusLabel: string;
   statusHint: string;
   sourceLabel: string;
@@ -63,6 +64,34 @@ function latestHumanGuidanceSource(messages: Message[], rawText: string) {
   return latest.type === 'god' ? '开发者引导' : '用户引导';
 }
 
+function clipText(text: string, max = 28) {
+  const trimmed = text.trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
+}
+
+function buildGuidanceEffectText(params: {
+  guidanceKind: string;
+  focusText: string;
+  activeTargetNames: string;
+  completedActorNames: string;
+  subjectNames: string;
+}) {
+  if (params.guidanceKind === 'media_request') {
+    if (params.activeTargetNames) {
+      const subject = params.subjectNames ? `，图片对象是${params.subjectNames}` : '';
+      return `${params.activeTargetNames}需要先完成这次图片请求${subject}；非目标角色不会抢占这次请求。`;
+    }
+    if (params.completedActorNames) return `${params.completedActorNames}已经回应过这次图片请求，之后会恢复普通聊天。`;
+    return '这是一条图片请求，调度会优先让相关角色接住，而不是继续旧话题。';
+  }
+  if (params.guidanceKind === 'direct_reply') {
+    if (params.activeTargetNames) return `${params.activeTargetNames}需要先回应这次点名；其他角色会在这之后再接话。`;
+    if (params.completedActorNames) return `${params.completedActorNames}已经回应过这次点名，之后会恢复普通聊天。`;
+    return '这是一条点名回应，引导会先压过旧梗和关系压力。';
+  }
+  return `旧话题已被覆盖，接下来会按“${clipText(params.focusText)}”重新选择发言者。`;
+}
+
 export function projectActiveUserGuidance(params: {
   chat: GroupChat;
   members: AICharacter[];
@@ -93,6 +122,10 @@ export function projectActiveUserGuidance(params: {
 
   const chips = [
     formatGuidanceKind(guidance.kind),
+    guidance.kind === 'topic_shift' ? '旧话题已覆盖' : '',
+    guidance.kind === 'topic_shift' ? '按新话题调度' : '',
+    guidance.actorIds.length && activeTargetNames ? '锁定待回应' : '',
+    guidance.actorIds.length ? '非目标不抢占' : '',
     activeTargetNames ? `待回应：${activeTargetNames}` : '',
     actorNames ? `执行：${actorNames}` : '',
     completedActorNames ? `已回应：${completedActorNames}` : '',
@@ -104,11 +137,19 @@ export function projectActiveUserGuidance(params: {
     ? subjectNames ? `图片请求：${subjectNames}` : '图片请求'
     : guidance.kind === 'direct_reply'
       ? actorNames ? `点名回应：${actorNames}` : '点名回应'
-      : '当前话题引导';
+      : `话题切换：${clipText(guidance.focusText || guidance.rawText, 18)}`;
+  const effectText = buildGuidanceEffectText({
+    guidanceKind: guidance.kind,
+    focusText: guidance.focusText || guidance.rawText,
+    activeTargetNames,
+    completedActorNames,
+    subjectNames,
+  });
 
   return {
     title,
     rawText: guidance.rawText,
+    effectText,
     sourceLabel: latestHumanGuidanceSource(params.messages, guidance.rawText),
     statusLabel: guidance.kind === 'media_request' ? '显式请求' : '生效中',
     statusHint: '这条引导优先于叙事线、矛盾线、关系压力和最近接梗；点名执行者时，调度会先锁定尚未回应的目标角色。',

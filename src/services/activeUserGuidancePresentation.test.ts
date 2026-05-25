@@ -102,9 +102,30 @@ describe('activeUserGuidancePresentation', () => {
       title: '图片请求：灰太狼',
       sourceLabel: '开发者引导',
       statusLabel: '显式请求',
+      effectText: '美羊羊需要先完成这次图片请求，图片对象是灰太狼；非目标角色不会抢占这次请求。',
       warning: '被点名角色没有可用图片模型，无法真正生成图片。',
     });
-    expect(projection?.chips).toEqual(expect.arrayContaining(['图片请求', '待回应：美羊羊', '执行：美羊羊', '图片对象：灰太狼', '未配置图片模型']));
+    expect(projection?.chips).toEqual(expect.arrayContaining(['图片请求', '锁定待回应', '非目标不抢占', '待回应：美羊羊', '执行：美羊羊', '图片对象：灰太狼', '未配置图片模型']));
+  });
+
+  it('explains topic shifts as replacing stale banter and steering speaker scoring', () => {
+    const projection = projectActiveUserGuidance({
+      chat: buildChat(),
+      members,
+      messages: [
+        buildMessage({ id: 'old', type: 'ai', senderId: 'hui', senderName: '灰太狼', content: '香蕉证件照也不是不行。', timestamp: 30 }),
+        buildMessage({ id: 'guide', type: 'god', senderName: '开发者', content: '新话题：狼抓羊有过错吗？狼应该抓羊吗？', timestamp: 40 }),
+      ],
+      aiProfiles: [],
+      now: 50,
+    });
+
+    expect(projection).toMatchObject({
+      title: '话题切换：新话题：狼抓羊有过错吗？狼应该抓羊吗…',
+      statusLabel: '生效中',
+      effectText: '旧话题已被覆盖，接下来会按“新话题：狼抓羊有过错吗？狼应该抓羊吗？”重新选择发言者。',
+    });
+    expect(projection?.chips).toEqual(expect.arrayContaining(['话题引导', '旧话题已覆盖', '按新话题调度']));
   });
 
   it('shows only unanswered requested actors for multi-actor guidance', () => {

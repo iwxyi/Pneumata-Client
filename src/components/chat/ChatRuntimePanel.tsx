@@ -413,6 +413,9 @@ function renderActiveGuidancePanel(guidance: ActiveUserGuidanceProjection | null
             <Chip size="small" label={guidance.statusLabel} color="primary" variant="outlined" sx={{ height: 22, cursor: 'help' }} />
           </Tooltip>
         </Box>
+        <Typography variant="body2" sx={{ mt: 0.65 }}>
+          {cleanText(guidance.effectText, members)}
+        </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
           {cleanText(guidance.rawText, members)}
         </Typography>

@@ -325,6 +325,47 @@ describe('runtimeDecision', () => {
     expect(projection.directorIntent?.userGuidance?.kind).toBe('media_request');
   });
 
+  it('keeps a recent targeted media request active even if a non-target reply slipped in before runtime events were written', () => {
+    const projection = projectRuntimePressure({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼'), buildCharacter('c', '懒羊羊')],
+      messages: [
+        buildMessage({ id: 'guide', type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 30 }),
+        buildMessage({ id: 'non-target', type: 'ai', senderId: 'b', senderName: '灰太狼', content: '我看看你画得够不够帅。', timestamp: 40 }),
+      ],
+      now: 50,
+    });
+
+    expect(projection.directorIntent).toMatchObject({
+      source: 'user_message',
+      beatType: 'answer',
+      targetActorIds: ['a'],
+    });
+    expect(projection.directorIntent?.userGuidance).toMatchObject({
+      kind: 'media_request',
+      actorIds: ['a'],
+      mediaRequest: { kind: 'image', subjectActorIds: ['b'] },
+    });
+  });
+
+  it('keeps explicit topic guidance active for its short focus window after one reply', () => {
+    const projection = projectRuntimePressure({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '蕉太狼'), buildCharacter('b', '慢羊羊')],
+      messages: [
+        buildMessage({ id: 'guide', type: 'god', senderId: 'user', senderName: '开发者', content: '新话题：狼抓羊有过错吗？狼应该抓羊吗？', timestamp: 30 }),
+        buildMessage({ id: 'first', type: 'ai', senderId: 'a', senderName: '蕉太狼', content: '香蕉证件照也不是不行。', timestamp: 40 }),
+      ],
+      now: 50,
+    });
+
+    expect(projection.directorIntent?.userGuidance).toMatchObject({
+      kind: 'topic_shift',
+      rawText: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
+    });
+    expect(projection.directorIntent?.targetActorIds).toEqual([]);
+  });
+
   it('expires a director intervention after one AI response by default', () => {
     const intervention: RuntimeEventV2 = {
       id: 'evt-director',

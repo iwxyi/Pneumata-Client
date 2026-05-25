@@ -48,6 +48,48 @@ function getAiRespondersAfter(messages: Message[], timestamp: number) {
   return new Set(messages.filter((message) => message.type === 'ai' && !message.isDeleted && message.timestamp > timestamp).map((message) => message.senderId));
 }
 
+function isExplicitPersistentGuidance(guidance: UserGuidanceIntent) {
+  if (guidance.actorIds.length) return true;
+  if (guidance.kind === 'media_request') return true;
+  return /(新话题|换个话题|切换话题|聊聊|讨论|围绕|回到|别聊|继续说|请|让|帮|指定|点名|安排)/i.test(guidance.rawText);
+}
+
+function guidanceIntentToDirectorIntent(guidance: UserGuidanceIntent, targetActorIds: string[]): DirectorIntent {
+  return {
+    source: 'user_message',
+    beatType: guidance.beatType,
+    targetActorIds,
+    pressure: guidance.pressure,
+    reason: guidance.reason,
+    userGuidance: guidance,
+  };
+}
+
+function getLatestActiveHumanGuidanceIntent(characters: AICharacter[], messages: Message[], now: number): DirectorIntent | null {
+  const humanMessages = messages
+    .filter((message) => !message.isDeleted && (message.type === 'user' || message.type === 'god'))
+    .slice()
+    .reverse();
+
+  for (const message of humanMessages) {
+    const guidance = parseUserGuidanceIntent(message.content, characters);
+    if (!guidance || !isExplicitPersistentGuidance(guidance)) continue;
+    if (now > message.timestamp + 10 * 60_000) continue;
+
+    const respondedActorIds = getAiRespondersAfter(messages, message.timestamp);
+    if (guidance.actorIds.length) {
+      const pendingActorIds = uniqueKnownActorIds(guidance.actorIds.filter((actorId) => !respondedActorIds.has(actorId)), characters);
+      if (pendingActorIds.length) return guidanceIntentToDirectorIntent(guidance, pendingActorIds);
+      continue;
+    }
+
+    if (countAiResponsesAfter(messages, message.timestamp) >= guidance.maxTurns) continue;
+    return guidanceIntentToDirectorIntent(guidance, uniqueKnownActorIds(getGuidanceTargetActorIds(guidance), characters));
+  }
+
+  return null;
+}
+
 function isDirectorInterventionActive(event: NonNullable<GroupChat['runtimeEventsV2']>[number], messages: Message[], now: number) {
   const payload = event.payload as Record<string, unknown>;
   const expiresAt = typeof payload.expiresAt === 'number' ? payload.expiresAt : event.createdAt + 10 * 60_000;
@@ -124,6 +166,14 @@ export function projectRuntimePressure(params: {
       narrativeLines,
       primaryLine: selectPrimaryNarrativeLine(narrativeLines),
       directorIntent: directorIntervention,
+    };
+  }
+  const activeHumanGuidance = getLatestActiveHumanGuidanceIntent(params.characters, activeMessages, now);
+  if (activeHumanGuidance) {
+    return {
+      narrativeLines,
+      primaryLine: selectPrimaryNarrativeLine(narrativeLines),
+      directorIntent: activeHumanGuidance,
     };
   }
   const directorIntent = resolveDirectorIntent({
