@@ -366,6 +366,16 @@ export function buildPromptMemoryTrace(character: AICharacter, chat: GroupChat, 
   return resolvePromptMemoryContext(character, chat, messages, characters).trace;
 }
 
+export function buildCrossModeMemoryPrompt(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>) {
+  const memoryContext = resolvePromptMemoryContext(character, chat, messages, characters);
+  const merged = buildMergedMemories([
+    ...memoryContext.targetedCharacterMemories,
+    ...memoryContext.characterMemories,
+    ...memoryContext.conversationMemories,
+  ]);
+  return `${buildManualMemorySeedPrompt(character)}${buildPromptMemoryBundle(chat, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories)}${buildPromptInfluenceContext(chat, character, memoryContext.target, memoryContext.relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildMemoryPriorityPrompt(chat)}`;
+}
+
 function buildTopicSection(chat: GroupChat) {
   const lines = [
     `- Topic: ${chat.topic || 'Open conversation'}`,
