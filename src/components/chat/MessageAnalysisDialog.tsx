@@ -3,7 +3,7 @@ import { Box, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, Stack,
 import MarkdownText from '../common/MarkdownText';
 import type { Message } from '../../types/message';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { projectMessageRuntimeClues } from '../../services/messageRuntimeClues';
 
 type AnalysisSection = { index: number; title: string; content: string };
 
@@ -45,37 +45,13 @@ function getAnalysisSectionTone(index: number) {
   return { color: '#475569', bgcolor: 'rgba(71,85,105,0.10)' };
 }
 
-function cleanRuntimeText(text: string | undefined | null) {
-  return sanitizeUserFacingText(text || '').trim();
-}
-
-function formatResponseSurfaceKind(value: string | undefined) {
-  const labels: Record<string, string> = {
-    chat: '普通聊天',
-    professional: '专业讨论',
-    creative: '创作表达',
-    longform: '长段落表达',
-  };
-  return value ? labels[value] || cleanRuntimeText(value) : '';
-}
-
-function formatRoleFit(value: string | undefined) {
-  const labels: Record<string, string> = {
-    limited: '角色能力有限',
-    ordinary: '角色可普通参与',
-    capable: '角色适合展开',
-  };
-  return value ? labels[value] || cleanRuntimeText(value) : '';
-}
-
 function renderRuntimeClueSection(label: string, items: string[]) {
-  const cleaned = items.map((item) => cleanRuntimeText(item)).filter(Boolean).slice(0, 5);
-  if (!cleaned.length) return null;
+  if (!items.length) return null;
   return (
     <Box sx={{ display: 'grid', gap: 0.55 }}>
       <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>{label}</Typography>
       <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
-        {cleaned.map((item, index) => (
+        {items.map((item, index) => (
           <Chip key={`${label}-${item}-${index}`} size="small" label={item} sx={{ maxWidth: '100%', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }} />
         ))}
       </Stack>
@@ -87,32 +63,8 @@ function MessageRuntimeCluesCard({ target }: { target: Message | null }) {
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
-  const decision = target?.metadata?.runtimeDecision;
-  if (!developerMode || (!showMemoryDebug && !showAdvancedRuntimePanels) || !decision) return null;
-
-  const memoryItems = (decision.memoryContext?.recalledArchives || []).flatMap((item) => [
-    item.summary,
-    item.recallReason ? `原因：${item.recallReason}` : '',
-  ]).filter(Boolean);
-  const innerLifeItems = decision.innerLife ? [
-    decision.innerLife.tone ? `语气：${decision.innerLife.tone}` : '',
-    decision.innerLife.impulse ? `冲动：${decision.innerLife.impulse}` : '',
-    decision.innerLife.reason ? `原因：${decision.innerLife.reason}` : '',
-  ].filter(Boolean) : [];
-  const surfaceItems = decision.responseSurface ? [
-    formatResponseSurfaceKind(decision.responseSurface.kind),
-    formatRoleFit(decision.responseSurface.roleFit),
-    decision.responseSurface.allowMarkdown ? '允许富文本' : '',
-    ...(decision.responseSurface.basis || []),
-  ].filter(Boolean) : [];
-  const directorItems = decision.directorIntent ? [
-    decision.directorIntent.beatType ? `动作：${decision.directorIntent.beatType}` : '',
-    decision.directorIntent.reason ? `原因：${decision.directorIntent.reason}` : '',
-  ].filter(Boolean) : [];
-  const narrativeItems = (decision.narrativeLines || []).map((item) => item.title).filter(Boolean);
-  const feedbackItems = (decision.expressionFeedback || []).map((item) => item.label || item.text).filter(Boolean);
-  const hasContent = memoryItems.length || innerLifeItems.length || surfaceItems.length || directorItems.length || narrativeItems.length || feedbackItems.length;
-  if (!hasContent) return null;
+  const sections = projectMessageRuntimeClues(target);
+  if (!developerMode || (!showMemoryDebug && !showAdvancedRuntimePanels) || !sections.length) return null;
 
   return (
     <Box sx={{ mb: 1.75, p: 1.25, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.08)', border: '1px solid', borderColor: 'warning.light', display: 'grid', gap: 1 }}>
@@ -120,12 +72,11 @@ function MessageRuntimeCluesCard({ target }: { target: Message | null }) {
         <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>运行线索</Typography>
         <Chip size="small" label="调试" color="warning" variant="outlined" sx={{ height: 22 }} />
       </Box>
-      {renderRuntimeClueSection('记忆', memoryItems)}
-      {renderRuntimeClueSection('内心', innerLifeItems)}
-      {renderRuntimeClueSection('表达', surfaceItems)}
-      {renderRuntimeClueSection('调度', directorItems)}
-      {renderRuntimeClueSection('叙事线', narrativeItems)}
-      {renderRuntimeClueSection('反馈', feedbackItems)}
+      {sections.map((section) => (
+        <Box key={section.key}>
+          {renderRuntimeClueSection(section.label, section.items)}
+        </Box>
+      ))}
     </Box>
   );
 }
