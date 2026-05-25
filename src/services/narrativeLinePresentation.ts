@@ -64,9 +64,9 @@ function findConflictEvidence(line: NarrativeLineProjection, chat: GroupChat, me
     ...(chat.worldState.conflictState?.activeConflicts || []),
   ].filter(Boolean);
   const conflict = conflicts.find((item) => item?.id === line.id) || null;
-  if (conflict?.summary) return `最近矛盾：${formatNarrativeLineText(conflict.summary, members)}`;
+  if (conflict?.summary) return `形成原因：${formatNarrativeLineText(conflict.summary, members)}`;
   const event = findSourceRuntimeEvent(line, chat);
-  return event ? `最近证据：${formatRuntimeEventEvidence(event, members)}` : null;
+  return event ? `依据：${formatRuntimeEventEvidence(event, members)}` : null;
 }
 
 function findRelationshipEvidence(line: NarrativeLineProjection, chat: GroupChat, members: AICharacter[]) {
@@ -78,7 +78,7 @@ function findRelationshipEvidence(line: NarrativeLineProjection, chat: GroupChat
   const recentSummary = entry.recentEvents?.at(-1)?.summary;
   const semantic = entry.derived?.semantic?.summary;
   const evidence = axisEvidence || recentSummary || semantic;
-  const evidenceLine = evidence ? `最近关系证据：${formatNarrativeLineText(evidence, members)}` : '';
+  const evidenceLine = evidence ? `形成原因：${formatNarrativeLineText(evidence, members)}` : '';
   const repairLine = repairActor?.soulState?.lastImpulseReason
     ? `${repairActor.name}的内在余波：${formatNarrativeLineText(repairActor.soulState.lastImpulseReason, members)}`
     : '';
@@ -99,7 +99,7 @@ function findGrowthEvidence(line: NarrativeLineProjection, members: AICharacter[
     .filter(isGrowthMemory)
     .slice()
     .sort((left, right) => (right.updatedAt || right.createdAt || 0) - (left.updatedAt || left.createdAt || 0))[0];
-  return memory ? `最近成长证据：${formatNarrativeLineText(memory.summary || memory.text, members)}` : null;
+  return memory ? `形成原因：${formatNarrativeLineText(memory.summary || memory.text, members)}` : null;
 }
 
 function findGoalEvidence(line: NarrativeLineProjection, chat: GroupChat, members: AICharacter[]) {
@@ -107,18 +107,18 @@ function findGoalEvidence(line: NarrativeLineProjection, chat: GroupChat, member
   if (!event) return null;
   const payload = event.payload as Record<string, unknown>;
   const text = typeof payload.text === 'string' ? payload.text : event.summary;
-  return text ? `最近目标证据：${formatNarrativeLineText(text, members)}` : `最近目标证据：${formatRuntimeEventEvidence(event, members)}`;
+  return text ? `形成原因：${formatNarrativeLineText(text, members)}` : `依据：${formatRuntimeEventEvidence(event, members)}`;
 }
 
 function findMysteryEvidence(line: NarrativeLineProjection, chat: GroupChat) {
   const event = findSourceRuntimeEvent(line, chat);
-  if (!event) return line.hiddenParticipantIds?.length ? `隐藏参与者：${line.hiddenParticipantIds.length} 人` : null;
-  return `最近未公开事件：${formatRuntimeEventKind(event.kind)} · ${event.visibility || '未标注可见性'}`;
+  if (!event) return line.hiddenParticipantIds?.length ? `存在 ${line.hiddenParticipantIds.length} 个未公开参与点。` : null;
+  return `形成原因：有一条未公开的${formatRuntimeEventKind(event.kind)}正在影响走向。`;
 }
 
 function findFactionEvidence(line: NarrativeLineProjection, chat: GroupChat, members: AICharacter[]) {
   const event = findSourceRuntimeEvent(line, chat);
-  if (event) return `最近阵营证据：${formatRuntimeEventEvidence(event, members)}`;
+  if (event) return `形成原因：${formatRuntimeEventEvidence(event, members)}`;
   const names = getNarrativeLineParticipantNames(line, members);
   return names.length ? `阵营成员：${names.slice(0, 6).join('、')}` : null;
 }
@@ -132,7 +132,7 @@ function findScenarioEvidence(chat: GroupChat, members: AICharacter[]) {
   const factionNames = (scenario.factions || []).slice(0, 4).map((item) => item.label);
   const boardKind = scenario.board?.schema?.kind;
   const parts = [roleNames.length ? `角色位：${roleNames.join(' / ')}` : '', factionNames.length ? `阵营：${factionNames.join(' / ')}` : '', boardKind ? `棋盘：${boardKind}` : ''].filter(Boolean);
-  return parts.length ? `场景证据：${parts.join('；')}` : null;
+  return parts.length ? `场景结构：${parts.join('；')}` : null;
 }
 
 function latestMessageEvidence(line: NarrativeLineProjection, messages: Message[]) {
@@ -178,9 +178,9 @@ export function buildNarrativeLineTooltip(params: {
   const parts = [
     explainLineType(line),
     names.length ? `相关角色：${names.slice(0, 6).join('、')}` : '',
-    line.sourceEventIds.length ? `来源事件：${line.sourceEventIds.length} 条` : '',
+    line.sourceEventIds.length ? `已参考 ${line.sourceEventIds.length} 条近期变化。` : '',
     evidence,
-    line.possibleNextBeats[0]?.reason ? `判断依据：${formatNarrativeLineText(formatKnownReason(line.possibleNextBeats[0].reason), members)}` : '',
+    line.possibleNextBeats[0]?.reason ? `为什么可能这样发展：${formatNarrativeLineText(formatKnownReason(line.possibleNextBeats[0].reason), members)}` : '',
   ].filter(Boolean);
   return parts.join('\n');
 }

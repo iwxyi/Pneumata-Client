@@ -126,7 +126,7 @@ describe('narrativeLinePresentation', () => {
       messages: [],
     });
 
-    expect(tooltip).toContain('最近关系证据');
+    expect(tooltip).toContain('形成原因');
     expect(tooltip).toContain('甲 质疑 乙');
   });
 
@@ -165,8 +165,8 @@ describe('narrativeLinePresentation', () => {
       messages: [],
     });
 
-    expect(tooltip).toContain('最近未公开事件');
-    expect(tooltip).toContain('role_private');
+    expect(tooltip).toContain('形成原因');
+    expect(tooltip).toContain('未公开的产物');
     expect(tooltip).not.toContain('攻击丙');
     expect(tooltip).not.toContain('狼人私聊');
   });
