@@ -24,13 +24,22 @@ describe('streamingMessageLifecycle', () => {
     expect(resolveCommittedStreamContent('最终内容', '逐字出现的内容')).toBe('最终内容');
   });
 
-  it('prefers the finalized content when the streamed draft is only a prefix', () => {
+  it('keeps streamed content when finalization returns a shorter substring', () => {
     expect(
       resolveCommittedStreamContent(
         '谁站你这边了？',
         '谁站你这边了？我只是看喜羊羊不顺眼',
       ),
-    ).toBe('谁站你这边了？');
+    ).toBe('谁站你这边了？我只是看喜羊羊不顺眼');
+  });
+
+  it('does not lose the opening text when finalization trims to a comma-boundary suffix', () => {
+    expect(
+      resolveCommittedStreamContent(
+        '这里不能再靠本地规则截断，否则流式结束后就会丢前半句。',
+        '我先说结论，这里不能再靠本地规则截断，否则流式结束后就会丢前半句。',
+      ),
+    ).toBe('我先说结论，这里不能再靠本地规则截断，否则流式结束后就会丢前半句。');
   });
 
   it('does not discard a draft when the same message is already committed', () => {

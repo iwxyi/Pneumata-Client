@@ -168,12 +168,7 @@ function trimSpeakerPrefix(content: string, speakerName: string) {
 function trimHumanChatStyle(content: string, preserveParagraphs = false) {
   const trimmed = content.trim();
   if (!trimmed) return trimmed;
-  const paragraphControlled = preserveParagraphs ? trimmed.replace(/\n{3,}/g, '\n\n') : trimmed.replace(/\n{2,}/g, '\n');
-  return paragraphControlled
-    .replace(/([。！？.!?])\s*([。！？.!?])+/g, '$1')
-    .replace(/^(好的|明白了|我认为|我觉得是这样|总结一下|总的来说)[，,:：\s]*/i, '')
-    .replace(/(总之|所以总体来说|综上)[，,:：\s]*$/i, '')
-    .trim();
+  return preserveParagraphs ? trimmed.replace(/\n{3,}/g, '\n\n') : trimmed.replace(/\n{2,}/g, '\n');
 }
 
 function salvageEmptyResponse(raw: string, speakerName: string, showRoleActions?: boolean) {

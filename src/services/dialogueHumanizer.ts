@@ -281,59 +281,11 @@ export function buildHumanizationPrompt(character: AICharacter, intent: SpeakInt
 - Keep the reply socially sticky: continue the same vibe instead of resetting into neutral analysis.`;
 }
 
-function collapseRepeatedSurface(content: string) {
-  return content
-    .replace(/^(\S{1,12})(?:\s*[，,、]\s*\1){1,}/, '$1')
-    .replace(/(\S{1,12})(?:\s*\1){2,}/g, '$1')
-    .trim();
-}
-
-function trimRepeatedSentenceEnding(content: string) {
-  return content.replace(/([。！？!?])\1+/g, '$1');
-}
-
-function stripFormalLeadIn(content: string) {
-  return content.replace(/^(我觉得|我认为|从我的角度看|总结一下|简单来说)[，,:：\s]*/i, '').trim();
-}
-
-function normalizeDuplicateCheck(content: string) {
-  return content
-    .replace(/[\p{P}\p{S}]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
-function removeRepeatedSurfacePattern(content: string, messages: Message[]) {
-  const repeatedPatterns = getRecentSurfacePatterns(messages).filter(([, count]) => count >= 2).map(([pattern]) => pattern);
-  let next = content.trim();
-  for (const pattern of repeatedPatterns) {
-    if (next.startsWith(pattern)) {
-      next = next.slice(pattern.length).replace(/^[，,、：:\s]+/, '').trim();
-    }
-  }
-  const normalizedNext = normalizeDuplicateCheck(next || content.trim());
-  const recentNormalized = messages
-    .filter((message) => !message.isDeleted && message.type === 'ai')
-    .slice(-10)
-    .map((message) => normalizeDuplicateCheck(message.content));
-  if (normalizedNext && recentNormalized.includes(normalizedNext)) return '';
-  return next || content.trim();
-}
-
-function normalizeCatchphraseEcho(content: string, character?: AICharacter) {
-  const catchphrases = character?.speechProfile?.catchphrases || [];
-  const duplicated = catchphrases.find((phrase) => content.startsWith(`${phrase}${phrase}`));
-  if (!duplicated) return content;
-  return content.replace(new RegExp(`^(${duplicated})+`), duplicated).trim();
-}
-
 export function postProcessHumanChat(content: string, _intent: SpeakIntent, character?: AICharacter, messages: Message[] = [], intentionalRepeat = false) {
   const trimmed = content.trim();
   if (!trimmed) return trimmed;
-  const normalized = trimRepeatedSentenceEnding(collapseRepeatedSurface(stripFormalLeadIn(trimmed))).replace(/\n{2,}/g, '\n').trim();
-  const repeatedControlled = intentionalRepeat ? normalized : removeRepeatedSurfacePattern(normalized, messages);
-  const surfaceControlled = normalizeCatchphraseEcho(repeatedControlled, character);
-  if (!surfaceControlled.trim()) return '';
-  return surfaceControlled;
+  void character;
+  void messages;
+  void intentionalRepeat;
+  return trimmed.replace(/\n{2,}/g, '\n').trim();
 }

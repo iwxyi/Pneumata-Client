@@ -4,6 +4,13 @@ export function resolveCommittedStreamContent(finalContent: string, lastStreamed
   const normalizedFinal = finalContent.trim();
   const normalizedStreamed = lastStreamedContent.trim();
   if (!normalizedFinal) return normalizedStreamed ? lastStreamedContent : finalContent;
+  if (
+    normalizedStreamed
+    && normalizedStreamed.length > normalizedFinal.length
+    && normalizedStreamed.includes(normalizedFinal)
+  ) {
+    return lastStreamedContent;
+  }
   return finalContent;
 }
 

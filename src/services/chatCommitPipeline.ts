@@ -54,7 +54,7 @@ export async function runChatCommitPipeline(params: {
       message: params.message,
       upsertMessage: params.upsertMessage,
       existingLocalMessage: params.streamingMessage,
-      deferLocalUpsert: Boolean(params.streamingMessage),
+      deferLocalUpsert: false,
     });
     if (params.aiProfiles?.length && persistedMessage.metadata?.attachments?.some((item) => item.status === 'queued')) {
       const speaker = params.characters.find((character) => character.id === persistedMessage.senderId);
