@@ -22,6 +22,7 @@ import { sanitizeUserFacingText, type DisplayTextMember } from '../../services/d
 import { formatInnerImpulseLabel, formatSoulMetricLabel } from '../../services/runtimeDecisionLabels';
 import { formatScenarioBoardKind, formatScenarioRoleLabel } from '../../services/scenarioPresentation';
 import { projectMemoryReactivationItems, projectMemoryRecallItems } from '../../services/memoryRecallPresentation';
+import { projectActiveUserGuidance, type ActiveUserGuidanceProjection } from '../../services/activeUserGuidancePresentation';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -396,6 +397,42 @@ function renderConflictPanel(chat: GroupChat, members: AICharacter[]) {
   );
 }
 
+function renderActiveGuidancePanel(guidance: ActiveUserGuidanceProjection | null, isAdvancedRuntimeView: boolean, members: DisplayTextMember[] = []) {
+  if (!guidance) return null;
+  return (
+    <SurfaceCard>
+      <SectionHeader title="当前引导" subtitle="最新用户或开发者指令会优先于叙事、矛盾和关系压力。" dense action={isAdvancedRuntimeView ? <DebugChip /> : undefined} />
+      <Box sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'rgba(25, 118, 210, 0.06)' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="caption" color="text.secondary">{cleanText(`${guidance.sourceLabel} · ${guidance.statusLabel}`, members)}</Typography>
+            <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 700 }}>{cleanText(guidance.title, members)}</Typography>
+          </Box>
+          <Tooltip title={guidance.statusHint} arrow>
+            <Chip size="small" label={guidance.statusLabel} color="primary" variant="outlined" sx={{ height: 22, cursor: 'help' }} />
+          </Tooltip>
+        </Box>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {cleanText(guidance.rawText, members)}
+        </Typography>
+        <Box sx={{ mt: 0.75 }}>
+          <StatChipRow items={guidance.chips.map((item) => cleanText(item, members))} />
+        </Box>
+        {guidance.warning ? (
+          <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.6 }}>
+            {cleanText(guidance.warning, members)}
+          </Typography>
+        ) : null}
+        {isAdvancedRuntimeView ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.6 }}>
+            {guidance.debugChips.map((item) => cleanText(item, members)).join(' / ')}
+          </Typography>
+        ) : null}
+      </Box>
+    </SurfaceCard>
+  );
+}
+
 function renderInnerLifePanel(members: AICharacter[], isZh: boolean) {
   const language = isZh ? 'zh' : 'en';
   const items = members
@@ -654,6 +691,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showSpeechStyle = useSettingsStore((state) => state.developerUI.showSpeechStyle);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
+  const aiProfiles = useSettingsStore((state) => state.aiProfiles);
   const isDeveloperView = developerMode && showDeveloperMemory;
   const isSpeechStyleView = developerMode && showSpeechStyle;
   const isAdvancedRuntimeView = developerMode && showAdvancedRuntimePanels;
@@ -667,6 +705,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
     .reverse()
     .slice(0, timelineExpanded ? 16 : 6), [projectedTimeline, timelineFilter, timelineExpanded]);
   const decisionTrace = useMemo(() => projectRuntimeDecisionTrace(messages, 5, members), [members, messages]);
+  const activeGuidance = useMemo(() => projectActiveUserGuidance({ chat, members, messages, aiProfiles }), [aiProfiles, chat, members, messages]);
   const structureRows = [...buildScenarioRows(chat, members, i18n.language), ...buildBoardRows(chat, i18n.language)];
 
   return (
@@ -691,6 +730,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
         </SurfaceCard>
 
         {renderConflictPanel(chat, members)}
+        {renderActiveGuidancePanel(activeGuidance, isAdvancedRuntimeView, members)}
 
         <SurfaceCard>
           <SectionHeader title="运行时间线" dense />
