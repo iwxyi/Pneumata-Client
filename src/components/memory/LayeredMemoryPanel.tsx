@@ -73,7 +73,7 @@ function memoryStrengthLabel(item: MemoryItem, language: string) {
   const zh = isZh(language);
   if (item.archivedAt) return zh ? '已沉入旧档' : 'Archived';
   if (item.lastActivatedAt && Date.now() - item.lastActivatedAt < 7 * 24 * 60 * 60 * 1000) return zh ? '最近回温' : 'Recently reactivated';
-  if (item.layer === 'long_term' && (item.origin === 'distilled' || item.reinforcementCount >= 3 || salience >= 0.78)) return zh ? '锚点候选' : 'Anchor candidate';
+  if (isMemoryAnchorCandidate(item)) return zh ? '锚点候选' : 'Anchor candidate';
   if (salience >= 0.78) return zh ? '印象很深' : 'Strong impression';
   if (salience >= 0.5) return zh ? '印象明确' : 'Clear impression';
   return zh ? '印象较轻' : 'Light impression';
