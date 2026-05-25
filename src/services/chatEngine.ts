@@ -467,6 +467,117 @@ function buildUserGuidancePrompt(guidance: UserGuidanceIntent | null | undefined
 - If the room has been drifting, pull the next line back to this guidance immediately.`;
 }
 
+const GUIDANCE_STOP_WORDS = new Set([
+  '新话题',
+  '换话题',
+  '换个',
+  '话题',
+  '讨论',
+  '聊聊',
+  '说说',
+  '继续',
+  '回到',
+  '围绕',
+  '一下',
+  '这个',
+  '那个',
+  '什么',
+  '怎么',
+  '应该',
+  '有没有',
+  '是不是',
+]);
+
+function normalizeGuidanceMatchText(text: string) {
+  return text.replace(/\s+/g, '').replace(/[，。！？、,.!?:：；;"“”'‘’（）()[\]{}<>《》]/g, '').toLowerCase();
+}
+
+function extractGuidanceMatchTokens(text: string) {
+  const normalized = normalizeGuidanceMatchText(text.replace(/^(新话题|换个话题|切换话题|回到|继续说|讨论|聊聊)[:：]*/i, ''));
+  const tokens: string[] = [];
+  const chunks = normalized.match(/[\u4e00-\u9fff]{2,}|[a-z0-9_]{3,}/gi) || [];
+  for (const chunk of chunks) {
+    if (/^[a-z0-9_]+$/i.test(chunk)) {
+      tokens.push(chunk.toLowerCase());
+      continue;
+    }
+    if (chunk.length <= 4) {
+      tokens.push(chunk);
+      continue;
+    }
+    for (let index = 0; index < chunk.length - 1; index += 1) {
+      tokens.push(chunk.slice(index, index + 2));
+    }
+  }
+  return tokens
+    .map((token) => token.trim())
+    .filter((token, index, array) => token.length >= 2 && !GUIDANCE_STOP_WORDS.has(token) && array.indexOf(token) === index);
+}
+
+function extractGuidanceTopicChars(text: string) {
+  const normalized = normalizeGuidanceMatchText(text.replace(/^(新话题|换个话题|切换话题|回到|继续说|讨论|聊聊)[:：]*/i, ''));
+  const stopChars = new Set(Array.from('新换个话题讨论聊聊说说继续回到围绕一下这个那个什么怎么应该吗呢吧的了吗有无'));
+  return Array.from(new Set(Array.from(normalized).filter((char) => /[\u4e00-\u9fff]/.test(char) && !stopChars.has(char))));
+}
+
+function topicGuidanceMatchesContent(content: string, guidance: UserGuidanceIntent) {
+  const normalizedContent = normalizeGuidanceMatchText(content);
+  const tokens = extractGuidanceMatchTokens(guidance.focusText || guidance.rawText);
+  if (tokens.length) {
+    const matched = tokens.filter((token) => normalizedContent.includes(token.toLowerCase()));
+    if (matched.length >= Math.min(2, tokens.length)) return true;
+    if (matched.some((token) => token.length >= 3)) return true;
+  }
+  const topicChars = extractGuidanceTopicChars(guidance.focusText || guidance.rawText);
+  if (!topicChars.length) return true;
+  return topicChars.filter((char) => normalizedContent.includes(char)).length >= Math.min(2, topicChars.length);
+}
+
+function mediaGuidanceMatchesContent(content: string, guidance: UserGuidanceIntent) {
+  const request = guidance.mediaRequest;
+  if (!request) return true;
+  const normalizedContent = normalizeGuidanceMatchText(content);
+  const subjectTokens = extractGuidanceMatchTokens(request.subjectText).concat(extractGuidanceMatchTokens(request.actionText));
+  const artifactMatched = /(图|图片|照片|相片|证件照|画|画好|拍|看|发|来啦|好了|出图|生成)/i.test(content);
+  if (!subjectTokens.length) return artifactMatched;
+  return artifactMatched && subjectTokens.some((token) => normalizedContent.includes(token.toLowerCase()));
+}
+
+function guidanceMatchesGeneratedContent(content: string, guidance: UserGuidanceIntent | null | undefined, speaker: AICharacter) {
+  if (!guidance) return true;
+  if (guidance.actorIds.length && !guidance.actorIds.includes(speaker.id)) return false;
+  if (guidance.kind === 'media_request') return mediaGuidanceMatchesContent(content, guidance);
+  if (guidance.kind === 'topic_shift') return topicGuidanceMatchesContent(content, guidance);
+  return topicGuidanceMatchesContent(content, guidance);
+}
+
+function buildGuidanceRetryPrompt(params: {
+  systemPrompt: string;
+  guidance: UserGuidanceIntent;
+  speaker: AICharacter;
+  characters: AICharacter[];
+  previousDraft: string;
+}) {
+  const requestedActors = params.guidance.actorIds.map((id) => getCharacterNameById(params.characters, id)).filter(Boolean);
+  const subjectNames = params.guidance.mediaRequest?.subjectActorIds.map((id) => getCharacterNameById(params.characters, id)).filter(Boolean) || [];
+  const mediaRetry = params.guidance.kind === 'media_request'
+    ? `\n- The user asked for an image. Requested sender(s): ${requestedActors.join('、') || params.speaker.name}. Image subject: ${subjectNames.join('、') || params.guidance.mediaRequest?.subjectText || 'the requested subject'}.
+- Your next JSON must complete that image request. The visible content must present or send the requested image, and mediaDecision.image.shouldGenerate must be true when image capability exists.`
+    : '';
+  const topicRetry = params.guidance.kind === 'topic_shift'
+    ? '\n- The user changed the topic. Your next JSON content must directly take a stance, answer, or ask a focused question about that topic before any old banter.'
+    : params.guidance.kind === 'direct_reply'
+      ? '\n- The user asked for a direct reply. Your next JSON content must answer the requested point first.'
+      : '';
+  return `${params.systemPrompt}
+
+Guidance retry:
+- The previous draft drifted away from the latest human guidance and must be discarded.
+- Latest human guidance: ${params.guidance.rawText}${mediaRetry}${topicRetry}
+- Do not continue this failed draft: ${params.previousDraft.slice(0, 160)}
+- Return a fresh valid JSON object only.`;
+}
+
 function shouldForceGuidanceMedia(guidance: UserGuidanceIntent | null | undefined, speaker: AICharacter) {
   if (!guidance?.mediaRequest || guidance.mediaRequest.kind !== 'image') return false;
   if (!guidance.actorIds.length) return true;
@@ -817,20 +928,34 @@ async function generateNonDuplicateResponse(params: {
   systemPrompt: string;
   chatMessages: ReturnType<typeof buildChatMessages>;
   speaker: AICharacter;
+  characters?: AICharacter[];
   intent: ReturnType<typeof deriveSpeakIntentFromContext>;
   activeMessages: Message[];
   showRoleActions?: boolean;
   surface?: ResponseSurface;
+  guidance?: UserGuidanceIntent | null;
   onChunk?: (content: string) => void;
 }) {
   let prompt = params.systemPrompt;
   let lastParsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope> = null;
   let lastFinalResponse = '';
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const generated = await generateWithPrompt({ ...params, systemPrompt: prompt, onChunk: attempt === 0 ? params.onChunk : undefined });
+    const shouldStreamAttempt = !params.guidance && attempt === 0;
+    const generated = await generateWithPrompt({ ...params, systemPrompt: prompt, onChunk: shouldStreamAttempt ? params.onChunk : undefined });
     lastParsedEnvelope = generated.parsedEnvelope;
     lastFinalResponse = generated.finalResponse;
     if (normalizeForComparison(generated.finalResponse)) {
+      if (params.guidance && !guidanceMatchesGeneratedContent(generated.finalResponse, params.guidance, params.speaker) && attempt < 2) {
+        prompt = buildGuidanceRetryPrompt({
+          systemPrompt: params.systemPrompt,
+          guidance: params.guidance,
+          speaker: params.speaker,
+          characters: params.characters || [],
+          previousDraft: generated.finalResponse,
+        });
+        continue;
+      }
+      if (params.guidance) params.onChunk?.(generated.finalResponse);
       return { parsedEnvelope: generated.parsedEnvelope, finalResponse: generated.finalResponse };
     }
     prompt = buildRetryPrompt(params.systemPrompt, generated.rawContent);
@@ -954,7 +1079,7 @@ export async function generateSpeakerMessage(params: {
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
   const userGuidance = effectiveDirectorIntent?.userGuidance || null;
-	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}
+	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}
 
 Current director intent:
 - ${effectiveDirectorIntent ? describeDirectorIntent(effectiveDirectorIntent) : 'none'}
@@ -973,10 +1098,12 @@ Current speaking intent:
     systemPrompt,
     chatMessages,
     speaker: params.speaker,
+    characters: effectiveMembers,
     intent,
     activeMessages,
     showRoleActions: params.chat.showRoleActions,
     surface: responseSurface,
+    guidance: userGuidance,
     onChunk: params.onChunk,
   });
   if (!normalizeForComparison(generated.finalResponse)) {

@@ -282,6 +282,134 @@ describe('chatEngine streaming preview', () => {
     expect(message.metadata?.attachments?.[0]?.promptText).toContain('灰太狼');
   });
 
+  it('retries explicit media guidance when the first draft keeps chatting instead of sending the requested image', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '蕉太狼你这一天天的，满脑子都是香蕉，连灰太狼先生的胡子都不放过啦～',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '来啦，我把灰太狼先生的证件照画好了，帽子和胡子都认真画了哦～',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
+    const mei = buildCharacter('mei', '美羊羊', {
+      visualIdentity: { description: '粉白色小羊，温柔爱画画', styleHint: '柔和童话插画' },
+    });
+    const hui = buildCharacter('hui', '灰太狼', {
+      background: '灰太狼，经典狼族角色，戴黄色补丁帽，脸部有胡须和自信表情。',
+      visualIdentity: { description: '灰色狼，黄色补丁帽，两撇胡子，表情夸张' },
+    });
+    const jiao = buildCharacter('jiao', '蕉太狼');
+    const chunks: string[] = [];
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['mei', 'hui', 'jiao'] }),
+      speaker: mei,
+      characters: [mei, hui, jiao],
+      messages: [
+        {
+          id: 'old-banter',
+          chatId: 'chat-1',
+          type: 'ai',
+          senderId: 'jiao',
+          senderName: '蕉太狼',
+          content: '暖羊羊姐姐这接梗能力，比我那根变异香蕉还顺滑～',
+          emotion: 0,
+          timestamp: 10,
+          isDeleted: false,
+        },
+        {
+          id: 'guide',
+          chatId: 'chat-1',
+          type: 'user',
+          senderId: 'user',
+          senderName: '我',
+          content: '美羊羊发个灰太狼证件照的图片',
+          emotion: 0,
+          timestamp: 20,
+          isDeleted: false,
+        },
+      ],
+      apiConfig: buildProfiles(),
+      directorIntent: buildMediaDirectorIntent(),
+      onChunk: (content) => chunks.push(content),
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(String(generateResponseMock.mock.calls[1]?.[1] || '')).toContain('Guidance retry');
+    expect(chunks).toEqual(['来啦，我把灰太狼先生的证件照画好了，帽子和胡子都认真画了哦～']);
+    expect(message.content).toContain('灰太狼');
+    expect(message.content).toContain('证件照');
+    expect(message.content).not.toContain('蕉太狼你这一天天的');
+    expect(message.metadata?.attachments?.[0]).toMatchObject({
+      kind: 'image',
+      status: 'queued',
+      referenceCharacterIds: ['hui'],
+    });
+  });
+
+  it('retries topic guidance when the first draft ignores the new topic and continues stale banter', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '蕉太狼你又把香蕉扯到胡子上了，这话题也太滑了吧～',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '狼抓羊这事不能只说“应该”，至少得先分清生存本能和伤害别人是不是一回事吧？',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
+    const man = buildCharacter('man', '慢羊羊', { expertise: ['伦理', '狼抓羊', '自然法则'] });
+    const jiao = buildCharacter('jiao', '蕉太狼', { expertise: ['香蕉'] });
+    const now = Date.now();
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['man', 'jiao'] }),
+      speaker: man,
+      characters: [man, jiao],
+      messages: [
+        {
+          id: 'old',
+          chatId: 'chat-1',
+          type: 'ai',
+          senderId: 'jiao',
+          senderName: '蕉太狼',
+          content: '香蕉证件照也不是不行。',
+          emotion: 0,
+          timestamp: now - 2000,
+          isDeleted: false,
+        },
+        {
+          id: 'guide',
+          chatId: 'chat-1',
+          type: 'user',
+          senderId: 'user',
+          senderName: '我',
+          content: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
+          emotion: 0,
+          timestamp: now - 1000,
+          isDeleted: false,
+        },
+      ],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(String(generateResponseMock.mock.calls[1]?.[1] || '')).toContain('Guidance retry');
+    expect(message.content).toContain('狼');
+    expect(message.content).toContain('羊');
+    expect(message.content).not.toContain('香蕉');
+  });
+
   it('recovers the latest unresolved media guidance from messages even without a passed directorIntent', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({

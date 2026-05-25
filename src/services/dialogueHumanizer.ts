@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { Message } from '../types/message';
 import type { SpeakIntent } from './intentEngine';
+import type { UserGuidanceIntent } from './userGuidanceIntent';
 
 export interface SpeechFingerprint {
   fillers: string[];
@@ -242,11 +243,24 @@ export function buildSelectiveMisread(intent: SpeakIntent, latestTargetText: str
   return { mode: 'literal', instruction: `主要回应“${topicLatch}”这一点，不必覆盖整段。` };
 }
 
-export function buildHumanizationPrompt(character: AICharacter, intent: SpeakIntent, messages: Message[]) {
+function buildGuidanceCarryoverOverride(guidance?: UserGuidanceIntent | null) {
+  if (!guidance) return '';
+  const actionLine = guidance.kind === 'media_request'
+    ? '- This is an execution request, not a new joke seed: complete the requested media action before any banter.'
+    : guidance.kind === 'topic_shift'
+      ? '- This replaces the stale room tangent: anchor the next line in this exact focus before reacting to older banter.'
+      : '- This is a direct user request: answer the requested point before drifting back into room momentum.';
+  return `\n- Active human guidance: ${guidance.focusText || guidance.rawText}
+${actionLine}
+- Treat old carry-over, repeated jokes, and the previous AI line as lower priority than this human guidance.`;
+}
+
+export function buildHumanizationPrompt(character: AICharacter, intent: SpeakIntent, messages: Message[], guidance?: UserGuidanceIntent | null) {
   const fingerprint = buildSpeechFingerprint(character);
   const archetype = pickMessageArchetype(intent);
   const recentTargetId = intent.target === 'group' ? null : intent.target;
-  const latestTargetText = getLatestTargetText(messages, recentTargetId);
+  const latestTargetText = guidance?.focusText || guidance?.rawText || getLatestTargetText(messages, recentTargetId);
+  const guidanceOverride = buildGuidanceCarryoverOverride(guidance);
   const hasChatHistory = messages.some((message) => !message.isDeleted && (message.type === 'ai' || message.type === 'god' || message.type === 'user'));
   if (!hasChatHistory) {
     return `\n## Human Chat Fingerprint
@@ -258,7 +272,7 @@ export function buildHumanizationPrompt(character: AICharacter, intent: SpeakInt
 - If a question appears, it should feel socially motivated: seeking information, fishing for reactions, steering the room, changing the subject, teasing, or putting someone on the spot.
 - Question tendency: ${fingerprint.prefersQuestions ? [fingerprint.asksForInformation ? 'info-seeking' : '', fingerprint.usesQuestionAsPushback ? 'pushback' : '', fingerprint.usesQuestionToSteer ? 'steering' : '', fingerprint.usesQuestionPlayfully ? 'playful' : ''].filter(Boolean).join(' / ') : 'not preferred'}
 - Terse bias: ${fingerprint.terseBias}/100${buildInnerResidueChatHint(character)}
-- Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}`;
+- Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}${guidanceOverride}`;
   }
   const stanceMemory = buildStanceMemory(messages, character.id, recentTargetId);
   const selectiveMisread = buildSelectiveMisread(intent, latestTargetText);
@@ -278,7 +292,7 @@ export function buildHumanizationPrompt(character: AICharacter, intent: SpeakInt
 - Question tendency: ${fingerprint.prefersQuestions ? [fingerprint.asksForInformation ? 'info-seeking' : '', fingerprint.usesQuestionAsPushback ? 'pushback' : '', fingerprint.usesQuestionToSteer ? 'steering' : '', fingerprint.usesQuestionPlayfully ? 'playful' : ''].filter(Boolean).join(' / ') : 'not preferred'}
 - Terse bias: ${fingerprint.terseBias}/100${buildInnerResidueChatHint(character)}
 - Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}${buildRecentSurfaceHint(messages)}${buildRecentPhraseConstraint(messages)}
-- Keep the reply socially sticky: continue the same vibe instead of resetting into neutral analysis.`;
+- Keep the reply socially sticky: continue the same vibe instead of resetting into neutral analysis.${guidanceOverride}`;
 }
 
 export function postProcessHumanChat(content: string, _intent: SpeakIntent, character?: AICharacter, messages: Message[] = [], intentionalRepeat = false) {
