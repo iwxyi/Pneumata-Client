@@ -27,22 +27,27 @@ function buildMessage(content: string, messageCount = 1): GeneratedRoundMessage 
 }
 
 describe('generatedMessageSegmenter', () => {
-  it('splits long speech on natural sentence boundaries', () => {
-    const segments = splitGeneratedMessageText('不是我说，这个办法能用。但是你得先把前面的坑补上，不然后面全是连环炸。还有，别再把锅扣给别人了。', 2);
-    expect(segments.length).toBeGreaterThan(1);
-    expect(segments.join('')).toContain('这个办法能用');
-    expect(segments.join('')).toContain('别再把锅扣给别人了');
+  it('keeps long speech as one committed bubble even when multiple beats are requested', () => {
+    const content = '不是我说，这个办法能用。但是你得先把前面的坑补上，不然后面全是连环炸。还有，别再把锅扣给别人了。';
+    const segments = splitGeneratedMessageText(content, 2);
+    expect(segments).toEqual([content]);
   });
 
   it('keeps short speech as one bubble', () => {
     expect(splitGeneratedMessageText('行吧，那我先看着。', 2)).toEqual(['行吧，那我先看着。']);
   });
 
-  it('keeps turn-level metadata only on the first segment', () => {
-    const segments = splitGeneratedRoundMessage(buildMessage('我先说结论，这个点不是不能聊。只是你们现在全在绕开真正的问题。要不先把谁负责讲清楚？', 2));
-    expect(segments.length).toBeGreaterThan(1);
+  it('preserves comma-boundary text without local splitting or leading text loss', () => {
+    const content = '我先说结论，这个点不是不能聊，只是你们现在全在绕开真正的问题，要不先把谁负责讲清楚？';
+    expect(splitGeneratedMessageText(content, 3)).toEqual([content]);
+  });
+
+  it('keeps turn-level metadata because no secondary segment is created', () => {
+    const message = buildMessage('我先说结论，这个点不是不能聊。只是你们现在全在绕开真正的问题。要不先把谁负责讲清楚？', 2);
+    const segments = splitGeneratedRoundMessage(message);
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toBe(message);
     expect(segments[0]?.metadata?.runtimeDecision?.innerLife?.impulse).toBe('show_off');
-    expect(segments[1]?.metadata?.runtimeDecision).toBeUndefined();
   });
 
   it('does not split withdrawn or media messages', () => {

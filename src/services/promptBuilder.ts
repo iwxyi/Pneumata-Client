@@ -7,6 +7,7 @@ import type { MemoryItem } from './memoryTypes';
 import { formatConflictPromptText, formatConflictStageLabel } from './runtimeEventFactory';
 import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 import { getExperienceLensLabel } from './experienceChangePresentation';
+import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
@@ -60,24 +61,94 @@ function buildCoreProfileDescription(character: AICharacter) {
   return lines.length ? `\n## Deeper Motivation\n${lines.join('\n')}` : '';
 }
 
-function buildManualMemorySeedPrompt(character: AICharacter) {
+function compactPromptText(text: string | undefined | null, max = 240) {
+  const normalized = (text || '').replace(/\s+/g, ' ').trim();
+  return normalized.length > max ? `${normalized.slice(0, max)}...` : normalized;
+}
+
+function buildPromptDisplayMembers(character: AICharacter, characters: Map<string, AICharacter>): DisplayTextMember[] {
+  const members = new Map<string, string>();
+  members.set(character.id, character.name || 'this character');
+  characters.forEach((item) => {
+    if (item.id) members.set(item.id, item.name || 'member');
+  });
+  return Array.from(members.entries()).map(([id, name]) => ({ id, name }));
+}
+
+function cleanPromptText(text: string | undefined | null, members: DisplayTextMember[], max = 240) {
+  return compactPromptText(sanitizeUserFacingText(text, members), max);
+}
+
+function getPromptMemoryKindLabel(kind: MemoryItem['kind']) {
+  const labels: Record<MemoryItem['kind'], string> = {
+    trait_evidence: 'trait evidence',
+    obsession: 'persistent fixation',
+    taboo: 'sensitive boundary',
+    bond: 'bond',
+    resentment: 'resentment',
+    bias: 'bias',
+    decision: 'decision',
+    conflict: 'conflict',
+    status_shift: 'state shift',
+    artifact: 'artifact',
+    thread_effect: 'thread residue',
+  };
+  return labels[kind] || sanitizeUserFacingText(kind);
+}
+
+function getPromptMemoryLayerLabel(layer: MemoryItem['layer']) {
+  const labels: Record<MemoryItem['layer'], string> = {
+    long_term: 'long-term',
+    episodic: 'episode',
+    working: 'recent working',
+  };
+  return labels[layer] || sanitizeUserFacingText(layer);
+}
+
+function getPromptMemoryScopeLabel(scope: MemoryItem['scope']) {
+  const labels: Record<MemoryItem['scope'], string> = {
+    character_self: 'self',
+    relationship: 'relationship',
+    conversation: 'conversation',
+    thread: 'thread',
+    system_runtime: 'room state',
+  };
+  return labels[scope] || sanitizeUserFacingText(scope);
+}
+
+function getPromptMemoryLens(item: MemoryItem) {
+  return getExperienceLensLabel(item.sourceTag, 'en') || getPromptMemoryKindLabel(item.kind);
+}
+
+function buildPromptMemoryLine(item: MemoryItem, members: DisplayTextMember[]) {
+  const lens = getPromptMemoryLens(item);
+  const scope = getPromptMemoryScopeLabel(item.scope);
+  const layer = getPromptMemoryLayerLabel(item.layer);
+  const sourceText = item.summary || item.text;
+  const text = cleanPromptText(sourceText, members, 260);
+  const evidence = item.evidenceText ? cleanPromptText(item.evidenceText, members, 180) : '';
+  const tags = [lens, scope, layer].filter(Boolean).join(' · ');
+  return evidence ? `- ${tags}: ${text} Evidence: ${evidence}` : `- ${tags}: ${text}`;
+}
+
+function buildManualMemorySeedPrompt(character: AICharacter, members: DisplayTextMember[]) {
   const memory = character.memory;
   if (!memory) return '';
   const lines = [
-    memory.shortTermSummary?.trim() ? `- Current private summary: ${memory.shortTermSummary.trim()}` : '',
-    memory.longTerm?.length ? `- Stable long-term memories: ${memory.longTerm.slice(-6).join(' / ')}` : '',
-    memory.secrets?.length ? `- Private secrets you know but should not reveal casually: ${memory.secrets.slice(-6).join(' / ')}` : '',
-    memory.obsessions?.length ? `- Obsessions that may leak into your attention and wording: ${memory.obsessions.slice(-6).join(' / ')}` : '',
-    memory.tabooTopics?.length ? `- Taboo or sensitive topics that trigger avoidance, defensiveness, or careful wording: ${memory.tabooTopics.slice(-6).join(' / ')}` : '',
-    memory.userMemories?.length ? `- Memories about the user: ${memory.userMemories.slice(-6).join(' / ')}` : '',
+    memory.shortTermSummary?.trim() ? `- Current private summary: ${cleanPromptText(memory.shortTermSummary, members)}` : '',
+    memory.longTerm?.length ? `- Stable long-term memories: ${memory.longTerm.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
+    memory.secrets?.length ? `- Private secrets you know but should not reveal casually: ${memory.secrets.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
+    memory.obsessions?.length ? `- Obsessions that may leak into your attention and wording: ${memory.obsessions.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
+    memory.tabooTopics?.length ? `- Taboo or sensitive topics that trigger avoidance, defensiveness, or careful wording: ${memory.tabooTopics.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
+    memory.userMemories?.length ? `- Memories about the user: ${memory.userMemories.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
   ].filter(Boolean);
   if (!lines.length) return '';
   return `\n## Manual Memory Seeds\n${lines.join('\n')}\n- Treat these as authored character continuity. Let them shape tone, attention, omissions, and reactions; do not list them unless the conversation naturally calls for it.`;
 }
 
-function buildLayeredMemoryPrompt(items: MemoryItem[], title = 'Relevant Memories') {
+function buildLayeredMemoryPrompt(items: MemoryItem[], members: DisplayTextMember[], title = 'Relevant Memories') {
   if (!items.length) return '';
-  return `\n## ${title}\n${items.map((item) => `- [${item.scope}/${item.kind}/${item.layer}] ${item.text}`).join('\n')}`;
+  return `\n## ${title}\n${items.map((item) => buildPromptMemoryLine(item, members)).join('\n')}`;
 }
 
 function buildRecallCue(messages: Message[], target?: AICharacter | null) {
@@ -140,12 +211,12 @@ function buildPromptMemoryTitle(chat: GroupChat) {
   return chat.type === 'direct' ? 'Private-Channel Memories' : chat.type === 'ai_direct' ? 'Pair-Thread Memories' : 'Group-Influenced Memories';
 }
 
-function buildScopedMemoryBreakdown(conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[]) {
-  return `${buildLayeredMemoryPrompt(targetedCharacterMemories, 'Targeted Relationship Memories')}${buildLayeredMemoryPrompt(characterMemories, 'Character-State Memories')}${buildLayeredMemoryPrompt(conversationMemories, 'Conversation Memories')}`;
+function buildScopedMemoryBreakdown(conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[], members: DisplayTextMember[]) {
+  return `${buildLayeredMemoryPrompt(targetedCharacterMemories, members, 'Targeted Relationship Memories')}${buildLayeredMemoryPrompt(characterMemories, members, 'Character-State Memories')}${buildLayeredMemoryPrompt(conversationMemories, members, 'Conversation Memories')}`;
 }
 
-function buildPromptMemoryBundle(chat: GroupChat, conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[]) {
-  return `${buildLayeredMemoryPrompt(buildMergedMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories]), buildPromptMemoryTitle(chat))}${buildScopedMemoryBreakdown(conversationMemories, characterMemories, targetedCharacterMemories)}`;
+function buildPromptMemoryBundle(chat: GroupChat, conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[], members: DisplayTextMember[]) {
+  return `${buildLayeredMemoryPrompt(buildMergedMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories]), members, buildPromptMemoryTitle(chat))}${buildScopedMemoryBreakdown(conversationMemories, characterMemories, targetedCharacterMemories, members)}`;
 }
 
 function buildInfluenceModePrompt(chat: GroupChat, target: AICharacter | undefined) {
@@ -188,10 +259,11 @@ function buildGroupPressurePrompt(chat: GroupChat, target: AICharacter | undefin
   if (chat.type !== 'group') return '';
   const room = chat.worldState.structuredRoomState;
   if (!room) return '';
+  const members = target ? buildPromptDisplayMembers(target, characters) : Array.from(characters.values()).map((item) => ({ id: item.id, name: item.name }));
   const lines: string[] = [];
   if (target && room.pileOnTarget === target.id) lines.push(`${target.name} is currently attracting pile-on pressure in the room.`);
   if (target && room.dominantThread?.includes(target.id)) {
-    const threadNames = room.dominantThread.map((id) => characters.get(id)?.name || id).join(' ↔ ');
+    const threadNames = room.dominantThread.map((id) => characters.get(id)?.name || cleanPromptText(id, members, 80) || 'member').join(' ↔ ');
     lines.push(`${target.name} is part of the room's dominant thread (${threadNames}).`);
   }
   if (target && room.alliances.some((pair) => pair.includes(target.id))) lines.push(`An alliance touching ${target.name} is currently visible in the room.`);
@@ -200,6 +272,7 @@ function buildGroupPressurePrompt(chat: GroupChat, target: AICharacter | undefin
 }
 
 function buildRelationshipSemanticPrompt(chat: GroupChat, character: AICharacter, target: AICharacter | undefined, characters: Map<string, AICharacter>) {
+  const members = buildPromptDisplayMembers(character, characters);
   const relevant = (chat.relationshipLedger || [])
     .map(normalizeRelationshipLedgerEntry)
     .filter((entry) => entry.actorId === character.id && (!target || entry.targetId === target.id))
@@ -208,8 +281,8 @@ function buildRelationshipSemanticPrompt(chat: GroupChat, character: AICharacter
     .slice(0, target ? 1 : 3);
   if (!relevant.length) return '';
   return `\n## Relationship Semantics\n${relevant.map((entry) => {
-    const targetName = characters.get(entry.targetId)?.name || entry.targetId;
-    return `- Toward ${targetName}: ${entry.derived?.semantic?.summary}`;
+    const targetName = characters.get(entry.targetId)?.name || cleanPromptText(entry.targetId, members, 80) || 'member';
+    return `- Toward ${targetName}: ${cleanPromptText(entry.derived?.semantic?.summary, members, 220)}`;
   }).join('\n')}\n- Let these relationship meanings bend tone, omissions, willingness to defend, jealousy, rivalry, affection, or avoidance.`;
 }
 
@@ -243,9 +316,10 @@ function buildGroupTargetPressureSummary(chat: GroupChat, target: AICharacter | 
   if (chat.type !== 'group' || !target) return '';
   const room = chat.worldState.structuredRoomState;
   if (!room) return '';
+  const members = buildPromptDisplayMembers(target, characters);
   const parts: string[] = [];
   if (room.pileOnTarget === target.id) parts.push('被多人围压');
-  if (room.dominantThread?.includes(target.id)) parts.push(`主线 ${room.dominantThread.map((id) => characters.get(id)?.name || id).join('↔')}`);
+  if (room.dominantThread?.includes(target.id)) parts.push(`主线 ${room.dominantThread.map((id) => characters.get(id)?.name || cleanPromptText(id, members, 80) || '成员').join('↔')}`);
   if (room.alliances.some((pair) => pair.includes(target.id))) parts.push('牵涉联盟');
   if (room.conflictPairs.some((pair) => pair.includes(target.id))) parts.push('牵涉冲突线');
   return parts.join(' / ');
@@ -278,11 +352,13 @@ function buildConflictPromptBundle(chat: GroupChat, character: AICharacter, char
   const state = chat.worldState.conflictState;
   const primary = state?.primaryConflict;
   if (!primary) return '';
-  const participantNames = (primary.participantIds || []).map((id) => characters.get(id)?.name || id).join('、');
-  const targetNames = (primary.targetIds || []).map((id) => characters.get(id)?.name || id).join('、');
+  const members = buildPromptDisplayMembers(character, characters);
+  const participantNames = (primary.participantIds || []).map((id) => characters.get(id)?.name || cleanPromptText(id, members, 80) || '成员').join('、');
+  const targetNames = (primary.targetIds || []).map((id) => characters.get(id)?.name || cleanPromptText(id, members, 80) || '成员').join('、');
   const involved = (primary.participantIds || []).includes(character.id) || (primary.targetIds || []).includes(character.id);
-  const formatted = formatConflictPromptText(primary.type, primary.nextPressure, primary.developmentHooks);
-  return `\n## Active Conflict\n- Stage: ${formatConflictStageLabel(primary.stage)}\n- Severity: ${primary.severity.toFixed(2)}\n- Summary: ${primary.summary}${participantNames ? `\n- Participants: ${participantNames}` : ''}${targetNames ? `\n- Targets: ${targetNames}` : ''}${formatted ? `\n${formatted}` : ''}${involved ? '\n- You are directly implicated in this contradiction; react from your position inside it, not as a neutral commentator.' : '\n- Even if you are not central, the room tension should subtly shape what you choose to notice, support, dodge, or escalate.'}`;
+  const formatted = cleanPromptText(formatConflictPromptText(primary.type, primary.nextPressure, primary.developmentHooks), members, 260);
+  const summary = cleanPromptText(primary.summary, members, 220);
+  return `\n## Active Conflict\n- Stage: ${formatConflictStageLabel(primary.stage)}\n- Severity: ${primary.severity.toFixed(2)}\n- Summary: ${summary}${participantNames ? `\n- Participants: ${participantNames}` : ''}${targetNames ? `\n- Targets: ${targetNames}` : ''}${formatted ? `\n${formatted}` : ''}${involved ? '\n- You are directly implicated in this contradiction; react from your position inside it, not as a neutral commentator.' : '\n- Even if you are not central, the room tension should subtly shape what you choose to notice, support, dodge, or escalate.'}`;
 }
 
 function buildPromptInfluenceContext(chat: GroupChat, character: AICharacter, target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, mergedMemories: MemoryItem[], characters: Map<string, AICharacter>) {
@@ -313,29 +389,30 @@ function buildMemoryPriorityPrompt(chat: GroupChat) {
 
 function buildPromptMemorySection(chat: GroupChat, character: AICharacter, conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[], target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, characters: Map<string, AICharacter>) {
   const merged = buildMergedMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories]);
-  return `${buildManualMemorySeedPrompt(character)}${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories)}${buildPromptInfluenceContext(chat, character, target, relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, target, relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildPromptReasoningSummary(chat)}${buildMemoryPriorityPrompt(chat)}`;
+  const members = buildPromptDisplayMembers(character, characters);
+  return `${buildManualMemorySeedPrompt(character, members)}${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories, members)}${buildPromptInfluenceContext(chat, character, target, relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, target, relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildPromptReasoningSummary(chat)}${buildMemoryPriorityPrompt(chat)}`;
 }
 
-function traceMemoryItem(item: MemoryItem): PromptMemoryTraceItem {
+function traceMemoryItem(item: MemoryItem, members: DisplayTextMember[]): PromptMemoryTraceItem {
   return {
     id: item.id,
     scope: item.scope,
     kind: item.kind,
     layer: item.layer,
-    summary: (item.summary || item.text).slice(0, 160),
-    recallReason: item.recallReason,
-    recallTokens: item.recallTokens?.slice(0, 6),
+    summary: cleanPromptText(item.summary || item.text, members, 160),
+    recallReason: item.recallReason ? cleanPromptText(item.recallReason, members, 160) : undefined,
+    recallTokens: item.recallTokens?.map((token) => cleanPromptText(token, members, 48)).filter(Boolean).slice(0, 6),
     recallScore: typeof item.recallScore === 'number' ? Number(item.recallScore.toFixed(3)) : undefined,
   };
 }
 
-function buildTraceFromPromptMemories(items: MemoryItem[]): PromptMemoryTrace {
+function buildTraceFromPromptMemories(items: MemoryItem[], members: DisplayTextMember[]): PromptMemoryTrace {
   const merged = buildMergedMemories(items);
   return {
     injectedIds: merged.map((item) => item.id),
     recalledArchives: merged
       .filter((item) => item.archivedAt && item.recallReason)
-      .map(traceMemoryItem)
+      .map((item) => traceMemoryItem(item, members))
       .slice(0, 4),
   };
 }
@@ -346,6 +423,7 @@ function resolvePromptMemoryContext(character: AICharacter, chat: GroupChat, mes
   const policies = buildPromptMemoryPolicies(chat);
   const boosts = buildRetrievalBoosts(chat);
   const allMemories = character.layeredMemories || [];
+  const members = buildPromptDisplayMembers(character, characters);
   const recallCue = buildRecallCue(messages, target);
   const conversationMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.conversation.preferred, policies.conversation.allowed, policies.conversation.blocked, boosts, recallCue);
   const characterMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.character.preferred, policies.character.allowed, policies.character.blocked, boosts, recallCue);
@@ -358,7 +436,7 @@ function resolvePromptMemoryContext(character: AICharacter, chat: GroupChat, mes
     conversationMemories,
     characterMemories,
     targetedCharacterMemories,
-    trace: buildTraceFromPromptMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories]),
+    trace: buildTraceFromPromptMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories], members),
   };
 }
 
@@ -373,7 +451,8 @@ export function buildCrossModeMemoryPrompt(character: AICharacter, chat: GroupCh
     ...memoryContext.characterMemories,
     ...memoryContext.conversationMemories,
   ]);
-  return `${buildManualMemorySeedPrompt(character)}${buildPromptMemoryBundle(chat, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories)}${buildPromptInfluenceContext(chat, character, memoryContext.target, memoryContext.relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildMemoryPriorityPrompt(chat)}`;
+  const members = buildPromptDisplayMembers(character, characters);
+  return `${buildManualMemorySeedPrompt(character, members)}${buildPromptMemoryBundle(chat, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, members)}${buildPromptInfluenceContext(chat, character, memoryContext.target, memoryContext.relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildMemoryPriorityPrompt(chat)}`;
 }
 
 function buildTopicSection(chat: GroupChat) {
@@ -466,6 +545,7 @@ export function buildSystemPromptWithContext(character: AICharacter, chat: Group
 }
 
 export function buildDirectMemoryPanelContext(character: AICharacter, messages: Message[], characters: Map<string, AICharacter>) {
+  const members = buildPromptDisplayMembers(character, characters);
   const recentPartner = messages
     .filter((item) => !item.isDeleted && item.senderId !== character.id && item.type !== 'system' && item.type !== 'event')
     .slice()
@@ -476,7 +556,7 @@ export function buildDirectMemoryPanelContext(character: AICharacter, messages: 
   const recentMemories = (character.layeredMemories || [])
     .slice(-3)
     .reverse()
-    .map((item) => ({ id: item.id, text: item.text, layer: item.layer, scope: item.scope }));
+    .map((item) => ({ id: item.id, text: cleanPromptText(item.text, members, 180), layer: item.layer, scope: item.scope }));
   const recentMemoryWrites = recentMemories.slice(0, 2);
   const recentRelationshipChanges = (character.runtimeTimeline || [])
     .filter((item) => item.type === 'relationship')
@@ -490,7 +570,7 @@ export function buildDirectMemoryPanelContext(character: AICharacter, messages: 
   const sourceTagRows = Object.entries(sourceTagCounts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
-    .map(([tag, count]) => ({ tag, count, label: getExperienceLensLabel(tag) || tag }));
+    .map(([tag, count]) => ({ tag, count, label: getExperienceLensLabel(tag) || cleanPromptText(tag, members, 80) }));
   return {
     targetName: target?.name || null,
     targetSummary,
@@ -501,6 +581,6 @@ export function buildDirectMemoryPanelContext(character: AICharacter, messages: 
     recentMemoryWrites,
     sourceTagSummary: sourceTagRows.map((item) => `${item.label}×${item.count}`).join(' / '),
     sourceTagRows,
-    targetResolution: recentPartner ? `${recentPartner.senderName || recentPartner.senderId}` : undefined,
+    targetResolution: recentPartner ? cleanPromptText(recentPartner.senderName || recentPartner.senderId, members, 80) : undefined,
   };
 }

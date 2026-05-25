@@ -113,6 +113,9 @@ function memory(overrides: Partial<MemoryItem> = {}): MemoryItem {
   };
 }
 
+const leakySpeakerId = '3c78729f-e52d-4dde-b27f-01a949960bb8b';
+const leakyTargetId = '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321';
+
 describe('buildSystemPromptWithContext', () => {
   it('includes every manual memory seed field in the unified prompt', () => {
     const character = buildCharacter({
@@ -151,5 +154,84 @@ describe('buildSystemPromptWithContext', () => {
       id: 'old-memory',
       recallReason: expect.stringContaining('旧档'),
     });
+  });
+
+  it('injects readable memory context into generation prompts without raw ids or enum labels', () => {
+    const speaker = buildCharacter({
+      id: leakySpeakerId,
+      name: '喜羊羊',
+      layeredMemories: [memory({
+        id: 'leaky-memory',
+        ownerId: leakySpeakerId,
+        subjectIds: [leakyTargetId],
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'status_shift',
+        text: `${leakySpeakerId} 在 status_shift 后开始回避 ${leakyTargetId}`,
+        evidenceText: `source events: ${leakySpeakerId} relationship_delta ${leakyTargetId}`,
+        sourceTag: 'unknown_internal_source',
+        archivedAt: null,
+        salience: 0.95,
+        confidence: 0.92,
+        recency: 0.9,
+      })],
+    });
+    const target = buildCharacter({ id: leakyTargetId, name: '灰太狼' });
+    const chat = { ...buildChat(), memberIds: [leakySpeakerId, leakyTargetId] };
+    const prompt = buildSystemPromptWithContext(speaker, chat, 0, [
+      buildMessage({ senderId: leakyTargetId, senderName: '灰太狼', content: '你刚才是不是又躲开了？' }),
+    ], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]));
+
+    expect(prompt).toContain('喜羊羊');
+    expect(prompt).toContain('灰太狼');
+    expect(prompt).toContain('state shift');
+    expect(prompt).not.toContain(leakySpeakerId);
+    expect(prompt).not.toContain(leakyTargetId);
+    expect(prompt).not.toContain('status_shift');
+    expect(prompt).not.toContain('relationship_delta');
+    expect(prompt).not.toContain('source events');
+    expect(prompt).not.toContain('unknown_internal_source');
+    expect(prompt).not.toContain('[relationship/');
+  });
+
+  it('sanitizes recalled memory trace summaries while keeping structural trace fields', () => {
+    const speaker = buildCharacter({
+      id: leakySpeakerId,
+      name: '喜羊羊',
+      layeredMemories: [memory({
+        id: 'archived-leaky-memory',
+        ownerId: leakySpeakerId,
+        subjectIds: [leakyTargetId],
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'status_shift',
+        text: `${leakySpeakerId} 因 status_shift 记住了 ${leakyTargetId} 的追问`,
+        sourceTag: 'unknown_internal_source',
+        archivedAt: 10,
+      })],
+    });
+    const target = buildCharacter({ id: leakyTargetId, name: '灰太狼' });
+    const chat = { ...buildChat(), memberIds: [leakySpeakerId, leakyTargetId] };
+    const trace = buildPromptMemoryTrace(speaker, chat, [
+      buildMessage({ senderId: leakyTargetId, senderName: '灰太狼', content: '你还记得那次追问吗？' }),
+    ], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]));
+
+    expect(trace.recalledArchives[0]).toMatchObject({
+      id: 'archived-leaky-memory',
+      scope: 'relationship',
+      kind: 'status_shift',
+      layer: 'long_term',
+    });
+    expect(trace.recalledArchives[0].summary).toContain('喜羊羊');
+    expect(trace.recalledArchives[0].summary).toContain('灰太狼');
+    expect(trace.recalledArchives[0].summary).not.toContain(leakySpeakerId);
+    expect(trace.recalledArchives[0].summary).not.toContain(leakyTargetId);
+    expect(trace.recalledArchives[0].summary).not.toContain('status_shift');
   });
 });
