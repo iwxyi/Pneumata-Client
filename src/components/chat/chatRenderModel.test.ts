@@ -28,6 +28,49 @@ describe('buildChatRenderItems', () => {
     expect(items.map((item) => item.pending)).toEqual([true, false]);
   });
 
+  it('does not render a committed streamed message twice after server confirmation', () => {
+    const items = buildChatRenderItems([
+      message({
+        id: 'local-stream-1',
+        clientKey: 'local-stream-1',
+        serverId: 'server-message-1',
+        content: '完整内容',
+        isStreaming: false,
+      }),
+      message({
+        id: 'server-message-1',
+        serverId: 'server-message-1',
+        content: '完整内容',
+        isStreaming: false,
+      }),
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]?.message.id).toBe('local-stream-1');
+  });
+
+  it('does not let a stale streaming draft replace the committed bubble', () => {
+    const items = buildChatRenderItems([
+      message({
+        id: 'local-stream-1',
+        clientKey: 'local-stream-1',
+        serverId: 'server-message-1',
+        content: '完整内容，已经提交。',
+        isStreaming: false,
+      }),
+      message({
+        id: 'local-stream-1',
+        clientKey: 'local-stream-1',
+        content: '完整',
+        isStreaming: true,
+      }),
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]?.message.content).toBe('完整内容，已经提交。');
+    expect(items[0]?.pending).toBe(false);
+  });
+
   it('keeps event messages after normal messages when timestamps tie', () => {
     const items = buildChatRenderItems([
       message({ id: 'ai-1', timestamp: 10 }),

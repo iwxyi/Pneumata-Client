@@ -1,5 +1,6 @@
 import type { Message } from '../types/message';
 import { api } from './api';
+import { resolveCommittedStreamContent } from './streamingMessageLifecycle';
 
 interface PersistLocalFirstMessageParams {
   message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>;
@@ -107,19 +108,26 @@ export function createCommittedLocalMessage(
 }
 
 export async function persistLocalFirstMessage(params: PersistLocalFirstMessageParams) {
+  const messageContent = params.existingLocalMessage
+    ? resolveCommittedStreamContent(params.message.content, params.existingLocalMessage.content)
+    : params.message.content;
+  const messagePayload = {
+    ...params.message,
+    content: messageContent,
+  };
   const localMessage = params.existingLocalMessage
     ? {
         ...params.existingLocalMessage,
-        ...params.message,
-        content: params.message.content,
-        metadata: params.message.metadata,
-        emotion: params.message.emotion,
+        ...messagePayload,
+        content: messagePayload.content,
+        metadata: messagePayload.metadata,
+        emotion: messagePayload.emotion,
         timestamp: params.existingLocalMessage.timestamp,
         isDeleted: false,
         isOptimistic: false,
         isStreaming: false,
       }
-    : createCommittedLocalMessage(params.message, { timestamp: params.timestamp });
+    : createCommittedLocalMessage(messagePayload, { timestamp: params.timestamp });
   const revealMessage = buildPreWithdrawalRevealMessage(localMessage);
   if (revealMessage) {
     writeMessage(params.upsertMessage, revealMessage, params.deferLocalUpsert);
@@ -127,13 +135,13 @@ export async function persistLocalFirstMessage(params: PersistLocalFirstMessageP
   }
   writeMessage(params.upsertMessage, localMessage, params.deferLocalUpsert);
 
-  void api.createMessage(params.message.chatId, {
-    type: params.message.type,
-    senderId: params.message.senderId,
-    senderName: params.message.senderName,
-    content: params.message.content,
-    metadata: params.message.metadata,
-    emotion: params.message.emotion,
+  void api.createMessage(messagePayload.chatId, {
+    type: messagePayload.type,
+    senderId: messagePayload.senderId,
+    senderName: messagePayload.senderName,
+    content: messagePayload.content,
+    metadata: messagePayload.metadata,
+    emotion: messagePayload.emotion,
   }).then((savedMessage) => {
     const persistedMessage = mergeServerConfirmation(localMessage, savedMessage);
     writeMessage(params.upsertMessage, persistedMessage, params.deferLocalUpsert);

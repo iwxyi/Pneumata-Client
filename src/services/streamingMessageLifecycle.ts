@@ -1,5 +1,12 @@
 import type { Message } from '../types/message';
 
+function compactForTruncationCompare(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[，,。.!！?？；;：:、]/g, '');
+}
+
 export function resolveCommittedStreamContent(finalContent: string, lastStreamedContent: string) {
   const normalizedFinal = finalContent.trim();
   const normalizedStreamed = lastStreamedContent.trim();
@@ -8,6 +15,15 @@ export function resolveCommittedStreamContent(finalContent: string, lastStreamed
     normalizedStreamed
     && normalizedStreamed.length > normalizedFinal.length
     && normalizedStreamed.includes(normalizedFinal)
+  ) {
+    return lastStreamedContent;
+  }
+  const compactFinal = compactForTruncationCompare(normalizedFinal);
+  const compactStreamed = compactForTruncationCompare(normalizedStreamed);
+  if (
+    compactFinal.length >= 8
+    && compactStreamed.length > compactFinal.length
+    && compactStreamed.includes(compactFinal)
   ) {
     return lastStreamedContent;
   }

@@ -153,4 +153,104 @@ describe('useMessageStore', () => {
     expect(useMessageStore.getState().messageWindowsByChatId[chatId]?.messages[0]?.metadata?.attachments?.[0]?.altText).toBe('自拍照');
   });
 
+  it('keeps committed streamed text when a stale streaming frame is upserted later', async () => {
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const committed: Message = {
+      id: 'local-stream-1',
+      clientKey: 'local-stream-1',
+      serverId: 'server-message-1',
+      chatId,
+      type: 'ai',
+      senderId: 'character-1',
+      senderName: '角色',
+      content: '完整正式内容，不能被后到的短流式帧覆盖。',
+      emotion: 0,
+      timestamp: 123,
+      isDeleted: false,
+      isStreaming: false,
+    };
+    const staleStreaming: Message = {
+      ...committed,
+      serverId: undefined,
+      content: '完整正式',
+      isStreaming: true,
+    };
+
+    useMessageStore.setState({
+      messages: [committed],
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: [committed],
+          lastSyncedAt: 0,
+          updatedAt: committed.timestamp,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: true,
+    });
+
+    useMessageStore.getState().upsertMessage(staleStreaming);
+
+    const state = useMessageStore.getState();
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.content).toBe(committed.content);
+    expect(state.messages[0]?.isStreaming).toBe(false);
+    expect(state.messageWindowsByChatId[chatId]?.messages).toHaveLength(1);
+    expect(state.messageWindowsByChatId[chatId]?.messages[0]?.content).toBe(committed.content);
+  });
+
+  it('merges local streamed messages with server confirmations by shared server id', async () => {
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const local: Message = {
+      id: 'local-stream-1',
+      clientKey: 'local-stream-1',
+      serverId: 'server-message-1',
+      chatId,
+      type: 'ai',
+      senderId: 'character-1',
+      senderName: '角色',
+      content: '逐字显示完整内容',
+      emotion: 0,
+      timestamp: 123,
+      isDeleted: false,
+      isStreaming: false,
+    };
+    const remote: Message = {
+      ...local,
+      id: 'server-message-1',
+      clientKey: undefined,
+      timestamp: 999,
+    };
+
+    useMessageStore.setState({
+      messages: [local],
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: [local],
+          lastSyncedAt: 0,
+          updatedAt: local.timestamp,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: true,
+    });
+
+    useMessageStore.getState().upsertMessage(remote);
+
+    const state = useMessageStore.getState();
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.id).toBe('local-stream-1');
+    expect(state.messages[0]?.clientKey).toBe('local-stream-1');
+    expect(state.messages[0]?.serverId).toBe('server-message-1');
+    expect(state.messageWindowsByChatId[chatId]?.messages).toHaveLength(1);
+  });
+
 });

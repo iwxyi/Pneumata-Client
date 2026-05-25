@@ -1,15 +1,29 @@
 import type { Message } from '../types/message';
+import { getMessageRenderIdentity, messagesShareIdentity } from './messageIdentity';
 
 export interface MessageWindowLike {
   messages?: Message[];
 }
 
-function messageIdentity(message: Message) {
-  return message.serverId || message.id;
-}
-
 function contentIdentity(message: Message) {
   return `${message.chatId}::${message.type}::${message.senderId}::${message.content}`;
+}
+
+function shouldKeepExistingMessage(existing: Message, incoming: Message) {
+  return Boolean(incoming.isStreaming && !existing.isStreaming && messagesShareIdentity(existing, incoming));
+}
+
+function mergeProjectedMessage(existing: Message, incoming: Message) {
+  if (shouldKeepExistingMessage(existing, incoming)) return existing;
+  return {
+    ...existing,
+    ...incoming,
+    id: existing.clientKey ? existing.id : incoming.id || existing.id,
+    clientKey: existing.clientKey || incoming.clientKey,
+    serverId: incoming.serverId || existing.serverId,
+    metadata: incoming.metadata && Object.keys(incoming.metadata).length ? incoming.metadata : existing.metadata,
+    timestamp: existing.clientKey ? existing.timestamp : incoming.timestamp,
+  };
 }
 
 function compareByTimeline(left: Message, right: Message) {
@@ -31,26 +45,21 @@ export function projectCurrentChatMessages(params: {
   ].filter((message) => message.chatId === params.chatId);
 
   for (const message of candidates) {
-    const id = messageIdentity(message);
-    const existing = byId.get(id);
-    if (!existing) {
-      byId.set(id, message);
+    const matched = Array.from(byId.entries()).find(([, existing]) => messagesShareIdentity(existing, message));
+    if (!matched) {
+      byId.set(getMessageRenderIdentity(message), message);
       continue;
     }
-    byId.set(id, {
-      ...existing,
-      ...message,
-      metadata: message.metadata && Object.keys(message.metadata).length ? message.metadata : existing.metadata,
-    });
+    const [id, existing] = matched;
+    byId.set(id, mergeProjectedMessage(existing, message));
   }
 
   const merged = Array.from(byId.values());
   return merged
     .filter((message, index, array) => array.findIndex((candidate) => {
-      if (messageIdentity(candidate) === messageIdentity(message)) return true;
+      if (messagesShareIdentity(candidate, message)) return true;
       if (contentIdentity(candidate) !== contentIdentity(message)) return false;
       return Math.abs(candidate.timestamp - message.timestamp) <= 5000;
     }) === index)
     .sort(compareByTimeline);
 }
-

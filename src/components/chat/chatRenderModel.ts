@@ -1,4 +1,5 @@
 import type { Message } from '../../types/message';
+import { getMessageRenderIdentity, messagesShareIdentity } from '../../services/messageIdentity';
 
 export interface ChatRenderItem {
   key: string;
@@ -6,21 +7,14 @@ export interface ChatRenderItem {
   pending: boolean;
 }
 
-function buildMessageIdentity(message: Message) {
-  if (message.serverId) return `server:${message.serverId}`;
-  return `${message.chatId}:${message.id}`;
-}
-
 export function buildChatRenderItems(messages: Message[]): ChatRenderItem[] {
-  const seenIds = new Set<string>();
   const items: Array<ChatRenderItem & { order: number }> = [];
 
   for (const [order, message] of messages.entries()) {
     if (message.isDeleted) continue;
 
-    const identity = buildMessageIdentity(message);
-    if (seenIds.has(identity)) continue;
-    seenIds.add(identity);
+    if (items.some((item) => messagesShareIdentity(item.message, message))) continue;
+    const identity = `${message.chatId}:${getMessageRenderIdentity(message)}`;
 
     items.push({
       key: message.clientKey || identity,

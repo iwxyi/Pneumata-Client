@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Message } from '../types/message';
+import { getMessageRenderIdentity, isLocalOnlyMessageId, messagesShareIdentity } from '../services/messageIdentity';
 import { api } from '../services/api';
 import { hasLocalDataUrlMedia, scrubLocalMediaUrlsForCloud, uploadLocalMessageMediaToCloud } from '../services/richMessageMedia';
 import { useAuthStore } from './useAuthStore';
@@ -4288,68 +4289,80 @@ function compareMessagesByTimeline(left: Message, right: Message) {
 
 function dedupeMessages(messages: Message[]) {
   const normalizedMessages = messages.map(normalizeMessage);
-  const getIdentity = (message: Message) => message.serverId || message.id;
   return normalizedMessages.filter((message, index, array) => array.findIndex((item) => {
-    if (getIdentity(item) === getIdentity(message)) return true;
+    if (messagesShareIdentity(item, message)) return true;
     if (buildMessageContentKey(item) !== buildMessageContentKey(message)) return false;
     return Math.abs(item.timestamp - message.timestamp) <= 5000;
   }) === index).filter((message, index, array) => array.findIndex((item) => {
-    if (getIdentity(item) === getIdentity(message)) return true;
+    if (messagesShareIdentity(item, message)) return true;
     if (buildMessageContentKey(item) !== buildMessageContentKey(message)) return false;
     if (Math.abs(item.timestamp - message.timestamp) > 5000) return false;
     return (!item.serverId && !message.serverId) || (item.isStreaming && message.isStreaming);
   }) === index);
 }
 
+function hasLocalMessageIdentity(message: Message) {
+  return Boolean(message.clientKey || isLocalOnlyMessageId(message.id));
+}
+
+function shouldKeepExistingMessage(existing: Message, incoming: Message) {
+  return Boolean(incoming.isStreaming && !existing.isStreaming && messagesShareIdentity(existing, incoming));
+}
+
+function mergeMessagePair(existing: Message, incoming: Message) {
+  if (shouldKeepExistingMessage(existing, incoming)) return existing;
+  const existingHasLocalIdentity = hasLocalMessageIdentity(existing);
+  const incomingHasLocalIdentity = hasLocalMessageIdentity(incoming);
+  const id = existingHasLocalIdentity ? existing.id : incomingHasLocalIdentity ? incoming.id : incoming.id || existing.id;
+  const serverId = incoming.serverId
+    || existing.serverId
+    || (!isLocalOnlyMessageId(incoming.id) && incoming.id !== id ? incoming.id : undefined)
+    || (!isLocalOnlyMessageId(existing.id) && existing.id !== id ? existing.id : undefined);
+  return {
+    ...existing,
+    ...incoming,
+    id,
+    clientKey: existing.clientKey || incoming.clientKey,
+    serverId,
+    timestamp: existingHasLocalIdentity ? existing.timestamp : incoming.timestamp,
+    isOptimistic: incoming.isOptimistic ?? existing.isOptimistic,
+    isStreaming: incoming.isStreaming ?? existing.isStreaming,
+    metadata: incoming.metadata && Object.keys(incoming.metadata as Record<string, unknown>).length > 0
+      ? incoming.metadata
+      : existing.metadata,
+  };
+}
+
 function mergeMessages(localMessages: Message[], remoteMessages: Message[]) {
   const merged = new Map<string, Message>();
-  const getIdentity = (message: Message) => message.serverId || message.id;
   const buildContentKey = (message: Message) => buildMessageContentKey(message);
 
   for (const message of localMessages.map(normalizeMessage)) {
-    merged.set(getIdentity(message), message);
+    merged.set(getMessageRenderIdentity(message), message);
   }
 
   for (const remote of remoteMessages.map(normalizeMessage)) {
-    const remoteIdentity = getIdentity(remote);
-    let local = merged.get(remoteIdentity) || null;
+    let localEntry = Array.from(merged.entries()).find(([, candidate]) => messagesShareIdentity(candidate, remote)) || null;
+    let local = localEntry?.[1] || null;
 
     if (!local) {
-      local = Array.from(merged.values()).find((candidate) => {
+      localEntry = Array.from(merged.entries()).find(([, candidate]) => {
         if (candidate.serverId) return false;
         if (candidate.chatId !== remote.chatId || candidate.type !== remote.type || candidate.senderId !== remote.senderId || candidate.content !== remote.content) return false;
         return Math.abs(candidate.timestamp - remote.timestamp) <= 5000;
       }) || null;
+      local = localEntry?.[1] || null;
     }
 
     if (!local) {
-      merged.set(remoteIdentity, remote);
+      merged.set(getMessageRenderIdentity(remote), remote);
       continue;
     }
 
-    const localIdentity = getIdentity(local);
-    const mergedMessage = {
-      ...local,
-      ...remote,
-      id: local.id,
-      clientKey: local.clientKey,
-      timestamp: local.timestamp,
-      serverId: remote.serverId || remote.id,
-      isOptimistic: false,
-      metadata: remote.metadata && Object.keys(remote.metadata as Record<string, unknown>).length > 0
-        ? remote.metadata
-        : local.metadata,
-    };
-    if (remote.timestamp >= local.timestamp || remote.isDeleted !== local.isDeleted) {
-      if (localIdentity !== remoteIdentity) merged.delete(localIdentity);
-      merged.set(remoteIdentity, mergedMessage);
-      continue;
-    }
-
-    if (localIdentity !== remoteIdentity) {
-      merged.set(remoteIdentity, mergedMessage);
-      merged.delete(localIdentity);
-    }
+    const localIdentity = localEntry?.[0] || getMessageRenderIdentity(local);
+    const mergedMessage = mergeMessagePair(local, remote);
+    if (localIdentity !== getMessageRenderIdentity(mergedMessage)) merged.delete(localIdentity);
+    merged.set(getMessageRenderIdentity(mergedMessage), mergedMessage);
   }
 
   void buildContentKey;

@@ -42,6 +42,15 @@ describe('streamingMessageLifecycle', () => {
     ).toBe('我先说结论，这里不能再靠本地规则截断，否则流式结束后就会丢前半句。');
   });
 
+  it('keeps streamed content when punctuation normalization reveals suffix truncation', () => {
+    expect(
+      resolveCommittedStreamContent(
+        '这个点不是不能聊只是你们现在全在绕开真正的问题要不先把谁负责讲清楚',
+        '我先说结论，这个点不是不能聊，只是你们现在全在绕开真正的问题，要不先把谁负责讲清楚？',
+      ),
+    ).toBe('我先说结论，这个点不是不能聊，只是你们现在全在绕开真正的问题，要不先把谁负责讲清楚？');
+  });
+
   it('does not discard a draft when the same message is already committed', () => {
     const current = message({ id: 'local-1', isStreaming: true, content: '逐字内容' });
     const committed = message({ id: 'local-1', isStreaming: false, content: '最终内容' });

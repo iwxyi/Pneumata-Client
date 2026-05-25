@@ -49,6 +49,65 @@ describe('projectCurrentChatMessages', () => {
     expect(projected.map((item) => item.id)).toEqual(['user-1', 'stream-1']);
   });
 
+  it('keeps committed streamed content when a delayed streaming frame arrives', () => {
+    const projected = projectCurrentChatMessages({
+      chatId: 'chat-1',
+      activeMessages: [
+        message({
+          id: 'local-stream-1',
+          clientKey: 'local-stream-1',
+          serverId: 'server-message-1',
+          content: '完整正式内容，已经提交。',
+          timestamp: 10,
+          isStreaming: false,
+        }),
+        message({
+          id: 'local-stream-1',
+          clientKey: 'local-stream-1',
+          content: '完整',
+          timestamp: 10,
+          isStreaming: true,
+        }),
+      ],
+      cachedWindow: null,
+    });
+
+    expect(projected).toHaveLength(1);
+    expect(projected[0]?.content).toBe('完整正式内容，已经提交。');
+    expect(projected[0]?.isStreaming).toBe(false);
+  });
+
+  it('merges a local streamed message with its later server id', () => {
+    const projected = projectCurrentChatMessages({
+      chatId: 'chat-1',
+      activeMessages: [
+        message({
+          id: 'server-message-1',
+          serverId: 'server-message-1',
+          content: '逐字显示完整内容',
+          timestamp: 12,
+          isStreaming: false,
+        }),
+      ],
+      cachedWindow: {
+        messages: [
+          message({
+            id: 'local-stream-1',
+            clientKey: 'local-stream-1',
+            serverId: 'server-message-1',
+            content: '逐字显示完整内容',
+            timestamp: 10,
+            isStreaming: false,
+          }),
+        ],
+      },
+    });
+
+    expect(projected).toHaveLength(1);
+    expect(projected[0]?.id).toBe('local-stream-1');
+    expect(projected[0]?.serverId).toBe('server-message-1');
+  });
+
   it('ignores messages from other chats', () => {
     const projected = projectCurrentChatMessages({
       chatId: 'chat-1',
@@ -59,4 +118,3 @@ describe('projectCurrentChatMessages', () => {
     expect(projected.map((item) => item.id)).toEqual(['current']);
   });
 });
-

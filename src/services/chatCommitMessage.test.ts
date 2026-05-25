@@ -111,6 +111,80 @@ describe('persistLocalFirstMessage', () => {
     expect(upserts[1]?.serverId).toBe('server-message-1');
   });
 
+  it('keeps the fuller streamed text when final commit content is a suffix', async () => {
+    const upserts: Message[] = [];
+    const existingLocalMessage: Message = {
+      id: 'local-stream-3',
+      clientKey: 'local-stream-3',
+      chatId: 'chat-1',
+      type: 'ai',
+      senderId: 'char-1',
+      senderName: '甲',
+      content: '我先说结论，这里不能再靠本地规则截断，否则流式结束后就会丢前半句。',
+      emotion: 0,
+      timestamp: 444444,
+      isDeleted: false,
+      isStreaming: true,
+    };
+
+    const localMessage = await persistLocalFirstMessage({
+      existingLocalMessage,
+      message: {
+        chatId: 'chat-1',
+        type: 'ai',
+        senderId: 'char-1',
+        senderName: '甲',
+        content: '这里不能再靠本地规则截断，否则流式结束后就会丢前半句。',
+        emotion: 0,
+      },
+      upsertMessage: (message) => {
+        upserts.push(message);
+      },
+    });
+
+    expect(localMessage.content).toBe(existingLocalMessage.content);
+    expect(upserts[0]?.content).toBe(existingLocalMessage.content);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(api.createMessage).toHaveBeenLastCalledWith('chat-1', expect.objectContaining({
+      content: existingLocalMessage.content,
+    }));
+  });
+
+  it('does not treat punctuation differences as permission to crop streamed text', async () => {
+    const upserts: Message[] = [];
+    const existingLocalMessage: Message = {
+      id: 'local-stream-4',
+      clientKey: 'local-stream-4',
+      chatId: 'chat-1',
+      type: 'ai',
+      senderId: 'char-1',
+      senderName: '甲',
+      content: '我先说结论，这个点不是不能聊，只是你们现在全在绕开真正的问题，要不先把谁负责讲清楚？',
+      emotion: 0,
+      timestamp: 555555,
+      isDeleted: false,
+      isStreaming: true,
+    };
+
+    const localMessage = await persistLocalFirstMessage({
+      existingLocalMessage,
+      message: {
+        chatId: 'chat-1',
+        type: 'ai',
+        senderId: 'char-1',
+        senderName: '甲',
+        content: '这个点不是不能聊只是你们现在全在绕开真正的问题要不先把谁负责讲清楚',
+        emotion: 0,
+      },
+      upsertMessage: (message) => {
+        upserts.push(message);
+      },
+    });
+
+    expect(localMessage.content).toBe(existingLocalMessage.content);
+    expect(upserts[0]?.content).toBe(existingLocalMessage.content);
+  });
+
   it('briefly reveals the original text before writing the withdrawn notice', async () => {
     const upserts: Message[] = [];
     const delays: number[] = [];
