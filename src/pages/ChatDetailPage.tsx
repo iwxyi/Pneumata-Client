@@ -384,6 +384,7 @@ export default function ChatDetailPage() {
         timestamp: Date.now(),
       });
       void updateChat(id, { lastMessageAt: userMessage.timestamp });
+      const recentMessagesWithUser = [...recentMessages.filter((message) => message.id !== userMessage.id), userMessage];
       if (chat.type === 'direct') {
         await runDirectUserReplyFlow({
           api,
@@ -404,7 +405,7 @@ export default function ChatDetailPage() {
         });
         return;
       }
-      await commitPersistedManualRuntime(userMessage, recentMessages);
+      await commitPersistedManualRuntime(userMessage, recentMessagesWithUser);
       if (chat.type === 'ai_direct') {
         startConversationLoopIfNeeded(chat);
         const { applyAiDirectFeedback } = await import('../services/directSessionRuntime');
@@ -438,7 +439,8 @@ export default function ChatDetailPage() {
         },
       });
       void updateChat(id, { lastMessageAt: spokeMessage.timestamp });
-      await commitPersistedManualRuntime(spokeMessage, recentMessages);
+      const recentMessagesWithSpeaker = [...recentMessages.filter((message) => message.id !== spokeMessage.id), spokeMessage];
+      await commitPersistedManualRuntime(spokeMessage, recentMessagesWithSpeaker);
       setSpeakAsCharacter(null);
       startConversationLoopIfNeeded(chat);
     });

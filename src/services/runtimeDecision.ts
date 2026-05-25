@@ -141,13 +141,17 @@ function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AIChar
     const storedGuidance = typeof payload.userGuidance === 'object' && payload.userGuidance
       ? payload.userGuidance as UserGuidanceIntent
       : null;
-    const guidance = storedGuidance || parseUserGuidanceIntent(text || '', characters);
-    const pendingGuidanceActorIds = storedGuidance?.actorIds.length
-      ? storedGuidance.actorIds.filter((actorId) => !getCompletedGuidanceActorIdsAfter(messages, event.createdAt, storedGuidance, characters).has(actorId))
+    const parsedGuidance = storedGuidance ? null : parseUserGuidanceIntent(text || '', characters);
+    const guidance = storedGuidance || parsedGuidance;
+    const hasPersistentTargetedGuidance = Boolean(
+      storedGuidance?.actorIds.length
+      || (parsedGuidance?.kind === 'media_request' && parsedGuidance.actorIds.length),
+    );
+    const pendingGuidanceActorIds = hasPersistentTargetedGuidance && guidance?.actorIds.length
+      ? guidance.actorIds.filter((actorId) => !getCompletedGuidanceActorIdsAfter(messages, event.createdAt, guidance, characters).has(actorId))
       : [];
-    const hasTargetedGuidance = Boolean(storedGuidance?.actorIds.length);
-    if (!hasTargetedGuidance && !isDirectorInterventionActive(event, messages, now)) continue;
-    if (hasTargetedGuidance && !pendingGuidanceActorIds.length) continue;
+    if (!hasPersistentTargetedGuidance && !isDirectorInterventionActive(event, messages, now)) continue;
+    if (hasPersistentTargetedGuidance && !pendingGuidanceActorIds.length) continue;
 
     const targetActorIds = uniqueKnownActorIds(payload.targetActorIds, characters);
     const guidanceTargetActorIds = uniqueKnownActorIds(getGuidanceTargetActorIds(guidance), characters);
@@ -156,7 +160,7 @@ function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AIChar
       : targetActorIds.length
         ? targetActorIds
         : guidanceTargetActorIds;
-    if (hasTargetedGuidance && !activeTargetActorIds.length) continue;
+    if (hasPersistentTargetedGuidance && !activeTargetActorIds.length) continue;
     return {
       source: 'user_message',
       targetLineId: typeof payload.targetLineId === 'string' ? payload.targetLineId : undefined,

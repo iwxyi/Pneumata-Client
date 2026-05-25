@@ -10,6 +10,13 @@ export interface GuidanceExecutionEvaluation {
   reason: GuidanceExecutionReason;
 }
 
+export interface GuidanceExecutionOptions {
+  mediaCapabilities?: {
+    image?: boolean;
+    audio?: boolean;
+  };
+}
+
 const GUIDANCE_STOP_WORDS = new Set([
   '新话题',
   '换话题',
@@ -129,15 +136,23 @@ function imageSubjectMatchesText(text: string, guidance: UserGuidanceIntent, cha
   return terms.some((term) => normalized.includes(term.toLowerCase()));
 }
 
-function hasConcreteImageAction(content: string) {
+function hasImageUnableText(content: string) {
   if (/(发不了|发不出|没法发|无法发|不能发|生成不了|画不了|拍不了|没法生成|无法生成|图片模型|没有图片能力)/i.test(content)) {
     return true;
   }
+  return false;
+}
+
+function hasImageCompletionText(content: string) {
   if (/(来啦|来了|发来|发给|给你看|你看|看这|这张|出图|生成好|生成了|画好|画好了|画完|拍好|拍好了|做好了|弄好了)/i.test(content)) {
     return true;
   }
   return /我把.{0,24}(图|图片|照片|相片|证件照|海报|插画|头像|表情包).{0,24}(画|拍|做|生成|发)/i.test(content)
     || /我把.{0,24}(画|拍|做|生成).{0,24}(好|完|出来|发)/i.test(content);
+}
+
+function hasConcreteImageAction(content: string) {
+  return hasImageUnableText(content) || hasImageCompletionText(content);
 }
 
 function hasImageAttachment(message: Pick<Message, 'metadata'>) {
@@ -169,9 +184,11 @@ function imageAttachmentMatchesGuidance(message: Pick<Message, 'metadata'>, guid
   });
 }
 
-function evaluateMediaGuidanceContent(content: string, guidance: UserGuidanceIntent, characters?: AICharacter[]): GuidanceExecutionReason {
+function evaluateMediaGuidanceContent(content: string, guidance: UserGuidanceIntent, characters?: AICharacter[], options?: GuidanceExecutionOptions): GuidanceExecutionReason {
   const request = guidance.mediaRequest;
   if (!request) return 'matched';
+  if (hasImageUnableText(content)) return 'matched';
+  if (request.kind === 'image' && options?.mediaCapabilities?.image === false) return 'missing_requested_image';
   if (!hasConcreteImageAction(content)) return 'missing_requested_image';
   if (!imageSubjectMatchesText(content, guidance, characters)) return 'missing_requested_subject';
   return 'matched';
@@ -182,13 +199,14 @@ export function evaluateGuidanceGeneratedContent(
   guidance: UserGuidanceIntent | null | undefined,
   speaker: Pick<AICharacter, 'id'> | string | null | undefined,
   characters?: AICharacter[],
+  options?: GuidanceExecutionOptions,
 ): GuidanceExecutionEvaluation {
   if (!guidance) return { matched: true, reason: 'matched' };
   if (!normalizeGuidanceMatchText(content)) return { matched: false, reason: 'empty_content' };
   const speakerId = typeof speaker === 'string' ? speaker : speaker?.id;
   if (guidance.actorIds.length && (!speakerId || !guidance.actorIds.includes(speakerId))) return { matched: false, reason: 'wrong_speaker' };
   if (guidance.kind === 'media_request') {
-    const reason = evaluateMediaGuidanceContent(content, guidance, characters);
+    const reason = evaluateMediaGuidanceContent(content, guidance, characters, options);
     return { matched: reason === 'matched', reason };
   }
   const matched = topicGuidanceMatchesContent(content, guidance);
@@ -207,6 +225,9 @@ export function evaluateGuidanceMessage(message: Message, guidance: UserGuidance
   if (guidance.actorIds.length && !guidance.actorIds.includes(message.senderId)) return { matched: false, reason: 'wrong_speaker' };
   if (guidance.kind === 'media_request' && imageAttachmentMatchesGuidance(message, guidance, characters)) {
     return { matched: true, reason: 'matched' };
+  }
+  if (guidance.kind === 'media_request' && hasImageCompletionText(message.content || '') && !hasImageUnableText(message.content || '')) {
+    return { matched: false, reason: 'missing_requested_image' };
   }
   return evaluateGuidanceGeneratedContent(message.content || '', guidance, message.senderId, characters);
 }

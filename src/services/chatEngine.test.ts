@@ -370,6 +370,59 @@ describe('chatEngine streaming preview', () => {
     });
   });
 
+  it('does not let a character pretend to send an image when no image model is available', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '来啦，我把灰太狼先生的证件照画好了，帽子和胡子都认真画了哦～',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '我现在没有图片模型，发不了真正的证件照图片，只能先把构图想法说给你听。',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const hui = buildCharacter('hui', '灰太狼');
+    const textOnlyProfiles = buildProfiles().filter((profile) => profile.type !== 'image');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat(),
+      speaker: mei,
+      characters: [mei, hui],
+      messages: [{
+        id: 'guide',
+        chatId: 'chat-1',
+        type: 'god',
+        senderId: 'user',
+        senderName: '开发者',
+        content: '美羊羊发个灰太狼证件照的图片',
+        emotion: 0,
+        timestamp: 10,
+        isDeleted: false,
+      }],
+      apiConfig: textOnlyProfiles,
+      directorIntent: buildMediaDirectorIntent(),
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(String(generateResponseMock.mock.calls[1]?.[1] || '')).toContain('Do not pretend an image was sent');
+    expect(message.content).toContain('发不了');
+    expect(message.metadata?.attachments).toEqual([]);
+    expect(message.metadata?.generationDecision).toBeUndefined();
+    expect(message.metadata?.runtimeDecision?.guidanceExecution).toMatchObject({
+      status: 'accepted_after_retry',
+      validated: true,
+      retryCount: 1,
+      rejectedDraftCount: 1,
+      rejectedReasons: ['missing_requested_image'],
+      finalReason: 'matched',
+    });
+  });
+
   it('retries topic guidance when the first draft ignores the new topic and continues stale banter', async () => {
     generateResponseMock.mockReset();
     generateResponseMock

@@ -67,6 +67,32 @@ describe('guidanceExecution', () => {
     });
   });
 
+  it('does not consume a media request when the actor only claims the image was sent', () => {
+    const guidance = parseUserGuidanceIntent('美羊羊发个灰太狼证件照的图片', members);
+
+    expect(evaluateGuidanceMessage(message({
+      senderId: 'mei',
+      senderName: '美羊羊',
+      content: '来啦，我把灰太狼先生的证件照画好了，帽子和胡子都认真画了哦～',
+    }), guidance!, members)).toEqual({
+      matched: false,
+      reason: 'missing_requested_image',
+    });
+  });
+
+  it('allows a requested actor to explicitly report missing image capability', () => {
+    const guidance = parseUserGuidanceIntent('美羊羊发个灰太狼证件照的图片', members);
+
+    expect(evaluateGuidanceMessage(message({
+      senderId: 'mei',
+      senderName: '美羊羊',
+      content: '我现在没有图片模型，发不了真正的证件照图片。',
+    }), guidance!, members)).toEqual({
+      matched: true,
+      reason: 'matched',
+    });
+  });
+
   it('requires the image action to target the requested subject', () => {
     const guidance = parseUserGuidanceIntent('美羊羊发个灰太狼证件照的图片', members);
 

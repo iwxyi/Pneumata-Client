@@ -480,12 +480,13 @@ function buildGuidanceRetryPrompt(params: {
   speaker: AICharacter;
   characters: AICharacter[];
   previousDraft: string;
+  mediaCapabilities?: { image: boolean; audio: boolean };
 }) {
   const requestedActors = params.guidance.actorIds.map((id) => getCharacterNameById(params.characters, id)).filter(Boolean);
   const subjectNames = params.guidance.mediaRequest?.subjectActorIds.map((id) => getCharacterNameById(params.characters, id)).filter(Boolean) || [];
   const mediaRetry = params.guidance.kind === 'media_request'
     ? `\n- The user asked for an image. Requested sender(s): ${requestedActors.join('、') || params.speaker.name}. Image subject: ${subjectNames.join('、') || params.guidance.mediaRequest?.subjectText || 'the requested subject'}.
-- Your next JSON must complete that image request. The visible content must present or send the requested image, and mediaDecision.image.shouldGenerate must be true when image capability exists.`
+- Your next JSON must complete that image request. ${params.mediaCapabilities?.image === false ? 'You do not have image-generation capability in this turn, so say in character that you cannot send/generate the image now. Do not pretend an image was sent.' : 'The visible content must present or send the requested image, and mediaDecision.image.shouldGenerate must be true when image capability exists.'}`
     : '';
   const topicRetry = params.guidance.kind === 'topic_shift'
     ? '\n- The user changed the topic. Your next JSON content must directly take a stance, answer, or ask a focused question about that topic before any old banter.'
@@ -867,6 +868,7 @@ async function generateNonDuplicateResponse(params: {
   showRoleActions?: boolean;
   surface?: ResponseSurface;
   guidance?: UserGuidanceIntent | null;
+  mediaCapabilities?: { image: boolean; audio: boolean };
   onChunk?: (content: string) => void;
 }): Promise<GenerationWithGuidanceTrace> {
   let prompt = params.systemPrompt;
@@ -880,7 +882,13 @@ async function generateNonDuplicateResponse(params: {
     lastParsedEnvelope = generated.parsedEnvelope;
     lastFinalResponse = generated.finalResponse;
     if (normalizeForComparison(generated.finalResponse)) {
-      const guidanceEvaluation = evaluateGuidanceGeneratedContent(generated.finalResponse, params.guidance, params.speaker, params.characters);
+      const guidanceEvaluation = evaluateGuidanceGeneratedContent(
+        generated.finalResponse,
+        params.guidance,
+        params.speaker,
+        params.characters,
+        { mediaCapabilities: params.mediaCapabilities },
+      );
       finalReason = guidanceEvaluation.reason;
       if (params.guidance && !guidanceEvaluation.matched && attempt < 2) {
         rejectedReasons.push(guidanceEvaluation.reason as GuidanceRejectionReason);
@@ -890,6 +898,7 @@ async function generateNonDuplicateResponse(params: {
           speaker: params.speaker,
           characters: params.characters || [],
           previousDraft: generated.finalResponse,
+          mediaCapabilities: params.mediaCapabilities,
         });
         continue;
       }
@@ -918,6 +927,7 @@ async function generateNonDuplicateResponse(params: {
         speaker: params.speaker,
         characters: params.characters || [],
         previousDraft: generated.rawContent,
+        mediaCapabilities: params.mediaCapabilities,
       });
     } else {
       prompt = buildRetryPrompt(params.systemPrompt, generated.rawContent);
@@ -1078,6 +1088,7 @@ Current speaking intent:
     showRoleActions: params.chat.showRoleActions,
     surface: responseSurface,
     guidance: userGuidance,
+    mediaCapabilities,
     onChunk: params.onChunk,
   });
   if (!normalizeForComparison(generated.finalResponse)) {

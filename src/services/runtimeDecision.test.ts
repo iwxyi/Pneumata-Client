@@ -413,6 +413,45 @@ describe('runtimeDecision', () => {
     expect(projection.directorIntent?.userGuidance?.kind).toBe('media_request');
   });
 
+  it('keeps text-only director media guidance active until the requested actor handles it', () => {
+    const intervention: RuntimeEventV2 = {
+      id: 'evt-director-media-text',
+      conversationId: 'chat-1',
+      kind: 'director_intervention',
+      createdAt: 30,
+      summary: '让美羊羊发灰太狼证件照',
+      visibility: 'moderator_only',
+      payload: {
+        intent: 'force_reply',
+        targetActorIds: ['a'],
+        pressure: 0.98,
+        text: '美羊羊发个灰太狼证件照的图片',
+        maxTurns: 1,
+        expiresAt: 1000,
+      },
+    };
+    const projection = projectRuntimePressure({
+      chat: buildChat({ runtimeEventsV2: [intervention] }),
+      characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼'), buildCharacter('c', '懒羊羊')],
+      messages: [
+        buildMessage({ type: 'ai', senderId: 'b', senderName: '灰太狼', content: '我看看你画得够不够帅。', timestamp: 40 }),
+        buildMessage({ type: 'ai', senderId: 'c', senderName: '懒羊羊', content: '我也想看。', timestamp: 45 }),
+      ],
+      now: 50,
+    });
+
+    expect(projection.directorIntent).toMatchObject({
+      source: 'user_message',
+      beatType: 'answer',
+      targetActorIds: ['a'],
+    });
+    expect(projection.directorIntent?.userGuidance).toMatchObject({
+      kind: 'media_request',
+      actorIds: ['a'],
+      mediaRequest: { kind: 'image', subjectActorIds: ['b'] },
+    });
+  });
+
   it('keeps a recent targeted media request active even if a non-target reply slipped in before runtime events were written', () => {
     const projection = projectRuntimePressure({
       chat: buildChat(),
