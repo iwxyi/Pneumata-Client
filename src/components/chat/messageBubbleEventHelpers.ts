@@ -1,9 +1,9 @@
 import { formatConflictMetricsForDisplay, formatRuntimeEventText } from '../../services/runtimeEventFactory';
 import { sanitizeDistillationTexts } from '../../services/distillationText';
-import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { sanitizeUserFacingText, type DisplayTextMember } from '../../services/displayTextSanitizer';
 
-function dedupeDisplayText(text: string) {
-  return sanitizeUserFacingText(text.replace(/^房间态势更新：/g, '').trim());
+function dedupeDisplayText(text: string, members: DisplayTextMember[] = []) {
+  return sanitizeUserFacingText(text.replace(/^房间态势更新：/g, '').trim(), members);
 }
 
 function isMemoryDistillationEvent(metrics: unknown) {
@@ -18,17 +18,18 @@ function buildMemoryDistillationSourcePrefix(metrics: Record<string, unknown> | 
   return '本地';
 }
 
-function buildMemoryDistillationOwnerSuffix(metrics: Record<string, unknown> | null) {
+function buildMemoryDistillationOwnerSuffix(metrics: Record<string, unknown> | null, members: DisplayTextMember[] = []) {
   if (!metrics) return '';
   const ownerLabel = typeof metrics.ownerLabel === 'string' ? metrics.ownerLabel : '';
   const isCharacterOwner = metrics?.ownerType === 'character' || ownerLabel.startsWith('角色：');
   if (!isCharacterOwner) return '';
   const ownerName = typeof metrics.ownerName === 'string' ? metrics.ownerName : '';
   const value = ownerName || ownerLabel.replace(/^角色：/, '').trim();
-  return value ? ` · ${value}` : '';
+  const label = sanitizeUserFacingText(value, members);
+  return label ? ` · ${label}` : '';
 }
 
-function formatMemoryDistillationMergeLabel(value: unknown) {
+function formatMemoryDistillationMergeLabel(value: unknown, members: DisplayTextMember[] = []) {
   const raw = typeof value === 'string' ? value.trim() : '';
   const labels: Record<string, string> = {
     reinforce_same_bucket: '同类证据强化',
@@ -40,18 +41,18 @@ function formatMemoryDistillationMergeLabel(value: unknown) {
     '同 bucket 强化': '同类证据强化',
   };
   if (!raw) return '同类证据强化合并';
-  return labels[raw] || sanitizeUserFacingText(raw).replace(/bucket/gi, '同类证据');
+  return labels[raw] || sanitizeUserFacingText(raw, members).replace(/bucket/gi, '同类证据');
 }
 
-export function buildEventDisplayText(payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }) {
-  if (payload.eventType === 'room_state_snapshot_v2') return dedupeDisplayText(payload.summary || '');
-  if (payload.eventType === 'conflict_axis_shift') return dedupeDisplayText(payload.summary || '');
-  if (payload.eventType === 'memory_reactivation') return dedupeDisplayText(payload.summary || payload.title || '旧记忆回温');
+export function buildEventDisplayText(payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }, members: DisplayTextMember[] = []) {
+  if (payload.eventType === 'room_state_snapshot_v2') return dedupeDisplayText(payload.summary || '', members);
+  if (payload.eventType === 'conflict_axis_shift') return dedupeDisplayText(payload.summary || '', members);
+  if (payload.eventType === 'memory_reactivation') return dedupeDisplayText(payload.summary || payload.title || '旧记忆回温', members);
   if (payload.eventType === 'memory_distillation') {
     const metrics = payload.metrics && typeof payload.metrics === 'object' ? payload.metrics as Record<string, unknown> : null;
     const ownerLabel = typeof metrics?.ownerLabel === 'string' ? metrics.ownerLabel : '';
     const ownerType = metrics?.ownerType === 'chat' || ownerLabel.startsWith('群聊：') ? '群聊' : '角色';
-    return `${buildMemoryDistillationSourcePrefix(metrics)}${ownerType}蒸馏${buildMemoryDistillationOwnerSuffix(metrics)}`;
+    return `${buildMemoryDistillationSourcePrefix(metrics)}${ownerType}蒸馏${buildMemoryDistillationOwnerSuffix(metrics, members)}`;
   }
   return dedupeDisplayText(formatRuntimeEventText({
     eventType: payload.eventType || 'event',
@@ -59,17 +60,18 @@ export function buildEventDisplayText(payload: { eventType?: string; title?: str
     summary: payload.summary || '',
     pair: payload.pair as [string, string] | undefined,
     metrics: payload.metrics,
-  }));
+  }), members);
 }
 
-export function buildMemoryDistillationMeta(payload: { metrics?: unknown }) {
+export function buildMemoryDistillationMeta(payload: { metrics?: unknown }, members: DisplayTextMember[] = []) {
   if (!isMemoryDistillationEvent(payload.metrics)) return null;
   const metrics = payload.metrics as Record<string, unknown>;
-  const mergeModeLabel = formatMemoryDistillationMergeLabel(metrics.mergeModeLabel || metrics.mergeMode);
+  const mergeModeLabel = formatMemoryDistillationMergeLabel(metrics.mergeModeLabel || metrics.mergeMode, members);
   const evidenceCount = typeof metrics.newEvidenceCount === 'number' ? metrics.newEvidenceCount : 0;
   const candidateTexts = Array.isArray(metrics.candidateTexts)
-    ? sanitizeDistillationTexts(metrics.candidateTexts.filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))).slice(0, 2)
-      .map((text) => sanitizeUserFacingText(text))
+    ? sanitizeDistillationTexts(metrics.candidateTexts
+      .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+      .map((text) => sanitizeUserFacingText(text, members))).slice(0, 2)
       .filter(Boolean)
     : [];
   return {
@@ -79,19 +81,27 @@ export function buildMemoryDistillationMeta(payload: { metrics?: unknown }) {
   };
 }
 
-export function buildMemoryReactivationMeta(payload: { metrics?: unknown }) {
+export function buildMemoryReactivationMeta(payload: { metrics?: unknown }, members: DisplayTextMember[] = []) {
   if (!payload.metrics || typeof payload.metrics !== 'object') return null;
   const metrics = payload.metrics as Record<string, unknown>;
   const matchedTokens = Array.isArray(metrics.matchedTokens)
-    ? metrics.matchedTokens.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).slice(0, 8)
+    ? metrics.matchedTokens
+      .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+      .map((value) => sanitizeUserFacingText(value, members))
+      .filter(Boolean)
+      .slice(0, 8)
     : [];
   const recalledMemories = Array.isArray(metrics.recalledMemories)
     ? metrics.recalledMemories
       .filter((value): value is Record<string, unknown> => typeof value === 'object' && value !== null)
       .map((item) => ({
-        summary: sanitizeUserFacingText(String(item.summary || '')),
+        summary: sanitizeUserFacingText(String(item.summary || ''), members),
         matchedTokens: Array.isArray(item.matchedTokens)
-          ? item.matchedTokens.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).slice(0, 4)
+          ? item.matchedTokens
+            .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+            .map((value) => sanitizeUserFacingText(value, members))
+            .filter(Boolean)
+            .slice(0, 4)
           : [],
       }))
       .filter((item) => item.summary)

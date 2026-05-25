@@ -14,6 +14,22 @@ describe('messageBubbleEventHelpers', () => {
     expect(text).not.toContain('3c78729f');
   });
 
+  it('projects member ids in event summaries to concrete names when members are available', () => {
+    const text = buildEventDisplayText({
+      eventType: 'memory_reactivation',
+      title: '旧记忆回温',
+      summary: '旧记忆回温：3c78729f-e52d-4dde-b27f-01a949960bb8b 想起了 8b3d7266-c0c7-4ceb-8dc2-45126f3f2321 的旧事',
+    }, [
+      { id: '3c78729f-e52d-4dde-b27f-01a949960bb8b', name: '喜羊羊' },
+      { id: '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321', name: '沸羊羊' },
+    ]);
+
+    expect(text).toContain('喜羊羊');
+    expect(text).toContain('沸羊羊');
+    expect(text).not.toContain('3c78729f');
+    expect(text).not.toContain('8b3d7266');
+  });
+
   it('sanitizes memory distillation candidate snippets for display', () => {
     const meta = buildMemoryDistillationMeta({
       metrics: {
@@ -30,6 +46,41 @@ describe('messageBubbleEventHelpers', () => {
     expect(meta?.candidateTexts[0]).not.toContain('episodic');
     expect(meta?.candidateTexts[0]).not.toContain('eventType');
     expect(meta?.candidateTexts[0]).not.toContain('3c78729f');
+  });
+
+  it('projects member ids in memory distillation and reactivation meta', () => {
+    const members = [
+      { id: '3c78729f-e52d-4dde-b27f-01a949960bb8b', name: '喜羊羊' },
+      { id: '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321', name: '沸羊羊' },
+    ];
+    const distillationMeta = buildMemoryDistillationMeta({
+      metrics: {
+        ownerType: 'character',
+        ownerName: '3c78729f-e52d-4dde-b27f-01a949960bb8b',
+        candidateTexts: [
+          'episodic / 8b3d7266-c0c7-4ceb-8dc2-45126f3f2321 维护 3c78729f-e52d-4dde-b27f-01a949960bb8b',
+        ],
+        newEvidenceCount: 1,
+        mergeModeLabel: '强化合并',
+      },
+    }, members);
+    const reactivationMeta = buildMemoryReactivationMeta({
+      metrics: {
+        matchedTokens: ['3c78729f-e52d-4dde-b27f-01a949960bb8b'],
+        recalledMemories: [
+          {
+            summary: '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321 记得喜羊羊上次帮忙',
+            matchedTokens: ['8b3d7266-c0c7-4ceb-8dc2-45126f3f2321'],
+          },
+        ],
+      },
+    }, members);
+
+    expect(distillationMeta?.candidateTexts[0]).toContain('沸羊羊');
+    expect(distillationMeta?.candidateTexts[0]).toContain('喜羊羊');
+    expect(reactivationMeta?.matchedTokens).toEqual(['喜羊羊']);
+    expect(reactivationMeta?.recalledMemories[0]?.summary).toContain('沸羊羊');
+    expect(reactivationMeta?.recalledMemories[0]?.matchedTokens).toEqual(['沸羊羊']);
   });
 
   it('does not expose bucket wording in merge labels', () => {

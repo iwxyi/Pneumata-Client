@@ -43,7 +43,10 @@ function replaceMemberIds(text: string, members: DisplayTextMember[]) {
     const pattern = member.id.length < 8
       ? new RegExp(`(^|[^\\p{L}\\p{N}_-])${escaped}(?=$|[^\\p{L}\\p{N}_-])`, 'gu')
       : new RegExp(escaped, 'g');
-    next = next.replace(pattern, (match, prefix = '') => `${prefix}${member.name || '成员'}`);
+    const label = member.name || '成员';
+    next = member.id.length < 8
+      ? next.replace(pattern, (_match, prefix = '') => `${prefix}${label}`)
+      : next.replace(pattern, label);
   });
   return next;
 }
@@ -60,6 +63,7 @@ export function sanitizeUserFacingText(text: string | undefined | null, members:
     next = next.replace(pattern, label);
   });
   return next
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12,}/gi, '成员')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '成员')
     .replace(/\b(source events?|sourceEventIds?|salience|tension|momentum|pressure)\b\s*:?\s*\d*\.?\d*%?/gi, '')
     .replace(/\bNaN\b/g, '0')

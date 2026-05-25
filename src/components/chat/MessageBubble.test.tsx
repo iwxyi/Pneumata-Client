@@ -18,6 +18,22 @@ describe('MessageBubble event rendering', () => {
     expect(text).toBe('LLM角色蒸馏 · 甲');
   });
 
+  it('formats memory distillation owner ids with member names when available', () => {
+    const text = buildEventDisplayText({
+      eventType: 'memory_distillation',
+      title: '',
+      summary: '',
+      metrics: {
+        sourceLabel: 'LLM 蒸馏',
+        ownerType: 'character',
+        ownerName: '3c78729f-e52d-4dde-b27f-01a949960bb8b',
+        reasonLabel: '已完成 LLM 蒸馏',
+      },
+    }, [{ id: '3c78729f-e52d-4dde-b27f-01a949960bb8b', name: '喜羊羊' }]);
+
+    expect(text).toBe('LLM角色蒸馏 · 喜羊羊');
+  });
+
   it('formats local memory distillation titles distinctly from LLM distillation', () => {
     const text = buildEventDisplayText({
       eventType: 'memory_distillation',

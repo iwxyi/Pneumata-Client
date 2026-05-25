@@ -200,6 +200,7 @@ export default function MessageList({
             message={item.message}
             character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
             currentUser={currentUser}
+            members={characters}
             onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
             onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
             onExpressionFeedback={item.pending || item.message.type !== 'ai' ? undefined : onExpressionFeedback}

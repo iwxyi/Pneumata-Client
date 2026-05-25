@@ -13,6 +13,7 @@ import { getAttachmentErrorText } from './messageAttachmentDisplay';
 import MarkdownText from '../common/MarkdownText';
 import DebugChip from '../common/DebugChip';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
+import type { DisplayTextMember } from '../../services/displayTextSanitizer';
 
 function isConflictDeveloperEvent(eventType: string | undefined) {
   return ['conflict_focus_shift', 'conflict_axis_shift'].includes(String(eventType || ''));
@@ -22,8 +23,8 @@ function isStateDeveloperEvent(eventType: string | undefined) {
   return ['world_state_shift', 'room_state_snapshot_v2'].includes(String(eventType || ''));
 }
 
-function renderMemoryDistillationMeta(payload: { metrics?: unknown }) {
-  const meta = buildMemoryDistillationMeta(payload);
+function renderMemoryDistillationMeta(payload: { metrics?: unknown }, members: DisplayTextMember[] = []) {
+  const meta = buildMemoryDistillationMeta(payload, members);
   if (!meta) return null;
   return (
     <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
@@ -33,8 +34,8 @@ function renderMemoryDistillationMeta(payload: { metrics?: unknown }) {
   );
 }
 
-function renderMemoryReactivationMeta(payload: { metrics?: unknown }) {
-  const meta = buildMemoryReactivationMeta(payload);
+function renderMemoryReactivationMeta(payload: { metrics?: unknown }, members: DisplayTextMember[] = []) {
+  const meta = buildMemoryReactivationMeta(payload, members);
   if (!meta) return null;
   return (
     <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
@@ -97,7 +98,7 @@ function renderConflictEventMeta(payload: { metrics?: unknown }) {
   );
 }
 
-function renderEventBubble(messageId: string, payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }) {
+function renderEventBubble(messageId: string, payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }, members: DisplayTextMember[] = []) {
   if (shouldHideEmptyConflictEvent(payload)) return null;
   return (
     <Box data-message-id={messageId} data-message-type="event" sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: 2, pointerEvents: 'none' }}>
@@ -105,14 +106,14 @@ function renderEventBubble(messageId: string, payload: { eventType?: string; tit
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, mb: 0.25 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {buildEventDisplayText(payload)}
+              {buildEventDisplayText(payload, members)}
             </Typography>
           </Box>
           {buildEventTypeChip(payload)}
         </Box>
         {isConflictDeveloperEvent(payload.eventType) ? renderConflictEventMeta(payload) : null}
-        {payload.eventType === 'memory_distillation' ? renderMemoryDistillationMeta(payload) : null}
-        {payload.eventType === 'memory_reactivation' ? renderMemoryReactivationMeta(payload) : null}
+        {payload.eventType === 'memory_distillation' ? renderMemoryDistillationMeta(payload, members) : null}
+        {payload.eventType === 'memory_reactivation' ? renderMemoryReactivationMeta(payload, members) : null}
       </Box>
     </Box>
   );
@@ -126,6 +127,7 @@ interface MessageBubbleProps {
   onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
   pending?: boolean;
   currentUser?: { nickname?: string; avatar?: string };
+  members?: DisplayTextMember[];
 }
 
 interface MenuPosition {
@@ -260,7 +262,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, pending = false, currentUser }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, pending = false, currentUser, members = [] }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
@@ -384,7 +386,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
     const parsed = parseRuntimeEvent(message.content);
     const payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown } = parsed || { title: '事件', summary: message.content };
     if (!shouldRenderDeveloperEvent(payload, { showRelationshipEvents, showAffectEvents, showConflictEvents, showStateEvents, showMemoryDistillationEvents, showMemoryDebug })) return null;
-    return renderEventBubble(message.id, payload);
+    return renderEventBubble(message.id, payload, members);
   }
 
   const manualSpeaker = message.metadata?.manualSpeaker;

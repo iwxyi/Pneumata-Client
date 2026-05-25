@@ -14,6 +14,7 @@ export function sanitizeDistillationText(text: string) {
   const normalized = normalizeWhitespace(text)
     .replace(new RegExp(`(?:[0-9a-f-]{6,}→[0-9a-f-]{6,}\\s+)?(${RELATION_ACTION_PATTERN}：)`, 'gi'), '$1')
     .replace(/^对人长期判断：/, '')
+    .replace(/^对\s+[^：/｜]{1,40}\s+的关系倾向：/u, '')
     .replace(/对\s+([^：/]+?)\s+的态度发生变化：/g, '对 $1 的关系倾向：')
     .replace(UUID_INLINE_PATTERN, '')
     .replace(/对\s+的关系倾向：/g, '')

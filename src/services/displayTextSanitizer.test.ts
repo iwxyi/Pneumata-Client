@@ -19,4 +19,16 @@ describe('sanitizeUserFacingText', () => {
   it('localizes internal memory labels', () => {
     expect(sanitizeUserFacingText('episodic / status_shift / memory_candidate')).toBe('片段记忆 / 状态变化 / 记忆候选');
   });
+
+  it('replaces long member ids without leaking replace offsets', () => {
+    const text = sanitizeUserFacingText(
+      '3c78729f-e52d-4dde-b27f-01a949960bb8b 提到了 8b3d7266-c0c7-4ceb-8dc2-45126f3f2321',
+      [
+        { id: '3c78729f-e52d-4dde-b27f-01a949960bb8b', name: '喜羊羊' },
+        { id: '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321', name: '沸羊羊' },
+      ],
+    );
+
+    expect(text).toBe('喜羊羊 提到了 沸羊羊');
+  });
 });
