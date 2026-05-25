@@ -7,7 +7,7 @@ import { buildSessionSurfaceProjectionFromSchema } from '../types/sessionEngine'
 import { canProjectScope } from '../types/sessionVisibility';
 import { projectSessionRecentEvent } from './directSessionHelpers';
 import { buildRolePrivateParticipantStates, buildRolePrivatePayloads, projectPrivateParticipantPayloads } from './privateRuntimePayloads';
-import { sanitizeUserFacingText } from './displayTextSanitizer';
+import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 
 export interface ProjectedRuntimeTimelineItem {
   type: 'note' | 'artifact' | 'relationship';
@@ -186,11 +186,52 @@ function resolveActorTargetNames(ids: string[] | undefined, participantNameMap: 
   return (ids || []).map((id) => participantNameMap.get(id) || '成员');
 }
 
-function replaceIdsWithNames(text: string, participantNameMap: Map<string, string>) {
+function displayMembersFromNameMap(participantNameMap: Map<string, string>): DisplayTextMember[] {
+  return Array.from(participantNameMap.entries()).map(([id, name]) => ({ id, name }));
+}
+
+function cleanProjectionText(text: string | undefined | null, participantNameMap: Map<string, string>) {
   return sanitizeUserFacingText(
-    text,
-    Array.from(participantNameMap.entries()).map(([id, name]) => ({ id, name })),
+    text || '',
+    displayMembersFromNameMap(participantNameMap),
   );
+}
+
+function cleanOptionalProjectionText<T extends string | null | undefined>(text: T, participantNameMap: Map<string, string>): T {
+  if (typeof text !== 'string') return text;
+  return cleanProjectionText(text, participantNameMap) as T;
+}
+
+function projectSocialEventCandidatePayload(payload: SocialEventCandidatePayload, participantNameMap: Map<string, string>): SocialEventCandidatePayload {
+  return {
+    ...payload,
+    seedIntent: cleanProjectionText(payload.seedIntent, participantNameMap),
+    sourceText: cleanOptionalProjectionText(payload.sourceText, participantNameMap),
+    title: cleanOptionalProjectionText(payload.title, participantNameMap),
+    activityType: cleanOptionalProjectionText(payload.activityType, participantNameMap),
+    timeHint: cleanOptionalProjectionText(payload.timeHint, participantNameMap),
+    locationHint: cleanOptionalProjectionText(payload.locationHint, participantNameMap),
+  };
+}
+
+function projectSocialEventArtifactPayload(payload: NonNullable<ReturnType<typeof buildEventMeta>['socialEventArtifact']>, participantNameMap: Map<string, string>) {
+  return {
+    ...payload,
+    title: cleanOptionalProjectionText(payload.title, participantNameMap),
+    activityType: cleanOptionalProjectionText(payload.activityType, participantNameMap),
+    timeHint: cleanOptionalProjectionText(payload.timeHint, participantNameMap),
+    locationHint: cleanOptionalProjectionText(payload.locationHint, participantNameMap),
+  };
+}
+
+function projectMemoryDistillationPayload(payload: Record<string, unknown>, participantNameMap: Map<string, string>) {
+  const candidateTexts = Array.isArray(payload.candidateTexts)
+    ? payload.candidateTexts.map((item) => typeof item === 'string' ? cleanProjectionText(item, participantNameMap) : item)
+    : payload.candidateTexts;
+  return {
+    ...payload,
+    candidateTexts,
+  };
 }
 
 function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: NonNullable<GroupChat['runtimeTimeline']>, participants: Array<AICharacter | ParticipantInstance> = []) {
@@ -198,7 +239,7 @@ function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: N
   if (events.length) {
     return events.map<ProjectedRuntimeTimelineItem>((event) => ({
       type: mapRuntimeEventKindToTimelineType(event.kind),
-      text: replaceIdsWithNames(event.summary, participantNameMap),
+      text: cleanProjectionText(event.summary, participantNameMap),
       createdAt: event.createdAt,
       label: formatRuntimeEventLabel(event.kind),
       event,
@@ -207,20 +248,20 @@ function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: N
       meta: (() => {
         const baseMeta = buildEventMeta(event);
         return {
-          memoryCandidate: baseMeta.memoryCandidate ? { ...baseMeta.memoryCandidate, kind: formatMemoryCandidateKind(baseMeta.memoryCandidate.kind) as MemoryCandidatePayload['kind'], text: replaceIdsWithNames(baseMeta.memoryCandidate.text, participantNameMap) } : undefined,
-          socialEventCandidate: baseMeta.socialEventCandidate,
-          socialEventArtifact: baseMeta.socialEventArtifact,
-          socialEventEffect: baseMeta.socialEventEffect ? { ...baseMeta.socialEventEffect, summary: replaceIdsWithNames(baseMeta.socialEventEffect.summary, participantNameMap) } : undefined,
+          memoryCandidate: baseMeta.memoryCandidate ? { ...baseMeta.memoryCandidate, kind: formatMemoryCandidateKind(baseMeta.memoryCandidate.kind) as MemoryCandidatePayload['kind'], text: cleanProjectionText(baseMeta.memoryCandidate.text, participantNameMap) } : undefined,
+          socialEventCandidate: baseMeta.socialEventCandidate ? projectSocialEventCandidatePayload(baseMeta.socialEventCandidate, participantNameMap) : undefined,
+          socialEventArtifact: baseMeta.socialEventArtifact ? projectSocialEventArtifactPayload(baseMeta.socialEventArtifact, participantNameMap) : undefined,
+          socialEventEffect: baseMeta.socialEventEffect ? { ...baseMeta.socialEventEffect, summary: cleanProjectionText(baseMeta.socialEventEffect.summary, participantNameMap) } : undefined,
           socialEventCluster: baseMeta.socialEventCluster,
           relationshipDelta: baseMeta.relationshipDelta ? { reason: formatRelationshipReason(baseMeta.relationshipDelta.reason), delta: baseMeta.relationshipDelta.delta || {}, axisReasons: baseMeta.relationshipDelta.axisReasons || {}, spikeType: baseMeta.relationshipDelta.spikeType } : undefined,
           roomShift: baseMeta.roomShift,
-          memoryDistillation: baseMeta.memoryDistillation,
+          memoryDistillation: baseMeta.memoryDistillation ? projectMemoryDistillationPayload(baseMeta.memoryDistillation, participantNameMap) : undefined,
         };
       })(),
     }));
   }
 
-  return legacyTimeline.map<ProjectedRuntimeTimelineItem>((item) => ({ type: item.type, text: replaceIdsWithNames(item.text, participantNameMap), createdAt: item.createdAt, label: item.type, event: null, actorNames: [], targetNames: [] }));
+  return legacyTimeline.map<ProjectedRuntimeTimelineItem>((item) => ({ type: item.type, text: cleanProjectionText(item.text, participantNameMap), createdAt: item.createdAt, label: item.type, event: null, actorNames: [], targetNames: [] }));
 }
 
 function buildInteractionPairKey(item: ProjectedRuntimeTimelineItem) {

@@ -103,6 +103,51 @@ describe('sessionProjection', () => {
     expect(timeline[0]?.actorNames).toEqual(['喜羊羊']);
   });
 
+  it('cleans social event candidate text fields with participant names', () => {
+    const actorId = '3c78729f-e52d-4dde-b27f-01a949960bb8b';
+    const targetId = '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321';
+    const chat = normalizeConversation({
+      ...buildChat(),
+      memberIds: [actorId, targetId],
+      runtimeEventsV2: [{
+        id: 'evt-social-uuid',
+        conversationId: 'chat-1',
+        kind: 'event_candidate',
+        createdAt: 11,
+        actorIds: [actorId],
+        targetIds: [targetId],
+        summary: `${actorId} 想和 ${targetId} 私下继续聊`,
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'pair_private_thread',
+          initiatorId: actorId,
+          participantIds: [actorId, targetId],
+          targetIds: [targetId],
+          reasonType: 'unresolved_question',
+          confidence: 0.82,
+          urgency: 'immediate',
+          seedIntent: `${actorId} 想和 ${targetId} 把刚才的分歧说清楚`,
+          sourceText: `${targetId} 刚才没有回应 ${actorId}`,
+          title: `${actorId} 与 ${targetId} 私聊`,
+          visibilityPlan: 'conversation_private',
+          expectedArtifacts: ['private_thread_summary'],
+        },
+      }],
+    });
+    const participants = [{ id: actorId, name: '喜羊羊' }, { id: targetId, name: '沸羊羊' }] as never;
+    const timeline = projectRuntimeState(chat, createProjectionContext(chat, participants, actorId, 'participant')).runtimeTimeline;
+    const candidate = timeline[0]?.meta?.socialEventCandidate;
+
+    expect(timeline[0]?.text).toBe('喜羊羊 想和 沸羊羊 私下继续聊');
+    expect(candidate?.seedIntent).toBe('喜羊羊 想和 沸羊羊 把刚才的分歧说清楚');
+    expect(candidate?.sourceText).toBe('沸羊羊 刚才没有回应 喜羊羊');
+    expect(candidate?.title).toBe('喜羊羊 与 沸羊羊 私聊');
+    const visibleText = [timeline[0]?.text, candidate?.seedIntent, candidate?.sourceText, candidate?.title].join(' / ');
+    expect(visibleText).not.toContain(actorId);
+    expect(visibleText).not.toContain(targetId);
+    expect(visibleText).not.toContain('0喜羊羊');
+  });
+
   it('projects recent interactions by conversation turn instead of raw relationship event slots', () => {
     const chat = normalizeConversation({
       ...buildChat(),
