@@ -25,13 +25,34 @@ function buildRecallCue(messages: Array<Pick<Message, 'senderName' | 'senderId' 
 
 function generatedTextMatchesRecall(item: MemoryItem, generatedText: string) {
   const normalized = generatedText.toLowerCase();
-  const tokens = item.recallTokens || [];
+  const tokens = buildRecallMatchTokens(item);
   return tokens.some((token) => token.length >= 2 && normalized.includes(token.toLowerCase()));
+}
+
+function buildRecallMatchTokens(item: MemoryItem) {
+  const source = [
+    ...(item.recallTokens || []),
+    item.summary,
+    item.text,
+    item.evidenceText,
+  ].filter(Boolean).join('\n').toLowerCase();
+  const tokens = [...(source.match(/[a-z0-9_]{3,}|[\u4e00-\u9fff]{2,}/g) || [])];
+  const cjk = source.replace(/[^\u4e00-\u9fff]/g, '');
+  const stopTokens = new Set(['记得', '关系', '正在', '变化', '当前', '发言', '这次', '那次', '以前', '曾在']);
+  for (let index = 0; index < Math.min(cjk.length - 1, 40); index += 1) {
+    tokens.push(cjk.slice(index, index + 2));
+  }
+  return Array.from(new Set(tokens.map((item) => item.trim()).filter((item) => item.length >= 2 && !stopTokens.has(item)))).slice(0, 28);
 }
 
 function shouldActivateRecall(item: MemoryItem, generatedText: string) {
   if (!item.archivedAt || !item.recallReason) return false;
-  return generatedTextMatchesRecall(item, generatedText) || (item.recallScore || 0) >= 1.2;
+  return generatedTextMatchesRecall(item, generatedText);
+}
+
+function mergeRecallTokens(item: MemoryItem, tokens: string[] | undefined) {
+  const merged = Array.from(new Set([...(tokens || []), ...(item.recallTokens || [])].filter(Boolean)));
+  return merged.length ? merged : undefined;
 }
 
 function recalledFromPromptMetadata(
@@ -48,7 +69,7 @@ function recalledFromPromptMetadata(
       return {
         ...item,
         recallReason: trace?.recallReason || '旧档被本轮提示词注入',
-        recallTokens: trace?.recallTokens,
+        recallTokens: mergeRecallTokens(item, trace?.recallTokens),
         recallScore: trace?.recallScore,
       };
     });

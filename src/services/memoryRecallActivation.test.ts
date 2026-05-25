@@ -143,7 +143,7 @@ describe('applyRecalledMemoryActivation', () => {
     const result = applyRecalledMemoryActivation({
       chat: buildChat(),
       characters: [character([oldMemory]), character([]) as AICharacter],
-      message: message('我记得这件事。', {
+      message: message('我记得那块蓝色石头。', {
         metadata: {
           runtimeDecision: {
             memoryContext: {
@@ -168,5 +168,35 @@ describe('applyRecalledMemoryActivation', () => {
 
     expect(activated?.archivedAt).toBeFalsy();
     expect(patch?.runtimeTimeline?.at(-1)?.text).toContain('重新唤醒');
+  });
+
+  it('does not reactivate prompt-injected archives without a specific memory cue', () => {
+    const oldMemory = memory({ text: '甲记得乙曾藏起蓝色石头。' });
+    const transition: DriverMessageCommitTransition = { chatPatch: {}, characterPatches: [], runtimeEvents: [] };
+    const result = applyRecalledMemoryActivation({
+      chat: buildChat(),
+      characters: [character([oldMemory]), character([]) as AICharacter],
+      message: message('我记得这件事。', {
+        metadata: {
+          runtimeDecision: {
+            memoryContext: {
+              recalledArchives: [{
+                id: oldMemory.id,
+                scope: oldMemory.scope,
+                kind: oldMemory.kind,
+                layer: oldMemory.layer,
+                summary: oldMemory.text,
+                recallReason: '旧档被本轮提示词注入',
+                recallScore: 1.3,
+              }],
+            },
+          },
+        },
+      }),
+      recentMessages: [],
+      transition,
+    });
+
+    expect(result.characterPatches).toHaveLength(0);
   });
 });
