@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent, Chip, Stack, TextField, Typography, Tooltip, Box } from '@mui/material';
 import type { AICharacter } from '../../types/character';
 import type { ChatStyle, GroupChat, RuntimeEvolutionIntensity } from '../../types/chat';
-import { formatConflictPressureLabel, formatConflictStageLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
+import { formatConflictHookLabels, formatConflictPressureLabel, formatConflictStageLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
 import type { ConflictFocusState } from '../../types/runtimeEvent';
 import { classifyRuntimeArtifactSeedLine } from '../../services/runtimeSeed';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -70,9 +70,15 @@ function runtimeIntensityLabel(value: RuntimeEvolutionIntensity) {
   return value === 'slow' ? '慢' : value === 'fast' ? '快' : '平衡';
 }
 
+function isLikelyInternalId(value: string) {
+  return /^[0-9a-f-]{18,}$/i.test(value) || /^draft-\d+$/i.test(value);
+}
+
 function resolveName(id: string | undefined, characters: AICharacter[]) {
   if (!id) return '未设置';
-  return characters.find((character) => character.id === id)?.name || id;
+  const matched = characters.find((character) => character.id === id)?.name;
+  if (matched) return matched;
+  return isLikelyInternalId(id) ? '未知成员' : id;
 }
 
 function buildNameMap(characters: AICharacter[]) {
@@ -130,9 +136,9 @@ function buildAxisEvidence(axis: NonNullable<GroupChat['worldState']['conflictAx
 }
 
 function buildConflictEvidence(conflict: ConflictFocusState, nameMap: Map<string, string>) {
-  const participants = conflict.participantIds.map((id) => nameMap.get(id) || id).join('、');
-  const hooks = conflict.developmentHooks.length ? `建议：${conflict.developmentHooks.join(' / ')}` : '';
-  return [participants ? `参与者：${participants}` : '', hooks, `来源事件 ${conflict.sourceEventIds.length} 条`].filter(Boolean).join('\n');
+  const participants = conflict.participantIds.map((id) => nameMap.get(id) || (isLikelyInternalId(id) ? '未知成员' : id)).join('、');
+  const hooks = conflict.developmentHooks.length ? `建议：${formatConflictHookLabels(conflict.developmentHooks).join(' / ')}` : '';
+  return [participants ? `参与者：${participants}` : '', hooks, conflict.sourceEventIds.length ? `已参考 ${conflict.sourceEventIds.length} 条近期变化` : ''].filter(Boolean).join('\n');
 }
 
 function latestRelationshipEvidence(item: NonNullable<GroupChat['relationshipLedger']>[number], nameMap: Map<string, string>) {
@@ -249,9 +255,10 @@ export default function RuntimeSeedSection(props: RuntimeSeedSectionProps) {
     `更新 ${formatDateTime(props.editingChatUpdatedAt)}`,
     `最后消息 ${formatDateTime(props.editingChatLastMessageAt)}`,
   ].join('\n');
-  const memorySourceSummary = `${STYLE_LABELS[props.style] || props.style} · ${props.selectedMembers.length} 名成员 · 变化${runtimeIntensityLabel(props.runtimeEvolutionIntensity)}`;
+  const styleLabel = STYLE_LABELS[props.style] || '自定义风格';
+  const memorySourceSummary = `${styleLabel} · ${props.selectedMembers.length} 名成员 · 变化${runtimeIntensityLabel(props.runtimeEvolutionIntensity)}`;
   const memorySourceTooltip = [
-    `会话：${props.name || '未命名'} / ${STYLE_LABELS[props.style] || props.style}`,
+    `会话：${props.name || '未命名'} / ${styleLabel}`,
     `主题：${props.topic || '未设置'}`,
     `成员：${props.selectedMembers.length} 人`,
     `变化强度：${runtimeIntensityLabel(props.runtimeEvolutionIntensity)}`,
