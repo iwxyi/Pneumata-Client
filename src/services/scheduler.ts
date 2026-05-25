@@ -155,6 +155,15 @@ function countUnmetTurns(recentAiMessages: Message[], primaryTargetId: string, s
   return turns;
 }
 
+function buildSchedulerTopicText(recentMessages: Message[], directorIntent?: DirectorIntent | null) {
+  const guidanceFocus = directorIntent?.source === 'user_message' ? directorIntent.userGuidance?.focusText?.trim() : '';
+  if (guidanceFocus) {
+    const recentTail = recentMessages.slice(-2).map((message) => message.content).join(' ');
+    return [guidanceFocus, guidanceFocus, recentTail].filter(Boolean).join(' ');
+  }
+  return recentMessages.slice(-5).map((message) => message.content).join(' ');
+}
+
 export function resolvePendingReplyContext(characters: AICharacter[], recentMessages: Message[]): PendingReplyContext | null {
   const recentAiMessages = recentMessages.filter((message) => message.type === 'ai' && !message.isDeleted);
   const lastAiMessage = recentAiMessages.at(-1) as (Message & { addressedTargetIds?: string[] | null; primaryAddressedTargetId?: string | null }) | undefined;
@@ -219,7 +228,7 @@ export function calculateWeights(
 
   const now = Date.now();
   const cooldownDuration = baseCooldownMs / speed;
-  const recentText = recentMessages.slice(-5).map((m) => m.content).join(' ');
+  const recentText = buildSchedulerTopicText(recentMessages, directorIntent);
   const keywords = extractKeywords(recentText);
   const forcedUserGuidanceActorIds = directorIntent?.source === 'user_message' && directorIntent.userGuidance?.actorIds.length
     ? (directorIntent.targetActorIds.length ? directorIntent.targetActorIds : directorIntent.userGuidance.actorIds)

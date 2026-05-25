@@ -167,4 +167,46 @@ describe('scheduler speaker scoring', () => {
     expect(b).toBeTruthy();
     expect(b?.scoreBreakdown?.reasons).toContain('director:media_request:target');
   });
+
+  it('uses latest topic guidance as the main topic relevance source instead of stale banter', () => {
+    const intent: DirectorIntent = {
+      source: 'user_message',
+      beatType: 'invite',
+      targetActorIds: [],
+      pressure: 0.58,
+      reason: '用户正在明确改变群聊焦点。',
+      userGuidance: {
+        kind: 'topic_shift',
+        rawText: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
+        actorIds: [],
+        mentionedActorIds: [],
+        focusText: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
+        beatType: 'invite',
+        pressure: 0.58,
+        maxTurns: 3,
+        reason: '用户正在明确改变群聊焦点。',
+      },
+    };
+    const candidates = calculateWeights(
+      [
+        buildCharacter('banana', '蕉太狼', { expertise: ['香蕉', '甜点'] }),
+        buildCharacter('ethics', '慢羊羊', { expertise: ['狼抓羊', '伦理', '自然法则'] }),
+      ],
+      [
+        buildMessage({ id: 'm1', senderId: 'banana', senderName: '蕉太狼', content: '香蕉香蕉香蕉，灰太狼的胡子也像香蕉。', timestamp: 10 }),
+        buildMessage({ id: 'm2', senderId: 'banana', senderName: '蕉太狼', content: '香蕉证件照也不是不行。', timestamp: 20 }),
+        buildMessage({ id: 'm3', type: 'user', senderId: 'user', senderName: '我', content: '新话题：狼抓羊有过错吗？狼应该抓羊吗？', timestamp: 30 }),
+      ],
+      {},
+      1,
+      0,
+      null,
+      buildChat(),
+      intent,
+    );
+
+    const banana = candidates.find((candidate) => candidate.characterId === 'banana');
+    const ethics = candidates.find((candidate) => candidate.characterId === 'ethics');
+    expect(ethics?.scoreBreakdown?.topicRelevance).toBeGreaterThan(banana?.scoreBreakdown?.topicRelevance || 0);
+  });
 });
