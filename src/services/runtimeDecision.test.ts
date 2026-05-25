@@ -500,6 +500,43 @@ describe('runtimeDecision', () => {
     expect(projection.directorIntent?.targetActorIds).toEqual([]);
   });
 
+  it('does not consume question guidance with old-banter keyword overlap', () => {
+    const projection = projectRuntimePressure({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼'), buildCharacter('c', '慢羊羊')],
+      messages: [
+        buildMessage({ id: 'guide', type: 'god', senderId: 'user', senderName: '开发者', content: '新话题：狼抓羊有过错吗？狼应该抓羊吗？', timestamp: 30 }),
+        buildMessage({ id: 'first', type: 'ai', senderId: 'a', senderName: '美羊羊', content: '灰太狼先生，你要真去考个“抓羊证”，我倒是可以帮你画个美美的证件照哦。', timestamp: 40 }),
+        buildMessage({ id: 'second', type: 'ai', senderId: 'b', senderName: '灰太狼', content: '抓羊证这东西要是真有，我第一个去报名。', timestamp: 45 }),
+      ],
+      now: 50,
+    });
+
+    expect(projection.directorIntent?.userGuidance).toMatchObject({
+      kind: 'topic_shift',
+      rawText: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
+    });
+  });
+
+  it('keeps targeted media guidance active when the target actor only jokes about the artifact', () => {
+    const projection = projectRuntimePressure({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼'), buildCharacter('c', '蕉太狼')],
+      messages: [
+        buildMessage({ id: 'guide', type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 30 }),
+        buildMessage({ id: 'target-joke', type: 'ai', senderId: 'a', senderName: '美羊羊', content: '蕉太狼你这一天天的，满脑子都是香蕉，连灰太狼先生的胡子都不放过啦。', timestamp: 40 }),
+      ],
+      now: 50,
+    });
+
+    expect(projection.directorIntent).toMatchObject({
+      source: 'user_message',
+      beatType: 'answer',
+      targetActorIds: ['a'],
+    });
+    expect(projection.directorIntent?.userGuidance?.kind).toBe('media_request');
+  });
+
   it('expires a director intervention after one AI response by default', () => {
     const intervention: RuntimeEventV2 = {
       id: 'evt-director',

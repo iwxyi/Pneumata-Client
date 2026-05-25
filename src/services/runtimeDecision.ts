@@ -3,6 +3,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { DirectorBeatType } from './directorIntent';
 import { resolveDirectorIntent, type DirectorIntent, type PendingReplyLike } from './directorIntent';
+import { evaluateGuidanceMessage } from './guidanceExecution';
 import { projectNarrativeLines, selectPrimaryNarrativeLine, type NarrativeLineProjection } from './narrativeProjection';
 import { getGuidanceTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
 
@@ -49,114 +50,20 @@ function countAiResponsesAfter(messages: Message[], timestamp: number) {
   return messages.filter((message) => message.type === 'ai' && !message.isDeleted && message.timestamp > timestamp).length;
 }
 
-function getMessageRuntimeGuidance(message: Message): UserGuidanceIntent | null {
-  const guidance = message.metadata?.runtimeDecision?.directorIntent?.userGuidance;
-  if (!guidance || typeof guidance.kind !== 'string') return null;
-  return guidance as UserGuidanceIntent;
+function hasMatchedGuidance(message: Message, guidance: UserGuidanceIntent, characters: AICharacter[]) {
+  return evaluateGuidanceMessage(message, guidance, characters).matched;
 }
 
-function hasImageAttachment(message: Message) {
-  return Boolean(
-    message.metadata?.generationDecision?.image?.shouldGenerate
-    || message.metadata?.attachments?.some((attachment) => attachment.kind === 'image' && attachment.status !== 'deleted' && attachment.status !== 'failed'),
-  );
-}
-
-const TOPIC_GUIDANCE_STOP_WORDS = new Set([
-  '新话题',
-  '换话题',
-  '换个',
-  '话题',
-  '讨论',
-  '聊聊',
-  '说说',
-  '继续',
-  '回到',
-  '围绕',
-  '一下',
-  '这个',
-  '那个',
-  '什么',
-  '怎么',
-  '应该',
-]);
-
-function normalizeTopicMatchText(text: string) {
-  return text.replace(/\s+/g, '').replace(/[，。！？、,.!?:：；;"“”'‘’（）()[\]{}<>《》]/g, '');
-}
-
-function extractTopicMatchTokens(text: string) {
-  const normalized = normalizeTopicMatchText(text.replace(/^(新话题|换个话题|切换话题|回到|继续说|讨论|聊聊)[:：]*/i, ''));
-  const tokens: string[] = [];
-  const chunks = normalized.match(/[\u4e00-\u9fff]{2,}|[A-Za-z0-9_]{3,}/g) || [];
-  for (const chunk of chunks) {
-    if (/^[A-Za-z0-9_]+$/.test(chunk)) {
-      tokens.push(chunk.toLowerCase());
-      continue;
-    }
-    if (chunk.length <= 4) {
-      tokens.push(chunk);
-      continue;
-    }
-    for (let index = 0; index < chunk.length - 1; index += 1) {
-      tokens.push(chunk.slice(index, index + 2));
-    }
-  }
-  return tokens
-    .map((token) => token.trim())
-    .filter((token, index, array) => token.length >= 2 && !TOPIC_GUIDANCE_STOP_WORDS.has(token) && array.indexOf(token) === index);
-}
-
-function looksLikeTopicGuidanceHandled(message: Message, guidance: UserGuidanceIntent) {
-  if (guidance.kind !== 'topic_shift') return false;
-  const tokens = extractTopicMatchTokens(guidance.focusText || guidance.rawText);
-  if (!tokens.length) return true;
-  const content = normalizeTopicMatchText(message.content || '').toLowerCase();
-  const matched = tokens.filter((token) => content.includes(token.toLowerCase()));
-  return matched.length >= Math.min(2, tokens.length) || matched.some((token) => token.length >= 3);
-}
-
-function isSameGuidance(left: UserGuidanceIntent | null | undefined, right: UserGuidanceIntent | null | undefined) {
-  if (!left || !right) return false;
-  return left.kind === right.kind && left.rawText === right.rawText;
-}
-
-function looksLikeMediaRequestHandled(message: Message, guidance: UserGuidanceIntent) {
-  if (!guidance.mediaRequest) return false;
-  if (hasImageAttachment(message)) return true;
-  if (!isSameGuidance(getMessageRuntimeGuidance(message), guidance)) return false;
-  const text = message.content || '';
-  const subject = guidance.mediaRequest.subjectText || '';
-  const subjectMentioned = subject ? text.includes(subject) : true;
-  const imageAction = /(图|图片|照片|相片|证件照|画好|画了|发来|发给|你看|看这|出图|生成|发不了|没法|无法|不能)/i.test(text);
-  return subjectMentioned && imageAction;
-}
-
-function hasCompletedGuidance(message: Message, guidance: UserGuidanceIntent) {
-  if (message.type !== 'ai' || message.isDeleted) return false;
-  if (guidance.actorIds.length && !guidance.actorIds.includes(message.senderId)) return false;
-  if (guidance.kind !== 'media_request') return true;
-  return looksLikeMediaRequestHandled(message, guidance);
-}
-
-function hasConsumedHumanGuidanceTurn(message: Message, guidance: UserGuidanceIntent) {
-  if (message.type !== 'ai' || message.isDeleted) return false;
-  if (guidance.actorIds.length && !guidance.actorIds.includes(message.senderId)) return false;
-  if (guidance.kind === 'media_request') return looksLikeMediaRequestHandled(message, guidance);
-  if (guidance.kind === 'topic_shift') return looksLikeTopicGuidanceHandled(message, guidance);
-  return true;
-}
-
-function getCompletedGuidanceActorIdsAfter(messages: Message[], timestamp: number, guidance: UserGuidanceIntent) {
+function getCompletedGuidanceActorIdsAfter(messages: Message[], timestamp: number, guidance: UserGuidanceIntent, characters: AICharacter[]) {
   return new Set(
     messages
-      .filter((message) => message.timestamp > timestamp && hasCompletedGuidance(message, guidance))
+      .filter((message) => message.timestamp > timestamp && hasMatchedGuidance(message, guidance, characters))
       .map((message) => message.senderId),
   );
 }
 
-function countConsumedGuidanceTurnsAfter(messages: Message[], timestamp: number, guidance: UserGuidanceIntent) {
-  return messages.filter((message) => message.timestamp > timestamp && hasConsumedHumanGuidanceTurn(message, guidance)).length;
+function countConsumedGuidanceTurnsAfter(messages: Message[], timestamp: number, guidance: UserGuidanceIntent, characters: AICharacter[]) {
+  return messages.filter((message) => message.timestamp > timestamp && hasMatchedGuidance(message, guidance, characters)).length;
 }
 
 function isExplicitPersistentGuidance(guidance: UserGuidanceIntent) {
@@ -188,7 +95,7 @@ export function resolveLatestActiveUserGuidance(characters: AICharacter[], messa
     if (now > message.timestamp + 10 * 60_000) return { intent: null, timestamp: message.timestamp };
 
     if (guidance.actorIds.length) {
-      const completedActorIds = getCompletedGuidanceActorIdsAfter(messages, message.timestamp, guidance);
+      const completedActorIds = getCompletedGuidanceActorIdsAfter(messages, message.timestamp, guidance, characters);
       const pendingActorIds = uniqueKnownActorIds(guidance.actorIds.filter((actorId) => !completedActorIds.has(actorId)), characters);
       if (pendingActorIds.length) {
         return {
@@ -199,7 +106,7 @@ export function resolveLatestActiveUserGuidance(characters: AICharacter[], messa
       return { intent: null, timestamp: message.timestamp };
     }
 
-    if (countConsumedGuidanceTurnsAfter(messages, message.timestamp, guidance) >= guidance.maxTurns) {
+    if (countConsumedGuidanceTurnsAfter(messages, message.timestamp, guidance, characters) >= guidance.maxTurns) {
       return { intent: null, timestamp: message.timestamp };
     }
     return {
@@ -236,7 +143,7 @@ function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AIChar
       : null;
     const guidance = storedGuidance || parseUserGuidanceIntent(text || '', characters);
     const pendingGuidanceActorIds = storedGuidance?.actorIds.length
-      ? storedGuidance.actorIds.filter((actorId) => !getCompletedGuidanceActorIdsAfter(messages, event.createdAt, storedGuidance).has(actorId))
+      ? storedGuidance.actorIds.filter((actorId) => !getCompletedGuidanceActorIdsAfter(messages, event.createdAt, storedGuidance, characters).has(actorId))
       : [];
     const hasTargetedGuidance = Boolean(storedGuidance?.actorIds.length);
     if (!hasTargetedGuidance && !isDirectorInterventionActive(event, messages, now)) continue;
