@@ -155,6 +155,7 @@ export interface DirectorInterventionPayload {
   text: string;
   maxTurns?: number;
   expiresAt?: number;
+  userGuidance?: Record<string, unknown>;
 }
 
 export interface DecisionTracePayload {

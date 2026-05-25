@@ -184,6 +184,38 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect(result.characterPatches).toHaveLength(0);
   });
 
+  it('records targeted user media guidance as a director intervention', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'user',
+        senderId: 'user',
+        content: '美羊羊发个灰太狼证件照的图片',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+
+    const applied = applyResultToChat(chat, result);
+    const directorEvent = applied.runtimeEventsV2?.find((event) => event.kind === 'director_intervention');
+    expect(directorEvent).toBeTruthy();
+    expect(directorEvent?.targetIds).toEqual(['a']);
+    expect(directorEvent?.payload).toMatchObject({
+      intent: 'force_reply',
+      targetActorIds: ['a'],
+      pressure: 0.98,
+      maxTurns: 1,
+      userGuidance: {
+        kind: 'media_request',
+        actorIds: ['a'],
+        mediaRequest: { kind: 'image', subjectActorIds: ['b'] },
+      },
+    });
+  });
+
   it('records withdrawal residue without preserving the withdrawn text as public runtime', async () => {
     const chat = buildChat();
     const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];

@@ -3,6 +3,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { NarrativeLineProjection } from './narrativeProjection';
 import { selectPrimaryNarrativeLine } from './narrativeProjection';
+import { getGuidanceTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
 
 export type DirectorIntentSource =
   | 'user_message'
@@ -33,6 +34,7 @@ export interface DirectorIntent {
   targetActorIds: string[];
   pressure: number;
   reason: string;
+  userGuidance?: UserGuidanceIntent | null;
 }
 
 export interface PendingReplyLike {
@@ -69,6 +71,38 @@ function findMentionedCharacters(text: string, characters: AICharacter[]) {
   return characters
     .filter((character) => character.name && text.includes(character.name))
     .map((character) => character.id);
+}
+
+function resolveUserMessageDirectorIntent(message: Message, characters: AICharacter[]): DirectorIntent {
+  const guidance = parseUserGuidanceIntent(message.content, characters);
+  if (guidance) {
+    const targetActorIds = uniqueActorIds(getGuidanceTargetActorIds(guidance), characters);
+    return {
+      source: 'user_message',
+      beatType: guidance.beatType,
+      targetActorIds,
+      pressure: guidance.pressure,
+      reason: guidance.reason,
+      userGuidance: guidance,
+    };
+  }
+  const mentioned = findMentionedCharacters(message.content, characters);
+  if (mentioned.length) {
+    return {
+      source: 'user_message',
+      beatType: 'answer',
+      targetActorIds: uniqueActorIds(mentioned, characters),
+      pressure: 0.9,
+      reason: '用户明确提到了一个或多个角色。',
+    };
+  }
+  return {
+    source: 'user_message',
+    beatType: message.content.length > 90 ? 'summarize' : 'invite',
+    targetActorIds: [],
+    pressure: message.content.length > 90 ? 0.62 : 0.5,
+    reason: '用户消息正在改变下一轮回应方向。',
+  };
 }
 
 function resolveConflictBeat(nextPressure?: string): DirectorBeatType {
@@ -127,23 +161,7 @@ export function resolveDirectorIntent(params: {
   }
 
   if (latestMessage?.type === 'user') {
-    const mentioned = findMentionedCharacters(latestMessage.content, params.characters);
-    if (mentioned.length) {
-      return {
-        source: 'user_message',
-        beatType: 'answer',
-        targetActorIds: uniqueActorIds(mentioned, params.characters),
-        pressure: 0.9,
-        reason: '用户明确提到了一个或多个角色。',
-      };
-    }
-    return {
-      source: 'user_message',
-      beatType: latestMessage.content.length > 90 ? 'summarize' : 'invite',
-      targetActorIds: [],
-      pressure: latestMessage.content.length > 90 ? 0.62 : 0.5,
-      reason: '用户消息正在改变下一轮回应方向。',
-    };
+    return resolveUserMessageDirectorIntent(latestMessage, params.characters);
   }
 
   const primaryLine = selectPrimaryNarrativeLine(params.narrativeLines || []);
@@ -201,5 +219,6 @@ export function resolveDirectorIntent(params: {
 
 export function describeDirectorIntent(intent: DirectorIntent) {
   const targets = intent.targetActorIds.length ? intent.targetActorIds.join(',') : 'group';
-  return `source=${intent.source}; beat=${intent.beatType}; targets=${targets}; pressure=${intent.pressure.toFixed(2)}; reason=${intent.reason}`;
+  const guidance = intent.userGuidance ? `; guidance=${intent.userGuidance.kind}; userText=${intent.userGuidance.rawText}` : '';
+  return `source=${intent.source}; beat=${intent.beatType}; targets=${targets}; pressure=${intent.pressure.toFixed(2)}; reason=${intent.reason}${guidance}`;
 }

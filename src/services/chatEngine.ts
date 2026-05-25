@@ -25,6 +25,7 @@ import { BASE_COOLDOWN_MS, MAX_HISTORY_FOR_PROMPT } from '../constants/defaults'
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 import { resolveCommittedStreamContent } from './streamingMessageLifecycle';
 import { getExpressionFeedbackCategoryLabel, summarizeExpressionFeedbackInfluence } from './expressionFeedbackInfluence';
+import type { UserGuidanceIntent } from './userGuidanceIntent';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   interactionHint?: InteractionEventPayload | null;
@@ -438,6 +439,95 @@ ${lines.join('\n')}
 ${hardHints.join('\n')}`;
 }
 
+function getCharacterNameById(characters: AICharacter[], id: string) {
+  return characters.find((character) => character.id === id)?.name || id;
+}
+
+function buildUserGuidancePrompt(guidance: UserGuidanceIntent | null | undefined, speaker: AICharacter, characters: AICharacter[], capabilities: { image: boolean; audio: boolean }) {
+  if (!guidance) return '';
+  const requestedActors = guidance.actorIds.map((id) => getCharacterNameById(characters, id));
+  const isRequestedActor = guidance.actorIds.length ? guidance.actorIds.includes(speaker.id) : guidance.mentionedActorIds.includes(speaker.id);
+  const subjectNames = guidance.mediaRequest?.subjectActorIds.map((id) => getCharacterNameById(characters, id)) || [];
+  const mediaLine = guidance.mediaRequest
+    ? `\n- Media request: the user is asking for an image. Subject: ${subjectNames.length ? subjectNames.join('、') : guidance.mediaRequest.subjectText}. Requested visual action: ${guidance.mediaRequest.actionText}.${capabilities.image ? '\n- You have image-generation capability in this turn. If you are the requested actor, set mediaDecision.image.shouldGenerate=true and create a concrete prompt for the requested image.' : '\n- You do not have image-generation capability in this turn. If you are the requested actor, acknowledge that limitation in character instead of pretending an image was sent.'}`
+    : '';
+  const actorLine = requestedActors.length
+    ? `\n- Requested actor(s): ${requestedActors.join('、')}. ${isRequestedActor ? 'You are one of them; satisfy the request before normal banter.' : 'You are not the requested actor; do not hijack the request.'}`
+    : '';
+  return `\n## User Guidance Override
+- Latest user guidance: ${guidance.rawText}
+- Function: ${guidance.kind}.${actorLine}${mediaLine}
+- Treat this as the current room instruction. Do not drift into unrelated banter until it has been answered or clearly handed off.`;
+}
+
+function shouldForceGuidanceMedia(guidance: UserGuidanceIntent | null | undefined, speaker: AICharacter) {
+  if (!guidance?.mediaRequest || guidance.mediaRequest.kind !== 'image') return false;
+  if (!guidance.actorIds.length) return true;
+  return guidance.actorIds.includes(speaker.id);
+}
+
+function buildForcedImagePrompt(params: {
+  guidance: UserGuidanceIntent;
+  speaker: AICharacter;
+  characters: AICharacter[];
+  content: string;
+}) {
+  const request = params.guidance.mediaRequest;
+  if (!request) return null;
+  const subjectCharacters = request.subjectActorIds
+    .map((id) => params.characters.find((character) => character.id === id))
+    .filter(Boolean) as AICharacter[];
+  const subjectNames = subjectCharacters.map((character) => character.name);
+  const visualAnchors = subjectCharacters
+    .map((character) => {
+      const visual = character.visualIdentity;
+      const anchor = [visual?.description, visual?.styleHint, character.background].filter(Boolean).join('；');
+      return anchor ? `${character.name}: ${anchor}` : `${character.name}: ${character.background || character.speakingStyle || 'use the current chat context'}`;
+    });
+  const speakerVisual = [params.speaker.visualIdentity?.description, params.speaker.visualIdentity?.styleHint].filter(Boolean).join('；');
+  const subjectText = subjectNames.length ? subjectNames.join('、') : request.subjectText;
+  const prompt = [
+    `Generate the image requested in a live group chat: ${params.guidance.rawText}`,
+    `Speaker/creator: ${params.speaker.name}${speakerVisual ? ` (${speakerVisual})` : ''}.`,
+    `Image subject: ${subjectText}.`,
+    visualAnchors.length ? `Subject visual anchors: ${visualAnchors.join(' | ')}` : '',
+    `Visible artifact/action: ${request.actionText}.`,
+    `The chat message says: ${params.content}`,
+    'Style: believable chat image or character-made illustration as implied by the request; concrete composition, clear subject, natural lighting, no UI screenshot, no watermark, no unreadable text overlays.',
+  ].filter(Boolean).join('\n');
+  return {
+    prompt,
+    altText: `${params.speaker.name}发来的${subjectText}图片`,
+  };
+}
+
+function mergeGuidanceMediaDecision(params: {
+  decision: MediaGenerationDecision | null | undefined;
+  guidance: UserGuidanceIntent | null | undefined;
+  speaker: AICharacter;
+  characters: AICharacter[];
+  content: string;
+}): MediaGenerationDecision | null | undefined {
+  if (!shouldForceGuidanceMedia(params.guidance, params.speaker) || !params.guidance) return params.decision;
+  const forced = buildForcedImagePrompt({
+    guidance: params.guidance,
+    speaker: params.speaker,
+    characters: params.characters,
+    content: params.content,
+  });
+  if (!forced) return params.decision;
+  if (params.decision?.image?.shouldGenerate && params.decision.image.prompt && params.decision.image.altText) return params.decision;
+  return {
+    ...(params.decision || {}),
+    image: {
+      shouldGenerate: true,
+      reason: '用户明确要求这个角色发送或创作图片。',
+      prompt: forced.prompt,
+      altText: forced.altText,
+    },
+  };
+}
+
 function resolveApiConfigForCharacter(character: AICharacter, apiConfig: APIConfig | AIModelProfile[], profiles?: AIModelProfile[]) {
   const availableProfiles = Array.isArray(apiConfig) ? apiConfig : (profiles || []);
   if (availableProfiles.length > 0) {
@@ -800,7 +890,8 @@ export async function generateSpeakerMessage(params: {
   const responseSurface = resolveResponseSurface(params.chat, enginePromptContext, activeMessages, params.speaker);
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
-	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}
+  const userGuidance = params.directorIntent?.userGuidance || null;
+	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}
 
 Current director intent:
 - ${params.directorIntent ? describeDirectorIntent(params.directorIntent) : 'none'}
@@ -839,7 +930,13 @@ Current speaking intent:
     emotion: getEmotion(params.speaker.id),
     parsedEnvelope: generated.parsedEnvelope,
 	    metadata: buildMessageMetadata({
-	      decision: generated.parsedEnvelope?.mediaDecision,
+	      decision: mergeGuidanceMediaDecision({
+          decision: generated.parsedEnvelope?.mediaDecision,
+          guidance: userGuidance,
+          speaker: params.speaker,
+          characters: effectiveMembers,
+          content: generated.finalResponse,
+        }),
 	      capabilities: mediaCapabilities,
 	      content: generated.finalResponse,
         surface: responseSurface,

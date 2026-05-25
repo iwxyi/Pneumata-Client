@@ -122,4 +122,49 @@ describe('scheduler speaker scoring', () => {
     expect(b?.scoreBreakdown?.emotionalPressure).toBeGreaterThan(0);
     expect(b?.scoreBreakdown?.reasons).toContain('emotion:tension');
   });
+
+  it('lets explicit user media guidance override cooldown and suppress non-target speakers', () => {
+    const intent: DirectorIntent = {
+      source: 'user_message',
+      beatType: 'answer',
+      targetActorIds: ['b'],
+      pressure: 0.98,
+      reason: '用户指定角色发送或创作图片。',
+      userGuidance: {
+        kind: 'media_request',
+        rawText: '乙发个甲的照片',
+        actorIds: ['b'],
+        mentionedActorIds: ['b', 'a'],
+        mediaRequest: {
+          kind: 'image',
+          subjectActorIds: ['a'],
+          subjectText: '甲',
+          actionText: '发个甲的照片',
+        },
+        focusText: '乙发个甲的照片',
+        beatType: 'answer',
+        pressure: 0.98,
+        maxTurns: 1,
+        reason: '用户指定角色发送或创作图片。',
+      },
+    };
+    const now = Date.now();
+    const candidates = calculateWeights(
+      [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      [buildMessage({ senderId: 'a', senderName: '甲', content: '刚刚说过一句。', timestamp: now })],
+      { b: now },
+      1,
+      60_000,
+      null,
+      buildChat(),
+      intent,
+    );
+
+    const a = candidates.find((candidate) => candidate.characterId === 'a');
+    const b = candidates.find((candidate) => candidate.characterId === 'b');
+    expect(b).toBeTruthy();
+    expect(b?.weight).toBeGreaterThan(a?.weight || 0);
+    expect(b?.scoreBreakdown?.reasons).toContain('director:media_request:target');
+    expect(a?.scoreBreakdown?.reasons).toContain('director:user_guidance:non_target_penalty');
+  });
 });

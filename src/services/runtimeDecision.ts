@@ -4,6 +4,7 @@ import type { Message } from '../types/message';
 import type { DirectorBeatType } from './directorIntent';
 import { resolveDirectorIntent, type DirectorIntent, type PendingReplyLike } from './directorIntent';
 import { projectNarrativeLines, selectPrimaryNarrativeLine, type NarrativeLineProjection } from './narrativeProjection';
+import { getGuidanceTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
 
 export interface RuntimePressureProjection {
   narrativeLines: NarrativeLineProjection[];
@@ -56,13 +57,19 @@ function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AIChar
   if (!event) return null;
   const payload = event.payload as Record<string, unknown>;
   const text = typeof payload.text === 'string' ? payload.text : event.summary;
+  const guidance = typeof payload.userGuidance === 'object' && payload.userGuidance
+    ? payload.userGuidance as UserGuidanceIntent
+    : parseUserGuidanceIntent(text || '', characters);
+  const targetActorIds = uniqueKnownActorIds(payload.targetActorIds, characters);
+  const guidanceTargetActorIds = uniqueKnownActorIds(getGuidanceTargetActorIds(guidance), characters);
   return {
     source: 'user_message',
     targetLineId: typeof payload.targetLineId === 'string' ? payload.targetLineId : undefined,
     beatType: resolveDirectorBeatType(payload.intent),
-    targetActorIds: uniqueKnownActorIds(payload.targetActorIds, characters),
+    targetActorIds: targetActorIds.length ? targetActorIds : guidanceTargetActorIds,
     pressure: clamp01(typeof payload.pressure === 'number' ? payload.pressure : 0.86),
     reason: text || 'A director intervention is steering the next room beat.',
+    userGuidance: guidance,
   };
 }
 

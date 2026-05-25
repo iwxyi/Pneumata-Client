@@ -49,6 +49,10 @@ export function getDirectorIntentSpeakerBias(params: {
     const targetBias = intent.beatType === 'answer' ? 0.55 : intent.beatType === 'defend' ? 0.32 : 0.24;
     bias += targetBias * intent.pressure;
     reasons.push(`director:${intent.beatType}:target`);
+    if (intent.userGuidance?.actorIds.includes(params.character.id)) {
+      bias += (intent.userGuidance.kind === 'media_request' ? 1.15 : 0.58) * intent.pressure;
+      reasons.push(intent.userGuidance.kind === 'media_request' ? 'director:media_request:target' : 'director:user_guidance:target');
+    }
   }
 
   if (params.lastSpeakerId && intent.targetActorIds.includes(params.lastSpeakerId)) {

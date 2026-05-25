@@ -5,6 +5,7 @@ import type { AICharacter } from '../../types/character';
 import type { Message } from '../../types/message';
 import type {
   InteractionEventPayload,
+  DirectorInterventionPayload,
   MemoryCandidatePayload,
   RuntimeEventV2,
   SocialEventCandidatePayload,
@@ -21,6 +22,7 @@ import { calculateRoomShift } from '../roomStateSynthesizer';
 import { resolveRuntimeEvolutionConfig } from '../runtimeEvolutionConfig';
 import type { APIConfig } from '../../types/settings';
 import { generateResponse } from '../aiClient';
+import { getGuidanceTargetActorIds, parseUserGuidanceIntent } from '../userGuidanceIntent';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
@@ -1198,6 +1200,8 @@ async function buildStructuredRuntime(params: {
   const isCharacterAuthoredMessage = params.message.type === 'ai' || Boolean(speaker);
   if (params.message.type === 'user' && !speaker) {
     const summary = params.message.content.trim().slice(0, 128);
+    const guidance = parseUserGuidanceIntent(params.message.content, params.characters);
+    const targetActorIds = getGuidanceTargetActorIds(guidance);
     const cueEvent = summary ? createRuntimeEventV2({
       conversationId: params.conversation.id,
       kind: 'memory_candidate',
@@ -1210,9 +1214,39 @@ async function buildStructuredRuntime(params: {
         confidence: 0.74,
       } satisfies MemoryCandidatePayload,
     }) : null;
+    const directorEvent = summary && guidance ? createRuntimeEventV2({
+      conversationId: params.conversation.id,
+      kind: 'director_intervention',
+      summary: guidance.reason,
+      actorIds: [params.message.senderId],
+      targetIds: targetActorIds,
+      visibility: 'moderator_only',
+      payload: {
+        intent: guidance.beatType === 'summarize'
+          ? 'summarize'
+          : guidance.beatType === 'cool_down'
+            ? 'cool_down'
+          : guidance.beatType === 'reveal'
+            ? 'reveal'
+          : guidance.beatType === 'deflect'
+            ? 'redirect'
+          : guidance.beatType === 'escalate' || guidance.beatType === 'challenge'
+            ? 'escalate'
+          : guidance.beatType === 'invite'
+            ? 'inject_event'
+          : 'force_reply',
+        targetActorIds,
+        pressure: guidance.pressure,
+        text: guidance.rawText,
+        maxTurns: guidance.maxTurns,
+        expiresAt: Date.now() + 10 * 60_000,
+        userGuidance: guidance as unknown as Record<string, unknown>,
+      } satisfies DirectorInterventionPayload,
+    }) : null;
+    const additions = [cueEvent, directorEvent].filter(Boolean) as RuntimeEventV2[];
     return {
       interaction: null,
-      runtimeEventsV2: cueEvent ? mergeCompactedRuntimeEvents(existingEvents, [], [cueEvent]) : existingEvents,
+      runtimeEventsV2: additions.length ? mergeCompactedRuntimeEvents(existingEvents, [], additions) : existingEvents,
       relationshipLedger: params.conversation.relationshipLedger || [],
       structuredRoomState: params.conversation.worldState.structuredRoomState || null,
     };

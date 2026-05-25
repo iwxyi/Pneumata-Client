@@ -153,6 +153,27 @@ describe('runtimeDecision', () => {
     });
   });
 
+  it('treats a targeted image request as a strong user guidance intent', () => {
+    const projection = projectRuntimePressure({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼')],
+      messages: [buildMessage({ type: 'user', senderId: 'user', senderName: '我', content: '美羊羊发个灰太狼证件照的图片' })],
+      now: 40,
+    });
+
+    expect(projection.directorIntent).toMatchObject({
+      source: 'user_message',
+      beatType: 'answer',
+      targetActorIds: ['a'],
+      pressure: 0.98,
+    });
+    expect(projection.directorIntent?.userGuidance).toMatchObject({
+      kind: 'media_request',
+      actorIds: ['a'],
+      mediaRequest: { kind: 'image', subjectActorIds: ['b'] },
+    });
+  });
+
   it('expires a director intervention after one AI response by default', () => {
     const intervention: RuntimeEventV2 = {
       id: 'evt-director',
