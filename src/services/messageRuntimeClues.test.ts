@@ -65,4 +65,41 @@ describe('messageRuntimeClues', () => {
     expect(prompt).not.toContain('archive-1');
     expect(prompt).not.toContain('3c78729f');
   });
+
+  it('localizes runtime enum values before display or prompt use', () => {
+    const message: Pick<Message, 'metadata'> = {
+      metadata: {
+        runtimeDecision: {
+          innerLife: {
+            impulse: 'show_off',
+            tone: 'casual',
+            reason: '想证明自己',
+            pressure: 0.5,
+          },
+          responseSurface: {
+            kind: 'professional',
+            allowMarkdown: true,
+            preserveParagraphs: true,
+            roleFit: 'capable',
+            basis: ['mode:interview', 'topic:professional-task', 'role:capable'],
+          },
+          directorIntent: {
+            source: 'conflict',
+            beatType: 'challenge',
+            pressure: 0.82,
+            reason: 'relationship ledger has become salient',
+          },
+        },
+      },
+    };
+    const sections = projectMessageRuntimeClues(message);
+
+    expect(sections.find((section) => section.key === 'inner')?.items).toEqual(expect.arrayContaining(['语气倾向：随意', '表达冲动：证明自己']));
+    expect(sections.find((section) => section.key === 'surface')?.items).toEqual(expect.arrayContaining(['面试模式', '主题请求专业表达']));
+    expect(sections.find((section) => section.key === 'director')?.items).toEqual(expect.arrayContaining(['推进动作：挑战', '原因：关系账本中的变化已经足够显著。']));
+    const prompt = formatMessageRuntimeCluesForPrompt(message);
+    expect(prompt).not.toContain('show_off');
+    expect(prompt).not.toContain('casual');
+    expect(prompt).not.toContain('relationship ledger');
+  });
 });

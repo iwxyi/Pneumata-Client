@@ -1,5 +1,6 @@
 import type { Message } from '../types/message';
 import { sanitizeUserFacingText } from './displayTextSanitizer';
+import { formatBeatType, formatKnownReason } from './runtimeInsightPresentation';
 
 export interface MessageRuntimeClueSection {
   key: 'memory' | 'inner' | 'surface' | 'director' | 'narrative' | 'feedback';
@@ -29,6 +30,61 @@ function formatRoleFit(value: string | undefined) {
     capable: '角色适合展开',
   };
   return value ? labels[value] || cleanRuntimeText(value) : '';
+}
+
+function formatInnerTone(value: string | undefined) {
+  const labels: Record<string, string> = {
+    casual: '随意',
+    defensive: '防御',
+    teasing: '调侃',
+    serious: '认真',
+    tired: '疲惫',
+    vulnerable: '脆弱',
+  };
+  return value ? labels[value] || cleanRuntimeText(value) : '';
+}
+
+function formatInnerImpulse(value: string | undefined) {
+  const labels: Record<string, string> = {
+    answer: '回应',
+    show_off: '证明自己',
+    defend_face: '维护面子',
+    seek_attention: '想被看见',
+    comfort: '安慰',
+    repair: '找补/靠近',
+    mock: '调侃/挑刺',
+    avoid: '回避',
+    stay_silent: '沉默',
+  };
+  return value ? labels[value] || cleanRuntimeText(value) : '';
+}
+
+function formatSurfaceBasis(reason: string) {
+  const labels: Record<string, string> = {
+    'topic:creative-task': '主题请求创作',
+    'topic:professional-task': '主题请求专业表达',
+    'style:roleplay-creative': '角色扮演风格支持创作',
+    'style:debate-structured': '辩论风格支持结构化',
+    'style:brainstorm-structured': '头脑风暴支持结构化',
+    'style:debate-reasoning': '辩论风格需要推理',
+    'style:brainstorm-reasoning': '头脑风暴需要推理',
+    'style:free': '自由聊天风格',
+    'style:debate': '辩论风格',
+    'style:brainstorm': '头脑风暴风格',
+    'style:roleplay': '角色扮演风格',
+    'role:limited': '角色能力限制长文',
+    'role:ordinary': '角色普通匹配',
+    'role:capable': '角色能力支持长文',
+    'mode:interview': '面试模式',
+    'mode:classroom': '课堂模式',
+    'mode:group_discussion': '小组讨论模式',
+    'mode:roundtable': '圆桌模式',
+    'context:chat': '上下文指定聊天',
+    'context:professional': '上下文指定专业',
+    'context:creative': '上下文指定创作',
+    'context:longform': '上下文指定长文',
+  };
+  return labels[reason] || cleanRuntimeText(reason);
 }
 
 function compactItems(items: Array<string | undefined | null>, maxItems = 5) {
@@ -70,8 +126,8 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     label: '内心',
     promptLabel: '内心线索',
     items: decision.innerLife ? [
-      decision.innerLife.tone ? `语气倾向：${decision.innerLife.tone}` : '',
-      decision.innerLife.impulse ? `表达冲动：${decision.innerLife.impulse}` : '',
+      decision.innerLife.tone ? `语气倾向：${formatInnerTone(decision.innerLife.tone)}` : '',
+      decision.innerLife.impulse ? `表达冲动：${formatInnerImpulse(decision.innerLife.impulse)}` : '',
       decision.innerLife.reason ? `内在原因：${decision.innerLife.reason}` : '',
     ] : [],
   });
@@ -83,7 +139,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       formatResponseSurfaceKind(decision.responseSurface.kind),
       formatRoleFit(decision.responseSurface.roleFit),
       decision.responseSurface.allowMarkdown ? '允许富文本' : '',
-      ...(decision.responseSurface.basis || []),
+      ...(decision.responseSurface.basis || []).map(formatSurfaceBasis),
     ] : [],
   });
   pushSection(sections, {
@@ -91,8 +147,8 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     label: '调度',
     promptLabel: '调度线索',
     items: decision.directorIntent ? [
-      decision.directorIntent.beatType ? `推进动作：${decision.directorIntent.beatType}` : '',
-      decision.directorIntent.reason ? `原因：${decision.directorIntent.reason}` : '',
+      decision.directorIntent.beatType ? `推进动作：${formatBeatType(decision.directorIntent.beatType as never)}` : '',
+      decision.directorIntent.reason ? `原因：${formatKnownReason(decision.directorIntent.reason)}` : '',
     ] : [],
   });
   pushSection(sections, {
