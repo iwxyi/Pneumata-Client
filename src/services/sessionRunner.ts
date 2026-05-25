@@ -146,6 +146,8 @@ export async function runSessionLoop(params: {
   onCommitSettled?: () => boolean;
   onCommitStarted?: () => void;
   onCommitFinished?: () => void;
+  onTurnWorkStarted?: () => void;
+  onTurnWorkFinished?: () => void;
   onIdle?: (reason: string) => void;
   onMessageChunk: (content: string) => void;
   onClearStreamingState: () => void;
@@ -192,6 +194,9 @@ export async function runSessionLoop(params: {
 
       try {
       let roundStreamingMessage: Message | null = null;
+      let turnWorkActive = true;
+      params.onTurnWorkStarted?.();
+      try {
         markSessionLoop(params.loopId, {
           phase: 'selecting',
           iterationCount: (activeSessionLoops.get(params.loopId)?.iterationCount || 0) + 1,
@@ -200,6 +205,8 @@ export async function runSessionLoop(params: {
       const currentChat = params.getCurrentChat?.() || params.chat;
       const currentCharacters = params.getCurrentCharacters?.() || params.characters;
       if (currentChat.memberIds.length && currentCharacters.length === 0) {
+        turnWorkActive = false;
+        params.onTurnWorkFinished?.();
         params.onLoopError(new Error('No active character records available for this chat loop'));
         await new Promise((resolve) => setTimeout(resolve, getLoopErrorWaitTime()));
         continue;
@@ -207,6 +214,8 @@ export async function runSessionLoop(params: {
 
       const loopCharacters = currentCharacters.filter((character) => currentChat.memberIds.includes(character.id));
       if (currentChat.memberIds.length && loopCharacters.length === 0) {
+        turnWorkActive = false;
+        params.onTurnWorkFinished?.();
         params.onLoopError(new Error('All selected members are missing from the active character set'));
         await new Promise((resolve) => setTimeout(resolve, getLoopErrorWaitTime()));
         continue;
@@ -220,6 +229,8 @@ export async function runSessionLoop(params: {
       if (loopDecision.canRun && loopDecision.actionFirst) {
         const handled = await maybeRunNonChatAction(currentChat, params.updateChat, params.appendEventMessage);
         if (handled) {
+          turnWorkActive = false;
+          params.onTurnWorkFinished?.();
           if (params.isRunning() && !params.isPaused() && shouldWaitAfterSessionTick()) {
             await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat)));
           }
@@ -228,6 +239,8 @@ export async function runSessionLoop(params: {
       }
 
       if (!loopDecision.runChat) {
+        turnWorkActive = false;
+        params.onTurnWorkFinished?.();
         params.onLoopError(new Error('Current session phase does not allow speaking'));
         await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat)));
         continue;
@@ -302,9 +315,15 @@ export async function runSessionLoop(params: {
         params.getCooldownMap?.()
       );
 
+      turnWorkActive = false;
+      params.onTurnWorkFinished?.();
+
       if (params.isRunning() && !params.isPaused() && shouldWaitAfterSessionTick()) {
         markSessionLoop(params.loopId, { phase: 'sleeping' });
         await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat)));
+      }
+      } finally {
+        if (turnWorkActive) params.onTurnWorkFinished?.();
       }
       } catch (error) {
         params.onLoopError(error);

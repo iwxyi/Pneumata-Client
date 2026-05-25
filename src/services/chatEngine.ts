@@ -568,6 +568,11 @@ function buildMediaCapabilities(character: AICharacter, profiles?: AIModelProfil
   };
 }
 
+function resolveMediaProfiles(apiConfig: APIConfig | AIModelProfile[], profiles?: AIModelProfile[]) {
+  if (profiles?.length) return profiles;
+  return Array.isArray(apiConfig) ? apiConfig : undefined;
+}
+
 function createAttachmentId(kind: string) {
   return `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -910,7 +915,8 @@ export async function generateSpeakerMessage(params: {
   const pendingReplyPrompt = params.pendingReplyContext?.targetIds.includes(params.speaker.id) && params.pendingReplyContext.sourceSpeakerId
     ? `\nPending reply expectation:\n- You were explicitly addressed by ${characterMap.get(params.pendingReplyContext.sourceSpeakerId)?.name || params.pendingReplyContext.sourceSpeakerId}.\n- Reply to that character first instead of pivoting to another member.\n- Acknowledge their question or emotion before expanding to the room.`
     : '';
-  const mediaCapabilities = buildMediaCapabilities(params.speaker, params.profiles);
+  const mediaProfiles = resolveMediaProfiles(params.apiConfig, params.profiles);
+  const mediaCapabilities = buildMediaCapabilities(params.speaker, mediaProfiles);
   const responseSurface = resolveResponseSurface(params.chat, enginePromptContext, activeMessages, params.speaker);
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
@@ -1149,4 +1155,5 @@ export const __chatEngineTestUtils = {
   isPendingJsonEnvelopeChunk,
   finalizeResponse,
   resolveInnerLifeTypingDelayMs,
+  resolveMediaProfiles,
 };

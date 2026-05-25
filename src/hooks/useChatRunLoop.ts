@@ -45,11 +45,16 @@ export function useChatRunLoop(params: {
   const paramsRef = useRef(params);
   const activeRunLoopTokenRef = useRef<string | null>(null);
   const pendingCommitCountRef = useRef(0);
+  const pendingTurnWorkCountRef = useRef(0);
   const runLoopRef = useRef<((loopId: string) => Promise<void>) | null>(null);
 
   paramsRef.current = params;
   const isCommitSettled = useCallback(() => pendingCommitCountRef.current === 0, []);
-  const hasPendingTurnWork = useCallback(() => Boolean(paramsRef.current.streamingMessageRef.current || pendingCommitCountRef.current > 0), []);
+  const hasPendingTurnWork = useCallback(() => Boolean(
+    paramsRef.current.streamingMessageRef.current
+    || pendingCommitCountRef.current > 0
+    || pendingTurnWorkCountRef.current > 0,
+  ), []);
 
   const runLoop = useCallback(async (loopId: string) => {
     const current = paramsRef.current;
@@ -85,6 +90,12 @@ export function useChatRunLoop(params: {
         },
         onCommitFinished: () => {
           pendingCommitCountRef.current = Math.max(0, pendingCommitCountRef.current - 1);
+        },
+        onTurnWorkStarted: () => {
+          pendingTurnWorkCountRef.current += 1;
+        },
+        onTurnWorkFinished: () => {
+          pendingTurnWorkCountRef.current = Math.max(0, pendingTurnWorkCountRef.current - 1);
         },
         onSpeakerSelected: (charId) => {
           const speaker = current.activeMembers.find((member) => member.id === charId);

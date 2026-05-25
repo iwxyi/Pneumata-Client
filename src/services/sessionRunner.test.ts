@@ -185,6 +185,8 @@ function buildLoopParams(chat: GroupChat) {
     getStreamingMessage: undefined as (() => unknown) | undefined,
     onCommitStarted: undefined as (() => void) | undefined,
     onCommitFinished: undefined as (() => void) | undefined,
+    onTurnWorkStarted: undefined as (() => void) | undefined,
+    onTurnWorkFinished: undefined as (() => void) | undefined,
     getCurrentChat: undefined as (() => GroupChat | undefined) | undefined,
     onMessageChunk: vi.fn(),
     onClearStreamingState: vi.fn(),
@@ -252,6 +254,29 @@ describe('runSessionLoop', () => {
     expect(runOneRoundMock).toHaveBeenCalledTimes(1);
     expect(params.onSpeakerSelected).toHaveBeenCalledWith('a');
     expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks turn work while a speaking tick is selecting or generating', async () => {
+    const started = vi.fn();
+    const finished = vi.fn();
+    runSessionCommitPipelineMock.mockImplementation(async (args) => buildCommitPipelineResult(args));
+    runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
+      expect(started).toHaveBeenCalledTimes(1);
+      expect(finished).not.toHaveBeenCalled();
+      hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
+      await hooks.onMessageComplete({ id: 'msg-1', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '完整回复', emotion: 0 });
+    });
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+    params.onTurnWorkStarted = started;
+    params.onTurnWorkFinished = finished;
+    params.onClearStreamingState = vi.fn(() => {
+      params.onLoopError();
+    });
+
+    await runSessionLoop(params as never);
+
+    expect(started).toHaveBeenCalledTimes(1);
+    expect(finished).toHaveBeenCalledTimes(1);
   });
 
   it('uses the latest chat snapshot when running a chat round', async () => {

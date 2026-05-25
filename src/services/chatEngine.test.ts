@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AICharacter } from '../types/character';
+import type { AIModelProfile } from '../types/settings';
 import { __chatEngineTestUtils } from './chatEngine';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 import type { SpeakIntent } from './intentEngine';
@@ -46,6 +47,22 @@ describe('chatEngine streaming preview', () => {
       model: 'image-model',
       isDefault: true,
     }])).toEqual({ image: true, audio: false });
+  });
+
+  it('uses the model profile array as media profiles when generation receives profile-based api config', () => {
+    const profiles: AIModelProfile[] = [{
+      id: 'image-default',
+      name: '默认图片',
+      type: 'image',
+      provider: 'openai',
+      apiKey: 'key',
+      baseUrl: 'https://example.test',
+      model: 'image-model',
+      isDefault: true,
+    }];
+    const resolved = __chatEngineTestUtils.resolveMediaProfiles(profiles, undefined);
+    expect(resolved).toBe(profiles);
+    expect(__chatEngineTestUtils.buildMediaCapabilities({ id: 'char-1', modelProfileIds: {} } as AICharacter, resolved)).toEqual({ image: true, audio: false });
   });
 
   it('requires a media decision in the prompt contract when image generation is available', () => {
