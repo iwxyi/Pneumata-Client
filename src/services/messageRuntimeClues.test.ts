@@ -66,6 +66,13 @@ describe('messageRuntimeClues', () => {
     expect(prompt).not.toContain('3c78729f');
   });
 
+  it('uses member names when runtime clues are projected with member context', () => {
+    const sections = projectMessageRuntimeClues(buildMessage(), [{ id: '3c78729f-e52d-4dde-b27f-01a949960bb8b', name: '乙' }]);
+
+    expect(sections[0]?.items[0]).toContain('乙');
+    expect(sections[0]?.items[0]).not.toContain('3c78729f');
+  });
+
   it('localizes runtime enum values before display or prompt use', () => {
     const message: Pick<Message, 'metadata'> = {
       metadata: {

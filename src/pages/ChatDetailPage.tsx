@@ -710,6 +710,7 @@ export default function ChatDetailPage() {
       <MessageAnalysisDialog
         open={analysisDialogOpen}
         target={analysisTarget}
+        members={members}
         text={analysisText}
         loading={analysisLoading}
         error={analysisError}

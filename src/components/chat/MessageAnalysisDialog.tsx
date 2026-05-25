@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Box, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, Stack, Typography } from '@mui/material';
 import MarkdownText from '../common/MarkdownText';
 import type { Message } from '../../types/message';
+import type { AICharacter } from '../../types/character';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { projectMessageRuntimeClues } from '../../services/messageRuntimeClues';
 import DebugChip from '../common/DebugChip';
@@ -60,11 +61,11 @@ function renderRuntimeClueSection(label: string, items: string[]) {
   );
 }
 
-function MessageRuntimeCluesCard({ target }: { target: Message | null }) {
+function MessageRuntimeCluesCard({ target, members }: { target: Message | null; members: AICharacter[] }) {
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
-  const sections = projectMessageRuntimeClues(target);
+  const sections = projectMessageRuntimeClues(target, members);
   if (!developerMode || (!showMemoryDebug && !showAdvancedRuntimePanels) || !sections.length) return null;
 
   return (
@@ -135,6 +136,7 @@ function AnalysisResultView({ text }: { text: string }) {
 export function MessageAnalysisDialog(props: {
   open: boolean;
   target: Message | null;
+  members?: AICharacter[];
   text: string;
   loading: boolean;
   error: string | null;
@@ -157,7 +159,7 @@ export function MessageAnalysisDialog(props: {
             </Typography>
           </Box>
         ) : null}
-        <MessageRuntimeCluesCard target={props.target} />
+        <MessageRuntimeCluesCard target={props.target} members={props.members || []} />
         {props.loading ? (
           <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
             <CircularProgress size={28} />

@@ -85,7 +85,7 @@ function buildSystemPrompt() {
 }
 
 function buildUserPrompt({ chat, message, messages, characters }: AnalysisContext) {
-  const runtimeDecisionContext = formatMessageRuntimeCluesForPrompt(message);
+  const runtimeDecisionContext = formatMessageRuntimeCluesForPrompt(message, characters);
   return [
     `聊天名称：${chat.name}`,
     `聊天类型：${chat.type}`,
