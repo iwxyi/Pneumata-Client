@@ -542,6 +542,21 @@ function topicGuidanceMatchesContent(content: string, guidance: UserGuidanceInte
   return topicChars.filter((char) => normalizedContent.includes(char)).length >= Math.min(2, topicChars.length);
 }
 
+function isQuestionGuidance(guidance: UserGuidanceIntent) {
+  const text = guidance.focusText || guidance.rawText;
+  return /[?？]|吗|是否|是不是|有没有|有无|该不该|应不应该|应该不应该|能不能|要不要|为什么|怎么|如何|哪/.test(text);
+}
+
+function hasFocusedQuestionAnswerMove(content: string, guidance: UserGuidanceIntent) {
+  if (!isQuestionGuidance(guidance)) return true;
+  const guidanceText = guidance.focusText || guidance.rawText;
+  const normativeQuestion = /(过错|应该|该不该|应不应该|应该不应该|对错|对不对|错|道德|责任|权利|合理|不合理|该抓|不该抓)/.test(guidanceText);
+  if (!normativeQuestion) {
+    return /(我觉得|我认为|要看|取决于|关键|问题是|至少|先分清|分情况|因为|所以|不是|可以|不能|能不能|为什么|怎么|如何|[?？])/.test(content);
+  }
+  return /(过错|应该|不应该|该不该|不该|对错|对不对|错|没错|合理|不合理|生存|本能|食物链|自然法则|法则|伤害|责任|权利|道德|立场|我觉得|我认为|不能只说|要看|取决于|先分清|分情况|关键|问题是)/.test(content);
+}
+
 function evaluateMediaGuidanceContent(content: string, guidance: UserGuidanceIntent): GuidanceExecutionReason {
   const request = guidance.mediaRequest;
   if (!request) return 'matched';
@@ -564,6 +579,9 @@ function evaluateGuidanceGeneratedContent(content: string, guidance: UserGuidanc
     return { matched: reason === 'matched', reason };
   }
   const matched = topicGuidanceMatchesContent(content, guidance);
+  if (matched && !hasFocusedQuestionAnswerMove(content, guidance)) {
+    return { matched: false, reason: 'missing_question_answer' };
+  }
   if (matched) return { matched: true, reason: 'matched' };
   return {
     matched: false,
@@ -946,7 +964,7 @@ async function generateWithPrompt(params: {
       : undefined,
   );
   const parsedEnvelope = parseInlineInteractionEnvelope(response);
-  const rawContent = parsedEnvelope?.content || response;
+  const rawContent = parsedEnvelope ? parsedEnvelope.content : response;
   const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions, false, params.surface);
   const finalResponse = resolveCommittedStreamContent(finalizedResponse, streamBridge.getLastContent());
   streamBridge.flush(finalResponse);
@@ -1365,32 +1383,33 @@ export const runOneRound = async (
         messages,
         apiConfig,
         profiles,
-	        pendingReplyContext,
-	        directorIntent,
-	        narrativeLines,
-	        speakerScore: selectedCandidate?.scoreBreakdown || null,
-	        generationContext,
+        pendingReplyContext,
+        directorIntent,
+        narrativeLines,
+        speakerScore: selectedCandidate?.scoreBreakdown || null,
+        generationContext,
         onChunk: callbacks.onMessageChunk,
       });
     } catch (error) {
       if (!(error instanceof EmptyGeneratedResponseError)) throw error;
-	      const rotated = resolveSpeakerFromCandidates(chatMembers, candidates.filter((candidate) => candidate.characterId !== activeSpeaker.id));
-	      if (!rotated) throw new Error(`${activeSpeaker.name} 连续生成了重复内容，本轮已跳过。`);
-	      activeSpeaker = rotated;
-	      const rotatedCandidate = candidates.find((candidate) => candidate.characterId === activeSpeaker.id);
-	      callbacks.onSpeakerSelected(activeSpeaker.id, activeSpeaker);
-	      completedMessage = await generateSpeakerMessage({
+      if (lockedGuidanceSpeaker && activeSpeaker.id === lockedGuidanceSpeaker.id) throw error;
+      const rotated = resolveSpeakerFromCandidates(chatMembers, candidates.filter((candidate) => candidate.characterId !== activeSpeaker.id));
+      if (!rotated) throw new Error(`${activeSpeaker.name} 连续生成了重复内容，本轮已跳过。`);
+      activeSpeaker = rotated;
+      const rotatedCandidate = candidates.find((candidate) => candidate.characterId === activeSpeaker.id);
+      callbacks.onSpeakerSelected(activeSpeaker.id, activeSpeaker);
+      completedMessage = await generateSpeakerMessage({
         chat,
         speaker: activeSpeaker,
         characters,
         messages,
         apiConfig,
         profiles,
-	        pendingReplyContext,
-	        directorIntent,
-	        narrativeLines,
-	        speakerScore: rotatedCandidate?.scoreBreakdown || null,
-	        generationContext,
+        pendingReplyContext,
+        directorIntent,
+        narrativeLines,
+        speakerScore: rotatedCandidate?.scoreBreakdown || null,
+        generationContext,
         onChunk: callbacks.onMessageChunk,
       });
     }

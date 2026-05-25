@@ -152,8 +152,8 @@ export interface MessageMetadata {
       validated: boolean;
       retryCount: number;
       rejectedDraftCount: number;
-      rejectedReasons?: Array<'wrong_speaker' | 'missing_requested_image' | 'missing_requested_subject' | 'missing_topic_focus' | 'missing_direct_reply_focus' | 'empty_content'>;
-      finalReason?: 'matched' | 'wrong_speaker' | 'missing_requested_image' | 'missing_requested_subject' | 'missing_topic_focus' | 'missing_direct_reply_focus' | 'empty_content';
+      rejectedReasons?: Array<'wrong_speaker' | 'missing_requested_image' | 'missing_requested_subject' | 'missing_topic_focus' | 'missing_question_answer' | 'missing_direct_reply_focus' | 'empty_content'>;
+      finalReason?: 'matched' | 'wrong_speaker' | 'missing_requested_image' | 'missing_requested_subject' | 'missing_topic_focus' | 'missing_question_answer' | 'missing_direct_reply_focus' | 'empty_content';
       forcedMediaQueued?: boolean;
     };
     expressionFeedback?: Array<{

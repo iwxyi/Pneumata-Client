@@ -435,6 +435,58 @@ describe('chatEngine streaming preview', () => {
     });
   });
 
+  it('retries question topic guidance when the draft only mentions keywords without answering', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '狼抓羊证件照也挺好玩，灰太狼肯定想把羊画进去吧～',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '狼抓羊有没有过错得分开看：生存本能是一回事，故意伤害羊又是另一回事。',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
+    const man = buildCharacter('man', '慢羊羊', { expertise: ['伦理', '狼抓羊', '自然法则'] });
+    const now = Date.now();
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['man'] }),
+      speaker: man,
+      characters: [man],
+      messages: [
+        {
+          id: 'guide',
+          chatId: 'chat-1',
+          type: 'god',
+          senderId: 'user',
+          senderName: '开发者',
+          content: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
+          emotion: 0,
+          timestamp: now - 1000,
+          isDeleted: false,
+        },
+      ],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(String(generateResponseMock.mock.calls[1]?.[1] || '')).toContain('Guidance retry');
+    expect(message.content).toContain('过错');
+    expect(message.content).toContain('生存本能');
+    expect(message.metadata?.runtimeDecision?.guidanceExecution).toMatchObject({
+      status: 'accepted_after_retry',
+      validated: true,
+      retryCount: 1,
+      rejectedDraftCount: 1,
+      rejectedReasons: ['missing_question_answer'],
+      finalReason: 'matched',
+    });
+  });
+
   it('recovers the latest unresolved media guidance from messages even without a passed directorIntent', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
@@ -556,6 +608,67 @@ describe('chatEngine streaming preview', () => {
     expect(selected[0]).toBe('mei');
     expect(completed[0]).toMatchObject({ senderId: 'mei' });
     expect((completed[0] as { metadata?: { attachments?: unknown[] } }).metadata?.attachments).toHaveLength(1);
+  });
+
+  it('does not rotate explicit targeted guidance to another speaker when the locked actor fails', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const hui = buildCharacter('hui', '灰太狼');
+    const lan = buildCharacter('lan', '懒羊羊');
+    const completed: unknown[] = [];
+    const selected: string[] = [];
+    const errors: Error[] = [];
+    const now = Date.now();
+
+    await runOneRound(
+      buildChat({ memberIds: ['mei', 'hui', 'lan'] }),
+      [mei, hui, lan],
+      [
+        {
+          id: 'guide',
+          chatId: 'chat-1',
+          type: 'god',
+          senderId: 'user',
+          senderName: '开发者',
+          content: '美羊羊发个灰太狼证件照的图片',
+          emotion: 0,
+          timestamp: now - 2000,
+          isDeleted: false,
+        },
+        {
+          id: 'non-target',
+          chatId: 'chat-1',
+          type: 'ai',
+          senderId: 'hui',
+          senderName: '灰太狼',
+          content: '我看看你画得够不够帅，别把我胡子画歪了！',
+          emotion: 0,
+          timestamp: now - 1000,
+          isDeleted: false,
+        },
+      ],
+      buildProfiles(),
+      {
+        onSpeakerSelected: (characterId) => selected.push(characterId),
+        onMessageChunk: () => undefined,
+        onMessageComplete: (message) => { completed.push(message); },
+        onError: (error) => { errors.push(error); },
+      },
+      undefined,
+      undefined,
+      {},
+    );
+
+    expect(selected).toEqual(['mei']);
+    expect(completed).toHaveLength(0);
+    expect(errors[0]?.message).toContain('美羊羊');
+    expect(generateResponseMock).toHaveBeenCalledTimes(3);
   });
 
   it('stores compact runtime decision metadata without requiring media generation', () => {

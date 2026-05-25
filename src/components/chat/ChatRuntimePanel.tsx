@@ -619,6 +619,18 @@ function buildDecisionReasonGroups(item: RuntimeDecisionTraceItem, members: Disp
       tone: 'rgba(25, 118, 210, 0.08)',
     });
   }
+  const guidanceExecutionClues = item.runtimeClueSections.find((section) => section.key === 'guidance_execution');
+  if (guidanceExecutionClues?.items.length) {
+    groups.push({
+      key: 'guidance_execution',
+      label: '引导执行',
+      items: guidanceExecutionClues.items.slice(0, 4).map((text) => cleanText(text, members)),
+      hint: guidanceExecutionClues.items.map((text) => cleanText(text, members)).join(' / '),
+      statusLabel: guidanceExecutionClues.statusLabel,
+      statusHint: guidanceExecutionClues.statusHint,
+      tone: guidanceExecutionClues.statusLabel === '需排查' ? 'rgba(244, 67, 54, 0.08)' : 'rgba(46, 125, 50, 0.08)',
+    });
+  }
   if (item.primaryLineLabel || item.directorLabel !== '无调度意图') {
     groups.push({
       key: 'narrative',

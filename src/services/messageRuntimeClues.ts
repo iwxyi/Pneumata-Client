@@ -76,6 +76,7 @@ function formatGuidanceExecutionReason(reason: string | undefined) {
     missing_requested_image: '没有执行发图动作',
     missing_requested_subject: '没有对准图片对象',
     missing_topic_focus: '没有回到新话题',
+    missing_question_answer: '没有先回答新问题',
     missing_direct_reply_focus: '没有先回应点名要求',
     empty_content: '生成内容为空',
   };
