@@ -9,6 +9,7 @@ import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import PageSection from '../common/PageSection';
 import StatChipRow from '../common/StatChipRow';
+import DebugChip from '../common/DebugChip';
 import { formatRelationshipNumber, normalizeCurrent } from '../../services/relationshipLedger';
 import { useCharacterStore } from '../../stores/useCharacterStore';
 import { RelationshipRadar } from '../controls/RelationshipPanel';
@@ -281,7 +282,7 @@ function SoulStatePanel({ character, developerMode }: { character: Partial<AICha
   ].filter(Boolean) : [isZh ? '等待经历' : 'Waiting for traces'];
   return (
     <SurfaceCard>
-      <SectionHeader title={isZh ? '内心残响' : 'Inner Residue'} dense action={developerMode ? <Chip size="small" label={isZh ? '调试' : 'Debug'} color="warning" variant="outlined" /> : undefined} />
+      <SectionHeader title={isZh ? '内心残响' : 'Inner Residue'} dense action={developerMode ? <DebugChip /> : undefined} />
       <Stack spacing={1}>
         <Typography variant="body2" color="text.secondary">{summary}</Typography>
         <StatChipRow items={chips} />
@@ -390,7 +391,7 @@ function SoulOverviewPanel({
   ].filter(Boolean);
   return (
     <SurfaceCard>
-      <SectionHeader title={isZh ? '灵魂概览' : 'Soul Overview'} dense action={developerMode ? <Chip size="small" label={isZh ? '调试' : 'Debug'} color="warning" variant="outlined" /> : undefined} />
+      <SectionHeader title={isZh ? '灵魂概览' : 'Soul Overview'} dense action={developerMode ? <DebugChip /> : undefined} />
       <Stack spacing={1}>
         <Typography variant="body2" color="text.secondary">
           {clipRuntimeText(buildSoulSummary(character, i18n.language), 108)}
@@ -599,7 +600,7 @@ function CharacterExperienceArtifactPanel({ character, relatedCharacters }: { ch
         action={(
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
             <Button size="small" variant="text" disabled={!canGenerate || generating} onClick={handleGenerate}>{generating ? '生成中' : '生成'}</Button>
-            <Chip size="small" label="调试" color="warning" variant="outlined" />
+            <DebugChip />
           </Box>
         )}
       />
@@ -753,7 +754,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
       <SoulOverviewPanel character={character} resolveCharacterName={resolveCharacterName} developerMode={isDeveloperView} />
 
       <SurfaceCard>
-        <SectionHeader title="运行态观察" dense action={isDeveloperView ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
+        <SectionHeader title="运行态观察" dense action={isDeveloperView ? <DebugChip /> : undefined} />
         {hasRuntimeSummary ? <Box sx={{ mt: 0.5 }}><StatChipRow items={runtimeSummaryItems} /></Box> : <Typography variant="caption" color="text.secondary">暂无运行态观察结果</Typography>}
       </SurfaceCard>
 

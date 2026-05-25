@@ -8,6 +8,7 @@ import { sanitizeDistillationTexts } from '../../services/distillationText';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { getExperienceLensLabel } from '../../services/experienceChangePresentation';
+import DebugChip from '../common/DebugChip';
 
 interface DialogueDebugPanelProps {
   chat: GroupChat;
@@ -243,7 +244,7 @@ export default function DialogueDebugPanel({ chat, members = [] }: DialogueDebug
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{isZh ? '发言调试' : 'Speech debug'}</Typography>
             <Typography variant="caption" color="text.secondary">{isZh ? '用于排查发言调度、记忆蒸馏和事件投影。' : 'For inspecting speech routing, memory distillation, and event projection.'}</Typography>
           </Box>
-          <Chip size="small" label={isZh ? '调试' : 'Debug'} color="warning" variant="outlined" />
+          <DebugChip />
         </Box>
         <Stack spacing={1.25}>
           <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>

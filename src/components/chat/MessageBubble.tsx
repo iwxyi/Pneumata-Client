@@ -11,6 +11,7 @@ import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
 import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationMeta, buildMemoryReactivationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
 import { getAttachmentErrorText } from './messageAttachmentDisplay';
 import MarkdownText from '../common/MarkdownText';
+import DebugChip from '../common/DebugChip';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 
 function isConflictDeveloperEvent(eventType: string | undefined) {
@@ -410,7 +411,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
       <Typography variant="body2" sx={{ color: isUser ? 'rgba(15, 23, 42, 0.72)' : 'text.secondary', fontStyle: 'italic', userSelect: 'text', WebkitUserSelect: 'text', minWidth: 0 }}>
         {withdrawalNotice}
       </Typography>
-      {showWithdrawalDebug ? <Chip size="small" label="调试" color="warning" variant="outlined" sx={{ height: 20, flexShrink: 0 }} /> : null}
+      {showWithdrawalDebug ? <DebugChip sx={{ height: 20, flexShrink: 0 }} /> : null}
     </Box>
   );
 

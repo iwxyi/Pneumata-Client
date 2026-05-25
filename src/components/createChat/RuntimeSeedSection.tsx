@@ -8,6 +8,7 @@ import { classifyRuntimeArtifactSeedLine } from '../../services/runtimeSeed';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import LayeredMemoryPanel from '../memory/LayeredMemoryPanel';
+import DebugChip from '../common/DebugChip';
 
 interface RuntimeSeedSectionProps {
   editingChatId?: string;
@@ -119,10 +120,6 @@ function tooltipText(text: string, title: string) {
 
 function summarizeLifecycleTitle(title: string) {
   return title.replace(/\n/g, ' / ');
-}
-
-function DebugChip() {
-  return <Chip size="small" label="调试" color="warning" variant="outlined" />;
 }
 
 function buildAxisEvidence(axis: NonNullable<GroupChat['worldState']['conflictAxes']>[number]) {

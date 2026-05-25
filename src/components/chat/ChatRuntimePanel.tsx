@@ -6,6 +6,7 @@ import SectionHeader from '../common/SectionHeader';
 import StatChipRow from '../common/StatChipRow';
 import PageSection from '../common/PageSection';
 import PrivatePayloadPanel from '../session/PrivatePayloadPanel';
+import DebugChip from '../common/DebugChip';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import type { Message } from '../../types/message';
@@ -36,10 +37,6 @@ function cleanText(text: string) {
     .replace(/尊重/g, '能力')
     .replace(/态度发生变化/g, '关系发生变化')
     .trim();
-}
-
-function buildDebugChip(isZh = true) {
-  return <Chip size="small" label={isZh ? '调试' : 'Debug'} color="warning" variant="outlined" />;
 }
 
 function clip(text: string, max = 64) {
@@ -436,7 +433,7 @@ function renderInnerLifePanel(members: AICharacter[], isZh: boolean) {
   if (!items.length) return null;
   return (
     <SurfaceCard>
-      <SectionHeader title="内心状态" dense action={buildDebugChip(isZh)} />
+      <SectionHeader title="内心状态" dense action={<DebugChip />} />
       <Stack spacing={0.8}>
         {items.map((member) => {
           const state = member.soulState;
@@ -633,13 +630,13 @@ function recallHint(item: MemoryRecallDisplayItem) {
   ].filter(Boolean).join('\n');
 }
 
-function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messages: Message[], isZh: boolean) {
+function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messages: Message[]) {
   const items = buildMemoryRecallItems(chat, members, messages);
   const reactivatedItems = buildMemoryReactivationItems(members, messages);
   if (!items.length && !reactivatedItems.length) return null;
   return (
     <SurfaceCard>
-      <SectionHeader title="记忆唤醒" subtitle="旧档不会常驻进入上下文，只有被人物、话题或旧梗命中时才会回流。" dense action={buildDebugChip(isZh)} />
+      <SectionHeader title="记忆唤醒" subtitle="旧档不会常驻进入上下文，只有被人物、话题或旧梗命中时才会回流。" dense action={<DebugChip />} />
       <Stack spacing={0.8}>
         {items.map(({ member, item, source }) => (
           <Tooltip key={`${member.id}-${source}-${item.id}`} title={recallHint(item)} arrow placement="top-start">
@@ -766,11 +763,11 @@ function renderDecisionReasonGroup(group: ReturnType<typeof buildDecisionReasonG
   );
 }
 
-function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedRuntimeView: boolean, isZh: boolean) {
+function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedRuntimeView: boolean) {
   if (!items.length) return null;
   return (
     <SurfaceCard>
-      <SectionHeader title="发言调度" subtitle="解释本轮为什么由这个角色发言，以及表达形态如何被影响。" dense action={buildDebugChip(isZh)} />
+      <SectionHeader title="发言调度" subtitle="解释本轮为什么由这个角色发言，以及表达形态如何被影响。" dense action={<DebugChip />} />
       <Stack spacing={0.8}>
         {items.map((item) => {
           const groups = buildDecisionReasonGroups(item);
@@ -868,9 +865,9 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
           </Stack>
         </SurfaceCard>
 
-        {isDeveloperView ? renderMemoryRecallPanel(chat, members, messages, isZh) : null}
+        {isDeveloperView ? renderMemoryRecallPanel(chat, members, messages) : null}
         {isAdvancedRuntimeView ? renderInnerLifePanel(members, isZh) : null}
-        {isAdvancedRuntimeView ? renderDecisionTracePanel(decisionTrace, isAdvancedRuntimeView, isZh) : null}
+        {isAdvancedRuntimeView ? renderDecisionTracePanel(decisionTrace, isAdvancedRuntimeView) : null}
 
         {privatePayloads.length ? <PrivatePayloadPanel payloads={privatePayloads} /> : null}
         {(isSpeechStyleView || isAdvancedRuntimeView) ? <DialogueDebugPanel chat={chat} members={members} /> : null}

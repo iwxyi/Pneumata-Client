@@ -3,6 +3,7 @@ import { Box, Button, Chip, Stack, Tab, Tabs, Tooltip, Typography } from '@mui/m
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import StatChipRow from '../common/StatChipRow';
+import DebugChip from '../common/DebugChip';
 import type { MemoryItem } from '../../services/memoryTypes';
 import { getExperienceLensLabel } from '../../services/experienceChangePresentation';
 import { isRuntimeEvidenceMemory } from '../../services/memoryPresentation';
@@ -175,7 +176,7 @@ export default function LayeredMemoryPanel({
 
   return (
     <SurfaceCard>
-      <SectionHeader title={title} dense action={includeRuntimeEvidence && showDebugChip ? <Chip size="small" label="调试" color="warning" variant="outlined" /> : undefined} />
+      <SectionHeader title={title} dense action={includeRuntimeEvidence && showDebugChip ? <DebugChip /> : undefined} />
       <Stack spacing={1.15}>
         {visibleSourceMemories.length ? (
           <Tabs
