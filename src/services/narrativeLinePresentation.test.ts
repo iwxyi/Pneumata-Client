@@ -145,6 +145,56 @@ describe('narrativeLinePresentation', () => {
     expect(tooltip).not.toContain('eventType');
   });
 
+  it('sanitizes runtime event evidence in tooltips', () => {
+    const unknownActorId = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
+    const unknownTargetId = '3c78729f-e52d-4dde-b27f-01a949960bb8';
+    const tooltip = buildNarrativeLineTooltip({
+      line: buildLine({
+        id: 'conflict-1',
+        type: 'conflict',
+        participantIds: [unknownActorId, unknownTargetId],
+        sourceEventIds: ['evt-leaky'],
+        possibleNextBeats: [{ beatType: 'challenge', targetActorIds: [], pressure: 0.64, reason: 'Relationship ledger has become salient' }],
+      }),
+      chat: buildChat({
+        worldState: {
+          ...DEFAULT_CONVERSATION_WORLD_STATE,
+          conflictState: {
+            primaryConflict: null,
+            activeConflicts: [],
+            developmentHooks: [],
+            volatility: 0.1,
+            cooling: 0,
+            updatedAt: 1,
+          },
+        },
+        runtimeEventsV2: [{
+          id: 'evt-leaky',
+          conversationId: 'chat-1',
+          kind: 'relationship_delta',
+          createdAt: 2,
+          summary: `${unknownActorId} relationship_delta → ${unknownTargetId} {"eventType":"room_state_snapshot_v2","summary":"heat"}`,
+          visibility: 'public',
+          actorIds: [unknownActorId],
+          targetIds: [unknownTargetId],
+          payload: { eventType: 'room_state_snapshot_v2' },
+        }],
+      }),
+      members,
+      messages: [],
+    });
+
+    expect(tooltip).toContain('关系变化');
+    expect(tooltip).toContain('成员');
+    expect(tooltip).toContain('系统事件');
+    expect(tooltip).toContain('关系账本中的变化已经足够显著');
+    expect(tooltip).not.toContain(unknownActorId);
+    expect(tooltip).not.toContain(unknownTargetId);
+    expect(tooltip).not.toContain('relationship_delta');
+    expect(tooltip).not.toContain('eventType');
+    expect(tooltip).not.toContain('Relationship ledger');
+  });
+
   it('does not leak private mystery event summaries', () => {
     const tooltip = buildNarrativeLineTooltip({
       line: buildLine({ id: 'mystery:hidden-pressure', type: 'mystery', sourceEventIds: ['secret-event'], hiddenParticipantIds: ['a', 'b'] }),

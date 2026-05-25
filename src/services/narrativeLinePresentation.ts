@@ -47,11 +47,11 @@ function formatRuntimeEventKind(kind: RuntimeEventV2['kind']) {
 }
 
 function formatRuntimeEventEvidence(event: RuntimeEventV2, members: AICharacter[]) {
-  const actorNames = (event.actorIds || []).map((id) => members.find((member) => member.id === id)?.name || id);
-  const targetNames = (event.targetIds || []).map((id) => members.find((member) => member.id === id)?.name || id);
+  const actorNames = (event.actorIds || []).map((id) => members.find((member) => member.id === id)?.name || '成员');
+  const targetNames = (event.targetIds || []).map((id) => members.find((member) => member.id === id)?.name || '成员');
   const participants = [actorNames.join('、'), targetNames.length ? `→ ${targetNames.join('、')}` : ''].filter(Boolean).join(' ');
   const summary = formatNarrativeLineText(event.summary || '', members);
-  return `${formatRuntimeEventKind(event.kind)}${participants ? ` · ${participants}` : ''}${summary ? `：${clip(summary, 110)}` : ''}`;
+  return formatNarrativeLineText(`${formatRuntimeEventKind(event.kind)}${participants ? ` · ${participants}` : ''}${summary ? `：${clip(summary, 110)}` : ''}`, members);
 }
 
 function findSourceRuntimeEvent(line: NarrativeLineProjection, chat: GroupChat) {

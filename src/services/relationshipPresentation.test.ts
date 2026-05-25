@@ -35,4 +35,38 @@ describe('relationshipPresentation', () => {
     expect(presented.evidence).not.toContain(uuidA);
     expect(presented.evidence).not.toContain(uuidB);
   });
+
+  it('sanitizes semantic summaries before they reach relationship cards', () => {
+    const members = [{ id: uuidA, name: '红太狼' }] as AICharacter[];
+    const entry: RelationshipLedgerEntry = {
+      pairKey: `${uuidA}->${uuidB}`,
+      actorId: uuidA,
+      targetId: uuidB,
+      current: { warmth: 18, competence: 0, trust: 12, threat: 0 },
+      trend: 'up',
+      derived: {
+        semantic: {
+          stage: '关系升温',
+          labels: ['同盟感'],
+          summary: `Relationship ledger has become salient · ${uuidA} relationship_delta ${uuidB} {"eventType":"room_state_snapshot_v2"}`,
+          intensity: 62,
+        },
+      },
+      axisReasons: {},
+      recentEvents: [],
+      lastUpdatedAt: 1,
+    };
+
+    const presented = buildPresentedRelationshipEntry(entry, members);
+
+    expect(presented.semanticSummary).toContain('关系账本中的变化已经足够显著');
+    expect(presented.semanticSummary).toContain('红太狼');
+    expect(presented.semanticSummary).toContain('成员');
+    expect(presented.semanticSummary).toContain('系统事件');
+    expect(presented.semanticSummary).not.toContain('Relationship ledger');
+    expect(presented.semanticSummary).not.toContain('relationship_delta');
+    expect(presented.semanticSummary).not.toContain(uuidA);
+    expect(presented.semanticSummary).not.toContain(uuidB);
+    expect(presented.semanticSummary).not.toContain('eventType');
+  });
 });
