@@ -17,6 +17,7 @@ interface MessageListProps {
   onDeleteMessage?: (id: string) => void;
   onAnalyzeMessage?: (message: Message) => void;
   onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
+  onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void>;
   onReachTop?: () => void | Promise<void>;
   isLoadingOlder?: boolean;
   hasMore?: boolean;
@@ -31,6 +32,7 @@ export default function MessageList({
   onDeleteMessage,
   onAnalyzeMessage,
   onExpressionFeedback,
+  onRetryMedia,
   onReachTop,
   isLoadingOlder = false,
   hasMore = false,
@@ -204,6 +206,7 @@ export default function MessageList({
             onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
             onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
             onExpressionFeedback={item.pending || item.message.type !== 'ai' ? undefined : onExpressionFeedback}
+            onRetryMedia={item.pending ? undefined : onRetryMedia}
             pending={item.pending}
           />
         ))}

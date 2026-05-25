@@ -456,6 +456,18 @@ export default function ChatDetailPage() {
     setSnackbar({ open: true, message: `已记录反馈：${getExpressionFeedbackLabel(kind)}`, severity: 'success' });
   }, [characters, updateCharacter]);
 
+  const handleRetryMedia = useCallback(async (message: Message, attachmentId: string) => {
+    const character = message.type === 'ai' ? characters.find((item) => item.id === message.senderId) : null;
+    const { retryRichMessageMedia } = await import('../services/richMessageMedia');
+    await retryRichMessageMedia({
+      message,
+      attachmentId,
+      character,
+      aiProfiles,
+      upsertMessage: upsertMessageStable,
+    });
+  }, [aiProfiles, characters, upsertMessageStable]);
+
   const runSurfaceIntent = useCallback(async (surfaceResult: SessionNormalizedIntentResult) => {
     if (!chat) return;
     const { buildActionFromIntent, buildBoardArtifactEventSummary } = await import('../types/sessionEngine');
@@ -609,6 +621,7 @@ export default function ChatDetailPage() {
             onDeleteMessage={deleteMessage}
             onAnalyzeMessage={analyzeMessage}
             onExpressionFeedback={handleExpressionFeedback}
+            onRetryMedia={handleRetryMedia}
             onReachTop={handleNearTop}
             isLoadingOlder={isLoadingOlder}
             hasMore={hasMore}

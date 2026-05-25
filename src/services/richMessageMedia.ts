@@ -153,6 +153,35 @@ export async function processRichMessageMedia(params: {
   }
 }
 
+export async function retryRichMessageMedia(params: {
+  message: Message;
+  attachmentId: string;
+  character?: AICharacter | null;
+  aiProfiles: AIModelProfile[];
+  upsertMessage: (message: Message) => void;
+}) {
+  const attachments = params.message.metadata?.attachments || [];
+  const target = attachments.find((attachment) => attachment.id === params.attachmentId);
+  if (!target || target.status !== 'failed') return;
+  const retryMetadata = updateAttachment(params.message.metadata, params.attachmentId, {
+    status: 'queued',
+    error: undefined,
+    assetId: undefined,
+    url: undefined,
+    sizeBytes: undefined,
+    checksum: undefined,
+  });
+  const retryMessage = { ...params.message, metadata: retryMetadata };
+  params.upsertMessage(retryMessage);
+  if (!isLocalOnlyMediaMode()) void api.updateMessageMetadata(retryMessage.serverId || retryMessage.id, retryMetadata).catch(() => undefined);
+  await processRichMessageMedia({
+    message: retryMessage,
+    character: params.character,
+    aiProfiles: params.aiProfiles,
+    upsertMessage: params.upsertMessage,
+  });
+}
+
 export function hasLocalDataUrlMedia(message: Message) {
   return Boolean(message.metadata?.attachments?.some((attachment) => attachment.status === 'ready' && typeof attachment.url === 'string' && attachment.url.startsWith('data:')));
 }

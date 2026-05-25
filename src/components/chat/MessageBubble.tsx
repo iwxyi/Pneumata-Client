@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, Menu, MenuItem, Chip, Tooltip, keyframes, LinearProgress, Divider } from '@mui/material';
+import { Box, Typography, Avatar, Button, Dialog, DialogContent, DialogTitle, Menu, MenuItem, Chip, Tooltip, keyframes, LinearProgress, Divider } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -125,6 +125,7 @@ interface MessageBubbleProps {
   onDelete?: (id: string) => void;
   onAnalyze?: (message: Message) => void;
   onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
+  onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void>;
   pending?: boolean;
   currentUser?: { nickname?: string; avatar?: string };
   members?: DisplayTextMember[];
@@ -141,7 +142,7 @@ const typingBounce = keyframes`
   30% { transform: translateY(-4px); opacity: 1; }
 `;
 
-function renderMessageContent(message: Message) {
+function renderMessageContent(message: Message, options: { onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void> } = {}) {
   const attachments = message.metadata?.attachments || [];
   const statusChipColor = (status: string | undefined): 'error' | 'success' | 'primary' => {
     if (status === 'failed') return 'error';
@@ -200,6 +201,11 @@ function renderMessageContent(message: Message) {
                   <Typography variant="caption" sx={{ color: attachment.status === 'failed' ? 'error.main' : 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                     {getAttachmentStatusDetail(attachment)}
                   </Typography>
+                  {attachment.status === 'failed' && options.onRetryMedia ? (
+                    <Button size="small" variant="outlined" color="error" onClick={() => void options.onRetryMedia?.(message, attachment.id)}>
+                      重试
+                    </Button>
+                  ) : null}
                   <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                     {attachment.altText}
                   </Typography>
@@ -226,6 +232,11 @@ function renderMessageContent(message: Message) {
               <Typography variant="caption" sx={{ display: 'block', mt: 0.45, color: attachment.status === 'failed' ? 'error.main' : 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                 {getAttachmentStatusDetail(attachment)}
               </Typography>
+              {attachment.status === 'failed' && options.onRetryMedia ? (
+                <Button size="small" variant="outlined" color="error" sx={{ mt: 0.6 }} onClick={() => void options.onRetryMedia?.(message, attachment.id)}>
+                  重试
+                </Button>
+              ) : null}
             </Box>
           );
         }
@@ -272,7 +283,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, pending = false, currentUser, members = [] }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, pending = false, currentUser, members = [] }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
@@ -466,7 +477,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
                   </Box>
                 </Tooltip>
               ) : withdrawalNoticeNode
-            ) : renderMessageContent(message)}
+            ) : renderMessageContent(message, { onRetryMedia })}
           </Box>
         </Box>
 
@@ -483,7 +494,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
 
       <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{message.senderName}</DialogTitle>
-        <DialogContent>{renderMessageContent(message)}</DialogContent>
+        <DialogContent>{renderMessageContent(message, { onRetryMedia })}</DialogContent>
       </Dialog>
 
       <Menu

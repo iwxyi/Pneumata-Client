@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AICharacter } from '../types/character';
 import type { Message } from '../types/message';
 import type { AIModelProfile } from '../types/settings';
-import { processRichMessageMedia } from './richMessageMedia';
+import { processRichMessageMedia, retryRichMessageMedia } from './richMessageMedia';
 import { generateImageWithAdapter } from './aiGenerationAdapter';
 
 vi.mock('./api', () => ({
@@ -102,6 +102,49 @@ describe('processRichMessageMedia', () => {
       status: 'ready',
       url: 'data:image/png;base64,abc',
       mimeType: 'image/png',
+    });
+    expect(upserts.at(-1)?.metadata?.generation?.status).toBe('ready');
+  });
+
+  it('retries a failed media attachment by resetting it to queued and running the same pipeline', async () => {
+    vi.mocked(generateImageWithAdapter).mockResolvedValue([{
+      dataUrl: 'data:image/png;base64,retry',
+      mimeType: 'image/png',
+    }]);
+    const failedMessage = buildQueuedImageMessage({
+      metadata: {
+        attachments: [{
+          id: 'image-1',
+          kind: 'image',
+          status: 'failed',
+          promptText: '灰太狼证件照',
+          altText: '灰太狼证件照',
+          error: '上次生成失败',
+          createdAt: 123,
+          updatedAt: 124,
+        }],
+        generation: { status: 'failed', updatedAt: 124 },
+      },
+    });
+    const upserts: Message[] = [];
+
+    await retryRichMessageMedia({
+      message: failedMessage,
+      attachmentId: 'image-1',
+      character,
+      aiProfiles: [imageProfile],
+      upsertMessage: (message) => upserts.push(message),
+    });
+
+    expect(upserts[0]?.metadata?.attachments?.[0]).toMatchObject({
+      status: 'queued',
+      error: undefined,
+      url: undefined,
+    });
+    expect(upserts[1]?.metadata?.attachments?.[0]?.status).toBe('generating');
+    expect(upserts.at(-1)?.metadata?.attachments?.[0]).toMatchObject({
+      status: 'ready',
+      url: 'data:image/png;base64,retry',
     });
     expect(upserts.at(-1)?.metadata?.generation?.status).toBe('ready');
   });
