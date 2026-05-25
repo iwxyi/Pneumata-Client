@@ -1,9 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AICharacter } from '../types/character';
+import type { GroupChat } from '../types/chat';
+import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE } from '../types/chat';
 import type { AIModelProfile } from '../types/settings';
-import { __chatEngineTestUtils } from './chatEngine';
+import { __chatEngineTestUtils, generateSpeakerMessage } from './chatEngine';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 import type { SpeakIntent } from './intentEngine';
+import type { DirectorIntent } from './directorIntent';
+
+const generateResponseMock = vi.hoisted(() => vi.fn());
+
+vi.mock('./aiClient', () => ({
+  generateResponse: (...args: unknown[]) => generateResponseMock(...args),
+}));
 
 const speaker = { name: '喜羊羊' } as AICharacter;
 const defaultIntent: SpeakIntent = {
@@ -15,6 +24,111 @@ const defaultIntent: SpeakIntent = {
   delivery: 'short_reply',
   messageShape: 'single_sentence',
 };
+
+function buildCharacter(id: string, name: string, patch: Partial<AICharacter> = {}): AICharacter {
+  return {
+    id,
+    name,
+    avatar: '',
+    personality: { openness: 50, extroversion: 50, agreeableness: 50, neuroticism: 50, humor: 50, creativity: 50, assertiveness: 50, empathy: 50 },
+    behavior: { proactivity: 50, aggressiveness: 50, humorIntensity: 50, empathyLevel: 50, summarizing: 50, offTopic: 50 },
+    expertise: [],
+    speakingStyle: '',
+    background: '',
+    relationships: [],
+    memory: { longTerm: [], shortTermSummary: '', secrets: [], obsessions: [], tabooTopics: [], userMemories: [] },
+    intervention: { allowSpeakAs: true, allowDirectorPrompt: true, allowPrivateThread: true },
+    isPreset: false,
+    createdAt: 1,
+    updatedAt: 1,
+    ...patch,
+  };
+}
+
+function buildChat(patch: Partial<GroupChat> = {}): GroupChat {
+  return {
+    id: 'chat-1',
+    type: 'group',
+    mode: 'open_chat',
+    modeConfig: { freeSpeaking: true, allowInterruptions: true, allowPrivateThreads: true, allowDirectorInterventions: true, showRoleActions: true },
+    modeState: { phase: 'free' },
+    name: '羊村大家庭闲聊',
+    topic: '最近有什么好玩的事？',
+    style: 'free',
+    runtimeEvolutionIntensity: 'balanced',
+    memberIds: ['mei', 'hui'],
+    speed: 1,
+    isActive: true,
+    allowIntervention: true,
+    showRoleActions: true,
+    topicSeed: '',
+    sourceChatId: null,
+    sourceMemberIds: [],
+    runtimeTimeline: [],
+    runtimeEventsV2: [],
+    relationshipLedger: [],
+    governance: DEFAULT_CONVERSATION_GOVERNANCE,
+    dramaRules: DEFAULT_CONVERSATION_DRAMA_RULES,
+    worldState: DEFAULT_CONVERSATION_WORLD_STATE,
+    directorControls: DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
+    createdAt: 1,
+    updatedAt: 1,
+    lastMessageAt: 1,
+    ...patch,
+  };
+}
+
+function buildProfiles(): AIModelProfile[] {
+  return [
+    {
+      id: 'text-default',
+      name: '默认文本',
+      type: 'text',
+      provider: 'openai',
+      apiKey: 'text-key',
+      baseUrl: 'https://example.test',
+      model: 'text-model',
+      isDefault: true,
+    },
+    {
+      id: 'image-default',
+      name: '默认图片',
+      type: 'image',
+      provider: 'openai',
+      apiKey: 'image-key',
+      baseUrl: 'https://example.test',
+      model: 'image-model',
+      isDefault: true,
+    },
+  ];
+}
+
+function buildMediaDirectorIntent(): DirectorIntent {
+  return {
+    source: 'user_message',
+    beatType: 'answer',
+    targetActorIds: ['mei'],
+    pressure: 0.98,
+    reason: '用户指定角色发送或创作图片。',
+    userGuidance: {
+      kind: 'media_request',
+      rawText: '美羊羊发个灰太狼证件照的图片',
+      actorIds: ['mei'],
+      mentionedActorIds: ['mei', 'hui'],
+      focusText: '美羊羊发个灰太狼证件照的图片',
+      beatType: 'answer',
+      pressure: 0.98,
+      maxTurns: 1,
+      reason: '用户指定角色发送或创作图片。',
+      mediaRequest: {
+        kind: 'image',
+        subjectActorIds: ['hui'],
+        subjectText: '灰太狼',
+        actionText: '发个灰太狼证件照的图片',
+      },
+    },
+  };
+}
 
 describe('chatEngine streaming preview', () => {
   it('suppresses incomplete JSON envelope chunks before content is available', () => {
@@ -112,6 +226,58 @@ describe('chatEngine streaming preview', () => {
       promptText: 'A cute WeChat-style photo of mango pomelo sago dessert on a table',
       altText: '一杯杨枝甘露甜品',
     });
+  });
+
+  it('forces a queued image attachment for explicit media guidance when the text model omits mediaDecision', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '来啦，我把灰太狼先生的证件照画得超精神～',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊', {
+      visualIdentity: { description: '粉白色小羊，温柔爱画画', styleHint: '柔和童话插画' },
+    });
+    const hui = buildCharacter('hui', '灰太狼', {
+      background: '灰太狼，经典狼族角色，戴黄色补丁帽，脸部有胡须和自信表情。',
+      visualIdentity: { description: '灰色狼，黄色补丁帽，两撇胡子，表情夸张' },
+    });
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat(),
+      speaker: mei,
+      characters: [mei, hui],
+      messages: [{
+        id: 'guide',
+        chatId: 'chat-1',
+        type: 'god',
+        senderId: 'user',
+        senderName: '开发者',
+        content: '美羊羊发个灰太狼证件照的图片',
+        emotion: 0,
+        timestamp: 10,
+        isDeleted: false,
+      }],
+      apiConfig: buildProfiles(),
+      directorIntent: buildMediaDirectorIntent(),
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(message.content).toBe('来啦，我把灰太狼先生的证件照画得超精神～');
+    expect(message.metadata?.generationDecision?.image).toMatchObject({
+      shouldGenerate: true,
+      reason: '用户明确要求这个角色发送或创作图片。',
+      altText: '美羊羊发来的灰太狼图片',
+    });
+    expect(message.metadata?.attachments).toHaveLength(1);
+    expect(message.metadata?.attachments?.[0]).toMatchObject({
+      kind: 'image',
+      status: 'queued',
+      altText: '美羊羊发来的灰太狼图片',
+    });
+    expect(message.metadata?.attachments?.[0]?.promptText).toContain('美羊羊发个灰太狼证件照的图片');
+    expect(message.metadata?.attachments?.[0]?.promptText).toContain('灰太狼');
   });
 
   it('stores compact runtime decision metadata without requiring media generation', () => {
