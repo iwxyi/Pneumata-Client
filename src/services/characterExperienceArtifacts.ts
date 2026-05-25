@@ -1,5 +1,6 @@
 import { generateResponse } from './aiClient';
 import { getExperienceLensLabel } from './experienceChangePresentation';
+import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import type { APIConfig } from '../types/settings';
 import type { AICharacter, CharacterRelationshipPreset } from '../types/character';
 import type { MemoryItem } from './memoryTypes';
@@ -55,8 +56,24 @@ function compact(text?: string | null, max = 180) {
   return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
 }
 
+function buildDisplayMembers(
+  character: Partial<AICharacter>,
+  relatedCharacters: Pick<AICharacter, 'id' | 'name'>[],
+): DisplayTextMember[] {
+  const map = new Map<string, string>();
+  if (character.id) map.set(character.id, character.name || '这个角色');
+  relatedCharacters.forEach((item) => {
+    if (item.id) map.set(item.id, item.name || '成员');
+  });
+  return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+}
+
+function cleanText(text: string | undefined | null, members: DisplayTextMember[], max = 180) {
+  return compact(sanitizeUserFacingText(text, members), max);
+}
+
 function resolveName(id: string, relatedCharacters: Pick<AICharacter, 'id' | 'name'>[]) {
-  return relatedCharacters.find((character) => character.id === id)?.name || (id.startsWith('draft-') ? '未命名角色' : id);
+  return relatedCharacters.find((character) => character.id === id)?.name || (id.startsWith('draft-') ? '未命名角色' : '成员');
 }
 
 function relationScore(relation: CharacterRelationshipPreset) {
@@ -73,6 +90,49 @@ function summarizeRelationship(relation: CharacterRelationshipPreset) {
   return '普通互动';
 }
 
+function getMemoryKindArtifactLabel(kind: MemoryItem['kind']) {
+  const labels: Record<MemoryItem['kind'], string> = {
+    trait_evidence: '性格证据',
+    obsession: '执念',
+    taboo: '禁区',
+    bond: '连结',
+    resentment: '芥蒂',
+    bias: '偏向',
+    decision: '决策',
+    conflict: '冲突',
+    status_shift: '状态变化',
+    artifact: '产物',
+    thread_effect: '线程影响',
+  };
+  return labels[kind] || sanitizeUserFacingText(kind);
+}
+
+function getMemoryLensLabel(item: MemoryItem) {
+  return getExperienceLensLabel(item.sourceTag) || getMemoryKindArtifactLabel(item.kind) || '记忆';
+}
+
+function projectArtifactMemory(item: MemoryItem, members: DisplayTextMember[]) {
+  return {
+    lens: getMemoryLensLabel(item),
+    text: cleanText(item.text, members, 220),
+    evidence: item.evidenceText ? cleanText(item.evidenceText, members, 180) : undefined,
+    updatedAt: memoryUpdatedAt(item),
+  };
+}
+
+function projectArtifactRelationship(
+  relation: CharacterRelationshipPreset,
+  relatedCharacters: Pick<AICharacter, 'id' | 'name'>[],
+  members: DisplayTextMember[],
+) {
+  return {
+    targetName: resolveName(relation.characterId, relatedCharacters),
+    summary: summarizeRelationship(relation),
+    note: relation.note && relation.note !== relation.characterId ? cleanText(relation.note, members, 160) : undefined,
+    updatedAt: relation.updatedAt || 0,
+  };
+}
+
 function buildEmotionLines(character: Partial<AICharacter>) {
   const emotional = character.emotionalState;
   if (!emotional) return [];
@@ -85,7 +145,7 @@ function buildEmotionLines(character: Partial<AICharacter>) {
   ].filter(Boolean);
 }
 
-function buildInnerResidueLines(character: Partial<AICharacter>) {
+function buildInnerResidueLines(character: Partial<AICharacter>, members: DisplayTextMember[] = []) {
   const state = character.soulState;
   if (!state) return [];
   return [
@@ -94,19 +154,19 @@ function buildInnerResidueLines(character: Partial<AICharacter>) {
     state.shame >= 55 ? `面子风险偏高，容易嘴硬、找补或迟来的道歉（${Math.round(state.shame)}）` : '',
     state.envy >= 55 ? `存在一点酸意、比较或不愿承认的羡慕（${Math.round(state.envy)}）` : '',
     state.trustInRoom <= 35 ? `对当前关系场的安全感不足（${Math.round(state.trustInRoom)}）` : '',
-    state.lastImpulseReason ? `最近冲动：${state.lastImpulseReason}` : '',
+    state.lastImpulseReason ? `最近冲动：${cleanText(state.lastImpulseReason, members, 120)}` : '',
   ].filter(Boolean).slice(0, 5);
 }
 
-function buildIdentityAnchors(character: Partial<AICharacter>) {
+function buildIdentityAnchors(character: Partial<AICharacter>, members: DisplayTextMember[] = []) {
   return [
-    compact(character.background, 160),
-    compact(character.speakingStyle, 120),
-    compact(character.expertise?.slice(0, 4).join(' / '), 120),
-    compact(character.coreProfile?.coreDesire, 120),
-    compact(character.coreProfile?.coreFear, 120),
-    compact(character.visualIdentity?.description, 160),
-    compact(character.visualIdentity?.styleHint, 120),
+    cleanText(character.background, members, 160),
+    cleanText(character.speakingStyle, members, 120),
+    cleanText(character.expertise?.slice(0, 4).join(' / '), members, 120),
+    cleanText(character.coreProfile?.coreDesire, members, 120),
+    cleanText(character.coreProfile?.coreFear, members, 120),
+    cleanText(character.visualIdentity?.description, members, 160),
+    cleanText(character.visualIdentity?.styleHint, members, 120),
   ].filter(Boolean);
 }
 
@@ -237,43 +297,34 @@ export function buildCharacterExperienceArtifactContext(
   character: Partial<AICharacter>,
   relatedCharacters: Pick<AICharacter, 'id' | 'name'>[] = [],
 ): CharacterExperienceArtifactContext {
+  const members = buildDisplayMembers(character, relatedCharacters);
   const memories = (character.layeredMemories || [])
     .filter((item) => !item.archivedAt)
     .slice()
     .sort((a, b) => memoryUpdatedAt(b) - memoryUpdatedAt(a))
     .slice(0, 10)
-    .map((item) => ({
-      lens: getExperienceLensLabel(item.sourceTag) || item.kind,
-      text: compact(item.text, 220),
-      evidence: item.evidenceText ? compact(item.evidenceText, 180) : undefined,
-      updatedAt: memoryUpdatedAt(item),
-    }));
+    .map((item) => projectArtifactMemory(item, members));
 
   const relationships = (character.relationships || [])
     .slice()
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .slice(0, 8)
-    .map((relation) => ({
-      targetName: resolveName(relation.characterId, relatedCharacters),
-      summary: summarizeRelationship(relation),
-      note: relation.note && relation.note !== relation.characterId ? compact(relation.note, 160) : undefined,
-      updatedAt: relation.updatedAt || 0,
-    }));
+    .map((relation) => projectArtifactRelationship(relation, relatedCharacters, members));
 
   return {
     profile: {
-      name: character.name || '这个角色',
-      background: compact(character.background, 260),
-      speakingStyle: compact(character.speakingStyle, 180),
-      coreDesire: compact(character.coreProfile?.coreDesire, 120),
-      coreFear: compact(character.coreProfile?.coreFear, 120),
+      name: cleanText(character.name || '这个角色', members, 60),
+      background: cleanText(character.background, members, 260),
+      speakingStyle: cleanText(character.speakingStyle, members, 180),
+      coreDesire: cleanText(character.coreProfile?.coreDesire, members, 120),
+      coreFear: cleanText(character.coreProfile?.coreFear, members, 120),
     },
     memories,
     relationships,
     emotions: buildEmotionLines(character),
-    innerResidues: buildInnerResidueLines(character),
+    innerResidues: buildInnerResidueLines(character, members),
     growthSignals: memories.filter((item) => item.lens === '成长信号').map((item) => item.text).slice(0, 4),
-    identityAnchors: buildIdentityAnchors(character),
+    identityAnchors: buildIdentityAnchors(character, members),
   };
 }
 
@@ -307,6 +358,7 @@ export function buildCharacterDailyDiaryContext(
   dateKey: string = formatLocalDateKey(Date.now() - 24 * 60 * 60 * 1000),
   recentDiaryTexts: string[] = [],
 ): CharacterDailyDiaryContext {
+  const members = buildDisplayMembers(character, relatedCharacters);
   const base = buildCharacterExperienceArtifactContext(character, relatedCharacters);
   const dayMemories = (character.layeredMemories || [])
     .filter((item) => !item.archivedAt && formatLocalDateKey(memoryUpdatedAt(item)) === dateKey)
@@ -316,30 +368,15 @@ export function buildCharacterDailyDiaryContext(
     .filter((relation) => relation.updatedAt && formatLocalDateKey(relation.updatedAt) === dateKey)
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .slice(0, 4)
-    .map((relation) => ({
-      targetName: resolveName(relation.characterId, relatedCharacters),
-      summary: summarizeRelationship(relation),
-      note: relation.note && relation.note !== relation.characterId ? compact(relation.note, 160) : undefined,
-      updatedAt: relation.updatedAt || 0,
-    }));
+    .map((relation) => projectArtifactRelationship(relation, relatedCharacters, members));
   const highlights = buildHighlightsFromContext({
     ...base,
-    memories: dayMemories.length ? dayMemories.map((item) => ({
-      lens: getExperienceLensLabel(item.sourceTag) || item.kind,
-      text: compact(item.text, 220),
-      evidence: item.evidenceText ? compact(item.evidenceText, 180) : undefined,
-      updatedAt: memoryUpdatedAt(item),
-    })) : base.memories,
+    memories: dayMemories.length ? dayMemories.map((item) => projectArtifactMemory(item, members)) : base.memories,
     relationships: dayRelationships.length ? dayRelationships : base.relationships,
   });
   const diaryContextBase = {
     ...base,
-    memories: dayMemories.length ? dayMemories.map((item) => ({
-      lens: getExperienceLensLabel(item.sourceTag) || item.kind,
-      text: compact(item.text, 220),
-      evidence: item.evidenceText ? compact(item.evidenceText, 180) : undefined,
-      updatedAt: memoryUpdatedAt(item),
-    })) : base.memories,
+    memories: dayMemories.length ? dayMemories.map((item) => projectArtifactMemory(item, members)) : base.memories,
     relationships: dayRelationships.length ? dayRelationships : base.relationships,
   };
 
@@ -353,7 +390,7 @@ export function buildCharacterDailyDiaryContext(
     emotionalAnchors: buildDiaryEmotionalAnchors(diaryContextBase),
     privateLenses: buildDiaryPrivateLenses(dateKey, diaryContextBase),
     formHint: buildDiaryFormHint(dateKey),
-    recentDiaryOpenings: recentDiaryTexts.map((text) => firstSentence(text)).filter(Boolean).slice(0, 5),
+    recentDiaryOpenings: recentDiaryTexts.map((text) => firstSentence(cleanText(text, members, 220))).filter(Boolean).slice(0, 5),
     sourceFreshness: dayMemories.length || dayRelationships.length ? 'daily' : 'fallback',
   };
 }

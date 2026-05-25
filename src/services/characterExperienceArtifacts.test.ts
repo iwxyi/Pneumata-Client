@@ -41,6 +41,60 @@ function buildCharacter(): Partial<AICharacter> {
   };
 }
 
+const leakyActorId = '3c78729f-e52d-4dde-b27f-01a9-49960bb8b123';
+const leakyTargetId = '8b3d7266-c0c7-4ceb-8dc2-4512-6f3f2321abcd';
+
+function buildLeakyCharacter(): Partial<AICharacter> {
+  return {
+    id: leakyActorId,
+    name: '喜羊羊',
+    background: `${leakyActorId} 曾经因为 status_shift 变得更谨慎。`,
+    speakingStyle: `会提到 ${leakyTargetId}，但不该暴露内部编号。`,
+    coreProfile: {
+      coreDesire: `想让 ${leakyTargetId} 重新相信自己`,
+      coreFear: '害怕 trait_evidence 被误读成真正的自己',
+    },
+    soulState: {
+      mood: { pleasure: 0, arousal: 20, dominance: 0 },
+      energy: 50,
+      attention: 40,
+      loneliness: 60,
+      repression: 58,
+      shame: 20,
+      envy: 10,
+      trustInRoom: 30,
+      ignoredStreak: 2,
+      lastImpulseReason: `${leakyActorId} 想追问 ${leakyTargetId} 的态度`,
+    },
+    relationships: [{
+      characterId: leakyTargetId,
+      warmth: 8,
+      competence: 2,
+      trust: -10,
+      threat: 36,
+      note: `${leakyActorId} 对 ${leakyTargetId} 的信任在 relationship_delta 后变低。`,
+      updatedAt: 120,
+    }],
+    layeredMemories: [{
+      id: 'leaky-memory',
+      scope: 'character_self',
+      layer: 'long_term',
+      kind: 'status_shift',
+      ownerId: leakyActorId,
+      text: `${leakyActorId} 在 status_shift 后开始回避 ${leakyTargetId}`,
+      evidenceText: `source events: ${leakyActorId} challenge ${leakyTargetId}`,
+      salience: 0.75,
+      confidence: 0.8,
+      recency: 0.7,
+      reinforcementCount: 2,
+      sourceEventIds: ['evt-raw'],
+      sourceTag: 'unknown_internal_source',
+      createdAt: 100,
+      updatedAt: 100,
+    }],
+  };
+}
+
 describe('characterExperienceArtifacts', () => {
   it('builds a reusable context from existing memory and relationship state', () => {
     const context = buildCharacterExperienceArtifactContext(buildCharacter(), [{ id: 'c2', name: '小雨' } as AICharacter]);
@@ -111,5 +165,49 @@ describe('characterExperienceArtifacts', () => {
       language: 'zh',
     });
     expect(text).toBe('今天我把那件事记在了心里。');
+  });
+
+  it('sanitizes artifact context before it is sent to narrative generators', () => {
+    const context = buildCharacterExperienceArtifactContext(buildLeakyCharacter(), [{ id: leakyTargetId, name: '灰太狼' } as AICharacter]);
+    const serialized = JSON.stringify(context);
+
+    expect(context.memories[0].lens).toBe('状态变化');
+    expect(context.memories[0].text).toContain('喜羊羊');
+    expect(context.memories[0].text).toContain('灰太狼');
+    expect(context.relationships[0].targetName).toBe('灰太狼');
+    expect(context.relationships[0].note).toContain('喜羊羊');
+    expect(context.relationships[0].note).toContain('灰太狼');
+    expect(context.innerResidues.join(' / ')).toContain('喜羊羊');
+    expect(context.identityAnchors.join(' / ')).toContain('灰太狼');
+
+    expect(serialized).not.toContain(leakyActorId);
+    expect(serialized).not.toContain(leakyTargetId);
+    expect(serialized).not.toContain('status_shift');
+    expect(serialized).not.toContain('trait_evidence');
+    expect(serialized).not.toContain('relationship_delta');
+    expect(serialized).not.toContain('source events');
+    expect(serialized).not.toContain('unknown_internal_source');
+  });
+
+  it('sanitizes daily diary context and local previews without raw ids or enum labels', () => {
+    const context = buildCharacterDailyDiaryContext(
+      buildLeakyCharacter(),
+      [{ id: leakyTargetId, name: '灰太狼' } as AICharacter],
+      '1970-01-01',
+      [`${leakyActorId} 今天又因为 episodic / status_shift 想起 ${leakyTargetId}。`],
+    );
+    const preview = buildLocalCharacterExperienceArtifact('diary', context);
+    const serialized = JSON.stringify(context);
+
+    expect(context.memories[0].lens).toBe('状态变化');
+    expect(context.recentDiaryOpenings[0]).toContain('喜羊羊');
+    expect(context.recentDiaryOpenings[0]).toContain('灰太狼');
+    expect(preview).toContain('喜羊羊');
+    expect(preview).toContain('灰太狼');
+
+    expect(serialized + preview).not.toContain(leakyActorId);
+    expect(serialized + preview).not.toContain(leakyTargetId);
+    expect(serialized + preview).not.toContain('status_shift');
+    expect(serialized + preview).not.toContain('episodic');
   });
 });
