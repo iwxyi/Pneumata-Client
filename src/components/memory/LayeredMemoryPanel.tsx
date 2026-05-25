@@ -68,6 +68,14 @@ function memoryStrengthLabel(item: MemoryItem) {
   return '印象较轻';
 }
 
+function memoryDisplayTime(item: MemoryItem) {
+  return item.lastActivatedAt || item.updatedAt || item.distilledAt || item.archivedAt || item.createdAt || 0;
+}
+
+function newestFirst(items: MemoryItem[]) {
+  return items.slice().sort((left, right) => memoryDisplayTime(right) - memoryDisplayTime(left));
+}
+
 function buildEvidenceTitle(item: MemoryItem, formatMemoryText?: (text: string, item: MemoryItem) => string) {
   const evidenceSource = item.evidenceText || item.summary || item.text;
   const evidenceTitle = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(evidenceSource, item) : evidenceSource);
@@ -95,7 +103,7 @@ function MemoryCard({ item, includeDebugDetails, formatMemoryText }: { item: Mem
 type MemoryFilterKey = 'all' | 'anchors' | 'longTerm' | 'episodic' | 'working' | 'relationship' | 'self' | 'conversation' | 'expressionFeedback' | 'archived';
 
 function buildMemoryGroups(items: MemoryItem[]) {
-  const activeItems = items.filter((item) => !item.archivedAt);
+  const activeItems = newestFirst(items.filter((item) => !item.archivedAt));
   const expressionFeedback = activeItems.filter((item) => item.sourceTag === 'expression_feedback');
   return {
     all: activeItems,
@@ -107,7 +115,7 @@ function buildMemoryGroups(items: MemoryItem[]) {
     self: activeItems.filter((item) => item.scope === 'character_self'),
     conversation: activeItems.filter((item) => item.scope === 'conversation' || item.scope === 'thread'),
     expressionFeedback,
-    archived: items.filter((item) => item.archivedAt),
+    archived: newestFirst(items.filter((item) => item.archivedAt)),
   };
 }
 
