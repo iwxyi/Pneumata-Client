@@ -17,6 +17,8 @@ import { projectRuntimeDecisionTrace, type RuntimeDecisionTraceItem } from '../.
 import { formatConflictPressureLabel, formatConflictTypeLabel } from '../../services/runtimeEventFactory';
 import { buildMemberInnerLifeSummary } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { retrieveRelevantMemories } from '../../services/memoryRetrieval';
+import type { MemoryItem } from '../../services/memoryTypes';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -462,6 +464,77 @@ function renderInnerLifePanel(members: AICharacter[]) {
   );
 }
 
+function buildRecallCue(messages: Message[], members: AICharacter[]) {
+  const memberNames = members.map((member) => member.name).join('、');
+  const recentText = messages
+    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
+    .slice(-6)
+    .map((message) => `${message.senderName || memberName(message.senderId, members)}：${message.content}`)
+    .join('\n');
+  return [memberNames, recentText].filter(Boolean).join('\n').slice(-1000);
+}
+
+function latestCharacterTargetId(messages: Message[], member: AICharacter, members: AICharacter[]) {
+  const memberIds = new Set(members.map((item) => item.id));
+  return messages
+    .filter((message) => !message.isDeleted && message.senderId !== member.id && memberIds.has(message.senderId))
+    .slice()
+    .reverse()[0]?.senderId || null;
+}
+
+function buildMemoryRecallItems(chat: GroupChat, members: AICharacter[], messages: Message[]) {
+  const cueText = buildRecallCue(messages, members);
+  if (!cueText.trim()) return [];
+  return members.flatMap((member) => {
+    const recalled = retrieveRelevantMemories(member.layeredMemories || [], {
+      speakerId: member.id,
+      targetId: latestCharacterTargetId(messages, member, members),
+      conversationId: chat.id,
+      maxItems: 4,
+      cueText,
+      includeArchivedRecall: true,
+      maxArchivedItems: 2,
+      preferredLayers: ['long_term', 'episodic', 'working'],
+      preferredScopes: ['relationship', 'character_self', 'conversation', 'thread', 'system_runtime'],
+    }).filter((item) => item.archivedAt && item.recallReason);
+    return recalled.slice(0, 2).map((item) => ({ member, item }));
+  }).slice(0, 8);
+}
+
+function recallHint(item: MemoryItem) {
+  return [
+    item.recallReason,
+    item.recallCue ? `线索：${cleanText(item.recallCue)}` : '',
+    item.evidenceText ? `证据：${cleanText(item.evidenceText)}` : '',
+    item.recallScore ? `score ${item.recallScore.toFixed(2)}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messages: Message[]) {
+  const items = buildMemoryRecallItems(chat, members, messages);
+  if (!items.length) return null;
+  return (
+    <SurfaceCard>
+      <SectionHeader title="记忆唤醒" subtitle="旧档不会常驻进入上下文，只有被人物、话题或旧梗命中时才会回流。" dense action={buildDebugChip()} />
+      <Stack spacing={0.8}>
+        {items.map(({ member, item }) => (
+          <Tooltip key={`${member.id}-${item.id}`} title={recallHint(item)} arrow placement="top-start">
+            <Box sx={{ p: 0.9, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.08)', '&:hover .recall-title': { textDecoration: 'underline' } }}>
+              <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                <Chip size="small" label={member.name} variant="outlined" sx={{ height: 22 }} />
+                <Chip size="small" label="旧档回流" color="warning" variant="outlined" sx={{ height: 22 }} />
+                {item.recallTokens?.slice(0, 3).map((token) => <Chip key={token} size="small" label={cleanText(token)} sx={{ height: 22 }} />)}
+              </Stack>
+              <Typography className="recall-title" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{cleanText(item.summary || item.text)}</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{cleanText(item.recallReason || '旧记忆被当前上下文唤醒')}</Typography>
+            </Box>
+          </Tooltip>
+        ))}
+      </Stack>
+    </SurfaceCard>
+  );
+}
+
 function reasonTone(reason: string) {
   if (/矛盾|冲突|挑战|对立|升级|压力/.test(reason)) return 'rgba(244, 67, 54, 0.08)';
   if (/关系|维护|共情|降温|安慰|亲近/.test(reason)) return 'rgba(46, 125, 50, 0.08)';
@@ -643,6 +716,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
           </Stack>
         </SurfaceCard>
 
+        {isDeveloperView ? renderMemoryRecallPanel(chat, members, messages) : null}
         {isAdvancedRuntimeView ? renderInnerLifePanel(members) : null}
         {isAdvancedRuntimeView ? renderDecisionTracePanel(decisionTrace, isAdvancedRuntimeView) : null}
 

@@ -59,5 +59,7 @@ describe('retrieveRelevantMemories', () => {
     });
 
     expect(result.some((item) => item.id === 'archived')).toBe(true);
+    expect(result.find((item) => item.id === 'archived')?.recallReason).toContain('线索唤醒');
+    expect(result.find((item) => item.id === 'archived')?.recallTokens).toContain('失约');
   });
 });

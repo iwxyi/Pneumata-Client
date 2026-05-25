@@ -30,6 +30,10 @@ export interface MemoryItem {
   updatedAt: number;
   lastActivatedAt?: number | null;
   archivedAt?: number | null;
+  recallScore?: number;
+  recallCue?: string;
+  recallReason?: string;
+  recallTokens?: string[];
 }
 
 export interface MemoryCandidate {

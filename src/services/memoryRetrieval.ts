@@ -3,6 +3,7 @@ import type { MemoryItem, MemoryLayer, MemoryRetrievalContext, MemoryScope } fro
 const DEFAULT_LAYER_PRIORITY: MemoryLayer[] = ['working', 'episodic', 'long_term'];
 const DEFAULT_SCOPE_PRIORITY: MemoryScope[] = ['relationship', 'conversation', 'thread', 'character_self', 'system_runtime'];
 const MAX_RECALL_TOKENS = 18;
+const RECALL_THRESHOLD = 0.5;
 
 function layerScore(layer: MemoryLayer, preferredLayers: MemoryLayer[] = DEFAULT_LAYER_PRIORITY) {
   const index = preferredLayers.indexOf(layer);
@@ -34,12 +35,8 @@ function normalizeCueTokens(cueText: string | undefined) {
   return Array.from(new Set(tokens.map((item) => item.trim()).filter((item) => item.length >= 2))).slice(0, MAX_RECALL_TOKENS);
 }
 
-function cueScore(item: MemoryItem, context: MemoryRetrievalContext) {
-  const tokens = normalizeCueTokens(context.cueText);
-  let score = 0;
-  if (context.targetId && item.subjectIds?.includes(context.targetId)) score += 0.75;
-  if (!tokens.length) return score;
-  const haystack = [
+function buildMemoryHaystack(item: MemoryItem) {
+  return [
     item.text,
     item.summary,
     item.evidenceText,
@@ -48,8 +45,21 @@ function cueScore(item: MemoryItem, context: MemoryRetrievalContext) {
     item.sourceTag,
     ...(item.subjectIds || []),
   ].filter(Boolean).join('\n').toLowerCase();
-  for (const token of tokens) {
-    if (haystack.includes(token)) score += token.length >= 4 ? 0.32 : 0.18;
+}
+
+function matchedCueTokens(item: MemoryItem, context: MemoryRetrievalContext) {
+  const tokens = normalizeCueTokens(context.cueText);
+  if (!tokens.length) return [];
+  const haystack = buildMemoryHaystack(item);
+  return tokens.filter((token) => haystack.includes(token)).slice(0, 6);
+}
+
+function cueScore(item: MemoryItem, context: MemoryRetrievalContext) {
+  const matches = matchedCueTokens(item, context);
+  let score = 0;
+  if (context.targetId && item.subjectIds?.includes(context.targetId)) score += 0.75;
+  for (const token of matches) {
+    score += token.length >= 4 ? 0.32 : 0.18;
   }
   return Math.min(2.2, score);
 }
@@ -57,7 +67,7 @@ function cueScore(item: MemoryItem, context: MemoryRetrievalContext) {
 function isRetrievable(item: MemoryItem, context: MemoryRetrievalContext) {
   if (!item.archivedAt) return true;
   if (!context.includeArchivedRecall) return false;
-  return cueScore(item, context) >= 0.5;
+  return cueScore(item, context) >= RECALL_THRESHOLD;
 }
 
 function scoreForContext(item: MemoryItem, context: MemoryRetrievalContext) {
@@ -99,5 +109,20 @@ export function retrieveRelevantMemories(items: MemoryItem[], context: MemoryRet
     if (selected.length >= context.maxItems) break;
   }
   return selected
-    .map((item) => ({ ...item, lastActivatedAt: Date.now() }));
+    .map((item) => {
+      const recallScore = cueScore(item, context);
+      const recallTokens = matchedCueTokens(item, context);
+      return {
+        ...item,
+        lastActivatedAt: Date.now(),
+        ...(item.archivedAt && recallScore >= RECALL_THRESHOLD ? {
+          recallScore,
+          recallTokens,
+          recallCue: context.cueText?.slice(-220),
+          recallReason: recallTokens.length
+            ? `旧档被线索唤醒：${recallTokens.join('、')}`
+            : '旧档被当前对象关系唤醒',
+        } : {}),
+      };
+    });
 }
