@@ -67,6 +67,7 @@ function buildMessage(patch: Partial<Message>): Message {
     senderId: patch.senderId || 'user',
     senderName: patch.senderName || '用户',
     content: patch.content || '',
+    metadata: patch.metadata,
     emotion: 0,
     timestamp: patch.timestamp || 1,
     isDeleted: false,
@@ -102,9 +103,15 @@ describe('activeUserGuidancePresentation', () => {
       title: '图片请求：灰太狼',
       sourceLabel: '开发者引导',
       statusLabel: '显式请求',
+      emphasisLabel: '等待 美羊羊 发出 灰太狼 的图片',
       effectText: '美羊羊需要先完成这次图片请求，图片对象是灰太狼；非目标角色不会抢占这次请求。',
       warning: '被点名角色没有可用图片模型，无法真正生成图片。',
     });
+    expect(projection?.detailRows).toEqual(expect.arrayContaining([
+      { label: '锁定角色', value: '美羊羊', tone: 'primary' },
+      { label: '图片对象', value: '灰太狼', tone: 'neutral' },
+      { label: '图片能力', value: '未配置图片模型', tone: 'warning' },
+    ]));
     expect(projection?.chips).toEqual(expect.arrayContaining(['图片请求', '锁定待回应', '非目标不抢占', '待回应：美羊羊', '执行：美羊羊', '图片对象：灰太狼', '未配置图片模型']));
   });
 
@@ -123,8 +130,12 @@ describe('activeUserGuidancePresentation', () => {
     expect(projection).toMatchObject({
       title: '话题切换：新话题：狼抓羊有过错吗？狼应该抓羊吗…',
       statusLabel: '生效中',
+      emphasisLabel: '当前焦点：新话题：狼抓羊有过错吗？狼应该抓羊吗？',
       effectText: '旧话题已被覆盖，下一轮需要先围绕“新话题：狼抓羊有过错吗？狼应该抓羊吗？”回答、表态或追问；旧梗只能顺手收束，不能继续带跑。',
     });
+    expect(projection?.detailRows).toEqual(expect.arrayContaining([
+      { label: '调度要求', value: '先回应新问题，旧梗只作收束', tone: 'neutral' },
+    ]));
     expect(projection?.chips).toEqual(expect.arrayContaining(['话题引导', '旧话题已覆盖', '先回答新问题', '旧梗收束']));
   });
 
@@ -160,12 +171,49 @@ describe('activeUserGuidancePresentation', () => {
     const projection = projectActiveUserGuidance({
       chat: buildChat({ runtimeEventsV2: [intervention], memberIds: ['mei', 'hui'] }),
       members,
-      messages: [buildMessage({ type: 'ai', senderId: 'mei', senderName: '美羊羊', content: '我先发。', timestamp: 40 })],
+      messages: [{
+        ...buildMessage({ type: 'ai', senderId: 'mei', senderName: '美羊羊', content: '我先发。', timestamp: 40 }),
+        metadata: {
+          attachments: [{
+            id: 'image-mei',
+            kind: 'image',
+            status: 'queued',
+            altText: '美羊羊发的图',
+            promptText: '美羊羊发的图',
+            createdAt: 40,
+            updatedAt: 40,
+          }],
+        },
+      }],
       aiProfiles: [imageProfile()],
       now: 50,
     });
 
     expect(projection?.chips).toEqual(expect.arrayContaining(['待回应：灰太狼', '已回应：美羊羊', '图片能力可用']));
+    expect(projection?.detailRows).toEqual(expect.arrayContaining([
+      { label: '锁定角色', value: '灰太狼', tone: 'primary' },
+      { label: '已完成', value: '美羊羊', tone: 'success' },
+    ]));
     expect(projection?.warning).toBeUndefined();
+  });
+
+  it('keeps showing a requested actor as locked when they only continued old banter', () => {
+    const projection = projectActiveUserGuidance({
+      chat: buildChat(),
+      members,
+      messages: [
+        buildMessage({ id: 'guide', type: 'god', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 30 }),
+        buildMessage({ id: 'banter', type: 'ai', senderId: 'mei', senderName: '美羊羊', content: '蕉太狼你怎么又想到香蕉啦～', timestamp: 40 }),
+      ],
+      aiProfiles: [imageProfile()],
+      now: 50,
+    });
+
+    expect(projection?.emphasisLabel).toBe('等待 美羊羊 发出 灰太狼 的图片');
+    expect(projection?.detailRows).toEqual(expect.arrayContaining([
+      { label: '锁定角色', value: '美羊羊', tone: 'primary' },
+      { label: '图片能力', value: '图片能力可用', tone: 'success' },
+    ]));
+    expect(projection?.chips).toEqual(expect.not.arrayContaining(['已回应：美羊羊']));
   });
 });

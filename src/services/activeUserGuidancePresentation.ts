@@ -12,6 +12,12 @@ export interface ActiveUserGuidanceProjection {
   statusLabel: string;
   statusHint: string;
   sourceLabel: string;
+  emphasisLabel: string;
+  detailRows: Array<{
+    label: string;
+    value: string;
+    tone?: 'primary' | 'success' | 'warning' | 'neutral';
+  }>;
   chips: string[];
   debugChips: string[];
   warning?: string;
@@ -44,14 +50,14 @@ function buildImageCapabilityLabel(actorIds: string[], members: AICharacter[], a
   if (!actorIds.length) {
     const preferred = getPreferredAIProfile(aiProfiles, 'image');
     return preferred?.apiKey && preferred.model
-      ? { label: '图片模型可用', warning: '' }
-      : { label: '未配置图片模型', warning: '当前没有可用图片模型，角色只能文字回应，不能真正生成图片。' };
+      ? { label: '图片模型可用', warning: '', tone: 'success' as const }
+      : { label: '未配置图片模型', warning: '当前没有可用图片模型，角色只能文字回应，不能真正生成图片。', tone: 'warning' as const };
   }
   const actors = actorIds.map((id) => members.find((member) => member.id === id)).filter(Boolean) as AICharacter[];
   const capableNames = actors.filter((actor) => resolveImageProfile(actor, aiProfiles)).map((actor) => actor.name);
-  if (actors.length && capableNames.length === actors.length) return { label: '图片能力可用', warning: '' };
-  if (capableNames.length) return { label: `部分可用：${capableNames.join('、')}`, warning: '只有部分被点名角色具备图片模型，其他角色会按文本能力回应。' };
-  return { label: '未配置图片模型', warning: '被点名角色没有可用图片模型，无法真正生成图片。' };
+  if (actors.length && capableNames.length === actors.length) return { label: '图片能力可用', warning: '', tone: 'success' as const };
+  if (capableNames.length) return { label: `部分可用：${capableNames.join('、')}`, warning: '只有部分被点名角色具备图片模型，其他角色会按文本能力回应。', tone: 'warning' as const };
+  return { label: '未配置图片模型', warning: '被点名角色没有可用图片模型，无法真正生成图片。', tone: 'warning' as const };
 }
 
 function latestHumanGuidanceSource(messages: Message[], rawText: string) {
@@ -90,6 +96,54 @@ function buildGuidanceEffectText(params: {
     return '这是一条点名回应，引导会先压过旧梗和关系压力。';
   }
   return `旧话题已被覆盖，下一轮需要先围绕“${clipText(params.focusText)}”回答、表态或追问；旧梗只能顺手收束，不能继续带跑。`;
+}
+
+function buildGuidanceEmphasis(params: {
+  kind: string;
+  activeTargetNames: string;
+  subjectNames: string;
+  focusText: string;
+}) {
+  if (params.kind === 'media_request') {
+    if (params.activeTargetNames && params.subjectNames) return `等待 ${params.activeTargetNames} 发出 ${params.subjectNames} 的图片`;
+    if (params.activeTargetNames) return `等待 ${params.activeTargetNames} 完成图片请求`;
+    return '图片请求正在生效';
+  }
+  if (params.kind === 'direct_reply') {
+    if (params.activeTargetNames) return `等待 ${params.activeTargetNames} 回应点名`;
+    return '点名回应正在生效';
+  }
+  return `当前焦点：${clipText(params.focusText, 36)}`;
+}
+
+function buildGuidanceDetailRows(params: {
+  guidanceKind: string;
+  focusText: string;
+  activeTargetNames: string;
+  actorNames: string;
+  completedActorNames: string;
+  subjectNames: string;
+  imageCapability?: ReturnType<typeof buildImageCapabilityLabel> | null;
+}) {
+  if (params.guidanceKind === 'media_request') {
+    return [
+      params.activeTargetNames ? { label: '锁定角色', value: params.activeTargetNames, tone: 'primary' as const } : null,
+      params.subjectNames ? { label: '图片对象', value: params.subjectNames, tone: 'neutral' as const } : null,
+      params.imageCapability ? { label: '图片能力', value: params.imageCapability.label, tone: params.imageCapability.tone } : null,
+      params.completedActorNames ? { label: '已完成', value: params.completedActorNames, tone: 'success' as const } : null,
+    ].filter((item): item is NonNullable<typeof item> => Boolean(item));
+  }
+  if (params.guidanceKind === 'direct_reply') {
+    return [
+      params.activeTargetNames ? { label: '锁定角色', value: params.activeTargetNames, tone: 'primary' as const } : null,
+      params.actorNames && !params.activeTargetNames ? { label: '点名角色', value: params.actorNames, tone: 'neutral' as const } : null,
+      params.completedActorNames ? { label: '已回应', value: params.completedActorNames, tone: 'success' as const } : null,
+    ].filter((item): item is NonNullable<typeof item> => Boolean(item));
+  }
+  return [
+    { label: '当前焦点', value: clipText(params.focusText, 48), tone: 'primary' as const },
+    { label: '调度要求', value: '先回应新问题，旧梗只作收束', tone: 'neutral' as const },
+  ];
 }
 
 export function projectActiveUserGuidance(params: {
@@ -146,6 +200,7 @@ export function projectActiveUserGuidance(params: {
     completedActorNames,
     subjectNames,
   });
+  const focusText = guidance.focusText || guidance.rawText;
 
   return {
     title,
@@ -154,6 +209,21 @@ export function projectActiveUserGuidance(params: {
     sourceLabel: latestHumanGuidanceSource(params.messages, guidance.rawText),
     statusLabel: guidance.kind === 'media_request' ? '显式请求' : '生效中',
     statusHint: '这条引导优先于叙事线、矛盾线、关系压力和最近接梗；点名执行者时，调度会先锁定尚未回应的目标角色。',
+    emphasisLabel: buildGuidanceEmphasis({
+      kind: guidance.kind,
+      activeTargetNames,
+      subjectNames,
+      focusText,
+    }),
+    detailRows: buildGuidanceDetailRows({
+      guidanceKind: guidance.kind,
+      focusText,
+      activeTargetNames,
+      actorNames,
+      completedActorNames,
+      subjectNames,
+      imageCapability,
+    }),
     chips,
     debugChips: [
       `动作 ${formatBeatType(guidance.beatType as never)}`,

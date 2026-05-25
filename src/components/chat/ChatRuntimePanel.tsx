@@ -400,10 +400,16 @@ function renderConflictPanel(chat: GroupChat, members: AICharacter[]) {
 
 function renderActiveGuidancePanel(guidance: ActiveUserGuidanceProjection | null, isAdvancedRuntimeView: boolean, members: DisplayTextMember[] = []) {
   if (!guidance) return null;
+  const detailTone = (tone: NonNullable<ActiveUserGuidanceProjection['detailRows'][number]['tone']> | undefined) => {
+    if (tone === 'primary') return 'rgba(25, 118, 210, 0.09)';
+    if (tone === 'success') return 'rgba(46, 125, 50, 0.09)';
+    if (tone === 'warning') return 'rgba(237, 108, 2, 0.11)';
+    return 'action.hover';
+  };
   return (
     <SurfaceCard>
       <SectionHeader title="当前引导" subtitle="最新用户或开发者指令会优先于叙事、矛盾和关系压力。" dense action={isAdvancedRuntimeView ? <DebugChip /> : undefined} />
-      <Box sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'rgba(25, 118, 210, 0.06)' }}>
+      <Box sx={{ p: { xs: 1, sm: 1.1 }, borderRadius: 2, bgcolor: 'rgba(25, 118, 210, 0.07)', border: '1px solid', borderColor: 'primary.light' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="caption" color="text.secondary">{cleanText(`${guidance.sourceLabel} · ${guidance.statusLabel}`, members)}</Typography>
@@ -413,6 +419,19 @@ function renderActiveGuidancePanel(guidance: ActiveUserGuidanceProjection | null
             <Chip size="small" label={guidance.statusLabel} color="primary" variant="outlined" sx={{ height: 22, cursor: 'help' }} />
           </Tooltip>
         </Box>
+        <Typography variant="body2" sx={{ mt: 0.65, fontWeight: 700 }}>
+          {cleanText(guidance.emphasisLabel, members)}
+        </Typography>
+        {guidance.detailRows.length ? (
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 0.65, mt: 0.8 }}>
+            {guidance.detailRows.map((row) => (
+              <Box key={`${row.label}-${row.value}`} sx={{ p: 0.75, borderRadius: 1.5, bgcolor: detailTone(row.tone) }}>
+                <Typography variant="caption" color="text.secondary">{row.label}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 700, mt: 0.15, wordBreak: 'break-word' }}>{cleanText(row.value, members)}</Typography>
+              </Box>
+            ))}
+          </Box>
+        ) : null}
         <Typography variant="body2" sx={{ mt: 0.65 }}>
           {cleanText(guidance.effectText, members)}
         </Typography>
@@ -749,6 +768,8 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
   return (
     <>
       <PageSection spacing={1.5}>
+        {renderActiveGuidancePanel(activeGuidance, isAdvancedRuntimeView, members)}
+
         <SurfaceCard>
           <SectionHeader title="动态概览" dense />
           <Stack spacing={0.8}>
@@ -768,7 +789,6 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
         </SurfaceCard>
 
         {renderConflictPanel(chat, members)}
-        {renderActiveGuidancePanel(activeGuidance, isAdvancedRuntimeView, members)}
         {renderMediaGenerationPanel(mediaItems, isAdvancedRuntimeView, members)}
 
         <SurfaceCard>
