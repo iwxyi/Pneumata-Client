@@ -19,6 +19,7 @@ import LayeredMemoryPanel from '../memory/LayeredMemoryPanel';
 import { getPreferredAIProfile } from '../../types/settings';
 import {
   buildCharacterExperienceArtifactContext,
+  buildCharacterFinalLetterContext,
   buildLocalCharacterExperienceArtifact,
   generateCharacterExperienceArtifact,
   type CharacterExperienceArtifactKind,
@@ -531,7 +532,11 @@ function CharacterExperienceArtifactPanel({ character, relatedCharacters }: { ch
   const [generatedTexts, setGeneratedTexts] = useState<Partial<Record<CharacterExperienceArtifactKind, string>>>({});
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const context = useMemo(() => buildCharacterExperienceArtifactContext(character, relatedCharacters), [character, relatedCharacters]);
+  const context = useMemo(() => (
+    kind === 'final_letter'
+      ? buildCharacterFinalLetterContext(character, relatedCharacters)
+      : buildCharacterExperienceArtifactContext(character, relatedCharacters)
+  ), [character, kind, relatedCharacters]);
   const localPreview = useMemo(() => buildLocalCharacterExperienceArtifact(kind, context), [kind, context]);
   const hasGeneratedText = Boolean(generatedTexts[kind]);
   const displayedText = generatedTexts[kind] || localPreview;

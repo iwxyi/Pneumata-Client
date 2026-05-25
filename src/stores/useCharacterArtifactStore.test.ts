@@ -82,7 +82,9 @@ describe('useCharacterArtifactStore', () => {
     await artifactStore.getState().resumeProcessing();
     await new Promise((resolve) => setTimeout(resolve, 0));
     const letters = artifactStore.getState().getLetterEntries();
-    expect(letters.some((item) => item.kind === 'final_letter')).toBe(true);
+    const finalLetter = letters.find((item) => item.kind === 'final_letter');
+    expect(finalLetter).toBeTruthy();
+    expect(finalLetter?.text).toContain('没说完的话留给小雨');
     expect(artifactStore.getState().unreadLetterCount).toBe(2);
   });
 });

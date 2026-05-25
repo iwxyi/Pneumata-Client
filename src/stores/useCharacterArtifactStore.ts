@@ -5,7 +5,7 @@ import type { AIModelProfile } from '../types/settings';
 import { getPreferredAIProfile } from '../types/settings';
 import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
 import { CLIENT_STORE_SCHEMA_VERSION } from './storeMigrations';
-import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact } from '../services/characterExperienceArtifacts';
+import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact } from '../services/characterExperienceArtifacts';
 import { useSettingsStore } from './useSettingsStore';
 
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
@@ -229,7 +229,7 @@ function deriveBirthLetterText(character: Partial<AICharacter>, relatedCharacter
 }
 
 function deriveFinalLetterText(character: Partial<AICharacter>, relatedCharacters: Array<{ id: string; name: string }>) {
-  return buildLocalCharacterExperienceArtifact('final_letter', buildCharacterExperienceArtifactContext(character, relatedCharacters));
+  return buildLocalCharacterExperienceArtifact('final_letter', buildCharacterFinalLetterContext(character, relatedCharacters));
 }
 
 async function generateLetterArtifactText(
