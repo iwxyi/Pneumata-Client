@@ -9,6 +9,8 @@ const persistStreamingMessageMock = vi.fn();
 const finalizeChatCommitRuntimeMock = vi.fn();
 const applyChatCommitRuntimeMock = vi.fn();
 const createRuntimeMemoryTimerMock = vi.fn();
+const processRichMessageMediaMock = vi.fn();
+const isLocalOnlyMediaModeMock = vi.fn();
 
 vi.mock('./chatCommitMessage', () => ({
   persistStreamingMessage: (...args: unknown[]) => persistStreamingMessageMock(...args),
@@ -24,6 +26,11 @@ vi.mock('./chatCommitApply', () => ({
 
 vi.mock('./runtimeMemoryMonitor', () => ({
   createRuntimeMemoryTimer: (...args: unknown[]) => createRuntimeMemoryTimerMock(...args),
+}));
+
+vi.mock('./richMessageMedia', () => ({
+  processRichMessageMedia: (...args: unknown[]) => processRichMessageMediaMock(...args),
+  isLocalOnlyMediaMode: () => isLocalOnlyMediaModeMock(),
 }));
 
 function buildChat() {
@@ -82,6 +89,8 @@ describe('runChatCommitPipeline', () => {
     };
     finalizeChatCommitRuntimeMock.mockResolvedValue(transition);
     applyChatCommitRuntimeMock.mockResolvedValue(undefined);
+    processRichMessageMediaMock.mockResolvedValue(undefined);
+    isLocalOnlyMediaModeMock.mockReturnValue(true);
   });
 
   it('immediately reuses the streaming bubble when committing the final generated message', async () => {
@@ -121,6 +130,91 @@ describe('runChatCommitPipeline', () => {
     expect(persistStreamingMessageMock).toHaveBeenCalledWith(expect.objectContaining({
       existingLocalMessage: streamingMessage,
       deferLocalUpsert: false,
+      upsertMessage,
+    }));
+  });
+
+  it('waits for a server message id before processing queued media in cloud mode', async () => {
+    isLocalOnlyMediaModeMock.mockReturnValue(false);
+    const chat = buildChat();
+    const upsertMessage = vi.fn();
+    let onPersisted: ((message: Message) => void) | undefined;
+    const localMessage: Message = {
+      id: 'local-stream-1',
+      clientKey: 'local-stream-1',
+      chatId: chat.id,
+      type: 'ai',
+      senderId: 'char-1',
+      senderName: '甲',
+      content: '我把图发你看。',
+      emotion: 0,
+      timestamp: 123,
+      isDeleted: false,
+      metadata: {
+        attachments: [{
+          id: 'image-1',
+          kind: 'image',
+          status: 'queued',
+          promptText: 'A chat image',
+          altText: '一张图',
+          createdAt: 123,
+          updatedAt: 123,
+        }],
+      },
+    };
+    persistStreamingMessageMock.mockImplementation(async (params) => {
+      onPersisted = params.onPersisted;
+      return localMessage;
+    });
+
+    await runChatCommitPipeline({
+      api: DEFAULT_API_CONFIG,
+      chatId: chat.id,
+      chat,
+      characters: [{ id: 'char-1', name: '甲', modelProfileIds: {} } as AICharacter],
+      message: {
+        chatId: chat.id,
+        type: 'ai',
+        senderId: 'char-1',
+        senderName: '甲',
+        content: localMessage.content,
+        emotion: 0,
+        metadata: localMessage.metadata,
+      },
+      streamingMessage: null,
+      currentMessages: [],
+      aiProfiles: [{
+        id: 'image-default',
+        name: '默认图片',
+        type: 'image',
+        provider: 'openai',
+        apiKey: 'key',
+        baseUrl: 'https://example.test',
+        model: 'image-model',
+        isDefault: true,
+      }],
+      onCommit: vi.fn(),
+      upsertMessage,
+      updateCharacter: vi.fn(),
+      updateChat: vi.fn(),
+      appendEventMessage: vi.fn(),
+      recordSpeak: vi.fn(),
+    });
+
+    expect(processRichMessageMediaMock).not.toHaveBeenCalled();
+    expect(upsertMessage).toHaveBeenCalledWith(expect.objectContaining({
+      id: localMessage.id,
+      metadata: expect.objectContaining({
+        generation: expect.objectContaining({ status: 'queued' }),
+      }),
+    }));
+
+    const serverMessage = { ...localMessage, serverId: 'server-message-1' };
+    onPersisted?.(serverMessage);
+
+    expect(processRichMessageMediaMock).toHaveBeenCalledWith(expect.objectContaining({
+      message: serverMessage,
+      aiProfiles: expect.arrayContaining([expect.objectContaining({ id: 'image-default' })]),
       upsertMessage,
     }));
   });

@@ -23,6 +23,7 @@ import { formatInnerImpulseLabel, formatSoulMetricLabel } from '../../services/r
 import { formatScenarioBoardKind, formatScenarioRoleLabel } from '../../services/scenarioPresentation';
 import { projectMemoryReactivationItems, projectMemoryRecallItems } from '../../services/memoryRecallPresentation';
 import { projectActiveUserGuidance, type ActiveUserGuidanceProjection } from '../../services/activeUserGuidancePresentation';
+import { projectMediaGenerationItems, type ProjectedMediaGenerationItem } from '../../services/mediaGenerationPresentation';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -433,6 +434,44 @@ function renderActiveGuidancePanel(guidance: ActiveUserGuidanceProjection | null
   );
 }
 
+function renderMediaGenerationPanel(items: ProjectedMediaGenerationItem[], isAdvancedRuntimeView: boolean, members: DisplayTextMember[] = []) {
+  if (!items.length) return null;
+  return (
+    <SurfaceCard>
+      <SectionHeader title="媒体生成" subtitle="展示 AI 决策后的图片、语音附件状态。" dense action={isAdvancedRuntimeView ? <DebugChip /> : undefined} />
+      <Stack spacing={0.8}>
+        {items.map((item) => {
+          const body = (
+            <Box sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: item.tone }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="caption" color="text.secondary">{cleanText(item.title, members)}</Typography>
+                  <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 650 }}>{cleanText(item.summary, members)}</Typography>
+                </Box>
+                <Chip size="small" label={item.statusLabel} color={item.status === 'failed' ? 'error' : item.status === 'ready' ? 'success' : 'primary'} variant="outlined" sx={{ height: 22 }} />
+              </Box>
+              <Box sx={{ mt: 0.7 }}>
+                <StatChipRow items={item.chips.map((chip) => cleanText(chip, members))} />
+              </Box>
+              {isAdvancedRuntimeView && item.debugHint ? (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {cleanText(item.debugHint, members)}
+                </Typography>
+              ) : null}
+            </Box>
+          );
+          if (!item.debugHint || isAdvancedRuntimeView) return <Box key={item.key}>{body}</Box>;
+          return (
+            <Tooltip key={item.key} title={<Box sx={{ whiteSpace: 'pre-line' }}>{cleanText(item.debugHint, members)}</Box>} arrow placement="top-start">
+              <Box sx={{ '&:hover': { textDecoration: 'none' } }}>{body}</Box>
+            </Tooltip>
+          );
+        })}
+      </Stack>
+    </SurfaceCard>
+  );
+}
+
 function renderInnerLifePanel(members: AICharacter[], isZh: boolean) {
   const language = isZh ? 'zh' : 'en';
   const items = members
@@ -706,6 +745,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
     .slice(0, timelineExpanded ? 16 : 6), [projectedTimeline, timelineFilter, timelineExpanded]);
   const decisionTrace = useMemo(() => projectRuntimeDecisionTrace(messages, 5, members), [members, messages]);
   const activeGuidance = useMemo(() => projectActiveUserGuidance({ chat, members, messages, aiProfiles }), [aiProfiles, chat, members, messages]);
+  const mediaItems = useMemo(() => projectMediaGenerationItems(messages, members, 5), [members, messages]);
   const structureRows = [...buildScenarioRows(chat, members, i18n.language), ...buildBoardRows(chat, i18n.language)];
 
   return (
@@ -731,6 +771,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
 
         {renderConflictPanel(chat, members)}
         {renderActiveGuidancePanel(activeGuidance, isAdvancedRuntimeView, members)}
+        {renderMediaGenerationPanel(mediaItems, isAdvancedRuntimeView, members)}
 
         <SurfaceCard>
           <SectionHeader title="运行时间线" dense />

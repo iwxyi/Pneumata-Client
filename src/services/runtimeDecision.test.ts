@@ -274,6 +274,57 @@ describe('runtimeDecision', () => {
     expect(afterBoth.directorIntent?.source).not.toBe('user_message');
   });
 
+  it('does not let non-target replies consume targeted media guidance', () => {
+    const intervention: RuntimeEventV2 = {
+      id: 'evt-director-media',
+      conversationId: 'chat-1',
+      kind: 'director_intervention',
+      createdAt: 30,
+      summary: '让美羊羊发灰太狼证件照',
+      visibility: 'moderator_only',
+      payload: {
+        intent: 'force_reply',
+        targetActorIds: ['a'],
+        pressure: 0.98,
+        text: '美羊羊发个灰太狼证件照的图片',
+        maxTurns: 1,
+        expiresAt: 1000,
+        userGuidance: {
+          kind: 'media_request',
+          rawText: '美羊羊发个灰太狼证件照的图片',
+          actorIds: ['a'],
+          mentionedActorIds: ['a', 'b'],
+          mediaRequest: {
+            kind: 'image',
+            subjectActorIds: ['b'],
+            subjectText: '灰太狼',
+            actionText: '发个灰太狼证件照的图片',
+          },
+          focusText: '美羊羊发个灰太狼证件照的图片',
+          beatType: 'answer',
+          pressure: 0.98,
+          maxTurns: 1,
+          reason: '用户指定角色发送或创作图片。',
+        },
+      },
+    };
+    const projection = projectRuntimePressure({
+      chat: buildChat({ runtimeEventsV2: [intervention] }),
+      characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼'), buildCharacter('c', '懒羊羊')],
+      messages: [
+        buildMessage({ type: 'ai', senderId: 'b', senderName: '灰太狼', content: '我看看你画得够不够帅。', timestamp: 40 }),
+        buildMessage({ type: 'ai', senderId: 'c', senderName: '懒羊羊', content: '我也想看。', timestamp: 45 }),
+      ],
+      now: 50,
+    });
+
+    expect(projection.directorIntent).toMatchObject({
+      source: 'user_message',
+      targetActorIds: ['a'],
+    });
+    expect(projection.directorIntent?.userGuidance?.kind).toBe('media_request');
+  });
+
   it('expires a director intervention after one AI response by default', () => {
     const intervention: RuntimeEventV2 = {
       id: 'evt-director',

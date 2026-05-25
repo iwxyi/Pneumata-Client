@@ -30,7 +30,7 @@ async function ensureDataUrl(value: string) {
   return blobToDataUrl(blob);
 }
 
-function isLocalOnlyMode() {
+export function isLocalOnlyMediaMode() {
   return (typeof localStorage !== 'undefined' ? localStorage.getItem('miragetea-auth-mode') : 'local') !== 'cloud';
 }
 
@@ -63,7 +63,7 @@ export async function processRichMessageMedia(params: {
     const generatingMetadata = updateAttachment(params.message.metadata, attachment.id, { status: 'generating' });
     let currentMessage = { ...params.message, metadata: generatingMetadata };
     params.upsertMessage(currentMessage);
-    if (!isLocalOnlyMode()) void api.updateMessageMetadata(currentMessage.serverId || currentMessage.id, generatingMetadata).catch(() => undefined);
+    if (!isLocalOnlyMediaMode()) void api.updateMessageMetadata(currentMessage.serverId || currentMessage.id, generatingMetadata).catch(() => undefined);
 
     try {
       if (attachment.kind === 'image') {
@@ -82,7 +82,7 @@ export async function processRichMessageMedia(params: {
         const first = images[0];
         if (!first?.dataUrl) throw new Error('图片生成失败');
         const dataUrl = await ensureDataUrl(first.dataUrl);
-        const asset = isLocalOnlyMode()
+        const asset = isLocalOnlyMediaMode()
           ? { id: undefined, url: dataUrl, mimeType: first.mimeType, sizeBytes: dataUrl.length, checksum: undefined }
           : await api.createMediaAsset({
               chatId: currentMessage.chatId,
@@ -101,7 +101,7 @@ export async function processRichMessageMedia(params: {
         });
         currentMessage = { ...currentMessage, metadata: readyMetadata };
         params.upsertMessage(currentMessage);
-        if (!isLocalOnlyMode()) void api.updateMessageMetadata(currentMessage.serverId || currentMessage.id, readyMetadata).catch(() => undefined);
+        if (!isLocalOnlyMediaMode()) void api.updateMessageMetadata(currentMessage.serverId || currentMessage.id, readyMetadata).catch(() => undefined);
       }
 
       if (attachment.kind === 'audio') {
@@ -116,7 +116,7 @@ export async function processRichMessageMedia(params: {
           format: 'mp3',
         });
         const dataUrl = await blobToDataUrl(audio.blob);
-        const asset = isLocalOnlyMode()
+        const asset = isLocalOnlyMediaMode()
           ? { id: undefined, url: dataUrl, mimeType: audio.mimeType, sizeBytes: dataUrl.length, checksum: undefined }
           : await api.createMediaAsset({
               chatId: currentMessage.chatId,
@@ -134,7 +134,7 @@ export async function processRichMessageMedia(params: {
         });
         currentMessage = { ...currentMessage, metadata: readyMetadata };
         params.upsertMessage(currentMessage);
-        if (!isLocalOnlyMode()) void api.updateMessageMetadata(currentMessage.serverId || currentMessage.id, readyMetadata).catch(() => undefined);
+        if (!isLocalOnlyMediaMode()) void api.updateMessageMetadata(currentMessage.serverId || currentMessage.id, readyMetadata).catch(() => undefined);
       }
     } catch (error) {
       const failedMetadata = updateAttachment(currentMessage.metadata, attachment.id, {
@@ -143,7 +143,7 @@ export async function processRichMessageMedia(params: {
       });
       currentMessage = { ...currentMessage, metadata: failedMetadata };
       params.upsertMessage(currentMessage);
-      if (!isLocalOnlyMode()) void api.updateMessageMetadata(currentMessage.serverId || currentMessage.id, failedMetadata).catch(() => undefined);
+      if (!isLocalOnlyMediaMode()) void api.updateMessageMetadata(currentMessage.serverId || currentMessage.id, failedMetadata).catch(() => undefined);
     }
   }
 }

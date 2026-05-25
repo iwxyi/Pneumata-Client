@@ -63,35 +63,41 @@ function isDirectorInterventionExpired(event: NonNullable<GroupChat['runtimeEven
 }
 
 function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AICharacter[], messages: Message[], now: number): DirectorIntent | null {
-  const event = (chat.runtimeEventsV2 || []).slice().reverse().find((item) => item.kind === 'director_intervention' && !isDirectorInterventionExpired(item, now) && isDirectorInterventionActive(item, messages, now));
-  if (!event) return null;
-  const payload = event.payload as Record<string, unknown>;
-  const text = typeof payload.text === 'string' ? payload.text : event.summary;
-  const guidance = typeof payload.userGuidance === 'object' && payload.userGuidance
-    ? payload.userGuidance as UserGuidanceIntent
-    : parseUserGuidanceIntent(text || '', characters);
-  const respondedActorIds = getAiRespondersAfter(messages, event.createdAt);
-  const pendingGuidanceActorIds = guidance?.actorIds.length
-    ? guidance.actorIds.filter((actorId) => !respondedActorIds.has(actorId))
-    : [];
-  if (guidance?.actorIds.length && !pendingGuidanceActorIds.length) return null;
-  const targetActorIds = uniqueKnownActorIds(payload.targetActorIds, characters);
-  const guidanceTargetActorIds = uniqueKnownActorIds(getGuidanceTargetActorIds(guidance), characters);
-  const activeTargetActorIds = pendingGuidanceActorIds.length
-    ? uniqueKnownActorIds(pendingGuidanceActorIds, characters)
-    : targetActorIds.length
-      ? targetActorIds
-      : guidanceTargetActorIds;
-  if (guidance?.actorIds.length && !activeTargetActorIds.length) return null;
-  return {
-    source: 'user_message',
-    targetLineId: typeof payload.targetLineId === 'string' ? payload.targetLineId : undefined,
-    beatType: resolveDirectorBeatType(payload.intent),
-    targetActorIds: activeTargetActorIds,
-    pressure: clamp01(typeof payload.pressure === 'number' ? payload.pressure : 0.86),
-    reason: text || 'A director intervention is steering the next room beat.',
-    userGuidance: guidance,
-  };
+  const events = (chat.runtimeEventsV2 || []).slice().reverse().filter((item) => item.kind === 'director_intervention' && !isDirectorInterventionExpired(item, now));
+  for (const event of events) {
+    const payload = event.payload as Record<string, unknown>;
+    const text = typeof payload.text === 'string' ? payload.text : event.summary;
+    const storedGuidance = typeof payload.userGuidance === 'object' && payload.userGuidance
+      ? payload.userGuidance as UserGuidanceIntent
+      : null;
+    const guidance = storedGuidance || parseUserGuidanceIntent(text || '', characters);
+    const respondedActorIds = getAiRespondersAfter(messages, event.createdAt);
+    const pendingGuidanceActorIds = storedGuidance?.actorIds.length
+      ? storedGuidance.actorIds.filter((actorId) => !respondedActorIds.has(actorId))
+      : [];
+    const hasTargetedGuidance = Boolean(storedGuidance?.actorIds.length);
+    if (!hasTargetedGuidance && !isDirectorInterventionActive(event, messages, now)) continue;
+    if (hasTargetedGuidance && !pendingGuidanceActorIds.length) continue;
+
+    const targetActorIds = uniqueKnownActorIds(payload.targetActorIds, characters);
+    const guidanceTargetActorIds = uniqueKnownActorIds(getGuidanceTargetActorIds(guidance), characters);
+    const activeTargetActorIds = pendingGuidanceActorIds.length
+      ? uniqueKnownActorIds(pendingGuidanceActorIds, characters)
+      : targetActorIds.length
+        ? targetActorIds
+        : guidanceTargetActorIds;
+    if (hasTargetedGuidance && !activeTargetActorIds.length) continue;
+    return {
+      source: 'user_message',
+      targetLineId: typeof payload.targetLineId === 'string' ? payload.targetLineId : undefined,
+      beatType: resolveDirectorBeatType(payload.intent),
+      targetActorIds: activeTargetActorIds,
+      pressure: clamp01(typeof payload.pressure === 'number' ? payload.pressure : 0.86),
+      reason: text || 'A director intervention is steering the next room beat.',
+      userGuidance: guidance,
+    };
+  }
+  return null;
 }
 
 export function projectRuntimePressure(params: {

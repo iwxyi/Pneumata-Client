@@ -7,7 +7,7 @@ import { buildChatCommitContext } from './chatCommitContext';
 import { finalizeChatCommitRuntime } from './chatCommitRuntime';
 import { applyChatCommitRuntime } from './chatCommitApply';
 import { createRuntimeMemoryTimer } from './runtimeMemoryMonitor';
-import { processRichMessageMedia } from './richMessageMedia';
+import { isLocalOnlyMediaMode, processRichMessageMedia } from './richMessageMedia';
 
 export interface ChatCommitPipelineResult {
   persistedMessage: Message;
@@ -50,22 +50,32 @@ export async function runChatCommitPipeline(params: {
 
   try {
     const nextMessages = params.currentMessages.filter((message) => !message.isDeleted && message.id !== params.streamingMessage?.id);
+    let mediaProcessingStarted = false;
+    const startMediaProcessing = (message: Message) => {
+      if (!params.aiProfiles?.length) return;
+      if (mediaProcessingStarted) return;
+      if (!message.metadata?.attachments?.some((item) => item.status === 'queued')) return;
+      mediaProcessingStarted = true;
+      const speaker = params.characters.find((character) => character.id === message.senderId);
+      void processRichMessageMedia({
+        message,
+        character: speaker,
+        aiProfiles: params.aiProfiles || [],
+        upsertMessage: params.upsertMessage,
+      });
+    };
     const persistedMessage = await persistStreamingMessage({
       message: params.message,
       upsertMessage: params.upsertMessage,
       existingLocalMessage: params.streamingMessage,
       deferLocalUpsert: false,
+      onPersisted: (message) => {
+        if (!isLocalOnlyMediaMode()) startMediaProcessing(message);
+      },
     });
     if (params.aiProfiles?.length && persistedMessage.metadata?.attachments?.some((item) => item.status === 'queued')) {
-      const speaker = params.characters.find((character) => character.id === persistedMessage.senderId);
-      const startMediaProcessing = () => void processRichMessageMedia({
-        message: persistedMessage,
-        character: speaker,
-        aiProfiles: params.aiProfiles || [],
-        upsertMessage: params.upsertMessage,
-      });
-      if (persistedMessage.serverId) {
-        startMediaProcessing();
+      if (isLocalOnlyMediaMode() || persistedMessage.serverId) {
+        startMediaProcessing(persistedMessage);
       } else {
         params.upsertMessage({
           ...persistedMessage,
@@ -78,7 +88,6 @@ export async function runChatCommitPipeline(params: {
             },
           },
         });
-        void Promise.resolve().then(startMediaProcessing);
       }
     }
     timer.mark('after-persist-message', {
