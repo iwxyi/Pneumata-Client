@@ -16,23 +16,23 @@ export interface PresentedExperienceChange {
   updatedAt: number;
 }
 
-const EXPERIENCE_LENS_LABELS: Record<string, string> = {
-  llm_memory_objective_event: '客观事件',
-  llm_memory_character_perspective: '主观理解',
-  llm_memory_relationship_imprint: '关系印记',
-  llm_memory_emotion_effect: '情绪后效',
-  llm_memory_growth_signal: '成长信号',
-  llm_memory_distillation: 'LLM沉淀',
-  memory_distillation: '本地蒸馏',
-  expression_feedback: '表达反馈',
-  interaction: '互动',
-  relationship_delta: '关系变化',
-  room_shift: '房间态势',
-  message_generated: '消息生成',
-  inner_life_repair: '内心找补',
-  inner_life_attention: '想被看见',
-  ai_direct_starter_message: 'AI私聊',
-  ai_direct_target_message: 'AI私聊',
+const EXPERIENCE_LENS_LABELS: Record<string, { zh: string; en: string }> = {
+  llm_memory_objective_event: { zh: '客观事件', en: 'Objective event' },
+  llm_memory_character_perspective: { zh: '主观理解', en: 'Character perspective' },
+  llm_memory_relationship_imprint: { zh: '关系印记', en: 'Relationship imprint' },
+  llm_memory_emotion_effect: { zh: '情绪后效', en: 'Emotion effect' },
+  llm_memory_growth_signal: { zh: '成长信号', en: 'Growth signal' },
+  llm_memory_distillation: { zh: 'LLM沉淀', en: 'LLM distillation' },
+  memory_distillation: { zh: '本地蒸馏', en: 'Local distillation' },
+  expression_feedback: { zh: '表达反馈', en: 'Expression feedback' },
+  interaction: { zh: '互动', en: 'Interaction' },
+  relationship_delta: { zh: '关系变化', en: 'Relationship change' },
+  room_shift: { zh: '房间态势', en: 'Room state' },
+  message_generated: { zh: '消息生成', en: 'Message generated' },
+  inner_life_repair: { zh: '内心找补', en: 'Inner repair' },
+  inner_life_attention: { zh: '想被看见', en: 'Attention seeking' },
+  ai_direct_starter_message: { zh: 'AI私聊', en: 'AI direct chat' },
+  ai_direct_target_message: { zh: 'AI私聊', en: 'AI direct chat' },
 };
 
 const MEMORY_SCOPE_LABELS: Record<MemoryItem['scope'], string> = {
@@ -43,8 +43,11 @@ const MEMORY_SCOPE_LABELS: Record<MemoryItem['scope'], string> = {
   system_runtime: '运行态',
 };
 
-export function getExperienceLensLabel(sourceTag?: string | null) {
-  return sourceTag ? EXPERIENCE_LENS_LABELS[sourceTag] || null : null;
+export function getExperienceLensLabel(sourceTag?: string | null, language: string = 'zh') {
+  if (!sourceTag) return null;
+  const labels = EXPERIENCE_LENS_LABELS[sourceTag];
+  if (!labels) return null;
+  return language.startsWith('zh') ? labels.zh : labels.en;
 }
 
 function memberNameMap(members: AICharacter[]) {

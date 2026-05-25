@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Box, Button, Chip, Stack, Tab, Tabs, Tooltip, Typography } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import StatChipRow from '../common/StatChipRow';
@@ -10,64 +11,72 @@ import { isRuntimeEvidenceMemory } from '../../services/memoryPresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { isMemoryAnchorCandidate } from '../../services/memoryLifecycle';
 
-function getMemoryLayerLabel(layer: MemoryItem['layer']) {
-  const labels: Record<MemoryItem['layer'], string> = {
-    long_term: '长期记忆',
-    episodic: '情节记忆',
-    working: '即时记忆',
-  };
-  return labels[layer] || layer;
+function isZh(language: string) {
+  return language.startsWith('zh');
 }
 
-function getMemoryScopeLabel(scope: MemoryItem['scope']) {
-  const labels: Record<MemoryItem['scope'], string> = {
-    character_self: '角色自我',
-    relationship: '关系',
-    conversation: '会话',
-    thread: '线程',
-    system_runtime: '系统运行态',
+function getMemoryLayerLabel(layer: MemoryItem['layer'], language: string) {
+  const labels: Record<MemoryItem['layer'], { zh: string; en: string }> = {
+    long_term: { zh: '长期记忆', en: 'Long-term' },
+    episodic: { zh: '情节记忆', en: 'Episodic' },
+    working: { zh: '即时记忆', en: 'Working' },
   };
-  return labels[scope] || scope;
+  const item = labels[layer];
+  return item ? (isZh(language) ? item.zh : item.en) : layer;
 }
 
-function getMemoryKindLabel(kind: MemoryItem['kind']) {
-  const labels: Record<MemoryItem['kind'], string> = {
-    trait_evidence: '特征证据',
-    obsession: '执念',
-    taboo: '禁区',
-    bond: '连结',
-    resentment: '芥蒂',
-    bias: '偏向',
-    decision: '决策',
-    conflict: '冲突',
-    status_shift: '状态变化',
-    artifact: '产物',
-    thread_effect: '线程影响',
+function getMemoryScopeLabel(scope: MemoryItem['scope'], language: string) {
+  const labels: Record<MemoryItem['scope'], { zh: string; en: string }> = {
+    character_self: { zh: '角色自我', en: 'Character self' },
+    relationship: { zh: '关系', en: 'Relationship' },
+    conversation: { zh: '会话', en: 'Conversation' },
+    thread: { zh: '线程', en: 'Thread' },
+    system_runtime: { zh: '系统运行态', en: 'Runtime' },
   };
-  return labels[kind] || kind;
+  const item = labels[scope];
+  return item ? (isZh(language) ? item.zh : item.en) : scope;
 }
 
-function buildMemoryMetaItems(item: MemoryItem, includeDebugDetails: boolean) {
+function getMemoryKindLabel(kind: MemoryItem['kind'], language: string) {
+  const labels: Record<MemoryItem['kind'], { zh: string; en: string }> = {
+    trait_evidence: { zh: '特征证据', en: 'Trait evidence' },
+    obsession: { zh: '执念', en: 'Obsession' },
+    taboo: { zh: '禁区', en: 'Taboo' },
+    bond: { zh: '连结', en: 'Bond' },
+    resentment: { zh: '芥蒂', en: 'Resentment' },
+    bias: { zh: '偏向', en: 'Bias' },
+    decision: { zh: '决策', en: 'Decision' },
+    conflict: { zh: '冲突', en: 'Conflict' },
+    status_shift: { zh: '状态变化', en: 'Status shift' },
+    artifact: { zh: '产物', en: 'Artifact' },
+    thread_effect: { zh: '线程影响', en: 'Thread effect' },
+  };
+  const item = labels[kind];
+  return item ? (isZh(language) ? item.zh : item.en) : kind;
+}
+
+function buildMemoryMetaItems(item: MemoryItem, includeDebugDetails: boolean, language: string) {
   const userFacing = [
-    getExperienceLensLabel(item.sourceTag),
-    getMemoryKindLabel(item.kind),
+    getExperienceLensLabel(item.sourceTag, language),
+    getMemoryKindLabel(item.kind, language),
   ].filter(Boolean) as string[];
   if (!includeDebugDetails) return userFacing;
   return [
     ...userFacing,
-    getMemoryLayerLabel(item.layer),
-    getMemoryScopeLabel(item.scope),
+    getMemoryLayerLabel(item.layer, language),
+    getMemoryScopeLabel(item.scope, language),
   ].filter(Boolean) as string[];
 }
 
-function memoryStrengthLabel(item: MemoryItem) {
+function memoryStrengthLabel(item: MemoryItem, language: string) {
   const salience = Number.isFinite(item.salience) ? item.salience : 0;
-  if (item.archivedAt) return '已沉入旧档';
-  if (item.lastActivatedAt && Date.now() - item.lastActivatedAt < 7 * 24 * 60 * 60 * 1000) return '最近回温';
-  if (item.layer === 'long_term' && (item.origin === 'distilled' || item.reinforcementCount >= 3 || salience >= 0.78)) return '锚点候选';
-  if (salience >= 0.78) return '印象很深';
-  if (salience >= 0.5) return '印象明确';
-  return '印象较轻';
+  const zh = isZh(language);
+  if (item.archivedAt) return zh ? '已沉入旧档' : 'Archived';
+  if (item.lastActivatedAt && Date.now() - item.lastActivatedAt < 7 * 24 * 60 * 60 * 1000) return zh ? '最近回温' : 'Recently reactivated';
+  if (item.layer === 'long_term' && (item.origin === 'distilled' || item.reinforcementCount >= 3 || salience >= 0.78)) return zh ? '锚点候选' : 'Anchor candidate';
+  if (salience >= 0.78) return zh ? '印象很深' : 'Strong impression';
+  if (salience >= 0.5) return zh ? '印象明确' : 'Clear impression';
+  return zh ? '印象较轻' : 'Light impression';
 }
 
 function memoryDisplayTime(item: MemoryItem) {
@@ -78,24 +87,27 @@ function newestFirst(items: MemoryItem[]) {
   return items.slice().sort((left, right) => memoryDisplayTime(right) - memoryDisplayTime(left));
 }
 
-function buildEvidenceTitle(item: MemoryItem, formatMemoryText?: (text: string, item: MemoryItem) => string) {
+function buildEvidenceTitle(item: MemoryItem, language: string, formatMemoryText?: (text: string, item: MemoryItem) => string) {
   const evidenceSource = item.evidenceText || item.summary || item.text;
   const evidenceTitle = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(evidenceSource, item) : evidenceSource);
-  return evidenceTitle || '暂无证据文本';
+  return evidenceTitle || (isZh(language) ? '暂无证据文本' : 'No evidence text yet');
 }
 
-function MemoryCard({ item, includeDebugDetails, formatMemoryText }: { item: MemoryItem; includeDebugDetails: boolean; formatMemoryText?: (text: string, item: MemoryItem) => string }) {
+function MemoryCard({ item, includeDebugDetails, language, formatMemoryText }: { item: MemoryItem; includeDebugDetails: boolean; language: string; formatMemoryText?: (text: string, item: MemoryItem) => string }) {
   const sourceText = item.summary || item.text;
   const displayText = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(sourceText, item) : sourceText);
-  const evidenceTitle = buildEvidenceTitle(item, formatMemoryText);
-  const metaItems = [memoryStrengthLabel(item), ...buildMemoryMetaItems(item, includeDebugDetails)].filter(Boolean) as string[];
+  const evidenceTitle = buildEvidenceTitle(item, language, formatMemoryText);
+  const metaItems = [memoryStrengthLabel(item, language), ...buildMemoryMetaItems(item, includeDebugDetails, language)].filter(Boolean) as string[];
+  const debugText = isZh(language)
+    ? `强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}% · 显著性 ${(item.salience * 100).toFixed(0)}%`
+    : `Reinforced ${item.reinforcementCount} · Confidence ${(item.confidence * 100).toFixed(0)}% · Salience ${(item.salience * 100).toFixed(0)}%`;
   return (
     <Tooltip title={evidenceTitle} arrow placement="top-start">
       <Box sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2, bgcolor: item.archivedAt ? 'transparent' : 'action.hover', border: '1px solid', borderColor: item.archivedAt ? 'divider' : 'rgba(148, 163, 184, 0.12)', opacity: item.archivedAt ? 0.72 : 1 }}>
         <Stack spacing={0.6}>
           <Typography variant="body2" sx={{ fontWeight: 700 }}>{displayText}</Typography>
           <StatChipRow items={metaItems} />
-          {includeDebugDetails ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', opacity: 0.85 }}>{`强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}% · 显著性 ${(item.salience * 100).toFixed(0)}%`}</Typography> : null}
+          {includeDebugDetails ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', opacity: 0.85 }}>{debugText}</Typography> : null}
         </Stack>
       </Box>
     </Tooltip>
@@ -121,19 +133,31 @@ function buildMemoryGroups(items: MemoryItem[]) {
   };
 }
 
-function buildMemoryFilters(groups: ReturnType<typeof buildMemoryGroups>, includeDebugDetails: boolean) {
+function buildMemoryFilters(groups: ReturnType<typeof buildMemoryGroups>, includeDebugDetails: boolean, language: string) {
+  const zh = isZh(language);
   return ([
-    { key: 'all', label: '全部', items: groups.all, hint: '当前活跃记忆池，会进入后续检索与表达。' },
-    { key: 'anchors', label: '锚点', items: groups.anchors, hint: '由长期、反复强化或蒸馏记忆投影出的生命锚点候选。' },
-    { key: 'longTerm', label: '长期', items: groups.longTerm, hint: '稳定判断、长期关系模式和可复用结论。' },
-    { key: 'episodic', label: '片段', items: groups.episodic, hint: '阶段性事件和仍有上下文温度的经历。' },
-    includeDebugDetails ? { key: 'working', label: '即时', items: groups.working, hint: '当前几轮或运行态证据，通常只在调试时查看。' } : null,
-    { key: 'relationship', label: '关系', items: groups.relationship, hint: '围绕具体对象形成的关系印象。' },
-    { key: 'self', label: '自我', items: groups.self, hint: '角色如何理解自己、偏好、创伤或成长。' },
-    { key: 'conversation', label: '会话/线程', items: groups.conversation, hint: '群聊、单聊或私聊线程里的共同记忆。' },
-    includeDebugDetails ? { key: 'expressionFeedback', label: '表达反馈', items: groups.expressionFeedback, hint: '用户对表达风格的纠偏记忆。' } : null,
-    groups.archived.length ? { key: 'archived', label: '旧档', items: groups.archived, hint: '已归档或沉下去的记忆，只有被人物、话题或旧梗唤醒时才会回到上下文。' } : null,
+    { key: 'all', label: zh ? '全部' : 'All', items: groups.all, hint: zh ? '当前活跃记忆池，会进入后续检索与表达。' : 'Active memories available to later retrieval and expression.' },
+    { key: 'anchors', label: zh ? '锚点' : 'Anchors', items: groups.anchors, hint: zh ? '由长期、反复强化或蒸馏记忆投影出的生命锚点候选。' : 'Long-lived or reinforced memories that may become character anchors.' },
+    { key: 'longTerm', label: zh ? '长期' : 'Long-term', items: groups.longTerm, hint: zh ? '稳定判断、长期关系模式和可复用结论。' : 'Stable judgments, durable relationship patterns, and reusable conclusions.' },
+    { key: 'episodic', label: zh ? '片段' : 'Episodes', items: groups.episodic, hint: zh ? '阶段性事件和仍有上下文温度的经历。' : 'Recent episodes and experiences that still carry context.' },
+    includeDebugDetails ? { key: 'working', label: zh ? '即时' : 'Working', items: groups.working, hint: zh ? '当前几轮或运行态证据，通常只在调试时查看。' : 'Current-turn or runtime evidence, usually for debugging.' } : null,
+    { key: 'relationship', label: zh ? '关系' : 'Relationships', items: groups.relationship, hint: zh ? '围绕具体对象形成的关系印象。' : 'Relationship impressions formed around specific people.' },
+    { key: 'self', label: zh ? '自我' : 'Self', items: groups.self, hint: zh ? '角色如何理解自己、偏好、创伤或成长。' : 'How the character understands itself, preferences, wounds, or growth.' },
+    { key: 'conversation', label: zh ? '会话/线程' : 'Conversation', items: groups.conversation, hint: zh ? '群聊、单聊或私聊线程里的共同记忆。' : 'Shared memory from group, direct, or private threads.' },
+    includeDebugDetails ? { key: 'expressionFeedback', label: zh ? '表达反馈' : 'Feedback', items: groups.expressionFeedback, hint: zh ? '用户对表达风格的纠偏记忆。' : 'User corrections about the character expression style.' } : null,
+    groups.archived.length ? { key: 'archived', label: zh ? '旧档' : 'Archive', items: groups.archived, hint: zh ? '已归档或沉下去的记忆，只有被人物、话题或旧梗唤醒时才会回到上下文。' : 'Archived memories that return only when cues reactivate them.' } : null,
   ].filter(Boolean)) as Array<{ key: MemoryFilterKey; label: string; items: MemoryItem[]; hint: string }>;
+}
+
+function localizeKnownPanelText(text: string, language: string) {
+  if (isZh(language)) return text;
+  const labels: Record<string, string> = {
+    记忆沉淀: 'Memory sediment',
+    长期记忆: 'Long-term memory',
+    暂无沉淀记忆: 'No settled memory yet',
+    暂无结构化记忆: 'No structured memory yet',
+  };
+  return labels[text] || text;
 }
 
 interface LayeredMemoryPanelProps {
@@ -159,24 +183,28 @@ export default function LayeredMemoryPanel({
   showDebugChip = true,
   formatMemoryText,
 }: LayeredMemoryPanelProps) {
+  const { i18n } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [activeFilter, setActiveFilter] = useState<MemoryFilterKey>('all');
+  const language = i18n.language;
   const visibleSourceMemories = useMemo(
     () => memories.filter((item) => includeRuntimeEvidence ? true : !isRuntimeEvidenceMemory(item)),
     [includeRuntimeEvidence, memories],
   );
   const groups = useMemo(() => buildMemoryGroups(visibleSourceMemories), [visibleSourceMemories]);
-  const filters = useMemo(() => buildMemoryFilters(groups, includeRuntimeEvidence), [groups, includeRuntimeEvidence]);
+  const filters = useMemo(() => buildMemoryFilters(groups, includeRuntimeEvidence, language), [groups, includeRuntimeEvidence, language]);
   const filteredMemories = useMemo(() => {
     const selected = filters.find((item) => item.key === activeFilter) || filters[0];
     return selected ? selected.items : [];
   }, [activeFilter, filters]);
   const activeMeta = filters.find((item) => item.key === activeFilter) || filters[0];
   const visibleMemories = showAll ? filteredMemories : expanded ? filteredMemories.slice(0, expandedCount) : filteredMemories.slice(0, collapsedCount);
+  const displayTitle = localizeKnownPanelText(title, language);
+  const displayEmptyText = localizeKnownPanelText(emptyText, language);
 
   return (
     <SurfaceCard>
-      <SectionHeader title={title} dense action={includeRuntimeEvidence && showDebugChip ? <DebugChip /> : undefined} />
+      <SectionHeader title={displayTitle} dense action={includeRuntimeEvidence && showDebugChip ? <DebugChip /> : undefined} />
       <Stack spacing={1.15}>
         {visibleSourceMemories.length ? (
           <Tabs
@@ -192,8 +220,8 @@ export default function LayeredMemoryPanel({
           </Tabs>
         ) : null}
         {activeMeta ? <Typography variant="caption" color="text.secondary">{activeMeta.hint}</Typography> : null}
-        {visibleMemories.length ? <Stack spacing={1}>{visibleMemories.map((item) => <MemoryCard key={item.id} item={item} includeDebugDetails={includeRuntimeEvidence} formatMemoryText={formatMemoryText} />)}</Stack> : <Typography variant="caption" color="text.secondary">{emptyText}</Typography>}
-        {!showAll && filteredMemories.length > collapsedCount ? <Button size="small" variant="text" onClick={() => setExpanded((prev) => !prev)}>{expanded ? '收起' : `查看更多 ${filteredMemories.length}`}</Button> : null}
+        {visibleMemories.length ? <Stack spacing={1}>{visibleMemories.map((item) => <MemoryCard key={item.id} item={item} includeDebugDetails={includeRuntimeEvidence} language={language} formatMemoryText={formatMemoryText} />)}</Stack> : <Typography variant="caption" color="text.secondary">{displayEmptyText}</Typography>}
+        {!showAll && filteredMemories.length > collapsedCount ? <Button size="small" variant="text" onClick={() => setExpanded((prev) => !prev)}>{expanded ? (isZh(language) ? '收起' : 'Collapse') : `${isZh(language) ? '查看更多' : 'Show more'} ${filteredMemories.length}`}</Button> : null}
       </Stack>
     </SurfaceCard>
   );

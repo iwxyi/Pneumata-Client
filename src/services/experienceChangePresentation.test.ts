@@ -41,6 +41,7 @@ function relationship(overrides: Partial<RelationshipLedgerEntry>): Relationship
 describe('experienceChangePresentation', () => {
   it('labels multi-lens memory source tags', () => {
     expect(getExperienceLensLabel('llm_memory_character_perspective')).toBe('主观理解');
+    expect(getExperienceLensLabel('llm_memory_character_perspective', 'en')).toBe('Character perspective');
     expect(getExperienceLensLabel('unknown')).toBeNull();
   });
 

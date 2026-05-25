@@ -130,8 +130,8 @@ function formatMemoryDistillationMergeMode(payload: Record<string, unknown>, isZ
 }
 
 function formatMemorySourceTag(sourceTag: string | null | undefined, isZh: boolean) {
-  const lensLabel = getExperienceLensLabel(sourceTag);
-  if (lensLabel && isZh) return lensLabel;
+  const lensLabel = getExperienceLensLabel(sourceTag, isZh ? 'zh' : 'en');
+  if (lensLabel) return lensLabel;
   const labels: Record<string, string> = {
     llm_memory_objective_event: isZh ? '客观事件' : 'Objective event',
     llm_memory_character_perspective: isZh ? '主观理解' : 'Character perspective',
