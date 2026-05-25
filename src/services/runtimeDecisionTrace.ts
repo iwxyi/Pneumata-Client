@@ -1,5 +1,6 @@
 import type { Message } from '../types/message';
 import { projectMessageRuntimeClues, type MessageRuntimeClueSection } from './messageRuntimeClues';
+import { formatExpressionLengthLabel, formatInnerImpulseLabel, formatInnerToneLabel, formatResponseSurfaceKindLabel, formatRoleFitLabel, formatSurfaceBasisLabel } from './runtimeDecisionLabels';
 import { formatBeatType, formatDirectorSource, formatKnownReason, formatNarrativeLineType } from './runtimeInsightPresentation';
 
 type RuntimeDecisionDirectorIntentMeta = NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['directorIntent'];
@@ -71,75 +72,6 @@ function formatDirectorReason(reason: string | undefined) {
   return reason ? formatKnownReason(reason) : null;
 }
 
-function formatInnerTone(tone: string | undefined) {
-  const labels: Record<string, string> = {
-    casual: '随意',
-    defensive: '防御',
-    teasing: '调侃',
-    serious: '认真',
-    tired: '疲惫',
-    vulnerable: '脆弱',
-  };
-  return tone ? labels[tone] || tone : '未定';
-}
-
-function formatResponseSurfaceKind(kind: string | undefined) {
-  const labels: Record<string, string> = {
-    chat: '聊天气泡',
-    professional: '专业表达',
-    creative: '创作表达',
-    longform: '长文表达',
-  };
-  return kind ? labels[kind] || kind : '未定';
-}
-
-function formatRoleFit(roleFit: string | undefined) {
-  const labels: Record<string, string> = {
-    limited: '角色不适合长篇',
-    ordinary: '普通匹配',
-    capable: '角色能力支持',
-  };
-  return roleFit ? labels[roleFit] || roleFit : '普通匹配';
-}
-
-function formatSurfaceBasis(reason: string) {
-  const labels: Record<string, string> = {
-    'topic:creative-task': '主题请求创作',
-    'topic:professional-task': '主题请求专业表达',
-    'style:roleplay-creative': '角色扮演风格支持创作',
-    'style:debate-structured': '辩论风格支持结构化',
-    'style:brainstorm-structured': '头脑风暴支持结构化',
-    'style:debate-reasoning': '辩论风格需要推理',
-    'style:brainstorm-reasoning': '头脑风暴需要推理',
-    'style:free': '自由聊天风格',
-    'style:debate': '辩论风格',
-    'style:brainstorm': '头脑风暴风格',
-    'style:roleplay': '角色扮演风格',
-    'role:limited': '角色能力限制长文',
-    'role:ordinary': '角色普通匹配',
-    'role:capable': '角色能力支持长文',
-    'mode:interview': '面试模式',
-    'mode:classroom': '课堂模式',
-    'mode:group_discussion': '小组讨论模式',
-    'mode:roundtable': '圆桌模式',
-    'context:chat': '上下文指定聊天',
-    'context:professional': '上下文指定专业',
-    'context:creative': '上下文指定创作',
-    'context:longform': '上下文指定长文',
-  };
-  return labels[reason] || reason;
-}
-
-function formatExpressionLength(length: string | undefined) {
-  const labels: Record<string, string> = {
-    micro: '极短',
-    short: '短句',
-    normal: '常规',
-    long: '长句',
-  };
-  return length ? labels[length] || length : '未定';
-}
-
 function buildExpressionTrace(innerLife: NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['innerLife'] | undefined, surface: NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['responseSurface'] | undefined) {
   const plan = innerLife?.expressionPlan;
   if (!plan && !surface) return { label: null, reasons: [], raw: null };
@@ -147,7 +79,7 @@ function buildExpressionTrace(innerLife: NonNullable<NonNullable<Message['metada
   const delayMs = typeof plan?.delayMs === 'number' ? plan.delayMs : 0;
   const typoLevel = typeof plan?.typoLevel === 'number' ? plan.typoLevel : 0;
   const allowWithdraw = Boolean(plan?.allowWithdraw);
-  const length = formatExpressionLength(plan?.length);
+  const length = formatExpressionLengthLabel(plan?.length);
   const labelParts = [
     `表达 ${length}`,
     messageCount > 1 ? `${messageCount} 条气泡倾向` : '单条倾向',
@@ -156,7 +88,7 @@ function buildExpressionTrace(innerLife: NonNullable<NonNullable<Message['metada
   ].filter(Boolean);
   const reasons = [
     innerLife?.impulse ? formatSpeakerScoreReason(`inner:${innerLife.impulse}`) : '',
-    innerLife?.tone ? `语气：${formatInnerTone(innerLife.tone)}` : '',
+    innerLife?.tone ? `语气：${formatInnerToneLabel(innerLife.tone)}` : '',
     delayMs >= 1800 ? `延迟较长：${delayMs}ms` : delayMs > 0 ? `延迟：${delayMs}ms` : '',
     typoLevel >= 5 ? `手滑/粗糙度较高：${typoLevel}` : typoLevel > 0 ? `手滑/粗糙度：${typoLevel}` : '',
     messageCount > 1 ? '内心表达计划倾向拆成几拍' : '当前更适合一条说完',
@@ -191,17 +123,10 @@ export function formatSpeakerScoreReason(reason: string) {
     'director:proactive': '主动性适合接话',
     'director:cool_down:empathy': '共情较高，适合降温',
     'director:faction:shared': '与目标存在同阵营倾向',
-    'inner:answer': '内在冲动：回应',
-    'inner:show_off': '内在冲动：证明自己',
-    'inner:defend_face': '内在冲动：维护面子',
-    'inner:seek_attention': '内在冲动：想被看见',
-    'inner:comfort': '内在冲动：安慰',
-    'inner:repair': '内在冲动：找补/靠近',
-    'inner:mock': '内在冲动：调侃/挑刺',
-    'inner:avoid': '内在冲动：回避',
-    'inner:stay_silent': '内在冲动：沉默',
   };
   if (labels[reason]) return labels[reason];
+  const innerImpulse = reason.match(/^inner:(.+)$/);
+  if (innerImpulse) return `内在冲动：${formatInnerImpulseLabel(innerImpulse[1])}`;
   const directorTarget = reason.match(/^director:([^:]+):target$/);
   if (directorTarget) {
     const beatLabels: Record<string, string> = {
@@ -247,17 +172,17 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6): Run
       const reasonLabels = reasons.map(formatSpeakerScoreReason);
       const innerLife = decision?.innerLife;
       const innerLifeLabel = innerLife
-        ? `${formatSpeakerScoreReason(`inner:${innerLife.impulse}`)} · ${formatInnerTone(innerLife.tone)} · 压力 ${formatPressure(innerLife.pressure)}`
+        ? `${formatSpeakerScoreReason(`inner:${innerLife.impulse}`)} · ${formatInnerToneLabel(innerLife.tone)} · 压力 ${formatPressure(innerLife.pressure)}`
         : null;
       const surface = decision?.responseSurface;
       const surfaceBasis = Array.isArray(surface?.basis)
-        ? surface.basis.filter((item): item is string => typeof item === 'string').map(formatSurfaceBasis)
+        ? surface.basis.filter((item): item is string => typeof item === 'string').map((reason) => formatSurfaceBasisLabel(reason))
         : [];
       const rawSurface = surface
         ? `${surface.kind}/${surface.roleFit}${surface.allowMarkdown ? '/markdown' : ''}`
         : null;
       const surfaceLabel = surface
-        ? `${formatResponseSurfaceKind(surface.kind)} · ${formatRoleFit(surface.roleFit)}${surface.allowMarkdown ? ' · Markdown' : ''}`
+        ? `${formatResponseSurfaceKindLabel(surface.kind)} · ${formatRoleFitLabel(surface.roleFit)}${surface.allowMarkdown ? ' · Markdown' : ''}`
         : null;
       const expression = buildExpressionTrace(innerLife, surface);
       const readableDirectorReason = formatDirectorReason(decision?.directorIntent?.reason);

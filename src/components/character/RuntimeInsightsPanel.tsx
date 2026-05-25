@@ -26,6 +26,7 @@ import {
 import { summarizeExpressionFeedbackInfluence } from '../../services/expressionFeedbackInfluence';
 import { buildMemberInnerLifeChips } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { formatInnerImpulseLabel } from '../../services/runtimeDecisionLabels';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -214,22 +215,8 @@ function EmotionPanel({ character, developerMode }: { character: Partial<AIChara
 }
 
 function getInnerImpulseLabel(impulse: NonNullable<AICharacter['soulState']>['lastImpulse'] | undefined, language: string) {
-  const isZh = language.startsWith('zh');
-  const labels: Record<string, string> = {
-    answer: isZh ? '回应' : 'Answer',
-    show_off: isZh ? '表现' : 'Show',
-    defend_face: isZh ? '护住面子' : 'Save face',
-    seek_attention: isZh ? '想被看见' : 'Seeking notice',
-    comfort: isZh ? '接住对方' : 'Comfort',
-    repair: isZh ? '别扭找补' : 'Repair',
-    mock: isZh ? '带刺调侃' : 'Tease',
-    avoid: isZh ? '回避' : 'Avoid',
-    change_topic: isZh ? '转开话题' : 'Change topic',
-    stay_silent: isZh ? '沉默' : 'Silent',
-    send_emoji: isZh ? '用表情代替话' : 'Emoji',
-    withdraw: isZh ? '想撤回' : 'Withdraw',
-  };
-  return impulse ? labels[impulse] || impulse : (isZh ? '尚未形成明显冲动' : 'No clear impulse yet');
+  if (!impulse) return language.startsWith('zh') ? '尚未形成明显冲动' : 'No clear impulse yet';
+  return formatInnerImpulseLabel(impulse, language, 'insight');
 }
 
 function buildSoulSummary(character: Partial<AICharacter>, language: string) {

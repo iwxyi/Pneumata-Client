@@ -1,5 +1,6 @@
 import type { AICharacter } from '../types/character';
 import { summarizeExpressionFeedbackInfluence } from './expressionFeedbackInfluence';
+import { formatInnerImpulseLabel, formatSoulMetricLabel } from './runtimeDecisionLabels';
 
 export interface MemberInnerLifeChip {
   label: string;
@@ -14,65 +15,19 @@ export interface MemberInnerLifeSummary {
   debugHint: string;
 }
 
-function formatImpulseLabel(impulse: string | undefined, isZh: boolean) {
-  const zhLabels: Record<string, string> = {
-    answer: '想回应',
-    show_off: '想证明自己',
-    defend_face: '在维护面子',
-    seek_attention: '想被看见',
-    comfort: '想接住别人',
-    repair: '别扭找补',
-    mock: '带点刺',
-    avoid: '想躲开',
-    change_topic: '想岔开话题',
-    stay_silent: '暂时沉默',
-    send_emoji: '想用表情带过',
-    withdraw: '说了又想吞回去',
-  };
-  const enLabels: Record<string, string> = {
-    answer: 'Wants to answer',
-    show_off: 'Wants to prove themself',
-    defend_face: 'Defending face',
-    seek_attention: 'Wants notice',
-    comfort: 'Wants to catch someone',
-    repair: 'Awkward repair',
-    mock: 'A little sharp',
-    avoid: 'Wants to avoid',
-    change_topic: 'Wants to deflect',
-    stay_silent: 'Holding silence',
-    send_emoji: 'Would rather use an emoji',
-    withdraw: 'Wants to take it back',
-  };
-  if (!impulse) return isZh ? '内心未定' : 'Unsettled';
-  return (isZh ? zhLabels : enLabels)[impulse] || impulse;
-}
-
 function buildDebugHint(member: AICharacter, language: string) {
   const soul = member.soulState;
   if (!soul) return '';
-  const isZh = language.startsWith('zh');
-  const pairs = isZh
-    ? [
-        ['能量', soul.energy],
-        ['注意', soul.attention],
-        ['被忽视感', soul.loneliness],
-        ['压抑', soul.repression],
-        ['面子风险', soul.shame],
-        ['酸意', soul.envy],
-        ['房间安全感', soul.trustInRoom],
-        ['未被接住', soul.ignoredStreak],
-      ]
-    : [
-        ['energy', soul.energy],
-        ['attention', soul.attention],
-        ['loneliness', soul.loneliness],
-        ['repression', soul.repression],
-        ['shame', soul.shame],
-        ['envy', soul.envy],
-        ['room trust', soul.trustInRoom],
-        ['ignored streak', soul.ignoredStreak],
-      ];
-  return pairs.map(([label, value]) => `${label} ${Math.round(Number(value) || 0)}`).join(' / ');
+  return [
+    ['energy', soul.energy],
+    ['attention', soul.attention],
+    ['loneliness', soul.loneliness],
+    ['repression', soul.repression],
+    ['shame', soul.shame],
+    ['envy', soul.envy],
+    ['trustInRoom', soul.trustInRoom],
+    ['ignoredStreak', soul.ignoredStreak],
+  ].map(([label, value]) => `${formatSoulMetricLabel(String(label), language)} ${Math.round(Number(value) || 0)}`).join(' / ');
 }
 
 export function buildMemberInnerLifeChips(member: AICharacter, language: string): MemberInnerLifeChip[] {
@@ -133,7 +88,7 @@ export function buildMemberInnerLifeSummary(member: AICharacter, language: strin
   if (!soul) return null;
   const isZh = language.startsWith('zh');
   const chips = buildMemberInnerLifeChips(member, language);
-  const title = chips[0]?.label || formatImpulseLabel(soul.lastImpulse, isZh);
+  const title = chips[0]?.label || formatInnerImpulseLabel(soul.lastImpulse, language, 'member');
   const fallbackText = isZh
     ? '最近互动还没有留下特别清晰的内心余波。'
     : 'Recent interactions have not left a strong inner residue yet.';
@@ -142,7 +97,7 @@ export function buildMemberInnerLifeSummary(member: AICharacter, language: strin
     title,
     text,
     chips: chips.length ? chips : [{
-      label: formatImpulseLabel(soul.lastImpulse, isZh),
+      label: formatInnerImpulseLabel(soul.lastImpulse, language, 'member'),
       hint: text,
       color: 'default',
     }],

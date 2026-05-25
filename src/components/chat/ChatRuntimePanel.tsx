@@ -20,6 +20,7 @@ import { formatConflictPressureLabel, formatConflictTypeLabel, parseRuntimeEvent
 import { buildMemberInnerLifeSummary } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { retrieveRelevantMemories } from '../../services/memoryRetrieval';
+import { formatInnerImpulseLabel, formatSoulMetricLabel } from '../../services/runtimeDecisionLabels';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -392,39 +393,8 @@ function renderConflictPanel(chat: GroupChat, members: AICharacter[]) {
   );
 }
 
-function formatSoulKey(key: string) {
-  const labels: Record<string, string> = {
-    energy: '能量',
-    attention: '注意',
-    loneliness: '被忽视感',
-    repression: '压抑',
-    shame: '面子风险',
-    envy: '酸意',
-    trustInRoom: '房间安全感',
-    ignoredStreak: '未被接住',
-  };
-  return labels[key] || key;
-}
-
-function formatInnerImpulse(impulse: string | undefined) {
-  const labels: Record<string, string> = {
-    answer: '回应',
-    show_off: '证明自己',
-    defend_face: '维护面子',
-    seek_attention: '想被看见',
-    comfort: '安慰',
-    repair: '找补/靠近',
-    mock: '调侃/挑刺',
-    avoid: '回避',
-    change_topic: '岔开话题',
-    stay_silent: '沉默',
-    send_emoji: '发表情',
-    withdraw: '撤回/吞话',
-  };
-  return impulse ? labels[impulse] || impulse : '未形成';
-}
-
 function renderInnerLifePanel(members: AICharacter[], isZh: boolean) {
+  const language = isZh ? 'zh' : 'en';
   const items = members
     .filter((member) => member.soulState)
     .slice()
@@ -439,7 +409,7 @@ function renderInnerLifePanel(members: AICharacter[], isZh: boolean) {
           const state = member.soulState;
           if (!state) return null;
           const summary = buildMemberInnerLifeSummary(member, isZh ? 'zh-CN' : 'en');
-          const chips = summary?.chips.map((chip) => chip.label) || [`冲动 ${formatInnerImpulse(state.lastImpulse)}`];
+          const chips = summary?.chips.map((chip) => chip.label) || [`${isZh ? '冲动' : 'Impulse'} ${formatInnerImpulseLabel(state.lastImpulse, language)}`];
           return (
             <Box key={member.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
@@ -448,7 +418,7 @@ function renderInnerLifePanel(members: AICharacter[], isZh: boolean) {
                   <Chip size="small" label="参数" color="warning" variant="outlined" sx={{ height: 20, cursor: 'help' }} />
                 </Tooltip>
               </Box>
-              <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 650 }}>{summary?.title || formatInnerImpulse(state.lastImpulse)}</Typography>
+              <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 650 }}>{summary?.title || formatInnerImpulseLabel(state.lastImpulse, language)}</Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>
                 {cleanText(summary?.text || state.lastImpulseReason || '最近互动还没有留下特别清晰的内心余波。')}
               </Typography>
@@ -809,7 +779,7 @@ function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedR
             {isAdvancedRuntimeView ? renderAdvancedDecisionDetail(item) : null}
             {isAdvancedRuntimeView && item.innerLifeState ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                {Object.entries(item.innerLifeState).slice(0, 6).map(([key, value]) => `${formatSoulKey(key)} ${String(value)}`).join(' / ')}
+                {Object.entries(item.innerLifeState).slice(0, 6).map(([key, value]) => `${formatSoulMetricLabel(key)} ${String(value)}`).join(' / ')}
               </Typography>
             ) : null}
           </Box>
