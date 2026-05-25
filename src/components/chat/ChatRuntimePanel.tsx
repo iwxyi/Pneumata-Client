@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import StatChipRow from '../common/StatChipRow';
@@ -426,7 +427,7 @@ function formatInnerImpulse(impulse: string | undefined) {
   return impulse ? labels[impulse] || impulse : '未形成';
 }
 
-function renderInnerLifePanel(members: AICharacter[]) {
+function renderInnerLifePanel(members: AICharacter[], isZh: boolean) {
   const items = members
     .filter((member) => member.soulState)
     .slice()
@@ -435,12 +436,12 @@ function renderInnerLifePanel(members: AICharacter[]) {
   if (!items.length) return null;
   return (
     <SurfaceCard>
-      <SectionHeader title="内心状态" dense action={buildDebugChip()} />
+      <SectionHeader title="内心状态" dense action={buildDebugChip(isZh)} />
       <Stack spacing={0.8}>
         {items.map((member) => {
           const state = member.soulState;
           if (!state) return null;
-          const summary = buildMemberInnerLifeSummary(member, 'zh-CN');
+          const summary = buildMemberInnerLifeSummary(member, isZh ? 'zh-CN' : 'en');
           const chips = summary?.chips.map((chip) => chip.label) || [`冲动 ${formatInnerImpulse(state.lastImpulse)}`];
           return (
             <Box key={member.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
@@ -632,13 +633,13 @@ function recallHint(item: MemoryRecallDisplayItem) {
   ].filter(Boolean).join('\n');
 }
 
-function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messages: Message[]) {
+function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messages: Message[], isZh: boolean) {
   const items = buildMemoryRecallItems(chat, members, messages);
   const reactivatedItems = buildMemoryReactivationItems(members, messages);
   if (!items.length && !reactivatedItems.length) return null;
   return (
     <SurfaceCard>
-      <SectionHeader title="记忆唤醒" subtitle="旧档不会常驻进入上下文，只有被人物、话题或旧梗命中时才会回流。" dense action={buildDebugChip()} />
+      <SectionHeader title="记忆唤醒" subtitle="旧档不会常驻进入上下文，只有被人物、话题或旧梗命中时才会回流。" dense action={buildDebugChip(isZh)} />
       <Stack spacing={0.8}>
         {items.map(({ member, item, source }) => (
           <Tooltip key={`${member.id}-${source}-${item.id}`} title={recallHint(item)} arrow placement="top-start">
@@ -765,11 +766,11 @@ function renderDecisionReasonGroup(group: ReturnType<typeof buildDecisionReasonG
   );
 }
 
-function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedRuntimeView: boolean) {
+function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedRuntimeView: boolean, isZh: boolean) {
   if (!items.length) return null;
   return (
     <SurfaceCard>
-      <SectionHeader title="发言调度" subtitle="解释本轮为什么由这个角色发言，以及表达形态如何被影响。" dense action={buildDebugChip()} />
+      <SectionHeader title="发言调度" subtitle="解释本轮为什么由这个角色发言，以及表达形态如何被影响。" dense action={buildDebugChip(isZh)} />
       <Stack spacing={0.8}>
         {items.map((item) => {
           const groups = buildDecisionReasonGroups(item);
@@ -801,6 +802,7 @@ function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedR
 }
 
 export default function ChatRuntimePanel({ chat, members, messages = [], privatePayloads = [] }: ChatRuntimePanelProps) {
+  const { i18n } = useTranslation();
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'note' | 'artifact' | 'relationship'>('all');
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const developerMode = useSettingsStore((state) => state.developerMode);
@@ -810,6 +812,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
   const isDeveloperView = developerMode && showDeveloperMemory;
   const isSpeechStyleView = developerMode && showSpeechStyle;
   const isAdvancedRuntimeView = developerMode && showAdvancedRuntimePanels;
+  const isZh = i18n.language.startsWith('zh');
 
   const roomRows = useMemo(() => buildOverviewRows(chat, members), [chat, members]);
   const projectedTimeline = useMemo(() => projectRuntimeTimeline(chat, members), [chat, members]);
@@ -865,9 +868,9 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
           </Stack>
         </SurfaceCard>
 
-        {isDeveloperView ? renderMemoryRecallPanel(chat, members, messages) : null}
-        {isAdvancedRuntimeView ? renderInnerLifePanel(members) : null}
-        {isAdvancedRuntimeView ? renderDecisionTracePanel(decisionTrace, isAdvancedRuntimeView) : null}
+        {isDeveloperView ? renderMemoryRecallPanel(chat, members, messages, isZh) : null}
+        {isAdvancedRuntimeView ? renderInnerLifePanel(members, isZh) : null}
+        {isAdvancedRuntimeView ? renderDecisionTracePanel(decisionTrace, isAdvancedRuntimeView, isZh) : null}
 
         {privatePayloads.length ? <PrivatePayloadPanel payloads={privatePayloads} /> : null}
         {(isSpeechStyleView || isAdvancedRuntimeView) ? <DialogueDebugPanel chat={chat} members={members} /> : null}

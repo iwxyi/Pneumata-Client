@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Box, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, Stack, Typography } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 import MarkdownText from '../common/MarkdownText';
 import type { Message } from '../../types/message';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -60,6 +61,7 @@ function renderRuntimeClueSection(label: string, items: string[]) {
 }
 
 function MessageRuntimeCluesCard({ target }: { target: Message | null }) {
+  const { i18n } = useTranslation();
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
@@ -70,7 +72,7 @@ function MessageRuntimeCluesCard({ target }: { target: Message | null }) {
     <Box sx={{ mb: 1.75, p: 1.25, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.08)', border: '1px solid', borderColor: 'warning.light', display: 'grid', gap: 1 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>运行线索</Typography>
-        <Chip size="small" label="调试" color="warning" variant="outlined" sx={{ height: 22 }} />
+        <Chip size="small" label={i18n.language.startsWith('zh') ? '调试' : 'Debug'} color="warning" variant="outlined" sx={{ height: 22 }} />
       </Box>
       {sections.map((section) => (
         <Box key={section.key}>
