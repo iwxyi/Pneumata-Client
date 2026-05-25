@@ -3,6 +3,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig } from '../types/settings';
 import { generateResponse } from './aiClient';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 
 type AnalysisContext = {
   chat: GroupChat;
@@ -52,12 +53,77 @@ function buildSpeakerProfile(message: Message, characters: AICharacter[]) {
   ].filter(Boolean).join('\n');
 }
 
+function formatResponseSurfaceKind(value: string | undefined) {
+  const labels: Record<string, string> = {
+    chat: '普通聊天',
+    professional: '专业讨论',
+    creative: '创作表达',
+    longform: '长段落表达',
+  };
+  return value ? labels[value] || sanitizeUserFacingText(value) : '';
+}
+
+function formatRoleFit(value: string | undefined) {
+  const labels: Record<string, string> = {
+    limited: '角色能力有限',
+    ordinary: '角色可普通参与',
+    capable: '角色适合展开',
+  };
+  return value ? labels[value] || sanitizeUserFacingText(value) : '';
+}
+
+function buildRuntimeDecisionContext(message: Message) {
+  const decision = message.metadata?.runtimeDecision;
+  if (!decision) return '';
+  const lines: string[] = [];
+  const recalled = decision.memoryContext?.recalledArchives || [];
+  if (recalled.length) {
+    lines.push('记忆线索：');
+    recalled.slice(0, 4).forEach((item) => {
+      const reason = item.recallReason ? `；原因：${sanitizeUserFacingText(item.recallReason)}` : '';
+      lines.push(`- 旧档注入：${sanitizeUserFacingText(item.summary)}${reason}`);
+    });
+  }
+  if (decision.innerLife) {
+    const innerParts = [
+      decision.innerLife.tone ? `语气倾向：${sanitizeUserFacingText(decision.innerLife.tone)}` : '',
+      decision.innerLife.impulse ? `表达冲动：${sanitizeUserFacingText(decision.innerLife.impulse)}` : '',
+      decision.innerLife.reason ? `内在原因：${sanitizeUserFacingText(decision.innerLife.reason)}` : '',
+    ].filter(Boolean);
+    if (innerParts.length) lines.push(`内心线索：${innerParts.join('；')}`);
+  }
+  if (decision.responseSurface) {
+    const surfaceParts = [
+      formatResponseSurfaceKind(decision.responseSurface.kind),
+      formatRoleFit(decision.responseSurface.roleFit),
+      decision.responseSurface.allowMarkdown ? '允许富文本' : '',
+      decision.responseSurface.basis?.length ? `依据：${decision.responseSurface.basis.map((item) => sanitizeUserFacingText(item)).join('、')}` : '',
+    ].filter(Boolean);
+    if (surfaceParts.length) lines.push(`表达形态：${surfaceParts.join('；')}`);
+  }
+  if (decision.directorIntent) {
+    const directorParts = [
+      decision.directorIntent.beatType ? `推进动作：${sanitizeUserFacingText(decision.directorIntent.beatType)}` : '',
+      decision.directorIntent.reason ? `原因：${sanitizeUserFacingText(decision.directorIntent.reason)}` : '',
+    ].filter(Boolean);
+    if (directorParts.length) lines.push(`调度线索：${directorParts.join('；')}`);
+  }
+  if (decision.narrativeLines?.length) {
+    lines.push(`叙事线索：${decision.narrativeLines.slice(0, 4).map((item) => sanitizeUserFacingText(item.title)).filter(Boolean).join('、')}`);
+  }
+  if (decision.expressionFeedback?.length) {
+    lines.push(`表达反馈：${decision.expressionFeedback.slice(0, 3).map((item) => sanitizeUserFacingText(item.label || item.text)).filter(Boolean).join('、')}`);
+  }
+  return lines.join('\n');
+}
+
 function buildSystemPrompt() {
   return `你是一个聊天消息分析助手。你的任务不是继续对话，而是解释一条聊天消息为何会这样表达。
 
 请用中文输出。可以使用常见 Markdown 增强可读性，例如小标题、加粗、斜体、无序/有序列表、引用、行内代码。
 不要使用 Markdown 表格，不要输出 JSON，不要写代码块，不要输出原始 HTML。
 必须结合目标消息、上下文和发送者设定进行分析，避免空泛套话。
+如果看到“本轮运行线索”，可以解释它的人类可读含义，但不要原样输出内部字段名、分数、ID 或调试术语。
 如果使用 Markdown 小标题，仍必须保留下面的编号，例如“## 1. 一句话总评”，不要改写或省略编号。
 
 按下面结构输出：
@@ -83,6 +149,7 @@ function buildSystemPrompt() {
 }
 
 function buildUserPrompt({ chat, message, messages, characters }: AnalysisContext) {
+  const runtimeDecisionContext = buildRuntimeDecisionContext(message);
   return [
     `聊天名称：${chat.name}`,
     `聊天类型：${chat.type}`,
@@ -98,6 +165,9 @@ function buildUserPrompt({ chat, message, messages, characters }: AnalysisContex
     '',
     '【附近上下文】',
     buildContextWindow(message, messages, characters),
+    runtimeDecisionContext ? '' : '',
+    runtimeDecisionContext ? '【本轮运行线索】' : '',
+    runtimeDecisionContext,
   ].filter(Boolean).join('\n');
 }
 
