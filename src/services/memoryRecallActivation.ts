@@ -5,6 +5,7 @@ import type { MemoryItem } from './memoryTypes';
 import { retrieveRelevantMemories } from './memoryRetrieval';
 import { compactMemoryItems } from './memoryLifecycle';
 import { accumulateCharacterRuntime } from './characterRuntime';
+import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 
 function latestTargetId(messages: Array<Pick<Message, 'senderId' | 'type' | 'isDeleted'>>, speakerId: string, memberIds: string[]) {
   const members = new Set(memberIds);
@@ -60,19 +61,35 @@ function mergeRecallTokens(item: MemoryItem, tokens: string[] | undefined) {
   return merged.length ? merged : undefined;
 }
 
+function buildDisplayMembers(characters: AICharacter[]): DisplayTextMember[] {
+  return characters.map((character) => ({ id: character.id, name: character.name || '成员' }));
+}
+
+function cleanRecallText(text: string | undefined | null, members: DisplayTextMember[], fallback = '') {
+  return sanitizeUserFacingText(text, members) || fallback;
+}
+
+function cleanRecallTokens(tokens: string[], members: DisplayTextMember[]) {
+  return Array.from(new Set(tokens
+    .map((token) => cleanRecallText(token, members))
+    .filter((token) => token && token !== '成员')))
+    .slice(0, 8);
+}
+
 function buildMemoryReactivationEvent(params: {
   speaker: AICharacter;
   recalled: Array<{ item: MemoryItem; matchedTokens: string[] }>;
+  members: DisplayTextMember[];
 }) {
   const summaries = params.recalled
     .slice(0, 2)
-    .map(({ item }) => item.summary || item.text)
+    .map(({ item }) => cleanRecallText(item.summary || item.text, params.members))
     .filter(Boolean);
-  const matchedTokens = Array.from(new Set(params.recalled.flatMap(({ matchedTokens }) => matchedTokens))).slice(0, 8);
+  const matchedTokens = cleanRecallTokens(params.recalled.flatMap(({ matchedTokens }) => matchedTokens), params.members);
   return {
     eventType: 'memory_reactivation',
     title: '旧记忆回温',
-    summary: `${params.speaker.name} 的旧记忆被当前发言重新唤醒：${summaries.join(' / ')}`,
+    summary: `${params.speaker.name} 的旧记忆被当前发言重新唤醒：${summaries.join(' / ') || '一些旧事'}`,
     timelineType: 'note' as const,
     metrics: {
       characterId: params.speaker.id,
@@ -80,13 +97,13 @@ function buildMemoryReactivationEvent(params: {
       matchedTokens,
       recalledMemories: params.recalled.slice(0, 4).map(({ item, matchedTokens: itemTokens }) => ({
         id: item.id,
-        summary: item.summary || item.text,
+        summary: cleanRecallText(item.summary || item.text, params.members, '旧记忆'),
         scope: item.scope,
         kind: item.kind,
         layer: item.layer,
-        recallReason: item.recallReason,
+        recallReason: item.recallReason ? cleanRecallText(item.recallReason, params.members) : undefined,
         recallScore: item.recallScore,
-        matchedTokens: itemTokens,
+        matchedTokens: cleanRecallTokens(itemTokens, params.members),
       })),
     },
   };
@@ -173,16 +190,21 @@ export function applyRecalledMemoryActivation(params: {
   if (!recalled.length) return params.transition;
 
   const now = Date.now();
+  const members = buildDisplayMembers(params.characters);
   const recalledIds = new Set(recalled.map(({ item }) => item.id));
   const nextMemories = compactMemoryItems(layeredMemories.map((item) => (
     recalledIds.has(item.id) ? activateMemoryItem(item, now) : item
   )), now);
+  const recalledSummary = recalled.slice(0, 2)
+    .map(({ item }) => cleanRecallText(item.summary || item.text, members))
+    .filter(Boolean)
+    .join(' / ') || '一些旧事';
   const runtimeTimeline = accumulateCharacterRuntime({
     ...speaker,
     ...(speakerPatch || {}),
   } as AICharacter, {
     type: 'memory',
-    text: `旧记忆被当前发言重新唤醒：${recalled.slice(0, 2).map(({ item }) => item.summary || item.text).join(' / ')}`,
+    text: `旧记忆被当前发言重新唤醒：${recalledSummary}`,
   }).slice(-80);
 
   const transitionWithCharacterPatch = mergeSpeakerPatch(params.transition, speaker.id, {
@@ -193,7 +215,7 @@ export function applyRecalledMemoryActivation(params: {
     ...transitionWithCharacterPatch,
     runtimeEvents: [
       ...transitionWithCharacterPatch.runtimeEvents,
-      buildMemoryReactivationEvent({ speaker, recalled }),
+      buildMemoryReactivationEvent({ speaker, recalled, members }),
     ],
   };
 }

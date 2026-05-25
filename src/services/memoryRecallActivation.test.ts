@@ -209,4 +209,70 @@ describe('applyRecalledMemoryActivation', () => {
 
     expect(result.characterPatches).toHaveLength(0);
   });
+
+  it('cleans recalled memory text before writing runtime timeline and event summaries', () => {
+    const speakerId = '3c78729f-e52d-4dde-b27f-01a949960bb8b';
+    const targetId = '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321';
+    const oldMemory = memory({
+      id: 'leaky-archive',
+      ownerId: speakerId,
+      subjectIds: [targetId],
+      kind: 'status_shift',
+      text: `${speakerId} 在 status_shift 后记住了 ${targetId} 的追问`,
+      summary: `${speakerId} 因 status_shift 对 ${targetId} 留下旧印象`,
+      recallReason: `旧档被本轮提示词注入：${targetId}`,
+      recallTokens: ['灰太狼', '追问'],
+    });
+    const speaker = { ...character([oldMemory]), id: speakerId, name: '喜羊羊' };
+    const target = { ...character([]), id: targetId, name: '灰太狼' };
+    const transition: DriverMessageCommitTransition = { chatPatch: {}, characterPatches: [], runtimeEvents: [] };
+    const result = applyRecalledMemoryActivation({
+      chat: { ...buildChat(), memberIds: [speakerId, targetId] },
+      characters: [speaker, target],
+      message: message('我还记得灰太狼那次追问。', {
+        senderId: speakerId,
+        senderName: '喜羊羊',
+        metadata: {
+          runtimeDecision: {
+            memoryContext: {
+              recalledArchives: [{
+                id: oldMemory.id,
+                scope: oldMemory.scope,
+                kind: oldMemory.kind,
+                layer: oldMemory.layer,
+                summary: oldMemory.summary || oldMemory.text,
+                recallReason: oldMemory.recallReason,
+                recallTokens: ['灰太狼', '追问'],
+                recallScore: 1.2,
+              }],
+            },
+          },
+        },
+      }),
+      recentMessages: [],
+      transition,
+    });
+    const patch = result.characterPatches.find((item) => item.characterId === speakerId)?.patch;
+    const timelineText = patch?.runtimeTimeline?.at(-1)?.text || '';
+    const event = result.runtimeEvents[0];
+    const recalled = event?.metrics && typeof event.metrics === 'object'
+      ? ((event.metrics as { recalledMemories?: Array<{ summary?: string; recallReason?: string; matchedTokens?: string[] }> }).recalledMemories?.[0])
+      : null;
+
+    expect(timelineText).toContain('喜羊羊');
+    expect(timelineText).toContain('灰太狼');
+    expect(timelineText).not.toContain(speakerId);
+    expect(timelineText).not.toContain(targetId);
+    expect(timelineText).not.toContain('status_shift');
+    expect(event?.summary).toContain('喜羊羊');
+    expect(event?.summary).toContain('灰太狼');
+    expect(event?.summary).not.toContain(speakerId);
+    expect(event?.summary).not.toContain(targetId);
+    expect(event?.summary).not.toContain('status_shift');
+    expect(recalled?.summary).toContain('状态变化');
+    expect(recalled?.summary).not.toContain(speakerId);
+    expect(recalled?.summary).not.toContain(targetId);
+    expect(recalled?.recallReason).toContain('灰太狼');
+    expect(recalled?.matchedTokens).toEqual(expect.arrayContaining(['灰太狼', '追问']));
+  });
 });
