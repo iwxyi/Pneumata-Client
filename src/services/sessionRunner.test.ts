@@ -185,6 +185,7 @@ function buildLoopParams(chat: GroupChat) {
     getStreamingMessage: undefined as (() => unknown) | undefined,
     onCommitStarted: undefined as (() => void) | undefined,
     onCommitFinished: undefined as (() => void) | undefined,
+    getCurrentChat: undefined as (() => GroupChat | undefined) | undefined,
     onMessageChunk: vi.fn(),
     onClearStreamingState: vi.fn(),
     onEngineError: vi.fn(),
@@ -251,6 +252,21 @@ describe('runSessionLoop', () => {
     expect(runOneRoundMock).toHaveBeenCalledTimes(1);
     expect(params.onSpeakerSelected).toHaveBeenCalledWith('a');
     expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the latest chat snapshot when running a chat round', async () => {
+    const staleChat = buildChat({ mode: 'open_chat', worldState: { phase: 'aligned', mood: '', focus: '旧焦点', recentEvent: '', conflictAxes: [] } as never });
+    const latestChat = buildChat({ mode: 'open_chat', worldState: { phase: 'warming', mood: '', focus: '最新用户引导', recentEvent: '', conflictAxes: [] } as never });
+    const params = buildLoopParams(staleChat);
+    params.getCurrentChat = () => latestChat;
+    runOneRoundMock.mockImplementation(async () => {
+      params.onLoopError();
+    });
+
+    await runSessionLoop(params as never);
+
+    expect(runOneRoundMock).toHaveBeenCalledTimes(1);
+    expect(runOneRoundMock.mock.calls[0]?.[0]).toBe(latestChat);
   });
 
   it('tracks commit lifecycle and forwards the current streaming message', async () => {

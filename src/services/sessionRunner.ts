@@ -221,7 +221,7 @@ export async function runSessionLoop(params: {
         const handled = await maybeRunNonChatAction(currentChat, params.updateChat, params.appendEventMessage);
         if (handled) {
           if (params.isRunning() && !params.isPaused() && shouldWaitAfterSessionTick()) {
-            await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(params.chat)));
+            await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat)));
           }
           continue;
         }
@@ -229,13 +229,13 @@ export async function runSessionLoop(params: {
 
       if (!loopDecision.runChat) {
         params.onLoopError(new Error('Current session phase does not allow speaking'));
-        await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(params.chat)));
+        await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat)));
         continue;
       }
 
       markSessionLoop(params.loopId, { phase: 'running_round' });
       await runOneRound(
-        params.chat,
+        currentChat,
         effectiveCharacters,
         currentMessages,
         params.api,
@@ -304,7 +304,7 @@ export async function runSessionLoop(params: {
 
       if (params.isRunning() && !params.isPaused() && shouldWaitAfterSessionTick()) {
         markSessionLoop(params.loopId, { phase: 'sleeping' });
-        await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(params.chat)));
+        await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat)));
       }
       } catch (error) {
         params.onLoopError(error);
