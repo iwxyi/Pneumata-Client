@@ -141,7 +141,7 @@ export default function ChatListPage() {
   const showDirectCreate = tab !== 2;
 
   return (
-    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 } }}>
+    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 12 } }}>
       <Stack spacing={1.25} sx={{ mb: 2 }}>
         <Collapse in={searchOpen} timeout={220} unmountOnExit>
           <TextField

@@ -26,7 +26,7 @@ import { PAPER_SURFACE_VARIANTS, type PaperSurfaceVariant } from '../types/artif
 import { migrateLegacyBrandStorageKeys } from '../constants/brand';
 
 function buildPageSx() {
-  return { p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 960, mx: 'auto' };
+  return { p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 3, md: 3.5 }, width: '100%', maxWidth: 960, mx: 'auto' };
 }
 
 function buildToggleGroupSx() {

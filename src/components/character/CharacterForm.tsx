@@ -1857,7 +1857,22 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       <Dialog open={bubblePickerOpen} onClose={cancelBubbleSelection} maxWidth="md" fullWidth>
         <DialogTitle>{i18n.language.startsWith('zh') ? '角色气泡' : 'Character bubble'}</DialogTitle>
         <DialogContent sx={{ p: 0, pt: 1, display: 'flex', flexDirection: 'column', maxHeight: '72vh' }}>
-          <Box sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper', px: 3, pt: 0, pb: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+          <Box
+            sx={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 2,
+              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.70)' : 'rgba(18,20,28,0.72)',
+              backdropFilter: 'blur(24px) saturate(1.18)',
+              WebkitBackdropFilter: 'blur(24px) saturate(1.18)',
+              px: 3,
+              pt: 0,
+              pb: 1.5,
+              borderBottom: 1,
+              borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+              boxShadow: (theme) => theme.palette.mode === 'light' ? '0 14px 30px rgba(15,23,42,0.055)' : '0 16px 34px rgba(0,0,0,0.26)',
+            }}
+          >
             <Box sx={{ display: 'grid', gap: 1.25, mb: 1.5 }}>
               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: 0 }}>
                 {renderAvatarPreview(avatar, isImageAvatar, 30)}

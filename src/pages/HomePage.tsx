@@ -200,7 +200,7 @@ export default function HomePage() {
   ];
 
   return (
-    <Box sx={{ flex: 1, overflow: 'auto', p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 } }}>
+    <Box sx={{ flex: 1, overflow: 'auto', p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 3, md: 3.5 } }}>
       <PageSection spacing={3}>
         <SurfaceCard>
           <SectionHeader title="工作台概览" />

@@ -636,8 +636,7 @@ export default function ChatDetailPage() {
         minHeight: 0,
         height: '100%',
         overflow: 'hidden',
-        display: 'grid',
-        gridTemplateRows: 'minmax(0, 1fr) auto auto',
+        display: 'block',
         position: 'relative',
         bgcolor: 'background.default',
         '&::before': {
@@ -649,12 +648,8 @@ export default function ChatDetailPage() {
             ? 'repeating-linear-gradient(0deg, rgba(15,23,42,0.030) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(15,23,42,0.024) 0 1px, transparent 1px 28px)'
             : 'repeating-linear-gradient(0deg, rgba(226,232,240,0.030) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(226,232,240,0.024) 0 1px, transparent 1px 28px)',
         },
-        '& > *': {
-          position: 'relative',
-          zIndex: 1,
-        },
       }}>
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <Box sx={{ height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
           <MessageList
             key={id}
             messages={currentChatMessages}
@@ -669,26 +664,38 @@ export default function ChatDetailPage() {
             hasMore={hasMore}
             loadingText={t('common.loading')}
             topHint="没有更早的消息"
+            topInset={{ xs: 'calc(64px + env(safe-area-inset-top, 0px))', sm: 'calc(56px + env(safe-area-inset-top, 0px))' }}
+            bottomInset={{ xs: 'calc(96px + env(safe-area-inset-bottom, 0px))', sm: 104 }}
           />
         </Box>
-        <SessionComposerHost
-          surfaces={composerSurfaces}
-          speakAsCharacterName={speakAsChar?.name}
-          onCloseSpeakAs={speakAsChar ? () => setSpeakAsCharacter(null) : undefined}
-          sendingLabel="等待当前发言结束…"
-          onSubmitText={(submission, surface) => {
-            const effectiveSurface = speakAsChar ? { ...surface, mode: 'speakAs' as const, actorId: speakAsChar.id } : surface;
-            const effectiveSubmission = speakAsChar ? { ...submission, actorId: speakAsChar.id } : submission;
-            return normalizeAndRunSurfaceIntent(effectiveSurface, effectiveSubmission);
+        <Box
+          sx={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 2,
           }}
-          onSendError={showErrorToast}
-          onSubmitForm={(submission, surface) => {
-            return normalizeAndRunSurfaceIntent(surface, submission);
-          }}
-          onSubmitBoard={(submission, surface) => {
-            return normalizeAndRunSurfaceIntent(surface, submission);
-          }}
-        />
+        >
+          <SessionComposerHost
+            surfaces={composerSurfaces}
+            speakAsCharacterName={speakAsChar?.name}
+            onCloseSpeakAs={speakAsChar ? () => setSpeakAsCharacter(null) : undefined}
+            sendingLabel="等待当前发言结束…"
+            onSubmitText={(submission, surface) => {
+              const effectiveSurface = speakAsChar ? { ...surface, mode: 'speakAs' as const, actorId: speakAsChar.id } : surface;
+              const effectiveSubmission = speakAsChar ? { ...submission, actorId: speakAsChar.id } : submission;
+              return normalizeAndRunSurfaceIntent(effectiveSurface, effectiveSubmission);
+            }}
+            onSendError={showErrorToast}
+            onSubmitForm={(submission, surface) => {
+              return normalizeAndRunSurfaceIntent(surface, submission);
+            }}
+            onSubmitBoard={(submission, surface) => {
+              return normalizeAndRunSurfaceIntent(surface, submission);
+            }}
+          />
+        </Box>
       </Box>
 
       <RightPanel title={sidebarTitle}>

@@ -586,7 +586,7 @@ export default function CharacterLibraryPage() {
 
       </Box>
 
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pr: 0.5, pb: { xs: 15, sm: 12 } }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pr: 0.5, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 12 } }}>
       {displayChars.length === 0 ? (
         <EmptyState
           icon="🎭"

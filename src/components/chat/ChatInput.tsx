@@ -53,23 +53,40 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         display: 'flex',
         alignItems: 'flex-end',
         gap: 1,
-        p: 2,
+        px: { xs: 1.5, sm: 2 },
+        pt: 1.25,
         pb: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
         borderTop: '1px solid',
         borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
         bgcolor: (theme) => {
-          if (isSending) return theme.palette.mode === 'light' ? 'rgba(248,250,252,0.76)' : 'rgba(20,22,30,0.72)';
-          return theme.palette.mode === 'light' ? 'rgba(255,255,255,0.68)' : 'rgba(13,15,22,0.76)';
+          if (isSending) return theme.palette.mode === 'light' ? 'rgba(245,245,247,0.70)' : 'rgba(20,22,30,0.42)';
+          return theme.palette.mode === 'light' ? 'rgba(245,245,247,0.68)' : 'rgba(13,15,22,0.42)';
         },
-        backdropFilter: 'blur(22px) saturate(1.16)',
-        WebkitBackdropFilter: 'blur(22px) saturate(1.16)',
+        backdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(22px) saturate(0.96) brightness(1.015) contrast(0.92)' : 'blur(20px) saturate(0.90) brightness(0.84)',
+        WebkitBackdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(22px) saturate(0.96) brightness(1.015) contrast(0.92)' : 'blur(20px) saturate(0.90) brightness(0.84)',
         boxShadow: (theme) => theme.palette.mode === 'light'
-          ? '0 -14px 34px rgba(15,23,42,0.055), 0 1px 0 rgba(255,255,255,0.80) inset'
-          : '0 -16px 40px rgba(0,0,0,0.28), 0 1px 0 rgba(255,255,255,0.08) inset',
+          ? '0 -10px 24px rgba(15,23,42,0.035), 0 1px 0 rgba(255,255,255,0.58) inset'
+          : '0 -12px 30px rgba(0,0,0,0.12), 0 1px 0 rgba(255,255,255,0.09) inset',
         flexShrink: 0,
         opacity: isSending ? 0.72 : 1,
         pointerEvents: isSending ? 'none' : 'auto',
         position: 'relative',
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: -42,
+          height: 42,
+          pointerEvents: 'none',
+          backdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(32px) saturate(0.74) brightness(1.18) contrast(0.66)' : 'blur(20px) saturate(0.92) brightness(0.84)',
+          WebkitBackdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(32px) saturate(0.74) brightness(1.18) contrast(0.66)' : 'blur(20px) saturate(0.92) brightness(0.84)',
+          maskImage: 'linear-gradient(to top, rgba(0,0,0,0.68), rgba(0,0,0,0.20) 62%, transparent)',
+          WebkitMaskImage: 'linear-gradient(to top, rgba(0,0,0,0.68), rgba(0,0,0,0.20) 62%, transparent)',
+          background: (theme) => theme.palette.mode === 'light'
+            ? 'linear-gradient(rgba(245,245,247,0), rgba(245,245,247,0.18))'
+            : 'linear-gradient(rgba(10,10,15,0), rgba(10,10,15,0.12))',
+        },
       }}
     >
       {mode === 'speakAs' && onClose ? (

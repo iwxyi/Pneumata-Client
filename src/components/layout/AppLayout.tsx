@@ -7,6 +7,7 @@ import {
   ListItemButton,
   IconButton,
 } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { Outlet, useLocation } from 'react-router-dom';
@@ -34,6 +35,41 @@ function getRouteMeta(pathname: string) {
 const SIDEBAR_WIDTH = 280;
 const SIDEBAR_COLLAPSED_WIDTH = 72;
 
+function buildTopBarGlassSx(isFloating = false) {
+  return {
+    position: isFloating ? 'sticky' : 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1198,
+    bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(245,245,247,0.68)' : 'rgba(10,10,15,0.42)',
+    backdropFilter: (theme: Theme) => theme.palette.mode === 'light' ? 'blur(22px) saturate(0.96) brightness(1.015) contrast(0.92)' : 'blur(20px) saturate(0.90) brightness(0.84)',
+    WebkitBackdropFilter: (theme: Theme) => theme.palette.mode === 'light' ? 'blur(22px) saturate(0.96) brightness(1.015) contrast(0.92)' : 'blur(20px) saturate(0.90) brightness(0.84)',
+    borderBottom: '1px solid',
+    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.035)' : 'rgba(226,232,240,0.055)',
+    boxShadow: (theme: Theme) => theme.palette.mode === 'light'
+      ? '0 1px 0 rgba(255,255,255,0.34) inset, 0 8px 18px rgba(15,23,42,0.010)'
+      : '0 1px 0 rgba(255,255,255,0.05) inset, 0 10px 22px rgba(0,0,0,0.10)',
+    transition: 'background-color 180ms ease, backdrop-filter 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
+    '&::after': {
+      content: '""',
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: -36,
+      height: 36,
+      pointerEvents: 'none',
+      backdropFilter: (theme: Theme) => theme.palette.mode === 'light' ? 'blur(32px) saturate(0.74) brightness(1.18) contrast(0.66)' : 'blur(18px) saturate(0.92) brightness(0.84)',
+      WebkitBackdropFilter: (theme: Theme) => theme.palette.mode === 'light' ? 'blur(32px) saturate(0.74) brightness(1.18) contrast(0.66)' : 'blur(18px) saturate(0.92) brightness(0.84)',
+      maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.72), rgba(0,0,0,0.22) 58%, transparent)',
+      WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.72), rgba(0,0,0,0.22) 58%, transparent)',
+      background: (theme: Theme) => theme.palette.mode === 'light'
+        ? 'linear-gradient(rgba(245,245,247,0.18), rgba(245,245,247,0))'
+        : 'linear-gradient(rgba(10,10,15,0.12), rgba(10,10,15,0))',
+    },
+  };
+}
+
 export default function AppLayout() {
   const { t } = useTranslation();
   const location = useLocation();
@@ -49,7 +85,7 @@ export default function AppLayout() {
   const effectiveHeaderTitle = headerTitle ?? currentTitle;
   const showMobileTopBar = shouldShowMenuButton;
   const showDesktopTopBar = !shouldShowMenuButton;
-  const mainPaddingBottom = isMobile && !hideMobileBottomNav ? '78px' : 0;
+  const mainPaddingBottom = 0;
   const handleHeaderLeadingAction = () => {
     if (headerBackAction) {
       headerBackAction();
@@ -61,8 +97,7 @@ export default function AppLayout() {
   const mobileHeader = (
     <Box
       sx={{
-        position: 'relative',
-        top: 'auto',
+        ...buildTopBarGlassSx(false),
         zIndex: sidebarOpen ? 1099 : 1199,
         display: 'flex',
         alignItems: 'center',
@@ -70,11 +105,6 @@ export default function AppLayout() {
         gap: 2,
         px: 2,
         py: 1,
-        bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(245,245,247,0.86)' : 'rgba(10,10,15,0.88)',
-        backdropFilter: 'blur(12px)',
-        borderBottom: 1,
-        borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
-        transition: 'background-color 180ms ease, backdrop-filter 180ms ease, border-color 180ms ease',
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
@@ -123,7 +153,7 @@ export default function AppLayout() {
   );
 
   const desktopHeader = (
-    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 3, pt: 1, gap: 2 }}>
+    <Box sx={{ ...buildTopBarGlassSx(false), display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 3, py: 1, gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
         {headerBackAction ? (
           <IconButton
@@ -220,7 +250,12 @@ export default function AppLayout() {
           {showMobileTopBar ? mobileHeader : null}
           {showDesktopTopBar ? desktopHeader : null}
 
-          <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+          <Box sx={{
+            flex: 1,
+            minHeight: 0,
+            overflow: 'auto',
+            pt: location.pathname.startsWith('/chats/') ? 0 : showMobileTopBar ? '65px' : showDesktopTopBar ? '49px' : 0,
+          }}>
             <Outlet />
           </Box>
 

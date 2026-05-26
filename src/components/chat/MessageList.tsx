@@ -9,6 +9,7 @@ import type { ExpressionFeedbackKind } from '../../services/characterExpressionF
 
 const TOP_REACH_THRESHOLD = 64;
 const BOTTOM_STICKY_THRESHOLD = 96;
+type ResponsiveInset = number | string | Record<string, number | string>;
 
 interface MessageListProps {
   messages: Message[];
@@ -23,6 +24,8 @@ interface MessageListProps {
   hasMore?: boolean;
   topHint?: string;
   loadingText?: string;
+  topInset?: ResponsiveInset;
+  bottomInset?: ResponsiveInset;
 }
 
 export default function MessageList({
@@ -38,6 +41,8 @@ export default function MessageList({
   hasMore = false,
   topHint,
   loadingText,
+  topInset,
+  bottomInset,
 }: MessageListProps) {
   const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -177,8 +182,11 @@ export default function MessageList({
         minHeight: 0,
         overflowY: 'auto',
         overflowX: 'hidden',
-        py: 2,
-        bgcolor: 'background.default',
+        pt: topInset || 2,
+        pb: bottomInset || 2,
+        bgcolor: 'transparent',
+        scrollPaddingTop: topInset || 16,
+        scrollPaddingBottom: bottomInset || 16,
       }}
     >
       {messages.length > 0 ? (
