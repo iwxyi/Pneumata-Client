@@ -86,6 +86,7 @@ export default function AppLayout() {
   const showMobileTopBar = shouldShowMenuButton;
   const showDesktopTopBar = !shouldShowMenuButton;
   const mainPaddingBottom = 0;
+  const isChatDetailRoute = /^\/chats\/[^/]+$/.test(location.pathname);
   const handleHeaderLeadingAction = () => {
     if (headerBackAction) {
       headerBackAction();
@@ -107,7 +108,7 @@ export default function AppLayout() {
         py: 1,
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, flex: 1 }}>
         <IconButton
           onClick={handleHeaderLeadingAction}
           sx={{
@@ -124,7 +125,8 @@ export default function AppLayout() {
             borderRadius: 3,
             minHeight: 48,
             px: 1.5,
-            maxWidth: 'calc(100vw - 220px)',
+            flex: 1,
+            minWidth: 0,
             color: 'text.primary',
             opacity: 1,
             '&.Mui-disabled': {
@@ -146,7 +148,7 @@ export default function AppLayout() {
           </Typography>
         </ListItemButton>
       </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0, ml: 1 }}>
         {headerActions}
       </Box>
     </Box>
@@ -154,7 +156,7 @@ export default function AppLayout() {
 
   const desktopHeader = (
     <Box sx={{ ...buildTopBarGlassSx(false), display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 3, py: 1, gap: 2 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
         {headerBackAction ? (
           <IconButton
             onClick={headerBackAction}
@@ -254,7 +256,7 @@ export default function AppLayout() {
             flex: 1,
             minHeight: 0,
             overflow: 'auto',
-            pt: location.pathname.startsWith('/chats/') ? 0 : showMobileTopBar ? '65px' : showDesktopTopBar ? '49px' : 0,
+            pt: isChatDetailRoute ? 0 : showMobileTopBar ? '65px' : showDesktopTopBar ? '49px' : 0,
           }}>
             <Outlet />
           </Box>

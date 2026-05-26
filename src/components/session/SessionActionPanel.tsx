@@ -1,15 +1,23 @@
 import { Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import { useMemo, useState } from 'react';
 import type { SessionActionDefinition } from '../../types/sessionEngine';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
 import PageSection from '../common/PageSection';
 
-function getActionSurfaceSx(index: number) {
+function getActionSurfaceSx() {
   return {
     p: { xs: 1, sm: 1.25 },
-    borderRadius: 2,
-    bgcolor: index === 0 ? 'rgba(103, 80, 164, 0.06)' : 'action.hover',
+    borderRadius: 1,
+    border: '1px solid',
+    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.075)' : 'rgba(226,232,240,0.105)',
+    bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.50)' : 'rgba(255,255,255,0.050)',
+    boxShadow: (theme: Theme) => theme.palette.mode === 'light'
+      ? '0 1px 0 rgba(255,255,255,0.80) inset, 0 12px 28px rgba(15,23,42,0.045)'
+      : '0 1px 0 rgba(255,255,255,0.08) inset, 0 14px 32px rgba(0,0,0,0.20)',
+    backdropFilter: 'blur(18px) saturate(1.18)',
+    WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
   };
 }
 
@@ -203,7 +211,8 @@ function buildActionFieldLayout() {
 }
 
 function buildActionItemSx(index: number) {
-  return getActionSurfaceSx(index);
+  void index;
+  return getActionSurfaceSx();
 }
 
 function buildActionItemPadding() {
@@ -487,7 +496,7 @@ function buildActionGridGap() {
 }
 
 function buildActionCardRadius() {
-  return 2;
+  return 1;
 }
 
 function buildActionCardPaddingSx() {
@@ -495,8 +504,9 @@ function buildActionCardPaddingSx() {
 }
 
 function buildActionCardSx(index: number) {
+  void index;
   return {
-    ...getActionSurfaceSx(index),
+    ...getActionSurfaceSx(),
     borderRadius: buildActionCardRadius(),
     p: buildActionCardPaddingSx(),
   };
@@ -988,6 +998,8 @@ interface SessionActionPanelProps {
   title?: string;
   actions: SessionActionDefinition[];
   onRunAction: (action: SessionActionDefinition, payload: Record<string, unknown>) => void;
+  hideHeader?: boolean;
+  frameless?: boolean;
 }
 
 function getOptionLabel(label: string) {
@@ -1016,15 +1028,15 @@ function getActionHint(action: SessionActionDefinition) {
   return '执行该 session action。';
 }
 
-export default function SessionActionPanel({ title = '动作面板', actions, onRunAction }: SessionActionPanelProps) {
+export default function SessionActionPanel({ title = '动作面板', actions, onRunAction, hideHeader = false, frameless = false }: SessionActionPanelProps) {
   const initialState = useMemo(() => Object.fromEntries(actions.flatMap((action) => (action.fields || []).map((field) => [field.key, '']))), [actions]);
   const [payloads, setPayloads] = useState<Record<string, Record<string, string>>>(() => Object.fromEntries(actions.map((action) => [action.type, { ...initialState }])));
 
-  return (
-    <SurfaceCard contentSx={buildActionPageProps()}>
-      <SectionHeader {...buildActionTopHeaderProps(title, actions)} dense={buildActionDenseConfig()} />
+  const content = (
+    <>
+      {hideHeader ? null : <SectionHeader {...buildActionTopHeaderProps(title, actions)} dense={buildActionDenseConfig()} />}
       {actions.length ? (
-        <PageSection spacing={buildActionGapConfig()}>
+        <PageSection spacing={buildActionGapConfig()} animate={false}>
           {actions.map((action, index) => (
             <Box key={buildActionCardKey(action, index)} sx={buildActionBoxProps(index)}>
               <Typography variant="body2" sx={{ fontWeight: buildActionWeightConfig() }}>{buildActionTitleValue(action)}</Typography>
@@ -1083,6 +1095,12 @@ export default function SessionActionPanel({ title = '动作面板', actions, on
           ))}
         </PageSection>
       ) : <Typography variant="caption" color="text.secondary">{buildActionNoopProps()}</Typography>}
-    </SurfaceCard>
+    </>
+  );
+
+  return frameless ? (
+    <Box>{content}</Box>
+  ) : (
+    <SurfaceCard contentSx={buildActionPageProps()}>{content}</SurfaceCard>
   );
 }

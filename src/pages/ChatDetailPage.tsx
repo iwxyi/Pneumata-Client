@@ -39,6 +39,7 @@ import { useChatSidebarProjection } from '../hooks/useChatSidebarProjection';
 import { useMessageAnalysis } from '../hooks/useMessageAnalysis';
 import { runDirectUserReplyFlow } from '../services/directUserReplyFlow';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
+import { useResponsive } from '../hooks/useResponsive';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -55,6 +56,7 @@ export default function ChatDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { isMobile } = useResponsive();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
 
   const { chats, updateChat, applyChatRuntimeDelta, loadChats, markChatsWarm, isLoading: chatsLoading } = useChatStore();
@@ -63,7 +65,7 @@ export default function ChatDetailPage() {
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
   const api = useSettingsStore((s) => s.api);
   const aiProfiles = useSettingsStore((s) => s.aiProfiles);
-  const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, toggleRightPanel, rightPanelTab, setRightPanelTab } = useUIStore();
+  const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, toggleRightPanel, setRightPanelOpen, rightPanelTab, setRightPanelTab } = useUIStore();
   const dramaBoost = useSettingsStore((s) => s.developerUI.dramaBoost);
   const currentUser = useAuthStore((s) => s.user);
 
@@ -602,15 +604,15 @@ export default function ChatDetailPage() {
     setHeaderActions(
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         {headerPrimaryActionButton}
-        <IconButton onClick={toggleRightPanel}>
+        {!isMobile ? <IconButton onClick={toggleRightPanel}>
           <PeopleIcon />
-        </IconButton>
+        </IconButton> : null}
         <IconButton onClick={() => navigate(`/chats/${chat.id}/edit`)}>
           <InfoIcon />
         </IconButton>
       </Box>
     );
-  }, [chat, handleHeaderBack, handleHeaderPrimaryAction, isPaused, isRunning, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, toggleRightPanel]);
+  }, [chat, handleHeaderBack, handleHeaderPrimaryAction, isMobile, isPaused, isRunning, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, toggleRightPanel]);
 
   useEffect(() => () => {
     setHeaderTitle(null);
@@ -665,7 +667,7 @@ export default function ChatDetailPage() {
             loadingText={t('common.loading')}
             topHint="没有更早的消息"
             topInset={{ xs: 'calc(64px + env(safe-area-inset-top, 0px))', sm: 'calc(56px + env(safe-area-inset-top, 0px))' }}
-            bottomInset={{ xs: 'calc(96px + env(safe-area-inset-bottom, 0px))', sm: 104 }}
+            bottomInset={{ xs: 'calc(118px + env(safe-area-inset-bottom, 0px))', sm: 104 }}
           />
         </Box>
         <Box
@@ -682,6 +684,7 @@ export default function ChatDetailPage() {
             speakAsCharacterName={speakAsChar?.name}
             onCloseSpeakAs={speakAsChar ? () => setSpeakAsCharacter(null) : undefined}
             sendingLabel="等待当前发言结束…"
+            onOpenPanel={isMobile ? () => setRightPanelOpen(true) : undefined}
             onSubmitText={(submission, surface) => {
               const effectiveSurface = speakAsChar ? { ...surface, mode: 'speakAs' as const, actorId: speakAsChar.id } : surface;
               const effectiveSubmission = speakAsChar ? { ...submission, actorId: speakAsChar.id } : submission;
@@ -698,8 +701,8 @@ export default function ChatDetailPage() {
         </Box>
       </Box>
 
-      <RightPanel title={sidebarTitle}>
-        <PageSection spacing={2}>
+      <RightPanel title={sidebarTitle} hideMobileTitle>
+        <PageSection spacing={2} fill>
           {chat.type === 'ai_direct' && chat.sourceChatId ? (
             <Button variant="outlined" onClick={() => navigate(`/chats/${chat.sourceChatId}`)}>返回来源群聊</Button>
           ) : null}
@@ -730,7 +733,7 @@ export default function ChatDetailPage() {
               privatePayloads={projectedDetailState?.sidebarChat.privatePayloads || privatePayloads}
               directMemoryContext={directMemoryPanelContext}
               showActionTab={showActionTab}
-              actionPanel={showActionTab ? <LazyPanel><SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} /></LazyPanel> : null}
+              actionPanel={showActionTab ? <LazyPanel><SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} hideHeader frameless /></LazyPanel> : null}
               onSpeakAs={(charId) => setSpeakAsCharacter(charId)}
               onStartDirectChat={chat.type === 'group' ? handleStartDirectChat : undefined}
               onRemoveMember={chat.type === 'group' ? (charId) => {

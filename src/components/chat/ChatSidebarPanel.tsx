@@ -197,14 +197,14 @@ export default function ChatSidebarPanel({
             },
           }}
         >
-          {showMemberTab ? <Tab value="members" label={memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} /> : null}
+          {showMemberTab ? <Tab value="members" label={`${memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} ${members.length}`} /> : null}
           {showRuntimeTab ? <Tab value="narrative" label="叙事线" /> : null}
           {showRuntimeTab ? <Tab value="world" label={runtimePanelTitle || '状态'} /> : null}
           {showActionTab ? <Tab value="actions" label="动作" /> : null}
         </Tabs>
       ) : null}
 
-      <Box sx={{ flex: { xs: 1, md: '0 1 auto' }, minHeight: 0, overflowY: { xs: 'auto', md: 'visible' }, pr: { xs: 0.25, md: 0 } }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pr: { xs: 0.25, md: 0.5 }, overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
         {rightPanelTab === 'members' && showMemberTab ? (
           <Stack spacing={2}>
             <MemberList
@@ -224,7 +224,7 @@ export default function ChatSidebarPanel({
 
         {rightPanelTab === 'narrative' && showRuntimeTab ? (
           <Suspense fallback={<PanelFallback />}>
-            <ChatNarrativePanel chat={chat} members={members} messages={messages} />
+            <ChatNarrativePanel chat={chat} members={members} messages={messages} hideTitle />
           </Suspense>
         ) : null}
 

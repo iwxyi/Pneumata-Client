@@ -54,37 +54,35 @@ interface ChatConfigSectionProps {
 export default function ChatConfigSection(props: ChatConfigSectionProps) {
   return (
     <Stack spacing={2}>
-      {props.showMembers === false ? null : <Card variant="outlined">
-        <CardContent>
-          <TextField
-            label={props.nameLabel}
-            placeholder={props.namePlaceholder}
-            value={props.name}
-            onChange={(e) => props.onNameChange(e.target.value)}
-            required
-            fullWidth
-            slotProps={{
-              input: {
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      color="primary"
-                      onClick={props.onOpenHotDialog}
-                      edge="end"
-                      aria-label={props.openTopicInspirationLabel}
-                    >
-                      <HotIcon />
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              },
-            }}
-          />
-        </CardContent>
-      </Card>}
-
       <Card variant="outlined">
         <CardContent>
+          {props.showMembers === false ? null : (
+            <TextField
+              label={props.nameLabel}
+              placeholder={props.namePlaceholder}
+              value={props.name}
+              onChange={(e) => props.onNameChange(e.target.value)}
+              required
+              fullWidth
+              sx={{ mb: 2 }}
+              slotProps={{
+                input: {
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        color="primary"
+                        onClick={props.onOpenHotDialog}
+                        edge="end"
+                        aria-label={props.openTopicInspirationLabel}
+                      >
+                        <HotIcon />
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+          )}
           <TextField
             label={props.topicLabel}
             placeholder={props.topicPlaceholder}

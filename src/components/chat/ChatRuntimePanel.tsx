@@ -784,7 +784,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
 
   return (
     <>
-      <PageSection spacing={1.5}>
+      <PageSection spacing={1.5} animate={false}>
         {renderActiveGuidancePanel(activeGuidance, isAdvancedRuntimeView, members)}
 
         <SurfaceCard>

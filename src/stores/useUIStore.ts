@@ -6,6 +6,8 @@ import { scopedStorageKey } from '../constants/brand';
 interface UIStore {
   sidebarOpen: boolean;
   rightPanelOpen: boolean;
+  rightPanelGestureOffset: number | null;
+  rightPanelGestureDragging: boolean;
   godModeActive: boolean;
   topicGuideOpen: boolean;
   speakAsCharacterId: string | null;
@@ -15,6 +17,8 @@ interface UIStore {
   setSidebarOpen: (open: boolean) => void;
   toggleRightPanel: () => void;
   setRightPanelOpen: (open: boolean) => void;
+  setRightPanelGestureOffset: (offset: number | null) => void;
+  setRightPanelGestureDragging: (dragging: boolean) => void;
   setRightPanelTab: (tab: 'members' | 'narrative' | 'world' | 'actions') => void;
   setGodModeActive: (active: boolean) => void;
   setTopicGuideOpen: (open: boolean) => void;
@@ -26,6 +30,8 @@ export const useUIStore = create<UIStore>()(
     (set) => ({
       sidebarOpen: false,
       rightPanelOpen: false,
+      rightPanelGestureOffset: null,
+      rightPanelGestureDragging: false,
       godModeActive: false,
       topicGuideOpen: false,
       speakAsCharacterId: null,
@@ -35,6 +41,8 @@ export const useUIStore = create<UIStore>()(
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
       setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
+      setRightPanelGestureOffset: (offset) => set({ rightPanelGestureOffset: offset }),
+      setRightPanelGestureDragging: (dragging) => set({ rightPanelGestureDragging: dragging }),
       setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
       setGodModeActive: (active) => set({ godModeActive: active }),
       setTopicGuideOpen: (open) => set({ topicGuideOpen: open }),

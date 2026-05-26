@@ -1545,8 +1545,8 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
         <FormControlLabel control={<Switch checked={intervention.allowPrivateThread} onChange={(e) => setIntervention((prev) => ({ ...prev, allowPrivateThread: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许被拉入AI私聊' : 'Allow AI private thread'} />
       </Stack>
       {onDelete ? (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 0.5 }}>
-          <Button color="error" variant="outlined" onClick={onDelete}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>
+          <Button color="error" variant="outlined" onClick={onDelete} fullWidth sx={{ maxWidth: { sm: 260 }, justifyContent: 'center' }}>
             {deleteLabel || (i18n.language.startsWith('zh') ? '删除角色' : 'Delete character')}
           </Button>
         </Box>

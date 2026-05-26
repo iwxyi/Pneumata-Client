@@ -13,6 +13,7 @@ interface SessionComposerHostProps {
   onCloseSpeakAs?: () => void;
   sendingLabel?: string;
   onSendError?: (message: string) => void;
+  onOpenPanel?: () => void;
 }
 
 function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
@@ -24,7 +25,7 @@ function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
   ) as Record<string, Record<string, string>>;
 }
 
-export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, onSendError }: SessionComposerHostProps) {
+export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, onSendError, onOpenPanel }: SessionComposerHostProps) {
   const primarySurface = surfaces.find((surface) => surface.type === 'text') || surfaces[0];
   const secondarySurfaces = surfaces.filter((surface) => surface !== primarySurface && surface.type === 'board');
   const [fieldState, setFieldState] = useState<Record<string, Record<string, string>>>(() => buildInitialFieldState(surfaces));
@@ -125,6 +126,7 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
           onClose={speakAsCharacterName ? onCloseSpeakAs : undefined}
           sendingLabel={sendingLabel}
           onSendError={onSendError}
+          onOpenPanel={onOpenPanel}
         />
       ) : (() => {
         const mode = speakAsCharacterName ? 'speakAs' : (primarySurface.mode || 'guide');
@@ -137,6 +139,7 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
             onClose={mode === 'speakAs' ? onCloseSpeakAs : undefined}
             sendingLabel={sendingLabel}
             onSendError={onSendError}
+            onOpenPanel={onOpenPanel}
           />
         );
       })()}

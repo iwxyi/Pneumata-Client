@@ -17,6 +17,7 @@ interface ChatNarrativePanelProps {
   chat: GroupChat;
   members: AICharacter[];
   messages?: Message[];
+  hideTitle?: boolean;
 }
 
 type LineFilter = 'all' | 'main' | NarrativeLineType;
@@ -160,7 +161,7 @@ function renderLine(line: NarrativeLineProjection, chat: GroupChat, members: AIC
   );
 }
 
-export default function ChatNarrativePanel({ chat, members, messages = [] }: ChatNarrativePanelProps) {
+export default function ChatNarrativePanel({ chat, members, messages = [], hideTitle = false }: ChatNarrativePanelProps) {
   const [activeFilter, setActiveFilter] = useState<LineFilter>('all');
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
@@ -179,7 +180,7 @@ export default function ChatNarrativePanel({ chat, members, messages = [] }: Cha
 
   return (
     <SurfaceCard>
-      <SectionHeader title="叙事线" dense />
+      {hideTitle ? null : <SectionHeader title="叙事线" dense />}
       <Stack spacing={1}>
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
           {filters.map((filter) => (

@@ -99,7 +99,7 @@ function buildMemberRowSx(isThinking: boolean) {
 }
 
 export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onStartDirectChat, onUpdateSeats }: MemberListProps) {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -153,12 +153,6 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-          {t('controls.memberList')} ({members.length})
-        </Typography>
-        {chat?.type === 'group' && onUpdateSeats ? <Button size="small" variant="text" onClick={openSeatDialog}>调整座位</Button> : null}
-      </Box>
       <List
         dense
         disablePadding
@@ -173,7 +167,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
           const innerLifeChips = buildMemberInnerLifeChips(member, i18n.language);
           const expressionFeedbackChips = buildMemberExpressionFeedbackChips(member, i18n.language, showDebugDetails);
           const emotionChips = buildMemberEmotionChips(member, i18n.language, showDebugDetails);
-          const subtitle = buildMemberSubtitle(member, thinkingId, t('controls.thinking'));
+          const subtitle = buildMemberSubtitle(member, thinkingId, i18n.language.startsWith('zh') ? '思考中' : 'Thinking');
           return (
             <ListItem
               key={member.id}
@@ -266,11 +260,16 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
           );
         })}
       </List>
+      {chat?.type === 'group' && onUpdateSeats ? (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.75 }}>
+          <Button size="small" variant="text" onClick={openSeatDialog}>调整座位</Button>
+        </Box>
+      ) : null}
 
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu}>
-        {onSpeakAs && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onSpeakAs(menuCharId); }}>{t('controls.speakAs')}</MenuItem>}
+        {onSpeakAs && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onSpeakAs(menuCharId); }}>{i18n.language.startsWith('zh') ? '以此角色发言' : 'Speak as'}</MenuItem>}
         {onStartDirectChat && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onStartDirectChat(menuCharId); }}>{i18n.language.startsWith('zh') ? '发起私聊' : 'Start direct chat'}</MenuItem>}
-        {onRemove && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onRemove(menuCharId); }} sx={{ color: 'error.main' }}>{t('controls.removeMember')}</MenuItem>}
+        {onRemove && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onRemove(menuCharId); }} sx={{ color: 'error.main' }}>{i18n.language.startsWith('zh') ? '移除成员' : 'Remove member'}</MenuItem>}
       </Menu>
 
       <Dialog open={seatDialogOpen} onClose={() => setSeatDialogOpen(false)} maxWidth="sm" fullWidth>

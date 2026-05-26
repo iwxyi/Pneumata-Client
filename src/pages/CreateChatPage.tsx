@@ -748,8 +748,15 @@ export default function CreateChatPage() {
               openTopicInspirationLabel={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}
             />
             {editingChat ? (
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 1 }}>
-                <Button color="error" variant="outlined" startIcon={<DeleteIcon />} onClick={openDeleteDialog}>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>
+                <Button
+                  color="error"
+                  variant="outlined"
+                  startIcon={<DeleteIcon />}
+                  onClick={openDeleteDialog}
+                  fullWidth
+                  sx={{ maxWidth: { sm: 260 }, justifyContent: 'center' }}
+                >
                   {deleteLabel}
                 </Button>
               </Box>
