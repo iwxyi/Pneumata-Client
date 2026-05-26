@@ -36,10 +36,11 @@ const navItems = [
   { path: '/characters', icon: <PersonIcon />, labelKey: 'nav.characters' },
   { path: '/models', icon: <ModelsIcon />, labelKey: 'nav.models' },
   { path: '/letters', icon: <MailIcon />, labelKey: 'nav.letters' },
-  { path: '/intro', icon: <IntroIcon />, labelKey: 'nav.intro' },
   { path: '/account', icon: <AccountIcon />, labelKey: 'nav.account' },
   { path: '/settings', icon: <SettingsIcon />, labelKey: 'nav.settings' },
 ];
+
+const introNavItem = { path: '/intro', icon: <IntroIcon />, labelKey: 'nav.intro' };
 
 export default function Sidebar({ collapsed }: SidebarProps) {
   const navigate = useNavigate();
@@ -54,6 +55,46 @@ export default function Sidebar({ collapsed }: SidebarProps) {
     if (!isDesktop) {
       setSidebarOpen(false);
     }
+  };
+
+  const renderNavItem = (item: typeof navItems[number] | typeof introNavItem) => {
+    const isActive =
+      item.path === '/'
+        ? location.pathname === '/'
+        : location.pathname.startsWith(item.path);
+
+    const button = (
+      <ListItemButton
+        key={item.path}
+        onClick={() => handleNav(item.path)}
+        selected={isActive}
+        sx={{
+          borderRadius: 3,
+          mb: 0.5,
+          justifyContent: collapsed ? 'center' : 'flex-start',
+          px: collapsed ? 1 : 2,
+          minHeight: 48,
+        }}
+      >
+        <ListItemIcon
+          sx={{
+            minWidth: collapsed ? 0 : 40,
+            color: isActive ? 'primary.main' : 'text.secondary',
+          }}
+        >
+          {item.path === '/letters' ? <Badge badgeContent={unreadLetterCount} color="error" max={99}>{item.icon}</Badge> : item.icon}
+        </ListItemIcon>
+        {!collapsed && <ListItemText primary={t(item.labelKey)} />}
+      </ListItemButton>
+    );
+
+    return collapsed ? (
+      <Tooltip key={item.path} title={t(item.labelKey)} placement="right">
+        {button}
+      </Tooltip>
+    ) : (
+      button
+    );
   };
 
   return (
@@ -103,46 +144,12 @@ export default function Sidebar({ collapsed }: SidebarProps) {
 
       {/* Navigation */}
       <List sx={{ flex: 1, px: collapsed ? 0.5 : 1 }}>
-        {navItems.map((item) => {
-          const isActive =
-            item.path === '/'
-              ? location.pathname === '/'
-              : location.pathname.startsWith(item.path);
-
-          const button = (
-            <ListItemButton
-              key={item.path}
-              onClick={() => handleNav(item.path)}
-              selected={isActive}
-              sx={{
-                borderRadius: 3,
-                mb: 0.5,
-                justifyContent: collapsed ? 'center' : 'flex-start',
-                px: collapsed ? 1 : 2,
-                minHeight: 48,
-              }}
-            >
-              <ListItemIcon
-                sx={{
-                  minWidth: collapsed ? 0 : 40,
-                  color: isActive ? 'primary.main' : 'text.secondary',
-                }}
-              >
-                {item.path === '/letters' ? <Badge badgeContent={unreadLetterCount} color="error" max={99}>{item.icon}</Badge> : item.icon}
-              </ListItemIcon>
-              {!collapsed && <ListItemText primary={t(item.labelKey)} />}
-            </ListItemButton>
-          );
-
-          return collapsed ? (
-            <Tooltip key={item.path} title={t(item.labelKey)} placement="right">
-              {button}
-            </Tooltip>
-          ) : (
-            button
-          );
-        })}
+        {navItems.map(renderNavItem)}
       </List>
+      <Box sx={{ px: collapsed ? 0.5 : 1, pb: 1.5 }}>
+        <Divider sx={{ mb: 1 }} />
+        {renderNavItem(introNavItem)}
+      </Box>
     </Box>
   );
 }

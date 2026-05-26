@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
-import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact } from './characterExperienceArtifacts';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact, looksLikeRawArtifactContext } from './characterExperienceArtifacts';
 import type { AICharacter } from '../types/character';
+import { generateResponse } from './aiClient';
 
 vi.mock('./aiClient', () => ({
   generateResponse: vi.fn(async () => '今天我把那件事记在了心里。'),
 }));
+
+const generateResponseMock = vi.mocked(generateResponse);
 
 function buildCharacter(): Partial<AICharacter> {
   return {
@@ -96,6 +99,11 @@ function buildLeakyCharacter(): Partial<AICharacter> {
 }
 
 describe('characterExperienceArtifacts', () => {
+  beforeEach(() => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue('今天我把那件事记在了心里。');
+  });
+
   it('builds a reusable context from existing memory and relationship state', () => {
     const context = buildCharacterExperienceArtifactContext(buildCharacter(), [{ id: 'c2', name: '小雨' } as AICharacter]);
     expect(context.profile.name).toBe('苏苏');
@@ -125,6 +133,7 @@ describe('characterExperienceArtifacts', () => {
   });
 
   it('generates artifacts through the text model adapter', async () => {
+    generateResponseMock.mockResolvedValueOnce('今天我把那件事记在了心里。');
     const text = await generateCharacterExperienceArtifact({
       config: { provider: 'openai', apiKey: 'k', baseUrl: 'https://example.test', model: 'm' },
       kind: 'diary',
@@ -136,6 +145,7 @@ describe('characterExperienceArtifacts', () => {
   });
 
   it('generates birth letters through the text model adapter', async () => {
+    generateResponseMock.mockResolvedValueOnce('今天我把那件事记在了心里。');
     const text = await generateCharacterExperienceArtifact({
       config: { provider: 'openai', apiKey: 'k', baseUrl: 'https://example.test', model: 'm' },
       kind: 'birth_letter',
@@ -156,6 +166,7 @@ describe('characterExperienceArtifacts', () => {
     expect(context.formHint.length).toBeGreaterThan(0);
     expect(context.recentDiaryOpenings[0]).toContain('气死我了');
 
+    generateResponseMock.mockResolvedValueOnce('今天我把那件事记在了心里。');
     const text = await generateCharacterDailyDiaryArtifact({
       config: { provider: 'openai', apiKey: 'k', baseUrl: 'https://example.test', model: 'm' },
       character: buildCharacter(),
@@ -165,6 +176,42 @@ describe('characterExperienceArtifacts', () => {
       language: 'zh',
     });
     expect(text).toBe('今天我把那件事记在了心里。');
+  });
+
+  it('retries when the model echoes raw diary context', async () => {
+    const rawContext = JSON.stringify(buildCharacterDailyDiaryContext(buildCharacter(), [{ id: 'c2', name: '小雨' } as AICharacter], '1970-01-01'));
+    generateResponseMock
+      .mockResolvedValueOnce(rawContext)
+      .mockResolvedValueOnce('今天我没有把那句话说出口。');
+
+    const text = await generateCharacterDailyDiaryArtifact({
+      config: { provider: 'openai', apiKey: 'k', baseUrl: 'https://example.test', model: 'm' },
+      character: buildCharacter(),
+      relatedCharacters: [{ id: 'c2', name: '小雨' } as AICharacter],
+      dateKey: '1970-01-01',
+      language: 'zh',
+    });
+
+    expect(text).toBe('今天我没有把那句话说出口。');
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to local diary text instead of saving raw context', async () => {
+    const rawContext = JSON.stringify(buildCharacterDailyDiaryContext(buildCharacter(), [{ id: 'c2', name: '小雨' } as AICharacter], '1970-01-01'));
+    generateResponseMock
+      .mockResolvedValueOnce(rawContext)
+      .mockResolvedValueOnce(rawContext);
+
+    const text = await generateCharacterDailyDiaryArtifact({
+      config: { provider: 'openai', apiKey: 'k', baseUrl: 'https://example.test', model: 'm' },
+      character: buildCharacter(),
+      relatedCharacters: [{ id: 'c2', name: '小雨' } as AICharacter],
+      dateKey: '1970-01-01',
+      language: 'zh',
+    });
+
+    expect(text).toContain('苏苏的日记');
+    expect(looksLikeRawArtifactContext(text)).toBe(false);
   });
 
   it('sanitizes artifact context before it is sent to narrative generators', () => {

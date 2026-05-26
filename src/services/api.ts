@@ -37,6 +37,21 @@ export interface TopicAdaptationResult {
   recommendedCharacters?: TopicAdaptationCharacterSuggestion[];
 }
 
+export interface CharacterArtifactSyncEntry {
+  id: string;
+  kind: 'birth_letter' | 'diary' | 'final_letter';
+  characterId: string;
+  characterName: string;
+  dateKey?: string | null;
+  sourceKey?: string | null;
+  title: string;
+  text: string;
+  source: 'ai' | 'local';
+  unread: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export class ApiError extends Error {
   code?: string;
   status?: number;
@@ -349,6 +364,14 @@ class ApiClient {
 
   async updateSettings(data: Record<string, unknown>) {
     return this.request<Record<string, unknown>>('PUT', '/settings', data);
+  }
+
+  async getCharacterArtifacts() {
+    return this.request<{ items: CharacterArtifactSyncEntry[]; updatedAt: number }>('GET', '/character-artifacts');
+  }
+
+  async updateCharacterArtifacts(data: { items: CharacterArtifactSyncEntry[]; updatedAt: number }) {
+    return this.request<{ success: boolean; updatedAt: number }>('PUT', '/character-artifacts', data);
   }
 
   async getTopicSources() {

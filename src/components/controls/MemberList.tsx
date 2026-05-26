@@ -17,6 +17,7 @@ interface MemberListProps {
   chat?: GroupChat;
   onRemove?: (id: string) => void;
   onSpeakAs?: (id: string) => void;
+  onStartDirectChat?: (id: string) => void;
   onUpdateSeats?: (memberIds: string[]) => void;
 }
 
@@ -45,7 +46,7 @@ function buildMemberEmotionChips(member: AICharacter, language: string, showDebu
     });
 }
 
-export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onUpdateSeats }: MemberListProps) {
+export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onStartDirectChat, onUpdateSeats }: MemberListProps) {
   const { t, i18n } = useTranslation();
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
@@ -219,6 +220,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
 
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu}>
         {onSpeakAs && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onSpeakAs(menuCharId); }}>{t('controls.speakAs')}</MenuItem>}
+        {onStartDirectChat && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onStartDirectChat(menuCharId); }}>{i18n.language.startsWith('zh') ? '发起私聊' : 'Start direct chat'}</MenuItem>}
         {onRemove && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onRemove(menuCharId); }} sx={{ color: 'error.main' }}>{t('controls.removeMember')}</MenuItem>}
       </Menu>
 

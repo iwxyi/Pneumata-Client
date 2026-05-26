@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ClipboardEvent, type DragEvent, type MouseEvent } from 'react';
 import {
   Box, Typography, Card, CardContent, TextField, Button,
   FormControl, InputLabel, Select, MenuItem,
@@ -17,6 +17,25 @@ import { normalizeImageCapabilities } from '../types/settings';
 import { normalizeCharacterModelProfileIds } from '../types/character';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import { getPopularModels, getProviderCatalogEntry, getProviderDefaults, getProvidersForType, inferImageCapabilities } from '../constants/aiModelCatalog';
+
+function maskSecret(value: string) {
+  if (!value) return '';
+  if (value.length <= 4) return `${value.slice(0, 1)}••••`;
+  if (value.length <= 8) return `${value.slice(0, 4)}••••`;
+  return `${value.slice(0, 4)}••••${value.slice(-4)}`;
+}
+
+function blockSecretCopy(event: ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) {
+  event.preventDefault();
+}
+
+function blockSecretDrag(event: DragEvent<HTMLInputElement | HTMLTextAreaElement>) {
+  event.preventDefault();
+}
+
+function blockSecretContextMenu(event: MouseEvent<HTMLInputElement | HTMLTextAreaElement>) {
+  event.preventDefault();
+}
 
 export default function AIModelsPage() {
   const { t, i18n } = useTranslation();
@@ -373,7 +392,7 @@ export default function AIModelsPage() {
                   <TextField
                     label={t('settings.apiKey')}
                     placeholder={t('settings.apiKeyPlaceholder')}
-                    value={profile.apiKey}
+                    value={showKey ? maskSecret(profile.apiKey) : profile.apiKey}
                     onChange={(e) => settings.updateAIProfile(profile.id, { apiKey: e.target.value })}
                     type={showKey ? 'text' : 'password'}
                     size="small"
@@ -387,6 +406,19 @@ export default function AIModelsPage() {
                             </IconButton>
                           </InputAdornment>
                         ),
+                      },
+                      htmlInput: {
+                        readOnly: showKey,
+                        onCopy: blockSecretCopy,
+                        onCut: blockSecretCopy,
+                        onDragStart: blockSecretDrag,
+                        onContextMenu: blockSecretContextMenu,
+                        autoComplete: 'off',
+                        spellCheck: false,
+                        style: {
+                          userSelect: 'none',
+                          WebkitUserSelect: 'none',
+                        },
                       },
                     }}
                   />

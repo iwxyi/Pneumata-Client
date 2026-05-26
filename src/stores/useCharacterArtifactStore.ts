@@ -5,9 +5,10 @@ import type { AIModelProfile } from '../types/settings';
 import { getPreferredAIProfile } from '../types/settings';
 import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
 import { CLIENT_STORE_SCHEMA_VERSION } from './storeMigrations';
-import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact } from '../services/characterExperienceArtifacts';
+import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact, looksLikeRawArtifactContext } from '../services/characterExperienceArtifacts';
 import { useSettingsStore } from './useSettingsStore';
 import { scopedStorageKey, storageKey } from '../constants/brand';
+import { api } from '../services/api';
 
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
 export type CharacterArtifactJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
@@ -63,13 +64,39 @@ interface CharacterArtifactStore extends ArtifactSnapshot {
   markLettersRead: () => void;
   getDiaryEntries: (characterId: string) => CharacterArtifactEntry[];
   getLetterEntries: () => CharacterArtifactEntry[];
+  syncCloud: () => Promise<void>;
   resumeProcessing: () => Promise<void>;
 }
 
 function getArtifactStorageKey() {
   const userRaw = localStorage.getItem(storageKey('user'));
-  const userId = userRaw ? JSON.parse(userRaw).id : 'guest';
+  let userId = 'guest';
+  try {
+    userId = userRaw ? JSON.parse(userRaw).id || 'guest' : 'guest';
+  } catch {
+    userId = 'guest';
+  }
   return scopedStorageKey(`character-artifacts-${userId}`);
+}
+
+function getGuestArtifactStorageKey() {
+  return scopedStorageKey('character-artifacts-guest');
+}
+
+function isCloudMode() {
+  return Boolean(localStorage.getItem(storageKey('token'))) && localStorage.getItem(storageKey('auth-mode')) !== 'local';
+}
+
+function readPersistedItemsFromKey(key: string) {
+  if (typeof localStorage === 'undefined') return [] as CharacterArtifactEntry[];
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { state?: { items?: CharacterArtifactEntry[] } };
+    return Array.isArray(parsed.state?.items) ? parsed.state.items : [];
+  } catch {
+    return [];
+  }
 }
 
 function createArtifactStorage() {
@@ -155,6 +182,44 @@ function isBirthLetterEntry(item: CharacterArtifactEntry) {
 
 function computeUnreadLetterCount(items: CharacterArtifactEntry[]) {
   return items.filter((item) => (isFinalLetterEntry(item) || isBirthLetterEntry(item)) && item.unread).length;
+}
+
+function buildArtifactLogicalKey(item: CharacterArtifactEntry) {
+  if (item.kind === 'diary') return `diary:${item.characterId}:${item.dateKey || ''}`;
+  if (item.kind === 'birth_letter') return `birth_letter:${item.characterId}:${item.sourceKey || ''}`;
+  return `${item.kind}:${item.characterId}:${item.sourceKey || item.id}`;
+}
+
+function chooseBetterArtifactEntry(a: CharacterArtifactEntry, b: CharacterArtifactEntry) {
+  const aRaw = looksLikeRawArtifactContext(a.text);
+  const bRaw = looksLikeRawArtifactContext(b.text);
+  if (aRaw !== bRaw) return aRaw ? b : a;
+  return (b.updatedAt || b.createdAt || 0) > (a.updatedAt || a.createdAt || 0) ? b : a;
+}
+
+function mergeArtifactItems(...sources: CharacterArtifactEntry[][]) {
+  const byId = new Map<string, CharacterArtifactEntry>();
+  sources.flat().forEach((item) => {
+    if (!item?.id || !item.kind || !item.characterId) return;
+    const existing = byId.get(item.id);
+    byId.set(item.id, existing ? chooseBetterArtifactEntry(existing, item) : item);
+  });
+
+  const byLogicalKey = new Map<string, CharacterArtifactEntry>();
+  Array.from(byId.values()).forEach((item) => {
+    const key = buildArtifactLogicalKey(item);
+    const existing = byLogicalKey.get(key);
+    byLogicalKey.set(key, existing ? chooseBetterArtifactEntry(existing, item) : item);
+  });
+
+  return Array.from(byLogicalKey.values()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+function buildItemsSignature(items: CharacterArtifactEntry[]) {
+  return items
+    .map((item) => `${item.id}:${item.updatedAt}:${item.unread ? 1 : 0}:${item.text.length}`)
+    .sort()
+    .join('|');
 }
 
 function createArtifactEntry(params: {
@@ -317,6 +382,19 @@ async function generateArtifactText(
 export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
   persist(
     (set, get) => {
+      let cloudSyncTimer: ReturnType<typeof setTimeout> | null = null;
+      let cloudSyncRunning = false;
+      let cloudSyncPending = false;
+
+      const scheduleCloudSync = () => {
+        if (!isCloudMode()) return;
+        if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
+        cloudSyncTimer = setTimeout(() => {
+          cloudSyncTimer = null;
+          void get().syncCloud();
+        }, 700);
+      };
+
       const enqueueJobs = (jobs: CharacterArtifactJob[]) => {
         if (!jobs.length) return;
         set((state) => {
@@ -368,12 +446,22 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
 
           set((state) => {
             const remainingJobs = state.jobs.map((job) => job.id === nextJob.id ? { ...job, status: 'succeeded' as const, updatedAt: now() } : job);
+            const staleRawItems = state.items.filter((item) => (
+              item.kind === entry.kind
+              && item.characterId === entry.characterId
+              && (item.dateKey || null) === (entry.dateKey || null)
+              && looksLikeRawArtifactContext(item.text)
+            ));
+            const preservedItems = staleRawItems.length
+              ? state.items.filter((item) => !staleRawItems.some((stale) => stale.id === item.id))
+              : state.items;
             return {
-              items: [entry, ...state.items].sort((a, b) => b.createdAt - a.createdAt),
+              items: [entry, ...preservedItems].sort((a, b) => b.createdAt - a.createdAt),
               jobs: removeCompletedJobs(remainingJobs),
-              unreadLetterCount: computeUnreadLetterCount([entry, ...state.items]),
+              unreadLetterCount: computeUnreadLetterCount([entry, ...preservedItems]),
             };
           });
+          scheduleCloudSync();
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           set((state) => ({
@@ -393,7 +481,9 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
         syncCharacters: (characters) => {
           const todayKey = dateKeyOf(now());
           const diaryJobs: CharacterArtifactJob[] = [];
-          const existingDiaryKeys = new Set(get().items.filter(isDiaryEntry).map((item) => `${item.characterId}:${item.dateKey}`));
+          const existingDiaryKeys = new Set(get().items
+            .filter((item) => isDiaryEntry(item) && !looksLikeRawArtifactContext(item.text))
+            .map((item) => `${item.characterId}:${item.dateKey}`));
           const existingJobKeys = new Set(get().jobs.map((job) => job.key));
 
           characters
@@ -463,10 +553,51 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
         },
         markLettersRead: () => set((state) => {
           const items = state.items.map((item) => (item.kind === 'final_letter' || item.kind === 'birth_letter') ? { ...item, unread: false, updatedAt: now() } : item);
+          queueMicrotask(scheduleCloudSync);
           return { items, unreadLetterCount: computeUnreadLetterCount(items) };
         }),
         getDiaryEntries: (characterId) => get().items.filter((item) => item.kind === 'diary' && item.characterId === characterId).sort((a, b) => b.createdAt - a.createdAt),
         getLetterEntries: () => get().items.filter((item) => item.kind === 'birth_letter' || item.kind === 'final_letter').sort((a, b) => b.createdAt - a.createdAt),
+        syncCloud: async () => {
+          if (!isCloudMode()) return;
+          if (cloudSyncRunning) {
+            cloudSyncPending = true;
+            return;
+          }
+          cloudSyncRunning = true;
+          try {
+            const remote = await api.getCharacterArtifacts();
+            const currentKey = getArtifactStorageKey();
+            const guestKey = getGuestArtifactStorageKey();
+            const persistedCurrentItems = readPersistedItemsFromKey(currentKey);
+            const guestItems = currentKey === guestKey ? [] : readPersistedItemsFromKey(guestKey);
+            const mergedItems = mergeArtifactItems(
+              remote.items || [],
+              persistedCurrentItems,
+              guestItems,
+              get().items,
+            );
+            const localSignature = buildItemsSignature(get().items);
+            const mergedSignature = buildItemsSignature(mergedItems);
+            if (mergedSignature !== localSignature) {
+              set({
+                items: mergedItems,
+                unreadLetterCount: computeUnreadLetterCount(mergedItems),
+              });
+            }
+            if (buildItemsSignature(remote.items || []) !== mergedSignature) {
+              await api.updateCharacterArtifacts({ items: mergedItems, updatedAt: now() });
+            }
+          } catch (error) {
+            console.error('Failed to sync character artifacts:', error);
+          } finally {
+            cloudSyncRunning = false;
+            if (cloudSyncPending) {
+              cloudSyncPending = false;
+              scheduleCloudSync();
+            }
+          }
+        },
         resumeProcessing: async () => {
           set((state) => ({
             jobs: state.jobs.map((job) => {
@@ -476,6 +607,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             }),
             unreadLetterCount: computeUnreadLetterCount(state.items),
           }));
+          void get().syncCloud();
           await processNext();
         },
       };

@@ -87,4 +87,36 @@ describe('useCharacterArtifactStore', () => {
     expect(finalLetter?.text).toContain('没说完的话留给小雨');
     expect(artifactStore.getState().unreadLetterCount).toBe(2);
   });
+
+  it('regenerates diary entries that accidentally stored raw context', async () => {
+    const character = buildCharacter();
+    artifactStore.setState({
+      items: [{
+        id: 'raw-diary',
+        kind: 'diary',
+        characterId: character.id,
+        characterName: character.name,
+        dateKey: '1970-01-01',
+        sourceKey: null,
+        title: '苏苏 · 1970-01-01',
+        text: JSON.stringify({ profile: { name: '苏苏' }, memories: [], relationships: [], innerResidues: [] }),
+        source: 'ai',
+        unread: false,
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+      jobs: [],
+      isProcessing: false,
+      unreadLetterCount: 0,
+    });
+
+    artifactStore.getState().syncCharacters([character]);
+    await artifactStore.getState().resumeProcessing();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const diaries = artifactStore.getState().getDiaryEntries(character.id);
+    expect(diaries).toHaveLength(1);
+    expect(diaries[0]?.id).not.toBe('raw-diary');
+    expect(diaries[0]?.text).toContain('苏苏的日记');
+  });
 });

@@ -298,14 +298,20 @@ export default function LettersPage() {
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 1100, mx: 'auto' }}>
       <Stack spacing={2}>
-        <Box sx={{ px: { xs: 4.5, sm: 6, lg: 7 } }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(140px, 220px)', gap: 1.5, alignItems: 'center' }}>
+        <Box sx={{ px: { xs: 1.5, sm: 6, lg: 7 } }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) minmax(140px, 220px)' }, gap: 1, alignItems: 'center' }}>
             <Tabs
               value={tab}
               onChange={(_, value) => setTab(value)}
               variant="scrollable"
               allowScrollButtonsMobile
-              sx={{ minWidth: 0, '& .MuiTabs-flexContainer': { gap: 0.25 }, '& .MuiTab-root': { minWidth: 0, px: { xs: 1.25, sm: 1.75 }, whiteSpace: 'nowrap' } }}
+              sx={{
+                minWidth: 0,
+                width: '100%',
+                '& .MuiTabs-scroller': { minWidth: 0 },
+                '& .MuiTabs-flexContainer': { gap: 0.25 },
+                '& .MuiTab-root': { minWidth: 0, px: { xs: 1.25, sm: 1.75 }, whiteSpace: 'nowrap' },
+              }}
             >
               <Tab value="letters" label={(
                 <Badge badgeContent={unreadLetterCount} color="error" max={99}>

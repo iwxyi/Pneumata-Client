@@ -9,6 +9,7 @@ import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useMessageStore } from '../stores/useMessageStore';
+import LogoutIcon from '@mui/icons-material/Logout';
 
 const MAX_AVATAR_FILE_SIZE = 2 * 1024 * 1024;
 const MAX_AVATAR_DIMENSION = 512;
@@ -68,7 +69,7 @@ export default function AccountPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderBackAction, setHeaderActions } = useLayoutHeaderActions();
-  const { user, authMode, updateProfile, sendChangePhoneCode, changePhone } = useAuthStore();
+  const { user, authMode, updateProfile, sendChangePhoneCode, changePhone, logout } = useAuthStore();
   const chatStore = useChatStore();
   const characterStore = useCharacterStore();
   const settingsStore = useSettingsStore();
@@ -155,6 +156,15 @@ export default function AccountPage() {
     } finally {
       setSyncingAll(false);
     }
+  };
+
+  const handleLogout = () => {
+    logout();
+    setSnackbar({
+      open: true,
+      message: i18n.language.startsWith('zh') ? '已退出登录，当前为离线本地模式' : 'Logged out. You are now in local-only mode.',
+      severity: 'success',
+    });
   };
 
   const handleAvatarFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -377,6 +387,22 @@ export default function AccountPage() {
             </Box>
 
             <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={handleAvatarFileChange} />
+
+            {authMode === 'local' ? (
+              <Button variant="contained" onClick={() => navigate('/login')} sx={{ alignSelf: 'flex-start' }}>
+                {i18n.language.startsWith('zh') ? '登录并同步' : 'Sign in & sync'}
+              </Button>
+            ) : (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<LogoutIcon />}
+                onClick={handleLogout}
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                {i18n.language.startsWith('zh') ? '退出登录' : 'Log out'}
+              </Button>
+            )}
           </CardContent>
         </Card>
 

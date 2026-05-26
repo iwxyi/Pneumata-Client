@@ -465,6 +465,83 @@ function buildArtifactPrompt(kind: CharacterExperienceArtifactKind, language: 'z
   return `Write a ${label} from the character's own perspective using the structured memories, relationships, emotions, and inner residues.\nMake it feel like a real inner record, not a system summary. Do not invent events that contradict the input. Let it carry some wistfulness when earned, but leave a small opening toward the future.${kind === 'diary' ? ' Use narrativeAngle and recentDiaryOpenings as soft guidance: repeated openings are allowed if they are characterful, but the inner movement, trigger, and relationship residue must be fresh and specific.' : ''} Output only the artifact text.`;
 }
 
+function unwrapMarkdownFence(text: string) {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^```(?:json|markdown|md|text)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : trimmed;
+}
+
+function extractStructuredArtifactText(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const candidates = ['text', 'content', 'diary', 'letter', 'body', 'artifact'];
+  for (const key of candidates) {
+    const candidate = record[key];
+    if (typeof candidate === 'string' && candidate.trim().length >= 8) return candidate.trim();
+  }
+  return null;
+}
+
+function normalizeGeneratedArtifactText(raw: string) {
+  const text = unwrapMarkdownFence(raw);
+  try {
+    const parsed = JSON.parse(text);
+    const extracted = extractStructuredArtifactText(parsed);
+    return extracted || text;
+  } catch {
+    return text;
+  }
+}
+
+export function looksLikeRawArtifactContext(text: string) {
+  const normalized = unwrapMarkdownFence(text);
+  try {
+    const parsed = JSON.parse(normalized) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') return false;
+    const rawKeys = ['profile', 'memories', 'relationships', 'emotions', 'innerResidues', 'growthSignals', 'identityAnchors'];
+    const matchedKeys = rawKeys.filter((key) => key in parsed).length;
+    return matchedKeys >= 2 || ('dateKey' in parsed && ('highlights' in parsed || 'privateLenses' in parsed));
+  } catch {
+    return /"profile"\s*:/.test(normalized)
+      && (/"memories"\s*:/.test(normalized) || /"relationships"\s*:/.test(normalized) || /"innerResidues"\s*:/.test(normalized));
+  }
+}
+
+function buildArtifactRetryPrompt(kind: CharacterExperienceArtifactKind, language: 'zh' | 'en') {
+  const zh = language === 'zh';
+  const label = KIND_LABELS[kind];
+  if (zh) {
+    return `${buildArtifactPrompt(kind, language)}\n\n上一次输出看起来像输入材料或 JSON。请重新写一段真正的${label}正文：不要输出 JSON，不要保留字段名，不要解释，不要复述输入结构，只写角色自己的内心文字。`;
+  }
+  return `${buildArtifactPrompt(kind, language)}\n\nThe previous output looked like source data or JSON. Rewrite it as the actual ${label} body only. Do not output JSON, field names, explanations, or the input structure.`;
+}
+
+async function generateArtifactFromContext(params: {
+  config: APIConfig;
+  kind: CharacterExperienceArtifactKind;
+  context: CharacterExperienceArtifactContext;
+  language: 'zh' | 'en';
+}) {
+  const serializedContext = JSON.stringify(params.context, null, 2);
+  const first = normalizeGeneratedArtifactText(await generateResponse(
+    params.config,
+    buildArtifactPrompt(params.kind, params.language),
+    [{ role: 'user', content: serializedContext }],
+    undefined,
+  ));
+  if (first && !looksLikeRawArtifactContext(first)) return first;
+
+  const retry = normalizeGeneratedArtifactText(await generateResponse(
+    params.config,
+    buildArtifactRetryPrompt(params.kind, params.language),
+    [{ role: 'user', content: serializedContext }],
+    undefined,
+  ));
+  if (retry && !looksLikeRawArtifactContext(retry)) return retry;
+
+  return buildLocalCharacterExperienceArtifact(params.kind, params.context);
+}
+
 export async function generateCharacterExperienceArtifact(params: {
   config: APIConfig;
   kind: CharacterExperienceArtifactKind;
@@ -477,12 +554,12 @@ export async function generateCharacterExperienceArtifact(params: {
     : params.kind === 'final_letter'
       ? buildCharacterFinalLetterContext(params.character, params.relatedCharacters || [])
     : buildCharacterExperienceArtifactContext(params.character, params.relatedCharacters || []);
-  return generateResponse(
-    params.config,
-    buildArtifactPrompt(params.kind, params.language || 'zh'),
-    [{ role: 'user', content: JSON.stringify(context, null, 2) }],
-    undefined,
-  );
+  return generateArtifactFromContext({
+    config: params.config,
+    kind: params.kind,
+    context,
+    language: params.language || 'zh',
+  });
 }
 
 export async function generateCharacterDailyDiaryArtifact(params: {
@@ -494,10 +571,10 @@ export async function generateCharacterDailyDiaryArtifact(params: {
   language?: 'zh' | 'en';
 }) {
   const context = buildCharacterDailyDiaryContext(params.character, params.relatedCharacters || [], params.dateKey, params.recentDiaryTexts || []);
-  return generateResponse(
-    params.config,
-    buildArtifactPrompt('diary', params.language || 'zh'),
-    [{ role: 'user', content: JSON.stringify(context, null, 2) }],
-    undefined,
-  );
+  return generateArtifactFromContext({
+    config: params.config,
+    kind: 'diary',
+    context,
+    language: params.language || 'zh',
+  });
 }

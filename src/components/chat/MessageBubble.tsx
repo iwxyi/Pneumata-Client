@@ -28,8 +28,8 @@ function renderMemoryDistillationMeta(payload: { metrics?: unknown }, members: D
   if (!meta) return null;
   return (
     <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
-      <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{`证据事件 ${meta.evidenceCount} · 合并方式 ${meta.mergeModeLabel}`}</Typography>
-      {meta.candidateTexts.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{meta.candidateTexts.join(' / ')}</Typography> : null}
+      <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{`证据事件 ${meta.evidenceCount} · 合并方式 ${meta.mergeModeLabel}`}</Typography>
+      {meta.candidateTexts.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{meta.candidateTexts.join(' / ')}</Typography> : null}
     </Box>
   );
 }
@@ -39,9 +39,9 @@ function renderMemoryReactivationMeta(payload: { metrics?: unknown }, members: D
   if (!meta) return null;
   return (
     <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
-      {meta.matchedTokens.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{`命中词：${meta.matchedTokens.join(' / ')}`}</Typography> : null}
+      {meta.matchedTokens.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{`命中词：${meta.matchedTokens.join(' / ')}`}</Typography> : null}
       {meta.recalledMemories.map((item, index) => (
-        <Typography key={`${item.summary}-${index}`} variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>
+        <Typography key={`${item.summary}-${index}`} variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
           {item.matchedTokens.length ? `${item.summary} · ${item.matchedTokens.join(' / ')}` : item.summary}
         </Typography>
       ))}
@@ -92,8 +92,8 @@ function renderConflictEventMeta(payload: { metrics?: unknown }) {
   if (!items.length && !metrics.hooks.length) return null;
   return (
     <Box sx={{ mt: 0.75, display: 'grid', gap: 0.5 }}>
-      {items.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{items.join(' · ')}</Typography> : null}
-      {metrics.hooks.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap' }}>{`建议：${metrics.hooks.join(' / ')}`}</Typography> : null}
+      {items.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{items.join(' · ')}</Typography> : null}
+      {metrics.hooks.length ? <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{`建议：${metrics.hooks.join(' / ')}`}</Typography> : null}
     </Box>
   );
 }
@@ -101,11 +101,11 @@ function renderConflictEventMeta(payload: { metrics?: unknown }) {
 function renderEventBubble(messageId: string, payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }, members: DisplayTextMember[] = []) {
   if (shouldHideEmptyConflictEvent(payload)) return null;
   return (
-    <Box data-message-id={messageId} data-message-type="event" sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: 2, pointerEvents: 'none' }}>
-      <Box sx={{ maxWidth: 620, width: 'fit-content', minWidth: 420, px: 1.75, py: 1, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', pointerEvents: 'none' }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, mb: 0.25 }}>
+    <Box data-message-id={messageId} data-message-type="event" sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: { xs: 1, sm: 2 }, width: '100%', minWidth: 0, pointerEvents: 'none' }}>
+      <Box sx={{ maxWidth: 620, width: { xs: '100%', sm: 'fit-content' }, minWidth: 0, px: { xs: 1.25, sm: 1.75 }, py: 1, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', pointerEvents: 'none', overflow: 'hidden' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, mb: 0.25, minWidth: 0 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
               {buildEventDisplayText(payload, members)}
             </Typography>
           </Box>

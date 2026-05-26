@@ -39,6 +39,7 @@ interface ChatSidebarPanelProps {
     targetResolution?: string;
   } | null;
   onSpeakAs: (charId: string) => void;
+  onStartDirectChat?: (charId: string) => void;
   onRemoveMember?: (charId: string) => void;
   onUpdateSeats?: (memberIds: string[]) => void;
 }
@@ -129,6 +130,7 @@ export default function ChatSidebarPanel({
   privatePayloads,
   directMemoryContext,
   onSpeakAs,
+  onStartDirectChat,
   onRemoveMember,
   onUpdateSeats,
 }: ChatSidebarPanelProps) {
@@ -150,6 +152,7 @@ export default function ChatSidebarPanel({
             thinkingId={thinkingId}
             chat={chat}
             onSpeakAs={onSpeakAs}
+            onStartDirectChat={onStartDirectChat}
             onRemove={onRemoveMember}
             onUpdateSeats={onUpdateSeats}
           />

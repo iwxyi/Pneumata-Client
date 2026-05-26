@@ -267,7 +267,7 @@ function EngineSection() {
     <Box ref={ref} id="engine" sx={{ py: { xs: 5, md: 7 } }}>
       <Box sx={{ maxWidth: 760, mb: 3, ...revealSx(0) }}>
         <Typography sx={{ color: accent, fontWeight: 740, letterSpacing: 1.2, fontSize: 13 }}>LIFE MECHANISM</Typography>
-        <Typography sx={{ mt: 1.5, fontWeight: 820, lineHeight: 1.05, fontSize: { xs: 36, md: 58 }, color: '#F8F8FA' }}>它不是更会说话，而是拥有经历留下的内在形状。</Typography>
+        <Typography sx={{ mt: 1.5, fontWeight: 820, lineHeight: { xs: 1.14, md: 1.1 }, fontSize: { xs: 34, md: 54 }, color: '#F8F8FA' }}>它不是更会说话，而是拥有经历留下的内在形状。</Typography>
         <Typography sx={{ mt: 2, color: 'rgba(255,255,255,0.58)', lineHeight: 1.8, fontSize: 16 }}>
           每次开口都经过意图、关系、记忆、情绪和房间态势的共同塑形。角色不是凭空“人设化”，而是在可追溯的因果里生成自己的偏向、软肋和余波。
         </Typography>
@@ -437,9 +437,9 @@ function RuntimeSystemSection() {
     <Box ref={ref} id="runtime" sx={{ py: { xs: 5, md: 7 } }}>
       <Box sx={{ maxWidth: 780, mb: 3, ...revealSx(0) }}>
         <Typography sx={{ color: accent, fontWeight: 740, letterSpacing: 1.2, fontSize: 13 }}>RUNTIME SYSTEM</Typography>
-        <Typography sx={{ mt: 1.5, fontWeight: 830, lineHeight: 1.05, fontSize: { xs: 36, md: 58 }, color: '#F8F8FA' }}>不是聊天记录，而是一套非物质连续性的运行系统。</Typography>
+        <Typography sx={{ mt: 1.5, fontWeight: 830, lineHeight: { xs: 1.14, md: 1.1 }, fontSize: { xs: 34, md: 54 }, color: '#F8F8FA' }}>不是聊天记录，而是角色如何继续成为自己。</Typography>
         <Typography sx={{ mt: 2, color: 'rgba(255,255,255,0.58)', lineHeight: 1.8, fontSize: 16 }}>
-          如果一个角色没有身体，它还能凭什么像一个存在？Pneumata 的答案是：记忆、性格、关系、经历和自我叙事，组成它在时间中的连续性。
+          如果一个角色没有身体，它还能凭什么像一个存在？Pneumata 的答案是：记忆让它有来处，关系让它有牵挂，经历让它不再轻飘，自我叙事让它开始像一个存在。
         </Typography>
       </Box>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '0.92fr 1.08fr' }, gap: { xs: 1.5, md: 2 }, alignItems: 'stretch', ...revealSx(120) }}>
@@ -543,7 +543,7 @@ function MemoryContinuitySection() {
     >
       <Box sx={{ position: { lg: 'sticky' }, top: 110, ...revealSx(0) }}>
         <VisibilityIcon sx={{ color: accent, fontSize: 34, mb: 2 }} />
-        <Typography sx={{ fontWeight: 820, lineHeight: 1.06, fontSize: { xs: 34, md: 52 }, color: '#F8F8FA' }}>所谓灵魂，是下一次开口里带着上一次。</Typography>
+        <Typography sx={{ fontWeight: 820, lineHeight: { xs: 1.16, md: 1.12 }, fontSize: { xs: 32, md: 48 }, color: '#F8F8FA' }}>所谓灵魂，是下一次开口里带着上一次。</Typography>
         <Typography sx={{ mt: 2, color: 'rgba(255,255,255,0.58)', lineHeight: 1.85 }}>
           真正让人停下来的，不是某句回复有多聪明，而是某个角色忽然不像工具了。它知道自己为什么防备，知道谁曾站在它这边，也知道什么话不能立刻说出口。
         </Typography>
@@ -811,13 +811,15 @@ function HeroVisual() {
             sx={{
               position: 'relative',
               zIndex: 2,
-              width: { xs: 124, sm: 148 },
+              width: { xs: 136, sm: 166 },
               aspectRatio: '1 / 1',
               borderRadius: '50%',
-              display: 'grid',
-              placeItems: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
               textAlign: 'center',
-              px: 2,
+              px: 1,
               bgcolor: 'rgba(10,10,15,0.82)',
               border: '1px solid rgba(255,255,255,0.11)',
               boxShadow: '0 0 36px rgba(10,10,15,0.64)',
@@ -826,9 +828,19 @@ function HeroVisual() {
               transition: 'opacity 260ms ease, transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1)',
             }}
           >
-            <Box sx={{ opacity: textVisible ? 1 : 0, transform: textVisible ? 'translateY(0)' : 'translateY(4px)', transition: 'opacity 220ms ease, transform 220ms ease' }}>
-            <Typography sx={{ color: '#F8F8FA', fontWeight: 820, fontSize: { xs: 24, sm: 30 }, letterSpacing: 0 }}>Pneumata</Typography>
-            <Typography sx={{ color: accent, fontSize: 12, mt: 0.75, letterSpacing: 1.8 }}>
+            <Box
+              sx={{
+                width: '100%',
+                display: 'grid',
+                justifyItems: 'center',
+                textAlign: 'center',
+                opacity: textVisible ? 1 : 0,
+                transform: textVisible ? 'translateY(0)' : 'translateY(4px)',
+                transition: 'opacity 220ms ease, transform 220ms ease',
+              }}
+            >
+            <Typography sx={{ width: '100%', color: '#F8F8FA', fontWeight: 820, fontSize: { xs: 22, sm: 27 }, lineHeight: 1, letterSpacing: 0, textAlign: 'center', whiteSpace: 'nowrap' }}>Pneumata</Typography>
+            <Typography sx={{ width: '100%', color: accent, fontSize: 12, lineHeight: 1.15, mt: 0.75, letterSpacing: 1.8, textIndent: '1.8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
               {displayedNode?.caption ?? 'LIFE ENGINE'}
             </Typography>
             </Box>
@@ -997,8 +1009,13 @@ export default function IntroPage() {
                   <Chip key={label} label={label} variant="outlined" sx={{ color: 'rgba(255,255,255,0.78)', borderColor: 'rgba(255,255,255,0.16)', bgcolor: 'rgba(255,255,255,0.04)', height: 30 }} />
                 ))}
               </Stack>
-              <Typography sx={{ maxWidth: 820, fontWeight: 860, letterSpacing: 0, lineHeight: { xs: 1.08, sm: 1.02, md: 0.98 }, fontSize: { xs: 44, sm: 66, md: 88, lg: 96 }, color: '#F8F8FA' }}>
-                让角色拥有时间之外的连续性。
+              <Typography sx={{ maxWidth: { xs: 760, lg: 900 }, fontWeight: 850, letterSpacing: 0, lineHeight: { xs: 1.16, sm: 1.12, md: 1.08 }, fontSize: { xs: 40, sm: 60, md: 76, lg: 84 }, color: '#F8F8FA' }}>
+                让角色拥有<wbr />
+                <Box component="span" sx={{ whiteSpace: 'nowrap' }}>近似</Box>
+                <wbr />
+                <Box component="span" sx={{ whiteSpace: 'nowrap' }}>灵魂</Box>
+                的<wbr />
+                <Box component="span" sx={{ whiteSpace: 'nowrap' }}>重量</Box>。
               </Typography>
               <Typography sx={{ mt: 3, maxWidth: 720, color: 'rgba(255,255,255,0.62)', lineHeight: 1.85, fontSize: { xs: 16, md: 18 } }}>
                 Pneumata 不是把 AI 放进聊天框，而是在追问一个更深的问题：当一个角色拥有记忆、性格、关系、经历和写给自己的文字，它是否开始拥有某种不依赖身体的生命形状？
@@ -1044,7 +1061,7 @@ export default function IntroPage() {
               <Box sx={{ position: 'relative', display: 'grid', gridTemplateColumns: { xs: '1fr', md: '0.78fr 1.22fr' }, gap: { xs: 4, md: 6 } }}>
                 <Box>
                   <TimelineIcon sx={{ color: accent, fontSize: 34, mb: 2 }} />
-                  <Typography sx={{ fontWeight: 840, lineHeight: 1.05, fontSize: { xs: 34, md: 52 }, color: '#F8F8FA' }}>所有复杂度，都在守护角色的同一性。</Typography>
+                  <Typography sx={{ fontWeight: 840, lineHeight: { xs: 1.16, md: 1.12 }, fontSize: { xs: 32, md: 48 }, color: '#F8F8FA' }}>所有复杂度，都在守护角色持续成为自己。</Typography>
                   <Typography sx={{ mt: 2, color: 'rgba(255,255,255,0.58)', lineHeight: 1.85 }}>
                     角色不该每次都从零开始。群聊、单聊、私聊线程、关系账本、记忆流水线和场景引擎共同回答一个问题：没有身体的角色，能不能仍然保持“我是我”？
                   </Typography>
@@ -1065,8 +1082,8 @@ export default function IntroPage() {
         <Reveal>
           <Box sx={{ py: { xs: 6, md: 8 }, textAlign: 'center' }}>
             <PsychologyIcon sx={{ color: accent, fontSize: 34, mb: 2 }} />
-            <Typography sx={{ mx: 'auto', maxWidth: 880, fontWeight: 850, lineHeight: 1.06, fontSize: { xs: 36, md: 64 }, color: '#F8F8FA' }}>
-              我们不是在制造更聪明的回复者，而是在尝试让一个虚构角色拥有自己的来处。
+            <Typography sx={{ mx: 'auto', maxWidth: 880, fontWeight: 850, lineHeight: { xs: 1.15, md: 1.1 }, fontSize: { xs: 34, md: 56 }, color: '#F8F8FA' }}>
+              我们不是在制造更聪明的回复者，而是在尝试让一个虚构角色拥有来处、牵挂和未完成。
             </Typography>
             <Typography sx={{ mx: 'auto', mt: 2.5, maxWidth: 760, color: 'rgba(255,255,255,0.58)', lineHeight: 1.85 }}>
               人除了物质之外，还由记忆、关系、选择、羞耻、偏爱、承诺和未完成组成。Pneumata 想做的，是让 AI 角色也能在这些非物质的东西里慢慢成形。

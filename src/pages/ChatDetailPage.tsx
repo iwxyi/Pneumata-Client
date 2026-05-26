@@ -38,6 +38,7 @@ import { useChatRunLoop } from '../hooks/useChatRunLoop';
 import { useChatSidebarProjection } from '../hooks/useChatSidebarProjection';
 import { useMessageAnalysis } from '../hooks/useMessageAnalysis';
 import { runDirectUserReplyFlow } from '../services/directUserReplyFlow';
+import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -247,6 +248,22 @@ export default function ChatDetailPage() {
     if (privateChat && navigateAfterCreate) navigate(`/chats/${privateChat.id}`);
     return privateChat;
   }, [addMessage, appendEventMessage, characters, chats, navigate]);
+
+  const handleStartDirectChat = useCallback(async (characterId: string) => {
+    const character = characters.find((item) => item.id === characterId);
+    if (!character) return;
+    const existing = chats.find((item) => item.type === 'direct' && item.memberIds.length === 1 && item.memberIds[0] === characterId);
+    if (existing) {
+      navigate(`/chats/${existing.id}?fromTab=1`);
+      return;
+    }
+    try {
+      const directChat = await useChatStore.getState().addChat(buildDirectChatDraft(character.id, character.name));
+      navigate(`/chats/${directChat.id}?fromTab=1`);
+    } catch (error) {
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
+    }
+  }, [characters, chats, navigate, t]);
 
   const runSessionAction = useCallback(async (action: { type: string; actorId?: string }, payload: Record<string, unknown>) => {
     if (!chat) return;
@@ -686,6 +703,7 @@ export default function ChatDetailPage() {
               showActionTab={showActionTab}
               actionPanel={showActionTab ? <LazyPanel><SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} /></LazyPanel> : null}
               onSpeakAs={(charId) => setSpeakAsCharacter(charId)}
+              onStartDirectChat={chat.type === 'group' ? handleStartDirectChat : undefined}
               onRemoveMember={chat.type === 'group' ? (charId) => {
                 const newMembers = chat.memberIds.filter((m) => m !== charId);
                 if (newMembers.length >= 2) updateChat(chat.id, { memberIds: newMembers });

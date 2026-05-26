@@ -16,30 +16,27 @@ import SectionHeader from '../components/common/SectionHeader';
 function buildStatGridSx() {
   return {
     display: 'grid',
-    gridTemplateColumns: {
-      xs: 'repeat(2, minmax(0, 1fr))',
-      sm: 'repeat(3, minmax(0, 1fr))',
-    },
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 148px), 176px))',
     gap: { xs: 1, sm: 1.25 },
     mt: 1,
     px: { xs: 0.25, sm: 0.5 },
     alignItems: 'stretch',
+    justifyContent: 'start',
   };
 }
 
-function buildStatCellSx(index: number) {
+function buildStatCellSx() {
   return {
     minWidth: 0,
     display: 'flex',
-    gridColumn: { xs: index === 2 ? '1 / -1' : 'auto', sm: 'auto' },
-    justifyContent: { xs: index === 2 ? 'center' : 'stretch', sm: 'stretch' },
+    justifyContent: 'stretch',
   };
 }
 
-function buildStatCardSx(index: number) {
+function buildStatCardSx() {
   return {
     width: '100%',
-    maxWidth: { xs: index === 2 ? 160 : 'none', sm: 'none' },
+    maxWidth: 176,
     minWidth: 0,
     position: 'relative',
     overflow: 'visible',
@@ -149,10 +146,8 @@ export default function HomePage() {
   const customCharacters = characters.filter((character) => !character.isPreset);
   const totalDirectChats = chats.filter((chat) => chat.type === 'direct' || chat.type === 'ai_direct').length;
   const totalGroupChats = chats.filter((chat) => chat.type === 'group').length;
-  const totalAiDirectChats = chats.filter((chat) => chat.type === 'ai_direct').length;
-  const totalUserDirectChats = chats.filter((chat) => chat.type === 'direct').length;
   const openChatFromHome = (chat: typeof chats[number]) => navigate(`/chats/${chat.id}?fromTab=${chat.type === 'group' ? 0 : chat.type === 'ai_direct' ? 2 : 1}`);
-  const recentChatsTitle = `最近会话（群聊 ${totalGroupChats} / 单聊 ${totalUserDirectChats} / AI私聊 ${totalAiDirectChats}）`;
+  const recentChatsTitle = '最近会话';
   const recentChatsActionTab = recentChats[0]?.type === 'group' ? 0 : recentChats[0]?.type === 'ai_direct' ? 2 : 1;
 
   const stats = [
@@ -192,9 +187,9 @@ export default function HomePage() {
           <SectionHeader title="工作台概览" />
           <Box sx={buildStatGridSx()}>
             {stats.map((stat, index) => (
-              <Box key={stat.label} sx={buildStatCellSx(index)}>
+              <Box key={stat.label} sx={buildStatCellSx()}>
                 <SurfaceCard
-                  sx={buildStatCardSx(index)}
+                  sx={buildStatCardSx()}
                   contentSx={{
                     ...buildStatContentSx(),
                     '& > :not(button)': { width: '100%', display: 'flex', justifyContent: 'center' },
