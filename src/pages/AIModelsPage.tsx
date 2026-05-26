@@ -20,9 +20,11 @@ import { getPopularModels, getProviderCatalogEntry, getProviderDefaults, getProv
 
 function maskSecret(value: string) {
   if (!value) return '';
-  if (value.length <= 4) return `${value.slice(0, 1)}••••`;
-  if (value.length <= 8) return `${value.slice(0, 4)}••••`;
-  return `${value.slice(0, 4)}••••${value.slice(-4)}`;
+  if (value.length <= 8) {
+    const visibleCount = Math.min(4, Math.max(1, Math.ceil(value.length / 2)));
+    return `${value.slice(0, visibleCount)}${'•'.repeat(Math.max(0, value.length - visibleCount))}`;
+  }
+  return `${value.slice(0, 4)}${'•'.repeat(Math.max(0, value.length - 8))}${value.slice(-4)}`;
 }
 
 function blockSecretCopy(event: ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) {

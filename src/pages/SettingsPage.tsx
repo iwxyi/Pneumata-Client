@@ -71,7 +71,7 @@ function buildToneButtonSx(color: string, selected: boolean) {
 function buildPaperPickerSx() {
   return {
     display: 'grid',
-    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' },
+    gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' },
     gap: 1,
     alignItems: 'stretch',
   };
