@@ -72,7 +72,7 @@ function buildSectionBodySx() {
 }
 
 function buildDeveloperBodySx() {
-  return { display: 'flex', flexDirection: 'column', gap: 1.5 };
+  return { display: 'flex', flexDirection: 'column', gap: 1.35 };
 }
 
 function buildTopRowSx() {
@@ -85,6 +85,45 @@ function buildHeaderChips(language: string) {
 
 function buildDeveloperChips(language: string) {
   return [language.startsWith('zh') ? '调试' : 'Debug', language.startsWith('zh') ? '运行态证据' : 'Runtime evidence'];
+}
+
+function buildDeveloperSwitchGroupsSx() {
+  return {
+    display: 'grid',
+    gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+    gap: 1,
+    alignItems: 'start',
+  };
+}
+
+function buildDeveloperSwitchGroupSx() {
+  return {
+    display: 'grid',
+    alignContent: 'start',
+    gap: 0.4,
+    p: 1.25,
+    borderRadius: 2,
+    border: '1px solid',
+    borderColor: 'divider',
+    bgcolor: 'background.default',
+    minWidth: 0,
+  };
+}
+
+function buildDeveloperSwitchListSx() {
+  return {
+    display: 'grid',
+    gap: 0.1,
+    '& .MuiFormControlLabel-root': {
+      m: 0,
+      minHeight: 34,
+      alignItems: 'center',
+    },
+    '& .MuiFormControlLabel-label': {
+      fontSize: '0.875rem',
+      lineHeight: 1.35,
+    },
+  };
 }
 
 function buildDataChips(language: string) {
@@ -275,7 +314,7 @@ export default function SettingsPage() {
 
   return (
     <Box sx={buildPageSx()}>
-      <PageSection spacing={3}>
+      <PageSection spacing={2.25}>
         <SurfaceCard contentSx={buildCardBodySx()}>
           <Box sx={buildTopRowSx()}>
             <Box>
@@ -372,17 +411,38 @@ export default function SettingsPage() {
                     : 'Move old brand-prefixed local storage and session drafts to the Pneumata prefix, then reload.'}
                 </Typography>
               </Box>
-              <Box sx={{ display: 'grid', gap: 1 }}>
-                <FormControlLabel control={<Switch checked={settings.developerUI.showRelationshipEvents} onChange={(e) => settings.setDeveloperUI({ showRelationshipEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '提示：角色关系事件' : 'Hint: character relationship events'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showAffectEvents} onChange={(e) => settings.setDeveloperUI({ showAffectEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '提示：情绪与人格漂移事件' : 'Hint: emotion and drift events'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showStateEvents} onChange={(e) => settings.setDeveloperUI({ showStateEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '提示：房间态势事件' : 'Hint: room state events'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showMemoryDistillationEvents} onChange={(e) => settings.setDeveloperUI({ showMemoryDistillationEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '提示：记忆蒸馏事件' : 'Hint: memory distillation events'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showSpeechStyle} onChange={(e) => settings.setDeveloperUI({ showSpeechStyle: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：发言风格面板' : 'Debug: speech style panel'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showAdvancedRuntimePanels} onChange={(e) => settings.setDeveloperUI({ showAdvancedRuntimePanels: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：高级运行面板' : 'Debug: advanced runtime panels'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showMemoryDebug} onChange={(e) => settings.setDeveloperUI({ showMemoryDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：记忆证据与参数' : 'Debug: memory evidence and metrics'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showConflictEvents} onChange={(e) => settings.setDeveloperUI({ showConflictEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：矛盾焦点与发展钩子' : 'Debug: conflict focus and development hooks'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showWithdrawnMessageContent} onChange={(e) => settings.setDeveloperUI({ showWithdrawnMessageContent: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '交互：悬浮查看撤回原文' : 'Interaction: reveal withdrawn content on hover'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.dramaBoost} onChange={(e) => settings.setDeveloperUI({ dramaBoost: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '实验：增强戏剧冲突' : 'Experimental: boost dramatic conflict'} />
+              <Box sx={buildDeveloperSwitchGroupsSx()}>
+                <Box sx={buildDeveloperSwitchGroupSx()}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                    {i18n.language.startsWith('zh') ? '事件提示' : 'Event hints'}
+                  </Typography>
+                  <Box sx={buildDeveloperSwitchListSx()}>
+                    <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showRelationshipEvents} onChange={(e) => settings.setDeveloperUI({ showRelationshipEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '角色关系事件' : 'Character relationship events'} />
+                    <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showAffectEvents} onChange={(e) => settings.setDeveloperUI({ showAffectEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '情绪与人格漂移事件' : 'Emotion and drift events'} />
+                    <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showStateEvents} onChange={(e) => settings.setDeveloperUI({ showStateEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '房间态势事件' : 'Room state events'} />
+                    <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showMemoryDistillationEvents} onChange={(e) => settings.setDeveloperUI({ showMemoryDistillationEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '记忆蒸馏事件' : 'Memory distillation events'} />
+                  </Box>
+                </Box>
+                <Box sx={buildDeveloperSwitchGroupSx()}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                    {i18n.language.startsWith('zh') ? '面板与证据' : 'Panels and evidence'}
+                  </Typography>
+                  <Box sx={buildDeveloperSwitchListSx()}>
+                    <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showSpeechStyle} onChange={(e) => settings.setDeveloperUI({ showSpeechStyle: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '发言风格面板' : 'Speech style panel'} />
+                    <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showAdvancedRuntimePanels} onChange={(e) => settings.setDeveloperUI({ showAdvancedRuntimePanels: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '高级运行面板' : 'Advanced runtime panels'} />
+                    <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showMemoryDebug} onChange={(e) => settings.setDeveloperUI({ showMemoryDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '记忆证据与参数' : 'Memory evidence and metrics'} />
+                    <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showConflictEvents} onChange={(e) => settings.setDeveloperUI({ showConflictEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '矛盾焦点与发展钩子' : 'Conflict focus and development hooks'} />
+                  </Box>
+                </Box>
+                <Box sx={buildDeveloperSwitchGroupSx()}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                    {i18n.language.startsWith('zh') ? '交互与实验' : 'Interaction and experiments'}
+                  </Typography>
+                  <Box sx={buildDeveloperSwitchListSx()}>
+                    <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showWithdrawnMessageContent} onChange={(e) => settings.setDeveloperUI({ showWithdrawnMessageContent: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '悬浮查看撤回原文' : 'Reveal withdrawn content on hover'} />
+                    <FormControlLabel control={<Switch size="small" checked={settings.developerUI.dramaBoost} onChange={(e) => settings.setDeveloperUI({ dramaBoost: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '增强戏剧冲突' : 'Boost dramatic conflict'} />
+                  </Box>
+                </Box>
               </Box>
             </Box>
           </SurfaceCard>
