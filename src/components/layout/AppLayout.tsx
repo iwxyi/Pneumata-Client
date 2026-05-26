@@ -71,6 +71,9 @@ export default function AppLayout() {
         px: 2,
         py: 1,
         bgcolor: (theme) => theme.palette.mode === 'light' ? '#f5f5f5' : '#121212',
+        backgroundImage: (theme) => theme.palette.mode === 'light'
+          ? 'linear-gradient(180deg, rgba(255,255,255,0.82), rgba(245,245,247,0.78))'
+          : 'linear-gradient(180deg, rgba(10,10,15,0.92), rgba(10,10,15,0.76))',
         backdropFilter: 'blur(12px)',
         borderBottom: 1,
         borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
@@ -213,6 +216,11 @@ export default function AppLayout() {
             pb: mainPaddingBottom,
             position: 'relative',
             overflow: 'hidden',
+            bgcolor: 'background.default',
+            backgroundImage: (theme) => theme.palette.mode === 'light'
+              ? 'radial-gradient(circle at 12% 0%, rgba(43, 92, 255, 0.08), transparent 32%), radial-gradient(circle at 86% 16%, rgba(229, 192, 123, 0.14), transparent 28%), linear-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(15, 23, 42, 0.028) 1px, transparent 1px)'
+              : 'radial-gradient(circle at 18% 0%, rgba(43, 92, 255, 0.20), transparent 34%), radial-gradient(circle at 86% 18%, rgba(229, 192, 123, 0.10), transparent 30%), linear-gradient(rgba(226, 232, 240, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(226, 232, 240, 0.035) 1px, transparent 1px)',
+            backgroundSize: 'auto, auto, 44px 44px, 44px 44px',
           }}
         >
           {showMobileTopBar ? mobileHeader : null}

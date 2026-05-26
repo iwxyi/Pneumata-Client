@@ -58,7 +58,7 @@ function ChatScenarioCard({ chat, members }: { chat: GroupChat; members: AIChara
   if (chat.scenarioState?.currentTurnActorId) rows.push(`当前轮次 ${memberName(chat.scenarioState.currentTurnActorId, members)}`);
   if (!rows.length) return null;
   return (
-    <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+    <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.54)' : 'rgba(255,255,255,0.045)', border: '1px solid', borderColor: 'rgba(148,163,184,0.14)' }}>
       <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.75 }}>场景规则</Typography>
       <Stack spacing={0.5}>
         {rows.map((row) => <Typography key={row} variant="body2">{row}</Typography>)}
@@ -91,7 +91,7 @@ function DirectMemoryHint({ chat, members, directMemoryContext }: { chat: GroupC
   const recentRelationshipText = directMemoryContext?.recentRelationshipChanges?.slice(-2).map((item) => sanitizeUserFacingText(item.text, members)).filter(Boolean).join(' / ');
   const recentMemoryText = directMemoryContext?.recentMemoryWrites?.slice(0, 2).map((item) => sanitizeUserFacingText(item.text, members)).filter(Boolean).join(' / ');
   return (
-    <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: 'action.hover' }}>
+    <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.54)' : 'rgba(255,255,255,0.045)', border: '1px solid', borderColor: 'rgba(148,163,184,0.14)' }}>
       <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.75 }}>单聊记忆主轴</Typography>
       <Stack spacing={0.75}>
         <Typography variant="caption" color="text.secondary">该角色会优先读取自己的长期记忆、关系记忆与最近变化，而不是优先回溯来源群聊。</Typography>
@@ -137,7 +137,16 @@ export default function ChatSidebarPanel({
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {showMemberTab || showRuntimeTab || showActionTab ? (
-        <Tabs value={rightPanelTab} onChange={(_, value) => setRightPanelTab(value)}>
+        <Tabs
+          value={rightPanelTab}
+          onChange={(_, value) => setRightPanelTab(value)}
+          variant="scrollable"
+          allowScrollButtonsMobile
+          sx={{
+            minHeight: 40,
+            '& .MuiTab-root': { minHeight: 40, px: 1.25, fontWeight: 700 },
+          }}
+        >
           {showMemberTab ? <Tab value="members" label={memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} /> : null}
           {showRuntimeTab ? <Tab value="narrative" label="叙事线" /> : null}
           {showRuntimeTab ? <Tab value="world" label={runtimePanelTitle || '状态'} /> : null}

@@ -102,7 +102,21 @@ function renderEventBubble(messageId: string, payload: { eventType?: string; tit
   if (shouldHideEmptyConflictEvent(payload)) return null;
   return (
     <Box data-message-id={messageId} data-message-type="event" sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: { xs: 1, sm: 2 }, width: '100%', minWidth: 0, pointerEvents: 'none' }}>
-      <Box sx={{ maxWidth: 620, width: { xs: '100%', sm: 'fit-content' }, minWidth: 0, px: { xs: 1.25, sm: 1.75 }, py: 1, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', pointerEvents: 'none', overflow: 'hidden' }}>
+      <Box sx={{
+        maxWidth: 620,
+        width: { xs: '100%', sm: 'fit-content' },
+        minWidth: 0,
+        px: { xs: 1.25, sm: 1.75 },
+        py: 1,
+        bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.70)' : 'rgba(20,22,30,0.72)',
+        borderRadius: 2.25,
+        border: '1px solid',
+        borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+        boxShadow: (theme) => theme.palette.mode === 'light' ? '0 12px 28px rgba(15,23,42,0.055)' : '0 14px 32px rgba(0,0,0,0.24)',
+        backdropFilter: 'blur(14px)',
+        pointerEvents: 'none',
+        overflow: 'hidden',
+      }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, mb: 0.25, minWidth: 0 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>

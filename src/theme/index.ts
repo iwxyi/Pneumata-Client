@@ -176,6 +176,12 @@ const baseTheme: ThemeOptions = {
     },
     MuiCssBaseline: {
       styleOverrides: {
+        body: {
+          backgroundAttachment: 'fixed',
+        },
+        '::selection': {
+          background: 'rgba(43, 92, 255, 0.18)',
+        },
         '*': {
           scrollbarWidth: 'thin',
         },
@@ -327,8 +333,8 @@ export const createAppTheme = (mode: 'light' | 'dark', primaryColor: string = '#
         main: mode === 'light' ? '#625B71' : '#CCC2DC',
       },
       background: {
-        default: mode === 'light' ? '#f5f5f5' : '#121212',
-        paper: mode === 'light' ? '#ffffff' : '#1f1f1f',
+        default: mode === 'light' ? '#F5F5F7' : '#0A0A0F',
+        paper: mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(20, 22, 30, 0.82)',
       },
       ...(mode === 'light'
         ? {

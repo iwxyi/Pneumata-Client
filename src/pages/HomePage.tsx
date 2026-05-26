@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { Box, Typography, Button, Divider, IconButton } from '@mui/material';
+import { Box, Typography, Button, Divider, IconButton, Chip } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import ChatIcon from '@mui/icons-material/Chat';
 import PersonIcon from '@mui/icons-material/Person';
@@ -39,13 +40,20 @@ function buildStatCardSx() {
     maxWidth: 176,
     minWidth: 0,
     position: 'relative',
-    overflow: 'visible',
+    overflow: 'hidden',
     cursor: 'pointer',
     transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
     '&:hover': {
       transform: 'translateY(-2px)',
-      boxShadow: 2,
+      boxShadow: (theme: Theme) => theme.palette.mode === 'light' ? '0 16px 36px rgba(15,23,42,0.08)' : '0 18px 42px rgba(0,0,0,0.34)',
       borderColor: 'primary.main',
+    },
+    '&::before': {
+      content: '""',
+      position: 'absolute',
+      inset: 0,
+      background: 'linear-gradient(135deg, rgba(255,255,255,0.18), transparent 42%)',
+      pointerEvents: 'none',
     },
   };
 }
@@ -117,6 +125,37 @@ function buildStatIconSx(color: string) {
   };
 }
 
+function buildHeroCardSx() {
+  return {
+    position: 'relative',
+    overflow: 'hidden',
+    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15, 23, 42, 0.08)' : 'rgba(226, 232, 240, 0.12)',
+    background: (theme: Theme) => theme.palette.mode === 'light'
+      ? 'radial-gradient(circle at 12% 10%, rgba(43,92,255,0.12), transparent 32%), radial-gradient(circle at 88% 0%, rgba(229,192,123,0.20), transparent 30%), rgba(255,255,255,0.76)'
+      : 'radial-gradient(circle at 14% 8%, rgba(43,92,255,0.26), transparent 34%), radial-gradient(circle at 86% 0%, rgba(229,192,123,0.12), transparent 30%), rgba(15,17,25,0.82)',
+    '&::after': {
+      content: '""',
+      position: 'absolute',
+      inset: 0,
+      backgroundImage: 'linear-gradient(rgba(148,163,184,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.06) 1px, transparent 1px)',
+      backgroundSize: '36px 36px',
+      maskImage: 'linear-gradient(90deg, black, transparent 78%)',
+      pointerEvents: 'none',
+    },
+  };
+}
+
+function buildPulseSx() {
+  return {
+    width: 9,
+    height: 9,
+    borderRadius: '50%',
+    bgcolor: '#2B5CFF',
+    boxShadow: '0 0 0 6px rgba(43,92,255,0.12)',
+    flex: '0 0 auto',
+  };
+}
+
 function buildGridSx(columns?: { xs: string; sm: string; lg?: string; xl?: string }) {
   return {
     display: 'grid',
@@ -146,6 +185,13 @@ export default function HomePage() {
   const customCharacters = characters.filter((character) => !character.isPreset);
   const totalDirectChats = chats.filter((chat) => chat.type === 'direct' || chat.type === 'ai_direct').length;
   const totalGroupChats = chats.filter((chat) => chat.type === 'group').length;
+  const runningChats = chats.filter((chat) => chat.isActive).length;
+  const latestEventChat = chats.find((chat) => chat.worldState?.recentEvent);
+  const memoryCount = chats.reduce((sum, chat) => sum + (chat.layeredMemories || []).length, 0)
+    + customCharacters.reduce((sum, character) => sum + (character.layeredMemories || []).length, 0);
+  const worldLine = latestEventChat?.worldState?.recentEvent
+    ? `${latestEventChat.name}：${latestEventChat.worldState.recentEvent}`
+    : recentChats[0]?.topic || '角色、关系与记忆会在这里留下继续发展的痕迹。';
   const openChatFromHome = (chat: typeof chats[number]) => navigate(`/chats/${chat.id}?fromTab=${chat.type === 'group' ? 0 : chat.type === 'ai_direct' ? 2 : 1}`);
   const recentChatsTitle = '最近会话';
   const recentChatsActionTab = recentChats[0]?.type === 'group' ? 0 : recentChats[0]?.type === 'ai_direct' ? 2 : 1;
@@ -183,8 +229,42 @@ export default function HomePage() {
   return (
     <Box sx={{ flex: 1, overflow: 'auto', p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 } }}>
       <PageSection spacing={3}>
+        <SurfaceCard sx={buildHeroCardSx()} contentSx={{ position: 'relative', zIndex: 1, p: { xs: 2.1, sm: 2.5, md: 3 }, '&:last-child': { pb: { xs: 2.1, sm: 2.5, md: 3 } } }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1.35fr) minmax(260px, 0.65fr)' }, gap: { xs: 2.25, md: 3 }, alignItems: 'end' }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                <Box sx={buildPulseSx()} />
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 800, letterSpacing: 1.4 }}>WORLD STATE</Typography>
+              </Box>
+              <Typography variant="h4" sx={{ fontWeight: 860, letterSpacing: 0, lineHeight: { xs: 1.15, sm: 1.08 }, maxWidth: 720 }}>
+                有一些角色正在这里继续成为自己。
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1.25, maxWidth: 760, lineHeight: 1.85, overflowWrap: 'anywhere' }}>
+                {worldLine}
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 2 }}>
+                <Chip size="small" label={`${runningChats} 个现场仍在运行`} variant="outlined" />
+                <Chip size="small" label={`${memoryCount} 条记忆痕迹`} variant="outlined" />
+                <Chip size="small" label={`${customCharacters.length} 个角色档案`} variant="outlined" />
+              </Box>
+            </Box>
+            <Box sx={{ display: 'grid', gap: 1, p: 1.25, borderRadius: 2.5, border: '1px solid', borderColor: 'rgba(148,163,184,0.18)', bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.48)' : 'rgba(255,255,255,0.045)', backdropFilter: 'blur(12px)' }}>
+              {[
+                ['群聊现场', totalGroupChats],
+                ['私域关系', totalDirectChats],
+                ['角色生命', customCharacters.length],
+              ].map(([label, value]) => (
+                <Box key={label} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, px: 0.75, py: 0.35 }}>
+                  <Typography variant="caption" color="text.secondary">{label}</Typography>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 820 }}>{value}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        </SurfaceCard>
+
         <SurfaceCard>
-          <SectionHeader title="工作台概览" />
+          <SectionHeader title="工作台概览" subtitle="常用入口保持轻量，角色、群聊和私聊都从这里快速进入。" />
           <Box sx={buildStatGridSx()}>
             {stats.map((stat, index) => (
               <Box key={stat.label} sx={buildStatCellSx()}>

@@ -72,8 +72,11 @@ export default function RightPanel({ children, title }: RightPanelProps) {
           width: panelWidth,
           flexShrink: 0,
           borderLeft: 1,
-          borderColor: 'divider',
-          bgcolor: 'background.paper',
+          borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+          bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(13,15,22,0.78)',
+          backdropFilter: 'blur(18px) saturate(1.12)',
+          WebkitBackdropFilter: 'blur(18px) saturate(1.12)',
+          boxShadow: (theme) => theme.palette.mode === 'light' ? '-18px 0 48px rgba(15,23,42,0.045)' : '-18px 0 52px rgba(0,0,0,0.24)',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
@@ -116,7 +119,7 @@ export default function RightPanel({ children, title }: RightPanelProps) {
         {title && (
           <>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2.25, py: 1.75 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, letterSpacing: 0 }}>
                 {title}
               </Typography>
               <IconButton size="small" onClick={() => setRightPanelOpen(false)}>
@@ -144,13 +147,15 @@ export default function RightPanel({ children, title }: RightPanelProps) {
           '& .MuiDrawer-paper': {
             maxHeight: '80vh',
             borderRadius: '16px 16px 0 0',
+            bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(13,15,22,0.92)',
+            backdropFilter: 'blur(18px)',
           },
         }}
       >
         <Box sx={{ p: 2.25 }}>
           <Box sx={{ width: 40, height: 4, bgcolor: 'grey.300', borderRadius: 2, mx: 'auto', mb: 2 }} />
           {title && (
-            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 700, letterSpacing: '-0.01em', mb: 1.25 }}>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 800, letterSpacing: 0, mb: 1.25 }}>
               {title}
             </Typography>
           )}

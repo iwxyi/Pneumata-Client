@@ -86,27 +86,40 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch }: Chat
       sx={{
         height: '100%',
         borderRadius: 2,
-        bgcolor: 'background.paper',
+        position: 'relative',
+        overflow: 'hidden',
+        bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.76)' : 'rgba(18,20,28,0.78)',
+        borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+        backdropFilter: 'blur(14px)',
         transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          inset: 0,
+          background: isDirect
+            ? 'linear-gradient(135deg, rgba(78,126,107,0.14), transparent 42%)'
+            : 'linear-gradient(135deg, rgba(43,92,255,0.13), transparent 44%)',
+          pointerEvents: 'none',
+        },
         '&:hover': {
           transform: 'translateY(-2px)',
-          boxShadow: 2,
+          boxShadow: (theme) => theme.palette.mode === 'light' ? '0 18px 40px rgba(15,23,42,0.09)' : '0 18px 42px rgba(0,0,0,0.34)',
           borderColor: 'primary.main',
         },
       }}
     >
       <CardActionArea onClick={onClick} onPointerEnter={onPrefetch} onFocus={onPrefetch} onPointerDown={onPrefetch}>
-        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+        <CardContent sx={{ p: 2, position: 'relative', zIndex: 1, '&:last-child': { pb: 2 } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
                 {isDirect ? <DirectIcon sx={{ fontSize: 16, color: 'text.secondary' }} /> : <GroupIcon sx={{ fontSize: 16, color: 'text.secondary' }} />}
-                <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600 }}>
+                <Typography variant="subtitle1" noWrap sx={{ fontWeight: 760, letterSpacing: 0 }}>
                   {chat.type === 'group' ? `${chat.name} (${chat.memberIds.length})` : chat.name}
                 </Typography>
               </Box>
               {subtitle ? (
-                <Typography variant="caption" color="text.secondary" noWrap>
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', mt: 0.35 }}>
                   {subtitle}
                 </Typography>
               ) : null}
@@ -117,7 +130,7 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch }: Chat
                 size="small"
                 color={chat.isActive ? 'success' : 'default'}
                 variant="outlined"
-                sx={{ ml: 1, flexShrink: 0 }}
+                sx={{ ml: 1, flexShrink: 0, bgcolor: chat.isActive ? 'rgba(46, 125, 50, 0.08)' : 'transparent' }}
               />
             ) : null}
           </Box>
