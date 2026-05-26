@@ -9,6 +9,7 @@ import type { ExpressionFeedbackKind } from '../../services/characterExpressionF
 
 const TOP_REACH_THRESHOLD = 64;
 const BOTTOM_STICKY_THRESHOLD = 96;
+const SMOOTH_SCROLL_DISTANCE_LIMIT = 900;
 type ResponsiveInset = number | string | Record<string, number | string>;
 
 interface MessageListProps {
@@ -76,18 +77,23 @@ export default function MessageList({
     return pinned;
   }, [getDistanceFromBottom]);
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const container = containerRef.current;
     if (!container) return;
     const top = Math.max(0, container.scrollHeight - container.clientHeight);
-    container.scrollTop = top;
-    lastScrollTopRef.current = top;
+    const distance = Math.abs(top - container.scrollTop);
+    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const effectiveBehavior = prefersReducedMotion || distance > SMOOTH_SCROLL_DISTANCE_LIMIT ? 'auto' : behavior;
+    container.scrollTo({ top, behavior: effectiveBehavior });
+    if (effectiveBehavior === 'auto') {
+      lastScrollTopRef.current = top;
+    }
   }, []);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || renderItems.length === 0 || hasJumpedToBottomRef.current) return;
-    scrollToBottom();
+    scrollToBottom('auto');
     hasJumpedToBottomRef.current = true;
     shouldStickToBottomRef.current = true;
   }, [renderItems.length, scrollToBottom]);
@@ -122,7 +128,7 @@ export default function MessageList({
       return;
     }
 
-    scrollToBottom();
+    scrollToBottom('smooth');
   }, [renderItems, scrollToBottom]);
 
   useEffect(() => {

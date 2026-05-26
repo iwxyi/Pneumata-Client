@@ -157,7 +157,7 @@ export default function ChatSidebarPanel({
   onUpdateSeats,
 }: ChatSidebarPanelProps) {
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: { xs: '100%', md: 'auto' }, minHeight: 0 }}>
       {showMemberTab || showRuntimeTab || showActionTab ? (
         <Tabs
           value={rightPanelTab}
@@ -204,40 +204,42 @@ export default function ChatSidebarPanel({
         </Tabs>
       ) : null}
 
-      {rightPanelTab === 'members' && showMemberTab ? (
-        <Stack spacing={2}>
-          <MemberList
-            members={members}
-            thinkingId={thinkingId}
-            chat={chat}
-            onSpeakAs={onSpeakAs}
-            onStartDirectChat={onStartDirectChat}
-            onRemove={onRemoveMember}
-            onUpdateSeats={onUpdateSeats}
-          />
+      <Box sx={{ flex: { xs: 1, md: '0 1 auto' }, minHeight: 0, overflowY: { xs: 'auto', md: 'visible' }, pr: { xs: 0.25, md: 0 } }}>
+        {rightPanelTab === 'members' && showMemberTab ? (
+          <Stack spacing={2}>
+            <MemberList
+              members={members}
+              thinkingId={thinkingId}
+              chat={chat}
+              onSpeakAs={onSpeakAs}
+              onStartDirectChat={onStartDirectChat}
+              onRemove={onRemoveMember}
+              onUpdateSeats={onUpdateSeats}
+            />
+            <Suspense fallback={<PanelFallback />}>
+              <RelationshipPanel chat={chat} members={members} />
+            </Suspense>
+          </Stack>
+        ) : null}
+
+        {rightPanelTab === 'narrative' && showRuntimeTab ? (
           <Suspense fallback={<PanelFallback />}>
-            <RelationshipPanel chat={chat} members={members} />
+            <ChatNarrativePanel chat={chat} members={members} messages={messages} />
           </Suspense>
-        </Stack>
-      ) : null}
+        ) : null}
 
-      {rightPanelTab === 'narrative' && showRuntimeTab ? (
-        <Suspense fallback={<PanelFallback />}>
-          <ChatNarrativePanel chat={chat} members={members} messages={messages} />
-        </Suspense>
-      ) : null}
+        {rightPanelTab === 'world' && showRuntimeTab ? (
+          <Stack spacing={2}>
+            <ChatScenarioCard chat={chat} members={members} />
+            <DirectMemoryHint chat={chat} members={members} directMemoryContext={directMemoryContext} />
+            <Suspense fallback={<PanelFallback />}>
+              <ChatRuntimePanel chat={chat} members={members} messages={messages} privatePayloads={privatePayloads} />
+            </Suspense>
+          </Stack>
+        ) : null}
 
-      {rightPanelTab === 'world' && showRuntimeTab ? (
-        <Stack spacing={2}>
-          <ChatScenarioCard chat={chat} members={members} />
-          <DirectMemoryHint chat={chat} members={members} directMemoryContext={directMemoryContext} />
-          <Suspense fallback={<PanelFallback />}>
-            <ChatRuntimePanel chat={chat} members={members} messages={messages} privatePayloads={privatePayloads} />
-          </Suspense>
-        </Stack>
-      ) : null}
-
-      {rightPanelTab === 'actions' && showActionTab ? actionPanel || null : null}
+        {rightPanelTab === 'actions' && showActionTab ? actionPanel || null : null}
+      </Box>
     </Box>
   );
 }

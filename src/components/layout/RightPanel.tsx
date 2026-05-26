@@ -158,21 +158,25 @@ export default function RightPanel({ children, title }: RightPanelProps) {
         swipeAreaWidth={20}
         sx={{
           '& .MuiDrawer-paper': {
+            height: '80vh',
             maxHeight: '80vh',
             borderRadius: '16px 16px 0 0',
             bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(13,15,22,0.92)',
             backdropFilter: 'blur(18px)',
+            overflow: 'hidden',
           },
         }}
       >
-        <Box sx={{ p: 2.25 }}>
+        <Box sx={{ p: 2.25, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <Box sx={{ width: 40, height: 4, bgcolor: 'grey.300', borderRadius: 2, mx: 'auto', mb: 2 }} />
           {title && (
             <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 800, letterSpacing: 0, mb: 1.25 }}>
               {title}
             </Typography>
           )}
-          {children}
+          <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            {children}
+          </Box>
         </Box>
       </SwipeableDrawer>
     );
