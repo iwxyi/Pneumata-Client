@@ -58,25 +58,24 @@ function buildChatSubtitle(chat: GroupChat, members: AICharacter[], latestMessag
   return latestMessagePreview || clipPreview(sanitizeUserFacingText(relationshipPreview || memorySummary || recentEvent || chat.topic || '', members));
 }
 
+function isPreviewableMessage(message: Message | null | undefined): message is Message {
+  return Boolean(message && !message.isDeleted && message.type !== 'system' && message.type !== 'event');
+}
+
+function latestByTimestamp(messages: Array<Message | null | undefined>) {
+  return messages
+    .filter(isPreviewableMessage)
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+}
+
 export default function ChatCard({ chat, characters, onClick, onPrefetch }: ChatCardProps) {
   const { t } = useTranslation();
   const messages = useMessageStore((state) => state.messages);
   const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
 
   const allKnownMessages = [...messages, ...(messageWindowsByChatId[chat.id]?.messages || [])];
-  const latestMessage = allKnownMessages
-    .filter((message) => message.chatId === chat.id && !message.isDeleted && message.type !== 'system' && message.type !== 'event')
-    .sort((a, b) => b.timestamp - a.timestamp)[0] || null;
-
-  const latestRelevantTimestamp = latestMessage?.timestamp || chat.lastMessageAt;
-
-  const latestWindowMessage = [...(messageWindowsByChatId[chat.id]?.messages || [])]
-    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
-    .sort((a, b) => b.timestamp - a.timestamp)[0] || null;
-
-  const resolvedLatestMessage = latestWindowMessage && latestWindowMessage.timestamp >= latestRelevantTimestamp
-    ? latestWindowMessage
-    : latestMessage;
+  const latestKnownMessage = latestByTimestamp(allKnownMessages.filter((message) => message.chatId === chat.id));
+  const resolvedLatestMessage = latestByTimestamp([chat.latestMessage, latestKnownMessage]) || null;
   const members = characters.filter((c) => chat.memberIds.includes(c.id));
   const isDirect = chat.type === 'direct' || chat.type === 'ai_direct';
   const subtitle = buildChatSubtitle(chat, members, resolvedLatestMessage);

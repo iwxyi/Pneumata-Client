@@ -106,7 +106,15 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
         </Typography>
         {chat?.type === 'group' && onUpdateSeats ? <Button size="small" variant="text" onClick={openSeatDialog}>调整座位</Button> : null}
       </Box>
-      <List dense disablePadding sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 0.5 }}>
+      <List
+        dense
+        disablePadding
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
+          gap: 0.5,
+        }}
+      >
         {visibleMembers.map((member) => {
           const innerLifeChips = buildMemberInnerLifeChips(member, i18n.language);
           const expressionFeedbackChips = buildMemberExpressionFeedbackChips(member, i18n.language, showDebugDetails);
@@ -115,30 +123,36 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
           return (
             <ListItem
               key={member.id}
-              secondaryAction={
-                <IconButton
-                  edge="end"
-                  size="small"
-                  onClick={(e) => {
-                    setAnchorEl(e.currentTarget);
-                    setMenuCharId(member.id);
-                  }}
-                >
-                  <MoreIcon fontSize="small" />
-                </IconButton>
-              }
               sx={{
                 borderRadius: 2,
                 bgcolor: thinkingId === member.id ? 'action.selected' : 'transparent',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 1,
+                minWidth: 0,
+                px: 1,
+                py: 0.75,
               }}
             >
-              <ListItemAvatar>
+              <ListItemAvatar sx={{ minWidth: 0, flex: '0 0 auto' }}>
                 <Avatar src={isImageAvatar(member.avatar) ? member.avatar : undefined} sx={{ width: 32, height: 32, fontSize: '1rem', bgcolor: 'primary.light' }}>
                   {isImageAvatar(member.avatar) ? undefined : member.avatar}
                 </Avatar>
               </ListItemAvatar>
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="body2" sx={{ fontWeight: 500 }}>{member.name}</Typography>
+                <Typography
+                  variant="body2"
+                  title={member.name}
+                  sx={{
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    minWidth: 0,
+                  }}
+                >
+                  {member.name}
+                </Typography>
                 <Box sx={{ mt: 0.25 }}>
                   <Stack spacing={0.5}>
                     {subtitle ? (
@@ -188,6 +202,16 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                   </Stack>
                 </Box>
               </Box>
+              <IconButton
+                size="small"
+                sx={{ flex: '0 0 auto', mt: -0.25 }}
+                onClick={(e) => {
+                  setAnchorEl(e.currentTarget);
+                  setMenuCharId(member.id);
+                }}
+              >
+                <MoreIcon fontSize="small" />
+              </IconButton>
             </ListItem>
           );
         })}

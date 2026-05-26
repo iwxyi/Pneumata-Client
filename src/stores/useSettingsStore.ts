@@ -10,6 +10,7 @@ import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS, PAPER_SURFACE_VARIANTS } from '..
 import { api } from '../services/api';
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateSettingsStoreState } from './storeMigrations';
+import { scopedStorageKey } from '../constants/brand';
 
 interface SettingsStore extends AppSettings {
   _loaded: boolean;
@@ -351,7 +352,7 @@ export const useSettingsStore = create<SettingsStore>()(
       },
 
       setLanguage: (language) => {
-        localStorage.setItem('mirageTea-language', language);
+        localStorage.setItem(scopedStorageKey('language'), language);
         set((state) => {
           const next = { ...state, language, lastSyncedAt: Date.now() };
           syncToServer(buildSettingsPayload(next), set);
@@ -416,7 +417,7 @@ export const useSettingsStore = create<SettingsStore>()(
       },
     }),
     {
-      name: 'mirageTea-settings',
+      name: scopedStorageKey('settings'),
       version: CLIENT_STORE_SCHEMA_VERSION,
       migrate: (persistedState) => migrateSettingsStoreState(persistedState as Partial<SettingsStore>) as typeof DEFAULT_SETTINGS,
       partialize: (state) => ({

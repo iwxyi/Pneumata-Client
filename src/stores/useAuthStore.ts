@@ -4,6 +4,7 @@ import { clearPersistedChatStore, useChatStore } from './useChatStore';
 import { clearPersistedCharacterStore, useCharacterStore } from './useCharacterStore';
 import { clearPersistedMessageStore } from './useMessageStore';
 import { useSettingsStore } from './useSettingsStore';
+import { storageKey } from '../constants/brand';
 
 interface User {
   id: string;
@@ -41,19 +42,51 @@ async function refreshStoresAfterCloudAuth() {
   ]);
 }
 
+const AUTH_TOKEN_KEY = storageKey('token');
+const AUTH_USER_KEY = storageKey('user');
+const AUTH_MODE_KEY = storageKey('auth-mode');
+function getAuthToken() {
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+function getAuthUserRaw() {
+  return localStorage.getItem(AUTH_USER_KEY);
+}
+
+function getAuthModeRaw() {
+  return localStorage.getItem(AUTH_MODE_KEY);
+}
+
+function setAuthToken(token: string) {
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
+}
+
+function setAuthUser(user: User) {
+  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+}
+
+function clearAuthTokenAndUser() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_USER_KEY);
+}
+
+function setAuthMode(mode: AuthMode) {
+  localStorage.setItem(AUTH_MODE_KEY, mode);
+}
+
 export const useAuthStore = create<AuthStore>((set, get) => ({
-  token: localStorage.getItem('miragetea-token'),
+  token: getAuthToken(),
   user: (() => {
     try {
-      const stored = localStorage.getItem('miragetea-user');
+      const stored = getAuthUserRaw();
       return stored ? JSON.parse(stored) : null;
     } catch {
       return null;
     }
   })(),
-  isLoggedIn: !!localStorage.getItem('miragetea-token'),
+  isLoggedIn: !!getAuthToken(),
   isLoading: false,
-  authMode: (localStorage.getItem('miragetea-auth-mode') as AuthMode | null) || (localStorage.getItem('miragetea-token') ? 'cloud' : 'local'),
+  authMode: (getAuthModeRaw() as AuthMode | null) || (getAuthToken() ? 'cloud' : 'local'),
 
   sendCode: async (phone: string, purpose = 'login') => {
     const result = await api.sendCode(phone, purpose);
@@ -69,9 +102,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     set({ isLoading: true });
     try {
       const result = await api.login(phone, code);
-      localStorage.setItem('miragetea-token', result.token);
-      localStorage.setItem('miragetea-user', JSON.stringify(result.user));
-      localStorage.setItem('miragetea-auth-mode', 'cloud');
+      setAuthToken(result.token);
+      setAuthUser(result.user);
+      setAuthMode('cloud');
       set({
         token: result.token,
         user: result.user,
@@ -87,9 +120,8 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   enterLocalMode: () => {
-    localStorage.removeItem('miragetea-token');
-    localStorage.removeItem('miragetea-user');
-    localStorage.setItem('miragetea-auth-mode', 'local');
+    clearAuthTokenAndUser();
+    setAuthMode('local');
     set({
       token: null,
       user: null,
@@ -99,9 +131,8 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   logout: () => {
-    localStorage.removeItem('miragetea-token');
-    localStorage.removeItem('miragetea-user');
-    localStorage.setItem('miragetea-auth-mode', 'local');
+    clearAuthTokenAndUser();
+    setAuthMode('local');
     clearPersistedChatStore();
     clearPersistedCharacterStore();
     clearPersistedMessageStore();
@@ -119,34 +150,33 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
     try {
       const user = await api.getMe();
-      localStorage.setItem('miragetea-user', JSON.stringify(user));
+      setAuthUser(user);
       set({ user, isLoggedIn: true, authMode: 'cloud' });
       void refreshStoresAfterCloudAuth();
       return true;
     } catch {
       // Token invalid
-      localStorage.removeItem('miragetea-token');
-      localStorage.removeItem('miragetea-user');
-      localStorage.setItem('miragetea-auth-mode', 'local');
+      clearAuthTokenAndUser();
+      setAuthMode('local');
       set({ token: null, user: null, isLoggedIn: false, authMode: 'local' });
       return false;
     }
   },
 
   setUser: (user: User) => {
-    localStorage.setItem('miragetea-user', JSON.stringify(user));
+    setAuthUser(user);
     set({ user });
   },
 
   updateProfile: async (updates) => {
     const result = await api.updateMe({ nickname: updates.nickname, avatar: updates.avatar });
-    localStorage.setItem('miragetea-user', JSON.stringify(result));
+    setAuthUser(result);
     set({ user: result });
   },
 
   changePhone: async (phone, code) => {
     const result = await api.changePhone(phone, code);
-    localStorage.setItem('miragetea-user', JSON.stringify(result));
+    setAuthUser(result);
     set({ user: result });
   },
 }));

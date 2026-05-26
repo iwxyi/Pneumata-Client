@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Message } from '../types/message';
+import { storageKey } from '../constants/brand';
 
 interface StorageLike {
   getItem: (key: string) => string | null;
@@ -48,7 +49,7 @@ describe('useMessageStore', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.stubGlobal('localStorage', createStorageMock());
-    localStorage.setItem('miragetea-auth-mode', 'local');
+    localStorage.setItem(storageKey('auth-mode'), 'local');
   });
 
   afterEach(() => {

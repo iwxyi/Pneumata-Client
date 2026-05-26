@@ -10,6 +10,7 @@ import {
 } from '../types/chat';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import type { MemoryItem } from '../services/memoryTypes';
+import { storageKey } from '../constants/brand';
 
 function createStorageMock() {
   const data = new Map<string, string>();
@@ -103,8 +104,8 @@ describe('chat runtime persistence', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.stubGlobal('localStorage', createStorageMock());
-    localStorage.setItem('miragetea-auth-mode', 'cloud');
-    localStorage.setItem('miragetea-token', 'test-token');
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    localStorage.setItem(storageKey('token'), 'test-token');
   });
 
   it('keeps bounded runtime fields in cloud patches', async () => {

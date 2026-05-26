@@ -358,7 +358,7 @@ export default function CharacterLibraryPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'mirageTea-characters.json';
+    a.download = 'pneumata-characters.json';
     a.click();
     URL.revokeObjectURL(url);
   };

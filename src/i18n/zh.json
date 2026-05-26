@@ -1,20 +1,21 @@
 {
   "app": {
-    "name": "AI Chat Group",
-    "fullName": "AI聊天群",
-    "tagline": "AI 聊天模拟平台"
+    "name": "Pneumata",
+    "fullName": "Pneumata",
+    "tagline": "AI 社交世界模拟平台"
   },
   "nav": {
     "home": "首页",
     "chats": "聊天",
     "characters": "角色库",
     "letters": "信件",
+    "intro": "介绍",
     "models": "模型库",
     "account": "账号",
     "settings": "设置"
   },
   "home": {
-    "title": "欢迎来到AI聊天群",
+    "title": "欢迎来到 Pneumata",
     "recentChats": "最近活跃",
     "quickCreate": "快速创建",
     "noChats": "还没有群聊，创建一个开始吧！",

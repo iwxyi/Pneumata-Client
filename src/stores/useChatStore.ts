@@ -10,6 +10,7 @@ import { createSyncScheduler } from './storeSyncScheduler';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateChatStoreState } from './storeMigrations';
 import { isRuntimeMemoryMonitorEnabled, recordRuntimeMemory } from '../services/runtimeMemoryMonitor';
+import { scopedStorageKey, storageKey } from '../constants/brand';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -69,7 +70,9 @@ function applyLocalEmptyDeletedChats(chats: GroupChat[]) {
   return chats.filter((chat) => chat.deletedAt == null);
 }
 
-const guestChatUploadFlag = createGuestUploadFlag<GroupChat>('miragetea-guest-chats-upload-pending');
+const guestChatUploadFlag = createGuestUploadFlag<GroupChat>(
+  storageKey('guest-chats-upload-pending'),
+);
 
 function migrateGuestChatsToCloud(chats: GroupChat[]) {
   guestChatUploadFlag.write(chats);
@@ -262,22 +265,22 @@ interface ChatStore extends PersistedChatState {
 }
 
 function getUserId() {
-  const userRaw = localStorage.getItem('miragetea-user');
+  const userRaw = localStorage.getItem(storageKey('user'));
   return userRaw ? JSON.parse(userRaw).id : 'guest';
 }
 
 function getChatStorageKey() {
-  return `mirageTea-chats-${getUserId()}`;
+  return scopedStorageKey(`chats-${getUserId()}`);
 }
 
-function getLegacyChatStorageKey() {
-  return 'mirageTea-chats';
+function getChatStoreStorageName() {
+  return scopedStorageKey('chats');
 }
 
 function createChatStorage() {
   return createScopedStorage({
     getScopedKey: getChatStorageKey,
-    legacyKey: getLegacyChatStorageKey(),
+    storageName: getChatStoreStorageName(),
   });
 }
 
@@ -435,7 +438,7 @@ async function applyEmptyDeletedChats() {
 
 async function maybeUploadGuestChats(get: () => ChatStore) {
   if (shouldSkipCloudSync()) return;
-  const guestKey = 'mirageTea-chats-guest';
+  const guestKey = scopedStorageKey('chats-guest');
   const raw = localStorage.getItem(guestKey);
   if (!raw) return;
   try {
@@ -453,12 +456,12 @@ async function maybeUploadGuestChats(get: () => ChatStore) {
 
 export function clearPersistedChatStore() {
   localStorage.removeItem(getChatStorageKey());
-  localStorage.removeItem(getLegacyChatStorageKey());
+  localStorage.removeItem(getChatStoreStorageName());
 }
 
 const chatStorage = createScopedBufferedJsonStorage<PersistedChatState>({
   getScopedKey: getChatStorageKey,
-  legacyKey: getLegacyChatStorageKey(),
+  storageName: getChatStoreStorageName(),
   flushDelayMs: 96,
 });
 let chatSyncLifecycleRegistered = false;
@@ -773,7 +776,7 @@ export const useChatStore = create<ChatStore>()(
       };
     },
     {
-      name: getLegacyChatStorageKey(),
+      name: getChatStoreStorageName(),
       storage: chatStorage,
       version: CLIENT_STORE_SCHEMA_VERSION,
       migrate: (persistedState) => migrateChatStoreState(persistedState as PersistedChatState) as PersistedChatState,

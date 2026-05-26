@@ -1,34 +1,118 @@
 import { Box, Drawer, SwipeableDrawer, IconButton, Typography, Divider } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import { useCallback, useRef, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useUIStore } from '../../stores/useUIStore';
+import { storageKey } from '../../constants/brand';
 
 interface RightPanelProps {
   children: React.ReactNode;
   title?: string;
 }
 
-const PANEL_WIDTH = 336;
+const DEFAULT_PANEL_WIDTH = 360;
+const MIN_PANEL_WIDTH = 300;
+const MAX_PANEL_WIDTH = 720;
+const PANEL_WIDTH_STORAGE_KEY = storageKey('right-panel-width');
+
+function clampPanelWidth(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_PANEL_WIDTH;
+  const viewportMax = typeof window === 'undefined' ? MAX_PANEL_WIDTH : Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, Math.floor(window.innerWidth * 0.48)));
+  return Math.min(viewportMax, Math.max(MIN_PANEL_WIDTH, Math.round(value)));
+}
+
+function getInitialPanelWidth() {
+  if (typeof localStorage === 'undefined') return DEFAULT_PANEL_WIDTH;
+  const stored = Number(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY));
+  return clampPanelWidth(stored || DEFAULT_PANEL_WIDTH);
+}
 
 export default function RightPanel({ children, title }: RightPanelProps) {
   const { isMobile, isDesktop } = useResponsive();
   const { rightPanelOpen, setRightPanelOpen } = useUIStore();
+  const [panelWidth, setPanelWidth] = useState(getInitialPanelWidth);
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const finishResize = useCallback(() => {
+    resizeStateRef.current = null;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }, []);
+
+  const handleResizeMove = useCallback((event: PointerEvent) => {
+    const state = resizeStateRef.current;
+    if (!state) return;
+    const nextWidth = clampPanelWidth(state.startWidth + state.startX - event.clientX);
+    setPanelWidth(nextWidth);
+    localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
+  }, []);
+
+  const startResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    resizeStateRef.current = { startX: event.clientX, startWidth: panelWidth };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', handleResizeMove);
+    window.addEventListener('pointerup', () => {
+      finishResize();
+      window.removeEventListener('pointermove', handleResizeMove);
+    }, { once: true });
+  }, [finishResize, handleResizeMove, panelWidth]);
+
+  const resetPanelWidth = useCallback(() => {
+    setPanelWidth(DEFAULT_PANEL_WIDTH);
+    localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(DEFAULT_PANEL_WIDTH));
+  }, []);
 
   // Desktop: permanent panel
   if (isDesktop) {
     return rightPanelOpen ? (
       <Box
         sx={{
-          width: PANEL_WIDTH,
+          width: panelWidth,
           flexShrink: 0,
           borderLeft: 1,
           borderColor: 'divider',
           bgcolor: 'background.paper',
-          overflow: 'auto',
+          overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
+          position: 'relative',
         }}
       >
+        <Box
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整侧边面板宽度"
+          title="拖拽调整宽度，双击恢复默认"
+          onPointerDown={startResize}
+          onDoubleClick={resetPanelWidth}
+          sx={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 10,
+            transform: 'translateX(-5px)',
+            cursor: 'col-resize',
+            zIndex: 2,
+            touchAction: 'none',
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              left: '50%',
+              top: 0,
+              bottom: 0,
+              width: 2,
+              transform: 'translateX(-50%)',
+              bgcolor: 'transparent',
+              transition: 'background-color 120ms ease',
+            },
+            '&:hover::after': {
+              bgcolor: 'primary.main',
+            },
+          }}
+        />
         {title && (
           <>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2.25, py: 1.75 }}>
@@ -85,7 +169,7 @@ export default function RightPanel({ children, title }: RightPanelProps) {
       onClose={() => setRightPanelOpen(false)}
       sx={{
         '& .MuiDrawer-paper': {
-          width: PANEL_WIDTH,
+          width: DEFAULT_PANEL_WIDTH,
           borderRadius: 0,
         },
       }}

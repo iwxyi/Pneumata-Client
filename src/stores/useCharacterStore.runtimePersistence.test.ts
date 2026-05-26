@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AICharacter } from '../types/character';
 import type { MemoryItem } from '../services/memoryTypes';
+import { storageKey } from '../constants/brand';
 
 function createStorageMock() {
   const data = new Map<string, string>();
@@ -77,8 +78,8 @@ describe('character runtime persistence', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.stubGlobal('localStorage', createStorageMock());
-    localStorage.setItem('miragetea-auth-mode', 'cloud');
-    localStorage.setItem('miragetea-token', 'test-token');
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    localStorage.setItem(storageKey('token'), 'test-token');
   });
 
   it('keeps bounded runtime fields and soul state in cloud patches', async () => {

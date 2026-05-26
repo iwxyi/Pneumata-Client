@@ -123,7 +123,7 @@ export default function LoginPage() {
             🍵
           </Typography>
           <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
-            AI Chat Group
+            Pneumata
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
             AI 群聊模拟平台

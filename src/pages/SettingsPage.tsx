@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Box, Typography, Button,
+  Box, Typography, Button, Chip,
   ToggleButtonGroup, ToggleButton,
   Snackbar, Alert, FormControlLabel, Switch,
 } from '@mui/material';
@@ -8,6 +8,7 @@ import BackupIcon from '@mui/icons-material/Download';
 import RestoreIcon from '@mui/icons-material/Upload';
 import ClearIcon from '@mui/icons-material/Delete';
 import LogoutIcon from '@mui/icons-material/Logout';
+import SyncIcon from '@mui/icons-material/Sync';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useSettingsStore } from '../stores/useSettingsStore';
@@ -21,6 +22,7 @@ import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
 import StatChipRow from '../components/common/StatChipRow';
 import { PAPER_SURFACE_VARIANTS, type PaperSurfaceVariant } from '../types/artifactAppearance';
+import { migrateLegacyBrandStorageKeys } from '../constants/brand';
 
 function buildPageSx() {
   return { p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 960, mx: 'auto' };
@@ -28,6 +30,33 @@ function buildPageSx() {
 
 function buildToggleGroupSx() {
   return { alignItems: 'center', justifyContent: 'flex-start', overflow: 'visible', flexWrap: 'wrap' as const, gap: 0.5 };
+}
+
+function buildPaperPickerSx() {
+  return {
+    display: 'grid',
+    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' },
+    gap: 1,
+    alignItems: 'stretch',
+  };
+}
+
+function buildPaperToggleSx() {
+  return {
+    display: 'grid',
+    gap: 0.75,
+    justifyItems: 'stretch',
+    alignContent: 'start',
+    minHeight: 128,
+    px: 1,
+    py: 1,
+    borderRadius: 2,
+    textTransform: 'none',
+    whiteSpace: 'normal',
+    '&.Mui-selected': {
+      boxShadow: '0 0 0 1px rgba(103, 80, 164, 0.45)',
+    },
+  };
 }
 
 function buildActionGridSx() {
@@ -62,10 +91,6 @@ function buildDataChips(language: string) {
   return [language.startsWith('zh') ? '备份 / 恢复' : 'Backup / Restore', language.startsWith('zh') ? '回收站' : 'Recycle Bin'];
 }
 
-function buildAboutChips() {
-  return ['v1.0.0'];
-}
-
 function getPaperVariantLabel(variant: PaperSurfaceVariant, language: string) {
   const zh: Record<PaperSurfaceVariant, string> = {
     lined: '横线纸',
@@ -80,6 +105,52 @@ function getPaperVariantLabel(variant: PaperSurfaceVariant, language: string) {
     night: 'Night',
   };
   return language.startsWith('zh') ? zh[variant] : en[variant];
+}
+
+function buildPaperPreviewSx(variant: PaperSurfaceVariant) {
+  const shared = {
+    width: '100%',
+    aspectRatio: '1.45 / 1',
+    minHeight: 74,
+    maxHeight: 112,
+    borderRadius: 1.25,
+    overflow: 'hidden',
+    position: 'relative',
+    border: '1px solid',
+  };
+  const variants: Record<PaperSurfaceVariant, object> = {
+    lined: {
+      ...shared,
+      borderColor: 'rgba(180, 150, 90, 0.34)',
+      bgcolor: '#fffdf4',
+      backgroundImage: 'linear-gradient(rgba(90, 120, 170, 0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(180, 80, 70, 0.24) 1px, transparent 1px)',
+      backgroundSize: '100% 12px, 20px 100%',
+      backgroundPosition: '0 12px, 18px 0',
+    },
+    plain: {
+      ...shared,
+      borderColor: 'rgba(190, 176, 138, 0.42)',
+      bgcolor: '#fffaf0',
+      backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.75), rgba(245,232,198,0.42))',
+    },
+    letter: {
+      ...shared,
+      borderColor: 'rgba(128, 96, 54, 0.34)',
+      bgcolor: '#fbf3df',
+      backgroundImage: 'linear-gradient(rgba(94, 70, 38, 0.08) 1px, transparent 1px), radial-gradient(circle at 18% 14%, rgba(255,255,255,0.62), transparent 36%), linear-gradient(135deg, rgba(130, 88, 36, 0.14), transparent 46%)',
+      backgroundSize: '100% 13px, 100% 100%, 100% 100%',
+      backgroundPosition: '0 14px, 0 0, 0 0',
+    },
+    night: {
+      ...shared,
+      borderColor: 'rgba(139, 164, 203, 0.42)',
+      bgcolor: '#202632',
+      backgroundImage: 'linear-gradient(rgba(174, 196, 230, 0.15) 1px, transparent 1px), linear-gradient(135deg, rgba(71, 88, 121, 0.52), rgba(32, 38, 50, 0.95))',
+      backgroundSize: '100% 12px, 100% 100%',
+      backgroundPosition: '0 12px, 0 0',
+    },
+  };
+  return variants[variant];
 }
 
 export default function SettingsPage() {
@@ -120,7 +191,7 @@ export default function SettingsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `mirageTea-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `pneumata-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
       setSnackbar({ open: true, message: t('settings.backupSuccess'), severity: 'success' });
@@ -193,6 +264,15 @@ export default function SettingsPage() {
     i18n.changeLanguage(lang);
   };
 
+  const handleBrandStorageMigration = () => {
+    const result = migrateLegacyBrandStorageKeys();
+    const message = i18n.language.startsWith('zh')
+      ? `迁移完成：搬迁 ${result.moved} 项，删除旧 key ${result.removed} 项，跳过 ${result.skipped} 项。页面即将刷新。`
+      : `Migration complete: moved ${result.moved}, removed ${result.removed} old key(s), skipped ${result.skipped}. Reloading.`;
+    setSnackbar({ open: true, message, severity: 'success' });
+    window.setTimeout(() => window.location.reload(), 800);
+  };
+
   return (
     <Box sx={buildPageSx()}>
       <PageSection spacing={3}>
@@ -207,9 +287,11 @@ export default function SettingsPage() {
         </SurfaceCard>
 
         <SurfaceCard contentSx={buildCardBodySx()}>
-          <Box sx={buildSectionBodySx()}>
-            <SectionHeader title={i18n.language.startsWith('zh') ? 'AI模型' : 'AI Models'} />
-            <Button variant="outlined" onClick={() => navigate('/models')} sx={{ alignSelf: 'flex-start' }}>{i18n.language.startsWith('zh') ? '管理' : 'Manage'}</Button>
+          <Box sx={buildTopRowSx()}>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? 'AI模型' : 'AI Models'}</Typography>
+            </Box>
+            <Button variant="outlined" onClick={() => navigate('/models')}>{i18n.language.startsWith('zh') ? '管理' : 'Manage'}</Button>
           </Box>
         </SurfaceCard>
 
@@ -233,14 +315,14 @@ export default function SettingsPage() {
             </Box>
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '信件背景' : 'Letter background'}</Typography>
-              <ToggleButtonGroup value={settings.artifactAppearance.paperVariant} exclusive onChange={(_, v) => v && settings.setArtifactAppearance({ paperVariant: v })} size="small" sx={buildToggleGroupSx()}>
+              <ToggleButtonGroup value={settings.artifactAppearance.paperVariant} exclusive onChange={(_, v) => v && settings.setArtifactAppearance({ paperVariant: v })} size="small" sx={buildPaperPickerSx()}>
                 {PAPER_SURFACE_VARIANTS.map((variant) => (
-                  <ToggleButton key={variant} value={variant}>{getPaperVariantLabel(variant, i18n.language)}</ToggleButton>
+                  <ToggleButton key={variant} value={variant} sx={buildPaperToggleSx()}>
+                    <Box sx={buildPaperPreviewSx(variant)} />
+                    <Typography variant="caption" sx={{ fontWeight: 650 }}>{getPaperVariantLabel(variant, i18n.language)}</Typography>
+                  </ToggleButton>
                 ))}
               </ToggleButtonGroup>
-            </Box>
-            <Box sx={{ display: 'grid', gap: 1 }}>
-              <FormControlLabel control={<Switch checked={settings.developerMode} onChange={(e) => settings.setDeveloperMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '开发者模式' : 'Developer mode'} />
             </Box>
           </Box>
         </SurfaceCard>
@@ -251,6 +333,7 @@ export default function SettingsPage() {
             <Box sx={{ display: 'grid', gap: 1 }}>
               <FormControlLabel control={<Switch checked={settings.avatarGeneration.autoGenerateCharacterAvatar} onChange={(e) => settings.setAutoGenerateCharacterAvatar(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '自动生成角色头像' : 'Auto-generate character avatars'} />
               <FormControlLabel control={<Switch checked={settings.avatarGeneration.preferNonPhotorealAvatar} onChange={(e) => settings.setAvatarGeneration({ preferNonPhotorealAvatar: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '非写实头像' : 'Non-photoreal avatars'} />
+              <FormControlLabel control={<Switch checked={settings.developerMode} onChange={(e) => settings.setDeveloperMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '开发者模式' : 'Developer mode'} />
             </Box>
           </Box>
         </SurfaceCard>
@@ -279,16 +362,26 @@ export default function SettingsPage() {
                   : 'These switches expose events, evidence, metrics, and debug hints for runtime inspection. Leave them off for everyday use.'}
               />
               <StatChipRow items={buildDeveloperChips(i18n.language)} />
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'minmax(220px, 0.45fr) 1fr' }, gap: 1.25, alignItems: 'center', p: 1.25, borderRadius: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.default' }}>
+                <Button startIcon={<SyncIcon />} variant="outlined" onClick={handleBrandStorageMigration}>
+                  {i18n.language.startsWith('zh') ? '迁移旧本地数据' : 'Migrate old local data'}
+                </Button>
+                <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                  {i18n.language.startsWith('zh')
+                    ? '把旧品牌前缀的本地存储和临时草稿一次性搬到 Pneumata 前缀，完成后刷新页面重新加载。'
+                    : 'Move old brand-prefixed local storage and session drafts to the Pneumata prefix, then reload.'}
+                </Typography>
+              </Box>
               <Box sx={{ display: 'grid', gap: 1 }}>
-                <FormControlLabel control={<Switch checked={settings.developerUI.showMemoryDebug} onChange={(e) => settings.setDeveloperUI({ showMemoryDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：记忆证据与参数' : 'Debug: memory evidence and metrics'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showRelationshipEvents} onChange={(e) => settings.setDeveloperUI({ showRelationshipEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：关系事件气泡' : 'Debug: relationship event bubbles'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showAffectEvents} onChange={(e) => settings.setDeveloperUI({ showAffectEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：情绪与人格漂移事件' : 'Debug: emotion and drift events'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showConflictEvents} onChange={(e) => settings.setDeveloperUI({ showConflictEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：矛盾焦点与发展钩子' : 'Debug: conflict focus and development hooks'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showStateEvents} onChange={(e) => settings.setDeveloperUI({ showStateEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：房间态势事件' : 'Debug: room state events'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showMemoryDistillationEvents} onChange={(e) => settings.setDeveloperUI({ showMemoryDistillationEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：记忆蒸馏事件' : 'Debug: memory distillation events'} />
+                <FormControlLabel control={<Switch checked={settings.developerUI.showRelationshipEvents} onChange={(e) => settings.setDeveloperUI({ showRelationshipEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '提示：角色关系事件' : 'Hint: character relationship events'} />
+                <FormControlLabel control={<Switch checked={settings.developerUI.showAffectEvents} onChange={(e) => settings.setDeveloperUI({ showAffectEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '提示：情绪与人格漂移事件' : 'Hint: emotion and drift events'} />
+                <FormControlLabel control={<Switch checked={settings.developerUI.showStateEvents} onChange={(e) => settings.setDeveloperUI({ showStateEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '提示：房间态势事件' : 'Hint: room state events'} />
+                <FormControlLabel control={<Switch checked={settings.developerUI.showMemoryDistillationEvents} onChange={(e) => settings.setDeveloperUI({ showMemoryDistillationEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '提示：记忆蒸馏事件' : 'Hint: memory distillation events'} />
                 <FormControlLabel control={<Switch checked={settings.developerUI.showSpeechStyle} onChange={(e) => settings.setDeveloperUI({ showSpeechStyle: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：发言风格面板' : 'Debug: speech style panel'} />
                 <FormControlLabel control={<Switch checked={settings.developerUI.showAdvancedRuntimePanels} onChange={(e) => settings.setDeveloperUI({ showAdvancedRuntimePanels: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：高级运行面板' : 'Debug: advanced runtime panels'} />
-                <FormControlLabel control={<Switch checked={settings.developerUI.showWithdrawnMessageContent} onChange={(e) => settings.setDeveloperUI({ showWithdrawnMessageContent: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：悬浮查看撤回原文' : 'Debug: reveal withdrawn content on hover'} />
+                <FormControlLabel control={<Switch checked={settings.developerUI.showMemoryDebug} onChange={(e) => settings.setDeveloperUI({ showMemoryDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：记忆证据与参数' : 'Debug: memory evidence and metrics'} />
+                <FormControlLabel control={<Switch checked={settings.developerUI.showConflictEvents} onChange={(e) => settings.setDeveloperUI({ showConflictEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '调试：矛盾焦点与发展钩子' : 'Debug: conflict focus and development hooks'} />
+                <FormControlLabel control={<Switch checked={settings.developerUI.showWithdrawnMessageContent} onChange={(e) => settings.setDeveloperUI({ showWithdrawnMessageContent: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '交互：悬浮查看撤回原文' : 'Interaction: reveal withdrawn content on hover'} />
                 <FormControlLabel control={<Switch checked={settings.developerUI.dramaBoost} onChange={(e) => settings.setDeveloperUI({ dramaBoost: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '实验：增强戏剧冲突' : 'Experimental: boost dramatic conflict'} />
               </Box>
             </Box>
@@ -310,8 +403,8 @@ export default function SettingsPage() {
 
         <SurfaceCard contentSx={buildCardBodySx()}>
           <SectionHeader title={t('settings.about')} dense />
-          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.75 }}>AI Chat Group</Typography>
-          <StatChipRow items={buildAboutChips()} />
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.75 }}>Pneumata</Typography>
+          <Chip size="small" label="v1.0.0" variant="outlined" onClick={() => navigate('/intro')} sx={{ cursor: 'pointer' }} />
         </SurfaceCard>
 
         <Button

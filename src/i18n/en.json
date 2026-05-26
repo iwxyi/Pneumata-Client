@@ -1,20 +1,21 @@
 {
   "app": {
-    "name": "AI Chat Group",
-    "fullName": "AI Chat Group",
-    "tagline": "AI Group Chat Simulation"
+    "name": "Pneumata",
+    "fullName": "Pneumata",
+    "tagline": "AI Social World Simulation"
   },
   "nav": {
     "home": "Home",
     "chats": "Chats",
     "characters": "Characters",
     "letters": "Letters",
+    "intro": "Intro",
     "models": "Model Library",
     "account": "Account",
     "settings": "Settings"
   },
   "home": {
-    "title": "Welcome to AI Chat Group",
+    "title": "Welcome to Pneumata",
     "recentChats": "Recent Active",
     "quickCreate": "Quick Create",
     "noChats": "No chats yet. Create one to get started!",

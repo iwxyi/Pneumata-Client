@@ -7,6 +7,7 @@ import { hasLocalDataUrlMedia, scrubLocalMediaUrlsForCloud, uploadLocalMessageMe
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateMessageStoreState } from './storeMigrations';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
+import { scopedStorageKey, storageKey } from '../constants/brand';
 
 function isLocalOnlyMode() {
   return useAuthStore.getState().authMode === 'local';
@@ -28,7 +29,7 @@ function createLocalMessage(msgData: Omit<Message, 'id' | 'timestamp' | 'isDelet
 async function uploadGuestMessagesToCloud() {
   if (isLocalOnlyMode()) return;
   try {
-    const raw = localStorage.getItem('mirageTea-messages-guest');
+    const raw = localStorage.getItem(scopedStorageKey('messages-guest'));
     if (!raw) return;
     const parsed = JSON.parse(raw) as { state?: { messageWindowsByChatId?: Record<string, { messages: Message[] }> } };
     const windows = parsed.state?.messageWindowsByChatId || {};
@@ -48,7 +49,7 @@ async function uploadGuestMessagesToCloud() {
         }
       }
     }
-    localStorage.removeItem('mirageTea-messages-guest');
+    localStorage.removeItem(scopedStorageKey('messages-guest'));
   } catch {
     // ignore malformed guest cache
   }
@@ -296,7 +297,7 @@ function shouldDeleteMessagesLocally() {
 }
 
 function localMessageUploadKey() {
-  return 'mirageTea-messages-guest';
+  return scopedStorageKey('messages-guest');
 }
 
 void localMessageUploadKey;
@@ -445,7 +446,7 @@ void shouldPersistLocallyOnly;
 
 function readGuestMessageCache() {
   try {
-    const raw = localStorage.getItem('mirageTea-messages-guest');
+    const raw = localStorage.getItem(scopedStorageKey('messages-guest'));
     if (!raw) return {} as Record<string, CachedMessageWindow>;
     const parsed = JSON.parse(raw) as { state?: { messageWindowsByChatId?: Record<string, CachedMessageWindow> } };
     return parsed.state?.messageWindowsByChatId || {};
@@ -4224,29 +4225,29 @@ interface PersistedMessageState {
 }
 
 function getUserId() {
-  const userRaw = localStorage.getItem('miragetea-user');
+  const userRaw = localStorage.getItem(storageKey('user'));
   return userRaw ? JSON.parse(userRaw).id : 'guest';
 }
 
 function getMessageStorageKey() {
-  return `mirageTea-messages-${getUserId()}`;
+  return scopedStorageKey(`messages-${getUserId()}`);
 }
 
-function getLegacyMessageStorageKey() {
-  return 'mirageTea-messages';
+function getMessageStoreStorageName() {
+  return scopedStorageKey('messages');
 }
 
 function createMessageStorage() {
   return createScopedBufferedJsonStorage<PersistedMessageState>({
     getScopedKey: getMessageStorageKey,
-    legacyKey: getLegacyMessageStorageKey(),
+    storageName: getMessageStoreStorageName(),
     flushDelayMs: 64,
   });
 }
 
 export function clearPersistedMessageStore() {
   localStorage.removeItem(getMessageStorageKey());
-  localStorage.removeItem(getLegacyMessageStorageKey());
+  localStorage.removeItem(getMessageStoreStorageName());
 }
 
 function buildPersistedMessageState(state: PersistedMessageState): PersistedMessageState {
@@ -4670,7 +4671,7 @@ export const useMessageStore = create<MessageStore>()(
       },
     }),
     {
-      name: getLegacyMessageStorageKey(),
+      name: getMessageStoreStorageName(),
       storage: messageStorage,
       version: CLIENT_STORE_SCHEMA_VERSION,
       migrate: (persistedState) => {

@@ -23,6 +23,7 @@ import {
 import { buildGroupChatDraft } from '../services/chatDraftBuilder';
 import { api as apiClient } from '../services/api';
 import { MIN_MEMBERS, MAX_MEMBERS } from '../constants/defaults';
+import { storageKey } from '../constants/brand';
 import DirectorControlsSection from '../components/createChat/DirectorControlsSection';
 import ChatConfigSection from '../components/createChat/ChatConfigSection';
 import ManagementSection from '../components/createChat/ManagementSection';
@@ -30,6 +31,7 @@ import MemberSelectionDialog from '../components/createChat/MemberSelectionDialo
 import { normalizeRuntimeSeedLines } from '../services/runtimeSeed';
 
 const HotTopicDialogContainer = lazy(() => import('../components/createChat/HotTopicDialogContainer'));
+const CHAT_DRAFT_KEY = storageKey('create-chat-draft');
 const RuntimeSeedSection = lazy(() => import('../components/createChat/RuntimeSeedSection'));
 
 export default function CreateChatPage() {
@@ -188,7 +190,7 @@ export default function CreateChatPage() {
   };
 
   const persistDraft = () => {
-    sessionStorage.setItem('miragetea-create-chat-draft', JSON.stringify({
+    sessionStorage.setItem(CHAT_DRAFT_KEY, JSON.stringify({
       name,
       topic,
       style,
@@ -216,7 +218,7 @@ export default function CreateChatPage() {
   };
 
   const restoreDraft = () => {
-    const raw = sessionStorage.getItem('miragetea-create-chat-draft');
+    const raw = sessionStorage.getItem(CHAT_DRAFT_KEY);
     if (!raw) return;
     try {
       const draft = JSON.parse(raw) as Record<string, unknown>;
@@ -244,7 +246,7 @@ export default function CreateChatPage() {
       setAllowPrivateThreads(Boolean(draft.allowPrivateThreads));
       setConfigTab(Number(draft.configTab || 0));
     } finally {
-      sessionStorage.removeItem('miragetea-create-chat-draft');
+      sessionStorage.removeItem(CHAT_DRAFT_KEY);
     }
   };
 
@@ -305,7 +307,7 @@ export default function CreateChatPage() {
 
   useEffect(() => {
     if (!editingChat && new URLSearchParams(location.search).get('restoreDraft') !== '1') {
-      sessionStorage.removeItem('miragetea-create-chat-draft');
+      sessionStorage.removeItem(CHAT_DRAFT_KEY);
     }
   }, [editingChat, location.search]);
 
@@ -684,7 +686,7 @@ export default function CreateChatPage() {
         allowForcedReply,
       }));
       await seedOpeningTopicMessage(chat.id, topic);
-      sessionStorage.removeItem('miragetea-create-chat-draft');
+      sessionStorage.removeItem(CHAT_DRAFT_KEY);
       setChatDraftDefaults({ style, showRoleActions, runtimeEvolutionIntensity });
       navigate(`/chats/${chat.id}`);
     } catch (error) {

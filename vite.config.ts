@@ -28,9 +28,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'logo-192.png', 'logo-512.png'],
       manifest: {
-        name: 'AI Chat Group',
-        short_name: 'AI Chat Group',
-        description: 'AI Multi-Agent Group Chat Simulation Platform',
+        name: 'Pneumata',
+        short_name: 'Pneumata',
+        description: 'AI Multi-Agent Social World Simulation Platform',
         theme_color: '#6750A4',
         background_color: '#FEF7FF',
         display: 'standalone',

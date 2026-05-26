@@ -2,6 +2,7 @@
 
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
 import type { CharacterVisualIdentity, CharacterVisualReferenceImage } from '../types/character';
+import { storageKey } from '../constants/brand';
 
 const API_BASE = '/api';
 
@@ -50,7 +51,7 @@ export class ApiError extends Error {
 
 class ApiClient {
   private getToken(): string | null {
-    return localStorage.getItem('miragetea-token');
+    return localStorage.getItem(storageKey('token'));
   }
 
   private getHeaders(): Record<string, string> {
@@ -78,8 +79,8 @@ class ApiClient {
     const response = await fetch(url, options);
 
     if (response.status === 401) {
-      localStorage.removeItem('miragetea-token');
-      localStorage.removeItem('miragetea-user');
+      localStorage.removeItem(storageKey('token'));
+      localStorage.removeItem(storageKey('user'));
       window.location.href = '/login';
       throw new Error('登录已过期，请重新登录');
     }
@@ -217,7 +218,11 @@ class ApiClient {
       runtimeEvolutionIntensity?: 'slow' | 'balanced' | 'fast'; memberIds: string[]; speed: number; isActive: boolean;
       allowIntervention: boolean; showRoleActions?: boolean; topicSeed: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeSeed?: { notes?: string[]; artifacts?: string[] }; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       runtimeEventsV2?: object[]; relationshipLedger?: object[]; governance?: object; dramaRules?: object; worldState?: object; directorControls?: object;
-      deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number; lastMessageAt: number;
+      deletedAt?: number | null; fieldVersions?: Record<string, number>; latestMessage?: {
+        id: string; chatId: string; type: string; senderId: string;
+        senderName: string; content: string; metadata?: unknown; emotion: number;
+        timestamp: number; isDeleted: boolean;
+      } | null; createdAt: number; updatedAt: number; lastMessageAt: number;
     }>>('GET', '/chats');
   }
 

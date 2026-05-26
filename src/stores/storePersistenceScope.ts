@@ -2,7 +2,7 @@ import type { PersistStorage, StateStorage, StorageValue } from 'zustand/middlew
 
 interface ScopedStorageParams {
   getScopedKey: () => string;
-  legacyKey: string;
+  storageName: string;
 }
 
 interface BufferedJsonStorageOptions {
@@ -67,31 +67,29 @@ export function createScopedStorage(params: ScopedStorageParams): StateStorage {
     getItem: (name: string) => {
       if (typeof localStorage === 'undefined') return null;
       const scopedName = params.getScopedKey();
-      const legacyName = params.legacyKey;
-      if (name !== legacyName) return localStorage.getItem(name);
-      return localStorage.getItem(scopedName) ?? localStorage.getItem(legacyName);
+      const storageName = params.storageName;
+      if (name !== storageName) return localStorage.getItem(name);
+      return localStorage.getItem(scopedName);
     },
     setItem: (name: string, value: string) => {
       if (typeof localStorage === 'undefined') return;
       const scopedName = params.getScopedKey();
-      const legacyName = params.legacyKey;
-      if (name !== legacyName) {
+      const storageName = params.storageName;
+      if (name !== storageName) {
         localStorage.setItem(name, value);
         return;
       }
       localStorage.setItem(scopedName, value);
-      localStorage.removeItem(legacyName);
     },
     removeItem: (name: string) => {
       if (typeof localStorage === 'undefined') return;
       const scopedName = params.getScopedKey();
-      const legacyName = params.legacyKey;
-      if (name !== legacyName) {
+      const storageName = params.storageName;
+      if (name !== storageName) {
         localStorage.removeItem(name);
         return;
       }
       localStorage.removeItem(scopedName);
-      localStorage.removeItem(legacyName);
     },
   };
 }

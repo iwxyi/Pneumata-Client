@@ -1,6 +1,6 @@
 import { lazy, Suspense, useMemo, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { ThemeProvider, CssBaseline, useMediaQuery } from '@mui/material';
+import { Box, LinearProgress, ThemeProvider, CssBaseline, useMediaQuery } from '@mui/material';
 import { createAppTheme } from './theme';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useAuthStore } from './stores/useAuthStore';
@@ -14,24 +14,61 @@ import ChatDetailPage from './pages/ChatDetailPage';
 import CreateDirectChatPage from './pages/CreateDirectChatPage';
 import './i18n';
 
-const CharacterLibraryPage = lazy(() => import('./pages/CharacterLibraryPage'));
-const CharacterEditorPage = lazy(() => import('./pages/CharacterEditorPage'));
-const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-const RecycleBinPage = lazy(() => import('./pages/RecycleBinPage'));
-const AIModelsPage = lazy(() => import('./pages/AIModelsPage'));
-const AccountPage = lazy(() => import('./pages/AccountPage'));
-const SyncStatusPage = lazy(() => import('./pages/SyncStatusPage'));
-const BatchGenerateCharactersPage = lazy(() => import('./pages/BatchGenerateCharactersPage'));
-const LettersPage = lazy(() => import('./pages/LettersPage'));
-const LoginPage = lazy(() => import('./pages/LoginPage'));
+const routePreloaders = [
+  () => import('./pages/CharacterLibraryPage'),
+  () => import('./pages/CharacterEditorPage'),
+  () => import('./pages/SettingsPage'),
+  () => import('./pages/RecycleBinPage'),
+  () => import('./pages/AIModelsPage'),
+  () => import('./pages/AccountPage'),
+  () => import('./pages/SyncStatusPage'),
+  () => import('./pages/BatchGenerateCharactersPage'),
+  () => import('./pages/LettersPage'),
+  () => import('./pages/IntroPage'),
+  () => import('./pages/LoginPage'),
+];
+
+const [
+  loadCharacterLibraryPage,
+  loadCharacterEditorPage,
+  loadSettingsPage,
+  loadRecycleBinPage,
+  loadAIModelsPage,
+  loadAccountPage,
+  loadSyncStatusPage,
+  loadBatchGenerateCharactersPage,
+  loadLettersPage,
+  loadIntroPage,
+  loadLoginPage,
+] = routePreloaders;
+
+const CharacterLibraryPage = lazy(loadCharacterLibraryPage);
+const CharacterEditorPage = lazy(loadCharacterEditorPage);
+const SettingsPage = lazy(loadSettingsPage);
+const RecycleBinPage = lazy(loadRecycleBinPage);
+const AIModelsPage = lazy(loadAIModelsPage);
+const AccountPage = lazy(loadAccountPage);
+const SyncStatusPage = lazy(loadSyncStatusPage);
+const BatchGenerateCharactersPage = lazy(loadBatchGenerateCharactersPage);
+const LettersPage = lazy(loadLettersPage);
+const IntroPage = lazy(loadIntroPage);
+const LoginPage = lazy(loadLoginPage);
+
+function RouteFallback() {
+  return (
+    <Box sx={{ px: 2.5, pt: 1.5 }}>
+      <LinearProgress sx={{ borderRadius: 999 }} />
+    </Box>
+  );
+}
 
 function RouteElement({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={null}>{children}</Suspense>;
+  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
 }
 
 function ChatDetailRouteElement() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<RouteFallback />}>
       <ChatDetailPage />
     </Suspense>
   );
@@ -64,6 +101,24 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     }
   }, [authMode, isLoggedIn, loadSettings]);
 
+  useEffect(() => {
+    const preload = () => {
+      for (const loadRoute of routePreloaders) {
+        void loadRoute();
+      }
+    };
+    const scheduler = (window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    }).requestIdleCallback;
+    if (typeof scheduler === 'function') {
+      const handle = scheduler(preload, { timeout: 1600 });
+      return () => window.cancelIdleCallback?.(handle);
+    }
+    const handle = window.setTimeout(preload, 800);
+    return () => window.clearTimeout(handle);
+  }, []);
+
   return <>{children}</>;
 }
 
@@ -71,6 +126,7 @@ function RoutedApp() {
   return (
     <Routes>
       <Route path="/login" element={<RouteElement><LoginPage /></RouteElement>} />
+      <Route path="/intro" element={<RouteElement><IntroPage /></RouteElement>} />
       <Route element={
         <RequireAuth>
           <AppLayout />

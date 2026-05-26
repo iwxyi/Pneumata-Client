@@ -7,6 +7,7 @@ import { createScopedBufferedJsonStorage, createScopedStorage } from './storePer
 import { CLIENT_STORE_SCHEMA_VERSION } from './storeMigrations';
 import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact } from '../services/characterExperienceArtifacts';
 import { useSettingsStore } from './useSettingsStore';
+import { scopedStorageKey, storageKey } from '../constants/brand';
 
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
 export type CharacterArtifactJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
@@ -66,21 +67,21 @@ interface CharacterArtifactStore extends ArtifactSnapshot {
 }
 
 function getArtifactStorageKey() {
-  const userRaw = localStorage.getItem('miragetea-user');
+  const userRaw = localStorage.getItem(storageKey('user'));
   const userId = userRaw ? JSON.parse(userRaw).id : 'guest';
-  return `mirageTea-character-artifacts-${userId}`;
+  return scopedStorageKey(`character-artifacts-${userId}`);
 }
 
 function createArtifactStorage() {
   return createScopedStorage({
     getScopedKey: getArtifactStorageKey,
-    legacyKey: 'mirageTea-character-artifacts',
+    storageName: scopedStorageKey('character-artifacts'),
   });
 }
 
 const artifactStorage = createScopedBufferedJsonStorage<ArtifactSnapshot>({
   getScopedKey: getArtifactStorageKey,
-  legacyKey: 'mirageTea-character-artifacts',
+  storageName: scopedStorageKey('character-artifacts'),
   flushDelayMs: 96,
 });
 
@@ -480,7 +481,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
       };
     },
     {
-      name: 'miragetea-character-artifacts',
+      name: scopedStorageKey('character-artifacts'),
       storage: artifactStorage,
       version: CLIENT_STORE_SCHEMA_VERSION,
       partialize: (state) => ({

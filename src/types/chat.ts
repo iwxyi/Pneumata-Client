@@ -538,6 +538,7 @@ export interface GroupChat {
   directorControls: ConversationDirectorControls;
   deletedAt?: number | null;
   fieldVersions?: Record<string, number>;
+  latestMessage?: Message | null;
   createdAt: number;
   updatedAt: number;
   lastMessageAt: number;

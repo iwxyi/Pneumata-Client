@@ -10,6 +10,7 @@ import { createSyncScheduler } from './storeSyncScheduler';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateCharacterStoreState } from './storeMigrations';
 import { useCharacterArtifactStore } from './useCharacterArtifactStore';
+import { scopedStorageKey, storageKey } from '../constants/brand';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -98,7 +99,9 @@ async function createCharacterRemote(charData: Omit<AICharacter, 'id' | 'created
   return normalizeCharacter(result as unknown as AICharacter);
 }
 
-const guestCharacterUploadFlag = createGuestUploadFlag<AICharacter>('mirageTea-characters-guest');
+const guestCharacterUploadFlag = createGuestUploadFlag<AICharacter>(
+  scopedStorageKey('characters-guest'),
+);
 
 async function uploadGuestCharactersToCloud() {
   if (shouldSkipCloudSync()) return;
@@ -414,22 +417,22 @@ interface CharacterStore extends PersistedCharacterState {
 }
 
 function getUserId() {
-  const userRaw = localStorage.getItem('miragetea-user');
+  const userRaw = localStorage.getItem(storageKey('user'));
   return userRaw ? JSON.parse(userRaw).id : 'guest';
 }
 
 function getCharacterStorageKey() {
-  return `mirageTea-characters-${getUserId()}`;
+  return scopedStorageKey(`characters-${getUserId()}`);
 }
 
-function getLegacyCharacterStorageKey() {
-  return 'mirageTea-characters';
+function getCharacterStoreStorageName() {
+  return scopedStorageKey('characters');
 }
 
 function createCharacterStorage() {
   return createScopedStorage({
     getScopedKey: getCharacterStorageKey,
-    legacyKey: getLegacyCharacterStorageKey(),
+    storageName: getCharacterStoreStorageName(),
   });
 }
 
@@ -562,12 +565,12 @@ async function reloadVisibleCharacterState(pendingOperations: PendingCharacterOp
 
 export function clearPersistedCharacterStore() {
   localStorage.removeItem(getCharacterStorageKey());
-  localStorage.removeItem(getLegacyCharacterStorageKey());
+  localStorage.removeItem(getCharacterStoreStorageName());
 }
 
 const characterStorage = createScopedBufferedJsonStorage<PersistedCharacterState>({
   getScopedKey: getCharacterStorageKey,
-  legacyKey: getLegacyCharacterStorageKey(),
+  storageName: getCharacterStoreStorageName(),
   flushDelayMs: 96,
 });
 
@@ -991,7 +994,7 @@ export const useCharacterStore = create<CharacterStore>()(
       };
     },
     {
-      name: getLegacyCharacterStorageKey(),
+      name: getCharacterStoreStorageName(),
       storage: characterStorage,
       version: CLIENT_STORE_SCHEMA_VERSION,
       migrate: (persistedState) => migrateCharacterStoreState(persistedState as PersistedCharacterState) as PersistedCharacterState,

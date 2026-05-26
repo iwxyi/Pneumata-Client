@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { DriverMessageCommitTransition, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
+import { scopedStorageKey } from '../constants/brand';
 
 type MemoryMeasure = {
   usedJSHeapSize?: number | null;
@@ -92,8 +93,8 @@ type RuntimeMemoryForensicsSnapshot = {
   };
 };
 
-const STORAGE_KEY = 'mirageTea-runtime-memory-monitor';
-const VERBOSE_STORAGE_KEY = 'mirageTea-runtime-memory-monitor-verbose';
+const STORAGE_KEY = scopedStorageKey('runtime-memory-monitor');
+const VERBOSE_STORAGE_KEY = scopedStorageKey('runtime-memory-monitor-verbose');
 const MAX_RECORDS = 200;
 const records: RuntimeMemoryMonitorRecord[] = [];
 const jsonSizeCache = new WeakMap<object, number>();
@@ -381,7 +382,7 @@ function sizeLocalStorageEntries() {
   for (let index = 0; index < localStorage.length; index += 1) {
     const key = localStorage.key(index);
     if (!key) continue;
-    if (!key.toLowerCase().includes('miragetea')) continue;
+    if (!key.toLowerCase().includes('pneumata')) continue;
     const value = localStorage.getItem(key) || '';
     entries.push({ id: key, size: value.length });
   }

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateUiStoreState } from './storeMigrations';
+import { scopedStorageKey } from '../constants/brand';
 
 interface UIStore {
   sidebarOpen: boolean;
@@ -40,7 +41,7 @@ export const useUIStore = create<UIStore>()(
       setSpeakAsCharacter: (id) => set({ speakAsCharacterId: id }),
     }),
     {
-      name: 'mirageTea-ui',
+      name: scopedStorageKey('ui'),
       version: CLIENT_STORE_SCHEMA_VERSION,
       migrate: (persistedState) => migrateUiStoreState(persistedState as Partial<UIStore>) as UIStore,
       partialize: (state) => ({
