@@ -1,4 +1,4 @@
-import { Box, Drawer, SwipeableDrawer, IconButton, Typography, Divider } from '@mui/material';
+import { Box, Drawer, IconButton, Typography, Divider } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { useCallback, useRef, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
@@ -147,15 +147,14 @@ export default function RightPanel({ children, title }: RightPanelProps) {
     ) : null;
   }
 
-  // Mobile: bottom sheet (SwipeableDrawer)
+  // Mobile: bottom sheet. Use a regular Drawer so vertical scrolling inside the
+  // panel is not captured as a swipe-to-close gesture.
   if (isMobile) {
     return (
-      <SwipeableDrawer
+      <Drawer
         anchor="bottom"
         open={rightPanelOpen}
         onClose={() => setRightPanelOpen(false)}
-        onOpen={() => setRightPanelOpen(true)}
-        swipeAreaWidth={20}
         sx={{
           '& .MuiDrawer-paper': {
             height: '80vh',
@@ -178,7 +177,7 @@ export default function RightPanel({ children, title }: RightPanelProps) {
             {children}
           </Box>
         </Box>
-      </SwipeableDrawer>
+      </Drawer>
     );
   }
 

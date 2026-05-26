@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ClipboardEvent, type DragEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type MouseEvent } from 'react';
 import {
   Box, Typography, Card, CardContent, TextField, Button,
   FormControl, InputLabel, Select, MenuItem,
@@ -53,6 +53,8 @@ export default function AIModelsPage() {
   const [confirmAssignProfileId, setConfirmAssignProfileId] = useState<string | null>(null);
   const [remoteModelOptions, setRemoteModelOptions] = useState<Record<string, string[]>>({});
   const [fetchedModelKeys, setFetchedModelKeys] = useState<Record<string, string>>({});
+  const [fetchingModelIds, setFetchingModelIds] = useState<Record<string, boolean>>({});
+  const fetchingModelKeysRef = useRef<Record<string, string>>({});
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
     message: '',
@@ -194,7 +196,7 @@ export default function AIModelsPage() {
     }
   };
 
-  const fetchAvailableModels = async (profileId: string, silent = false) => {
+  const fetchAvailableModels = async (profileId: string, silent = false, force = false) => {
     const profile = settings.aiProfiles.find((item) => item.id === profileId);
     if (!profile) return;
     if (!profile.apiKey) {
@@ -203,8 +205,11 @@ export default function AIModelsPage() {
     }
 
     const fetchKey = `${profile.provider}__${profile.type || 'text'}__${profile.baseUrl}__${profile.apiKey}`;
-    if (fetchedModelKeys[profileId] === fetchKey) return;
+    if (!force && fetchedModelKeys[profileId] === fetchKey) return;
+    if (fetchingModelKeysRef.current[profileId] === fetchKey) return;
 
+    fetchingModelKeysRef.current[profileId] = fetchKey;
+    setFetchingModelIds((prev) => ({ ...prev, [profileId]: true }));
     try {
       const models = await listAvailableModels(profile);
       const options = Array.from(new Set(models.map((item) => item.id).filter(Boolean)));
@@ -220,11 +225,8 @@ export default function AIModelsPage() {
         });
       }
     } catch (error) {
-      setFetchedModelKeys((prev) => {
-        const next = { ...prev };
-        delete next[profileId];
-        return next;
-      });
+      setRemoteModelOptions((prev) => ({ ...prev, [profileId]: [] }));
+      setFetchedModelKeys((prev) => ({ ...prev, [profileId]: fetchKey }));
       if (!silent) {
         setSnackbar({
           open: true,
@@ -235,6 +237,12 @@ export default function AIModelsPage() {
         });
       }
     } finally {
+      delete fetchingModelKeysRef.current[profileId];
+      setFetchingModelIds((prev) => {
+        const next = { ...prev };
+        delete next[profileId];
+        return next;
+      });
     }
   };
 
@@ -283,6 +291,7 @@ export default function AIModelsPage() {
                     const providerDefaults = getProviderDefaults(selectedProvider.key, activeType);
                     const popularModels = getPopularModels(selectedProvider.key, activeType);
                     const remoteModels = (remoteModelOptions[profile.id] || []).filter((item) => !popularModels.includes(item));
+                    const fetchingModels = Boolean(fetchingModelIds[profile.id]);
                     const modelOptions = [
                       ...popularModels.map((value) => ({ value, group: groupedModelLabels.popular })),
                       ...remoteModels.map((value) => ({ value, group: groupedModelLabels.remote })),
@@ -521,6 +530,15 @@ export default function AIModelsPage() {
                       disabled={testingId === profile.id || !profile.apiKey}
                     >
                       {testingId === profile.id ? t('common.loading') : t('settings.testConnection')}
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      onClick={() => fetchAvailableModels(profile.id, false, true)}
+                      disabled={fetchingModels || !profile.apiKey}
+                    >
+                      {fetchingModels
+                        ? t('common.loading')
+                        : (i18n.language.startsWith('zh') ? '刷新模型列表' : 'Refresh models')}
                     </Button>
                   </Box>
                       </>
