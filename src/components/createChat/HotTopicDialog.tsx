@@ -82,7 +82,13 @@ export default function HotTopicDialog({
       </DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1, minHeight: 520 }}>
-          <Tabs value={sourceTab} onChange={onSourceTabChange} variant="scrollable" allowScrollButtonsMobile>
+          <Tabs
+            value={sourceTab}
+            onChange={onSourceTabChange}
+            variant="scrollable"
+            scrollButtons={false}
+            sx={{ '& .MuiTab-root': { minWidth: 0, px: { xs: 0.85, sm: 1.5 }, fontSize: { xs: '0.78rem', sm: '0.875rem' }, whiteSpace: 'nowrap' } }}
+          >
             {sourceTabs.map((source) => <Tab key={source.id} label={source.label} />)}
           </Tabs>
           {currentSource?.status === 'unavailable' && currentSource?.note ? <Alert severity="error">{currentSource.note}</Alert> : null}

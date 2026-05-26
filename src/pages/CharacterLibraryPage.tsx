@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
-import { Box, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Typography, Divider } from '@mui/material';
+import { Box, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Typography, Divider, Tooltip } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import MoreIcon from '@mui/icons-material/MoreVert';
 import ClearAllIcon from '@mui/icons-material/ClearAll';
@@ -52,6 +53,63 @@ function sortCharactersForLibrary(
     if (fieldDiff !== 0) return fieldDiff * directionMultiplier;
     return a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true, sensitivity: 'base' });
   });
+}
+
+function buildLibraryTabsSx() {
+  return {
+    minHeight: 40,
+    borderBottom: '1px solid',
+    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+    '& .MuiTabs-indicator': {
+      height: 2,
+      borderRadius: 999,
+      backgroundColor: 'primary.main',
+    },
+    '& .MuiTabs-flexContainer': { gap: { xs: 0.25, sm: 1 } },
+    '& .MuiTab-root': {
+      minHeight: 40,
+      minWidth: 0,
+      px: { xs: 0.75, sm: 1.5 },
+      fontWeight: 720,
+      fontSize: { xs: '0.83rem', sm: '0.9rem' },
+      letterSpacing: 0,
+      color: 'text.secondary',
+      whiteSpace: 'nowrap',
+      transition: 'color 180ms ease, opacity 180ms ease',
+      opacity: 0.78,
+    },
+    '& .MuiTab-root.Mui-selected': {
+      color: 'text.primary',
+      opacity: 1,
+    },
+  };
+}
+
+function buildGroupChipSx(active: boolean) {
+  return {
+    height: 30,
+    borderRadius: 1,
+    fontWeight: active ? 720 : 560,
+    bgcolor: active ? 'primary.main' : 'transparent',
+    borderColor: active ? 'primary.main' : 'divider',
+    color: active ? 'primary.contrastText' : 'text.secondary',
+    transition: 'background-color 160ms ease, border-color 160ms ease, color 160ms ease',
+    '&.MuiChip-root': {
+      bgcolor: active ? 'primary.main' : 'transparent',
+      borderColor: active ? 'primary.main' : 'divider',
+      color: active ? 'primary.contrastText' : 'text.secondary',
+    },
+    '&.Mui-focusVisible, &:focus-visible, &:active': {
+      bgcolor: active ? 'primary.main' : 'action.hover',
+      borderColor: active ? 'primary.main' : 'primary.main',
+      color: active ? 'primary.contrastText' : 'text.primary',
+    },
+    '&:hover, &.MuiChip-clickable:hover': {
+      bgcolor: active ? 'primary.dark' : 'action.hover',
+      borderColor: active ? 'primary.dark' : 'primary.main',
+      color: active ? 'primary.contrastText' : 'text.primary',
+    },
+  };
 }
 
 export default function CharacterLibraryPage() {
@@ -265,31 +323,43 @@ export default function CharacterLibraryPage() {
     }
   };
 
-  useEffect(() => {
-    setHideMobileBottomNav(false);
-    setHeaderBackAction(null);
-    setHeaderTitle(null);
-    setHeaderActions(null);
-
-    return () => {
-      setHeaderActions(null);
-      setHeaderTitle(null);
-      setHeaderBackAction(null);
-      setHideMobileBottomNav(false);
-    };
-  }, [setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
-
   const desktopListMenu = null;
   void desktopListMenu;
 
   const mobileListHeader = null;
   void mobileListHeader;
 
-  const renderListMenu = (
+  const renderListMenu = useMemo(() => (
     <>
-      <IconButton onClick={(e) => setMenuAnchorEl(e.currentTarget)}>
-        <MoreIcon />
+      <Tooltip title={i18n.language.startsWith('zh') ? '更多' : 'More'}>
+      <IconButton
+        aria-label={i18n.language.startsWith('zh') ? '更多' : 'More'}
+        onClick={(e) => setMenuAnchorEl(e.currentTarget)}
+        sx={{
+          width: 40,
+          height: 40,
+          borderRadius: 1,
+          border: '1px solid',
+          borderColor: (theme) => menuAnchorEl
+            ? theme.palette.primary.main
+            : 'transparent',
+          bgcolor: (theme) => menuAnchorEl
+            ? theme.palette.mode === 'light' ? 'rgba(49,90,156,0.10)' : 'rgba(120,156,220,0.14)'
+            : 'transparent',
+          transition: 'background-color 180ms ease, border-color 180ms ease, color 180ms ease',
+          '&:hover': {
+            borderColor: (theme) => menuAnchorEl
+              ? theme.palette.primary.main
+              : theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+            bgcolor: (theme) => menuAnchorEl
+              ? theme.palette.mode === 'light' ? 'rgba(49,90,156,0.12)' : 'rgba(120,156,220,0.16)'
+              : theme.palette.mode === 'light' ? 'rgba(15,23,42,0.035)' : 'rgba(226,232,240,0.06)',
+          },
+        }}
+      >
+        <MoreIcon fontSize="small" />
       </IconButton>
+      </Tooltip>
       <Menu anchorEl={menuAnchorEl} open={Boolean(menuAnchorEl)} onClose={() => setMenuAnchorEl(null)}>
         <MenuItem onClick={() => {
           setMenuAnchorEl(null);
@@ -311,7 +381,7 @@ export default function CharacterLibraryPage() {
         </MenuItem>
       </Menu>
     </>
-  );
+  ), [custom.length, i18n.language, menuAnchorEl, navigate, t]);
 
   const sortFieldLabel = sortField === 'name'
     ? (i18n.language.startsWith('zh') ? '名称' : 'Name')
@@ -319,11 +389,37 @@ export default function CharacterLibraryPage() {
   const sortDirectionLabel = sortDirection === 'asc'
     ? (i18n.language.startsWith('zh') ? '正序' : 'Ascending')
     : (i18n.language.startsWith('zh') ? '逆序' : 'Descending');
-  const renderSortMenu = (
+  const renderSortMenu = useMemo(() => (
     <>
-      <IconButton onClick={(event) => setSortMenuAnchorEl(event.currentTarget)} aria-label={i18n.language.startsWith('zh') ? '排序' : 'Sort'}>
-        <SortIcon />
+      <Tooltip title={i18n.language.startsWith('zh') ? '排序' : 'Sort'}>
+      <IconButton
+        onClick={(event) => setSortMenuAnchorEl(event.currentTarget)}
+        aria-label={i18n.language.startsWith('zh') ? '排序' : 'Sort'}
+        sx={{
+          width: 40,
+          height: 40,
+          borderRadius: 1,
+          border: '1px solid',
+          borderColor: (theme) => sortMenuAnchorEl
+            ? theme.palette.primary.main
+            : 'transparent',
+          bgcolor: (theme) => sortMenuAnchorEl
+            ? theme.palette.mode === 'light' ? 'rgba(49,90,156,0.10)' : 'rgba(120,156,220,0.14)'
+            : 'transparent',
+          transition: 'background-color 180ms ease, border-color 180ms ease, color 180ms ease',
+          '&:hover': {
+            borderColor: (theme) => sortMenuAnchorEl
+              ? theme.palette.primary.main
+              : theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+            bgcolor: (theme) => sortMenuAnchorEl
+              ? theme.palette.mode === 'light' ? 'rgba(49,90,156,0.12)' : 'rgba(120,156,220,0.16)'
+              : theme.palette.mode === 'light' ? 'rgba(15,23,42,0.035)' : 'rgba(226,232,240,0.06)',
+          },
+        }}
+      >
+        <SortIcon fontSize="small" />
       </IconButton>
+      </Tooltip>
       <Menu anchorEl={sortMenuAnchorEl} open={Boolean(sortMenuAnchorEl)} onClose={() => setSortMenuAnchorEl(null)}>
         <MenuItem selected={sortField === 'name'} onClick={() => { setSortField('name'); setSortMenuAnchorEl(null); }}>
           {sortField === 'name' ? '✓ ' : ''}{i18n.language.startsWith('zh') ? '名称' : 'Name'}
@@ -344,9 +440,31 @@ export default function CharacterLibraryPage() {
         </MenuItem>
       </Menu>
     </>
-  );
+  ), [i18n.language, sortField, sortMenuAnchorEl, sortDirection, sortGroupFirst]);
 
-  const showInlineMenu = true;
+  useEffect(() => {
+    setHideMobileBottomNav(false);
+    setHeaderBackAction(null);
+    setHeaderTitle(null);
+    setHeaderActions(
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+        <Chip
+          size="small"
+          label={`${sortFieldLabel} · ${sortDirectionLabel}${sortGroupFirst ? ` · ${i18n.language.startsWith('zh') ? '分组优先' : 'Group first'}` : ''}`}
+          sx={{ display: { xs: 'none', md: 'inline-flex' } }}
+        />
+        {renderSortMenu}
+        {renderListMenu}
+      </Box>
+    );
+
+    return () => {
+      setHeaderActions(null);
+      setHeaderTitle(null);
+      setHeaderBackAction(null);
+      setHideMobileBottomNav(false);
+    };
+  }, [i18n.language, renderListMenu, renderSortMenu, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, sortDirectionLabel, sortFieldLabel, sortGroupFirst]);
 
   const openCreateForm = () => {
     navigate('/characters/create');
@@ -387,17 +505,10 @@ export default function CharacterLibraryPage() {
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: 0, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Box sx={{ flexShrink: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2 }}>
-          <Tabs value={tab} onChange={(_, v) => { setTab(v); resetSelection(); }} sx={{ minWidth: 0, flex: 1 }}>
+          <Tabs value={tab} onChange={(_, v) => { setTab(v); resetSelection(); }} sx={{ minWidth: 0, flex: 1, ...buildLibraryTabsSx() }}>
             <Tab label={`${t('character.myCharacters')} (${custom.length})`} />
             <Tab label={`${t('character.presets')} (${presets.length})`} />
           </Tabs>
-          {showInlineMenu ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-              <Chip size="small" label={`${sortFieldLabel} · ${sortDirectionLabel}${sortGroupFirst ? ` · ${i18n.language.startsWith('zh') ? '分组优先' : 'Group first'}` : ''}`} sx={{ display: { xs: 'none', sm: 'inline-flex' } }} />
-              {renderSortMenu}
-              {renderListMenu}
-            </Box>
-          ) : null}
         </Box>
         {loadError ? (
           <Alert
@@ -414,14 +525,19 @@ export default function CharacterLibraryPage() {
         ) : null}
         {tab === 0 && duplicateCharacterCount > 0 ? <Alert severity="warning" sx={{ mb: 2 }}>{duplicateCharacterBannerText}</Alert> : null}
       {tab === 0 ? (
-        <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 1.5, mb: 1.5 }}>
-          <Chip label={`${i18n.language.startsWith('zh') ? '全部' : 'All'} (${custom.length})`} color={selectedGroup === 'all' ? 'primary' : 'default'} variant={selectedGroup === 'all' ? 'filled' : 'outlined'} onClick={() => setSelectedGroup('all')} />
+        <Box sx={{ display: 'flex', gap: 0.75, overflowX: 'auto', pb: 1.25, mb: 1.25, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } }}>
+          <Chip
+            label={`${i18n.language.startsWith('zh') ? '全部' : 'All'} (${custom.length})`}
+            variant="outlined"
+            onClick={() => setSelectedGroup('all')}
+            sx={buildGroupChipSx(selectedGroup === 'all')}
+          />
           {customGroups.map((group) => (
             <Chip
               key={group}
               label={`${group} (${custom.filter((character) => normalizeCharacterGroup(character.group) === group).length})`}
-              color={selectedGroup === group ? 'primary' : 'default'}
-              variant={selectedGroup === group ? 'filled' : 'outlined'}
+              variant="outlined"
+              sx={buildGroupChipSx(selectedGroup === group)}
               onClick={() => setSelectedGroup(group)}
               onPointerDown={() => {
                 if (canDeleteCharacterGroup(group)) {

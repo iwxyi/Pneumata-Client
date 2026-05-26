@@ -84,8 +84,8 @@ export default function LayeredMemoryPanel({
             value={activeFilter}
             onChange={(_, value) => { setActiveFilter(value); setExpanded(false); }}
             variant="scrollable"
-            allowScrollButtonsMobile
-            sx={{ minHeight: 34, borderBottom: '1px solid', borderColor: 'divider', '& .MuiTab-root': { minHeight: 34, px: 1.25, py: 0.5, fontSize: 13 } }}
+            scrollButtons={false}
+            sx={{ minHeight: 34, borderBottom: '1px solid', borderColor: 'divider', '& .MuiTab-root': { minWidth: 0, minHeight: 34, px: { xs: 0.75, sm: 1.25 }, py: 0.5, fontSize: { xs: 12, sm: 13 }, whiteSpace: 'nowrap' } }}
           >
             {filters.map((filter) => (
               <Tab key={filter.key} value={filter.key} label={`${filter.label} ${filter.items.length}`} />

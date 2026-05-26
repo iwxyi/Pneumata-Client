@@ -10,6 +10,22 @@ import { useChatStore } from '../stores/useChatStore';
 import { getCharacterGroupList, isCharacterInGroup } from '../types/character';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 
+function buildFilterChipSx(active: boolean) {
+  return {
+    height: 30,
+    borderRadius: 1,
+    fontWeight: active ? 720 : 560,
+    bgcolor: active ? 'primary.main' : 'transparent',
+    borderColor: active ? 'primary.main' : 'divider',
+    color: active ? 'primary.contrastText' : 'text.secondary',
+    '&:hover': {
+      bgcolor: active ? 'primary.dark' : 'action.hover',
+      borderColor: active ? 'primary.dark' : 'primary.main',
+      color: active ? 'primary.contrastText' : 'text.primary',
+    },
+  };
+}
+
 export default function CreateDirectChatPage() {
   const navigate = useNavigate();
   const { characters } = useCharacterStore();
@@ -55,7 +71,18 @@ export default function CreateDirectChatPage() {
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 12, sm: 8 }, maxWidth: 860, mx: 'auto' }}>
-      <Box sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.default', pb: 2 }}>
+      <Box
+        sx={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 2,
+          pb: 2,
+          pt: 0.25,
+          bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(245,245,247,0.78)' : 'rgba(10,10,15,0.78)',
+          backdropFilter: 'blur(18px) saturate(1.12)',
+          WebkitBackdropFilter: 'blur(18px) saturate(1.12)',
+        }}
+      >
         <TextField
           fullWidth
           size="small"
@@ -72,24 +99,32 @@ export default function CreateDirectChatPage() {
               startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
             },
           }}
-          sx={{ mb: 1.5, '& .MuiOutlinedInput-root': { borderRadius: 3 } }}
+          sx={{
+            mb: 1.25,
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 1,
+              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.62)' : 'rgba(255,255,255,0.07)',
+              backdropFilter: 'blur(18px)',
+              WebkitBackdropFilter: 'blur(18px)',
+            },
+          }}
         />
-        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'nowrap', overflowX: 'auto', pb: 0.5 }}>
+        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'nowrap', overflowX: 'auto', pb: 0.5, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } }}>
           <Chip
             size="small"
             label="全部"
-            color={selectedGroup === null ? 'primary' : 'default'}
-            variant={selectedGroup === null ? 'filled' : 'outlined'}
+            variant="outlined"
             onClick={() => setSelectedGroup(null)}
+            sx={buildFilterChipSx(selectedGroup === null)}
           />
           {groupList.map((group) => (
             <Chip
               key={group}
               size="small"
               label={group}
-              color={selectedGroup === group ? 'primary' : 'default'}
-              variant={selectedGroup === group ? 'filled' : 'outlined'}
+              variant="outlined"
               onClick={() => setSelectedGroup(group)}
+              sx={buildFilterChipSx(selectedGroup === group)}
             />
           ))}
         </Box>
@@ -100,7 +135,25 @@ export default function CreateDirectChatPage() {
           <Box
             key={character.id}
             onClick={() => navigate(`/characters/${character.id}/edit?returnTo=${encodeURIComponent('/direct/create')}`)}
-            sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 3, display: 'flex', alignItems: 'center', gap: 1.5, cursor: 'pointer', transition: 'all 0.18s ease', '&:hover': { boxShadow: 1, borderColor: 'primary.main' } }}
+            sx={{
+              p: { xs: 1.35, sm: 1.5 },
+              border: '1px solid',
+              borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+              borderRadius: 1,
+              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(18,20,28,0.72)',
+              backdropFilter: 'blur(14px)',
+              WebkitBackdropFilter: 'blur(14px)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.25,
+              cursor: 'pointer',
+              transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
+              '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: (theme) => theme.palette.mode === 'light' ? '0 18px 40px rgba(15,23,42,0.09)' : '0 18px 42px rgba(0,0,0,0.34)',
+                borderColor: 'primary.main',
+              },
+            }}
           >
             <Avatar src={isImageAvatar(character.avatar) ? character.avatar : undefined} sx={{ width: 44, height: 44, bgcolor: 'primary.light' }}>{isImageAvatar(character.avatar) ? undefined : character.avatar}</Avatar>
             <Box sx={{ flex: 1, minWidth: 0 }}>

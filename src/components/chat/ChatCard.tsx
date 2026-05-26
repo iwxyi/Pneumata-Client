@@ -85,7 +85,7 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch }: Chat
       variant="outlined"
       sx={{
         height: '100%',
-        borderRadius: 2,
+        borderRadius: 1,
         position: 'relative',
         overflow: 'hidden',
         bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.76)' : 'rgba(18,20,28,0.78)',
@@ -95,10 +95,12 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch }: Chat
         '&::before': {
           content: '""',
           position: 'absolute',
-          inset: 0,
-          background: isDirect
-            ? 'linear-gradient(135deg, rgba(78,126,107,0.14), transparent 42%)'
-            : 'linear-gradient(135deg, rgba(43,92,255,0.13), transparent 44%)',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: isDirect ? 2 : 3,
+          bgcolor: 'primary.main',
+          opacity: isDirect ? 0.32 : 0.42,
           pointerEvents: 'none',
         },
         '&:hover': {
@@ -109,7 +111,7 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch }: Chat
       }}
     >
       <CardActionArea onClick={onClick} onPointerEnter={onPrefetch} onFocus={onPrefetch} onPointerDown={onPrefetch}>
-        <CardContent sx={{ p: 2, position: 'relative', zIndex: 1, '&:last-child': { pb: 2 } }}>
+        <CardContent sx={{ p: { xs: 1.75, sm: 2 }, position: 'relative', zIndex: 1, '&:last-child': { pb: { xs: 1.75, sm: 2 } } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>

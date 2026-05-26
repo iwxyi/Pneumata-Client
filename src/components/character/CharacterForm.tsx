@@ -45,6 +45,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import { useTranslation } from 'react-i18next';
+import type { Theme } from '@mui/material/styles';
 import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile, CharacterVoiceConfig, CharacterCoreProfile } from '../../types/character';
 import { getCharacterGroupList, normalizeCharacterGroup, normalizeCharacterModelProfileIds, getDuplicateCharacterNameKeys, getDuplicateCharacterWarningText, hasDuplicateCharacterName } from '../../types/character';
 import type { BubbleShadowLevel, BubbleStyleDefinition, BubbleStyleFormValues } from '../../types/bubbleStyle';
@@ -68,6 +69,53 @@ import CollapsibleParamGroup from './CollapsibleParamGroup';
 import { AVATAR_OPTIONS } from '../../constants/presets';
 import { BUILT_IN_BUBBLE_STYLES, DEFAULT_AI_BUBBLE_STYLE_ID } from '../../constants/bubbleStyles';
 import { buildBubblePreview, cloneBubbleStyle, createCharacterBubbleStyleId, resolveCharacterBubbleStyle, toBubbleStyleFormValues } from '../../utils/bubbleStyle';
+
+function buildEditorCardSx() {
+  return {
+    borderRadius: 1,
+    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+    bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(18,20,28,0.72)',
+    backdropFilter: 'blur(18px) saturate(1.12)',
+    WebkitBackdropFilter: 'blur(18px) saturate(1.12)',
+    boxShadow: (theme: Theme) => theme.palette.mode === 'light'
+      ? '0 1px 2px rgba(15,23,42,0.03), 0 14px 38px rgba(15,23,42,0.045)'
+      : '0 1px 0 rgba(255,255,255,0.035) inset, 0 18px 44px rgba(0,0,0,0.26)',
+  };
+}
+
+function buildSoftPanelSx() {
+  return {
+    borderRadius: 1,
+    border: '1px solid',
+    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.07)' : 'rgba(226,232,240,0.10)',
+    bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(248,250,252,0.58)' : 'rgba(255,255,255,0.045)',
+  };
+}
+
+function buildAvatarOptionSx(selected: boolean) {
+  return {
+    width: '100%',
+    aspectRatio: '1 / 1',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '1.35rem',
+    borderRadius: 1,
+    cursor: 'pointer',
+    border: '1px solid',
+    borderColor: selected ? 'primary.main' : (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+    bgcolor: selected
+      ? (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(49,90,156,0.12)' : 'rgba(120,156,220,0.18)'
+      : (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.76)' : 'rgba(255,255,255,0.075)',
+    boxShadow: selected ? '0 0 0 1px rgba(49,90,156,0.12) inset' : 'none',
+    transition: 'transform 160ms ease, background-color 160ms ease, border-color 160ms ease',
+    '&:hover': {
+      transform: 'translateY(-1px)',
+      borderColor: 'primary.main',
+      bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.12)',
+    },
+  };
+}
 import type { CharacterVisualIdentity, CharacterVisualReferenceImage } from '../../types/character';
 import MarkdownText from '../common/MarkdownText';
 import PaperSurface from '../common/PaperSurface';
@@ -390,6 +438,8 @@ interface CharacterFormProps {
   existingNames?: string[];
   saveError?: string | null;
   onDraftNameChange?: (name: string) => void;
+  onDelete?: () => void;
+  deleteLabel?: string;
   onSave: (data: {
     name: string;
     avatar: string;
@@ -415,7 +465,7 @@ interface CharacterFormProps {
   onCancel: () => void;
 }
 
-export default function CharacterForm({ initial, existingNames = [], saveError = null, onDraftNameChange, onSave }: CharacterFormProps) {
+export default function CharacterForm({ initial, existingNames = [], saveError = null, onDraftNameChange, onDelete, deleteLabel, onSave }: CharacterFormProps) {
   const { t, i18n } = useTranslation();
   const settings = useSettingsStore();
   const showSpeechStyle = settings.developerMode && settings.developerUI.showSpeechStyle;
@@ -1110,7 +1160,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const generateAriaLabel = getGenerateAriaLabel(i18n.language);
 
   const coreProfileCard = (
-    <Card variant="outlined">
+    <Card variant="outlined" sx={buildEditorCardSx()}>
       <CardContent sx={{ display: 'grid', gap: 1.25 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
           <Tooltip title={i18n.language.startsWith('zh') ? '会随角色发言和记忆自动更新，也允许留空' : 'Auto-updates from speech and memories. You can leave it empty.'}>
@@ -1214,7 +1264,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       <Box sx={{ display: 'grid', gap: 1 }}>
         {duplicateNameWarning ? <Alert severity="warning">{duplicateNameWarning}</Alert> : null}
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '56px minmax(0, 1fr)', sm: isEditingExistingCharacter ? '56px minmax(180px, 1.2fr) minmax(150px, 0.8fr)' : '56px minmax(180px, 1.2fr) minmax(150px, 0.8fr) auto' }, gap: 1, alignItems: 'flex-start' }}>
-          <Box onClick={() => setAvatarPickerOpen(true)} sx={{ width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', borderRadius: 3, cursor: 'pointer', border: 1, borderColor: 'divider', bgcolor: 'background.paper', boxShadow: 1, overflow: 'hidden', transition: 'transform 160ms ease, box-shadow 160ms ease', '&:hover': { transform: 'translateY(-1px)', boxShadow: 2 } }}>
+          <Box onClick={() => setAvatarPickerOpen(true)} sx={{ width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', borderRadius: 1, cursor: 'pointer', border: '1px solid', borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)', bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.08)', boxShadow: (theme) => theme.palette.mode === 'light' ? '0 10px 26px rgba(15,23,42,0.08)' : '0 12px 30px rgba(0,0,0,0.28)', overflow: 'hidden', transition: 'transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease', '&:hover': { transform: 'translateY(-1px)', borderColor: 'primary.main', boxShadow: (theme) => theme.palette.mode === 'light' ? '0 14px 32px rgba(15,23,42,0.12)' : '0 16px 36px rgba(0,0,0,0.34)' } }}>
             {isImageAvatar ? <Box component="img" src={avatar} alt={name || 'avatar'} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatar}
           </Box>
           <TextField label={t('character.name')} placeholder={t('character.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} helperText={helperText} error={Boolean(inlineError)} required fullWidth />
@@ -1243,7 +1293,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
 
       <Box sx={{ width: { xs: '100%', md: '72%' } }}>
         <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '气泡样式' : 'Bubble style'}</Typography>
-        <Card variant="outlined" sx={{ cursor: 'pointer', borderRadius: 3 }} onClick={openBubblePicker}>
+        <Card variant="outlined" sx={{ ...buildEditorCardSx(), cursor: 'pointer' }} onClick={openBubblePicker}>
           <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
               {renderAvatarPreview(avatar, isImageAvatar, 28)}
@@ -1257,23 +1307,26 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
         </Card>
       </Box>
 
-      <Box sx={{ width: { xs: '100%', md: '72%' } }}>
-        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{t('character.expertise')}</Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-          {expertise.map((exp) => <Chip key={exp} label={exp} onDelete={() => setExpertise(expertise.filter((e) => e !== exp))} size="small" />)}
-          <Chip
-            label={<TextField variant="standard" placeholder={expertise.length === 0 ? t('character.expertisePlaceholder') : ''} value={expertiseInput} onChange={(e) => setExpertiseInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExpertise(); } }} slotProps={{ input: { disableUnderline: true } }} sx={{ width: expertiseInput ? `${Math.max(4, expertiseInput.length + 1)}ch` : '4em', minWidth: '4em', maxWidth: 160, '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiInputBase-input': { py: 0, px: 0, width: '100%' } }} />}
-            size="small"
-            variant="outlined"
-            sx={{ width: 'fit-content', maxWidth: 148, '& .MuiChip-label': { px: 0.75, py: 0.25 } }}
-          />
-        </Box>
-      </Box>
+      <Card variant="outlined" sx={{ ...buildEditorCardSx(), width: { xs: '100%', md: '72%' } }}>
+        <CardContent sx={{ display: 'grid', gap: 1.5, '&:last-child': { pb: 2 } }}>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>{t('character.expertise')}</Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+              {expertise.map((exp) => <Chip key={exp} label={exp} onDelete={() => setExpertise(expertise.filter((e) => e !== exp))} size="small" />)}
+              <Chip
+                label={<TextField variant="standard" placeholder={expertise.length === 0 ? t('character.expertisePlaceholder') : ''} value={expertiseInput} onChange={(e) => setExpertiseInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExpertise(); } }} slotProps={{ input: { disableUnderline: true } }} sx={{ width: expertiseInput ? `${Math.max(4, expertiseInput.length + 1)}ch` : '4em', minWidth: '4em', maxWidth: 160, '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiInputBase-input': { py: 0, px: 0, width: '100%' } }} />}
+                size="small"
+                variant="outlined"
+                sx={{ width: 'fit-content', maxWidth: 148, '& .MuiChip-label': { px: 0.75, py: 0.25 } }}
+              />
+            </Box>
+          </Box>
+          <TextField label={t('character.speakingStyle')} placeholder={t('character.speakingStylePlaceholder')} value={speakingStyle} onChange={(e) => setSpeakingStyle(e.target.value)} multiline rows={2} fullWidth />
+          <TextField label={t('character.background')} placeholder={t('character.backgroundPlaceholder')} value={background} onChange={(e) => setBackground(e.target.value)} multiline rows={3} fullWidth />
+        </CardContent>
+      </Card>
 
-      <TextField label={t('character.speakingStyle')} placeholder={t('character.speakingStylePlaceholder')} value={speakingStyle} onChange={(e) => setSpeakingStyle(e.target.value)} multiline rows={2} fullWidth />
-      <TextField label={t('character.background')} placeholder={t('character.backgroundPlaceholder')} value={background} onChange={(e) => setBackground(e.target.value)} multiline rows={3} fullWidth />
-
-      <Card variant="outlined">
+      <Card variant="outlined" sx={buildEditorCardSx()}>
         <CardContent sx={{ display: 'grid', gap: 1.25 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1383,7 +1436,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       </Card>
 
       {showSpeechStyle ? (
-        <Card variant="outlined">
+        <Card variant="outlined" sx={buildEditorCardSx()}>
           <CardContent sx={{ display: 'grid', gap: 1.25 }}>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? '发言风格' : 'Speech style'}</Typography>
             <Box>
@@ -1412,7 +1465,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       ) : null}
 
       <Stack spacing={1.5}>
-        <Card variant="outlined">
+        <Card variant="outlined" sx={buildEditorCardSx()}>
           <CardContent sx={{ display: 'grid', gap: 1.25 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? 'AI模型' : 'AI Models'}</Typography>
@@ -1444,7 +1497,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
                   </FormControl>
                 ))}
                 <Collapse in={Boolean(modelProfileIds.audio)}>
-                  <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                  <Card variant="outlined" sx={buildSoftPanelSx()}>
                     <CardContent sx={{ display: 'grid', gap: 1.25 }}>
                       <FormControlLabel
                         control={<Switch checked={Boolean(voiceConfig.enabled)} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, enabled: e.target.checked }))} />}
@@ -1491,13 +1544,20 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
         <FormControlLabel control={<Switch checked={intervention.allowDirectorPrompt} onChange={(e) => setIntervention((prev) => ({ ...prev, allowDirectorPrompt: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许导演强制干预' : 'Allow director prompts'} />
         <FormControlLabel control={<Switch checked={intervention.allowPrivateThread} onChange={(e) => setIntervention((prev) => ({ ...prev, allowPrivateThread: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许被拉入AI私聊' : 'Allow AI private thread'} />
       </Stack>
+      {onDelete ? (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 0.5 }}>
+          <Button color="error" variant="outlined" onClick={onDelete}>
+            {deleteLabel || (i18n.language.startsWith('zh') ? '删除角色' : 'Delete character')}
+          </Button>
+        </Box>
+      ) : null}
     </>
   );
 
   const behaviorTab = (
     <Box sx={{ display: 'grid', gap: 1.25 }}>
       {coreProfileCard}
-      <Card variant="outlined">
+      <Card variant="outlined" sx={buildEditorCardSx()}>
         <CardContent>
           <CollapsibleParamGroup title={t('character.personality')} open={personalityExpanded} onToggle={() => setPersonalityExpanded((prev) => !prev)} contentSx={{ pl: 0, ml: 0, borderLeft: 'none' }}>
             <Box>
@@ -1506,7 +1566,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
           </CollapsibleParamGroup>
         </CardContent>
       </Card>
-      <Card variant="outlined">
+      <Card variant="outlined" sx={buildEditorCardSx()}>
         <CardContent>
           <CollapsibleParamGroup title={behaviorGroups[0].title} open={socialExpanded} onToggle={() => setSocialExpanded((prev) => !prev)} contentSx={{ pl: 0, ml: 0, borderLeft: 'none' }}>
             <Box>
@@ -1515,7 +1575,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
           </CollapsibleParamGroup>
         </CardContent>
       </Card>
-      <Card variant="outlined">
+      <Card variant="outlined" sx={buildEditorCardSx()}>
         <CardContent>
           <CollapsibleParamGroup title={behaviorGroups[1].title} open={discussionExpanded} onToggle={() => setDiscussionExpanded((prev) => !prev)} contentSx={{ pl: 0, ml: 0, borderLeft: 'none' }}>
             <Box>
@@ -1761,7 +1821,11 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             </Box>
           </Tooltip>
         </DialogTitle>
-        <DialogContent>
+        <DialogContent
+          sx={{
+            bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.03)',
+          }}
+        >
           {avatarTaskStatus === 'running' ? (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
               {i18n.language.startsWith('zh') ? '正在生成头像…' : 'Generating avatar...'}
@@ -1779,12 +1843,12 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
           ) : null}
           {isImageAvatar ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1.5 }}>
-              <Box component="img" src={avatar} alt={name || 'avatar'} sx={{ width: 132, height: 132, objectFit: 'cover', borderRadius: 3, border: '1px solid', borderColor: 'divider' }} />
+              <Box component="img" src={avatar} alt={name || 'avatar'} sx={{ width: 132, height: 132, objectFit: 'cover', borderRadius: 1, border: '1px solid', borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.12)', boxShadow: (theme) => theme.palette.mode === 'light' ? '0 16px 36px rgba(15,23,42,0.10)' : '0 18px 42px rgba(0,0,0,0.35)' }} />
             </Box>
           ) : null}
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 1 }}>
             {AVATAR_OPTIONS.map((emoji) => (
-              <Box key={emoji} onClick={() => { setAvatar(emoji); setAvatarPickerOpen(false); }} sx={{ width: '100%', aspectRatio: '1 / 1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.35rem', borderRadius: 2.5, cursor: 'pointer', border: 2, borderColor: avatar === emoji ? 'primary.main' : 'transparent', bgcolor: avatar === emoji ? 'primary.light' : 'action.hover', '&:hover': { bgcolor: 'action.selected' } }}>{emoji}</Box>
+              <Box key={emoji} onClick={() => { setAvatar(emoji); setAvatarPickerOpen(false); }} sx={buildAvatarOptionSx(avatar === emoji)}>{emoji}</Box>
             ))}
           </Box>
         </DialogContent>
@@ -1808,7 +1872,13 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
               </Box>
             </Box>
             {inlineError ? <Typography variant="caption" color="error">{inlineError}</Typography> : null}
-            <Tabs value={bubbleTab} onChange={(_, value) => setBubbleTab(value)} variant="scrollable" allowScrollButtonsMobile>
+            <Tabs
+              value={bubbleTab}
+              onChange={(_, value) => setBubbleTab(value)}
+              variant="scrollable"
+              scrollButtons={false}
+              sx={{ '& .MuiTab-root': { minWidth: 0, px: { xs: 0.85, sm: 1.5 }, fontSize: { xs: '0.78rem', sm: '0.875rem' }, whiteSpace: 'nowrap' } }}
+            >
               <Tab label={bubblePickerActionLabel.all} />
               <Tab label={bubblePickerActionLabel.rounded} />
               <Tab label={bubblePickerActionLabel.border} />

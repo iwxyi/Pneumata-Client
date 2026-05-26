@@ -100,14 +100,18 @@ export default function CharacterCard({ character, onEdit, onDelete, onStartDire
       variant="outlined"
       sx={{
         height: '100%',
-        borderRadius: 3,
-        borderColor: selected ? 'primary.main' : 'divider',
+        borderRadius: 1,
+        borderColor: selected
+          ? 'primary.main'
+          : (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
         borderWidth: selected ? 2 : 1,
-        bgcolor: 'background.paper',
+        bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.76)' : 'rgba(18,20,28,0.78)',
+        backdropFilter: 'blur(14px)',
+        WebkitBackdropFilter: 'blur(14px)',
         transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
         '&:hover': {
           transform: 'translateY(-2px)',
-          boxShadow: 2,
+          boxShadow: (theme) => theme.palette.mode === 'light' ? '0 18px 40px rgba(15,23,42,0.09)' : '0 18px 42px rgba(0,0,0,0.34)',
           borderColor: 'primary.main',
         },
       }}
@@ -122,7 +126,17 @@ export default function CharacterCard({ character, onEdit, onDelete, onStartDire
           <IconButton
             size="small"
             onClick={handleMenuOpen}
-            sx={{ position: 'absolute', top: 8, right: 8, zIndex: 1 }}
+            sx={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              zIndex: 1,
+              borderRadius: 1,
+              bgcolor: 'transparent',
+              '&:hover': {
+                bgcolor: 'action.hover',
+              },
+            }}
           >
             <MoreIcon fontSize="small" />
           </IconButton>

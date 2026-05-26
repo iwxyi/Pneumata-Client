@@ -11,7 +11,7 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { useNavigate } from 'react-router-dom';
 
 const accent = '#E5C07B';
-const blue = '#2B5CFF';
+const blue = '#E5C07B';
 const bg = '#0A0A0F';
 const panel = 'rgba(255,255,255,0.055)';
 const border = 'rgba(255,255,255,0.12)';
@@ -248,7 +248,7 @@ function FeatureGrid() {
       {featureCards.map((item, index) => (
         <Box key={item.title} sx={revealSx(index * 80)}>
           <GlassCard sx={{ p: 2.25, minHeight: { xs: 190, md: 230 } }}>
-            <Box sx={{ width: 42, height: 42, borderRadius: 1.5, display: 'grid', placeItems: 'center', color: accent, border: '1px solid rgba(229,192,123,0.28)', bgcolor: 'rgba(229,192,123,0.055)', mb: 2 }}>
+            <Box sx={{ width: 42, height: 42, borderRadius: 1.5, display: 'grid', placeItems: 'center', color: accent, border: '1px solid rgba(229,192,123,0.28)', bgcolor: 'rgba(229,192,123,0.07)', mb: 2 }}>
               {item.icon}
             </Box>
             <Typography sx={{ fontWeight: 790, fontSize: 19, lineHeight: 1.28, color: '#F8F8FA' }}>{item.title}</Typography>
@@ -303,7 +303,7 @@ function RuntimeSystemGlyph({ mode }: { mode: (typeof runtimeSystemNodes)[number
   if (mode === 'room') {
     return (
       <Box sx={{ position: 'relative', height: 260, display: 'grid', placeItems: 'center' }}>
-        <Box sx={{ position: 'absolute', width: 206, height: 206, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.10)', background: 'radial-gradient(circle, rgba(229,192,123,0.10), transparent 64%)' }} />
+        <Box sx={{ position: 'absolute', width: 206, height: 206, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.10)', bgcolor: 'rgba(255,255,255,0.025)' }} />
         {[
           ['热度', 0, accent],
           ['凝聚', 72, blue],
@@ -311,7 +311,7 @@ function RuntimeSystemGlyph({ mode }: { mode: (typeof runtimeSystemNodes)[number
           ['围观', 216, blue],
           ['漂移', 288, accent],
         ].map(([label, angle, color], index) => (
-          <Box key={label} sx={{ position: 'absolute', transform: `rotate(${angle}deg) translateY(-94px) rotate(-${angle}deg)`, display: 'grid', placeItems: 'center', width: 54, height: 54, borderRadius: '50%', border: `1px solid ${index === innerActiveIndex ? 'rgba(229,192,123,0.72)' : color === accent ? 'rgba(229,192,123,0.32)' : 'rgba(43,92,255,0.28)'}`, bgcolor: index === innerActiveIndex ? 'rgba(229,192,123,0.16)' : 'rgba(10,10,15,0.66)', color: index === innerActiveIndex ? '#F8F8FA' : 'rgba(255,255,255,0.78)', fontSize: 12, fontWeight: 760, boxShadow: index === innerActiveIndex ? '0 0 30px rgba(229,192,123,0.20)' : 'none', animation: 'systemBreath 5s ease-in-out infinite', animationDelay: `${index * 280}ms`, transition: 'border-color 260ms ease, background-color 260ms ease, box-shadow 260ms ease, color 260ms ease' }}>
+          <Box key={label} sx={{ position: 'absolute', transform: `rotate(${angle}deg) translateY(-94px) rotate(-${angle}deg)`, display: 'grid', placeItems: 'center', width: 54, height: 54, borderRadius: '50%', border: `1px solid ${index === innerActiveIndex ? 'rgba(229,192,123,0.72)' : color === accent ? 'rgba(229,192,123,0.34)' : 'rgba(229,192,123,0.28)'}`, bgcolor: index === innerActiveIndex ? 'rgba(229,192,123,0.16)' : 'rgba(10,10,15,0.66)', color: index === innerActiveIndex ? '#F8F8FA' : 'rgba(255,255,255,0.78)', fontSize: 12, fontWeight: 760, boxShadow: index === innerActiveIndex ? '0 0 30px rgba(229,192,123,0.20)' : 'none', animation: 'systemBreath 5s ease-in-out infinite', animationDelay: `${index * 280}ms`, transition: 'border-color 260ms ease, background-color 260ms ease, box-shadow 260ms ease, color 260ms ease' }}>
             {label}
           </Box>
         ))}
@@ -357,7 +357,7 @@ function RuntimeSystemGlyph({ mode }: { mode: (typeof runtimeSystemNodes)[number
           <Box key={label} sx={{ display: 'grid', gridTemplateColumns: { xs: '46px 1fr', sm: '52px 1fr' }, gap: 0.75, alignItems: 'center' }}>
             <Typography sx={{ color: index === 5 ? accent : 'rgba(255,255,255,0.82)', fontSize: 12.5, fontWeight: 780, textRendering: 'geometricPrecision' }}>{label}</Typography>
             <Box sx={{ height: 10, borderRadius: 999, bgcolor: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-              <Box sx={{ width: `${38 + index * 9}%`, height: '100%', borderRadius: 999, bgcolor: index === 5 ? accent : 'rgba(43,92,255,0.72)', animation: 'systemBar 3.8s ease-in-out infinite', animationDelay: `${index * 180}ms` }} />
+              <Box sx={{ width: `${38 + index * 9}%`, height: '100%', borderRadius: 999, bgcolor: index === 5 ? accent : 'rgba(229,192,123,0.72)', animation: 'systemBar 3.8s ease-in-out infinite', animationDelay: `${index * 180}ms` }} />
             </Box>
           </Box>
         ))}
@@ -370,7 +370,7 @@ function RuntimeSystemGlyph({ mode }: { mode: (typeof runtimeSystemNodes)[number
       <Box sx={{ height: 260, position: 'relative', display: 'grid', placeItems: 'center' }}>
         {[
           ['群聊公开', 108, 'rgba(229,192,123,0.16)'],
-          ['用户私有', 78, 'rgba(43,92,255,0.14)'],
+          ['用户私有', 78, 'rgba(229,192,123,0.14)'],
           ['双边线程', 50, 'rgba(255,255,255,0.10)'],
         ].map(([label, size, color], index) => (
           <Box key={label} sx={{ position: 'absolute', width: Number(size) * 2, height: Number(size) * 2, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.12)', bgcolor: color, display: 'grid', placeItems: index === 2 ? 'center' : 'start center', pt: index === 2 ? 0 : 1.3, color: 'rgba(255,255,255,0.68)', fontSize: 12, animation: 'systemBreath 6s ease-in-out infinite', animationDelay: `${index * 360}ms` }}>{label}</Box>
@@ -383,7 +383,7 @@ function RuntimeSystemGlyph({ mode }: { mode: (typeof runtimeSystemNodes)[number
     return (
       <Box sx={{ height: 260, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: { xs: 1.15, sm: 1.35 }, alignContent: 'center' }}>
         {['诞生信', '日记', '成长总结', '最后一封信'].map((label, index) => (
-          <Box key={label} sx={{ minHeight: { xs: 104, sm: 108 }, p: 1.35, borderRadius: 1.5, border: '1px solid rgba(229,192,123,0.18)', bgcolor: 'linear-gradient(135deg, rgba(229,192,123,0.10), rgba(255,255,255,0.04))', background: 'linear-gradient(135deg, rgba(229,192,123,0.10), rgba(255,255,255,0.04))', color: '#F8F8FA', position: 'relative', overflow: 'hidden', animation: 'systemFloatSmall 5.5s ease-in-out infinite', animationDelay: `${index * 260}ms` }}>
+          <Box key={label} sx={{ minHeight: { xs: 104, sm: 108 }, p: 1.35, borderRadius: 1.5, border: '1px solid rgba(229,192,123,0.18)', bgcolor: 'rgba(255,255,255,0.045)', color: '#F8F8FA', position: 'relative', overflow: 'hidden', animation: 'systemFloatSmall 5.5s ease-in-out infinite', animationDelay: `${index * 260}ms` }}>
             <Box sx={{ position: 'absolute', left: 12, right: 12, top: 34, height: 1, bgcolor: 'rgba(255,255,255,0.12)' }} />
             <Box sx={{ position: 'absolute', left: 12, right: 28, top: 52, height: 1, bgcolor: 'rgba(255,255,255,0.10)' }} />
             <Box sx={{ position: 'absolute', left: 12, right: 42, top: 70, height: 1, bgcolor: 'rgba(255,255,255,0.08)' }} />
@@ -491,7 +491,7 @@ function RuntimeSystemSection() {
           })}
         </Box>
         <GlassCard sx={{ p: { xs: 2, md: 2.5 }, height: { xs: 560, sm: 540, md: 500 }, overflow: 'hidden', position: 'relative' }}>
-          <Box sx={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px)', backgroundSize: '30px 30px', maskImage: 'radial-gradient(circle at 56% 40%, black, transparent 74%)' }} />
+          <Box sx={{ position: 'absolute', inset: 0, border: '1px solid rgba(255,255,255,0.035)' }} />
           <Box sx={{ position: 'relative', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: 1.5, height: '100%' }}>
             <Box sx={{ minHeight: { xs: 142, sm: 130, md: 118 } }}>
               <Typography sx={{ color: accent, fontWeight: 780, fontSize: 13 }}>{active.kicker}</Typography>
@@ -634,7 +634,7 @@ function ArchitectureGlyphLayer({ mode }: { mode: (typeof architectureNodes)[num
             [90, 158],
             [22, 90],
           ].map(([x, y], index) => (
-            <line key={`${x}-${y}`} x1="90" y1="90" x2={x} y2={y} stroke={index % 2 ? 'rgba(43,92,255,0.18)' : 'rgba(229,192,123,0.20)'} strokeWidth="1.2">
+            <line key={`${x}-${y}`} x1="90" y1="90" x2={x} y2={y} stroke={index % 2 ? 'rgba(229,192,123,0.18)' : 'rgba(229,192,123,0.20)'} strokeWidth="1.2">
               <animate attributeName="stroke-opacity" dur={`${3.8 + index * 0.4}s`} repeatCount="indefinite" values="0.18;0.62;0.18" />
             </line>
           ))}
@@ -656,7 +656,7 @@ function ArchitectureGlyphLayer({ mode }: { mode: (typeof architectureNodes)[num
               border: '1px solid rgba(255,255,255,0.14)',
               color: index % 2 ? 'rgba(255,255,255,0.74)' : '#0A0A0F',
               bgcolor: index % 2 ? 'rgba(10,10,15,0.64)' : 'rgba(229,192,123,0.86)',
-              boxShadow: index % 2 ? '0 0 18px rgba(43,92,255,0.16)' : '0 0 20px rgba(229,192,123,0.28)',
+              boxShadow: index % 2 ? '0 0 18px rgba(229,192,123,0.16)' : '0 0 20px rgba(229,192,123,0.28)',
               fontSize: 11,
               fontWeight: 760,
               animation: 'personaBreath 4.8s ease-in-out infinite',
@@ -758,7 +758,7 @@ function HeroVisual() {
 
   return (
     <GlassCard sx={{ p: { xs: 2, sm: 2.5 }, minHeight: { xs: 480, md: 560 }, position: 'relative', overflow: 'hidden' }}>
-      <Box sx={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px)', backgroundSize: '34px 34px', maskImage: 'radial-gradient(circle at 50% 45%, black 0%, transparent 72%)' }} />
+      <Box sx={{ position: 'absolute', inset: 0, border: '1px solid rgba(255,255,255,0.035)' }} />
       <Box sx={{ position: 'relative', height: '100%', display: 'grid', gridTemplateRows: 'auto auto auto', gap: { xs: 2.25, sm: 2.75 } }}>
         <Box
           onMouseLeave={resetArchitecture}
@@ -804,7 +804,7 @@ function HeroVisual() {
         </Box>
 
         <Box sx={{ mx: 'auto', width: { xs: 220, sm: 282 }, display: 'grid', justifyItems: 'center' }}>
-        <Box sx={{ width: { xs: 188, sm: 230 }, aspectRatio: '1 / 1', borderRadius: '50%', display: 'grid', placeItems: 'center', position: 'relative', border: '1px solid rgba(229,192,123,0.46)', background: 'radial-gradient(circle, rgba(229,192,123,0.18), rgba(43,92,255,0.06) 52%, rgba(255,255,255,0.025) 100%)', boxShadow: '0 0 80px rgba(229,192,123,0.13)', overflow: 'hidden', transition: 'box-shadow 260ms ease, border-color 260ms ease' }}>
+        <Box sx={{ width: { xs: 188, sm: 230 }, aspectRatio: '1 / 1', borderRadius: '50%', display: 'grid', placeItems: 'center', position: 'relative', border: '1px solid rgba(229,192,123,0.46)', bgcolor: 'rgba(255,255,255,0.035)', boxShadow: '0 0 80px rgba(0,0,0,0.16)', overflow: 'hidden', transition: 'box-shadow 260ms ease, border-color 260ms ease' }}>
           <ArchitectureGlyph mode={activeNode?.mode ?? null} />
           <Box sx={{ position: 'absolute', inset: 20, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.10)' }} />
           <Box
@@ -864,7 +864,7 @@ function HeroVisual() {
                   overflow: 'hidden',
                 }}
               >
-                <Box sx={{ position: 'absolute', inset: 0, background: index === 1 ? 'linear-gradient(135deg, rgba(229,192,123,0.10), transparent 58%)' : 'transparent' }} />
+                <Box sx={{ position: 'absolute', inset: 0, bgcolor: index === 1 ? 'rgba(229,192,123,0.08)' : 'transparent' }} />
                 <Box sx={{ position: 'relative' }}>
                   <Typography sx={{ color: accent, fontSize: 11, fontWeight: 800, letterSpacing: 1 }}>{String(index + 1).padStart(2, '0')}</Typography>
                   <Typography sx={{ mt: 0.4, fontSize: 15, fontWeight: 760, color: '#F8F8FA' }}>{title}</Typography>
@@ -937,8 +937,7 @@ export default function IntroPage() {
           position: 'fixed',
           inset: 0,
           pointerEvents: 'none',
-          background: 'radial-gradient(520px circle at var(--mx) var(--my), rgba(229,192,123,0.14), rgba(43,92,255,0.065) 38%, transparent 72%)',
-          transition: 'background 220ms ease-out',
+          backgroundColor: 'transparent',
           zIndex: 0,
         },
         '&::after': {
@@ -946,9 +945,7 @@ export default function IntroPage() {
           position: 'fixed',
           inset: 0,
           pointerEvents: 'none',
-          backgroundImage: 'linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px)',
-          backgroundSize: '44px 44px',
-          maskImage: 'linear-gradient(to bottom, black, transparent 82%)',
+          backgroundImage: 'none',
           zIndex: 0,
         },
         '@keyframes introFloat': {
@@ -1057,7 +1054,7 @@ export default function IntroPage() {
         <Box id="craft" sx={{ py: { xs: 5, md: 7 } }}>
           <Reveal>
             <GlassCard sx={{ p: { xs: 2.5, md: 3.25 }, overflow: 'hidden', position: 'relative' }}>
-              <Box sx={{ position: 'absolute', right: -120, top: -140, width: 360, height: 360, borderRadius: '50%', background: 'radial-gradient(circle, rgba(43,92,255,0.16), transparent 68%)' }} />
+              <Box sx={{ position: 'absolute', right: -120, top: -140, width: 360, height: 360, borderRadius: '50%', border: '1px solid rgba(229,192,123,0.12)' }} />
               <Box sx={{ position: 'relative', display: 'grid', gridTemplateColumns: { xs: '1fr', md: '0.78fr 1.22fr' }, gap: { xs: 4, md: 6 } }}>
                 <Box>
                   <TimelineIcon sx={{ color: accent, fontSize: 34, mb: 2 }} />

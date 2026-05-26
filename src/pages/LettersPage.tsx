@@ -298,19 +298,33 @@ export default function LettersPage() {
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 1100, mx: 'auto' }}>
       <Stack spacing={2}>
-        <Box sx={{ px: { xs: 1.5, sm: 6, lg: 7 } }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) minmax(140px, 220px)' }, gap: 1, alignItems: 'center' }}>
+        <Box sx={{ px: { xs: 0, sm: 6, lg: 7 } }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: { xs: 1.25, sm: 2 },
+              minWidth: 0,
+            }}
+          >
             <Tabs
               value={tab}
               onChange={(_, value) => setTab(value)}
-              variant="scrollable"
-              allowScrollButtonsMobile
+              variant="standard"
+              scrollButtons={false}
               sx={{
                 minWidth: 0,
-                width: '100%',
+                flex: '0 1 auto',
                 '& .MuiTabs-scroller': { minWidth: 0 },
-                '& .MuiTabs-flexContainer': { gap: 0.25 },
-                '& .MuiTab-root': { minWidth: 0, px: { xs: 1.25, sm: 1.75 }, whiteSpace: 'nowrap' },
+                '& .MuiTabs-flexContainer': { gap: 0.2 },
+                '& .MuiTab-root': {
+                  minWidth: 0,
+                  minHeight: { xs: 38, sm: 48 },
+                  px: { xs: 0.85, sm: 1.75 },
+                  fontSize: { xs: '0.76rem', sm: '0.875rem' },
+                  whiteSpace: 'nowrap',
+                },
               }}
             >
               <Tab value="letters" label={(
@@ -320,9 +334,31 @@ export default function LettersPage() {
               )} />
               <Tab value="diary" label={i18n.language.startsWith('zh') ? '日记' : 'Diary'} />
             </Tabs>
-            <FormControl size="small" fullWidth>
+            <FormControl
+              size="small"
+              sx={{
+                flex: '0 1 auto',
+                width: { xs: 'clamp(112px, 34vw, 152px)', sm: 'clamp(150px, 24vw, 220px)' },
+                minWidth: { xs: 112, sm: 150 },
+                maxWidth: { xs: 152, sm: 220 },
+              }}
+            >
               <InputLabel>{i18n.language.startsWith('zh') ? '角色' : 'Character'}</InputLabel>
-              <Select label={i18n.language.startsWith('zh') ? '角色' : 'Character'} value={characterFilter} onChange={(event) => setCharacterFilter(event.target.value)}>
+              <Select
+                label={i18n.language.startsWith('zh') ? '角色' : 'Character'}
+                value={characterFilter}
+                onChange={(event) => setCharacterFilter(event.target.value)}
+                sx={{
+                  minWidth: 0,
+                  '& .MuiSelect-select': {
+                    minWidth: 0,
+                    px: { xs: 1, sm: 1.75 },
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  },
+                }}
+              >
                 {characterOptions.map((option) => <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>)}
               </Select>
             </FormControl>

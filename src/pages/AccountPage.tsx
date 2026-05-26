@@ -343,9 +343,7 @@ export default function AccountPage() {
           sx={{
             overflow: 'hidden',
             borderRadius: 2,
-            background: (theme) => theme.palette.mode === 'dark'
-              ? 'linear-gradient(180deg, rgba(103,80,164,0.12) 0%, rgba(18,18,18,0.96) 28%)'
-              : 'linear-gradient(180deg, rgba(103,80,164,0.06) 0%, rgba(255,255,255,1) 24%)',
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(18,18,18,0.96)' : 'rgba(255,255,255,0.92)',
           }}
         >
           <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

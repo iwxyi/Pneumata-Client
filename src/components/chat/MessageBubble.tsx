@@ -477,8 +477,8 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
               px: 1.4,
               py: 1,
               borderRadius: bubblePreview?.borderRadius || '18px',
-              bgcolor: isUser ? 'linear-gradient(135deg, #7dd3fc 0%, #38bdf8 100%)' : (bubblePreview?.background || '#ffffff'),
-              color: isUser ? '#0f172a' : (resolvedStyle?.textColor || '#1f2937'),
+              bgcolor: isUser ? 'primary.main' : (bubblePreview?.background || '#ffffff'),
+              color: isUser ? 'primary.contrastText' : (resolvedStyle?.textColor || '#1f2937'),
               border: bubblePreview?.border || '1px solid rgba(15, 23, 42, 0.08)',
               boxShadow: bubblePreview?.boxShadow || '0 8px 24px rgba(15, 23, 42, 0.08)',
             }}
@@ -516,6 +516,17 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
         onClose={closeMenus}
         anchorReference="anchorPosition"
         anchorPosition={menuPosition ? { top: menuPosition.mouseY, left: menuPosition.mouseX } : undefined}
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(20,22,30,0.76)',
+              backdropFilter: 'blur(24px) saturate(1.18)',
+              WebkitBackdropFilter: 'blur(24px) saturate(1.18)',
+              border: '1px solid',
+              borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.10)' : 'rgba(226,232,240,0.12)',
+            },
+          },
+        }}
       >
         <MenuItem onClick={handleCopy}>复制</MenuItem>
         {onAnalyze ? <MenuItem onClick={handleAnalyze}>AI分析</MenuItem> : null}
@@ -537,6 +548,17 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
         onClose={() => setFeedbackAnchorEl(null)}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(20,22,30,0.76)',
+              backdropFilter: 'blur(24px) saturate(1.18)',
+              WebkitBackdropFilter: 'blur(24px) saturate(1.18)',
+              border: '1px solid',
+              borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.10)' : 'rgba(226,232,240,0.12)',
+            },
+          },
+        }}
       >
         {EXPRESSION_FEEDBACK_MENU_GROUPS.map((group, index) => (
           <Box key={group.key}>

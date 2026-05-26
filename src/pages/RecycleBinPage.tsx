@@ -3,6 +3,7 @@ import { Box, Tabs, Tab, Typography, Button, Checkbox, Fab, Snackbar, Alert } fr
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import RestoreFromTrashIcon from '@mui/icons-material/RestoreFromTrash';
 import { useTranslation } from 'react-i18next';
+import type { Theme } from '@mui/material/styles';
 import EmptyState from '../components/common/EmptyState';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import CharacterCard from '../components/character/CharacterCard';
@@ -23,6 +24,35 @@ function OverlayCheckbox({ checked, onChange }: { checked: boolean; onChange: ()
       <Checkbox checked={checked} onChange={onChange} />
     </Box>
   );
+}
+
+function buildRecycleTabsSx() {
+  return {
+    minHeight: 40,
+    borderBottom: '1px solid',
+    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+    '& .MuiTabs-indicator': {
+      height: 2,
+      borderRadius: 999,
+      backgroundColor: 'primary.main',
+    },
+    '& .MuiTabs-flexContainer': { gap: { xs: 0.2, sm: 0.75 } },
+    '& .MuiTab-root': {
+      minHeight: 40,
+      minWidth: 0,
+      px: { xs: 0.55, sm: 1.25 },
+      fontWeight: 720,
+      fontSize: { xs: '0.76rem', sm: '0.875rem' },
+      letterSpacing: 0,
+      color: 'text.secondary',
+      whiteSpace: 'nowrap',
+      opacity: 0.78,
+    },
+    '& .MuiTab-root.Mui-selected': {
+      color: 'text.primary',
+      opacity: 1,
+    },
+  };
 }
 
 export default function RecycleBinPage() {
@@ -141,7 +171,7 @@ export default function RecycleBinPage() {
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 } }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-        <Tabs value={tab} onChange={(_, value) => { setTab(value); clearSelection(); }} sx={{ minWidth: 0, flex: 1 }}>
+        <Tabs value={tab} onChange={(_, value) => { setTab(value); clearSelection(); }} variant="scrollable" scrollButtons={false} sx={{ minWidth: 0, flex: 1, ...buildRecycleTabsSx() }}>
           <Tab label={`${i18n.language.startsWith('zh') ? '角色' : 'Characters'} (${deletedCharacters.length})`} />
           <Tab label={`${i18n.language.startsWith('zh') ? '群聊' : 'Group chats'} (${chatCounts.group})`} />
           <Tab label={`${i18n.language.startsWith('zh') ? '单聊' : 'Direct chats'} (${chatCounts.direct})`} />

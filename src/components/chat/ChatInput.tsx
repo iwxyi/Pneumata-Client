@@ -55,9 +55,17 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         gap: 1,
         p: 2,
         pb: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-        borderTop: 1,
-        borderColor: 'divider',
-        bgcolor: isSending ? 'action.disabledBackground' : 'background.paper',
+        borderTop: '1px solid',
+        borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+        bgcolor: (theme) => {
+          if (isSending) return theme.palette.mode === 'light' ? 'rgba(248,250,252,0.76)' : 'rgba(20,22,30,0.72)';
+          return theme.palette.mode === 'light' ? 'rgba(255,255,255,0.68)' : 'rgba(13,15,22,0.76)';
+        },
+        backdropFilter: 'blur(22px) saturate(1.16)',
+        WebkitBackdropFilter: 'blur(22px) saturate(1.16)',
+        boxShadow: (theme) => theme.palette.mode === 'light'
+          ? '0 -14px 34px rgba(15,23,42,0.055), 0 1px 0 rgba(255,255,255,0.80) inset'
+          : '0 -16px 40px rgba(0,0,0,0.28), 0 1px 0 rgba(255,255,255,0.08) inset',
         flexShrink: 0,
         opacity: isSending ? 0.72 : 1,
         pointerEvents: isSending ? 'none' : 'auto',
@@ -87,7 +95,13 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         disabled={isSending}
         sx={{
           '& .MuiOutlinedInput-root': {
-            borderRadius: 3,
+            borderRadius: 2.5,
+            bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.62)' : 'rgba(255,255,255,0.060)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            '& fieldset': {
+              borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.09)' : 'rgba(226,232,240,0.11)',
+            },
           },
         }}
       />
@@ -95,7 +109,17 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         color="primary"
         onClick={() => void handleSend()}
         disabled={!text.trim() || isSending}
-        sx={{ flexShrink: 0 }}
+        sx={{
+          flexShrink: 0,
+          width: 42,
+          height: 42,
+          bgcolor: text.trim() && !isSending ? 'primary.main' : 'action.hover',
+          color: text.trim() && !isSending ? 'primary.contrastText' : 'text.disabled',
+          boxShadow: text.trim() && !isSending ? '0 10px 24px rgba(15,23,42,0.18)' : 'none',
+          '&:hover': {
+            bgcolor: text.trim() && !isSending ? 'primary.dark' : 'action.hover',
+          },
+        }}
       >
         {isSending ? <CircularProgress size={22} /> : <SendIcon />}
       </IconButton>

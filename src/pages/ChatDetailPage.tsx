@@ -631,7 +631,29 @@ export default function ChatDetailPage() {
 
   return (
     <Box sx={{ display: 'flex', flex: 1, minHeight: 0, height: '100%', overflow: 'hidden' }}>
-      <Box sx={{ flex: 1, minHeight: 0, height: '100%', overflow: 'hidden', display: 'grid', gridTemplateRows: 'minmax(0, 1fr) auto auto' }}>
+      <Box sx={{
+        flex: 1,
+        minHeight: 0,
+        height: '100%',
+        overflow: 'hidden',
+        display: 'grid',
+        gridTemplateRows: 'minmax(0, 1fr) auto auto',
+        position: 'relative',
+        bgcolor: 'background.default',
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          backgroundImage: (theme) => theme.palette.mode === 'light'
+            ? 'repeating-linear-gradient(0deg, rgba(15,23,42,0.030) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(15,23,42,0.024) 0 1px, transparent 1px 28px)'
+            : 'repeating-linear-gradient(0deg, rgba(226,232,240,0.030) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(226,232,240,0.024) 0 1px, transparent 1px 28px)',
+        },
+        '& > *': {
+          position: 'relative',
+          zIndex: 1,
+        },
+      }}>
         <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <MessageList
             key={id}

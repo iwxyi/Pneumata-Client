@@ -58,7 +58,18 @@ function ChatScenarioCard({ chat, members }: { chat: GroupChat; members: AIChara
   if (chat.scenarioState?.currentTurnActorId) rows.push(`当前轮次 ${memberName(chat.scenarioState.currentTurnActorId, members)}`);
   if (!rows.length) return null;
   return (
-    <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.54)' : 'rgba(255,255,255,0.045)', border: '1px solid', borderColor: 'rgba(148,163,184,0.14)' }}>
+    <Box sx={{
+      p: 1.25,
+      borderRadius: 1,
+      bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.58)' : 'rgba(255,255,255,0.060)',
+      border: '1px solid',
+      borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.075)' : 'rgba(226,232,240,0.105)',
+      boxShadow: (theme) => theme.palette.mode === 'light'
+        ? '0 1px 0 rgba(255,255,255,0.82) inset, 0 12px 28px rgba(15,23,42,0.055)'
+        : '0 1px 0 rgba(255,255,255,0.08) inset, 0 14px 32px rgba(0,0,0,0.24)',
+      backdropFilter: 'blur(18px) saturate(1.18)',
+      WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
+    }}>
       <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.75 }}>场景规则</Typography>
       <Stack spacing={0.5}>
         {rows.map((row) => <Typography key={row} variant="body2">{row}</Typography>)}
@@ -91,7 +102,18 @@ function DirectMemoryHint({ chat, members, directMemoryContext }: { chat: GroupC
   const recentRelationshipText = directMemoryContext?.recentRelationshipChanges?.slice(-2).map((item) => sanitizeUserFacingText(item.text, members)).filter(Boolean).join(' / ');
   const recentMemoryText = directMemoryContext?.recentMemoryWrites?.slice(0, 2).map((item) => sanitizeUserFacingText(item.text, members)).filter(Boolean).join(' / ');
   return (
-    <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.54)' : 'rgba(255,255,255,0.045)', border: '1px solid', borderColor: 'rgba(148,163,184,0.14)' }}>
+    <Box sx={{
+      p: 1.25,
+      borderRadius: 1,
+      bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.58)' : 'rgba(255,255,255,0.060)',
+      border: '1px solid',
+      borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.075)' : 'rgba(226,232,240,0.105)',
+      boxShadow: (theme) => theme.palette.mode === 'light'
+        ? '0 1px 0 rgba(255,255,255,0.82) inset, 0 12px 28px rgba(15,23,42,0.055)'
+        : '0 1px 0 rgba(255,255,255,0.08) inset, 0 14px 32px rgba(0,0,0,0.24)',
+      backdropFilter: 'blur(18px) saturate(1.18)',
+      WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
+    }}>
       <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.75 }}>单聊记忆主轴</Typography>
       <Stack spacing={0.75}>
         <Typography variant="caption" color="text.secondary">该角色会优先读取自己的长期记忆、关系记忆与最近变化，而不是优先回溯来源群聊。</Typography>
@@ -140,11 +162,39 @@ export default function ChatSidebarPanel({
         <Tabs
           value={rightPanelTab}
           onChange={(_, value) => setRightPanelTab(value)}
-          variant="scrollable"
-          allowScrollButtonsMobile
+          variant="fullWidth"
           sx={{
-            minHeight: 40,
-            '& .MuiTab-root': { minHeight: 40, px: 1.25, fontWeight: 700 },
+            minHeight: 42,
+            p: 0.4,
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.075)' : 'rgba(226,232,240,0.10)',
+            bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.50)' : 'rgba(255,255,255,0.055)',
+            backdropFilter: 'blur(18px) saturate(1.15)',
+            WebkitBackdropFilter: 'blur(18px) saturate(1.15)',
+            boxShadow: (theme) => theme.palette.mode === 'light'
+              ? '0 1px 0 rgba(255,255,255,0.78) inset, 0 10px 24px rgba(15,23,42,0.045)'
+              : '0 1px 0 rgba(255,255,255,0.08) inset, 0 12px 28px rgba(0,0,0,0.20)',
+            '& .MuiTabs-indicator': { display: 'none' },
+            '& .MuiTabs-flexContainer': { gap: 0.35 },
+            '& .MuiTab-root': {
+              minWidth: 0,
+              minHeight: 34,
+              px: { xs: 0.55, sm: 1.25 },
+              fontWeight: 720,
+              fontSize: { xs: '0.78rem', sm: '0.875rem' },
+              borderRadius: 0.75,
+              color: 'text.secondary',
+              whiteSpace: 'nowrap',
+              transition: 'background-color 180ms ease, color 180ms ease, box-shadow 180ms ease',
+            },
+            '& .MuiTab-root.Mui-selected': {
+              color: 'text.primary',
+              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.78)' : 'rgba(255,255,255,0.12)',
+              boxShadow: (theme) => theme.palette.mode === 'light'
+                ? '0 1px 0 rgba(255,255,255,0.90) inset, 0 6px 16px rgba(15,23,42,0.08)'
+                : '0 1px 0 rgba(255,255,255,0.10) inset, 0 8px 18px rgba(0,0,0,0.24)',
+            },
           }}
         >
           {showMemberTab ? <Tab value="members" label={memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} /> : null}

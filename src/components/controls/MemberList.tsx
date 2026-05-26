@@ -1,4 +1,5 @@
 import { Box, Typography, Avatar, IconButton, Menu, MenuItem, List, ListItem, ListItemAvatar, Chip, Stack, Dialog, DialogTitle, DialogContent, DialogActions, Button, Tooltip } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import { formatEmotionStateLabel, getAffectChipColor, getRuntimeAxisLabel } from '../../services/personalityDrift';
 import { isImageAvatar } from '../../utils/avatar';
 import MoreIcon from '@mui/icons-material/MoreVert';
@@ -44,6 +45,57 @@ function buildMemberEmotionChips(member: AICharacter, language: string, showDebu
           : `${label} is a short-term emotion from recent interactions, not a permanent trait.${showDebugDetails ? ` Current ${Math.round(item.value)}` : ''}`,
       };
     });
+}
+
+function buildMemberListSurfaceSx() {
+  return {
+    position: 'relative',
+    borderRadius: 1,
+    bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.50)' : 'rgba(255,255,255,0.050)',
+    border: '1px solid',
+    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.075)' : 'rgba(226,232,240,0.105)',
+    boxShadow: (theme: Theme) => theme.palette.mode === 'light'
+      ? '0 1px 0 rgba(255,255,255,0.80) inset, 0 12px 28px rgba(15,23,42,0.045)'
+      : '0 1px 0 rgba(255,255,255,0.08) inset, 0 14px 32px rgba(0,0,0,0.20)',
+    backdropFilter: 'blur(18px) saturate(1.18)',
+    WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
+    overflow: 'hidden',
+  };
+}
+
+function buildMemberRowSx(isThinking: boolean) {
+  return {
+    position: 'relative',
+    borderRadius: 0.75,
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 1,
+    minWidth: 0,
+    px: 1,
+    py: 0.75,
+    overflow: 'hidden',
+    bgcolor: (theme: Theme) => isThinking
+      ? `${theme.palette.primary.main}${theme.palette.mode === 'light' ? '14' : '24'}`
+      : 'transparent',
+    transition: 'background-color 160ms ease, transform 160ms ease',
+    '&::before': {
+      content: '""',
+      position: 'absolute',
+      left: 0,
+      top: 8,
+      bottom: 8,
+      width: 3,
+      borderRadius: 999,
+      bgcolor: isThinking ? 'primary.main' : 'transparent',
+      pointerEvents: 'none',
+    },
+    '&:hover': {
+      transform: 'translateX(1px)',
+      bgcolor: (theme: Theme) => isThinking
+        ? `${theme.palette.primary.main}${theme.palette.mode === 'light' ? '18' : '2B'}`
+        : theme.palette.mode === 'light' ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.055)',
+    },
+  };
 }
 
 export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onStartDirectChat, onUpdateSeats }: MemberListProps) {
@@ -111,9 +163,10 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
         dense
         disablePadding
         sx={{
+          ...buildMemberListSurfaceSx(),
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
-          gap: 0.5,
+          gap: 0.15,
+          p: 0.35,
         }}
       >
         {visibleMembers.map((member) => {
@@ -124,16 +177,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
           return (
             <ListItem
               key={member.id}
-              sx={{
-                borderRadius: 2,
-                bgcolor: thinkingId === member.id ? 'action.selected' : 'transparent',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 1,
-                minWidth: 0,
-                px: 1,
-                py: 0.75,
-              }}
+              sx={buildMemberRowSx(thinkingId === member.id)}
             >
               <ListItemAvatar sx={{ minWidth: 0, flex: '0 0 auto' }}>
                 <Avatar src={isImageAvatar(member.avatar) ? member.avatar : undefined} sx={{ width: 32, height: 32, fontSize: '1rem', bgcolor: 'primary.light' }}>
@@ -205,7 +249,12 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
               </Box>
               <IconButton
                 size="small"
-                sx={{ flex: '0 0 auto', mt: -0.25 }}
+                sx={{
+                  flex: '0 0 auto',
+                  mt: -0.25,
+                  opacity: 0.72,
+                  '&:hover': { opacity: 1, bgcolor: 'action.hover' },
+                }}
                 onClick={(e) => {
                   setAnchorEl(e.currentTarget);
                   setMenuCharId(member.id);

@@ -4,6 +4,7 @@ import {
   ToggleButtonGroup, ToggleButton,
   Snackbar, Alert, FormControlLabel, Switch,
 } from '@mui/material';
+import CheckIcon from '@mui/icons-material/Check';
 import BackupIcon from '@mui/icons-material/Download';
 import RestoreIcon from '@mui/icons-material/Upload';
 import ClearIcon from '@mui/icons-material/Delete';
@@ -30,6 +31,41 @@ function buildPageSx() {
 
 function buildToggleGroupSx() {
   return { alignItems: 'center', justifyContent: 'flex-start', overflow: 'visible', flexWrap: 'wrap' as const, gap: 0.5 };
+}
+
+const THEME_TONES = [
+  { value: '#315A9C', zh: '静海蓝', en: 'Still blue' },
+  { value: '#0F766E', zh: '深海青', en: 'Deep teal' },
+  { value: '#7C3AED', zh: '冷紫', en: 'Violet' },
+  { value: '#B45309', zh: '琥珀', en: 'Amber' },
+  { value: '#334155', zh: '石墨灰', en: 'Graphite' },
+] as const;
+
+function buildToneGridSx() {
+  return {
+    display: 'grid',
+    gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(5, minmax(0, 1fr))' },
+    gap: 0.85,
+  };
+}
+
+function buildToneButtonSx(color: string, selected: boolean) {
+  return {
+    justifyContent: 'flex-start',
+    minHeight: 54,
+    px: 1.05,
+    py: 0.9,
+    borderRadius: 2,
+    textTransform: 'none',
+    whiteSpace: 'normal',
+    borderColor: selected ? color : 'divider',
+    bgcolor: selected ? `${color}14` : 'transparent',
+    color: 'text.primary',
+    '&:hover': {
+      borderColor: color,
+      bgcolor: `${color}12`,
+    },
+  };
 }
 
 function buildPaperPickerSx() {
@@ -344,6 +380,29 @@ export default function SettingsPage() {
                 <ToggleButton value="dark">{t('settings.themeDark')}</ToggleButton>
                 <ToggleButton value="system">{t('settings.themeSystem')}</ToggleButton>
               </ToggleButtonGroup>
+            </Box>
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '色调' : 'Tone'}</Typography>
+              <Box sx={buildToneGridSx()}>
+                {THEME_TONES.map((tone) => {
+                  const selected = settings.themeColor.toLowerCase() === tone.value.toLowerCase();
+                  return (
+                    <Button
+                      key={tone.value}
+                      variant="outlined"
+                      onClick={() => settings.setThemeColor(tone.value)}
+                      sx={buildToneButtonSx(tone.value, selected)}
+                    >
+                      <Box sx={{ width: 24, height: 24, borderRadius: '50%', bgcolor: tone.value, mr: 1, display: 'grid', placeItems: 'center', color: '#fff', flex: '0 0 auto', boxShadow: `0 0 0 4px ${tone.value}18` }}>
+                        {selected ? <CheckIcon sx={{ fontSize: 16 }} /> : null}
+                      </Box>
+                      <Typography variant="caption" sx={{ fontWeight: selected ? 760 : 620, lineHeight: 1.25 }}>
+                        {i18n.language.startsWith('zh') ? tone.zh : tone.en}
+                      </Typography>
+                    </Button>
+                  );
+                })}
+              </Box>
             </Box>
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{t('settings.language')}</Typography>

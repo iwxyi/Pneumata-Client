@@ -49,25 +49,18 @@ export default function CharacterEditorPage() {
     };
   }, [characters.length, initializePresets, loadCharacters]);
 
+  const editChar = useMemo(() => (editId ? characters.find((character) => character.id === editId) : undefined), [characters, editId]);
   const headerTitle = useMemo(() => {
-    const baseTitle = editId ? t('character.edit') : t('character.create');
     const normalizedName = draftName.trim();
-    return normalizedName ? `${baseTitle} · ${normalizedName}` : baseTitle;
-  }, [draftName, editId, t]);
+    if (editId) return normalizedName || editChar?.name || t('character.edit');
+    return t('character.create');
+  }, [draftName, editChar?.name, editId, t]);
 
   useEffect(() => {
     setHeaderTitle(headerTitle);
     setHeaderBackAction(() => () => goBack());
     setHideMobileBottomNav(true);
-    setHeaderActions(
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        {editId ? (
-          <Button color="error" variant="outlined" onClick={() => setDeleteOpen(true)}>
-            {t('common.delete')}
-          </Button>
-        ) : null}
-      </Box>
-    );
+    setHeaderActions(null);
 
     return () => {
       setHeaderActions(null);
@@ -78,7 +71,6 @@ export default function CharacterEditorPage() {
   }, [editId, goBack, headerTitle, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, t]);
 
   const duplicateNameErrorText = i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists';
-  const editChar = useMemo(() => (editId ? characters.find((character) => character.id === editId) : undefined), [characters, editId]);
   const shouldWaitForCharacter = Boolean(editId && !editChar && !characterDataReady);
   if (editId && !editChar && !shouldWaitForCharacter) {
     return (
@@ -109,6 +101,8 @@ export default function CharacterEditorPage() {
         existingNames={characters.map((character) => character.name)}
         saveError={saveError}
         onDraftNameChange={setDraftName}
+        onDelete={editId ? () => setDeleteOpen(true) : undefined}
+        deleteLabel={t('common.delete')}
         onSave={async (data) => {
           setSaveError(null);
           try {

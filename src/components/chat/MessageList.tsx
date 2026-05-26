@@ -178,7 +178,7 @@ export default function MessageList({
         overflowY: 'auto',
         overflowX: 'hidden',
         py: 2,
-        bgcolor: (theme) => theme.palette.mode === 'light' ? '#f5f5f5' : '#121212',
+        bgcolor: 'background.default',
       }}
     >
       {messages.length > 0 ? (

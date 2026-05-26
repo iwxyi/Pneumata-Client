@@ -440,7 +440,7 @@ export default function CreateChatPage() {
     }
   }, [editingChat, i18n.language, updateChat]);
 
-  const headerTitle = editingChat ? (isZh ? `编辑${conversationNoun}` : `Edit ${conversationNoun}`) : t('chat.create');
+  const headerTitle = editingChat ? (name.trim() || editingChat.name || (isZh ? `编辑${conversationNoun}` : `Edit ${conversationNoun}`)) : t('chat.create');
   const autofillLabel = aiAutofilling ? t('common.loading') : (i18n.language.startsWith('zh') ? '自动补全' : 'Auto fill');
   const deleteLabel = t('common.delete');
   const closeMemberDialog = () => {
@@ -544,14 +544,9 @@ export default function CreateChatPage() {
             {autofillLabel}
           </Button>
         ) : null}
-        {editingChat ? (
-          <Button color="error" variant="outlined" startIcon={<DeleteIcon />} onClick={openDeleteDialog}>
-            {deleteLabel}
-          </Button>
-        ) : null}
       </Box>
     );
-  }, [autofillLabel, canAutofill, deleteLabel, editingChat, handleAutofillAction, headerTitle, navigate, openDeleteDialog, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
+  }, [autofillLabel, canAutofill, editingChat, handleAutofillAction, headerTitle, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
 
   useEffect(() => {
     return () => {
@@ -701,7 +696,19 @@ export default function CreateChatPage() {
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 18, sm: 14, md: 10 }, maxWidth: 860, mx: 'auto' }}>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <Tabs value={configTab} onChange={handleTabChange} variant="scrollable" allowScrollButtonsMobile>
+        <Tabs
+          value={configTab}
+          onChange={handleTabChange}
+          variant="fullWidth"
+          sx={{
+            '& .MuiTab-root': {
+              minWidth: 0,
+              px: { xs: 0.65, sm: 1.25 },
+              fontSize: { xs: '0.78rem', sm: '0.875rem' },
+              whiteSpace: 'nowrap',
+            },
+          }}
+        >
           <Tab value={0} label={i18n.language.startsWith('zh') ? '设定' : 'Config'} />
           {showManagementTab ? <Tab value={1} label={i18n.language.startsWith('zh') ? '管理' : 'Management'} /> : null}
           {showRuntimeTab ? <Tab value={runtimeTabIndex} label={i18n.language.startsWith('zh') ? '记忆' : 'Memory'} /> : null}
@@ -709,36 +716,45 @@ export default function CreateChatPage() {
         </Tabs>
 
         {configTab === 0 ? (
-          <ChatConfigSection
-            lockMembers={Boolean(editingChat && !isGroupConversation)}
-            showMembers={Boolean(!editingChat || isGroupConversation)}
-            maxMembers={maxAllowedMembers}
-            name={name}
-            topic={topic}
-            style={style}
-            showRoleActions={showRoleActions}
-            selectedMembers={selectedMembers}
-            selectedCharacters={selectedCharacters}
-            language={i18n.language}
-            memberSummaryEmptyLabel={memberSummaryEmptyLabel}
-            topicPlaceholder={topicPlaceholder}
-            getStyleLabel={getStyleLabel}
-            onNameChange={setName}
-            onTopicChange={setTopic}
-            onStyleChange={setStyle}
-            onShowRoleActionsChange={setShowRoleActions}
-            onOpenMemberDialog={() => setMemberDialogOpen(true)}
-            onOpenHotDialog={openHotDialog}
-            onToggleMember={toggleMember}
-            nameLabel={t('chat.name')}
-            namePlaceholder={t('chat.namePlaceholder')}
-            topicLabel={t('chat.topic')}
-            selectMembersLabel={isGroupConversation ? t('chat.selectMembers') : (isZh ? '选择角色' : 'Select role')}
-            membersHintLabel={isGroupConversation ? t('chat.membersHint') : (isZh ? `${conversationNoun}中的AI角色` : `AI roles in this ${conversationNoun}`)}
-            styleLabel={t('chat.style')}
-            showRoleActionsLabel={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'}
-            openTopicInspirationLabel={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}
-          />
+          <>
+            <ChatConfigSection
+              lockMembers={Boolean(editingChat && !isGroupConversation)}
+              showMembers={Boolean(!editingChat || isGroupConversation)}
+              maxMembers={maxAllowedMembers}
+              name={name}
+              topic={topic}
+              style={style}
+              showRoleActions={showRoleActions}
+              selectedMembers={selectedMembers}
+              selectedCharacters={selectedCharacters}
+              language={i18n.language}
+              memberSummaryEmptyLabel={memberSummaryEmptyLabel}
+              topicPlaceholder={topicPlaceholder}
+              getStyleLabel={getStyleLabel}
+              onNameChange={setName}
+              onTopicChange={setTopic}
+              onStyleChange={setStyle}
+              onShowRoleActionsChange={setShowRoleActions}
+              onOpenMemberDialog={() => setMemberDialogOpen(true)}
+              onOpenHotDialog={openHotDialog}
+              onToggleMember={toggleMember}
+              nameLabel={t('chat.name')}
+              namePlaceholder={t('chat.namePlaceholder')}
+              topicLabel={t('chat.topic')}
+              selectMembersLabel={isGroupConversation ? t('chat.selectMembers') : (isZh ? '选择角色' : 'Select role')}
+              membersHintLabel={isGroupConversation ? t('chat.membersHint') : (isZh ? `${conversationNoun}中的AI角色` : `AI roles in this ${conversationNoun}`)}
+              styleLabel={t('chat.style')}
+              showRoleActionsLabel={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'}
+              openTopicInspirationLabel={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}
+            />
+            {editingChat ? (
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 1 }}>
+                <Button color="error" variant="outlined" startIcon={<DeleteIcon />} onClick={openDeleteDialog}>
+                  {deleteLabel}
+                </Button>
+              </Box>
+            ) : null}
+          </>
         ) : null}
 
         {showManagementTab && configTab === 1 ? (

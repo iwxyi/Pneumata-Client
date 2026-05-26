@@ -17,14 +17,14 @@ const baseTheme: ThemeOptions = {
     ].join(','),
   },
   shape: {
-    borderRadius: 16,
+    borderRadius: 8,
   },
   components: {
     MuiButton: {
       styleOverrides: {
         root: {
           textTransform: 'none',
-          borderRadius: 20,
+          borderRadius: 8,
           fontWeight: 500,
           boxShadow: 'none',
         },
@@ -39,7 +39,7 @@ const baseTheme: ThemeOptions = {
       },
       styleOverrides: {
         root: {
-          borderRadius: 24,
+          borderRadius: 8,
           transition: 'transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease',
         },
       },
@@ -55,7 +55,7 @@ const baseTheme: ThemeOptions = {
     MuiChip: {
       styleOverrides: {
         root: {
-          borderRadius: 12,
+          borderRadius: 8,
         },
       },
     },
@@ -67,7 +67,7 @@ const baseTheme: ThemeOptions = {
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          borderRadius: 16,
+          borderRadius: 8,
         },
       },
     },
@@ -120,28 +120,34 @@ const baseTheme: ThemeOptions = {
     MuiSnackbarContent: {
       styleOverrides: {
         root: {
-          borderRadius: 16,
+          borderRadius: 8,
         },
       },
     },
     MuiAlert: {
       styleOverrides: {
         root: {
-          borderRadius: 16,
+          borderRadius: 8,
         },
       },
     },
     MuiMenu: {
       styleOverrides: {
-        paper: {
-          borderRadius: 20,
-        },
+        paper: ({ theme }) => ({
+          borderRadius: 8,
+          border: '1px solid',
+          borderColor: theme.palette.mode === 'light' ? 'rgba(15, 23, 42, 0.10)' : 'rgba(226, 232, 240, 0.12)',
+          backgroundColor: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.72)' : 'rgba(20, 22, 30, 0.76)',
+          backdropFilter: 'blur(22px) saturate(1.18)',
+          WebkitBackdropFilter: 'blur(22px) saturate(1.18)',
+          boxShadow: theme.palette.mode === 'light' ? '0 18px 44px rgba(15, 23, 42, 0.16)' : '0 20px 52px rgba(0, 0, 0, 0.38)',
+        }),
       },
     },
     MuiMenuItem: {
       styleOverrides: {
         root: {
-          borderRadius: 12,
+          borderRadius: 6,
           margin: 4,
         },
       },
@@ -232,7 +238,7 @@ const baseTheme: ThemeOptions = {
     MuiSkeleton: {
       styleOverrides: {
         root: {
-          borderRadius: 12,
+          borderRadius: 6,
         },
       },
     },
@@ -252,9 +258,14 @@ const baseTheme: ThemeOptions = {
     },
     MuiDialog: {
       styleOverrides: {
-        paper: {
-          borderRadius: 28,
-        },
+        paper: ({ theme }) => ({
+          borderRadius: 10,
+          border: '1px solid',
+          borderColor: theme.palette.mode === 'light' ? 'rgba(15, 23, 42, 0.10)' : 'rgba(226, 232, 240, 0.12)',
+          backgroundColor: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.78)' : 'rgba(20, 22, 30, 0.82)',
+          backdropFilter: 'blur(24px) saturate(1.18)',
+          WebkitBackdropFilter: 'blur(24px) saturate(1.18)',
+        }),
       },
     },
     MuiSelect: {
@@ -293,7 +304,7 @@ const baseTheme: ThemeOptions = {
     MuiAccordion: {
       styleOverrides: {
         root: {
-          borderRadius: 20,
+          borderRadius: 8,
         },
       },
     },
@@ -314,14 +325,16 @@ const baseTheme: ThemeOptions = {
     MuiDrawer: {
       styleOverrides: {
         paper: {
-          borderRadius: '16px 16px 0 0',
+          borderRadius: '10px 10px 0 0',
+          backdropFilter: 'blur(24px) saturate(1.16)',
+          WebkitBackdropFilter: 'blur(24px) saturate(1.16)',
         },
       },
     },
   },
 };
 
-export const createAppTheme = (mode: 'light' | 'dark', primaryColor: string = '#6750A4') => {
+export const createAppTheme = (mode: 'light' | 'dark', primaryColor: string = '#315A9C') => {
   return createTheme({
     ...baseTheme,
     palette: {
@@ -330,7 +343,7 @@ export const createAppTheme = (mode: 'light' | 'dark', primaryColor: string = '#
         main: primaryColor,
       },
       secondary: {
-        main: mode === 'light' ? '#625B71' : '#CCC2DC',
+        main: mode === 'light' ? '#334155' : '#CBD5E1',
       },
       background: {
         default: mode === 'light' ? '#F5F5F7' : '#0A0A0F',

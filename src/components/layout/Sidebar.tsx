@@ -69,22 +69,61 @@ export default function Sidebar({ collapsed }: SidebarProps) {
         onClick={() => handleNav(item.path)}
         selected={isActive}
         sx={{
-          borderRadius: 3,
-          mb: 0.5,
+          position: 'relative',
+          borderRadius: 1,
+          mb: 0.65,
           justifyContent: collapsed ? 'center' : 'flex-start',
-          px: collapsed ? 1 : 2,
-          minHeight: 48,
+          px: collapsed ? 1 : 1.35,
+          minHeight: 46,
+          overflow: 'hidden',
+          color: isActive ? 'text.primary' : 'text.secondary',
+          border: '1px solid',
+          borderColor: isActive ? 'primary.main' : 'transparent',
+          bgcolor: isActive ? (theme) => `${theme.palette.primary.main}1A` : 'transparent',
+          transition: 'transform 180ms ease, background-color 180ms ease, border-color 180ms ease, color 180ms ease',
+          '&::before': collapsed ? undefined : {
+            content: '""',
+            position: 'absolute',
+            left: 0,
+            top: 10,
+            bottom: 10,
+            width: 3,
+            borderRadius: 999,
+            bgcolor: isActive ? 'primary.main' : 'transparent',
+            transition: 'background-color 180ms ease',
+          },
+          '&:hover': {
+            transform: 'translateX(2px)',
+            bgcolor: isActive ? (theme) => `${theme.palette.primary.main}1F` : 'rgba(148,163,184,0.08)',
+            borderColor: isActive ? 'primary.main' : 'rgba(148,163,184,0.10)',
+          },
+          '&.Mui-selected': {
+            bgcolor: (theme) => `${theme.palette.primary.main}1A`,
+          },
+          '&.Mui-selected:hover': {
+            bgcolor: (theme) => `${theme.palette.primary.main}1F`,
+          },
         }}
       >
         <ListItemIcon
           sx={{
-            minWidth: collapsed ? 0 : 40,
+            minWidth: collapsed ? 0 : 38,
             color: isActive ? 'primary.main' : 'text.secondary',
+            transition: 'color 180ms ease, transform 180ms ease',
+            transform: isActive ? 'scale(1.04)' : 'none',
           }}
         >
           {item.path === '/letters' ? <Badge badgeContent={unreadLetterCount} color="error" max={99}>{item.icon}</Badge> : item.icon}
         </ListItemIcon>
-        {!collapsed && <ListItemText primary={t(item.labelKey)} />}
+        {!collapsed && (
+          <ListItemText
+            primary={
+              <Typography sx={{ fontSize: 14, fontWeight: isActive ? 760 : 560, letterSpacing: 0 }}>
+                {t(item.labelKey)}
+              </Typography>
+            }
+          />
+        )}
       </ListItemButton>
     );
 
@@ -103,51 +142,78 @@ export default function Sidebar({ collapsed }: SidebarProps) {
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        bgcolor: 'background.paper',
+        bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(10,10,15,0.78)',
+        backdropFilter: 'blur(24px) saturate(1.12)',
+        WebkitBackdropFilter: 'blur(24px) saturate(1.12)',
         borderRight: 1,
-        borderColor: 'divider',
+        borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.09)',
       }}
     >
-      {/* Logo / Header */}
       <Box
         sx={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: collapsed ? 'center' : 'space-between',
-          p: 2,
-          minHeight: 64,
+          px: collapsed ? 1 : 1.4,
+          py: 1.4,
+          minHeight: 72,
+          gap: 1,
         }}
       >
         {!collapsed && (
-          <Typography variant="h6" sx={{ fontWeight: 700, color: 'primary.main' }}>
-            🍵 {t('app.name')}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.15, minWidth: 0 }}>
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 1,
+                display: 'grid',
+                placeItems: 'center',
+                flex: '0 0 auto',
+                color: 'primary.main',
+                border: '1px solid',
+                borderColor: 'primary.main',
+                bgcolor: (theme) => `${theme.palette.primary.main}16`,
+                fontWeight: 860,
+                fontSize: 17,
+              }}
+            >
+              P
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 840, lineHeight: 1.1, letterSpacing: 0 }}>
+                {t('app.name')}
+              </Typography>
+              <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', opacity: 0.76, mt: 0.25 }}>
+                Living character engine
+              </Typography>
+            </Box>
+          </Box>
         )}
         {collapsed && (
-          <Typography variant="h5" sx={{ cursor: 'pointer' }}>
-            🍵
-          </Typography>
+          <Box sx={{ width: 36, height: 36, borderRadius: 1, display: 'grid', placeItems: 'center', color: 'primary.main', border: '1px solid', borderColor: 'primary.main', bgcolor: (theme) => `${theme.palette.primary.main}16`, fontWeight: 860 }}>
+            P
+          </Box>
         )}
         {!collapsed && (
-          <IconButton size="small" onClick={toggleSidebar}>
+          <IconButton size="small" onClick={toggleSidebar} sx={{ borderRadius: 2, color: 'text.secondary' }}>
             <CollapseIcon />
           </IconButton>
         )}
         {collapsed && (
-          <IconButton size="small" onClick={toggleSidebar} sx={{ mt: 1 }}>
+          <IconButton size="small" onClick={toggleSidebar} sx={{ mt: 1, borderRadius: 2, color: 'text.secondary' }}>
             <ExpandIcon />
           </IconButton>
         )}
       </Box>
 
-      <Divider />
+      <Divider sx={{ mx: collapsed ? 1.2 : 1.5, borderColor: 'rgba(148,163,184,0.14)' }} />
 
-      {/* Navigation */}
-      <List sx={{ flex: 1, px: collapsed ? 0.5 : 1 }}>
+      <List sx={{ flex: 1, px: collapsed ? 0.65 : 1.1, pt: 1.15 }}>
         {navItems.map(renderNavItem)}
       </List>
-      <Box sx={{ px: collapsed ? 0.5 : 1, pb: 1.5 }}>
-        <Divider sx={{ mb: 1 }} />
+      <Box sx={{ px: collapsed ? 0.65 : 1.1, pb: 1.4 }}>
+        <Divider sx={{ mb: 1, borderColor: 'rgba(148,163,184,0.14)' }} />
         {renderNavItem(introNavItem)}
       </Box>
     </Box>

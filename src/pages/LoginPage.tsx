@@ -102,10 +102,7 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: (theme) =>
-          theme.palette.mode === 'dark'
-            ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)'
-            : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        bgcolor: (theme) => theme.palette.mode === 'dark' ? '#0A0A0F' : '#F5F5F7',
         p: 2,
       }}
     >

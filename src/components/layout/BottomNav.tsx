@@ -31,12 +31,20 @@ export default function BottomNav() {
     <Paper
       sx={{
         position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
+        bottom: 10,
+        left: 12,
+        right: 12,
         zIndex: 1200,
+        borderRadius: 2,
+        overflow: 'hidden',
+        border: '1px solid',
+        borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.10)' : 'rgba(226,232,240,0.10)',
+        bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.76)' : 'rgba(10,10,15,0.78)',
+        backdropFilter: 'blur(22px) saturate(1.12)',
+        WebkitBackdropFilter: 'blur(22px) saturate(1.12)',
+        boxShadow: (theme) => theme.palette.mode === 'light' ? '0 16px 38px rgba(15,23,42,0.12)' : '0 18px 46px rgba(0,0,0,0.38)',
       }}
-      elevation={3}
+      elevation={0}
     >
       <BottomNavigation
         value={currentIndex}
@@ -45,6 +53,24 @@ export default function BottomNav() {
           if (nextPath !== location.pathname) navigate(nextPath);
         }}
         showLabels
+        sx={{
+          height: 58,
+          bgcolor: 'transparent',
+          '& .MuiBottomNavigationAction-root': {
+            minWidth: 0,
+            color: 'text.secondary',
+            borderRadius: 1,
+            mx: 0.35,
+            my: 0.55,
+          },
+          '& .Mui-selected': {
+            color: 'primary.main',
+          },
+          '& .MuiBottomNavigationAction-label': {
+            fontSize: 11,
+            fontWeight: 650,
+          },
+        }}
       >
         <BottomNavigationAction label={t('nav.home')} icon={<HomeIcon />} />
         <BottomNavigationAction label={t('nav.chats')} icon={<ChatIcon />} />

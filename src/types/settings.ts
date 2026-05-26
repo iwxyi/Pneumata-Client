@@ -454,7 +454,7 @@ export const DEFAULT_SETTINGS: AppSettingsWithMemory = {
   api: DEFAULT_API_CONFIG,
   aiProfiles: [DEFAULT_AI_PROFILE],
   theme: 'system',
-  themeColor: '#6750A4',
+  themeColor: '#315A9C',
   language: 'zh',
   defaultSpeed: 1.0,
   developerMode: false,

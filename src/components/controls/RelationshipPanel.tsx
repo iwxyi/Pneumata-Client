@@ -208,7 +208,14 @@ function RelationshipEvidenceCard({ speakerName, evidence }: { speakerName?: str
   const cleaned = cleanRelationshipText(evidence);
   if (!cleaned) return null;
   return (
-    <Box sx={(theme) => ({ p: 1, borderRadius: 2, bgcolor: alpha(theme.palette.common.black, 0.03) })}>
+    <Box sx={(theme) => ({
+      p: 1,
+      borderRadius: 1,
+      border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(15,23,42,0.055)' : 'rgba(226,232,240,0.08)'}`,
+      bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.46)' : 'rgba(255,255,255,0.045)',
+      backdropFilter: 'blur(12px) saturate(1.12)',
+      WebkitBackdropFilter: 'blur(12px) saturate(1.12)',
+    })}>
       {speakerName ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35 }}>{speakerName}</Typography> : null}
       <Typography variant="body2">{cleaned}</Typography>
     </Box>
@@ -220,13 +227,20 @@ function RelationshipCardFrame({ children }: { children: ReactNode }) {
     <Box
       sx={(theme) => ({
         p: 1.25,
-        borderRadius: 2,
-        border: `1px solid ${alpha(theme.palette.divider, 0.6)}`,
-        bgcolor: alpha(theme.palette.background.default, 0.45),
-        transition: 'transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease',
+        borderRadius: 1,
+        border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(15,23,42,0.075)' : 'rgba(226,232,240,0.105)'}`,
+        bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.58)' : 'rgba(255,255,255,0.060)',
+        boxShadow: theme.palette.mode === 'light'
+          ? '0 1px 0 rgba(255,255,255,0.82) inset, 0 12px 28px rgba(15,23,42,0.055)'
+          : '0 1px 0 rgba(255,255,255,0.08) inset, 0 14px 32px rgba(0,0,0,0.24)',
+        backdropFilter: 'blur(18px) saturate(1.18)',
+        WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
+        transition: 'transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background-color 160ms ease',
         '&:hover': {
           transform: 'translateY(-1px)',
-          boxShadow: theme.shadows[2],
+          boxShadow: theme.palette.mode === 'light'
+            ? '0 1px 0 rgba(255,255,255,0.88) inset, 0 16px 34px rgba(15,23,42,0.075)'
+            : '0 1px 0 rgba(255,255,255,0.10) inset, 0 18px 38px rgba(0,0,0,0.30)',
           borderColor: alpha(theme.palette.primary.main, 0.35),
         },
       })}
@@ -408,7 +422,7 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
   };
 
   return (
-    <SurfaceCard>
+    <SurfaceCard sx={{ overflow: 'visible' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         <SectionHeader title={chat.type === 'group' ? '关系脉络' : '成员信息'} dense />
         {isGroupChat && sectionKeys.length ? (

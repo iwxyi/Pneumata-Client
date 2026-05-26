@@ -81,6 +81,19 @@ export default function RightPanel({ children, title }: RightPanelProps) {
           display: 'flex',
           flexDirection: 'column',
           position: 'relative',
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            backgroundImage: (theme) => theme.palette.mode === 'light'
+              ? 'repeating-linear-gradient(0deg, rgba(15,23,42,0.030) 0 1px, transparent 1px 26px), repeating-linear-gradient(90deg, rgba(15,23,42,0.022) 0 1px, transparent 1px 26px)'
+              : 'repeating-linear-gradient(0deg, rgba(226,232,240,0.030) 0 1px, transparent 1px 26px), repeating-linear-gradient(90deg, rgba(226,232,240,0.022) 0 1px, transparent 1px 26px)',
+          },
+          '& > *': {
+            position: 'relative',
+            zIndex: 1,
+          },
         }}
       >
         <Box
