@@ -71,12 +71,11 @@ function buildStatCardSx() {
     cursor: 'pointer',
     transition: transition(['transform', 'box-shadow', 'border-color'], motion.durations.base, motion.gentleSpring),
     '&:hover': {
-      transform: 'translateY(-2px)',
       boxShadow: (theme: Theme) => theme.palette.mode === 'light' ? '0 16px 36px rgba(15,23,42,0.08)' : '0 18px 42px rgba(0,0,0,0.34)',
       borderColor: 'primary.main',
     },
     '&:active': {
-      transform: 'translateY(0) scale(0.992)',
+      transform: 'scale(0.992)',
       transitionTimingFunction: motion.press,
       transitionDuration: `${motion.durations.instant}ms`,
     },

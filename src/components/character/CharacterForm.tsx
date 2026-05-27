@@ -102,11 +102,13 @@ function buildAvatarOptionSx(selected: boolean) {
       ? (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(49,90,156,0.12)' : 'rgba(120,156,220,0.18)'
       : (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.76)' : 'rgba(255,255,255,0.075)',
     boxShadow: selected ? '0 0 0 1px rgba(49,90,156,0.12) inset' : 'none',
-    transition: 'transform 160ms ease, background-color 160ms ease, border-color 160ms ease',
+    transition: 'background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
     '&:hover': {
-      transform: 'translateY(-1px)',
       borderColor: 'primary.main',
       bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.12)',
+    },
+    '&:active': {
+      transform: 'scale(0.986)',
     },
   };
 }

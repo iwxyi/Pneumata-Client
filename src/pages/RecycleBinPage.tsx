@@ -13,10 +13,22 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import { resolveCharacterOrDeleted } from '../utils/deletedEntity';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
+import { buildListGridSx } from '../styles/interaction';
 
 function OverlayCheckbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
-    <Box sx={{ position: 'absolute', top: 10, right: 10, zIndex: 2, bgcolor: 'background.paper', borderRadius: '50%' }}>
+    <Box sx={{
+      position: 'absolute',
+      top: 10,
+      right: 10,
+      zIndex: 2,
+      bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(18,20,28,0.86)',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)',
+      borderRadius: '50%',
+      boxShadow: checked ? '0 0 0 1px currentColor' : 'none',
+      color: checked ? 'primary.main' : 'text.secondary',
+    }}>
       <Checkbox checked={checked} onChange={onChange} />
     </Box>
   );
@@ -140,7 +152,7 @@ export default function RecycleBinPage() {
   const emptyMessage = i18n.language.startsWith('zh') ? '回收站是空的' : 'Recycle bin is empty';
 
   return (
-    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 } }}>
+    <Box sx={{ containerType: 'inline-size', p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 } }}>
       <Box
         sx={{
           ...buildFloatingTabContainerSx(),
@@ -180,12 +192,12 @@ export default function RecycleBinPage() {
         visibleCharacters.length === 0 ? (
           <EmptyState variant="plain" message={emptyMessage} />
         ) : (
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5, alignItems: 'stretch' }}>
+          <Box sx={buildListGridSx()}>
             {visibleCharacters.map((character) => (
               <Box key={character.id}>
                 <Box sx={{ position: 'relative' }}>
                   <OverlayCheckbox checked={selectedIds.includes(character.id)} onChange={() => toggleSelection(character.id)} />
-                  <CharacterCard character={character} onClick={() => toggleSelection(character.id)} />
+                  <CharacterCard character={character} selected={selectedIds.includes(character.id)} onClick={() => toggleSelection(character.id)} />
                 </Box>
                 <Box sx={{ mt: 0.75, px: 0.5 }}>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
@@ -199,12 +211,12 @@ export default function RecycleBinPage() {
       ) : visibleChats.length === 0 ? (
         <EmptyState variant="plain" message={emptyMessage} />
       ) : (
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5, alignItems: 'stretch' }}>
+        <Box sx={buildListGridSx()}>
           {visibleChats.map((chat) => (
             <Box key={chat.id}>
               <Box sx={{ position: 'relative' }}>
                 <OverlayCheckbox checked={selectedIds.includes(chat.id)} onChange={() => toggleSelection(chat.id)} />
-                <ChatCard chat={chat} characters={recycleCharacters} onClick={() => toggleSelection(chat.id)} />
+                <ChatCard chat={chat} characters={recycleCharacters} selected={selectedIds.includes(chat.id)} onClick={() => toggleSelection(chat.id)} />
               </Box>
               <Box sx={{ mt: 0.75, px: 0.5 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>

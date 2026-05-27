@@ -15,6 +15,7 @@ import CharacterCard from '../components/character/CharacterCard';
 import CharacterGroupFilterBar from '../components/character/CharacterGroupFilterBar';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmptyState from '../components/common/EmptyState';
+import ListSkeletonGrid from '../components/common/ListSkeletonGrid';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import { canDeleteCharacterGroup, getCharacterGroupList, getCharactersInGroup, isPresetCharacterSelectable, normalizeCharacterGroup, getDuplicateCharacterBannerText, getDuplicateCharacterCount } from '../types/character';
@@ -26,6 +27,7 @@ import { useChatStore } from '../stores/useChatStore';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 import type { AICharacter } from '../types/character';
 import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
+import { buildFloatingActionSx, buildListGridSx } from '../styles/interaction';
 
 type CharacterSortField = 'name' | 'createdAt';
 type CharacterSortDirection = 'asc' | 'desc';
@@ -74,7 +76,7 @@ export default function CharacterLibraryPage() {
   const pane = usePaneLayout();
   const isMasterPane = pane.role === 'master';
   const { chats, addChat } = useChatStore();
-  const { characters, loadCharacters, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets } = useCharacterStore();
+  const { characters, loadCharacters, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets, isLoading } = useCharacterStore();
   const [tab, setTab] = useState(() => readPersistentUiValue(CHARACTER_LIBRARY_TAB_KEY, 0, isCharacterLibraryTab));
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
@@ -560,7 +562,9 @@ export default function CharacterLibraryPage() {
       ) : null}
 
       <Box sx={{ pr: 0.5 }}>
-      {displayChars.length === 0 ? (
+      {isLoading && characters.length === 0 ? (
+        <ListSkeletonGrid />
+      ) : displayChars.length === 0 ? (
         <EmptyState
           variant="plain"
           message={tab === 0 ? t('character.empty') : t('common.noData')}
@@ -575,15 +579,7 @@ export default function CharacterLibraryPage() {
       ) : (
         <Box
           sx={{
-            display: 'grid',
-            gridTemplateColumns: '1fr',
-            '@container (min-width: 560px)': {
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-            },
-            '@container (min-width: 900px)': {
-              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-            },
-            gap: 1.5,
+            ...buildListGridSx(),
             alignItems: 'stretch',
           }}
         >
@@ -677,11 +673,7 @@ export default function CharacterLibraryPage() {
         onClick={openCreateForm}
         sx={{
           ...floatingActionPositionSx,
-          zIndex: 1300,
-          minHeight: 56,
-          px: 2.25,
-          borderRadius: 18,
-          boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)',
+          ...buildFloatingActionSx(),
         }}
       >
         {t('character.create')}

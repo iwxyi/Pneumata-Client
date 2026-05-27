@@ -30,6 +30,7 @@ import ManagementSection from '../components/createChat/ManagementSection';
 import MemberSelectionDialog from '../components/createChat/MemberSelectionDialog';
 import { normalizeRuntimeSeedLines } from '../services/runtimeSeed';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
+import { buildInteractiveSurfaceSx } from '../styles/interaction';
 
 const HotTopicDialogContainer = lazy(() => import('../components/createChat/HotTopicDialogContainer'));
 const CHAT_DRAFT_KEY = storageKey('create-chat-draft');
@@ -507,10 +508,12 @@ export default function CreateChatPage() {
   } as const;
 
   const memberOptionSx = (checked: boolean) => ({
-    display: 'flex', alignItems: 'center', gap: 1.25, p: 1.5, borderRadius: 3, border: 1,
-    borderColor: checked ? 'primary.main' : 'divider',
-    bgcolor: checked ? 'primary.light' : 'background.paper',
-    cursor: 'pointer', transition: 'all 0.18s ease', '&:hover': { boxShadow: 1, borderColor: 'primary.main' },
+    ...buildInteractiveSurfaceSx({ selected: checked }),
+    display: 'flex',
+    alignItems: 'center',
+    gap: 1.25,
+    p: 1.5,
+    cursor: 'pointer',
   });
 
   const memberSummaryEmptyLabel = isZh ? '未选择AI角色' : 'No AI roles selected';

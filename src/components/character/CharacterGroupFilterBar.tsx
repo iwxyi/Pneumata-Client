@@ -46,7 +46,6 @@ function buildCharacterGroupChipSx(active: boolean) {
       bgcolor: active ? 'primary.dark' : 'action.hover',
       borderColor: active ? 'primary.dark' : 'primary.main',
       color: active ? 'primary.contrastText' : 'text.primary',
-      transform: 'translateY(-1px)',
     },
     '&:active': {
       transform: 'scale(0.97)',

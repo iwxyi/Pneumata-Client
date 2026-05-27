@@ -11,12 +11,14 @@ import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import ChatCard from '../components/chat/ChatCard';
 import EmptyState from '../components/common/EmptyState';
+import ListSkeletonGrid from '../components/common/ListSkeletonGrid';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import { DETAIL_COLLAPSED_CHANGE_EVENT, DETAIL_COLLAPSED_STORAGE_KEY, readDetailCollapsedState, writeDetailCollapsedState } from '../components/layout/masterDetailState';
 import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
 import { motion, transition } from '../styles/motion';
+import { buildFloatingActionSx, buildListGridSx } from '../styles/interaction';
 
 const CHAT_LIST_TAB_KEY = 'chat-list-tab';
 const isChatListTab = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 2;
@@ -33,7 +35,7 @@ export default function ChatListPage() {
   const isThreeColumn = useMediaQuery('(min-width:1280px)');
   const pane = usePaneLayout();
   const isMasterPane = pane.role === 'master';
-  const { chats, deleteChat, prefetchChats, markChatsWarm } = useChatStore();
+  const { chats, deleteChat, prefetchChats, markChatsWarm, isLoading } = useChatStore();
   const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -249,7 +251,9 @@ export default function ChatListPage() {
         />
       </Stack>
 
-      {visibleChats.length === 0 ? (
+      {isLoading && chats.length === 0 ? (
+        <ListSkeletonGrid />
+      ) : visibleChats.length === 0 ? (
         <EmptyState
           variant="plain"
           message={emptyMessage}
@@ -269,15 +273,7 @@ export default function ChatListPage() {
       ) : (
         <Box
           sx={{
-            display: 'grid',
-            gridTemplateColumns: '1fr',
-            '@container (min-width: 560px)': {
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-            },
-            '@container (min-width: 900px)': {
-              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-            },
-            gap: 1.5,
+            ...buildListGridSx(),
           }}
         >
           {visibleChats.map((chat) => (
@@ -313,13 +309,7 @@ export default function ChatListPage() {
           onClick={() => navigate(createPath)}
           sx={{
             ...floatingActionPositionSx,
-            zIndex: 1300,
-            minHeight: 56,
-            px: 2.25,
-            borderRadius: 999,
-            boxShadow: (theme) => theme.palette.mode === 'light'
-              ? '0 16px 34px rgba(15,23,42,0.18)'
-              : '0 18px 42px rgba(0,0,0,0.40)',
+            ...buildFloatingActionSx(),
           }}
         >
           {createLabel}

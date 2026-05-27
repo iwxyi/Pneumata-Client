@@ -1,5 +1,6 @@
-import { Box, Button, Card, CardContent, FormControlLabel, MenuItem, Stack, Switch, TextField, Typography } from '@mui/material';
+import { Box, Button, FormControlLabel, MenuItem, Stack, Switch, TextField, Typography } from '@mui/material';
 import type { AICharacter } from '../../types/character';
+import SurfaceCard from '../common/SurfaceCard';
 
 interface ManagementSectionProps {
   selectedCharacters: AICharacter[];
@@ -37,14 +38,10 @@ export default function ManagementSection(props: ManagementSectionProps) {
 
   return (
     <Box sx={{ display: 'grid', gap: 2 }}>
-      <Card variant="outlined">
-        <CardContent>
+      <SurfaceCard>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
               {isZh ? '管理设置' : 'Management'}
-            </Typography>
-            <Typography variant="caption" color="warning.main" sx={{ fontWeight: 700, letterSpacing: '0.04em' }}>
-              TODO
             </Typography>
           </Box>
           <Box sx={{ display: 'grid', gap: 2 }}>
@@ -93,11 +90,9 @@ export default function ManagementSection(props: ManagementSectionProps) {
               {isGroup ? <FormControlLabel control={<Switch checked={props.allowPrivateThreads} onChange={(e) => props.onAllowPrivateThreadsChange(e.target.checked)} />} label={isZh ? '允许拉私聊' : 'Allow private threads'} /> : null}
             </Box>
           </Box>
-        </CardContent>
-      </Card>
+      </SurfaceCard>
 
-      <Card variant="outlined">
-        <CardContent>
+      <SurfaceCard>
           <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
             {isZh ? '戏剧规则' : 'Drama'}
           </Typography>
@@ -105,12 +100,10 @@ export default function ManagementSection(props: ManagementSectionProps) {
             <FormControlLabel control={<Switch checked={props.allowCliques} onChange={(e) => props.onAllowCliquesChange(e.target.checked)} />} label={isZh ? '允许小团体' : 'Allow cliques'} />
             <FormControlLabel control={<Switch checked={props.allowMockery} onChange={(e) => props.onAllowMockeryChange(e.target.checked)} />} label={isZh ? '允许公开嘲讽' : 'Allow mockery'} />
           </Box>
-        </CardContent>
-      </Card>
+      </SurfaceCard>
 
       {props.editingChat ? (
-        <Card variant="outlined" sx={{ borderColor: 'error.light', bgcolor: 'rgba(211, 47, 47, 0.04)' }}>
-          <CardContent>
+        <SurfaceCard sx={{ borderColor: 'error.light', bgcolor: 'rgba(211, 47, 47, 0.04)' }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: 'error.main' }}>
               {isZh ? '危险操作' : 'Danger zone'}
             </Typography>
@@ -125,8 +118,7 @@ export default function ManagementSection(props: ManagementSectionProps) {
                 {props.clearMemoryLabel}
               </Button>
             </Stack>
-          </CardContent>
-        </Card>
+        </SurfaceCard>
       ) : null}
     </Box>
   );

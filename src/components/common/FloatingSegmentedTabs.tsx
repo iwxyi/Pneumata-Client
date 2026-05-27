@@ -94,7 +94,6 @@ export default function FloatingSegmentedTabs<T extends string | number>({ value
                 transition: transition(['background-color', 'color', 'opacity', 'box-shadow', 'outline-color', 'transform'], motion.durations.base, selected ? motion.gentleSpring : motion.softOut),
                 '&:hover': {
                   opacity: 1,
-                  transform: 'translateY(-1px)',
                   bgcolor: selected
                     ? (theme) => theme.palette.mode === 'light' ? 'rgba(49,90,156,0.145)' : 'rgba(120,156,220,0.21)'
                     : (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.045)' : 'rgba(226,232,240,0.07)',

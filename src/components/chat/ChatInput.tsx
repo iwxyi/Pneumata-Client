@@ -43,6 +43,7 @@ function clearPanelGestureCss() {
 export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, sendingLabel, onSendError, onOpenPanel }: ChatInputProps) {
   const [text, setText] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
   const { t } = useTranslation();
   const { setRightPanelGestureOffset, setRightPanelGestureDragging } = useUIStore();
   const panelHandleDragRef = useRef<{ startY: number; latestY: number; moved: boolean; lastDirection: 'up' | 'down' | null } | null>(null);
@@ -106,7 +107,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
   }, []);
 
   const startPanelHandleDrag = useCallback((clientY: number) => {
-    if (!onOpenPanel || inputHasTextSelection()) {
+    if (!onOpenPanel || inputFocused || inputHasTextSelection()) {
       panelHandleDragRef.current = null;
       return;
     }
@@ -120,7 +121,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     }
     pendingPanelOffsetRef.current = null;
     panelHandleDragRef.current = { startY: clientY, latestY: clientY, moved: false, lastDirection: null };
-  }, [inputHasTextSelection, onOpenPanel]);
+  }, [inputFocused, inputHasTextSelection, onOpenPanel]);
 
   const updatePanelHandleDrag = useCallback((clientY: number) => {
     const state = panelHandleDragRef.current;
@@ -276,6 +277,8 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
           disabled={isSending}
           inputRef={textInputRef}
           sx={{

@@ -4,8 +4,6 @@ import {
   Avatar,
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
   FormControlLabel,
   IconButton,
@@ -19,6 +17,7 @@ import { CHAT_STYLE_OPTIONS, MAX_MEMBERS } from '../../constants/defaults';
 import type { AICharacter } from '../../types/character';
 import type { ChatStyle } from '../../types/chat';
 import { isImageAvatar } from '../../utils/avatar';
+import SurfaceCard from '../common/SurfaceCard';
 
 interface ChatConfigSectionProps {
   lockMembers?: boolean;
@@ -54,8 +53,7 @@ interface ChatConfigSectionProps {
 export default function ChatConfigSection(props: ChatConfigSectionProps) {
   return (
     <Stack spacing={2}>
-      <Card variant="outlined">
-        <CardContent>
+      <SurfaceCard>
           {props.showMembers === false ? null : (
             <TextField
               label={props.nameLabel}
@@ -92,11 +90,9 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
             multiline
             rows={2}
           />
-        </CardContent>
-      </Card>
+      </SurfaceCard>
 
-      <Card variant="outlined">
-        <CardContent>
+      <SurfaceCard>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1.5 }}>
             <Box>
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
@@ -130,11 +126,9 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
               {props.memberSummaryEmptyLabel}
             </Box>
           )}
-        </CardContent>
-      </Card>
+      </SurfaceCard>
 
-      <Card variant="outlined">
-        <CardContent>
+      <SurfaceCard>
           <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
             {props.styleLabel}
           </Typography>
@@ -150,17 +144,14 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
               </Button>
             ))}
           </Box>
-        </CardContent>
-      </Card>
+      </SurfaceCard>
 
-      <Card variant="outlined">
-        <CardContent>
+      <SurfaceCard contentSx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
           <FormControlLabel
             control={<Switch checked={props.showRoleActions} onChange={(e) => props.onShowRoleActionsChange(e.target.checked)} />}
             label={props.showRoleActionsLabel}
           />
-        </CardContent>
-      </Card>
+      </SurfaceCard>
     </Stack>
   );
 }

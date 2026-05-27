@@ -7,6 +7,7 @@ import type { AICharacter } from '../../types/character';
 import { useTranslation } from 'react-i18next';
 import { formatExpertiseList } from '../../utils/expertise';
 import { motion, transition } from '../../styles/motion';
+import { buildInteractiveSurfaceSx, buildSelectionRailSx } from '../../styles/interaction';
 
 interface CharacterCardProps {
   character: AICharacter;
@@ -100,25 +101,11 @@ export default function CharacterCard({ character, onEdit, onDelete, onStartDire
     <Card
       variant="outlined"
       sx={{
+        ...buildInteractiveSurfaceSx({ selected: Boolean(selected) }),
         height: '100%',
-        borderRadius: 1,
-        borderColor: selected
-          ? 'primary.main'
-          : (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
-        borderWidth: selected ? 2 : 1,
-        bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.76)' : 'rgba(18,20,28,0.78)',
-        backdropFilter: 'blur(14px)',
-        WebkitBackdropFilter: 'blur(14px)',
-        transition: transition(['transform', 'box-shadow', 'border-color', 'background-color'], motion.durations.base, motion.gentleSpring),
-        '&:hover': {
-          transform: 'translateY(-2px)',
-          boxShadow: (theme) => theme.palette.mode === 'light' ? '0 18px 40px rgba(15,23,42,0.09)' : '0 18px 42px rgba(0,0,0,0.34)',
-          borderColor: 'primary.main',
-        },
-        '&:active': {
-          transform: 'translateY(0) scale(0.994)',
-          transitionTimingFunction: motion.press,
-          transitionDuration: `${motion.durations.instant}ms`,
+        overflow: 'hidden',
+        '&::before': {
+          ...buildSelectionRailSx(Boolean(selected)),
         },
       }}
     >
@@ -162,9 +149,6 @@ export default function CharacterCard({ character, onEdit, onDelete, onStartDire
           disabled={!onClick && !selectable}
           sx={{
             height: '100%',
-            '& .MuiCardActionArea-focusHighlight': {
-              display: 'none',
-            },
           }}
         >
           <CardContent sx={{ p: 2, pr: (onEdit || onDelete) ? 6 : 2, height: '100%', '&:last-child': { pb: 2 } }}>

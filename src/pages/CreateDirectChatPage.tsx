@@ -8,8 +8,10 @@ import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
 import CharacterGroupFilterBar from '../components/character/CharacterGroupFilterBar';
+import EmptyState from '../components/common/EmptyState';
 import { getCharacterGroupList, isCharacterInGroup, normalizeCharacterGroup } from '../types/character';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
+import { buildInteractiveSurfaceSx, buildListGridSx } from '../styles/interaction';
 
 export default function CreateDirectChatPage() {
   const navigate = useNavigate();
@@ -60,13 +62,14 @@ export default function CreateDirectChatPage() {
   };
 
   return (
-    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 12, sm: 8 }, maxWidth: 860, mx: 'auto' }}>
+    <Box sx={{ containerType: 'inline-size', p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 12, sm: 8 }, maxWidth: 860, mx: 'auto' }}>
       <Box
         sx={{
           position: 'sticky',
-          top: 0,
-          zIndex: 2,
-          pb: 2,
+          top: 'var(--app-floating-tab-top, 12px)',
+          zIndex: 8,
+          mb: 2,
+          pb: 1.25,
           pt: 0.25,
           bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(245,245,247,0.78)' : 'rgba(10,10,15,0.78)',
           backdropFilter: 'blur(18px) saturate(1.12)',
@@ -109,50 +112,46 @@ export default function CreateDirectChatPage() {
         />
       </Box>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5, pt: 0.5 }}>
-        {customCharacters.map((character) => (
-          <Box
-            key={character.id}
-            onClick={() => navigate(`/characters/${character.id}/edit?returnTo=${encodeURIComponent('/direct/create')}`)}
-            sx={{
-              p: { xs: 1.35, sm: 1.5 },
-              border: '1px solid',
-              borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
-              borderRadius: 1,
-              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(18,20,28,0.72)',
-              backdropFilter: 'blur(14px)',
-              WebkitBackdropFilter: 'blur(14px)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.25,
-              cursor: 'pointer',
-              transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
-              '&:hover': {
-                transform: 'translateY(-2px)',
-                boxShadow: (theme) => theme.palette.mode === 'light' ? '0 18px 40px rgba(15,23,42,0.09)' : '0 18px 42px rgba(0,0,0,0.34)',
-                borderColor: 'primary.main',
-              },
-            }}
-          >
-            <Avatar src={isImageAvatar(character.avatar) ? character.avatar : undefined} sx={{ width: 44, height: 44, bgcolor: 'primary.light' }}>{isImageAvatar(character.avatar) ? undefined : character.avatar}</Avatar>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>{character.name}</Typography>
-              {character.group ? <Typography variant="caption" color="text.secondary" noWrap>{character.group}</Typography> : null}
-            </Box>
-            <IconButton
-              color="primary"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCreate(character.id, character.name);
+      {customCharacters.length === 0 ? (
+        <EmptyState
+          variant="plain"
+          message={search || selectedGroup ? '没有匹配的角色' : '暂无可发起单聊的角色'}
+        />
+      ) : (
+        <Box sx={{ ...buildListGridSx(), pt: 0.5 }}>
+          {customCharacters.map((character) => (
+            <Box
+              key={character.id}
+              onClick={() => navigate(`/characters/${character.id}/edit?returnTo=${encodeURIComponent('/direct/create')}`)}
+              sx={{
+                ...buildInteractiveSurfaceSx(),
+                p: { xs: 1.35, sm: 1.5 },
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.25,
+                cursor: 'pointer',
               }}
-              disabled={creatingId === character.id}
-              aria-label="开始单聊"
             >
-              <ChatIcon />
-            </IconButton>
-          </Box>
-        ))}
-      </Box>
+              <Avatar src={isImageAvatar(character.avatar) ? character.avatar : undefined} sx={{ width: 44, height: 44, bgcolor: 'primary.light' }}>{isImageAvatar(character.avatar) ? undefined : character.avatar}</Avatar>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>{character.name}</Typography>
+                {character.group ? <Typography variant="caption" color="text.secondary" noWrap>{character.group}</Typography> : null}
+              </Box>
+              <IconButton
+                color="primary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCreate(character.id, character.name);
+                }}
+                disabled={creatingId === character.id}
+                aria-label="开始单聊"
+              >
+                <ChatIcon />
+              </IconButton>
+            </Box>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }
