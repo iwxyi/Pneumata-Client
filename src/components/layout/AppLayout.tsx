@@ -50,7 +50,7 @@ function buildTopBarGlassSx(isFloating = false) {
     boxShadow: (theme: Theme) => theme.palette.mode === 'light'
       ? '0 1px 0 rgba(255,255,255,0.34) inset, 0 8px 18px rgba(15,23,42,0.010)'
       : '0 1px 0 rgba(255,255,255,0.05) inset, 0 10px 22px rgba(0,0,0,0.10)',
-    transition: 'background-color 180ms ease, backdrop-filter 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
+    transition: 'transform 260ms cubic-bezier(0.2, 0, 0, 1), background-color 180ms ease, backdrop-filter 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
     '&::after': {
       content: '""',
       position: 'absolute',
@@ -82,11 +82,17 @@ export default function AppLayout() {
   const [headerTitle, setHeaderTitle] = React.useState<ReactNode | null>(null);
   const [headerBackAction, setHeaderBackAction] = React.useState<(() => void) | null>(null);
   const [hideMobileBottomNav, setHideMobileBottomNav] = React.useState(false);
+  const scrollContainerRef = React.useRef<HTMLDivElement | null>(null);
+  const lastScrollTopRef = React.useRef(0);
+  const [headerHidden, setHeaderHidden] = React.useState(false);
   const effectiveHeaderTitle = headerTitle ?? currentTitle;
   const showMobileTopBar = shouldShowMenuButton;
   const showDesktopTopBar = !shouldShowMenuButton;
   const mainPaddingBottom = 0;
   const isChatDetailRoute = /^\/chats\/[^/]+$/.test(location.pathname);
+  const headerOffset = isChatDetailRoute ? 0 : showMobileTopBar ? 65 : showDesktopTopBar ? 49 : 0;
+  const effectiveHeaderHidden = headerHidden && !isChatDetailRoute && !sidebarOpen;
+  const floatingTabTopOffset = effectiveHeaderHidden ? 10 : headerOffset + 10;
   const handleHeaderLeadingAction = () => {
     if (headerBackAction) {
       headerBackAction();
@@ -95,11 +101,33 @@ export default function AppLayout() {
     setSidebarOpen(true);
   };
 
+  React.useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (container) container.scrollTop = 0;
+    lastScrollTopRef.current = 0;
+    setHeaderHidden(false);
+  }, [location.pathname]);
+
+  const handleMainScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    if (isChatDetailRoute || sidebarOpen) return;
+    const nextTop = event.currentTarget.scrollTop;
+    const previousTop = lastScrollTopRef.current;
+    const delta = nextTop - previousTop;
+    lastScrollTopRef.current = nextTop;
+    if (nextTop < 28) {
+      setHeaderHidden(false);
+      return;
+    }
+    if (Math.abs(delta) < 8) return;
+    setHeaderHidden(delta > 0);
+  };
+
   const mobileHeader = (
     <Box
       sx={{
         ...buildTopBarGlassSx(false),
         zIndex: sidebarOpen ? 1099 : 1199,
+        transform: effectiveHeaderHidden ? 'translateY(-100%)' : 'translateY(0)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -155,7 +183,7 @@ export default function AppLayout() {
   );
 
   const desktopHeader = (
-    <Box sx={{ ...buildTopBarGlassSx(false), display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 3, py: 1, gap: 2 }}>
+    <Box sx={{ ...buildTopBarGlassSx(false), transform: effectiveHeaderHidden ? 'translateY(-100%)' : 'translateY(0)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 3, py: 1, gap: 2 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
         {headerBackAction ? (
           <IconButton
@@ -252,13 +280,27 @@ export default function AppLayout() {
           {showMobileTopBar ? mobileHeader : null}
           {showDesktopTopBar ? desktopHeader : null}
 
-          <Box sx={{
-            flex: 1,
-            minHeight: 0,
-            overflow: 'auto',
-            pt: isChatDetailRoute ? 0 : showMobileTopBar ? '65px' : showDesktopTopBar ? '49px' : 0,
-          }}>
-            <Outlet />
+          <Box
+            ref={scrollContainerRef}
+            onScroll={handleMainScroll}
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: isChatDetailRoute ? 'hidden' : 'auto',
+              scrollbarGutter: isChatDetailRoute ? 'auto' : 'stable',
+              '--app-floating-tab-top': `${floatingTabTopOffset}px`,
+            }}
+          >
+            {headerOffset ? <Box aria-hidden sx={{ height: `${headerOffset}px`, flexShrink: 0, pointerEvents: 'none' }} /> : null}
+            <Box
+              sx={isChatDetailRoute
+                ? { flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }
+                : { flex: '0 0 auto' }}
+            >
+              <Outlet />
+            </Box>
           </Box>
 
           {isMobile && !hideMobileBottomNav ? (

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
-import { Box, TextField, Button, InputAdornment, Tabs, Tab, Stack, IconButton, Tooltip, Collapse } from '@mui/material';
-import type { Theme } from '@mui/material/styles';
+import { Box, TextField, Button, InputAdornment, Stack, IconButton, Tooltip, Collapse } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
@@ -12,36 +11,11 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import ChatCard from '../components/chat/ChatCard';
 import EmptyState from '../components/common/EmptyState';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
+import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
 
-function buildChatTabsSx() {
-  return {
-    minHeight: 40,
-    borderBottom: '1px solid',
-    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
-    '& .MuiTabs-indicator': {
-      height: 2,
-      borderRadius: 999,
-      backgroundColor: 'primary.main',
-    },
-    '& .MuiTabs-flexContainer': { gap: { xs: 0.25, sm: 1 } },
-    '& .MuiTab-root': {
-      minHeight: 40,
-      minWidth: 0,
-      px: { xs: 0.75, sm: 1.5 },
-      fontWeight: 720,
-      fontSize: { xs: '0.83rem', sm: '0.9rem' },
-      letterSpacing: 0,
-      color: 'text.secondary',
-      whiteSpace: 'nowrap',
-      transition: 'color 180ms ease, opacity 180ms ease',
-      opacity: 0.78,
-    },
-    '& .MuiTab-root.Mui-selected': {
-      color: 'text.primary',
-      opacity: 1,
-    },
-  };
-}
+const CHAT_LIST_TAB_KEY = 'chat-list-tab';
+const isChatListTab = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 2;
 
 export default function ChatListPage() {
   const { t } = useTranslation();
@@ -56,7 +30,7 @@ export default function ChatListPage() {
     const params = new URLSearchParams(location.search);
     const tabParam = params.get('tab');
     const parsed = Number(tabParam);
-    return Number.isInteger(parsed) && parsed >= 0 && parsed <= 2 ? parsed : 0;
+    return tabParam != null && isChatListTab(parsed) ? parsed : readPersistentUiValue(CHAT_LIST_TAB_KEY, 0, isChatListTab);
   }, [location.search]);
   const [tab, setTab] = useState(initialTab);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -121,6 +95,7 @@ export default function ChatListPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    writePersistentUiValue(CHAT_LIST_TAB_KEY, tab);
     if (String(tab) === params.get('tab')) return;
     params.set('tab', String(tab));
     navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
@@ -142,8 +117,11 @@ export default function ChatListPage() {
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 12 } }}>
-      <Stack spacing={1.25} sx={{ mb: 2 }}>
-        <Collapse in={searchOpen} timeout={220} unmountOnExit>
+      <Stack
+        spacing={1.25}
+        sx={buildFloatingTabContainerSx()}
+      >
+        <Collapse in={searchOpen} timeout={220} unmountOnExit sx={{ width: { xs: '100%', sm: 420 }, maxWidth: '100%' }}>
           <TextField
             fullWidth
             size="small"
@@ -178,18 +156,20 @@ export default function ChatListPage() {
           />
         </Collapse>
 
-        <Box sx={{ px: { xs: 0, sm: 0.25 } }}>
-          <Tabs value={tab} onChange={(_, value) => setTab(value)} variant="fullWidth" sx={buildChatTabsSx()}>
-            <Tab label={`群聊 ${groupedChats.length}`} />
-            <Tab label={`单聊 ${userDirectChats.length}`} />
-            <Tab label={`AI私聊 ${privateChats.length}`} />
-          </Tabs>
-        </Box>
+        <FloatingSegmentedTabs
+          value={tab}
+          onChange={setTab}
+          items={[
+            { value: 0, label: `群聊 ${groupedChats.length}` },
+            { value: 1, label: `单聊 ${userDirectChats.length}` },
+            { value: 2, label: `AI私聊 ${privateChats.length}` },
+          ]}
+        />
       </Stack>
 
       {visibleChats.length === 0 ? (
         <EmptyState
-          icon={tab === 0 ? '💬' : tab === 1 ? '🫖' : '🤫'}
+          variant="plain"
           message={emptyMessage}
           action={
             showDirectCreate ? (

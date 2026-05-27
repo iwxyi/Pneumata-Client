@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Badge, Box, Button, Card, CardContent, Chip, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, Tabs, Tab, Typography } from '@mui/material';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { TouchEvent } from 'react';
+import { Badge, Box, Button, Card, CardContent, Chip, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
@@ -13,8 +15,19 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import MarkdownText from '../components/common/MarkdownText';
 import PaperSurface from '../components/common/PaperSurface';
 import type { PaperSurfaceVariant } from '../types/artifactAppearance';
+import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
+import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
 
 type LettersTab = 'letters' | 'diary';
+const LETTERS_TAB_KEY = 'letters-tab';
+const isLettersTab = (value: unknown): value is LettersTab => value === 'letters' || value === 'diary';
+type ReaderSwipeState = {
+  startX: number;
+  startY: number;
+  latestX: number;
+  latestY: number;
+  startedOnInteractive: boolean;
+};
 
 function getEntryDateKey(item: CharacterArtifactEntry) {
   if (item.dateKey) return item.dateKey;
@@ -84,6 +97,43 @@ function buildCharacterOptions(items: CharacterArtifactEntry[], nameMap: Map<str
   ];
 }
 
+function buildFloatingNavButtonSx(side: 'left' | 'right') {
+  return {
+    position: 'fixed',
+    [side]: { xs: 8, sm: 14, lg: 20 },
+    top: '50vh',
+    transform: 'translateY(-50%)',
+    zIndex: 1200,
+    width: { xs: 34, sm: 40 },
+    height: { xs: 34, sm: 40 },
+    color: 'text.primary',
+    bgcolor: 'transparent',
+    border: '1px solid',
+    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.18)' : 'rgba(226,232,240,0.24)',
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    boxShadow: 'none',
+    opacity: { xs: 0.36, sm: 0.72 },
+    transition: 'background-color 160ms ease, box-shadow 160ms ease, border-color 160ms ease, transform 160ms ease',
+    '&:hover, &:active': {
+      opacity: 1,
+      bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(15,18,26,0.64)',
+      borderColor: 'primary.main',
+      boxShadow: (theme: Theme) => theme.palette.mode === 'light' ? '0 12px 30px rgba(15,23,42,0.13)' : '0 12px 32px rgba(0,0,0,0.34)',
+      transform: 'translateY(-50%) scale(1.03)',
+    },
+    '&.Mui-disabled': {
+      opacity: 0.28,
+      bgcolor: 'transparent',
+      borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.12)' : 'rgba(226,232,240,0.14)',
+    },
+  } as const;
+}
+
+function startedOnInteractiveElement(target: EventTarget | null) {
+  return target instanceof HTMLElement && Boolean(target.closest('button, a, input, textarea, select, [role="button"], [contenteditable="true"]'));
+}
+
 function ArtifactCalendarReader({
   items,
   tab,
@@ -104,6 +154,7 @@ function ArtifactCalendarReader({
   const selectedDate = selectedItem ? parseDateKey(getEntryDateKey(selectedItem)) : null;
   const [visibleMonth, setVisibleMonth] = useState(() => selectedDate || new Date());
   const [calendarExpanded, setCalendarExpanded] = useState(true);
+  const swipeRef = useRef<ReaderSwipeState | null>(null);
   const currentMonthKey = toMonthKey(visibleMonth);
   const monthLabel = visibleMonth.toLocaleDateString(isZh ? 'zh-CN' : 'en-US', { year: 'numeric', month: 'long' });
   const weekdays = isZh ? ['一', '二', '三', '四', '五', '六', '日'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -145,9 +196,44 @@ function ArtifactCalendarReader({
     if (next) selectItem(next);
   };
 
+  const handleReaderTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 1) {
+      swipeRef.current = null;
+      return;
+    }
+    const touch = event.touches[0];
+    swipeRef.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      latestX: touch.clientX,
+      latestY: touch.clientY,
+      startedOnInteractive: startedOnInteractiveElement(event.target),
+    };
+  };
+
+  const handleReaderTouchMove = (event: TouchEvent<HTMLDivElement>) => {
+    const swipe = swipeRef.current;
+    if (!swipe || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    swipe.latestX = touch.clientX;
+    swipe.latestY = touch.clientY;
+  };
+
+  const handleReaderTouchEnd = () => {
+    const swipe = swipeRef.current;
+    swipeRef.current = null;
+    if (!swipe || swipe.startedOnInteractive) return;
+    const dx = swipe.latestX - swipe.startX;
+    const dy = swipe.latestY - swipe.startY;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    if (absX < 48 || absX < absY * 1.35) return;
+    goToItem(dx > 0 ? 1 : -1);
+  };
+
   if (!items.length) {
     return (
-      <Box sx={{ px: { xs: 4.5, sm: 6, lg: 7 } }}>
+      <Box>
         <PaperSurface variant={paperVariant} minHeight={220}>
           <Box className="paper-surface-content" sx={{ maxWidth: 560 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 850 }}>
@@ -168,7 +254,7 @@ function ArtifactCalendarReader({
 
   return (
     <Stack spacing={1.5}>
-      <Box sx={{ px: { xs: 4.5, sm: 6, lg: 7 } }}>
+      <Box>
         <Card variant="outlined" sx={{ borderRadius: 3 }}>
           <CardContent sx={{ display: 'grid', gap: 1, p: 1.25, '&:last-child': { pb: 1.25 } }}>
             <Box sx={{ display: 'grid', gridTemplateColumns: '36px minmax(0, 1fr) 36px auto', alignItems: 'center', gap: 0.5 }}>
@@ -229,7 +315,13 @@ function ArtifactCalendarReader({
         </Card>
       </Box>
 
-      <Box sx={{ position: 'relative', minHeight: 260, px: { xs: 4.5, sm: 6, lg: 7 } }}>
+      <Box
+        onTouchStart={handleReaderTouchStart}
+        onTouchMove={handleReaderTouchMove}
+        onTouchEnd={handleReaderTouchEnd}
+        onTouchCancel={() => { swipeRef.current = null; }}
+        sx={{ position: 'relative', minHeight: 260, touchAction: 'pan-y pinch-zoom' }}
+      >
         <PaperSurface variant={paperVariant} minHeight={260} sx={selectedItem?.unread ? { outline: '1px solid rgba(244, 67, 54, 0.18)' } : undefined}>
             <Box className="paper-surface-content" sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'flex-start', mb: 0.5 }}>
               <Box sx={{ minWidth: 0 }}>
@@ -244,10 +336,10 @@ function ArtifactCalendarReader({
               <MarkdownText text={selectedItem?.text || ''} />
             </Box>
         </PaperSurface>
-        <IconButton onClick={() => goToItem(1)} disabled={selectedIndex < 0 || selectedIndex >= items.length - 1} aria-label={isZh ? '上一项' : 'Previous'} sx={{ position: 'fixed', left: { xs: 10, sm: 18, lg: 28 }, top: '50vh', transform: 'translateY(-50%)', zIndex: 1200, bgcolor: 'rgba(255,255,255,0.78)', boxShadow: 2, '&:hover': { bgcolor: 'rgba(255,255,255,0.92)' } }}>
+        <IconButton onClick={() => goToItem(1)} disabled={selectedIndex < 0 || selectedIndex >= items.length - 1} aria-label={isZh ? '上一项' : 'Previous'} sx={buildFloatingNavButtonSx('left')}>
           <ChevronLeftIcon />
         </IconButton>
-        <IconButton onClick={() => goToItem(-1)} disabled={selectedIndex <= 0} aria-label={isZh ? '下一项' : 'Next'} sx={{ position: 'fixed', right: { xs: 10, sm: 18, lg: 28 }, top: '50vh', transform: 'translateY(-50%)', zIndex: 1200, bgcolor: 'rgba(255,255,255,0.78)', boxShadow: 2, '&:hover': { bgcolor: 'rgba(255,255,255,0.92)' } }}>
+        <IconButton onClick={() => goToItem(-1)} disabled={selectedIndex <= 0} aria-label={isZh ? '下一项' : 'Next'} sx={buildFloatingNavButtonSx('right')}>
           <ChevronRightIcon />
         </IconButton>
       </Box>
@@ -263,7 +355,7 @@ export default function LettersPage() {
   const unreadLetterCount = useCharacterArtifactStore((state) => state.unreadLetterCount);
   const markLettersRead = useCharacterArtifactStore((state) => state.markLettersRead);
   const paperVariant = useSettingsStore((state) => state.artifactAppearance.paperVariant);
-  const [tab, setTab] = useState<LettersTab>('letters');
+  const [tab, setTab] = useState<LettersTab>(() => readPersistentUiValue(LETTERS_TAB_KEY, 'letters', isLettersTab));
   const [characterFilter, setCharacterFilter] = useState('all');
 
   useEffect(() => {
@@ -287,6 +379,7 @@ export default function LettersPage() {
 
   useEffect(() => {
     setCharacterFilter('all');
+    writePersistentUiValue(LETTERS_TAB_KEY, tab);
   }, [tab]);
 
   useEffect(() => {
@@ -296,51 +389,68 @@ export default function LettersPage() {
   }, [characterFilter, characterOptions]);
 
   return (
-    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 1100, mx: 'auto' }}>
+    <Box
+      sx={{
+        p: 3,
+        pt: { xs: 1, sm: 1, md: 3 },
+        pb: { xs: 'calc(96px + env(safe-area-inset-bottom, 0px))', sm: 3 },
+        width: '100%',
+        maxWidth: 1100,
+        mx: 'auto',
+      }}
+    >
       <Stack spacing={2}>
-        <Box sx={{ px: { xs: 0, sm: 6, lg: 7 } }}>
+        <Box
+          sx={{ ...buildFloatingTabContainerSx(), alignItems: 'stretch' }}
+        >
           <Box
             sx={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
+              justifyContent: 'flex-start',
               gap: { xs: 1.25, sm: 2 },
               minWidth: 0,
+              width: '100%',
             }}
           >
-            <Tabs
+            <FloatingSegmentedTabs
               value={tab}
-              onChange={(_, value) => setTab(value)}
-              variant="standard"
-              scrollButtons={false}
-              sx={{
-                minWidth: 0,
-                flex: '0 1 auto',
-                '& .MuiTabs-scroller': { minWidth: 0 },
-                '& .MuiTabs-flexContainer': { gap: 0.2 },
-                '& .MuiTab-root': {
-                  minWidth: 0,
-                  minHeight: { xs: 38, sm: 48 },
-                  px: { xs: 0.85, sm: 1.75 },
-                  fontSize: { xs: '0.76rem', sm: '0.875rem' },
-                  whiteSpace: 'nowrap',
+              onChange={setTab}
+              items={[
+                {
+                  value: 'letters',
+                  label: (
+                    <Badge badgeContent={unreadLetterCount} color="error" max={99}>
+                      <span>{i18n.language.startsWith('zh') ? '信件' : 'Letters'}</span>
+                    </Badge>
+                  ),
                 },
-              }}
-            >
-              <Tab value="letters" label={(
-                <Badge badgeContent={unreadLetterCount} color="error" max={99}>
-                  <span>{i18n.language.startsWith('zh') ? '信件' : 'Letters'}</span>
-                </Badge>
-              )} />
-              <Tab value="diary" label={i18n.language.startsWith('zh') ? '日记' : 'Diary'} />
-            </Tabs>
+                { value: 'diary', label: i18n.language.startsWith('zh') ? '日记' : 'Diary' },
+              ]}
+            />
             <FormControl
               size="small"
               sx={{
+                ml: 'auto',
                 flex: '0 1 auto',
                 width: { xs: 'clamp(112px, 34vw, 152px)', sm: 'clamp(150px, 24vw, 220px)' },
                 minWidth: { xs: 112, sm: 150 },
                 maxWidth: { xs: 152, sm: 220 },
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: '14px',
+                  bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.64)' : 'rgba(16,18,26,0.58)',
+                  backdropFilter: 'blur(18px) saturate(1.05)',
+                  WebkitBackdropFilter: 'blur(18px) saturate(1.05)',
+                  boxShadow: (theme: Theme) => theme.palette.mode === 'light'
+                    ? '0 10px 24px rgba(15,23,42,0.06), 0 1px 0 rgba(255,255,255,0.7) inset'
+                    : '0 12px 28px rgba(0,0,0,0.22), 0 1px 0 rgba(255,255,255,0.05) inset',
+                },
+                '& .MuiOutlinedInput-notchedOutline': {
+                  borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.11)' : 'rgba(226,232,240,0.12)',
+                },
+                '& .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline': {
+                  borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(49,90,156,0.34)' : 'rgba(120,156,220,0.28)',
+                },
               }}
             >
               <InputLabel>{i18n.language.startsWith('zh') ? '角色' : 'Character'}</InputLabel>

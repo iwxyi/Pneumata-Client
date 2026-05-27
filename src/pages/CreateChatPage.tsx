@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react'
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import {
   Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  Snackbar, Alert, Tabs, Tab,
+  Snackbar, Alert,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -29,6 +29,7 @@ import ChatConfigSection from '../components/createChat/ChatConfigSection';
 import ManagementSection from '../components/createChat/ManagementSection';
 import MemberSelectionDialog from '../components/createChat/MemberSelectionDialog';
 import { normalizeRuntimeSeedLines } from '../services/runtimeSeed';
+import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 
 const HotTopicDialogContainer = lazy(() => import('../components/createChat/HotTopicDialogContainer'));
 const CHAT_DRAFT_KEY = storageKey('create-chat-draft');
@@ -695,25 +696,21 @@ export default function CreateChatPage() {
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 18, sm: 14, md: 10 }, maxWidth: 860, mx: 'auto' }}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <Tabs
-          value={configTab}
-          onChange={handleTabChange}
-          variant="fullWidth"
-          sx={{
-            '& .MuiTab-root': {
-              minWidth: 0,
-              px: { xs: 0.65, sm: 1.25 },
-              fontSize: { xs: '0.78rem', sm: '0.875rem' },
-              whiteSpace: 'nowrap',
-            },
-          }}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: { xs: 1.5, sm: 2 } }}>
+        <Box
+          sx={{ ...buildFloatingTabContainerSx(), mb: 0 }}
         >
-          <Tab value={0} label={i18n.language.startsWith('zh') ? '设定' : 'Config'} />
-          {showManagementTab ? <Tab value={1} label={i18n.language.startsWith('zh') ? '管理' : 'Management'} /> : null}
-          {showRuntimeTab ? <Tab value={runtimeTabIndex} label={i18n.language.startsWith('zh') ? '记忆' : 'Memory'} /> : null}
-          {showDirectorTab ? <Tab value={directorTabIndex} label={i18n.language.startsWith('zh') ? '导演控制' : 'Director'} /> : null}
-        </Tabs>
+          <FloatingSegmentedTabs
+            value={configTab}
+            onChange={(value) => handleTabChange(null, value)}
+            items={[
+              { value: 0, label: i18n.language.startsWith('zh') ? '设定' : 'Config' },
+              ...(showManagementTab ? [{ value: 1, label: i18n.language.startsWith('zh') ? '管理' : 'Management' }] : []),
+              ...(showRuntimeTab ? [{ value: runtimeTabIndex, label: i18n.language.startsWith('zh') ? '记忆' : 'Memory' }] : []),
+              ...(showDirectorTab ? [{ value: directorTabIndex, label: i18n.language.startsWith('zh') ? '导演控制' : 'Director' }] : []),
+            ]}
+          />
+        </Box>
 
         {configTab === 0 ? (
           <>

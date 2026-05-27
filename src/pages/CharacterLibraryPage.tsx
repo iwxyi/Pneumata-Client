@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
-import { Box, Button, Tabs, Tab, Snackbar, Alert, IconButton, Menu, MenuItem, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Typography, Divider, Tooltip } from '@mui/material';
+import { Box, Button, Snackbar, Alert, IconButton, Menu, MenuItem, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Typography, Divider, Tooltip } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import MoreIcon from '@mui/icons-material/MoreVert';
@@ -14,6 +14,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import CharacterCard from '../components/character/CharacterCard';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmptyState from '../components/common/EmptyState';
+import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import { canDeleteCharacterGroup, getCharacterGroupList, getCharactersInGroup, isPresetCharacterSelectable, normalizeCharacterGroup, getDuplicateCharacterBannerText, getDuplicateCharacterCount } from '../types/character';
 import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
 import { generateCharacterProfile } from '../services/characterGenerator';
@@ -22,9 +23,12 @@ import { getPreferredAIProfile } from '../types/settings';
 import { useChatStore } from '../stores/useChatStore';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 import type { AICharacter } from '../types/character';
+import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
 
 type CharacterSortField = 'name' | 'createdAt';
 type CharacterSortDirection = 'asc' | 'desc';
+const CHARACTER_LIBRARY_TAB_KEY = 'character-library-tab';
+const isCharacterLibraryTab = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 1;
 
 function compareCharacterByField(a: AICharacter, b: AICharacter, field: CharacterSortField) {
   if (field === 'createdAt') {
@@ -55,40 +59,10 @@ function sortCharactersForLibrary(
   });
 }
 
-function buildLibraryTabsSx() {
-  return {
-    minHeight: 40,
-    borderBottom: '1px solid',
-    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
-    '& .MuiTabs-indicator': {
-      height: 2,
-      borderRadius: 999,
-      backgroundColor: 'primary.main',
-    },
-    '& .MuiTabs-flexContainer': { gap: { xs: 0.25, sm: 1 } },
-    '& .MuiTab-root': {
-      minHeight: 40,
-      minWidth: 0,
-      px: { xs: 0.75, sm: 1.5 },
-      fontWeight: 720,
-      fontSize: { xs: '0.83rem', sm: '0.9rem' },
-      letterSpacing: 0,
-      color: 'text.secondary',
-      whiteSpace: 'nowrap',
-      transition: 'color 180ms ease, opacity 180ms ease',
-      opacity: 0.78,
-    },
-    '& .MuiTab-root.Mui-selected': {
-      color: 'text.primary',
-      opacity: 1,
-    },
-  };
-}
-
 function buildGroupChipSx(active: boolean) {
   return {
     height: 30,
-    borderRadius: 1,
+    borderRadius: 999,
     fontWeight: active ? 720 : 560,
     bgcolor: active ? 'primary.main' : 'transparent',
     borderColor: active ? 'primary.main' : 'divider',
@@ -119,7 +93,7 @@ export default function CharacterLibraryPage() {
   const settings = useSettingsStore();
   const { chats, addChat } = useChatStore();
   const { characters, loadCharacters, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets } = useCharacterStore();
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState(() => readPersistentUiValue(CHARACTER_LIBRARY_TAB_KEY, 0, isCharacterLibraryTab));
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [selectionMode, setSelectionMode] = useState(false);
@@ -153,6 +127,10 @@ export default function CharacterLibraryPage() {
         setLoadError(error instanceof Error ? error.message : (i18n.language.startsWith('zh') ? '角色加载失败' : 'Failed to load characters'));
       });
   }, [i18n.language, initializePresets, loadCharacters]);
+
+  useEffect(() => {
+    writePersistentUiValue(CHARACTER_LIBRARY_TAB_KEY, tab);
+  }, [tab]);
 
 
   const presets = characters.filter((c) => c.isPreset);
@@ -502,14 +480,19 @@ export default function CharacterLibraryPage() {
   };
 
   return (
-    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: 0, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <Box sx={{ flexShrink: 0 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2 }}>
-          <Tabs value={tab} onChange={(_, v) => { setTab(v); resetSelection(); }} sx={{ minWidth: 0, flex: 1, ...buildLibraryTabsSx() }}>
-            <Tab label={`${t('character.myCharacters')} (${custom.length})`} />
-            <Tab label={`${t('character.presets')} (${presets.length})`} />
-          </Tabs>
-        </Box>
+    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 12 } }}>
+      <Box sx={buildFloatingTabContainerSx()}>
+        <FloatingSegmentedTabs
+          value={tab}
+          onChange={(value) => {
+            setTab(value);
+            resetSelection();
+          }}
+          items={[
+            { value: 0, label: `${t('character.myCharacters')} (${custom.length})` },
+            { value: 1, label: `${t('character.presets')} (${presets.length})` },
+          ]}
+        />
         {loadError ? (
           <Alert
             severity="error"
@@ -524,8 +507,10 @@ export default function CharacterLibraryPage() {
           </Alert>
         ) : null}
         {tab === 0 && duplicateCharacterCount > 0 ? <Alert severity="warning" sx={{ mb: 2 }}>{duplicateCharacterBannerText}</Alert> : null}
+      </Box>
+
       {tab === 0 ? (
-        <Box sx={{ display: 'flex', gap: 0.75, overflowX: 'auto', pb: 1.25, mb: 1.25, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } }}>
+        <Box sx={{ maxWidth: '100%', display: 'flex', gap: 0.75, overflowX: 'auto', mb: 2, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } }}>
           <Chip
             label={`${i18n.language.startsWith('zh') ? '全部' : 'All'} (${custom.length})`}
             variant="outlined"
@@ -584,12 +569,10 @@ export default function CharacterLibraryPage() {
         </Box>
       ) : null}
 
-      </Box>
-
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pr: 0.5, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 12 } }}>
+      <Box sx={{ pr: 0.5 }}>
       {displayChars.length === 0 ? (
         <EmptyState
-          icon="🎭"
+          variant="plain"
           message={tab === 0 ? t('character.empty') : t('common.noData')}
           action={
             tab === 0 ? (

@@ -110,7 +110,18 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch }: Chat
         },
       }}
     >
-      <CardActionArea onClick={onClick} onPointerEnter={onPrefetch} onFocus={onPrefetch} onPointerDown={onPrefetch}>
+      <CardActionArea
+        onClick={onClick}
+        onPointerEnter={onPrefetch}
+        onFocus={onPrefetch}
+        onPointerDown={onPrefetch}
+        sx={{
+          height: '100%',
+          '& .MuiCardActionArea-focusHighlight': {
+            display: 'none',
+          },
+        }}
+      >
         <CardContent sx={{ p: { xs: 1.75, sm: 2 }, position: 'relative', zIndex: 1, '&:last-child': { pb: { xs: 1.75, sm: 2 } } }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>

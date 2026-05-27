@@ -119,6 +119,7 @@ function buildAvatarOptionSx(selected: boolean) {
 import type { CharacterVisualIdentity, CharacterVisualReferenceImage } from '../../types/character';
 import MarkdownText from '../common/MarkdownText';
 import PaperSurface from '../common/PaperSurface';
+import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../common/FloatingSegmentedTabs';
 import type { PaperSurfaceVariant } from '../../types/artifactAppearance';
 
 function getDiaryEntriesSorted<T extends { dateKey?: string | null; createdAt: number }>(entries: T[]) {
@@ -1727,25 +1728,22 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.75, position: 'relative', pb: 10 }}>
-      <Tabs
-        value={configTab}
-        onChange={(_, value) => setConfigTab(value)}
-        variant="fullWidth"
-        sx={{
-          '& .MuiTab-root': {
-            minWidth: 0,
-            px: { xs: 0.75, sm: 1.25 },
-            whiteSpace: 'nowrap',
-          },
-        }}
+      <Box
+        sx={buildFloatingTabContainerSx()}
       >
-        <Tab label={i18n.language.startsWith('zh') ? '设定' : 'Config'} />
-        <Tab label={i18n.language.startsWith('zh') ? '人格' : 'Persona'} />
-        <Tab label={i18n.language.startsWith('zh') ? '关系' : 'Relations'} />
-        <Tab label={i18n.language.startsWith('zh') ? '记忆' : 'Memory'} />
-        <Tab label={i18n.language.startsWith('zh') ? '运行态' : 'Runtime'} />
-        <Tab label={i18n.language.startsWith('zh') ? '日记' : 'Diary'} />
-      </Tabs>
+        <FloatingSegmentedTabs
+          value={configTab}
+          onChange={setConfigTab}
+          items={[
+            { value: 0, label: i18n.language.startsWith('zh') ? '设定' : 'Config' },
+            { value: 1, label: i18n.language.startsWith('zh') ? '人格' : 'Persona' },
+            { value: 2, label: i18n.language.startsWith('zh') ? '关系' : 'Relations' },
+            { value: 3, label: i18n.language.startsWith('zh') ? '记忆' : 'Memory' },
+            { value: 4, label: i18n.language.startsWith('zh') ? '运行态' : 'Runtime' },
+            { value: 5, label: i18n.language.startsWith('zh') ? '日记' : 'Diary' },
+          ]}
+        />
+      </Box>
 
       {configTab === 0 ? settingTab : null}
 

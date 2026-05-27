@@ -149,7 +149,12 @@ export default function CharacterCard({ character, onEdit, onDelete, onStartDire
           onPointerCancel={handlePointerCancel}
           onContextMenu={handleContextMenu}
           disabled={!onClick && !selectable}
-          sx={{ height: '100%' }}
+          sx={{
+            height: '100%',
+            '& .MuiCardActionArea-focusHighlight': {
+              display: 'none',
+            },
+          }}
         >
           <CardContent sx={{ p: 2, pr: (onEdit || onDelete) ? 6 : 2, height: '100%', '&:last-child': { pb: 2 } }}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Tabs, Tab, Typography, Button, Checkbox, Fab, Snackbar, Alert } from '@mui/material';
+import { Box, Typography, Button, Checkbox, Fab, Snackbar, Alert } from '@mui/material';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import RestoreFromTrashIcon from '@mui/icons-material/RestoreFromTrash';
 import { useTranslation } from 'react-i18next';
-import type { Theme } from '@mui/material/styles';
 import EmptyState from '../components/common/EmptyState';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import CharacterCard from '../components/character/CharacterCard';
@@ -13,10 +12,7 @@ import { useChatStore } from '../stores/useChatStore';
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import { resolveCharacterOrDeleted } from '../utils/deletedEntity';
-
-function sortByDeletedAt<T extends { deletedAt?: number | null }>(items: T[]) {
-  return [...items].sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
-}
+import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 
 function OverlayCheckbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
@@ -26,33 +22,8 @@ function OverlayCheckbox({ checked, onChange }: { checked: boolean; onChange: ()
   );
 }
 
-function buildRecycleTabsSx() {
-  return {
-    minHeight: 40,
-    borderBottom: '1px solid',
-    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
-    '& .MuiTabs-indicator': {
-      height: 2,
-      borderRadius: 999,
-      backgroundColor: 'primary.main',
-    },
-    '& .MuiTabs-flexContainer': { gap: { xs: 0.2, sm: 0.75 } },
-    '& .MuiTab-root': {
-      minHeight: 40,
-      minWidth: 0,
-      px: { xs: 0.55, sm: 1.25 },
-      fontWeight: 720,
-      fontSize: { xs: '0.76rem', sm: '0.875rem' },
-      letterSpacing: 0,
-      color: 'text.secondary',
-      whiteSpace: 'nowrap',
-      opacity: 0.78,
-    },
-    '& .MuiTab-root.Mui-selected': {
-      color: 'text.primary',
-      opacity: 1,
-    },
-  };
+function sortByDeletedAt<T extends { deletedAt?: number | null }>(items: T[]) {
+  return [...items].sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
 }
 
 export default function RecycleBinPage() {
@@ -170,13 +141,28 @@ export default function RecycleBinPage() {
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 } }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-        <Tabs value={tab} onChange={(_, value) => { setTab(value); clearSelection(); }} variant="scrollable" scrollButtons={false} sx={{ minWidth: 0, flex: 1, ...buildRecycleTabsSx() }}>
-          <Tab label={`${i18n.language.startsWith('zh') ? '角色' : 'Characters'} (${deletedCharacters.length})`} />
-          <Tab label={`${i18n.language.startsWith('zh') ? '群聊' : 'Group chats'} (${chatCounts.group})`} />
-          <Tab label={`${i18n.language.startsWith('zh') ? '单聊' : 'Direct chats'} (${chatCounts.direct})`} />
-          <Tab label={`${i18n.language.startsWith('zh') ? 'AI私聊' : 'AI direct'} (${chatCounts.aiDirect})`} />
-        </Tabs>
+      <Box
+        sx={{
+          ...buildFloatingTabContainerSx(),
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 1,
+          flexWrap: 'wrap',
+        }}
+      >
+        <FloatingSegmentedTabs
+          value={tab}
+          onChange={(value) => {
+            setTab(value);
+            clearSelection();
+          }}
+          items={[
+            { value: 0, label: `${i18n.language.startsWith('zh') ? '角色' : 'Characters'} (${deletedCharacters.length})` },
+            { value: 1, label: `${i18n.language.startsWith('zh') ? '群聊' : 'Group chats'} (${chatCounts.group})` },
+            { value: 2, label: `${i18n.language.startsWith('zh') ? '单聊' : 'Direct chats'} (${chatCounts.direct})` },
+            { value: 3, label: `${i18n.language.startsWith('zh') ? 'AI私聊' : 'AI direct'} (${chatCounts.aiDirect})` },
+          ]}
+        />
         {showActions ? (
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
             <Typography variant="body2" color="text.secondary">{selectedCountLabel}</Typography>
@@ -192,7 +178,7 @@ export default function RecycleBinPage() {
 
       {tab === 0 ? (
         visibleCharacters.length === 0 ? (
-          <EmptyState icon="🗑️" message={emptyMessage} />
+          <EmptyState variant="plain" message={emptyMessage} />
         ) : (
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5, alignItems: 'stretch' }}>
             {visibleCharacters.map((character) => (
@@ -211,7 +197,7 @@ export default function RecycleBinPage() {
           </Box>
         )
       ) : visibleChats.length === 0 ? (
-        <EmptyState icon="🗑️" message={emptyMessage} />
+        <EmptyState variant="plain" message={emptyMessage} />
       ) : (
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5, alignItems: 'stretch' }}>
           {visibleChats.map((chat) => (

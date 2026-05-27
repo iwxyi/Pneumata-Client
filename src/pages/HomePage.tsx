@@ -4,10 +4,13 @@ import type { Theme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import ChatIcon from '@mui/icons-material/Chat';
 import PersonIcon from '@mui/icons-material/Person';
+import SettingsSuggestIcon from '@mui/icons-material/SettingsSuggest';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
+import { getPreferredAIProfile } from '../types/settings';
 import ChatCard from '../components/chat/ChatCard';
 import EmptyState from '../components/common/EmptyState';
 import SurfaceCard from '../components/common/SurfaceCard';
@@ -88,6 +91,8 @@ function buildCreateButtonSx() {
     right: -6,
     bottom: -6,
     zIndex: 1,
+    width: { xs: 28, sm: 30 },
+    height: { xs: 28, sm: 30 },
     bgcolor: 'primary.main',
     color: 'primary.contrastText',
     boxShadow: (theme: Theme) => theme.palette.mode === 'light'
@@ -95,13 +100,16 @@ function buildCreateButtonSx() {
       : '0 12px 28px rgba(0,0,0,0.42)',
     border: 2,
     borderColor: 'background.default',
-    transition: 'transform 160ms ease, box-shadow 160ms ease',
+    borderRadius: '50%',
+    transition: 'transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease',
     '&:hover': {
       bgcolor: 'primary.dark',
       transform: 'scale(1.08)',
       boxShadow: 4,
     },
-    borderRadius: 1,
+    '& .MuiTouchRipple-root': {
+      borderRadius: '50%',
+    },
   };
 }
 
@@ -153,6 +161,7 @@ export default function HomePage() {
   const navigate = useNavigate();
   const { chats, prefetchChats, markChatsWarm } = useChatStore();
   const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
+  const aiProfiles = useSettingsStore((state) => state.aiProfiles);
 
   useEffect(() => {
     markChatsWarm();
@@ -168,6 +177,8 @@ export default function HomePage() {
   const openChatFromHome = (chat: typeof chats[number]) => navigate(`/chats/${chat.id}?fromTab=${chat.type === 'group' ? 0 : chat.type === 'ai_direct' ? 2 : 1}`);
   const recentChatsTitle = '最近会话';
   const recentChatsActionTab = recentChats[0]?.type === 'group' ? 0 : recentChats[0]?.type === 'ai_direct' ? 2 : 1;
+  const textProfile = getPreferredAIProfile(aiProfiles, 'text');
+  const needsAIModelSetup = !textProfile?.apiKey?.trim() || !textProfile?.model?.trim();
 
   const stats = [
     {
@@ -204,6 +215,87 @@ export default function HomePage() {
       <PageSection spacing={3}>
         <SurfaceCard>
           <SectionHeader title="工作台概览" />
+          {needsAIModelSetup ? (
+            <Box
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate('/models')}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  navigate('/models');
+                }
+              }}
+              sx={{
+                mt: 0.5,
+                mb: 1.5,
+                px: { xs: 1.5, sm: 1.75 },
+                py: { xs: 1.35, sm: 1.5 },
+                display: 'flex',
+                alignItems: { xs: 'flex-start', sm: 'center' },
+                gap: 1.25,
+                borderRadius: 1,
+                border: '1px solid',
+                borderColor: (theme) => `${theme.palette.primary.main}66`,
+                bgcolor: (theme) => theme.palette.mode === 'light'
+                  ? 'rgba(49, 90, 156, 0.09)'
+                  : 'rgba(120, 156, 220, 0.14)',
+                boxShadow: (theme) => theme.palette.mode === 'light'
+                  ? '0 14px 34px rgba(49, 90, 156, 0.10)'
+                  : '0 18px 40px rgba(0, 0, 0, 0.24)',
+                cursor: 'pointer',
+                outline: 'none',
+                transition: 'border-color 180ms ease, background-color 180ms ease, transform 180ms ease',
+                '&:hover, &:focus-visible': {
+                  transform: 'translateY(-1px)',
+                  borderColor: 'primary.main',
+                  bgcolor: (theme) => theme.palette.mode === 'light'
+                    ? 'rgba(49, 90, 156, 0.12)'
+                    : 'rgba(120, 156, 220, 0.18)',
+                },
+              }}
+            >
+              <Box
+                sx={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: '50%',
+                  display: 'grid',
+                  placeItems: 'center',
+                  flexShrink: 0,
+                  color: 'primary.main',
+                  bgcolor: (theme) => theme.palette.mode === 'light'
+                    ? 'rgba(255,255,255,0.62)'
+                    : 'rgba(255,255,255,0.08)',
+                  border: '1px solid',
+                  borderColor: (theme) => theme.palette.mode === 'light'
+                    ? 'rgba(49, 90, 156, 0.18)'
+                    : 'rgba(120, 156, 220, 0.22)',
+                }}
+              >
+                <SettingsSuggestIcon fontSize="small" />
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, lineHeight: 1.35 }}>
+                  需要设置 AI 模型
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, lineHeight: 1.55 }}>
+                  配置文本模型后，角色回复、群聊调度和内容生成才能正常运行。
+                </Typography>
+              </Box>
+              <Button
+                size="small"
+                variant="contained"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  navigate('/models');
+                }}
+                sx={{ flexShrink: 0, display: { xs: 'none', sm: 'inline-flex' } }}
+              >
+                去设置
+              </Button>
+            </Box>
+          ) : null}
           <Box sx={buildStatGridSx()}>
             {stats.map((stat, index) => (
               <Box key={stat.label} sx={buildStatCellSx()}>

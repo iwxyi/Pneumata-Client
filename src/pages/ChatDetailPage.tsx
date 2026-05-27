@@ -56,7 +56,7 @@ export default function ChatDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { isMobile } = useResponsive();
+  const { isMobile, isDesktop } = useResponsive();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
 
   const { chats, updateChat, applyChatRuntimeDelta, loadChats, markChatsWarm, isLoading: chatsLoading } = useChatStore();
@@ -158,6 +158,10 @@ export default function ChatDetailPage() {
   });
   void dramaBoost;
   void rightPanelOpen;
+
+  useEffect(() => {
+    if (!isDesktop) setRightPanelOpen(false);
+  }, [id, isDesktop, setRightPanelOpen]);
 
   const showErrorToast = useCallback((message: string) => {
     setSnackbar({ open: true, message, severity: 'error' });
@@ -632,7 +636,15 @@ export default function ChatDetailPage() {
   }
 
   return (
-    <Box sx={{ display: 'flex', flex: 1, minHeight: 0, height: '100%', overflow: 'hidden' }}>
+    <Box
+      sx={{
+        display: 'flex',
+        flex: 1,
+        minHeight: 0,
+        height: '100%',
+        overflow: 'hidden',
+      }}
+    >
       <Box sx={{
         flex: 1,
         minHeight: 0,
@@ -651,7 +663,7 @@ export default function ChatDetailPage() {
             : 'repeating-linear-gradient(0deg, rgba(226,232,240,0.030) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(226,232,240,0.024) 0 1px, transparent 1px 28px)',
         },
       }}>
-        <Box sx={{ height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
+        <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1 }}>
           <MessageList
             key={id}
             messages={currentChatMessages}
@@ -666,8 +678,8 @@ export default function ChatDetailPage() {
             hasMore={hasMore}
             loadingText={t('common.loading')}
             topHint="没有更早的消息"
-            topInset={{ xs: 'calc(64px + env(safe-area-inset-top, 0px))', sm: 'calc(56px + env(safe-area-inset-top, 0px))' }}
-            bottomInset={{ xs: 'calc(118px + env(safe-area-inset-bottom, 0px))', sm: 104 }}
+            topInset={{ xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
+            bottomInset={{ xs: 'calc(82px + env(safe-area-inset-bottom, 0px))', sm: '82px' }}
           />
         </Box>
         <Box

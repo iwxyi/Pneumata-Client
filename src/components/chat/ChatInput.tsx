@@ -202,21 +202,28 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         opacity: isSending ? 0.72 : 1,
         pointerEvents: isSending ? 'none' : 'auto',
         position: 'relative',
+        overflow: 'visible',
+        isolation: 'isolate',
         '&::before': {
           content: '""',
           position: 'absolute',
           left: 0,
           right: 0,
-          top: -42,
-          height: 42,
+          top: -52,
+          height: 52,
           pointerEvents: 'none',
-          backdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(32px) saturate(0.74) brightness(1.18) contrast(0.66)' : 'blur(20px) saturate(0.92) brightness(0.84)',
-          WebkitBackdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(32px) saturate(0.74) brightness(1.18) contrast(0.66)' : 'blur(20px) saturate(0.92) brightness(0.84)',
-          maskImage: 'linear-gradient(to top, rgba(0,0,0,0.68), rgba(0,0,0,0.20) 62%, transparent)',
-          WebkitMaskImage: 'linear-gradient(to top, rgba(0,0,0,0.68), rgba(0,0,0,0.20) 62%, transparent)',
+          zIndex: 0,
+          backdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(34px) saturate(0.78) brightness(1.16) contrast(0.70)' : 'blur(24px) saturate(0.88) brightness(0.82)',
+          WebkitBackdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(34px) saturate(0.78) brightness(1.16) contrast(0.70)' : 'blur(24px) saturate(0.88) brightness(0.82)',
+          maskImage: 'linear-gradient(to top, rgba(0,0,0,0.76), rgba(0,0,0,0.24) 64%, transparent)',
+          WebkitMaskImage: 'linear-gradient(to top, rgba(0,0,0,0.76), rgba(0,0,0,0.24) 64%, transparent)',
           background: (theme) => theme.palette.mode === 'light'
-            ? 'linear-gradient(rgba(245,245,247,0), rgba(245,245,247,0.18))'
-            : 'linear-gradient(rgba(10,10,15,0), rgba(10,10,15,0.12))',
+            ? 'linear-gradient(rgba(245,245,247,0), rgba(245,245,247,0.24))'
+            : 'linear-gradient(rgba(10,10,15,0), rgba(10,10,15,0.18))',
+        },
+        '& > *': {
+          position: 'relative',
+          zIndex: 1,
         },
       }}
     >
@@ -304,15 +311,47 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
       </Box>
       {onOpenPanel ? (
         <Box
-          aria-hidden
-          title="上滑输入框打开会话面板"
+          role="button"
+          aria-label="打开会话面板"
+          title="点击或向上拖拽打开会话面板"
+          onClick={() => onOpenPanel()}
+          onTouchStart={(event) => {
+            const touch = event.touches[0];
+            if (touch) startPanelHandleDrag(touch.clientY);
+          }}
+          onTouchMove={(event) => {
+            const touch = event.touches[0];
+            if (touch) updatePanelHandleDrag(touch.clientY);
+          }}
+          onTouchEnd={finishPanelHandleDrag}
+          onTouchCancel={finishPanelHandleDrag}
+          onPointerDown={(event) => {
+            if (event.pointerType === 'touch') return;
+            startPanelHandleDrag(event.clientY);
+          }}
+          onPointerMove={(event) => {
+            if (event.pointerType === 'touch') return;
+            updatePanelHandleDrag(event.clientY);
+          }}
+          onPointerUp={(event) => {
+            if (event.pointerType === 'touch') return;
+            finishPanelHandleDrag();
+          }}
+          onPointerCancel={(event) => {
+            if (event.pointerType === 'touch') return;
+            finishPanelHandleDrag();
+          }}
           sx={{
             width: '100%',
-            height: 14,
-            display: { xs: 'grid', sm: 'none' },
+            height: 18,
+            display: 'grid',
             placeItems: 'center',
-            pointerEvents: 'none',
             mt: 0.2,
+            cursor: 'grab',
+            touchAction: 'none',
+            '&:active': {
+              cursor: 'grabbing',
+            },
           }}
         >
           <Box

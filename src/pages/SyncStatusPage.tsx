@@ -64,7 +64,7 @@ export default function SyncStatusPage() {
       ) : null}
 
       {items.length === 0 ? (
-        <EmptyState icon="☁️" message={i18n.language.startsWith('zh') ? '当前没有待同步的编辑项' : 'No queued edit sync items'} />
+        <EmptyState variant="plain" message={i18n.language.startsWith('zh') ? '当前没有待同步的编辑项' : 'No queued edit sync items'} />
       ) : (
         <Stack spacing={1.5}>
           {items.map((item) => (

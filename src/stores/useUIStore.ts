@@ -54,6 +54,8 @@ export const useUIStore = create<UIStore>()(
       migrate: (persistedState) => migrateUiStoreState(persistedState as Partial<UIStore>) as UIStore,
       partialize: (state) => ({
         sidebarOpen: state.sidebarOpen,
+        rightPanelOpen: state.rightPanelOpen,
+        rightPanelTab: state.rightPanelTab,
       }),
     }
   )

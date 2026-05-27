@@ -1,4 +1,4 @@
-import { Box, Typography } from '@mui/material';
+import { Box, CircularProgress, Typography } from '@mui/material';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -186,6 +186,7 @@ export default function MessageList({
         flex: 1,
         height: '100%',
         minHeight: 0,
+        boxSizing: 'border-box',
         overflowY: 'auto',
         overflowX: 'hidden',
         pt: topInset || 2,
@@ -197,15 +198,19 @@ export default function MessageList({
     >
       {messages.length > 0 ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', px: 2, pb: 1, minHeight: 25 }}>
-          <Typography
-            variant="caption"
-            sx={{
-              color: topStatusText ? 'text.secondary' : 'transparent',
-              userSelect: 'none',
-            }}
-          >
-            {topStatusText || '没有更早的消息'}
-          </Typography>
+          {isLoadingOlder ? (
+            <CircularProgress size={16} thickness={4} sx={{ color: 'text.secondary' }} />
+          ) : (
+            <Typography
+              variant="caption"
+              sx={{
+                color: topStatusText ? 'text.secondary' : 'transparent',
+                userSelect: 'none',
+              }}
+            >
+              {topStatusText || '没有更早的消息'}
+            </Typography>
+          )}
         </Box>
       ) : null}
 
