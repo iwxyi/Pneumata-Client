@@ -5,14 +5,17 @@ import type { Theme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ChatIcon from '@mui/icons-material/Chat';
+import CloudOffIcon from '@mui/icons-material/CloudOff';
+import DeveloperModeIcon from '@mui/icons-material/DeveloperMode';
 import PersonIcon from '@mui/icons-material/Person';
 import SettingsSuggestIcon from '@mui/icons-material/SettingsSuggest';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '../stores/useAuthStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
-import { getPreferredAIProfile } from '../types/settings';
+import { hasUsableDefaultTextAI } from '../types/settings';
 import ChatCard from '../components/chat/ChatCard';
 import EmptyState from '../components/common/EmptyState';
 import SurfaceCard from '../components/common/SurfaceCard';
@@ -27,8 +30,8 @@ interface HomeOverviewCard {
   icon: ReactNode;
   color: string;
   onOpen: () => void | Promise<void>;
-  onCreate: () => void | Promise<void>;
-  createLabel: string;
+  onCreate?: () => void | Promise<void>;
+  createLabel?: string;
   attention?: boolean;
 }
 
@@ -206,6 +209,9 @@ export default function HomePage() {
   const { chats, prefetchChats, markChatsWarm } = useChatStore();
   const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
   const aiProfiles = useSettingsStore((state) => state.aiProfiles);
+  const developerMode = useSettingsStore((state) => state.developerMode);
+  const authMode = useAuthStore((state) => state.authMode);
+  const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [avatarQueueSummary, setAvatarQueueSummary] = useState<AvatarGenerationQueueSummary>(() => avatarGenerationQueue.getSummary());
 
   useEffect(() => {
@@ -224,8 +230,8 @@ export default function HomePage() {
   const openChatFromHome = (chat: typeof chats[number]) => navigate(`/chats/${chat.id}?fromTab=${chat.type === 'group' ? 0 : chat.type === 'ai_direct' ? 2 : 1}`);
   const recentChatsTitle = '最近会话';
   const recentChatsActionTab = recentChats[0]?.type === 'group' ? 0 : recentChats[0]?.type === 'ai_direct' ? 2 : 1;
-  const textProfile = getPreferredAIProfile(aiProfiles, 'text');
-  const needsAIModelSetup = !textProfile?.apiKey?.trim() || !textProfile?.model?.trim();
+  const needsAIModelSetup = !hasUsableDefaultTextAI(aiProfiles);
+  const needsLogin = authMode === 'local' || !isLoggedIn;
   const needsOwnCharacter = characters.length > 0 && customCharacters.length === 0;
   const hasActiveAvatarTasks = avatarQueueSummary.active > 0;
 
@@ -236,8 +242,22 @@ export default function HomePage() {
       icon: <SettingsSuggestIcon />,
       color: 'primary.main',
       onOpen: () => navigate('/models'),
-      onCreate: () => navigate('/models'),
-      createLabel: '设置模型',
+      attention: true,
+    }] : []),
+    ...(needsLogin ? [{
+      label: '云同步',
+      value: '未登录',
+      icon: <CloudOffIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/account'),
+      attention: true,
+    }] : []),
+    ...(developerMode ? [{
+      label: '开发者模式',
+      value: '已开启',
+      icon: <DeveloperModeIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/settings'),
       attention: true,
     }] : []),
     ...(needsOwnCharacter ? [{
@@ -246,8 +266,6 @@ export default function HomePage() {
       icon: <PersonIcon />,
       color: 'primary.main',
       onOpen: () => navigate('/characters'),
-      onCreate: () => navigate('/characters/create'),
-      createLabel: t('character.create'),
       attention: true,
     }] : []),
     ...(hasActiveAvatarTasks ? [{
@@ -258,8 +276,6 @@ export default function HomePage() {
       icon: <AutoAwesomeIcon />,
       color: 'primary.main',
       onOpen: () => navigate('/characters'),
-      onCreate: () => navigate('/characters'),
-      createLabel: '查看角色',
       attention: true,
     }] : []),
   ];
@@ -312,17 +328,19 @@ export default function HomePage() {
                   onClick={stat.onOpen}
                   aria-label={`${stat.label}快捷入口`}
                 >
-                  <IconButton
-                    size="small"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      stat.onCreate();
-                    }}
-                    aria-label={stat.createLabel}
-                    sx={buildCreateButtonSx()}
-                  >
-                    <AddIcon fontSize="small" />
-                  </IconButton>
+                  {stat.onCreate ? (
+                    <IconButton
+                      size="small"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        stat.onCreate?.();
+                      }}
+                      aria-label={stat.createLabel}
+                      sx={buildCreateButtonSx()}
+                    >
+                      <AddIcon fontSize="small" />
+                    </IconButton>
+                  ) : null}
                   <Box sx={buildStatIconSx(stat.color)}>{stat.icon}</Box>
                   <Typography variant="h5" sx={buildStatValueSx()}>{stat.value}</Typography>
                   <Typography variant="body2" sx={buildStatLabelSx()}>{stat.label}</Typography>

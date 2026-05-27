@@ -444,6 +444,23 @@ export function getPreferredAIProfile(aiProfiles: AIModelProfile[], type: AIMode
     || null;
 }
 
+export function isAIProfileUsable<T extends Pick<APIConfig, 'apiKey' | 'model'>>(profile: T | null | undefined): profile is T {
+  return Boolean(profile?.apiKey?.trim() && profile?.model?.trim());
+}
+
+export function getUsablePreferredAIProfile(aiProfiles: AIModelProfile[], type: AIModelType) {
+  const profile = getPreferredAIProfile(aiProfiles, type);
+  return isAIProfileUsable(profile) ? profile : null;
+}
+
+export function getUsableDefaultTextAIProfile(aiProfiles: AIModelProfile[]) {
+  return getUsablePreferredAIProfile(aiProfiles, 'text');
+}
+
+export function hasUsableDefaultTextAI(aiProfiles: AIModelProfile[]) {
+  return Boolean(getUsableDefaultTextAIProfile(aiProfiles));
+}
+
 export const DEFAULT_CHAT_DRAFT_DEFAULTS: ChatDraftDefaults = {
   style: 'free',
   showRoleActions: true,

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AICharacter } from '../types/character';
 import type { AIModelProfile } from '../types/settings';
-import { getPreferredAIProfile } from '../types/settings';
+import { getUsableDefaultTextAIProfile, hasUsableDefaultTextAI, isAIProfileUsable } from '../types/settings';
 import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
 import { CLIENT_STORE_SCHEMA_VERSION } from './storeMigrations';
 import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact, looksLikeRawArtifactContext } from '../services/characterExperienceArtifacts';
@@ -125,8 +125,8 @@ function startOfDayKey(value: number) {
   return `${dateKeyOf(value)}T00:00:00`;
 }
 
-function getTextProfile(aiProfiles: AIModelProfile[]) {
-  return getPreferredAIProfile(aiProfiles, 'text') || aiProfiles[0] || null;
+function isLetterKind(kind: CharacterArtifactKind) {
+  return kind === 'birth_letter' || kind === 'final_letter';
 }
 
 function normalizeString(value?: string | null) {
@@ -304,7 +304,7 @@ async function generateLetterArtifactText(
   relatedCharacters: Array<{ id: string; name: string }>,
   modelProfile: AIModelProfile | null,
 ) {
-  if (!modelProfile?.apiKey || !modelProfile?.model) {
+  if (!isAIProfileUsable(modelProfile)) {
     return kind === 'birth_letter'
       ? deriveBirthLetterText(character, relatedCharacters)
       : deriveFinalLetterText(character, relatedCharacters);
@@ -356,7 +356,7 @@ async function generateArtifactText(
   if (kind === 'birth_letter' || kind === 'final_letter') {
     return generateLetterArtifactText(kind, character, relatedCharacters, modelProfile);
   }
-  if (!modelProfile?.apiKey || !modelProfile?.model) {
+  if (!isAIProfileUsable(modelProfile)) {
     return deriveDiaryText(character, relatedCharacters, dateKey || dateKeyOf(now() - 24 * 60 * 60 * 1000), recentDiaryTexts);
   }
   if (kind === 'diary') {
@@ -417,7 +417,15 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           isProcessing: true,
         }));
 
-        const modelProfile = getTextProfile(useSettingsStore.getState().aiProfiles);
+        const modelProfile = getUsableDefaultTextAIProfile(useSettingsStore.getState().aiProfiles);
+        if (isLetterKind(nextJob.kind) && !modelProfile) {
+          set((state) => ({
+            jobs: state.jobs.filter((job) => job.id !== nextJob.id),
+            isProcessing: false,
+          }));
+          void processNext();
+          return;
+        }
         try {
           const recentDiaryTexts = nextJob.kind === 'diary'
             ? get().items
@@ -440,7 +448,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
                 ? buildDiaryTitle(characterName, nextJob.dateKey || dateKeyOf(now()))
                 : buildFinalLetterTitle(characterName),
             text,
-            source: modelProfile?.apiKey && modelProfile?.model ? 'ai' : 'local',
+            source: isAIProfileUsable(modelProfile) ? 'ai' : 'local',
             unread: nextJob.kind === 'final_letter' || nextJob.kind === 'birth_letter',
           });
 
@@ -516,6 +524,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           void get().resumeProcessing();
         },
         enqueueLetterArtifact: ({ kind, character, relatedCharacters, sourceKey = '' }) => {
+          if (!hasUsableDefaultTextAI(useSettingsStore.getState().aiProfiles)) return;
           const key = buildLetterJobKey(kind, character.id, sourceKey);
           const hasEntry = get().items.some((item) => item.kind === kind && item.characterId === character.id && (item.sourceKey || '') === sourceKey);
           if (get().jobs.some((job) => job.key === key) || hasEntry) return;

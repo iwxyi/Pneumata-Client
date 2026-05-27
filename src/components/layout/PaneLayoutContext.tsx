@@ -4,15 +4,26 @@ import { BREAKPOINTS } from '../../constants/defaults';
 
 type PaneRole = 'master' | 'detail' | null;
 
+interface PaneBounds {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
 interface PaneLayoutContextValue {
   role: PaneRole;
   width: number | null;
+  bounds: PaneBounds | null;
   isSplit: boolean;
 }
 
 const PaneLayoutContext = createContext<PaneLayoutContextValue>({
   role: null,
   width: null,
+  bounds: null,
   isSplit: false,
 });
 
@@ -23,18 +34,35 @@ export function usePaneLayout() {
 export function PaneLayoutProvider({ role, children }: { role: Exclude<PaneRole, null>; children: ReactNode }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState<number | null>(null);
+  const [bounds, setBounds] = useState<PaneBounds | null>(null);
 
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element || typeof ResizeObserver === 'undefined') return undefined;
-    const updateWidth = () => setWidth(Math.round(element.getBoundingClientRect().width));
-    updateWidth();
-    const observer = new ResizeObserver(updateWidth);
+    const updateBounds = () => {
+      const rect = element.getBoundingClientRect();
+      const nextBounds = {
+        left: Math.round(rect.left),
+        right: Math.round(rect.right),
+        top: Math.round(rect.top),
+        bottom: Math.round(rect.bottom),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+      setBounds(nextBounds);
+      setWidth(nextBounds.width);
+    };
+    updateBounds();
+    const observer = new ResizeObserver(updateBounds);
     observer.observe(element);
-    return () => observer.disconnect();
+    window.addEventListener('resize', updateBounds);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateBounds);
+    };
   }, []);
 
-  const value = useMemo(() => ({ role, width, isSplit: true }), [role, width]);
+  const value = useMemo(() => ({ role, width, bounds, isSplit: true }), [bounds, role, width]);
 
   return (
     <PaneLayoutContext.Provider value={value}>

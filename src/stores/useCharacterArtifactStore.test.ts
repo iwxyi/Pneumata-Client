@@ -13,7 +13,21 @@ vi.stubGlobal('localStorage', {
   get length() { return localStore.size; },
 });
 
+vi.mock('../services/characterExperienceArtifacts', async () => {
+  const actual = await vi.importActual<typeof import('../services/characterExperienceArtifacts')>('../services/characterExperienceArtifacts');
+  return {
+    ...actual,
+    generateCharacterDailyDiaryArtifact: vi.fn(async () => '苏苏的日记：今天拍照后意识到自己也在影响别人。'),
+    generateCharacterExperienceArtifact: vi.fn(async ({ kind }: { kind: string }) => (
+      kind === 'birth_letter'
+        ? '第一次醒来，我知道自己叫苏苏。'
+        : '没说完的话留给小雨。'
+    )),
+  };
+});
+
 let artifactStore: Awaited<typeof import('./useCharacterArtifactStore')>['useCharacterArtifactStore'];
+let settingsStore: Awaited<typeof import('./useSettingsStore')>['useSettingsStore'];
 
 function buildCharacter(): AICharacter {
   return normalizeCharacter({
@@ -53,13 +67,27 @@ function buildCharacter(): AICharacter {
 
 beforeAll(async () => {
   const mod = await import('./useCharacterArtifactStore');
+  const settingsMod = await import('./useSettingsStore');
   artifactStore = mod.useCharacterArtifactStore;
+  settingsStore = settingsMod.useSettingsStore;
 });
 
 describe('useCharacterArtifactStore', () => {
   beforeEach(() => {
     localStore.clear();
     artifactStore.setState({ items: [], jobs: [], isProcessing: false, unreadLetterCount: 0 });
+    settingsStore.setState({
+      aiProfiles: [{
+        id: 'default',
+        name: 'Default',
+        type: 'text',
+        isDefault: true,
+        provider: 'openai',
+        apiKey: 'key',
+        baseUrl: 'https://example.test',
+        model: 'model',
+      }],
+    });
   });
 
   it('creates diary entries, birth letters, and final letters', async () => {
@@ -86,6 +114,30 @@ describe('useCharacterArtifactStore', () => {
     expect(finalLetter).toBeTruthy();
     expect(finalLetter?.text).toContain('没说完的话留给小雨');
     expect(artifactStore.getState().unreadLetterCount).toBe(2);
+  });
+
+  it('skips letter generation when the default text model is not configured', async () => {
+    settingsStore.setState({
+      aiProfiles: [{
+        id: 'default',
+        name: 'Default',
+        type: 'text',
+        isDefault: true,
+        provider: 'openai',
+        apiKey: '',
+        baseUrl: '',
+        model: '',
+      }],
+    });
+    const character = buildCharacter();
+
+    artifactStore.getState().enqueueBirthLetter(character, [{ id: 'c2', name: '小雨' }]);
+    artifactStore.getState().enqueueFinalLetter(character, [{ id: 'c2', name: '小雨' }]);
+    await artifactStore.getState().resumeProcessing();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(artifactStore.getState().getLetterEntries()).toHaveLength(0);
+    expect(artifactStore.getState().jobs).toHaveLength(0);
   });
 
   it('regenerates diary entries that accidentally stored raw context', async () => {

@@ -191,18 +191,13 @@ export default function Sidebar({ collapsed }: SidebarProps) {
             </Box>
           </Box>
         )}
-        {collapsed && (
-          <Box sx={{ width: 36, height: 36, borderRadius: 1, display: 'grid', placeItems: 'center', color: 'primary.main', border: '1px solid', borderColor: 'primary.main', bgcolor: (theme) => `${theme.palette.primary.main}16`, fontWeight: 860 }}>
-            P
-          </Box>
-        )}
         {!collapsed && (
           <IconButton size="small" onClick={toggleSidebar} sx={{ borderRadius: 2, color: 'text.secondary' }}>
             <CollapseIcon />
           </IconButton>
         )}
         {collapsed && (
-          <IconButton size="small" onClick={toggleSidebar} sx={{ mt: 1, borderRadius: 2, color: 'text.secondary' }}>
+          <IconButton size="small" onClick={toggleSidebar} sx={{ borderRadius: 2, color: 'text.secondary' }}>
             <ExpandIcon />
           </IconButton>
         )}

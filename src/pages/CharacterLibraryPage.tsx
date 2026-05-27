@@ -12,6 +12,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import CharacterCard from '../components/character/CharacterCard';
+import CharacterGroupFilterBar from '../components/character/CharacterGroupFilterBar';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmptyState from '../components/common/EmptyState';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
@@ -25,7 +26,6 @@ import { useChatStore } from '../stores/useChatStore';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 import type { AICharacter } from '../types/character';
 import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
-import { motion, transition } from '../styles/motion';
 
 type CharacterSortField = 'name' | 'createdAt';
 type CharacterSortDirection = 'asc' | 'desc';
@@ -65,39 +65,6 @@ function sortCharactersForLibrary(
   });
 }
 
-function buildGroupChipSx(active: boolean) {
-  return {
-    height: 30,
-    borderRadius: 999,
-    fontWeight: active ? 720 : 560,
-    bgcolor: active ? 'primary.main' : 'transparent',
-    borderColor: active ? 'primary.main' : 'divider',
-    color: active ? 'primary.contrastText' : 'text.secondary',
-    transition: transition(['background-color', 'border-color', 'color', 'transform'], motion.durations.fast, active ? motion.gentleSpring : motion.softOut),
-    '&.MuiChip-root': {
-      bgcolor: active ? 'primary.main' : 'transparent',
-      borderColor: active ? 'primary.main' : 'divider',
-      color: active ? 'primary.contrastText' : 'text.secondary',
-    },
-    '&.Mui-focusVisible, &:focus-visible, &:active': {
-      bgcolor: active ? 'primary.main' : 'action.hover',
-      borderColor: active ? 'primary.main' : 'primary.main',
-      color: active ? 'primary.contrastText' : 'text.primary',
-    },
-    '&:hover, &.MuiChip-clickable:hover': {
-      bgcolor: active ? 'primary.dark' : 'action.hover',
-      borderColor: active ? 'primary.dark' : 'primary.main',
-      color: active ? 'primary.contrastText' : 'text.primary',
-      transform: 'translateY(-1px)',
-    },
-    '&:active': {
-      transform: 'scale(0.97)',
-      transitionTimingFunction: motion.press,
-      transitionDuration: `${motion.durations.instant}ms`,
-    },
-  };
-}
-
 export default function CharacterLibraryPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -132,6 +99,16 @@ export default function CharacterLibraryPage() {
     severity: 'success',
   });
   const activeCharacterId = isMasterPane && !selectionMode ? getActiveCharacterId(location.pathname) : null;
+  const floatingActionPositionSx = isMasterPane ? {
+    position: 'fixed' as const,
+    right: pane.bounds ? `calc(100vw - ${pane.bounds.right}px + 28px)` : 28,
+    bottom: pane.bounds ? `calc(100vh - ${pane.bounds.bottom}px + 32px)` : 32,
+    visibility: pane.bounds ? 'visible' as const : 'hidden' as const,
+  } : {
+    position: 'fixed' as const,
+    right: { xs: 20, sm: 28, md: 36 },
+    bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', sm: 32, md: 36 },
+  };
 
   useEffect(() => {
     void loadCharacters()
@@ -152,6 +129,11 @@ export default function CharacterLibraryPage() {
   const presets = characters.filter((c) => c.isPreset);
   const custom = characters.filter((c) => !c.isPreset);
   const customGroups = useMemo(() => getCharacterGroupList(custom), [custom]);
+  const customGroupOptions = useMemo(() => customGroups.map((group) => ({
+    value: group,
+    label: group,
+    count: custom.filter((character) => normalizeCharacterGroup(character.group) === group).length,
+  })), [custom, customGroups]);
   const duplicateCharacterCount = useMemo(() => getDuplicateCharacterCount(custom), [custom]);
   const duplicateCharacterBannerText = useMemo(() => getDuplicateCharacterBannerText(custom, i18n.language), [custom, i18n.language]);
   const filteredCustom = selectedGroup === 'all' ? custom : getCharactersInGroup(custom, selectedGroup);
@@ -526,31 +508,23 @@ export default function CharacterLibraryPage() {
       </Box>
 
       {tab === 0 ? (
-        <Box sx={{ maxWidth: '100%', display: 'flex', gap: 0.75, overflowX: 'auto', mb: 2, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } }}>
-          <Chip
-            label={`${i18n.language.startsWith('zh') ? '全部' : 'All'} (${custom.length})`}
-            variant="outlined"
-            onClick={() => setSelectedGroup('all')}
-            sx={buildGroupChipSx(selectedGroup === 'all')}
-          />
-          {customGroups.map((group) => (
-            <Chip
-              key={group}
-              label={`${group} (${custom.filter((character) => normalizeCharacterGroup(character.group) === group).length})`}
-              variant="outlined"
-              sx={buildGroupChipSx(selectedGroup === group)}
-              onClick={() => setSelectedGroup(group)}
-              onPointerDown={() => {
-                if (canDeleteCharacterGroup(group)) {
-                  startGroupLongPress(group);
-                }
-              }}
-              onPointerUp={clearGroupPressTimer}
-              onPointerLeave={clearGroupPressTimer}
-              onPointerCancel={clearGroupPressTimer}
-            />
-          ))}
-        </Box>
+        <CharacterGroupFilterBar
+          allLabel={i18n.language.startsWith('zh') ? '全部' : 'All'}
+          allValue="all"
+          allCount={custom.length}
+          options={customGroupOptions}
+          selectedValue={selectedGroup}
+          onSelect={(value) => setSelectedGroup(value || 'all')}
+          onGroupPointerDown={(group) => {
+            if (canDeleteCharacterGroup(group)) {
+              startGroupLongPress(group);
+            }
+          }}
+          onGroupPointerUp={clearGroupPressTimer}
+          onGroupPointerLeave={clearGroupPressTimer}
+          onGroupPointerCancel={clearGroupPressTimer}
+          sx={{ mb: 2 }}
+        />
       ) : null}
       {selectionMode && tab === 0 ? (
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
@@ -702,9 +676,7 @@ export default function CharacterLibraryPage() {
         startIcon={<AddIcon />}
         onClick={openCreateForm}
         sx={{
-          position: isMasterPane ? 'absolute' : 'fixed',
-          right: { xs: 20, sm: 28, md: 36 },
-          bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', sm: 32, md: 36 },
+          ...floatingActionPositionSx,
           zIndex: 1300,
           minHeight: 56,
           px: 2.25,

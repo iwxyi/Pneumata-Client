@@ -7,7 +7,7 @@ import { PaneLayoutProvider } from './PaneLayoutContext';
 import { LayoutHeaderActionsContext } from './AppLayoutContext';
 import GlassHeader, { GLASS_HEADER_HEIGHT } from './GlassHeader';
 import { useAutoHideHeader } from '../../hooks/useAutoHideHeader';
-import { readDetailCollapsedState, writeDetailCollapsedState } from './masterDetailState';
+import { DETAIL_COLLAPSED_CHANGE_EVENT, DETAIL_COLLAPSED_STORAGE_KEY, readDetailCollapsedState, writeDetailCollapsedState } from './masterDetailState';
 import { motion, transition } from '../../styles/motion';
 
 const MIN_MASTER_WIDTH = 320;
@@ -115,6 +115,19 @@ export default function MasterDetailLayout({
     const observer = new ResizeObserver(updateWidth);
     observer.observe(element);
     return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const syncDetailCollapsed = () => setDetailCollapsed(readDetailCollapsedState());
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === DETAIL_COLLAPSED_STORAGE_KEY) syncDetailCollapsed();
+    };
+    window.addEventListener(DETAIL_COLLAPSED_CHANGE_EVENT, syncDetailCollapsed);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener(DETAIL_COLLAPSED_CHANGE_EVENT, syncDetailCollapsed);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   const finishResize = useCallback(() => {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Typography, IconButton, Avatar, TextField, InputAdornment, Chip } from '@mui/material';
+import { Box, Typography, IconButton, Avatar, TextField, InputAdornment } from '@mui/material';
 import { isImageAvatar } from '../utils/avatar';
 import SearchIcon from '@mui/icons-material/Search';
 import ChatIcon from '@mui/icons-material/ChatBubbleOutlined';
@@ -7,24 +7,9 @@ import { useNavigate } from 'react-router-dom';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
-import { getCharacterGroupList, isCharacterInGroup } from '../types/character';
+import CharacterGroupFilterBar from '../components/character/CharacterGroupFilterBar';
+import { getCharacterGroupList, isCharacterInGroup, normalizeCharacterGroup } from '../types/character';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
-
-function buildFilterChipSx(active: boolean) {
-  return {
-    height: 30,
-    borderRadius: 1,
-    fontWeight: active ? 720 : 560,
-    bgcolor: active ? 'primary.main' : 'transparent',
-    borderColor: active ? 'primary.main' : 'divider',
-    color: active ? 'primary.contrastText' : 'text.secondary',
-    '&:hover': {
-      bgcolor: active ? 'primary.dark' : 'action.hover',
-      borderColor: active ? 'primary.dark' : 'primary.main',
-      color: active ? 'primary.contrastText' : 'text.primary',
-    },
-  };
-}
 
 export default function CreateDirectChatPage() {
   const navigate = useNavigate();
@@ -48,6 +33,11 @@ export default function CreateDirectChatPage() {
   }, [navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle]);
 
   const groupList = useMemo(() => getCharacterGroupList(characters), [characters]);
+  const groupOptions = useMemo(() => groupList.map((group) => ({
+    value: group,
+    label: group,
+    count: characters.filter((character) => normalizeCharacterGroup(character.group) === group).length,
+  })), [characters, groupList]);
   const customCharacters = useMemo(
     () => characters.filter((item) => isCharacterInGroup(item, selectedGroup) && item.name.toLowerCase().includes(search.toLowerCase())),
     [characters, search, selectedGroup]
@@ -109,28 +99,17 @@ export default function CreateDirectChatPage() {
             },
           }}
         />
-        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'nowrap', overflowX: 'auto', pb: 0.5, scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } }}>
-          <Chip
-            size="small"
-            label="全部"
-            variant="outlined"
-            onClick={() => setSelectedGroup(null)}
-            sx={buildFilterChipSx(selectedGroup === null)}
-          />
-          {groupList.map((group) => (
-            <Chip
-              key={group}
-              size="small"
-              label={group}
-              variant="outlined"
-              onClick={() => setSelectedGroup(group)}
-              sx={buildFilterChipSx(selectedGroup === group)}
-            />
-          ))}
-        </Box>
+        <CharacterGroupFilterBar
+          allLabel="全部"
+          allCount={characters.length}
+          options={groupOptions}
+          selectedValue={selectedGroup}
+          onSelect={setSelectedGroup}
+          sx={{ pb: 0.5 }}
+        />
       </Box>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5, pt: 0.5 }}>
         {customCharacters.map((character) => (
           <Box
             key={character.id}
