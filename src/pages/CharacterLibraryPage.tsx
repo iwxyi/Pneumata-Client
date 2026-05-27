@@ -8,7 +8,7 @@ import ClearAllIcon from '@mui/icons-material/ClearAll';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import SortIcon from '@mui/icons-material/Sort';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import CharacterCard from '../components/character/CharacterCard';
@@ -31,6 +31,10 @@ type CharacterSortField = 'name' | 'createdAt';
 type CharacterSortDirection = 'asc' | 'desc';
 const CHARACTER_LIBRARY_TAB_KEY = 'character-library-tab';
 const isCharacterLibraryTab = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 1;
+
+function getActiveCharacterId(pathname: string) {
+  return pathname.match(/^\/characters\/([^/]+)\/edit$/)?.[1] || null;
+}
 
 function compareCharacterByField(a: AICharacter, b: AICharacter, field: CharacterSortField) {
   if (field === 'createdAt') {
@@ -97,6 +101,7 @@ function buildGroupChipSx(active: boolean) {
 export default function CharacterLibraryPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
   const settings = useSettingsStore();
   const pane = usePaneLayout();
@@ -126,6 +131,7 @@ export default function CharacterLibraryPage() {
     message: '',
     severity: 'success',
   });
+  const activeCharacterId = isMasterPane && !selectionMode ? getActiveCharacterId(location.pathname) : null;
 
   useEffect(() => {
     void loadCharacters()
@@ -613,7 +619,7 @@ export default function CharacterLibraryPage() {
               <CharacterCard
                 key={char.id}
                 character={char}
-                selected={selectedIdSet.has(char.id)}
+                selected={selectedIdSet.has(char.id) || activeCharacterId === char.id}
                 selectable={selectable}
                 selectionMode={selectionMode}
                 onLongPress={selectable ? () => enterSelectionMode(char.id) : undefined}

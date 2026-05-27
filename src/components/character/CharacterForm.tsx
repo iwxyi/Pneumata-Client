@@ -19,8 +19,6 @@ import {
   CardContent,
   Stack,
   DialogActions,
-  Tabs,
-  Tab,
   FormControlLabel,
   Switch,
   Autocomplete,
@@ -109,6 +107,26 @@ function buildAvatarOptionSx(selected: boolean) {
       transform: 'translateY(-1px)',
       borderColor: 'primary.main',
       bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.12)',
+    },
+  };
+}
+
+function buildBubbleOptionCardSx(selected: boolean) {
+  return {
+    borderColor: selected ? 'primary.main' : (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+    cursor: 'pointer',
+    bgcolor: selected
+      ? (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(49,90,156,0.10)' : 'rgba(120,156,220,0.14)'
+      : (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.58)' : 'rgba(255,255,255,0.045)',
+    backdropFilter: 'blur(16px) saturate(1.08)',
+    WebkitBackdropFilter: 'blur(16px) saturate(1.08)',
+    boxShadow: selected
+      ? (theme: Theme) => theme.palette.mode === 'light' ? '0 0 0 1px rgba(49,90,156,0.10) inset' : '0 0 0 1px rgba(120,156,220,0.12) inset'
+      : 'none',
+    transition: 'border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease',
+    '&:hover': {
+      borderColor: 'primary.main',
+      bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.78)' : 'rgba(255,255,255,0.075)',
     },
   };
 }
@@ -222,6 +240,90 @@ interface CharacterFormProps {
   onCancel: () => void;
 }
 
+interface InlineTagEditorProps {
+  value: string[];
+  onChange: (next: string[]) => void;
+  placeholder: string;
+  addLabel: string;
+}
+
+function InlineTagEditor({ value, onChange, placeholder, addLabel }: InlineTagEditorProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (editing) {
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [editing]);
+
+  const commitDraft = () => {
+    const nextValue = draft.trim();
+    if (nextValue && !value.includes(nextValue)) {
+      onChange([...value, nextValue]);
+    }
+    setDraft('');
+    setEditing(false);
+  };
+
+  return (
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, alignItems: 'center' }}>
+      {value.map((item) => <Chip key={item} label={item} onDelete={() => onChange(value.filter((entry) => entry !== item))} size="small" />)}
+      {editing ? (
+        <Chip
+          label={
+            <TextField
+              inputRef={inputRef}
+              variant="standard"
+              placeholder={value.length === 0 ? placeholder : ''}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitDraft();
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setDraft('');
+                  setEditing(false);
+                }
+              }}
+              onBlur={commitDraft}
+              slotProps={{ input: { disableUnderline: true } }}
+              sx={{ width: draft ? `${Math.max(4, draft.length + 1)}ch` : '8em', minWidth: '4em', maxWidth: 180, '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiInputBase-input': { py: 0, px: 0, width: '100%' } }}
+            />
+          }
+          size="small"
+          variant="outlined"
+          sx={{ width: 'fit-content', maxWidth: 210, '& .MuiChip-label': { px: 0.75, py: 0.25 } }}
+        />
+      ) : (
+        <IconButton
+          size="small"
+          aria-label={addLabel}
+          onClick={() => setEditing(true)}
+          sx={{
+            width: 28,
+            height: 28,
+            border: '1px dashed',
+            borderColor: 'divider',
+            color: 'text.secondary',
+            '&:hover': {
+              borderColor: 'primary.main',
+              color: 'primary.main',
+              bgcolor: 'action.hover',
+            },
+          }}
+        >
+          <AddIcon fontSize="inherit" />
+        </IconButton>
+      )}
+    </Box>
+  );
+}
+
 export default function CharacterForm({ initial, existingNames = [], saveError = null, onDraftNameChange, onDelete, deleteLabel, onSave }: CharacterFormProps) {
   const { t, i18n } = useTranslation();
   const settings = useSettingsStore();
@@ -232,7 +334,6 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [personality, setPersonality] = useState<PersonalityParams>(initial?.personality || DEFAULT_PERSONALITY);
   const [behavior, setBehavior] = useState<CharacterBehaviorParams>(initial?.behavior || DEFAULT_CHARACTER_BEHAVIOR);
   const [expertise, setExpertise] = useState<string[]>(initial?.expertise || []);
-  const [expertiseInput, setExpertiseInput] = useState('');
   const [speakingStyle, setSpeakingStyle] = useState(initial?.speakingStyle || '');
   const [background, setBackground] = useState(initial?.background || '');
   const [visualIdentity, setVisualIdentity] = useState<CharacterVisualIdentity>(() => ({
@@ -275,6 +376,8 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [bubbleTab, setBubbleTab] = useState(0);
   const [configTab, setConfigTab] = useState(0);
   const bubbleCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const wasBubblePickerOpenRef = useRef(false);
   const modelDefaultsAppliedRef = useRef(false);
   const characters = useCharacterStore((state) => state.characters);
   const artifactItems = useCharacterArtifactStore((state) => state.items);
@@ -316,10 +419,11 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const gradientStyles = BUILT_IN_BUBBLE_STYLES.filter((style) => style.gradientFrom && style.gradientTo);
   const darkStyles = BUILT_IN_BUBBLE_STYLES.filter((style) => style.textColor.toLowerCase().includes('f') || style.backgroundColor.startsWith('#1') || style.backgroundColor.startsWith('#0') || style.backgroundColor.startsWith('rgba'));
   const builtInTabs = [BUILT_IN_BUBBLE_STYLES, roundedStyles, borderedStyles, gradientStyles, darkStyles];
-  const currentBuiltInStyles = builtInTabs[bubbleTab] || BUILT_IN_BUBBLE_STYLES;
+  const currentBubbleStyles = bubbleTab === 0 ? customBubbleStyles : (builtInTabs[bubbleTab - 1] || BUILT_IN_BUBBLE_STYLES);
   const allBubbleStyles = [...customBubbleStyles, ...BUILT_IN_BUBBLE_STYLES];
   const selectedBubbleStyle = resolveCharacterBubbleStyle({ bubbleStyle, bubbleStyleId, customStyles: customBubbleStyles });
   const selectedBubblePreview = buildBubblePreview(selectedBubbleStyle);
+  const draftBubblePreview = buildBubblePreview(draftBubbleStyle);
   const bubblePreviewText = useMemo(() => (i18n.language.startsWith('zh') ? '这是角色气泡预览' : 'Bubble style preview'), [i18n.language]);
   const visualIdentityExamples = useMemo(() => ({
     description: i18n.language.startsWith('zh')
@@ -383,6 +487,12 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   }, [name, onDraftNameChange]);
 
   useEffect(() => {
+    if (!isEditingExistingCharacter) {
+      requestAnimationFrame(() => nameInputRef.current?.focus());
+    }
+  }, [isEditingExistingCharacter]);
+
+  useEffect(() => {
     if (initial?.id || modelDefaultsAppliedRef.current) return;
     setModelProfileIds((current) => {
       const next = { ...current };
@@ -397,11 +507,13 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   }, [initial?.id, modelTypeOrder, profilesByType]);
 
   useEffect(() => {
-    if (bubblePickerOpen) {
-      setDraftBubbleStyleId(bubbleStyleId);
-      setDraftBubbleStyle({ ...selectedBubbleStyle });
-    }
-  }, [bubblePickerOpen, bubbleStyleId, selectedBubbleStyle]);
+    const justOpened = bubblePickerOpen && !wasBubblePickerOpenRef.current;
+    wasBubblePickerOpenRef.current = bubblePickerOpen;
+    if (!justOpened) return;
+    setDraftBubbleStyleId(bubbleStyleId);
+    setDraftBubbleStyle({ ...resolveCharacterBubbleStyle({ bubbleStyle, bubbleStyleId, customStyles: customBubbleStyles }) });
+    setBubbleTab(customBubbleStyles.length > 0 ? 0 : 1);
+  }, [bubblePickerOpen, bubbleStyle, bubbleStyleId, customBubbleStyles]);
 
   useEffect(() => {
     if (!initial) return;
@@ -534,13 +646,6 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     setDraftBubbleStyleId(bubbleStyleId);
     setDraftBubbleStyle({ ...selectedBubbleStyle });
     setBubblePickerOpen(false);
-  };
-
-  const addExpertise = () => {
-    if (expertiseInput.trim() && !expertise.includes(expertiseInput.trim())) {
-      setExpertise([...expertise, expertiseInput.trim()]);
-      setExpertiseInput('');
-    }
   };
 
   const handleGenerate = async () => {
@@ -849,33 +954,12 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   };
 
   const renderTagEditor = (value: string[], onChange: (next: string[]) => void, placeholder: string) => (
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-      {value.map((item) => <Chip key={item} label={item} onDelete={() => onChange(value.filter((entry) => entry !== item))} size="small" />)}
-      <Chip
-        label={
-          <TextField
-            variant="standard"
-            placeholder={value.length === 0 ? placeholder : ''}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                const target = e.target as HTMLInputElement;
-                const nextValue = target.value.trim();
-                if (nextValue && !value.includes(nextValue)) {
-                  onChange([...value, nextValue]);
-                }
-                target.value = '';
-              }
-            }}
-            slotProps={{ input: { disableUnderline: true } }}
-            sx={{ width: '8em', '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiInputBase-input': { py: 0, px: 0, width: '100%' } }}
-          />
-        }
-        size="small"
-        variant="outlined"
-        sx={{ width: 'fit-content', maxWidth: 180, '& .MuiChip-label': { px: 0.75, py: 0.25 } }}
-      />
-    </Box>
+    <InlineTagEditor
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      addLabel={i18n.language.startsWith('zh') ? '添加' : 'Add'}
+    />
   );
 
   const behaviorGroups: Array<{ title: string; items: Array<{ key: keyof CharacterBehaviorParams; label: string; description: string }> }> = [
@@ -1019,40 +1103,144 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
 
   const settingTab = (
     <>
-      <Box sx={{ display: 'grid', gap: 1 }}>
+      <Box sx={{ display: 'grid', gap: 1.5 }}>
         {duplicateNameWarning ? <Alert severity="warning">{duplicateNameWarning}</Alert> : null}
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '56px minmax(0, 1fr)', sm: isEditingExistingCharacter ? '56px minmax(180px, 1.2fr) minmax(150px, 0.8fr)' : '56px minmax(180px, 1.2fr) minmax(150px, 0.8fr) auto' }, gap: 1, alignItems: 'flex-start' }}>
-          <Box onClick={() => setAvatarPickerOpen(true)} sx={{ width: 56, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', borderRadius: 1, cursor: 'pointer', border: '1px solid', borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)', bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.08)', boxShadow: (theme) => theme.palette.mode === 'light' ? '0 10px 26px rgba(15,23,42,0.08)' : '0 12px 30px rgba(0,0,0,0.28)', overflow: 'hidden', transition: 'transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease', '&:hover': { transform: 'translateY(-1px)', borderColor: 'primary.main', boxShadow: (theme) => theme.palette.mode === 'light' ? '0 14px 32px rgba(15,23,42,0.12)' : '0 16px 36px rgba(0,0,0,0.34)' } }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: '84px minmax(0, 1fr)', gap: { xs: 1.25, sm: 1.5 }, alignItems: 'center' }}>
+          <Box onClick={() => setAvatarPickerOpen(true)} sx={{ width: 84, height: 84, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.15rem', borderRadius: 1.25, cursor: 'pointer', position: 'relative', overflow: 'hidden', bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.38)' : 'rgba(255,255,255,0.045)', transition: 'transform 160ms ease, background-color 160ms ease', '&::after': { content: '""', position: 'absolute', inset: 3, borderRadius: 1, border: '1px dashed', borderColor: 'primary.main', opacity: 0, pointerEvents: 'none', transition: 'opacity 160ms ease' }, '&::before': { content: '""', position: 'absolute', inset: 0, bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.18)', opacity: 0, pointerEvents: 'none', transition: 'opacity 160ms ease' }, '&:hover': { transform: 'translateY(-1px)', bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.58)' : 'rgba(255,255,255,0.07)' }, '&:hover::after, &:hover::before': { opacity: 1 } }}>
             {isImageAvatar ? <Box component="img" src={avatar} alt={name || 'avatar'} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatar}
           </Box>
-          <TextField label={t('character.name')} placeholder={t('character.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} helperText={helperText} error={Boolean(inlineError)} required fullWidth />
-          <Autocomplete
-            freeSolo
-            options={existingGroups}
-            value={normalizeCharacterGroup(group) || group || ''}
-            onChange={(_, value) => setGroup(typeof value === 'string' ? value : '')}
-            onInputChange={(_, value) => setGroup(value)}
-            sx={{ gridColumn: { xs: '2 / 3', sm: 'auto' }, minWidth: 0 }}
-            renderInput={(params) => (
+          <Box sx={{ display: 'grid', gap: 0.35, minWidth: 0 }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: 0 }}>
               <TextField
-                {...params}
-                label={i18n.language.startsWith('zh') ? '分组' : 'Group'}
-                placeholder={i18n.language.startsWith('zh') ? '例如：喜羊羊与灰太狼' : 'e.g. Pleasant Goat and Big Big Wolf'}
+                inputRef={nameInputRef}
+                placeholder={t('character.namePlaceholder')}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                helperText={helperText}
+                error={Boolean(inlineError)}
+                required
                 fullWidth
-                size="small"
+                variant="standard"
+                slotProps={{ input: { disableUnderline: true } }}
+                sx={{
+                  width: 'fit-content',
+                  maxWidth: '100%',
+                  minWidth: { xs: 0, sm: '14em' },
+                  flex: '1 1 auto',
+                  border: '1px solid transparent',
+                  borderStyle: 'solid',
+                  borderRadius: 1,
+                  px: 0.75,
+                  py: 0.2,
+                  transition: 'border-color 160ms ease, background-color 160ms ease, border-style 160ms ease',
+                  '&:hover': {
+                    borderStyle: 'dashed',
+                    borderColor: 'primary.main',
+                    bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.035)',
+                  },
+                  '&:focus-within': {
+                    borderStyle: 'solid',
+                    borderColor: 'primary.main',
+                    bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.34)' : 'rgba(255,255,255,0.045)',
+                  },
+                  '& .MuiInputBase-root': { width: '100%' },
+                  '& .MuiInputBase-input': {
+                    px: 0,
+                    py: 0.25,
+                    fontSize: { xs: '1.35rem', sm: '1.55rem' },
+                    fontWeight: 780,
+                    lineHeight: 1.18,
+                  },
+                  '& .MuiFormHelperText-root': { mx: 0, mt: 0.4 },
+                }}
               />
-            )}
-          />
-          {!isEditingExistingCharacter ? (
-            <Button variant="outlined" onClick={handleGenerate} aria-label={generateAriaLabel} sx={{ gridColumn: { xs: '2 / 3', sm: 'auto' }, minWidth: { xs: 64, sm: 88 }, height: 40, whiteSpace: 'nowrap', px: { xs: 1.25, sm: 2 } }} disabled={!name.trim() || generating}>{generateLabel}</Button>
-          ) : null}
+              {!isEditingExistingCharacter ? (
+                <Button variant="outlined" onClick={handleGenerate} aria-label={generateAriaLabel} sx={{ flex: '0 0 auto', alignSelf: 'center', minWidth: { xs: 68, sm: 88 }, height: 40, whiteSpace: 'nowrap', px: { xs: 1.1, sm: 2 } }} disabled={!name.trim() || generating}>{generateLabel}</Button>
+              ) : null}
+            </Box>
+            <Autocomplete
+              freeSolo
+              options={existingGroups}
+              value={normalizeCharacterGroup(group) || group || ''}
+              onChange={(_, value) => setGroup(typeof value === 'string' ? value : '')}
+              onInputChange={(_, value) => setGroup(value)}
+              selectOnFocus
+              clearOnBlur={false}
+              handleHomeEndKeys
+              openOnFocus
+              slotProps={{
+                paper: {
+                  sx: {
+                    bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(20,22,30,0.88)',
+                    backgroundImage: 'none',
+                    backdropFilter: 'blur(24px) saturate(1.18)',
+                    WebkitBackdropFilter: 'blur(24px) saturate(1.18)',
+                    border: '1px solid',
+                    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.10)' : 'rgba(226,232,240,0.12)',
+                    boxShadow: (theme: Theme) => theme.palette.mode === 'light' ? '0 18px 44px rgba(15,23,42,0.14)' : '0 20px 52px rgba(0,0,0,0.42)',
+                  },
+                },
+              }}
+              sx={{
+                width: { xs: 'min(100%, 16em)', sm: 'min(100%, 24em)' },
+                minWidth: { xs: 'min(100%, 12em)', sm: '16em' },
+                maxWidth: '100%',
+                border: '1px solid transparent',
+                borderStyle: 'solid',
+                borderRadius: 1,
+                px: 0.75,
+                py: 0.1,
+                transition: 'border-color 160ms ease, background-color 160ms ease, border-style 160ms ease',
+                '&:hover': {
+                  borderStyle: 'dashed',
+                  borderColor: 'primary.main',
+                  bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.26)' : 'rgba(255,255,255,0.035)',
+                },
+                '&:focus-within': {
+                  borderStyle: 'solid',
+                  borderColor: 'primary.main',
+                  bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.04)',
+                },
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={i18n.language.startsWith('zh') ? '无分组' : 'No group'}
+                  fullWidth
+                  size="small"
+                  variant="standard"
+                  slotProps={{
+                    input: {
+                      ...params.slotProps.input,
+                      disableUnderline: true,
+                      endAdornment: null,
+                    },
+                    htmlInput: params.slotProps.htmlInput,
+                  }}
+                  sx={{
+                    '& .MuiInputBase-root': { px: 0, color: 'text.secondary', minWidth: 0 },
+                    '& .MuiInputBase-input': {
+                      px: '0 !important',
+                      py: 0.15,
+                      fontSize: '0.92rem',
+                      fontWeight: 520,
+                      '&::placeholder': {
+                        color: 'text.disabled',
+                        opacity: 1,
+                      },
+                    },
+                  }}
+                />
+              )}
+            />
+          </Box>
         </Box>
       </Box>
 
-      <Box sx={{ width: { xs: '100%', md: '72%' } }}>
-        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>{i18n.language.startsWith('zh') ? '气泡样式' : 'Bubble style'}</Typography>
+      <Box sx={{ width: '100%' }}>
         <Card variant="outlined" sx={{ ...buildEditorCardSx(), cursor: 'pointer' }} onClick={openBubblePicker}>
-          <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+          <CardContent sx={{ p: 1.5, display: 'grid', gap: 1.2, '&:last-child': { pb: 1.5 } }}>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>{i18n.language.startsWith('zh') ? '气泡样式' : 'Bubble style'}</Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
               {renderAvatarPreview(avatar, isImageAvatar, 28)}
               <Box sx={{ px: 1.5, py: 0.875, border: selectedBubblePreview.border, borderRadius: selectedBubblePreview.borderRadius, boxShadow: selectedBubblePreview.boxShadow, color: selectedBubblePreview.color, background: selectedBubblePreview.background, flex: 1, minWidth: 0 }}>
@@ -1065,19 +1253,52 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
         </Card>
       </Box>
 
-      <Card variant="outlined" sx={{ ...buildEditorCardSx(), width: { xs: '100%', md: '72%' } }}>
+      <Card variant="outlined" sx={{ ...buildEditorCardSx(), width: '100%' }}>
         <CardContent sx={{ display: 'grid', gap: 1.5, '&:last-child': { pb: 2 } }}>
-          <Box>
-            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>{t('character.expertise')}</Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-              {expertise.map((exp) => <Chip key={exp} label={exp} onDelete={() => setExpertise(expertise.filter((e) => e !== exp))} size="small" />)}
-              <Chip
-                label={<TextField variant="standard" placeholder={expertise.length === 0 ? t('character.expertisePlaceholder') : ''} value={expertiseInput} onChange={(e) => setExpertiseInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExpertise(); } }} slotProps={{ input: { disableUnderline: true } }} sx={{ width: expertiseInput ? `${Math.max(4, expertiseInput.length + 1)}ch` : '4em', minWidth: '4em', maxWidth: 160, '& .MuiInputBase-root': { fontSize: 13 }, '& .MuiInputBase-input': { py: 0, px: 0, width: '100%' } }} />}
-                size="small"
-                variant="outlined"
-                sx={{ width: 'fit-content', maxWidth: 148, '& .MuiChip-label': { px: 0.75, py: 0.25 } }}
-              />
-            </Box>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{i18n.language.startsWith('zh') ? '基本信息' : 'Basic info'}</Typography>
+          <Box
+            sx={{
+              position: 'relative',
+              border: '1px solid',
+              borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.20)' : 'rgba(226,232,240,0.22)',
+              borderRadius: 1,
+              px: 1.75,
+              pt: 2,
+              pb: 1.35,
+              mt: 0.5,
+              transition: 'border-color 160ms ease, box-shadow 160ms ease',
+              '&:hover': {
+                borderColor: (theme: Theme) => theme.palette.text.primary,
+              },
+              '&:focus-within': {
+                borderColor: 'primary.main',
+                boxShadow: (theme: Theme) => theme.palette.mode === 'light'
+                  ? '0 0 0 3px rgba(49,90,156,0.08)'
+                  : '0 0 0 3px rgba(120,156,220,0.10)',
+              },
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                position: 'absolute',
+                top: -9,
+                left: 10,
+                px: 0.75,
+                lineHeight: 1.2,
+                color: 'text.secondary',
+                bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.92)' : 'rgba(18,20,28,0.96)',
+                borderRadius: 0.5,
+              }}
+            >
+              {t('character.expertise')}
+            </Typography>
+            <InlineTagEditor
+              value={expertise}
+              onChange={setExpertise}
+              placeholder={t('character.expertisePlaceholder')}
+              addLabel={i18n.language.startsWith('zh') ? '添加专业领域' : 'Add expertise'}
+            />
           </Box>
           <TextField label={t('character.speakingStyle')} placeholder={t('character.speakingStylePlaceholder')} value={speakingStyle} onChange={(e) => setSpeakingStyle(e.target.value)} multiline rows={2} fullWidth />
           <TextField label={t('character.background')} placeholder={t('character.backgroundPlaceholder')} value={background} onChange={(e) => setBackground(e.target.value)} multiline rows={3} fullWidth />
@@ -1298,9 +1519,16 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             </Collapse>
           </CardContent>
         </Card>
-        <FormControlLabel control={<Switch checked={intervention.allowSpeakAs} onChange={(e) => setIntervention((prev) => ({ ...prev, allowSpeakAs: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许用户以该角色身份发言' : 'Allow speak as'} />
-        <FormControlLabel control={<Switch checked={intervention.allowDirectorPrompt} onChange={(e) => setIntervention((prev) => ({ ...prev, allowDirectorPrompt: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许导演强制干预' : 'Allow director prompts'} />
-        <FormControlLabel control={<Switch checked={intervention.allowPrivateThread} onChange={(e) => setIntervention((prev) => ({ ...prev, allowPrivateThread: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许被拉入AI私聊' : 'Allow AI private thread'} />
+        <Card variant="outlined" sx={buildEditorCardSx()}>
+          <CardContent sx={{ display: 'grid', gap: 0.5, '&:last-child': { pb: 2 } }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.25 }}>
+              {i18n.language.startsWith('zh') ? '交互权限' : 'Interaction permissions'}
+            </Typography>
+            <FormControlLabel control={<Switch checked={intervention.allowSpeakAs} onChange={(e) => setIntervention((prev) => ({ ...prev, allowSpeakAs: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许用户以该角色身份发言' : 'Allow speak as'} />
+            <FormControlLabel control={<Switch checked={intervention.allowDirectorPrompt} onChange={(e) => setIntervention((prev) => ({ ...prev, allowDirectorPrompt: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许导演强制干预' : 'Allow director prompts'} />
+            <FormControlLabel control={<Switch checked={intervention.allowPrivateThread} onChange={(e) => setIntervention((prev) => ({ ...prev, allowPrivateThread: e.target.checked }))} />} label={i18n.language.startsWith('zh') ? '允许被拉入AI私聊' : 'Allow AI private thread'} />
+          </CardContent>
+        </Card>
       </Stack>
       {onDelete ? (
         <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>
@@ -1400,7 +1628,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
 
   const getPreviewFor = (styleIdToUse: string) => buildBubblePreview(resolveCharacterBubbleStyle({ bubbleStyleId: styleIdToUse, customStyles: customBubbleStyles }));
 
-  const bubblePickerActionLabel = i18n.language.startsWith('zh') ? { newStyle: '新建样式', use: '使用', confirm: '确定', cancel: '取消', auto: '自动', random: '随机', custom: '自定义', all: '全部', rounded: '圆润', border: '边框', gradient: '渐变', dark: '深色', saveStyle: '保存样式' } : { newStyle: 'New style', use: 'Use', confirm: 'Confirm', cancel: 'Cancel', auto: 'Auto', random: 'Random', custom: 'Custom', all: 'All', rounded: 'Rounded', border: 'Borders', gradient: 'Gradient', dark: 'Dark', saveStyle: 'Save style' };
+  const bubblePickerActionLabel = i18n.language.startsWith('zh') ? { newStyle: '新建样式', use: '使用', confirm: '确定', cancel: '取消', auto: '自动', random: '随机', custom: '自定义', allPresets: '全部预设', rounded: '圆润', border: '边框', gradient: '渐变', dark: '深色', saveStyle: '保存样式' } : { newStyle: 'New style', use: 'Use', confirm: 'Confirm', cancel: 'Cancel', auto: 'Auto', random: 'Random', custom: 'Custom', allPresets: 'All presets', rounded: 'Rounded', border: 'Borders', gradient: 'Gradient', dark: 'Dark', saveStyle: 'Save style' };
 
   const openBubbleEditor = (style?: BubbleStyleDefinition) => {
     setEditingBubbleStyleId(style?.id || bubbleStyleId || null);
@@ -1615,64 +1843,110 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       </Dialog>
 
       <Dialog open={bubblePickerOpen} onClose={cancelBubbleSelection} maxWidth="md" fullWidth>
-        <DialogTitle>{i18n.language.startsWith('zh') ? '角色气泡' : 'Character bubble'}</DialogTitle>
-        <DialogContent sx={{ p: 0, pt: 1, display: 'flex', flexDirection: 'column', maxHeight: '72vh' }}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+          <Box component="span">{i18n.language.startsWith('zh') ? '角色气泡' : 'Character bubble'}</Box>
+          <Button
+            variant="outlined"
+            startIcon={<AutoAwesomeIcon />}
+            onClick={handleRegenerateBubble}
+            disabled={!name.trim() || generating}
+            sx={{ whiteSpace: 'nowrap' }}
+          >
+            {regenerateBubbleLabel}
+          </Button>
+        </DialogTitle>
+        <DialogContent
+          sx={{
+            p: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            height: { xs: '68vh', sm: '72vh' },
+            maxHeight: '72vh',
+            overflow: 'hidden',
+            bgcolor: 'transparent',
+          }}
+        >
           <Box
             sx={{
-              position: 'sticky',
-              top: 0,
-              zIndex: 2,
-              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.70)' : 'rgba(18,20,28,0.72)',
-              backdropFilter: 'blur(24px) saturate(1.18)',
-              WebkitBackdropFilter: 'blur(24px) saturate(1.18)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1.25,
+              flex: '1 1 auto',
+              minHeight: 0,
+              overflow: 'hidden',
               px: 3,
-              pt: 0,
-              pb: 1.5,
-              borderBottom: 1,
-              borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
-              boxShadow: (theme) => theme.palette.mode === 'light' ? '0 14px 30px rgba(15,23,42,0.055)' : '0 16px 34px rgba(0,0,0,0.26)',
+              pt: 1.5,
+              pb: 2,
             }}
           >
-            <Box sx={{ display: 'grid', gap: 1.25, mb: 1.5 }}>
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: 0 }}>
-                {renderAvatarPreview(avatar, isImageAvatar, 30)}
-                <Box sx={{ px: 1.5, py: 1, border: selectedBubblePreview.border, borderRadius: selectedBubblePreview.borderRadius, boxShadow: selectedBubblePreview.boxShadow, color: selectedBubblePreview.color, background: selectedBubblePreview.background, flex: 1, minWidth: 0 }}>
-                  <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, opacity: 0.9 }}>{selectedBubbleStyle.name}</Typography>
-                  <Typography variant="body2" noWrap>{bubblePreviewText}</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, flexShrink: 0 }}>
-                  <Button startIcon={<AutoAwesomeIcon />} onClick={handleRegenerateBubble} disabled={!name.trim() || generating}>{regenerateBubbleLabel}</Button>
-                  <Button startIcon={<EditIcon />} onClick={() => openBubbleEditor(selectedBubbleStyle)}>{i18n.language.startsWith('zh') ? '编辑' : 'Edit'}</Button>
-                </Box>
-              </Box>
-            </Box>
-            {inlineError ? <Typography variant="caption" color="error">{inlineError}</Typography> : null}
-            <Tabs
-              value={bubbleTab}
-              onChange={(_, value) => setBubbleTab(value)}
-              variant="scrollable"
-              scrollButtons={false}
-              sx={{ '& .MuiTab-root': { minWidth: 0, px: { xs: 0.85, sm: 1.5 }, fontSize: { xs: '0.78rem', sm: '0.875rem' }, whiteSpace: 'nowrap' } }}
+            <Card
+              variant="outlined"
+              sx={{
+                ...buildBubbleOptionCardSx(false),
+                cursor: 'default',
+                flex: '0 0 auto',
+                '&:hover': {
+                  borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+                  bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.58)' : 'rgba(255,255,255,0.045)',
+                },
+              }}
             >
-              <Tab label={bubblePickerActionLabel.all} />
-              <Tab label={bubblePickerActionLabel.rounded} />
-              <Tab label={bubblePickerActionLabel.border} />
-              <Tab label={bubblePickerActionLabel.gradient} />
-              <Tab label={bubblePickerActionLabel.dark} />
-            </Tabs>
-          </Box>
-
-          <Box sx={{ overflowY: 'auto', px: 3, pb: 2, pt: 2 }}>
-            {customBubbleStyles.length > 0 ? <><Typography variant="subtitle2" sx={{ mb: 1 }}>{bubblePickerActionLabel.custom}</Typography><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.25 }}>{customBubbleStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={{ borderColor: isStyleSelected(style.id) ? 'primary.main' : 'divider', cursor: 'pointer' }} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography><Box sx={{ display: 'flex', gap: 0.5 }}><Button size="small" onClick={(e) => { e.stopPropagation(); selectBubbleStyle(style.id); setDraftBubbleStyle({ ...style }); }}>{bubblePickerActionLabel.use}</Button><IconButton size="small" onClick={(e) => { e.stopPropagation(); openBubbleEditor(style); }}><EditIcon fontSize="small" /></IconButton></Box></Box><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>{renderAvatarPreview(avatar, isImageAvatar, 30)}<Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box><Divider sx={{ my: 2.5 }} /></> : null}
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.25 }}>{currentBuiltInStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={{ borderColor: isStyleSelected(style.id) ? 'primary.main' : 'divider', cursor: 'pointer' }} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>{renderAvatarPreview(avatar, isImageAvatar, 30)}<Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box>
+              <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.15, minWidth: 0 }}>
+                  {renderAvatarPreview(avatar, isImageAvatar, 42)}
+                  <Box sx={{ px: 1.5, py: 1, border: draftBubblePreview.border, borderRadius: draftBubblePreview.borderRadius, boxShadow: draftBubblePreview.boxShadow, color: draftBubblePreview.color, background: draftBubblePreview.background, flex: 1, minWidth: 0 }}>
+                    <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, opacity: 0.9 }}>{draftBubbleStyle.name}</Typography>
+                    <Typography variant="body2" noWrap>{bubblePreviewText}</Typography>
+                  </Box>
+                  <IconButton
+                    size="small"
+                    onClick={() => openBubbleEditor(selectedBubbleStyle)}
+                    aria-label={i18n.language.startsWith('zh') ? '编辑气泡样式' : 'Edit bubble style'}
+                    sx={{ flexShrink: 0 }}
+                  >
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              </CardContent>
+            </Card>
+            <Card variant="outlined" sx={{ ...buildBubbleOptionCardSx(false), cursor: 'default', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }}>
+              <CardContent sx={{ p: 1.5, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 1.25, minHeight: 0, '&:last-child': { pb: 1.5 } }}>
+                {inlineError ? <Typography variant="caption" color="error">{inlineError}</Typography> : null}
+                <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                  <FloatingSegmentedTabs
+                    value={bubbleTab}
+                    onChange={setBubbleTab}
+                    equalWidth={false}
+                    items={[
+                      { value: 0, label: bubblePickerActionLabel.custom },
+                      { value: 1, label: bubblePickerActionLabel.allPresets },
+                      { value: 2, label: bubblePickerActionLabel.rounded },
+                      { value: 3, label: bubblePickerActionLabel.border },
+                      { value: 4, label: bubblePickerActionLabel.gradient },
+                      { value: 5, label: bubblePickerActionLabel.dark },
+                    ]}
+                  />
+                </Box>
+                <Divider sx={{ borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)' }} />
+                <Box sx={{ flex: '1 1 auto', overflowY: 'auto', minHeight: 0, pr: 0.5 }}>
+                  {currentBubbleStyles.length > 0 ? (
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.25 }}>{currentBubbleStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={buildBubbleOptionCardSx(isStyleSelected(style.id))} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography>{bubbleTab === 0 ? <IconButton size="small" onClick={(e) => { e.stopPropagation(); openBubbleEditor(style); }}><EditIcon fontSize="small" /></IconButton> : null}</Box><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>{renderAvatarPreview(avatar, isImageAvatar, 30)}<Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box>
+                  ) : (
+                    <Box sx={{ minHeight: 120, display: 'grid', placeItems: 'center', color: 'text.secondary', textAlign: 'center' }}>
+                      <Typography variant="body2">{i18n.language.startsWith('zh') ? '暂无自定义气泡样式' : 'No custom bubble styles yet'}</Typography>
+                    </Box>
+                  )}
+                </Box>
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-start', pt: 0 }}>
+                  <Button size="small" onClick={pickLeastUsedStyle} sx={{ minWidth: 0, px: 0.85 }}>{bubblePickerActionLabel.auto}</Button>
+                  <Button size="small" onClick={pickRandomStyle} sx={{ minWidth: 0, px: 0.85 }}>{bubblePickerActionLabel.random}</Button>
+                  <Button size="small" startIcon={<AddIcon />} onClick={() => openBubbleEditor(selectedBubbleStyle)} sx={{ minWidth: 0, px: 0.85, '& .MuiButton-startIcon': { mr: 0.35 } }}>{i18n.language.startsWith('zh') ? '新建' : 'New'}</Button>
+                </Box>
+              </CardContent>
+            </Card>
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Button onClick={pickLeastUsedStyle}>{bubblePickerActionLabel.auto}</Button>
-            <Button onClick={pickRandomStyle}>{bubblePickerActionLabel.random}</Button>
-            <Button startIcon={<AddIcon />} onClick={() => openBubbleEditor(selectedBubbleStyle)}>{i18n.language.startsWith('zh') ? '新建' : 'New'}</Button>
-          </Box>
+        <DialogActions sx={{ px: 3, py: 2, justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap', borderTop: 1, borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)', bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.025)' }}>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             <Button onClick={cancelBubbleSelection}>{bubblePickerActionLabel.cancel}</Button>
             <Button variant="contained" onClick={applyBubbleSelection}>{bubblePickerActionLabel.confirm}</Button>
@@ -1682,7 +1956,11 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
 
       <Dialog open={bubbleEditorOpen} onClose={() => setBubbleEditorOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{editingBubbleStyleId ? (i18n.language.startsWith('zh') ? '编辑样式' : 'Edit style') : (i18n.language.startsWith('zh') ? '新建样式' : 'New style')}</DialogTitle>
-        <DialogContent>
+        <DialogContent
+          sx={{
+            bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.03)',
+          }}
+        >
           <Box sx={{ display: 'grid', gap: 1.5, pt: 1 }}>
             <TextField label={i18n.language.startsWith('zh') ? '样式名称' : 'Style name'} value={bubbleForm.name} onChange={(e) => setBubbleForm((prev) => ({ ...prev, name: e.target.value }))} fullWidth />
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 1.25 }}>
@@ -1708,7 +1986,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             </Box>
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+        <DialogActions sx={{ px: 3, py: 2, justifyContent: 'space-between', gap: 1, flexWrap: 'wrap', borderTop: 1, borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)', bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.025)' }}>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             {isEditingCustomBubbleStyle ? (
               <Button color="error" onClick={handleDeleteCustomBubbleStyle}>{i18n.language.startsWith('zh') ? '删除' : 'Delete'}</Button>

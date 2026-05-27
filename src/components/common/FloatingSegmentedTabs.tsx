@@ -13,6 +13,7 @@ export type FloatingSegmentedTabsProps<T extends string | number> = {
   items: FloatingSegmentedTab<T>[];
   onChange: (value: T) => void;
   equalWidth?: boolean;
+  comfortable?: boolean;
 };
 
 export function buildFloatingTabContainerSx() {
@@ -50,13 +51,13 @@ export function buildFloatingTabGroupSx() {
   } as const;
 }
 
-export default function FloatingSegmentedTabs<T extends string | number>({ value, items, onChange, equalWidth = true }: FloatingSegmentedTabsProps<T>) {
+export default function FloatingSegmentedTabs<T extends string | number>({ value, items, onChange, equalWidth = true, comfortable = true }: FloatingSegmentedTabsProps<T>) {
   return (
     <Box sx={buildFloatingTabGroupSx()}>
       <Box
         sx={{
           display: 'flex',
-          gap: { xs: 0.25, sm: 0.35 },
+          gap: comfortable ? { xs: 0.25, sm: 0.4 } : { xs: 0.25, sm: 0.35 },
           minWidth: 0,
         }}
       >
@@ -69,9 +70,11 @@ export default function FloatingSegmentedTabs<T extends string | number>({ value
               aria-pressed={selected}
               sx={{
                 minHeight: { xs: 36, sm: 38 },
-                minWidth: equalWidth ? { xs: 58, sm: 68 } : 'max-content',
-                flex: equalWidth ? '1 0 auto' : '0 0 auto',
-                px: { xs: 1.35, sm: 1.75 },
+                minWidth: equalWidth
+                  ? comfortable ? { xs: 58, sm: 74, md: 88 } : { xs: 58, sm: 68 }
+                  : 'max-content',
+                flex: equalWidth ? '1 1 auto' : '0 1 auto',
+                px: comfortable ? { xs: 1.2, sm: 1.8, md: 2.2 } : { xs: 1.35, sm: 1.75 },
                 borderRadius: { xs: '10px', sm: '11px' },
                 color: selected ? 'primary.main' : 'text.secondary',
                 bgcolor: selected

@@ -19,6 +19,10 @@ import { motion, transition } from '../styles/motion';
 const CHAT_LIST_TAB_KEY = 'chat-list-tab';
 const isChatListTab = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 2;
 
+function getActiveChatId(pathname: string) {
+  return pathname.match(/^\/chats\/([^/]+)(?:\/edit)?$/)?.[1] || null;
+}
+
 export default function ChatListPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -38,6 +42,7 @@ export default function ChatListPage() {
   }, [location.search]);
   const [tab, setTab] = useState(initialTab);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const activeChatId = isMasterPane ? getActiveChatId(location.pathname) : null;
 
 
   useEffect(() => {
@@ -213,6 +218,7 @@ export default function ChatListPage() {
               key={chat.id}
               chat={chat}
               characters={characters}
+              selected={activeChatId === chat.id}
               onClick={() => navigate(`/chats/${chat.id}?fromTab=${tab}`)}
             />
           ))}

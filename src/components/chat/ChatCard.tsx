@@ -16,6 +16,7 @@ interface ChatCardProps {
   characters: AICharacter[];
   onClick: () => void;
   onPrefetch?: () => void;
+  selected?: boolean;
 }
 
 function cleanRelationshipPreview(text: string) {
@@ -69,7 +70,7 @@ function latestByTimestamp(messages: Array<Message | null | undefined>) {
     .sort((a, b) => b.timestamp - a.timestamp)[0];
 }
 
-export default function ChatCard({ chat, characters, onClick, onPrefetch }: ChatCardProps) {
+export default function ChatCard({ chat, characters, onClick, onPrefetch, selected = false }: ChatCardProps) {
   const { t } = useTranslation();
   const messages = useMessageStore((state) => state.messages);
   const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
@@ -90,7 +91,14 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch }: Chat
         position: 'relative',
         overflow: 'hidden',
         bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.76)' : 'rgba(18,20,28,0.78)',
-        borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+        borderColor: selected
+          ? 'primary.main'
+          : (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+        boxShadow: selected
+          ? (theme) => theme.palette.mode === 'light'
+            ? '0 0 0 1px rgba(49,90,156,0.18) inset, 0 16px 36px rgba(49,90,156,0.10)'
+            : '0 0 0 1px rgba(120,156,220,0.22) inset, 0 18px 42px rgba(0,0,0,0.32)'
+          : 'none',
         backdropFilter: 'blur(14px)',
         transition: transition(['transform', 'box-shadow', 'border-color', 'background-color'], motion.durations.base, motion.gentleSpring),
         '&::before': {
@@ -101,8 +109,9 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch }: Chat
           bottom: 0,
           width: isDirect ? 2 : 3,
           bgcolor: 'primary.main',
-          opacity: isDirect ? 0.32 : 0.42,
+          opacity: selected ? 0.82 : isDirect ? 0.32 : 0.42,
           pointerEvents: 'none',
+          transition: transition(['opacity', 'width'], motion.durations.base, motion.softOut),
         },
         '&:hover': {
           transform: 'translateY(-2px)',

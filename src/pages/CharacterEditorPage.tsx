@@ -57,6 +57,10 @@ export default function CharacterEditorPage() {
   }, [draftName, editChar?.name, editId, t]);
 
   useEffect(() => {
+    setDraftName('');
+  }, [editId]);
+
+  useEffect(() => {
     setHeaderTitle(headerTitle);
     setHeaderBackAction(() => () => goBack());
     setHideMobileBottomNav(true);
@@ -97,6 +101,7 @@ export default function CharacterEditorPage() {
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 'none', mx: 'auto' }}>
       <CharacterForm
+        key={editId || 'create'}
         initial={editChar}
         existingNames={characters.map((character) => character.name)}
         saveError={saveError}
