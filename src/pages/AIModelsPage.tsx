@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type MouseEvent } from 'react';
 import {
-  Box, Typography, Card, CardContent, TextField, Button,
+  Box, Typography, TextField, Button,
   FormControl, InputLabel, Select, MenuItem,
-  Snackbar, Alert, IconButton, InputAdornment, Autocomplete, Chip, Checkbox, Tooltip, FormControlLabel,
+  Snackbar, Alert, IconButton, InputAdornment, Autocomplete, Checkbox, Tooltip, FormControlLabel, Divider,
 } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+import CloudSyncIcon from '@mui/icons-material/CloudSyncOutlined';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useSettingsStore } from '../stores/useSettingsStore';
@@ -16,7 +19,10 @@ import type { AIModelImageCapabilities, AIModelType } from '../types/settings';
 import { normalizeImageCapabilities } from '../types/settings';
 import { normalizeCharacterModelProfileIds } from '../types/character';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import PageSection from '../components/common/PageSection';
+import SurfaceCard from '../components/common/SurfaceCard';
 import { getPopularModels, getProviderCatalogEntry, getProviderDefaults, getProvidersForType, inferImageCapabilities } from '../constants/aiModelCatalog';
+import { motion, transition } from '../styles/motion';
 
 function maskSecret(value: string) {
   if (!value) return '';
@@ -39,6 +45,60 @@ function blockSecretContextMenu(event: MouseEvent<HTMLInputElement | HTMLTextAre
   event.preventDefault();
 }
 
+function fieldSx() {
+  return {
+    '& .MuiOutlinedInput-root': {
+      borderRadius: 1,
+      bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.56)' : 'rgba(255,255,255,0.045)',
+      transition: transition(['background-color', 'border-color', 'box-shadow'], motion.durations.fast, motion.softOut),
+      '&:hover': {
+        bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.065)',
+      },
+      '&.Mui-focused': {
+        boxShadow: (theme: Theme) => theme.palette.mode === 'light'
+          ? '0 0 0 3px rgba(49,90,156,0.10)'
+          : '0 0 0 3px rgba(120,156,220,0.12)',
+      },
+    },
+  };
+}
+
+function modelCardSx() {
+  return {
+    position: 'relative',
+    overflow: 'hidden',
+    transition: transition(['border-color', 'box-shadow'], motion.durations.base, motion.softOut),
+    '&:hover': {
+      borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(49,90,156,0.28)' : 'rgba(120,156,220,0.28)',
+      boxShadow: (theme: Theme) => theme.palette.mode === 'light'
+        ? '0 1px 2px rgba(15,23,42,0.03), 0 18px 52px rgba(15,23,42,0.06)'
+        : '0 1px 0 rgba(255,255,255,0.035) inset, 0 20px 56px rgba(0,0,0,0.30)',
+    },
+  };
+}
+
+function solidPopupPaperSx() {
+  return {
+    bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? '#fff' : '#171923',
+    backgroundImage: 'none',
+    border: '1px solid',
+    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.10)' : 'rgba(226,232,240,0.12)',
+    boxShadow: (theme: Theme) => theme.palette.mode === 'light'
+      ? '0 18px 42px rgba(15,23,42,0.16)'
+      : '0 20px 48px rgba(0,0,0,0.48)',
+    backdropFilter: 'none',
+    WebkitBackdropFilter: 'none',
+    '& .MuiAutocomplete-groupLabel': {
+      py: 0.25,
+      lineHeight: 1.6,
+      fontSize: 12,
+    },
+    '& .MuiAutocomplete-groupUl': {
+      py: 0,
+    },
+  };
+}
+
 export default function AIModelsPage() {
   const { t, i18n } = useTranslation();
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
@@ -54,6 +114,9 @@ export default function AIModelsPage() {
   const [remoteModelOptions, setRemoteModelOptions] = useState<Record<string, string[]>>({});
   const [fetchedModelKeys, setFetchedModelKeys] = useState<Record<string, string>>({});
   const [fetchingModelIds, setFetchingModelIds] = useState<Record<string, boolean>>({});
+  const [fetchModelFailedIds, setFetchModelFailedIds] = useState<Record<string, boolean>>({});
+  const [openModelDropdownIds, setOpenModelDropdownIds] = useState<Record<string, boolean>>({});
+  const modelInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const fetchingModelKeysRef = useRef<Record<string, string>>({});
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
@@ -198,18 +261,23 @@ export default function AIModelsPage() {
 
   const fetchAvailableModels = async (profileId: string, silent = false, force = false) => {
     const profile = settings.aiProfiles.find((item) => item.id === profileId);
-    if (!profile) return;
+    if (!profile) return false;
     if (!profile.apiKey) {
       setRemoteModelOptions((prev) => ({ ...prev, [profileId]: [] }));
-      return;
+      return false;
     }
 
     const fetchKey = `${profile.provider}__${profile.type || 'text'}__${profile.baseUrl}__${profile.apiKey}`;
-    if (!force && fetchedModelKeys[profileId] === fetchKey) return;
-    if (fetchingModelKeysRef.current[profileId] === fetchKey) return;
+    if (!force && fetchedModelKeys[profileId] === fetchKey) return true;
+    if (fetchingModelKeysRef.current[profileId] === fetchKey) return false;
 
     fetchingModelKeysRef.current[profileId] = fetchKey;
     setFetchingModelIds((prev) => ({ ...prev, [profileId]: true }));
+    setFetchModelFailedIds((prev) => {
+      const next = { ...prev };
+      delete next[profileId];
+      return next;
+    });
     try {
       const models = await listAvailableModels(profile);
       const options = Array.from(new Set(models.map((item) => item.id).filter(Boolean)));
@@ -224,9 +292,13 @@ export default function AIModelsPage() {
           severity: 'success',
         });
       }
+      return true;
     } catch (error) {
       setRemoteModelOptions((prev) => ({ ...prev, [profileId]: [] }));
       setFetchedModelKeys((prev) => ({ ...prev, [profileId]: fetchKey }));
+      if (!silent) {
+        setFetchModelFailedIds((prev) => ({ ...prev, [profileId]: true }));
+      }
       if (!silent) {
         setSnackbar({
           open: true,
@@ -236,12 +308,23 @@ export default function AIModelsPage() {
           severity: 'error',
         });
       }
+      return false;
     } finally {
       delete fetchingModelKeysRef.current[profileId];
       setFetchingModelIds((prev) => {
         const next = { ...prev };
         delete next[profileId];
         return next;
+      });
+    }
+  };
+
+  const handleFetchModels = async (profileId: string) => {
+    const success = await fetchAvailableModels(profileId, false, true);
+    if (success) {
+      modelInputRefs.current[profileId]?.focus();
+      requestAnimationFrame(() => {
+        setOpenModelDropdownIds((prev) => ({ ...prev, [profileId]: true }));
       });
     }
   };
@@ -255,15 +338,8 @@ export default function AIModelsPage() {
   }, [settings.aiProfiles, fetchedModelKeys]);
 
   return (
-    <Box sx={{ flex: 1, overflow: 'auto', p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 }, width: '100%', maxWidth: 960, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-        <Chip
-          size="small"
-          color={saveStatusMeta.color}
-          variant={saveStatusMeta.color === 'default' ? 'outlined' : 'filled'}
-          label={saveStatusMeta.label}
-        />
-      </Box>
+    <Box sx={{ flex: 1, overflow: 'auto', p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 }, width: '100%', maxWidth: 1180, mx: 'auto' }}>
+      <PageSection spacing={2}>
       {settings.syncStatus === 'error' && settings.syncError ? (
         <Alert severity="error" variant="outlined">
           {settings.syncError}
@@ -274,16 +350,16 @@ export default function AIModelsPage() {
         sx={{
           display: 'grid',
           gridTemplateColumns: {
-            xs: '1fr',
+            xs: 'minmax(0, min(100%, 560px))',
             md: 'repeat(2, minmax(0, 1fr))',
             xl: 'repeat(3, minmax(0, 1fr))',
           },
+          justifyContent: 'center',
           gap: 2,
         }}
       >
             {settings.aiProfiles.map((profile, index) => (
-              <Card key={profile.id} variant="outlined" sx={{ bgcolor: 'background.default' }}>
-                <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <SurfaceCard key={profile.id} sx={modelCardSx()} contentSx={{ display: 'flex', flexDirection: 'column', gap: 1.75 }}>
                   {(() => {
                     const activeType = profile.type || 'text';
                     const providerOptions = getProvidersForType(activeType);
@@ -298,28 +374,26 @@ export default function AIModelsPage() {
                     ];
                     return (
                       <>
-                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
                     <TextField
                       label={i18n.language.startsWith('zh') ? '模型名称' : 'Profile name'}
                       value={profile.name}
                       onChange={(e) => settings.updateAIProfile(profile.id, { name: e.target.value })}
                       size="small"
                       fullWidth
+                      sx={fieldSx()}
                     />
-                    {index > 0 && (
-                      <Button color="error" onClick={() => settings.removeAIProfile(profile.id)}>
-                        {t('common.delete')}
-                      </Button>
-                    )}
                   </Box>
+                  <Divider />
 
                   <FormControl fullWidth size="small">
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                      <FormControl fullWidth size="small">
+                      <FormControl fullWidth size="small" sx={fieldSx()}>
                         <InputLabel>{i18n.language.startsWith('zh') ? '类型' : 'Type'}</InputLabel>
                         <Select
                           value={profile.type || 'text'}
                           label={i18n.language.startsWith('zh') ? '类型' : 'Type'}
+                          MenuProps={{ slotProps: { paper: { sx: solidPopupPaperSx() } } }}
                           onChange={(e) => {
                             const type = e.target.value as AIModelType;
                             const compatibleProviders = getProvidersForType(type);
@@ -331,6 +405,11 @@ export default function AIModelsPage() {
                               return next;
                             });
                             setRemoteModelOptions((prev) => ({ ...prev, [profile.id]: [] }));
+                            setFetchModelFailedIds((prev) => {
+                              const next = { ...prev };
+                              delete next[profile.id];
+                              return next;
+                            });
                             settings.updateAIProfile(profile.id, {
                               type,
                               provider: nextProvider,
@@ -372,11 +451,12 @@ export default function AIModelsPage() {
                     </Box>
                   </FormControl>
 
-                  <FormControl fullWidth size="small">
+                  <FormControl fullWidth size="small" sx={fieldSx()}>
                     <InputLabel>{t('settings.provider')}</InputLabel>
                     <Select
                       value={selectedProvider.key}
                       label={t('settings.provider')}
+                      MenuProps={{ slotProps: { paper: { sx: solidPopupPaperSx() } } }}
                       onChange={(e) => {
                         const provider = e.target.value as typeof selectedProvider.key;
                         const nextDefaults = getProviderDefaults(provider, activeType);
@@ -386,6 +466,11 @@ export default function AIModelsPage() {
                           return next;
                         });
                         setRemoteModelOptions((prev) => ({ ...prev, [profile.id]: [] }));
+                        setFetchModelFailedIds((prev) => {
+                          const next = { ...prev };
+                          delete next[profile.id];
+                          return next;
+                        });
                         settings.updateAIProfile(profile.id, {
                           provider,
                           baseUrl: nextDefaults.baseUrl,
@@ -408,6 +493,7 @@ export default function AIModelsPage() {
                     type={showKey ? 'text' : 'password'}
                     size="small"
                     fullWidth
+                    sx={fieldSx()}
                     slotProps={{
                       input: {
                         endAdornment: (
@@ -438,53 +524,106 @@ export default function AIModelsPage() {
                     label={t('settings.baseUrl')}
                     placeholder={selectedProvider.key === 'custom' ? 'https://example.com/v1' : providerDefaults.baseUrl}
                     value={profile.baseUrl}
-                    onChange={(e) => settings.updateAIProfile(profile.id, { baseUrl: e.target.value })}
+                    onChange={(e) => {
+                      setFetchModelFailedIds((prev) => {
+                        const next = { ...prev };
+                        delete next[profile.id];
+                        return next;
+                      });
+                      settings.updateAIProfile(profile.id, { baseUrl: e.target.value });
+                    }}
                     size="small"
                     fullWidth
+                    sx={fieldSx()}
                   />
 
-                  <Autocomplete
-                    freeSolo
-                    options={modelOptions}
-                    groupBy={(option) => option.group}
-                    getOptionLabel={(option) => typeof option === 'string' ? option : option.value}
-                    isOptionEqualToValue={(option, value) => {
-                      const optionValue = typeof option === 'string' ? option : option.value;
-                      const selectedValue = typeof value === 'string' ? value : value.value;
-                      return optionValue === selectedValue;
-                    }}
-                    value={profile.model}
-                    onChange={(_event, value) => {
-                      const nextModel = typeof value === 'string' ? value : (value?.value || '');
-                      settings.updateAIProfile(profile.id, {
-                        model: nextModel,
-                        ...(activeType === 'image' ? { imageCapabilities: inferImageCapabilities(profile.provider, nextModel) } : {}),
-                      });
-                    }}
-                    onInputChange={(_event, value, reason) => {
-                      if (reason === 'input' || reason === 'clear') {
-                        handleModelInputChange(profile.id, value);
-                      }
-                    }}
-                    renderOption={(props, option) => (
-                      <Box component="li" {...props}>
-                        {option.value}
-                      </Box>
-                    )}
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        label={t('settings.model')}
-                        placeholder={modelOptions[0]?.value || (i18n.language.startsWith('zh') ? '可手动输入模型名' : 'Enter any model name')}
-                        size="small"
-                        fullWidth
-                      />
-                    )}
-                  />
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                    <Autocomplete
+                      freeSolo
+                      options={modelOptions}
+                      open={Boolean(openModelDropdownIds[profile.id])}
+                      onOpen={() => setOpenModelDropdownIds((prev) => ({ ...prev, [profile.id]: true }))}
+                      onClose={() => setOpenModelDropdownIds((prev) => {
+                        const next = { ...prev };
+                        delete next[profile.id];
+                        return next;
+                      })}
+                      slotProps={{
+                        paper: {
+                          sx: solidPopupPaperSx(),
+                        },
+                      }}
+                      groupBy={(option) => option.group}
+                      getOptionLabel={(option) => typeof option === 'string' ? option : option.value}
+                      isOptionEqualToValue={(option, value) => {
+                        const optionValue = typeof option === 'string' ? option : option.value;
+                        const selectedValue = typeof value === 'string' ? value : value.value;
+                        return optionValue === selectedValue;
+                      }}
+                      value={profile.model}
+                      onChange={(_event, value) => {
+                        const nextModel = typeof value === 'string' ? value : (value?.value || '');
+                        settings.updateAIProfile(profile.id, {
+                          model: nextModel,
+                          ...(activeType === 'image' ? { imageCapabilities: inferImageCapabilities(profile.provider, nextModel) } : {}),
+                        });
+                      }}
+                      onInputChange={(_event, value, reason) => {
+                        if (reason === 'input' || reason === 'clear') {
+                          handleModelInputChange(profile.id, value);
+                        }
+                      }}
+                      renderOption={(props, option) => (
+                        <Box component="li" {...props}>
+                          {option.value}
+                        </Box>
+                      )}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label={t('settings.model')}
+                          placeholder={modelOptions[0]?.value || (i18n.language.startsWith('zh') ? '可手动输入模型名' : 'Enter any model name')}
+                          size="small"
+                          fullWidth
+                          inputRef={(node) => {
+                            modelInputRefs.current[profile.id] = node;
+                          }}
+                          onBlur={() => {
+                            setOpenModelDropdownIds((prev) => {
+                              const next = { ...prev };
+                              delete next[profile.id];
+                              return next;
+                            });
+                          }}
+                          sx={fieldSx()}
+                        />
+                      )}
+                      sx={{ flex: 1, minWidth: 0 }}
+                    />
+                    <Button
+                      variant="outlined"
+                      onClick={() => handleFetchModels(profile.id)}
+                      disabled={fetchingModels || !profile.apiKey}
+                      sx={{ minWidth: 64, height: 40, px: 1.5, flexShrink: 0 }}
+                    >
+                      {fetchingModels
+                        ? (i18n.language.startsWith('zh') ? '获取中' : 'Loading')
+                        : fetchModelFailedIds[profile.id]
+                          ? (i18n.language.startsWith('zh') ? '失败' : 'Failed')
+                          : (i18n.language.startsWith('zh') ? '获取' : 'Fetch')}
+                    </Button>
+                  </Box>
 
                   {activeType === 'image' ? (
-                    <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
-                      <CardContent sx={{ display: 'grid', gap: 1, p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                    <Box sx={{
+                      display: 'grid',
+                      gap: 1,
+                      p: 1.25,
+                      borderRadius: 1,
+                      border: '1px solid',
+                      borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+                      bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(248,250,252,0.58)' : 'rgba(255,255,255,0.045)',
+                    }}>
                         <Typography variant="body2" sx={{ fontWeight: 600 }}>
                           {i18n.language.startsWith('zh') ? '图片能力' : 'Image capabilities'}
                         </Typography>
@@ -519,35 +658,37 @@ export default function AIModelsPage() {
                             );
                           })}
                         </Box>
-                      </CardContent>
-                    </Card>
+                    </Box>
                   ) : null}
 
+                  <Divider />
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                     <Button
                       variant="outlined"
+                      startIcon={<CloudSyncIcon />}
                       onClick={() => handleTestConnection(profile.id)}
                       disabled={testingId === profile.id || !profile.apiKey}
                     >
                       {testingId === profile.id ? t('common.loading') : t('settings.testConnection')}
                     </Button>
-                    <Button
-                      variant="outlined"
-                      onClick={() => fetchAvailableModels(profile.id, false, true)}
-                      disabled={fetchingModels || !profile.apiKey}
-                    >
-                      {fetchingModels
-                        ? t('common.loading')
-                        : (i18n.language.startsWith('zh') ? '刷新模型列表' : 'Refresh models')}
-                    </Button>
+                    {index > 0 ? (
+                      <Button
+                        color="error"
+                        variant="outlined"
+                        startIcon={<DeleteIcon />}
+                        onClick={() => settings.removeAIProfile(profile.id)}
+                      >
+                        {t('common.delete')}
+                      </Button>
+                    ) : null}
                   </Box>
                       </>
                     );
                   })()}
-                </CardContent>
-              </Card>
+              </SurfaceCard>
             ))}
           </Box>
+      </PageSection>
 
       <Snackbar
         open={snackbar.open}

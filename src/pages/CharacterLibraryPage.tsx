@@ -15,6 +15,7 @@ import CharacterCard from '../components/character/CharacterCard';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import EmptyState from '../components/common/EmptyState';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
+import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import { canDeleteCharacterGroup, getCharacterGroupList, getCharactersInGroup, isPresetCharacterSelectable, normalizeCharacterGroup, getDuplicateCharacterBannerText, getDuplicateCharacterCount } from '../types/character';
 import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
 import { generateCharacterProfile } from '../services/characterGenerator';
@@ -24,6 +25,7 @@ import { useChatStore } from '../stores/useChatStore';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 import type { AICharacter } from '../types/character';
 import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
+import { motion, transition } from '../styles/motion';
 
 type CharacterSortField = 'name' | 'createdAt';
 type CharacterSortDirection = 'asc' | 'desc';
@@ -67,7 +69,7 @@ function buildGroupChipSx(active: boolean) {
     bgcolor: active ? 'primary.main' : 'transparent',
     borderColor: active ? 'primary.main' : 'divider',
     color: active ? 'primary.contrastText' : 'text.secondary',
-    transition: 'background-color 160ms ease, border-color 160ms ease, color 160ms ease',
+    transition: transition(['background-color', 'border-color', 'color', 'transform'], motion.durations.fast, active ? motion.gentleSpring : motion.softOut),
     '&.MuiChip-root': {
       bgcolor: active ? 'primary.main' : 'transparent',
       borderColor: active ? 'primary.main' : 'divider',
@@ -82,6 +84,12 @@ function buildGroupChipSx(active: boolean) {
       bgcolor: active ? 'primary.dark' : 'action.hover',
       borderColor: active ? 'primary.dark' : 'primary.main',
       color: active ? 'primary.contrastText' : 'text.primary',
+      transform: 'translateY(-1px)',
+    },
+    '&:active': {
+      transform: 'scale(0.97)',
+      transitionTimingFunction: motion.press,
+      transitionDuration: `${motion.durations.instant}ms`,
     },
   };
 }
@@ -91,6 +99,8 @@ export default function CharacterLibraryPage() {
   const navigate = useNavigate();
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
   const settings = useSettingsStore();
+  const pane = usePaneLayout();
+  const isMasterPane = pane.role === 'master';
   const { chats, addChat } = useChatStore();
   const { characters, loadCharacters, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets } = useCharacterStore();
   const [tab, setTab] = useState(() => readPersistentUiValue(CHARACTER_LIBRARY_TAB_KEY, 0, isCharacterLibraryTab));
@@ -480,7 +490,7 @@ export default function CharacterLibraryPage() {
   };
 
   return (
-    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 12 } }}>
+    <Box sx={{ position: 'relative', containerType: 'inline-size', p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 12 } }}>
       <Box sx={buildFloatingTabContainerSx()}>
         <FloatingSegmentedTabs
           value={tab}
@@ -586,10 +596,12 @@ export default function CharacterLibraryPage() {
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: {
-              xs: '1fr',
-              sm: 'repeat(2, minmax(0, 1fr))',
-              lg: 'repeat(3, minmax(0, 1fr))',
+            gridTemplateColumns: '1fr',
+            '@container (min-width: 560px)': {
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+            },
+            '@container (min-width: 900px)': {
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
             },
             gap: 1.5,
             alignItems: 'stretch',
@@ -684,7 +696,7 @@ export default function CharacterLibraryPage() {
         startIcon={<AddIcon />}
         onClick={openCreateForm}
         sx={{
-          position: 'fixed',
+          position: isMasterPane ? 'absolute' : 'fixed',
           right: { xs: 20, sm: 28, md: 36 },
           bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', sm: 32, md: 36 },
           zIndex: 1300,

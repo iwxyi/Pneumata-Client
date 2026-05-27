@@ -7,6 +7,7 @@ import { useAuthStore } from './stores/useAuthStore';
 import { useCharacterStore } from './stores/useCharacterStore';
 import { useCharacterArtifactStore } from './stores/useCharacterArtifactStore';
 import AppLayout from './components/layout/AppLayout';
+import MasterDetailLayout from './components/layout/MasterDetailLayout';
 import HomePage from './pages/HomePage';
 import ChatListPage from './pages/ChatListPage';
 import CreateChatPage from './pages/CreateChatPage';
@@ -74,6 +75,30 @@ function ChatDetailRouteElement() {
   );
 }
 
+function ChatMasterDetailRouteElement({ detail, fallback = 'detail', detailTitle = '会话' }: { detail: React.ReactNode; fallback?: 'master' | 'detail'; detailTitle?: React.ReactNode | null }) {
+  return (
+    <MasterDetailLayout
+      master={<RouteElement><ChatListPage /></RouteElement>}
+      detail={detail}
+      masterTitle="聊天"
+      detailTitle={detail ? detailTitle : null}
+      fallback={fallback}
+    />
+  );
+}
+
+function CharacterMasterDetailRouteElement({ detail, fallback = 'detail' }: { detail: React.ReactNode; fallback?: 'master' | 'detail' }) {
+  return (
+    <MasterDetailLayout
+      master={<RouteElement><CharacterLibraryPage /></RouteElement>}
+      detail={detail}
+      masterTitle="角色库"
+      detailTitle={detail ? '角色' : null}
+      fallback={fallback}
+    />
+  );
+}
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const authMode = useAuthStore((s) => s.authMode);
@@ -133,14 +158,14 @@ function RoutedApp() {
         </RequireAuth>
       }>
         <Route path="/" element={<RouteElement><HomePage /></RouteElement>} />
-        <Route path="/chats" element={<RouteElement><ChatListPage /></RouteElement>} />
-        <Route path="/chats/create" element={<RouteElement><CreateChatPage /></RouteElement>} />
-        <Route path="/direct/create" element={<RouteElement><CreateDirectChatPage /></RouteElement>} />
-        <Route path="/chats/:id/edit" element={<RouteElement><CreateChatPage /></RouteElement>} />
-        <Route path="/chats/:id" element={<ChatDetailRouteElement />} />
-        <Route path="/characters" element={<RouteElement><CharacterLibraryPage /></RouteElement>} />
-        <Route path="/characters/create" element={<RouteElement><CharacterEditorPage /></RouteElement>} />
-        <Route path="/characters/:id/edit" element={<RouteElement><CharacterEditorPage /></RouteElement>} />
+        <Route path="/chats" element={<ChatMasterDetailRouteElement detail={null} fallback="master" />} />
+        <Route path="/chats/create" element={<ChatMasterDetailRouteElement detail={<RouteElement><CreateChatPage /></RouteElement>} />} />
+        <Route path="/direct/create" element={<ChatMasterDetailRouteElement detail={<RouteElement><CreateDirectChatPage /></RouteElement>} />} />
+        <Route path="/chats/:id/edit" element={<ChatMasterDetailRouteElement detail={<RouteElement><CreateChatPage /></RouteElement>} />} />
+        <Route path="/chats/:id" element={<ChatMasterDetailRouteElement detail={<ChatDetailRouteElement />} detailTitle={null} />} />
+        <Route path="/characters" element={<CharacterMasterDetailRouteElement detail={null} fallback="master" />} />
+        <Route path="/characters/create" element={<CharacterMasterDetailRouteElement detail={<RouteElement><CharacterEditorPage /></RouteElement>} />} />
+        <Route path="/characters/:id/edit" element={<CharacterMasterDetailRouteElement detail={<RouteElement><CharacterEditorPage /></RouteElement>} />} />
         <Route path="/characters/batch-generate" element={<RouteElement><BatchGenerateCharactersPage /></RouteElement>} />
         <Route path="/letters" element={<RouteElement><LettersPage /></RouteElement>} />
         <Route path="/models" element={<RouteElement><AIModelsPage /></RouteElement>} />

@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useUIStore } from '../../stores/useUIStore';
 import { useCharacterArtifactStore } from '../../stores/useCharacterArtifactStore';
+import { motion, transition } from '../../styles/motion';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -80,7 +81,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
           border: '1px solid',
           borderColor: isActive ? 'primary.main' : 'transparent',
           bgcolor: isActive ? (theme) => `${theme.palette.primary.main}1A` : 'transparent',
-          transition: 'transform 180ms ease, background-color 180ms ease, border-color 180ms ease, color 180ms ease',
+          transition: transition(['transform', 'background-color', 'border-color', 'color'], 220, motion.softOut),
           '&::before': collapsed ? undefined : {
             content: '""',
             position: 'absolute',
@@ -90,10 +91,10 @@ export default function Sidebar({ collapsed }: SidebarProps) {
             width: 3,
             borderRadius: 999,
             bgcolor: isActive ? 'primary.main' : 'transparent',
-            transition: 'background-color 180ms ease',
+            transition: transition(['background-color'], 220, motion.softOut),
           },
           '&:hover': {
-            transform: 'translateX(2px)',
+            transform: 'translateX(3px)',
             bgcolor: isActive ? (theme) => `${theme.palette.primary.main}1F` : 'rgba(148,163,184,0.08)',
             borderColor: isActive ? 'primary.main' : 'rgba(148,163,184,0.10)',
           },
@@ -109,8 +110,8 @@ export default function Sidebar({ collapsed }: SidebarProps) {
           sx={{
             minWidth: collapsed ? 0 : 38,
             color: isActive ? 'primary.main' : 'text.secondary',
-            transition: 'color 180ms ease, transform 180ms ease',
-            transform: isActive ? 'scale(1.04)' : 'none',
+            transition: transition(['color', 'transform'], 220, motion.spring),
+            transform: isActive ? 'scale(1.06)' : 'none',
           }}
         >
           {item.path === '/letters' ? <Badge badgeContent={unreadLetterCount} color="error" max={99}>{item.icon}</Badge> : item.icon}

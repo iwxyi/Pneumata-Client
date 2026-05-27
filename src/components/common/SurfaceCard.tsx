@@ -1,5 +1,6 @@
 import { Card, CardContent, type CardProps, type CardContentProps } from '@mui/material';
 import type { ReactNode } from 'react';
+import { motion, transition } from '../../styles/motion';
 
 interface SurfaceCardProps extends Omit<CardProps, 'children'> {
   children: ReactNode;
@@ -19,6 +20,7 @@ export default function SurfaceCard({ children, contentSx, sx, ...cardProps }: S
           : '0 1px 0 rgba(255,255,255,0.035) inset, 0 20px 56px rgba(0,0,0,0.30)',
         backdropFilter: 'blur(22px) saturate(1.16)',
         WebkitBackdropFilter: 'blur(22px) saturate(1.16)',
+        transition: transition(['border-color', 'box-shadow', 'background-color', 'transform'], 220, motion.softOut),
         ...sx,
       }}
       {...cardProps}

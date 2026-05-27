@@ -1,4 +1,5 @@
 import { createTheme, type ThemeOptions } from '@mui/material/styles';
+import { motion, transition } from '../styles/motion';
 
 const baseTheme: ThemeOptions = {
   typography: {
@@ -27,6 +28,12 @@ const baseTheme: ThemeOptions = {
           borderRadius: 8,
           fontWeight: 500,
           boxShadow: 'none',
+          transition: transition(['background-color', 'border-color', 'box-shadow', 'color', 'transform'], motion.durations.base, motion.softOut),
+          '&:active': {
+            transform: 'scale(0.985)',
+            transitionTimingFunction: motion.press,
+            transitionDuration: `${motion.durations.instant}ms`,
+          },
         },
         contained: {
           boxShadow: 'none',
@@ -40,7 +47,7 @@ const baseTheme: ThemeOptions = {
       styleOverrides: {
         root: {
           borderRadius: 8,
-          transition: 'transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease',
+          transition: transition(['transform', 'box-shadow', 'background-color', 'border-color'], motion.durations.base, motion.softOut),
         },
       },
     },
@@ -49,6 +56,12 @@ const baseTheme: ThemeOptions = {
         root: {
           borderRadius: '50%',
           boxShadow: '0 6px 16px rgba(0,0,0,0.18)',
+          transition: transition(['transform', 'box-shadow', 'background-color'], motion.durations.base, motion.gentleSpring),
+          '&:active': {
+            transform: 'scale(0.96)',
+            transitionTimingFunction: motion.press,
+            transitionDuration: `${motion.durations.instant}ms`,
+          },
         },
       },
     },
@@ -155,14 +168,19 @@ const baseTheme: ThemeOptions = {
     MuiIconButton: {
       styleOverrides: {
         root: {
-          transition: 'background-color 160ms ease, transform 160ms ease',
+          transition: transition(['background-color', 'color', 'transform'], motion.durations.fast, motion.softOut),
+          '&:active': {
+            transform: 'scale(0.96)',
+            transitionTimingFunction: motion.press,
+            transitionDuration: `${motion.durations.instant}ms`,
+          },
         },
       },
     },
     MuiAvatar: {
       styleOverrides: {
         root: {
-          transition: 'transform 180ms ease, box-shadow 180ms ease',
+          transition: transition(['transform', 'box-shadow'], motion.durations.base, motion.gentleSpring),
         },
       },
     },
@@ -196,42 +214,43 @@ const baseTheme: ThemeOptions = {
     MuiCollapse: {
       styleOverrides: {
         root: {
-          transitionDuration: '180ms',
+          transitionDuration: `${motion.durations.base}ms`,
+          transitionTimingFunction: motion.softInOut,
         },
       },
     },
     MuiSlider: {
       styleOverrides: {
         root: {
-          transition: 'transform 160ms ease',
+          transition: transition(['transform', 'color'], motion.durations.fast, motion.softOut),
         },
       },
     },
     MuiListItemButton: {
       styleOverrides: {
         root: {
-          transition: 'background-color 160ms ease, transform 160ms ease',
+          transition: transition(['background-color', 'color', 'transform'], motion.durations.base, motion.softOut),
         },
       },
     },
     MuiBottomNavigationAction: {
       styleOverrides: {
         root: {
-          transition: 'transform 160ms ease, color 160ms ease',
+          transition: transition(['transform', 'color', 'opacity'], motion.durations.base, motion.gentleSpring),
         },
       },
     },
     MuiTypography: {
       styleOverrides: {
         root: {
-          transition: 'color 160ms ease',
+          transition: transition(['color', 'opacity'], motion.durations.fast, motion.softOut),
         },
       },
     },
     MuiPaper: {
       styleOverrides: {
         root: {
-          transition: 'box-shadow 180ms ease, background-color 180ms ease',
+          transition: transition(['box-shadow', 'background-color', 'border-color', 'transform'], motion.durations.base, motion.softOut),
         },
       },
     },
@@ -276,14 +295,14 @@ const baseTheme: ThemeOptions = {
     MuiFormControl: {
       styleOverrides: {
         root: {
-          transition: 'opacity 160ms ease',
+          transition: transition(['opacity'], motion.durations.fast, motion.softOut),
         },
       },
     },
     MuiInputLabel: {
       styleOverrides: {
         root: {
-          transition: 'color 160ms ease, transform 160ms ease',
+          transition: transition(['color', 'transform'], motion.durations.fast, motion.softOut),
         },
       },
     },

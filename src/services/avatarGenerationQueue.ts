@@ -26,12 +26,20 @@ interface AvatarGenerationTask extends AvatarGenerationTaskState {
 }
 
 type TaskListener = (state: AvatarGenerationTaskState) => void;
+type QueueSummaryListener = (summary: AvatarGenerationQueueSummary) => void;
+
+export interface AvatarGenerationQueueSummary {
+  queued: number;
+  running: number;
+  active: number;
+}
 
 class AvatarGenerationQueueService {
   private queue: string[] = [];
   private tasks = new Map<string, AvatarGenerationTask>();
   private listenersByTask = new Map<string, Set<TaskListener>>();
   private listenersByTarget = new Map<string, Set<TaskListener>>();
+  private summaryListeners = new Set<QueueSummaryListener>();
   private latestTaskIdByTarget = new Map<string, string>();
   private runningTaskId: string | null = null;
 
@@ -76,6 +84,28 @@ class AvatarGenerationQueueService {
   subscribeTarget(targetKey: string, listener: TaskListener) {
     const current = this.getLatestTaskForTarget(targetKey);
     return this.subscribeInternal(this.listenersByTarget, targetKey, listener, current ? (this.tasks.get(current.id) || null) : null);
+  }
+
+  getSummary(): AvatarGenerationQueueSummary {
+    let queued = 0;
+    let running = 0;
+    this.tasks.forEach((task) => {
+      if (task.status === 'queued') queued += 1;
+      if (task.status === 'running') running += 1;
+    });
+    return {
+      queued,
+      running,
+      active: queued + running,
+    };
+  }
+
+  subscribeSummary(listener: QueueSummaryListener) {
+    this.summaryListeners.add(listener);
+    listener(this.getSummary());
+    return () => {
+      this.summaryListeners.delete(listener);
+    };
   }
 
   cancel(taskId: string) {
@@ -187,6 +217,8 @@ class AvatarGenerationQueueService {
     if (!publicState) return;
     this.listenersByTask.get(task.id)?.forEach((listener) => listener(publicState));
     this.listenersByTarget.get(task.targetKey)?.forEach((listener) => listener(publicState));
+    const summary = this.getSummary();
+    this.summaryListeners.forEach((listener) => listener(summary));
   }
 
   private toPublicState(task?: AvatarGenerationTask | AvatarGenerationTaskState | null): AvatarGenerationTaskState | null {

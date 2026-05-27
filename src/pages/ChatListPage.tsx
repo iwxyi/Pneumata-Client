@@ -12,7 +12,9 @@ import ChatCard from '../components/chat/ChatCard';
 import EmptyState from '../components/common/EmptyState';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
+import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
+import { motion, transition } from '../styles/motion';
 
 const CHAT_LIST_TAB_KEY = 'chat-list-tab';
 const isChatListTab = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 2;
@@ -22,6 +24,8 @@ export default function ChatListPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
+  const pane = usePaneLayout();
+  const isMasterPane = pane.role === 'master';
   const { chats, deleteChat, prefetchChats, markChatsWarm } = useChatStore();
   const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
   const [search, setSearch] = useState('');
@@ -60,14 +64,20 @@ export default function ChatListPage() {
             bgcolor: (theme) => searchOpen
               ? theme.palette.mode === 'light' ? 'rgba(49,90,156,0.10)' : 'rgba(120,156,220,0.14)'
               : 'transparent',
-            transition: 'background-color 180ms ease, border-color 180ms ease, color 180ms ease',
+            transition: transition(['background-color', 'border-color', 'color', 'transform'], motion.durations.base, motion.softOut),
             '&:hover': {
+              transform: 'scale(1.03)',
               borderColor: (theme) => searchOpen
                 ? theme.palette.primary.main
                 : theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
               bgcolor: (theme) => searchOpen
                 ? theme.palette.mode === 'light' ? 'rgba(49,90,156,0.12)' : 'rgba(120,156,220,0.16)'
                 : theme.palette.mode === 'light' ? 'rgba(15,23,42,0.035)' : 'rgba(226,232,240,0.06)',
+            },
+            '&:active': {
+              transform: 'scale(0.94)',
+              transitionTimingFunction: motion.press,
+              transitionDuration: `${motion.durations.instant}ms`,
             },
           }}
         >
@@ -116,7 +126,7 @@ export default function ChatListPage() {
   const showDirectCreate = tab !== 2;
 
   return (
-    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 12 } }}>
+    <Box sx={{ position: 'relative', containerType: 'inline-size', p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 12 } }}>
       <Stack
         spacing={1.25}
         sx={buildFloatingTabContainerSx()}
@@ -188,10 +198,12 @@ export default function ChatListPage() {
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: {
-              xs: '1fr',
-              sm: 'repeat(2, minmax(0, 1fr))',
-              lg: 'repeat(3, minmax(0, 1fr))',
+            gridTemplateColumns: '1fr',
+            '@container (min-width: 560px)': {
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+            },
+            '@container (min-width: 900px)': {
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
             },
             gap: 1.5,
           }}
@@ -227,7 +239,7 @@ export default function ChatListPage() {
           startIcon={<AddIcon />}
           onClick={() => navigate(createPath)}
           sx={{
-            position: 'fixed',
+            position: isMasterPane ? 'absolute' : 'fixed',
             right: { xs: 20, sm: 28, md: 36 },
             bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', sm: 32, md: 36 },
             zIndex: 1300,

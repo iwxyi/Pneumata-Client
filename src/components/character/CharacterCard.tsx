@@ -6,6 +6,7 @@ import { useRef, useState } from 'react';
 import type { AICharacter } from '../../types/character';
 import { useTranslation } from 'react-i18next';
 import { formatExpertiseList } from '../../utils/expertise';
+import { motion, transition } from '../../styles/motion';
 
 interface CharacterCardProps {
   character: AICharacter;
@@ -108,11 +109,16 @@ export default function CharacterCard({ character, onEdit, onDelete, onStartDire
         bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.76)' : 'rgba(18,20,28,0.78)',
         backdropFilter: 'blur(14px)',
         WebkitBackdropFilter: 'blur(14px)',
-        transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
+        transition: transition(['transform', 'box-shadow', 'border-color', 'background-color'], motion.durations.base, motion.gentleSpring),
         '&:hover': {
           transform: 'translateY(-2px)',
           boxShadow: (theme) => theme.palette.mode === 'light' ? '0 18px 40px rgba(15,23,42,0.09)' : '0 18px 42px rgba(0,0,0,0.34)',
           borderColor: 'primary.main',
+        },
+        '&:active': {
+          transform: 'translateY(0) scale(0.994)',
+          transitionTimingFunction: motion.press,
+          transitionDuration: `${motion.durations.instant}ms`,
         },
       }}
     >
@@ -133,8 +139,13 @@ export default function CharacterCard({ character, onEdit, onDelete, onStartDire
               zIndex: 1,
               borderRadius: 1,
               bgcolor: 'transparent',
+              transition: transition(['background-color', 'transform'], motion.durations.fast, motion.softOut),
               '&:hover': {
                 bgcolor: 'action.hover',
+                transform: 'scale(1.04)',
+              },
+              '&:active': {
+                transform: 'scale(0.94)',
               },
             }}
           >

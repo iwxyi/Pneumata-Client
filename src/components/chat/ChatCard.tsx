@@ -9,6 +9,7 @@ import { formatRelativeTime } from '../../utils/format';
 import { useTranslation } from 'react-i18next';
 import { useMessageStore } from '../../stores/useMessageStore';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { motion, transition } from '../../styles/motion';
 
 interface ChatCardProps {
   chat: GroupChat;
@@ -91,7 +92,7 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch }: Chat
         bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.76)' : 'rgba(18,20,28,0.78)',
         borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
         backdropFilter: 'blur(14px)',
-        transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
+        transition: transition(['transform', 'box-shadow', 'border-color', 'background-color'], motion.durations.base, motion.gentleSpring),
         '&::before': {
           content: '""',
           position: 'absolute',
@@ -107,6 +108,11 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch }: Chat
           transform: 'translateY(-2px)',
           boxShadow: (theme) => theme.palette.mode === 'light' ? '0 18px 40px rgba(15,23,42,0.09)' : '0 18px 42px rgba(0,0,0,0.34)',
           borderColor: 'primary.main',
+        },
+        '&:active': {
+          transform: 'translateY(0) scale(0.994)',
+          transitionTimingFunction: motion.press,
+          transitionDuration: `${motion.durations.instant}ms`,
         },
       }}
     >

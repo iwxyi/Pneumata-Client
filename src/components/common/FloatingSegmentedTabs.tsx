@@ -1,6 +1,7 @@
 import { Box, ButtonBase } from '@mui/material';
 import type { ReactNode } from 'react';
 import type { Theme } from '@mui/material/styles';
+import { motion, transition } from '../../styles/motion';
 
 type FloatingSegmentedTab<T extends string | number> = {
   value: T;
@@ -24,7 +25,7 @@ export function buildFloatingTabContainerSx() {
     flexDirection: 'column',
     alignItems: 'center',
     gap: 1,
-    transition: 'top 260ms cubic-bezier(0.2, 0, 0, 1)',
+    transition: `top ${motion.durations.slow}ms ${motion.emphasized}`,
   } as const;
 }
 
@@ -87,15 +88,19 @@ export default function FloatingSegmentedTabs<T extends string | number>({ value
                 opacity: selected ? 1 : 0.78,
                 overflow: 'hidden',
                 outline: '1px solid transparent',
-                transition: 'background-color 190ms ease, color 190ms ease, opacity 190ms ease, box-shadow 190ms ease, outline-color 190ms ease',
+                transition: transition(['background-color', 'color', 'opacity', 'box-shadow', 'outline-color', 'transform'], motion.durations.base, selected ? motion.gentleSpring : motion.softOut),
                 '&:hover': {
                   opacity: 1,
+                  transform: 'translateY(-1px)',
                   bgcolor: selected
                     ? (theme) => theme.palette.mode === 'light' ? 'rgba(49,90,156,0.145)' : 'rgba(120,156,220,0.21)'
                     : (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.045)' : 'rgba(226,232,240,0.07)',
                   outlineColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.045)' : 'rgba(226,232,240,0.06)',
                 },
                 '&:active': {
+                  transform: 'scale(0.982)',
+                  transitionTimingFunction: motion.press,
+                  transitionDuration: `${motion.durations.instant}ms`,
                   bgcolor: selected
                     ? (theme) => theme.palette.mode === 'light' ? 'rgba(49,90,156,0.16)' : 'rgba(120,156,220,0.24)'
                     : (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.06)' : 'rgba(226,232,240,0.085)',

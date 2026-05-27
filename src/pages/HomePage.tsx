@@ -1,7 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Box, Typography, Button, Divider, IconButton } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ChatIcon from '@mui/icons-material/Chat';
 import PersonIcon from '@mui/icons-material/Person';
 import SettingsSuggestIcon from '@mui/icons-material/SettingsSuggest';
@@ -16,12 +18,25 @@ import EmptyState from '../components/common/EmptyState';
 import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
+import { avatarGenerationQueue, type AvatarGenerationQueueSummary } from '../services/avatarGenerationQueue';
+import { motion, transition } from '../styles/motion';
+
+interface HomeOverviewCard {
+  label: string;
+  value: string | number;
+  icon: ReactNode;
+  color: string;
+  onOpen: () => void | Promise<void>;
+  onCreate: () => void | Promise<void>;
+  createLabel: string;
+  attention?: boolean;
+}
 
 function buildStatGridSx() {
   return {
     display: 'grid',
     gridTemplateColumns: {
-      xs: 'repeat(3, minmax(0, 1fr))',
+      xs: 'repeat(auto-fit, minmax(104px, 1fr))',
       sm: 'repeat(auto-fit, minmax(116px, 142px))',
     },
     columnGap: { xs: 0.75, sm: 1 },
@@ -51,11 +66,16 @@ function buildStatCardSx() {
     position: 'relative',
     overflow: 'visible',
     cursor: 'pointer',
-    transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
+    transition: transition(['transform', 'box-shadow', 'border-color'], motion.durations.base, motion.gentleSpring),
     '&:hover': {
       transform: 'translateY(-2px)',
       boxShadow: (theme: Theme) => theme.palette.mode === 'light' ? '0 16px 36px rgba(15,23,42,0.08)' : '0 18px 42px rgba(0,0,0,0.34)',
       borderColor: 'primary.main',
+    },
+    '&:active': {
+      transform: 'translateY(0) scale(0.992)',
+      transitionTimingFunction: motion.press,
+      transitionDuration: `${motion.durations.instant}ms`,
     },
     '&::before': {
       content: '""',
@@ -63,6 +83,25 @@ function buildStatCardSx() {
       inset: 0,
       borderTop: '1px solid',
       borderColor: (theme: Theme) => `${theme.palette.primary.main}24`,
+      pointerEvents: 'none',
+      borderRadius: 'inherit',
+    },
+  };
+}
+
+function buildAttentionCardSx() {
+  return {
+    ...buildStatCardSx(),
+    borderColor: (theme: Theme) => `${theme.palette.primary.main}42`,
+    bgcolor: (theme: Theme) => theme.palette.mode === 'light'
+      ? 'rgba(49,90,156,0.065)'
+      : 'rgba(120,156,220,0.095)',
+    '&::before': {
+      content: '""',
+      position: 'absolute',
+      inset: 0,
+      borderTop: '1px solid',
+      borderColor: (theme: Theme) => `${theme.palette.primary.main}40`,
       pointerEvents: 'none',
       borderRadius: 'inherit',
     },
@@ -101,11 +140,16 @@ function buildCreateButtonSx() {
     border: 2,
     borderColor: 'background.default',
     borderRadius: '50%',
-    transition: 'transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease',
+    transition: transition(['transform', 'box-shadow', 'background-color'], motion.durations.base, motion.spring),
     '&:hover': {
       bgcolor: 'primary.dark',
-      transform: 'scale(1.08)',
+      transform: 'translateY(-1px) scale(1.08)',
       boxShadow: 4,
+    },
+    '&:active': {
+      transform: 'scale(0.93)',
+      transitionTimingFunction: motion.press,
+      transitionDuration: `${motion.durations.instant}ms`,
     },
     '& .MuiTouchRipple-root': {
       borderRadius: '50%',
@@ -162,6 +206,7 @@ export default function HomePage() {
   const { chats, prefetchChats, markChatsWarm } = useChatStore();
   const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
   const aiProfiles = useSettingsStore((state) => state.aiProfiles);
+  const [avatarQueueSummary, setAvatarQueueSummary] = useState<AvatarGenerationQueueSummary>(() => avatarGenerationQueue.getSummary());
 
   useEffect(() => {
     markChatsWarm();
@@ -169,6 +214,8 @@ export default function HomePage() {
     void prefetchChats();
     void prefetchCharacters();
   }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats]);
+
+  useEffect(() => avatarGenerationQueue.subscribeSummary(setAvatarQueueSummary), []);
 
   const recentChats = chats.slice(0, 10);
   const customCharacters = characters.filter((character) => !character.isPreset);
@@ -179,8 +226,46 @@ export default function HomePage() {
   const recentChatsActionTab = recentChats[0]?.type === 'group' ? 0 : recentChats[0]?.type === 'ai_direct' ? 2 : 1;
   const textProfile = getPreferredAIProfile(aiProfiles, 'text');
   const needsAIModelSetup = !textProfile?.apiKey?.trim() || !textProfile?.model?.trim();
+  const needsOwnCharacter = characters.length > 0 && customCharacters.length === 0;
+  const hasActiveAvatarTasks = avatarQueueSummary.active > 0;
 
-  const stats = [
+  const attentionStats: HomeOverviewCard[] = [
+    ...(needsAIModelSetup ? [{
+      label: '默认文本模型',
+      value: '待设置',
+      icon: <SettingsSuggestIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/models'),
+      onCreate: () => navigate('/models'),
+      createLabel: '设置模型',
+      attention: true,
+    }] : []),
+    ...(needsOwnCharacter ? [{
+      label: '自定义角色',
+      value: '暂无',
+      icon: <PersonIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/characters'),
+      onCreate: () => navigate('/characters/create'),
+      createLabel: t('character.create'),
+      attention: true,
+    }] : []),
+    ...(hasActiveAvatarTasks ? [{
+      label: avatarQueueSummary.running > 0
+        ? `头像生成中，队列 ${avatarQueueSummary.queued}`
+        : '头像等待生成',
+      value: avatarQueueSummary.active,
+      icon: <AutoAwesomeIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/characters'),
+      onCreate: () => navigate('/characters'),
+      createLabel: '查看角色',
+      attention: true,
+    }] : []),
+  ];
+
+  const stats: HomeOverviewCard[] = [
+    ...attentionStats,
     {
       label: t('home.totalChats'),
       value: totalGroupChats,
@@ -215,92 +300,11 @@ export default function HomePage() {
       <PageSection spacing={3}>
         <SurfaceCard>
           <SectionHeader title="工作台概览" />
-          {needsAIModelSetup ? (
-            <Box
-              role="button"
-              tabIndex={0}
-              onClick={() => navigate('/models')}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  navigate('/models');
-                }
-              }}
-              sx={{
-                mt: 0.5,
-                mb: 1.5,
-                px: { xs: 1.5, sm: 1.75 },
-                py: { xs: 1.35, sm: 1.5 },
-                display: 'flex',
-                alignItems: { xs: 'flex-start', sm: 'center' },
-                gap: 1.25,
-                borderRadius: 1,
-                border: '1px solid',
-                borderColor: (theme) => `${theme.palette.primary.main}66`,
-                bgcolor: (theme) => theme.palette.mode === 'light'
-                  ? 'rgba(49, 90, 156, 0.09)'
-                  : 'rgba(120, 156, 220, 0.14)',
-                boxShadow: (theme) => theme.palette.mode === 'light'
-                  ? '0 14px 34px rgba(49, 90, 156, 0.10)'
-                  : '0 18px 40px rgba(0, 0, 0, 0.24)',
-                cursor: 'pointer',
-                outline: 'none',
-                transition: 'border-color 180ms ease, background-color 180ms ease, transform 180ms ease',
-                '&:hover, &:focus-visible': {
-                  transform: 'translateY(-1px)',
-                  borderColor: 'primary.main',
-                  bgcolor: (theme) => theme.palette.mode === 'light'
-                    ? 'rgba(49, 90, 156, 0.12)'
-                    : 'rgba(120, 156, 220, 0.18)',
-                },
-              }}
-            >
-              <Box
-                sx={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: '50%',
-                  display: 'grid',
-                  placeItems: 'center',
-                  flexShrink: 0,
-                  color: 'primary.main',
-                  bgcolor: (theme) => theme.palette.mode === 'light'
-                    ? 'rgba(255,255,255,0.62)'
-                    : 'rgba(255,255,255,0.08)',
-                  border: '1px solid',
-                  borderColor: (theme) => theme.palette.mode === 'light'
-                    ? 'rgba(49, 90, 156, 0.18)'
-                    : 'rgba(120, 156, 220, 0.22)',
-                }}
-              >
-                <SettingsSuggestIcon fontSize="small" />
-              </Box>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 700, lineHeight: 1.35 }}>
-                  需要设置 AI 模型
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, lineHeight: 1.55 }}>
-                  配置文本模型后，角色回复、群聊调度和内容生成才能正常运行。
-                </Typography>
-              </Box>
-              <Button
-                size="small"
-                variant="contained"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  navigate('/models');
-                }}
-                sx={{ flexShrink: 0, display: { xs: 'none', sm: 'inline-flex' } }}
-              >
-                去设置
-              </Button>
-            </Box>
-          ) : null}
           <Box sx={buildStatGridSx()}>
             {stats.map((stat, index) => (
               <Box key={stat.label} sx={buildStatCellSx()}>
                 <SurfaceCard
-                  sx={buildStatCardSx()}
+                  sx={stat.attention ? buildAttentionCardSx() : buildStatCardSx()}
                   contentSx={{
                     ...buildStatContentSx(),
                     '& > :not(button)': { width: '100%', display: 'flex', justifyContent: 'center' },

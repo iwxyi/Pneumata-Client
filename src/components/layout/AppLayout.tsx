@@ -3,11 +3,9 @@ import {
   Box,
   Drawer,
   SwipeableDrawer,
-  Typography,
-  ListItemButton,
   IconButton,
+  useMediaQuery,
 } from '@mui/material';
-import type { Theme } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { Outlet, useLocation } from 'react-router-dom';
@@ -17,6 +15,10 @@ import { useUIStore } from '../../stores/useUIStore';
 import Sidebar from './Sidebar';
 import BottomNav from './BottomNav';
 import { LayoutHeaderActionsContext } from './AppLayoutContext';
+import GlassHeader, { GLASS_HEADER_HEIGHT } from './GlassHeader';
+import { useAutoHideHeader } from '../../hooks/useAutoHideHeader';
+import { DETAIL_COLLAPSED_CHANGE_EVENT, DETAIL_COLLAPSED_STORAGE_KEY, readDetailCollapsedState } from './masterDetailState';
+import { motion } from '../../styles/motion';
 
 const routeMeta = [
   { match: (pathname: string) => pathname === '/', titleKey: 'nav.home' },
@@ -32,48 +34,23 @@ function getRouteMeta(pathname: string) {
   return routeMeta.find((item) => item.match(pathname)) ?? routeMeta[0];
 }
 
+function isMasterDetailPath(pathname: string) {
+  return pathname === '/chats'
+    || pathname === '/characters'
+    || /^\/chats\/(create|[^/]+|[^/]+\/edit)$/.test(pathname)
+    || pathname === '/direct/create'
+    || /^\/characters\/(create|[^/]+\/edit)$/.test(pathname);
+}
+
 const SIDEBAR_WIDTH = 280;
 const SIDEBAR_COLLAPSED_WIDTH = 72;
-
-function buildTopBarGlassSx(isFloating = false) {
-  return {
-    position: isFloating ? 'sticky' : 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 1198,
-    bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(245,245,247,0.68)' : 'rgba(10,10,15,0.42)',
-    backdropFilter: (theme: Theme) => theme.palette.mode === 'light' ? 'blur(22px) saturate(0.96) brightness(1.015) contrast(0.92)' : 'blur(20px) saturate(0.90) brightness(0.84)',
-    WebkitBackdropFilter: (theme: Theme) => theme.palette.mode === 'light' ? 'blur(22px) saturate(0.96) brightness(1.015) contrast(0.92)' : 'blur(20px) saturate(0.90) brightness(0.84)',
-    borderBottom: '1px solid',
-    borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.035)' : 'rgba(226,232,240,0.055)',
-    boxShadow: (theme: Theme) => theme.palette.mode === 'light'
-      ? '0 1px 0 rgba(255,255,255,0.34) inset, 0 8px 18px rgba(15,23,42,0.010)'
-      : '0 1px 0 rgba(255,255,255,0.05) inset, 0 10px 22px rgba(0,0,0,0.10)',
-    transition: 'transform 260ms cubic-bezier(0.2, 0, 0, 1), background-color 180ms ease, backdrop-filter 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
-    '&::after': {
-      content: '""',
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      bottom: -36,
-      height: 36,
-      pointerEvents: 'none',
-      backdropFilter: (theme: Theme) => theme.palette.mode === 'light' ? 'blur(32px) saturate(0.74) brightness(1.18) contrast(0.66)' : 'blur(18px) saturate(0.92) brightness(0.84)',
-      WebkitBackdropFilter: (theme: Theme) => theme.palette.mode === 'light' ? 'blur(32px) saturate(0.74) brightness(1.18) contrast(0.66)' : 'blur(18px) saturate(0.92) brightness(0.84)',
-      maskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.72), rgba(0,0,0,0.22) 58%, transparent)',
-      WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,0.72), rgba(0,0,0,0.22) 58%, transparent)',
-      background: (theme: Theme) => theme.palette.mode === 'light'
-        ? 'linear-gradient(rgba(245,245,247,0.18), rgba(245,245,247,0))'
-        : 'linear-gradient(rgba(10,10,15,0.12), rgba(10,10,15,0))',
-    },
-  };
-}
 
 export default function AppLayout() {
   const { t } = useTranslation();
   const location = useLocation();
   const { isMobile, isTablet, isDesktop } = useResponsive();
+  const isThreeColumn = useMediaQuery('(min-width:1280px)');
+  const [detailCollapsed, setDetailCollapsed] = React.useState(readDetailCollapsedState);
   const { sidebarOpen, setSidebarOpen } = useUIStore();
   const shouldShowMenuButton = isMobile || isTablet;
   const currentRoute = getRouteMeta(location.pathname);
@@ -83,16 +60,19 @@ export default function AppLayout() {
   const [headerBackAction, setHeaderBackAction] = React.useState<(() => void) | null>(null);
   const [hideMobileBottomNav, setHideMobileBottomNav] = React.useState(false);
   const scrollContainerRef = React.useRef<HTMLDivElement | null>(null);
-  const lastScrollTopRef = React.useRef(0);
-  const [headerHidden, setHeaderHidden] = React.useState(false);
   const effectiveHeaderTitle = headerTitle ?? currentTitle;
-  const showMobileTopBar = shouldShowMenuButton;
-  const showDesktopTopBar = !shouldShowMenuButton;
   const mainPaddingBottom = 0;
-  const isChatDetailRoute = /^\/chats\/[^/]+$/.test(location.pathname);
-  const headerOffset = isChatDetailRoute ? 0 : showMobileTopBar ? 65 : showDesktopTopBar ? 49 : 0;
-  const effectiveHeaderHidden = headerHidden && !isChatDetailRoute && !sidebarOpen;
-  const floatingTabTopOffset = effectiveHeaderHidden ? 10 : headerOffset + 10;
+  const isChatDetailRoute = /^\/chats\/[^/]+$/.test(location.pathname) && location.pathname !== '/chats/create';
+  const supportsMasterDetail = isMasterDetailPath(location.pathname);
+  const isMasterDetailRoute = supportsMasterDetail && isThreeColumn && !detailCollapsed;
+  const showMobileTopBar = shouldShowMenuButton && !isMasterDetailRoute && !isChatDetailRoute;
+  const showDesktopTopBar = !shouldShowMenuButton && !isMasterDetailRoute && !isChatDetailRoute;
+  const headerOffset = isChatDetailRoute && !isMasterDetailRoute ? 0 : showMobileTopBar ? 65 : showDesktopTopBar ? 49 : 0;
+  const { hidden: headerHidden, reset: resetHeaderHidden, handleScrollTop: handleHeaderScrollTop } = useAutoHideHeader(isChatDetailRoute || isMasterDetailRoute || sidebarOpen);
+  const effectiveHeaderHidden = headerHidden;
+  const floatingTabTopOffset = effectiveHeaderHidden
+    ? 10
+    : (showMobileTopBar || showDesktopTopBar) ? GLASS_HEADER_HEIGHT + 12 : 10;
   const handleHeaderLeadingAction = () => {
     if (headerBackAction) {
       headerBackAction();
@@ -102,41 +82,34 @@ export default function AppLayout() {
   };
 
   React.useEffect(() => {
+    const syncDetailCollapsed = () => setDetailCollapsed(readDetailCollapsedState());
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === DETAIL_COLLAPSED_STORAGE_KEY) syncDetailCollapsed();
+    };
+    window.addEventListener(DETAIL_COLLAPSED_CHANGE_EVENT, syncDetailCollapsed);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener(DETAIL_COLLAPSED_CHANGE_EVENT, syncDetailCollapsed);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
+  React.useEffect(() => {
     const container = scrollContainerRef.current;
     if (container) container.scrollTop = 0;
-    lastScrollTopRef.current = 0;
-    setHeaderHidden(false);
-  }, [location.pathname]);
+    resetHeaderHidden();
+  }, [location.pathname, resetHeaderHidden]);
 
   const handleMainScroll = (event: React.UIEvent<HTMLDivElement>) => {
-    if (isChatDetailRoute || sidebarOpen) return;
-    const nextTop = event.currentTarget.scrollTop;
-    const previousTop = lastScrollTopRef.current;
-    const delta = nextTop - previousTop;
-    lastScrollTopRef.current = nextTop;
-    if (nextTop < 28) {
-      setHeaderHidden(false);
-      return;
-    }
-    if (Math.abs(delta) < 8) return;
-    setHeaderHidden(delta > 0);
+    handleHeaderScrollTop(event.currentTarget.scrollTop);
   };
 
   const mobileHeader = (
-    <Box
-      sx={{
-        ...buildTopBarGlassSx(false),
-        zIndex: sidebarOpen ? 1099 : 1199,
-        transform: effectiveHeaderHidden ? 'translateY(-100%)' : 'translateY(0)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 2,
-        px: 2,
-        py: 1,
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, flex: 1 }}>
+    <GlassHeader
+      title={effectiveHeaderTitle}
+      hidden={effectiveHeaderHidden}
+      zIndex={sidebarOpen ? 1099 : 1199}
+      leading={
         <IconButton
           onClick={handleHeaderLeadingAction}
           sx={{
@@ -147,45 +120,16 @@ export default function AppLayout() {
         >
           {headerBackAction ? <ArrowBackIcon /> : <MenuIcon />}
         </IconButton>
-        <ListItemButton
-          disabled
-          sx={{
-            borderRadius: 3,
-            minHeight: 48,
-            px: 1.5,
-            flex: 1,
-            minWidth: 0,
-            color: 'text.primary',
-            opacity: 1,
-            '&.Mui-disabled': {
-              opacity: 1,
-              color: 'text.primary',
-            },
-          }}
-        >
-          <Typography
-            variant="subtitle1"
-            sx={{
-              fontWeight: 600,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {effectiveHeaderTitle}
-          </Typography>
-        </ListItemButton>
-      </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0, ml: 1 }}>
-        {headerActions}
-      </Box>
-    </Box>
+      }
+      actions={headerActions}
+    />
   );
 
   const desktopHeader = (
-    <Box sx={{ ...buildTopBarGlassSx(false), transform: effectiveHeaderHidden ? 'translateY(-100%)' : 'translateY(0)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 3, py: 1, gap: 2 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
-        {headerBackAction ? (
+    <GlassHeader
+      title={effectiveHeaderTitle}
+      hidden={effectiveHeaderHidden}
+      leading={headerBackAction ? (
           <IconButton
             onClick={headerBackAction}
             sx={{
@@ -197,22 +141,8 @@ export default function AppLayout() {
             <ArrowBackIcon />
           </IconButton>
         ) : null}
-        <Typography
-          variant="subtitle1"
-          sx={{
-            fontWeight: 600,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {effectiveHeaderTitle}
-        </Typography>
-      </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-        {headerActions}
-      </Box>
-    </Box>
+      actions={headerActions}
+    />
   );
 
   return (
@@ -223,7 +153,7 @@ export default function AppLayout() {
             sx={{
               width: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH,
               flexShrink: 0,
-              transition: 'width 0.3s ease',
+              transition: `width 320ms ${motion.emphasized}`,
             }}
           >
             <Sidebar collapsed={!sidebarOpen} />
@@ -288,14 +218,14 @@ export default function AppLayout() {
               minHeight: 0,
               display: 'flex',
               flexDirection: 'column',
-              overflow: isChatDetailRoute ? 'hidden' : 'auto',
-              scrollbarGutter: isChatDetailRoute ? 'auto' : 'stable',
+              overflow: isChatDetailRoute || isMasterDetailRoute ? 'hidden' : 'auto',
+              scrollbarGutter: isChatDetailRoute || isMasterDetailRoute ? 'auto' : 'stable',
               '--app-floating-tab-top': `${floatingTabTopOffset}px`,
             }}
           >
             {headerOffset ? <Box aria-hidden sx={{ height: `${headerOffset}px`, flexShrink: 0, pointerEvents: 'none' }} /> : null}
             <Box
-              sx={isChatDetailRoute
+              sx={isChatDetailRoute || isMasterDetailRoute
                 ? { flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }
                 : { flex: '0 0 auto' }}
             >

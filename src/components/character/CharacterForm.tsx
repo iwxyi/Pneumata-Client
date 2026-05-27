@@ -34,11 +34,6 @@ import AddIcon from '@mui/icons-material/Add';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
-import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ImageIcon from '@mui/icons-material/Image';
 import UploadIcon from '@mui/icons-material/Upload';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -69,6 +64,7 @@ import CollapsibleParamGroup from './CollapsibleParamGroup';
 import { AVATAR_OPTIONS } from '../../constants/presets';
 import { BUILT_IN_BUBBLE_STYLES, DEFAULT_AI_BUBBLE_STYLE_ID } from '../../constants/bubbleStyles';
 import { buildBubblePreview, cloneBubbleStyle, createCharacterBubbleStyleId, resolveCharacterBubbleStyle, toBubbleStyleFormValues } from '../../utils/bubbleStyle';
+import ArtifactCalendarReader from '../artifacts/ArtifactCalendarReader';
 
 function buildEditorCardSx() {
   return {
@@ -117,253 +113,13 @@ function buildAvatarOptionSx(selected: boolean) {
   };
 }
 import type { CharacterVisualIdentity, CharacterVisualReferenceImage } from '../../types/character';
-import MarkdownText from '../common/MarkdownText';
-import PaperSurface from '../common/PaperSurface';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../common/FloatingSegmentedTabs';
-import type { PaperSurfaceVariant } from '../../types/artifactAppearance';
 
 function getDiaryEntriesSorted<T extends { dateKey?: string | null; createdAt: number }>(entries: T[]) {
   return entries
     .filter((entry): entry is T & { dateKey: string } => Boolean(entry.dateKey))
     .slice()
     .sort((a, b) => b.createdAt - a.createdAt);
-}
-
-function parseDateKey(dateKey: string) {
-  const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  return new Date(year, month - 1, day);
-}
-
-function toMonthKey(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}`;
-}
-
-function toDateKey(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`;
-}
-
-function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function addMonths(date: Date, months: number) {
-  return new Date(date.getFullYear(), date.getMonth() + months, 1);
-}
-
-function getCalendarDays(monthDate: Date) {
-  const firstDay = startOfMonth(monthDate);
-  const firstWeekday = (firstDay.getDay() + 6) % 7;
-  const startDate = new Date(firstDay);
-  startDate.setDate(startDate.getDate() - firstWeekday);
-  return Array.from({ length: 42 }, (_, index) => {
-    const day = new Date(startDate);
-    day.setDate(startDate.getDate() + index);
-    return day;
-  });
-}
-
-function sortMonthKeysDesc(monthKeys: string[]) {
-  return monthKeys.slice().sort((a, b) => b.localeCompare(a));
-}
-
-function getWeekStart(date: Date) {
-  const start = new Date(date);
-  start.setDate(date.getDate() - ((date.getDay() + 6) % 7));
-  return start;
-}
-
-function getWeekDays(date: Date) {
-  const start = getWeekStart(date);
-  return Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(start);
-    day.setDate(start.getDate() + index);
-    return day;
-  });
-}
-
-function CharacterDiaryReader({ entries, language, paperVariant }: { entries: CharacterArtifactEntry[]; language: string; paperVariant: PaperSurfaceVariant }) {
-  const isZh = language.startsWith('zh');
-  const datedEntries = useMemo(() => getDiaryEntriesSorted(entries), [entries]);
-  const entriesByDate = useMemo(() => {
-    const map = new Map<string, CharacterArtifactEntry>();
-    datedEntries.forEach((entry) => {
-      if (!map.has(entry.dateKey)) map.set(entry.dateKey, entry);
-    });
-    return map;
-  }, [datedEntries]);
-  const monthDates = useMemo(() => {
-    const keys = sortMonthKeysDesc(Array.from(new Set(datedEntries.map((entry) => entry.dateKey.slice(0, 7)))));
-    return keys
-      .map((key) => parseDateKey(`${key}-01`))
-      .filter((date): date is Date => Boolean(date));
-  }, [datedEntries]);
-  const firstEntryDate = parseDateKey(datedEntries[0]?.dateKey || '') || new Date();
-  const [selectedId, setSelectedId] = useState<string | null>(datedEntries[0]?.id || null);
-  const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(firstEntryDate));
-  const [calendarExpanded, setCalendarExpanded] = useState(true);
-  const selectedEntry = datedEntries.find((entry) => entry.id === selectedId) || datedEntries[0] || null;
-  const selectedIndex = selectedEntry ? datedEntries.findIndex((entry) => entry.id === selectedEntry.id) : -1;
-  const selectedDate = selectedEntry ? parseDateKey(selectedEntry.dateKey || '') : null;
-  const currentMonthKey = toMonthKey(visibleMonth);
-  const monthLabel = visibleMonth.toLocaleDateString(isZh ? 'zh-CN' : 'en-US', { year: 'numeric', month: 'long' });
-  const collapsedWeekAnchor = selectedDate && toMonthKey(selectedDate) === currentMonthKey ? selectedDate : visibleMonth;
-  const calendarDays = useMemo(
-    () => calendarExpanded ? getCalendarDays(visibleMonth) : getWeekDays(collapsedWeekAnchor),
-    [calendarExpanded, collapsedWeekAnchor, visibleMonth],
-  );
-  const weekdayLabels = isZh ? ['一', '二', '三', '四', '五', '六', '日'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-
-  const renderCalendarMonth = (monthDate: Date, compactHeader = false) => {
-    const monthKey = toMonthKey(monthDate);
-    const label = monthDate.toLocaleDateString(isZh ? 'zh-CN' : 'en-US', { year: 'numeric', month: 'long' });
-    const selectedInMonth = selectedDate && toMonthKey(selectedDate) === monthKey;
-    const days = calendarExpanded ? getCalendarDays(monthDate) : getWeekDays(selectedInMonth ? selectedDate : monthDate);
-    return (
-      <Box key={monthKey} sx={{ display: 'grid', gap: 0.5 }}>
-        {compactHeader ? (
-          <Typography variant="body2" sx={{ fontWeight: 750, px: 0.25 }}>{label}</Typography>
-        ) : null}
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5 }}>
-          {weekdayLabels.map((weekday, index) => (
-            <Typography key={`${monthKey}-${weekday}-${index}`} variant="caption" color="text.secondary" sx={{ textAlign: 'center', fontWeight: 700 }}>{weekday}</Typography>
-          ))}
-        </Box>
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5 }}>
-          {days.map((day) => {
-            const dateKey = toDateKey(day);
-            const entry = entriesByDate.get(dateKey);
-            const inMonth = toMonthKey(day) === monthKey;
-            const selected = selectedEntry?.dateKey === dateKey;
-            return (
-              <Button
-                key={`${monthKey}-${dateKey}`}
-                size="small"
-                onClick={() => entry && selectEntry(entry)}
-                disabled={!entry}
-                sx={{
-                  minWidth: 0,
-                  height: 34,
-                  p: 0,
-                  borderRadius: 1.5,
-                  color: selected ? 'primary.contrastText' : inMonth ? 'text.primary' : 'text.disabled',
-                  bgcolor: selected ? 'primary.main' : entry ? 'rgba(25, 118, 210, 0.10)' : 'transparent',
-                  border: '1px solid',
-                  borderColor: entry ? (selected ? 'primary.main' : 'rgba(25, 118, 210, 0.24)') : 'transparent',
-                  opacity: inMonth ? 1 : 0.45,
-                  '&:hover': { bgcolor: selected ? 'primary.dark' : 'rgba(25, 118, 210, 0.16)' },
-                  '&.Mui-disabled': { color: inMonth ? 'text.disabled' : 'transparent', opacity: inMonth ? 0.55 : 0.18 },
-                }}
-              >
-                {day.getDate()}
-              </Button>
-            );
-          })}
-        </Box>
-      </Box>
-    );
-  };
-
-  useEffect(() => {
-    if (!datedEntries.length) {
-      setSelectedId(null);
-      return;
-    }
-    if (!selectedEntry) {
-      setSelectedId(datedEntries[0].id);
-    }
-  }, [datedEntries, selectedEntry]);
-
-  const selectEntry = (entry: CharacterArtifactEntry) => {
-    setSelectedId(entry.id);
-    const entryDate = parseDateKey(entry.dateKey || '');
-    if (entryDate) setVisibleMonth(startOfMonth(entryDate));
-  };
-
-  const goToEntry = (offset: number) => {
-    if (selectedIndex < 0) return;
-    const next = datedEntries[selectedIndex + offset];
-    if (next) selectEntry(next);
-  };
-
-  if (!datedEntries.length) {
-    return (
-      <Box sx={{ p: 2, borderRadius: 3, bgcolor: 'action.hover', border: '1px dashed', borderColor: 'divider' }}>
-        <Typography variant="body2" color="text.secondary">{isZh ? '暂无日记' : 'No diary entries yet'}</Typography>
-      </Box>
-    );
-  }
-
-  return (
-    <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', lg: '360px minmax(0, 1fr)', xl: '420px minmax(0, 1fr)' }, alignItems: 'start' }}>
-      <Box>
-        <Card variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
-          <CardContent sx={{ p: 1.25, pt: 1.5, '&:last-child': { pb: 1.25 } }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '32px minmax(0, 1fr) 32px auto', alignItems: 'center', gap: 0.5, mb: 1 }}>
-              <IconButton size="small" onClick={() => setVisibleMonth((prev) => addMonths(prev, -1))} aria-label={isZh ? '上个月' : 'Previous month'}>
-                <ChevronLeftIcon fontSize="small" />
-              </IconButton>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, minWidth: 0 }}>
-                <CalendarMonthIcon fontSize="small" color="primary" />
-                <Typography variant="body2" sx={{ fontWeight: 750 }} noWrap>{monthLabel}</Typography>
-              </Box>
-              <IconButton size="small" onClick={() => setVisibleMonth((prev) => addMonths(prev, 1))} aria-label={isZh ? '下个月' : 'Next month'}>
-                <ChevronRightIcon fontSize="small" />
-              </IconButton>
-              <Button
-                size="small"
-                onClick={() => setCalendarExpanded((value) => !value)}
-                aria-label={calendarExpanded ? (isZh ? '折叠日历' : 'Collapse calendar') : (isZh ? '展开日历' : 'Expand calendar')}
-                endIcon={calendarExpanded ? <UnfoldLessIcon fontSize="small" /> : <UnfoldMoreIcon fontSize="small" />}
-              >
-                {calendarExpanded ? (isZh ? '收起' : 'Collapse') : (isZh ? '展开' : 'Expand')}
-              </Button>
-            </Box>
-            <Box sx={{ display: { xs: 'block', lg: 'none' } }}>
-              {renderCalendarMonth(visibleMonth)}
-            </Box>
-            <Box sx={{ display: { xs: 'none', lg: 'grid' }, gap: 1.5, maxHeight: 'calc(100vh - 220px)', overflowY: 'auto', pr: 0.5 }}>
-              {monthDates.map((monthDate) => renderCalendarMonth(monthDate, true))}
-            </Box>
-          </CardContent>
-        </Card>
-      </Box>
-
-      <Box sx={{ position: 'relative', minHeight: 360 }}>
-        <PaperSurface variant={paperVariant} minHeight={360}>
-          <Box className="paper-surface-content" sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1.5, mb: 1.5 }}>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 850 }}>{selectedEntry?.title || (isZh ? '日记' : 'Diary')}</Typography>
-              <Typography className="paper-surface-muted" variant="caption">{selectedEntry?.dateKey}</Typography>
-            </Box>
-            <Chip size="small" variant="outlined" label={`${selectedIndex >= 0 ? datedEntries.length - selectedIndex : 1}/${datedEntries.length}${isZh ? '篇' : ''}`} sx={{ bgcolor: 'rgba(255,255,255,0.55)' }} />
-          </Box>
-          <Box className="paper-surface-content" sx={{ typography: 'body2', lineHeight: 1.9, userSelect: 'text', WebkitUserSelect: 'text' }}>
-            <MarkdownText text={selectedEntry?.text || ''} />
-          </Box>
-        </PaperSurface>
-        <IconButton
-          onClick={() => goToEntry(1)}
-          disabled={selectedIndex < 0 || selectedIndex >= datedEntries.length - 1}
-          aria-label={isZh ? '上一篇日记' : 'Previous diary'}
-          sx={{ position: 'fixed', left: { xs: 10, sm: 18, lg: 28 }, top: '50vh', transform: 'translateY(-50%)', zIndex: 1200, bgcolor: 'rgba(255,255,255,0.78)', boxShadow: 2, '&:hover': { bgcolor: 'rgba(255,255,255,0.92)' } }}
-        >
-          <ChevronLeftIcon />
-        </IconButton>
-        <IconButton
-          onClick={() => goToEntry(-1)}
-          disabled={selectedIndex <= 0}
-          aria-label={isZh ? '下一篇日记' : 'Next diary'}
-          sx={{ position: 'fixed', right: { xs: 10, sm: 18, lg: 28 }, top: '50vh', transform: 'translateY(-50%)', zIndex: 1200, bgcolor: 'rgba(255,255,255,0.78)', boxShadow: 2, '&:hover': { bgcolor: 'rgba(255,255,255,0.92)' } }}
-        >
-          <ChevronRightIcon />
-        </IconButton>
-      </Box>
-    </Box>
-  );
 }
 
 function getGenerateButtonLabel(language: string, generating: boolean) {
@@ -1156,6 +912,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       .filter((item) => item.kind === 'diary' && item.characterId === initial.id)
     );
   }, [artifactItems, initial?.id]);
+  const artifactReaderHeight = 'clamp(420px, calc(100dvh - 180px), 1040px)';
   const generateLabel = getGenerateButtonLabel(i18n.language, generating);
   const helperText = getHelperText(i18n.language, inlineError);
   const generateAriaLabel = getGenerateAriaLabel(i18n.language);
@@ -1791,14 +1548,19 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       {configTab === 4 ? runtimeTab : null}
 
       {configTab === 5 ? (
-        <Card variant="outlined">
-          <CardContent sx={{ display: 'grid', gap: 1.5 }}>
-            <Box>
-              <Typography variant="body2" sx={{ fontWeight: 700 }}>{i18n.language.startsWith('zh') ? '自动日记' : 'Auto diary'}</Typography>
-            </Box>
-            <CharacterDiaryReader entries={diaryEntries} language={i18n.language} paperVariant={settings.artifactAppearance.paperVariant} />
-          </CardContent>
-        </Card>
+        <Box sx={{ display: 'grid', gap: 1.5 }}>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{i18n.language.startsWith('zh') ? '自动日记' : 'Auto diary'}</Typography>
+          <ArtifactCalendarReader
+            items={diaryEntries}
+            language={i18n.language}
+            paperVariant={settings.artifactAppearance.paperVariant}
+            readerHeight={artifactReaderHeight}
+            countUnit={i18n.language.startsWith('zh') ? '篇' : ''}
+            emptyTitle={i18n.language.startsWith('zh') ? '暂无日记' : 'No diary entries yet'}
+            emptyDescription={i18n.language.startsWith('zh') ? '角色经历过足够多的关系余波、记忆沉淀和未说出口的话后，日记会在这里留下痕迹。' : 'After enough relationship residue, memory sediment, and unsent words accumulate, diary pages will appear here.'}
+            getMeta={(item) => item.dateKey || new Date(item.createdAt).toLocaleDateString(i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US')}
+          />
+        </Box>
       ) : null}
 
 

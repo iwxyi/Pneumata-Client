@@ -8,6 +8,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import InfoIcon from '@mui/icons-material/Info';
 import PlayIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
@@ -24,6 +25,7 @@ import { MessageAnalysisDialog } from '../components/chat/MessageAnalysisDialog'
 import SessionComposerHost from '../components/session/SessionComposerHost';
 import { buildActionRuntimeContract, buildRuntimeEventContract } from '../services/sessionRuntimeContract';
 import RightPanel from '../components/layout/RightPanel';
+import GlassHeader from '../components/layout/GlassHeader';
 import { buildRuntimeEventMessageContent, normalizeRuntimeEvent } from '../services/runtimeEventFactory';
 import { persistLocalFirstMessage, persistLocalFirstMessages } from '../services/chatCommitMessage';
 import { buildPrivateSessionEvent } from '../services/directSessionHelpers';
@@ -40,6 +42,7 @@ import { useMessageAnalysis } from '../hooks/useMessageAnalysis';
 import { runDirectUserReplyFlow } from '../services/directUserReplyFlow';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 import { useResponsive } from '../hooks/useResponsive';
+import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -57,7 +60,9 @@ export default function ChatDetailPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { isMobile, isDesktop } = useResponsive();
-  const { setHeaderTitle, setHeaderActions, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
+  const pane = usePaneLayout();
+  const isSplitDetailPane = pane.role === 'detail';
+  const { setHideMobileBottomNav } = useLayoutHeaderActions();
 
   const { chats, updateChat, applyChatRuntimeDelta, loadChats, markChatsWarm, isLoading: chatsLoading } = useChatStore();
   const { characters, updateCharacter, updateCharacters, loadCharacters, markCharactersWarm } = useCharacterStore();
@@ -601,29 +606,9 @@ export default function ChatDetailPage() {
   ) : null;
 
   useEffect(() => {
-    if (!chat) return;
-    setHeaderTitle(chat.name);
-    setHeaderBackAction(() => handleHeaderBack);
     setHideMobileBottomNav(true);
-    setHeaderActions(
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        {headerPrimaryActionButton}
-        {!isMobile ? <IconButton onClick={toggleRightPanel}>
-          <PeopleIcon />
-        </IconButton> : null}
-        <IconButton onClick={() => navigate(`/chats/${chat.id}/edit`)}>
-          <InfoIcon />
-        </IconButton>
-      </Box>
-    );
-  }, [chat, handleHeaderBack, handleHeaderPrimaryAction, isMobile, isPaused, isRunning, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, toggleRightPanel]);
-
-  useEffect(() => () => {
-    setHeaderTitle(null);
-    setHeaderBackAction(null);
-    setHideMobileBottomNav(false);
-    setHeaderActions(null);
-  }, [setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
+    return () => setHideMobileBottomNav(false);
+  }, [setHideMobileBottomNav]);
 
   if (!chat) {
     return (
@@ -663,6 +648,29 @@ export default function ChatDetailPage() {
             : 'repeating-linear-gradient(0deg, rgba(226,232,240,0.030) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(226,232,240,0.024) 0 1px, transparent 1px 28px)',
         },
       }}>
+        <GlassHeader
+          title={chat.name}
+          safeAreaTop={!isSplitDetailPane}
+          zIndex={4}
+          leading={!isSplitDetailPane ? (
+            <IconButton onClick={handleHeaderBack} sx={{ flexShrink: 0 }}>
+                <ArrowBackIcon />
+            </IconButton>
+          ) : null}
+          actions={(
+            <>
+              {headerPrimaryActionButton}
+              {!isMobile ? (
+                <IconButton onClick={toggleRightPanel}>
+                <PeopleIcon />
+                </IconButton>
+              ) : null}
+              <IconButton onClick={() => navigate(`/chats/${chat.id}/edit`)}>
+                <InfoIcon />
+              </IconButton>
+            </>
+          )}
+        />
         <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1 }}>
           <MessageList
             key={id}
@@ -678,7 +686,7 @@ export default function ChatDetailPage() {
             hasMore={hasMore}
             loadingText={t('common.loading')}
             topHint="没有更早的消息"
-            topInset={{ xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
+            topInset={isSplitDetailPane ? { xs: '76px', sm: '76px' } : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
             bottomInset={{ xs: 'calc(82px + env(safe-area-inset-bottom, 0px))', sm: '82px' }}
           />
         </Box>

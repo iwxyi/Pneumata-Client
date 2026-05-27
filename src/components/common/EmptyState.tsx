@@ -1,4 +1,5 @@
 import { Box, Typography } from '@mui/material';
+import { motion, transition } from '../../styles/motion';
 
 interface EmptyStateProps {
   icon?: string;
@@ -46,7 +47,7 @@ export default function EmptyState({ icon = '📭', message, action, variant = '
         borderColor: 'divider',
       }}
     >
-      <Typography variant="h2" sx={{ mb: 2, transition: 'transform 180ms ease', '&:hover': { transform: 'scale(1.04)' } }}>
+      <Typography variant="h2" sx={{ mb: 2, transition: transition(['transform'], motion.durations.base, motion.gentleSpring), '&:hover': { transform: 'scale(1.04)' } }}>
         {icon}
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 360 }}>
