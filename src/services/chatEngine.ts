@@ -29,6 +29,7 @@ import type { UserGuidanceIntent } from './userGuidanceIntent';
 import { evaluateGuidanceGeneratedContent, type GuidanceExecutionReason, type GuidanceRejectionReason } from './guidanceExecution';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
+  extraMessages?: string[] | null;
   interactionHint?: InteractionEventPayload | null;
   interactionHints?: InteractionEventPayload[] | null;
   addressedTargetIds?: string[] | null;
@@ -52,9 +53,12 @@ type GuidanceExecutionTrace = NonNullable<NonNullable<MessageMetadata['runtimeDe
 type GenerationWithGuidanceTrace = {
   parsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope>;
   finalResponse: string;
+  fullResponse: string;
+  extraMessages?: string[] | null;
   guidanceExecution?: GuidanceExecutionTrace;
 };
 
+const MAX_EXTRA_MESSAGES = 4;
 const emotionMap: Record<string, number> = {};
 
 class EmptyGeneratedResponseError extends Error {
@@ -201,6 +205,43 @@ function finalizeResponse(content: string, intent: ReturnType<typeof deriveSpeak
   return salvageEmptyResponse(content, speaker.name, showRoleActions);
 }
 
+function normalizeExtraMessages(params: {
+  content: string;
+  extraMessages: unknown;
+  intent: ReturnType<typeof deriveSpeakIntentFromContext>;
+  speaker: AICharacter;
+  recentMessages: Message[];
+  showRoleActions?: boolean;
+  surface?: ResponseSurface;
+}) {
+  if (!Array.isArray(params.extraMessages)) return null;
+  const normalizedContent = normalizeForComparison(params.content);
+  const seen = new Set<string>(normalizedContent ? [normalizedContent] : []);
+  const cleaned = params.extraMessages
+    .map((item) => (typeof item === 'string'
+      ? finalizeResponse(item, params.intent, params.speaker, params.recentMessages, params.showRoleActions, false, params.surface)
+      : ''))
+    .filter((item) => {
+      const normalized = normalizeForComparison(item);
+      if (!normalized) return false;
+      if (seen.has(normalized)) return false;
+      if (normalized.length >= 4 && normalizedContent.includes(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  const messages = cleaned.length > MAX_EXTRA_MESSAGES
+    ? [
+        ...cleaned.slice(0, MAX_EXTRA_MESSAGES - 1),
+        cleaned.slice(MAX_EXTRA_MESSAGES - 1).join('\n'),
+      ]
+    : cleaned;
+  return messages.length ? messages : null;
+}
+
+function buildFullTurnResponse(content: string, extraMessages?: string[] | null) {
+  return [content, ...(extraMessages || [])].filter(Boolean).join('\n');
+}
+
 function buildRetryPrompt(basePrompt: string, priorAttempt: string) {
   return `${basePrompt}\n\nRetry rule:\n- Your previous draft was too close to recent chat or repetitive.\n- Write a meaningfully different line now.\n- Do not reuse this draft's surface or semantic core: ${priorAttempt.slice(0, 120)}`;
 }
@@ -254,6 +295,7 @@ function isPendingJsonEnvelopeChunk(raw: string) {
   if (!cleaned) return false;
   if (cleaned.startsWith('{')) return true;
   if (cleaned.startsWith('"content"')) return true;
+  if (cleaned.startsWith('"extraMessages"')) return true;
   if (cleaned.startsWith('"intentionalRepeat"')) return true;
   if (cleaned.startsWith('"interactionHints"')) return true;
   if (cleaned.startsWith('"socialEventHints"')) return true;
@@ -401,7 +443,7 @@ function buildResponseSurfacePrompt(surface: ResponseSurface) {
       ? '\n- The speaker has enough role/expertise support for structured or longer output when the task asks for it.'
       : '\n- Match the speaker’s actual background and speech profile; use structure only when the task and character both support it.';
   if (surface.kind === 'chat') {
-    return `\nResponse surface:\n- Default to live chat style: concise when possible, but keep necessary context.${roleFitHint}`;
+    return `\nResponse surface:\n- Default to live chat style: choose the natural length for this exact moment. It can be a tiny reaction, a clipped sentence, or a fuller emotional/argumentative line; do not converge every reply to a neat medium length.${roleFitHint}`;
   }
   if (surface.kind === 'creative') {
     return `\nResponse surface:\n- Creative longform is allowed when the task, topic, and speaker make it natural. You may write fiction, outlines, scene drafts, dialogue, critique, or rich discussion when useful.\n- Do not use a fixed template. Choose form from the actual request, character voice, room style, and discussion topic.\n- Do not limit word count artificially, but do not inflate beyond what this speaker would plausibly write.\n- Preserve paragraphs, lists, headings, and quoted excerpts only when they improve readability.${roleFitHint}`;
@@ -428,6 +470,30 @@ function buildGenerationConstraints(messages: Message[], speakerId: string, surf
 - Do not give a balanced full explanation unless the room absolutely requires it.
 - Prefer reactive, colloquial, and socially situated replies, but keep the full reply when the current context needs more than a short line.
 - Prefer one sharp move when it fits: a quick challenge, follow-up, jab, side remark, or clipped agreement.${forbiddenBlock}`;
+}
+
+function visibleTextLength(text: string) {
+  return text.replace(/\s+/g, '').length;
+}
+
+function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeProjection, surface: ResponseSurface) {
+  if (surface.kind !== 'chat') return '';
+  const recentAiLengths = messages
+    .filter((message) => message.type === 'ai' && !message.isDeleted)
+    .slice(-8)
+    .map((message) => visibleTextLength(message.content))
+    .filter((length) => length > 0);
+  const mediumCluster = recentAiLengths.filter((length) => length >= 16 && length <= 38).length;
+  const clustered = recentAiLengths.length >= 4 && mediumCluster / recentAiLengths.length >= 0.65;
+  const rhythm = innerLife.expressionPlan.messageCount > 1
+    ? `- The inner rhythm can be ${innerLife.expressionPlan.messageCount} bubbles. Use extraMessages only if the thought really lands as separate sends; otherwise use one bubble.`
+    : '- The inner rhythm favors one bubble, but that bubble may be very short, medium, or occasionally longer if the social move needs it.';
+  return `\n## Natural Chat Rhythm
+- Do not default to the same 20-30 Chinese-character length. Real chat has uneven turns: sometimes 1-6 characters, sometimes a clipped sentence, sometimes a longer annoyed or caring explanation.
+- Choose length from the social moment, not from a fixed template. A short “啊？” can be better than a neat sentence; a character who is defending, explaining, showing off, or emotionally cornered may naturally run longer.
+- Avoid making consecutive messages all similar in size, opening pattern, or cadence.${clustered ? '\n- Recent room lines are clustering around medium length. Deliberately break that rhythm with either a shorter jab/fragment or a fuller line if it fits.' : ''}
+${rhythm}
+- If you use extraMessages, keep content as the first visible bubble and put only the later consecutive bubbles in extraMessages. The full turn may contain up to 5 visible bubbles total. Vary lengths naturally. Do not split purely by punctuation.`;
 }
 
 function buildExpressionFeedbackPrompt(feedback: ExpressionFeedbackTrace) {
@@ -853,8 +919,18 @@ async function generateWithPrompt(params: {
   const rawContent = parsedEnvelope ? parsedEnvelope.content : response;
   const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions, false, params.surface);
   const finalResponse = resolveCommittedStreamContent(finalizedResponse, streamBridge.getLastContent());
+  const extraMessages = normalizeExtraMessages({
+    content: finalResponse,
+    extraMessages: parsedEnvelope?.extraMessages,
+    intent: params.intent,
+    speaker: params.speaker,
+    recentMessages: params.activeMessages,
+    showRoleActions: params.showRoleActions,
+    surface: params.surface,
+  });
+  const fullResponse = buildFullTurnResponse(finalResponse, extraMessages);
   streamBridge.flush(finalResponse);
-  return { parsedEnvelope, rawContent, finalResponse };
+  return { parsedEnvelope, rawContent, finalResponse, fullResponse, extraMessages };
 }
 
 async function generateNonDuplicateResponse(params: {
@@ -874,6 +950,8 @@ async function generateNonDuplicateResponse(params: {
   let prompt = params.systemPrompt;
   let lastParsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope> = null;
   let lastFinalResponse = '';
+  let lastFullResponse = '';
+  let lastExtraMessages: string[] | null = null;
   const rejectedReasons: GuidanceRejectionReason[] = [];
   let finalReason: GuidanceExecutionReason = params.guidance ? 'empty_content' : 'matched';
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -881,9 +959,11 @@ async function generateNonDuplicateResponse(params: {
     const generated = await generateWithPrompt({ ...params, systemPrompt: prompt, onChunk: shouldStreamAttempt ? params.onChunk : undefined });
     lastParsedEnvelope = generated.parsedEnvelope;
     lastFinalResponse = generated.finalResponse;
-    if (normalizeForComparison(generated.finalResponse)) {
+    lastFullResponse = generated.fullResponse;
+    lastExtraMessages = generated.extraMessages || null;
+    if (normalizeForComparison(generated.fullResponse)) {
       const guidanceEvaluation = evaluateGuidanceGeneratedContent(
-        generated.finalResponse,
+        generated.fullResponse,
         params.guidance,
         params.speaker,
         params.characters,
@@ -897,7 +977,7 @@ async function generateNonDuplicateResponse(params: {
           guidance: params.guidance,
           speaker: params.speaker,
           characters: params.characters || [],
-          previousDraft: generated.finalResponse,
+          previousDraft: generated.fullResponse,
           mediaCapabilities: params.mediaCapabilities,
         });
         continue;
@@ -906,6 +986,8 @@ async function generateNonDuplicateResponse(params: {
       return {
         parsedEnvelope: generated.parsedEnvelope,
         finalResponse: generated.finalResponse,
+        fullResponse: generated.fullResponse,
+        extraMessages: generated.extraMessages,
         guidanceExecution: params.guidance ? {
           status: guidanceEvaluation.matched
             ? (rejectedReasons.length ? 'accepted_after_retry' : 'accepted')
@@ -936,6 +1018,8 @@ async function generateNonDuplicateResponse(params: {
   return {
     parsedEnvelope: lastParsedEnvelope,
     finalResponse: lastFinalResponse,
+    fullResponse: lastFullResponse || lastFinalResponse,
+    extraMessages: lastExtraMessages,
     guidanceExecution: params.guidance ? {
       status: 'failed_after_retry',
       validated: false,
@@ -952,17 +1036,20 @@ function buildCompletedMessage(params: {
   speakerId: string;
   speakerName: string;
   finalResponse: string;
+  fullResponse: string;
+  extraMessages?: string[] | null;
   emotion: number;
   parsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope>;
   metadata?: MessageMetadata;
 }) {
-  const interactionHints = normalizeInteractionHintCollection(params.parsedEnvelope?.interactionHints || null, params.speakerId, params.finalResponse);
+  const interactionHints = normalizeInteractionHintCollection(params.parsedEnvelope?.interactionHints || null, params.speakerId, params.fullResponse);
   return {
     chatId: params.chat.id,
     type: 'ai' as const,
     senderId: params.speakerId,
     senderName: params.speakerName,
     content: params.finalResponse,
+    extraMessages: params.extraMessages,
     metadata: params.metadata,
     emotion: params.emotion,
     interactionHint: interactionHints[0] || null,
@@ -1017,7 +1104,7 @@ export async function generateSpeakerMessage(params: {
   };
   onChunk?: (content: string) => void;
   delay?: (ms: number) => Promise<void>;
-}) {
+}): Promise<GeneratedRoundMessage> {
   const chatMembers = params.characters.filter((character) => params.chat.memberIds.includes(character.id));
   const effectiveMembers = chatMembers.length ? chatMembers : params.characters;
   const activeMessages = params.messages.filter((message) => message.chatId === params.chat.id && !message.isDeleted);
@@ -1074,7 +1161,7 @@ Current speaking intent:
 - Treat the intent shape as style guidance, not a hard length cap. Do not truncate a useful reply just to fit one sentence or a fragment shape.
 - ${responseSurface.kind === 'chat' ? 'Respond like a WeChat message: quick, targeted, partial, reactive, and slightly messy. Do not write a balanced full answer unless the conversation truly needs it.' : 'Respond in the surface the scene requires: professional or creative longform is allowed, including Markdown, while keeping this speaker’s personality and social position.'}
 - ${responseSurface.kind === 'chat' ? 'Prefer sounding impulsive, socially situated, colloquial, and slightly incomplete over sounding polished.' : 'Prefer clarity, useful structure, and role-specific judgment over forced brevity; keep warmth, bias, doubts, or personality where they belong.'}
-- ${responseSurface.kind === 'chat' ? 'If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.' : 'If the room asks for a professional question, long answer, fiction draft, outline, or critique, satisfy that task fully instead of compressing it into chat banter.'}${additionalConstraints}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildResponseSurfacePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, mediaCapabilities })}${promptSuffix}`;
+- ${responseSurface.kind === 'chat' ? 'If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.' : 'If the room asks for a professional question, long answer, fiction draft, outline, or critique, satisfy that task fully instead of compressing it into chat banter.'}${additionalConstraints}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildResponseSurfacePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, mediaCapabilities })}${promptSuffix}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT);
   const resolvedApi = resolveApiConfigForCharacter(params.speaker, params.apiConfig, params.profiles);
   const generated = await generateNonDuplicateResponse({
@@ -1095,7 +1182,7 @@ Current speaking intent:
     throw new EmptyGeneratedResponseError(params.speaker.name);
   }
 
-  const msgEmotion = analyzeEmotion(generated.finalResponse);
+  const msgEmotion = analyzeEmotion(generated.fullResponse);
   updateAllEmotions(effectiveMembers, params.speaker.id, msgEmotion, emotion);
   const modelMediaDecision = generated.parsedEnvelope?.mediaDecision;
   const mergedMediaDecision = mergeGuidanceMediaDecision({
@@ -1103,7 +1190,7 @@ Current speaking intent:
     guidance: userGuidance,
     speaker: params.speaker,
     characters: effectiveMembers,
-    content: generated.finalResponse,
+    content: generated.fullResponse,
   });
   const forcedMediaQueued = Boolean(
     userGuidance?.mediaRequest
@@ -1127,12 +1214,14 @@ Current speaking intent:
     speakerId: params.speaker.id,
     speakerName: params.speaker.name,
     finalResponse: generated.finalResponse,
+    fullResponse: generated.fullResponse,
+    extraMessages: generated.extraMessages,
     emotion: getEmotion(params.speaker.id),
     parsedEnvelope: generated.parsedEnvelope,
 	    metadata: buildMessageMetadata({
 	      decision: mergedMediaDecision,
 	      capabilities: mediaCapabilities,
-	      content: generated.finalResponse,
+	      content: generated.fullResponse,
         surface: responseSurface,
 	      runtimeDecision: buildRuntimeDecisionMetadata({
 	        directorIntent: effectiveDirectorIntent,
@@ -1148,8 +1237,18 @@ Current speaking intent:
 	  });
   const visibleMessage = maybeAutoWithdrawMessage(completedMessage, { language: 'zh' });
   if (visibleMessage.metadata?.withdrawal?.withdrawn) {
+    const { extraMessages: _extraMessages, ...withdrawnMessage } = visibleMessage;
+    const withdrawal = withdrawnMessage.metadata?.withdrawal;
     return {
-      ...visibleMessage,
+      ...withdrawnMessage,
+      metadata: {
+        ...(withdrawnMessage.metadata || {}),
+        withdrawal: {
+          ...withdrawal,
+          withdrawn: true,
+          originalContent: generated.fullResponse,
+        },
+      },
       interactionHint: null,
       interactionHints: null,
       addressedTargetIds: null,

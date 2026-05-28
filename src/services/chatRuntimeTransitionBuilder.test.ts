@@ -75,7 +75,7 @@ function buildRelationshipMemory(id: string, ownerId: string, subjectIds: string
     id,
     ownerId,
     scope: 'relationship',
-    layer: 'working',
+    layer: 'episodic',
     kind: 'resentment',
     subjectIds,
     text,

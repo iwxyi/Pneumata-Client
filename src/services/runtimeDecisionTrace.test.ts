@@ -90,7 +90,7 @@ describe('runtimeDecisionTrace', () => {
       rawReasons: ['conflict', 'director:challenge:target'],
       innerLifeLabel: '内在冲动：证明自己 · 随意 · 压力 0.64',
       expressionLabel: '表达 常规 · 2 拍表达倾向 · 富文本',
-      expressionReasons: expect.arrayContaining(['内在冲动：证明自己', '语气：随意', '延迟：1600ms', '内心表达计划倾向分成几拍；提交阶段仍保留单条完整消息', '输出形态允许 Markdown / 段落保留']),
+      expressionReasons: expect.arrayContaining(['内在冲动：证明自己', '语气：随意', '延迟：1600ms', '内心表达计划倾向分成几拍；若模型追加连续气泡，运行态仍按完整回合处理', '输出形态允许 Markdown / 段落保留']),
       expressionFeedbackRetrievedLabels: ['减少助手腔'],
       expressionFeedbackAppliedLabels: ['减少助手腔'],
       expressionFeedbackRetrievedReasons: ['已检索 · 减少助手腔 · 强度 80% · 用户反馈：这类回复太像通用助手 · 证据：作为一个AI助手，我建议你'],

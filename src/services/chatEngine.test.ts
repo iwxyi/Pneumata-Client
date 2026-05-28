@@ -290,6 +290,54 @@ describe('chatEngine streaming preview', () => {
     });
   });
 
+  it('drops extra messages already included in the streamed content to avoid duplicate bubbles', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '等下\n你刚说谁来着？',
+      extraMessages: ['你刚说谁来着？'],
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const hui = buildCharacter('hui', '灰太狼');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat(),
+      speaker: mei,
+      characters: [mei, hui],
+      messages: [],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.content).toBe('等下\n你刚说谁来着？');
+    expect(message.extraMessages ?? null).toBeNull();
+  });
+
+  it('allows up to five visible bubbles and merges overflow into the final extra bubble', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '一',
+      extraMessages: ['二', '三', '四', '五', '六'],
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const hui = buildCharacter('hui', '灰太狼');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat(),
+      speaker: mei,
+      characters: [mei, hui],
+      messages: [],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.content).toBe('一');
+    expect(message.extraMessages).toEqual(['二', '三', '四', '五\n六']);
+  });
+
   it('retries explicit media guidance when the first draft keeps chatting instead of sending the requested image', async () => {
     generateResponseMock.mockReset();
     generateResponseMock

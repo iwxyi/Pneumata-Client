@@ -170,6 +170,10 @@ export interface MessageMetadata {
       effects?: string[];
     }>;
   };
+  turnSegment?: {
+    index: number;
+    count: number;
+  };
   visibility?: string;
   cachePolicy?: Record<string, unknown>;
 }

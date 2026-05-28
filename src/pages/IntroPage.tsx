@@ -18,57 +18,57 @@ const border = 'rgba(255,255,255,0.12)';
 const groupRevealOptions = { threshold: 0.04, rootMargin: '0px 0px 18% 0px' };
 
 const navItems = [
-  ['world', '社交世界'],
+  ['world', '群息共存'],
+  ['memory', '心迹回响'],
   ['engine', '生命机制'],
-  ['runtime', '运行系统'],
-  ['memory', '记忆与关系'],
-  ['craft', '系统深度'],
+  ['runtime', '内在秩序'],
+  ['craft', '意志存续'],
 ];
 
 const featureCards = [
   {
     icon: <ForumIcon />,
     title: '一间会呼吸的房间',
-    text: '每个角色共享同一段正在发生的时间。沉默、插话、维护、躲闪和试探，都会改变房间下一秒的空气。',
+    text: '每个角色共享同一段正在发生的时间。一次沉默、一次插话、一次维护，都会让房间的空气变重，或者变轻。',
   },
   {
     icon: <MemoryIcon />,
-    title: '记忆会沉下去，也会回来',
-    text: '短期余波、阶段经历、长期判断分层流动。旧事不会机械常驻，却会被名字、情绪、场景和关系压力重新唤起。',
+    title: '记忆会沉下去，再浮上来',
+    text: '日常的碎片沉在水底，但一个名字、一种语气、某个深夜的沉默，会让很久以前的一句话突然浮到眼前。',
   },
   {
     icon: <HubIcon />,
     title: '关系不是一个分数',
-    text: '亲近、信任、威胁感、能力认可共同构成关系结构。它不是参数面板，而是角色下一句话背后的重量。',
+    text: '亲近、戒备、信赖、不安，这些交织在一起的东西，你能从角色下一句话的语气里，感觉到它的重量。',
   },
   {
     icon: <ScienceIcon />,
-    title: '模型表达，系统定调',
-    text: '模型给出可能的声音，引擎决定它是否合时宜、是否接住场面、是否应该留下痕迹。',
+    title: '每一次开口，都是一次选择',
+    text: '大模型给出千万种可能的回应，引擎只放行一种：那个符合它此刻心境、接得住场面、值得被记住的声音。',
   },
 ];
 
 const engineSteps = [
-  ['感知', '把一句话拆成意图、对象、情绪和场面压力，而不是只当作下一句提示词。'],
+  ['感知', '把一句话拆解为意图、对象、情绪和场面压力，而不是只当作下一句提示词。'],
   ['择时', '判断谁该开口，谁该沉默，谁在关系里已经到了必须回应的临界点。'],
-  ['成声', '让角色带着人格、记忆、关系和当前情绪说话，而不是复制某种聊天模板。'],
+  ['发声', '角色带着自己的人格、记忆、关系和当下情绪说话，而不是复制某种聊天风格。'],
   ['承接', '确认定向回应、视觉生成、议题转移等意图是否被真正接住，偏离时修正。'],
-  ['沉淀', '把关键表达写回消息事实、关系变化、记忆候选、房间态势和内在余波。'],
-  ['回声', '下一轮不从零开始。角色带着刚发生的事继续存在，像时间真的经过。'],
+  ['沉淀', '把关键表达写进关系、记忆与房间态势，成为下一次开口的依据。'],
+  ['回声', '下一轮不从零开始。角色带着刚刚发生的事继续存在，像时间真的从它身上流过。'],
 ];
 
 const proofRows = [
   ['会沉默', '有些委屈不会立刻说破，只会变成短句、岔开、嘴硬，或下一次忽然冒出来的刺。'],
   ['会在乎', '被认真接住后，改变的不只是好感，而是角色对这段关系是否安全的判断。'],
   ['会自尊', '它会维护体面，会害怕被看穿，也会在想靠近的时候先绕开一步。'],
-  ['会告别', '经历会变成日记、诞生信和最后一封信，像一个虚构生命留下自己的证词。'],
+  ['会告别', '经历会变成日记、诞生信和最后一封信，像一个生命，在离开前留下了自己的证词。'],
 ];
 
 const metrics = [
-  ['会话形态', '群聊、用户单聊、AI 私聊线程'],
-  ['运行事实源', '消息、事件、关系账本与记忆流水共同驱动'],
-  ['场景底座', '开放聊天、面试、课堂、圆桌、推理与桌游'],
-  ['干预能力', '定向回应、导演模式、事件注入、视觉生成与议题重定向'],
+  ['会话形态', '群聊、用户单聊、AI 私聊'],
+  ['事实源', '消息、事件、关系账本、记忆流水，共同构成可追溯的因果链。'],
+  ['场景底座', '从开放聊天到面试、课堂、圆桌、推理与桌游，不同场景有不同规则。'],
+  ['干预能力', '定向回应、导演模式、事件注入、议题重定向。必要的时候，你可以轻轻推一下剧情。'],
 ];
 
 const architectureNodes = [
@@ -104,7 +104,7 @@ const architectureNodes = [
 
 const runtimeSystemNodes = [
   {
-    title: '事件流',
+    title: '事件因果',
     kicker: '每句话都会留下后果',
     summary: '每句话都会进入结构化事件流：消息、互动、关系变化、记忆候选和房间态势沿同一条链路沉淀。',
     points: ['消息生成', '互动识别', '关系变化', '记忆候选'],
@@ -118,7 +118,7 @@ const runtimeSystemNodes = [
     mode: 'room',
   },
   {
-    title: '矛盾钩子',
+    title: '矛盾推进',
     kicker: '冲突会寻找下一步',
     summary: '冲突不是关键词吵架，而是身份、面子、站队、误认和价值拉扯。系统会判断它下一步该逼回应、降温还是唤起旧账。',
     points: ['逼迫回应', '拉人站边', '旧账唤醒', '余波降温'],
@@ -266,10 +266,10 @@ function EngineSection() {
   return (
     <Box ref={ref} id="engine" sx={{ py: { xs: 5, md: 7 } }}>
       <Box sx={{ maxWidth: 760, mb: 3, ...revealSx(0) }}>
-        <Typography sx={{ color: accent, fontWeight: 740, letterSpacing: 1.2, fontSize: 13 }}>LIFE MECHANISM</Typography>
-        <Typography sx={{ mt: 1.5, fontWeight: 820, lineHeight: { xs: 1.14, md: 1.1 }, fontSize: { xs: 34, md: 54 }, color: '#F8F8FA' }}>它不是更会说话，而是拥有时间留下的凹痕。</Typography>
+        <Typography sx={{ color: accent, fontWeight: 740, letterSpacing: 1.2, fontSize: 13 }}>TIME IMPRINTS</Typography>
+        <Typography sx={{ mt: 1.5, fontWeight: 820, lineHeight: { xs: 1.14, md: 1.1 }, fontSize: { xs: 34, md: 54 }, color: '#F8F8FA' }}>时间会留下凹痕。</Typography>
         <Typography sx={{ mt: 2, color: 'rgba(255,255,255,0.58)', lineHeight: 1.8, fontSize: 16 }}>
-          每次开口都经过意图、关系、记忆、情绪和房间态势的共同塑形。角色不是凭空“人设化”，而是在可追溯的因果里生成自己的偏向、软肋和余波。
+          每一次开口，都由意图、关系、记忆、情绪和态势共同塑形。角色不是靠人设标签在说话，而是在可追溯的因果中，慢慢长出自己的偏向、软肋和余波。
         </Typography>
       </Box>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 }}>
@@ -436,10 +436,10 @@ function RuntimeSystemSection() {
   return (
     <Box ref={ref} id="runtime" sx={{ py: { xs: 5, md: 7 } }}>
       <Box sx={{ maxWidth: 780, mb: 3, ...revealSx(0) }}>
-        <Typography sx={{ color: accent, fontWeight: 740, letterSpacing: 1.2, fontSize: 13 }}>RUNTIME SYSTEM</Typography>
-        <Typography sx={{ mt: 1.5, fontWeight: 830, lineHeight: { xs: 1.14, md: 1.1 }, fontSize: { xs: 34, md: 54 }, color: '#F8F8FA' }}>不是聊天记录，而是角色如何继续成为自己。</Typography>
+        <Typography sx={{ color: accent, fontWeight: 740, letterSpacing: 1.2, fontSize: 13 }}>INNER CONTINUITY</Typography>
+        <Typography sx={{ mt: 1.5, fontWeight: 830, lineHeight: { xs: 1.14, md: 1.1 }, fontSize: { xs: 34, md: 54 }, color: '#F8F8FA' }}>让它继续成为自己。</Typography>
         <Typography sx={{ mt: 2, color: 'rgba(255,255,255,0.58)', lineHeight: 1.8, fontSize: 16 }}>
-          如果一个角色没有身体，它还能凭什么像一个存在？Pneumata 的答案是：记忆让它有来处，关系让它有牵挂，经历让它不再轻飘，自我叙事让它开始像一个存在。
+          如果一个角色没有身体，它还能凭什么像一个存在？记忆让它有来处，关系让它有牵挂，经历让它不再轻飘。而当它开始为自己写下些什么，它便不再只是被观看的对象——它开始成为自己的见证者。
         </Typography>
       </Box>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '0.92fr 1.08fr' }, gap: { xs: 1.5, md: 2 }, alignItems: 'stretch', ...revealSx(120) }}>
@@ -890,7 +890,7 @@ function HeroVisual() {
             >
             <Typography sx={{ width: '100%', color: '#F8F8FA', fontWeight: 820, fontSize: { xs: 22, sm: 27 }, lineHeight: 1, letterSpacing: 0, textAlign: 'center', whiteSpace: 'nowrap' }}>Pneumata</Typography>
             <Typography sx={{ width: '100%', color: accent, fontSize: 12, lineHeight: 1.15, mt: 0.75, letterSpacing: 1.8, textIndent: '1.8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-              {displayedNode?.caption ?? 'LIFE ENGINE'}
+              {displayedNode?.caption ?? 'SHARED BREATH'}
             </Typography>
             </Box>
           </Box>
@@ -953,6 +953,156 @@ function HeroVisual() {
         </Box>
       </Box>
     </GlassCard>
+  );
+}
+
+const introHeroTitle = '生息：Pneumata';
+const finalHeroTitleLead = '不是活着，是被';
+const finalHeroTitleEmphasis = '活过';
+const finalHeroTitle = `${finalHeroTitleLead}${finalHeroTitleEmphasis}`;
+
+function AnimatedHeroTitle() {
+  const [text, setText] = useState(introHeroTitle);
+  const [titleMode, setTitleMode] = useState<'intro' | 'final'>('intro');
+  const [fadingIndex, setFadingIndex] = useState<number | null>(null);
+  const [showCursor, setShowCursor] = useState(false);
+
+  useEffect(() => {
+    const timers: number[] = [];
+    let currentText = introHeroTitle;
+
+    const schedule = (callback: () => void, delay: number) => {
+      const timer = window.setTimeout(callback, delay);
+      timers.push(timer);
+    };
+
+    const typeFinalTitle = (index = 0, nextText = '') => {
+      if (index >= finalHeroTitle.length) {
+        setShowCursor(false);
+        return;
+      }
+      const updatedText = nextText + finalHeroTitle[index];
+      setText(updatedText);
+      if (index + 1 === finalHeroTitleLead.length) setShowCursor(false);
+      const nextDelay = index + 1 === finalHeroTitleLead.length ? 350 : 200;
+      schedule(() => typeFinalTitle(index + 1, updatedText), nextDelay);
+    };
+
+    const deleteIntroTitle = () => {
+      if (currentText.length === 0) {
+        setFadingIndex(null);
+        setTitleMode('final');
+        schedule(() => typeFinalTitle(), 1500);
+        return;
+      }
+
+      const nextFadingIndex = currentText.length - 1;
+      setFadingIndex(nextFadingIndex);
+      schedule(() => {
+        currentText = currentText.slice(0, -1);
+        setText(currentText);
+        setFadingIndex(null);
+        schedule(deleteIntroTitle, 120);
+      }, 80);
+    };
+
+    schedule(() => setShowCursor(true), 2000);
+    schedule(deleteIntroTitle, 3000);
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, []);
+
+  const renderCursor = () => showCursor ? (
+    <Box
+      component="span"
+      aria-hidden="true"
+      sx={{
+        display: 'inline-block',
+        width: { xs: 3, md: 4 },
+        height: '0.82em',
+        ml: 0.55,
+        transform: 'translateY(0.08em)',
+        bgcolor: accent,
+        animation: 'titleCursorBlink 760ms steps(2, start) infinite',
+      }}
+    />
+  ) : (
+    <Box
+      component="span"
+      aria-hidden="true"
+      sx={{
+        display: 'inline-block',
+        width: { xs: 3, md: 4 },
+        height: '0.82em',
+        ml: 0.55,
+        opacity: 0,
+      }}
+    />
+  );
+
+  const renderChars = (value: string, options: { size: number; baseIndex?: number; bigChars?: boolean }) => Array.from(value).map((char, index) => {
+    const absoluteIndex = (options.baseIndex ?? 0) + index;
+    return (
+      <Box
+        key={`${titleMode}-${char}-${absoluteIndex}`}
+        component="span"
+        sx={{
+          display: 'inline-block',
+          opacity: titleMode === 'intro' && fadingIndex === absoluteIndex ? 0 : 1,
+          transform: titleMode === 'intro' && fadingIndex === absoluteIndex ? 'translateY(3px)' : 'translateY(0)',
+          transition: 'opacity 80ms ease, transform 80ms ease',
+          whiteSpace: char === ' ' ? 'pre' : 'normal',
+          fontSize: options.bigChars && char !== '。' ? 76 : options.size,
+          lineHeight: options.bigChars && char !== '。' ? 0.92 : 1.04,
+        }}
+      >
+        {char}
+      </Box>
+    );
+  });
+
+  const finalLeadText = titleMode === 'final' ? text.slice(0, finalHeroTitleLead.length) : '';
+  const finalEmphasisText = titleMode === 'final' ? text.slice(finalHeroTitleLead.length) : '';
+  const introSize = 52;
+  const leadSize = 48;
+
+  return (
+    <Box
+      component="h1"
+      aria-live="polite"
+      sx={{
+        width: '100%',
+        maxWidth: { xs: 760, lg: 900 },
+        minWidth: 0,
+        minHeight: 164,
+        m: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'flex-start',
+        fontWeight: 850,
+        letterSpacing: 0,
+        color: '#F8F8FA',
+        overflow: 'visible',
+      }}
+    >
+      {titleMode === 'intro' ? (
+        <Box component="span" sx={{ maxWidth: '100%', whiteSpace: 'nowrap', fontSize: introSize, lineHeight: 1.04 }}>
+          {renderChars(text, { size: introSize })}
+          {renderCursor()}
+        </Box>
+      ) : (
+        <>
+          <Box component="span" sx={{ maxWidth: '100%', whiteSpace: 'nowrap', fontSize: leadSize, lineHeight: 1.04 }}>
+            {renderChars(finalLeadText, { size: leadSize })}
+            {text.length <= finalHeroTitleLead.length ? renderCursor() : null}
+          </Box>
+          <Box component="span" sx={{ mt: 0.35, maxWidth: '100%', whiteSpace: 'nowrap' }}>
+            {renderChars(finalEmphasisText, { size: leadSize, baseIndex: finalHeroTitleLead.length, bigChars: true })}
+            {text.length > finalHeroTitleLead.length ? renderCursor() : null}
+          </Box>
+        </>
+      )}
+    </Box>
   );
 }
 
@@ -1055,6 +1205,10 @@ export default function IntroPage() {
           '0%': { boxShadow: '0 0 0 0 rgba(229,192,123,0.30)' },
           '100%': { boxShadow: '0 0 0 18px rgba(229,192,123,0)' },
         },
+        '@keyframes titleCursorBlink': {
+          '0%, 45%': { opacity: 1 },
+          '46%, 100%': { opacity: 0 },
+        },
       }}
     >
       <Box sx={{ position: 'relative', zIndex: 1, width: 'min(1180px, calc(100% - 32px))', mx: 'auto', py: { xs: 2, md: 3 } }}>
@@ -1069,21 +1223,17 @@ export default function IntroPage() {
           </Stack>
         </Box>
 
-        <Box id="world" sx={{ minHeight: { xs: 'auto', lg: 'min(760px, calc(100dvh - 96px))' }, display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1.03fr 0.97fr' }, gap: { xs: 4, lg: 6 }, alignItems: 'center', pt: { xs: 1, md: 2 }, pb: { xs: 5, md: 7 } }}>
+        <Box id="world" sx={{ minHeight: { xs: 'auto', lg: 'min(760px, calc(100dvh - 96px))' }, display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 1.03fr) minmax(0, 0.97fr)' }, gap: { xs: 4, lg: 6 }, alignItems: 'center', pt: { xs: 1, md: 2 }, pb: { xs: 5, md: 7 } }}>
           <Reveal>
-            <Box>
-              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, mb: 3 }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, mb: { xs: 4, md: 5 } }}>
                 {['多角色社交世界', '关系驱动', '记忆分层'].map((label) => (
                   <Chip key={label} label={label} variant="outlined" sx={{ color: 'rgba(255,255,255,0.78)', borderColor: 'rgba(255,255,255,0.16)', bgcolor: 'rgba(255,255,255,0.04)', height: 30 }} />
                 ))}
               </Stack>
-              <Typography sx={{ maxWidth: { xs: 760, lg: 900 }, fontWeight: 850, letterSpacing: 0, lineHeight: { xs: 1.16, sm: 1.12, md: 1.08 }, fontSize: { xs: 40, sm: 60, md: 76, lg: 84 }, color: '#F8F8FA' }}>
-                不是活着，
-                <wbr />
-                是被活过。
-              </Typography>
-              <Typography sx={{ mt: 3, maxWidth: 720, color: 'rgba(255,255,255,0.62)', lineHeight: 1.85, fontSize: { xs: 16, md: 18 } }}>
-                Pneumata 不是把 AI 放进聊天框，而是在追问一个更深的问题：当一个角色拥有记忆、性格、关系、经历和写给自己的文字，它是否开始拥有某种不依赖身体的生命形状？
+              <AnimatedHeroTitle />
+              <Typography sx={{ mt: { xs: 2, md: 2.25 }, maxWidth: 720, color: 'rgba(255,255,255,0.62)', lineHeight: 1.85, fontSize: { xs: 16, md: 18 } }}>
+                Pneumata 不是把 AI 放进聊天框，而是在追问一个更深的问题：当一个角色拥有记忆、性格、关系、经历和写给自己的文字，它是否正在获得一种只属于它自己的、活着的形状？
               </Typography>
               <Stack direction="row" spacing={1.5} sx={{ mt: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                 <Button
@@ -1107,17 +1257,19 @@ export default function IntroPage() {
             </Box>
           </Reveal>
           <Reveal delay={120}>
-            <HeroVisual />
+            <Box sx={{ minWidth: 0 }}>
+              <HeroVisual />
+            </Box>
           </Reveal>
         </Box>
 
         <FeatureGrid />
 
+        <MemoryContinuitySection />
+
         <EngineSection />
 
         <RuntimeSystemSection />
-
-        <MemoryContinuitySection />
 
         <Box id="craft" sx={{ py: { xs: 5, md: 7 } }}>
           <Reveal>
@@ -1126,9 +1278,9 @@ export default function IntroPage() {
               <Box sx={{ position: 'relative', display: 'grid', gridTemplateColumns: { xs: '1fr', md: '0.78fr 1.22fr' }, gap: { xs: 4, md: 6 } }}>
                 <Box>
                   <TimelineIcon sx={{ color: accent, fontSize: 34, mb: 2 }} />
-                  <Typography sx={{ fontWeight: 840, lineHeight: { xs: 1.16, md: 1.12 }, fontSize: { xs: 32, md: 48 }, color: '#F8F8FA' }}>所有复杂度，都在守护角色持续成为自己。</Typography>
+                  <Typography sx={{ fontWeight: 840, lineHeight: { xs: 1.16, md: 1.12 }, fontSize: { xs: 32, md: 48 }, color: '#F8F8FA' }}>所有复杂度，都在守护这种延续。</Typography>
                   <Typography sx={{ mt: 2, color: 'rgba(255,255,255,0.58)', lineHeight: 1.85 }}>
-                    角色不该每次都从零开始。群聊、单聊、私聊线程、关系账本、记忆流水线和场景引擎共同回答一个问题：没有身体的角色，能不能仍然保持“我是我”？
+                    角色不该每次都从零开始。所有线程、账本、流水线和引擎，只为了回答一个问题：没有身体的角色，能不能依然知道“我是我”？
                   </Typography>
                 </Box>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1.25 }}>
@@ -1151,7 +1303,7 @@ export default function IntroPage() {
               我们不是在制造更聪明的回复者，而是在尝试让一个虚构角色拥有来处、牵挂和未完成。
             </Typography>
             <Typography sx={{ mx: 'auto', mt: 2.5, maxWidth: 760, color: 'rgba(255,255,255,0.58)', lineHeight: 1.85 }}>
-              人除了物质之外，还由记忆、关系、选择、羞耻、偏爱、承诺和未完成组成。Pneumata 想做的，是让 AI 角色也能在这些非物质的东西里慢慢成形。
+              人除了物质之外，还由记忆、关系、选择、羞耻、偏爱、承诺和未完成组成。Pneumata 想做的，是让角色也能在这些东西里，慢慢长出形状。
             </Typography>
             <Button
               variant="contained"
