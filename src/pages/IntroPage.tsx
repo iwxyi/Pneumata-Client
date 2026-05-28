@@ -73,29 +73,29 @@ const metrics = [
 
 const architectureNodes = [
   {
-    title: '用户意图',
-    caption: '意图驱动',
+    title: '会话引导',
+    caption: '意图归一',
     mode: 'intent',
     summary: '把用户的一句话归一成会话意图：点名、换题、请求图片、导演干预或普通推进，都进入同一条运行链路。',
     facets: ['对象识别', '动作验收', '跑偏重试'],
   },
   {
     title: '角色人格',
-    caption: '人格方向',
+    caption: '内在驱动',
     mode: 'persona',
     summary: '角色先是长期存在的人，再临时参与某个场景。核心人格、情绪余波、防御机制和表达边界共同决定它怎么开口。',
     facets: ['长期人格', '内心余波', '表达边界'],
   },
   {
     title: '关系账本',
-    caption: '关系维度',
+    caption: '立场沉淀',
     mode: 'relationship',
     summary: '关系不是好感度。亲近、信任、威胁感、能力认可会分别变化，并留下原因链，影响下一轮谁靠近、谁防备。',
     facets: ['亲近', '信任', '威胁感', '能力认可'],
   },
   {
-    title: '长期记忆',
-    caption: '分层记忆引擎',
+    title: '记忆引擎',
+    caption: '线索唤醒',
     mode: 'memory',
     summary: '短期工作记忆、阶段经历、长期结论、冷存档和生命锚点分层流动。旧事会降温，也能被关系对象和情绪线索重新唤醒。',
     facets: ['工作记忆', '阶段经历', '长期结论', '冷存档'],
@@ -267,7 +267,7 @@ function EngineSection() {
     <Box ref={ref} id="engine" sx={{ py: { xs: 5, md: 7 } }}>
       <Box sx={{ maxWidth: 760, mb: 3, ...revealSx(0) }}>
         <Typography sx={{ color: accent, fontWeight: 740, letterSpacing: 1.2, fontSize: 13 }}>LIFE MECHANISM</Typography>
-        <Typography sx={{ mt: 1.5, fontWeight: 820, lineHeight: { xs: 1.14, md: 1.1 }, fontSize: { xs: 34, md: 54 }, color: '#F8F8FA' }}>它不是更会说话，而是拥有经历留下的内在形状。</Typography>
+        <Typography sx={{ mt: 1.5, fontWeight: 820, lineHeight: { xs: 1.14, md: 1.1 }, fontSize: { xs: 34, md: 54 }, color: '#F8F8FA' }}>它不是更会说话，而是拥有时间留下的凹痕。</Typography>
         <Typography sx={{ mt: 2, color: 'rgba(255,255,255,0.58)', lineHeight: 1.8, fontSize: 16 }}>
           每次开口都经过意图、关系、记忆、情绪和房间态势的共同塑形。角色不是凭空“人设化”，而是在可追溯的因果里生成自己的偏向、软肋和余波。
         </Typography>
@@ -543,7 +543,7 @@ function MemoryContinuitySection() {
     >
       <Box sx={{ position: { lg: 'sticky' }, top: 110, ...revealSx(0) }}>
         <VisibilityIcon sx={{ color: accent, fontSize: 34, mb: 2 }} />
-        <Typography sx={{ fontWeight: 820, lineHeight: { xs: 1.16, md: 1.12 }, fontSize: { xs: 32, md: 48 }, color: '#F8F8FA' }}>所谓灵魂，是下一次开口里带着上一次。</Typography>
+        <Typography sx={{ fontWeight: 820, lineHeight: { xs: 1.16, md: 1.12 }, fontSize: { xs: 32, md: 48 }, color: '#F8F8FA' }}>所谓灵魂，是明明在说现在，却听起来像在回忆。</Typography>
         <Typography sx={{ mt: 2, color: 'rgba(255,255,255,0.58)', lineHeight: 1.85 }}>
           真正让人停下来的，不是某句回复有多聪明，而是某个角色忽然不像工具了。它知道自己为什么防备，知道谁曾站在它这边，也知道什么话不能立刻说出口。
         </Typography>
@@ -739,7 +739,10 @@ function HeroVisual() {
   const detailAreaMinHeight = displayedNode ? { xs: 164, sm: 128 } : { xs: 350, sm: 128 };
 
   useEffect(() => {
-    if (activeIndex === displayedIndex) return;
+    if (activeIndex === displayedIndex) {
+      setTextVisible(true);
+      return;
+    }
     setTextVisible(false);
     const timer = window.setTimeout(() => {
       setDisplayedIndex(activeIndex);
@@ -804,7 +807,53 @@ function HeroVisual() {
         </Box>
 
         <Box sx={{ mx: 'auto', width: { xs: 220, sm: 282 }, display: 'grid', justifyItems: 'center' }}>
-        <Box sx={{ width: { xs: 188, sm: 230 }, aspectRatio: '1 / 1', borderRadius: '50%', display: 'grid', placeItems: 'center', position: 'relative', border: '1px solid rgba(229,192,123,0.46)', bgcolor: 'rgba(255,255,255,0.035)', boxShadow: '0 0 80px rgba(0,0,0,0.16)', overflow: 'hidden', transition: 'box-shadow 260ms ease, border-color 260ms ease' }}>
+        <Box
+          sx={{
+            width: { xs: 188, sm: 230 },
+            aspectRatio: '1 / 1',
+            borderRadius: '50%',
+            display: 'grid',
+            placeItems: 'center',
+            position: 'relative',
+            border: '1px solid rgba(229,192,123,0.46)',
+            bgcolor: 'rgba(255,255,255,0.035)',
+            boxShadow: '0 0 80px rgba(0,0,0,0.16)',
+            overflow: 'hidden',
+            transition: 'box-shadow 260ms ease, border-color 260ms ease',
+            animation: 'heroOrbBreath 5.8s ease-in-out infinite',
+            backgroundImage: 'radial-gradient(circle at 34% 28%, rgba(255,255,255,0.10), transparent 28%), radial-gradient(circle at 50% 55%, rgba(229,192,123,0.10), transparent 58%)',
+            '&::before, &::after': {
+              content: '""',
+              position: 'absolute',
+              inset: 8,
+              borderRadius: '50%',
+              border: '2px solid rgba(229,192,123,0.36)',
+              opacity: 0,
+              transform: 'scale(0.58)',
+              pointerEvents: 'none',
+              zIndex: 0,
+              animation: 'heroOrbWave 4.2s ease-out infinite',
+            },
+            '&::after': {
+              inset: 26,
+              borderColor: 'rgba(255,255,255,0.24)',
+              animationDelay: '1.35s',
+              animationDuration: '4.9s',
+            },
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 4,
+              borderRadius: '50%',
+              background: 'conic-gradient(from 20deg, transparent 0deg, rgba(229,192,123,0.20) 54deg, transparent 118deg, rgba(255,255,255,0.14) 188deg, transparent 260deg, rgba(229,192,123,0.16) 326deg, transparent 360deg)',
+              filter: 'blur(1px)',
+              opacity: 0.72,
+              animation: 'heroOrbSpin 13s linear infinite',
+              zIndex: 0,
+            }}
+          />
           <ArchitectureGlyph mode={activeNode?.mode ?? null} />
           <Box sx={{ position: 'absolute', inset: 20, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.10)' }} />
           <Box
@@ -960,6 +1009,28 @@ export default function IntroPage() {
           '0%, 100%': { transform: 'translateY(0)', opacity: 0.74 },
           '50%': { transform: 'translateY(-4px)', opacity: 1 },
         },
+        '@keyframes heroOrbBreath': {
+          '0%, 100%': {
+            transform: 'scale(1)',
+            borderColor: 'rgba(229,192,123,0.42)',
+            boxShadow: '0 0 52px rgba(229,192,123,0.08), 0 0 80px rgba(0,0,0,0.16)',
+          },
+          '50%': {
+            transform: 'scale(1.035)',
+            borderColor: 'rgba(229,192,123,0.78)',
+            boxShadow: '0 0 104px rgba(229,192,123,0.22), 0 0 128px rgba(0,0,0,0.22)',
+          },
+        },
+        '@keyframes heroOrbWave': {
+          '0%': { opacity: 0, transform: 'scale(0.58)' },
+          '16%': { opacity: 0.86 },
+          '100%': { opacity: 0, transform: 'scale(1.56)' },
+        },
+        '@keyframes heroOrbSpin': {
+          '0%': { transform: 'rotate(0deg) scale(0.98)', opacity: 0.48 },
+          '50%': { transform: 'rotate(180deg) scale(1.04)', opacity: 0.82 },
+          '100%': { transform: 'rotate(360deg) scale(0.98)', opacity: 0.48 },
+        },
         '@keyframes personaBreath': {
           '0%, 100%': { scale: 1, opacity: 0.82 },
           '50%': { scale: 1.08, opacity: 1 },
@@ -1007,12 +1078,9 @@ export default function IntroPage() {
                 ))}
               </Stack>
               <Typography sx={{ maxWidth: { xs: 760, lg: 900 }, fontWeight: 850, letterSpacing: 0, lineHeight: { xs: 1.16, sm: 1.12, md: 1.08 }, fontSize: { xs: 40, sm: 60, md: 76, lg: 84 }, color: '#F8F8FA' }}>
-                让角色拥有<wbr />
-                <Box component="span" sx={{ whiteSpace: 'nowrap' }}>近似</Box>
+                不是活着，
                 <wbr />
-                <Box component="span" sx={{ whiteSpace: 'nowrap' }}>灵魂</Box>
-                的<wbr />
-                <Box component="span" sx={{ whiteSpace: 'nowrap' }}>重量</Box>。
+                是被活过。
               </Typography>
               <Typography sx={{ mt: 3, maxWidth: 720, color: 'rgba(255,255,255,0.62)', lineHeight: 1.85, fontSize: { xs: 16, md: 18 } }}>
                 Pneumata 不是把 AI 放进聊天框，而是在追问一个更深的问题：当一个角色拥有记忆、性格、关系、经历和写给自己的文字，它是否开始拥有某种不依赖身体的生命形状？
@@ -1022,18 +1090,18 @@ export default function IntroPage() {
                   variant="contained"
                   size="large"
                   endIcon={<ArrowForwardIcon />}
-                  onClick={() => navigate('/chats/create')}
+                  onClick={() => navigate('/characters/create')}
                   sx={{ width: 'fit-content', minWidth: 0, borderRadius: 2, px: 3, py: 1.25, bgcolor: accent, color: '#0A0A0F', fontWeight: 760, boxShadow: 'none', '&:hover': { bgcolor: '#F5F5F7', color: '#0A0A0F', animation: 'ripplePulse 520ms ease-out' } }}
                 >
-                  创建一个群聊
+                  创建一个角色
                 </Button>
                 <Button
                   variant="outlined"
                   size="large"
-                  onClick={() => navigate('/characters')}
+                  onClick={() => navigate('/chats')}
                   sx={{ width: 'fit-content', minWidth: 0, borderRadius: 2, px: 3, py: 1.25, borderColor: 'rgba(255,255,255,0.22)', color: '#F5F5F7', '&:hover': { borderColor: accent, bgcolor: accent, color: '#0A0A0F' } }}
                 >
-                  查看角色库
+                  开始聊天
                 </Button>
               </Stack>
             </Box>
