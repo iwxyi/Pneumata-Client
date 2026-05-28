@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Typography, Button, Checkbox, Fab, Snackbar, Alert } from '@mui/material';
+import { Box, Typography, Button, Checkbox, Fab } from '@mui/material';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import RestoreFromTrashIcon from '@mui/icons-material/RestoreFromTrash';
 import { useTranslation } from 'react-i18next';
@@ -13,6 +13,7 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import { resolveCharacterOrDeleted } from '../utils/deletedEntity';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
+import AppSnackbar from '../components/common/AppSnackbar';
 import { buildListGridSx } from '../styles/interaction';
 
 function OverlayCheckbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
@@ -255,9 +256,13 @@ export default function RecycleBinPage() {
         onCancel={() => setConfirmMode(null)}
         destructive
       />
-      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}>
-        <Alert severity={snackbar.severity} onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}>{snackbar.message}</Alert>
-      </Snackbar>
+      <AppSnackbar
+        open={snackbar.open}
+        autoHideDuration={3000}
+        onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+        severity={snackbar.severity}
+        message={snackbar.message}
+      />
     </Box>
   );
 }

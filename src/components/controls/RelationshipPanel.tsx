@@ -11,6 +11,7 @@ import type { GroupChat } from '../../types/chat';
 import type { RelationshipAxisReason, RelationshipLedgerEntry } from '../../types/runtimeEvent';
 import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
 import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
+import { compactPillChipSx } from '../../styles/interaction';
 
 interface RelationshipPanelProps {
   chat: GroupChat;
@@ -184,38 +185,55 @@ export function RelationshipRadar({ entry, onOpenAxis, compact = false }: { entr
   );
 }
 
-function RelationshipDerivedChips({ entry }: { entry: RelationshipLedgerEntry }) {
-  if (!entry.derived) return null;
-  const semantic = entry.derived.semantic;
+function buildRelationshipEvidenceLabel(entry: RelationshipLedgerEntry) {
+  if (!entry.derived) return '';
   const stability = typeof entry.derived.stability === 'number' ? Math.round(entry.derived.stability) : null;
   const salience = typeof entry.derived.salience === 'number' ? Math.round(entry.derived.salience) : null;
   const reciprocity = typeof entry.derived.reciprocity === 'number' ? Math.round(entry.derived.reciprocity) : null;
   const stabilityLabel = stability === null ? '' : stability >= 70 ? '关系稳定' : stability >= 42 ? '仍在变化' : '容易摇摆';
   const salienceLabel = salience === null ? '' : salience >= 70 ? '证据显著' : salience >= 42 ? '证据增强' : '证据较轻';
   const reciprocityLabel = reciprocity === null ? '' : reciprocity >= 70 ? '双向接近' : reciprocity >= 42 ? '有来有回' : '单向明显';
-  return (
-    <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }} useFlexGap>
-      {semantic ? <Tooltip title="根据关系四轴、近期趋势和证据推导的关系语义。" arrow><Chip size="small" color="primary" variant="outlined" label={semantic.stage} /></Tooltip> : null}
-      {semantic?.labels?.slice(0, 3).map((label) => <Chip key={label} size="small" variant="outlined" label={label} />)}
-      {stability !== null ? <Tooltip title={`关系越高越稳，越低越容易继续变化。当前 ${stability}`} arrow><Chip size="small" variant="outlined" label={stabilityLabel} /></Tooltip> : null}
-      {salience !== null ? <Tooltip title={`最近证据密度与强度。当前 ${salience}`} arrow><Chip size="small" variant="outlined" label={salienceLabel} /></Tooltip> : null}
-      {reciprocity !== null ? <Tooltip title={`双向关系的一致程度。当前 ${reciprocity}`} arrow><Chip size="small" variant="outlined" label={reciprocityLabel} /></Tooltip> : null}
-    </Stack>
-  );
+  const labels = [
+    stability !== null && stability < 70 ? stabilityLabel : '',
+    salience !== null && salience >= 70 ? salienceLabel : '',
+    reciprocity !== null && (reciprocity < 42 || reciprocity >= 70) ? reciprocityLabel : '',
+  ].filter(Boolean);
+  return labels.join(' · ');
 }
 
-function RelationshipEvidenceCard({ speakerName, evidence }: { speakerName?: string; evidence: string }) {
+function RelationshipEvidenceCard({ speakerName, evidence, label }: { speakerName?: string; evidence: string; label?: string }) {
   const cleaned = cleanRelationshipText(evidence);
   if (!cleaned) return null;
   return (
     <Box sx={(theme) => ({
+      position: 'relative',
+      mt: label ? 1.15 : 0,
       p: 1,
+      pt: label ? 1.15 : 1,
       borderRadius: 1,
       border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(15,23,42,0.055)' : 'rgba(226,232,240,0.08)'}`,
       bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.46)' : 'rgba(255,255,255,0.045)',
       backdropFilter: 'blur(12px) saturate(1.12)',
       WebkitBackdropFilter: 'blur(12px) saturate(1.12)',
     })}>
+      {label ? (
+        <Typography
+          variant="caption"
+          sx={(theme) => ({
+            position: 'absolute',
+            top: -9,
+            left: 10,
+            px: 0.35,
+            lineHeight: 1.35,
+            color: 'text.secondary',
+            bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.82)' : 'rgba(24,24,31,0.88)',
+            backdropFilter: 'blur(10px) saturate(1.08)',
+            WebkitBackdropFilter: 'blur(10px) saturate(1.08)',
+          })}
+        >
+          {label}
+        </Typography>
+      ) : null}
       {speakerName ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35 }}>{speakerName}</Typography> : null}
       <Typography variant="body2">{cleaned}</Typography>
     </Box>
@@ -254,8 +272,6 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
   const normalizedEntry = normalizeRelationshipLedgerEntry(entry);
   const presented = buildPresentedRelationshipLedger({ relationshipLedger: [normalizedEntry] } as GroupChat, members)[0];
   const dominantSummary = buildRelationshipDisplaySummary(normalizedEntry);
-  const delta = toRelationshipDisplayDelta(normalizedEntry.current);
-  const stateChips = buildRelationshipStateChips(delta);
   const [activeAxis, setActiveAxis] = useState<AxisKey | null>(null);
   const axisReasonMap = normalizedEntry.axisReasons || {};
   const activeMeta = useMemo(() => METRIC_META.find((item) => item.key === activeAxis) || null, [activeAxis]);
@@ -263,31 +279,28 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
 
   if (!presented) return null;
 
+  const sectionMemberName = reverseView ? presented.targetName : presented.actorName;
+  const counterpartName = reverseView ? presented.actorName : presented.targetName;
+  const title = reverseView ? `来自 ${counterpartName}` : `对 ${counterpartName}`;
+  const evidenceSpeakerName = hideSpeakerName || [sectionMemberName, counterpartName].includes(presented.speakerName)
+    ? undefined
+    : presented.speakerName;
+  const evidenceLabel = buildRelationshipEvidenceLabel(normalizedEntry);
 
   return (
     <RelationshipCardFrame>
       <Stack spacing={0.85} sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75, px: 0.25, pt: 0.25 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{reverseView ? presented.targetName : presented.actorName} → {reverseView ? presented.actorName : presented.targetName}</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{title}</Typography>
           <Tooltip title={trendHint(normalizedEntry.trend)} arrow>
-            <Chip size="small" label={trendLabel(normalizedEntry.trend)} sx={{ height: 22, fontSize: 11 }} />
+            <Chip size="small" label={trendLabel(normalizedEntry.trend)} sx={compactPillChipSx} />
           </Tooltip>
           <Tooltip title={summaryHint(dominantSummary)} arrow>
-            <Chip size="small" variant="outlined" label={dominantSummary} sx={{ height: 22, fontSize: 11 }} />
+            <Chip size="small" variant="outlined" label={dominantSummary} sx={compactPillChipSx} />
           </Tooltip>
         </Box>
-        {stateChips.length ? (
-          <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }} useFlexGap>
-            {stateChips.map((chip) => (
-              <Tooltip key={chip.label} title={chip.hint} arrow>
-                <Chip size="small" color={chip.color || 'default'} variant="outlined" label={chip.label} sx={{ height: 22, fontSize: 11 }} />
-              </Tooltip>
-            ))}
-          </Stack>
-        ) : null}
         {presented.semanticSummary ? <Typography variant="caption" color="text.secondary" sx={{ px: 0.25 }}>{presented.semanticSummary}</Typography> : null}
-        <RelationshipDerivedChips entry={normalizedEntry} />
-        <RelationshipEvidenceCard speakerName={hideSpeakerName ? undefined : presented.speakerName} evidence={presented.evidence || '暂无明确证据'} />
+        <RelationshipEvidenceCard speakerName={evidenceSpeakerName} evidence={presented.evidence || '暂无明确证据'} label={evidenceLabel} />
         <RelationshipRadar entry={normalizedEntry} onOpenAxis={setActiveAxis} />
       </Stack>
       <AxisReasonDialog open={Boolean(activeAxis)} onClose={() => setActiveAxis(null)} axisLabel={activeMeta?.label || '关系轴'} reasons={activeReasons} />
@@ -314,6 +327,7 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
   const summary = buildRelationshipDisplaySummary(fallbackEntry);
   const normalizedFallbackEntry = normalizeRelationshipLedgerEntry(fallbackEntry);
   const stateChips = buildRelationshipStateChips(toRelationshipDisplayDelta(normalizedFallbackEntry.current));
+  const evidenceLabel = buildRelationshipEvidenceLabel(normalizedFallbackEntry);
 
   if (!hasMeaningfulFallback) return null;
 
@@ -321,25 +335,24 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
     <RelationshipCardFrame>
       <Stack spacing={0.85} sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75, px: 0.25, pt: 0.25 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{memberName} → {targetName}</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>对 {targetName}</Typography>
           <Tooltip title="近期没有新证据驱动明显变化。" arrow>
-            <Chip size="small" label="持平" sx={{ height: 22, fontSize: 11 }} />
+            <Chip size="small" label="持平" sx={compactPillChipSx} />
           </Tooltip>
           <Tooltip title={summaryHint(summary)} arrow>
-            <Chip size="small" variant="outlined" label={summary} sx={{ height: 22, fontSize: 11 }} />
+            <Chip size="small" variant="outlined" label={summary} sx={compactPillChipSx} />
           </Tooltip>
         </Box>
         {stateChips.length ? (
           <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }} useFlexGap>
             {stateChips.map((chip) => (
               <Tooltip key={chip.label} title={chip.hint} arrow>
-                <Chip size="small" color={chip.color || 'default'} variant="outlined" label={chip.label} sx={{ height: 22, fontSize: 11 }} />
+                <Chip size="small" color={chip.color || 'default'} variant="outlined" label={chip.label} sx={compactPillChipSx} />
               </Tooltip>
             ))}
           </Stack>
         ) : null}
-        <RelationshipDerivedChips entry={normalizedFallbackEntry} />
-        <RelationshipEvidenceCard speakerName={memberName} evidence={fallbackEvidence} />
+        <RelationshipEvidenceCard evidence={fallbackEvidence} label={evidenceLabel} />
         <RelationshipRadar entry={normalizedFallbackEntry} onOpenAxis={setActiveAxis} />
       </Stack>
       <AxisReasonDialog open={Boolean(activeAxis)} onClose={() => setActiveAxis(null)} axisLabel={activeMeta?.label || '关系轴'} reasons={[]} />
@@ -448,7 +461,9 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
             return (
               <Box key={member.id}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}{reverseLedger ? ' ← 他人视角' : ' → 对外视角'}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {member.name}{collapsed ? '' : reverseLedger ? ' ← 对内视角' : ' → 对外视角'}
+                  </Typography>
                   <IconButton size="small" onClick={() => toggleSection(sectionKey)}>
                     {collapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ExpandMoreRoundedIcon fontSize="small" />}
                   </IconButton>
@@ -471,7 +486,9 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
             return (
               <Box key={member.id}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{member.name}{reverseLedger ? ' ← 他人视角' : ' → 对外视角'}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {member.name}{collapsed ? '' : reverseLedger ? ' ← 对内视角' : ' → 对外视角'}
+                  </Typography>
                   <IconButton size="small" onClick={() => toggleSection(sectionKey)}>
                     {collapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ExpandMoreRoundedIcon fontSize="small" />}
                   </IconButton>

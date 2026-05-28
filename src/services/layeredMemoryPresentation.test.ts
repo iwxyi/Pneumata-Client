@@ -49,6 +49,19 @@ describe('layeredMemoryPresentation', () => {
     expect(filters.find((item) => item.key === 'archived')?.items.map((item) => item.id)).toEqual(['archive']);
   });
 
+  it('keeps raw runtime evidence out of settled memory layer groups', () => {
+    const stableMemory = memory({ id: 'stable', layer: 'episodic', scope: 'conversation', sourceTag: 'llm_memory_objective_event', origin: 'distilled' });
+    const relationshipEvidence = memory({ id: 'relationship-runtime', layer: 'episodic', scope: 'relationship', sourceTag: 'relationship_delta', origin: 'runtime' });
+    const groups = buildLayeredMemoryGroups([stableMemory, relationshipEvidence]);
+    const filters = buildLayeredMemoryFilters(groups, true, 'zh-CN');
+
+    expect(groups.all.map((item) => item.id)).toEqual(['stable']);
+    expect(groups.episodic.map((item) => item.id)).toEqual(['stable']);
+    expect(groups.relationship.map((item) => item.id)).toEqual([]);
+    expect(groups.working.map((item) => item.id)).toEqual(['relationship-runtime']);
+    expect(filters.find((item) => item.key === 'working')?.label).toBe('运行证据');
+  });
+
   it('projects display text, evidence, semantic labels, and debug metrics without leaking raw ids', () => {
     const speakerId = '3c78729f-e52d-4dde-b27f-01a949960bb8';
     const targetId = '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321';
@@ -80,6 +93,43 @@ describe('layeredMemoryPresentation', () => {
     expect(projected.evidenceTitle).toContain('追问');
     expect(projected.metaItems).toEqual(expect.arrayContaining(['锚点候选', '关系印记', '芥蒂', '长期记忆', '关系']));
     expect(projected.debugText).toBe('强化 3 · 置信 90% · 显著性 80%');
+  });
+
+  it('projects evidence trail as separated evidence rows and filters duplicate display text', () => {
+    const projected = projectLayeredMemoryItem({
+      item: memory({
+        text: '甲对乙形成了稳定戒备。',
+        evidenceText: '1. 旧证据：乙公开反驳甲。\n2. 新证据：甲绕开乙做决定。',
+        evidenceTrail: [
+          { text: '1. 旧证据：乙公开反驳甲。\n2. 新证据：甲绕开乙做决定。', weight: 0.92, createdAt: 200 },
+          { text: '甲对乙形成了稳定戒备。', weight: 0.99, createdAt: 300 },
+        ],
+      }),
+      includeDebugDetails: false,
+      language: 'zh-CN',
+    });
+
+    expect(projected.evidenceItems.map((item) => item.text)).toEqual([
+      '旧证据：乙公开反驳甲。',
+      '新证据：甲绕开乙做决定。',
+    ]);
+    expect(projected.evidenceTitle).toContain('\n');
+  });
+
+  it('splits compact numbered evidence into separate rows for old persisted data', () => {
+    const projected = projectLayeredMemoryItem({
+      item: memory({
+        text: '甲对乙形成了稳定戒备。',
+        evidenceText: '1. 旧证据：乙公开反驳甲。 2. 新证据：甲绕开乙做决定。',
+      }),
+      includeDebugDetails: false,
+      language: 'zh-CN',
+    });
+
+    expect(projected.evidenceItems.map((item) => item.text)).toEqual([
+      '旧证据：乙公开反驳甲。',
+      '新证据：甲绕开乙做决定。',
+    ]);
   });
 
   it('marks recently reactivated memories before generic strength labels', () => {

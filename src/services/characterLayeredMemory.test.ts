@@ -67,7 +67,6 @@ describe('updateCharacterLayeredMemories', () => {
       personalityDrift: {},
     });
 
-    expect(layeredMemories[0]?.text).toContain('对 蕉太狼 的关系倾向');
     expect(layeredMemories[0]?.text).toContain('表现出挑衅、防备、嘲弄或不满');
     expect(layeredMemories[0]?.evidenceText).toBe(content);
     expect(layeredMemories[0]?.text).not.toBe(`对 蕉太狼 的态度发生变化：${content.slice(0, 96)}`);
@@ -127,5 +126,29 @@ describe('updateCharacterLayeredMemories', () => {
 
     expect(layeredMemories.some((item) => item.sourceTag === 'inner_life_attention')).toBe(true);
     expect(layeredMemories.find((item) => item.sourceTag === 'inner_life_attention')?.text).toContain('试探存在感');
+  });
+
+  it('does not write raw emotional or personality state changes as memories', () => {
+    const character = {
+      ...buildCharacter(),
+      emotionalState: {
+        irritation: 80,
+        affection: 0,
+        insecurity: 0,
+        excitement: 0,
+        embarrassment: 0,
+      },
+    };
+    const layeredMemories = updateCharacterLayeredMemories({
+      character,
+      targetId: 'char-b',
+      targetName: '乙',
+      content: '我现在有点不耐烦，但还是先听你说。',
+      personalityDrift: { neuroticism: 12, assertiveness: 8 },
+    });
+
+    expect(layeredMemories.some((item) => item.sourceTag === 'emotional_state')).toBe(false);
+    expect(layeredMemories.some((item) => item.sourceTag === 'personality_drift')).toBe(false);
+    expect(layeredMemories.some((item) => item.sourceTag === 'interaction')).toBe(true);
   });
 });

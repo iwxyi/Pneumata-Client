@@ -11,6 +11,7 @@ import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import { buildMemberExpressionFeedbackChips, buildMemberInnerLifeChips } from '../../services/memberInnerLifePresentation';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { microPillChipSx } from '../../styles/interaction';
 
 interface MemberListProps {
   members: AICharacter[];
@@ -207,7 +208,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                             label={item.label}
                             color={item.color}
                             variant="outlined"
-                            sx={{ height: 20, cursor: 'help', '& .MuiChip-label': { px: 0.8 } }}
+                            sx={{ ...microPillChipSx, cursor: 'help' }}
                           />
                         </Tooltip>
                       ))}
@@ -218,7 +219,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                             label={item.label}
                             color={item.color}
                             variant="outlined"
-                            sx={{ height: 20, cursor: 'help', '& .MuiChip-label': { px: 0.8 } }}
+                            sx={{ ...microPillChipSx, cursor: 'help' }}
                           />
                         </Tooltip>
                       ))}
@@ -232,7 +233,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                               label={item.label}
                               variant="filled"
                               color={getAffectChipColor(item.label)}
-                              sx={{ height: 20, cursor: 'help', '& .MuiChip-label': { px: 0.8 } }}
+                              sx={{ ...microPillChipSx, cursor: 'help' }}
                             />
                           </Tooltip>
                         ))}

@@ -24,6 +24,7 @@ import { formatScenarioBoardKind, formatScenarioRoleLabel } from '../../services
 import { projectMemoryReactivationItems, projectMemoryRecallItems } from '../../services/memoryRecallPresentation';
 import { projectActiveUserGuidance, type ActiveUserGuidanceProjection } from '../../services/activeUserGuidancePresentation';
 import { projectMediaGenerationItems, type ProjectedMediaGenerationItem } from '../../services/mediaGenerationPresentation';
+import { compactPillChipSx, microPillChipSx } from '../../styles/interaction';
 
 interface ChatRuntimePanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -416,7 +417,7 @@ function renderActiveGuidancePanel(guidance: ActiveUserGuidanceProjection | null
             <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 700 }}>{cleanText(guidance.title, members)}</Typography>
           </Box>
           <Tooltip title={guidance.statusHint} arrow>
-            <Chip size="small" label={guidance.statusLabel} color="primary" variant="outlined" sx={{ height: 22, cursor: 'help' }} />
+            <Chip size="small" label={guidance.statusLabel} color="primary" variant="outlined" sx={{ ...compactPillChipSx, cursor: 'help' }} />
           </Tooltip>
         </Box>
         <Typography variant="body2" sx={{ mt: 0.65, fontWeight: 700 }}>
@@ -470,7 +471,7 @@ function renderMediaGenerationPanel(items: ProjectedMediaGenerationItem[], isAdv
                   <Typography variant="caption" color="text.secondary">{cleanText(item.title, members)}</Typography>
                   <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 650 }}>{cleanText(item.summary, members)}</Typography>
                 </Box>
-                <Chip size="small" label={item.statusLabel} color={item.status === 'failed' ? 'error' : item.status === 'ready' ? 'success' : 'primary'} variant="outlined" sx={{ height: 22 }} />
+                <Chip size="small" label={item.statusLabel} color={item.status === 'failed' ? 'error' : item.status === 'ready' ? 'success' : 'primary'} variant="outlined" sx={compactPillChipSx} />
               </Box>
               {item.detailText ? (
                 <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: item.status === 'failed' ? 'error.main' : 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
@@ -516,7 +517,7 @@ function renderInnerLifePanel(members: AICharacter[], isZh: boolean) {
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                 <Typography variant="caption" color="text.secondary">{member.name}</Typography>
                 <Tooltip title={summary?.debugHint || ''} arrow>
-                  <Chip size="small" label="参数" color="warning" variant="outlined" sx={{ height: 20, cursor: 'help' }} />
+                  <Chip size="small" label="参数" color="warning" variant="outlined" sx={{ ...microPillChipSx, cursor: 'help' }} />
                 </Tooltip>
               </Box>
               <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 650 }}>{summary?.title || formatInnerImpulseLabel(state.lastImpulse, language)}</Typography>
@@ -544,10 +545,10 @@ function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messag
           <Tooltip key={item.key} title={item.tooltip} arrow placement="top-start">
             <Box sx={{ p: 0.9, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.08)', '&:hover .recall-title': { textDecoration: 'underline' } }}>
               <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                <Chip size="small" label={item.memberName} variant="outlined" sx={{ height: 22 }} />
-                <Chip size="small" label={item.statusLabel} color="warning" variant="outlined" sx={{ height: 22 }} />
-                {item.secondaryLabel ? <Chip size="small" label={item.secondaryLabel} variant="outlined" sx={{ height: 22 }} /> : null}
-                {item.tokens.map((token) => <Chip key={token} size="small" label={token} sx={{ height: 22 }} />)}
+                <Chip size="small" label={item.memberName} variant="outlined" sx={compactPillChipSx} />
+                <Chip size="small" label={item.statusLabel} color="warning" variant="outlined" sx={compactPillChipSx} />
+                {item.secondaryLabel ? <Chip size="small" label={item.secondaryLabel} variant="outlined" sx={compactPillChipSx} /> : null}
+                {item.tokens.map((token) => <Chip key={token} size="small" label={token} sx={compactPillChipSx} />)}
               </Stack>
               <Typography className="recall-title" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{item.summary}</Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{item.caption}</Typography>
@@ -560,9 +561,9 @@ function renderMemoryRecallPanel(chat: GroupChat, members: AICharacter[], messag
               <Tooltip key={item.key} title={item.tooltip} arrow placement="top-start">
                 <Box sx={{ p: 0.9, borderRadius: 2, bgcolor: 'rgba(255, 152, 0, 0.12)', '&:hover .reactivated-memory': { textDecoration: 'underline' } }}>
                   <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                    <Chip size="small" label={item.memberName} variant="outlined" sx={{ height: 22 }} />
-                    <Chip size="small" label="已重新激活" color="warning" variant="outlined" sx={{ height: 22 }} />
-                    {item.matchedTokens.slice(0, 4).map((token) => <Chip key={token} size="small" label={token} sx={{ height: 22 }} />)}
+                    <Chip size="small" label={item.memberName} variant="outlined" sx={compactPillChipSx} />
+                    <Chip size="small" label="已重新激活" color="warning" variant="outlined" sx={compactPillChipSx} />
+                    {item.matchedTokens.slice(0, 4).map((token) => <Chip key={token} size="small" label={token} sx={compactPillChipSx} />)}
                   </Stack>
                   <Typography className="reactivated-memory" variant="body2" sx={{ mt: 0.65, fontWeight: 650 }}>{item.summary}</Typography>
                 </Box>
@@ -680,7 +681,7 @@ function renderDecisionReasonGroup(group: ReturnType<typeof buildDecisionReasonG
         <Typography className="decision-group-title" variant="caption" color="text.secondary">{group.label}</Typography>
         {group.statusLabel ? (
           <Tooltip title={group.statusHint || ''} arrow>
-            <Chip size="small" label={group.statusLabel} color="warning" variant="outlined" sx={{ height: 20, '& .MuiChip-label': { px: 0.75, fontSize: 11 } }} />
+            <Chip size="small" label={group.statusLabel} color="warning" variant="outlined" sx={microPillChipSx} />
           </Tooltip>
         ) : null}
       </Box>
@@ -733,7 +734,7 @@ function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedR
           <Box key={item.messageId} sx={{ p: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>{cleanText(item.senderName, members)}</Typography>
-              {item.score ? <Chip size="small" label={cleanText(item.score, members)} variant="outlined" sx={{ height: 22 }} /> : null}
+              {item.score ? <Chip size="small" label={cleanText(item.score, members)} variant="outlined" sx={compactPillChipSx} /> : null}
             </Box>
             {groups.length ? (
               <Stack spacing={0.65} sx={{ mt: 0.75 }}>
@@ -812,13 +813,14 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
           <SectionHeader title="运行时间线" dense />
           <Stack spacing={0.8}>
             <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-              {(['all', 'relationship', 'artifact', 'note'] as const).map((filter) => <Chip key={filter} size="small" label={filter === 'all' ? '全部' : filter === 'note' ? '记录' : filter === 'artifact' ? '产物/事件' : '关系'} color={timelineFilter === filter ? 'primary' : 'default'} variant={timelineFilter === filter ? 'filled' : 'outlined'} onClick={() => setTimelineFilter(filter)} />)}
+              {(['all', 'relationship', 'artifact', 'note'] as const).map((filter) => <Chip key={filter} size="small" label={filter === 'all' ? '全部' : filter === 'note' ? '记录' : filter === 'artifact' ? '产物/事件' : '关系'} color={timelineFilter === filter ? 'primary' : 'default'} variant={timelineFilter === filter ? 'filled' : 'outlined'} onClick={() => setTimelineFilter(filter)} sx={compactPillChipSx} />)}
             </Box>
             {displayTimeline.length ? displayTimeline.map((item, index) => (
               <Box key={`${item.label}-${index}`} sx={{ p: 0.9, borderRadius: 2, bgcolor: timelineTone(item) }}>
                 <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                  <Chip size="small" label={timelineTypeLabel(item)} variant="outlined" sx={{ height: 22 }} />
-                  <Typography variant="caption" color="text.secondary">{buildTimelineTitle(item)}</Typography>
+                  <Tooltip title={buildTimelineTitle(item)} arrow placement="top-start">
+                    <Chip size="small" label={timelineTypeLabel(item)} variant="outlined" sx={{ ...compactPillChipSx, cursor: 'help' }} />
+                  </Tooltip>
                   {buildTimelineMeta(item, members) ? <Typography variant="caption" color="text.secondary">{buildTimelineMeta(item, members)}</Typography> : null}
                 </Stack>
                 {renderTimelineBody(item, members)}

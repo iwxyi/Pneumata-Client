@@ -77,6 +77,68 @@ describe('consolidateMemoryCandidates', () => {
     expect(merged[0]?.sourceEventIds).toEqual(expect.arrayContaining(['old-1', 'new-1']));
   });
 
+  it('does not keep stale evidence when a rewritten memory has no separate evidence field', () => {
+    const existing = consolidateMemoryCandidates([], [
+      buildDistilledCandidate({
+        text: '甲对乙保持戒备；证据是近期发言“旧证据”。',
+        evidenceText: '旧证据',
+        sourceEventIds: ['old-1'],
+        decision: 'create',
+      }),
+    ]);
+    const merged = consolidateMemoryCandidates(existing, [
+      buildDistilledCandidate({
+        text: '甲对乙开始愿意配合；证据是近期发言“新证据”。',
+        evidenceText: undefined,
+        sourceEventIds: ['new-1'],
+        decision: 'revise',
+      }),
+    ]);
+
+    expect(merged[0]?.text).toContain('新证据');
+    expect(merged[0]?.evidenceText).toContain('新证据');
+    expect(merged[0]?.evidenceText).not.toContain('旧证据');
+  });
+
+  it('keeps old evidence in a bounded evidence trail without replacing the primary evidence', () => {
+    const existing = consolidateMemoryCandidates([], [
+      buildDistilledCandidate({
+        text: '甲对乙保持戒备。',
+        evidenceText: '旧证据：甲被乙顶撞后保持距离。',
+        sourceEventIds: ['old-1'],
+        decision: 'create',
+      }),
+    ]);
+    const merged = consolidateMemoryCandidates(existing, [
+      buildDistilledCandidate({
+        text: '甲对乙的戒备开始松动，愿意在具体事务上配合。',
+        evidenceText: '新证据：甲主动接住乙的提议。',
+        sourceEventIds: ['new-1'],
+        decision: 'revise',
+      }),
+    ]);
+
+    expect(merged[0]?.evidenceText).toBe('新证据：甲主动接住乙的提议。');
+    expect(merged[0]?.evidenceTrail?.map((item) => item.text)).toEqual(expect.arrayContaining([
+      '旧证据：甲被乙顶撞后保持距离。',
+      '新证据：甲主动接住乙的提议。',
+    ]));
+    expect(merged[0]?.evidenceTrail?.length).toBeLessThanOrEqual(8);
+  });
+
+  it('preserves separate evidence lines when creating a distilled memory', () => {
+    const created = consolidateMemoryCandidates([], [
+      buildDistilledCandidate({
+        text: '甲对乙保持戒备。',
+        evidenceText: '1. 乙公开反驳甲。\n2. 甲绕开乙做决定。',
+        decision: 'create',
+      }),
+    ]);
+
+    expect(created[0]?.evidenceText).toContain('\n');
+    expect(created[0]?.evidenceTrail?.[0]?.text).toContain('\n');
+  });
+
   it('archives matching memories when the analysis decides the thread is no longer active', () => {
     const existing = consolidateMemoryCandidates([], [buildDistilledCandidate({ decision: 'create' })]);
     const archived = consolidateMemoryCandidates(existing, [

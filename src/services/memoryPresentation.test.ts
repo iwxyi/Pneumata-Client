@@ -42,6 +42,16 @@ describe('memoryPresentation', () => {
     expect(isUserFacingMemoryItem(distilled)).toBe(true);
   });
 
+  it('treats raw emotional and personality state entries as runtime evidence', () => {
+    const emotion = memory({ sourceTag: 'emotional_state', scope: 'character_self', layer: 'working' });
+    const drift = memory({ sourceTag: 'personality_drift', scope: 'character_self', layer: 'episodic' });
+
+    expect(isRuntimeEvidenceMemory(emotion)).toBe(true);
+    expect(isRuntimeEvidenceMemory(drift)).toBe(true);
+    expect(isUserFacingMemoryItem(emotion)).toBe(false);
+    expect(isUserFacingMemoryItem(drift)).toBe(false);
+  });
+
   it('hides archived memories', () => {
     expect(isUserFacingMemoryItem(memory({ archivedAt: 200 }))).toBe(false);
   });

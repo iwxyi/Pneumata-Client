@@ -86,3 +86,21 @@ export function buildFloatingActionSx() {
       : '0 18px 42px rgba(0,0,0,0.40)',
   };
 }
+
+export const compactPillChipSx = {
+  height: 22,
+  borderRadius: 999,
+  fontSize: 11,
+  '& .MuiChip-label': {
+    px: 1,
+  },
+};
+
+export const microPillChipSx = {
+  height: 20,
+  borderRadius: 999,
+  fontSize: 11,
+  '& .MuiChip-label': {
+    px: 0.85,
+  },
+};

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Box, Typography, Button, Chip,
   ToggleButtonGroup, ToggleButton,
-  Snackbar, Alert, FormControlLabel, Switch,
+  FormControlLabel, Switch,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import BackupIcon from '@mui/icons-material/Download';
@@ -22,6 +22,7 @@ import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
 import StatChipRow from '../components/common/StatChipRow';
+import AppSnackbar from '../components/common/AppSnackbar';
 import { PAPER_SURFACE_VARIANTS, type PaperSurfaceVariant } from '../types/artifactAppearance';
 import { migrateLegacyBrandStorageKeys } from '../constants/brand';
 
@@ -550,15 +551,13 @@ export default function SettingsPage() {
         destructive
       />
 
-      <Snackbar
+      <AppSnackbar
         open={snackbar.open}
         autoHideDuration={3000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
-      >
-        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+        severity={snackbar.severity}
+        message={snackbar.message}
+      />
     </Box>
   );
 }

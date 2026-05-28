@@ -3,6 +3,7 @@ import type { GroupChat } from '../types/chat';
 import type { MemoryCandidate, MemoryItem } from './memoryTypes';
 import { sanitizeMemoryTexts } from './distillationText';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
+import { isRuntimeEvidenceMemory } from './memoryPresentation';
 
 export const DISTILLATION_VERSION = 'v1';
 const CHAT_DISTILLATION_MIN_ITEMS = 6;
@@ -57,7 +58,7 @@ function isEligibleKind(item: MemoryItem) {
 }
 
 function isLocalDistillationSource(item: MemoryItem) {
-  return isEligibleLayer(item) && isEligibleScope(item) && isEligibleKind(item) && isEligibleSourceTag(item);
+  return !isRuntimeEvidenceMemory(item) && isEligibleLayer(item) && isEligibleScope(item) && isEligibleKind(item) && isEligibleSourceTag(item);
 }
 
 function buildLocalDistillationWindow(items: MemoryItem[]) {

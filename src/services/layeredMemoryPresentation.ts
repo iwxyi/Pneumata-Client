@@ -17,8 +17,16 @@ export interface PresentedLayeredMemoryItem {
   item: MemoryItem;
   displayText: string;
   evidenceTitle: string;
+  evidenceItems: PresentedLayeredMemoryEvidence[];
   metaItems: string[];
   debugText: string;
+}
+
+export interface PresentedLayeredMemoryEvidence {
+  text: string;
+  weight: number;
+  createdAt?: number;
+  sourceTag?: string | null;
 }
 
 function isZh(language: string) {
@@ -99,16 +107,18 @@ export function sortMemoriesNewestFirst(items: MemoryItem[]) {
 
 export function buildLayeredMemoryGroups(items: MemoryItem[]) {
   const activeItems = sortMemoriesNewestFirst(items.filter((item) => !item.archivedAt));
-  const expressionFeedback = activeItems.filter((item) => item.sourceTag === 'expression_feedback');
+  const runtimeEvidence = activeItems.filter(isRuntimeEvidenceMemory);
+  const settledItems = activeItems.filter((item) => !isRuntimeEvidenceMemory(item));
+  const expressionFeedback = settledItems.filter((item) => item.sourceTag === 'expression_feedback');
   return {
-    all: activeItems,
-    anchors: activeItems.filter(isMemoryAnchorCandidate),
-    longTerm: activeItems.filter((item) => item.layer === 'long_term'),
-    episodic: activeItems.filter((item) => item.layer === 'episodic'),
-    working: activeItems.filter((item) => item.layer === 'working'),
-    relationship: activeItems.filter((item) => item.scope === 'relationship'),
-    self: activeItems.filter((item) => item.scope === 'character_self'),
-    conversation: activeItems.filter((item) => item.scope === 'conversation' || item.scope === 'thread'),
+    all: settledItems,
+    anchors: settledItems.filter(isMemoryAnchorCandidate),
+    longTerm: settledItems.filter((item) => item.layer === 'long_term'),
+    episodic: settledItems.filter((item) => item.layer === 'episodic'),
+    working: runtimeEvidence,
+    relationship: settledItems.filter((item) => item.scope === 'relationship'),
+    self: settledItems.filter((item) => item.scope === 'character_self'),
+    conversation: settledItems.filter((item) => item.scope === 'conversation' || item.scope === 'thread'),
     expressionFeedback,
     archived: sortMemoriesNewestFirst(items.filter((item) => item.archivedAt)),
   };
@@ -118,10 +128,10 @@ export function buildLayeredMemoryFilters(groups: ReturnType<typeof buildLayered
   const zh = isZh(language);
   return ([
     { key: 'all', label: zh ? '全部' : 'All', items: groups.all, hint: zh ? '当前活跃记忆池，会进入后续检索与表达。' : 'Active memories available to later retrieval and expression.' },
-    { key: 'anchors', label: zh ? '锚点' : 'Anchors', items: groups.anchors, hint: zh ? '由长期、反复强化或蒸馏记忆投影出的生命锚点候选。' : 'Long-lived or reinforced memories that may become character anchors.' },
+    { key: 'anchors', label: zh ? '锚点候选' : 'Anchors', items: groups.anchors, hint: zh ? '从长期记忆中筛出的高显著、高置信或反复强化项；它不是独立记忆层，会和长期记忆有交集。' : 'High-salience, high-confidence, or reinforced long-term memories; not a separate layer.' },
     { key: 'longTerm', label: zh ? '长期' : 'Long-term', items: groups.longTerm, hint: zh ? '稳定判断、长期关系模式和可复用结论。' : 'Stable judgments, durable relationship patterns, and reusable conclusions.' },
     { key: 'episodic', label: zh ? '片段' : 'Episodes', items: groups.episodic, hint: zh ? '阶段性事件和仍有上下文温度的经历。' : 'Recent episodes and experiences that still carry context.' },
-    includeDebugDetails ? { key: 'working', label: zh ? '即时' : 'Working', items: groups.working, hint: zh ? '当前几轮或运行态证据，通常只在调试时查看。' : 'Current-turn or runtime evidence, usually for debugging.' } : null,
+    includeDebugDetails ? { key: 'working', label: zh ? '运行证据' : 'Runtime', items: groups.working, hint: zh ? '当前几轮的原始运行证据，不属于长期、片段或关系沉淀。' : 'Raw current-turn runtime evidence, separate from settled memories.' } : null,
     { key: 'relationship', label: zh ? '关系' : 'Relationships', items: groups.relationship, hint: zh ? '围绕具体对象形成的关系印象。' : 'Relationship impressions formed around specific people.' },
     { key: 'self', label: zh ? '自我' : 'Self', items: groups.self, hint: zh ? '角色如何理解自己、偏好、创伤或成长。' : 'How the character understands itself, preferences, wounds, or growth.' },
     { key: 'conversation', label: zh ? '会话/线程' : 'Conversation', items: groups.conversation, hint: zh ? '群聊、单聊或私聊线程里的共同记忆。' : 'Shared memory from group, direct, or private threads.' },
@@ -145,6 +155,51 @@ export function localizeLayeredMemoryPanelText(text: string, language: string) {
   return labels[text] || text;
 }
 
+function splitEvidenceText(text: string) {
+  return String(text || '')
+    .split(/\n+|(?=\s*\d+[.)、]\s*)/)
+    .map((line) => line.trim().replace(/^\d+[.)、]\s*/, ''))
+    .filter(Boolean);
+}
+
+function normalizeComparableText(text: string) {
+  return text.replace(/\s+/g, '').trim();
+}
+
+function buildEvidenceItems(params: {
+  item: MemoryItem;
+  displayText: string;
+  formatMemoryText?: (text: string, item: MemoryItem) => string;
+  members: DisplayTextMember[];
+}): PresentedLayeredMemoryEvidence[] {
+  const { item, displayText, formatMemoryText, members } = params;
+  const sourceEntries = item.evidenceTrail?.length
+    ? item.evidenceTrail
+    : item.evidenceText
+      ? [{ text: item.evidenceText, weight: item.salience, createdAt: item.updatedAt, sourceTag: item.sourceTag }]
+      : [];
+  const displayComparable = normalizeComparableText(displayText);
+  const seen = new Set<string>();
+  return sourceEntries.flatMap((entry) => splitEvidenceText(entry.text).map((line): PresentedLayeredMemoryEvidence | null => {
+    const cleaned = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(line, item) : line, members);
+    const key = normalizeComparableText(cleaned);
+    if (!cleaned || !key || key === displayComparable || seen.has(key)) return null;
+    seen.add(key);
+    return {
+      text: cleaned,
+      weight: typeof entry.weight === 'number' && Number.isFinite(entry.weight) ? entry.weight : item.salience || item.confidence || 0.6,
+      createdAt: entry.updatedAt || entry.createdAt,
+      sourceTag: entry.sourceTag,
+    };
+  }))
+    .filter((entry): entry is PresentedLayeredMemoryEvidence => Boolean(entry))
+    .sort((left, right) => {
+      const weightDelta = right.weight - left.weight;
+      if (Math.abs(weightDelta) > 0.001) return weightDelta;
+      return (right.createdAt || 0) - (left.createdAt || 0);
+    });
+}
+
 export function projectLayeredMemoryItem(params: {
   item: MemoryItem;
   includeDebugDetails: boolean;
@@ -155,10 +210,9 @@ export function projectLayeredMemoryItem(params: {
 }): PresentedLayeredMemoryItem {
   const { item, includeDebugDetails, language, formatMemoryText, members = [] } = params;
   const sourceText = item.summary || item.text;
-  const evidenceSource = item.evidenceText || item.summary || item.text;
   const displayText = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(sourceText, item) : sourceText, members);
-  const evidenceTitle = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(evidenceSource, item) : evidenceSource, members)
-    || (isZh(language) ? '暂无证据文本' : 'No evidence text yet');
+  const evidenceItems = buildEvidenceItems({ item, displayText, formatMemoryText, members });
+  const evidenceTitle = evidenceItems.map((entry) => entry.text).join('\n');
   const metaItems = [getMemoryStrengthLabel(item, language, params.now), ...buildMemoryMetaItems(item, includeDebugDetails, language)].filter(Boolean) as string[];
   const debugText = isZh(language)
     ? `强化 ${item.reinforcementCount} · 置信 ${(item.confidence * 100).toFixed(0)}% · 显著性 ${(item.salience * 100).toFixed(0)}%`
@@ -167,6 +221,7 @@ export function projectLayeredMemoryItem(params: {
     item,
     displayText,
     evidenceTitle,
+    evidenceItems,
     metaItems,
     debugText,
   };

@@ -2,7 +2,6 @@ import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react'
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import {
   Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  Snackbar, Alert,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -30,6 +29,7 @@ import ManagementSection from '../components/createChat/ManagementSection';
 import MemberSelectionDialog from '../components/createChat/MemberSelectionDialog';
 import { normalizeRuntimeSeedLines } from '../services/runtimeSeed';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
+import AppSnackbar from '../components/common/AppSnackbar';
 import { buildInteractiveSurfaceSx } from '../styles/interaction';
 
 const HotTopicDialogContainer = lazy(() => import('../components/createChat/HotTopicDialogContainer'));
@@ -396,11 +396,11 @@ export default function CreateChatPage() {
       setClearMessagesConfirmOpen(false);
       setSnackbar({
         open: true,
-        message: i18n.language.startsWith('zh') ? '已清理聊天记录' : 'Chat messages cleared',
+        message: i18n.language.startsWith('zh') ? '已清空聊天记录' : 'Chat messages cleared',
         severity: 'success',
       });
     } catch (error) {
-      showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '清理聊天记录失败' : 'Failed to clear chat messages'));
+      showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '清空聊天记录失败' : 'Failed to clear chat messages'));
     }
   }, [editingChat, i18n.language, seedOpeningTopicMessage]);
 
@@ -434,11 +434,11 @@ export default function CreateChatPage() {
       setClearMemoryConfirmOpen(false);
       setSnackbar({
         open: true,
-        message: i18n.language.startsWith('zh') ? '已清理聊天记忆' : 'Chat memory cleared',
+        message: i18n.language.startsWith('zh') ? '已清空聊天记忆' : 'Chat memory cleared',
         severity: 'success',
       });
     } catch (error) {
-      showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '清理聊天记忆失败' : 'Failed to clear chat memory'));
+      showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '清空聊天记忆失败' : 'Failed to clear chat memory'));
     }
   }, [editingChat, i18n.language, updateChat]);
 
@@ -527,12 +527,12 @@ export default function CreateChatPage() {
   const deleteChatConfirm = t('chat.deleteConfirm');
   const cancelLabel = t('common.cancel');
   const confirmDeleteLabel = t('common.delete');
-  const clearMessagesTitle = isZh ? '清理聊天记录' : 'Clear chat messages';
+  const clearMessagesTitle = isZh ? '清空聊天记录' : 'Clear chat messages';
   const clearMessagesConfirm = isZh ? `这会永久删除当前${conversationNoun}的全部消息记录，但保留关系、情绪、记忆和运行态。此操作无法撤销。` : `This permanently deletes all messages in this ${conversationNoun} while keeping relationships, emotions, memories, and runtime state. This action cannot be undone.`;
-  const clearMessagesLabel = isZh ? '清理聊天记录' : 'Clear chat messages';
-  const clearMemoryTitle = isZh ? '清理会话记忆' : 'Clear session memory';
+  const clearMessagesLabel = isZh ? '清空聊天记录' : 'Clear chat messages';
+  const clearMemoryTitle = isZh ? '清空聊天记忆' : 'Clear session memory';
   const clearMemoryConfirm = isZh ? `这会清除当前${conversationNoun}自身的运行态、事件、会话级记忆与摘要，但保留聊天记录，以及角色自身的成长与记忆。此操作无法撤销。` : `This clears session-level runtime state, events, and memory for this ${conversationNoun} while keeping message history and character growth. This action cannot be undone.`;
-  const clearMemoryLabel = isZh ? '清理会话记忆' : 'Clear session memory';
+  const clearMemoryLabel = isZh ? '清空聊天记忆' : 'Clear session memory';
   const noOwnerLabel = isZh ? '未设置' : 'None';
   const adminNotesValue = adminCharacterIds.length ? adminCharacterIds.map((memberId) => selectedCharacters.find((char) => char.id === memberId)?.name).filter(Boolean).join(', ') : noOwnerLabel;
   const topicPlaceholder = i18n.language.startsWith('zh') ? '创建后由用户发送首条消息启动讨论，可先写简介或目标' : 'After creation the user starts discussion with the first message; use this for description or goal';
@@ -874,9 +874,14 @@ export default function CreateChatPage() {
         </Button>
       </Box>
 
-      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={closeSnackbar}>
-        <Alert severity={snackbar.severity} onClose={closeSnackbar}>{snackbar.message}</Alert>
-      </Snackbar>
+      <AppSnackbar
+        open={snackbar.open}
+        autoHideDuration={3000}
+        onClose={closeSnackbar}
+        severity={snackbar.severity}
+        message={snackbar.message}
+        offset="none"
+      />
 
       <MemberSelectionDialog
         open={memberDialogOpen}

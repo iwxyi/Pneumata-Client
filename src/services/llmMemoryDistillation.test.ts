@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { normalizeConversation, type GroupChat } from '../types/chat';
 import { DEFAULT_API_CONFIG } from '../types/settings';
 import type { MemoryItem } from './memoryTypes';
-import { distillChatMemoriesWithLlm, mergeCoreProfilePatch, shouldRunLlmChatDistillation } from './llmMemoryDistillation';
+import { buildLlmDistillationSource, distillChatMemoriesWithLlm, mergeCoreProfilePatch, shouldRunLlmChatDistillation } from './llmMemoryDistillation';
 
 const generateJsonResponseMock = vi.fn();
 
@@ -42,12 +42,15 @@ function buildRuntimeMemoryItem(args: {
   subjectIds: string[];
   eventIds: string[];
   updatedAt: number;
+  layer?: MemoryItem['layer'];
+  sourceTag?: string;
+  scope?: MemoryItem['scope'];
 }): MemoryItem {
   return {
     id: args.id,
     ownerId: 'chat-1',
-    scope: 'relationship',
-    layer: 'working',
+    scope: args.scope || 'relationship',
+    layer: args.layer || 'episodic',
     kind: 'resentment',
     subjectIds: args.subjectIds,
     text: `${args.id}-evidence`,
@@ -57,7 +60,7 @@ function buildRuntimeMemoryItem(args: {
     recency: 0.92,
     reinforcementCount: 1,
     sourceEventIds: args.eventIds,
-    sourceTag: 'interaction',
+    sourceTag: args.sourceTag || 'interaction',
     origin: 'runtime',
     createdAt: args.updatedAt - 50,
     updatedAt: args.updatedAt,
@@ -215,6 +218,31 @@ describe('llmMemoryDistillation', () => {
     const chat = buildChat([latestLlmItem, ...novelSource]);
 
     expect(shouldRunLlmChatDistillation(chat, 0)).toBe(true);
+  });
+
+  it('excludes raw runtime evidence from LLM distillation source', () => {
+    const rawRelationshipDelta = {
+      ...buildRuntimeMemoryItem({
+        id: 'runtime-delta',
+        subjectIds: ['char-a', 'char-b'],
+        eventIds: ['evt-runtime'],
+        updatedAt: 500,
+        sourceTag: 'relationship_delta',
+      }),
+    };
+    const rawRoomShift = {
+      ...buildRuntimeMemoryItem({
+        id: 'runtime-room',
+        subjectIds: ['char-a'],
+        eventIds: ['evt-room'],
+        updatedAt: 501,
+        scope: 'system_runtime',
+        layer: 'working',
+        sourceTag: 'room_shift',
+      }),
+    };
+
+    expect(buildLlmDistillationSource({ layeredMemories: [rawRelationshipDelta, rawRoomShift] })).toEqual([]);
   });
 
   it('merges LLM core profile patches without dropping manual anchors or legacy fields', () => {

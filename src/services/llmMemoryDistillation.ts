@@ -20,9 +20,11 @@ import {
   parseLlmMemoryAnalysisResult,
   type LlmAnalyzedMemoryItem,
 } from './memoryAnalysisStrategy';
+import { isRuntimeEvidenceMemory } from './memoryPresentation';
 
 function isEligibleItem(item: MemoryItem) {
   return !item.archivedAt
+    && !isRuntimeEvidenceMemory(item)
     && LLM_MEMORY_ANALYSIS_ALLOWED_LAYERS.has(item.layer)
     && LLM_MEMORY_ANALYSIS_ALLOWED_SCOPES.has(item.scope)
     && LLM_MEMORY_ANALYSIS_ALLOWED_KINDS.has(item.kind)

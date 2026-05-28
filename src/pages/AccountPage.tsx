@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Avatar, Box, Button, Card, CardContent, Snackbar, Alert, TextField, Typography, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { Avatar, Box, Button, Card, CardContent, Alert, TextField, Typography, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
@@ -9,6 +9,7 @@ import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useMessageStore } from '../stores/useMessageStore';
+import AppSnackbar from '../components/common/AppSnackbar';
 import LogoutIcon from '@mui/icons-material/Logout';
 
 const MAX_AVATAR_FILE_SIZE = 2 * 1024 * 1024;
@@ -520,15 +521,13 @@ export default function AccountPage() {
         </DialogActions>
       </Dialog>
 
-      <Snackbar
+      <AppSnackbar
         open={snackbar.open}
         autoHideDuration={3000}
         onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
-      >
-        <Alert severity={snackbar.severity} onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+        severity={snackbar.severity}
+        message={snackbar.message}
+      />
     </Box>
   );
 }

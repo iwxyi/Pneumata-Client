@@ -1,8 +1,9 @@
-import type { MemoryCandidate, MemoryItem } from './memoryTypes';
+import type { MemoryCandidate, MemoryEvidenceEntry, MemoryItem } from './memoryTypes';
 import { sanitizeMemoryText } from './distillationText';
 import { compactMemoryItems } from './memoryLifecycle';
 
 const MAX_TRACKED_SOURCE_EVENT_IDS = 32;
+const MAX_EVIDENCE_TRAIL_ITEMS = 8;
 
 function scoreCandidate(candidate: MemoryCandidate) {
   const s = candidate.scoreBreakdown;
@@ -79,8 +80,96 @@ function mergeDistilledFromIds(item: MemoryItem, candidate: MemoryCandidate) {
   return Array.from(new Set([...(item.distilledFromIds || []), ...(candidate.distilledFromIds || [])])).slice(-24);
 }
 
+function normalizeEvidenceText(text: string | undefined) {
+  return String(text || '')
+    .split(/\n+/)
+    .map((line) => sanitizeMemoryText(line))
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function evidenceEntryKey(entry: MemoryEvidenceEntry) {
+  return normalizeEvidenceText(entry.text);
+}
+
+function scoreEvidenceEntry(entry: MemoryEvidenceEntry, index: number, total: number) {
+  const weight = typeof entry.weight === 'number' && Number.isFinite(entry.weight) ? entry.weight : 0.6;
+  const recencyBias = total > 1 ? index / (total - 1) * 0.08 : 0.08;
+  return weight + recencyBias;
+}
+
+function candidateEvidenceEntry(candidate: MemoryCandidate, candidateText: string, score: number, now: number): MemoryEvidenceEntry | null {
+  const text = normalizeEvidenceText(candidate.evidenceText || candidateText);
+  if (!text) return null;
+  return {
+    text,
+    sourceEventIds: candidate.sourceEventIds || [],
+    sourceTag: candidate.sourceTag || null,
+    origin: candidate.origin || 'runtime',
+    memoryText: candidateText,
+    weight: Math.max(0.1, Math.min(1, score)),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function existingPrimaryEvidenceEntry(item: MemoryItem): MemoryEvidenceEntry | null {
+  const text = normalizeEvidenceText(item.evidenceText);
+  if (!text) return null;
+  return {
+    text,
+    sourceEventIds: item.sourceEventIds || [],
+    sourceTag: item.sourceTag || null,
+    origin: item.origin || 'runtime',
+    memoryText: item.text,
+    weight: Math.max(0.1, Math.min(1, item.salience || item.confidence || 0.6)),
+    createdAt: item.updatedAt || item.createdAt,
+    updatedAt: item.updatedAt || item.createdAt,
+  };
+}
+
+function compactEvidenceTrail(entries: Array<MemoryEvidenceEntry | null | undefined>) {
+  const byText = new Map<string, MemoryEvidenceEntry>();
+  entries.forEach((entry) => {
+    if (!entry) return;
+    const text = normalizeEvidenceText(entry.text);
+    if (!text) return;
+    const normalized: MemoryEvidenceEntry = {
+      ...entry,
+      text,
+      sourceEventIds: Array.from(new Set(entry.sourceEventIds || [])).slice(-MAX_TRACKED_SOURCE_EVENT_IDS),
+    };
+    const key = evidenceEntryKey(normalized);
+    const existing = byText.get(key);
+    if (!existing) {
+      byText.set(key, normalized);
+      return;
+    }
+    byText.set(key, {
+      ...existing,
+      ...normalized,
+      sourceEventIds: Array.from(new Set([...(existing.sourceEventIds || []), ...(normalized.sourceEventIds || [])])).slice(-MAX_TRACKED_SOURCE_EVENT_IDS),
+      weight: Math.max(existing.weight || 0, normalized.weight || 0),
+      createdAt: Math.min(existing.createdAt || normalized.createdAt || 0, normalized.createdAt || existing.createdAt || 0) || undefined,
+      updatedAt: Math.max(existing.updatedAt || 0, normalized.updatedAt || 0) || existing.updatedAt || normalized.updatedAt,
+    });
+  });
+  const values = Array.from(byText.values());
+  return values
+    .map((entry, index) => ({ entry, score: scoreEvidenceEntry(entry, index, values.length) }))
+    .sort((left, right) => {
+      const scoreDelta = right.score - left.score;
+      if (Math.abs(scoreDelta) > 0.001) return scoreDelta;
+      return (right.entry.updatedAt || right.entry.createdAt || 0) - (left.entry.updatedAt || left.entry.createdAt || 0);
+    })
+    .slice(0, MAX_EVIDENCE_TRAIL_ITEMS)
+    .map(({ entry }) => entry);
+}
+
 function createMemoryItem(candidate: MemoryCandidate, score: number, now: number): MemoryItem {
   const text = sanitizeMemoryText(candidate.text);
+  const evidenceText = normalizeEvidenceText(candidate.evidenceText || text);
   return {
     id: `${candidate.ownerId}-${candidate.kind}-${now}-${Math.random().toString(36).slice(2, 8)}`,
     scope: candidate.scope,
@@ -90,7 +179,8 @@ function createMemoryItem(candidate: MemoryCandidate, score: number, now: number
     subjectIds: candidate.subjectIds || [],
     relatedConversationId: null,
     text,
-    evidenceText: candidate.evidenceText,
+    evidenceText,
+    evidenceTrail: compactEvidenceTrail([candidateEvidenceEntry(candidate, text, score, now)]),
     salience: score,
     confidence: 0.7,
     recency: 1,
@@ -116,10 +206,19 @@ function mergeMemoryItem(item: MemoryItem, candidate: MemoryCandidate, score: nu
     || candidate.decision === 'revise'
     || candidate.decision === 'merge'
     || candidateText.length >= item.text.length;
+  const nextText = shouldRewriteText ? candidateText : item.text;
+  const nextEvidenceText = shouldRewriteText
+    ? normalizeEvidenceText(candidate.evidenceText || candidateText)
+    : normalizeEvidenceText(candidate.evidenceText || item.evidenceText);
   return {
     ...item,
-    text: shouldRewriteText ? candidateText : item.text,
-    evidenceText: candidate.evidenceText || item.evidenceText,
+    text: nextText,
+    evidenceText: nextEvidenceText,
+    evidenceTrail: compactEvidenceTrail([
+      ...(item.evidenceTrail || []),
+      existingPrimaryEvidenceEntry(item),
+      candidateEvidenceEntry(candidate, candidateText, score, now),
+    ]),
     salience: Math.max(item.salience, score),
     confidence: refresh ? Math.min(1, (item.confidence || 0.5) + 0.08) : item.confidence,
     recency: refresh ? 1 : Math.max(item.recency, 0.88),

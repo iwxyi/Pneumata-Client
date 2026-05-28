@@ -1,4 +1,5 @@
 import type { MemoryItem, MemoryLayer, MemoryRetrievalContext, MemoryScope } from './memoryTypes';
+import { isRuntimeEvidenceMemory } from './memoryPresentation';
 
 const DEFAULT_LAYER_PRIORITY: MemoryLayer[] = ['working', 'episodic', 'long_term'];
 const DEFAULT_SCOPE_PRIORITY: MemoryScope[] = ['relationship', 'conversation', 'thread', 'character_self', 'system_runtime'];
@@ -94,6 +95,7 @@ function scoreForContext(item: MemoryItem, context: MemoryRetrievalContext) {
 export function retrieveRelevantMemories(items: MemoryItem[], context: MemoryRetrievalContext) {
   const maxArchivedItems = context.maxArchivedItems ?? 2;
   const active = [...items]
+    .filter((item) => context.includeRuntimeEvidence || !isRuntimeEvidenceMemory(item))
     .filter((item) => isRetrievable(item, context))
     .filter((item) => isAllowedBySourceTag(item, context))
     .sort((a, b) => scoreForContext(b, context) - scoreForContext(a, context));

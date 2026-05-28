@@ -35,7 +35,7 @@ describe('memoryDistillation display payload', () => {
     const memories = Array.from({ length: 6 }, (_, index): MemoryItem => ({
       id: `memory-${index}`,
       scope: 'relationship',
-      layer: index % 2 ? 'working' : 'episodic',
+      layer: 'episodic',
       kind: index % 2 ? 'bond' : 'resentment',
       ownerId: 'chat-1',
       subjectIds: [actorId, targetId],
@@ -45,7 +45,7 @@ describe('memoryDistillation display payload', () => {
       recency: 0.8,
       reinforcementCount: 1,
       sourceEventIds: [`event-${index}`],
-      sourceTag: 'relationship_delta',
+      sourceTag: 'interaction',
       origin: 'runtime',
       createdAt: index,
       updatedAt: index + 1,
@@ -66,5 +66,32 @@ describe('memoryDistillation display payload', () => {
     expect(text).not.toContain(actorId);
     expect(text).not.toContain(targetId);
     expect(text).not.toContain('0喜羊羊');
+  });
+
+  it('does not distill raw runtime relationship delta evidence as settled memory', () => {
+    const memories = Array.from({ length: 6 }, (_, index): MemoryItem => ({
+      id: `runtime-delta-${index}`,
+      scope: 'relationship',
+      layer: 'episodic',
+      kind: index % 2 ? 'bond' : 'resentment',
+      ownerId: 'chat-1',
+      subjectIds: ['char-a', 'char-b'],
+      text: `甲 触发关系变化：甲→乙 信任-${index + 1}｜88%`,
+      salience: 0.9,
+      confidence: 0.9,
+      recency: 0.9,
+      reinforcementCount: 1,
+      sourceEventIds: [`event-${index}`],
+      sourceTag: 'relationship_delta',
+      origin: 'runtime',
+      createdAt: index,
+      updatedAt: index + 1,
+    }));
+
+    expect(distillChatMemoryCandidates({
+      id: 'chat-1',
+      name: '群聊',
+      layeredMemories: memories,
+    } as GroupChat)).toEqual([]);
   });
 });

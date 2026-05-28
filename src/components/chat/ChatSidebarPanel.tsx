@@ -1,16 +1,20 @@
 import { lazy, Suspense } from 'react';
-import { Box, Tabs, Tab, Stack, Typography, Chip } from '@mui/material';
+import { Box, Stack, Typography, Chip } from '@mui/material';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import type { Message } from '../../types/message';
 import MemberList from '../controls/MemberList';
+import FloatingSegmentedTabs from '../common/FloatingSegmentedTabs';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { formatScenarioRoleLabel } from '../../services/scenarioPresentation';
+import { compactPillChipSx } from '../../styles/interaction';
 
 const RelationshipPanel = lazy(() => import('../controls/RelationshipPanel'));
 const ChatRuntimePanel = lazy(() => import('./ChatRuntimePanel'));
 const ChatNarrativePanel = lazy(() => import('./ChatNarrativePanel'));
+
+type ChatSidebarTab = 'members' | 'narrative' | 'world' | 'actions';
 
 interface ChatSidebarPanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -18,7 +22,7 @@ interface ChatSidebarPanelProps {
   messages?: Message[];
   thinkingId: string | null;
   rightPanelTab: string;
-  setRightPanelTab: (value: 'members' | 'narrative' | 'world' | 'actions') => void;
+  setRightPanelTab: (value: ChatSidebarTab) => void;
   showMemberTab: boolean;
   showRuntimeTab: boolean;
   showActionTab?: boolean;
@@ -119,7 +123,7 @@ function DirectMemoryHint({ chat, members, directMemoryContext }: { chat: GroupC
         <Typography variant="caption" color="text.secondary">该角色会优先读取自己的长期记忆、关系记忆与最近变化，而不是优先回溯来源群聊。</Typography>
         {memoryChips.length ? (
           <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-            {memoryChips.map((chip) => <Chip key={chip} size="small" label={chip} />)}
+            {memoryChips.map((chip) => <Chip key={chip} size="small" label={chip} sx={compactPillChipSx} />)}
           </Box>
         ) : null}
         {directMemoryContext?.targetSummary ? <Typography variant="caption" color="text.secondary">{sanitizeUserFacingText(directMemoryContext.targetSummary, members)}</Typography> : null}
@@ -156,56 +160,32 @@ export default function ChatSidebarPanel({
   onRemoveMember,
   onUpdateSeats,
 }: ChatSidebarPanelProps) {
+  const panelTabs = [
+    showMemberTab ? { value: 'members' as const, label: `${memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} ${members.length}` } : null,
+    showRuntimeTab ? { value: 'narrative' as const, label: '叙事线' } : null,
+    showRuntimeTab ? { value: 'world' as const, label: runtimePanelTitle || '状态' } : null,
+    showActionTab ? { value: 'actions' as const, label: '动作' } : null,
+  ].filter(Boolean) as Array<{ value: ChatSidebarTab; label: string }>;
+  const activePanelTab = panelTabs.some((item) => item.value === rightPanelTab)
+    ? rightPanelTab as ChatSidebarTab
+    : panelTabs[0]?.value || 'members';
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: { xs: '100%', md: 'auto' }, minHeight: 0 }}>
-      {showMemberTab || showRuntimeTab || showActionTab ? (
-        <Tabs
-          value={rightPanelTab}
-          onChange={(_, value) => setRightPanelTab(value)}
-          variant="fullWidth"
-          sx={{
-            minHeight: 42,
-            p: 0.4,
-            borderRadius: 1,
-            border: '1px solid',
-            borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.075)' : 'rgba(226,232,240,0.10)',
-            bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.50)' : 'rgba(255,255,255,0.055)',
-            backdropFilter: 'blur(18px) saturate(1.15)',
-            WebkitBackdropFilter: 'blur(18px) saturate(1.15)',
-            boxShadow: (theme) => theme.palette.mode === 'light'
-              ? '0 1px 0 rgba(255,255,255,0.78) inset, 0 10px 24px rgba(15,23,42,0.045)'
-              : '0 1px 0 rgba(255,255,255,0.08) inset, 0 12px 28px rgba(0,0,0,0.20)',
-            '& .MuiTabs-indicator': { display: 'none' },
-            '& .MuiTabs-flexContainer': { gap: 0.35 },
-            '& .MuiTab-root': {
-              minWidth: 0,
-              minHeight: 34,
-              px: { xs: 0.55, sm: 1.25 },
-              fontWeight: 720,
-              fontSize: { xs: '0.78rem', sm: '0.875rem' },
-              borderRadius: 0.75,
-              color: 'text.secondary',
-              whiteSpace: 'nowrap',
-              transition: 'background-color 180ms ease, color 180ms ease, box-shadow 180ms ease',
-            },
-            '& .MuiTab-root.Mui-selected': {
-              color: 'text.primary',
-              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.78)' : 'rgba(255,255,255,0.12)',
-              boxShadow: (theme) => theme.palette.mode === 'light'
-                ? '0 1px 0 rgba(255,255,255,0.90) inset, 0 6px 16px rgba(15,23,42,0.08)'
-                : '0 1px 0 rgba(255,255,255,0.10) inset, 0 8px 18px rgba(0,0,0,0.24)',
-            },
-          }}
-        >
-          {showMemberTab ? <Tab value="members" label={`${memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} ${members.length}`} /> : null}
-          {showRuntimeTab ? <Tab value="narrative" label="叙事线" /> : null}
-          {showRuntimeTab ? <Tab value="world" label={runtimePanelTitle || '状态'} /> : null}
-          {showActionTab ? <Tab value="actions" label="动作" /> : null}
-        </Tabs>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%', minHeight: 0 }}>
+      {panelTabs.length ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', minWidth: 0 }}>
+          <FloatingSegmentedTabs
+            value={activePanelTab}
+            items={panelTabs}
+            onChange={setRightPanelTab}
+            equalWidth={false}
+            comfortable={false}
+          />
+        </Box>
       ) : null}
 
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pr: { xs: 0.25, md: 0.5 }, overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
-        {rightPanelTab === 'members' && showMemberTab ? (
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', pr: { xs: 0.25, md: 0.5 }, overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}>
+        {activePanelTab === 'members' && showMemberTab ? (
           <Stack spacing={2}>
             <MemberList
               members={members}
@@ -222,13 +202,13 @@ export default function ChatSidebarPanel({
           </Stack>
         ) : null}
 
-        {rightPanelTab === 'narrative' && showRuntimeTab ? (
+        {activePanelTab === 'narrative' && showRuntimeTab ? (
           <Suspense fallback={<PanelFallback />}>
             <ChatNarrativePanel chat={chat} members={members} messages={messages} hideTitle />
           </Suspense>
         ) : null}
 
-        {rightPanelTab === 'world' && showRuntimeTab ? (
+        {activePanelTab === 'world' && showRuntimeTab ? (
           <Stack spacing={2}>
             <ChatScenarioCard chat={chat} members={members} />
             <DirectMemoryHint chat={chat} members={members} directMemoryContext={directMemoryContext} />
@@ -238,7 +218,7 @@ export default function ChatSidebarPanel({
           </Stack>
         ) : null}
 
-        {rightPanelTab === 'actions' && showActionTab ? actionPanel || null : null}
+        {activePanelTab === 'actions' && showActionTab ? actionPanel || null : null}
       </Box>
     </Box>
   );

@@ -211,40 +211,6 @@ function buildSoulStateMemoryCandidates(character: AICharacter, targetId: string
   return candidates;
 }
 
-function buildDriftMemoryCandidates(character: AICharacter, drift: Partial<AICharacter['personality']>): MemoryCandidate[] {
-  const entries = Object.entries(drift || {}).filter(([, value]) => typeof value === 'number' && value !== 0);
-  if (!entries.length) return [];
-  const text = `性格出现漂移：${entries.map(([key, value]) => `${key}${Number(value) > 0 ? '+' : ''}${value}`).join('，')}`;
-  return [{
-    scope: 'character_self',
-    layerHint: 'episodic',
-    kind: 'trait_evidence',
-    ownerId: character.id,
-    text,
-    sourceEventIds: [buildSourceEventId('personality_drift', character.id, null, text)],
-    sourceTag: 'personality_drift',
-    scoreBreakdown: { stability: 0.55, recurrence: 0.45, impact: 0.7, specificity: 0.75, durability: 0.55 },
-  }];
-}
-
-function buildEmotionMemoryCandidates(character: AICharacter): MemoryCandidate[] {
-  const emotional = character.emotionalState;
-  if (!emotional) return [];
-  const entries = Object.entries(emotional).filter(([, value]) => typeof value === 'number' && value >= 55);
-  if (!entries.length) return [];
-  const text = `当前情绪偏高：${entries.map(([key, value]) => `${key}${value}`).join('，')}`;
-  return [{
-    scope: 'character_self',
-    layerHint: 'working',
-    kind: 'trait_evidence',
-    ownerId: character.id,
-    text,
-    sourceEventIds: [buildSourceEventId('emotional_state', character.id, null, text)],
-    sourceTag: 'emotional_state',
-    scoreBreakdown: { stability: 0.45, recurrence: 0.4, impact: 0.65, specificity: 0.7, durability: 0.4 },
-  }];
-}
-
 function buildCoreProfileMemoryCandidates(character: AICharacter): MemoryCandidate[] {
   if (!character.coreProfile?.coreDesire && !character.coreProfile?.coreFear) return [];
   const text = [character.coreProfile?.coreDesire ? `欲望:${character.coreProfile.coreDesire}` : '', character.coreProfile?.coreFear ? `恐惧:${character.coreProfile.coreFear}` : ''].filter(Boolean).join(' / ');
@@ -319,8 +285,6 @@ export function updateCharacterLayeredMemories(params: {
   const candidates: MemoryCandidate[] = [
     primaryCandidate,
     ...buildSoulStateMemoryCandidates(params.character, params.targetId, params.targetName, params.content),
-    ...buildDriftMemoryCandidates(params.character, params.personalityDrift),
-    ...buildEmotionMemoryCandidates(params.character),
     ...buildCoreProfileMemoryCandidates(params.character),
     ...buildTraitMemoryCandidates(params.character),
   ];

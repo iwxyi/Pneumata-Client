@@ -12,8 +12,10 @@ import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationM
 import { getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
 import MarkdownText from '../common/MarkdownText';
 import DebugChip from '../common/DebugChip';
+import AppSnackbar from '../common/AppSnackbar';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import type { DisplayTextMember } from '../../services/displayTextSanitizer';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 function isConflictDeveloperEvent(eventType: string | undefined) {
   return ['conflict_focus_shift', 'conflict_axis_shift'].includes(String(eventType || ''));
@@ -312,6 +314,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const [viewerOpen, setViewerOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const [feedbackAnchorEl, setFeedbackAnchorEl] = useState<HTMLElement | null>(null);
+  const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartRef = useRef<MenuPosition | null>(null);
   const canDelete = useMemo(() => !pending && message.type !== 'system' && Boolean(onDelete), [message.type, onDelete, pending]);
@@ -358,8 +361,9 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   };
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(message.content);
+    const copied = await copyTextToClipboard(message.content);
     closeMenus();
+    setCopyStatus(copied ? 'success' : 'error');
   };
 
   const handleDelete = () => {
@@ -573,6 +577,15 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
           </Box>
         ))}
       </Menu>
+      <AppSnackbar
+        open={Boolean(copyStatus)}
+        autoHideDuration={1600}
+        severity={copyStatus === 'error' ? 'error' : 'success'}
+        message={copyStatus === 'error' ? '复制失败' : '已复制'}
+        onClose={() => setCopyStatus(null)}
+        offset="composer"
+        alertVariant="filled"
+      />
     </>
   );
 }

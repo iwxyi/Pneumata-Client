@@ -12,6 +12,7 @@ import { projectRuntimePressure } from '../../services/runtimeDecision';
 import { formatBeatType, formatDirectorSource, formatKnownReason, formatNarrativeLineStatus, formatNarrativeLineType } from '../../services/runtimeInsightPresentation';
 import { buildNarrativeLineTooltip, formatNarrativeLineText, getNarrativeLineParticipantNames } from '../../services/narrativeLinePresentation';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { compactPillChipSx } from '../../styles/interaction';
 
 interface ChatNarrativePanelProps {
   chat: GroupChat;
@@ -95,7 +96,7 @@ function renderRelationshipChips(items: string[], tooltip: string) {
             size="small"
             label={item}
             variant="outlined"
-            sx={{ '&:hover': { textDecoration: 'underline dotted', textUnderlineOffset: '3px' } }}
+            sx={{ ...compactPillChipSx, '&:hover': { textDecoration: 'underline dotted', textUnderlineOffset: '3px' } }}
           />
         </Tooltip>
       ))}
@@ -112,7 +113,7 @@ function renderRelationshipLine(line: NarrativeLineProjection, chat: GroupChat, 
   return (
     <Box key={line.id} sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: lineTone(line) }}>
       <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-        <Chip size="small" label={formatNarrativeLineStatus(line.status)} variant="outlined" sx={{ height: 22 }} />
+        <Chip size="small" label={formatNarrativeLineStatus(line.status)} variant="outlined" sx={compactPillChipSx} />
         <Box sx={{ fontWeight: 700 }}>{hoverableText(title, tooltip, 'body2')}</Box>
       </Stack>
       {chips.length ? renderRelationshipChips(chips, tooltip) : (
@@ -136,14 +137,17 @@ function renderLine(line: NarrativeLineProjection, chat: GroupChat, members: AIC
   const summary = formatNarrativeLineText(line.summary, members);
   const question = line.openQuestions[0] ? formatNarrativeLineText(line.openQuestions[0], members) : '';
   const nextReason = nextBeat?.reason ? formatNarrativeLineText(formatKnownReason(nextBeat.reason), members) : '';
+  const visibleNames = names.filter((name) => !title.includes(name) && !summary.includes(name));
   return (
     <Box key={line.id} sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: lineTone(line) }}>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-        {hoverableText(`${formatNarrativeLineType(line.type)} · ${formatNarrativeLineStatus(line.status)}`, tooltip)}
-      </Typography>
-      <Box sx={{ mt: 0.2 }}>{hoverableText(title, tooltip, 'body2')}</Box>
+      <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+        <Tooltip title={`${formatNarrativeLineType(line.type)} · ${formatNarrativeLineStatus(line.status)}`} arrow placement="top-start">
+          <Chip size="small" label={formatNarrativeLineStatus(line.status)} variant="outlined" sx={{ ...compactPillChipSx, cursor: 'help' }} />
+        </Tooltip>
+        <Box sx={{ fontWeight: 700 }}>{hoverableText(title, tooltip, 'body2')}</Box>
+      </Stack>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{summary}</Typography>
-      {names.length ? <Box sx={{ mt: 0.65 }}><StatChipRow items={names.slice(0, 4)} /></Box> : null}
+      {visibleNames.length ? <Box sx={{ mt: 0.65 }}><StatChipRow items={visibleNames.slice(0, 4)} /></Box> : null}
       {question ? (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
           {hoverableText(question, '这条问题用于提醒后续剧情可继续发展的方向。')}
@@ -191,6 +195,7 @@ export default function ChatNarrativePanel({ chat, members, messages = [], hideT
               color={activeFilter === filter.key ? 'primary' : 'default'}
               variant={activeFilter === filter.key ? 'filled' : 'outlined'}
               onClick={() => setActiveFilter(filter.key)}
+              sx={compactPillChipSx}
             />
           ))}
         </Box>

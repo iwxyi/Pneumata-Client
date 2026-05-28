@@ -298,7 +298,9 @@ export default function RightPanel({ children, title, hideMobileTitle = false }:
             <Divider />
           </>
         )}
-        <Box sx={{ flex: 1, overflow: 'auto', p: 2.25 }}>{children}</Box>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden', p: 2.25, display: 'flex', flexDirection: 'column' }}>
+          {children}
+        </Box>
       </Box>
     ) : null;
   }
@@ -419,7 +421,7 @@ export default function RightPanel({ children, title, hideMobileTitle = false }:
         },
       }}
     >
-      <Box sx={{ p: 2.25 }}>
+      <Box sx={{ height: '100%', minHeight: 0, p: 2.25, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {title && (
           <>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25 }}>
@@ -433,7 +435,9 @@ export default function RightPanel({ children, title, hideMobileTitle = false }:
             <Divider sx={{ mb: 2 }} />
           </>
         )}
-        {children}
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {children}
+        </Box>
       </Box>
     </Drawer>
   );

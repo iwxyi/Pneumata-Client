@@ -173,7 +173,7 @@ function buildGroupMemoryPolicyTags() {
 
 function buildGroupCharacterPolicyTags() {
   return {
-    preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise', 'self_expression'],
+    preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', 'core_profile', 'background', 'speaking_style', 'expertise', 'self_expression'],
     blocked: ['direct_user_message', 'direct_ai_follow_up'],
   };
 }
@@ -188,13 +188,13 @@ function buildPromptMemoryPolicies(chat: GroupChat) {
   if (chat.type === 'direct') {
     return {
       conversation: { preferred: ['direct_user_message', 'direct_ai_follow_up'], allowed: ['direct_user_message', 'direct_ai_follow_up'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
-      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'direct_user_message', 'direct_ai_follow_up', 'self_expression', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['expression_feedback', 'direct_user_message', 'direct_ai_follow_up', 'self_expression', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
+      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'direct_user_message', 'direct_ai_follow_up', 'self_expression', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['expression_feedback', 'direct_user_message', 'direct_ai_follow_up', 'self_expression', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
     };
   }
   if (chat.type === 'ai_direct') {
     return {
       conversation: { preferred: ['ai_direct_starter_message', 'ai_direct_target_message'], allowed: ['ai_direct_starter_message', 'ai_direct_target_message'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
-      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['expression_feedback', 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'personality_drift', 'emotional_state', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
+      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['expression_feedback', 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
     };
   }
   const group = { conversation: buildGroupMemoryPolicyTags(), character: buildGroupCharacterPolicyTags() };

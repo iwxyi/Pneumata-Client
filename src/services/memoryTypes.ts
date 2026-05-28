@@ -5,6 +5,18 @@ export type MemoryKind = 'decision' | 'conflict' | 'bond' | 'resentment' | 'stat
 export type MemoryOrigin = 'runtime' | 'distilled' | 'seeded';
 export type MemoryDecision = 'create' | 'reinforce' | 'revise' | 'merge' | 'archive' | 'ignore';
 
+export interface MemoryEvidenceEntry {
+  id?: string;
+  text: string;
+  sourceEventIds?: string[];
+  sourceTag?: string | null;
+  origin?: MemoryOrigin;
+  memoryText?: string;
+  weight?: number;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface MemoryItem {
   id: string;
   scope: MemoryScope;
@@ -16,6 +28,7 @@ export interface MemoryItem {
   text: string;
   summary?: string;
   evidenceText?: string;
+  evidenceTrail?: MemoryEvidenceEntry[];
   salience: number;
   confidence: number;
   recency: number;
@@ -73,6 +86,7 @@ export interface MemoryRetrievalContext {
   preferredSourceTags?: string[];
   allowedSourceTags?: string[];
   blockedSourceTags?: string[];
+  includeRuntimeEvidence?: boolean;
   relationshipBoost?: boolean;
   selfMemoryBoost?: boolean;
   conversationBoost?: boolean;

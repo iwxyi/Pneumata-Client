@@ -9,6 +9,7 @@ import { formatRelativeTime } from '../../utils/format';
 import { useTranslation } from 'react-i18next';
 import { useMessageStore } from '../../stores/useMessageStore';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { isUserFacingMemoryItem } from '../../services/memoryPresentation';
 import { buildInteractiveSurfaceSx, buildSelectionRailSx } from '../../styles/interaction';
 
 interface ChatCardProps {
@@ -55,7 +56,7 @@ function buildLatestMessagePreview(message: Message | null, members: AICharacter
 function buildChatSubtitle(chat: GroupChat, members: AICharacter[], latestMessage: Message | null) {
   const latestMessagePreview = buildLatestMessagePreview(latestMessage, members);
   const relationshipPreview = buildRelationshipPreview(members);
-  const memorySummary = sanitizeUserFacingText((chat.layeredMemories || []).slice(-2).map((item) => item.text).join(' / '), members);
+  const memorySummary = sanitizeUserFacingText((chat.layeredMemories || []).filter(isUserFacingMemoryItem).slice(-2).map((item) => item.text).join(' / '), members);
   const recentEvent = sanitizeUserFacingText(chat.worldState?.recentEvent || '', members);
   return latestMessagePreview || clipPreview(sanitizeUserFacingText(relationshipPreview || memorySummary || recentEvent || chat.topic || '', members));
 }

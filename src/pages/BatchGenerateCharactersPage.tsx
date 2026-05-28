@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Button, TextField, Typography, Chip, Snackbar, Alert, LinearProgress, Dialog, DialogContent, IconButton } from '@mui/material';
+import { Box, Button, TextField, Typography, Chip, LinearProgress, Dialog, DialogContent, IconButton } from '@mui/material';
 import type { AIModelProfile } from '../types/settings';
 import type { AICharacter, PersonalityParams } from '../types/character';
 import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
+import AppSnackbar from '../components/common/AppSnackbar';
 
 const BATCH_GENERATE_GROUP_SIZE = 10;
 
@@ -695,9 +696,14 @@ export default function BatchGenerateCharactersPage() {
         </DialogContent>
       </Dialog>
 
-      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar({ ...snackbar, open: false })}>
-        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>{snackbar.message}</Alert>
-      </Snackbar>
+      <AppSnackbar
+        open={snackbar.open}
+        autoHideDuration={3000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        severity={snackbar.severity}
+        message={snackbar.message}
+        offset="none"
+      />
     </Box>
   );
 }

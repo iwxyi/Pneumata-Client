@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Box, IconButton, Button, Snackbar, Alert, Typography } from '@mui/material';
+import { Box, IconButton, Button, Typography } from '@mui/material';
 import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
 import StatChipRow from '../components/common/StatChipRow';
+import AppSnackbar from '../components/common/AppSnackbar';
 import PeopleIcon from '@mui/icons-material/People';
 import InfoIcon from '@mui/icons-material/Info';
 import PlayIcon from '@mui/icons-material/PlayArrow';
@@ -722,7 +723,7 @@ export default function ChatDetailPage() {
       </Box>
 
       <RightPanel title={sidebarTitle} hideMobileTitle>
-        <PageSection spacing={2} fill>
+        <PageSection spacing={2} fill animate={false}>
           {chat.type === 'ai_direct' && chat.sourceChatId ? (
             <Button variant="outlined" onClick={() => navigate(`/chats/${chat.sourceChatId}`)}>返回来源群聊</Button>
           ) : null}
@@ -738,58 +739,60 @@ export default function ChatDetailPage() {
               </Typography>
             </SurfaceCard>
           ) : null}
-          <LazyPanel>
-            {runtimePanelLoading ? <Box sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">加载中…</Typography></Box> : <ChatSidebarPanel
-              chat={projectedSidebarChat || { ...chat, primaryRecentEvent: projectedRuntimeState?.primaryRecentEvent }}
-              members={members}
-              messages={currentChatMessages}
-              thinkingId={thinkingId}
-              rightPanelTab={activeSidebarTab}
-              setRightPanelTab={setRightPanelTab}
-              showMemberTab={showMemberTab}
-              showRuntimeTab={showRuntimeTab}
-              memberPanelTitle={memberTabTitle}
-              runtimePanelTitle={runtimeTabTitle}
-              privatePayloads={projectedDetailState?.sidebarChat.privatePayloads || privatePayloads}
-              directMemoryContext={directMemoryPanelContext}
-              showActionTab={showActionTab}
-              actionPanel={showActionTab ? <LazyPanel><SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} hideHeader frameless /></LazyPanel> : null}
-              onSpeakAs={(charId) => setSpeakAsCharacter(charId)}
-              onStartDirectChat={chat.type === 'group' ? handleStartDirectChat : undefined}
-              onRemoveMember={chat.type === 'group' ? (charId) => {
-                const newMembers = chat.memberIds.filter((m) => m !== charId);
-                if (newMembers.length >= 2) updateChat(chat.id, { memberIds: newMembers });
-              } : undefined}
-              onUpdateSeats={chat.type === 'group' ? (memberIds) => {
-                updateChat(chat.id, {
-                  memberIds,
-                  scenarioState: {
-                    ...chat.scenarioState,
-                    seats: memberIds.map((memberId, index) => {
-                      const existing = chat.scenarioState?.seats?.find((seat) => seat.actorId === memberId);
-                      return {
-                        seatId: existing?.seatId || `seat-${index + 1}`,
-                        seatIndex: index,
+          <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <LazyPanel>
+              {runtimePanelLoading ? <Box sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">加载中…</Typography></Box> : <ChatSidebarPanel
+                chat={projectedSidebarChat || { ...chat, primaryRecentEvent: projectedRuntimeState?.primaryRecentEvent }}
+                members={members}
+                messages={currentChatMessages}
+                thinkingId={thinkingId}
+                rightPanelTab={activeSidebarTab}
+                setRightPanelTab={setRightPanelTab}
+                showMemberTab={showMemberTab}
+                showRuntimeTab={showRuntimeTab}
+                memberPanelTitle={memberTabTitle}
+                runtimePanelTitle={runtimeTabTitle}
+                privatePayloads={projectedDetailState?.sidebarChat.privatePayloads || privatePayloads}
+                directMemoryContext={directMemoryPanelContext}
+                showActionTab={showActionTab}
+                actionPanel={showActionTab ? <LazyPanel><SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} hideHeader frameless /></LazyPanel> : null}
+                onSpeakAs={(charId) => setSpeakAsCharacter(charId)}
+                onStartDirectChat={chat.type === 'group' ? handleStartDirectChat : undefined}
+                onRemoveMember={chat.type === 'group' ? (charId) => {
+                  const newMembers = chat.memberIds.filter((m) => m !== charId);
+                  if (newMembers.length >= 2) updateChat(chat.id, { memberIds: newMembers });
+                } : undefined}
+                onUpdateSeats={chat.type === 'group' ? (memberIds) => {
+                  updateChat(chat.id, {
+                    memberIds,
+                    scenarioState: {
+                      ...chat.scenarioState,
+                      seats: memberIds.map((memberId, index) => {
+                        const existing = chat.scenarioState?.seats?.find((seat) => seat.actorId === memberId);
+                        return {
+                          seatId: existing?.seatId || `seat-${index + 1}`,
+                          seatIndex: index,
+                          actorId: memberId,
+                          roleId: existing?.roleId || null,
+                          teamId: existing?.teamId || null,
+                          displayName: existing?.displayName,
+                        };
+                      }),
+                      turnOrder: memberIds,
+                    },
+                    layoutState: {
+                      slots: memberIds.map((memberId, index) => ({
+                        slotId: `slot-${index + 1}`,
+                        x: index,
+                        y: 0,
                         actorId: memberId,
-                        roleId: existing?.roleId || null,
-                        teamId: existing?.teamId || null,
-                        displayName: existing?.displayName,
-                      };
-                    }),
-                    turnOrder: memberIds,
-                  },
-                  layoutState: {
-                    slots: memberIds.map((memberId, index) => ({
-                      slotId: `slot-${index + 1}`,
-                      x: index,
-                      y: 0,
-                      actorId: memberId,
-                    })),
-                  },
-                });
-              } : undefined}
-            />}
-          </LazyPanel>
+                      })),
+                    },
+                  });
+                } : undefined}
+              />}
+            </LazyPanel>
+          </Box>
         </PageSection>
       </RightPanel>
 
@@ -803,9 +806,14 @@ export default function ChatDetailPage() {
         onClose={closeAnalysisDialog}
       />
 
-      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={closeSnackbar}>
-        <Alert severity={snackbar.severity} onClose={closeSnackbar}>{snackbar.message}</Alert>
-      </Snackbar>
+      <AppSnackbar
+        open={snackbar.open}
+        autoHideDuration={3000}
+        onClose={closeSnackbar}
+        severity={snackbar.severity}
+        message={snackbar.message}
+        offset="composer"
+      />
     </Box>
   );
 }

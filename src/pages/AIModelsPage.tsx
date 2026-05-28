@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type Dra
 import {
   Box, Typography, TextField, Button,
   FormControl, InputLabel, Select, MenuItem,
-  Snackbar, Alert, IconButton, InputAdornment, Autocomplete, Checkbox, Tooltip, FormControlLabel, Divider,
+  Alert, IconButton, InputAdornment, Autocomplete, Checkbox, Tooltip, FormControlLabel, Divider,
 } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
 import Visibility from '@mui/icons-material/Visibility';
@@ -21,6 +21,7 @@ import { normalizeCharacterModelProfileIds } from '../types/character';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import PageSection from '../components/common/PageSection';
 import SurfaceCard from '../components/common/SurfaceCard';
+import AppSnackbar from '../components/common/AppSnackbar';
 import { getPopularModels, getProviderCatalogEntry, getProviderDefaults, getProvidersForType, inferImageCapabilities } from '../constants/aiModelCatalog';
 import { motion, transition } from '../styles/motion';
 
@@ -690,15 +691,13 @@ export default function AIModelsPage() {
           </Box>
       </PageSection>
 
-      <Snackbar
+      <AppSnackbar
         open={snackbar.open}
         autoHideDuration={3000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
-      >
-        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+        severity={snackbar.severity}
+        message={snackbar.message}
+      />
 
       <ConfirmDialog
         open={Boolean(confirmAssignProfileId)}
