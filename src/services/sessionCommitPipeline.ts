@@ -9,6 +9,7 @@ import { finalizeChatCommitRuntime } from './chatCommitRuntime';
 import { resolveSessionEngine } from './sessionEngineRegistry';
 import { __flushDeferredMemoryAnalysisForTests, __resetDeferredMemoryAnalysisStateForTests, getDeferredMemoryAnalysisDebugState, scheduleAsyncMemoryAnalysis } from './asyncMemoryAnalysis';
 import { applyRecalledMemoryActivation } from './memoryRecallActivation';
+import { parseRuntimeEvent } from './runtimeEventFactory';
 
 export const __resetDeferredLlmDistillationStateForTests = __resetDeferredMemoryAnalysisStateForTests;
 export const __flushDeferredLlmDistillationForTests = __flushDeferredMemoryAnalysisForTests;
@@ -22,6 +23,10 @@ export interface SessionCommitPipelineResult {
 }
 
 type SessionCommitHandler = Parameters<typeof runChatCommitPipeline>[0]['onCommit'];
+
+function isLocalInterceptionMessage(message: Message) {
+  return message.type === 'event' && parseRuntimeEvent(message.content)?.eventType === 'local_interception';
+}
 
 function withFrameworkChatPatch(onCommit: SessionCommitHandler): SessionCommitHandler {
   return async (args) => {
@@ -208,7 +213,7 @@ export async function runPersistedSessionCommitRuntime(params: {
   getCurrentChat?: (id: string) => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
 }): Promise<SessionCommitPipelineResult> {
-  const recentMessages = params.currentMessages.filter((message) => !message.isDeleted && message.id !== params.message.id);
+  const recentMessages = params.currentMessages.filter((message) => !message.isDeleted && message.id !== params.message.id && !isLocalInterceptionMessage(message));
   const transition = await finalizeChatCommitRuntime({
     api: params.api,
     chat: params.chat,

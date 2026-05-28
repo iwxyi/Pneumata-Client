@@ -55,8 +55,8 @@ function getLatestTargetText(messages: Message[], recentTargetId?: string | null
 function buildCarryLineFromConversation(relevant: Message[], speakerId: string, recentTargetId?: string | null) {
   const localThread = relevant.filter((message) => message.senderId === speakerId || message.senderId === recentTargetId).slice(-4);
   const recentBundle = localThread.map((message) => message.content).join(' / ');
-  if (/不是|你这|别扯|离谱|笑死|怎么就/i.test(recentBundle)) return '延续这条线里的不耐烦或抬杠，不要突然切回客观模式。';
-  if (/对|确实|有道理|我也觉得|就这意思/i.test(recentBundle)) return '延续这条线里的站边和顺势附和，不要突然转成总结口吻。';
+  if (/不是|你这|别扯|离谱|笑死|怎么就/i.test(recentBundle)) return '延续这条线里的不耐烦或抬杠，不要突然切回客观模式；但不要复制对方的开头、整句、表情或尾巴。';
+  if (/对|确实|有道理|我也觉得|就这意思/i.test(recentBundle)) return '延续这条线里的站边和顺势附和，不要突然转成总结口吻；但换一个说法，不要复读“就是/对/哈哈”这类表层附和。';
   return '';
 }
 
@@ -129,6 +129,25 @@ function buildRecentPhraseConstraint(messages: Message[]) {
   const repeatedPatterns = getRecentSurfacePatterns(messages).filter(([, count]) => count >= 2);
   if (!repeatedPatterns.length) return '';
   return '\n- The room is already echoing repeated phrasing. Deliberately enter from another angle instead of matching the same catchphrase, prefix, or framing.';
+}
+
+function extractEmojiTokens(content: string) {
+  return content.match(/\p{Extended_Pictographic}/gu) || [];
+}
+
+function buildRecentEmojiContagionHint(messages: Message[]) {
+  const counts = new Map<string, number>();
+  messages
+    .filter((message) => !message.isDeleted && message.type === 'ai')
+    .slice(-10)
+    .flatMap((message) => extractEmojiTokens(message.content))
+    .forEach((emoji) => counts.set(emoji, (counts.get(emoji) || 0) + 1));
+  const repeated = Array.from(counts.entries())
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
+  if (!repeated.length) return '';
+  return `\n- Recent emoji/sticker-like markers are contagious surface noise, not room emotion memory: ${repeated.map(([emoji, count]) => `${emoji}×${count}`).join(' / ')}. Do not reuse them unless this character deliberately sends that exact marker for a new reason.`;
 }
 
 function buildInnerResidueChatHint(character: AICharacter) {
@@ -224,10 +243,10 @@ export function buildStanceMemory(messages: Message[], speakerId: string, recent
   const content = latestTarget.content;
   const conversationCarry = buildCarryLineFromConversation(relevant, speakerId, recentTargetId);
   if (/不是|凭什么|怎么就|你这|扯|离谱|有病|笑死/i.test(content)) {
-    return { targetId: recentTargetId || null, bias: 'lean_against', carryLine: conversationCarry || '延续上一轮的不耐烦或抬杠感，不要忽然变客观。', topicLatch: pickTopicLatch(content) };
+    return { targetId: recentTargetId || null, bias: 'lean_against', carryLine: conversationCarry || '延续上一轮的不耐烦或抬杠感，不要忽然变客观；但不要照搬对方的开头、整句、表情或尾巴。', topicLatch: pickTopicLatch(content) };
   }
   if (/对|确实|行|就是|我也觉得|有道理/i.test(content)) {
-    return { targetId: recentTargetId || null, bias: 'lean_in', carryLine: conversationCarry || '可以顺着站边、附和半句，别突然换成中立评述。', topicLatch: pickTopicLatch(content) };
+    return { targetId: recentTargetId || null, bias: 'lean_in', carryLine: conversationCarry || '可以顺着站边、附和半句，别突然换成中立评述；但换一个说法，不要复读“就是/对/哈哈”这类表层附和。', topicLatch: pickTopicLatch(content) };
   }
   return { targetId: recentTargetId || null, bias: 'watching', carryLine: conversationCarry || '只抓住你在意的一个点回应，不必完整覆盖对方。', topicLatch: pickTopicLatch(content) };
 }
@@ -291,7 +310,7 @@ export function buildHumanizationPrompt(character: AICharacter, intent: SpeakInt
 - If you ask, let it sound like a live human move rather than a formal interviewer move.
 - Question tendency: ${fingerprint.prefersQuestions ? [fingerprint.asksForInformation ? 'info-seeking' : '', fingerprint.usesQuestionAsPushback ? 'pushback' : '', fingerprint.usesQuestionToSteer ? 'steering' : '', fingerprint.usesQuestionPlayfully ? 'playful' : ''].filter(Boolean).join(' / ') : 'not preferred'}
 - Terse bias: ${fingerprint.terseBias}/100${buildInnerResidueChatHint(character)}
-- Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}${buildRecentSurfaceHint(messages)}${buildRecentPhraseConstraint(messages)}
+- Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}${buildRecentSurfaceHint(messages)}${buildRecentPhraseConstraint(messages)}${buildRecentEmojiContagionHint(messages)}
 - Keep the reply socially sticky: continue the same vibe instead of resetting into neutral analysis.${guidanceOverride}`;
 }
 

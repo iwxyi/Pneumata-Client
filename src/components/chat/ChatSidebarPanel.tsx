@@ -30,6 +30,7 @@ interface ChatSidebarPanelProps {
   memberPanelTitle?: string;
   runtimePanelTitle?: string;
   privatePayloads: Array<{ key: string; title: string; text: string }>;
+  privatePayloadTitle?: string;
   directMemoryContext?: {
     targetName: string | null;
     targetSummary: string;
@@ -154,6 +155,7 @@ export default function ChatSidebarPanel({
   memberPanelTitle,
   runtimePanelTitle,
   privatePayloads,
+  privatePayloadTitle,
   directMemoryContext,
   onSpeakAs,
   onStartDirectChat,
@@ -163,7 +165,7 @@ export default function ChatSidebarPanel({
   const panelTabs = [
     showMemberTab ? { value: 'members' as const, label: `${memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} ${members.length}` } : null,
     showRuntimeTab ? { value: 'narrative' as const, label: '叙事线' } : null,
-    showRuntimeTab ? { value: 'world' as const, label: runtimePanelTitle || '状态' } : null,
+    showRuntimeTab ? { value: 'world' as const, label: runtimePanelTitle || '运行态' } : null,
     showActionTab ? { value: 'actions' as const, label: '动作' } : null,
   ].filter(Boolean) as Array<{ value: ChatSidebarTab; label: string }>;
   const activePanelTab = panelTabs.some((item) => item.value === rightPanelTab)
@@ -213,7 +215,7 @@ export default function ChatSidebarPanel({
             <ChatScenarioCard chat={chat} members={members} />
             <DirectMemoryHint chat={chat} members={members} directMemoryContext={directMemoryContext} />
             <Suspense fallback={<PanelFallback />}>
-              <ChatRuntimePanel chat={chat} members={members} messages={messages} privatePayloads={privatePayloads} />
+              <ChatRuntimePanel chat={chat} members={members} messages={messages} privatePayloads={privatePayloads} privatePayloadTitle={privatePayloadTitle} />
             </Suspense>
           </Stack>
         ) : null}

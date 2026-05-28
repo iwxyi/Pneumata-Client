@@ -19,6 +19,8 @@ import GlassHeader, { GLASS_HEADER_HEIGHT } from './GlassHeader';
 import { useAutoHideHeader } from '../../hooks/useAutoHideHeader';
 import { DETAIL_COLLAPSED_CHANGE_EVENT, DETAIL_COLLAPSED_STORAGE_KEY, readDetailCollapsedState } from './masterDetailState';
 import { motion } from '../../styles/motion';
+import AppSnackbar from '../common/AppSnackbar';
+import { APP_DIAGNOSTIC_TOAST_EVENT, type DiagnosticToastDetail } from '../../services/diagnostics';
 
 const routeMeta = [
   { match: (pathname: string) => pathname === '/', titleKey: 'nav.home' },
@@ -59,6 +61,11 @@ export default function AppLayout() {
   const [headerTitle, setHeaderTitle] = React.useState<ReactNode | null>(null);
   const [headerBackAction, setHeaderBackAction] = React.useState<(() => void) | null>(null);
   const [hideMobileBottomNav, setHideMobileBottomNav] = React.useState(false);
+  const [diagnosticToast, setDiagnosticToast] = React.useState<{ open: boolean; message: ReactNode; severity: DiagnosticToastDetail['severity'] }>({
+    open: false,
+    message: '',
+    severity: 'error',
+  });
   const scrollContainerRef = React.useRef<HTMLDivElement | null>(null);
   const effectiveHeaderTitle = headerTitle ?? currentTitle;
   const mainPaddingBottom = 0;
@@ -92,6 +99,20 @@ export default function AppLayout() {
       window.removeEventListener(DETAIL_COLLAPSED_CHANGE_EVENT, syncDetailCollapsed);
       window.removeEventListener('storage', handleStorage);
     };
+  }, []);
+
+  React.useEffect(() => {
+    const handleDiagnosticToast = (event: Event) => {
+      const detail = (event as CustomEvent<DiagnosticToastDetail>).detail;
+      if (!detail?.message) return;
+      setDiagnosticToast({
+        open: true,
+        message: detail.message,
+        severity: detail.severity || 'error',
+      });
+    };
+    window.addEventListener(APP_DIAGNOSTIC_TOAST_EVENT, handleDiagnosticToast);
+    return () => window.removeEventListener(APP_DIAGNOSTIC_TOAST_EVENT, handleDiagnosticToast);
   }, []);
 
   React.useEffect(() => {
@@ -236,6 +257,13 @@ export default function AppLayout() {
           {isMobile && !hideMobileBottomNav ? (
             <BottomNav />
           ) : null}
+          <AppSnackbar
+            open={diagnosticToast.open}
+            message={diagnosticToast.message}
+            severity={diagnosticToast.severity}
+            onClose={() => setDiagnosticToast((prev) => ({ ...prev, open: false }))}
+            offset={isChatDetailRoute ? 'composer' : isMobile && !hideMobileBottomNav ? 'navigation' : 'none'}
+          />
         </Box>
       </Box>
     </LayoutHeaderActionsContext.Provider>

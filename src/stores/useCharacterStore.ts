@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { AICharacter } from '../types/character';
 import { normalizeCharacter, normalizeCharacterGroup } from '../types/character';
 import { api } from '../services/api';
+import { reportRecoverableError } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { buildWarmState } from './storeWarmHelpers';
 import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
@@ -666,6 +667,11 @@ export const useCharacterStore = create<CharacterStore>()(
             });
             syncCharacterArtifacts(visible);
           } catch (error) {
+            reportRecoverableError({
+              location: 'cloud-sync:characters-load',
+              error,
+              userMessage: '角色云同步失败，请检查网络后重试。',
+            });
             set({ isLoading: false, pendingEditSyncError: classifySyncError(error) });
           }
         },

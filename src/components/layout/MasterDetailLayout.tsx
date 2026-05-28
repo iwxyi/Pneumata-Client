@@ -8,14 +8,13 @@ import { LayoutHeaderActionsContext } from './AppLayoutContext';
 import GlassHeader, { GLASS_HEADER_HEIGHT } from './GlassHeader';
 import { useAutoHideHeader } from '../../hooks/useAutoHideHeader';
 import { DETAIL_COLLAPSED_CHANGE_EVENT, DETAIL_COLLAPSED_STORAGE_KEY, readDetailCollapsedState, writeDetailCollapsedState } from './masterDetailState';
-import { motion, transition } from '../../styles/motion';
+import PaneResizeDivider, { PANE_RESIZE_DIVIDER_LAYOUT_WIDTH } from './PaneResizeDivider';
 
 const MIN_MASTER_WIDTH = 320;
 const DEFAULT_MASTER_WIDTH = 430;
 const MAX_MASTER_WIDTH = 720;
 const MIN_DETAIL_WIDTH = 240;
-const DIVIDER_WIDTH = 12;
-const DIVIDER_LAYOUT_WIDTH = 1;
+const DIVIDER_LAYOUT_WIDTH = PANE_RESIZE_DIVIDER_LAYOUT_WIDTH;
 const MASTER_WIDTH_STORAGE_KEY = storageKey('master-detail-master-width');
 
 function clampMasterWidth(value: number, containerWidth?: number | null) {
@@ -184,71 +183,12 @@ export default function MasterDetailLayout({
   if (!isThreeColumn) return <>{fallback === 'master' ? master : detail}</>;
 
   const divider = (
-    <Box
+    <PaneResizeDivider
+      resizing={resizing}
+      ariaLabel={detailCollapsed ? '拖动展开右侧列' : '拖动调整列宽'}
+      onPointerDown={startResize}
       onDoubleClick={openDefaultDetail}
-      aria-label={detailCollapsed ? '拖动展开右侧列' : '拖动调整列宽'}
-      sx={{
-        width: DIVIDER_LAYOUT_WIDTH,
-        flex: `0 0 ${DIVIDER_LAYOUT_WIDTH}px`,
-        alignSelf: 'stretch',
-        cursor: 'col-resize',
-        zIndex: 2,
-        display: 'flex',
-        alignItems: 'stretch',
-        justifyContent: 'center',
-        position: 'relative',
-        touchAction: 'none',
-        bgcolor: 'transparent',
-      }}
-    >
-      <Box
-        onPointerDown={startResize}
-        sx={{
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          left: '50%',
-          height: 'auto',
-          width: DIVIDER_WIDTH,
-          transform: 'translateX(-50%)',
-          bgcolor: 'transparent !important',
-          backgroundColor: 'transparent !important',
-          cursor: 'col-resize',
-          touchAction: 'none',
-          userSelect: 'none',
-          WebkitUserSelect: 'none',
-          WebkitTapHighlightColor: 'transparent',
-          outline: 'none',
-          '&:active, &:focus': {
-            bgcolor: 'transparent !important',
-            backgroundColor: 'transparent !important',
-            outline: 'none',
-          },
-          '&:hover + .master-detail-divider-line': {
-            bgcolor: 'primary.main',
-            opacity: 1,
-          },
-        }}
-      />
-      <Box
-        className="master-detail-divider-line"
-        sx={{
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          left: '50%',
-          height: 'auto',
-          width: 1,
-          transform: 'translateX(-50%)',
-          pointerEvents: 'none',
-          bgcolor: (theme) => resizing
-            ? theme.palette.primary.main
-            : theme.palette.mode === 'light' ? 'rgba(15,23,42,0.13)' : 'rgba(226,232,240,0.16)',
-          opacity: resizing ? 1 : 0.72,
-          transition: transition(['background-color', 'opacity'], 220, motion.softOut),
-        }}
-      />
-    </Box>
+    />
   );
 
   return (

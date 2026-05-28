@@ -221,6 +221,15 @@ function compactRuntimeEventMetricsForMessage(payload: RuntimeEventPayload) {
       developmentHooks,
     };
   }
+  if (payload.eventType === 'local_interception') {
+    return {
+      kind: typeof metrics.kind === 'string' ? metrics.kind : undefined,
+      speakerId: typeof metrics.speakerId === 'string' ? metrics.speakerId : undefined,
+      speakerName: typeof metrics.speakerName === 'string' ? metrics.speakerName : undefined,
+      reason: typeof metrics.reason === 'string' ? metrics.reason : undefined,
+      attempt: typeof metrics.attempt === 'number' ? metrics.attempt : undefined,
+    };
+  }
   return undefined;
 }
 

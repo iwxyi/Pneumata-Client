@@ -33,7 +33,9 @@ import { buildFloatingActionSx, buildListGridSx } from '../styles/interaction';
 type CharacterSortField = 'name' | 'createdAt';
 type CharacterSortDirection = 'asc' | 'desc';
 const CHARACTER_LIBRARY_TAB_KEY = 'character-library-tab';
+const CHARACTER_LIBRARY_GROUP_KEY = 'character-library-group';
 const isCharacterLibraryTab = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 1;
+const isCharacterLibraryGroup = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 
 function getActiveCharacterId(pathname: string) {
   return pathname.match(/^\/characters\/([^/]+)\/edit$/)?.[1] || null;
@@ -80,7 +82,7 @@ export default function CharacterLibraryPage() {
   const { characters, loadCharacters, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, initializePresets, isLoading } = useCharacterStore();
   const [tab, setTab] = useState(() => readPersistentUiValue(CHARACTER_LIBRARY_TAB_KEY, 0, isCharacterLibraryTab));
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [selectedGroup, setSelectedGroup] = useState<string>('all');
+  const [selectedGroup, setSelectedGroup] = useState<string>(() => readPersistentUiValue(CHARACTER_LIBRARY_GROUP_KEY, 'all', isCharacterLibraryGroup));
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -128,6 +130,10 @@ export default function CharacterLibraryPage() {
     writePersistentUiValue(CHARACTER_LIBRARY_TAB_KEY, tab);
   }, [tab]);
 
+  useEffect(() => {
+    writePersistentUiValue(CHARACTER_LIBRARY_GROUP_KEY, selectedGroup);
+  }, [selectedGroup]);
+
 
   const presets = characters.filter((c) => c.isPreset);
   const custom = characters.filter((c) => !c.isPreset);
@@ -146,6 +152,14 @@ export default function CharacterLibraryPage() {
   );
   const selectedIdSet = new Set(selectedIds);
   const selectedCustomCharacters = custom.filter((character) => selectedIdSet.has(character.id));
+
+  useEffect(() => {
+    if (selectedGroup === 'all') return;
+    const normalizedSelectedGroup = normalizeCharacterGroup(selectedGroup);
+    if (!normalizedSelectedGroup || (custom.length > 0 && !customGroups.includes(normalizedSelectedGroup))) {
+      setSelectedGroup('all');
+    }
+  }, [custom.length, customGroups, selectedGroup]);
 
   const resetSelection = () => {
     setSelectionMode(false);

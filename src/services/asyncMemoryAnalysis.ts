@@ -16,6 +16,7 @@ import {
 import { createRuntimeMemoryTimer, recordRuntimeMemory } from './runtimeMemoryMonitor';
 import type { MemoryCandidate } from './memoryTypes';
 import { normalizeRuntimeSeedArtifactLines } from './runtimeSeed';
+import { reportRecoverableError } from './diagnostics';
 
 interface DeferredMemoryAnalysisState {
   running: boolean;
@@ -92,7 +93,12 @@ function scheduleDeferredMemoryAnalysis(ownerKey: string, runner: (state: Deferr
         await runner(state);
       }
     } catch (error) {
-      console.warn('[memory-analysis] deferred run failed', error);
+      reportRecoverableError({
+        location: 'memory-analysis.deferred-run',
+        error,
+        userMessage: '记忆沉淀失败，已保留原始聊天。',
+        extra: { ownerKey },
+      });
     } finally {
       state.running = false;
       state.rerunRequested = false;

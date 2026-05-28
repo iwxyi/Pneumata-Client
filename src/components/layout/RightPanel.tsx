@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useUIStore } from '../../stores/useUIStore';
 import { storageKey } from '../../constants/brand';
+import PaneResizeDivider from './PaneResizeDivider';
 
 interface RightPanelProps {
   children: React.ReactNode;
@@ -43,6 +44,7 @@ export default function RightPanel({ children, title, hideMobileTitle = false }:
   const [panelWidth, setPanelWidth] = useState(getInitialPanelWidth);
   const [mobileDragOffset, setMobileDragOffset] = useState(0);
   const [mobileDragging, setMobileDragging] = useState(false);
+  const [resizing, setResizing] = useState(false);
   const [mobileSheetMounted, setMobileSheetMounted] = useState(rightPanelOpen);
   const mobileGestureActive = rightPanelGestureOffset !== null;
   const effectiveMobileDragOffset = mobileGestureActive ? rightPanelGestureOffset : mobileDragOffset;
@@ -54,6 +56,7 @@ export default function RightPanel({ children, title, hideMobileTitle = false }:
 
   const finishResize = useCallback(() => {
     resizeStateRef.current = null;
+    setResizing(false);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
   }, []);
@@ -66,17 +69,24 @@ export default function RightPanel({ children, title, hideMobileTitle = false }:
     localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
   }, []);
 
+  const handleResizeEnd = useCallback(() => {
+    window.removeEventListener('pointermove', handleResizeMove);
+    window.removeEventListener('pointerup', handleResizeEnd);
+    window.removeEventListener('pointercancel', handleResizeEnd);
+    finishResize();
+  }, [finishResize, handleResizeMove]);
+
   const startResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
+    event.stopPropagation();
     resizeStateRef.current = { startX: event.clientX, startWidth: panelWidth };
+    setResizing(true);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     window.addEventListener('pointermove', handleResizeMove);
-    window.addEventListener('pointerup', () => {
-      finishResize();
-      window.removeEventListener('pointermove', handleResizeMove);
-    }, { once: true });
-  }, [finishResize, handleResizeMove, panelWidth]);
+    window.addEventListener('pointerup', handleResizeEnd);
+    window.addEventListener('pointercancel', handleResizeEnd);
+  }, [handleResizeEnd, handleResizeMove, panelWidth]);
 
   const resetPanelWidth = useCallback(() => {
     setPanelWidth(DEFAULT_PANEL_WIDTH);
@@ -223,12 +233,17 @@ export default function RightPanel({ children, title, hideMobileTitle = false }:
   // Desktop: permanent panel
   if (isDesktop) {
     return rightPanelOpen ? (
+      <>
+      <PaneResizeDivider
+        resizing={resizing}
+        ariaLabel="调整侧边面板宽度"
+        onPointerDown={startResize}
+        onDoubleClick={resetPanelWidth}
+      />
       <Box
         sx={{
           width: panelWidth,
           flexShrink: 0,
-          borderLeft: 1,
-          borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
           bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(13,15,22,0.78)',
           backdropFilter: 'blur(18px) saturate(1.12)',
           WebkitBackdropFilter: 'blur(18px) saturate(1.12)',
@@ -252,39 +267,6 @@ export default function RightPanel({ children, title, hideMobileTitle = false }:
           },
         }}
       >
-        <Box
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="调整侧边面板宽度"
-          title="拖拽调整宽度，双击恢复默认"
-          onPointerDown={startResize}
-          onDoubleClick={resetPanelWidth}
-          sx={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: 10,
-            transform: 'translateX(-5px)',
-            cursor: 'col-resize',
-            zIndex: 2,
-            touchAction: 'none',
-            '&::after': {
-              content: '""',
-              position: 'absolute',
-              left: '50%',
-              top: 0,
-              bottom: 0,
-              width: 2,
-              transform: 'translateX(-50%)',
-              bgcolor: 'transparent',
-              transition: 'background-color 120ms ease',
-            },
-            '&:hover::after': {
-              bgcolor: 'primary.main',
-            },
-          }}
-        />
         {title && (
           <>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2.25, py: 1.75 }}>
@@ -302,6 +284,7 @@ export default function RightPanel({ children, title, hideMobileTitle = false }:
           {children}
         </Box>
       </Box>
+      </>
     ) : null;
   }
 

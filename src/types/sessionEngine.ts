@@ -1484,7 +1484,7 @@ export function createDefaultConversationParticipants(conversation: GroupChat): 
 export function createDefaultConversationPanels(context: SessionProjectionContext): RuntimePanelDefinition[] {
   return [
     { key: 'members', title: context.conversation.type === 'group' ? '成员' : '角色', type: 'members', tabKey: 'members' },
-    { key: 'runtime', title: context.conversation.type === 'group' ? '运行态' : '私聊状态', type: 'runtime', tabKey: 'world' },
+    { key: 'runtime', title: '运行态', type: 'runtime', tabKey: 'world' },
   ];
 }
 
@@ -1546,7 +1546,7 @@ export function createDefaultConversationPromptContext(params: SessionGeneration
     additionalConstraints: [
       params.conversation.type === 'group'
         ? 'Assume there are multiple simultaneous conversational threads and react to one thread sharply.'
-        : 'Treat this as a focused two-party exchange and respond directly.',
+        : 'Treat this as a focused two-party exchange. The latest User line is input to answer, not a script for you to repeat; respond to its question, doubt, or emotion in your own character voice.',
       params.speaker.group ? `Maintain ${params.speaker.group} social stance and continuity.` : 'Maintain speaker-specific social continuity.',
     ],
   };

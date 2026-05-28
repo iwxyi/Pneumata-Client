@@ -51,7 +51,7 @@ function renderMemoryReactivationMeta(payload: { metrics?: unknown }, members: D
   );
 }
 
-function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { showRelationshipEvents: boolean; showAffectEvents: boolean; showConflictEvents: boolean; showStateEvents: boolean; showMemoryDistillationEvents: boolean; showMemoryDebug: boolean }) {
+function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { showRelationshipEvents: boolean; showAffectEvents: boolean; showConflictEvents: boolean; showStateEvents: boolean; showMemoryDistillationEvents: boolean; showMemoryDebug: boolean; showLocalInterceptionHints: boolean }) {
   if (!payload?.eventType) return false;
   if (['group_relationship_shift', 'relationship_shift'].includes(String(payload.eventType))) return flags.showRelationshipEvents;
   if (['speaker_drift_shift', 'speaker_emotion_shift', 'target_emotion_shift'].includes(String(payload.eventType))) return flags.showAffectEvents;
@@ -59,6 +59,7 @@ function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { sh
   if (isStateDeveloperEvent(payload.eventType)) return flags.showStateEvents;
   if (payload.eventType === 'memory_distillation') return flags.showMemoryDistillationEvents || flags.showMemoryDebug;
   if (payload.eventType === 'memory_reactivation') return flags.showMemoryDebug;
+  if (payload.eventType === 'local_interception') return flags.showLocalInterceptionHints;
   return false;
 }
 
@@ -77,6 +78,7 @@ function buildEventTypeChip(payload: { eventType?: string }) {
     room_state_snapshot_v2: { label: '态势', color: 'primary' },
     memory_distillation: { label: '蒸馏', color: 'info' },
     memory_reactivation: { label: '回温', color: 'warning' },
+    local_interception: { label: '拦截', color: 'warning' },
   };
   const item = config[eventType] || { label: '提示', color: 'default' as const };
   return <Chip size="small" label={item.label} color={item.color} variant="outlined" />;
@@ -183,15 +185,9 @@ function renderMessageContent(message: Message, options: { onRetryMedia?: (messa
   };
   return (
     <Box sx={{ display: 'grid', gap: 0.9 }}>
-      {message.metadata?.format === 'markdown' ? (
-        <Box sx={{ typography: 'body2', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text', '& table': { width: '100%', borderCollapse: 'collapse' }, '& th, & td': { border: '1px solid', borderColor: 'divider', px: 0.75, py: 0.4 } }}>
-          <MarkdownText text={message.content} />
-        </Box>
-      ) : (
-        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
-          {message.content}
-        </Typography>
-      )}
+      <Box sx={{ typography: 'body2', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text', '& table': { width: '100%', borderCollapse: 'collapse' }, '& th, & td': { border: '1px solid', borderColor: 'divider', px: 0.75, py: 0.4 } }}>
+        <MarkdownText text={message.content} />
+      </Box>
       {attachments.map((attachment) => {
         if (attachment.kind === 'image') {
           if (attachment.status === 'ready' && attachment.url) {
@@ -301,6 +297,8 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
 
 export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, pending = false, currentUser, members = [] }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
+  const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
+  const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showRelationshipEvents = useSettingsStore((state) => state.developerUI.showRelationshipEvents);
@@ -308,6 +306,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const showConflictEvents = useSettingsStore((state) => state.developerUI.showConflictEvents);
   const showStateEvents = useSettingsStore((state) => state.developerUI.showStateEvents);
   const showMemoryDistillationEvents = useSettingsStore((state) => state.developerUI.showMemoryDistillationEvents);
+  const showLocalInterceptionHints = useSettingsStore((state) => state.developerUI.showLocalInterceptionHints);
   const showWithdrawnMessageContent = useSettingsStore((state) => state.developerUI.showWithdrawnMessageContent);
   const navigate = useNavigate();
   const location = useLocation();
@@ -424,7 +423,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
     if (!developerMode) return null;
     const parsed = parseRuntimeEvent(message.content);
     const payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown } = parsed || { title: '事件', summary: message.content };
-    if (!shouldRenderDeveloperEvent(payload, { showRelationshipEvents, showAffectEvents, showConflictEvents, showStateEvents, showMemoryDistillationEvents, showMemoryDebug })) return null;
+    if (!shouldRenderDeveloperEvent(payload, { showRelationshipEvents, showAffectEvents, showConflictEvents, showStateEvents, showMemoryDistillationEvents, showMemoryDebug, showLocalInterceptionHints })) return null;
     return renderEventBubble(message.id, payload, members);
   }
 
@@ -435,7 +434,10 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const resolvedStyle = effectiveCharacter
     ? resolveCharacterBubbleStyle({ bubbleStyle: effectiveCharacter.bubbleStyle, bubbleStyleId: effectiveCharacter.bubbleStyleId, customStyles: customBubbleStyles })
     : null;
-  const bubblePreview = resolvedStyle ? buildBubblePreview(resolvedStyle, isUser) : null;
+  const resolvedUserStyle = isUser && userBubbleStyleId
+    ? resolveCharacterBubbleStyle({ bubbleStyle: userBubbleStyle, bubbleStyleId: userBubbleStyleId, customStyles: customBubbleStyles })
+    : null;
+  const bubblePreview = resolvedStyle ? buildBubblePreview(resolvedStyle, isUser) : (resolvedUserStyle ? buildBubblePreview(resolvedUserStyle, true) : null);
   const avatar = effectiveCharacter?.avatar;
   const wrapperJustify = isUser ? 'flex-end' : 'flex-start';
   const selfAvatarValue = isManualSpeaker ? manualSpeaker?.avatar?.trim() : currentUser?.avatar?.trim();
@@ -481,9 +483,9 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
               px: 1.4,
               py: 1,
               borderRadius: bubblePreview?.borderRadius || '18px',
-              bgcolor: isUser ? 'primary.main' : undefined,
-              background: isUser ? undefined : (bubblePreview?.background || '#ffffff'),
-              color: isUser ? 'primary.contrastText' : (bubblePreview?.color || resolvedStyle?.textColor || '#1f2937'),
+              bgcolor: isUser && !bubblePreview ? 'primary.main' : undefined,
+              background: bubblePreview?.background || (isUser ? undefined : '#ffffff'),
+              color: bubblePreview?.color || (isUser ? 'primary.contrastText' : (resolvedStyle?.textColor || '#1f2937')),
               border: bubblePreview?.border || '1px solid rgba(15, 23, 42, 0.08)',
               boxShadow: bubblePreview?.boxShadow || '0 8px 24px rgba(15, 23, 42, 0.08)',
             }}

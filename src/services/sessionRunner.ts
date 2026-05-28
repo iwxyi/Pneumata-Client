@@ -3,7 +3,7 @@ import type { GroupChat, DriverMessageCommitResult } from '../types/chat';
 import type { SessionGenerationContext } from '../types/sessionEngine';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
-import { runOneRound } from './chatEngine';
+import { runOneRound, type LocalInterceptionEvent } from './chatEngine';
 import { commitGeneratedMessageTurn } from './generatedMessageTurnCommit';
 import { resolveSessionEngine } from './sessionEngineRegistry';
 import { createSessionRuntimeContext } from './sessionEngineKernel';
@@ -150,6 +150,7 @@ export async function runSessionLoop(params: {
   onTurnWorkFinished?: () => void;
   onIdle?: (reason: string) => void;
   onMessageChunk: (content: string) => void;
+  onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   onClearStreamingState: () => void;
   onEngineError: (error: Error) => void;
   onLoopError: (error: unknown) => void;
@@ -261,6 +262,10 @@ export async function runSessionLoop(params: {
           onMessageChunk: (content) => {
             if (!isActiveLoop(params)) return;
             params.onMessageChunk(content);
+          },
+          onLocalInterception: async (event) => {
+            if (!isActiveLoop(params)) return;
+            await params.onLocalInterception?.(event);
           },
           onIdle: (reason) => {
             if (!isActiveLoop(params)) return;

@@ -11,6 +11,7 @@ import { projectCurrentChatMessages } from './currentChatMessages';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
+import type { LocalInterceptionEvent } from './chatEngine';
 
 export async function runDirectUserReplyFlow(params: {
   api: APIConfig | APIConfig[];
@@ -28,6 +29,7 @@ export async function runDirectUserReplyFlow(params: {
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
   applyChatRuntimeDelta?: (id: string, delta: NonNullable<DriverMessageCommitResult['chatRuntimeDelta']>, patch?: Partial<GroupChat>) => Promise<void>;
   recordSpeak: (characterId: string) => void;
+  onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
 }) {
   const directCharacter = params.characters.find((item) => item.id === params.chat.memberIds[0]);
   if (!directCharacter) return;
@@ -72,6 +74,7 @@ export async function runDirectUserReplyFlow(params: {
     characters: params.characters,
     timestamp: params.userMessage.timestamp + 1,
     currentMessages: getProjectedMessages(),
+    onLocalInterception: params.onLocalInterception,
     generationContext: {
       buildPromptContext: (speaker) => sessionEngine.buildGenerationPromptContext?.({
         conversation: params.chat,

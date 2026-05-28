@@ -8,6 +8,7 @@ import { canProjectScope } from '../types/sessionVisibility';
 import { projectSessionRecentEvent } from './directSessionHelpers';
 import { buildRolePrivateParticipantStates, buildRolePrivatePayloads, projectPrivateParticipantPayloads } from './privateRuntimePayloads';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
+import { reportUnresolvedDisplayEntity } from './diagnostics';
 
 export interface ProjectedRuntimeTimelineItem {
   type: 'note' | 'artifact' | 'relationship';
@@ -90,6 +91,7 @@ export interface ProjectedChatDetailState {
   sidebarTitle: string;
   memberTabTitle: string;
   runtimeTabTitle: string;
+  privatePayloadTitle: string;
   sidebarChat: ProjectedSidebarChat;
   actionPanel: { title: string; actions: SessionActionDefinition[] };
   composerSurfaces: SessionSurfaceProjection['surfaces'];
@@ -179,11 +181,36 @@ function formatRelationshipReason(reason: string) {
 }
 
 function buildParticipantNameMap(participants: Array<AICharacter | ParticipantInstance>) {
-  return new Map(participants.map((participant) => ('participantId' in participant ? [participant.participantId, participant.displayName || participant.entityRefId] : [participant.id, participant.name])));
+  const entries = participants.flatMap((participant) => {
+    if ('participantId' in participant) {
+      const fallback = participant.displayName || participant.entityRefId || '成员';
+      if (!participant.displayName && !participant.entityRefId) {
+        reportUnresolvedDisplayEntity({
+          id: participant.participantId,
+          kind: 'participant',
+          location: 'sessionProjection.buildParticipantNameMap',
+          fallback,
+          extra: { entityRefId: participant.entityRefId },
+        });
+      }
+      return [
+        [participant.participantId, fallback] as const,
+        participant.entityRefId ? [participant.entityRefId, fallback] as const : null,
+      ].filter(Boolean) as Array<readonly [string, string]>;
+    }
+    return [[participant.id, participant.name] as const];
+  });
+  return new Map(entries);
 }
 
 function resolveActorTargetNames(ids: string[] | undefined, participantNameMap: Map<string, string>) {
-  return (ids || []).map((id) => participantNameMap.get(id) || '成员');
+  return (ids || []).map((id) => {
+    const name = participantNameMap.get(id);
+    if (!name) {
+      reportUnresolvedDisplayEntity({ id, kind: 'member', location: 'sessionProjection.resolveActorTargetNames', fallback: '成员' });
+    }
+    return name || '成员';
+  });
 }
 
 function displayMembersFromNameMap(participantNameMap: Map<string, string>): DisplayTextMember[] {
@@ -362,7 +389,8 @@ export function projectPrivatePayloads(chat: GroupChat, context: SessionProjecti
 function buildVisiblePanels(engine: SessionEngineDefinition, context: SessionProjectionContext) {
   const privatePayloads = buildPrivatePanelPayloads(context.conversation, context);
   const visiblePanels = engine.getVisiblePanels(context).filter((panel) => panel.type !== 'custom' || context.viewerRole !== 'viewer');
-  return privatePayloads.length ? [...visiblePanels, { key: 'private_payloads', title: '私有信息', type: 'custom' as const }] : visiblePanels;
+  const privateTitle = context.conversation.type === 'direct' ? '单聊信息' : '私有信息';
+  return privatePayloads.length ? [...visiblePanels, { key: 'private_payloads', title: privateTitle, type: 'custom' as const }] : visiblePanels;
 }
 
 function filterVisibleRuntimeEvents(events: RuntimeEventV2[], context: SessionProjectionContext) {
@@ -516,9 +544,10 @@ export function buildProjectedChatDetailState(params: {
     showRuntimeTab,
     showActionTab,
     activeSidebarTab,
-    sidebarTitle: activeSidebarTab === 'members' ? (memberPanel?.title || (params.chat.type === 'group' ? '成员' : params.chat.type === 'ai_direct' ? 'AI私聊信息' : '单聊信息')) : activeSidebarTab === 'actions' ? '动作' : (runtimePanel?.title || '状态'),
+    sidebarTitle: activeSidebarTab === 'members' ? (memberPanel?.title || (params.chat.type === 'group' ? '成员' : '角色')) : activeSidebarTab === 'actions' ? '动作' : (runtimePanel?.title || '运行态'),
     memberTabTitle: memberPanel?.title || (params.chat.type === 'group' ? '成员' : '角色'),
-    runtimeTabTitle: runtimePanel?.title || '状态',
+    runtimeTabTitle: runtimePanel?.title || '运行态',
+    privatePayloadTitle: params.chat.type === 'direct' ? '单聊信息' : '私有信息',
     sidebarChat: buildProjectedSidebarChat(params.chat, params.runtimeState, params.privatePayloads),
     actionPanel: buildProjectedActionPanel(buildProjectedSessionActions(params.chat, actionList, params.members || []), buildProjectedActionPanelTitle(params.chat, params.schemaTitle) || '动作'),
     composerSurfaces: buildProjectedComposerSurfaces(params.chat, params.frameworkState),

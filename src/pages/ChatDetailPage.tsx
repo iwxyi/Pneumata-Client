@@ -1,9 +1,6 @@
 import { lazy, Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Box, IconButton, Button, Typography } from '@mui/material';
-import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
-import SectionHeader from '../components/common/SectionHeader';
-import StatChipRow from '../components/common/StatChipRow';
 import AppSnackbar from '../components/common/AppSnackbar';
 import PeopleIcon from '@mui/icons-material/People';
 import InfoIcon from '@mui/icons-material/Info';
@@ -44,6 +41,7 @@ import { runDirectUserReplyFlow } from '../services/directUserReplyFlow';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 import { useResponsive } from '../hooks/useResponsive';
 import { usePaneLayout } from '../components/layout/PaneLayoutContext';
+import type { LocalInterceptionEvent } from '../services/chatEngine';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -54,6 +52,38 @@ function PanelFallback() {
 
 function LazyPanel({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PanelFallback />}>{children}</Suspense>;
+}
+
+function localizeLocalInterceptionReason(reason: string) {
+  const normalized = reason.trim();
+  const exact: Record<string, string> = {
+    empty_content: '生成内容为空或不可见',
+    missing_requested_image: '没有完成图片请求',
+    missing_requested_subject: '图片对象没有对准',
+    missing_topic_focus: '偏离了当前话题',
+    missing_question_answer: '没有回答当前问题',
+    missing_direct_reply_focus: '没有先回应点名要求',
+    no_media_capability: '当前模型能力不足',
+    message_withdrawn: '角色内在冲动触发撤回',
+  };
+  if (exact[normalized]) return exact[normalized];
+  if (/exactly repeats/i.test(normalized)) return '完全复用了近期发言';
+  if (/substring/i.test(normalized)) return '截取了近期发言的一部分';
+  if (/copies a recent line/i.test(normalized)) return '复制了近期发言';
+  if (/too close/i.test(normalized) || /surface overlap/i.test(normalized)) return '与近期措辞过于接近';
+  if (/opening pattern/i.test(normalized)) return '复用了房间里的高频开头';
+  if (/emoji|sticker/i.test(normalized)) return '复用了近期高频表情或贴纸标记';
+  return normalized || '本地规则判定不应直接发出';
+}
+
+function compactInterceptedDraft(draft: string | undefined) {
+  const normalized = (draft || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return '（无可展示草稿）';
+  return normalized.length > 160 ? `${normalized.slice(0, 160)}...` : normalized;
+}
+
+function buildLocalInterceptionSummary(event: LocalInterceptionEvent) {
+  return `拦截了${event.speakerName || '角色'}的发言：${compactInterceptedDraft(event.draft)}（原因：${localizeLocalInterceptionReason(event.reason)}）`;
 }
 
 export default function ChatDetailPage() {
@@ -73,6 +103,7 @@ export default function ChatDetailPage() {
   const aiProfiles = useSettingsStore((s) => s.aiProfiles);
   const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, toggleRightPanel, setRightPanelOpen, rightPanelTab, setRightPanelTab } = useUIStore();
   const dramaBoost = useSettingsStore((s) => s.developerUI.dramaBoost);
+  const showLocalInterceptionHints = useSettingsStore((s) => s.developerMode && s.developerUI.showLocalInterceptionHints);
   const currentUser = useAuthStore((s) => s.user);
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' }>({ open: false, message: '', severity: 'error' });
@@ -187,7 +218,7 @@ export default function ChatDetailPage() {
     loopTokenRef.current = loopToken;
   }, [id, loopToken]);
 
-  const appendEventMessage = useCallback(async (chatId: string, payload: { eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown; visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public'; visibleToIds?: string[]; visibleToRoles?: string[]; createdAt?: number; sourceMessageId?: string }) => {
+  const appendEventMessage = useCallback(async (chatId: string, payload: { eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown; visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public'; visibleToIds?: string[]; visibleToRoles?: string[]; createdAt?: number; sourceMessageId?: string }, sourceMessageId?: string) => {
     const targetChat = chats.find((item) => item.id === chatId);
     const eventPayload = normalizeRuntimeEvent(targetChat ? buildPrivateSessionEvent(targetChat, payload) : payload);
     await persistLocalFirstMessage({
@@ -198,7 +229,10 @@ export default function ChatDetailPage() {
         type: 'event',
         senderId: 'system',
         senderName: 'System',
-        content: buildRuntimeEventMessageContent(eventPayload),
+        content: buildRuntimeEventMessageContent({
+          ...eventPayload,
+          sourceMessageId: eventPayload.sourceMessageId || sourceMessageId,
+        }),
         emotion: 0,
       },
     });
@@ -243,6 +277,23 @@ export default function ChatDetailPage() {
   const appendEventMessageStable = appendEventMessage;
   const appendEventMessagesStable = appendEventMessages;
   const addMessageStable = addAnchoredMessage;
+
+  const appendLocalInterceptionHint = useCallback(async (event: LocalInterceptionEvent) => {
+    if (!chat?.id || !showLocalInterceptionHints) return;
+    await appendEventMessageStable(chat.id, {
+      eventType: 'local_interception',
+      title: '提示：本地拦截',
+      summary: buildLocalInterceptionSummary(event),
+      visibilityScope: 'moderator_only',
+      metrics: {
+        kind: event.kind,
+        speakerId: event.speakerId,
+        speakerName: event.speakerName,
+        reason: event.reason,
+        attempt: event.attempt,
+      },
+    });
+  }, [appendEventMessageStable, chat?.id, showLocalInterceptionHints]);
 
   const triggerPairPrivateThread = useCallback(async (sourceChat: GroupChat, actorId: string, targetId: string, navigateAfterCreate = false) => {
     if (!actorId || !targetId || actorId === targetId) return null;
@@ -324,6 +375,7 @@ export default function ChatDetailPage() {
     activeChatIdRef,
     streamingMessageRef,
     updateStreamingMessage,
+    onLocalInterception: appendLocalInterceptionHint,
     discardStreamingMessage,
     clearStreamingMessageRef,
     isManualInputPending: () => isManualInputPendingRef.current(),
@@ -431,6 +483,7 @@ export default function ChatDetailPage() {
           updateChat,
           applyChatRuntimeDelta,
           recordSpeak,
+          onLocalInterception: appendLocalInterceptionHint,
         });
         return;
       }
@@ -443,7 +496,7 @@ export default function ChatDetailPage() {
       }
       startConversationLoopIfNeeded(chat);
     });
-  }, [addMessageStable, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, applyChatRuntimeDelta, characters, chat, chats, commitPersistedManualRuntime, currentChatMessages, currentUser?.nickname, enqueueManualInput, id, recordSpeak, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
+  }, [addMessageStable, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, appendLocalInterceptionHint, applyChatRuntimeDelta, characters, chat, chats, commitPersistedManualRuntime, currentChatMessages, currentUser?.nickname, enqueueManualInput, id, recordSpeak, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
 
   const handleSpeakAs = useCallback(async (content: string) => {
     if (!chat || !id || !speakAsCharacterId) return;
@@ -704,7 +757,7 @@ export default function ChatDetailPage() {
             surfaces={composerSurfaces}
             speakAsCharacterName={speakAsChar?.name}
             onCloseSpeakAs={speakAsChar ? () => setSpeakAsCharacter(null) : undefined}
-            sendingLabel="等待当前发言结束…"
+            sendingLabel="等待角色发言结束"
             onOpenPanel={isMobile ? () => setRightPanelOpen(true) : undefined}
             onSubmitText={(submission, surface) => {
               const effectiveSurface = speakAsChar ? { ...surface, mode: 'speakAs' as const, actorId: speakAsChar.id } : surface;
@@ -727,18 +780,6 @@ export default function ChatDetailPage() {
           {chat.type === 'ai_direct' && chat.sourceChatId ? (
             <Button variant="outlined" onClick={() => navigate(`/chats/${chat.sourceChatId}`)}>返回来源群聊</Button>
           ) : null}
-          {(chat.type === 'direct' || chat.type === 'ai_direct') ? (
-            <SurfaceCard>
-              <SectionHeader title="会话信息" dense />
-              <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>{chat.type === 'ai_direct' ? 'AI私聊' : '用户单聊'}</Typography>
-              <StatChipRow items={[chat.mode, `${members.length} 成员`, chat.type === 'direct' ? '回应式' : '可运行']} />
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                {chat.type === 'direct'
-                  ? '用户单聊默认不持续运行，角色会基于自身记忆、关系与最近变化进行回应。'
-                  : 'AI私聊是两个AI之间的线程，可持续运行并沉淀关系与记忆。'}
-              </Typography>
-            </SurfaceCard>
-          ) : null}
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <LazyPanel>
               {runtimePanelLoading ? <Box sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">加载中…</Typography></Box> : <ChatSidebarPanel
@@ -753,6 +794,7 @@ export default function ChatDetailPage() {
                 memberPanelTitle={memberTabTitle}
                 runtimePanelTitle={runtimeTabTitle}
                 privatePayloads={projectedDetailState?.sidebarChat.privatePayloads || privatePayloads}
+                privatePayloadTitle={projectedDetailState?.privatePayloadTitle}
                 directMemoryContext={directMemoryPanelContext}
                 showActionTab={showActionTab}
                 actionPanel={showActionTab ? <LazyPanel><SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} hideHeader frameless /></LazyPanel> : null}

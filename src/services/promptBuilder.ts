@@ -352,7 +352,6 @@ function buildTargetedInfluenceContext(chat: GroupChat, target: AICharacter | un
 }
 
 function buildConflictPromptBundle(chat: GroupChat, character: AICharacter, characters: Map<string, AICharacter>) {
-  if (chat.type !== 'group') return '';
   const state = chat.worldState.conflictState;
   const primary = state?.primaryConflict;
   if (!primary) return '';
@@ -370,7 +369,7 @@ function buildPromptInfluenceContext(chat: GroupChat, character: AICharacter, ta
 }
 
 function buildChatInfluenceSummary(chat: GroupChat) {
-  if (chat.type === 'direct') return '\n## Channel Bias\n- This is a private user-facing channel: intimacy, continuity, and personal stance matter more than room theatrics.';
+  if (chat.type === 'direct') return '\n## Channel Bias\n- This is a private user-facing channel: intimacy, continuity, and personal stance matter more than room theatrics.\n- The latest User line is what you are answering. Do not output it as your own line unless the user explicitly asked you to repeat or quote it.';
   if (chat.type === 'ai_direct') return '\n## Channel Bias\n- This is a pair-private AI thread: reciprocal dynamics and unfinished tension between the pair matter more than group consensus.';
   return '\n## Channel Bias\n- This is a public group room: local momentum, alliances, pressure, and contradiction shape what feels natural to say next.';
 }
@@ -506,7 +505,7 @@ function buildRelationshipSection(character: AICharacter, target: AICharacter | 
 function buildRecentMessagesSection(messages: Message[], characters: Map<string, AICharacter>, limit = 12) {
   const rendered = buildChatMessages(messages, characters, limit);
   if (!rendered.length) return '\n## Recent Messages\n- No messages yet.';
-  return `\n## Recent Messages\n${rendered.map((message) => `- ${message.content}`).join('\n')}`;
+  return `\n## Recent Messages\n- These lines are factual context and relationship evidence, not style samples. Do not copy their emoji/sticker markers, opening fillers, endings, cadence, or full sentence shape unless you are explicitly quoting someone on purpose.\n${rendered.map((message) => `- ${message.content}`).join('\n')}`;
 }
 
 function normalizeStoredGuidance(message: Message): UserGuidanceIntent | null {
@@ -584,7 +583,12 @@ function getRelationshipSnapshot(character: AICharacter, target: AICharacter | u
 
 export function buildChatMessages(messages: Message[], characters: Map<string, AICharacter>, limit = 12) {
   return messages
-    .filter((message) => !message.isDeleted)
+    .filter((message) => {
+      if (message.isDeleted) return false;
+      if (message.type === 'system') return false;
+      if (message.type !== 'event') return true;
+      return false;
+    })
     .slice(-limit)
     .map((message) => {
       const isHumanGuidance = message.type === 'user' || message.type === 'god';

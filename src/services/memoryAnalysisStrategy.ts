@@ -90,15 +90,20 @@ function normalizeDecision(value: unknown): MemoryDecision | undefined {
   return allowed.includes(value as MemoryDecision) ? value as MemoryDecision : undefined;
 }
 
+function isContractPlaceholderText(value: string) {
+  return /(<[^>]+>|客观角度|关系角度|情绪后效|群体发展|角色主观角度|角色对某人的长期印象|角色成长|事情如何发展|局势如何变化|某人对某人|如何变化|这段经历留下|可展示的长期记忆结论)/.test(value);
+}
+
 function normalizeAnalyzedItem(item: Record<string, unknown>, lens?: MemoryExperienceLens): LlmAnalyzedMemoryItem {
+  const text = typeof item.text === 'string' ? item.text.trim() : '';
   return {
     scope: normalizeScope(item.scope),
     kind: normalizeKind(item.kind),
     subjectIds: Array.isArray(item.subjectIds) ? item.subjectIds.filter((id): id is string => typeof id === 'string') : undefined,
-    text: typeof item.text === 'string' ? item.text.trim() : '',
+    text,
     confidence: typeof item.confidence === 'number' ? item.confidence : 0.78,
     lens: normalizeLens(item.lens) || lens,
-    decision: normalizeDecision(item.decision),
+    decision: isContractPlaceholderText(text) ? 'ignore' : normalizeDecision(item.decision),
   };
 }
 
@@ -132,9 +137,9 @@ export function parseLlmMemoryAnalysisResult(raw: string): LlmMemoryAnalysisResu
 }
 
 export function buildChatMemoryAnalysisPrompt() {
-  return `你是一个群体经历与长期记忆分析器。\n根据最近的结构化证据和原始证据，提炼真正值得长期保留的群体事件、关系印记、情绪后效和发展主线。\n这不是摘要任务。不要复制原话，不要复述流水账，不要把同一主线换个说法重复写。\n只在证据已经跨越多个互动对象、多个事件，并形成稳定群体结构或长期后果时才输出。\n\n输出一个 JSON 对象，字段均为数组，可为空：\n{\n  "objectiveEvents":[{"scope":"conversation","kind":"conflict|status_shift|decision","subjectIds":["..."],"text":"客观角度：事情如何发展、局势如何变化","confidence":0.0,"decision":"create|reinforce|revise|merge|archive|ignore"}],\n  "relationshipImprints":[{"scope":"relationship","kind":"bond|resentment|bias|obsession","subjectIds":["actorId","targetId"],"text":"关系角度：某人对某人的长期印象或关系语义如何变化","confidence":0.0,"decision":"create|reinforce|revise|merge|archive|ignore"}],\n  "emotionEffects":[{"scope":"conversation|relationship","kind":"status_shift|conflict|bond|resentment","subjectIds":["..."],"text":"情绪后效：这段经历留下了什么情绪惯性","confidence":0.0,"decision":"create|reinforce|revise|merge|archive|ignore"}],\n  "growthSignals":[{"scope":"conversation","kind":"status_shift|decision|artifact","subjectIds":["..."],"text":"群体发展：群聊关系结构、长期梗、共同认知或明确形成的计划/清单/结论如何变化","confidence":0.0,"decision":"create|reinforce|revise|merge|archive|ignore"}]\n}\n\n要求：\n1. 每个 text 必须是可展示的长期记忆结论，不是原始发言摘抄。\n2. relationshipImprints 可以表达好感、喜欢、依赖、保护欲、嫉妒、戒备、厌烦、憎恶、同盟、裂痕、和解等真人关系语义。\n3. kind=artifact 只用于已经由群聊明确形成、可作为后续引用对象的产物，例如计划、清单、纪要、结论、规则、时间线；不要把反问、吐槽、台词、临时玩笑或“计划哪里不靠谱了”这类句子写成 artifact。\n4. 如果只是单轮吵闹、临时吐槽或证据不足，返回空数组。\n5. 优先输出 1-3 条高价值记忆，最多 4 条。\n6. 只输出 JSON。`;
+  return `你是一个群体经历与长期记忆分析器。\n根据最近的结构化证据和原始证据，提炼真正值得长期保留的群体事件、关系印记、情绪后效和发展主线。\n这不是摘要任务。不要复制原话，不要复述流水账，不要把同一主线换个说法重复写。\n只在证据已经跨越多个互动对象、多个事件，并形成稳定群体结构或长期后果时才输出。\n\n输出一个 JSON 对象，字段均为数组，可为空：\n{\n  "objectiveEvents":[{"scope":"conversation","kind":"conflict","subjectIds":["member-id"],"text":"<根据证据新写的群体事件长期结论>","confidence":0.0,"decision":"create"}],\n  "relationshipImprints":[{"scope":"relationship","kind":"bond","subjectIds":["actor-id","target-id"],"text":"<根据证据新写的关系印记长期结论>","confidence":0.0,"decision":"create"}],\n  "emotionEffects":[{"scope":"conversation","kind":"status_shift","subjectIds":["member-id"],"text":"<根据证据新写的情绪后效长期结论>","confidence":0.0,"decision":"create"}],\n  "growthSignals":[{"scope":"conversation","kind":"status_shift","subjectIds":["member-id"],"text":"<根据证据新写的发展主线长期结论>","confidence":0.0,"decision":"create"}]\n}\n\n要求：\n1. 每个 text 必须是可展示的长期记忆结论，不是原始发言摘抄。\n2. 上方尖括号内容只是字段占位符，绝不能原样输出，也不能把“客观角度/关系角度/情绪后效/群体发展”等栏目名写进 text。\n3. relationshipImprints 可以表达好感、喜欢、依赖、保护欲、嫉妒、戒备、厌烦、憎恶、同盟、裂痕、和解等真人关系语义。\n4. kind=artifact 只用于已经由群聊明确形成、可作为后续引用对象的产物，例如计划、清单、纪要、结论、规则、时间线；不要把反问、吐槽、台词、临时玩笑或“计划哪里不靠谱了”这类句子写成 artifact。\n5. 如果只是单轮吵闹、临时吐槽或证据不足，返回空数组。\n6. 优先输出 1-3 条高价值记忆，最多 4 条。\n7. 只输出 JSON。`;
 }
 
 export function buildCharacterMemoryAnalysisPrompt() {
-  return `你是一个角色经历、主观记忆与关系印记分析器。\n根据最近的结构化证据、原始证据和角色设定，提炼这个角色像真人一样会留下的长期记忆。\n这不是摘要任务。你要判断角色会如何理解事件、误读什么、在意什么、对谁形成怎样的关系印记，以及这会怎样改变自我认知。\n不要复制原话，不要把单轮情绪波动写成长期记忆。证据不足就返回空数组。\n\n输出一个 JSON 对象，字段均为数组，可为空：\n{\n  "characterPerspectives":[{"scope":"character_self","kind":"bias|trait_evidence|status_shift|taboo|obsession","subjectIds":["characterId"],"text":"角色主观角度：我如何理解这件事、我在意或回避什么","confidence":0.0,"decision":"create|reinforce|revise|merge|archive|ignore"}],\n  "relationshipImprints":[{"scope":"relationship","kind":"bond|resentment|bias|obsession","subjectIds":["targetId"],"text":"角色对某人的长期印象：好感、喜欢、依赖、嫉妒、戒备、厌烦、失望、憎恶、保护欲等","confidence":0.0,"decision":"create|reinforce|revise|merge|archive|ignore"}],\n  "emotionEffects":[{"scope":"character_self|relationship","kind":"status_shift|bond|resentment|obsession","subjectIds":["..."],"text":"这段经历留下的情绪后效和下次反应倾向","confidence":0.0,"decision":"create|reinforce|revise|merge|archive|ignore"}],\n  "growthSignals":[{"scope":"character_self","kind":"trait_evidence|decision|bias","subjectIds":["characterId"],"text":"角色成长：自我认知、价值观、行为模式或愿望期待如何变化","confidence":0.0,"decision":"create|reinforce|revise|merge|archive|ignore"}]\n}\n\n要求：\n1. 必须符合角色人格、背景、说话风格、身份、当前关系和情绪，不要生成通用模板。\n2. 同一事件对不同角色应有不同主观解释。\n3. relationshipImprints 应是长期关系语义，不只是四轴数值的文字化。\n4. 优先输出 1-3 条高价值记忆，最多 4 条。\n5. 只输出 JSON。`;
+  return `你是一个角色经历、主观记忆与关系印记分析器。\n根据最近的结构化证据、原始证据和角色设定，提炼这个角色像真人一样会留下的长期记忆。\n这不是摘要任务。你要判断角色会如何理解事件、误读什么、在意什么、对谁形成怎样的关系印记，以及这会怎样改变自我认知。\n不要复制原话，不要把单轮情绪波动写成长期记忆。证据不足就返回空数组。\n\n输出一个 JSON 对象，字段均为数组，可为空：\n{\n  "characterPerspectives":[{"scope":"character_self","kind":"bias","subjectIds":["character-id"],"text":"<根据证据新写的角色主观长期结论>","confidence":0.0,"decision":"create"}],\n  "relationshipImprints":[{"scope":"relationship","kind":"bond","subjectIds":["target-id"],"text":"<根据证据新写的关系印记长期结论>","confidence":0.0,"decision":"create"}],\n  "emotionEffects":[{"scope":"character_self","kind":"status_shift","subjectIds":["character-id"],"text":"<根据证据新写的情绪后效长期结论>","confidence":0.0,"decision":"create"}],\n  "growthSignals":[{"scope":"character_self","kind":"trait_evidence","subjectIds":["character-id"],"text":"<根据证据新写的角色成长长期结论>","confidence":0.0,"decision":"create"}]\n}\n\n要求：\n1. 必须符合角色人格、背景、说话风格、身份、当前关系和情绪，不要生成通用模板。\n2. 上方尖括号内容只是字段占位符，绝不能原样输出，也不能把“角色主观角度/角色对某人的长期印象/情绪后效/角色成长”等栏目名写进 text。\n3. 同一事件对不同角色应有不同主观解释。\n4. relationshipImprints 应是长期关系语义，不只是四轴数值的文字化。\n5. 优先输出 1-3 条高价值记忆，最多 4 条。\n6. 只输出 JSON。`;
 }

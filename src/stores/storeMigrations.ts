@@ -116,7 +116,7 @@ export function migrateMessageStoreState<T extends { messages?: Array<Record<str
 
 export function migrateSettingsStoreState<T extends Record<string, unknown>>(persisted: VersionedPersistedState<T>): VersionedPersistedState<T> {
   if (!persisted) return persisted;
-  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showStateEvents?: boolean; showMemoryDistillationEvents?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; showWithdrawnMessageContent?: boolean; dramaBoost?: boolean } | undefined) || {};
+  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showStateEvents?: boolean; showMemoryDistillationEvents?: boolean; showLocalInterceptionHints?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; showWithdrawnMessageContent?: boolean; dramaBoost?: boolean } | undefined) || {};
   const artifactAppearance = (persisted.artifactAppearance as { paperVariant?: string } | undefined) || {};
   return {
     ...persisted,
@@ -127,6 +127,7 @@ export function migrateSettingsStoreState<T extends Record<string, unknown>>(per
       showConflictEvents: Boolean(developerUI.showConflictEvents),
       showStateEvents: Boolean(developerUI.showStateEvents),
       showMemoryDistillationEvents: Boolean(developerUI.showMemoryDistillationEvents),
+      showLocalInterceptionHints: Boolean(developerUI.showLocalInterceptionHints),
       showSpeechStyle: Boolean(developerUI.showSpeechStyle),
       showAdvancedRuntimePanels: Boolean(developerUI.showAdvancedRuntimePanels),
       showWithdrawnMessageContent: Boolean(developerUI.showWithdrawnMessageContent),
@@ -138,6 +139,8 @@ export function migrateSettingsStoreState<T extends Record<string, unknown>>(per
         ? artifactAppearance.paperVariant
         : DEFAULT_ARTIFACT_APPEARANCE_SETTINGS.paperVariant,
     },
+    userBubbleStyleId: typeof persisted.userBubbleStyleId === 'string' ? persisted.userBubbleStyleId : null,
+    userBubbleStyle: persisted.userBubbleStyle && typeof persisted.userBubbleStyle === 'object' ? persisted.userBubbleStyle : null,
   } as T;
 }
 

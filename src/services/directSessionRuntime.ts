@@ -16,6 +16,7 @@ import { getRelationshipLedgerEntry } from './relationshipLedger';
 import { calculateRoomShift } from './roomStateSynthesizer';
 import { resolveSessionEngine } from './sessionEngineRegistry';
 import { buildThreadRef, getVisibilityChannelId } from './sessionTopology';
+import { reportUnresolvedDisplayEntity } from './diagnostics';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
@@ -985,8 +986,18 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
   return { privateChatId: null, handledEventId: null };
 }
 
-export function buildStartPrivateThreadExecutionResult(chat: GroupChat, actorId: string, targetId: string, prompt = ''): SessionActionExecutionResult {
-  const summary = `发起私聊：${actorId} → ${targetId}${prompt ? ` · ${prompt.slice(0, 32)}` : ''}`;
+function resolvePrivateThreadParticipantName(characters: AICharacter[] | undefined, id: string, fallback: string) {
+  const name = characters?.find((character) => character.id === id)?.name;
+  if (!name) {
+    reportUnresolvedDisplayEntity({ id, kind: 'character', location: 'directSessionRuntime.privateThreadParticipant', fallback });
+  }
+  return name || fallback;
+}
+
+export function buildStartPrivateThreadExecutionResult(chat: GroupChat, actorId: string, targetId: string, prompt = '', characters: AICharacter[] = []): SessionActionExecutionResult {
+  const actorName = resolvePrivateThreadParticipantName(characters, actorId, '发起者');
+  const targetName = resolvePrivateThreadParticipantName(characters, targetId, '对象');
+  const summary = `发起AI私聊：${actorName} → ${targetName}${prompt ? ` · ${prompt.slice(0, 32)}` : ''}`;
   return {
     chatPatch: withFrameworkPatch(chat, {
       worldState: {
@@ -996,9 +1007,9 @@ export function buildStartPrivateThreadExecutionResult(chat: GroupChat, actorId:
     }),
     runtimeEvents: [{
       eventType: 'start_private_thread',
-      title: '执行了私聊派生动作',
+      title: '执行了AI私聊派生动作',
       summary,
-      metrics: { actorId, targetId, prompt },
+      metrics: { actorId, targetId, actorName, targetName, prompt },
     }],
   };
 }

@@ -8,6 +8,7 @@ import type { BubbleStyleDefinition } from '../types/bubbleStyle';
 import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
 import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS, PAPER_SURFACE_VARIANTS } from '../types/artifactAppearance';
 import { api } from '../services/api';
+import { reportRecoverableError } from '../services/diagnostics';
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateSettingsStoreState } from './storeMigrations';
 import { scopedStorageKey } from '../constants/brand';
@@ -34,7 +35,9 @@ interface SettingsStore extends AppSettings {
   setDefaultSpeed: (speed: number) => void;
   setChatDraftDefaults: (defaults: Partial<ChatDraftDefaults>) => void;
   setCustomBubbleStyles: (styles: BubbleStyleDefinition[]) => void;
+  setUserBubbleStyle: (styleId: string | null, style?: BubbleStyleDefinition | null) => void;
   setArtifactAppearance: (appearance: Partial<ArtifactAppearanceSettings>) => void;
+  syncCurrentSettingsToServer: () => Promise<void>;
   resetSettings: () => void;
 }
 
@@ -68,7 +71,11 @@ function syncToServer(data: Record<string, unknown>, set: SettingsSet) {
         }, 1800);
       })
       .catch((err) => {
-        console.error('Failed to sync settings to server:', err);
+        reportRecoverableError({
+          location: 'cloud-sync:settings-save',
+          error: err,
+          userMessage: '设置同步失败，请检查网络后重试。',
+        });
         set((state) => ({ ...state, syncStatus: 'error', syncError: err instanceof Error ? err.message : String(err) }));
       });
   }, 500);
@@ -94,6 +101,8 @@ function buildSettingsPayload(state: AppSettings) {
     defaultSpeed: state.defaultSpeed,
     chatDraftDefaults: state.chatDraftDefaults,
     customBubbleStyles: state.customBubbleStyles,
+    userBubbleStyleId: state.userBubbleStyleId,
+    userBubbleStyle: state.userBubbleStyle,
     developerMode: state.developerMode,
     autoGenerateCharacterAvatar: state.avatarGeneration.autoGenerateCharacterAvatar,
     avatarGeneration: state.avatarGeneration,
@@ -131,6 +140,8 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
       runtimeEvolutionIntensity: state.chatDraftDefaults?.runtimeEvolutionIntensity || DEFAULT_CHAT_DRAFT_DEFAULTS.runtimeEvolutionIntensity,
     },
     customBubbleStyles: Array.isArray(state.customBubbleStyles) ? state.customBubbleStyles : [],
+    userBubbleStyleId: typeof state.userBubbleStyleId === 'string' ? state.userBubbleStyleId : null,
+    userBubbleStyle: state.userBubbleStyle || null,
     artifactAppearance: {
       ...DEFAULT_ARTIFACT_APPEARANCE_SETTINGS,
       ...(state.artifactAppearance || {}),
@@ -188,6 +199,8 @@ export const useSettingsStore = create<SettingsStore>()(
                 ...((settings.chatDraftDefaults || DEFAULT_CHAT_DRAFT_DEFAULTS) as ChatDraftDefaults),
               },
               customBubbleStyles: settings.customBubbleStyles as BubbleStyleDefinition[] | undefined,
+              userBubbleStyleId: typeof settings.userBubbleStyleId === 'string' ? settings.userBubbleStyleId : null,
+              userBubbleStyle: (settings.userBubbleStyle as BubbleStyleDefinition | null | undefined) || null,
               artifactAppearance: (settings as { artifactAppearance?: ArtifactAppearanceSettings }).artifactAppearance,
             }),
             _loaded: true,
@@ -196,7 +209,11 @@ export const useSettingsStore = create<SettingsStore>()(
             syncError: null,
           });
         } catch (error) {
-          console.error('Failed to load settings from server:', error);
+          reportRecoverableError({
+            location: 'cloud-sync:settings-load',
+            error,
+            userMessage: '设置加载失败，请检查网络后重试。',
+          });
           set({ _loaded: true, syncStatus: 'error', syncError: error instanceof Error ? error.message : String(error) });
         }
       },
@@ -395,6 +412,19 @@ export const useSettingsStore = create<SettingsStore>()(
         });
       },
 
+      setUserBubbleStyle: (userBubbleStyleId, userBubbleStyle = null) => {
+        set((state) => {
+          const next = {
+            ...state,
+            userBubbleStyleId,
+            userBubbleStyle,
+            lastSyncedAt: Date.now(),
+          };
+          syncToServer(buildSettingsPayload(next), set);
+          return next;
+        });
+      },
+
       setArtifactAppearance: (artifactAppearance) => {
         set((state) => {
           const next = {
@@ -408,6 +438,12 @@ export const useSettingsStore = create<SettingsStore>()(
           syncToServer(buildSettingsPayload(next), set);
           return next;
         });
+      },
+
+      syncCurrentSettingsToServer: async () => {
+        const current = useSettingsStore.getState();
+        await api.updateSettings(buildSettingsPayload(current));
+        set((state) => ({ ...state, syncStatus: 'saved', syncError: null, lastSyncedAt: Date.now() }));
       },
 
       resetSettings: () => {
@@ -433,6 +469,8 @@ export const useSettingsStore = create<SettingsStore>()(
         memoryUI: state.memoryUI,
         chatDraftDefaults: state.chatDraftDefaults,
         customBubbleStyles: state.customBubbleStyles,
+        userBubbleStyleId: state.userBubbleStyleId,
+        userBubbleStyle: state.userBubbleStyle,
         artifactAppearance: state.artifactAppearance,
       }),
       merge: (persistedState, currentState) => ({

@@ -4,6 +4,7 @@ import type { AIModelProfile } from '../types/settings';
 import { api } from './api';
 import { generateImageWithAdapter, synthesizeSpeechWithAdapter } from './aiGenerationAdapter';
 import { storageKey } from '../constants/brand';
+import { reportRecoverableError } from './diagnostics';
 
 function findProfile(profiles: AIModelProfile[], id?: string | null) {
   const profile = id ? profiles.find((item) => item.id === id) : null;
@@ -149,6 +150,17 @@ export async function processRichMessageMedia(params: {
         if (!isLocalOnlyMediaMode()) void api.updateMessageMetadata(currentMessage.serverId || currentMessage.id, readyMetadata).catch(() => undefined);
       }
     } catch (error) {
+      reportRecoverableError({
+        location: 'rich-message-media.process',
+        error,
+        userMessage: attachment.kind === 'image' ? '图片生成失败。' : '语音生成失败。',
+        extra: {
+          messageId: currentMessage.id,
+          attachmentId: attachment.id,
+          attachmentKind: attachment.kind,
+          senderId: currentMessage.senderId,
+        },
+      });
       const failedMetadata = updateAttachment(currentMessage.metadata, attachment.id, {
         status: 'failed',
         error: error instanceof Error ? error.message : String(error),

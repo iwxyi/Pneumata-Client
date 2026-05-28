@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, TextField, IconButton, Chip, Typography, CircularProgress } from '@mui/material';
+import { Box, TextField, IconButton, Chip, CircularProgress, Tooltip } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import CloseIcon from '@mui/icons-material/Close';
 import { useTranslation } from 'react-i18next';
@@ -56,14 +56,21 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     const content = text.trim();
     if (!content || isSending) return;
     setIsSending(true);
+    setText('');
+    window.requestAnimationFrame(() => {
+      textInputRef.current?.focus({ preventScroll: true });
+    });
     try {
       await onSend(content);
-      setText('');
     } catch (error) {
+      setText((current) => current || content);
       const message = error instanceof Error ? error.message : String(error);
       onSendError?.(message || '发送失败，请稍后重试');
     } finally {
       setIsSending(false);
+      window.requestAnimationFrame(() => {
+        textInputRef.current?.focus({ preventScroll: true });
+      });
     }
   };
 
@@ -200,8 +207,8 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
           ? '0 -10px 24px rgba(15,23,42,0.035), 0 1px 0 rgba(255,255,255,0.58) inset'
           : '0 -12px 30px rgba(0,0,0,0.12), 0 1px 0 rgba(255,255,255,0.09) inset',
         flexShrink: 0,
-        opacity: isSending ? 0.72 : 1,
-        pointerEvents: isSending ? 'none' : 'auto',
+        opacity: 1,
+        pointerEvents: 'auto',
         position: 'relative',
         overflow: 'visible',
         isolation: 'isolate',
@@ -279,7 +286,6 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
           onKeyDown={handleKeyDown}
           onFocus={() => setInputFocused(true)}
           onBlur={() => setInputFocused(false)}
-          disabled={isSending}
           inputRef={textInputRef}
           sx={{
             '& .MuiOutlinedInput-root': {
@@ -293,24 +299,29 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
             },
           }}
         />
-        <IconButton
-          color="primary"
-          onClick={() => void handleSend()}
-          disabled={!text.trim() || isSending}
-          sx={{
-            flexShrink: 0,
-            width: 42,
-            height: 42,
-            bgcolor: text.trim() && !isSending ? 'primary.main' : 'action.hover',
-            color: text.trim() && !isSending ? 'primary.contrastText' : 'text.disabled',
-            boxShadow: text.trim() && !isSending ? '0 10px 24px rgba(15,23,42,0.18)' : 'none',
-            '&:hover': {
-              bgcolor: text.trim() && !isSending ? 'primary.dark' : 'action.hover',
-            },
-          }}
-        >
-          {isSending ? <CircularProgress size={22} /> : <SendIcon />}
-        </IconButton>
+        <Tooltip title={isSending ? (sendingLabel || '等待角色发言结束') : ''} disableHoverListener={!isSending} arrow>
+          <span>
+            <IconButton
+              color="primary"
+              onClick={() => void handleSend()}
+              onMouseDown={(event) => event.preventDefault()}
+              disabled={!text.trim() || isSending}
+              sx={{
+                flexShrink: 0,
+                width: 42,
+                height: 42,
+                bgcolor: text.trim() && !isSending ? 'primary.main' : 'action.hover',
+                color: text.trim() && !isSending ? 'primary.contrastText' : 'text.disabled',
+                boxShadow: text.trim() && !isSending ? '0 10px 24px rgba(15,23,42,0.18)' : 'none',
+                '&:hover': {
+                  bgcolor: text.trim() && !isSending ? 'primary.dark' : 'action.hover',
+                },
+              }}
+            >
+              {isSending ? <CircularProgress size={22} /> : <SendIcon />}
+            </IconButton>
+          </span>
+        </Tooltip>
       </Box>
       {onOpenPanel ? (
         <Box
@@ -367,11 +378,6 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
             }}
           />
         </Box>
-      ) : null}
-      {isSending ? (
-        <Typography variant="caption" color="text.secondary" sx={{ position: 'absolute', right: 56, bottom: onOpenPanel ? 24 : 2 }}>
-          {sendingLabel || '等待发送…'}
-        </Typography>
       ) : null}
     </Box>
   );

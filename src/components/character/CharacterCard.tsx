@@ -185,7 +185,7 @@ export default function CharacterCard({ character, onEdit, onDelete, onStartDire
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleMenuClose}>
         {onStartDirectChat && !selectionMode ? (
           <MenuItem onClick={() => handleMenuAction(onStartDirectChat)}>
-            {i18n.language.startsWith('zh') ? '发起私聊' : 'Start direct chat'}
+            {i18n.language.startsWith('zh') ? '发起单聊' : 'Start direct chat'}
           </MenuItem>
         ) : null}
         {onEdit && (

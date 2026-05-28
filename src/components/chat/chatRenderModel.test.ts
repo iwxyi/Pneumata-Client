@@ -97,4 +97,37 @@ describe('buildChatRenderItems', () => {
 
     expect(items.map((item) => item.message.id)).toEqual(['user-1', 'ai-1']);
   });
+
+  it('keeps repeated developer event hints visible when they are anchored to their source message', () => {
+    const repeatedEvent = (sourceMessageId: string) => JSON.stringify({
+      eventType: 'speaker_drift_shift',
+      title: 'Linux之父Linus 出现人格偏移',
+      summary: 'Linux之父Linus：敏感度+6，外向性-3',
+      sourceMessageId,
+    });
+    const items = buildChatRenderItems([
+      message({ id: 'ai-1', timestamp: 10, content: '不客气，去写代码吧。' }),
+      message({ id: 'event-1', type: 'event', senderId: 'system', senderName: 'System', timestamp: 11, content: repeatedEvent('ai-1') }),
+      message({ id: 'ai-2', timestamp: 12, content: '继续说。' }),
+      message({ id: 'event-2', type: 'event', senderId: 'system', senderName: 'System', timestamp: 13, content: repeatedEvent('ai-2') }),
+    ]);
+
+    expect(items.map((item) => item.message.id)).toEqual(['ai-1', 'event-1', 'ai-2', 'event-2']);
+  });
+
+  it('places delayed developer event hints after the message that caused them', () => {
+    const anchoredEvent = JSON.stringify({
+      eventType: 'speaker_drift_shift',
+      title: 'Linux之父Linus 出现人格偏移',
+      summary: 'Linux之父Linus：敏感度+6，外向性-3',
+      sourceMessageId: 'ai-1',
+    });
+    const items = buildChatRenderItems([
+      message({ id: 'ai-1', timestamp: 10 }),
+      message({ id: 'user-1', type: 'user', senderId: 'user', senderName: 'User', timestamp: 20 }),
+      message({ id: 'event-1', type: 'event', senderId: 'system', senderName: 'System', timestamp: 30, content: anchoredEvent }),
+    ]);
+
+    expect(items.map((item) => item.message.id)).toEqual(['ai-1', 'event-1', 'user-1']);
+  });
 });

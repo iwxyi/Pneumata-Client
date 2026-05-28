@@ -4,6 +4,7 @@ import type { DriverCharacterPatch, DriverEventPayload, DriverMessageCommitTrans
 import type { Message } from '../types/message';
 import type { APIConfig } from '../types/settings';
 import { createRuntimeMemoryTimer } from './runtimeMemoryMonitor';
+import { reportRecoverableError } from './diagnostics';
 
 export interface CommitRuntimeServices {
   updateCharacter: (id: string, patch: Partial<AICharacter>) => Promise<void>;
@@ -79,7 +80,11 @@ function normalizeCommitTransition(transition: DriverMessageCommitTransition, so
 function deferCommitSideEffect(task: () => Promise<void>) {
   const run = () => {
     void task().catch((error) => {
-      console.error('[commit-apply] deferred side effect failed', error);
+      reportRecoverableError({
+        location: 'commit-apply.deferred-side-effect',
+        error,
+        userMessage: '后台同步更新失败，请稍后重试。',
+      });
     });
   };
   const scheduler = (globalThis as typeof globalThis & {

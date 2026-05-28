@@ -4,6 +4,7 @@ import type { DriverMessageCommitResult, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import { createCommittedLocalMessage } from '../services/chatCommitMessage';
+import type { LocalInterceptionEvent } from '../services/chatEngine';
 import { projectCurrentChatMessages } from '../services/currentChatMessages';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
@@ -22,6 +23,7 @@ export function useChatRunLoop(params: {
   activeChatIdRef: React.MutableRefObject<string | null>;
   streamingMessageRef: React.MutableRefObject<Message | null>;
   updateStreamingMessage: (updater: (current: Message | null) => Message | null, options?: { immediate?: boolean }) => void;
+  onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   discardStreamingMessage: () => void;
   clearStreamingMessageRef: () => void;
   isManualInputPending: () => boolean;
@@ -118,6 +120,7 @@ export function useChatRunLoop(params: {
           current.updateStreamingMessage((message) => message ? { ...message, content, isStreaming: true } : message);
           setChatError(null);
         },
+        onLocalInterception: current.onLocalInterception,
         onIdle: (reason) => {
           current.discardStreamingMessage();
           setThinkingId(null);

@@ -134,8 +134,8 @@ export function buildDirectPrivatePayload(chat: GroupChat): RolePrivateRuntimePa
   if (chat.type !== 'direct' && chat.type !== 'ai_direct') return null;
   return {
     key: 'private-thread-context',
-    title: chat.type === 'direct' ? '单聊私有上下文' : 'AI私聊私有上下文',
-    text: chat.type === 'direct' ? '该会话仅对当前用户与目标角色可见。' : '该会话只对当前私聊双方可见，主群只看摘要回流。',
+    title: chat.type === 'direct' ? '单聊上下文' : 'AI私聊上下文',
+    text: chat.type === 'direct' ? '该单聊仅对当前用户与目标角色可见。' : '该会话只对当前私聊双方可见，主群只看摘要回流。',
     visibilityScope: 'pair_private',
     channelId: getRoleChannelId(chat.type === 'direct' ? 'user' : 'pair'),
     visibleToRoles: chat.type === 'direct' ? ['user_private'] : ['pair_private'],

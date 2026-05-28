@@ -627,7 +627,7 @@ async function analyzeSocialOuting(params: {
 }): Promise<SocialOutingAnalysisResult | null> {
   if (!params.apiConfig) return null;
   const recentTranscript = (params.recentMessages || [])
-    .filter((message) => !message.isDeleted && message.type !== 'system')
+    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
     .slice(-8)
     .map((message) => `${message.senderName}: ${message.content}`)
     .join('\n');
@@ -670,7 +670,7 @@ async function analyzePostMoment(params: {
 }): Promise<PostMomentAnalysisResult | null> {
   if (!params.apiConfig) return null;
   const recentTranscript = (params.recentMessages || [])
-    .filter((message) => !message.isDeleted && message.type !== 'system')
+    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
     .slice(-8)
     .map((message) => `${message.senderName}: ${message.content}`)
     .join('\n');
@@ -715,7 +715,7 @@ async function analyzePairPrivateThread(params: {
 }): Promise<PairPrivateThreadAnalysisResult | null> {
   if (!params.apiConfig) return null;
   const recentTranscript = (params.recentMessages || [])
-    .filter((message) => !message.isDeleted && message.type !== 'system')
+    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
     .slice(-8)
     .map((message) => `${message.senderName}: ${message.content}`)
     .join('\n');

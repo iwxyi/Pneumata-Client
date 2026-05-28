@@ -12,6 +12,7 @@ import type { RelationshipAxisReason, RelationshipLedgerEntry } from '../../type
 import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
 import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
 import { compactPillChipSx } from '../../styles/interaction';
+import { reportUnresolvedDisplayEntity } from '../../services/diagnostics';
 
 interface RelationshipPanelProps {
   chat: GroupChat;
@@ -497,7 +498,16 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
                   <Stack spacing={1} sx={{ mt: 0.5 }}>
                     {items.map((relation, index) => {
                       const target = members.find((item) => item.id === relation.characterId);
-                      const targetName = target?.name || relation.characterId;
+                      if (!target) {
+                        reportUnresolvedDisplayEntity({
+                          id: relation.characterId,
+                          kind: 'relationship-target',
+                          location: 'RelationshipPanel.fallbackSections',
+                          fallback: '未知角色',
+                          extra: { memberId: member.id },
+                        });
+                      }
+                      const targetName = target?.name || '未知角色';
                       return (
                         <RelationshipFallbackCard
                           key={`${member.id}-${index}`}

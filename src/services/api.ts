@@ -303,7 +303,7 @@ class ApiClient {
 
   async createMessage(chatId: string, data: {
     type: string; senderId: string; senderName: string;
-    content: string; emotion?: number; metadata?: unknown;
+    content: string; emotion?: number; metadata?: unknown; timestamp?: number;
   }) {
     return this.request<Record<string, unknown>>('POST', `/chats/${chatId}/messages`, data);
   }
@@ -355,10 +355,13 @@ class ApiClient {
       developerMode?: boolean;
       autoGenerateCharacterAvatar?: boolean;
       avatarGeneration?: { autoGenerateCharacterAvatar?: boolean; preferNonPhotorealAvatar?: boolean };
-      developerUI?: { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showSpeechStyle?: boolean; dramaBoost?: boolean };
+      developerUI?: { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showStateEvents?: boolean; showMemoryDistillationEvents?: boolean; showLocalInterceptionHints?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; showWithdrawnMessageContent?: boolean; dramaBoost?: boolean };
       memoryUI?: { showDeveloperMemory?: boolean };
       chatDraftDefaults?: { style: string; showRoleActions: boolean; runtimeEvolutionIntensity: 'slow' | 'balanced' | 'fast' };
       customBubbleStyles?: Array<Record<string, unknown>>;
+      userBubbleStyleId?: string | null;
+      userBubbleStyle?: Record<string, unknown> | null;
+      artifactAppearance?: Record<string, unknown> | null;
     }>('GET', '/settings');
   }
 

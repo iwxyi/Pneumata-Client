@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE } from '../types/chat';
+import type { Message } from '../types/message';
 import type { AIModelProfile } from '../types/settings';
 import { __chatEngineTestUtils, generateSpeakerMessage, runOneRound } from './chatEngine';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
@@ -103,6 +104,34 @@ function buildProfiles(): AIModelProfile[] {
   ];
 }
 
+function buildAiMessage(senderId: string, senderName: string, content: string, timestamp = 1): Message {
+  return {
+    id: `msg-${senderId}-${timestamp}`,
+    chatId: 'chat-1',
+    type: 'ai',
+    senderId,
+    senderName,
+    content,
+    emotion: 0,
+    timestamp,
+    isDeleted: false,
+  };
+}
+
+function buildUserMessage(content: string, timestamp = 1): Message {
+  return {
+    id: `user-${timestamp}`,
+    chatId: 'chat-1',
+    type: 'user',
+    senderId: 'user',
+    senderName: '用户',
+    content,
+    emotion: 0,
+    timestamp,
+    isDeleted: false,
+  };
+}
+
 function buildMediaDirectorIntent(): DirectorIntent {
   return {
     source: 'user_message',
@@ -196,6 +225,35 @@ describe('chatEngine streaming preview', () => {
     expect(contract).toContain('while keeping them temporary and context-dependent');
     expect(contract).toContain('natural phone camera perspective');
     expect(contract).toContain('keep stable identity anchors across images');
+    expect(contract).toContain('按当前请求自然作答；可短可长');
+    expect(contract).not.toContain('一句自然的群聊回复');
+  });
+
+  it('does not locally force detailed chat requests into a professional longform surface', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '我会这么拆：每个实例单独分支，提交前只 stage 自己改的文件，再 rebase 或 merge 回主线。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const linus = buildCharacter('linus', 'Linus', { expertise: ['Git', '代码管理'] });
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['linus'] }),
+      speaker: linus,
+      characters: [linus],
+      messages: [
+        buildUserMessage('详细讲讲你会怎么做？', 1),
+      ],
+      apiConfig: buildProfiles(),
+    });
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+
+    expect(prompt).toContain('Decide the visible length yourself');
+    expect(prompt).not.toContain('Professional form is available');
+    expect(message.metadata?.runtimeDecision?.responseSurface?.kind).toBe('chat');
+    expect(message.metadata?.runtimeDecision?.responseSurface?.basis || []).not.toContain('topic:professional-task');
   });
 
   it('preserves parsed image decisions and converts them into queued attachments', () => {
@@ -336,6 +394,119 @@ describe('chatEngine streaming preview', () => {
 
     expect(message.content).toBe('一');
     expect(message.extraMessages).toEqual(['二', '三', '四', '五\n六']);
+  });
+
+  it('retries when a draft exactly repeats a recent room line', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '行行行，你俩一唱一和的，我投降。那件夹克改好了记得喊我去捡漏，二手还能省一笔呢～',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '捡漏这事你们先别抢，我得先看那件夹克还能不能救。',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const hui = buildCharacter('hui', '灰太狼');
+    const onLocalInterception = vi.fn();
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat(),
+      speaker: mei,
+      characters: [mei, hui],
+      messages: [
+        buildAiMessage('hui', '灰太狼', '行行行，你俩一唱一和的，我投降。那件夹克改好了记得喊我去捡漏，二手还能省一笔呢～'),
+      ],
+      apiConfig: buildProfiles(),
+      onLocalInterception,
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(onLocalInterception).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'surface_echo_retry',
+      speakerId: 'mei',
+      speakerName: '美羊羊',
+      draft: expect.stringContaining('捡漏'),
+      reason: expect.stringContaining('exactly repeats'),
+      attempt: 1,
+    }));
+    expect(message.content).toBe('捡漏这事你们先别抢，我得先看那件夹克还能不能救。');
+  });
+
+  it('retries borrowed emoji markers after they become room contagion', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '我也有点想排队了😂',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '我也有点想排队了，但先看你能不能真改出东西。',
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const hui = buildCharacter('hui', '灰太狼');
+    const onLocalInterception = vi.fn();
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat(),
+      speaker: mei,
+      characters: [mei, hui],
+      messages: [
+        buildAiMessage('hui', '灰太狼', '期待你下手别太狠😂', 1),
+        buildAiMessage('mei', '美羊羊', '随便改，改坏了也不心疼😂', 2),
+        buildAiMessage('hui', '灰太狼', '那我也排队等内部价😂', 3),
+      ],
+      apiConfig: buildProfiles(),
+      onLocalInterception,
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(onLocalInterception).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'surface_echo_retry',
+      speakerId: 'mei',
+      reason: expect.stringContaining('emoji'),
+      attempt: 1,
+    }));
+    expect(message.content).toBe('我也有点想排队了，但先看你能不能真改出东西。');
+  });
+
+  it('allows exact repeated answers when the user asks for a poem next line', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '春风又绿江南岸',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const hui = buildCharacter('hui', '灰太狼');
+    const onLocalInterception = vi.fn();
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat(),
+      speaker: mei,
+      characters: [mei, hui],
+      messages: [
+        buildAiMessage('hui', '灰太狼', '春风又绿江南岸', 1),
+        buildUserMessage('“京口瓜洲一水间”的下一句是什么？', 2),
+      ],
+      apiConfig: buildProfiles(),
+      onLocalInterception,
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(onLocalInterception).not.toHaveBeenCalled();
+    expect(message.content).toBe('春风又绿江南岸');
   });
 
   it('retries explicit media guidance when the first draft keeps chatting instead of sending the requested image', async () => {

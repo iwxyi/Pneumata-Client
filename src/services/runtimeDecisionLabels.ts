@@ -200,6 +200,8 @@ export function formatSurfaceBasisLabel(reason: string, language = 'zh') {
     'style:brainstorm-structured': '头脑风暴支持结构化',
     'style:debate-reasoning': '辩论风格需要推理',
     'style:brainstorm-reasoning': '头脑风暴需要推理',
+    'style:debate-open-ended': '辩论风格开放表达',
+    'style:brainstorm-open-ended': '头脑风暴开放表达',
     'style:free': '自由聊天风格',
     'style:debate': '辩论风格',
     'style:brainstorm': '头脑风暴风格',

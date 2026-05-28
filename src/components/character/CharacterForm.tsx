@@ -14,11 +14,9 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  Divider,
   Card,
   CardContent,
   Stack,
-  DialogActions,
   FormControlLabel,
   Switch,
   Autocomplete,
@@ -41,9 +39,8 @@ import { useTranslation } from 'react-i18next';
 import type { Theme } from '@mui/material/styles';
 import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile, CharacterVoiceConfig, CharacterCoreProfile } from '../../types/character';
 import { getCharacterGroupList, normalizeCharacterGroup, normalizeCharacterModelProfileIds, getDuplicateCharacterNameKeys, getDuplicateCharacterWarningText, hasDuplicateCharacterName } from '../../types/character';
-import type { BubbleShadowLevel, BubbleStyleDefinition, BubbleStyleFormValues } from '../../types/bubbleStyle';
+import type { BubbleStyleDefinition } from '../../types/bubbleStyle';
 import { DEFAULT_PERSONALITY, DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CORE_PROFILE } from '../../types/character';
-import { DEFAULT_BUBBLE_STYLE_FORM } from '../../types/bubbleStyle';
 import { generateCharacterProfile, generateCharacterVisualIdentityDraft } from '../../services/characterGenerator';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCharacterStore } from '../../stores/useCharacterStore';
@@ -60,9 +57,10 @@ import NumericSliders from './NumericSliders';
 import RuntimeInsightsPanel, { CharacterMemoryInspector, CharacterRelationshipInspector } from './RuntimeInsightsPanel';
 import CollapsibleParamGroup from './CollapsibleParamGroup';
 import { AVATAR_OPTIONS } from '../../constants/presets';
-import { BUILT_IN_BUBBLE_STYLES, DEFAULT_AI_BUBBLE_STYLE_ID } from '../../constants/bubbleStyles';
-import { buildBubblePreview, cloneBubbleStyle, createCharacterBubbleStyleId, resolveCharacterBubbleStyle, toBubbleStyleFormValues } from '../../utils/bubbleStyle';
+import { DEFAULT_AI_BUBBLE_STYLE_ID } from '../../constants/bubbleStyles';
+import { buildBubblePreview, cloneBubbleStyle, createCharacterBubbleStyleId, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import ArtifactCalendarReader from '../artifacts/ArtifactCalendarReader';
+import BubbleStylePickerDialog from '../bubble/BubbleStylePickerDialog';
 
 function buildEditorCardSx() {
   return {
@@ -113,25 +111,6 @@ function buildAvatarOptionSx(selected: boolean) {
   };
 }
 
-function buildBubbleOptionCardSx(selected: boolean) {
-  return {
-    borderColor: selected ? 'primary.main' : (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
-    cursor: 'pointer',
-    bgcolor: selected
-      ? (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(49,90,156,0.10)' : 'rgba(120,156,220,0.14)'
-      : (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.58)' : 'rgba(255,255,255,0.045)',
-    backdropFilter: 'blur(16px) saturate(1.08)',
-    WebkitBackdropFilter: 'blur(16px) saturate(1.08)',
-    boxShadow: selected
-      ? (theme: Theme) => theme.palette.mode === 'light' ? '0 0 0 1px rgba(49,90,156,0.10) inset' : '0 0 0 1px rgba(120,156,220,0.12) inset'
-      : 'none',
-    transition: 'border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease',
-    '&:hover': {
-      borderColor: 'primary.main',
-      bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.78)' : 'rgba(255,255,255,0.075)',
-    },
-  };
-}
 import type { CharacterVisualIdentity, CharacterVisualReferenceImage } from '../../types/character';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../common/FloatingSegmentedTabs';
 
@@ -167,28 +146,6 @@ function renderAvatarPreview(avatar: string, isImageAvatar: boolean, size: numbe
     </Box>
   );
 }
-function styleToFormValues(style?: BubbleStyleDefinition): BubbleStyleFormValues {
-  if (!style) return DEFAULT_BUBBLE_STYLE_FORM;
-  return toBubbleStyleFormValues(style);
-}
-function formValuesToStyle(form: BubbleStyleFormValues, id: string): BubbleStyleDefinition {
-  return {
-    id,
-    name: form.name.trim(),
-    backgroundColor: form.backgroundColor,
-    textColor: form.textColor,
-    borderColor: form.borderColor,
-    borderWidth: form.borderWidth,
-    borderStyle: form.borderStyle,
-    radius: form.radius,
-    shadow: form.shadow,
-    gradientFrom: form.gradientFrom || undefined,
-    gradientTo: form.gradientTo || undefined,
-    gradientDirection: form.gradientFrom && form.gradientTo ? form.gradientDirection : undefined,
-    isBuiltIn: false,
-  };
-}
-
 function pickRandomExample(options: string[]) {
   return options[Math.floor(Math.random() * options.length)] || '';
 }
@@ -368,18 +325,10 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [modelProfileIds, setModelProfileIds] = useState(() => normalizeCharacterModelProfileIds(initial?.modelProfileIds, initial?.modelProfileId || null));
   const [bubbleStyleId, setBubbleStyleId] = useState<string>(initial?.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID);
   const [bubbleStyle, setBubbleStyle] = useState<BubbleStyleDefinition>(() => cloneBubbleStyle(initial?.bubbleStyle) || { ...resolveCharacterBubbleStyle({ bubbleStyleId: initial?.bubbleStyleId, customStyles: settings.customBubbleStyles || [] }) });
-  const [draftBubbleStyleId, setDraftBubbleStyleId] = useState<string>(initial?.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID);
-  const [draftBubbleStyle, setDraftBubbleStyle] = useState<BubbleStyleDefinition>(() => cloneBubbleStyle(initial?.bubbleStyle) || { ...resolveCharacterBubbleStyle({ bubbleStyleId: initial?.bubbleStyleId, customStyles: settings.customBubbleStyles || [] }) });
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [bubblePickerOpen, setBubblePickerOpen] = useState(false);
-  const [bubbleEditorOpen, setBubbleEditorOpen] = useState(false);
-  const [editingBubbleStyleId, setEditingBubbleStyleId] = useState<string | null>(null);
-  const [bubbleForm, setBubbleForm] = useState<BubbleStyleFormValues>(DEFAULT_BUBBLE_STYLE_FORM);
-  const [bubbleTab, setBubbleTab] = useState(0);
   const [configTab, setConfigTab] = useState(0);
-  const bubbleCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const nameInputRef = useRef<HTMLInputElement | null>(null);
-  const wasBubblePickerOpenRef = useRef(false);
   const modelDefaultsAppliedRef = useRef(false);
   const characters = useCharacterStore((state) => state.characters);
   const artifactItems = useCharacterArtifactStore((state) => state.items);
@@ -416,16 +365,8 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const modelTypeOrder: AIModelType[] = ['text', 'image', 'audio', 'document'];
 
   const customBubbleStyles = settings.customBubbleStyles || [];
-  const roundedStyles = BUILT_IN_BUBBLE_STYLES.filter((style) => style.radius >= 22);
-  const borderedStyles = BUILT_IN_BUBBLE_STYLES.filter((style) => style.borderWidth >= 2 || style.borderStyle !== 'solid');
-  const gradientStyles = BUILT_IN_BUBBLE_STYLES.filter((style) => style.gradientFrom && style.gradientTo);
-  const darkStyles = BUILT_IN_BUBBLE_STYLES.filter((style) => style.textColor.toLowerCase().includes('f') || style.backgroundColor.startsWith('#1') || style.backgroundColor.startsWith('#0') || style.backgroundColor.startsWith('rgba'));
-  const builtInTabs = [BUILT_IN_BUBBLE_STYLES, roundedStyles, borderedStyles, gradientStyles, darkStyles];
-  const currentBubbleStyles = bubbleTab === 0 ? customBubbleStyles : (builtInTabs[bubbleTab - 1] || BUILT_IN_BUBBLE_STYLES);
-  const allBubbleStyles = [...customBubbleStyles, ...BUILT_IN_BUBBLE_STYLES];
   const selectedBubbleStyle = resolveCharacterBubbleStyle({ bubbleStyle, bubbleStyleId, customStyles: customBubbleStyles });
   const selectedBubblePreview = buildBubblePreview(selectedBubbleStyle);
-  const draftBubblePreview = buildBubblePreview(draftBubbleStyle);
   const bubblePreviewText = useMemo(() => (i18n.language.startsWith('zh') ? '这是角色气泡预览' : 'Bubble style preview'), [i18n.language]);
   const visualIdentityExamples = useMemo(() => ({
     description: i18n.language.startsWith('zh')
@@ -507,15 +448,6 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     });
     modelDefaultsAppliedRef.current = true;
   }, [initial?.id, modelTypeOrder, profilesByType]);
-
-  useEffect(() => {
-    const justOpened = bubblePickerOpen && !wasBubblePickerOpenRef.current;
-    wasBubblePickerOpenRef.current = bubblePickerOpen;
-    if (!justOpened) return;
-    setDraftBubbleStyleId(bubbleStyleId);
-    setDraftBubbleStyle({ ...resolveCharacterBubbleStyle({ bubbleStyle, bubbleStyleId, customStyles: customBubbleStyles }) });
-    setBubbleTab(customBubbleStyles.length > 0 ? 0 : 1);
-  }, [bubblePickerOpen, bubbleStyle, bubbleStyleId, customBubbleStyles]);
 
   useEffect(() => {
     if (!initial) return;
@@ -638,18 +570,6 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   }, [initial?.id, i18n.language, visualImageTargetKey]);
 
 
-  const applyBubbleSelection = () => {
-    setBubbleStyleId(draftBubbleStyleId);
-    setBubbleStyle({ ...draftBubbleStyle, id: draftBubbleStyleId });
-    setBubblePickerOpen(false);
-  };
-
-  const cancelBubbleSelection = () => {
-    setDraftBubbleStyleId(bubbleStyleId);
-    setDraftBubbleStyle({ ...selectedBubbleStyle });
-    setBubblePickerOpen(false);
-  };
-
   const handleGenerate = async () => {
     if (!name.trim() || generating) return;
     const textModelProfileId = modelProfileIds.text || null;
@@ -690,8 +610,6 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       }));
       setBubbleStyleId(generatedBubbleStyleId);
       setBubbleStyle({ ...generated.bubbleStyle, id: generatedBubbleStyleId });
-      setDraftBubbleStyleId(generatedBubbleStyleId);
-      setDraftBubbleStyle({ ...generated.bubbleStyle, id: generatedBubbleStyleId });
       setGeneratedByAI(true);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -1099,7 +1017,6 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   );
 
   const openBubblePicker = () => {
-    setDraftBubbleStyleId(bubbleStyleId);
     setBubblePickerOpen(true);
   };
 
@@ -1577,102 +1494,13 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
 
   const runtimeTab = <RuntimeInsightsPanel character={runtimeCharacter} />;
 
-  const shouldAutoScrollBubbleRef = useRef(false);
-
-  useEffect(() => {
-    if (!bubblePickerOpen || !shouldAutoScrollBubbleRef.current) return;
-    const target = bubbleCardRefs.current[draftBubbleStyleId];
-    if (!target) return;
-    requestAnimationFrame(() => {
-      target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
-      shouldAutoScrollBubbleRef.current = false;
-    });
-  }, [bubblePickerOpen, draftBubbleStyleId, bubbleTab]);
-
-  useEffect(() => {
-    if (!bubblePickerOpen) {
-      shouldAutoScrollBubbleRef.current = false;
-    }
-  }, [bubblePickerOpen]);
-
-  const jumpToStyle = (styleIdToUse: string, autoScroll = false) => {
-    shouldAutoScrollBubbleRef.current = autoScroll;
-    setDraftBubbleStyleId(styleIdToUse);
-    setDraftBubbleStyle({ ...resolveCharacterBubbleStyle({ bubbleStyleId: styleIdToUse, customStyles: customBubbleStyles }) });
-  };
-
-  const pickLeastUsedStyle = () => {
-    const usage = new Map<string, number>();
-    allBubbleStyles.forEach((style) => usage.set(style.id, 0));
-    characters.forEach((character) => {
-      const id = character.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID;
-      usage.set(id, (usage.get(id) || 0) + 1);
-    });
-    const sorted = [...allBubbleStyles].sort((a, b) => {
-      const countDiff = (usage.get(a.id) || 0) - (usage.get(b.id) || 0);
-      return countDiff !== 0 ? countDiff : a.name.localeCompare(b.name);
-    });
-    if (sorted[0]) jumpToStyle(sorted[0].id, true);
-  };
-
-  const pickRandomStyle = () => {
-    if (allBubbleStyles.length === 0) return;
-    const index = Math.floor(Math.random() * allBubbleStyles.length);
-    jumpToStyle(allBubbleStyles[index].id, true);
-  };
-
-  const selectBubbleStyle = (styleIdToUse: string) => {
-    shouldAutoScrollBubbleRef.current = false;
-    setDraftBubbleStyleId(styleIdToUse);
-  };
-
-  const isStyleSelected = (styleIdToCheck: string) => draftBubbleStyleId === styleIdToCheck;
-
-  const getPreviewFor = (styleIdToUse: string) => buildBubblePreview(resolveCharacterBubbleStyle({ bubbleStyleId: styleIdToUse, customStyles: customBubbleStyles }));
-
-  const bubblePickerActionLabel = i18n.language.startsWith('zh') ? { newStyle: '新建样式', use: '使用', confirm: '确定', cancel: '取消', auto: '自动', random: '随机', custom: '自定义', allPresets: '全部预设', rounded: '圆润', border: '边框', gradient: '渐变', dark: '深色', saveStyle: '保存样式' } : { newStyle: 'New style', use: 'Use', confirm: 'Confirm', cancel: 'Cancel', auto: 'Auto', random: 'Random', custom: 'Custom', allPresets: 'All presets', rounded: 'Rounded', border: 'Borders', gradient: 'Gradient', dark: 'Dark', saveStyle: 'Save style' };
-
-  const openBubbleEditor = (style?: BubbleStyleDefinition) => {
-    setEditingBubbleStyleId(style?.id || bubbleStyleId || null);
-    setBubbleForm(styleToFormValues(style || selectedBubbleStyle));
-    setBubbleEditorOpen(true);
-  };
-
-  const saveBubbleStyle = () => {
-    if (!bubbleForm.name.trim()) return;
-    const isEditingCustomStyle = customBubbleStyles.some((style) => style.id === editingBubbleStyleId);
-    const id = isEditingCustomStyle ? editingBubbleStyleId! : createCharacterBubbleStyleId();
-    const nextStyle = formValuesToStyle(bubbleForm, id);
-    if (isEditingCustomStyle) {
-      settings.setCustomBubbleStyles(customBubbleStyles.map((style) => (style.id === id ? nextStyle : style)));
-    }
-    setBubbleStyleId(id);
-    setBubbleStyle(nextStyle);
-    setDraftBubbleStyleId(id);
-    setDraftBubbleStyle(nextStyle);
-    setBubbleEditorOpen(false);
-    setBubblePickerOpen(true);
-  };
-
-  const handleDeleteCustomBubbleStyle = () => {
-    if (!editingBubbleStyleId) return;
-    const isEditingCustomStyle = customBubbleStyles.some((style) => style.id === editingBubbleStyleId);
-    if (!isEditingCustomStyle) return;
-    settings.setCustomBubbleStyles(customBubbleStyles.filter((style) => style.id !== editingBubbleStyleId));
-    setBubbleEditorOpen(false);
-    setBubblePickerOpen(true);
-    deleteBubbleStyle(editingBubbleStyleId);
-  };
-
-  const isEditingCustomBubbleStyle = customBubbleStyles.some((style) => style.id === editingBubbleStyleId);
-
   const handleRegenerateBubble = async () => {
-    if (!name.trim() || generating) return;
+    if (!name.trim() || generating) return null;
     const textModelProfileId = modelProfileIds.text || null;
     const selectedProfile = settings.aiProfiles.find((profile) => profile.id === textModelProfileId) || getPreferredAIProfile(settings.aiProfiles, 'text') || settings.aiProfiles[0];
     if (!selectedProfile?.apiKey || !selectedProfile?.model) {
       setGenerateError(getGenerateNoKeyError(i18n.language));
-      return;
+      return null;
     }
     setGenerating(true);
     setGenerateError(null);
@@ -1680,26 +1508,12 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       const generated = await generateCharacterProfile(selectedProfile, name.trim(), i18n.language.startsWith('zh') ? 'zh' : 'en');
       const nextBubbleStyleId = createCharacterBubbleStyleId();
       const nextBubbleStyle = { ...generated.bubbleStyle, id: nextBubbleStyleId };
-      setBubbleStyleId(nextBubbleStyleId);
-      setBubbleStyle(nextBubbleStyle);
-      setDraftBubbleStyleId(nextBubbleStyleId);
-      setDraftBubbleStyle(nextBubbleStyle);
-      setBubbleForm(styleToFormValues(nextBubbleStyle));
+      return nextBubbleStyle;
     } catch {
       setGenerateError(getGenerateError(i18n.language));
+      return null;
     } finally {
       setGenerating(false);
-    }
-  };
-
-  const deleteBubbleStyle = (styleId: string) => {
-    if (bubbleStyleId === styleId) {
-      setBubbleStyleId(DEFAULT_AI_BUBBLE_STYLE_ID);
-      setBubbleStyle({ ...resolveCharacterBubbleStyle({ bubbleStyleId: DEFAULT_AI_BUBBLE_STYLE_ID, customStyles: customBubbleStyles }) });
-    }
-    if (draftBubbleStyleId === styleId) {
-      setDraftBubbleStyleId(DEFAULT_AI_BUBBLE_STYLE_ID);
-      setDraftBubbleStyle({ ...resolveCharacterBubbleStyle({ bubbleStyleId: DEFAULT_AI_BUBBLE_STYLE_ID, customStyles: customBubbleStyles }) });
     }
   };
 
@@ -1844,162 +1658,28 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
         </DialogContent>
       </Dialog>
 
-      <Dialog open={bubblePickerOpen} onClose={cancelBubbleSelection} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-          <Box component="span">{i18n.language.startsWith('zh') ? '角色气泡' : 'Character bubble'}</Box>
-          <Button
-            variant="outlined"
-            startIcon={<AutoAwesomeIcon />}
-            onClick={handleRegenerateBubble}
-            disabled={!name.trim() || generating}
-            sx={{ whiteSpace: 'nowrap' }}
-          >
-            {regenerateBubbleLabel}
-          </Button>
-        </DialogTitle>
-        <DialogContent
-          sx={{
-            p: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            height: { xs: '68vh', sm: '72vh' },
-            maxHeight: '72vh',
-            overflow: 'hidden',
-            bgcolor: 'transparent',
-          }}
-        >
-          <Box
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 1.25,
-              flex: '1 1 auto',
-              minHeight: 0,
-              overflow: 'hidden',
-              px: 3,
-              pt: 1.5,
-              pb: 2,
-            }}
-          >
-            <Card
-              variant="outlined"
-              sx={{
-                ...buildBubbleOptionCardSx(false),
-                cursor: 'default',
-                flex: '0 0 auto',
-                '&:hover': {
-                  borderColor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
-                  bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.58)' : 'rgba(255,255,255,0.045)',
-                },
-              }}
-            >
-              <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.15, minWidth: 0 }}>
-                  {renderAvatarPreview(avatar, isImageAvatar, 42)}
-                  <Box sx={{ px: 1.5, py: 1, border: draftBubblePreview.border, borderRadius: draftBubblePreview.borderRadius, boxShadow: draftBubblePreview.boxShadow, color: draftBubblePreview.color, background: draftBubblePreview.background, flex: 1, minWidth: 0 }}>
-                    <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, opacity: 0.9 }}>{draftBubbleStyle.name}</Typography>
-                    <Typography variant="body2" noWrap>{bubblePreviewText}</Typography>
-                  </Box>
-                  <IconButton
-                    size="small"
-                    onClick={() => openBubbleEditor(selectedBubbleStyle)}
-                    aria-label={i18n.language.startsWith('zh') ? '编辑气泡样式' : 'Edit bubble style'}
-                    sx={{ flexShrink: 0 }}
-                  >
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                </Box>
-              </CardContent>
-            </Card>
-            <Card variant="outlined" sx={{ ...buildBubbleOptionCardSx(false), cursor: 'default', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }}>
-              <CardContent sx={{ p: 1.5, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 1.25, minHeight: 0, '&:last-child': { pb: 1.5 } }}>
-                {inlineError ? <Typography variant="caption" color="error">{inlineError}</Typography> : null}
-                <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                  <FloatingSegmentedTabs
-                    value={bubbleTab}
-                    onChange={setBubbleTab}
-                    equalWidth={false}
-                    items={[
-                      { value: 0, label: bubblePickerActionLabel.custom },
-                      { value: 1, label: bubblePickerActionLabel.allPresets },
-                      { value: 2, label: bubblePickerActionLabel.rounded },
-                      { value: 3, label: bubblePickerActionLabel.border },
-                      { value: 4, label: bubblePickerActionLabel.gradient },
-                      { value: 5, label: bubblePickerActionLabel.dark },
-                    ]}
-                  />
-                </Box>
-                <Divider sx={{ borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)' }} />
-                <Box sx={{ flex: '1 1 auto', overflowY: 'auto', minHeight: 0, pr: 0.5 }}>
-                  {currentBubbleStyles.length > 0 ? (
-                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.25 }}>{currentBubbleStyles.map((style) => { const preview = getPreviewFor(style.id); return <Card key={style.id} ref={(node) => { bubbleCardRefs.current[style.id] = node; }} variant="outlined" sx={buildBubbleOptionCardSx(isStyleSelected(style.id))} onClick={() => jumpToStyle(style.id)}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}><Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}><Typography variant="subtitle2">{style.name}</Typography>{bubbleTab === 0 ? <IconButton size="small" onClick={(e) => { e.stopPropagation(); openBubbleEditor(style); }}><EditIcon fontSize="small" /></IconButton> : null}</Box><Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>{renderAvatarPreview(avatar, isImageAvatar, 30)}<Box sx={{ px: 1.5, py: 1, border: preview.border, borderRadius: preview.borderRadius, boxShadow: preview.boxShadow, color: preview.color, background: preview.background, flex: 1 }}><Typography variant="body2">{bubblePreviewText}</Typography></Box></Box></CardContent></Card>; })}</Box>
-                  ) : (
-                    <Box sx={{ minHeight: 120, display: 'grid', placeItems: 'center', color: 'text.secondary', textAlign: 'center' }}>
-                      <Typography variant="body2">{i18n.language.startsWith('zh') ? '暂无自定义气泡样式' : 'No custom bubble styles yet'}</Typography>
-                    </Box>
-                  )}
-                </Box>
-                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-start', pt: 0 }}>
-                  <Button size="small" onClick={pickLeastUsedStyle} sx={{ minWidth: 0, px: 0.85 }}>{bubblePickerActionLabel.auto}</Button>
-                  <Button size="small" onClick={pickRandomStyle} sx={{ minWidth: 0, px: 0.85 }}>{bubblePickerActionLabel.random}</Button>
-                  <Button size="small" startIcon={<AddIcon />} onClick={() => openBubbleEditor(selectedBubbleStyle)} sx={{ minWidth: 0, px: 0.85, '& .MuiButton-startIcon': { mr: 0.35 } }}>{i18n.language.startsWith('zh') ? '新建' : 'New'}</Button>
-                </Box>
-              </CardContent>
-            </Card>
-          </Box>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2, justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap', borderTop: 1, borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)', bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.025)' }}>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Button onClick={cancelBubbleSelection}>{bubblePickerActionLabel.cancel}</Button>
-            <Button variant="contained" onClick={applyBubbleSelection}>{bubblePickerActionLabel.confirm}</Button>
-          </Box>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={bubbleEditorOpen} onClose={() => setBubbleEditorOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{editingBubbleStyleId ? (i18n.language.startsWith('zh') ? '编辑样式' : 'Edit style') : (i18n.language.startsWith('zh') ? '新建样式' : 'New style')}</DialogTitle>
-        <DialogContent
-          sx={{
-            bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.03)',
-          }}
-        >
-          <Box sx={{ display: 'grid', gap: 1.5, pt: 1 }}>
-            <TextField label={i18n.language.startsWith('zh') ? '样式名称' : 'Style name'} value={bubbleForm.name} onChange={(e) => setBubbleForm((prev) => ({ ...prev, name: e.target.value }))} fullWidth />
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 1.25 }}>
-              <TextField label={i18n.language.startsWith('zh') ? '背景色' : 'Background'} value={bubbleForm.backgroundColor} onChange={(e) => setBubbleForm((prev) => ({ ...prev, backgroundColor: e.target.value }))} fullWidth slotProps={{ input: { startAdornment: <Box component="label" sx={{ width: 28, height: 28, borderRadius: 1.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider', mr: 1, cursor: 'pointer', flexShrink: 0, display: 'inline-flex' }}><Box component="input" type="color" value={bubbleForm.backgroundColor} onChange={(e) => setBubbleForm((prev) => ({ ...prev, backgroundColor: e.target.value }))} sx={{ width: '100%', height: '100%', p: 0, border: 0, bgcolor: 'transparent', cursor: 'pointer' }} /></Box> } }} />
-              <TextField label={i18n.language.startsWith('zh') ? '文字色' : 'Text color'} value={bubbleForm.textColor} onChange={(e) => setBubbleForm((prev) => ({ ...prev, textColor: e.target.value }))} fullWidth slotProps={{ input: { startAdornment: <Box component="label" sx={{ width: 28, height: 28, borderRadius: 1.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider', mr: 1, cursor: 'pointer', flexShrink: 0, display: 'inline-flex' }}><Box component="input" type="color" value={bubbleForm.textColor} onChange={(e) => setBubbleForm((prev) => ({ ...prev, textColor: e.target.value }))} sx={{ width: '100%', height: '100%', p: 0, border: 0, bgcolor: 'transparent', cursor: 'pointer' }} /></Box> } }} />
-              <TextField label={i18n.language.startsWith('zh') ? '边框色' : 'Border color'} value={bubbleForm.borderColor} onChange={(e) => setBubbleForm((prev) => ({ ...prev, borderColor: e.target.value }))} fullWidth slotProps={{ input: { startAdornment: <Box component="label" sx={{ width: 28, height: 28, borderRadius: 1.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider', mr: 1, cursor: 'pointer', flexShrink: 0, display: 'inline-flex' }}><Box component="input" type="color" value={bubbleForm.borderColor} onChange={(e) => setBubbleForm((prev) => ({ ...prev, borderColor: e.target.value }))} sx={{ width: '100%', height: '100%', p: 0, border: 0, bgcolor: 'transparent', cursor: 'pointer' }} /></Box> } }} />
-            </Box>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 1.25 }}>
-              <TextField label={i18n.language.startsWith('zh') ? '渐变起点' : 'Gradient from'} value={bubbleForm.gradientFrom} onChange={(e) => setBubbleForm((prev) => ({ ...prev, gradientFrom: e.target.value }))} fullWidth slotProps={{ input: { startAdornment: <Box component="label" sx={{ width: 28, height: 28, borderRadius: 1.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider', mr: 1, cursor: 'pointer', flexShrink: 0, display: 'inline-flex' }}><Box component="input" type="color" value={bubbleForm.gradientFrom || '#ffffff'} onChange={(e) => setBubbleForm((prev) => ({ ...prev, gradientFrom: e.target.value }))} sx={{ width: '100%', height: '100%', p: 0, border: 0, bgcolor: 'transparent', cursor: 'pointer' }} /></Box> } }} />
-              <TextField label={i18n.language.startsWith('zh') ? '渐变终点' : 'Gradient to'} value={bubbleForm.gradientTo} onChange={(e) => setBubbleForm((prev) => ({ ...prev, gradientTo: e.target.value }))} fullWidth slotProps={{ input: { startAdornment: <Box component="label" sx={{ width: 28, height: 28, borderRadius: 1.5, overflow: 'hidden', border: '1px solid', borderColor: 'divider', mr: 1, cursor: 'pointer', flexShrink: 0, display: 'inline-flex' }}><Box component="input" type="color" value={bubbleForm.gradientTo || '#ffffff'} onChange={(e) => setBubbleForm((prev) => ({ ...prev, gradientTo: e.target.value }))} sx={{ width: '100%', height: '100%', p: 0, border: 0, bgcolor: 'transparent', cursor: 'pointer' }} /></Box> } }} />
-              <FormControl fullWidth><InputLabel>{i18n.language.startsWith('zh') ? '阴影' : 'Shadow'}</InputLabel><Select value={bubbleForm.shadow} label={i18n.language.startsWith('zh') ? '阴影' : 'Shadow'} onChange={(e) => setBubbleForm((prev) => ({ ...prev, shadow: e.target.value as BubbleShadowLevel }))}><MenuItem value="none">none</MenuItem><MenuItem value="soft">soft</MenuItem><MenuItem value="medium">medium</MenuItem><MenuItem value="strong">strong</MenuItem></Select></FormControl>
-            </Box>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 1.25 }}>
-              <TextField type="number" label={i18n.language.startsWith('zh') ? '圆角' : 'Radius'} value={bubbleForm.radius} onChange={(e) => setBubbleForm((prev) => ({ ...prev, radius: Number(e.target.value) || 0 }))} fullWidth />
-              <TextField type="number" label={i18n.language.startsWith('zh') ? '边框宽度' : 'Border width'} value={bubbleForm.borderWidth} onChange={(e) => setBubbleForm((prev) => ({ ...prev, borderWidth: Number(e.target.value) || 0 }))} fullWidth />
-              <FormControl fullWidth><InputLabel>{i18n.language.startsWith('zh') ? '边框样式' : 'Border style'}</InputLabel><Select value={bubbleForm.borderStyle} label={i18n.language.startsWith('zh') ? '边框样式' : 'Border style'} onChange={(e) => setBubbleForm((prev) => ({ ...prev, borderStyle: e.target.value as BubbleStyleDefinition['borderStyle'] }))}><MenuItem value="solid">solid</MenuItem><MenuItem value="dashed">dashed</MenuItem><MenuItem value="dotted">dotted</MenuItem></Select></FormControl>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-              {renderAvatarPreview(avatar, isImageAvatar, 30)}
-              <Box sx={{ px: 1.5, py: 1, border: buildBubblePreview(formValuesToStyle(bubbleForm, editingBubbleStyleId || 'preview')).border, borderRadius: buildBubblePreview(formValuesToStyle(bubbleForm, editingBubbleStyleId || 'preview')).borderRadius, boxShadow: buildBubblePreview(formValuesToStyle(bubbleForm, editingBubbleStyleId || 'preview')).boxShadow, color: buildBubblePreview(formValuesToStyle(bubbleForm, editingBubbleStyleId || 'preview')).color, background: buildBubblePreview(formValuesToStyle(bubbleForm, editingBubbleStyleId || 'preview')).background, flex: 1 }}>
-                <Typography variant="body2">{bubblePreviewText}</Typography>
-              </Box>
-            </Box>
-          </Box>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2, justifyContent: 'space-between', gap: 1, flexWrap: 'wrap', borderTop: 1, borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)', bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.025)' }}>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            {isEditingCustomBubbleStyle ? (
-              <Button color="error" onClick={handleDeleteCustomBubbleStyle}>{i18n.language.startsWith('zh') ? '删除' : 'Delete'}</Button>
-            ) : null}
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Button onClick={() => setBubbleEditorOpen(false)}>{i18n.language.startsWith('zh') ? '取消' : 'Cancel'}</Button>
-            <Button variant="contained" onClick={saveBubbleStyle} disabled={!bubbleForm.name.trim()}>{bubblePickerActionLabel.saveStyle}</Button>
-          </Box>
-        </DialogActions>
-      </Dialog>
+      <BubbleStylePickerDialog
+        open={bubblePickerOpen}
+        title={i18n.language.startsWith('zh') ? '角色气泡' : 'Character bubble'}
+        valueStyleId={bubbleStyleId}
+        valueStyle={bubbleStyle}
+        customStyles={customBubbleStyles}
+        allCharacters={characters}
+        avatar={avatar}
+        isImageAvatar={isImageAvatar}
+        previewText={bubblePreviewText}
+        inlineError={inlineError}
+        generateLabel={regenerateBubbleLabel}
+        generateDisabled={!name.trim() || generating}
+        onGenerateStyle={handleRegenerateBubble}
+        onClose={() => setBubblePickerOpen(false)}
+        onConfirm={(styleId, style) => {
+          setBubbleStyleId(styleId);
+          setBubbleStyle({ ...style, id: styleId });
+          setBubblePickerOpen(false);
+        }}
+        onCustomStylesChange={settings.setCustomBubbleStyles}
+      />
 
       <Fab color="primary" variant="extended" onClick={handleSubmit} disabled={!name.trim() || generating} aria-label={t('character.save')} sx={{ position: 'fixed', right: { xs: 24, sm: 32, md: 36 }, bottom: { xs: 24, sm: 32, md: 36 }, zIndex: 1300, minHeight: 56, px: 2.25, gap: 1, borderRadius: 18, boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)', '&:hover': { boxShadow: '0 14px 32px rgba(0,0,0,0.26), 0 6px 12px rgba(0,0,0,0.18)', transform: 'translateY(-1px)' }, '&:active': { boxShadow: '0 6px 14px rgba(0,0,0,0.18)', transform: 'translateY(0)' }, transition: 'box-shadow 0.2s ease, transform 0.2s ease' }}>
         <SaveIcon fontSize="small" />{t('character.save')}

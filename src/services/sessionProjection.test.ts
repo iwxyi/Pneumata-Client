@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { openChatEngine } from './engines/openChatEngine';
-import { buildProjectedSessionActions, createProjectionContext, projectRuntimeState, projectActionSchema, projectRecentInteractionItems } from './sessionProjection';
+import { buildProjectedChatDetailState, buildProjectedSessionActions, createProjectionContext, projectRuntimeState, projectActionSchema, projectRecentInteractionItems, projectSessionFrameworkState } from './sessionProjection';
 import { normalizeConversation } from '../types/chat';
 
 function buildChat() {
@@ -400,5 +400,28 @@ describe('sessionProjection', () => {
       { value: 'a', label: '喜羊羊' },
       { value: 'b', label: '灰太狼' },
     ]);
+  });
+
+  it('labels direct private payloads as single-chat information', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      id: 'direct-1',
+      type: 'direct',
+      memberIds: ['a'],
+    });
+    const state = buildProjectedChatDetailState({
+      chat,
+      members: [{ id: 'a', name: '喜羊羊' }] as never,
+      runtimeState: null,
+      privatePayloads: [{ key: 'ctx', title: '单聊上下文', text: '该单聊仅对当前用户与目标角色可见。' }],
+      visiblePanels: [],
+      schemaActions: [],
+      rightPanelTab: 'world',
+      frameworkState: projectSessionFrameworkState(chat),
+    });
+
+    expect(state.privatePayloadTitle).toBe('单聊信息');
+    expect(state.sidebarChat.privatePayloads[0]?.title).toBe('单聊上下文');
+    expect(state.sidebarChat.privatePayloads[0]?.title).not.toContain('私聊');
   });
 });

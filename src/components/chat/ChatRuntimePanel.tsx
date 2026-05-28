@@ -31,6 +31,7 @@ interface ChatRuntimePanelProps {
   members: AICharacter[];
   messages?: Message[];
   privatePayloads?: Array<{ key: string; title: string; text: string }>;
+  privatePayloadTitle?: string;
 }
 
 function cleanText(text: string | undefined | null, members: DisplayTextMember[] = []) {
@@ -757,7 +758,7 @@ function renderDecisionTracePanel(items: RuntimeDecisionTraceItem[], isAdvancedR
   );
 }
 
-export default function ChatRuntimePanel({ chat, members, messages = [], privatePayloads = [] }: ChatRuntimePanelProps) {
+export default function ChatRuntimePanel({ chat, members, messages = [], privatePayloads = [], privatePayloadTitle }: ChatRuntimePanelProps) {
   const { i18n } = useTranslation();
   const [timelineFilter, setTimelineFilter] = useState<'all' | 'note' | 'artifact' | 'relationship'>('all');
   const [timelineExpanded, setTimelineExpanded] = useState(false);
@@ -835,7 +836,7 @@ export default function ChatRuntimePanel({ chat, members, messages = [], private
         {isAdvancedRuntimeView ? renderInnerLifePanel(members, isZh) : null}
         {isAdvancedRuntimeView ? renderDecisionTracePanel(decisionTrace, isAdvancedRuntimeView, members) : null}
 
-        {privatePayloads.length ? <PrivatePayloadPanel payloads={privatePayloads} /> : null}
+        {privatePayloads.length ? <PrivatePayloadPanel payloads={privatePayloads} title={privatePayloadTitle} /> : null}
         {(isSpeechStyleView || isAdvancedRuntimeView) ? <DialogueDebugPanel chat={chat} members={members} /> : null}
       </PageSection>
     </>

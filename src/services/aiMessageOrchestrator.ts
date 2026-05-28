@@ -5,7 +5,7 @@ import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { SessionGenerationPromptContext } from '../types/sessionEngine';
 import { createCommittedLocalMessage } from './chatCommitMessage';
 import { commitGeneratedMessageTurn } from './generatedMessageTurnCommit';
-import { generateSpeakerMessage } from './chatEngine';
+import { generateSpeakerMessage, type LocalInterceptionEvent } from './chatEngine';
 
 export async function generateAndCommitAiMessage(params: {
   api: APIConfig;
@@ -18,6 +18,7 @@ export async function generateAndCommitAiMessage(params: {
   timestamp?: number;
   streamingMessage?: Message | null;
   onChunk?: (content: string) => void;
+  onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   generationContext?: {
     promptContext?: SessionGenerationPromptContext | null;
     buildPromptContext?: (speaker: AICharacter) => SessionGenerationPromptContext | null | undefined;
@@ -60,6 +61,7 @@ export async function generateAndCommitAiMessage(params: {
     apiConfig: params.aiProfiles.length ? params.aiProfiles : params.api,
     profiles: params.aiProfiles,
     generationContext: params.generationContext,
+    onLocalInterception: params.onLocalInterception,
     onChunk: (content) => {
       streamingMessage = { ...streamingMessage, content, isStreaming: true };
       params.upsertMessage(streamingMessage);

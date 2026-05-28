@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { GroupChat } from '../types/chat';
 import { normalizeConversation } from '../types/chat';
 import { api } from '../services/api';
+import { reportRecoverableError } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { buildWarmState } from './storeWarmHelpers';
 import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
@@ -555,6 +556,11 @@ export const useChatStore = create<ChatStore>()(
               pendingEditSyncError: latestChatError(get().pendingOperations),
             });
           } catch (error) {
+            reportRecoverableError({
+              location: 'cloud-sync:chats-load',
+              error,
+              userMessage: '聊天云同步失败，请检查网络后重试。',
+            });
             set({ isLoading: false, pendingEditSyncError: classifySyncError(error) });
           }
         },

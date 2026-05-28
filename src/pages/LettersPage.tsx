@@ -9,10 +9,12 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import ArtifactCalendarReader from '../components/artifacts/ArtifactCalendarReader';
 import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
+import { reportUnresolvedDisplayEntity } from '../services/diagnostics';
 
 type LettersTab = 'letters' | 'diary';
 const LETTERS_TAB_KEY = 'letters-tab';
 const isLettersTab = (value: unknown): value is LettersTab => value === 'letters' || value === 'diary';
+const isLikelyUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 function buildCharacterOptions(items: CharacterArtifactEntry[], nameMap: Map<string, string>, language: string) {
   const counts = new Map<string, number>();
@@ -20,7 +22,14 @@ function buildCharacterOptions(items: CharacterArtifactEntry[], nameMap: Map<str
   return [
     { id: 'all', label: language.startsWith('zh') ? `全部(${items.length})` : `All (${items.length})`, count: items.length },
     ...Array.from(counts.entries())
-      .map(([id, count]) => ({ id, label: `${nameMap.get(id) || items.find((item) => item.characterId === id)?.characterName || id}(${count})`, count }))
+      .map(([id, count]) => {
+        const fallbackName = isLikelyUuid(id) ? (language.startsWith('zh') ? '未知角色' : 'Unknown role') : id;
+        const resolvedName = nameMap.get(id) || items.find((item) => item.characterId === id)?.characterName;
+        if (!resolvedName) {
+          reportUnresolvedDisplayEntity({ id, kind: 'character', location: 'LettersPage.characterOptions', fallback: fallbackName });
+        }
+        return { id, label: `${resolvedName || fallbackName}(${count})`, count };
+      })
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, language.startsWith('zh') ? 'zh-Hans-CN' : 'en-US')),
   ];
 }

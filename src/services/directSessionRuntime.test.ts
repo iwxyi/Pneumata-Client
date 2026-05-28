@@ -257,10 +257,14 @@ function buildOpenedEventStandardExpectedId() {
 
 describe('directSessionRuntime pair-thread adjudication helpers', () => {
   it('builds shared private-thread execution result', () => {
-    const result = buildStartPrivateThreadExecutionResult(buildBaseChat(), 'a', 'b', '继续聊刚才的话题');
+    const result = buildStartPrivateThreadExecutionResult(buildBaseChat(), 'a', 'b', '继续聊刚才的话题', [
+      buildCharacter('a', '喜羊羊'),
+      buildCharacter('b', '灰太狼'),
+    ]);
     expect(result.runtimeEvents?.[0]?.eventType).toBe('start_private_thread');
-    expect(result.runtimeEvents?.[0]?.summary).toContain('a');
-    expect(result.runtimeEvents?.[0]?.summary).toContain('b');
+    expect(result.runtimeEvents?.[0]?.summary).toContain('喜羊羊');
+    expect(result.runtimeEvents?.[0]?.summary).toContain('灰太狼');
+    expect(result.runtimeEvents?.[0]?.summary).not.toContain('a → b');
   });
 
   it('runs unified auto social flow for post moment candidates', async () => {

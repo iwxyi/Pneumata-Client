@@ -5,6 +5,8 @@ import { clearPersistedCharacterStore, useCharacterStore } from './useCharacterS
 import { clearPersistedMessageStore } from './useMessageStore';
 import { useSettingsStore } from './useSettingsStore';
 import { storageKey } from '../constants/brand';
+import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot } from '../services/localToCloudBootstrap';
+import { reportRecoverableError } from '../services/diagnostics';
 
 interface User {
   id: string;
@@ -100,6 +102,8 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   login: async (phone: string, code: string) => {
     set({ isLoading: true });
+    const shouldBootstrapLocalData = get().authMode === 'local';
+    const localSnapshot = shouldBootstrapLocalData ? await captureLocalCloudBootstrapSnapshot() : null;
     try {
       const result = await api.login(phone, code);
       setAuthToken(result.token);
@@ -112,6 +116,22 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         isLoading: false,
         authMode: 'cloud',
       });
+      if (localSnapshot) {
+        try {
+          await bootstrapLocalDataToCloud(localSnapshot);
+        } catch (error) {
+          clearAuthTokenAndUser();
+          setAuthMode('local');
+          set({
+            token: null,
+            user: null,
+            isLoggedIn: false,
+            isLoading: false,
+            authMode: 'local',
+          });
+          throw error;
+        }
+      }
       await refreshStoresAfterCloudAuth();
     } catch (error) {
       set({ isLoading: false });
@@ -154,8 +174,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       set({ user, isLoggedIn: true, authMode: 'cloud' });
       void refreshStoresAfterCloudAuth();
       return true;
-    } catch {
+    } catch (error) {
       // Token invalid
+      console.warn('[cloud-sync] auth check failed; falling back to local mode', { error });
       clearAuthTokenAndUser();
       setAuthMode('local');
       set({ token: null, user: null, isLoggedIn: false, authMode: 'local' });
@@ -169,14 +190,32 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   updateProfile: async (updates) => {
-    const result = await api.updateMe({ nickname: updates.nickname, avatar: updates.avatar });
-    setAuthUser(result);
-    set({ user: result });
+    try {
+      const result = await api.updateMe({ nickname: updates.nickname, avatar: updates.avatar });
+      setAuthUser(result);
+      set({ user: result });
+    } catch (error) {
+      reportRecoverableError({
+        location: 'auth:update-profile',
+        error,
+        userMessage: '账号资料更新失败，请稍后重试。',
+      });
+      throw error;
+    }
   },
 
   changePhone: async (phone, code) => {
-    const result = await api.changePhone(phone, code);
-    setAuthUser(result);
-    set({ user: result });
+    try {
+      const result = await api.changePhone(phone, code);
+      setAuthUser(result);
+      set({ user: result });
+    } catch (error) {
+      reportRecoverableError({
+        location: 'auth:change-phone',
+        error,
+        userMessage: '手机号修改失败，请稍后重试。',
+      });
+      throw error;
+    }
   },
 }));

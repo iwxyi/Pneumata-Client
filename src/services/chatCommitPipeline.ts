@@ -8,10 +8,15 @@ import { finalizeChatCommitRuntime } from './chatCommitRuntime';
 import { applyChatCommitRuntime } from './chatCommitApply';
 import { createRuntimeMemoryTimer } from './runtimeMemoryMonitor';
 import { isLocalOnlyMediaMode, processRichMessageMedia } from './richMessageMedia';
+import { parseRuntimeEvent } from './runtimeEventFactory';
 
 export interface ChatCommitPipelineResult {
   persistedMessage: Message;
   transition: DriverMessageCommitResult;
+}
+
+function isLocalInterceptionMessage(message: Message) {
+  return message.type === 'event' && parseRuntimeEvent(message.content)?.eventType === 'local_interception';
 }
 
 export async function runChatCommitPipeline(params: {
@@ -49,7 +54,7 @@ export async function runChatCommitPipeline(params: {
   });
 
   try {
-    const nextMessages = params.currentMessages.filter((message) => !message.isDeleted && message.id !== params.streamingMessage?.id);
+    const nextMessages = params.currentMessages.filter((message) => !message.isDeleted && message.id !== params.streamingMessage?.id && !isLocalInterceptionMessage(message));
     let mediaProcessingStarted = false;
     const startMediaProcessing = (message: Message) => {
       if (!params.aiProfiles?.length) return;

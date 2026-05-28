@@ -115,7 +115,7 @@ export function useChatSidebarProjection(params: {
       : showRuntimeTab && rightPanelTab === 'world' ? 'world'
         : showMemberTab ? 'members' : 'world');
   const memberTabTitle = projectedDetailState?.memberTabTitle || (chat?.type === 'group' ? '成员' : '角色');
-  const runtimeTabTitle = projectedDetailState?.runtimeTabTitle || (chat?.type === 'group' ? '运行态' : '状态');
+  const runtimeTabTitle = projectedDetailState?.runtimeTabTitle || '运行态';
   const sidebarTitle = projectedDetailState?.sidebarTitle || (activeSidebarTab === 'members' ? memberTabTitle : activeSidebarTab === 'actions' ? '动作' : activeSidebarTab === 'narrative' ? '叙事线' : runtimeTabTitle);
   const runtimePanelLoading = !projectionData && Boolean(chat);
 

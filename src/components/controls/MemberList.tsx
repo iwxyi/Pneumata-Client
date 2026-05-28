@@ -269,7 +269,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
 
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu}>
         {onSpeakAs && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onSpeakAs(menuCharId); }}>{i18n.language.startsWith('zh') ? '以此角色发言' : 'Speak as'}</MenuItem>}
-        {onStartDirectChat && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onStartDirectChat(menuCharId); }}>{i18n.language.startsWith('zh') ? '发起私聊' : 'Start direct chat'}</MenuItem>}
+        {onStartDirectChat && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onStartDirectChat(menuCharId); }}>{i18n.language.startsWith('zh') ? '发起单聊' : 'Start direct chat'}</MenuItem>}
         {onRemove && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onRemove(menuCharId); }} sx={{ color: 'error.main' }}>{i18n.language.startsWith('zh') ? '移除成员' : 'Remove member'}</MenuItem>}
       </Menu>
 

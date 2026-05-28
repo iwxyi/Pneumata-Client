@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { Message } from '../types/message';
 import { getMessageRenderIdentity, isLocalOnlyMessageId, messagesShareIdentity } from '../services/messageIdentity';
 import { api } from '../services/api';
+import { reportRecoverableError } from '../services/diagnostics';
 import { hasLocalDataUrlMedia, scrubLocalMediaUrlsForCloud, uploadLocalMessageMediaToCloud } from '../services/richMessageMedia';
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateMessageStoreState } from './storeMigrations';
@@ -4520,7 +4521,12 @@ export const useMessageStore = create<MessageStore>()(
             };
           });
         } catch (error) {
-          console.error('Failed to load messages:', error);
+          reportRecoverableError({
+            location: 'cloud-sync:messages-load',
+            error,
+            userMessage: '消息云同步失败，请检查网络后重试。',
+            extra: { chatId },
+          });
           set({ isLoading: false, isLoadingOlder: false });
         }
       },

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Box, Typography, Button, Chip,
   ToggleButtonGroup, ToggleButton,
   FormControlLabel, Switch,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
+import EditIcon from '@mui/icons-material/Edit';
 import BackupIcon from '@mui/icons-material/Download';
 import RestoreIcon from '@mui/icons-material/Upload';
 import ClearIcon from '@mui/icons-material/Delete';
@@ -25,6 +26,10 @@ import StatChipRow from '../components/common/StatChipRow';
 import AppSnackbar from '../components/common/AppSnackbar';
 import { PAPER_SURFACE_VARIANTS, type PaperSurfaceVariant } from '../types/artifactAppearance';
 import { migrateLegacyBrandStorageKeys } from '../constants/brand';
+import BubbleStylePickerDialog from '../components/bubble/BubbleStylePickerDialog';
+import { DEFAULT_AI_BUBBLE_STYLE_ID } from '../constants/bubbleStyles';
+import { buildBubblePreview, resolveCharacterBubbleStyle } from '../utils/bubbleStyle';
+import { isImageAvatar } from '../utils/avatar';
 
 function buildPageSx() {
   return { p: { xs: 2.5, sm: 3, md: 3.5 }, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 96px)', sm: 3, md: 3.5 }, width: '100%', maxWidth: 960, mx: 'auto' };
@@ -114,6 +119,30 @@ function buildDeveloperBodySx() {
 
 function buildTopRowSx() {
   return { display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2 };
+}
+
+function buildAccountBubblePreviewSx() {
+  return {
+    mt: 1.5,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 1.25,
+    minWidth: 0,
+    cursor: 'pointer',
+    border: '1px solid',
+    borderColor: (theme: { palette: { mode: string } }) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+    borderRadius: 1.5,
+    px: 1.25,
+    py: 1,
+    bgcolor: (theme: { palette: { mode: string } }) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.50)' : 'rgba(255,255,255,0.04)',
+    backdropFilter: 'blur(16px) saturate(1.08)',
+    WebkitBackdropFilter: 'blur(16px) saturate(1.08)',
+    transition: 'border-color 160ms ease, background-color 160ms ease',
+    '&:hover': {
+      borderColor: 'primary.main',
+      bgcolor: (theme: { palette: { mode: string } }) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(255,255,255,0.075)',
+    },
+  };
 }
 
 function buildHeaderChips(language: string) {
@@ -235,12 +264,25 @@ export default function SettingsPage() {
   const settings = useSettingsStore();
   const user = useAuthStore((s) => s.user);
   const authMode = useAuthStore((s) => s.authMode);
+  const [userBubblePickerOpen, setUserBubblePickerOpen] = useState(false);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
     message: '',
     severity: 'success',
   });
+  const userBubbleStyle = useMemo(
+    () => resolveCharacterBubbleStyle({
+      bubbleStyle: settings.userBubbleStyle,
+      bubbleStyleId: settings.userBubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID,
+      customStyles: settings.customBubbleStyles || [],
+    }),
+    [settings.customBubbleStyles, settings.userBubbleStyle, settings.userBubbleStyleId]
+  );
+  const userBubblePreview = useMemo(() => buildBubblePreview(userBubbleStyle, true), [userBubbleStyle]);
+  const selfAvatarValue = user?.avatar?.trim() || (user?.nickname?.trim() || '我').slice(0, 1);
+  const selfAvatarIsImage = isImageAvatar(selfAvatarValue);
+  const selfBubblePreviewText = i18n.language.startsWith('zh') ? '这是我发送消息时的气泡' : 'This is my chat bubble';
 
   const handleBackup = async () => {
     try {
@@ -261,6 +303,9 @@ export default function SettingsPage() {
           language: settings.language,
           defaultSpeed: settings.defaultSpeed,
           chatDraftDefaults: settings.chatDraftDefaults,
+          customBubbleStyles: settings.customBubbleStyles,
+          userBubbleStyleId: settings.userBubbleStyleId,
+          userBubbleStyle: settings.userBubbleStyle,
         },
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -359,6 +404,20 @@ export default function SettingsPage() {
               <Typography variant="body2" color="text.secondary">{authMode === 'local' ? (i18n.language.startsWith('zh') ? '离线本地模式 · 未登录' : 'Local-only mode · Not signed in') : `${user?.nickname || '-'} · ${user?.phone || '-'}`}</Typography>
             </Box>
             <Button variant="outlined" onClick={() => navigate('/account')}>{authMode === 'local' ? (i18n.language.startsWith('zh') ? '登录并同步' : 'Sign in & sync') : (i18n.language.startsWith('zh') ? '查看' : 'Open')}</Button>
+          </Box>
+          <Box sx={buildAccountBubblePreviewSx()} onClick={() => setUserBubblePickerOpen(true)}>
+            <Box sx={{ flexShrink: 0, width: 34, height: 34, borderRadius: '50%', bgcolor: 'action.hover', display: 'grid', placeItems: 'center', overflow: 'hidden' }}>
+              {selfAvatarIsImage ? <Box component="img" src={selfAvatarValue} alt={user?.nickname || 'me'} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : selfAvatarValue}
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>{i18n.language.startsWith('zh') ? '我的气泡' : 'My bubble'}</Typography>
+              <Box sx={{ width: 'fit-content', maxWidth: '100%', px: 1.35, py: 0.85, border: userBubblePreview.border, borderRadius: userBubblePreview.borderRadius, boxShadow: userBubblePreview.boxShadow, color: userBubblePreview.color, background: userBubblePreview.background }}>
+                <Typography variant="body2" noWrap>{selfBubblePreviewText}</Typography>
+              </Box>
+            </Box>
+            <Button size="small" variant="text" startIcon={<EditIcon fontSize="small" />} sx={{ flexShrink: 0 }}>
+              {i18n.language.startsWith('zh') ? '设置' : 'Set'}
+            </Button>
           </Box>
         </SurfaceCard>
 
@@ -481,6 +540,7 @@ export default function SettingsPage() {
                     <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showAffectEvents} onChange={(e) => settings.setDeveloperUI({ showAffectEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '情绪与人格漂移事件' : 'Emotion and drift events'} />
                     <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showStateEvents} onChange={(e) => settings.setDeveloperUI({ showStateEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '房间态势事件' : 'Room state events'} />
                     <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showMemoryDistillationEvents} onChange={(e) => settings.setDeveloperUI({ showMemoryDistillationEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '记忆蒸馏事件' : 'Memory distillation events'} />
+                    <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showLocalInterceptionHints} onChange={(e) => settings.setDeveloperUI({ showLocalInterceptionHints: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '提示：本地拦截' : 'Local interception hints'} />
                   </Box>
                 </Box>
                 <Box sx={buildDeveloperSwitchGroupSx()}>
@@ -557,6 +617,22 @@ export default function SettingsPage() {
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         severity={snackbar.severity}
         message={snackbar.message}
+      />
+      <BubbleStylePickerDialog
+        open={userBubblePickerOpen}
+        title={i18n.language.startsWith('zh') ? '我的气泡' : 'My bubble'}
+        valueStyleId={settings.userBubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID}
+        valueStyle={settings.userBubbleStyle}
+        customStyles={settings.customBubbleStyles || []}
+        avatar={selfAvatarValue}
+        isImageAvatar={selfAvatarIsImage}
+        previewText={selfBubblePreviewText}
+        onClose={() => setUserBubblePickerOpen(false)}
+        onConfirm={(styleId, style) => {
+          settings.setUserBubbleStyle(styleId, { ...style, id: styleId });
+          setUserBubblePickerOpen(false);
+        }}
+        onCustomStylesChange={settings.setCustomBubbleStyles}
       />
     </Box>
   );

@@ -251,7 +251,7 @@ function shouldEmitConflictAxisShift(previousAxes: ConversationConflictAxis[] | 
 }
 
 function buildWorldStateShiftSummary(worldState: GroupChat['worldState']) {
-  return [worldState.mood, worldState.focus, worldState.recentEvent].filter(Boolean).join(' / ').slice(0, 90);
+  return [worldState.focus, worldState.recentEvent].filter(Boolean).join(' / ').slice(0, 90);
 }
 
 function shouldEmitWorldStateShift(previousWorldState: GroupChat['worldState'], nextWorldState: GroupChat['worldState'], messageType: Message['type'], config: RuntimeEvolutionConfig) {

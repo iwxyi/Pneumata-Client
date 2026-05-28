@@ -22,7 +22,7 @@ function getActionSurfaceSx() {
 }
 
 function getActionButtonLabel(action: SessionActionDefinition) {
-  return action.type === 'start_private_thread' ? '创建私聊' : '执行动作';
+  return action.type === 'start_private_thread' ? '创建AI私聊' : '执行动作';
 }
 
 function getFieldGridSx() {
@@ -55,7 +55,7 @@ function buildActionSectionTitle(title: string) {
 }
 
 function buildActionSectionSubtitle(actions: SessionActionDefinition[]) {
-  return actions.length ? '在当前阶段执行派生、投票、干预或私聊动作。' : undefined;
+  return actions.length ? '在当前阶段执行派生、投票、干预或AI私聊动作。' : undefined;
 }
 
 function isActionDisabled(action: SessionActionDefinition, payloads: Record<string, Record<string, string>>) {
@@ -1009,7 +1009,7 @@ function getOptionLabel(label: string) {
 function getActionLabel(action: SessionActionDefinition) {
   if (action.type === 'ask_question') return '提问动作';
   if (action.type === 'director_intervention') return '导演干预';
-  if (action.type === 'start_private_thread') return '发起私聊';
+  if (action.type === 'start_private_thread') return '发起AI私聊';
   if (action.type === 'wolf_vote') return '夜晚袭击';
   if (action.type === 'inspect_player') return '夜晚查验';
   if (action.type === 'vote_player') return '白天投票';
@@ -1020,7 +1020,7 @@ function getActionLabel(action: SessionActionDefinition) {
 function getActionHint(action: SessionActionDefinition) {
   if (action.type === 'ask_question') return '验证非聊天动作流：推进一个问题/环节，而不是直接发消息。';
   if (action.type === 'director_intervention') return '主持/导演对房间状态做一次明确干预。';
-  if (action.type === 'start_private_thread') return '派生局部私聊或双边互动。';
+  if (action.type === 'start_private_thread') return '派生AI私聊或双边互动。';
   if (action.type === 'wolf_vote') return '狼人夜晚协商并选择刀口。';
   if (action.type === 'inspect_player') return '预言家夜晚查验一名目标。';
   if (action.type === 'vote_player') return '白天公开投票并附带理由。';

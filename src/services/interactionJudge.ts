@@ -18,7 +18,7 @@ function buildCharacterReference(characters: AICharacter[]) {
 function buildRecentTranscript(messages: Message[], characters: AICharacter[]) {
   const names = new Map(characters.map((character) => [character.id, character.name]));
   return messages
-    .filter((message) => !message.isDeleted && message.type !== 'system')
+    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
     .slice(-8)
     .map((message) => `${names.get(message.senderId) || message.senderName || message.senderId}: ${message.content}`)
     .join('\n');

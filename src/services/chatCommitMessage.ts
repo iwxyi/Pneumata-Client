@@ -1,6 +1,7 @@
 import type { Message } from '../types/message';
 import { api } from './api';
 import { resolveCommittedStreamContent } from './streamingMessageLifecycle';
+import { reportRecoverableError } from './diagnostics';
 
 interface PersistLocalFirstMessageParams {
   message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>;
@@ -147,7 +148,12 @@ export async function persistLocalFirstMessage(params: PersistLocalFirstMessageP
     writeMessage(params.upsertMessage, persistedMessage, params.deferLocalUpsert);
     params.onPersisted?.(persistedMessage);
   }).catch((error) => {
-    console.error('Failed to persist streamed message:', error);
+    reportRecoverableError({
+      location: 'chat-commit-message.persist-one',
+      error,
+      userMessage: '消息保存到云端失败，本地内容已保留。',
+      extra: { chatId: messagePayload.chatId, senderId: messagePayload.senderId, messageType: messagePayload.type },
+    });
   });
 
   return localMessage;
@@ -173,7 +179,12 @@ export async function persistLocalFirstMessages(params: PersistLocalFirstMessage
   }))).then((persistedMessages) => {
     writeMessages(params.upsertMessages, persistedMessages, params.deferLocalUpsert);
   }).catch((error) => {
-    console.error('Failed to persist streamed messages:', error);
+    reportRecoverableError({
+      location: 'chat-commit-message.persist-batch',
+      error,
+      userMessage: '部分消息保存到云端失败，本地内容已保留。',
+      extra: { count: params.messages.length },
+    });
   });
 
   return localMessages;

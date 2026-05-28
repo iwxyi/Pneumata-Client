@@ -38,6 +38,22 @@ export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' 
   conflictFocus?: ConflictFocusPayload | null;
 }
 
+export type LocalInterceptionKind =
+  | 'guidance_retry'
+  | 'surface_echo_retry'
+  | 'surface_echo_skip'
+  | 'empty_generation_skip'
+  | 'auto_withdraw';
+
+export interface LocalInterceptionEvent {
+  kind: LocalInterceptionKind;
+  speakerId: string;
+  speakerName: string;
+  draft?: string;
+  reason: string;
+  attempt?: number;
+}
+
 type ResponseSurfaceKind = 'chat' | 'professional' | 'creative' | 'longform';
 
 interface ResponseSurface {
@@ -62,9 +78,12 @@ const MAX_EXTRA_MESSAGES = 4;
 const emotionMap: Record<string, number> = {};
 
 class EmptyGeneratedResponseError extends Error {
-  constructor(speakerName: string) {
+  localInterceptionReported: boolean;
+
+  constructor(speakerName: string, options?: { localInterceptionReported?: boolean }) {
     super(`${speakerName} 连续生成了重复内容，本轮已跳过。`);
     this.name = 'EmptyGeneratedResponseError';
+    this.localInterceptionReported = Boolean(options?.localInterceptionReported);
   }
 }
 
@@ -95,12 +114,21 @@ function withGroupChatPrompt(prompt: string) {
 }
 
 function getRecentHumanlikeSignal(messages: Message[]) {
-  return messages.slice(-4).map((message) => `${message.senderName}: ${message.content}`).join('\n');
+  return messages
+    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
+    .slice(-4)
+    .map((message) => `${message.senderName}: ${message.content}`)
+    .join('\n');
 }
 
-function buildSessionPrompt(prompt: string, messages: Message[]) {
+function buildSessionPrompt(prompt: string, messages: Message[], chat: GroupChat) {
   const recentSignal = getRecentHumanlikeSignal(messages);
-  return `${withGroupChatPrompt(prompt)}\n\nRecent room signal:\n${recentSignal}`;
+  const directBoundary = chat.type === 'direct'
+    ? '\n- In a user-private channel, the latest User line is the request or question to answer. It is not a draft line for you to repeat as your own message.'
+    : chat.type === 'ai_direct'
+      ? '\n- In a pair-private AI thread, recent lines are shared context and relationship pressure. They are not a script to copy.'
+      : '';
+  return `${withGroupChatPrompt(prompt)}\n\nRecent context signals:\n- These lines are evidence about the current moment, not examples to imitate or continue verbatim.${directBoundary}\n${recentSignal}`;
 }
 
 function buildSpeakerSystemPrompt(args: {
@@ -117,7 +145,7 @@ function buildSpeakerSystemPrompt(args: {
     messages: args.activeMessages,
     characters: args.characterMap,
   });
-  return buildSessionPrompt(basePrompt, args.activeMessages);
+  return buildSessionPrompt(basePrompt, args.activeMessages, args.chat);
 }
 
 export const getEmotion = (characterId: string): number => emotionMap[characterId] || 0;
@@ -127,6 +155,7 @@ export interface ChatEngineCallbacks {
   onSpeakerSelected: (characterId: string, speaker?: AICharacter) => void;
   onMessageChunk: (content: string) => void;
   onMessageComplete: (message: GeneratedRoundMessage) => void | Promise<void>;
+  onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   onIdle?: (reason: string) => void;
   onError: (error: Error) => void;
 }
@@ -246,6 +275,16 @@ function buildRetryPrompt(basePrompt: string, priorAttempt: string) {
   return `${basePrompt}\n\nRetry rule:\n- Your previous draft was too close to recent chat or repetitive.\n- Write a meaningfully different line now.\n- Do not reuse this draft's surface or semantic core: ${priorAttempt.slice(0, 120)}`;
 }
 
+function buildSurfaceEchoRetryPrompt(basePrompt: string, priorAttempt: string, reason: string) {
+  return `${basePrompt}\n\nAnti-echo retry:
+- The previous draft was rejected because it borrowed too much surface from recent chat: ${reason}
+- Keep the same character, relationship stance, and current social intent, but enter from a different angle.
+- Do not reuse the rejected draft's opener, emoji/sticker marker, ending, cadence, or sentence shape.
+- Do not copy another member's recent line unless you set intentionalRepeat=true and are clearly quoting or mocking it on purpose.
+- Rejected draft: ${priorAttempt.slice(0, 180)}
+- Return a fresh valid JSON object only.`;
+}
+
 function cleanJsonLikeText(value: string) {
   return value
     .replace(/^```(?:json)?/i, '')
@@ -354,6 +393,111 @@ function normalizeForComparison(content: string) {
     .toLowerCase();
 }
 
+function normalizeCompact(content: string) {
+  return normalizeForComparison(content).replace(/\s+/g, '');
+}
+
+function collectCharBigrams(content: string) {
+  const normalized = normalizeCompact(content);
+  const grams = new Set<string>();
+  for (let index = 0; index < normalized.length - 1; index += 1) {
+    grams.add(normalized.slice(index, index + 2));
+  }
+  return grams;
+}
+
+function calculateBigramSimilarity(a: string, b: string) {
+  const aGrams = collectCharBigrams(a);
+  const bGrams = collectCharBigrams(b);
+  if (!aGrams.size || !bGrams.size) return 0;
+  let intersection = 0;
+  aGrams.forEach((gram) => {
+    if (bGrams.has(gram)) intersection += 1;
+  });
+  const union = new Set([...aGrams, ...bGrams]).size;
+  return union ? intersection / union : 0;
+}
+
+function extractOpeningPattern(content: string) {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  const firstClause = normalized.split(/[。！？!?]/)[0] || normalized;
+  const prefix = firstClause.split(/[，,、：:]/)[0] || firstClause;
+  return prefix.trim().slice(0, 12);
+}
+
+function extractEmojiTokens(content: string) {
+  return content.match(/\p{Extended_Pictographic}/gu) || [];
+}
+
+function buildRecentEchoProfile(messages: Message[], speakerId: string) {
+  const recentAi = messages.filter((message) => message.type === 'ai' && !message.isDeleted).slice(-12);
+  const openingCounts = new Map<string, number>();
+  const emojiCounts = new Map<string, number>();
+  recentAi.forEach((message) => {
+    const opener = extractOpeningPattern(message.content);
+    if (opener.length >= 3) openingCounts.set(opener, (openingCounts.get(opener) || 0) + 1);
+    extractEmojiTokens(message.content).forEach((emoji) => emojiCounts.set(emoji, (emojiCounts.get(emoji) || 0) + 1));
+  });
+  const latestOtherSpeaker = recentAi.slice().reverse().find((message) => message.senderId !== speakerId);
+  const latestOtherSpeakerEmojis = new Set(latestOtherSpeaker ? extractEmojiTokens(latestOtherSpeaker.content) : []);
+  return {
+    recentAi,
+    repeatedOpeners: new Set(Array.from(openingCounts.entries()).filter(([, count]) => count >= 2).map(([opener]) => opener)),
+    repeatedEmojis: new Set([
+      ...Array.from(emojiCounts.entries()).filter(([, count]) => count >= 2).map(([emoji]) => emoji),
+      ...latestOtherSpeakerEmojis,
+    ]),
+  };
+}
+
+function isExplicitRepeatOrAnswerRequest(text: string) {
+  return /(复读|重复|原话|照着说|照读|引用|引述|背|默写|接龙|下一句|下句|上一句|上句|补全|填空|标准答案|正确答案|答案是|口令|暗号|古诗|诗词|诗句|成语|台词|歌词|对联|上联|下联)/i.test(text);
+}
+
+function hasLegitimateRepeatContext(messages: Message[]) {
+  const latestHumanInstruction = messages
+    .filter((message) => !message.isDeleted && (message.type === 'user' || message.type === 'god'))
+    .slice(-3)
+    .reverse()
+    .find((message) => message.content.trim());
+  return latestHumanInstruction ? isExplicitRepeatOrAnswerRequest(latestHumanInstruction.content) : false;
+}
+
+function evaluateHiddenEchoDraft(content: string, messages: Message[], speakerId: string, intentionalRepeat = false) {
+  if (intentionalRepeat) return null;
+  if (hasLegitimateRepeatContext(messages)) return null;
+  const normalizedDraft = normalizeCompact(content);
+  if (normalizedDraft.length < 4) return null;
+  const profile = buildRecentEchoProfile(messages, speakerId);
+  for (const message of profile.recentAi) {
+    const normalizedRecent = normalizeCompact(message.content);
+    if (!normalizedRecent) continue;
+    if (normalizedDraft === normalizedRecent) {
+      return `The draft exactly repeats a recent line from ${message.senderName}.`;
+    }
+    if (normalizedDraft.length >= 10 && normalizedRecent.includes(normalizedDraft)) {
+      return `The draft is a substring of a recent line from ${message.senderName}.`;
+    }
+    if (normalizedRecent.length >= 10 && normalizedDraft.includes(normalizedRecent)) {
+      return `The draft copies a recent line from ${message.senderName}.`;
+    }
+    const similarity = calculateBigramSimilarity(content, message.content);
+    const threshold = message.senderId === speakerId ? 0.58 : 0.66;
+    if (normalizedDraft.length >= 12 && normalizedRecent.length >= 12 && similarity >= threshold) {
+      return `The draft is too close to ${message.senderName}'s recent wording (${Math.round(similarity * 100)}% surface overlap).`;
+    }
+  }
+  const opener = extractOpeningPattern(content);
+  if (opener.length >= 4 && profile.repeatedOpeners.has(opener)) {
+    return `The draft repeats the room's current opening pattern: ${opener}`;
+  }
+  const contagiousEmoji = extractEmojiTokens(content).find((emoji) => profile.repeatedEmojis.has(emoji));
+  if (contagiousEmoji) {
+    return `The draft reuses a contagious recent emoji/sticker marker: ${contagiousEmoji}`;
+  }
+  return null;
+}
+
 function collectRecentConstraintLines(messages: Message[], speakerId: string) {
   const sameSpeaker = messages
     .filter((message) => message.type === 'ai' && !message.isDeleted && message.senderId === speakerId)
@@ -373,17 +517,8 @@ function collectRecentConstraintLines(messages: Message[], speakerId: string) {
 
 function inferResponseSurfaceFromText(text: string, style: GroupChat['style']): { kind: ResponseSurfaceKind | null; basis: string[] } {
   const basis: string[] = [];
-  const creativeSignal = /(小说|正文|章节|片段|大纲|人设|世界观|剧本|诗|散文|创作|续写|改写|文风|角色小传|分镜)/i.test(text);
-  const professionalSignal = /(面试|系统设计|技术方案|报告|分析|评审|复盘|教案|课堂|论文|长文|详细|展开|Markdown|表格|列表|富文本|会议纪要|需求|架构|案例题|case)/i.test(text);
-  if (creativeSignal) basis.push('topic:creative-task');
-  if (professionalSignal) basis.push('topic:professional-task');
-  if (style === 'roleplay' && creativeSignal) basis.push('style:roleplay-creative');
-  if ((style === 'debate' || style === 'brainstorm') && professionalSignal) basis.push(`style:${style}-structured`);
-  if (creativeSignal) return { kind: 'creative', basis };
-  if (professionalSignal) return { kind: 'professional', basis };
-  if ((style === 'debate' || style === 'brainstorm') && /(为什么|怎么|如何|利弊|对比|设计|规划|讨论|判断)/i.test(text)) {
-    return { kind: 'professional', basis: basis.concat(`style:${style}-reasoning`) };
-  }
+  void text;
+  if (style === 'debate' || style === 'brainstorm') basis.push(`style:${style}-open-ended`);
   return { kind: null, basis };
 }
 
@@ -438,17 +573,17 @@ function resolveResponseSurface(chat: GroupChat, context: SessionGenerationPromp
 
 function buildResponseSurfacePrompt(surface: ResponseSurface) {
   const roleFitHint = surface.roleFit === 'limited'
-    ? '\n- The speaker has limited longform/professional capacity. Do not suddenly turn them into an essayist or expert; let them answer in their own simpler voice, ask for help, or give a short concrete reaction when that is truer to the role.'
+    ? '\n- Keep the speaker’s ability believable. If they cannot explain like an expert, they can answer in simpler language, admit limits, or ask a sharper follow-up while still responding to the request.'
     : surface.roleFit === 'capable'
-      ? '\n- The speaker has enough role/expertise support for structured or longer output when the task asks for it.'
-      : '\n- Match the speaker’s actual background and speech profile; use structure only when the task and character both support it.';
+      ? '\n- The speaker has enough role/expertise support for structured output when the task asks for it, but structure is not mandatory.'
+      : '\n- Match the speaker’s actual background and speech profile; use structure only when it feels natural.';
   if (surface.kind === 'chat') {
-    return `\nResponse surface:\n- Default to live chat style: choose the natural length for this exact moment. It can be a tiny reaction, a clipped sentence, or a fuller emotional/argumentative line; do not converge every reply to a neat medium length.${roleFitHint}`;
+    return `\nResponse surface:\n- Default to live chat presence, not a fixed length. The model must decide whether this exact reply should be tiny, conversational, or fully explanatory from the current request, character, and room context.${roleFitHint}`;
   }
   if (surface.kind === 'creative') {
-    return `\nResponse surface:\n- Creative longform is allowed when the task, topic, and speaker make it natural. You may write fiction, outlines, scene drafts, dialogue, critique, or rich discussion when useful.\n- Do not use a fixed template. Choose form from the actual request, character voice, room style, and discussion topic.\n- Do not limit word count artificially, but do not inflate beyond what this speaker would plausibly write.\n- Preserve paragraphs, lists, headings, and quoted excerpts only when they improve readability.${roleFitHint}`;
+    return `\nResponse surface:\n- Creative form is available when the model judges that the current request calls for it. It may be a brief idea, a scene, an outline, dialogue, critique, or richer prose.\n- Do not use a fixed template. Choose form from the actual request, character voice, room style, and discussion topic.\n- Do not limit word count artificially, but do not inflate beyond what this speaker would plausibly write.\n- Preserve paragraphs, lists, headings, and quoted excerpts only when they improve readability.${roleFitHint}`;
   }
-  return `\nResponse surface:\n- Professional longform is allowed when the task, topic, and speaker make it natural. You may ask or answer detailed interview, analysis, teaching, design, review, or planning content when useful.\n- Do not use a fixed template. Choose form from the actual request, character voice, room style, and discussion topic.\n- Do not limit word count artificially, but do not inflate beyond what this speaker would plausibly write.\n- Preserve paragraphs, lists, headings, and tables only when they improve readability.${roleFitHint}`;
+  return `\nResponse surface:\n- Professional form is available when the model judges that the current request calls for it. It may be concise, detailed, structured, or conversational.\n- Do not use a fixed template. Choose form from the actual request, character voice, room style, and discussion topic.\n- Do not limit word count artificially, but do not inflate beyond what this speaker would plausibly write.\n- Preserve paragraphs, lists, headings, and tables only when they improve readability.${roleFitHint}`;
 }
 
 function buildGenerationConstraints(messages: Message[], speakerId: string, surface: ResponseSurface) {
@@ -466,32 +601,22 @@ function buildGenerationConstraints(messages: Message[], speakerId: string, surf
   return `\nHard constraints for this reply:
 - Write one response turn only. No self-explanation, no meta commentary.
 - Do not repeat, paraphrase, summarize, or restate the same semantic point from the forbidden lines.
-- Do not sound like an assistant answer. Never use structures like “首先/其次/最后/总结一下”, “first/second/finally”, or “in summary”.
-- Do not give a balanced full explanation unless the room absolutely requires it.
-- Prefer reactive, colloquial, and socially situated replies, but keep the full reply when the current context needs more than a short line.
-- Prefer one sharp move when it fits: a quick challenge, follow-up, jab, side remark, or clipped agreement.${forbiddenBlock}`;
-}
-
-function visibleTextLength(text: string) {
-  return text.replace(/\s+/g, '').length;
+- Recent transcript is context, not a style template. Do not inherit repeated emoji/sticker markers, identical openings, identical endings, or another member's whole sentence shape.
+- Do not sound like a generic assistant. Avoid canned scaffolding like “首先/其次/最后/总结一下” unless the current user request genuinely benefits from structured explanation.
+- Let the model decide the necessary depth. A direct request for details, reasoning, implementation steps, tradeoffs, or examples should not be compressed into a one-liner; casual banter should not be inflated.
+- Prefer reactive, colloquial, and socially situated replies, while still answering the actual request when the current context needs more than a short line.${forbiddenBlock}`;
 }
 
 function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeProjection, surface: ResponseSurface) {
   if (surface.kind !== 'chat') return '';
-  const recentAiLengths = messages
-    .filter((message) => message.type === 'ai' && !message.isDeleted)
-    .slice(-8)
-    .map((message) => visibleTextLength(message.content))
-    .filter((length) => length > 0);
-  const mediumCluster = recentAiLengths.filter((length) => length >= 16 && length <= 38).length;
-  const clustered = recentAiLengths.length >= 4 && mediumCluster / recentAiLengths.length >= 0.65;
+  void messages;
   const rhythm = innerLife.expressionPlan.messageCount > 1
     ? `- The inner rhythm can be ${innerLife.expressionPlan.messageCount} bubbles. Use extraMessages only if the thought really lands as separate sends; otherwise use one bubble.`
     : '- The inner rhythm favors one bubble, but that bubble may be very short, medium, or occasionally longer if the social move needs it.';
   return `\n## Natural Chat Rhythm
-- Do not default to the same 20-30 Chinese-character length. Real chat has uneven turns: sometimes 1-6 characters, sometimes a clipped sentence, sometimes a longer annoyed or caring explanation.
-- Choose length from the social moment, not from a fixed template. A short “啊？” can be better than a neat sentence; a character who is defending, explaining, showing off, or emotionally cornered may naturally run longer.
-- Avoid making consecutive messages all similar in size, opening pattern, or cadence.${clustered ? '\n- Recent room lines are clustering around medium length. Deliberately break that rhythm with either a shorter jab/fragment or a fuller line if it fits.' : ''}
+- The model chooses the length from the social moment and the user request, not from a fixed template.
+- Real chat has uneven turns: sometimes a tiny reaction, sometimes a clipped sentence, sometimes a longer explanation, defense, or practical answer.
+- Avoid making consecutive messages all similar in size, opening pattern, or cadence.
 ${rhythm}
 - If you use extraMessages, keep content as the first visible bubble and put only the later consecutive bubbles in extraMessages. The full turn may contain up to 5 visible bubbles total. Vary lengths naturally. Do not split purely by punctuation.`;
 }
@@ -946,6 +1071,7 @@ async function generateNonDuplicateResponse(params: {
   guidance?: UserGuidanceIntent | null;
   mediaCapabilities?: { image: boolean; audio: boolean };
   onChunk?: (content: string) => void;
+  onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
 }): Promise<GenerationWithGuidanceTrace> {
   let prompt = params.systemPrompt;
   let lastParsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope> = null;
@@ -972,6 +1098,14 @@ async function generateNonDuplicateResponse(params: {
       finalReason = guidanceEvaluation.reason;
       if (params.guidance && !guidanceEvaluation.matched && attempt < 2) {
         rejectedReasons.push(guidanceEvaluation.reason as GuidanceRejectionReason);
+        await params.onLocalInterception?.({
+          kind: 'guidance_retry',
+          speakerId: params.speaker.id,
+          speakerName: params.speaker.name,
+          draft: generated.fullResponse,
+          reason: guidanceEvaluation.reason,
+          attempt: attempt + 1,
+        });
         prompt = buildGuidanceRetryPrompt({
           systemPrompt: params.systemPrompt,
           guidance: params.guidance,
@@ -982,7 +1116,33 @@ async function generateNonDuplicateResponse(params: {
         });
         continue;
       }
-      if (params.guidance) params.onChunk?.(generated.finalResponse);
+      const echoReason = params.surface?.kind === 'chat'
+        ? evaluateHiddenEchoDraft(generated.fullResponse, params.activeMessages, params.speaker.id, Boolean(generated.parsedEnvelope?.intentionalRepeat))
+        : null;
+      if (echoReason) {
+        if (attempt < 2) {
+          await params.onLocalInterception?.({
+            kind: 'surface_echo_retry',
+            speakerId: params.speaker.id,
+            speakerName: params.speaker.name,
+            draft: generated.fullResponse,
+            reason: echoReason,
+            attempt: attempt + 1,
+          });
+          prompt = buildSurfaceEchoRetryPrompt(params.systemPrompt, generated.fullResponse, echoReason);
+          continue;
+        }
+        await params.onLocalInterception?.({
+          kind: 'surface_echo_skip',
+          speakerId: params.speaker.id,
+          speakerName: params.speaker.name,
+          draft: generated.fullResponse,
+          reason: echoReason,
+          attempt: attempt + 1,
+        });
+        throw new EmptyGeneratedResponseError(params.speaker.name, { localInterceptionReported: true });
+      }
+      if (params.guidance || attempt > 0) params.onChunk?.(generated.finalResponse);
       return {
         parsedEnvelope: generated.parsedEnvelope,
         finalResponse: generated.finalResponse,
@@ -1003,6 +1163,14 @@ async function generateNonDuplicateResponse(params: {
     if (params.guidance) {
       rejectedReasons.push('empty_content');
       finalReason = 'empty_content';
+      await params.onLocalInterception?.({
+        kind: 'guidance_retry',
+        speakerId: params.speaker.id,
+        speakerName: params.speaker.name,
+        draft: generated.rawContent,
+        reason: 'empty_content',
+        attempt: attempt + 1,
+      });
       prompt = buildGuidanceRetryPrompt({
         systemPrompt: params.systemPrompt,
         guidance: params.guidance,
@@ -1103,6 +1271,7 @@ export async function generateSpeakerMessage(params: {
     buildPromptContext?: (speaker: AICharacter) => SessionGenerationPromptContext | null | undefined;
   };
   onChunk?: (content: string) => void;
+  onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   delay?: (ms: number) => Promise<void>;
 }): Promise<GeneratedRoundMessage> {
   const chatMembers = params.characters.filter((character) => params.chat.memberIds.includes(character.id));
@@ -1159,9 +1328,9 @@ Current director intent:
 Current speaking intent:
 - ${describeIntentForPrompt(intent)}
 - Treat the intent shape as style guidance, not a hard length cap. Do not truncate a useful reply just to fit one sentence or a fragment shape.
-- ${responseSurface.kind === 'chat' ? 'Respond like a WeChat message: quick, targeted, partial, reactive, and slightly messy. Do not write a balanced full answer unless the conversation truly needs it.' : 'Respond in the surface the scene requires: professional or creative longform is allowed, including Markdown, while keeping this speaker’s personality and social position.'}
-- ${responseSurface.kind === 'chat' ? 'Prefer sounding impulsive, socially situated, colloquial, and slightly incomplete over sounding polished.' : 'Prefer clarity, useful structure, and role-specific judgment over forced brevity; keep warmth, bias, doubts, or personality where they belong.'}
-- ${responseSurface.kind === 'chat' ? 'If a human would just say “啊？”, “行吧”, “不是这个意思”, “那你这也太…”, or one sharp follow-up, do that instead of expanding.' : 'If the room asks for a professional question, long answer, fiction draft, outline, or critique, satisfy that task fully instead of compressing it into chat banter.'}${additionalConstraints}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildResponseSurfacePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, mediaCapabilities })}${promptSuffix}`;
+- Decide the visible length yourself from the latest user request, the room context, and this character's actual ability. The local intent labels are not word-count rules.
+- Stay socially situated and in character. A tiny reaction is valid when the moment is tiny; a practical explanation, tradeoff analysis, or step-by-step answer is valid when the user asks for it.
+- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildResponseSurfacePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, mediaCapabilities })}${promptSuffix}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT);
   const resolvedApi = resolveApiConfigForCharacter(params.speaker, params.apiConfig, params.profiles);
   const generated = await generateNonDuplicateResponse({
@@ -1177,9 +1346,17 @@ Current speaking intent:
     guidance: userGuidance,
     mediaCapabilities,
     onChunk: params.onChunk,
+    onLocalInterception: params.onLocalInterception,
   });
   if (!normalizeForComparison(generated.finalResponse)) {
-    throw new EmptyGeneratedResponseError(params.speaker.name);
+    await params.onLocalInterception?.({
+      kind: 'empty_generation_skip',
+      speakerId: params.speaker.id,
+      speakerName: params.speaker.name,
+      draft: generated.fullResponse || generated.finalResponse,
+      reason: 'empty_content',
+    });
+    throw new EmptyGeneratedResponseError(params.speaker.name, { localInterceptionReported: true });
   }
 
   const msgEmotion = analyzeEmotion(generated.fullResponse);
@@ -1239,6 +1416,13 @@ Current speaking intent:
   if (visibleMessage.metadata?.withdrawal?.withdrawn) {
     const { extraMessages: _extraMessages, ...withdrawnMessage } = visibleMessage;
     const withdrawal = withdrawnMessage.metadata?.withdrawal;
+    await params.onLocalInterception?.({
+      kind: 'auto_withdraw',
+      speakerId: params.speaker.id,
+      speakerName: params.speaker.name,
+      draft: generated.fullResponse,
+      reason: withdrawal?.reason || 'message_withdrawn',
+    });
     return {
       ...withdrawnMessage,
       metadata: {
@@ -1384,9 +1568,19 @@ export const runOneRound = async (
         speakerScore: selectedCandidate?.scoreBreakdown || null,
         generationContext,
         onChunk: callbacks.onMessageChunk,
+        onLocalInterception: callbacks.onLocalInterception,
       });
     } catch (error) {
       if (!(error instanceof EmptyGeneratedResponseError)) throw error;
+      if (!error.localInterceptionReported) {
+        await callbacks.onLocalInterception?.({
+          kind: 'empty_generation_skip',
+          speakerId: activeSpeaker.id,
+          speakerName: activeSpeaker.name,
+          reason: error.message || 'empty_content',
+        });
+        error.localInterceptionReported = true;
+      }
       if (lockedGuidanceSpeaker && activeSpeaker.id === lockedGuidanceSpeaker.id) throw error;
       const rotated = resolveSpeakerFromCandidates(chatMembers, candidates.filter((candidate) => candidate.characterId !== activeSpeaker.id));
       if (!rotated) throw new Error(`${activeSpeaker.name} 连续生成了重复内容，本轮已跳过。`);
@@ -1406,6 +1600,7 @@ export const runOneRound = async (
         speakerScore: rotatedCandidate?.scoreBreakdown || null,
         generationContext,
         onChunk: callbacks.onMessageChunk,
+        onLocalInterception: callbacks.onLocalInterception,
       });
     }
     await callbacks.onMessageComplete(completedMessage);

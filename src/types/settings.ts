@@ -45,6 +45,7 @@ export interface DeveloperUIPrefs {
   showConflictEvents: boolean;
   showStateEvents: boolean;
   showMemoryDistillationEvents: boolean;
+  showLocalInterceptionHints: boolean;
   showSpeechStyle: boolean;
   showAdvancedRuntimePanels: boolean;
   showWithdrawnMessageContent: boolean;
@@ -73,6 +74,7 @@ export function normalizeDeveloperUiPrefs(input?: Partial<DeveloperUIPrefs> | nu
     showConflictEvents: Boolean(input?.showConflictEvents),
     showStateEvents: Boolean(input?.showStateEvents),
     showMemoryDistillationEvents: Boolean(input?.showMemoryDistillationEvents),
+    showLocalInterceptionHints: Boolean(input?.showLocalInterceptionHints),
     showSpeechStyle: Boolean(input?.showSpeechStyle),
     showAdvancedRuntimePanels: Boolean(input?.showAdvancedRuntimePanels),
     showWithdrawnMessageContent: Boolean(input?.showWithdrawnMessageContent),
@@ -97,7 +99,7 @@ export function getDeveloperUiVisibility(input: Partial<DeveloperUIPrefs> | null
 }
 
 export function getDeveloperUiToggleKeys() {
-  return ['showMemoryDebug', 'showRelationshipEvents', 'showAffectEvents', 'showConflictEvents', 'showStateEvents', 'showMemoryDistillationEvents', 'showSpeechStyle', 'showAdvancedRuntimePanels', 'showWithdrawnMessageContent', 'dramaBoost'] as const;
+  return ['showMemoryDebug', 'showRelationshipEvents', 'showAffectEvents', 'showConflictEvents', 'showStateEvents', 'showMemoryDistillationEvents', 'showLocalInterceptionHints', 'showSpeechStyle', 'showAdvancedRuntimePanels', 'showWithdrawnMessageContent', 'dramaBoost'] as const;
 }
 
 export function getDeveloperUiAffectKey() {
@@ -337,6 +339,8 @@ export interface AppSettings {
   developerUI: DeveloperUIPrefs;
   chatDraftDefaults: ChatDraftDefaults;
   customBubbleStyles: BubbleStyleDefinition[];
+  userBubbleStyleId: string | null;
+  userBubbleStyle: BubbleStyleDefinition | null;
   artifactAppearance: ArtifactAppearanceSettings;
 }
 
@@ -347,6 +351,7 @@ export const DEFAULT_DEVELOPER_UI_PREFS: DeveloperUIPrefs = {
   showConflictEvents: false,
   showStateEvents: false,
   showMemoryDistillationEvents: false,
+  showLocalInterceptionHints: false,
   showSpeechStyle: false,
   showAdvancedRuntimePanels: false,
   showWithdrawnMessageContent: false,
@@ -479,6 +484,8 @@ export const DEFAULT_SETTINGS: AppSettingsWithMemory = {
   developerUI: DEFAULT_DEVELOPER_UI_PREFS,
   chatDraftDefaults: DEFAULT_CHAT_DRAFT_DEFAULTS,
   customBubbleStyles: [],
+  userBubbleStyleId: null,
+  userBubbleStyle: null,
   artifactAppearance: DEFAULT_ARTIFACT_APPEARANCE_SETTINGS,
   memoryUI: { showDeveloperMemory: false },
 };
