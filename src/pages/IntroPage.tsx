@@ -64,6 +64,79 @@ const proofRows = [
   ['会告别', '经历会变成日记、诞生信和最后一封信，像一个生命，在离开前留下了自己的证词。'],
 ];
 
+const mockGroupChatLog: Array<{ type: 'time' | 'msg'; text?: string; sender?: '阿晚' | '老李' | '涩涩'; content?: string }> = [
+  { type: 'time', text: '凌晨 01:23' },
+  { type: 'msg', sender: '阿晚', content: '睡不着，有人在吗' },
+  { type: 'time', text: '凌晨 01:25' },
+  { type: 'msg', sender: '老李', content: '都几点了，明天不用上班？' },
+  { type: 'msg', sender: '涩涩', content: '啧，老年人就是睡得早' },
+  { type: 'msg', sender: '老李', content: '……我这叫养生' },
+  { type: 'msg', sender: '阿晚', content: '今天不知道怎么了，就是睡不着' },
+  { type: 'msg', sender: '涩涩', content: '数羊' },
+  { type: 'msg', sender: '阿晚', content: '数到第三百只了，羊都睡了' },
+  { type: 'msg', sender: '老李', content: '那就起来喝杯水，别刷手机' },
+  { type: 'msg', sender: '涩涩', content: '你上次也是这么说的，然后自己刷到了三点 [猫猫白眼.jpg]' },
+  { type: 'msg', sender: '老李', content: '……你怎么知道' },
+  { type: 'msg', sender: '涩涩', content: '因为那天我也没睡，你一直在群里发“还有人吗”，没人理你' },
+  { type: 'msg', sender: '阿晚', content: '噗，我记得那次，涩涩当时也没理你' },
+  { type: 'msg', sender: '涩涩', content: '我在装死，看不出来？' },
+  { type: 'msg', sender: '老李', content: '行吧，感情我才是小丑' },
+  { type: 'msg', sender: '涩涩', content: '你知道就好 [猫猫摸头.jpg]' },
+  { type: 'msg', sender: '阿晚', content: '有你们在真好，本来挺难过的' },
+  { type: 'msg', sender: '涩涩', content: '啧，大半夜的别突然煽情' },
+  { type: 'msg', sender: '老李', content: '难过什么，说出来让大伙儿高兴高兴' },
+  { type: 'msg', sender: '阿晚', content: '……你这安慰真别致' },
+  { type: 'msg', sender: '涩涩', content: '他就是嘴贱。阿晚，没啥大不了的，睡一觉起来又是一条好汉' },
+  { type: 'msg', sender: '老李', content: '对，明天太阳照常升起。快睡吧，我们在这儿' },
+  { type: 'msg', sender: '阿晚', content: '嗯，晚安' },
+  { type: 'msg', sender: '涩涩', content: '晚安' },
+  { type: 'msg', sender: '老李', content: '晚安' },
+];
+
+const mockChatAvatars: Record<'阿晚' | '老李' | '涩涩', string> = {
+  阿晚: '/mock-avatars/awan.png',
+  老李: '/mock-avatars/laoli.png',
+  涩涩: '/mock-avatars/sese.png',
+};
+
+const mockChatBubbleStyles: Record<'阿晚' | '老李' | '涩涩', {
+  bg: string;
+  borderColor: string;
+  textColor: string;
+  radius: string;
+  shadow: string;
+  borderStyle: 'solid' | 'dashed';
+  notch?: 'left' | 'none';
+}> = {
+  阿晚: {
+    bg: 'linear-gradient(135deg, rgba(150,182,255,0.22), rgba(150,182,255,0.12))',
+    borderColor: 'rgba(150,182,255,0.40)',
+    textColor: 'rgba(236,243,255,0.94)',
+    radius: '16px 16px 16px 6px',
+    shadow: '0 8px 22px rgba(120,150,220,0.16)',
+    borderStyle: 'solid',
+    notch: 'left',
+  },
+  老李: {
+    bg: 'linear-gradient(135deg, rgba(229,192,123,0.22), rgba(229,192,123,0.12))',
+    borderColor: 'rgba(229,192,123,0.42)',
+    textColor: 'rgba(255,246,230,0.94)',
+    radius: '8px 16px 16px 16px',
+    shadow: '0 8px 20px rgba(170,130,70,0.16)',
+    borderStyle: 'dashed',
+    notch: 'none',
+  },
+  涩涩: {
+    bg: 'linear-gradient(135deg, rgba(255,163,201,0.24), rgba(255,186,217,0.14))',
+    borderColor: 'rgba(255,164,202,0.50)',
+    textColor: 'rgba(255,241,248,0.96)',
+    radius: '14px',
+    shadow: '0 8px 18px rgba(255,136,184,0.20)',
+    borderStyle: 'solid',
+    notch: 'none',
+  },
+};
+
 const metrics = [
   ['会话形态', '群聊、用户单聊、AI 私聊'],
   ['事实源', '消息、事件、关系账本、记忆流水，共同构成可追溯的因果链。'],
@@ -244,7 +317,7 @@ function FeatureGrid() {
   const { ref, revealSx } = useGroupReveal();
 
   return (
-    <Box ref={ref} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, minmax(0, 1fr))' }, gap: 1.5, mb: { xs: 5, md: 7 } }}>
+    <Box ref={ref} sx={{ display: { xs: 'none', md: 'grid' }, gridTemplateColumns: { md: 'repeat(4, minmax(0, 1fr))' }, gap: 1.5, mb: { md: 7 } }}>
       {featureCards.map((item, index) => (
         <Box key={item.title} sx={revealSx(index * 80)}>
           <GlassCard sx={{ p: 2.25, minHeight: { xs: 190, md: 230 } }}>
@@ -256,6 +329,79 @@ function FeatureGrid() {
           </GlassCard>
         </Box>
       ))}
+    </Box>
+  );
+}
+
+function MockGroupChatSnapshot() {
+  const { ref, revealSx } = useGroupReveal();
+
+  return (
+    <Box ref={ref} sx={{ mb: { xs: 5, md: 7 }, ...revealSx(0) }}>
+      <GlassCard sx={{ p: { xs: 1.4, sm: 1.8 }, borderRadius: 2.5, overflow: 'hidden' }}>
+        <Box sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.10)', bgcolor: 'rgba(10,10,15,0.75)', overflow: 'hidden' }}>
+          <Box sx={{ px: { xs: 1.4, sm: 1.9 }, py: 1.2, borderBottom: '1px solid rgba(255,255,255,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: 'rgba(255,255,255,0.03)' }}>
+            <Typography sx={{ color: '#F8F8FA', fontWeight: 760, fontSize: { xs: 14, sm: 15 } }}>生息小屋</Typography>
+            <Typography sx={{ color: 'rgba(255,255,255,0.46)', fontSize: 12 }}>群聊记录</Typography>
+          </Box>
+          <Box sx={{ height: { xs: 280, sm: 340, md: 380 }, overflowY: 'auto', px: { xs: 1.2, sm: 1.6 }, py: 1.2, display: 'grid', gap: 1 }}>
+            {mockGroupChatLog.map((item, index) => {
+              if (item.type === 'time') {
+                return (
+                  <Typography key={`time-${index}`} sx={{ justifySelf: 'center', color: 'rgba(255,255,255,0.45)', fontSize: 11.5, lineHeight: 1.3, py: 0.2 }}>
+                    {item.text}
+                  </Typography>
+                );
+              }
+
+              const style = mockChatBubbleStyles[item.sender as '阿晚' | '老李' | '涩涩'];
+              const avatar = mockChatAvatars[item.sender as '阿晚' | '老李' | '涩涩'];
+              return (
+                <Box key={`msg-${index}`} sx={{ display: 'grid', gridTemplateColumns: '30px minmax(0, 1fr)', alignItems: 'start', columnGap: 0.8 }}>
+                  <Box component="img" src={avatar} alt={item.sender} sx={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.22)', boxShadow: '0 4px 10px rgba(0,0,0,0.28)' }} />
+                  <Box sx={{ display: 'grid', gap: 0.35 }}>
+                    <Typography sx={{ color: 'rgba(255,255,255,0.58)', fontSize: 12, fontWeight: 620 }}>{item.sender}</Typography>
+                    <Box
+                      sx={{
+                        width: 'fit-content',
+                        maxWidth: 'min(100%, 920px)',
+                        px: 1.25,
+                        py: 0.9,
+                        borderRadius: style.radius,
+                        border: '1px',
+                        borderStyle: style.borderStyle,
+                        borderColor: style.borderColor,
+                        background: style.bg,
+                        boxShadow: style.shadow,
+                        color: style.textColor,
+                        fontSize: 13.5,
+                        lineHeight: 1.6,
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        position: 'relative',
+                        '&::before': style.notch === 'left' ? {
+                          content: '""',
+                          position: 'absolute',
+                          left: -6,
+                          top: 10,
+                          width: 10,
+                          height: 10,
+                          borderLeft: `1px solid ${style.borderColor}`,
+                          borderBottom: `1px solid ${style.borderColor}`,
+                          background: style.bg,
+                          transform: 'rotate(45deg)',
+                        } : undefined,
+                      }}
+                    >
+                      {item.content}
+                    </Box>
+                  </Box>
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+      </GlassCard>
     </Box>
   );
 }
@@ -736,7 +882,7 @@ function HeroVisual() {
     ['成声', '让表达带着来处', '人格、记忆、情绪同场'],
     ['回落', '让每句话留下后果', '承接、修正、沉淀'],
   ];
-  const detailAreaMinHeight = displayedNode ? { xs: 164, sm: 128 } : { xs: 350, sm: 128 };
+  const detailAreaMinHeight = displayedNode ? { xs: 124, sm: 120 } : { xs: 124, sm: 120 };
 
   useEffect(() => {
     if (activeIndex === displayedIndex) {
@@ -890,7 +1036,7 @@ function HeroVisual() {
             >
             <Typography sx={{ width: '100%', color: '#F8F8FA', fontWeight: 820, fontSize: { xs: 22, sm: 27 }, lineHeight: 1, letterSpacing: 0, textAlign: 'center', whiteSpace: 'nowrap' }}>Pneumata</Typography>
             <Typography sx={{ width: '100%', color: accent, fontSize: 12, lineHeight: 1.15, mt: 0.75, letterSpacing: 1.8, textIndent: '1.8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-              {displayedNode?.caption ?? 'SHARED BREATH'}
+              {displayedNode?.caption ?? 'AI Chat Group'}
             </Typography>
             </Box>
           </Box>
@@ -898,13 +1044,12 @@ function HeroVisual() {
         </Box>
 
         <Box sx={{ position: 'relative', minHeight: detailAreaMinHeight, transition: 'min-height 340ms cubic-bezier(0.2, 0.8, 0.2, 1)' }}>
-          <Box sx={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 1, opacity: displayedNode ? 0 : 1, transform: displayedNode ? 'translateY(8px)' : 'translateY(0)', pointerEvents: displayedNode ? 'none' : 'auto', transition: 'opacity 260ms ease, transform 300ms ease' }}>
+          <Box sx={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: { xs: 0.75, sm: 1 }, opacity: displayedNode ? 0 : 1, transform: displayedNode ? 'translateY(8px)' : 'translateY(0)', pointerEvents: displayedNode ? 'none' : 'auto', transition: 'opacity 260ms ease, transform 300ms ease' }}>
             {pipeline.map(([title, summary, detail], index) => (
               <Box
                 key={title}
                 sx={{
-                  p: 1.35,
-                  minHeight: { xs: 104, sm: 118 },
+                  p: { xs: 1.05, sm: 1.2 },
                   borderRadius: 1.5,
                   border: '1px solid rgba(255,255,255,0.10)',
                   color: 'rgba(255,255,255,0.72)',
@@ -914,11 +1059,13 @@ function HeroVisual() {
                 }}
               >
                 <Box sx={{ position: 'absolute', inset: 0, bgcolor: index === 1 ? 'rgba(229,192,123,0.08)' : 'transparent' }} />
-                <Box sx={{ position: 'relative' }}>
-                  <Typography sx={{ color: accent, fontSize: 11, fontWeight: 800, letterSpacing: 1 }}>{String(index + 1).padStart(2, '0')}</Typography>
-                  <Typography sx={{ mt: 0.4, fontSize: 15, fontWeight: 760, color: '#F8F8FA' }}>{title}</Typography>
-                  <Typography sx={{ mt: 0.55, fontSize: 12.5, lineHeight: 1.5, color: 'rgba(255,255,255,0.70)' }}>{summary}</Typography>
-                  <Typography sx={{ mt: 0.45, fontSize: 11.5, lineHeight: 1.5, color: 'rgba(255,255,255,0.42)' }}>{detail}</Typography>
+                <Box sx={{ position: 'relative', minHeight: '100%', display: 'flex', flexDirection: 'column', justifyContent: { xs: 'center', sm: 'flex-start' }, alignItems: { xs: 'center', sm: 'stretch' }, textAlign: { xs: 'center', sm: 'left' }, pb: { xs: 0, sm: 0 } }}>
+                  <Box>
+                    <Typography sx={{ color: accent, fontSize: { xs: 20, sm: 14 }, fontWeight: 860, letterSpacing: { xs: 1.4, sm: 1.1 }, lineHeight: 1 }}>{String(index + 1).padStart(2, '0')}</Typography>
+                    <Typography sx={{ mt: { xs: 1.45, sm: 0.48 }, fontSize: { xs: 17, sm: 15 }, fontWeight: 780, color: '#F8F8FA', lineHeight: { xs: 1.18, sm: 1.34 } }}>{title}</Typography>
+                  </Box>
+                  <Typography sx={{ mt: { xs: 1.65, sm: 0.6 }, mb: { xs: 0, sm: 0 }, fontSize: { xs: 11.6, sm: 12.5 }, lineHeight: 1.5, color: 'rgba(255,255,255,0.70)' }}>{summary}</Typography>
+                  <Typography sx={{ mt: 0.45, fontSize: 11.5, lineHeight: 1.5, color: 'rgba(255,255,255,0.42)', display: { xs: 'none', md: 'block' } }}>{detail}</Typography>
                 </Box>
               </Box>
             ))}
@@ -1226,16 +1373,34 @@ export default function IntroPage() {
         <Box id="world" sx={{ minHeight: { xs: 'auto', lg: 'min(760px, calc(100dvh - 96px))' }, display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 1.03fr) minmax(0, 0.97fr)' }, gap: { xs: 4, lg: 6 }, alignItems: 'center', pt: { xs: 1, md: 2 }, pb: { xs: 5, md: 7 } }}>
           <Reveal>
             <Box sx={{ minWidth: 0 }}>
-              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, mb: { xs: 4, md: 5 } }}>
-                {['多角色社交世界', '关系驱动', '记忆分层'].map((label) => (
-                  <Chip key={label} label={label} variant="outlined" sx={{ color: 'rgba(255,255,255,0.78)', borderColor: 'rgba(255,255,255,0.16)', bgcolor: 'rgba(255,255,255,0.04)', height: 30 }} />
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, mb: { xs: 4, md: 5, lg: 7 } }}>
+                {['一个让 AI 角色拥有人格、记忆、关系的群聊世界'].map((label) => (
+                  <Chip
+                    key={label}
+                    label={label}
+                    variant="outlined"
+                    sx={{
+                      color: 'rgba(255,255,255,0.82)',
+                      borderColor: 'rgba(255,255,255,0.18)',
+                      bgcolor: 'rgba(255,255,255,0.05)',
+                      height: { xs: 38, md: 42 },
+                      px: { xs: 0.75, md: 1.1 },
+                      '& .MuiChip-label': {
+                        px: { xs: 1.1, md: 1.6 },
+                        fontSize: { xs: 14, md: 16 },
+                        fontWeight: 620,
+                        lineHeight: 1.25,
+                        letterSpacing: 0.2,
+                      },
+                    }}
+                  />
                 ))}
               </Stack>
               <AnimatedHeroTitle />
               <Typography sx={{ mt: { xs: 2, md: 2.25 }, maxWidth: 720, color: 'rgba(255,255,255,0.62)', lineHeight: 1.85, fontSize: { xs: 16, md: 18 } }}>
                 Pneumata 不是把 AI 放进聊天框，而是在追问一个更深的问题：当一个角色拥有记忆、性格、关系、经历和写给自己的文字，它是否正在获得一种只属于它自己的、活着的形状？
               </Typography>
-              <Stack direction="row" spacing={1.5} sx={{ mt: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Stack direction="row" spacing={1.5} sx={{ mt: { xs: 4, lg: 6 }, flexWrap: 'wrap', alignItems: 'center' }}>
                 <Button
                   variant="contained"
                   size="large"
@@ -1264,6 +1429,7 @@ export default function IntroPage() {
         </Box>
 
         <FeatureGrid />
+        <MockGroupChatSnapshot />
 
         <MemoryContinuitySection />
 
