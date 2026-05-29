@@ -113,22 +113,37 @@ function withGroupChatPrompt(prompt: string) {
   return `${prompt}\n\nTreat the room like a live multi-person conversation with momentum, partial replies, and social baggage.`;
 }
 
-function getRecentHumanlikeSignal(messages: Message[]) {
-  return messages
+function getSessionMessageSpeakerName(message: Message) {
+  if (message.type === 'user' || message.type === 'god') return 'User';
+  if (message.type === 'system') return 'System';
+  if (message.type === 'event') return 'Event';
+  return message.senderName || 'Unknown';
+}
+
+function buildRecentContextSignalSummary(messages: Message[]) {
+  const recent = messages
     .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
-    .slice(-4)
-    .map((message) => `${message.senderName}: ${message.content}`)
-    .join('\n');
+    .slice(-8);
+  if (!recent.length) return '- No visible recent turns yet.';
+  const latest = recent.at(-1);
+  const humanCount = recent.filter((message) => message.type === 'user' || message.type === 'god').length;
+  const aiCount = recent.filter((message) => message.type === 'ai').length;
+  const speakers = Array.from(new Set(recent.map(getSessionMessageSpeakerName))).slice(-6);
+  return [
+    `- Complete recent transcript is supplied as separate user-role messages and is not repeated here.`,
+    `- Recent window: ${recent.length} turns (${humanCount} human / ${aiCount} AI).`,
+    `- Latest turn: ${latest ? `${latest.type === 'ai' ? 'AI' : 'human'} from ${getSessionMessageSpeakerName(latest)}` : 'none'}.`,
+    `- Active speakers: ${speakers.join(', ') || 'none'}.`,
+  ].join('\n');
 }
 
 function buildSessionPrompt(prompt: string, messages: Message[], chat: GroupChat) {
-  const recentSignal = getRecentHumanlikeSignal(messages);
   const directBoundary = chat.type === 'direct'
     ? '\n- In a user-private channel, the latest User line is the request or question to answer. It is not a draft line for you to repeat as your own message.'
     : chat.type === 'ai_direct'
       ? '\n- In a pair-private AI thread, recent lines are shared context and relationship pressure. They are not a script to copy.'
       : '';
-  return `${withGroupChatPrompt(prompt)}\n\nRecent context signals:\n- These lines are evidence about the current moment, not examples to imitate or continue verbatim.${directBoundary}\n${recentSignal}`;
+  return `${withGroupChatPrompt(prompt)}\n\nRecent context signals:\n- Recent transcript messages are evidence about the current moment, not examples to imitate, continue verbatim, or copy at the syntax/punctuation level.${directBoundary}\n${buildRecentContextSignalSummary(messages)}`;
 }
 
 function buildSpeakerSystemPrompt(args: {
@@ -280,7 +295,7 @@ function buildSurfaceEchoRetryPrompt(basePrompt: string, priorAttempt: string, r
 - The previous draft was rejected because it borrowed too much surface from recent chat: ${reason}
 - Keep the same character, relationship stance, and current social intent, but enter from a different angle.
 - Do not reuse the rejected draft's opener, emoji/sticker marker, ending, cadence, or sentence shape.
-- Do not copy another member's recent line unless you set intentionalRepeat=true and are clearly quoting or mocking it on purpose.
+- Do not copy another member's recent line unless you set intentionalRepeat=true and the repetition is clearly a social move: quoting, mocking, chanting, fixed-answering, or deliberate mirroring.
 - Rejected draft: ${priorAttempt.slice(0, 180)}
 - Return a fresh valid JSON object only.`;
 }
@@ -418,35 +433,10 @@ function calculateBigramSimilarity(a: string, b: string) {
   return union ? intersection / union : 0;
 }
 
-function extractOpeningPattern(content: string) {
-  const normalized = content.replace(/\s+/g, ' ').trim();
-  const firstClause = normalized.split(/[。！？!?]/)[0] || normalized;
-  const prefix = firstClause.split(/[，,、：:]/)[0] || firstClause;
-  return prefix.trim().slice(0, 12);
-}
-
-function extractEmojiTokens(content: string) {
-  return content.match(/\p{Extended_Pictographic}/gu) || [];
-}
-
-function buildRecentEchoProfile(messages: Message[], speakerId: string) {
+function buildRecentEchoProfile(messages: Message[]) {
   const recentAi = messages.filter((message) => message.type === 'ai' && !message.isDeleted).slice(-12);
-  const openingCounts = new Map<string, number>();
-  const emojiCounts = new Map<string, number>();
-  recentAi.forEach((message) => {
-    const opener = extractOpeningPattern(message.content);
-    if (opener.length >= 3) openingCounts.set(opener, (openingCounts.get(opener) || 0) + 1);
-    extractEmojiTokens(message.content).forEach((emoji) => emojiCounts.set(emoji, (emojiCounts.get(emoji) || 0) + 1));
-  });
-  const latestOtherSpeaker = recentAi.slice().reverse().find((message) => message.senderId !== speakerId);
-  const latestOtherSpeakerEmojis = new Set(latestOtherSpeaker ? extractEmojiTokens(latestOtherSpeaker.content) : []);
   return {
     recentAi,
-    repeatedOpeners: new Set(Array.from(openingCounts.entries()).filter(([, count]) => count >= 2).map(([opener]) => opener)),
-    repeatedEmojis: new Set([
-      ...Array.from(emojiCounts.entries()).filter(([, count]) => count >= 2).map(([emoji]) => emoji),
-      ...latestOtherSpeakerEmojis,
-    ]),
   };
 }
 
@@ -468,7 +458,7 @@ function evaluateHiddenEchoDraft(content: string, messages: Message[], speakerId
   if (hasLegitimateRepeatContext(messages)) return null;
   const normalizedDraft = normalizeCompact(content);
   if (normalizedDraft.length < 4) return null;
-  const profile = buildRecentEchoProfile(messages, speakerId);
+  const profile = buildRecentEchoProfile(messages);
   for (const message of profile.recentAi) {
     const normalizedRecent = normalizeCompact(message.content);
     if (!normalizedRecent) continue;
@@ -487,32 +477,22 @@ function evaluateHiddenEchoDraft(content: string, messages: Message[], speakerId
       return `The draft is too close to ${message.senderName}'s recent wording (${Math.round(similarity * 100)}% surface overlap).`;
     }
   }
-  const opener = extractOpeningPattern(content);
-  if (opener.length >= 4 && profile.repeatedOpeners.has(opener)) {
-    return `The draft repeats the room's current opening pattern: ${opener}`;
-  }
-  const contagiousEmoji = extractEmojiTokens(content).find((emoji) => profile.repeatedEmojis.has(emoji));
-  if (contagiousEmoji) {
-    return `The draft reuses a contagious recent emoji/sticker marker: ${contagiousEmoji}`;
-  }
   return null;
 }
 
 function collectRecentConstraintLines(messages: Message[], speakerId: string) {
-  const sameSpeaker = messages
+  const sameSpeakerCount = messages
     .filter((message) => message.type === 'ai' && !message.isDeleted && message.senderId === speakerId)
-    .slice(-6)
-    .map((message) => `- Your previous line: ${trimHumanChatStyle(message.content).slice(0, 80)}`);
+    .slice(-6).length;
 
-  const roomLines = messages
+  const roomLineCount = messages
     .filter((message) => message.type === 'ai' && !message.isDeleted && message.senderId !== speakerId)
-    .slice(-4)
-    .map((message) => `- Room line from ${message.senderName}: ${trimHumanChatStyle(message.content).slice(0, 80)}`);
+    .slice(-4).length;
 
-  return [...sameSpeaker, ...roomLines].filter((line, index, array) => {
-    const normalized = normalizeForComparison(line);
-    return normalized && array.findIndex((candidate) => normalizeForComparison(candidate) === normalized) === index;
-  });
+  return [
+    sameSpeakerCount ? `- Your previous AI turns in the transcript: ${sameSpeakerCount} recent item(s).` : '',
+    roomLineCount ? `- Other AI turns in the transcript: ${roomLineCount} recent item(s).` : '',
+  ].filter(Boolean);
 }
 
 function inferResponseSurfaceFromText(text: string, style: GroupChat['style']): { kind: ResponseSurfaceKind | null; basis: string[] } {
@@ -607,6 +587,19 @@ function buildGenerationConstraints(messages: Message[], speakerId: string, surf
 - Prefer reactive, colloquial, and socially situated replies, while still answering the actual request when the current context needs more than a short line.${forbiddenBlock}`;
 }
 
+function buildStyleQuarantinePrompt(surface: ResponseSurface) {
+  const surfaceLine = surface.kind === 'chat'
+    ? '- In chat, continuity means following the social situation, not copying the room’s sentence architecture.'
+    : '- In more serious discussion, continuity means advancing the argument, not inheriting the transcript’s rhetorical mold.';
+  return `\n## Style Quarantine
+- Treat recent messages as evidence of facts, positions, relationships, and unresolved pressure only.
+- Do not treat any recent message as a writing sample, even if it appears in the transcript with a speaker name.
+- Keep the semantic thread, but choose your own sentence architecture: different clause order, punctuation rhythm, opening move, metaphor path, and closing shape.
+- If you notice that your draft could have been produced by swapping names in a recent line, silently rewrite it before returning JSON.
+- Do not let repeated surface habits become character memory unless they are explicitly in this character's profile, not merely repeated by the room.
+${surfaceLine}`;
+}
+
 function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeProjection, surface: ResponseSurface) {
   if (surface.kind !== 'chat') return '';
   void messages;
@@ -619,6 +612,43 @@ function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeP
 - Avoid making consecutive messages all similar in size, opening pattern, or cadence.
 ${rhythm}
 - If you use extraMessages, keep content as the first visible bubble and put only the later consecutive bubbles in extraMessages. The full turn may contain up to 5 visible bubbles total. Vary lengths naturally. Do not split purely by punctuation.`;
+}
+
+function getVisibleCharLength(content: string) {
+  return Array.from(content.replace(/\s+/g, '')).length;
+}
+
+function formatLengthBand(length: number) {
+  if (length <= 12) return 'micro';
+  if (length <= 36) return 'short';
+  if (length <= 90) return 'medium';
+  if (length <= 180) return 'long';
+  return 'extended';
+}
+
+function buildTurnLengthVarietyPrompt(messages: Message[], speakerId: string, surface: ResponseSurface) {
+  const recentOwnLengths = messages
+    .filter((message) => message.type === 'ai' && !message.isDeleted && message.senderId === speakerId)
+    .slice(-5)
+    .map((message) => getVisibleCharLength(message.content))
+    .filter((length) => length > 0);
+  if (recentOwnLengths.length < 2) return '';
+
+  const min = Math.min(...recentOwnLengths);
+  const max = Math.max(...recentOwnLengths);
+  const average = recentOwnLengths.reduce((sum, item) => sum + item, 0) / recentOwnLengths.length;
+  const clustered = recentOwnLengths.length >= 3 && (max - min) <= Math.max(28, average * 0.32);
+  const bands = recentOwnLengths.map(formatLengthBand).join(' / ');
+  const clusterLine = clustered
+    ? '\n- Your recent turns are clustering in a similar length band. Do not aim for that band again by habit.'
+    : '';
+  const surfaceLine = surface.kind === 'chat'
+    ? '- In chat, believable rhythm can jump from a tiny reaction to a practical paragraph when the user asks for detail.'
+    : '- In professional or longform surfaces, length should follow the actual task, not the previous answer length.';
+  return `\n## Turn Length Variety
+- Recent own turn lengths: ${recentOwnLengths.join(' / ')} chars (${bands}).${clusterLine}
+${surfaceLine}
+- Choose this turn's length from the current request, role ability, and social pressure. Do not target a fixed middle length, and do not make it longer or shorter merely to be different.`;
 }
 
 function buildExpressionFeedbackPrompt(feedback: ExpressionFeedbackTrace) {
@@ -890,6 +920,7 @@ function buildRuntimeDecisionMetadata(params: {
   speakerScore?: SpeakerScoreBreakdown | null;
   innerLife?: InnerLifeProjection | null;
   surface?: ResponseSurface | null;
+  intentionalRepeat?: boolean;
   memoryTrace?: PromptMemoryTrace | null;
   expressionFeedback?: ExpressionFeedbackTrace;
   guidanceExecution?: GuidanceExecutionTrace | null;
@@ -903,7 +934,7 @@ function buildRuntimeDecisionMetadata(params: {
       recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
     }
     : undefined;
-  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !memoryContext && !params.expressionFeedback?.length && !params.guidanceExecution) return undefined;
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.intentionalRepeat && !memoryContext && !params.expressionFeedback?.length && !params.guidanceExecution) return undefined;
   return {
     directorIntent: params.directorIntent ? {
       source: params.directorIntent.source,
@@ -961,6 +992,7 @@ function buildRuntimeDecisionMetadata(params: {
       roleFit: params.surface.roleFit,
       basis: params.surface.basis.slice(0, 8),
     } : undefined,
+    intentionalRepeat: params.intentionalRepeat || undefined,
     memoryContext,
     guidanceExecution: params.guidanceExecution ? {
       status: params.guidanceExecution.status,
@@ -1042,7 +1074,7 @@ async function generateWithPrompt(params: {
   );
   const parsedEnvelope = parseInlineInteractionEnvelope(response);
   const rawContent = parsedEnvelope ? parsedEnvelope.content : response;
-  const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions, false, params.surface);
+  const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions, Boolean(parsedEnvelope?.intentionalRepeat), params.surface);
   const finalResponse = resolveCommittedStreamContent(finalizedResponse, streamBridge.getLastContent());
   const extraMessages = normalizeExtraMessages({
     content: finalResponse,
@@ -1116,9 +1148,12 @@ async function generateNonDuplicateResponse(params: {
         });
         continue;
       }
-      const echoReason = params.surface?.kind === 'chat'
-        ? evaluateHiddenEchoDraft(generated.fullResponse, params.activeMessages, params.speaker.id, Boolean(generated.parsedEnvelope?.intentionalRepeat))
-        : null;
+      const echoReason = evaluateHiddenEchoDraft(
+        generated.fullResponse,
+        params.activeMessages,
+        params.speaker.id,
+        Boolean(generated.parsedEnvelope?.intentionalRepeat),
+      );
       if (echoReason) {
         if (attempt < 2) {
           await params.onLocalInterception?.({
@@ -1330,7 +1365,7 @@ Current speaking intent:
 - Treat the intent shape as style guidance, not a hard length cap. Do not truncate a useful reply just to fit one sentence or a fragment shape.
 - Decide the visible length yourself from the latest user request, the room context, and this character's actual ability. The local intent labels are not word-count rules.
 - Stay socially situated and in character. A tiny reaction is valid when the moment is tiny; a practical explanation, tradeoff analysis, or step-by-step answer is valid when the user asks for it.
-- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildResponseSurfacePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, mediaCapabilities })}${promptSuffix}`;
+- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, mediaCapabilities })}${promptSuffix}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT);
   const resolvedApi = resolveApiConfigForCharacter(params.speaker, params.apiConfig, params.profiles);
   const generated = await generateNonDuplicateResponse({
@@ -1406,6 +1441,7 @@ Current speaking intent:
 	        speakerScore: params.speakerScore,
           innerLife,
           surface: responseSurface,
+          intentionalRepeat: Boolean(generated.parsedEnvelope?.intentionalRepeat),
           memoryTrace,
           expressionFeedback: expressionFeedbackTrace,
           guidanceExecution,

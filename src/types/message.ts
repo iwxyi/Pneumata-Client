@@ -131,6 +131,7 @@ export interface MessageMetadata {
       roleFit: 'limited' | 'ordinary' | 'capable';
       basis: string[];
     };
+    intentionalRepeat?: boolean;
     memoryContext?: {
       injectedIds?: string[];
       targetActorId?: string;

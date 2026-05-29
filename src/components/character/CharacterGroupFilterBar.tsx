@@ -78,12 +78,11 @@ export default function CharacterGroupFilterBar({
         {
           maxWidth: '100%',
           display: 'flex',
+          flexWrap: 'wrap',
           gap: 0.75,
-          overflowX: 'auto',
+          overflow: 'visible',
           pt: 0.25,
           pb: 0.35,
-          scrollbarWidth: 'none',
-          '&::-webkit-scrollbar': { display: 'none' },
         },
         ...(Array.isArray(sx) ? sx : [sx]),
       ]}
@@ -92,14 +91,14 @@ export default function CharacterGroupFilterBar({
         label={formatGroupLabel(allLabel, allCount)}
         variant="outlined"
         onClick={() => onSelect(allValue)}
-        sx={buildCharacterGroupChipSx(selectedValue === allValue)}
+        sx={{ ...buildCharacterGroupChipSx(selectedValue === allValue), flexShrink: 0 }}
       />
       {options.map((group) => (
         <Chip
           key={group.value}
           label={formatGroupLabel(group.label, group.count)}
           variant="outlined"
-          sx={buildCharacterGroupChipSx(selectedValue === group.value)}
+          sx={{ ...buildCharacterGroupChipSx(selectedValue === group.value), flexShrink: 0 }}
           onClick={() => onSelect(group.value)}
           onPointerDown={(event) => onGroupPointerDown?.(group.value, event)}
           onPointerUp={onGroupPointerUp}

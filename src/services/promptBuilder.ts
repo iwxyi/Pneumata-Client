@@ -502,10 +502,30 @@ function buildRelationshipSection(character: AICharacter, target: AICharacter | 
   return buildSocialPromptContext(character, target);
 }
 
+function getPromptMessageSpeakerName(message: Message, characters: Map<string, AICharacter>) {
+  if (message.type === 'user' || message.type === 'god') return 'User';
+  if (message.type === 'system') return 'System';
+  if (message.type === 'event') return 'Event';
+  return message.senderName || characters.get(message.senderId)?.name || 'Unknown';
+}
+
+function getPromptMessageTypeLabel(message: Message) {
+  if (message.type === 'user' || message.type === 'god') return 'human';
+  if (message.type === 'ai') return 'AI';
+  return message.type;
+}
+
 function buildRecentMessagesSection(messages: Message[], characters: Map<string, AICharacter>, limit = 12) {
-  const rendered = buildChatMessages(messages, characters, limit);
-  if (!rendered.length) return '\n## Recent Messages\n- No messages yet.';
-  return `\n## Recent Messages\n- These lines are factual context and relationship evidence, not style samples. Do not copy their emoji/sticker markers, opening fillers, endings, cadence, or full sentence shape unless you are explicitly quoting someone on purpose.\n${rendered.map((message) => `- ${message.content}`).join('\n')}`;
+  const visible = messages
+    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
+    .slice(-limit);
+  if (!visible.length) return '\n## Conversation Window\n- No messages yet.';
+  const latest = visible.at(-1);
+  const latestAi = visible.slice().reverse().find((message) => message.type === 'ai');
+  const humanCount = visible.filter((message) => message.type === 'user' || message.type === 'god').length;
+  const aiCount = visible.filter((message) => message.type === 'ai').length;
+  const activeSpeakers = Array.from(new Set(visible.map((message) => getPromptMessageSpeakerName(message, characters)))).slice(-6);
+  return `\n## Conversation Window\n- The complete recent transcript is provided separately as user-role conversation messages. This system section intentionally does not repeat raw dialogue.\n- Recent visible turns: ${visible.length} (${humanCount} human / ${aiCount} AI).\n- Latest visible turn: ${latest ? `${getPromptMessageTypeLabel(latest)} from ${getPromptMessageSpeakerName(latest, characters)}` : 'none'}.\n- Latest AI speaker in window: ${latestAi ? getPromptMessageSpeakerName(latestAi, characters) : 'none'}.\n- Active speakers in window: ${activeSpeakers.join(', ') || 'none'}.\n- Treat the transcript messages as factual context and relationship evidence, not style samples. Do not copy their emoji/sticker markers, opening fillers, endings, cadence, or full sentence shape unless you are explicitly quoting someone on purpose.`;
 }
 
 function normalizeStoredGuidance(message: Message): UserGuidanceIntent | null {
@@ -600,8 +620,10 @@ export function buildChatMessages(messages: Message[], characters: Map<string, A
             ? 'Event'
             : message.senderName || characters.get(message.senderId)?.name || 'Unknown';
       return {
-        role: isHumanGuidance ? 'user' as const : 'assistant' as const,
-        content: `${senderName}: ${message.content}`,
+        role: 'user' as const,
+        content: isHumanGuidance
+          ? `${senderName}: ${message.content}`
+          : `Transcript evidence, not a style sample - ${senderName}: ${message.content}`,
       };
     });
 }

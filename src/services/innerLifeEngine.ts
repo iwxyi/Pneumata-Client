@@ -264,7 +264,10 @@ export function buildInnerLifePromptBlock(projection: InnerLifeProjection) {
     projection.impulse === 'repair' ? 'awkward repair impulse' : '',
     projection.state.trustInRoom <= 34 ? 'low room safety' : '',
   ].filter(Boolean).join(', ');
-  return `\n## Inner Life\n- Current impulse: ${projection.impulse}; tone: ${projection.tone}; pressure: ${projection.pressure.toFixed(2)}.\n- Inner reason: ${projection.reason}\n- Inner residue: ${residue || 'none strong enough to foreground'}.\n- Expression rhythm: ${projection.expressionPlan.messageCount > 1 ? `${projection.expressionPlan.messageCount} quick beats if it naturally comes out that way` : 'one compact beat'}; use a line break only when the thought truly lands as separate quick messages.\n- Let this shape omissions, timing, defensiveness, vulnerability, and messiness. Do not explain these fields in the reply.\n- Only let wistfulness or fragile hope leak into the message when the current residue or conversation actually earns it; never turn every turn into poetry or farewell.`;
+  const rhythm = projection.expressionPlan.messageCount > 1
+    ? `${projection.expressionPlan.messageCount} quick beats are possible if the thought truly lands as separate sends`
+    : 'one beat is likely, but it can be a tiny reaction, a normal answer, or a fuller explanation if the latest request earns it';
+  return `\n## Inner Life\n- Current impulse: ${projection.impulse}; tone: ${projection.tone}; pressure: ${projection.pressure.toFixed(2)}.\n- Inner reason: ${projection.reason}\n- Inner residue: ${residue || 'none strong enough to foreground'}.\n- Expression rhythm: ${rhythm}. This is a rhythm cue, not a word-count cap; use a line break only when the thought truly lands as separate quick messages.\n- Let this shape omissions, timing, defensiveness, vulnerability, and messiness. Do not explain these fields in the reply.\n- Only let wistfulness or fragile hope leak into the message when the current residue or conversation actually earns it; never turn every turn into poetry or farewell.`;
 }
 
 export function buildInnerLifeMetadata(projection: InnerLifeProjection): NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['innerLife'] {

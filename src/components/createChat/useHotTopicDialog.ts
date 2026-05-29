@@ -104,6 +104,8 @@ export function useHotTopicDialog(params: {
   const [overwriteTopic, setOverwriteTopic] = useState(false);
   const hasManualCharacterSelectionRef = useRef(false);
   const creationInFlightRef = useRef(false);
+  const initializedRef = useRef(false);
+  const initializingRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     if (!open && sources.length === 0) return;
@@ -178,41 +180,44 @@ export function useHotTopicDialog(params: {
     }
   }, [isZh, params]);
 
-  const openDialog = useCallback(async () => {
-    setOpen(true);
-    setAdaptation(null);
-    setSelectedTopic(null);
-    setSelectedSuggestedMemberIds([]);
-    setSelectedCharacterNames([]);
-    setCreatedCharacterNames([]);
-    setOverwriteName(false);
-    setOverwriteTopic(false);
-    hasManualCharacterSelectionRef.current = false;
-    try {
-      const result = await backendApi.getTopicSources();
-      const nextSources = result.sources || [];
-      setSources(nextSources);
-      const firstSourceId = nextSources[0]?.id || 'ai_ideas';
-      setSourceTab(0);
-      await loadTopics(firstSourceId);
-    } catch {
-      setSources([]);
-      setSourceTab(0);
-      await loadTopics('ai_ideas');
-      params.onError(isZh ? '热点来源加载失败' : 'Failed to load topic sources');
+  const initializeDialog = useCallback(async () => {
+    if (initializedRef.current) return;
+    if (initializingRef.current) {
+      await initializingRef.current;
+      return;
     }
+
+    const initializeTask = (async () => {
+      try {
+        const result = await backendApi.getTopicSources();
+        const nextSources = result.sources || [];
+        setSources(nextSources);
+        const firstSourceId = getSourceTabs(nextSources, isZh)[0]?.id || 'ai_ideas';
+        setSourceTab(0);
+        await loadTopics(firstSourceId);
+        initializedRef.current = true;
+      } catch {
+        setSources([]);
+        setSourceTab(0);
+        await loadTopics('ai_ideas');
+        initializedRef.current = true;
+        params.onError(isZh ? '热点来源加载失败' : 'Failed to load topic sources');
+      } finally {
+        initializingRef.current = null;
+      }
+    })();
+
+    initializingRef.current = initializeTask;
+    await initializeTask;
   }, [isZh, loadTopics, params]);
 
+  const openDialog = useCallback(async () => {
+    setOpen(true);
+    await initializeDialog();
+  }, [initializeDialog]);
+
   const closeDialog = useCallback(() => {
-    hasManualCharacterSelectionRef.current = false;
     setOpen(false);
-    setAdaptation(null);
-    setSelectedTopic(null);
-    setSelectedSuggestedMemberIds([]);
-    setSelectedCharacterNames([]);
-    setCreatedCharacterNames([]);
-    setOverwriteName(false);
-    setOverwriteTopic(false);
   }, []);
 
   const handleSourceTabChange = useCallback(async (_: unknown, value: number) => {

@@ -106,6 +106,14 @@ function extractSurfacePattern(content: string) {
   return prefix.trim().slice(0, 12);
 }
 
+function extractOpeningMove(content: string) {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  const firstClause = normalized.split(/[。！？!?]/)[0] || normalized;
+  const firstPhrase = firstClause.split(/[，,、：:；;]/)[0] || firstClause;
+  return firstPhrase.trim().slice(0, 18);
+}
+
 function getRecentSurfacePatterns(messages: Message[]) {
   const patternMap = new Map<string, number>();
   messages
@@ -119,16 +127,40 @@ function getRecentSurfacePatterns(messages: Message[]) {
   return Array.from(patternMap.entries()).sort((a, b) => b[1] - a[1]);
 }
 
+function getSharedPrefixLength(a: string, b: string) {
+  let index = 0;
+  const max = Math.min(a.length, b.length);
+  while (index < max && a[index] === b[index]) index += 1;
+  return index;
+}
+
+function getRecentSelfOpeningPattern(messages: Message[], speakerId: string) {
+  const openings = messages
+    .filter((message) => !message.isDeleted && message.type === 'ai' && message.senderId === speakerId)
+    .slice(-5)
+    .map((message) => extractOpeningMove(message.content))
+    .filter((opening) => opening.length >= 4);
+  if (openings.length < 2) return { count: openings.length, similarPairs: 0 };
+  let similarPairs = 0;
+  for (let index = 1; index < openings.length; index += 1) {
+    const shared = getSharedPrefixLength(openings[index - 1], openings[index]);
+    if (shared >= Math.min(6, Math.floor(Math.min(openings[index - 1].length, openings[index].length) * 0.6))) {
+      similarPairs += 1;
+    }
+  }
+  return { count: openings.length, similarPairs };
+}
+
 function buildRecentSurfaceHint(messages: Message[]) {
   const patterns = getRecentSurfacePatterns(messages).slice(0, 4);
   if (!patterns.length) return '';
-  return `\n- Avoid reusing the room's current high-frequency speech patterns: ${patterns.map(([pattern, count]) => `${pattern}×${count}`).join(' / ')}`;
+  return '\n- Some surface forms are repeating in the room. Use them only as evidence of social momentum; do not copy their wording, punctuation rhythm, or sentence architecture.';
 }
 
 function buildRecentPhraseConstraint(messages: Message[]) {
   const repeatedPatterns = getRecentSurfacePatterns(messages).filter(([, count]) => count >= 2);
   if (!repeatedPatterns.length) return '';
-  return '\n- The room is already echoing repeated phrasing. Deliberately enter from another angle instead of matching the same catchphrase, prefix, or framing.';
+  return '\n- The room is already echoing repeated phrasing. Preserve the social pressure, but deliberately change sentence architecture instead of matching the same catchphrase, prefix, cadence, or framing.';
 }
 
 function extractEmojiTokens(content: string) {
@@ -147,7 +179,18 @@ function buildRecentEmojiContagionHint(messages: Message[]) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4);
   if (!repeated.length) return '';
-  return `\n- Recent emoji/sticker-like markers are contagious surface noise, not room emotion memory: ${repeated.map(([emoji, count]) => `${emoji}×${count}`).join(' / ')}. Do not reuse them unless this character deliberately sends that exact marker for a new reason.`;
+  return '\n- Recent emoji/sticker-like markers are contagious surface noise, not room emotion memory. Do not inherit them unless this character deliberately sends one for a new reason.';
+}
+
+function buildRecentSelfOpeningHint(messages: Message[], speakerId: string) {
+  const pattern = getRecentSelfOpeningPattern(messages, speakerId);
+  if (pattern.count < 2) return '';
+  const similarityLine = pattern.similarPairs > 0
+    ? ` ${pattern.similarPairs} adjacent pair(s) look structurally similar.`
+    : '';
+  return `\n- Your recent ${pattern.count} turns have opening-frame history.${similarityLine} Treat repeated opening frames as exhausted surface moves, not as your voice identity.
+- If your last turns used the same acknowledgement-then-framework move, skip the acknowledgement and start from a different discourse move: direct conclusion, concrete example, calculation, caveat, counterpoint, next step, or a sharper question.
+- Do not solve repetition by swapping one stock phrase for another. Change the sentence architecture and the job of the first sentence.`;
 }
 
 function buildInnerResidueChatHint(character: AICharacter) {
@@ -309,9 +352,9 @@ export function buildHumanizationPrompt(character: AICharacter, intent: SpeakInt
 - Questions are welcome when they feel socially useful: to get information, pressure someone, test a stance, redirect the topic, dodge a point, fish for alignment, or make the room more playful.
 - If you ask, let it sound like a live human move rather than a formal interviewer move.
 - Question tendency: ${fingerprint.prefersQuestions ? [fingerprint.asksForInformation ? 'info-seeking' : '', fingerprint.usesQuestionAsPushback ? 'pushback' : '', fingerprint.usesQuestionToSteer ? 'steering' : '', fingerprint.usesQuestionPlayfully ? 'playful' : ''].filter(Boolean).join(' / ') : 'not preferred'}
-- Terse bias: ${fingerprint.terseBias}/100${buildInnerResidueChatHint(character)}
+- Terse bias: ${fingerprint.terseBias}/100${buildRecentSelfOpeningHint(messages, character.id)}${buildInnerResidueChatHint(character)}
 - Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}${buildRecentSurfaceHint(messages)}${buildRecentPhraseConstraint(messages)}${buildRecentEmojiContagionHint(messages)}
-- Keep the reply socially sticky: continue the same vibe instead of resetting into neutral analysis.${guidanceOverride}`;
+- Keep the reply socially sticky: continue the social situation, not the room's wording, punctuation rhythm, or sentence mold.${guidanceOverride}`;
 }
 
 export function postProcessHumanChat(content: string, _intent: SpeakIntent, character?: AICharacter, messages: Message[] = [], intentionalRepeat = false) {

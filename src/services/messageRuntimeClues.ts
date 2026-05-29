@@ -134,6 +134,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       formatResponseSurfaceKindLabel(decision.responseSurface.kind, 'zh', 'clue'),
       formatRoleFitLabel(decision.responseSurface.roleFit, 'zh', 'clue'),
       decision.responseSurface.allowMarkdown ? '允许富文本' : '',
+      decision.intentionalRepeat ? '有意复沓/引用' : '',
       ...(decision.responseSurface.basis || []).map((reason) => formatSurfaceBasisLabel(reason)),
     ] : [],
   }, members);

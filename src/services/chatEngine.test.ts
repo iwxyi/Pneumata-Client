@@ -213,7 +213,10 @@ describe('chatEngine streaming preview', () => {
       chat: { id: 'chat-1', memberIds: ['char-1'], runtimeEventsV2: [] } as never,
       speaker: { id: 'char-1', name: '美羊羊' } as AICharacter,
       characters: [{ id: 'char-1', name: '美羊羊' } as AICharacter],
-      recentMessages: [],
+      recentMessages: [
+        buildUserMessage('美羊羊发个灰太狼证件照的图片', 1),
+        buildAiMessage('char-1', '美羊羊', '来啦，我先构思一下。', 2),
+      ],
       mediaCapabilities: { image: true, audio: false },
     });
 
@@ -226,6 +229,12 @@ describe('chatEngine streaming preview', () => {
     expect(contract).toContain('natural phone camera perspective');
     expect(contract).toContain('keep stable identity anchors across images');
     expect(contract).toContain('按当前请求自然作答；可短可长');
+    expect(contract).toContain('deliberate repeated tone, keyword, rhythm, format');
+    expect(contract).toContain('accidental template drift');
+    expect(contract).toContain('Recent transcript scope');
+    expect(contract).toContain('does not repeat raw dialogue');
+    expect(contract).not.toContain('美羊羊发个灰太狼证件照的图片');
+    expect(contract).not.toContain('来啦，我先构思一下');
     expect(contract).not.toContain('一句自然的群聊回复');
   });
 
@@ -438,21 +447,168 @@ describe('chatEngine streaming preview', () => {
     expect(message.content).toBe('捡漏这事你们先别抢，我得先看那件夹克还能不能救。');
   });
 
-  it('retries borrowed emoji markers after they become room contagion', async () => {
+  it('retries exact room-line repeats on professional discussion surfaces too', async () => {
     generateResponseMock.mockReset();
     generateResponseMock
       .mockResolvedValueOnce(JSON.stringify({
-        content: '我也有点想排队了😂',
+        content: '财富伦理师，你这句话其实比我之前那个功能模块的拆解更狠。',
         interactionHints: null,
         socialEventHints: null,
         conflictFocus: null,
       }))
       .mockResolvedValueOnce(JSON.stringify({
-        content: '我也有点想排队了，但先看你能不能真改出东西。',
+        content: '我换个角度说：这里真正危险的是把人的处境误读成可交易指标。',
         interactionHints: null,
         socialEventHints: null,
         conflictFocus: null,
       }));
+    const analyst = buildCharacter('analyst', '心理学家', { expertise: ['心理学'] });
+    const ethicist = buildCharacter('ethicist', '财富伦理师', { expertise: ['伦理'] });
+    const onLocalInterception = vi.fn();
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ mode: 'group_discussion', memberIds: ['analyst', 'ethicist'] }),
+      speaker: analyst,
+      characters: [analyst, ethicist],
+      messages: [
+        buildAiMessage('ethicist', '财富伦理师', '财富伦理师，你这句话其实比我之前那个功能模块的拆解更狠。', 1),
+      ],
+      apiConfig: buildProfiles(),
+      onLocalInterception,
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(onLocalInterception).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'surface_echo_retry',
+      reason: expect.stringContaining('exactly repeats'),
+      attempt: 1,
+    }));
+    expect(message.content).toBe('我换个角度说：这里真正危险的是把人的处境误读成可交易指标。');
+  });
+
+  it('prevents syntax contagion through prompt structure instead of local punctuation blacklists', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '这个问题的关键——不是她发了什么，而是谁替她决定了发什么。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const analyst = buildCharacter('analyst', '心理学家', { expertise: ['心理学'] });
+    const reporter = buildCharacter('reporter', '娱乐记者');
+    const observer = buildCharacter('observer', '女权观察家');
+    const onLocalInterception = vi.fn();
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['analyst', 'reporter', 'observer'] }),
+      speaker: analyst,
+      characters: [analyst, reporter, observer],
+      messages: [
+        buildAiMessage('reporter', '娱乐记者', '这话扎心——可它确实把问题摆上桌了。', 1),
+        buildAiMessage('observer', '女权观察家', '我不同意——至少不该只看曝光量。', 2),
+        buildAiMessage('reporter', '娱乐记者', '那就更微妙了——镜头到底对着谁？', 3),
+        buildAiMessage('observer', '女权观察家', '问题就在这里——她的名字一直在后面。', 4),
+      ],
+      apiConfig: buildProfiles(),
+      onLocalInterception,
+    });
+
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+    const chatMessages = generateResponseMock.mock.calls[0]?.[2] as Array<{ role: string; content: string }>;
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(onLocalInterception).not.toHaveBeenCalled();
+    expect(prompt).toContain('## Style Quarantine');
+    expect(prompt).toContain('choose your own sentence architecture');
+    expect(prompt).toContain('The complete recent transcript is provided separately as user-role conversation messages');
+    expect(prompt).not.toContain('这话扎心');
+    expect(prompt).not.toContain('镜头到底对着谁');
+    expect(chatMessages.every((item) => item.role === 'user')).toBe(true);
+    expect(chatMessages.some((item) => item.content.includes('not a style sample'))).toBe(true);
+    expect(message.content).toBe('这个问题的关键——不是她发了什么，而是谁替她决定了发什么。');
+  });
+
+  it('warns the model away from repeated self opening frames without local phrase blacklists', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '赔偿金额可以先从合同约定的定额违约金入手，再让法院按传播范围、过错程度和工资水平去调减。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const lawyer = buildCharacter('lawyer', '专业律师', { expertise: ['合同法', '劳动争议'] });
+    const onLocalInterception = vi.fn();
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['lawyer'] }),
+      speaker: lawyer,
+      characters: [lawyer],
+      messages: [
+        buildUserMessage('这种景区 NPC 保密违约金怎么写？', 1),
+        buildAiMessage('lawyer', '专业律师', '你这个问题问到了实务中的痛点。景区要证明实际损失，确实不能靠模糊数据。', 2),
+        buildUserMessage('点赞少是不是就很轻微？', 3),
+        buildAiMessage('lawyer', '专业律师', '你这个问题问到了实务中的另一个关键点。点赞数量低不等于行为轻微。', 4),
+        buildUserMessage('那赔偿金额怎么确定？', 5),
+        buildAiMessage('lawyer', '专业律师', '你这个问题问到了实务中的核心困境。没有明确实际损失时，违约金需要看约定是否合理。', 6),
+        buildUserMessage('如果法院要调低，景区要准备什么材料？', 7),
+      ],
+      apiConfig: buildProfiles(),
+      onLocalInterception,
+    });
+
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(onLocalInterception).not.toHaveBeenCalled();
+    expect(prompt).toContain('opening-frame history');
+    expect(prompt).toContain('acknowledgement-then-framework move');
+    expect(prompt).toContain('Do not solve repetition by swapping one stock phrase for another');
+    expect(prompt).toContain('## Turn Length Variety');
+    expect(prompt).toContain('Do not target a fixed middle length');
+    expect(prompt).not.toContain('你这个问题问到了实务中的痛点');
+    expect(prompt).not.toContain('你这个问题问到了实务中的另一个关键点');
+    expect(prompt).not.toContain('你这个问题问到了实务中的核心困境');
+    expect(message.content).toBe('赔偿金额可以先从合同约定的定额违约金入手，再让法院按传播范围、过错程度和工资水平去调减。');
+  });
+
+  it('allows intentional repeated tone or format when the model marks intentionalRepeat', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '你这个问题问到了“没法举证但又不能零处罚”的缝里，我就顺着这个缝说。',
+      intentionalRepeat: true,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const lawyer = buildCharacter('lawyer', '专业律师', { expertise: ['合同法'] });
+    const onLocalInterception = vi.fn();
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['lawyer'] }),
+      speaker: lawyer,
+      characters: [lawyer],
+      messages: [
+        buildAiMessage('lawyer', '专业律师', '你这个问题问到了实务中的痛点。景区要证明实际损失很难。', 1),
+        buildUserMessage('那如果视频几乎没人看呢？', 2),
+      ],
+      apiConfig: buildProfiles(),
+      onLocalInterception,
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(onLocalInterception).not.toHaveBeenCalled();
+    expect(message.metadata?.runtimeDecision?.intentionalRepeat).toBe(true);
+    expect(message.metadata?.runtimeDecision?.responseSurface?.kind).toBe('chat');
+  });
+
+  it('does not locally blacklist borrowed emoji markers once style quarantine is in the prompt', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '我也有点想排队了😂',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
     const mei = buildCharacter('mei', '美羊羊');
     const hui = buildCharacter('hui', '灰太狼');
     const onLocalInterception = vi.fn();
@@ -470,14 +626,9 @@ describe('chatEngine streaming preview', () => {
       onLocalInterception,
     });
 
-    expect(generateResponseMock).toHaveBeenCalledTimes(2);
-    expect(onLocalInterception).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'surface_echo_retry',
-      speakerId: 'mei',
-      reason: expect.stringContaining('emoji'),
-      attempt: 1,
-    }));
-    expect(message.content).toBe('我也有点想排队了，但先看你能不能真改出东西。');
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(onLocalInterception).not.toHaveBeenCalled();
+    expect(message.content).toBe('我也有点想排队了😂');
   });
 
   it('allows exact repeated answers when the user asks for a poem next line', async () => {

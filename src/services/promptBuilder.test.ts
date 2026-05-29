@@ -128,6 +128,38 @@ describe('buildSystemPromptWithContext', () => {
     }]);
   });
 
+  it('passes AI history as transcript evidence instead of assistant style examples', () => {
+    const rendered = buildChatMessages([
+      buildMessage({ type: 'ai', senderId: 'char-a', senderName: '心理学家', content: '这句话的重点——不是她说了什么，而是谁让她这么说。' }),
+      buildMessage({ type: 'ai', senderId: 'char-b', senderName: '娱乐记者', content: '那这合照就更微妙了。' }),
+    ], new Map(), 12);
+
+    expect(rendered).toEqual([
+      {
+        role: 'user',
+        content: 'Transcript evidence, not a style sample - 心理学家: 这句话的重点——不是她说了什么，而是谁让她这么说。',
+      },
+      {
+        role: 'user',
+        content: 'Transcript evidence, not a style sample - 娱乐记者: 那这合照就更微妙了。',
+      },
+    ]);
+  });
+
+  it('does not duplicate raw recent dialogue inside the system prompt window summary', () => {
+    const character = buildCharacter();
+    const prompt = buildSystemPromptWithContext(character, buildChat(), 0, [
+      buildMessage({ type: 'user', senderId: 'user', senderName: '开发者', content: '这种违约金要怎么举证？' }),
+      buildMessage({ type: 'ai', senderId: 'char-a', senderName: '专业律师', content: '你这个问题问到了实务中的痛点。' }),
+    ], new Map([[character.id, character]]));
+
+    expect(prompt).toContain('## Conversation Window');
+    expect(prompt).toContain('complete recent transcript is provided separately');
+    expect(prompt).toContain('Recent visible turns: 2');
+    expect(prompt).not.toContain('这种违约金要怎么举证');
+    expect(prompt).not.toContain('你这个问题问到了实务中的痛点');
+  });
+
   it('includes every manual memory seed field in the unified prompt', () => {
     const character = buildCharacter({
       memory: {
