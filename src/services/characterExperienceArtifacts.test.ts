@@ -15,6 +15,27 @@ function buildCharacter(): Partial<AICharacter> {
     name: '苏苏',
     background: '时尚穿搭博主。',
     speakingStyle: '活泼亲切。',
+    coreProfile: {
+      coreDesire: '想让更多人相信自己也可以变好看。',
+      coreFear: '害怕别人觉得她只是跟风。',
+      socialMask: '总是把在意包装成轻松玩笑。',
+      selfImage: '希望自己看起来可靠又有趣。',
+      hiddenSoftSpots: ['别人认真保存她的建议'],
+      unmetNeeds: ['被认真看见'],
+      conflictStyle: '先开玩笑再试探对方态度',
+    },
+    soulState: {
+      mood: { pleasure: 10, arousal: 30, dominance: 0 },
+      energy: 42,
+      attention: 60,
+      loneliness: 62,
+      repression: 61,
+      shame: 48,
+      envy: 10,
+      trustInRoom: 50,
+      ignoredStreak: 1,
+      lastImpulseReason: '想问小雨是不是认真喜欢那套搭配，但又怕显得太在意。',
+    },
     emotionalState: { affection: 62, irritation: 12, insecurity: 20, excitement: 70, embarrassment: 5 },
     relationships: [{
       characterId: 'c2',
@@ -164,7 +185,19 @@ describe('characterExperienceArtifacts', () => {
     expect(context.emotionalAnchors.length).toBeGreaterThan(0);
     expect(context.privateLenses.length).toBeGreaterThan(0);
     expect(context.formHint.length).toBeGreaterThan(0);
-    expect(context.recentDiaryOpenings[0]).toContain('气死我了');
+    expect(context.openingStyle.length).toBeGreaterThan(0);
+    expect(context.recentDiaryOpenings[0]).toBe('短促情绪词开场');
+    expect(context.recentDiaryContentPatterns).toContain('情绪先行');
+    expect(context.recentDiaryContinuity).toContain('短促情绪词开场');
+    expect(context.recentDiaryContinuity).toContain('近期内容常见的重心');
+    expect(context.recentDiaryContinuity).toContain('不是禁用词');
+    expect(context.secondReactionSeeds.length).toBeGreaterThan(0);
+    expect(context.selfDoubtSeeds.length).toBeGreaterThan(0);
+    expect(Array.isArray(context.flashbackSeeds)).toBe(true);
+    expect(context.imperfectFormHints.length).toBeGreaterThan(0);
+    expect(context.metaphorSeeds.length).toBeGreaterThan(0);
+    expect(context.metaphorSeeds.join(' / ')).not.toContain('今日心情：');
+    expect(JSON.stringify(context)).not.toContain('气死我了');
 
     generateResponseMock.mockResolvedValueOnce('今天我把那件事记在了心里。');
     const text = await generateCharacterDailyDiaryArtifact({
@@ -176,6 +209,59 @@ describe('characterExperienceArtifacts', () => {
       language: 'zh',
     });
     expect(text).toBe('今天我把那件事记在了心里。');
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+    const serializedContext = String((generateResponseMock.mock.calls[0]?.[2] as Array<{ content: string }> | undefined)?.[0]?.content || '');
+    expect(prompt).toContain('日记是角色卸下面具后只面对自己的私密记录');
+    expect(prompt).toContain('openingStyle、narrativeAngle、formHint 只是入口建议');
+    expect(prompt).toContain('secondReactionSeeds、selfDoubtSeeds、flashbackSeeds、imperfectFormHints、metaphorSeeds 是可选私密材料');
+    expect(prompt).toContain('recentDiaryOpenings、recentDiaryContentPatterns 和 recentDiaryContinuity 只用来感知近期节奏');
+    expect(prompt).toContain('长期事件、长期情绪或同一段关系可以反复出现');
+    expect(serializedContext).not.toContain('openingAvoidance');
+    expect(serializedContext).toContain('recentDiaryContinuity');
+    expect(serializedContext).toContain('recentDiaryContentPatterns');
+    expect(serializedContext).toContain('secondReactionSeeds');
+    expect(serializedContext).toContain('selfDoubtSeeds');
+    expect(serializedContext).toContain('flashbackSeeds');
+    expect(serializedContext).toContain('imperfectFormHints');
+    expect(serializedContext).toContain('metaphorSeeds');
+    expect(serializedContext).toContain('短促情绪词开场');
+    expect(serializedContext).toContain('情绪先行');
+    expect(serializedContext).not.toContain('气死我了');
+    expect(serializedContext).not.toContain('今天又被人误会');
+  });
+
+  it('summarizes recurring diary topics without feeding previous diary prose back to the model', () => {
+    const context = buildCharacterDailyDiaryContext(
+      buildCharacter(),
+      [{ id: 'c2', name: '小雨' } as AICharacter],
+      '1970-01-02',
+      [
+        '烦死了。今天又因为小雨那句话没睡好，我差点把消息发出去又删了。',
+        '气死我了！小雨明明只是随口一说，我却一直想着明天要不要装作不在意。',
+      ],
+    );
+    const serialized = JSON.stringify(context);
+
+    expect(context.recentDiaryOpenings).toContain('短促情绪词开场');
+    expect(context.recentDiaryContentPatterns).toEqual(expect.arrayContaining(['情绪先行', '关系反复', '未说出口', '行动念头']));
+    expect(context.recentDiaryContinuity).toContain('长期事件、长期情绪或同一个人可以反复出现');
+    expect(context.recentDiaryContinuity).toContain('新的时间切片');
+    expect(context.flashbackSeeds.length).toBeGreaterThan(0);
+    expect(serialized).not.toContain('没睡好');
+    expect(serialized).not.toContain('随口一说');
+  });
+
+  it('varies diary opening guidance across dates for the same character', () => {
+    const dates = ['1970-01-01', '1970-01-02', '1970-01-03', '1970-01-04', '1970-01-05', '1970-01-06'];
+    const contexts = dates.map((date) => buildCharacterDailyDiaryContext(
+      buildCharacter(),
+      [{ id: 'c2', name: '小雨' } as AICharacter],
+      date,
+      ['烦死了。今天又是这样。'],
+    ));
+    expect(new Set(contexts.map((context) => context.openingStyle)).size).toBeGreaterThan(1);
+    expect(new Set(contexts.map((context) => context.formHint)).size).toBeGreaterThan(1);
+    expect(contexts.every((context) => context.recentDiaryOpenings.includes('短促情绪词开场'))).toBe(true);
   });
 
   it('retries when the model echoes raw diary context', async () => {
@@ -247,8 +333,9 @@ describe('characterExperienceArtifacts', () => {
     const serialized = JSON.stringify(context);
 
     expect(context.memories[0].lens).toBe('状态变化');
-    expect(context.recentDiaryOpenings[0]).toContain('喜羊羊');
-    expect(context.recentDiaryOpenings[0]).toContain('灰太狼');
+    expect(context.recentDiaryOpenings[0]).toBeTruthy();
+    expect(context.recentDiaryContinuity).toContain(context.recentDiaryOpenings[0]);
+    expect(context.recentDiaryContentPatterns.length).toBeGreaterThan(0);
     expect(preview).toContain('喜羊羊');
     expect(preview).toContain('灰太狼');
 

@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Badge, Box, FormControl, InputLabel, MenuItem, Select, Stack } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useCharacterArtifactStore, type CharacterArtifactEntry } from '../stores/useCharacterArtifactStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import ArtifactCalendarReader from '../components/artifacts/ArtifactCalendarReader';
+import AppSnackbar from '../components/common/AppSnackbar';
 import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
 import { reportUnresolvedDisplayEntity } from '../services/diagnostics';
 
@@ -36,14 +38,19 @@ function buildCharacterOptions(items: CharacterArtifactEntry[], nameMap: Map<str
 
 export default function LettersPage() {
   const { i18n } = useTranslation();
+  const [searchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab');
   const { setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
   const characters = useCharacterStore((state) => state.characters);
   const items = useCharacterArtifactStore((state) => state.items);
   const unreadLetterCount = useCharacterArtifactStore((state) => state.unreadLetterCount);
   const markLettersRead = useCharacterArtifactStore((state) => state.markLettersRead);
+  const regenerateArtifact = useCharacterArtifactStore((state) => state.regenerateArtifact);
   const paperVariant = useSettingsStore((state) => state.artifactAppearance.paperVariant);
+  const developerMode = useSettingsStore((state) => state.developerMode);
   const [tab, setTab] = useState<LettersTab>(() => readPersistentUiValue(LETTERS_TAB_KEY, 'letters', isLettersTab));
   const [characterFilter, setCharacterFilter] = useState('all');
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
   const readerHeight = 'clamp(420px, calc(100dvh - 180px), 1040px)';
 
   useEffect(() => {
@@ -59,16 +66,38 @@ export default function LettersPage() {
   }, [i18n.language, markLettersRead, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
 
   const letters = useMemo(() => items.filter((item) => item.kind === 'birth_letter' || item.kind === 'final_letter').slice().sort((a, b) => b.createdAt - a.createdAt), [items]);
-  const diaries = useMemo(() => items.filter((item) => item.kind === 'diary').slice().sort((a, b) => b.createdAt - a.createdAt), [items]);
+  const diaries = useMemo(() => items.filter((item) => item.kind === 'diary').slice().sort((a, b) => (a.dateKey || '').localeCompare(b.dateKey || '') || a.createdAt - b.createdAt), [items]);
   const activeItems = tab === 'letters' ? letters : diaries;
   const characterNameMap = useMemo(() => new Map(characters.map((character) => [character.id, character.name])), [characters]);
   const characterOptions = useMemo(() => buildCharacterOptions(activeItems, characterNameMap, i18n.language), [activeItems, characterNameMap, i18n.language]);
   const visibleItems = useMemo(() => characterFilter === 'all' ? activeItems : activeItems.filter((item) => item.characterId === characterFilter), [activeItems, characterFilter]);
+  const characterById = useMemo(() => new Map(characters.map((character) => [character.id, character])), [characters]);
+
+  const handleRegenerateDebug = async (item: CharacterArtifactEntry) => {
+    try {
+      const character = characterById.get(item.characterId) || null;
+      const relatedCharacters = character
+        ? (character.relationships || [])
+            .map((relation) => characterById.get(relation.characterId))
+            .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+            .map((entry) => ({ id: entry.id, name: entry.name }))
+        : [];
+      await regenerateArtifact({ itemId: item.id, character, relatedCharacters });
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已重新生成' : 'Regenerated', severity: 'success' });
+    } catch (error) {
+      console.error('Failed to regenerate character artifact:', { item, error });
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : (i18n.language.startsWith('zh') ? '重新生成失败' : 'Regeneration failed'), severity: 'error' });
+    }
+  };
 
   useEffect(() => {
     setCharacterFilter('all');
     writePersistentUiValue(LETTERS_TAB_KEY, tab);
   }, [tab]);
+
+  useEffect(() => {
+    if (isLettersTab(requestedTab)) setTab(requestedTab);
+  }, [requestedTab]);
 
   useEffect(() => {
     if (characterFilter !== 'all' && !characterOptions.some((option) => option.id === characterFilter)) {
@@ -176,8 +205,15 @@ export default function LettersPage() {
             ? (i18n.language.startsWith('zh') ? '等角色真正经历过相遇、告别、牵挂和改变，这里会留下它们想认真说完的话。' : 'When a character has lived through enough meetings, partings, attachments, and change, the words they need to finish will rest here.')
             : (i18n.language.startsWith('zh') ? '日记不会急着出现。它会等某一天的关系余波、没说出口的话，或一点明天还想继续的理由。' : 'Diaries are not rushed. They wait for relationship residue, unsent words, or one small reason to keep going tomorrow.')}
           getMeta={(item) => `${characterNameMap.get(item.characterId) || item.characterName} · ${item.dateKey || new Date(item.createdAt).toLocaleDateString(i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US')}`}
+          onRegenerateDebug={developerMode ? handleRegenerateDebug : undefined}
         />
       </Stack>
+      <AppSnackbar
+        open={snackbar.open}
+        message={snackbar.message}
+        severity={snackbar.severity}
+        onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
+      />
     </Box>
   );
 }

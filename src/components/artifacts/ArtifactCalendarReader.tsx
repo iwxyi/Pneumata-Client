@@ -5,6 +5,7 @@ import type { Theme } from '@mui/material/styles';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import type { CharacterArtifactEntry } from '../../stores/useCharacterArtifactStore';
@@ -30,6 +31,7 @@ interface ArtifactCalendarReaderProps {
   emptyTitle: string;
   emptyDescription: string;
   getMeta?: (item: CharacterArtifactEntry) => string;
+  onRegenerateDebug?: (item: CharacterArtifactEntry) => Promise<void> | void;
 }
 
 function getEntryDateKey(item: CharacterArtifactEntry) {
@@ -136,6 +138,7 @@ export default function ArtifactCalendarReader({
   emptyTitle,
   emptyDescription,
   getMeta,
+  onRegenerateDebug,
 }: ArtifactCalendarReaderProps) {
   const isZh = language.startsWith('zh');
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id || null);
@@ -144,6 +147,7 @@ export default function ArtifactCalendarReader({
   const selectedDate = selectedItem ? parseDateKey(getEntryDateKey(selectedItem)) : null;
   const [visibleMonth, setVisibleMonth] = useState(() => selectedDate || new Date());
   const [calendarExpanded, setCalendarExpanded] = useState(true);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const swipeRef = useRef<ReaderSwipeState | null>(null);
   const currentMonthKey = toMonthKey(visibleMonth);
   const monthLabel = visibleMonth.toLocaleDateString(isZh ? 'zh-CN' : 'en-US', { year: 'numeric', month: 'long' });
@@ -219,6 +223,16 @@ export default function ArtifactCalendarReader({
     const absY = Math.abs(dy);
     if (absX < 48 || absX < absY * 1.35) return;
     goToItem(dx > 0 ? 1 : -1);
+  };
+
+  const handleRegenerateDebug = async () => {
+    if (!selectedItem || !onRegenerateDebug || regeneratingId) return;
+    setRegeneratingId(selectedItem.id);
+    try {
+      await onRegenerateDebug(selectedItem);
+    } finally {
+      setRegeneratingId(null);
+    }
   };
 
   if (!items.length) {
@@ -325,6 +339,20 @@ export default function ArtifactCalendarReader({
           <Box className="paper-surface-content" sx={{ mt: 1, typography: 'body2', userSelect: 'text', WebkitUserSelect: 'text', flex: 1, minHeight: 0, overflow: 'auto', pr: { xs: 0.5, sm: 1 } }}>
             <MarkdownText text={selectedItem?.text || ''} />
           </Box>
+          {onRegenerateDebug && selectedItem ? (
+            <Box className="paper-surface-content" sx={{ pt: 1.25, display: 'flex', justifyContent: 'flex-start', flexShrink: 0 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                color="warning"
+                startIcon={<AutoAwesomeIcon fontSize="small" />}
+                disabled={Boolean(regeneratingId)}
+                onClick={handleRegenerateDebug}
+              >
+                {regeneratingId === selectedItem.id ? (isZh ? '重新生成中' : 'Regenerating') : (isZh ? '重新生成（调试）' : 'Regenerate (debug)')}
+              </Button>
+            </Box>
+          ) : null}
         </PaperSurface>
         <IconButton onClick={() => goToItem(1)} disabled={selectedIndex < 0 || selectedIndex >= items.length - 1} aria-label={isZh ? '上一项' : 'Previous'} sx={buildFloatingNavButtonSx('left')}>
           <ChevronLeftIcon />

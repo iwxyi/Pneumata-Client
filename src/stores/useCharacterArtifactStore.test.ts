@@ -28,6 +28,19 @@ vi.mock('../services/characterExperienceArtifacts', async () => {
 
 let artifactStore: Awaited<typeof import('./useCharacterArtifactStore')>['useCharacterArtifactStore'];
 let settingsStore: Awaited<typeof import('./useSettingsStore')>['useSettingsStore'];
+let generateDailyDiaryMock: ReturnType<typeof vi.mocked<Awaited<typeof import('../services/characterExperienceArtifacts')>['generateCharacterDailyDiaryArtifact']>>;
+
+function dateKeyDaysAgo(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`;
+}
+
+function timestampDaysAgo(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date.getTime();
+}
 
 function buildCharacter(): AICharacter {
   return normalizeCharacter({
@@ -68,13 +81,16 @@ function buildCharacter(): AICharacter {
 beforeAll(async () => {
   const mod = await import('./useCharacterArtifactStore');
   const settingsMod = await import('./useSettingsStore');
+  const artifactMod = await import('../services/characterExperienceArtifacts');
   artifactStore = mod.useCharacterArtifactStore;
   settingsStore = settingsMod.useSettingsStore;
+  generateDailyDiaryMock = vi.mocked(artifactMod.generateCharacterDailyDiaryArtifact);
 });
 
 describe('useCharacterArtifactStore', () => {
   beforeEach(() => {
     localStore.clear();
+    generateDailyDiaryMock.mockClear();
     artifactStore.setState({ items: [], jobs: [], isProcessing: false, unreadLetterCount: 0 });
     settingsStore.setState({
       aiProfiles: [{
@@ -98,6 +114,8 @@ describe('useCharacterArtifactStore', () => {
     const diaries = artifactStore.getState().getDiaryEntries(character.id);
     expect(diaries.length).toBeGreaterThan(0);
     expect(diaries[0]?.kind).toBe('diary');
+    expect(diaries[0]?.generationSnapshot?.character.name).toBe('苏苏');
+    expect(diaries[0]?.generationSnapshot?.character.visualIdentity?.referenceImages?.[0]?.url).toBeUndefined();
 
     artifactStore.getState().enqueueBirthLetter(character, [{ id: 'c2', name: '小雨' }]);
     await artifactStore.getState().resumeProcessing();
@@ -114,6 +132,24 @@ describe('useCharacterArtifactStore', () => {
     expect(finalLetter).toBeTruthy();
     expect(finalLetter?.text).toContain('没说完的话留给小雨');
     expect(artifactStore.getState().unreadLetterCount).toBe(2);
+  });
+
+  it('regenerates an artifact from its saved generation snapshot', async () => {
+    const character = buildCharacter();
+    artifactStore.getState().syncCharacters([character]);
+    await artifactStore.getState().resumeProcessing();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const diary = artifactStore.getState().getDiaryEntries(character.id)[0];
+    expect(diary?.generationSnapshot).toBeTruthy();
+
+    generateDailyDiaryMock.mockResolvedValueOnce('苏苏的日记：这是新版提示词重新生成的内容。');
+    const regenerated = await artifactStore.getState().regenerateArtifact({ itemId: diary!.id });
+
+    expect(regenerated.id).toBe(diary!.id);
+    expect(regenerated.text).toContain('新版提示词');
+    expect(regenerated.updatedAt).toBeGreaterThan(diary!.updatedAt);
+    expect(regenerated.generationSnapshot?.promptVersion).toBe('character-experience-artifacts-v2');
+    expect(artifactStore.getState().getDiaryEntries(character.id)[0]?.text).toContain('新版提示词');
   });
 
   it('skips letter generation when the default text model is not configured', async () => {
@@ -170,5 +206,90 @@ describe('useCharacterArtifactStore', () => {
     expect(diaries).toHaveLength(1);
     expect(diaries[0]?.id).not.toBe('raw-diary');
     expect(diaries[0]?.text).toContain('苏苏的日记');
+  });
+
+  it('limits diary backfill to the recent window plus the previous available day', async () => {
+    const character = {
+      ...buildCharacter(),
+      layeredMemories: [20, 10, 3].map((days) => ({
+        id: `m-${days}`,
+        scope: 'character_self' as const,
+        layer: 'long_term' as const,
+        kind: 'trait_evidence' as const,
+        ownerId: 'c1',
+        text: `第 ${days} 天前的记忆`,
+        salience: 0.9,
+        confidence: 0.8,
+        recency: 0.8,
+        reinforcementCount: 1,
+        sourceEventIds: [`e-${days}`],
+        createdAt: timestampDaysAgo(days),
+        updatedAt: timestampDaysAgo(days),
+      })),
+      relationships: [],
+      runtimeTimeline: [],
+    };
+
+    artifactStore.getState().syncCharacters([character]);
+    await artifactStore.getState().resumeProcessing();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const generatedDateKeys = generateDailyDiaryMock.mock.calls.map(([params]) => params.dateKey);
+    expect(generatedDateKeys).toEqual([dateKeyDaysAgo(3)]);
+  });
+
+  it('keeps an old previous available diary day and queues diary generation by date before character order', async () => {
+    const olderCharacter = {
+      ...buildCharacter(),
+      id: 'c-old',
+      name: '旧日角色',
+      layeredMemories: [{
+        id: 'm-old',
+        scope: 'character_self' as const,
+        layer: 'long_term' as const,
+        kind: 'trait_evidence' as const,
+        ownerId: 'c-old',
+        text: '很久以前的记忆',
+        salience: 0.9,
+        confidence: 0.8,
+        recency: 0.8,
+        reinforcementCount: 1,
+        sourceEventIds: ['e-old'],
+        createdAt: timestampDaysAgo(20),
+        updatedAt: timestampDaysAgo(20),
+      }],
+      relationships: [],
+      runtimeTimeline: [],
+    };
+    const recentCharacter = {
+      ...buildCharacter(),
+      id: 'c-recent',
+      name: '近事角色',
+      layeredMemories: [{
+        id: 'm-recent',
+        scope: 'character_self' as const,
+        layer: 'long_term' as const,
+        kind: 'trait_evidence' as const,
+        ownerId: 'c-recent',
+        text: '最近的记忆',
+        salience: 0.9,
+        confidence: 0.8,
+        recency: 0.8,
+        reinforcementCount: 1,
+        sourceEventIds: ['e-recent'],
+        createdAt: timestampDaysAgo(2),
+        updatedAt: timestampDaysAgo(2),
+      }],
+      relationships: [],
+      runtimeTimeline: [],
+    };
+
+    artifactStore.getState().syncCharacters([recentCharacter, olderCharacter]);
+    await artifactStore.getState().resumeProcessing();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const generatedDateKeys = generateDailyDiaryMock.mock.calls.map(([params]) => params.dateKey);
+    expect(generatedDateKeys).toEqual([dateKeyDaysAgo(20), dateKeyDaysAgo(2)]);
+    expect(artifactStore.getState().getDiaryEntries('c-old')[0]?.dateKey).toBe(dateKeyDaysAgo(20));
   });
 });

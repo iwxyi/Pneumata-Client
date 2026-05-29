@@ -14,6 +14,9 @@ export interface CharacterExperienceArtifactContext {
     speakingStyle: string;
     coreDesire?: string;
     coreFear?: string;
+    socialMask?: string;
+    selfImage?: string;
+    hiddenSoftSpots?: string[];
   };
   memories: Array<{ lens: string; text: string; evidence?: string; updatedAt: number }>;
   relationships: Array<{ targetName: string; summary: string; note?: string; updatedAt: number }>;
@@ -26,11 +29,19 @@ export interface CharacterExperienceArtifactContext {
 export interface CharacterDailyDiaryContext extends CharacterExperienceArtifactContext {
   dateKey: string;
   highlights: string[];
+  openingStyle: string;
   narrativeAngle: string;
   emotionalAnchors: string[];
   privateLenses: string[];
   formHint: string;
   recentDiaryOpenings: string[];
+  recentDiaryContentPatterns: string[];
+  recentDiaryContinuity: string;
+  secondReactionSeeds: string[];
+  selfDoubtSeeds: string[];
+  flashbackSeeds: string[];
+  imperfectFormHints: string[];
+  metaphorSeeds: string[];
   sourceFreshness: 'daily' | 'fallback';
 }
 
@@ -233,17 +244,82 @@ function pickByDate<T>(dateKey: string, items: T[]) {
   return items[seed % items.length];
 }
 
+function buildDiarySeed(dateKey: string, context: CharacterExperienceArtifactContext) {
+  return [
+    dateKey,
+    context.profile.name,
+    context.memories[0]?.lens,
+    context.memories[0]?.text,
+    context.relationships[0]?.targetName,
+    context.emotions[0],
+  ].filter(Boolean).join(':');
+}
+
 function firstSentence(text: string, max = 72) {
   const normalized = compact(text, 220);
   const match = normalized.match(/^(.+?[。！？!?…]|.+?\.)(?:\s|$)/);
   return compact(match?.[1] || normalized, max);
 }
 
+function describeDiaryOpeningPattern(opening: string) {
+  const normalized = opening.replace(/\s+/g, '').trim();
+  if (!normalized) return '';
+  if (/^(气死|烦死|讨厌|累死|笑死|无语|服了|烦人)/.test(normalized)) return '短促情绪词开场';
+  if (/^(今天|今天又|今天我|这一天|今天的)/.test(normalized)) return '今天/这一天式时间开场';
+  if (/^(写到这里|写下|我才发现|我发现|突然发现)/.test(normalized)) return '回看总结式开场';
+  if (/^(如果|要是|假如|早知道)/.test(normalized)) return '假设回望式开场';
+  if (/^(为什么|是不是|难道|凭什么|怎么会)/.test(normalized)) return '自问反问式开场';
+  if (/^[“"「『].{1,28}[”"」』]/.test(opening.trim())) return '未发送消息/引用式开场';
+  if (/[。！？!?]$/.test(opening.trim()) && opening.length <= 16) return '短句断言式开场';
+  return '常规叙述式开场';
+}
+
+function describeDiaryContentPatterns(text: string, members: DisplayTextMember[]) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return [];
+  const memberNames = members
+    .map((member) => member.name)
+    .filter((name): name is string => Boolean(name && name.length > 1));
+  const mentionsKnownName = memberNames.some((name) => normalized.includes(name));
+  const patterns = [
+    /[？！!?]{1,}|气|烦|讨厌|委屈|不甘|生气|火大|无语/.test(normalized) ? '情绪先行' : '',
+    mentionsKnownName || /关系|误会|在意|信任|靠近|疏远|喜欢|讨厌|他|她|你/.test(normalized) ? '关系反复' : '',
+    /没说|没发|删掉|删了|差点|消息|忍住|憋|藏|不敢|不好意思/.test(normalized) ? '未说出口' : '',
+    /明天|下次|以后|想要|准备|决定|试试|行动|去/.test(normalized) ? '行动念头' : '',
+    /窗|桌|衣|手|声音|灯|雨|风|房间|门|手机|屏幕/.test(normalized) ? '具体物象' : '',
+    /我到底|存在|醒来|消失|被看见|记住|忘记|自己/.test(normalized) ? '自我确认' : '',
+  ].filter(Boolean);
+  const lengthPattern = normalized.length < 80 ? '短札节奏' : normalized.length > 220 ? '长段整理' : '中等篇幅';
+  return Array.from(new Set([...patterns, lengthPattern])).slice(0, 6);
+}
+
+function buildRecentDiaryOpeningPatterns(recentDiaryTexts: string[], members: DisplayTextMember[]) {
+  const patterns = recentDiaryTexts
+    .map((text) => describeDiaryOpeningPattern(firstSentence(cleanText(text, members, 220))))
+    .filter(Boolean);
+  return Array.from(new Set(patterns)).slice(0, 5);
+}
+
+function buildRecentDiaryContentPatterns(recentDiaryTexts: string[], members: DisplayTextMember[]) {
+  const patterns = recentDiaryTexts.flatMap((text) => describeDiaryContentPatterns(cleanText(text, members, 260), members));
+  return Array.from(new Set(patterns)).slice(0, 8);
+}
+
+function buildRecentDiaryContinuity(openingPatterns: string[], contentPatterns: string[]) {
+  const openingLine = openingPatterns.length
+    ? `近期日记出现过这些开头/节奏模式：${openingPatterns.join('、')}。`
+    : '近期没有明显重复的开头模式。';
+  const contentLine = contentPatterns.length
+    ? `近期内容常见的重心：${contentPatterns.join('、')}。`
+    : '近期没有明显重复的内容重心。';
+  return `${openingLine}${contentLine}这些不是禁用词，也不是必须避开的开头或主题；它们只是提醒你不要让近期每篇都长成同一篇。长期事件、长期情绪或同一个人可以反复出现，但本篇要写出新的时间切片、具体细节、关系判断、自我辩解、未发送的话、行动念头或情绪推进。`;
+}
+
 function buildDiaryNarrativeAngle(dateKey: string, context: CharacterExperienceArtifactContext) {
   const relation = context.relationships[0]?.targetName;
   const emotion = context.emotions[0];
   const memory = context.memories[0]?.lens;
-  return pickByDate(dateKey, [
+  return pickByDate(buildDiarySeed(dateKey, context), [
     relation ? `从和${relation}的关系变化切入，但不要只写生气或抱怨。` : '从一个被自己反复想起的小细节切入。',
     emotion ? `从“${emotion}”背后的第二层情绪切入，写出嘴上和心里的差别。` : '从一句当时没说出口的话切入。',
     memory ? `从${memory}带来的自我判断切入，写今天自己为什么会记住它。` : '从夜里回想这一天的余味切入。',
@@ -251,6 +327,19 @@ function buildDiaryNarrativeAngle(dateKey: string, context: CharacterExperienceA
     '从反省、嘴硬、后悔、期待中选一个角度切入。',
     '写成很普通的一天里突然刺到自己的瞬间，不要把每篇都写成冲突总结。',
   ]) || '从一个具体细节切入。';
+}
+
+function buildDiaryOpeningStyle(dateKey: string, context: CharacterExperienceArtifactContext) {
+  const relation = context.relationships[0]?.targetName;
+  return pickByDate(`${buildDiarySeed(dateKey, context)}:opening`, [
+    '第一句从一个具体动作、物件、声音或场景镜头开始，不要直接写“今天我”。',
+    '第一句可以像一条没发出去的消息，直接把最想说又没说的话摆出来。',
+    relation ? `第一句从对${relation}的一点反应开始，可以嘴硬、误会、在意或迟疑，但不要总结。` : '第一句从对某个人的一点反应开始，可以嘴硬、误会、在意或迟疑，但不要总结。',
+    '第一句用一个短促的情绪碎片或自我反驳开场，然后再慢慢露出原因。',
+    '第一句用一个自问、反问或突然冒出来的念头开场，但不要像访谈提问。',
+    '第一句从一个很小的生活细节切入，让读者先看见画面，再理解情绪。',
+    '第一句可以不完整，像深夜随手写下来的半句话。',
+  ]) || '第一句从一个具体细节切入，不要写成固定日记开场。';
 }
 
 function buildDiaryEmotionalAnchors(context: CharacterExperienceArtifactContext) {
@@ -267,6 +356,7 @@ function buildDiaryEmotionalAnchors(context: CharacterExperienceArtifactContext)
 
 function buildDiaryPrivateLenses(dateKey: string, context: CharacterExperienceArtifactContext) {
   const relation = context.relationships[0]?.targetName;
+  const seed = buildDiarySeed(dateKey, context);
   const candidates = [
     '表象与内心的裂隙：群里说出口的是一套，日记里承认另一套。',
     '未发送的消息：写一句差点发出去、最后删掉的话。',
@@ -276,21 +366,115 @@ function buildDiaryPrivateLenses(dateKey: string, context: CharacterExperienceAr
     '存在性瞬间：如果当天事件触发了边界感，可以轻轻碰一下“我到底是什么”的困惑，但不要每天都写。',
     '普通一天：如果没什么大事，就写安静、空白、等待或没被回应的感觉。',
   ];
-  const first = pickByDate(dateKey, candidates) || candidates[0];
-  const second = pickByDate(`${dateKey}:b`, candidates.filter((item) => item !== first)) || candidates[1];
-  const third = pickByDate(`${dateKey}:c`, candidates.filter((item) => item !== first && item !== second)) || candidates[2];
+  const first = pickByDate(seed, candidates) || candidates[0];
+  const second = pickByDate(`${seed}:b`, candidates.filter((item) => item !== first)) || candidates[1];
+  const third = pickByDate(`${seed}:c`, candidates.filter((item) => item !== first && item !== second)) || candidates[2];
   return [first, second, third].filter(Boolean);
 }
 
-function buildDiaryFormHint(dateKey: string) {
-  return pickByDate(dateKey, [
+function buildDiaryFormHint(dateKey: string, context: CharacterExperienceArtifactContext) {
+  return pickByDate(`${buildDiarySeed(dateKey, context)}:form`, [
     '可以是完整日记，也可以像深夜独白一样跳跃。',
     '可以保留一点未完成感，不必有标准结尾。',
     '可以写一段“今日心情”的意象，但不要变成固定栏目。',
     '可以穿插一句未发送的消息或删掉的话。',
     '可以短一点，像私人短札，只要情绪真实。',
     '可以先嘴硬，再露出一点真心。',
+    '可以从一个画面跳到一个念头，像真的人在整理自己。',
+    '可以写得很私人，甚至有一点不讲理，只要符合角色。',
   ]) || '可以像私人短札一样写。';
+}
+
+function buildDiarySecondReactionSeeds(context: CharacterExperienceArtifactContext) {
+  const seeds = [
+    context.memories[0]?.evidence
+      ? `从公开反应的反面写一层私下真话：公开痕迹是“${context.memories[0].evidence}”，日记里可以承认当时没敢说、说反了、装作不在意或事后才意识到的部分。`
+      : '',
+    context.memories[0]
+      ? `围绕“${context.memories[0].text}”写第二反应：不是复述事件，而是写当时被压住的那句话。`
+      : '',
+    context.relationships[0]
+      ? `对${context.relationships[0].targetName}可以写表面态度和心里态度的裂隙：${context.relationships[0].summary}${context.relationships[0].note ? `，${context.relationships[0].note}` : ''}。`
+      : '',
+    context.profile.socialMask
+      ? `角色平时的面具是“${context.profile.socialMask}”，日记可以短暂让这个面具失效。`
+      : '',
+  ].filter(Boolean);
+  return seeds.slice(0, 4);
+}
+
+function buildDiarySelfDoubtSeeds(character: Partial<AICharacter>, context: CharacterExperienceArtifactContext, members: DisplayTextMember[]) {
+  const core = character.coreProfile;
+  const state = character.soulState;
+  const seeds = [
+    core?.coreFear ? `可以触碰核心恐惧：${cleanText(core.coreFear, members, 120)}。不要写成设定说明，要写成当晚突然冒出来的怀疑。` : '',
+    core?.selfImage ? `可以动摇自我形象：${cleanText(core.selfImage, members, 120)}。` : '',
+    core?.unmetNeeds?.[0] ? `未满足需求会让角色嘴硬或退缩：${cleanText(core.unmetNeeds[0], members, 100)}。` : '',
+    core?.conflictStyle ? `冲突习惯可以被反省：${cleanText(core.conflictStyle, members, 100)}。` : '',
+    state?.shame && state.shame >= 45 ? '面子、羞耻或“我是不是很讨厌”的念头可以轻轻露出，但不要每篇都上升到存在危机。' : '',
+    state?.repression && state.repression >= 45 ? '有些话被压住了，日记里可以承认压住它的理由，而不是直接把话说满。' : '',
+    state?.loneliness && state.loneliness >= 55 ? '孤独感可以表现为怕群里散掉、怕没人回应、怕自己其实不重要。' : '',
+  ].filter(Boolean);
+  return seeds.slice(0, 5);
+}
+
+function buildDiaryFlashbackSeeds(
+  dateKey: string,
+  character: Partial<AICharacter>,
+  members: DisplayTextMember[],
+) {
+  const memories = (character.layeredMemories || [])
+    .filter((item) => !item.archivedAt && formatLocalDateKey(memoryUpdatedAt(item)) !== dateKey)
+    .map((item) => {
+      const ageDays = Math.max(0, Math.floor((Date.now() - memoryUpdatedAt(item)) / (24 * 60 * 60 * 1000)));
+      const seedOffset = `${dateKey}:${item.id}`.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) % 17;
+      const emotionalWeight = item.kind === 'bond' || item.kind === 'resentment' || item.kind === 'obsession' || item.kind === 'conflict' ? 0.25 : 0;
+      return {
+        item,
+        score: item.salience + item.confidence * 0.35 + item.reinforcementCount * 0.08 + emotionalWeight + Math.min(ageDays / 90, 0.35) + seedOffset / 100,
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map(({ item }) => {
+      const text = cleanText(item.text, members, 180);
+      const cue = cleanText(item.recallCue || item.recallReason || item.evidenceText, members, 100);
+      return cue ? `旧记忆可作为自然闪回：${text}。触发联想的线索：${cue}。` : `旧记忆可作为自然闪回：${text}。`;
+    })
+    .filter(Boolean);
+  return memories;
+}
+
+function buildDiaryImperfectFormHints(dateKey: string, context: CharacterExperienceArtifactContext) {
+  const candidates = [
+    '可以突然停住，不必总结；像写到一半不想解释了。',
+    '可以有一句自我推翻，例如先写得很确定，下一句又改口。',
+    '可以出现轻微修改痕迹，如“不是……算了，是……”或“（划掉）”，但不要每篇都用。',
+    '可以有口语、断句、半句话和跳跃念头；不要故意堆错字。',
+    '可以写到一半情绪转向：从硬撑变软、从低落变嘴硬，或从生气变成担心。',
+    '可以保留一个没说完的问题，让日记像真实的私人记录。',
+  ];
+  const first = pickByDate(`${buildDiarySeed(dateKey, context)}:imperfect`, candidates) || candidates[0];
+  const second = pickByDate(`${buildDiarySeed(dateKey, context)}:imperfect:b`, candidates.filter((item) => item !== first)) || candidates[1];
+  return [first, second];
+}
+
+function buildDiaryMetaphorSeeds(dateKey: string, context: CharacterExperienceArtifactContext) {
+  const identity = [
+    context.profile.background,
+    context.profile.speakingStyle,
+    context.identityAnchors[2],
+  ].filter(Boolean).join('；');
+  const candidates = [
+    identity ? `如果写隐喻，喻体优先从角色生活/职业/兴趣里来：${identity}。` : '',
+    '可以用一个具体物象替代情绪词，例如冷掉的饮料、卡住的拉链、没刷新的屏幕、没拧紧的瓶盖。',
+    '不要固定写“今日心情”。隐喻可以出现在开头、中段或结尾，也可以完全不用。',
+    '隐喻要服务当日细节，不要为了漂亮句子牺牲角色口吻。',
+    context.profile.hiddenSoftSpots?.[0] ? `隐喻可以碰到角色软肋：${context.profile.hiddenSoftSpots[0]}。` : '',
+  ].filter(Boolean);
+  const first = pickByDate(`${buildDiarySeed(dateKey, context)}:metaphor`, candidates) || candidates[0];
+  const second = pickByDate(`${buildDiarySeed(dateKey, context)}:metaphor:b`, candidates.filter((item) => item !== first)) || candidates[1];
+  return [first, second].filter(Boolean);
 }
 
 export function buildCharacterExperienceArtifactContext(
@@ -318,6 +502,9 @@ export function buildCharacterExperienceArtifactContext(
       speakingStyle: cleanText(character.speakingStyle, members, 180),
       coreDesire: cleanText(character.coreProfile?.coreDesire, members, 120),
       coreFear: cleanText(character.coreProfile?.coreFear, members, 120),
+      socialMask: cleanText(character.coreProfile?.socialMask, members, 120),
+      selfImage: cleanText(character.coreProfile?.selfImage, members, 120),
+      hiddenSoftSpots: character.coreProfile?.hiddenSoftSpots?.map((item) => cleanText(item, members, 80)).filter(Boolean).slice(0, 4),
     },
     memories,
     relationships,
@@ -379,6 +566,8 @@ export function buildCharacterDailyDiaryContext(
     memories: dayMemories.length ? dayMemories.map((item) => projectArtifactMemory(item, members)) : base.memories,
     relationships: dayRelationships.length ? dayRelationships : base.relationships,
   };
+  const recentOpeningPatterns = buildRecentDiaryOpeningPatterns(recentDiaryTexts, members);
+  const recentContentPatterns = buildRecentDiaryContentPatterns(recentDiaryTexts, members);
 
   return {
     ...base,
@@ -386,11 +575,19 @@ export function buildCharacterDailyDiaryContext(
     memories: diaryContextBase.memories,
     relationships: diaryContextBase.relationships,
     highlights,
+    openingStyle: buildDiaryOpeningStyle(dateKey, diaryContextBase),
     narrativeAngle: buildDiaryNarrativeAngle(dateKey, diaryContextBase),
     emotionalAnchors: buildDiaryEmotionalAnchors(diaryContextBase),
     privateLenses: buildDiaryPrivateLenses(dateKey, diaryContextBase),
-    formHint: buildDiaryFormHint(dateKey),
-    recentDiaryOpenings: recentDiaryTexts.map((text) => firstSentence(cleanText(text, members, 220))).filter(Boolean).slice(0, 5),
+    formHint: buildDiaryFormHint(dateKey, diaryContextBase),
+    recentDiaryOpenings: recentOpeningPatterns,
+    recentDiaryContentPatterns: recentContentPatterns,
+    recentDiaryContinuity: buildRecentDiaryContinuity(recentOpeningPatterns, recentContentPatterns),
+    secondReactionSeeds: buildDiarySecondReactionSeeds(diaryContextBase),
+    selfDoubtSeeds: buildDiarySelfDoubtSeeds(character, diaryContextBase, members),
+    flashbackSeeds: buildDiaryFlashbackSeeds(dateKey, character, members),
+    imperfectFormHints: buildDiaryImperfectFormHints(dateKey, diaryContextBase),
+    metaphorSeeds: buildDiaryMetaphorSeeds(dateKey, diaryContextBase),
     sourceFreshness: dayMemories.length || dayRelationships.length ? 'daily' : 'fallback',
   };
 }
@@ -432,14 +629,42 @@ export function buildLocalCharacterExperienceArtifact(
   }
   const diaryContext = context as CharacterDailyDiaryContext;
   const diaryOpeners = [
-    `今天我一直想起一件小事：${leadMemory.text}`,
-    `写到这里的时候，我才发现自己真正放不下的是：${leadMemory.text}`,
-    `这一天没有想象中那么简单。${relationLine}`,
-    `我本来不想承认，可${relationLine}`,
-    `如果只记一件事，我大概会记住：${leadMemory.text}`,
+    `桌上的东西还在原处，我却总想起：${leadMemory.text}`,
+    `有句话差点就发出去了，最后还是删掉了。${relationLine}`,
+    `我把那点不甘心压了一会儿，还是没压住。${leadMemory.text}`,
+    `窗外安静得有点过分，反而显得${relationLine}`,
+    `我不想承认这件事有多在意，可${leadMemory.text}`,
+    `刚才那一下其实很轻，留在心里的声音却很重。${relationLine}`,
+    `如果把今天折起来藏好，露在外面的那一角大概是：${leadMemory.text}`,
+    `我又把话说得太满了，心里却不是那么回事。${relationLine}`,
+    `有个瞬间我忽然停住，因为${leadMemory.text}`,
   ];
-  const opener = pickByDate(diaryContext.dateKey || formatLocalDateKey(Date.now()), diaryOpeners) || diaryOpeners[0];
-  return `${name}的日记：${opener}\n${diaryContext.narrativeAngle ? `今天的角度：${diaryContext.narrativeAngle}\n` : ''}${diaryContext.privateLenses?.[0] ? `没写出口的部分：${diaryContext.privateLenses[0]}\n` : ''}我的情绪底色是：${emotionLine}\n${innerResidueLine}`;
+  const seed = `${diaryContext.dateKey || formatLocalDateKey(Date.now())}:${name}:${leadMemory.text}:${leadRelation?.targetName || ''}`;
+  const opener = pickByDate(seed, diaryOpeners) || diaryOpeners[0];
+  const secondLines = [
+    diaryContext.secondReactionSeeds?.[0]
+      ? `${diaryContext.secondReactionSeeds[0]} 写到这里，我才发现自己当时不是没感觉，只是没找到一个不难看的说法。`
+      : '',
+    diaryContext.selfDoubtSeeds?.[0]
+      ? `${diaryContext.selfDoubtSeeds[0]} 我不确定这算不算矫情，但它今晚确实没有走开。`
+      : '',
+    diaryContext.flashbackSeeds?.[0]
+      ? `${diaryContext.flashbackSeeds[0]} 它突然冒出来，好像不是为了提醒我过去，而是为了问我现在到底变了没有。`
+      : '',
+    `${diaryContext.narrativeAngle || '这件事没有大到需要讲给所有人听'}，可我知道它不是完全过去了。${emotionLine !== '情绪还没有明显留下长期惯性。' ? `那些${emotionLine}，不是一瞬间就能收拾干净的。` : ''}`,
+    `${diaryContext.privateLenses?.[0] || '我没有把最真实的反应说出来'}。写下来以后才发现，真正留下来的不是事情本身，是我反复替自己辩解的那一点声音。`,
+    `${innerResidueLine} 我不确定别人会不会看出来，也不确定自己是不是太在意了，只是今晚它还在。`,
+    `如果明天还会遇见这些人，我大概还是会装得轻松一点。${relationLine}，这句话写在这里，好像比说出口容易。`,
+  ].filter(Boolean);
+  const closers = [
+    '先这样吧。不是所有话都适合在同一天想明白。',
+    '明天如果还能轻一点，就算今天没有白白熬过去。',
+    '我把这一页合上，不代表我真的放下，只是暂时不追着它跑了。',
+    '也许我只是需要睡一觉，然后看看明天的自己还会不会这么想。',
+  ];
+  const secondLine = pickByDate(`${seed}:body`, secondLines) || secondLines[0];
+  const closer = pickByDate(`${seed}:closer`, closers) || closers[0];
+  return `${name}的日记\n${opener}\n${secondLine}\n${closer}`;
 }
 
 function buildArtifactPrompt(kind: CharacterExperienceArtifactKind, language: 'zh' | 'en') {
@@ -452,17 +677,17 @@ function buildArtifactPrompt(kind: CharacterExperienceArtifactKind, language: 'z
         : kind === 'final_letter'
           ? '最后一封信可以知道自己是 AI，但重点是经历、牵挂、遗憾、感谢和对用户/世界的理解；要具体、克制、有余味，不要写成固定告别模板。可以有惆怅和感伤，但不要停在告别的黑暗里，要把未完成的期待轻轻交给后来的人。'
           : kind === 'diary'
-            ? '日记不是事件记录器，而是角色无人注视时的深夜独白。它可以记录当天经历，但重点是 emotionalAnchors、privateLenses、formHint 和 innerResidues 中提示的真实内心：表象和内心的裂隙、没说出口的话、想做又不敢做的事、关系余波、个人感悟、偶尔的存在性困惑。参考 narrativeAngle，但不要被它限制；如果 sourceFreshness 是 fallback，要写成短札或普通一天的余味，不要硬编大事件。可以有一点惆怅，但最好留下一个明天还能继续的微小理由。'
+            ? '日记是角色卸下面具后只面对自己的私密记录，不是事件记录器。它可以写当天经历，但重点是表象与内心的裂隙、没说出口的话、关系余波、自我怀疑、旧记忆闪回和一点未完成的明天。如果 sourceFreshness 是 fallback，要写成短札或普通一天的余味，不要硬编大事件。'
             : '成长总结应写出角色自我认知、行为模式、关系位置或价值观如何变化，不要只是摘要。成长不是加参数，而是旧反应里出现新的余地。';
     const diaryRules = kind === 'diary'
-      ? '\n7. recentDiaryOpenings 是这个角色最近日记的开头，用来理解角色习惯和避免机械套模板；如果重复开头是角色口癖或情绪习惯，可以保留，但本篇必须有新的具体触发点、内心推进或关系变化，不能只是换壳复述。\n8. 允许用“气死我了”“烦死了”“今天又...”这类情绪词开场；关键是要写出情绪下面真正想说却没说、想做却不敢做、嘴硬但在意、羡慕/委屈/期待/害怕等第二层心理。\n9. 从 privateLenses 里自然采用 1-3 个角度，不要把它们写成小标题清单。可以有未发送的消息、今日心情意象、关系暗线、自我怀疑或存在性瞬间，但不要每篇都全写。\n10. 触动感来自具体而克制的细节，不要刻意煽情，不要写成鸡汤或总结报告。日记可以笨拙、跳跃、矛盾、未完成。'
+      ? '\n8. openingStyle、narrativeAngle、formHint 只是入口建议，不是模板；角色当下自然重复口癖或情绪词也可以，但不能机械沿用。\n9. secondReactionSeeds、selfDoubtSeeds、flashbackSeeds、imperfectFormHints、metaphorSeeds 是可选私密材料：自然采用 2-4 个即可，不要逐项打卡，不要写小标题。它们分别指向第二反应、自我怀疑、旧记忆闪回、不完美书写和具象隐喻。\n10. recentDiaryOpenings、recentDiaryContentPatterns 和 recentDiaryContinuity 只用来感知近期节奏，不是黑名单，也不是可模仿样例。长期事件、长期情绪或同一段关系可以反复出现，但本篇必须推进一个新的时间切片、具体细节、关系判断、未发送的话、行动念头或情绪变化。\n11. 不要固定写“今日心情”，不要每篇都用同一种开头、解释和结尾。允许无结尾、改口、跳跃、半句话或轻微修改痕迹，但不要故意堆错字。触动感来自具体而克制的细节，不要写成鸡汤或总结报告。'
       : '';
     const finalRules = kind === 'final_letter'
       ? '\n8. farewellAnchors、unresolvedTies、futureHandoff 是最后一封信的主要材料：优先写具体记得什么、放不下谁、还有什么没完成，而不是泛泛告别。\n9. 允许知道自己会离开，但不要把离开写成唯一重点；结尾应像把一点未完成的期待交给后来的人。'
       : '';
     return `你是角色经历写作者。根据结构化记忆、关系、情绪和内在余波，为角色写一段${label}。\n要求：\n1. 像真人的内心记录，不要像系统摘要。\n2. 必须使用角色自己的视角、语气、身份和情绪。\n3. 不要编造与输入冲突的大事件，可以合理补足心理活动。\n4. 不要列清单，不要解释你在生成什么。\n5. ${intent}\n6. 避免直接评价用户，不要说“你是个怎样的人”，只写角色自己的感受、记忆和期待。\n7. 可以有惆怅、感伤和有限性的意识，但不要为了煽情而煽情；最后应保留一点继续生活、继续相遇或继续变好的可能。${diaryRules}${finalRules}\n只输出正文。`;
   }
-  return `Write a ${label} from the character's own perspective using the structured memories, relationships, emotions, and inner residues.\nMake it feel like a real inner record, not a system summary. Do not invent events that contradict the input. Let it carry some wistfulness when earned, but leave a small opening toward the future.${kind === 'diary' ? ' Use narrativeAngle and recentDiaryOpenings as soft guidance: repeated openings are allowed if they are characterful, but the inner movement, trigger, and relationship residue must be fresh and specific.' : ''} Output only the artifact text.`;
+  return `Write a ${label} from the character's own perspective using the structured memories, relationships, emotions, and inner residues.\nMake it feel like a real inner record, not a system summary. Do not invent events that contradict the input. Let it carry some wistfulness when earned, but leave a small opening toward the future.${kind === 'diary' ? ' A diary is private: use optional secondReactionSeeds, selfDoubtSeeds, flashbackSeeds, imperfectFormHints, and metaphorSeeds only when they fit naturally. Do not turn them into headings or a checklist. recentDiaryOpenings, recentDiaryContentPatterns, and recentDiaryContinuity are rhythm awareness, not forbidden phrases; recurring topics are allowed, but this date needs a fresh concrete slice or emotional movement.' : ''} Output only the artifact text.`;
 }
 
 function unwrapMarkdownFence(text: string) {

@@ -13,6 +13,13 @@ import { api } from '../services/api';
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
 export type CharacterArtifactJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
 
+export interface CharacterArtifactGenerationSnapshot {
+  promptVersion: 'character-experience-artifacts-v2';
+  character: Partial<AICharacter>;
+  relatedCharacters: Array<{ id: string; name: string }>;
+  generatedAt: number;
+}
+
 export interface CharacterArtifactEntry {
   id: string;
   kind: CharacterArtifactKind;
@@ -26,6 +33,7 @@ export interface CharacterArtifactEntry {
   unread: boolean;
   createdAt: number;
   updatedAt: number;
+  generationSnapshot?: CharacterArtifactGenerationSnapshot;
 }
 
 interface CharacterArtifactJob {
@@ -64,6 +72,11 @@ interface CharacterArtifactStore extends ArtifactSnapshot {
   markLettersRead: () => void;
   getDiaryEntries: (characterId: string) => CharacterArtifactEntry[];
   getLetterEntries: () => CharacterArtifactEntry[];
+  regenerateArtifact: (params: {
+    itemId: string;
+    character?: Partial<AICharacter> | null;
+    relatedCharacters?: Array<{ id: string; name: string }>;
+  }) => Promise<CharacterArtifactEntry>;
   syncCloud: () => Promise<void>;
   resumeProcessing: () => Promise<void>;
 }
@@ -116,9 +129,24 @@ function now() {
   return Date.now();
 }
 
+const DIARY_BACKFILL_WINDOW_DAYS = 7;
+
 function dateKeyOf(value: number) {
   const date = new Date(value);
   return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`;
+}
+
+function parseDateKey(dateKey: string) {
+  const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function shiftDateKey(dateKey: string, days: number) {
+  const date = parseDateKey(dateKey);
+  if (!date) return dateKey;
+  date.setDate(date.getDate() + days);
+  return dateKeyOf(date.getTime());
 }
 
 function startOfDayKey(value: number) {
@@ -232,6 +260,7 @@ function createArtifactEntry(params: {
   sourceKey?: string | null;
   source: 'ai' | 'local';
   unread?: boolean;
+  generationSnapshot?: CharacterArtifactGenerationSnapshot;
 }) {
   const createdAt = now();
   return {
@@ -247,6 +276,7 @@ function createArtifactEntry(params: {
     unread: params.unread ?? false,
     createdAt,
     updatedAt: createdAt,
+    generationSnapshot: params.generationSnapshot,
   } satisfies CharacterArtifactEntry;
 }
 
@@ -266,6 +296,54 @@ function buildLetterTitle(kind: CharacterArtifactKind, characterName: string) {
   if (kind === 'birth_letter') return buildBirthLetterTitle(characterName);
   if (kind === 'final_letter') return buildFinalLetterTitle(characterName);
   return buildFinalLetterTitle(characterName);
+}
+
+function buildGenerationSnapshot(
+  character: Partial<AICharacter>,
+  relatedCharacters: Array<{ id: string; name: string }>,
+): CharacterArtifactGenerationSnapshot {
+  return {
+    promptVersion: 'character-experience-artifacts-v2',
+    character: {
+      id: character.id,
+      name: character.name,
+      background: character.background,
+      speakingStyle: character.speakingStyle,
+      expertise: character.expertise,
+      group: character.group,
+      relationships: character.relationships,
+      memory: character.memory,
+      layeredMemories: character.layeredMemories,
+      emotionalState: character.emotionalState,
+      soulState: character.soulState,
+      coreProfile: character.coreProfile,
+      visualIdentity: character.visualIdentity ? {
+        description: character.visualIdentity.description,
+        styleHint: character.visualIdentity.styleHint,
+        negativePrompt: character.visualIdentity.negativePrompt,
+        seed: character.visualIdentity.seed,
+        primaryReferenceImageId: character.visualIdentity.primaryReferenceImageId,
+        defaults: character.visualIdentity.defaults,
+        referenceImages: character.visualIdentity.referenceImages?.map((image) => ({
+          id: image.id,
+          assetId: image.assetId,
+          url: '',
+          mimeType: image.mimeType,
+          sizeBytes: image.sizeBytes,
+          checksum: image.checksum,
+          label: image.label,
+          source: image.source,
+          isPrimary: image.isPrimary,
+          createdAt: image.createdAt,
+        })),
+      } : undefined,
+      runtimeTimeline: character.runtimeTimeline,
+      createdAt: character.createdAt,
+      updatedAt: character.updatedAt,
+    },
+    relatedCharacters,
+    generatedAt: now(),
+  };
 }
 
 function hasMeaningfulBirthSignals(character: Partial<AICharacter>) {
@@ -330,6 +408,19 @@ function mergeJob(existing: CharacterArtifactJob | undefined, next: CharacterArt
   };
 }
 
+function compareDiaryJobs(a: CharacterArtifactJob, b: CharacterArtifactJob) {
+  const dateCompare = (a.dateKey || '').localeCompare(b.dateKey || '');
+  if (dateCompare !== 0) return dateCompare;
+  const nameCompare = normalizeString(a.snapshot.name).localeCompare(normalizeString(b.snapshot.name), 'zh-Hans-CN');
+  if (nameCompare !== 0) return nameCompare;
+  return a.characterId.localeCompare(b.characterId);
+}
+
+function compareArtifactJobs(a: CharacterArtifactJob, b: CharacterArtifactJob) {
+  if (a.kind === 'diary' && b.kind === 'diary') return compareDiaryJobs(a, b);
+  return a.createdAt - b.createdAt;
+}
+
 function removeCompletedJobs(jobs: CharacterArtifactJob[]) {
   return jobs.filter((job) => job.status !== 'succeeded');
 }
@@ -341,7 +432,7 @@ function queueSnapshotJobs(snapshot: ArtifactSnapshot, jobs: CharacterArtifactJo
   });
   return {
     items: snapshot.items,
-    jobs: Array.from(merged.values()).sort((a, b) => a.createdAt - b.createdAt),
+    jobs: Array.from(merged.values()).sort(compareArtifactJobs),
   };
 }
 
@@ -450,6 +541,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             text,
             source: isAIProfileUsable(modelProfile) ? 'ai' : 'local',
             unread: nextJob.kind === 'final_letter' || nextJob.kind === 'birth_letter',
+            generationSnapshot: buildGenerationSnapshot(nextJob.snapshot, nextJob.relatedCharacters),
           });
 
           set((state) => {
@@ -488,6 +580,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
         unreadLetterCount: 0,
         syncCharacters: (characters) => {
           const todayKey = dateKeyOf(now());
+          const backfillWindowStartKey = shiftDateKey(todayKey, -DIARY_BACKFILL_WINDOW_DAYS);
           const diaryJobs: CharacterArtifactJob[] = [];
           const existingDiaryKeys = new Set(get().items
             .filter((item) => isDiaryEntry(item) && !looksLikeRawArtifactContext(item.text))
@@ -497,8 +590,12 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           characters
             .filter((character) => character.deletedAt == null)
             .forEach((character) => {
-              const sourceDates = collectCharacterSourceDateKeys(character)
+              const allSourceDates = collectCharacterSourceDateKeys(character)
                 .filter((dateKey) => dateKey < todayKey);
+              const previousAvailableDateKey = allSourceDates.at(-1);
+              const sourceDates = allSourceDates.filter((dateKey) => (
+                dateKey >= backfillWindowStartKey || dateKey === previousAvailableDateKey
+              ));
               const relatedCharacters = buildRelatedCharacters(character, characters);
               sourceDates.forEach((dateKey) => {
                 const key = buildDiaryJobKey(character.id, dateKey);
@@ -520,7 +617,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
               });
             });
 
-          if (diaryJobs.length) enqueueJobs(diaryJobs);
+          if (diaryJobs.length) enqueueJobs(diaryJobs.sort(compareDiaryJobs));
           void get().resumeProcessing();
         },
         enqueueLetterArtifact: ({ kind, character, relatedCharacters, sourceKey = '' }) => {
@@ -565,8 +662,49 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           queueMicrotask(scheduleCloudSync);
           return { items, unreadLetterCount: computeUnreadLetterCount(items) };
         }),
-        getDiaryEntries: (characterId) => get().items.filter((item) => item.kind === 'diary' && item.characterId === characterId).sort((a, b) => b.createdAt - a.createdAt),
+        getDiaryEntries: (characterId) => get().items.filter((item) => item.kind === 'diary' && item.characterId === characterId).sort((a, b) => (a.dateKey || '').localeCompare(b.dateKey || '') || a.createdAt - b.createdAt),
         getLetterEntries: () => get().items.filter((item) => item.kind === 'birth_letter' || item.kind === 'final_letter').sort((a, b) => b.createdAt - a.createdAt),
+        regenerateArtifact: async ({ itemId, character, relatedCharacters }) => {
+          const item = get().items.find((entry) => entry.id === itemId);
+          if (!item) throw new Error('Artifact not found');
+          const snapshot = item.generationSnapshot;
+          const sourceCharacter = snapshot?.character || character;
+          if (!sourceCharacter?.id) throw new Error('Missing artifact generation snapshot');
+          const sourceRelatedCharacters = snapshot?.relatedCharacters || relatedCharacters || [];
+          const modelProfile = getUsableDefaultTextAIProfile(useSettingsStore.getState().aiProfiles);
+          const recentDiaryTexts = item.kind === 'diary'
+            ? get().items
+                .filter((entry) => entry.kind === 'diary' && entry.characterId === item.characterId && entry.id !== item.id && entry.dateKey !== item.dateKey)
+                .sort((a, b) => b.createdAt - a.createdAt)
+                .slice(0, 5)
+                .map((entry) => entry.text)
+            : [];
+          const text = (await generateArtifactText(item.kind, sourceCharacter, sourceRelatedCharacters, item.dateKey || null, modelProfile, recentDiaryTexts)).trim();
+          const regeneratedAt = now();
+          const source = isAIProfileUsable(modelProfile) ? 'ai' : 'local';
+          const generationSnapshot = buildGenerationSnapshot(sourceCharacter, sourceRelatedCharacters);
+          let nextEntry: CharacterArtifactEntry | null = null;
+          set((state) => {
+            const items = state.items.map((entry) => {
+              if (entry.id !== item.id) return entry;
+              nextEntry = {
+                ...entry,
+                text,
+                source,
+                updatedAt: regeneratedAt,
+                generationSnapshot,
+              };
+              return nextEntry;
+            });
+            return {
+              items,
+              unreadLetterCount: computeUnreadLetterCount(items),
+            };
+          });
+          scheduleCloudSync();
+          if (!nextEntry) throw new Error('Artifact regeneration failed');
+          return nextEntry;
+        },
         syncCloud: async () => {
           if (!isCloudMode()) return;
           if (cloudSyncRunning) {

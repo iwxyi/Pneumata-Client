@@ -7,6 +7,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ChatIcon from '@mui/icons-material/Chat';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
 import DeveloperModeIcon from '@mui/icons-material/DeveloperMode';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
 import PersonIcon from '@mui/icons-material/Person';
 import SettingsSuggestIcon from '@mui/icons-material/SettingsSuggest';
 import { useNavigate } from 'react-router-dom';
@@ -14,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
+import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { hasUsableDefaultTextAI } from '../types/settings';
 import ChatCard from '../components/chat/ChatCard';
@@ -209,6 +211,7 @@ export default function HomePage() {
   const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
   const aiProfiles = useSettingsStore((state) => state.aiProfiles);
   const developerMode = useSettingsStore((state) => state.developerMode);
+  const activeDiaryJobs = useCharacterArtifactStore((state) => state.jobs.filter((job) => job.kind === 'diary' && (job.status === 'pending' || job.status === 'running')).length);
   const authMode = useAuthStore((state) => state.authMode);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [avatarQueueSummary, setAvatarQueueSummary] = useState<AvatarGenerationQueueSummary>(() => avatarGenerationQueue.getSummary());
@@ -275,6 +278,14 @@ export default function HomePage() {
       icon: <AutoAwesomeIcon />,
       color: 'primary.main',
       onOpen: () => navigate('/characters'),
+      attention: true,
+    }] : []),
+    ...(activeDiaryJobs > 0 ? [{
+      label: '生成日记',
+      value: activeDiaryJobs,
+      icon: <MenuBookIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/letters?tab=diary'),
       attention: true,
     }] : []),
   ];

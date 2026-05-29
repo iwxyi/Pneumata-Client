@@ -1,7 +1,7 @@
 // HTTP API client for chat backend
 
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
-import type { CharacterVisualIdentity, CharacterVisualReferenceImage } from '../types/character';
+import type { AICharacter, CharacterVisualIdentity, CharacterVisualReferenceImage } from '../types/character';
 import { storageKey } from '../constants/brand';
 
 const API_BASE = '/api';
@@ -50,6 +50,12 @@ export interface CharacterArtifactSyncEntry {
   unread: boolean;
   createdAt: number;
   updatedAt: number;
+  generationSnapshot?: {
+    promptVersion: 'character-experience-artifacts-v2';
+    character: Partial<AICharacter>;
+    relatedCharacters: Array<{ id: string; name: string }>;
+    generatedAt: number;
+  };
 }
 
 export class ApiError extends Error {

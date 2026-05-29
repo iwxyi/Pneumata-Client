@@ -118,7 +118,7 @@ function getDiaryEntriesSorted<T extends { dateKey?: string | null; createdAt: n
   return entries
     .filter((entry): entry is T & { dateKey: string } => Boolean(entry.dateKey))
     .slice()
-    .sort((a, b) => b.createdAt - a.createdAt);
+    .sort((a, b) => a.dateKey.localeCompare(b.dateKey) || a.createdAt - b.createdAt);
 }
 
 function getGenerateButtonLabel(language: string, generating: boolean) {
@@ -332,6 +332,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const modelDefaultsAppliedRef = useRef(false);
   const characters = useCharacterStore((state) => state.characters);
   const artifactItems = useCharacterArtifactStore((state) => state.items);
+  const regenerateArtifact = useCharacterArtifactStore((state) => state.regenerateArtifact);
   const [personalityExpanded, setPersonalityExpanded] = useState(true);
   const [socialExpanded, setSocialExpanded] = useState(true);
   const [discussionExpanded, setDiscussionExpanded] = useState(true);
@@ -903,12 +904,35 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
 
   const runtimeCharacter = {
     ...initial,
+    name,
+    avatar,
     personality,
     behavior,
+    expertise,
+    speakingStyle,
+    background,
+    group,
+    speechProfile,
+    voiceConfig,
     relationships: initial?.relationships || [],
     memory,
     coreProfile,
     intervention,
+    modelProfileIds,
+    bubbleStyle,
+    bubbleStyleId,
+    visualIdentity,
+  };
+  const diaryRelatedCharacters = useMemo(() => (runtimeCharacter.relationships || [])
+    .map((relation) => characters.find((character) => character.id === relation.characterId))
+    .filter((character): character is AICharacter => Boolean(character))
+    .map((character) => ({ id: character.id, name: character.name })), [characters, runtimeCharacter.relationships]);
+  const handleRegenerateDiaryDebug = async (item: CharacterArtifactEntry) => {
+    try {
+      await regenerateArtifact({ itemId: item.id, character: runtimeCharacter, relatedCharacters: diaryRelatedCharacters });
+    } catch (error) {
+      console.error('Failed to regenerate character diary:', { item, error });
+    }
   };
   const diaryEntries = useMemo(() => {
     if (!initial?.id) return [];
@@ -1603,6 +1627,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             emptyTitle={i18n.language.startsWith('zh') ? '暂无日记' : 'No diary entries yet'}
             emptyDescription={i18n.language.startsWith('zh') ? '角色经历过足够多的关系余波、记忆沉淀和未说出口的话后，日记会在这里留下痕迹。' : 'After enough relationship residue, memory sediment, and unsent words accumulate, diary pages will appear here.'}
             getMeta={(item) => item.dateKey || new Date(item.createdAt).toLocaleDateString(i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US')}
+            onRegenerateDebug={settings.developerMode ? handleRegenerateDiaryDebug : undefined}
           />
         </Box>
       ) : null}
