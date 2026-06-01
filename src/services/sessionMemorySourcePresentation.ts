@@ -106,6 +106,7 @@ function cleanRuntimeText(text: string | undefined, members: DisplayTextMember[]
 
 function resolveName(id: string | undefined, characters: AICharacter[]) {
   if (!id) return '未设置';
+  if (id === 'user') return '我';
   const matched = characters.find((character) => character.id === id)?.name;
   if (matched) return matched;
   return isLikelyInternalId(id) ? '未知成员' : id;

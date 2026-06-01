@@ -260,6 +260,41 @@ describe('sessionMemorySourcePresentation', () => {
     expect(item?.detail).not.toContain('威胁感');
   });
 
+  it('renders user participant id as 我 in conflict tooltip', () => {
+    const presentation = buildPresentation({
+      chat: {
+        layeredMemories: [],
+        relationshipLedger: [],
+        runtimeEventsV2: [],
+        conflictAxes: [],
+        conflictState: {
+          primaryConflict: {
+            id: 'conflict-user',
+            scope: 'group',
+            type: 'care_jealousy',
+            severity: 0.55,
+            stage: 'open',
+            summary: 'a 对 user 的关注竞争升温',
+            participantIds: ['a', 'user'],
+            nextPressure: 'stabilize',
+            developmentHooks: [],
+            sourceEventIds: [],
+            updatedAt: 500,
+          },
+          activeConflicts: [],
+          developmentHooks: [],
+          volatility: 0,
+          cooling: 0,
+          updatedAt: 500,
+        },
+      },
+    });
+
+    const tooltip = presentation.conflict.items[0]?.tooltip || '';
+    expect(tooltip).toContain('参与者：喜羊羊、我');
+    expect(tooltip).not.toContain('user');
+  });
+
   it('classifies artifact seeds without preserving dialogue-like junk', () => {
     const presentation = buildPresentation({
       seedArtifactText: '计划：第一步先核实时间线\n计划：哪里不靠谱了\n嘻嘻，懒羊羊哥哥最好了',
