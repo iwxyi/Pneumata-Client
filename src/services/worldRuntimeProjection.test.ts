@@ -627,6 +627,59 @@ describe('worldRuntimeProjection', () => {
     expect(items.some((item) => item.id === 'outing-dinner::rest')).toBe(false);
   });
 
+  it('chains travel->preparation->activity->rest occupancy for cross-city participants when explicitly enabled', () => {
+    const chats = [buildChat('chat-1', '群聊一', [
+      {
+        id: 'evt-1',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 100,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '去杭州参加线下活动',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'social_outing',
+          title: '杭州活动',
+          activityType: '线下活动',
+          participantIds: ['a', 'b'],
+          dedupeKey: 'outing-hz-chain',
+          startAt: 1800000000000,
+          durationMinutes: 120,
+          destinationCity: '杭州',
+          locationHint: '杭州西湖',
+          participantOrigins: {
+            a: '上海',
+            b: '杭州',
+          },
+          travelDurationMinutes: 120,
+          preparationDurationMinutes: 30,
+          restDurationMinutes: 30,
+          autoPreparationRest: true,
+          autoPreparationRestAfterTravel: true,
+        },
+      },
+    ])];
+    const items = projectWorldCalendarItems(chats, [character('a', 'A'), character('b', 'B')]);
+    const travel = items.find((item) => item.id === 'outing-hz-chain::travel');
+    const prep = items.find((item) => item.id === 'outing-hz-chain::prep');
+    const activity = items.find((item) => item.id === 'outing-hz-chain');
+    const rest = items.find((item) => item.id === 'outing-hz-chain::rest');
+    expect(travel?.kind).toBe('travel');
+    expect(travel?.startAt).toBe(1799992800000);
+    expect(travel?.endAt).toBe(1800000000000);
+    expect(prep?.kind).toBe('preparation');
+    expect(prep?.startAt).toBe(1800000000000);
+    expect(prep?.endAt).toBe(1800001800000);
+    expect(activity?.startAt).toBe(1800000000000);
+    expect(activity?.endAt).toBe(1800007200000);
+    expect(rest?.kind).toBe('rest');
+    expect(rest?.startAt).toBe(1800009000000);
+    expect(rest?.endAt).toBe(1800010800000);
+    expect(prep?.participantIds).toEqual(['a', 'b']);
+    expect(rest?.participantIds).toEqual(['a', 'b']);
+  });
+
   it('detects participant time conflicts and suggests delay minutes', () => {
     const chats = [buildChat('chat-1', '群聊一', [
       {

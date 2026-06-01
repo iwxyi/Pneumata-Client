@@ -756,6 +756,71 @@ export function projectWorldCalendar(chats: GroupChat[], characters: AICharacter
           };
           const existingTravel = items.get(travelId);
           items.set(travelId, existingTravel ? mergeCalendarItem(existingTravel, travelItem) : travelItem);
+          const canChainPrepRestWithTravel = payload.autoPreparationRest === true && payload.autoPreparationRestAfterTravel === true;
+          if (canChainPrepRestWithTravel) {
+            const inferredPreparationDuration = Math.max(20, Math.min(60, Math.round((durationMinutes || 120) * 0.25)));
+            const inferredRestDuration = Math.max(20, Math.min(60, Math.round((durationMinutes || 120) * 0.2)));
+            const preparationDuration = getNumber(payload.preparationDurationMinutes) ?? inferredPreparationDuration;
+            const restDuration = getNumber(payload.restDurationMinutes) ?? inferredRestDuration;
+            const prepId = `${item.id}::prep`;
+            const restId = `${item.id}::rest`;
+            const prepItem: WorldCalendarItem = {
+              id: prepId,
+              kind: 'preparation',
+              status: item.status,
+              title: getString(payload.preparationTitle) || '到场准备',
+              activityType: '准备',
+              participantIds: travelParticipantIds,
+              participantStates: ensureParticipantStates(travelParticipantIds, {}),
+              participantNames: travelParticipantIds.map((id) => getActorName(id, names)),
+              startAt,
+              endAt: startAt + preparationDuration * 60_000,
+              durationMinutes: preparationDuration,
+              timeHint: null,
+              locationHint: destinationCity || getString(payload.locationHint) || null,
+              summary: getString(payload.preparationSummary) || `${travelParticipantIds.map((id) => getActorName(id, names)).join('、')} 到场后准备 ${title}`,
+              sourceRefs: [{
+                conversationId: chat.id,
+                conversationName: getConversationDisplayName(chat),
+                sourceDeleted: Boolean(chat.deletedAt),
+                eventIds: [event.id],
+                weight: getSourceEvidenceWeight(event),
+                lastEvidenceAt: event.createdAt,
+              }],
+              conflict: null,
+              updatedAt: event.createdAt,
+            };
+            const restItem: WorldCalendarItem = {
+              id: restId,
+              kind: 'rest',
+              status: item.status,
+              title: getString(payload.restTitle) || '活动后休整',
+              activityType: '休整',
+              participantIds: travelParticipantIds,
+              participantStates: ensureParticipantStates(travelParticipantIds, {}),
+              participantNames: travelParticipantIds.map((id) => getActorName(id, names)),
+              startAt: (endAt || startAt) + preparationDuration * 60_000,
+              endAt: (endAt || startAt) + (preparationDuration + restDuration) * 60_000,
+              durationMinutes: restDuration,
+              timeHint: null,
+              locationHint: destinationCity || getString(payload.locationHint) || null,
+              summary: getString(payload.restSummary) || `${travelParticipantIds.map((id) => getActorName(id, names)).join('、')} 在活动后休整`,
+              sourceRefs: [{
+                conversationId: chat.id,
+                conversationName: getConversationDisplayName(chat),
+                sourceDeleted: Boolean(chat.deletedAt),
+                eventIds: [event.id],
+                weight: getSourceEvidenceWeight(event),
+                lastEvidenceAt: event.createdAt,
+              }],
+              conflict: null,
+              updatedAt: event.createdAt,
+            };
+            const existingPrep = items.get(prepId);
+            const existingRest = items.get(restId);
+            items.set(prepId, existingPrep ? mergeCalendarItem(existingPrep, prepItem) : prepItem);
+            items.set(restId, existingRest ? mergeCalendarItem(existingRest, restItem) : restItem);
+          }
         }
       }
         return;
