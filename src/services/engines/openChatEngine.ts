@@ -517,6 +517,7 @@ function buildAttentionDrivenCalendarReminderCandidate(params: {
 }): RuntimeEventV2 | null {
   const actorId = params.message.senderId;
   if (!actorId || actorId === 'user') return null;
+  if (hasPendingCandidateSuppression(params.conversation, actorId, 'status_update', Date.now())) return null;
   if (!params.conversation.memberIds.includes('user')) return null;
   const now = Date.now();
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
