@@ -83,7 +83,7 @@ describe('runtimeInsightPresentation', () => {
       includeDebug: true,
     });
     expect(presentation.directorIntent?.debugChips).toContain('压力 82%');
-    expect(presentation.directorIntent?.debugChips).toContain('线索 conflict-1');
+    expect(presentation.directorIntent?.debugChips).toContain('线索 冲突-1');
     expect(presentation.lines[0]?.debugChips).toEqual(['显著性 90%', '张力 80%', '动量 70%']);
     expect(presentation.lines[0]?.debugRows[0]).toContain('可能走向');
     expect(presentation.lines[0]?.debugRows.some((row) => row.includes('来源事件 1'))).toBe(true);
@@ -113,5 +113,31 @@ describe('runtimeInsightPresentation', () => {
     expect(presentation.lines[0]?.summary).not.toContain('e055aa1d');
     expect(presentation.lines[0]?.participantNames).toEqual(['成员']);
     expect(presentation.lines[0]?.debugRows.join('\n')).toContain('甲 会继续追问 乙 吗？');
+  });
+
+  it('sanitizes draft and uuid identifiers in debug line ids and director reason', () => {
+    const projection = buildProjection();
+    projection.directorIntent = {
+      ...projection.directorIntent!,
+      targetLineId: 'draft-e055aa1d-88d4-4e96-abd2-1b35a3d56f67->conflict-1',
+      reason: 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67 should answer first',
+    };
+    projection.narrativeLines[0] = {
+      ...projection.narrativeLines[0],
+      id: 'draft-e055aa1d-88d4-4e96-abd2-1b35a3d56f67->conflict-1',
+    };
+
+    const presentation = buildRuntimeInsightPresentation({
+      projection,
+      members: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      includeDebug: true,
+    });
+    const chips = presentation.directorIntent?.debugChips.join(' / ') || '';
+    const rows = presentation.lines[0]?.debugRows.join('\n') || '';
+    expect(chips).not.toContain('draft-');
+    expect(chips).not.toContain('e055aa1d');
+    expect(rows).not.toContain('draft-');
+    expect(rows).not.toContain('e055aa1d');
+    expect(presentation.directorIntent?.reason).toBe('已有运行证据支持这个走向。');
   });
 });

@@ -46,6 +46,11 @@ function cleanPresentationText(text: string, members: AICharacter[]) {
   return sanitizeUserFacingText(text, members);
 }
 
+function sanitizeDebugId(id: string, members: AICharacter[]) {
+  const normalized = id.replace(/\bdraft-[a-z0-9_-]+\b/gi, '线索');
+  return cleanPresentationText(normalized, members);
+}
+
 export function formatNarrativeLineType(type: NarrativeLineProjection['type']) {
   const labels: Record<NarrativeLineProjection['type'], string> = {
     conflict: '矛盾线',
@@ -151,11 +156,13 @@ function buildDirectorPresentation(intent: DirectorIntent | null, members: AICha
   const targetNames = formatActorNames(intent.targetActorIds, members);
   return {
     title: `${formatDirectorSource(intent.source)} · ${formatBeatType(intent.beatType)}`,
-    reason: intent.reason ? formatKnownReason(intent.reason) : null,
+    reason: intent.reason ? cleanPresentationText(formatKnownReason(intent.reason), members) : null,
     targetNames,
     debugChips: [
       formatDebugMetric('pressure', intent.pressure, isZh),
-      intent.targetLineId ? `${isZh ? '线索' : 'line'} ${formatLineId(intent.targetLineId)}` : (isZh ? '线索 无' : 'line none'),
+      intent.targetLineId
+        ? `${isZh ? '线索' : 'line'} ${sanitizeDebugId(formatLineId(intent.targetLineId), members)}`
+        : (isZh ? '线索 无' : 'line none'),
     ],
   };
 }
@@ -165,7 +172,9 @@ function buildLinePresentation(line: NarrativeLineProjection, members: AICharact
   const debugRows = [
     nextBeat ? `${isZh ? '可能走向' : 'likely direction'}: ${formatBeatType(nextBeat.beatType)} · ${percent(nextBeat.pressure)} · ${cleanPresentationText(formatKnownReason(nextBeat.reason), members)}` : '',
     line.openQuestions.length ? `${isZh ? '开放问题' : 'open question'}: ${line.openQuestions.slice(0, 2).map((item) => cleanPresentationText(item, members)).join(' / ')}` : '',
-    isZh ? `调试ID: ${formatLineId(line.id)} · 来源事件 ${line.sourceEventIds.length}` : `id: ${formatLineId(line.id)} · source events ${line.sourceEventIds.length}`,
+    isZh
+      ? `调试ID: ${sanitizeDebugId(formatLineId(line.id), members)} · 来源事件 ${line.sourceEventIds.length}`
+      : `id: ${sanitizeDebugId(formatLineId(line.id), members)} · source events ${line.sourceEventIds.length}`,
   ].filter(Boolean);
   if (line.type === 'mystery') {
     debugRows.push(isZh
