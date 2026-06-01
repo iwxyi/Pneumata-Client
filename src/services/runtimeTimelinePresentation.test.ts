@@ -183,6 +183,11 @@ describe('runtimeTimelinePresentation', () => {
             chain_group_blocked: 1,
             duplicate_idempotency: 1,
           },
+          modelArbitration: {
+            attempted: true,
+            applied: true,
+            selectedIndependentCount: 2,
+          },
         },
       },
     };
@@ -199,9 +204,10 @@ describe('runtimeTimelinePresentation', () => {
 
     expect(buildRuntimeTimelineTitle(patchApplyItem)).toBe('日历草案执行');
     expect(buildRuntimeTimelineTypeLabel(patchApplyItem)).toBe('调度');
-    expect(buildRuntimeTimelineBody(patchApplyItem)).toBe('应用 2 · 跳过 1 · 失败 0 · 链式阻断 1');
+    expect(buildRuntimeTimelineBody(patchApplyItem)).toBe('应用 2 · 跳过 1 · 失败 0 · 链式阻断 1 · 模型已重排');
     expect(buildRuntimeTimelineMeta(patchApplyItem)).toContain('队列 4');
     expect(buildRuntimeTimelineMeta(patchApplyItem)).toContain('链式阻断 1');
+    expect(buildRuntimeTimelineMeta(patchApplyItem)).toContain('模型已重排(2)');
   });
 
   it('shows world attention decision as readable trigger/fallback/suppressed traces', () => {

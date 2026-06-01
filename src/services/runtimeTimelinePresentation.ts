@@ -183,7 +183,10 @@ export function buildRuntimeTimelineBody(item: ProjectedRuntimeTimelineItem, mem
   if (patchApply) {
     const chainBlockedCount = patchApply.skippedReasonCounts?.chain_group_blocked || 0;
     const chainBlockedText = chainBlockedCount > 0 ? ` · 链式阻断 ${chainBlockedCount}` : '';
-    return clip(cleanText(`应用 ${patchApply.appliedCount} · 跳过 ${patchApply.skippedCount} · 失败 ${patchApply.failedCount}${chainBlockedText}`, members), 88);
+    const modelText = patchApply.modelArbitration?.attempted
+      ? (patchApply.modelArbitration.applied ? ' · 模型已重排' : ' · 模型未改排')
+      : '';
+    return clip(cleanText(`应用 ${patchApply.appliedCount} · 跳过 ${patchApply.skippedCount} · 失败 ${patchApply.failedCount}${chainBlockedText}${modelText}`, members), 88);
   }
   if (distillation) {
     const candidateTexts = Array.isArray(distillation.candidateTexts)
@@ -277,7 +280,10 @@ export function buildRuntimeTimelineMeta(item: ProjectedRuntimeTimelineItem, mem
       patchApply.skippedReasonCounts?.chain_group_blocked ? `链式阻断 ${patchApply.skippedReasonCounts.chain_group_blocked}` : '',
     ].filter(Boolean);
     const reasonText = reasonParts.length ? ` · ${reasonParts.join(' / ')}` : '';
-    return cleanText(`日历草案执行 · 应用 ${patchApply.appliedCount} / 跳过 ${patchApply.skippedCount} / 失败 ${patchApply.failedCount}${queue}${reasonText}`, members);
+    const modelInfo = patchApply.modelArbitration?.attempted
+      ? ` · 模型${patchApply.modelArbitration.applied ? '已重排' : '未改排'}(${patchApply.modelArbitration.selectedIndependentCount})`
+      : '';
+    return cleanText(`日历草案执行 · 应用 ${patchApply.appliedCount} / 跳过 ${patchApply.skippedCount} / 失败 ${patchApply.failedCount}${queue}${reasonText}${modelInfo}`, members);
   }
   if (distillation) {
     const owner = distillation.ownerType === 'character' ? '角色' : '群聊';

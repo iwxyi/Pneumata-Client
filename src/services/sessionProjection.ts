@@ -156,6 +156,11 @@ export interface ProjectedRuntimeTimelineItem {
       queueCount?: number;
       persistedCount?: number;
       skippedReasonCounts?: Partial<Record<'missing_target_conversation' | 'target_chat_not_found' | 'duplicate_idempotency' | 'chain_group_blocked', number>>;
+      modelArbitration?: {
+        attempted: boolean;
+        applied: boolean;
+        selectedIndependentCount: number;
+      };
     };
   };
 }
@@ -338,6 +343,15 @@ function buildEventMeta(event: RuntimeEventV2) {
         chain_group_blocked: typeof (payload.skippedReasonCounts as Record<string, unknown>).chain_group_blocked === 'number'
           ? (payload.skippedReasonCounts as Record<string, number>).chain_group_blocked
           : undefined,
+      }
+      : undefined,
+    modelArbitration: (typeof payload.modelArbitration === 'object' && payload.modelArbitration && !Array.isArray(payload.modelArbitration))
+      ? {
+        attempted: Boolean((payload.modelArbitration as Record<string, unknown>).attempted),
+        applied: Boolean((payload.modelArbitration as Record<string, unknown>).applied),
+        selectedIndependentCount: typeof (payload.modelArbitration as Record<string, unknown>).selectedIndependentCount === 'number'
+          ? (payload.modelArbitration as Record<string, number>).selectedIndependentCount
+          : 0,
       }
       : undefined,
   } : undefined;
