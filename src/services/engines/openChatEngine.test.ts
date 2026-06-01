@@ -1073,6 +1073,78 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'react_to_moment')).toBe(false);
   });
 
+  it('restores react_to_moment candidate generation after suppression window expires', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
+    try {
+      const now = Date.now();
+      const chat = normalizeConversation({
+        ...buildChat(),
+        relationshipLedger: [{
+          pairKey: 'a->user',
+          actorId: 'a',
+          targetId: 'user',
+          current: { warmth: 6, competence: 4, trust: 5, threat: 0 },
+          trend: 'up',
+          recentEvents: [],
+          lastUpdatedAt: now - 10 * 60_000,
+        }],
+        runtimeEventsV2: [{
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 5 * 60_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户点名a',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+        }, {
+          id: 'moment-1',
+          conversationId: 'chat-1',
+          kind: 'artifact',
+          createdAt: now - 20_000,
+          actorIds: ['b'],
+          summary: 'b 发了动态',
+          visibility: 'derived_public',
+          payload: { artifactType: 'moment_text', eventKind: 'post_moment', text: '晚饭真不错' },
+        }, {
+          id: 'sup-react-expired',
+          conversationId: 'chat-1',
+          kind: 'action_resolution',
+          createdAt: now - 30 * 60_000,
+          actorIds: ['a'],
+          targetIds: ['user'],
+          summary: 'react_to_moment 候选已抑制（已过期）',
+          visibility: 'moderator_only',
+          payload: {
+            eventType: 'event_candidate_suppressed',
+            candidateEventKind: 'react_to_moment',
+            reasonType: 'restraint_policy',
+            nextSuggestedAt: now - 60_000,
+          },
+        }],
+      });
+      const result = await openChatEngine.onMessageCommitted({
+        conversation: chat,
+        characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+        message: {
+          type: 'ai',
+          senderId: 'a',
+          content: '我继续回应。',
+          interactionHint: null,
+        },
+        previousAiMessage: null,
+        recentMessages: [],
+      });
+      const nextEvents = readAppliedRuntimeEvents(chat, result);
+      const react = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'react_to_moment');
+      expect(react).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('builds attention-driven invite_activity as social_outing candidate', async () => {
     const now = Date.now();
     const chat = normalizeConversation({
