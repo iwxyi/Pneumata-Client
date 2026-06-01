@@ -481,6 +481,7 @@ function applyCalendarPatch(
 
 function detectConflicts(items: WorldCalendarItem[]) {
   const next = items.map((item) => ({ ...item, conflict: null as WorldCalendarItem['conflict'] }));
+  const byId = new Map(next.map((item) => [item.id, item]));
   const activeIndexes = next
     .map((item, index) => ({ item, index }))
     .filter((entry) => entry.item.status !== 'cancelled' && typeof entry.item.startAt === 'number' && (typeof entry.item.endAt === 'number' || typeof entry.item.durationMinutes === 'number'));
@@ -494,6 +495,44 @@ function detectConflicts(items: WorldCalendarItem[]) {
   function isConflictActiveState(state: ParticipantScheduleState | undefined) {
     if (!state) return true;
     return !['declined', 'withdrawn', 'no_show', 'cancelled_by_dependency', 'left_early'].includes(state);
+  }
+
+  function resolveRootId(id: string) {
+    const marker = id.indexOf('::');
+    return marker >= 0 ? id.slice(0, marker) : id;
+  }
+
+  function resolveDuration(item: WorldCalendarItem, resolvedEnd: number | null) {
+    if (typeof item.durationMinutes === 'number' && Number.isFinite(item.durationMinutes)) return item.durationMinutes;
+    if (typeof item.startAt === 'number' && typeof resolvedEnd === 'number') return Math.ceil((resolvedEnd - item.startAt) / 60_000);
+    return null;
+  }
+
+  function buildLinkedPatchDrafts(lateItem: WorldCalendarItem, delayMinutes: number, earlyItemId: string) {
+    const rootId = resolveRootId(lateItem.id);
+    const linkedIds = Array.from(byId.keys())
+      .filter((id) => id === rootId || id.startsWith(`${rootId}::`));
+    const drafts: WorldCalendarPatchDraft[] = [];
+    linkedIds.forEach((id) => {
+      const linked = byId.get(id);
+      if (!linked || typeof linked.startAt !== 'number') return;
+      const linkedEnd = resolveEnd(linked);
+      const linkedDuration = resolveDuration(linked, linkedEnd);
+      const nextStartAt = linked.startAt + delayMinutes * 60_000;
+      const nextEndAt = typeof linkedEnd === 'number' ? linkedEnd + delayMinutes * 60_000 : null;
+      drafts.push({
+        eventType: 'calendar_item_patch',
+        calendarItemId: id,
+        patch: {
+          startAt: nextStartAt,
+          endAt: nextEndAt,
+          durationMinutes: linkedDuration ?? undefined,
+        },
+        reason: `与「${earlyItemId}」冲突，链式顺延 ${delayMinutes} 分钟`,
+        basedOnItemId: earlyItemId,
+      });
+    });
+    return drafts;
   }
 
   for (let i = 0; i < activeIndexes.length; i += 1) {
@@ -543,17 +582,20 @@ function detectConflicts(items: WorldCalendarItem[]) {
         reason: `${sharedNames.join('、')} 在该时段冲突，建议把「${lateItem.title}」顺延到「${earlyItem.title}」结束后`,
         basedOnItemId: earlyItem.id,
       };
-      const latePatchDraft = {
-        eventType: 'calendar_item_patch' as const,
-        calendarItemId: lateItem.id,
-        patch: {
-          startAt: lateSuggestedStartAt,
-          endAt: lateSuggestedEndAt,
-          durationMinutes: lateDuration,
-        },
-        reason: lateSuggestion.reason,
-        basedOnItemId: earlyItem.id,
-      };
+      const latePatchDrafts = buildLinkedPatchDrafts(lateItem, delayMinutes, earlyItem.id);
+      if (!latePatchDrafts.length) {
+        latePatchDrafts.push({
+          eventType: 'calendar_item_patch' as const,
+          calendarItemId: lateItem.id,
+          patch: {
+            startAt: lateSuggestedStartAt,
+            endAt: lateSuggestedEndAt,
+            durationMinutes: lateDuration,
+          },
+          reason: lateSuggestion.reason,
+          basedOnItemId: earlyItem.id,
+        });
+      }
 
       next[left.index].conflict = {
         hasConflict: true,
@@ -564,7 +606,7 @@ function detectConflicts(items: WorldCalendarItem[]) {
         overlapEndAt: overlapEnd,
         suggestedDelayMinutes: overlapMinutes + 15,
         resolutionSuggestions: [...leftExistingSuggestions, lateSuggestion].filter((suggestion, index, array) => array.findIndex((item) => item.itemId === suggestion.itemId && item.basedOnItemId === suggestion.basedOnItemId) === index),
-        patchDrafts: [...(left.item.conflict?.patchDrafts || []), latePatchDraft].filter((draft, index, array) => array.findIndex((item) => item.calendarItemId === draft.calendarItemId && item.basedOnItemId === draft.basedOnItemId) === index),
+        patchDrafts: [...(left.item.conflict?.patchDrafts || []), ...latePatchDrafts].filter((draft, index, array) => array.findIndex((item) => item.calendarItemId === draft.calendarItemId && item.basedOnItemId === draft.basedOnItemId) === index),
       };
       next[right.index].conflict = {
         hasConflict: true,
@@ -575,7 +617,7 @@ function detectConflicts(items: WorldCalendarItem[]) {
         overlapEndAt: overlapEnd,
         suggestedDelayMinutes: overlapMinutes + 15,
         resolutionSuggestions: [...rightExistingSuggestions, lateSuggestion].filter((suggestion, index, array) => array.findIndex((item) => item.itemId === suggestion.itemId && item.basedOnItemId === suggestion.basedOnItemId) === index),
-        patchDrafts: [...(right.item.conflict?.patchDrafts || []), latePatchDraft].filter((draft, index, array) => array.findIndex((item) => item.calendarItemId === draft.calendarItemId && item.basedOnItemId === draft.basedOnItemId) === index),
+        patchDrafts: [...(right.item.conflict?.patchDrafts || []), ...latePatchDrafts].filter((draft, index, array) => array.findIndex((item) => item.calendarItemId === draft.calendarItemId && item.basedOnItemId === draft.basedOnItemId) === index),
       };
     }
   }

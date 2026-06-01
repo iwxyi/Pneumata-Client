@@ -741,6 +741,63 @@ describe('worldRuntimeProjection', () => {
     expect(patchDraft?.basedOnItemId).toBe('outing-1');
   });
 
+  it('builds chained patch drafts for travel/prep/activity/rest when late item is chain-root', () => {
+    const chats = [buildChat('chat-1', '群聊一', [
+      {
+        id: 'evt-a',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 100,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '早场活动',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'social_outing',
+          title: '早场活动',
+          activityType: '活动',
+          participantIds: ['a'],
+          dedupeKey: 'event-a',
+          startAt: 1800000000000,
+          durationMinutes: 120,
+        },
+      },
+      {
+        id: 'evt-chain',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 110,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '跨城活动',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'social_outing',
+          title: '跨城活动',
+          activityType: '活动',
+          participantIds: ['a', 'b'],
+          dedupeKey: 'event-chain',
+          startAt: 1800003600000,
+          durationMinutes: 120,
+          destinationCity: '杭州',
+          locationHint: '杭州西湖',
+          participantOrigins: { a: '上海', b: '杭州' },
+          travelDurationMinutes: 120,
+          preparationDurationMinutes: 30,
+          restDurationMinutes: 30,
+          autoPreparationRest: true,
+          autoPreparationRestAfterTravel: true,
+        },
+      },
+    ])];
+    const projected = projectWorldCalendar(chats, [character('a', 'A'), character('b', 'B')]);
+    const draftIds = projected.patchDraftQueue
+      .filter((draft) => draft.basedOnItemId === 'event-a')
+      .map((draft) => draft.calendarItemId)
+      .sort();
+    expect(draftIds).toEqual(['event-chain', 'event-chain::prep', 'event-chain::rest', 'event-chain::travel']);
+  });
+
   it('skips conflict linking when shared participant is in inactive schedule state', () => {
     const chats = [buildChat('chat-1', '群聊一', [
       {
