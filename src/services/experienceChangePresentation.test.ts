@@ -132,4 +132,30 @@ describe('experienceChangePresentation', () => {
     expect(changes).toHaveLength(1);
     expect(changes[0].text).toContain('关系裂痕');
   });
+
+  it('sanitizes relationship semantic chips to avoid raw ids and payload traces', () => {
+    const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
+    const chat = {
+      layeredMemories: [],
+      relationshipLedger: [relationship({
+        derived: {
+          semantic: {
+            stage: `${uuid} {"eventType":"room_state_snapshot_v2"}`,
+            labels: ['relationship_delta', `${uuid} 的关系标记`],
+            summary: '关系升温：好感、亲近',
+            intensity: 42,
+          },
+        },
+      })],
+    } as Pick<GroupChat, 'layeredMemories' | 'relationshipLedger'>;
+
+    const changes = buildRecentExperienceChanges({
+      chat,
+      members: [{ id: 'a', name: '灰太狼' }, { id: 'b', name: '小灰灰' }] as never,
+    });
+    const chips = changes[0]?.chips.join(' / ') || '';
+    expect(chips).not.toContain(uuid);
+    expect(chips).not.toContain('eventType');
+    expect(chips).toContain('关系变化');
+  });
 });

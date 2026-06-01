@@ -97,12 +97,16 @@ function summarizeRelationshipChange(entry: RelationshipLedgerEntry, names: Map<
   const latestEvidence = normalized.recentEvents.at(-1)?.summary || semantic?.summary || '';
   const evidence = compactText(cleanDisplayText(latestEvidence, names), 76);
   const semanticSummary = semantic?.summary ? cleanDisplayText(semantic.summary, names) : '';
+  const semanticChips = [semantic?.stage, ...(semantic?.labels || []).slice(0, 2)]
+    .filter(Boolean)
+    .map((chip) => cleanDisplayText(String(chip), names))
+    .filter(Boolean);
   return {
     key: `relationship-${normalized.pairKey}`,
     kind: 'relationship',
     title: `${actor} → ${target}`,
     text: compactText(combineRelationshipSummary(semanticSummary, evidence)),
-    chips: [semantic?.stage, ...(semantic?.labels || []).slice(0, 2)].filter(Boolean) as string[],
+    chips: semanticChips,
     updatedAt: normalized.lastUpdatedAt || 0,
   };
 }
