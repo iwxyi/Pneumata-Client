@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openChatEngine } from './engines/openChatEngine';
 import {
   buildProjectedChatDetailState,
@@ -29,6 +29,15 @@ import {
   createViewerRoleForConversation,
 } from './sessionProjection';
 import { normalizeConversation } from '../types/chat';
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function buildChat() {
   return normalizeConversation({

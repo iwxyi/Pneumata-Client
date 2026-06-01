@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectedRuntimeTimelineItem } from './sessionProjection';
 import {
   buildRuntimeTimelineBody,
@@ -10,6 +10,15 @@ import {
   formatAttentionDebugLine,
   projectRuntimeTimelineDisplayItem,
 } from './runtimeTimelinePresentation';
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('runtimeTimelinePresentation', () => {
   it('builds readable relationship timeline payload', () => {

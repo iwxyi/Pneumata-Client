@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorldCalendarItem } from './worldRuntimeProjection';
 import {
   buildMonthDayChips,
@@ -7,6 +7,15 @@ import {
   groupCalendarItemsByDay,
   startOfDay,
 } from './worldCalendarViewModel';
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function makeItem(input: Partial<WorldCalendarItem> & Pick<WorldCalendarItem, 'id' | 'title' | 'summary'>): WorldCalendarItem {
   return {
