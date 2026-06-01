@@ -791,6 +791,55 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect(decision).toBeTruthy();
   });
 
+  it('suppresses share_moment at late night for non-night-owl personas and records reason', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-29T23:50:00+08:00'));
+    try {
+      const now = Date.now();
+      const chat = {
+        ...buildChatWithEvents([
+          {
+            id: 'att-1',
+            conversationId: 'chat-1',
+            kind: 'attention_candidate',
+            createdAt: now - 2_000,
+            actorIds: ['user'],
+            targetIds: ['a'],
+            summary: '用户提到最近状态',
+            visibility: 'derived_public',
+            payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.9, reason: '用户刚提到近期生活状态' },
+          } as RuntimeEventV2,
+        ]),
+        relationshipLedger: [{
+          pairKey: 'a->user',
+          actorId: 'a',
+          targetId: 'user',
+          current: { warmth: 12, competence: 4, trust: 10, threat: 0 },
+          trend: 'up' as const,
+          recentEvents: [],
+          lastUpdatedAt: now - 1_000,
+        }],
+      };
+      const updateChat = vi.fn(async () => undefined);
+      await runSocialEventAutoFlow(chat, {
+        chats: [chat],
+        characters: [{ ...buildCharacter('a', '甲'), speakingStyle: '作息规律，白天活跃。' } as AICharacter],
+        updateChat,
+        addChat: vi.fn(async () => buildBaseChat()),
+        addMessage: vi.fn(async () => ({})),
+        appendEventMessage: vi.fn(async () => undefined),
+      });
+      const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+      const patch = firstCall?.[1];
+      const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+        && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed'
+        && (event.payload as { reasonType?: string }).reasonType === 'world_attention_moment_quiet_hours');
+      expect(suppression).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('world-driven post_moment uses text-only artifact when image model is unavailable', async () => {
     const now = Date.now();
     const chat = {

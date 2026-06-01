@@ -99,6 +99,11 @@ function buildPostMomentExpectedArtifactsForWorldCandidate(chat: GroupChat, acto
   return ['moment_text', 'moment_scene_photo'];
 }
 
+function isNightOwlPersona(character: AICharacter | null | undefined) {
+  const personaText = `${character?.speakingStyle || ''} ${character?.background || ''} ${(character?.expertise || []).join(' ')}`.toLowerCase();
+  return /(夜猫|熬夜|夜班|主播|直播|vlog|夜生活|night|stream)/i.test(personaText);
+}
+
 function appendStructuredRuntimeEvent(chat: GroupChat, event: RuntimeEventV2) {
   return [...(chat.runtimeEventsV2 || []), event].slice(-160);
 }
@@ -1452,7 +1457,19 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
     && !hasRecentWorldArtifact(chat, attention.actorId, 'status_update', 120 * 60_000)
     && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'status_update', reminderReasonType);
   const canStatus = !hasRecentWorldArtifact(chat, attention.actorId, 'status_update', 90 * 60_000);
+  const isLateNight = (() => {
+    const hour = new Date(now).getHours();
+    return hour >= 23 || hour < 7;
+  })();
+  const actorNightOwl = isNightOwlPersona(actor);
+  const lastSocialArtifactAt = (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact' && ['social_outing', 'check_in', 'react_to_moment', 'status_update', 'gift_exchange'].includes((event.payload as { eventKind?: string }).eventKind || ''))
+    .map((event) => event.createdAt)
+    .sort((a, b) => b - a)[0];
+  const postMomentDelayBlocked = typeof lastSocialArtifactAt === 'number' && now - lastSocialArtifactAt < 18 * 60_000;
   const canPostMoment = isCharacterFeatureEnabled(actor, 'moments')
+    && !(isLateNight && !actorNightOwl)
+    && !postMomentDelayBlocked
     && !hasRecentWorldArtifact(chat, attention.actorId, 'post_moment', 180 * 60_000);
   const shouldPrioritizeCalendarReminder = Boolean(upcomingCalendarItem) && canCalendarReminder;
   const eventKind: SocialEventCandidatePayload['eventKind'] = shouldPrioritizeCalendarReminder
@@ -1637,6 +1654,16 @@ function evaluateWorldDrivenDecision(chat: GroupChat, characters: AICharacter[],
 
   const shareMomentSuggested = attention.suggestedActions.includes('share_moment');
   const momentsEnabled = isCharacterFeatureEnabled(actor, 'moments');
+  const isLateNight = (() => {
+    const hour = new Date(now).getHours();
+    return hour >= 23 || hour < 7;
+  })();
+  const actorNightOwl = isNightOwlPersona(actor);
+  const lastSocialArtifactAt = (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact' && ['social_outing', 'check_in', 'react_to_moment', 'status_update', 'gift_exchange'].includes((event.payload as { eventKind?: string }).eventKind || ''))
+    .map((event) => event.createdAt)
+    .sort((a, b) => b - a)[0];
+  const postMomentDelayBlocked = typeof lastSocialArtifactAt === 'number' && now - lastSocialArtifactAt < 18 * 60_000;
   if (shareMomentSuggested && !momentsEnabled && !hasRecentWorldSuppressionEvent(chat, attention.actorId, 'world_attention_moment_disabled', 20 * 60_000, now)) {
     suppressionEvents.push(buildWorldSuppressionEvent({
       chat,
@@ -1645,6 +1672,28 @@ function evaluateWorldDrivenDecision(chat: GroupChat, characters: AICharacter[],
       reasonType: 'world_attention_moment_disabled',
       reasonLabel: '朋友圈功能关闭',
       reasonDetail: '该角色当前不允许自动发朋友圈，已改走其它世界驱动动作。',
+      candidateEventKind: 'post_moment',
+    }));
+  }
+  if (shareMomentSuggested && isLateNight && !actorNightOwl && !hasRecentWorldSuppressionEvent(chat, attention.actorId, 'world_attention_moment_quiet_hours', 20 * 60_000, now)) {
+    suppressionEvents.push(buildWorldSuppressionEvent({
+      chat,
+      actorId: attention.actorId,
+      actorName,
+      reasonType: 'world_attention_moment_quiet_hours',
+      reasonLabel: '夜间发圈抑制',
+      reasonDetail: '当前处于夜间时段，且角色并非夜猫人设，暂不触发朋友圈。',
+      candidateEventKind: 'post_moment',
+    }));
+  }
+  if (shareMomentSuggested && postMomentDelayBlocked && !hasRecentWorldSuppressionEvent(chat, attention.actorId, 'world_attention_moment_delay_window', 20 * 60_000, now)) {
+    suppressionEvents.push(buildWorldSuppressionEvent({
+      chat,
+      actorId: attention.actorId,
+      actorName,
+      reasonType: 'world_attention_moment_delay_window',
+      reasonLabel: '发圈延迟窗口',
+      reasonDetail: '距离最近社交产物时间过近，发圈候选延后以避免机械刷屏。',
       candidateEventKind: 'post_moment',
     }));
   }
@@ -1660,7 +1709,9 @@ function evaluateWorldDrivenDecision(chat: GroupChat, characters: AICharacter[],
         : attention.suggestedActions.includes('invite_activity')
           ? 'social_outing'
           : attention.suggestedActions.includes('react_to_moment')
-            ? 'react_to_moment'
+          ? 'react_to_moment'
+          : attention.suggestedActions.includes('share_moment')
+            ? 'post_moment'
             : null;
   if (shareMomentSuggested && !momentsEnabled && candidatePayload?.eventKind && candidatePayload.eventKind !== 'post_moment') {
     decisionEvents.push(buildWorldDecisionEvent({
