@@ -30,6 +30,37 @@ const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
 type AttentionStateSnapshot = ReturnType<typeof projectWorldAttentionStates>[number];
 
+function readWorldInfluenceBias(conversation: GroupChat, actorId: string, now: number) {
+  const latest = (conversation.runtimeEventsV2 || [])
+    .slice()
+    .reverse()
+    .find((event) => {
+      if (event.kind !== 'action_resolution') return false;
+      if ((event.actorIds || [])[0] !== actorId) return false;
+      if (now - event.createdAt > 2 * 60 * 60_000) return false;
+      const payload = event.payload as { eventType?: string };
+      return payload.eventType === 'world_influence_rule_evaluated';
+    });
+  if (!latest) {
+    return {
+      comfortBoost: 0,
+      scheduleBoost: 0,
+      restraintPenalty: 0,
+    };
+  }
+  const payload = latest.payload as {
+    matchedRuleIds?: string[];
+    unmetRuleIds?: string[];
+  };
+  const matched = new Set(payload.matchedRuleIds || []);
+  const unmet = new Set(payload.unmetRuleIds || []);
+  return {
+    comfortBoost: matched.has('comfort_first') ? 0.05 : 0,
+    scheduleBoost: matched.has('urgent_calendar_first') || matched.has('calendar_conflict_clarify_first') ? 0.06 : 0,
+    restraintPenalty: unmet.has('low_pressure_restraint') ? 0.04 : 0,
+  };
+}
+
 function attachAttentionTrace(
   payload: SocialEventCandidatePayload,
   attentionState: AttentionStateSnapshot | undefined,
@@ -368,13 +399,14 @@ function buildAttentionDrivenCheckInCandidate(params: {
     Date.now(),
     90 * 60_000,
   );
+  const bias = readWorldInfluenceBias(params.conversation, actorId, Date.now());
   const payload: SocialEventCandidatePayload = {
     eventKind: 'check_in',
     initiatorId: actorId,
     participantIds: [actorId, 'user'],
     targetIds: ['user'],
     reasonType: 'attention_check_in',
-    confidence: followupBoosted ? 0.84 : 0.78,
+    confidence: Math.max(0.7, Math.min(0.95, (followupBoosted ? 0.84 : 0.78) + bias.comfortBoost - bias.restraintPenalty)),
     urgency: 'soon',
     seedIntent: followupBoosted ? '刚完成一次用户跟进，适合顺势补一句关心或确认近况。' : '用户刚刚点名后，适合补一句关心或确认近况。',
     visibilityPlan: 'user_private',
@@ -482,13 +514,14 @@ function buildAttentionDrivenInviteActivityCandidate(params: {
       && (event.actorIds || [])[0] === actorId;
   });
   if (hasRecentOuting) return null;
+  const bias = readWorldInfluenceBias(params.conversation, actorId, Date.now());
   const payload: SocialEventCandidatePayload = {
     eventKind: 'social_outing',
     initiatorId: actorId,
     participantIds: [actorId, 'user'],
     targetIds: ['user'],
     reasonType: 'world_attention_invite_activity',
-    confidence: 0.82,
+    confidence: Math.max(0.7, Math.min(0.95, 0.82 - bias.scheduleBoost * 0.5 - bias.restraintPenalty)),
     urgency: 'soon',
     seedIntent: '最近互动升温，适合发起一次轻量活动邀约。',
     visibilityPlan: 'user_private',
@@ -520,6 +553,7 @@ function buildAttentionDrivenCalendarReminderCandidate(params: {
   if (hasPendingCandidateSuppression(params.conversation, actorId, 'status_update', Date.now())) return null;
   if (!params.conversation.memberIds.includes('user')) return null;
   const now = Date.now();
+  const bias = readWorldInfluenceBias(params.conversation, actorId, now);
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
     .find((item) => item.actorId === actorId && item.targetId === 'user');
   if (attentionState && !attentionState.suggestedActions.includes('calendar_reminder')) return null;
@@ -567,7 +601,7 @@ function buildAttentionDrivenCalendarReminderCandidate(params: {
     participantIds: [actorId],
     targetIds: ['user'],
     reasonType: calendarDrivenReminder ? 'world_calendar_upcoming_reminder' : 'world_attention_calendar_reminder',
-    confidence: calendarDrivenReminder ? 0.86 : 0.8,
+    confidence: Math.max(0.72, Math.min(0.96, (calendarDrivenReminder ? 0.86 : 0.8) + bias.scheduleBoost - bias.restraintPenalty * 0.5)),
     urgency: 'soon',
     seedIntent: calendarDrivenReminder
       ? `${reminderTitle} 即将开始，适合提前提醒并确认用户安排。`
@@ -698,6 +732,7 @@ function buildAttentionDrivenShareMomentCandidate(params: {
     now,
     120 * 60_000,
   );
+  const bias = readWorldInfluenceBias(params.conversation, actorId, now);
   const targetName = params.characters.find((item) => item.id === targetId)?.name || targetId;
   const styleSeed = Math.abs(stableEventSeed([params.conversation.id, actorId, targetId, Math.floor(now / (60 * 60_000))]).split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0));
   const styleVariant = styleSeed % 3;
@@ -723,7 +758,7 @@ function buildAttentionDrivenShareMomentCandidate(params: {
     participantIds: [actorId],
     targetIds: [targetId],
     reasonType: 'world_attention_share_moment',
-    confidence: followupBoosted ? 0.88 : 0.81,
+    confidence: Math.max(0.7, Math.min(0.95, (followupBoosted ? 0.88 : 0.81) - bias.scheduleBoost * 0.45 - bias.restraintPenalty)),
     urgency: 'defer',
     seedIntent: followupBoosted
       ? `刚完成对${targetName}的跟进，${seedIntent}`

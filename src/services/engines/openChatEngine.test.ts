@@ -1938,6 +1938,76 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect((checkIn?.payload as { confidence?: number }).confidence).toBeGreaterThanOrEqual(0.84);
   });
 
+  it('adjusts check_in confidence from world influence evaluation feedback', async () => {
+    const now = Date.now();
+    const baseChat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 7, competence: 4, trust: 6, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 60_000,
+      }],
+      runtimeEventsV2: [{
+        id: 'evt-attention-user-a',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 8 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户点名a',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+      }],
+    });
+    const influencedChat = normalizeConversation({
+      ...baseChat,
+      runtimeEventsV2: [...(baseChat.runtimeEventsV2 || []), {
+        id: 'evt-world-influence-eval',
+        conversationId: 'chat-1',
+        kind: 'action_resolution',
+        createdAt: now - 2 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '世界影响规则评估',
+        visibility: 'derived_public',
+        payload: {
+          eventType: 'world_influence_rule_evaluated',
+          matchedRuleIds: ['comfort_first'],
+          unmetRuleIds: [],
+        },
+      }],
+    });
+    const [baseResult, influencedResult] = await Promise.all([
+      openChatEngine.onMessageCommitted({
+        conversation: baseChat,
+        characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+        message: { type: 'ai', senderId: 'a', content: '我来补一个提醒。', interactionHint: null },
+        previousAiMessage: null,
+        recentMessages: [],
+      }),
+      openChatEngine.onMessageCommitted({
+        conversation: influencedChat,
+        characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+        message: { type: 'ai', senderId: 'a', content: '我来补一个提醒。', interactionHint: null },
+        previousAiMessage: null,
+        recentMessages: [],
+      }),
+    ]);
+    const baseEvents = readAppliedRuntimeEvents(baseChat, baseResult);
+    const influencedEvents = readAppliedRuntimeEvents(influencedChat, influencedResult);
+    const baseCheckIn = baseEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'attention_check_in');
+    const influencedCheckIn = influencedEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'attention_check_in');
+    expect(baseCheckIn).toBeTruthy();
+    expect(influencedCheckIn).toBeTruthy();
+    const baseConfidence = (baseCheckIn?.payload as { confidence?: number }).confidence || 0;
+    const influencedConfidence = (influencedCheckIn?.payload as { confidence?: number }).confidence || 0;
+    expect(influencedConfidence).toBeGreaterThan(baseConfidence);
+  });
+
   it('boosts share_moment candidate confidence when member follow-up has been completed', async () => {
     const now = Date.now();
     const chat = normalizeConversation({
@@ -2013,6 +2083,167 @@ describe('openChatEngine.onMessageCommitted', () => {
     const moment = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_share_moment');
     expect(moment).toBeTruthy();
     expect((moment?.payload as { confidence?: number }).confidence).toBeGreaterThanOrEqual(0.88);
+  });
+
+  it('boosts calendar reminder confidence after urgent-calendar influence evaluation', async () => {
+    const now = Date.now();
+    const baseChat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 12, competence: 4, trust: 10, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+      runtimeEventsV2: [{
+        id: 'evt-attention',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 2 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户提到明天安排',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+      }, {
+        id: 'evt-recent-outing',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 20 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '刚发起活动邀约',
+        visibility: 'derived_public',
+        payload: { artifactType: 'outing_summary', eventKind: 'social_outing', text: '刚发起活动邀约' },
+      }],
+    });
+    const influencedChat = normalizeConversation({
+      ...baseChat,
+      runtimeEventsV2: [...(baseChat.runtimeEventsV2 || []), {
+        id: 'evt-world-influence-eval',
+        conversationId: 'chat-1',
+        kind: 'action_resolution',
+        createdAt: now - 2 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '世界影响规则评估',
+        visibility: 'derived_public',
+        payload: {
+          eventType: 'world_influence_rule_evaluated',
+          matchedRuleIds: ['urgent_calendar_first'],
+          unmetRuleIds: [],
+        },
+      }],
+    });
+    const [baseResult, influencedResult] = await Promise.all([
+      openChatEngine.onMessageCommitted({
+        conversation: baseChat,
+        characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+        message: { type: 'ai', senderId: 'a', content: '我再补一句。', interactionHint: null },
+        previousAiMessage: null,
+        recentMessages: [],
+      }),
+      openChatEngine.onMessageCommitted({
+        conversation: influencedChat,
+        characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+        message: { type: 'ai', senderId: 'a', content: '我再补一句。', interactionHint: null },
+        previousAiMessage: null,
+        recentMessages: [],
+      }),
+    ]);
+    const baseEvents = readAppliedRuntimeEvents(baseChat, baseResult);
+    const influencedEvents = readAppliedRuntimeEvents(influencedChat, influencedResult);
+    const baseReminder = baseEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_calendar_reminder');
+    const influencedReminder = influencedEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_calendar_reminder');
+    expect(baseReminder).toBeTruthy();
+    expect(influencedReminder).toBeTruthy();
+    const baseReminderConfidence = (baseReminder?.payload as { confidence?: number }).confidence || 0;
+    const influencedReminderConfidence = (influencedReminder?.payload as { confidence?: number }).confidence || 0;
+    expect(influencedReminderConfidence).toBeGreaterThan(baseReminderConfidence);
+  });
+
+  it('suppresses share_moment confidence when urgent-calendar and restraint feedback exists', async () => {
+    const now = Date.now();
+    const baseChat = normalizeConversation({
+      ...buildChat(),
+      memberIds: ['a', 'b'],
+      runtimeEventsV2: [{
+        id: 'evt-attention-a-b',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 10 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: 'a 对 b 形成关注候选',
+        visibility: 'derived_public',
+        payload: { source: 'manual_attention_followup_member', confidence: 0.92, targetIds: ['b'] },
+      }, {
+        id: 'evt-recent-outing-artifact',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 40 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '刚刚线下活动结束',
+        visibility: 'derived_public',
+        payload: { artifactType: 'outing_summary', eventKind: 'social_outing' },
+      }],
+      relationshipLedger: [{
+        pairKey: 'a->b',
+        actorId: 'a',
+        targetId: 'b',
+        current: { warmth: 8, competence: 5, trust: 7, threat: 1 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+    });
+    const influencedChat = normalizeConversation({
+      ...baseChat,
+      runtimeEventsV2: [...(baseChat.runtimeEventsV2 || []), {
+        id: 'evt-world-influence-eval',
+        conversationId: 'chat-1',
+        kind: 'action_resolution',
+        createdAt: now - 2 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '世界影响规则评估',
+        visibility: 'derived_public',
+        payload: {
+          eventType: 'world_influence_rule_evaluated',
+          matchedRuleIds: ['urgent_calendar_first'],
+          unmetRuleIds: ['low_pressure_restraint'],
+        },
+      }],
+    });
+    const [baseResult, influencedResult] = await Promise.all([
+      openChatEngine.onMessageCommitted({
+        conversation: baseChat,
+        characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+        message: { type: 'ai', senderId: 'a', content: '我再补一句。', interactionHint: null },
+        previousAiMessage: null,
+        recentMessages: [],
+      }),
+      openChatEngine.onMessageCommitted({
+        conversation: influencedChat,
+        characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+        message: { type: 'ai', senderId: 'a', content: '我再补一句。', interactionHint: null },
+        previousAiMessage: null,
+        recentMessages: [],
+      }),
+    ]);
+    const baseEvents = readAppliedRuntimeEvents(baseChat, baseResult);
+    const influencedEvents = readAppliedRuntimeEvents(influencedChat, influencedResult);
+    const baseMoment = baseEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_share_moment');
+    const influencedMoment = influencedEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_share_moment');
+    expect(baseMoment).toBeTruthy();
+    expect(influencedMoment).toBeTruthy();
+    const baseMomentConfidence = (baseMoment?.payload as { confidence?: number }).confidence || 0;
+    const influencedMomentConfidence = (influencedMoment?.payload as { confidence?: number }).confidence || 0;
+    expect(influencedMomentConfidence).toBeLessThan(baseMomentConfidence);
   });
 
   it('suppresses world_attention_share_moment when no recent trigger artifact exists', async () => {
