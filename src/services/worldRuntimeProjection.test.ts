@@ -1,9 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizeConversation } from '../types/chat';
 import type { AICharacter } from '../types/character';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY, DEFAULT_PERSONALITY } from '../types/character';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { projectWorldAttentionCandidates, projectWorldAttentionStates, projectWorldCalendar, projectWorldCalendarItems, projectWorldMoments } from './worldRuntimeProjection';
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function character(id: string, name: string): AICharacter {
   return {
