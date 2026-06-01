@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import { formatScenarioBoardKind, formatScenarioRoleLabel } from './scenarioPresentation';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 
 export interface RuntimeStructureRow {
   key: string;
@@ -15,7 +16,11 @@ function projectScenarioRows(chat: GroupChat, members: AICharacter[], language: 
     .slice(0, 4)
     .map((item) => `${members.find((member) => member.id === item.actorId)?.name || '成员'}${item.roleId ? `：${formatScenarioRoleLabel(item.roleId, language)}` : ''}`)
     .join(' / ');
-  const factionSummary = (scenario.factions || []).slice(0, 4).map((item) => item.label).join(' / ');
+  const factionSummary = (scenario.factions || [])
+    .slice(0, 4)
+    .map((item) => sanitizeUserFacingText(item.label || ''))
+    .filter(Boolean)
+    .join(' / ');
   const rows: RuntimeStructureRow[] = [];
   if (roleSummary) rows.push({ key: 'roles', label: '角色位', value: roleSummary });
   if (factionSummary) rows.push({ key: 'factions', label: '阵营', value: factionSummary });

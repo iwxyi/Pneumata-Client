@@ -1,4 +1,5 @@
 import type { GroupChat } from '../types/chat';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 
 export interface SessionInfoCard {
   key: string;
@@ -40,7 +41,7 @@ export function projectSessionInfoCards(params: ProjectSessionInfoCardsParams): 
         key: 'ai-direct-source-chat',
         title: isZh ? '来源群聊' : 'Source group chat',
         description: sourceChat
-          ? (isZh ? `${sourceChat.name} · ${sourceChat.memberIds.length} 位成员` : `${sourceChat.name} · ${sourceChat.memberIds.length} members`)
+          ? clean(isZh ? `${sourceChat.name} · ${sourceChat.memberIds.length} 位成员` : `${sourceChat.name} · ${sourceChat.memberIds.length} members`)
           : (isZh ? '来源群聊已不可用' : 'Source chat is unavailable'),
         actionLabel: isZh ? '返回来源群聊' : 'Open source chat',
         actionChatId: params.chat.sourceChatId,
@@ -49,4 +50,4 @@ export function projectSessionInfoCards(params: ProjectSessionInfoCardsParams): 
   }
   return cards;
 }
-
+  const clean = (text: string) => sanitizeUserFacingText(text);

@@ -77,4 +77,22 @@ describe('runtimeStructureProjection', () => {
       { key: 'pieces', label: '棋子', value: '1' },
     ]));
   });
+
+  it('sanitizes faction labels before projecting structure rows', () => {
+    const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
+    const chat = normalizeConversation({
+      ...buildChat(),
+      scenarioState: {
+        roleAssignments: [{ actorId: 'a', roleId: 'werewolf' }],
+        factions: [{ factionId: 'f1', label: `${uuid} {"eventType":"room_state_snapshot_v2"}` }],
+        currentTurnActorId: 'b',
+        board: undefined,
+      },
+    });
+    const rows = projectRuntimeStructureRows(chat, [member('a', '甲'), member('b', '乙')], 'zh-CN');
+    const factionRow = rows.find((item) => item.key === 'factions');
+    expect(factionRow?.value).toContain('系统事件');
+    expect(factionRow?.value).not.toContain(uuid);
+    expect(factionRow?.value).not.toContain('eventType');
+  });
 });

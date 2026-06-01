@@ -68,5 +68,43 @@ describe('sessionInfoProjection', () => {
     expect(sourceCard?.actionChatId).toBe('group-1');
     expect(sourceCard?.description).toContain('主群');
   });
-});
 
+  it('sanitizes source chat name in ai_direct source card', () => {
+    const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
+    const groupChat = normalizeConversation({
+      id: 'group-2',
+      type: 'group',
+      mode: 'open_chat',
+      modeConfig: { freeSpeaking: true, allowInterruptions: true, allowPrivateThreads: true, allowDirectorInterventions: true, showRoleActions: true },
+      modeState: { phase: 'free', currentSpeakerId: null, currentTopicFocus: '', lastRelationshipEventAt: null },
+      name: `${uuid} {"eventType":"room_state_snapshot_v2"}`,
+      topic: '',
+      style: 'free',
+      runtimeEvolutionIntensity: 'balanced',
+      memberIds: ['a', 'b'],
+      speed: 1,
+      isActive: false,
+      allowIntervention: true,
+      topicSeed: '',
+      governance: { ownerCharacterId: null, adminCharacterIds: [], autoModeration: false, allowMute: true, allowPrivateThreads: true },
+      dramaRules: { allowCliques: false, allowMockery: false, allowAlliances: true, allowContempt: false },
+      worldState: { phase: 'idle', mood: '', focus: '', recentEvent: '' },
+      directorControls: { allowSpeakAs: true, allowDirectorMode: true, allowEventInjection: true, allowForcedReply: true },
+      createdAt: 1,
+      updatedAt: 1,
+      lastMessageAt: 1,
+    });
+    const aiDirect = normalizeConversation({
+      ...groupChat,
+      id: 'ai-direct-2',
+      type: 'ai_direct',
+      name: '双人私聊',
+      sourceChatId: 'group-2',
+    });
+    const cards = projectSessionInfoCards({ chat: aiDirect, chats: [groupChat, aiDirect], isZh: true });
+    const sourceCard = cards.find((item) => item.key === 'ai-direct-source-chat');
+    expect(sourceCard?.description).toContain('系统事件');
+    expect(sourceCard?.description).not.toContain(uuid);
+    expect(sourceCard?.description).not.toContain('eventType');
+  });
+});
