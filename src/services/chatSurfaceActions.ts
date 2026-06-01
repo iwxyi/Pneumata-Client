@@ -120,6 +120,11 @@ export async function runSessionActionImpl(
         ? `已应用 ${result.appliedCount} 条日历草案${result.skippedCount ? `（跳过 ${result.skippedCount} 条）` : ''}${result.failedCount ? `（失败 ${result.failedCount} 条）` : ''}`
         : '当前会话暂无可应用草案',
     });
+    const skippedReasonCounts = result.skippedItems.reduce<Record<string, number>>((acc, item) => {
+      const key = item.reason || 'unknown';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
     await context.appendEventMessage(chat.id, buildActionRuntimeContract(chat, action.type, payload, actorId, {
       eventType: 'calendar_patch_apply_result',
       title: '日历草案执行',
@@ -135,6 +140,7 @@ export async function runSessionActionImpl(
         modelArbitration: result.modelArbitration || null,
         appliedItems: result.appliedItems.slice(0, 8),
         skippedItems: result.skippedItems.slice(0, 8),
+        skippedReasonCounts,
         failures: result.failures.slice(0, 8),
       },
       visibilityScope: 'moderator_only',

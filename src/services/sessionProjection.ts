@@ -155,6 +155,7 @@ export interface ProjectedRuntimeTimelineItem {
       failedCount: number;
       queueCount?: number;
       persistedCount?: number;
+      skippedReasonCounts?: Partial<Record<'missing_target_conversation' | 'target_chat_not_found' | 'duplicate_idempotency' | 'chain_group_blocked', number>>;
     };
   };
 }
@@ -323,6 +324,22 @@ function buildEventMeta(event: RuntimeEventV2) {
     failedCount: typeof payload.failedCount === 'number' ? payload.failedCount : 0,
     queueCount: typeof payload.queueCount === 'number' ? payload.queueCount : undefined,
     persistedCount: typeof payload.persistedCount === 'number' ? payload.persistedCount : undefined,
+    skippedReasonCounts: (typeof payload.skippedReasonCounts === 'object' && payload.skippedReasonCounts && !Array.isArray(payload.skippedReasonCounts))
+      ? {
+        missing_target_conversation: typeof (payload.skippedReasonCounts as Record<string, unknown>).missing_target_conversation === 'number'
+          ? (payload.skippedReasonCounts as Record<string, number>).missing_target_conversation
+          : undefined,
+        target_chat_not_found: typeof (payload.skippedReasonCounts as Record<string, unknown>).target_chat_not_found === 'number'
+          ? (payload.skippedReasonCounts as Record<string, number>).target_chat_not_found
+          : undefined,
+        duplicate_idempotency: typeof (payload.skippedReasonCounts as Record<string, unknown>).duplicate_idempotency === 'number'
+          ? (payload.skippedReasonCounts as Record<string, number>).duplicate_idempotency
+          : undefined,
+        chain_group_blocked: typeof (payload.skippedReasonCounts as Record<string, unknown>).chain_group_blocked === 'number'
+          ? (payload.skippedReasonCounts as Record<string, number>).chain_group_blocked
+          : undefined,
+      }
+      : undefined,
   } : undefined;
   const worldDecisionV2 = payload && payload.eventType === 'world_decision_v2' ? {
     eventType: 'world_decision_v2' as const,

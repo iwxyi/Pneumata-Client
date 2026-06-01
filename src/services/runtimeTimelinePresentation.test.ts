@@ -179,6 +179,10 @@ describe('runtimeTimelinePresentation', () => {
           failedCount: 0,
           queueCount: 4,
           persistedCount: 1,
+          skippedReasonCounts: {
+            chain_group_blocked: 1,
+            duplicate_idempotency: 1,
+          },
         },
       },
     };
@@ -195,8 +199,9 @@ describe('runtimeTimelinePresentation', () => {
 
     expect(buildRuntimeTimelineTitle(patchApplyItem)).toBe('日历草案执行');
     expect(buildRuntimeTimelineTypeLabel(patchApplyItem)).toBe('调度');
-    expect(buildRuntimeTimelineBody(patchApplyItem)).toBe('应用 2 · 跳过 1 · 失败 0');
+    expect(buildRuntimeTimelineBody(patchApplyItem)).toBe('应用 2 · 跳过 1 · 失败 0 · 链式阻断 1');
     expect(buildRuntimeTimelineMeta(patchApplyItem)).toContain('队列 4');
+    expect(buildRuntimeTimelineMeta(patchApplyItem)).toContain('链式阻断 1');
   });
 
   it('shows world attention decision as readable trigger/fallback/suppressed traces', () => {

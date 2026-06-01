@@ -181,7 +181,9 @@ export function buildRuntimeTimelineBody(item: ProjectedRuntimeTimelineItem, mem
     return clip(cleanText(`世界驱动${decisionLabel} · ${actionLabel}${reason ? ` · ${reason}` : ''}${eta}`, members), 88);
   }
   if (patchApply) {
-    return clip(cleanText(`应用 ${patchApply.appliedCount} · 跳过 ${patchApply.skippedCount} · 失败 ${patchApply.failedCount}`, members), 88);
+    const chainBlockedCount = patchApply.skippedReasonCounts?.chain_group_blocked || 0;
+    const chainBlockedText = chainBlockedCount > 0 ? ` · 链式阻断 ${chainBlockedCount}` : '';
+    return clip(cleanText(`应用 ${patchApply.appliedCount} · 跳过 ${patchApply.skippedCount} · 失败 ${patchApply.failedCount}${chainBlockedText}`, members), 88);
   }
   if (distillation) {
     const candidateTexts = Array.isArray(distillation.candidateTexts)
@@ -268,7 +270,14 @@ export function buildRuntimeTimelineMeta(item: ProjectedRuntimeTimelineItem, mem
   }
   if (patchApply) {
     const queue = typeof patchApply.queueCount === 'number' ? ` · 队列 ${patchApply.queueCount}` : '';
-    return cleanText(`日历草案执行 · 应用 ${patchApply.appliedCount} / 跳过 ${patchApply.skippedCount} / 失败 ${patchApply.failedCount}${queue}`, members);
+    const reasonParts = [
+      patchApply.skippedReasonCounts?.missing_target_conversation ? `缺少目标会话 ${patchApply.skippedReasonCounts.missing_target_conversation}` : '',
+      patchApply.skippedReasonCounts?.target_chat_not_found ? `目标会话不存在 ${patchApply.skippedReasonCounts.target_chat_not_found}` : '',
+      patchApply.skippedReasonCounts?.duplicate_idempotency ? `幂等跳过 ${patchApply.skippedReasonCounts.duplicate_idempotency}` : '',
+      patchApply.skippedReasonCounts?.chain_group_blocked ? `链式阻断 ${patchApply.skippedReasonCounts.chain_group_blocked}` : '',
+    ].filter(Boolean);
+    const reasonText = reasonParts.length ? ` · ${reasonParts.join(' / ')}` : '';
+    return cleanText(`日历草案执行 · 应用 ${patchApply.appliedCount} / 跳过 ${patchApply.skippedCount} / 失败 ${patchApply.failedCount}${queue}${reasonText}`, members);
   }
   if (distillation) {
     const owner = distillation.ownerType === 'character' ? '角色' : '群聊';

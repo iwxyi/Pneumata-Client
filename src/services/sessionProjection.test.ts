@@ -954,6 +954,9 @@ describe('sessionProjection', () => {
           failedCount: 0,
           queueCount: 4,
           persistedCount: 1,
+          skippedReasonCounts: {
+            chain_group_blocked: 1,
+          },
         },
       }],
     });
@@ -971,6 +974,7 @@ describe('sessionProjection', () => {
     expect(readCandidateSuppressionMeta(suppressedItem!)?.hitEventId).toBe('evt-private-hit');
     expect(readCalendarPatchApplyResultMeta(patchApplyItem!)?.eventType).toBe('calendar_patch_apply_result');
     expect(readCalendarPatchApplyResultMeta(patchApplyItem!)?.appliedCount).toBe(2);
+    expect(readCalendarPatchApplyResultMeta(patchApplyItem!)?.skippedReasonCounts?.chain_group_blocked).toBe(1);
   });
 
   it('projects moment, outing, status-update, conflict, and gift backflow as social event effect metadata', () => {
