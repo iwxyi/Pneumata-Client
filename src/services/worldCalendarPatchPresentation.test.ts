@@ -41,4 +41,18 @@ describe('worldCalendarPatchPresentation', () => {
     expect(chips.join(' · ')).not.toContain('目标');
     expect(chips.join(' · ')).not.toContain('item-anchor-001');
   });
+
+  it('sanitizes patch reason text in summary', () => {
+    const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
+    const event = calendarPatchEvent({
+      source: 'world_calendar_patch_executor',
+      startAt: 1800003600000,
+      reason: `${uuid} {"eventType":"room_state_snapshot_v2"} relationship ledger has become salient`,
+    });
+    const summary = buildCalendarPatchSummary(event, true);
+    expect(summary).not.toContain(uuid);
+    expect(summary).not.toContain('eventType');
+    expect(summary).toContain('系统事件');
+    expect(summary).toContain('关系账本中的变化已经足够显著');
+  });
 });

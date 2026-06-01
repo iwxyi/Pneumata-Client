@@ -1,4 +1,5 @@
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 
 function readString(value: unknown) {
   return typeof value === 'string' ? value : '';
@@ -29,7 +30,7 @@ export function buildCalendarPatchTimelineTitle(event: RuntimeEventV2, isZh: boo
 export function buildCalendarPatchSummary(event: RuntimeEventV2, isZh: boolean) {
   const payload = event.payload as Record<string, unknown>;
   const startAt = readNumber(payload.startAt);
-  const reason = readString(payload.reason) || readString(payload.summary) || readString(event.summary);
+  const reason = sanitizeUserFacingText(readString(payload.reason) || readString(payload.summary) || readString(event.summary));
   const mode = isAutoCalendarPatchEvent(event)
     ? (isZh ? '自动冲突修正' : 'Auto conflict fix')
     : (isZh ? '日历更新' : 'Calendar update');
