@@ -9,6 +9,7 @@ import { getGuidanceMemoryTargetActorIds } from './userGuidanceIntent';
 import { formatGuidanceKindLabel } from './guidancePresentation';
 import { formatGuidanceInputStatusLabel } from './runtimeStatusPresentation';
 import { formatSystemAgentSubtypeLabel, inferSystemAgentSubtypeFromId } from './actorRefPresentation';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 
 export interface ActiveUserGuidanceProjection {
   title: string;
@@ -101,6 +102,10 @@ function resolveGuidanceSourceTimestamp(chat: GroupChat, messages: Message[], ra
 function clipText(text: string, max = 28) {
   const trimmed = text.trim();
   return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
+}
+
+function sanitizeGuidanceText(text: string, members: AICharacter[]) {
+  return sanitizeUserFacingText(text, members);
 }
 
 function buildGuidanceEffectText(params: {
@@ -251,20 +256,21 @@ export function projectActiveUserGuidance(params: {
     subjectNames,
   });
   const focusText = guidance.focusText || guidance.rawText;
+  const sanitize = (text: string) => sanitizeGuidanceText(text, params.members);
 
   return {
-    title,
-    rawText: guidance.rawText,
-    effectText,
+    title: sanitize(title),
+    rawText: sanitize(guidance.rawText),
+    effectText: sanitize(effectText),
     sourceLabel: latestHumanGuidanceSource(params.chat, params.messages, guidance.rawText),
     statusLabel: guidance.kind === 'topic_shift' ? '生效中' : formatGuidanceInputStatusLabel(guidance.kind),
-    statusHint: '这条引导优先于叙事线、矛盾线、关系压力和最近接梗；点名执行者时，调度会先锁定尚未回应的目标角色。',
-    emphasisLabel: buildGuidanceEmphasis({
+    statusHint: sanitize('这条引导优先于叙事线、矛盾线、关系压力和最近接梗；点名执行者时，调度会先锁定尚未回应的目标角色。'),
+    emphasisLabel: sanitize(buildGuidanceEmphasis({
       kind: guidance.kind,
       activeTargetNames,
       subjectNames,
       focusText,
-    }),
+    })),
     detailRows: buildGuidanceDetailRows({
       guidanceKind: guidance.kind,
       focusText,
@@ -275,8 +281,12 @@ export function projectActiveUserGuidance(params: {
       memoryTargetNames: shouldShowMemoryTarget ? memoryTargetNames : '',
       completionStatusLabel,
       imageCapability,
-    }),
-    chips,
+    }).map((row) => ({
+      ...row,
+      label: sanitize(row.label),
+      value: sanitize(row.value),
+    })),
+    chips: chips.map((chip) => sanitize(chip)),
     debugChips: [
       `动作 ${formatBeatType(guidance.beatType as never)}`,
       `压力 ${(guidance.pressure * 100).toFixed(0)}%`,
@@ -284,7 +294,7 @@ export function projectActiveUserGuidance(params: {
       `已消耗 ${progress.consumedTurns} 轮`,
       `source ${intent.source}`,
       `kind ${guidance.kind}`,
-    ],
-    warning: imageCapability?.warning || undefined,
+    ].map((chip) => sanitize(chip)),
+    warning: imageCapability?.warning ? sanitize(imageCapability.warning) : undefined,
   };
 }

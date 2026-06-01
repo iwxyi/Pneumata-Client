@@ -311,4 +311,21 @@ describe('activeUserGuidancePresentation', () => {
     expect(projection?.detailRows).toEqual(expect.arrayContaining([{ label: '完成状态', value: '待回应：主持人', tone: 'warning' }]));
     expect(projection?.chips).toEqual(expect.not.arrayContaining(['待回应：成员']));
   });
+
+  it('sanitizes raw guidance ids from user-facing fields', () => {
+    const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
+    const projection = projectActiveUserGuidance({
+      chat: buildChat(),
+      members,
+      messages: [buildMessage({ type: 'god', senderName: '开发者', content: `新话题：${uuid} 对 {"eventType":"room_state_snapshot_v2"}`, timestamp: 60 })],
+      aiProfiles: [],
+      now: 70,
+    });
+
+    expect(projection?.rawText).not.toContain(uuid);
+    expect(projection?.rawText).not.toContain('eventType');
+    expect(projection?.title).not.toContain(uuid);
+    expect((projection?.chips || []).join(' / ')).not.toContain(uuid);
+    expect((projection?.detailRows || []).map((row) => row.value).join(' / ')).not.toContain(uuid);
+  });
 });
