@@ -301,6 +301,73 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect(updateChat).toHaveBeenCalledTimes(1);
   });
 
+  it('suppresses post moment publish during quiet hours for non-night-owl persona', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-01T23:40:00+08:00'));
+    try {
+      const chat = buildChatWithEvents([buildCandidateEvent(buildCandidatePayload({
+        eventKind: 'post_moment',
+        participantIds: ['a'],
+        confidence: 0.9,
+        reasonType: 'celebration',
+        visibilityPlan: 'public',
+        dedupeKey: 'moment-quiet-1',
+      }))]);
+      const updateChat = vi.fn(async () => undefined);
+      await runSocialEventAutoFlow(chat, {
+        chats: [chat],
+        characters: [buildCharacter('a', '甲')],
+        updateChat,
+        addChat: vi.fn(async () => buildBaseChat()),
+        addMessage: vi.fn(async () => ({})),
+        appendEventMessage: vi.fn(async () => undefined),
+      });
+      const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
+      const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact' && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed');
+      expect((suppression?.payload as { reasonType?: string }).reasonType).toBe('world_attention_moment_quiet_hours');
+      expect((patch?.runtimeEventsV2 || []).some((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'moment_text')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('suppresses post moment publish inside anti-spam window', async () => {
+    const now = Date.now();
+    const chat = buildChatWithEvents([
+      buildCandidateEvent(buildCandidatePayload({
+        eventKind: 'post_moment',
+        participantIds: ['a'],
+        confidence: 0.9,
+        reasonType: 'celebration',
+        visibilityPlan: 'public',
+        dedupeKey: 'moment-spam-1',
+      }), now),
+      {
+        id: 'artifact-post-recent',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 20 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '甲刚发过一条动态',
+        visibility: 'derived_public',
+        payload: { artifactType: 'moment_text', eventKind: 'post_moment', text: '甲刚发过一条动态' },
+      } as RuntimeEventV2,
+    ]);
+    const updateChat = vi.fn(async () => undefined);
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
+    const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact' && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed');
+    expect((suppression?.payload as { reasonType?: string }).reasonType).toBe('world_attention_moment_spam_window');
+  });
+
   it('runs unified auto social flow for outing candidates', async () => {
     const chat = buildChatWithEvents([buildCandidateEvent(buildCandidatePayload({ eventKind: 'social_outing', participantIds: ['a', 'b'], confidence: 0.9, reasonType: 'celebration', visibilityPlan: 'public', dedupeKey: 'outing-1' }))]);
     const updateChat = vi.fn(async () => undefined);

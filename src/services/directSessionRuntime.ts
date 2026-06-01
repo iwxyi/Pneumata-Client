@@ -106,6 +106,83 @@ function isNightOwlPersona(character: AICharacter | null | undefined) {
   return /(夜猫|熬夜|夜班|主播|直播|vlog|夜生活|night|stream)/i.test(personaText);
 }
 
+function startOfNextDayAt(timestamp: number, hour: number, minute = 0) {
+  const next = new Date(timestamp);
+  next.setDate(next.getDate() + 1);
+  next.setHours(hour, minute, 0, 0);
+  return next.getTime();
+}
+
+function resolvePostMomentPublishGuard(params: {
+  chat: GroupChat;
+  payload: SocialEventCandidatePayload;
+  actor: AICharacter | null;
+  now?: number;
+}) {
+  const now = typeof params.now === 'number' ? params.now : Date.now();
+  const actorId = params.payload.initiatorId;
+  if (!actorId) return { allow: true as const };
+  const actorNightOwl = isNightOwlPersona(params.actor);
+  const hour = new Date(now).getHours();
+  const isLateNight = hour >= 23 || hour < 7;
+  if (isLateNight && !actorNightOwl) {
+    const nextSuggestedAt = hour < 7
+      ? (() => {
+        const next = new Date(now);
+        next.setHours(7, 30, 0, 0);
+        return next.getTime();
+      })()
+      : startOfNextDayAt(now, 7, 30);
+    return {
+      allow: false as const,
+      reasonType: 'world_attention_moment_quiet_hours',
+      reasonLabel: '夜间发圈抑制',
+      reasonDetail: '当前处于夜间时段，且角色并非夜猫人设，延后发布动态。',
+      nextSuggestedAt,
+    };
+  }
+
+  const recentPostMomentArtifacts = (params.chat.runtimeEventsV2 || [])
+    .filter((event) => {
+      if (event.kind !== 'artifact') return false;
+      if ((event.actorIds || [])[0] !== actorId) return false;
+      if (now - event.createdAt > 90 * 60_000) return false;
+      const payload = event.payload as { eventKind?: string; artifactType?: string };
+      return payload.eventKind === 'post_moment' && payload.artifactType === 'moment_text';
+    })
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const latest = recentPostMomentArtifacts[0];
+  if (latest && now - latest.createdAt < 90 * 60_000) {
+    return {
+      allow: false as const,
+      reasonType: 'world_attention_moment_spam_window',
+      reasonLabel: '发圈冷却中',
+      reasonDetail: '短时间内已发布动态，延后本次发布以避免刷屏。',
+      nextSuggestedAt: latest.createdAt + 90 * 60_000,
+    };
+  }
+
+  const recentSocialArtifactAt = (params.chat.runtimeEventsV2 || [])
+    .filter((event) => {
+      if (event.kind !== 'artifact') return false;
+      if ((event.actorIds || [])[0] !== actorId) return false;
+      const payload = event.payload as { eventKind?: string };
+      return ['social_outing', 'check_in', 'react_to_moment', 'status_update', 'gift_exchange'].includes(payload.eventKind || '');
+    })
+    .map((event) => event.createdAt)
+    .sort((a, b) => b - a)[0];
+  if (typeof recentSocialArtifactAt === 'number' && now - recentSocialArtifactAt < 18 * 60_000) {
+    return {
+      allow: false as const,
+      reasonType: 'world_attention_moment_delay_window',
+      reasonLabel: '发圈延迟窗口',
+      reasonDetail: '最近刚发生社交动作，动态发布延后，避免机械式“立刻发圈”。',
+      nextSuggestedAt: recentSocialArtifactAt + 18 * 60_000,
+    };
+  }
+  return { allow: true as const };
+}
+
 function appendStructuredRuntimeEvent(chat: GroupChat, event: RuntimeEventV2) {
   return [...(chat.runtimeEventsV2 || []), event].slice(-160);
 }
@@ -2045,7 +2122,40 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
     const payload = momentCandidate.payload as SocialEventCandidatePayload;
     if (!isValidAutoFlowCandidate(sourceChat, payload)) return { handledEventId: null };
     if (hasHandledSocialEvent(sourceChat, momentCandidate.id)) return { handledEventId: momentCandidate.id };
-    const actorName = ops.characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
+    const actor = ops.characters.find((item) => item.id === payload.initiatorId) || null;
+    const actorName = actor?.name || payload.initiatorId;
+    const publishGuard = resolvePostMomentPublishGuard({
+      chat: sourceChat,
+      payload,
+      actor,
+    });
+    if (!publishGuard.allow) {
+      const suppression = buildWorldSuppressionEvent({
+        chat: sourceChat,
+        actorId: payload.initiatorId,
+        actorName,
+        reasonType: publishGuard.reasonType,
+        reasonLabel: publishGuard.reasonLabel,
+        reasonDetail: publishGuard.reasonDetail,
+        candidateEventKind: 'post_moment',
+        nextSuggestedAt: publishGuard.nextSuggestedAt,
+      });
+      const decision = buildWorldDecisionEvent({
+        chat: sourceChat,
+        actorId: payload.initiatorId,
+        actorName,
+        decisionType: 'suppressed',
+        reasonType: publishGuard.reasonType,
+        reasonLabel: publishGuard.reasonLabel,
+        reasonDetail: publishGuard.reasonDetail,
+        fromEventKind: 'post_moment',
+        nextSuggestedAt: publishGuard.nextSuggestedAt,
+      });
+      await ops.updateChat(sourceChat.id, appendHandledSocialEvent(sourceChat, withFrameworkPatch(sourceChat, {
+        runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [suppression, decision]),
+      }), momentCandidate.id, payload.initiatorId));
+      return { handledEventId: momentCandidate.id };
+    }
     await ops.updateChat(sourceChat.id, appendHandledSocialEvent(sourceChat, updateSourceChatAfterPostMoment(sourceChat, payload, actorName), momentCandidate.id, payload.initiatorId));
     return { handledEventId: momentCandidate.id };
   }
@@ -2133,6 +2243,40 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
     } as GroupChat;
     const actorName = ops.characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
     if (payload.eventKind === 'post_moment') {
+      const actor = ops.characters.find((item) => item.id === payload.initiatorId) || null;
+      const publishGuard = resolvePostMomentPublishGuard({
+        chat: seededChat,
+        payload,
+        actor,
+      });
+      if (!publishGuard.allow) {
+        const suppression = buildWorldSuppressionEvent({
+          chat: seededChat,
+          actorId: payload.initiatorId,
+          actorName,
+          reasonType: publishGuard.reasonType,
+          reasonLabel: publishGuard.reasonLabel,
+          reasonDetail: publishGuard.reasonDetail,
+          candidateEventKind: 'post_moment',
+          nextSuggestedAt: publishGuard.nextSuggestedAt,
+        });
+        const decision = buildWorldDecisionEvent({
+          chat: seededChat,
+          actorId: payload.initiatorId,
+          actorName,
+          decisionType: 'suppressed',
+          reasonType: publishGuard.reasonType,
+          reasonLabel: publishGuard.reasonLabel,
+          reasonDetail: publishGuard.reasonDetail,
+          fromEventKind: 'post_moment',
+          nextSuggestedAt: publishGuard.nextSuggestedAt,
+        });
+        const blockedPatch = withFrameworkPatch(seededChat, {
+          runtimeEventsV2: appendStructuredRuntimeEvents(seededChat, [suppression, decision]),
+        });
+        await ops.updateChat(sourceChat.id, appendHandledSocialEvent(seededChat, blockedPatch, worldDrivenCandidate.id, payload.initiatorId));
+        return { handledEventId: worldDrivenCandidate.id };
+      }
       await ops.updateChat(sourceChat.id, appendHandledSocialEvent(seededChat, updateSourceChatAfterPostMoment(seededChat, payload, actorName), worldDrivenCandidate.id, payload.initiatorId));
       return { handledEventId: worldDrivenCandidate.id };
     }
