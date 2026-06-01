@@ -346,6 +346,7 @@ function buildAttentionDrivenCheckInCandidate(params: {
 }): RuntimeEventV2 | null {
   const actorId = params.message.senderId;
   if (!actorId || actorId === 'user') return null;
+  if (hasPendingCandidateSuppression(params.conversation, actorId, 'check_in', Date.now())) return null;
   if (!params.conversation.memberIds.includes('user')) return null;
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
     .find((item) => item.actorId === actorId && item.targetId === 'user');
@@ -400,6 +401,7 @@ function buildAttentionDrivenReactMomentCandidate(params: {
 }): RuntimeEventV2 | null {
   const actorId = params.message.senderId;
   if (!actorId || actorId === 'user') return null;
+  if (hasPendingCandidateSuppression(params.conversation, actorId, 'react_to_moment', Date.now())) return null;
   if (!params.conversation.memberIds.includes('user')) return null;
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
     .find((item) => item.actorId === actorId && item.targetId === 'user');
@@ -456,6 +458,7 @@ function buildAttentionDrivenInviteActivityCandidate(params: {
 }): RuntimeEventV2 | null {
   const actorId = params.message.senderId;
   if (!actorId || actorId === 'user') return null;
+  if (hasPendingCandidateSuppression(params.conversation, actorId, 'social_outing', Date.now())) return null;
   if (!params.conversation.memberIds.includes('user')) return null;
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
     .find((item) => item.actorId === actorId && item.targetId === 'user');
@@ -649,6 +652,7 @@ function buildAttentionDrivenShareMomentCandidate(params: {
   const now = Date.now();
   const actorId = params.message.senderId;
   if (!actorId || actorId === 'user') return null;
+  if (hasPendingCandidateSuppression(params.conversation, actorId, 'post_moment', now)) return null;
   const actor = params.characters.find((item) => item.id === actorId) || null;
   if (actor && !isCharacterFeatureEnabled(actor, 'moments')) return null;
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
@@ -1944,6 +1948,50 @@ function candidateSuppressionReasonLabel(reason: CandidateSuppressionReason) {
   return '礼物候选已被近期同簇产物覆盖';
 }
 
+function parseSuppressionWindowMs(hitWindow: string | undefined) {
+  if (!hitWindow) return null;
+  if (/^\d+min$/i.test(hitWindow)) return Number(hitWindow.replace(/min/i, '')) * 60_000;
+  if (/^\d+h$/i.test(hitWindow)) return Number(hitWindow.replace(/h/i, '')) * 60 * 60_000;
+  return null;
+}
+
+function inferNextSuggestedAtFromSuppression(
+  chat: GroupChat,
+  event: RuntimeEventV2,
+  hitEventId: string | undefined,
+  hitWindow: string | undefined,
+) {
+  const windowMs = parseSuppressionWindowMs(hitWindow);
+  if (!windowMs) return undefined;
+  const hitEvent = hitEventId
+    ? (chat.runtimeEventsV2 || []).find((item) => item.id === hitEventId)
+    : null;
+  const baseAt = hitEvent?.createdAt || event.createdAt;
+  const nextAt = baseAt + windowMs;
+  return nextAt > event.createdAt ? nextAt : undefined;
+}
+
+function hasPendingCandidateSuppression(
+  chat: GroupChat,
+  actorId: string,
+  eventKind: SocialEventCandidatePayload['eventKind'],
+  now: number,
+) {
+  return (chat.runtimeEventsV2 || []).some((event) => {
+    if (event.kind !== 'action_resolution') return false;
+    if ((event.actorIds || [])[0] !== actorId) return false;
+    const payload = event.payload as {
+      eventType?: string;
+      candidateEventKind?: string;
+      nextSuggestedAt?: number;
+    };
+    return payload.eventType === 'event_candidate_suppressed'
+      && payload.candidateEventKind === eventKind
+      && typeof payload.nextSuggestedAt === 'number'
+      && payload.nextSuggestedAt > now;
+  });
+}
+
 function resolveCandidateSuppressionReason(chat: GroupChat, event: RuntimeEventV2): CandidateSuppressionReason | null {
   const payload = event.payload as SocialEventCandidatePayload;
   if (!passesAttentionRestraintPolicy(chat, payload, event.createdAt)) return 'restraint_policy';
@@ -1964,6 +2012,7 @@ function buildCandidateSuppressionEvent(chat: GroupChat, event: RuntimeEventV2, 
   suppressedCandidateId?: string;
   hitEventId?: string;
   hitWindow?: string;
+  nextSuggestedAt?: number;
 }) {
   const payload = event.payload as SocialEventCandidatePayload;
   const traceReasons = payload.attentionTrace?.reasons || [];
@@ -1991,6 +2040,7 @@ function buildCandidateSuppressionEvent(chat: GroupChat, event: RuntimeEventV2, 
       suppressedCandidateId: metadata?.suppressedCandidateId,
       hitEventId: metadata?.hitEventId,
       hitWindow: metadata?.hitWindow,
+      nextSuggestedAt: metadata?.nextSuggestedAt,
       attentionReasons: traceReasons.slice(0, 4),
     },
   });
@@ -2041,6 +2091,7 @@ function dedupeAgainstRecentRuntime(chat: GroupChat, candidates: RuntimeEventV2[
       detail: restraintFailure?.detail,
       hitEventId: restraintFailure?.hitEventId,
       hitWindow: restraintFailure?.hitWindow,
+      nextSuggestedAt: inferNextSuggestedAtFromSuppression(chat, event, restraintFailure?.hitEventId, restraintFailure?.hitWindow),
       ...(reactBackflowHitEventId ? {
         detail: `动态回应候选已被近期产物覆盖（hit=${reactBackflowHitEventId})`,
         hitEventId: reactBackflowHitEventId,

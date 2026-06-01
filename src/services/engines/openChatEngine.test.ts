@@ -630,6 +630,7 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect((checkInSuppressed?.payload as { reasonType?: string }).reasonType).toBe('restraint_policy');
     expect((checkInSuppressed?.payload as { hitWindow?: string }).hitWindow).toBe('90min');
     expect((checkInSuppressed?.payload as { hitEventId?: string }).hitEventId).toBe('checkin-old');
+    expect((checkInSuppressed?.payload as { nextSuggestedAt?: number }).nextSuggestedAt).toBe(now + 85 * 60_000);
     const reactSuppressed = suppressed.find((event) => (event.payload as { candidateEventKind?: string }).candidateEventKind === 'react_to_moment');
     expect(reactSuppressed).toBeTruthy();
     expect((reactSuppressed?.payload as { reasonType?: string }).reasonType).toBe('dedupe_backflow_react_to_moment');
@@ -918,6 +919,54 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect((suppressed?.payload as { reasonDetail?: string }).reasonDetail).toContain('evt-recent-private');
     expect((suppressed?.payload as { hitEventId?: string }).hitEventId).toBe('evt-recent-private');
     expect((suppressed?.payload as { hitWindow?: string }).hitWindow).toBe('90min');
+    expect(typeof (suppressed?.payload as { nextSuggestedAt?: unknown }).nextSuggestedAt).toBe('number');
+  });
+
+  it('skips check_in candidate generation when a pending suppression window exists', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'att-1',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 5 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户点名a',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+      }, {
+        id: 'sup-checkin',
+        conversationId: 'chat-1',
+        kind: 'action_resolution',
+        createdAt: now - 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: 'check_in 候选已抑制',
+        visibility: 'moderator_only',
+        payload: {
+          eventType: 'event_candidate_suppressed',
+          candidateEventKind: 'check_in',
+          reasonType: 'restraint_policy',
+          nextSuggestedAt: now + 20 * 60_000,
+        },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我继续回应。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'check_in')).toBe(false);
   });
 
   it('builds attention-driven invite_activity as social_outing candidate', async () => {
