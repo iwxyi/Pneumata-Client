@@ -76,6 +76,15 @@ function delayMs(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
+function stableMessageSeed(parts: Array<string | number | undefined>) {
+  const joined = parts.filter((item) => item !== undefined && item !== null && String(item).length > 0).join('|');
+  let hash = 0;
+  for (let index = 0; index < joined.length; index += 1) {
+    hash = (hash * 33 + joined.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
 function buildPreWithdrawalRevealMessage(message: Message): Message | null {
   const withdrawal = message.metadata?.withdrawal;
   if (!withdrawal?.withdrawn || !withdrawal.originalContent) return null;
@@ -97,7 +106,15 @@ export function createCommittedLocalMessage(
   options?: { timestamp?: number },
 ): Message {
   const timestamp = options?.timestamp ?? Date.now();
-  const id = `local-message-${timestamp}-${Math.random().toString(36).slice(2, 8)}`;
+  const id = `local-message-${timestamp}-${stableMessageSeed([
+    message.chatId,
+    message.type,
+    message.senderId,
+    message.senderName,
+    message.content,
+    message.emotion,
+    message.metadata ? JSON.stringify(message.metadata) : '',
+  ])}`;
   return {
     ...message,
     id,

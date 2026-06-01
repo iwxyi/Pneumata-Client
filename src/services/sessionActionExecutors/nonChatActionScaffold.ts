@@ -2,6 +2,7 @@ import type { GroupChat } from '../../types/chat';
 import type { DirectorInterventionPayload, RuntimeEventV2 } from '../../types/runtimeEvent';
 import type { SessionActionDefinition, SessionActionExecutionResult } from '../../types/sessionEngine';
 import { buildStartPrivateThreadExecutionResult } from '../directSessionRuntime';
+import { canActorRunSessionAction, resolveConversationActorRef } from '../memberActionPolicy';
 import { buildActionRuntimeContract } from '../sessionRuntimeContract';
 
 function truncate(text: string, maxLength: number) {
@@ -49,6 +50,15 @@ function readNumber(value: unknown) {
   return undefined;
 }
 
+function stableEventSeed(parts: Array<string | number | undefined>) {
+  const joined = parts.filter((item) => item !== undefined && item !== null && String(item).length > 0).join('|');
+  let hash = 0;
+  for (let index = 0; index < joined.length; index += 1) {
+    hash = (hash * 31 + joined.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
 function prepareAction(action: SessionActionDefinition) {
   const targetId = typeof action.payload?.targetId === 'string' ? action.payload.targetId : undefined;
   return {
@@ -60,6 +70,41 @@ function prepareAction(action: SessionActionDefinition) {
 function validateAction(action: SessionActionDefinition) {
   if ((action.type === 'ask_question' || action.type === 'director_intervention') && !getPrompt(action)) return false;
   if (['ask_question', 'start_private_thread', 'wolf_vote', 'inspect_player', 'vote_player'].includes(action.type) && !(action.targetIds?.length)) return false;
+  return true;
+}
+
+function canActorExecuteAction(chat: GroupChat, action: SessionActionDefinition) {
+  const actorId = typeof action.payload?.actorId === 'string' ? action.payload.actorId : action.actorId;
+  if (!actorId) return true;
+  const memberSet = new Set(chat.memberIds);
+  const aiIds = new Set(
+    chat.memberIds.filter((id) => id !== 'user' && !/([_:-]|^)(gm|game|game_master|judge|referee|host|mc|主持|guide|guidance|topic|facilitator|引导|narrator|旁白|director|god|上帝|导演|moderator|mod|管理|system|orchestrator|scheduler|runtime)([_:-]|$)/i.test(id)),
+  );
+  const actorRef = resolveConversationActorRef(actorId, memberSet, aiIds);
+  return canActorRunSessionAction(action.type, actorRef);
+}
+
+function validateTargetIdsInConversation(chat: GroupChat, action: SessionActionDefinition) {
+  const requiresTargets = ['ask_question', 'start_private_thread', 'wolf_vote', 'inspect_player', 'vote_player'].includes(action.type);
+  if (!requiresTargets) return true;
+  const memberSet = new Set(chat.memberIds);
+  return (action.targetIds || []).every((id) => memberSet.has(id));
+}
+
+function validateDirectorInterventionTarget(chat: GroupChat, action: SessionActionDefinition) {
+  if (action.type !== 'director_intervention') return true;
+  if (!action.targetIds?.length) return true;
+  const memberSet = new Set(chat.memberIds);
+  return action.targetIds.every((id) => memberSet.has(id));
+}
+
+function validateStartPrivateThread(chat: GroupChat, action: SessionActionDefinition) {
+  if (!chat.governance.allowPrivateThreads) return false;
+  const targetId = typeof action.payload?.targetId === 'string' ? action.payload.targetId : action.targetIds?.[0] || '';
+  const actorId = typeof action.payload?.actorId === 'string' ? action.payload.actorId : action.actorId || '';
+  if (!actorId || !targetId || actorId === targetId) return false;
+  const memberSet = new Set(chat.memberIds);
+  if (!memberSet.has(actorId) || !memberSet.has(targetId)) return false;
   return true;
 }
 
@@ -82,7 +127,8 @@ function resolveDirectorInterventionIntent(value: unknown): DirectorIntervention
 function buildDirectorInterventionRuntimeEvent(chat: GroupChat, action: SessionActionDefinition, summary: string): RuntimeEventV2 {
   const prompt = getPrompt(action);
   const targetActorIds = action.targetIds || [];
-  const now = Date.now();
+  const requestedCreatedAt = readNumber(action.payload?.createdAt) ?? readNumber(action.payload?.timestamp);
+  const now = typeof requestedCreatedAt === 'number' ? Math.round(requestedCreatedAt) : Date.now();
   const requestedMaxTurns = readNumber(action.payload?.maxTurns);
   const maxTurns = typeof requestedMaxTurns === 'number' ? Math.max(1, Math.min(5, Math.round(requestedMaxTurns))) : 1;
   const requestedExpiresAt = readNumber(action.payload?.expiresAt);
@@ -96,8 +142,17 @@ function buildDirectorInterventionRuntimeEvent(chat: GroupChat, action: SessionA
     maxTurns,
     expiresAt: typeof requestedExpiresAt === 'number' ? requestedExpiresAt : now + 10 * 60_000,
   };
+  const seed = stableEventSeed([
+    chat.id,
+    action.type,
+    now,
+    resolveDirectorInterventionIntent(action.payload?.intent),
+    action.actorId || 'user',
+    targetActorIds.join(','),
+    payload.text,
+  ]);
   return {
-    id: `evt_${now}_${Math.random().toString(36).slice(2, 8)}`,
+    id: `evt_${now}_${seed}`,
     conversationId: chat.id,
     kind: 'director_intervention',
     createdAt: now,
@@ -180,6 +235,10 @@ function getHandler(action: SessionActionDefinition) {
 export function executeNonChatActionScaffold(chat: GroupChat, action: SessionActionDefinition) {
   const prepared = prepareAction(action);
   if (!validateAction(prepared)) return null;
+  if (!canActorExecuteAction(chat, prepared)) return null;
+  if (!validateTargetIdsInConversation(chat, prepared)) return null;
+  if (!validateDirectorInterventionTarget(chat, prepared)) return null;
+  if (prepared.type === 'start_private_thread' && !validateStartPrivateThread(chat, prepared)) return null;
   const handler = getHandler(prepared);
   if (!handler) return null;
   return handler(chat, prepared);

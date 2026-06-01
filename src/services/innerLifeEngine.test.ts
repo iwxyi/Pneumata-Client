@@ -174,4 +174,13 @@ describe('innerLifeEngine', () => {
     expect(projection.expressionPlan.length).toBe('short');
     expect(projection.expressionPlan.messageCount).toBe(1);
   });
+
+  it('preserves now=0 as a valid soul-state timestamp', () => {
+    const projection = projectInnerLife({
+      character: character(),
+      messages: [message({ content: '小甲，你怎么看？' })],
+      now: 0,
+    });
+    expect(projection.state.updatedAt).toBe(0);
+  });
 });

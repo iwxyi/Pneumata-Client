@@ -78,6 +78,7 @@ export interface MemoryRetrievalContext {
   targetId?: string | null;
   conversationId: string;
   maxItems: number;
+  now?: number;
   cueText?: string;
   includeArchivedRecall?: boolean;
   maxArchivedItems?: number;

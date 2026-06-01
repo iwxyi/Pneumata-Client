@@ -145,6 +145,24 @@ describe('relationshipLedger', () => {
     expect(JSON.stringify(recentEvent).length).toBeLessThan(500);
   });
 
+  it('dedupes repeated evidence events with the same event id', () => {
+    const interaction: InteractionEventPayload = {
+      kind: 'challenge',
+      actorId: 'a',
+      targetId: 'b',
+      intensity: 4,
+      tone: 'annoyed',
+      evidenceText: '你这句我不同意，而且理由站不住。',
+      confidence: 0.93,
+    };
+    const event = buildEvent(interaction);
+    const first = reduceRelationshipLedger([], interaction, event);
+    const second = reduceRelationshipLedger(first, interaction, event);
+    expect(second).toHaveLength(1);
+    expect(second[0].recentEvents).toHaveLength(1);
+    expect(second[0].current).toEqual(first[0].current);
+  });
+
   it('derives human-readable relationship semantics from relationship axes', () => {
     const normalized = normalizeRelationshipLedgerEntry({
       pairKey: 'a->b',

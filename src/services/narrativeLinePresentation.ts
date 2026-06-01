@@ -7,6 +7,7 @@ import type { NarrativeLineProjection, NarrativeLineType } from './narrativeProj
 import { sanitizeUserFacingText } from './displayTextSanitizer';
 import { formatScenarioBoardKind, formatScenarioRoleLabel } from './scenarioPresentation';
 import { formatKnownReason } from './runtimeInsightPresentation';
+import { formatRuntimeEventKindLabel } from './runtimeEventPresentation';
 
 export function cleanNarrativeText(text: string) {
   return sanitizeUserFacingText(text);
@@ -28,22 +29,7 @@ export function getNarrativeLineParticipantNames(line: NarrativeLineProjection, 
 }
 
 function formatRuntimeEventKind(kind: RuntimeEventV2['kind']) {
-  const labels: Record<RuntimeEventV2['kind'], string> = {
-    message_generated: '消息生成',
-    interaction: '互动',
-    relationship_delta: '关系变化',
-    room_shift: '房间态势',
-    memory_candidate: '记忆候选',
-    artifact: '产物',
-    event_candidate: '事件候选',
-    director_intervention: '导演干预',
-    decision_trace: '决策痕迹',
-    phase_transition: '阶段切换',
-    action_resolution: '动作结算',
-    board_state: '棋盘状态',
-    score_update: '分数更新',
-  };
-  return labels[kind] || kind;
+  return formatRuntimeEventKindLabel(kind, 'zh');
 }
 
 function formatRuntimeEventEvidence(event: RuntimeEventV2, members: AICharacter[]) {

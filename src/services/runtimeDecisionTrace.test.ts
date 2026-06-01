@@ -197,4 +197,38 @@ describe('runtimeDecisionTrace', () => {
     expect(trace.runtimeClueSections.flatMap((section) => section.items).join(' / ')).toContain('喜羊羊 记得旧约定');
     expect(trace.runtimeClueSections.flatMap((section) => section.items).join(' / ')).not.toContain(memberId);
   });
+
+  it('captures execution target vs final speaker relation for guidance-driven turns', () => {
+    const [trace] = projectRuntimeDecisionTrace([
+      buildMessage({
+        id: 'm5',
+        timestamp: 5,
+        senderId: 'b',
+        senderName: '乙',
+        metadata: {
+          runtimeDecision: {
+            directorIntent: {
+              source: 'user_guidance',
+              beatType: 'answer',
+              pressure: 0.9,
+              reason: '用户点名',
+              userGuidance: {
+                kind: 'direct_reply',
+                rawText: '让甲先答',
+                actorIds: ['a'],
+                mentionedActorIds: ['a'],
+                beatType: 'answer',
+                pressure: 0.9,
+              },
+            },
+            speakerScore: { actorId: 'b', finalScore: 0.88, reasons: ['pending_reply'] },
+          },
+        },
+      }),
+    ], 1, [{ id: 'a', name: '甲' }, { id: 'b', name: '乙' }]);
+
+    expect(trace.executionRelationLabel).toBe('执行目标 甲 · 实际发言 乙');
+    expect(trace.rawExecutionRelation).toContain('targets=a');
+    expect(trace.rawExecutionRelation).toContain('speaker=b');
+  });
 });

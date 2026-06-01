@@ -9,10 +9,10 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import type { RelationshipAxisReason, RelationshipLedgerEntry } from '../../types/runtimeEvent';
-import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
+import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
 import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
+import { projectRelationshipPanelData } from '../../services/relationshipPanelProjection';
 import { compactPillChipSx } from '../../styles/interaction';
-import { reportUnresolvedDisplayEntity } from '../../services/diagnostics';
 
 interface RelationshipPanelProps {
   chat: GroupChat;
@@ -384,41 +384,13 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
       // ignore persistence errors
     }
   };
-  const ledgerEntries = (chat.relationshipLedger || [])
-    .filter((entry) => !/^draft-\d+$/i.test(entry.actorId) && !/^draft-\d+$/i.test(entry.targetId))
-    .filter(isMeaningfulRelationshipLedgerEntry)
-    .slice()
-    .sort((a, b) => {
-      const aDelta = toRelationshipDisplayDelta(a.current);
-      const bDelta = toRelationshipDisplayDelta(b.current);
-      const aScore = Math.abs((aDelta.warmth || 0) + (aDelta.competence || 0) + (aDelta.trust || 0) - (aDelta.threat || 0));
-      const bScore = Math.abs((bDelta.warmth || 0) + (bDelta.competence || 0) + (bDelta.trust || 0) - (bDelta.threat || 0));
-      if (bScore !== aScore) return bScore - aScore;
-      return b.lastUpdatedAt - a.lastUpdatedAt;
-    });
-
-  const groupedLedgerSections = members
-    .map((member) => ({
-      member,
-      items: ledgerEntries.filter((entry) => (reverseLedger ? entry.targetId === member.id : entry.actorId === member.id)).slice(0, 8),
-    }))
-    .filter((section) => section.items.length > 0);
-
-  const fallbackSections = members
-    .filter((member) => !groupedLedgerSections.some((section) => section.member.id === member.id))
-    .map((member) => {
-      const items = member.relationships
-        .filter((relation) => !/^draft-\d+$/i.test(relation.characterId))
-        .filter((relation) => relation.warmth !== 0 || relation.competence !== 0 || relation.trust !== 0 || relation.threat !== 0 || Boolean(relation.note?.trim()))
-        .slice(0, 3);
-      return { member, items };
-    })
-    .filter((section) => section.items.length > 0);
-
-  const sectionKeys = [
-    ...groupedLedgerSections.map(({ member }) => `${reverseLedger ? 'reverse' : 'forward'}-${member.id}`),
-    ...fallbackSections.map(({ member }) => `fallback-${reverseLedger ? 'reverse' : 'forward'}-${member.id}`),
-  ];
+  const projected = useMemo(
+    () => projectRelationshipPanelData(chat, members, reverseLedger),
+    [chat, members, reverseLedger],
+  );
+  const groupedLedgerSections = projected.ledgerSections;
+  const fallbackSections = projected.fallbackSections;
+  const sectionKeys = projected.sectionKeys;
 
   const collapsedCount = sectionKeys.filter((key) => collapsedSections[key]).length;
   const shouldCollapseAll = collapsedCount < sectionKeys.length;
@@ -456,8 +428,7 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
       </Box>
       {groupedLedgerSections.length ? (
         <Stack spacing={1.25}>
-          {groupedLedgerSections.map(({ member, items }) => {
-            const sectionKey = `${reverseLedger ? 'reverse' : 'forward'}-${member.id}`;
+          {groupedLedgerSections.map(({ member, items, sectionKey }) => {
             const collapsed = Boolean(collapsedSections[sectionKey]);
             return (
               <Box key={member.id}>
@@ -481,8 +452,7 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
         </Stack>
       ) : fallbackSections.length === 0 ? <Typography variant="caption" color="text.secondary">暂无结构化关系数据</Typography> : (
         <Stack spacing={1.25}>
-          {fallbackSections.map(({ member, items }) => {
-            const sectionKey = `fallback-${reverseLedger ? 'reverse' : 'forward'}-${member.id}`;
+          {fallbackSections.map(({ member, items, sectionKey }) => {
             const collapsed = Boolean(collapsedSections[sectionKey]);
             return (
               <Box key={member.id}>
@@ -497,29 +467,13 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
                 {!collapsed ? (
                   <Stack spacing={1} sx={{ mt: 0.5 }}>
                     {items.map((relation, index) => {
-                      const target = members.find((item) => item.id === relation.characterId);
-                      if (!target) {
-                        reportUnresolvedDisplayEntity({
-                          id: relation.characterId,
-                          kind: 'relationship-target',
-                          location: 'RelationshipPanel.fallbackSections',
-                          fallback: '未知角色',
-                          extra: { memberId: member.id },
-                        });
-                      }
-                      const targetName = target?.name || '未知角色';
                       return (
                         <RelationshipFallbackCard
                           key={`${member.id}-${index}`}
                           memberName={member.name}
-                          targetName={targetName}
+                          targetName={relation.targetName}
                           note={relation.note}
-                          relation={{
-                            warmth: relation.warmth,
-                            competence: relation.competence,
-                            trust: relation.trust,
-                            threat: relation.threat,
-                          }}
+                          relation={relation.relation}
                           updatedAt={chat.updatedAt}
                         />
                       );

@@ -17,6 +17,8 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import ModelsIcon from '@mui/icons-material/SmartToy';
 import AccountIcon from '@mui/icons-material/AccountCircle';
 import MailIcon from '@mui/icons-material/Mail';
+import CalendarIcon from '@mui/icons-material/CalendarMonth';
+import MomentsIcon from '@mui/icons-material/DynamicFeed';
 import IntroIcon from '@mui/icons-material/AutoAwesome';
 import CollapseIcon from '@mui/icons-material/ChevronLeft';
 import ExpandIcon from '@mui/icons-material/ChevronRight';
@@ -37,6 +39,8 @@ const navItems = [
   { path: '/characters', icon: <PersonIcon />, labelKey: 'nav.characters' },
   { path: '/models', icon: <ModelsIcon />, labelKey: 'nav.models' },
   { path: '/letters', icon: <MailIcon />, labelKey: 'nav.letters' },
+  { path: '/calendar', icon: <CalendarIcon />, labelKey: 'nav.calendar' },
+  { path: '/moments', icon: <MomentsIcon />, labelKey: 'nav.moments' },
   { path: '/account', icon: <AccountIcon />, labelKey: 'nav.account' },
   { path: '/settings', icon: <SettingsIcon />, labelKey: 'nav.settings' },
 ];

@@ -27,6 +27,8 @@ interface ChatConfigSectionProps {
   topic: string;
   style: ChatStyle;
   showRoleActions: boolean;
+  includeUserAsMember: boolean;
+  operatorIdsText: string;
   selectedMembers: string[];
   selectedCharacters: AICharacter[];
   language: string;
@@ -37,6 +39,8 @@ interface ChatConfigSectionProps {
   onTopicChange: (value: string) => void;
   onStyleChange: (value: ChatStyle) => void;
   onShowRoleActionsChange: (value: boolean) => void;
+  onIncludeUserAsMemberChange: (value: boolean) => void;
+  onOperatorIdsTextChange: (value: string) => void;
   onOpenMemberDialog: () => void;
   onOpenHotDialog: () => void;
   onToggleMember: (memberId: string) => void;
@@ -47,6 +51,12 @@ interface ChatConfigSectionProps {
   membersHintLabel: string;
   styleLabel: string;
   showRoleActionsLabel: string;
+  includeUserAsMemberLabel: string;
+  includeUserAsMemberHint: string;
+  operatorIdsLabel: string;
+  operatorIdsHint: string;
+  operatorValidationHint?: string;
+  operatorNormalizedIds?: string[];
   openTopicInspirationLabel: string;
 }
 
@@ -147,10 +157,45 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
       </SurfaceCard>
 
       <SurfaceCard contentSx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-          <FormControlLabel
-            control={<Switch checked={props.showRoleActions} onChange={(e) => props.onShowRoleActionsChange(e.target.checked)} />}
-            label={props.showRoleActionsLabel}
-          />
+          <Stack spacing={0.5}>
+            <FormControlLabel
+              control={<Switch checked={props.showRoleActions} onChange={(e) => props.onShowRoleActionsChange(e.target.checked)} />}
+              label={props.showRoleActionsLabel}
+            />
+            {props.showMembers === false ? null : (
+              <Box>
+                <FormControlLabel
+                  control={<Switch checked={props.includeUserAsMember} onChange={(e) => props.onIncludeUserAsMemberChange(e.target.checked)} />}
+                  label={props.includeUserAsMemberLabel}
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ pl: 4.5 }}>
+                  {props.includeUserAsMemberHint}
+                </Typography>
+              </Box>
+            )}
+            <Box sx={{ pt: 0.5 }}>
+              <TextField
+                label={props.operatorIdsLabel}
+                placeholder="host_moderator, topic_guide_bot"
+                value={props.operatorIdsText}
+                onChange={(e) => props.onOperatorIdsTextChange(e.target.value)}
+                fullWidth
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                {props.operatorIdsHint}
+              </Typography>
+              {props.operatorValidationHint ? (
+                <Typography variant="caption" color="warning.main" sx={{ mt: 0.35, display: 'block' }}>
+                  {props.operatorValidationHint}
+                </Typography>
+              ) : null}
+              {props.operatorNormalizedIds?.length ? (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.35, display: 'block' }}>
+                  {`IDs: ${props.operatorNormalizedIds.join(', ')}`}
+                </Typography>
+              ) : null}
+            </Box>
+          </Stack>
       </SurfaceCard>
     </Stack>
   );

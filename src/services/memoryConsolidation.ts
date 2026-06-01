@@ -4,6 +4,17 @@ import { compactMemoryItems } from './memoryLifecycle';
 
 const MAX_TRACKED_SOURCE_EVENT_IDS = 32;
 const MAX_EVIDENCE_TRAIL_ITEMS = 8;
+const MIN_MEMORY_SCORE = 0.55;
+const MIN_EVIDENCE_TEXT_LENGTH = 6;
+
+function stableMemorySeed(parts: Array<string | number | undefined>) {
+  const joined = parts.filter((item) => item !== undefined && item !== null && String(item).length > 0).join('|');
+  let hash = 0;
+  for (let index = 0; index < joined.length; index += 1) {
+    hash = (hash * 33 + joined.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
 
 function scoreCandidate(candidate: MemoryCandidate) {
   const s = candidate.scoreBreakdown;
@@ -12,6 +23,10 @@ function scoreCandidate(candidate: MemoryCandidate) {
 
 function normalizeIds(ids: string[] = []) {
   return [...ids].filter(Boolean).sort();
+}
+
+function normalizeSourceEventIds(ids: string[] = []) {
+  return Array.from(new Set(ids.filter(Boolean)));
 }
 
 function sameBucket(item: MemoryItem, candidate: MemoryCandidate) {
@@ -23,9 +38,16 @@ function sameOwnerScope(item: MemoryItem, candidate: MemoryCandidate) {
   return item.scope === candidate.scope && item.ownerId === candidate.ownerId;
 }
 
+function sharesSourceEvidence(item: MemoryItem, candidate: MemoryCandidate) {
+  const current = new Set(item.sourceEventIds || []);
+  return normalizeSourceEventIds(candidate.sourceEventIds || []).some((id) => current.has(id));
+}
+
 function findMergeTargetIndex(items: MemoryItem[], candidate: MemoryCandidate) {
   const sameBucketIndex = items.findIndex((item) => sameBucket(item, candidate));
   if (sameBucketIndex >= 0) return sameBucketIndex;
+  const sourceOverlapIndex = items.findIndex((item) => sameOwnerScope(item, candidate) && item.kind === candidate.kind && sharesSourceEvidence(item, candidate));
+  if (sourceOverlapIndex >= 0) return sourceOverlapIndex;
   if (candidate.decision !== 'merge') return -1;
   const candidateSubjects = new Set(candidate.subjectIds || []);
   return items.findIndex((item) => {
@@ -43,6 +65,24 @@ function shouldArchiveByCandidate(item: MemoryItem, candidate: MemoryCandidate) 
     && item.kind === candidate.kind
     && normalizeIds(item.subjectIds || []).some((id) => normalizeIds(candidate.subjectIds || []).includes(id))
   );
+}
+
+function hasCandidateShape(candidate: MemoryCandidate) {
+  if (!candidate.ownerId?.trim()) return false;
+  if (!candidate.text?.trim()) return false;
+  if (!candidate.scope || !candidate.kind || !candidate.layerHint) return false;
+  const breakdown = candidate.scoreBreakdown;
+  if (!breakdown) return false;
+  const fields = [breakdown.stability, breakdown.recurrence, breakdown.impact, breakdown.specificity, breakdown.durability];
+  return fields.every((value) => typeof value === 'number' && Number.isFinite(value));
+}
+
+function hasEnoughEvidence(candidate: MemoryCandidate) {
+  if (normalizeSourceEventIds(candidate.sourceEventIds || []).length > 0) return true;
+  const evidenceLength = normalizeEvidenceText(candidate.evidenceText || '').length;
+  if (evidenceLength >= MIN_EVIDENCE_TEXT_LENGTH) return true;
+  if (candidate.origin === 'distilled' || candidate.layerHint === 'long_term') return false;
+  return true;
 }
 
 function nextLayerForCandidate(candidate: MemoryCandidate, reinforcementCount: number) {
@@ -170,8 +210,17 @@ function compactEvidenceTrail(entries: Array<MemoryEvidenceEntry | null | undefi
 function createMemoryItem(candidate: MemoryCandidate, score: number, now: number): MemoryItem {
   const text = sanitizeMemoryText(candidate.text);
   const evidenceText = normalizeEvidenceText(candidate.evidenceText || text);
+  const seed = stableMemorySeed([
+    candidate.ownerId,
+    candidate.scope,
+    candidate.layerHint,
+    candidate.kind,
+    normalizeIds(candidate.subjectIds || []).join(','),
+    normalizeSourceEventIds(candidate.sourceEventIds || []).join(','),
+    text,
+  ]);
   return {
-    id: `${candidate.ownerId}-${candidate.kind}-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    id: `${candidate.ownerId}-${candidate.kind}-${now}-${seed}`,
     scope: candidate.scope,
     layer: candidate.layerHint,
     kind: candidate.kind,
@@ -235,12 +284,18 @@ function mergeMemoryItem(item: MemoryItem, candidate: MemoryCandidate, score: nu
   };
 }
 
-export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: MemoryCandidate[]) {
+export function consolidateMemoryCandidates(
+  existing: MemoryItem[],
+  candidates: MemoryCandidate[],
+  options?: { now?: number },
+) {
   const next = existing.map((item) => decayExistingMemory(item));
-  const now = Date.now();
+  const now = typeof options?.now === 'number' && Number.isFinite(options.now) ? Math.round(options.now) : Date.now();
 
   for (const candidate of candidates) {
+    if (!hasCandidateShape(candidate)) continue;
     if (candidate.decision === 'ignore') continue;
+    if (!hasEnoughEvidence(candidate)) continue;
     if (candidate.decision === 'archive') {
       next.forEach((item, index) => {
         if (shouldArchiveByCandidate(item, candidate)) {
@@ -250,7 +305,7 @@ export function consolidateMemoryCandidates(existing: MemoryItem[], candidates: 
       continue;
     }
     const score = scoreCandidate(candidate);
-    if (score < 0.55) continue;
+    if (score < MIN_MEMORY_SCORE) continue;
 
     const existingIndex = findMergeTargetIndex(next, candidate);
     if (existingIndex >= 0) {

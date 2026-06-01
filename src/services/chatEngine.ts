@@ -842,8 +842,18 @@ function resolveMediaProfiles(apiConfig: APIConfig | AIModelProfile[], profiles?
   return Array.isArray(apiConfig) ? apiConfig : undefined;
 }
 
-function createAttachmentId(kind: string) {
-  return `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+function stableAttachmentSeed(parts: Array<string | number | undefined>) {
+  const joined = parts.filter((item) => item !== undefined && item !== null && String(item).length > 0).join('|');
+  let hash = 0;
+  for (let index = 0; index < joined.length; index += 1) {
+    hash = (hash * 33 + joined.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function createAttachmentId(kind: string, now: number, seedParts: Array<string | number | undefined>) {
+  const seed = stableAttachmentSeed([kind, now, ...seedParts]);
+  return `${kind}-${now}-${seed}`;
 }
 
 function normalizeMediaDecision(decision: MediaGenerationDecision | null | undefined, capabilities: { image: boolean; audio: boolean }, content: string) {
@@ -874,14 +884,21 @@ function buildMessageMetadata(params: {
   content: string;
   runtimeDecision?: MessageMetadata['runtimeDecision'];
   surface?: ResponseSurface;
+  now?: number;
 }): MessageMetadata | undefined {
   const decision = normalizeMediaDecision(params.decision, params.capabilities, params.content);
   if (!decision && !params.runtimeDecision) return undefined;
-  const now = Date.now();
+  const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const attachments: MessageAttachment[] = [];
   if (decision?.image?.shouldGenerate && decision.image.prompt && decision.image.altText) {
+    const imageSeedParts = [
+      decision.image.prompt,
+      decision.image.altText,
+      (decision.image.referenceCharacterIds || []).join(','),
+      params.content,
+    ];
     attachments.push({
-      id: createAttachmentId('image'),
+      id: createAttachmentId('image', now, imageSeedParts),
       kind: 'image',
       status: 'queued',
       altText: decision.image.altText,
@@ -892,12 +909,13 @@ function buildMessageMetadata(params: {
     });
   }
   if (decision?.audio?.shouldGenerate) {
+    const audioText = decision.audio.text || params.content;
     attachments.push({
-      id: createAttachmentId('audio'),
+      id: createAttachmentId('audio', now, [audioText, params.content]),
       kind: 'audio',
       status: 'queued',
-      altText: `语音：${decision.audio.text || params.content}`,
-      promptText: decision.audio.text || params.content,
+      altText: `语音：${audioText}`,
+      promptText: audioText,
       createdAt: now,
       updatedAt: now,
     });

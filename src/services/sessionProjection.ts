@@ -9,6 +9,10 @@ import { projectSessionRecentEvent } from './directSessionHelpers';
 import { buildRolePrivateParticipantStates, buildRolePrivatePayloads, projectPrivateParticipantPayloads } from './privateRuntimePayloads';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import { reportUnresolvedDisplayEntity } from './diagnostics';
+import { formatRuntimeEventKindLabel } from './runtimeEventPresentation';
+import { formatActorRefKindLabel, formatSystemAgentSubtypeLabel, inferSystemAgentSubtypeFromId, toActorRef, type ActorRefKind } from './actorRefPresentation';
+import { evaluateGuidanceGeneratedContent } from './guidanceExecution';
+import { projectWorldAttentionStates } from './worldRuntimeProjection';
 
 export interface ProjectedRuntimeTimelineItem {
   type: 'note' | 'artifact' | 'relationship';
@@ -54,8 +58,91 @@ export interface ProjectedRuntimeTimelineItem {
       topicDrift?: number;
       delta?: { heat?: number; cohesion?: number; topicDrift?: number };
     };
+    memoryDistillation?: Record<string, unknown>;
+    projectionInfo?: {
+      projectionKind?: string;
+      topicSnippet?: string;
+      participantNames?: string[];
+    };
+    guidanceInfo?: {
+      kind?: string;
+      actorNames?: string[];
+      subjectNames?: string[];
+      subjectText?: string;
+    };
+    actorAudit?: {
+      actorId?: string | null;
+      actorName?: string;
+      origin?: string;
+      isOperator?: boolean;
+    };
+    attentionInfo?: {
+      scoreLabel: string;
+      restraintLabel: string;
+      reasons: string[];
+      actorKindLabel?: string;
+      targetKindLabels?: string[];
+      actorSubtypeLabel?: string;
+      targetSubtypeLabels?: string[];
+    };
+    attentionSource?: {
+      source?: string;
+      mode: 'manual' | 'auto' | 'unknown';
+      label: string;
+    };
+    attentionFollowup?: {
+      kind: 'user' | 'member';
+      actorId: string;
+      actorName: string;
+      targetId?: string;
+      targetName?: string;
+      focus?: string;
+      status: 'issued' | 'pending_response' | 'completed';
+      issuedAt: number;
+      completedAt?: number;
+    };
+    calendarPatch?: {
+      isAuto: boolean;
+      calendarItemId?: string;
+      basedOnItemId?: string;
+      idempotencyKey?: string;
+      startAt?: number;
+      endAt?: number;
+      durationMinutes?: number;
+      reason?: string;
+    };
+    candidateSuppression?: {
+      eventType: 'event_candidate_suppressed';
+      candidateEventKind?: string;
+      reasonType?: string;
+      reasonLabel?: string;
+      reasonDetail?: string;
+      dedupeKey?: string | null;
+      confidence?: number;
+      suppressedConfidence?: number;
+      preferredConfidence?: number;
+      preferredCandidateId?: string;
+      suppressedCandidateId?: string;
+      hitEventId?: string;
+      hitWindow?: string;
+    };
+    calendarPatchApplyResult?: {
+      eventType: 'calendar_patch_apply_result';
+      appliedCount: number;
+      skippedCount: number;
+      failedCount: number;
+      queueCount?: number;
+      persistedCount?: number;
+    };
   };
 }
+
+export type ProjectedRuntimeMeta = NonNullable<ProjectedRuntimeTimelineItem['meta']>;
+export type ProjectedProjectionInfoMeta = NonNullable<ProjectedRuntimeMeta['projectionInfo']>;
+export type ProjectedGuidanceInfoMeta = NonNullable<ProjectedRuntimeMeta['guidanceInfo']>;
+export type ProjectedAttentionInfoMeta = NonNullable<ProjectedRuntimeMeta['attentionInfo']>;
+export type ProjectedMemoryDistillationMeta = NonNullable<ProjectedRuntimeMeta['memoryDistillation']>;
+export type ProjectedCalendarPatchMeta = NonNullable<ProjectedRuntimeMeta['calendarPatch']>;
 
 export interface ProjectedRuntimeState {
   worldState: GroupChat['worldState'];
@@ -123,6 +210,24 @@ function isSocialEventEffectPayload(payload: RuntimeEventV2['payload']): payload
   return typeof payload === 'object' && payload !== null && 'eventKind' in payload && 'effectType' in payload && 'summary' in payload && 'confidence' in payload;
 }
 
+function toCalendarPatchMeta(event: RuntimeEventV2) {
+  if (event.kind !== 'calendar_item_patch') return undefined;
+  const payload = (typeof event.payload === 'object' && event.payload !== null ? event.payload : {}) as Record<string, unknown>;
+  const readString = (value: unknown) => typeof value === 'string' ? value : '';
+  const readNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  const source = readString(payload.source);
+  return {
+    isAuto: source === 'world_calendar_patch_executor',
+    calendarItemId: readString(payload.calendarItemId) || undefined,
+    basedOnItemId: readString(payload.basedOnItemId) || undefined,
+    idempotencyKey: readString(payload.idempotencyKey) || undefined,
+    startAt: readNumber(payload.startAt),
+    endAt: readNumber(payload.endAt),
+    durationMinutes: readNumber(payload.durationMinutes),
+    reason: readString(payload.reason) || undefined,
+  };
+}
+
 function buildSocialEventCluster(event: RuntimeEventV2) {
   if (event.kind === 'event_candidate' && isSocialEventCandidatePayload(event.payload)) return { eventKind: event.payload.eventKind, dedupeKey: event.payload.dedupeKey ?? null, stage: 'candidate' as const };
   if (event.kind === 'artifact' && isSocialEventArtifactPayload(event.payload)) return { eventKind: event.payload.eventKind, dedupeKey: event.payload.dedupeKey ?? null, candidateId: event.payload.candidateId ?? null, stage: event.payload.artifactType === 'private_thread_opened' ? 'opened' as const : 'artifact' as const };
@@ -133,6 +238,57 @@ function buildSocialEventCluster(event: RuntimeEventV2) {
 function buildEventMeta(event: RuntimeEventV2) {
   const payload = (typeof event.payload === 'object' && event.payload !== null ? event.payload : null) as Record<string, unknown> | null;
   const isMemoryDistillation = event.kind === 'artifact' && payload?.eventType === 'memory_distillation';
+  const projectionInfo = payload && (
+    typeof payload.projectionKind === 'string'
+    || typeof payload.topicSnippet === 'string'
+    || typeof payload.summarySnippet === 'string'
+    || Array.isArray(payload.participantNames)
+  ) ? {
+    projectionKind: typeof payload.projectionKind === 'string' ? payload.projectionKind : undefined,
+    topicSnippet: typeof payload.topicSnippet === 'string'
+      ? payload.topicSnippet
+      : (typeof payload.summarySnippet === 'string' ? payload.summarySnippet : undefined),
+    participantNames: Array.isArray(payload.participantNames)
+      ? payload.participantNames.filter((value): value is string => typeof value === 'string')
+      : undefined,
+  } : undefined;
+  const userGuidance = payload && typeof payload.userGuidance === 'object' && payload.userGuidance ? payload.userGuidance as Record<string, unknown> : null;
+  const mediaRequest = userGuidance && typeof userGuidance.mediaRequest === 'object' && userGuidance.mediaRequest ? userGuidance.mediaRequest as Record<string, unknown> : null;
+  const guidanceInfo = userGuidance ? {
+    kind: typeof userGuidance.kind === 'string' ? userGuidance.kind : undefined,
+    actorNames: Array.isArray(userGuidance.actorIds) ? userGuidance.actorIds.filter((value): value is string => typeof value === 'string') : undefined,
+    subjectNames: mediaRequest && Array.isArray(mediaRequest.subjectActorIds) ? mediaRequest.subjectActorIds.filter((value): value is string => typeof value === 'string') : undefined,
+    subjectText: mediaRequest && typeof mediaRequest.subjectText === 'string' ? mediaRequest.subjectText : undefined,
+  } : undefined;
+  const rawActorAudit = payload && typeof payload._actorAudit === 'object' && payload._actorAudit ? payload._actorAudit as Record<string, unknown> : null;
+  const actorAudit = rawActorAudit ? {
+    actorId: typeof rawActorAudit.actorId === 'string' ? rawActorAudit.actorId : null,
+    origin: typeof rawActorAudit.origin === 'string' ? rawActorAudit.origin : undefined,
+    isOperator: typeof rawActorAudit.isOperator === 'boolean' ? rawActorAudit.isOperator : undefined,
+  } : undefined;
+  const candidateSuppression = payload && payload.eventType === 'event_candidate_suppressed' ? {
+    eventType: 'event_candidate_suppressed' as const,
+    candidateEventKind: typeof payload.candidateEventKind === 'string' ? payload.candidateEventKind : undefined,
+    reasonType: typeof payload.reasonType === 'string' ? payload.reasonType : undefined,
+    reasonLabel: typeof payload.reasonLabel === 'string' ? payload.reasonLabel : undefined,
+    reasonDetail: typeof payload.reasonDetail === 'string' ? payload.reasonDetail : undefined,
+    dedupeKey: typeof payload.dedupeKey === 'string' ? payload.dedupeKey : null,
+    confidence: typeof payload.confidence === 'number' ? payload.confidence : undefined,
+    suppressedConfidence: typeof payload.suppressedConfidence === 'number' ? payload.suppressedConfidence : undefined,
+    preferredConfidence: typeof payload.preferredConfidence === 'number' ? payload.preferredConfidence : undefined,
+    preferredCandidateId: typeof payload.preferredCandidateId === 'string' ? payload.preferredCandidateId : undefined,
+    suppressedCandidateId: typeof payload.suppressedCandidateId === 'string' ? payload.suppressedCandidateId : undefined,
+    hitEventId: typeof payload.hitEventId === 'string' ? payload.hitEventId : undefined,
+    hitWindow: typeof payload.hitWindow === 'string' ? payload.hitWindow : undefined,
+  } : undefined;
+  const calendarPatchApplyResult = payload && payload.eventType === 'calendar_patch_apply_result' ? {
+    eventType: 'calendar_patch_apply_result' as const,
+    appliedCount: typeof payload.appliedCount === 'number' ? payload.appliedCount : 0,
+    skippedCount: typeof payload.skippedCount === 'number' ? payload.skippedCount : 0,
+    failedCount: typeof payload.failedCount === 'number' ? payload.failedCount : 0,
+    queueCount: typeof payload.queueCount === 'number' ? payload.queueCount : undefined,
+    persistedCount: typeof payload.persistedCount === 'number' ? payload.persistedCount : undefined,
+  } : undefined;
   return {
     memoryCandidate: event.kind === 'memory_candidate' && isMemoryCandidatePayload(event.payload) ? event.payload : undefined,
     socialEventCandidate: event.kind === 'event_candidate' && isSocialEventCandidatePayload(event.payload) ? event.payload : undefined,
@@ -142,6 +298,102 @@ function buildEventMeta(event: RuntimeEventV2) {
     relationshipDelta: event.kind === 'relationship_delta' && isRelationshipDeltaPayload(event.payload) ? event.payload : undefined,
     roomShift: event.kind === 'room_shift' && isRoomShiftPayload(event.payload) ? event.payload : undefined,
     memoryDistillation: isMemoryDistillation ? payload : undefined,
+    projectionInfo,
+    guidanceInfo,
+    actorAudit,
+    calendarPatch: toCalendarPatchMeta(event),
+    candidateSuppression,
+    calendarPatchApplyResult,
+  };
+}
+
+function projectActorAuditMeta(
+  meta: NonNullable<ReturnType<typeof buildEventMeta>['actorAudit']>,
+  participantNameMap: Map<string, string>,
+) {
+  if (!meta.actorId) return meta;
+  return {
+    ...meta,
+    actorName: participantNameMap.get(meta.actorId) || meta.actorId,
+  };
+}
+
+function projectAttentionFollowupMeta(
+  event: RuntimeEventV2,
+  events: RuntimeEventV2[],
+  eventIndex: number,
+  participantNameMap: Map<string, string>,
+) {
+  const payload = typeof event.payload === 'object' && event.payload !== null ? event.payload as Record<string, unknown> : null;
+  if (!payload) return undefined;
+  const eventType = typeof payload.eventType === 'string' ? payload.eventType : '';
+  if (eventType !== 'attention_followup_user' && eventType !== 'attention_followup_member') return undefined;
+  const actorId = typeof payload.actorId === 'string' ? payload.actorId : '';
+  if (!actorId) return undefined;
+  const targetId = eventType === 'attention_followup_member' && typeof payload.targetId === 'string' ? payload.targetId : undefined;
+  const actorName = participantNameMap.get(actorId) || actorId;
+  const targetName = targetId ? (participantNameMap.get(targetId) || targetId) : undefined;
+  const focus = typeof payload.focus === 'string' && payload.focus.trim() ? cleanProjectionText(payload.focus, participantNameMap) : undefined;
+  const issuedAt = event.createdAt;
+  const actorMessages = events
+    .slice(eventIndex + 1)
+    .filter((candidate) => candidate.kind === 'message_generated' && candidate.actorIds?.[0] === actorId);
+  if (!actorMessages.length) {
+    return {
+      kind: eventType === 'attention_followup_member' ? 'member' as const : 'user' as const,
+      actorId,
+      actorName,
+      targetId,
+      targetName,
+      focus,
+      status: 'issued' as const,
+      issuedAt,
+    };
+  }
+  const baseFocusLabel = eventType === 'attention_followup_member'
+    ? `${actorName} 跟进 ${targetName || '成员'}`
+    : `${actorName} 跟进用户`;
+  const guidance = {
+    kind: 'direct_reply' as const,
+    rawText: focus || baseFocusLabel,
+    actorIds: [actorId],
+    mentionedActorIds: [actorId],
+    focusText: focus || baseFocusLabel,
+    beatType: 'answer' as const,
+    pressure: 0.92,
+    maxTurns: 2,
+    reason: '来自关注跟进动作',
+  };
+  const completionEvent = actorMessages.find((candidate) => {
+    const candidatePayload = typeof candidate.payload === 'object' && candidate.payload !== null ? candidate.payload as Record<string, unknown> : null;
+    const text = cleanProjectionText(
+      typeof candidatePayload?.text === 'string' ? candidatePayload.text : (candidate.summary || ''),
+      participantNameMap,
+    );
+    return evaluateGuidanceGeneratedContent(text, guidance, actorId).matched;
+  });
+  if (!completionEvent) {
+    return {
+      kind: eventType === 'attention_followup_member' ? 'member' as const : 'user' as const,
+      actorId,
+      actorName,
+      targetId,
+      targetName,
+      focus,
+      status: 'pending_response' as const,
+      issuedAt,
+    };
+  }
+  return {
+    kind: eventType === 'attention_followup_member' ? 'member' as const : 'user' as const,
+    actorId,
+    actorName,
+    targetId,
+    targetName,
+    focus,
+    status: 'completed' as const,
+    issuedAt,
+    completedAt: completionEvent.createdAt,
   };
 }
 
@@ -152,22 +404,7 @@ function mapRuntimeEventKindToTimelineType(kind: RuntimeEventKind): 'note' | 'ar
 }
 
 function formatRuntimeEventLabel(kind: RuntimeEventKind) {
-  const labels: Record<RuntimeEventKind, string> = {
-    message_generated: '消息生成',
-    interaction: '互动',
-    relationship_delta: '关系变化',
-    room_shift: '房间态势',
-    memory_candidate: '记忆候选',
-    artifact: '产物',
-    event_candidate: '事件候选',
-    director_intervention: '导演干预',
-    decision_trace: '决策痕迹',
-    phase_transition: '阶段切换',
-    action_resolution: '动作结算',
-    board_state: '棋盘状态',
-    score_update: '分数更新',
-  };
-  return labels[kind] || kind;
+  return formatRuntimeEventKindLabel(kind, 'zh');
 }
 
 function formatMemoryCandidateKind(kind: MemoryCandidatePayload['kind']) {
@@ -183,7 +420,7 @@ function formatRelationshipReason(reason: string) {
 function buildParticipantNameMap(participants: Array<AICharacter | ParticipantInstance>) {
   const entries = participants.flatMap((participant) => {
     if ('participantId' in participant) {
-      const fallback = participant.displayName || participant.entityRefId || '成员';
+      const fallback = participant.displayName || (participant.entityRefId === 'user' ? '我' : participant.entityRefId) || '成员';
       if (!participant.displayName && !participant.entityRefId) {
         reportUnresolvedDisplayEntity({
           id: participant.participantId,
@@ -203,13 +440,43 @@ function buildParticipantNameMap(participants: Array<AICharacter | ParticipantIn
   return new Map(entries);
 }
 
-function resolveActorTargetNames(ids: string[] | undefined, participantNameMap: Map<string, string>) {
-  return (ids || []).map((id) => {
-    const name = participantNameMap.get(id);
-    if (!name) {
-      reportUnresolvedDisplayEntity({ id, kind: 'member', location: 'sessionProjection.resolveActorTargetNames', fallback: '成员' });
+function buildParticipantKindMap(participants: Array<AICharacter | ParticipantInstance>) {
+  const map = new Map<string, ActorRefKind>();
+  participants.forEach((participant) => {
+    if ('participantId' in participant) {
+      const flagKind = typeof participant.flags?.actorRefKind === 'string' ? participant.flags.actorRefKind : '';
+      const kind: ActorRefKind = flagKind === 'user_persona' || flagKind === 'system_agent' || flagKind === 'ai_character'
+        ? flagKind
+        : participant.entityType === 'user'
+          ? 'user_persona'
+          : participant.entityType === 'system_agent'
+            ? 'system_agent'
+            : 'ai_character';
+      if (participant.participantId) map.set(participant.participantId, kind);
+      if (participant.entityRefId) map.set(participant.entityRefId, kind);
+      return;
     }
-    return name || '成员';
+    map.set(participant.id, 'ai_character');
+  });
+  return map;
+}
+
+function resolveActorTargetNames(
+  ids: string[] | undefined,
+  participantNameMap: Map<string, string>,
+  participantKindMap: Map<string, ActorRefKind>,
+) {
+  return (ids || []).map((id) => {
+    if (id === 'user') return '我';
+    const name = participantNameMap.get(id);
+    if (name) return name;
+    const actorRef = toActorRef(id, { actorKinds: participantKindMap });
+    if (actorRef?.kind === 'system_agent') {
+      if (actorRef.subtype) return formatSystemAgentSubtypeLabel(actorRef.subtype);
+      return formatActorRefKindLabel(actorRef.kind);
+    }
+    reportUnresolvedDisplayEntity({ id, kind: 'member', location: 'sessionProjection.resolveActorTargetNames', fallback: '成员' });
+    return '成员';
   });
 }
 
@@ -218,10 +485,11 @@ function displayMembersFromNameMap(participantNameMap: Map<string, string>): Dis
 }
 
 function cleanProjectionText(text: string | undefined | null, participantNameMap: Map<string, string>) {
-  return sanitizeUserFacingText(
+  const sanitized = sanitizeUserFacingText(
     text || '',
     displayMembersFromNameMap(participantNameMap),
   );
+  return sanitized.replace(/\buser\b/g, '我');
 }
 
 function cleanOptionalProjectionText<T extends string | null | undefined>(text: T, participantNameMap: Map<string, string>): T {
@@ -238,6 +506,12 @@ function projectSocialEventCandidatePayload(payload: SocialEventCandidatePayload
     activityType: cleanOptionalProjectionText(payload.activityType, participantNameMap),
     timeHint: cleanOptionalProjectionText(payload.timeHint, participantNameMap),
     locationHint: cleanOptionalProjectionText(payload.locationHint, participantNameMap),
+    attentionTrace: payload.attentionTrace
+      ? {
+        ...payload.attentionTrace,
+        reasons: (payload.attentionTrace.reasons || []).map((reason) => cleanProjectionText(reason, participantNameMap)),
+      }
+      : undefined,
   };
 }
 
@@ -261,17 +535,86 @@ function projectMemoryDistillationPayload(payload: Record<string, unknown>, part
   };
 }
 
+function projectProjectionInfoMeta(meta: NonNullable<ReturnType<typeof buildEventMeta>['projectionInfo']>, participantNameMap: Map<string, string>) {
+  return {
+    projectionKind: meta.projectionKind,
+    topicSnippet: cleanOptionalProjectionText(meta.topicSnippet, participantNameMap),
+    participantNames: (meta.participantNames || []).map((name) => cleanProjectionText(name, participantNameMap)),
+  };
+}
+
+function projectGuidanceInfoMeta(meta: NonNullable<ReturnType<typeof buildEventMeta>['guidanceInfo']>, participantNameMap: Map<string, string>) {
+  return {
+    kind: meta.kind,
+    actorNames: (meta.actorNames || []).map((id) => participantNameMap.get(id) || id),
+    subjectNames: (meta.subjectNames || []).map((id) => participantNameMap.get(id) || id),
+    subjectText: cleanOptionalProjectionText(meta.subjectText, participantNameMap),
+  };
+}
+
+function projectAttentionInfoMeta(
+  candidate: SocialEventCandidatePayload | undefined,
+  participantNameMap: Map<string, string>,
+  participantKindMap: Map<string, ActorRefKind>,
+) {
+  const trace = candidate?.attentionTrace;
+  if (!trace) return undefined;
+  const scoreLabel = Number.isFinite(trace.score) ? `${Math.round(trace.score * 100)}%` : '-';
+  const restraintLabel = Number.isFinite(trace.restraint) ? `${Math.round(trace.restraint * 100)}%` : '-';
+  const reasons = (trace.reasons || []).map((reason) => cleanProjectionText(reason, participantNameMap));
+  const actorRef = candidate?.initiatorId
+    ? toActorRef(candidate.initiatorId, { actorKinds: participantKindMap })
+    : undefined;
+  const targetRefs = (candidate?.targetIds || []).map((id) => toActorRef(id, { actorKinds: participantKindMap }))
+    .filter((ref): ref is NonNullable<typeof ref> => Boolean(ref));
+  return {
+    scoreLabel,
+    restraintLabel,
+    reasons,
+    actorKindLabel: actorRef ? formatActorRefKindLabel(actorRef.kind) : undefined,
+    targetKindLabels: targetRefs.length ? targetRefs.map((ref) => formatActorRefKindLabel(ref.kind)) : undefined,
+    actorSubtypeLabel: actorRef?.kind === 'system_agent' && actorRef.subtype ? formatSystemAgentSubtypeLabel(actorRef.subtype) : undefined,
+    targetSubtypeLabels: targetRefs.length
+      ? targetRefs.map((ref) => ref.kind === 'system_agent' && ref.subtype ? formatSystemAgentSubtypeLabel(ref.subtype) : '').filter(Boolean)
+      : undefined,
+  };
+}
+
+function projectAttentionSourceMeta(event: RuntimeEventV2, candidate: SocialEventCandidatePayload | undefined) {
+  const readMode = (source: string | undefined): 'manual' | 'auto' | 'unknown' => {
+    if (!source) return 'unknown';
+    if (source.startsWith('manual_')) return 'manual';
+    if (source.startsWith('world_') || source.startsWith('attention_') || source.startsWith('ai_response_') || source.startsWith('user_')) return 'auto';
+    return 'unknown';
+  };
+  const source = (() => {
+    if (event.kind === 'attention_candidate') {
+      const payload = (typeof event.payload === 'object' && event.payload !== null ? event.payload : {}) as Record<string, unknown>;
+      return typeof payload.source === 'string' ? payload.source : undefined;
+    }
+    return candidate?.reasonType;
+  })();
+  const mode = readMode(source);
+  const label = mode === 'manual'
+    ? '手动跟进'
+    : mode === 'auto'
+      ? '自动推导'
+      : '未知来源';
+  return { source, mode, label };
+}
+
 function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: NonNullable<GroupChat['runtimeTimeline']>, participants: Array<AICharacter | ParticipantInstance> = []) {
   const participantNameMap = buildParticipantNameMap(participants);
+  const participantKindMap = buildParticipantKindMap(participants);
   if (events.length) {
-    return events.map<ProjectedRuntimeTimelineItem>((event) => ({
+    return events.map<ProjectedRuntimeTimelineItem>((event, index) => ({
       type: mapRuntimeEventKindToTimelineType(event.kind),
       text: cleanProjectionText(event.summary, participantNameMap),
       createdAt: event.createdAt,
       label: formatRuntimeEventLabel(event.kind),
       event,
-      actorNames: resolveActorTargetNames(event.actorIds, participantNameMap),
-      targetNames: resolveActorTargetNames(event.targetIds, participantNameMap),
+      actorNames: resolveActorTargetNames(event.actorIds, participantNameMap, participantKindMap),
+      targetNames: resolveActorTargetNames(event.targetIds, participantNameMap, participantKindMap),
       meta: (() => {
         const baseMeta = buildEventMeta(event);
         return {
@@ -283,6 +626,15 @@ function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: N
           relationshipDelta: baseMeta.relationshipDelta ? { reason: formatRelationshipReason(baseMeta.relationshipDelta.reason), delta: baseMeta.relationshipDelta.delta || {}, axisReasons: baseMeta.relationshipDelta.axisReasons || {}, spikeType: baseMeta.relationshipDelta.spikeType } : undefined,
           roomShift: baseMeta.roomShift,
           memoryDistillation: baseMeta.memoryDistillation ? projectMemoryDistillationPayload(baseMeta.memoryDistillation, participantNameMap) : undefined,
+          projectionInfo: baseMeta.projectionInfo ? projectProjectionInfoMeta(baseMeta.projectionInfo, participantNameMap) : undefined,
+          guidanceInfo: baseMeta.guidanceInfo ? projectGuidanceInfoMeta(baseMeta.guidanceInfo, participantNameMap) : undefined,
+          actorAudit: baseMeta.actorAudit ? projectActorAuditMeta(baseMeta.actorAudit, participantNameMap) : undefined,
+          attentionInfo: projectAttentionInfoMeta(baseMeta.socialEventCandidate, participantNameMap, participantKindMap),
+          attentionSource: projectAttentionSourceMeta(event, baseMeta.socialEventCandidate),
+          attentionFollowup: projectAttentionFollowupMeta(event, events, index, participantNameMap),
+          calendarPatch: baseMeta.calendarPatch,
+          candidateSuppression: baseMeta.candidateSuppression,
+          calendarPatchApplyResult: baseMeta.calendarPatchApplyResult,
         };
       })(),
     }));
@@ -345,6 +697,78 @@ function countProjectedTimeline(chat: GroupChat) {
 
 export function projectRuntimeTimeline(chat: GroupChat, participants: Array<AICharacter | ParticipantInstance> = []) {
   return projectRuntimeTimelineItems(chat.runtimeEventsV2 || [], chat.runtimeTimeline || [], participants);
+}
+
+export function readProjectedRuntimeMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta || null;
+}
+
+export function readProjectionInfoMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.projectionInfo || null;
+}
+
+export function readGuidanceInfoMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.guidanceInfo || null;
+}
+
+export function readActorAuditMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.actorAudit || null;
+}
+
+export function readAttentionInfoMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.attentionInfo || null;
+}
+
+export function readAttentionSourceMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.attentionSource || null;
+}
+
+export function readAttentionFollowupMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.attentionFollowup || null;
+}
+
+export function readMemoryDistillationMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.memoryDistillation || null;
+}
+
+export function readCalendarPatchMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.calendarPatch || null;
+}
+
+export function readSocialEventCandidateMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.socialEventCandidate || null;
+}
+
+export function readSocialEventArtifactMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.socialEventArtifact || null;
+}
+
+export function readSocialEventEffectMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.socialEventEffect || null;
+}
+
+export function readSocialEventClusterMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.socialEventCluster || null;
+}
+
+export function readRelationshipDeltaMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.relationshipDelta || null;
+}
+
+export function readRoomShiftMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.roomShift || null;
+}
+
+export function readMemoryCandidateMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.memoryCandidate || null;
+}
+
+export function readCandidateSuppressionMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.candidateSuppression || null;
+}
+
+export function readCalendarPatchApplyResultMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.calendarPatchApplyResult || null;
 }
 
 export function projectPrimaryRecentEvent(chat: GroupChat) {
@@ -431,6 +855,10 @@ function filterActionsByVisibility(actions: SessionActionDefinition[], context: 
   });
 }
 
+function resolveProjectionNow(now?: number) {
+  return typeof now === 'number' && Number.isFinite(now) ? Math.round(now) : Date.now();
+}
+
 export function projectActionSchema(engine: SessionEngineDefinition, context: SessionProjectionContext) {
   const schema = engine.getActionSchema?.({ conversation: context.conversation, participants: context.participants }) || null;
   if (!schema) return null;
@@ -449,6 +877,12 @@ export function createViewerRoleForConversation(conversation: GroupChat, viewerI
   if (conversation.type === 'direct') return 'user_private';
   if (conversation.type === 'ai_direct') return 'pair_private';
   if (conversation.memberIds.includes(viewerId)) return 'participant';
+  if ((conversation.operatorIds || []).includes(viewerId)) {
+    const subtype = inferSystemAgentSubtypeFromId(viewerId);
+    if (subtype === 'host' || subtype === 'moderator' || subtype === 'director') return 'moderator';
+    if (subtype === 'game_master') return 'moderator';
+    if (subtype === 'topic_guide') return 'moderator';
+  }
   return 'viewer';
 }
 
@@ -475,23 +909,111 @@ export function buildProjectedActionPanel(actions: SessionActionDefinition[], ti
   return { title, actions };
 }
 
-export function buildProjectedSessionActions(chat: GroupChat, actions: SessionActionDefinition[], members: AICharacter[] = []) {
+function buildAttentionFollowupActions(chat: GroupChat, members: AICharacter[], now?: number): SessionActionDefinition[] {
+  const effectiveNow = resolveProjectionNow(now);
+  if (chat.type !== 'group') return [];
+  const memberSet = new Set(chat.memberIds);
+  const aiMemberSet = new Set(members.map((member) => member.id).filter((id) => memberSet.has(id)));
+  const hasUserMember = memberSet.has('user');
+  const labelMap: Record<string, string> = {
+    private_message: '私聊问候',
+    ask_followup: '追问跟进',
+    check_in: '近况问候',
+    react_to_moment: '动态回应',
+    invite_activity: '活动邀约',
+    calendar_reminder: '日程提醒',
+    comfort: '安慰陪伴',
+    share_moment: '分享动态',
+  };
+  const rankedStates = projectWorldAttentionStates([chat], members, { now: effectiveNow })
+    .filter((state) => state.attentionScore > state.restraint)
+    .sort((left, right) => (right.attentionScore - right.restraint) - (left.attentionScore - left.restraint));
+
+  const userFollowups = hasUserMember
+    ? rankedStates
+      .filter((state) => state.targetId === 'user' && aiMemberSet.has(state.actorId))
+      .slice(0, 3)
+      .map((state) => ({
+        type: 'attention_followup_user',
+        actorId: state.actorId,
+        label: `${state.actorName} 跟进用户`,
+        description: `关注${Math.round(state.attentionScore * 100)}% / 克制${Math.round(state.restraint * 100)}%，优先动作：${state.suggestedActions.slice(0, 3).map((item) => labelMap[item] || item).join('、')}。${state.reasons[0] ? ` 触发原因：${state.reasons[0]}` : ''}`,
+        visibility: 'moderator_only',
+        fields: [
+          {
+            key: 'focus',
+            label: '跟进内容',
+            type: 'text',
+            required: false,
+            placeholder: '例如：先回应用户刚才的问题，再追问细节',
+          },
+        ],
+      }))
+    : [];
+
+  const memberFollowups = rankedStates
+    .filter((state) => state.targetId !== 'user' && aiMemberSet.has(state.actorId) && aiMemberSet.has(state.targetId))
+    .slice(0, 3)
+    .map((state) => ({
+      type: 'attention_followup_member',
+      actorId: state.actorId,
+      label: `${state.actorName} 跟进 ${state.targetName}`,
+      description: `关注${Math.round(state.attentionScore * 100)}% / 克制${Math.round(state.restraint * 100)}%，优先动作：${state.suggestedActions.slice(0, 3).map((item) => labelMap[item] || item).join('、')}。${state.reasons[0] ? ` 触发原因：${state.reasons[0]}` : ''}`,
+      visibility: 'moderator_only',
+      fields: [
+        {
+          key: 'targetId',
+          label: '跟进对象',
+          type: 'single_select',
+          required: true,
+          options: [{ value: state.targetId, label: state.targetName }],
+        },
+        {
+          key: 'focus',
+          label: '跟进内容',
+          type: 'text',
+          required: false,
+          placeholder: '例如：先接住对方刚才的观点，再追问关键细节',
+        },
+      ],
+    }));
+
+  return [...userFollowups, ...memberFollowups];
+}
+
+export function buildProjectedSessionActions(chat: GroupChat, actions: SessionActionDefinition[], members: AICharacter[] = [], now?: number) {
+  const effectiveNow = resolveProjectionNow(now);
   const injected = actions.find((action) => action.type === 'start_private_thread');
   if (chat.type !== 'group') return actions;
+  const chatMemberSet = new Set(chat.memberIds);
+  const scopedMembers = members.filter((member) => chatMemberSet.has(member.id));
+  const followupActions = buildAttentionFollowupActions(chat, members, effectiveNow);
+  const dedupedFollowupActions = followupActions.filter((candidate) => !actions.some((action) => {
+    if (action.type !== candidate.type || action.actorId !== candidate.actorId) return false;
+    const actionTargetId = action.fields?.find((field) => field.key === 'targetId')?.options?.[0]?.value;
+    const candidateTargetId = candidate.fields?.find((field) => field.key === 'targetId')?.options?.[0]?.value;
+    if (!actionTargetId && !candidateTargetId) return true;
+    return actionTargetId === candidateTargetId;
+  }));
   if (injected?.fields?.length) {
-    return [injected, ...actions.filter((action) => action !== injected && action.type !== 'start_private_thread')];
+    return [injected, ...dedupedFollowupActions, ...actions.filter((action) => action !== injected && action.type !== 'start_private_thread')];
   }
   const startPrivateThread: SessionActionDefinition = {
     type: 'start_private_thread',
     label: '发起 AI 私聊',
     description: '从群聊中手动选择两名成员，派生一条独立 AI 私聊。',
     fields: [
-      { key: 'actorId', label: '发起者', type: 'single_select', required: true, options: members.map((member) => ({ value: member.id, label: member.name })) },
-      { key: 'targetId', label: '对象', type: 'single_select', required: true, options: members.map((member) => ({ value: member.id, label: member.name })) },
+      { key: 'actorId', label: '发起者', type: 'single_select', required: true, options: scopedMembers.map((member) => ({ value: member.id, label: member.name })) },
+      { key: 'targetId', label: '对象', type: 'single_select', required: true, options: scopedMembers.map((member) => ({ value: member.id, label: member.name })) },
     ],
     visibility: 'public',
   };
-  return [startPrivateThread, ...actions.filter((action) => action.type !== 'start_private_thread')];
+  const canInjectPrivateThread = chat.governance.allowPrivateThreads && scopedMembers.length >= 2;
+  return [
+    ...(canInjectPrivateThread ? [startPrivateThread] : []),
+    ...dedupedFollowupActions,
+    ...actions.filter((action) => action.type !== 'start_private_thread'),
+  ];
 }
 
 export function buildProjectedActionPanelTitle(chat: GroupChat, schemaTitle?: string) {
@@ -523,6 +1045,7 @@ export function buildProjectedChatDetailState(params: {
   rightPanelTab: string;
   frameworkState: ProjectedSessionFrameworkState;
   speakAsChar?: { name?: string; layeredMemories?: Array<{ text: string }> } | null;
+  now?: number;
 }): ProjectedChatDetailState {
   const memberPanel = params.visiblePanels.find((panel) => panel.tabKey === 'members');
   const runtimePanel = params.visiblePanels.find((panel) => panel.tabKey === 'world');
@@ -549,7 +1072,7 @@ export function buildProjectedChatDetailState(params: {
     runtimeTabTitle: runtimePanel?.title || '运行态',
     privatePayloadTitle: params.chat.type === 'direct' ? '单聊信息' : '私有信息',
     sidebarChat: buildProjectedSidebarChat(params.chat, params.runtimeState, params.privatePayloads),
-    actionPanel: buildProjectedActionPanel(buildProjectedSessionActions(params.chat, actionList, params.members || []), buildProjectedActionPanelTitle(params.chat, params.schemaTitle) || '动作'),
+    actionPanel: buildProjectedActionPanel(buildProjectedSessionActions(params.chat, actionList, params.members || [], params.now), buildProjectedActionPanelTitle(params.chat, params.schemaTitle) || '动作'),
     composerSurfaces: buildProjectedComposerSurfaces(params.chat, params.frameworkState),
     compactCharacterMemorySummary: buildProjectedCompactMemorySummary(params.speakAsChar),
     speakAsSummary: buildProjectedSpeakAsSummary(params.speakAsChar),

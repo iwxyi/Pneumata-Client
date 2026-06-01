@@ -4,6 +4,7 @@ import { buildDefaultSessionSurfaceProjection, type GroupChat } from '../types/c
 import type { Message } from '../types/message';
 import type { SessionActionDefinition } from '../types/sessionEngine';
 import { buildDirectMemoryPanelContext } from '../services/promptBuilder';
+import { buildProjectedSessionActions } from '../services/sessionProjection';
 
 type SessionProjectionData = Awaited<ReturnType<typeof import('../services/sessionEngineKernel')['resolveSessionProjectionData']>>;
 type ProjectedChatDetailState = ReturnType<typeof import('../services/sessionProjection')['buildProjectedChatDetailState']>;
@@ -105,18 +106,38 @@ export function useChatSidebarProjection(params: {
   const actionSchema = projectionData?.actionSchema || null;
   const inputSurfaces = frameworkState?.surfaces.surfaces || [];
   const actionTabActions = useMemo(() => enrichParticipantActionOptions(actionSchema?.actions || [], members), [actionSchema, members]);
+  const calendarDraftApplyAction: SessionActionDefinition = useMemo(() => ({
+    type: 'apply_calendar_patch_drafts',
+    label: '应用日历冲突草案',
+    description: '将当前会话范围内的日历冲突修正草案批量写入运行时事件，并参与云同步。',
+    visibility: 'public',
+  }), []);
 
   const showMemberTab = projectedDetailState?.showMemberTab ?? true;
   const showRuntimeTab = projectedDetailState?.showRuntimeTab ?? true;
   const showActionTab = projectedDetailState?.showActionTab ?? (chat?.type === 'group');
-  const activeSidebarTab = projectedDetailState?.activeSidebarTab
+  const projectedActiveTab = projectedDetailState?.activeSidebarTab === 'actions'
+    ? 'activities'
+    : projectedDetailState?.activeSidebarTab;
+  const activeSidebarTab = projectedActiveTab
     || (showMemberTab && rightPanelTab === 'members' ? 'members'
       : showRuntimeTab && rightPanelTab === 'narrative' ? 'narrative'
       : showRuntimeTab && rightPanelTab === 'world' ? 'world'
+      : showActionTab && rightPanelTab === 'activities' ? 'activities'
         : showMemberTab ? 'members' : 'world');
   const memberTabTitle = projectedDetailState?.memberTabTitle || (chat?.type === 'group' ? '成员' : '角色');
   const runtimeTabTitle = projectedDetailState?.runtimeTabTitle || '运行态';
-  const sidebarTitle = projectedDetailState?.sidebarTitle || (activeSidebarTab === 'members' ? memberTabTitle : activeSidebarTab === 'actions' ? '动作' : activeSidebarTab === 'narrative' ? '叙事线' : runtimeTabTitle);
+  const projectedSidebarTitle = projectedDetailState?.sidebarTitle === '动作'
+    ? '活动'
+    : projectedDetailState?.sidebarTitle;
+  const sidebarTitle = projectedSidebarTitle
+    || (activeSidebarTab === 'members'
+      ? memberTabTitle
+      : activeSidebarTab === 'activities'
+        ? '活动'
+        : activeSidebarTab === 'narrative'
+          ? '叙事线'
+          : runtimeTabTitle);
   const runtimePanelLoading = !projectionData && Boolean(chat);
 
   const directMemoryPanelContext = useMemo(() => {
@@ -124,28 +145,21 @@ export function useChatSidebarProjection(params: {
     return buildDirectMemoryPanelContext(activeMembers[0], currentChatMessages, new Map(characters.map((item) => [item.id, item] as const)));
   }, [activeMembers, characters, chat, currentChatMessages]);
 
-  const manualPrivateThreadAction: SessionActionDefinition = useMemo(() => ({
-    type: 'start_private_thread',
-    label: '发起 AI 私聊',
-    description: '从群聊中手动选择两名成员，派生一条独立 AI 私聊。',
-    visibility: 'public',
-    fields: [
-      { key: 'actorId', label: '发起者', type: 'single_select', required: true, options: members.map((member) => ({ value: member.id, label: member.name })) },
-      { key: 'targetId', label: '对象', type: 'single_select', required: true, options: members.map((member) => ({ value: member.id, label: member.name })) },
-    ],
-  }), [members]);
-
-  const sessionActions = chat?.type === 'group'
-    ? [manualPrivateThreadAction, ...actionTabActions.filter((action) => action.type !== 'start_private_thread')]
-    : actionTabActions;
+  const sessionActions = useMemo(() => {
+    if (!chat) return actionTabActions;
+    if (chat.type !== 'group') return actionTabActions;
+    return [calendarDraftApplyAction, ...buildProjectedSessionActions(chat, actionTabActions.filter((action) => action.type !== 'apply_calendar_patch_drafts'), members)];
+  }, [actionTabActions, calendarDraftApplyAction, chat, members]);
   const projectedSidebarChat = useMemo(
     () => chat ? mergeProjectedRuntimeChat(chat, projectedDetailState?.sidebarChat.chat, projectedRuntimeState?.primaryRecentEvent) : null,
     [chat, projectedDetailState, projectedRuntimeState]
   );
-  const projectedActionPanelActions = useMemo(
-    () => enrichParticipantActionOptions(projectedDetailState?.actionPanel.actions || [], members),
-    [projectedDetailState, members]
-  );
+  const projectedActionPanelActions = useMemo(() => {
+    const projected = enrichParticipantActionOptions(projectedDetailState?.actionPanel.actions || [], members);
+    if (chat?.type !== 'group') return projected;
+    if (projected.some((action) => action.type === 'apply_calendar_patch_drafts')) return projected;
+    return [calendarDraftApplyAction, ...projected];
+  }, [calendarDraftApplyAction, chat?.type, members, projectedDetailState]);
   const actionPanelTitle = chat?.type === 'group' ? '动作与派生' : actionSchema?.title;
   const composerSurfaces = projectedDetailState?.composerSurfaces || (inputSurfaces.length ? inputSurfaces : (chat ? buildDefaultSessionSurfaceProjection(chat).surfaces : []));
 

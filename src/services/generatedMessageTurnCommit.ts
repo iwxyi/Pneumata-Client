@@ -7,6 +7,13 @@ import { persistStreamingMessage } from './chatCommitMessage';
 import { buildGeneratedTurnContent, splitGeneratedRoundMessage } from './generatedMessageSegmenter';
 import { runPersistedSessionCommitRuntime, runSessionCommitPipeline, type SessionCommitPipelineResult } from './sessionCommitPipeline';
 
+function resolveTurnBaseTimestamp(message: GeneratedRoundMessage) {
+  const metadata = message.metadata as Record<string, unknown> | undefined;
+  const candidate = metadata?.generatedAt;
+  if (typeof candidate === 'number' && Number.isFinite(candidate)) return Math.round(candidate);
+  return Date.now();
+}
+
 export async function commitGeneratedMessageTurn(params: {
   api: APIConfig;
   chatId: string;
@@ -42,7 +49,7 @@ export async function commitGeneratedMessageTurn(params: {
   const results: SessionCommitPipelineResult[] = [];
 
   if (segments.length > 1) {
-    const baseTimestamp = Date.now();
+    const baseTimestamp = resolveTurnBaseTimestamp(params.message);
     const persistedSegments: Message[] = [];
     for (let index = 0; index < segments.length; index += 1) {
       const persisted = await persistStreamingMessage({

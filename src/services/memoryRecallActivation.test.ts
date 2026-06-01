@@ -275,4 +275,24 @@ describe('applyRecalledMemoryActivation', () => {
     expect(recalled?.recallReason).toContain('灰太狼');
     expect(recalled?.matchedTokens).toEqual(expect.arrayContaining(['灰太狼', '追问']));
   });
+
+  it('uses injected now for deterministic activation timestamps', () => {
+    const oldMemory = memory({});
+    const transition: DriverMessageCommitTransition = { chatPatch: {}, characterPatches: [], runtimeEvents: [] };
+    const result = applyRecalledMemoryActivation({
+      chat: buildChat(),
+      characters: [character([oldMemory]), character([]) as AICharacter],
+      message: message('你这次别又雨夜失约。'),
+      recentMessages: [message('今天又下雨了。'), { ...message('我不会失约'), senderId: 'char-b', senderName: '乙' }],
+      transition,
+      now: 1777000000000,
+    });
+    const patch = result.characterPatches.find((item) => item.characterId === 'char-a')?.patch;
+    const activated = patch?.layeredMemories?.find((item) => item.id === oldMemory.id);
+
+    expect(activated?.lastActivatedAt).toBe(1777000000000);
+    expect(activated?.updatedAt).toBe(1777000000000);
+    expect(patch?.runtimeTimeline?.at(-1)?.createdAt).toBe(1777000000000);
+    expect(result.runtimeEvents[0]?.createdAt).toBe(1777000000000);
+  });
 });

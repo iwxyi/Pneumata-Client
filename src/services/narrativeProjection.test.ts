@@ -48,7 +48,7 @@ function buildMessage(patch: Partial<Message>): Message {
     senderName: patch.senderName || '甲',
     content: patch.content || '',
     emotion: 0,
-    timestamp: patch.timestamp || 1,
+    timestamp: patch.timestamp ?? 1,
     isDeleted: false,
   };
 }
@@ -96,6 +96,16 @@ function memory(overrides: Partial<MemoryItem>): MemoryItem {
 }
 
 describe('projectNarrativeLines', () => {
+  it('keeps explicit now=0 without falling back to Date.now', () => {
+    const lines = projectNarrativeLines({
+      chat: buildChat(),
+      messages: [buildMessage({ content: '你又来了。', timestamp: 0 })],
+      now: 0,
+    });
+    const topic = lines.find((line) => line.id === 'topic:latest');
+    expect(topic?.lastTouchedAt).toBe(0);
+  });
+
   it('projects the primary conflict as the highest-salience line', () => {
     const lines = projectNarrativeLines({
       chat: buildChat({

@@ -17,6 +17,12 @@ export interface GuidanceExecutionOptions {
   };
 }
 
+export interface GuidanceProgressSnapshot {
+  matchedMessages: Message[];
+  completedActorIds: Set<string>;
+  consumedTurns: number;
+}
+
 const GUIDANCE_STOP_WORDS = new Set([
   '新话题',
   '换话题',
@@ -168,9 +174,38 @@ function getMessageRuntimeGuidance(message: Pick<Message, 'metadata'>): UserGuid
   return guidance as UserGuidanceIntent;
 }
 
+function getMessageGuidanceExecutionStatus(message: Pick<Message, 'metadata'>) {
+  return message.metadata?.runtimeDecision?.guidanceExecution || null;
+}
+
 function isSameGuidance(left: UserGuidanceIntent | null | undefined, right: UserGuidanceIntent | null | undefined) {
   if (!left || !right) return false;
   return left.kind === right.kind && left.rawText === right.rawText;
+}
+
+export function isGuidanceSatisfiedByMessage(message: Message, guidance: UserGuidanceIntent, characters?: AICharacter[]) {
+  if (message.type !== 'ai' || message.isDeleted) return false;
+  const execution = getMessageGuidanceExecutionStatus(message);
+  if (execution?.status === 'accepted' && execution.validated && isSameGuidance(getMessageRuntimeGuidance(message), guidance)) {
+    return true;
+  }
+  return evaluateGuidanceMessage(message, guidance, characters).matched;
+}
+
+export function collectGuidanceProgressAfterTimestamp(
+  messages: Message[],
+  timestamp: number,
+  guidance: UserGuidanceIntent,
+  characters?: AICharacter[],
+): GuidanceProgressSnapshot {
+  const matchedMessages = messages
+    .filter((message) => message.timestamp > timestamp && isGuidanceSatisfiedByMessage(message, guidance, characters))
+    .sort((left, right) => left.timestamp - right.timestamp);
+  return {
+    matchedMessages,
+    completedActorIds: new Set(matchedMessages.map((message) => message.senderId)),
+    consumedTurns: matchedMessages.length,
+  };
 }
 
 function imageAttachmentMatchesGuidance(message: Pick<Message, 'metadata'>, guidance: UserGuidanceIntent, characters?: AICharacter[]) {

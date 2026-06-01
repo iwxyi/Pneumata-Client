@@ -17,6 +17,7 @@ export interface ChatDraftInput {
   style: ChatStyle;
   runtimeEvolutionIntensity: RuntimeEvolutionIntensity;
   memberIds: string[];
+  operatorIds?: string[];
   showRoleActions: boolean;
   seedMemoryText: string;
   seedArtifactText: string;
@@ -34,6 +35,38 @@ export interface ChatDraftInput {
   allowDirectorMode: boolean;
   allowEventInjection: boolean;
   allowForcedReply: boolean;
+}
+
+export function composeGroupMemberIds(memberIds: string[], includeUserAsMember: boolean) {
+  const normalized = stripUserMemberId(memberIds);
+  if (!includeUserAsMember) return normalized;
+  return Array.from(new Set([...normalized, 'user']));
+}
+
+export function stripUserMemberId(memberIds: string[]) {
+  return Array.from(new Set(memberIds.filter((id) => id && id !== 'user')));
+}
+
+export interface OperatorIdsNormalizationResult {
+  normalizedIds: string[];
+  effectiveIds: string[];
+  filteredCount: number;
+}
+
+export function normalizeOperatorIdsInput(rawValue: string, memberIds: string[]): OperatorIdsNormalizationResult {
+  const normalizedMemberIds = new Set(Array.from(new Set(memberIds.filter(Boolean))));
+  const normalizedIds = Array.from(new Set(
+    rawValue
+      .split(/[,\n，]/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+  ));
+  const effectiveIds = normalizedIds.filter((id) => id !== 'user' && !normalizedMemberIds.has(id));
+  return {
+    normalizedIds,
+    effectiveIds,
+    filteredCount: normalizedIds.length - effectiveIds.length,
+  };
 }
 
 function buildRuntimeSeed(input: Pick<ChatDraftInput, 'seedMemoryText' | 'seedArtifactText'>) {
@@ -68,6 +101,7 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
     style: input.style,
     runtimeEvolutionIntensity: input.runtimeEvolutionIntensity,
     memberIds: input.memberIds,
+    operatorIds: input.operatorIds || [],
     speed: 1,
     isActive: false,
     allowIntervention: true,

@@ -64,7 +64,11 @@ function getLatestVisibleMessage(messages: Message[]) {
 }
 
 function isHumanGuidanceMessage(message: Message | null | undefined): message is Message {
-  return message?.type === 'user' || message?.type === 'god';
+  if (!message) return false;
+  if (message.type === 'god') return true;
+  // "speak as" user messages are character participation, not topic guidance.
+  if (message.type === 'user' && message.metadata?.manualSpeaker) return false;
+  return message.type === 'user';
 }
 
 function getLatestAiMessage(messages: Message[]) {

@@ -2,6 +2,8 @@ import { toRelationshipLedgerRecentEvent, type InteractionEventPayload, type Rel
 
 const MAX_RELATIONSHIP_AXIS_REASONS = 6;
 const MAX_RELATIONSHIP_RECENT_EVENTS = 8;
+const RELATIONSHIP_MIN_CONFIDENCE = 0.85;
+const RELATIONSHIP_MIN_INTENSITY = 2;
 
 export const RELATIONSHIP_BASELINE = {
   warmth: 0,
@@ -226,13 +228,17 @@ export function getDominantRelationshipSummary(current: RelationshipLedgerEntry[
 
 function passesInteractionGate(interaction: InteractionEventPayload, delta: RelationshipDeltaPayload | null) {
   if (!delta) return false;
-  if (interaction.intensity < 2 || interaction.confidence < 0.85) return false;
+  if (interaction.intensity < RELATIONSHIP_MIN_INTENSITY || interaction.confidence < RELATIONSHIP_MIN_CONFIDENCE) return false;
   if (!delta.actorId || !delta.targetId || delta.actorId === delta.targetId) return false;
   if (/^draft-\d+$/i.test(delta.actorId) || /^draft-\d+$/i.test(delta.targetId)) return false;
   if (!hasMeaningfulEvidence(interaction)) return false;
   if (interaction.kind === 'support' && interaction.intensity < 3) return false;
   if ((interaction.kind === 'challenge' || interaction.kind === 'probe') && interaction.intensity < 3) return false;
   return true;
+}
+
+export function canApplyRelationshipInteraction(interaction: InteractionEventPayload, delta: RelationshipDeltaPayload | null) {
+  return passesInteractionGate(interaction, delta);
 }
 
 export function inferRelationshipDelta(interaction: InteractionEventPayload): RelationshipDeltaPayload | null {
@@ -330,6 +336,7 @@ export function reduceRelationshipLedger(entries: RelationshipLedgerEntry[], int
   const delta = maybeDelta;
   const key = pairKey(delta.actorId, delta.targetId);
   const existing = entries.find((entry) => entry.pairKey === key);
+  if (existing?.recentEvents?.some((event) => event.id === evidenceEvent.id)) return entries;
   const normalizedExisting = normalizeRuntimeEntryForComputation(existing);
   const current = getCurrentOrBaseline(normalizedExisting);
   const nextCurrent = applyContradictionCheck(normalizedExisting, {

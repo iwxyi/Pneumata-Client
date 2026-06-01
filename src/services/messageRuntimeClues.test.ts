@@ -194,12 +194,14 @@ describe('messageRuntimeClues', () => {
     expect(guidance?.items).toEqual(expect.arrayContaining([
       '类型：媒体请求',
       '执行角色：美羊羊',
+      '执行身份：角色',
       '图片对象：灰太狼',
     ]));
     const execution = sections.find((section) => section.key === 'guidance_execution');
     expect(execution).toMatchObject({
       label: '引导执行',
-      statusLabel: '已通过',
+      statusKind: 'applied_signal',
+      statusLabel: '重试后执行',
     });
     expect(execution?.items).toEqual(expect.arrayContaining([
       '状态：重试后执行',
@@ -211,6 +213,121 @@ describe('messageRuntimeClues', () => {
     expect(prompt).toContain('用户引导：类型：媒体请求');
     expect(prompt).toContain('引导执行：状态：重试后执行');
     expect(prompt).not.toContain('missing_requested_image');
+  });
+
+  it('marks failed guidance execution as actionable diagnostics', () => {
+    const message: Pick<Message, 'metadata'> = {
+      metadata: {
+        runtimeDecision: {
+          directorIntent: {
+            source: 'user_message',
+            beatType: 'answer',
+            pressure: 0.95,
+            reason: '用户指定角色先回答新问题。',
+            targetActorIds: ['mei'],
+            userGuidance: {
+              kind: 'topic_shift',
+              rawText: '新话题：狼抓羊有过错吗？',
+              actorIds: [],
+              mentionedActorIds: ['mei'],
+              focusText: '狼抓羊有过错吗？',
+              beatType: 'answer',
+              pressure: 0.95,
+              maxTurns: 1,
+              reason: '用户要求先回答新问题。',
+            },
+          },
+          guidanceExecution: {
+            status: 'failed_after_retry',
+            validated: false,
+            retryCount: 2,
+            rejectedDraftCount: 2,
+            rejectedReasons: ['missing_question_answer'],
+            finalReason: 'missing_question_answer',
+            forcedMediaQueued: false,
+          },
+        },
+      },
+    };
+    const sections = projectMessageRuntimeClues(message, [{ id: 'mei', name: '美羊羊' }]);
+    const execution = sections.find((section) => section.key === 'guidance_execution');
+    expect(execution).toMatchObject({
+      statusKind: 'debug_explanation',
+      statusLabel: '重试后仍偏航',
+    });
+    expect(execution?.items).toEqual(expect.arrayContaining([
+      '状态：重试后仍偏航',
+      '重试：2 次',
+      '丢弃原因：没有先回答新问题',
+      '最终校验：没有先回答新问题',
+    ]));
+  });
+
+  it('degrades unknown guidance member ids to generic member labels', () => {
+    const message: Pick<Message, 'metadata'> = {
+      metadata: {
+        runtimeDecision: {
+          directorIntent: {
+            source: 'user_message',
+            beatType: 'answer',
+            pressure: 0.9,
+            reason: '用户点名角色回应。',
+            targetActorIds: ['unknown-actor'],
+            userGuidance: {
+              kind: 'direct_reply',
+              rawText: 'unknown 说说看',
+              actorIds: ['unknown-actor'],
+              mentionedActorIds: ['unknown-actor'],
+              focusText: 'unknown 说说看',
+              beatType: 'answer',
+              pressure: 0.9,
+              maxTurns: 1,
+              reason: '用户点名角色回应。',
+            },
+          },
+        },
+      },
+    };
+    const sections = projectMessageRuntimeClues(message, [{ id: 'mei', name: '美羊羊' }]);
+    const guidance = sections.find((section) => section.key === 'guidance');
+    expect(guidance?.items).toEqual(expect.arrayContaining([
+      '执行角色：成员',
+      '执行身份：系统',
+    ]));
+    expect((guidance?.items || []).join(' / ')).not.toContain('unknown-actor');
+  });
+
+  it('projects user guidance actor identity as 用户', () => {
+    const message: Pick<Message, 'metadata'> = {
+      metadata: {
+        runtimeDecision: {
+          directorIntent: {
+            source: 'user_message',
+            beatType: 'answer',
+            pressure: 0.9,
+            reason: '用户自己补充说明。',
+            targetActorIds: ['user'],
+            userGuidance: {
+              kind: 'direct_reply',
+              rawText: '我先补充一下背景',
+              actorIds: ['user'],
+              mentionedActorIds: ['user'],
+              focusText: '我先补充一下背景',
+              beatType: 'answer',
+              pressure: 0.9,
+              maxTurns: 1,
+              reason: '用户自己补充说明。',
+            },
+          },
+        },
+      },
+    };
+    const sections = projectMessageRuntimeClues(message, [{ id: 'mei', name: '美羊羊' }]);
+    const guidance = sections.find((section) => section.key === 'guidance');
+    expect(guidance?.items).toEqual(expect.arrayContaining([
+      '执行角色：成员',
+      '执行身份：用户',
+    ]));
   });
 
   it('marks expression feedback as retrieved or applied without treating it as a hard fact', () => {

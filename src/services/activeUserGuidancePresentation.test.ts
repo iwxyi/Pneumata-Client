@@ -101,14 +101,15 @@ describe('activeUserGuidancePresentation', () => {
 
     expect(projection).toMatchObject({
       title: '图片请求：灰太狼',
-      sourceLabel: '开发者引导',
+      sourceLabel: '话题引导',
       statusLabel: '显式请求',
       emphasisLabel: '等待 美羊羊 发出 灰太狼 的图片',
       effectText: '美羊羊需要先完成这次图片请求，图片对象是灰太狼；非目标角色不会抢占这次请求。',
       warning: '被点名角色没有可用图片模型，无法真正生成图片。',
     });
     expect(projection?.detailRows).toEqual(expect.arrayContaining([
-      { label: '锁定角色', value: '美羊羊', tone: 'primary' },
+      { label: '目标角色', value: '美羊羊', tone: 'primary' },
+      { label: '完成状态', value: '待回应：美羊羊', tone: 'warning' },
       { label: '图片对象', value: '灰太狼', tone: 'neutral' },
       { label: '图片能力', value: '未配置图片模型', tone: 'warning' },
     ]));
@@ -125,7 +126,8 @@ describe('activeUserGuidancePresentation', () => {
     });
 
     expect(projection?.detailRows).toEqual(expect.arrayContaining([
-      { label: '锁定角色', value: '美羊羊', tone: 'primary' },
+      { label: '目标角色', value: '美羊羊', tone: 'primary' },
+      { label: '完成状态', value: '待回应：美羊羊', tone: 'warning' },
       { label: '记忆对象', value: '灰太狼', tone: 'neutral' },
     ]));
     expect(projection?.chips).toEqual(expect.arrayContaining(['点名回应', '待回应：美羊羊', '执行：美羊羊', '记忆对象：灰太狼']));
@@ -153,6 +155,35 @@ describe('activeUserGuidancePresentation', () => {
       { label: '调度要求', value: '先回应新问题，旧梗只作收束', tone: 'neutral' },
     ]));
     expect(projection?.chips).toEqual(expect.arrayContaining(['话题引导', '旧话题已覆盖', '先回答新问题', '旧梗收束']));
+  });
+
+  it('marks source as user member speech when user is in chat members', () => {
+    const projection = projectActiveUserGuidance({
+      chat: buildChat({ memberIds: ['user', 'mei', 'hui'] }),
+      members,
+      messages: [buildMessage({ type: 'user', senderId: 'user', senderName: '我', content: '新话题：今晚还继续讨论这个方案吗？', timestamp: 40 })],
+      aiProfiles: [],
+      now: 50,
+    });
+    expect(projection?.sourceLabel).toBe('用户成员发言');
+  });
+
+  it('does not treat manual speak-as messages as active guidance source', () => {
+    const projection = projectActiveUserGuidance({
+      chat: buildChat({ memberIds: ['mei', 'hui'] }),
+      members,
+      messages: [buildMessage({
+        type: 'user',
+        senderId: 'mei',
+        senderName: '美羊羊',
+        content: '新话题：我们先对齐约定。',
+        timestamp: 40,
+        metadata: { manualSpeaker: { actorId: 'mei', actorName: '美羊羊' } },
+      })],
+      aiProfiles: [],
+      now: 50,
+    });
+    expect(projection).toBeNull();
   });
 
   it('shows only unanswered requested actors for multi-actor guidance', () => {
@@ -207,9 +238,11 @@ describe('activeUserGuidancePresentation', () => {
 
     expect(projection?.chips).toEqual(expect.arrayContaining(['待回应：灰太狼', '已回应：美羊羊', '图片能力可用']));
     expect(projection?.detailRows).toEqual(expect.arrayContaining([
-      { label: '锁定角色', value: '灰太狼', tone: 'primary' },
+      { label: '目标角色', value: '灰太狼', tone: 'primary' },
+      { label: '完成状态', value: '待回应：灰太狼', tone: 'success' },
       { label: '已完成', value: '美羊羊', tone: 'success' },
     ]));
+    expect(projection?.debugChips).toEqual(expect.arrayContaining(['已消耗 1 轮']));
     expect(projection?.warning).toBeUndefined();
   });
 
@@ -227,9 +260,55 @@ describe('activeUserGuidancePresentation', () => {
 
     expect(projection?.emphasisLabel).toBe('等待 美羊羊 发出 灰太狼 的图片');
     expect(projection?.detailRows).toEqual(expect.arrayContaining([
-      { label: '锁定角色', value: '美羊羊', tone: 'primary' },
+      { label: '目标角色', value: '美羊羊', tone: 'primary' },
+      { label: '完成状态', value: '待回应：美羊羊', tone: 'warning' },
       { label: '图片能力', value: '图片能力可用', tone: 'success' },
     ]));
     expect(projection?.chips).toEqual(expect.not.arrayContaining(['已回应：美羊羊']));
+  });
+
+  it('renders system-agent operator targets with semantic labels instead of generic member fallback', () => {
+    const projection = projectActiveUserGuidance({
+      chat: buildChat({
+        memberIds: ['mei', 'hui'],
+        runtimeEventsV2: [{
+          id: 'evt-op',
+          conversationId: 'chat-1',
+          kind: 'director_intervention',
+          createdAt: 20,
+          summary: '主持人先接住流程',
+          visibility: 'moderator_only',
+          payload: {
+            intent: 'force_reply',
+            targetActorIds: ['host_moderator'],
+            pressure: 0.92,
+            text: '主持人先接住流程',
+            maxTurns: 2,
+            expiresAt: 1000,
+            userGuidance: {
+              kind: 'direct_reply',
+              rawText: '主持人先接住流程',
+              actorIds: ['host_moderator'],
+              mentionedActorIds: ['host_moderator'],
+              mediaRequest: null,
+              focusText: '主持人先接住流程',
+              beatType: 'answer',
+              pressure: 0.92,
+              maxTurns: 2,
+              reason: '用户指定角色优先回应。',
+            },
+          },
+        }],
+      }),
+      members,
+      messages: [buildMessage({ type: 'god', senderName: '开发者', content: '主持人先接住流程', timestamp: 20 })],
+      aiProfiles: [],
+      now: 30,
+    });
+
+    expect(projection?.chips).toEqual(expect.arrayContaining(['待回应：主持人', '执行：主持人']));
+    expect(projection?.detailRows).toEqual(expect.arrayContaining([{ label: '目标角色', value: '主持人', tone: 'primary' }]));
+    expect(projection?.detailRows).toEqual(expect.arrayContaining([{ label: '完成状态', value: '待回应：主持人', tone: 'warning' }]));
+    expect(projection?.chips).toEqual(expect.not.arrayContaining(['待回应：成员']));
   });
 });

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Message } from '../types/message';
-import { persistLocalFirstMessage } from './chatCommitMessage';
+import { createCommittedLocalMessage, persistLocalFirstMessage } from './chatCommitMessage';
 import { api } from './api';
 
 vi.mock('./api', () => ({
@@ -235,5 +235,19 @@ describe('persistLocalFirstMessage', () => {
     expect(upserts[0]?.metadata?.withdrawal?.visiblePending).toBe(true);
     expect(upserts[1]?.content).toBe('甲撤回了一条消息');
     expect(upserts[1]?.metadata?.withdrawal?.visiblePending).toBeUndefined();
+  });
+
+  it('builds deterministic local ids for identical payload + timestamp', () => {
+    const payload = {
+      chatId: 'chat-1',
+      type: 'ai' as const,
+      senderId: 'char-1',
+      senderName: '甲',
+      content: '同一条消息',
+      emotion: 0,
+    };
+    const first = createCommittedLocalMessage(payload, { timestamp: 123456 });
+    const second = createCommittedLocalMessage(payload, { timestamp: 123456 });
+    expect(first.id).toBe(second.id);
   });
 });

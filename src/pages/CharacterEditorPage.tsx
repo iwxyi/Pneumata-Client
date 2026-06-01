@@ -4,10 +4,15 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
+import { useChatStore } from '../stores/useChatStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import CharacterForm from '../components/character/CharacterForm';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import FloatingSegmentedTabs from '../components/common/FloatingSegmentedTabs';
+import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
 import { enqueueAvatarGenerationForCharacter } from '../services/avatarGeneration';
+import { initializeDefaultRelationshipsForCreatedCharacters } from '../services/defaultRelationshipInitializer';
+import { getPreferredAIProfile } from '../types/settings';
 
 export default function CharacterEditorPage() {
   const { t, i18n } = useTranslation();
@@ -19,12 +24,16 @@ export default function CharacterEditorPage() {
   const editId = isCreate ? null : (id || null);
   const settings = useSettingsStore();
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
-  const { characters, loadCharacters, addCharacter, updateCharacter, deleteCharacter, initializePresets } = useCharacterStore();
+  const { characters, loadCharacters, addCharacter, updateCharacter, updateCharacters, deleteCharacter, initializePresets } = useCharacterStore();
+  const chats = useChatStore((state) => state.chats);
+  const loadChats = useChatStore((state) => state.loadChats);
+  const updateChatSession = useChatStore((state) => state.updateChat);
   const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const characterDataReady = bootstrapComplete || characters.length > 0;
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
+  const [editorTab, setEditorTab] = useState<'edit' | 'activities'>('edit');
 
   const goBack = useCallback(() => {
     if (returnTo) {
@@ -39,7 +48,7 @@ export default function CharacterEditorPage() {
     if (characters.length > 0) {
       return undefined;
     }
-    void loadCharacters()
+    void Promise.all([loadCharacters(), loadChats()])
       .then(() => initializePresets())
       .finally(() => {
         if (!cancelled) setBootstrapComplete(true);
@@ -47,7 +56,11 @@ export default function CharacterEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [characters.length, initializePresets, loadCharacters]);
+  }, [characters.length, initializePresets, loadCharacters, loadChats]);
+
+  useEffect(() => {
+    void loadChats();
+  }, [loadChats]);
 
   const editChar = useMemo(() => (editId ? characters.find((character) => character.id === editId) : undefined), [characters, editId]);
   const headerTitle = useMemo(() => {
@@ -58,6 +71,7 @@ export default function CharacterEditorPage() {
 
   useEffect(() => {
     setDraftName('');
+    setEditorTab('edit');
   }, [editId]);
 
   useEffect(() => {
@@ -100,40 +114,80 @@ export default function CharacterEditorPage() {
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, width: '100%', maxWidth: 'none', mx: 'auto' }}>
-      <CharacterForm
-        key={editId || 'create'}
-        initial={editChar}
-        existingNames={characters.map((character) => character.name)}
-        saveError={saveError}
-        onDraftNameChange={setDraftName}
-        onDelete={editId ? () => setDeleteOpen(true) : undefined}
-        deleteLabel={t('common.delete')}
-        onSave={async (data) => {
-          setSaveError(null);
-          try {
-            if (editId) {
-              await updateCharacter(editId, data);
-            } else {
-              const created = await addCharacter(data);
-              if (settings.avatarGeneration.autoGenerateCharacterAvatar && data.generatedByAI) {
-                try {
-                  enqueueAvatarGenerationForCharacter(created, settings.aiProfiles, i18n.language.startsWith('zh') ? 'zh' : 'en', settings.avatarGeneration);
-                } catch (error) {
-                  console.error('[character-editor:auto-avatar:error]', error);
+      {editId ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+          <FloatingSegmentedTabs
+            value={editorTab}
+            items={[
+              { value: 'edit', label: i18n.language.startsWith('zh') ? '编辑' : 'Edit' },
+              { value: 'activities', label: i18n.language.startsWith('zh') ? '活动' : 'Activities' },
+            ]}
+            onChange={setEditorTab}
+            equalWidth={false}
+            comfortable={false}
+          />
+        </Box>
+      ) : null}
+
+      {editorTab === 'activities' && editId ? (
+        <WorldCalendarPanel
+          chats={chats}
+          characters={characters}
+          updateChat={updateChatSession}
+          isZh={i18n.language.startsWith('zh')}
+          actorId={editId}
+          title={i18n.language.startsWith('zh') ? '角色活动日历' : 'Character Activities'}
+          subtitle={i18n.language.startsWith('zh') ? '该角色在所有会话中的活动与日程。' : 'Activities and schedule for this character across conversations.'}
+          showHeader
+        />
+      ) : (
+        <CharacterForm
+          key={editId || 'create'}
+          initial={editChar}
+          existingNames={characters.map((character) => character.name)}
+          saveError={saveError}
+          onDraftNameChange={setDraftName}
+          onDelete={editId ? () => setDeleteOpen(true) : undefined}
+          deleteLabel={t('common.delete')}
+          onSave={async (data) => {
+            setSaveError(null);
+            try {
+              if (editId) {
+                await updateCharacter(editId, data);
+              } else {
+                const created = await addCharacter(data);
+                const profile = getPreferredAIProfile(settings.aiProfiles, 'text');
+                if (profile?.apiKey && profile.model) {
+                  void initializeDefaultRelationshipsForCreatedCharacters({
+                    config: profile,
+                    createdCharacters: [created],
+                    allCharacters: [...characters, created],
+                    language: i18n.language.startsWith('zh') ? 'zh' : 'en',
+                    updateCharacters,
+                  }).catch((error) => {
+                    console.error('[character-editor:default-relationships:error]', error);
+                  });
+                }
+                if (settings.avatarGeneration.autoGenerateCharacterAvatar && data.generatedByAI) {
+                  try {
+                    enqueueAvatarGenerationForCharacter(created, settings.aiProfiles, i18n.language.startsWith('zh') ? 'zh' : 'en', settings.avatarGeneration);
+                  } catch (error) {
+                    console.error('[character-editor:auto-avatar:error]', error);
+                  }
                 }
               }
+              goBack();
+            } catch (error) {
+              if (error instanceof Error && error.message === 'DUPLICATE_CHARACTER_NAME') {
+                setSaveError(duplicateNameErrorText);
+                return;
+              }
+              throw error;
             }
-            goBack();
-          } catch (error) {
-            if (error instanceof Error && error.message === 'DUPLICATE_CHARACTER_NAME') {
-              setSaveError(duplicateNameErrorText);
-              return;
-            }
-            throw error;
-          }
-        }}
-        onCancel={goBack}
-      />
+          }}
+          onCancel={goBack}
+        />
+      )}
 
       <ConfirmDialog
         open={deleteOpen}

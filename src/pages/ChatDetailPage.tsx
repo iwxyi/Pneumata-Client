@@ -17,11 +17,9 @@ import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
 import { type DriverMessageCommitResult, type GroupChat } from '../types/chat';
-import type { SessionNormalizedIntentResult } from '../types/sessionEngine';
 import MessageList from '../components/chat/MessageList';
 import { MessageAnalysisDialog } from '../components/chat/MessageAnalysisDialog';
 import SessionComposerHost from '../components/session/SessionComposerHost';
-import { buildActionRuntimeContract, buildRuntimeEventContract } from '../services/sessionRuntimeContract';
 import RightPanel from '../components/layout/RightPanel';
 import GlassHeader from '../components/layout/GlassHeader';
 import { buildRuntimeEventMessageContent, normalizeRuntimeEvent } from '../services/runtimeEventFactory';
@@ -37,11 +35,16 @@ import { useStreamingMessageState } from '../hooks/useStreamingMessageState';
 import { useChatRunLoop } from '../hooks/useChatRunLoop';
 import { useChatSidebarProjection } from '../hooks/useChatSidebarProjection';
 import { useMessageAnalysis } from '../hooks/useMessageAnalysis';
+import { useChatSurfaceActions } from '../hooks/useChatSurfaceActions';
+import { useChatAutoSocialFlow } from '../hooks/useChatAutoSocialFlow';
 import { runDirectUserReplyFlow } from '../services/directUserReplyFlow';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
+import SessionInfoCards from '../components/chat/SessionInfoCards';
+import { projectSessionInfoCards } from '../services/sessionInfoProjection';
 import { useResponsive } from '../hooks/useResponsive';
 import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
+import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -86,10 +89,13 @@ function buildLocalInterceptionSummary(event: LocalInterceptionEvent) {
   return `拦截了${event.speakerName || '角色'}的发言：${compactInterceptedDraft(event.draft)}（原因：${localizeLocalInterceptionReason(event.reason)}）`;
 }
 
+type SidebarTabValue = 'members' | 'narrative' | 'world' | 'activities';
+
 export default function ChatDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const isZh = i18n.language.startsWith('zh');
   const { isMobile, isDesktop } = useResponsive();
   const pane = usePaneLayout();
   const isSplitDetailPane = pane.role === 'detail';
@@ -114,7 +120,6 @@ export default function ChatDetailPage() {
   const isPausedRef = useRef(false);
   const loadingMoreRef = useRef(false);
   const activeChatIdRef = useRef<string | null>(id ?? null);
-  const lastAutoThreadCandidateIdRef = useRef<string | null>(null);
   const isManualInputPendingRef = useRef<() => boolean>(() => false);
   const {
     streamingMessageRef,
@@ -137,6 +142,10 @@ export default function ChatDetailPage() {
   }, [loadCharacters, loadChats, markCharactersWarm, markChatsWarm]);
 
   const chat = chats.find((c) => c.id === id);
+  const sessionInfoCards = useMemo(() => {
+    if (!chat) return [];
+    return projectSessionInfoCards({ chat, chats, isZh: true });
+  }, [chat, chats]);
   const currentChatMessages = useCurrentChatMessages({ chatId: id, activeMessages: messages, cachedWindows: messageWindowsByChatId });
   const {
     analysisDialogOpen,
@@ -193,6 +202,10 @@ export default function ChatDetailPage() {
     rightPanelTab,
     speakAsChar,
   });
+  const sidebarTabValue = activeSidebarTab === 'actions' ? 'activities' : activeSidebarTab;
+  const handleSidebarTabChange = useCallback((value: SidebarTabValue) => {
+    setRightPanelTab(value === 'activities' ? 'actions' : value);
+  }, [setRightPanelTab]);
   void dramaBoost;
   void rightPanelOpen;
 
@@ -295,23 +308,6 @@ export default function ChatDetailPage() {
     });
   }, [appendEventMessageStable, chat?.id, showLocalInterceptionHints]);
 
-  const triggerPairPrivateThread = useCallback(async (sourceChat: GroupChat, actorId: string, targetId: string, navigateAfterCreate = false) => {
-    if (!actorId || !targetId || actorId === targetId) return null;
-    const { createAiPrivateThread } = await import('../services/directSessionRuntime');
-    const privateChat = await createAiPrivateThread({
-      sourceChat,
-      chats,
-      characters,
-      starterId: actorId,
-      targetId,
-      addChat: async (input) => useChatStore.getState().addChat(input),
-      addMessage: addMessageStable,
-      appendEventMessage: appendEventMessageStable,
-    });
-    if (privateChat && navigateAfterCreate) navigate(`/chats/${privateChat.id}`);
-    return privateChat;
-  }, [addMessage, appendEventMessage, characters, chats, navigate]);
-
   const handleStartDirectChat = useCallback(async (characterId: string) => {
     const character = characters.find((item) => item.id === characterId);
     if (!character) return;
@@ -327,34 +323,6 @@ export default function ChatDetailPage() {
       setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
     }
   }, [characters, chats, navigate, t]);
-
-  const runSessionAction = useCallback(async (action: { type: string; actorId?: string }, payload: Record<string, unknown>) => {
-    if (!chat) return;
-    if (action.type === 'start_private_thread') {
-      const actorId = typeof payload.actorId === 'string' ? payload.actorId : action.actorId || '';
-      const targetId = typeof payload.targetId === 'string' ? payload.targetId : '';
-      if (!actorId || !targetId || actorId === targetId) return;
-      await triggerPairPrivateThread(chat, actorId, targetId, true);
-      return;
-    }
-
-    const { buildDefaultActionIntent, buildSessionIntentSummary } = await import('../types/sessionEngine');
-    const intent = buildDefaultActionIntent(action.type, payload, action.actorId);
-    const summary = `${action.type}：${buildSessionIntentSummary(intent)}`;
-    await updateChat(chat.id, {
-      worldState: {
-        ...chat.worldState,
-        recentEvent: summary,
-      },
-    });
-    await appendEventMessageStable(chat.id, buildActionRuntimeContract(chat, action.type, payload, action.actorId, {
-      eventType: 'session_action_intent',
-      title: action.type,
-      summary,
-      metrics: payload,
-      visibilityScope: 'public',
-    }));
-  }, [appendEventMessage, chat, triggerPairPrivateThread, updateChat]);
 
   const {
     thinkingId,
@@ -451,7 +419,7 @@ export default function ChatDetailPage() {
     }
   }, [closeChatWindow, discardStreamingMessage, id, openChatWindow, resetRunLoopUiState, stop]);
 
-  const handleGuideSend = useCallback(async (content: string) => {
+  const handleMemberSpeakSend = useCallback(async (content: string) => {
     if (!chat || !id) return;
     await enqueueManualInput(async () => {
       const recentMessages = currentChatMessages;
@@ -498,6 +466,26 @@ export default function ChatDetailPage() {
     });
   }, [addMessageStable, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, appendLocalInterceptionHint, applyChatRuntimeDelta, characters, chat, chats, commitPersistedManualRuntime, currentChatMessages, currentUser?.nickname, enqueueManualInput, id, recordSpeak, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
 
+  const handleGuideSend = useCallback(async (content: string) => {
+    if (!chat || !id) return;
+    await enqueueManualInput(async () => {
+      const recentMessages = currentChatMessages;
+      const guidedMessage = await addMessageStable({
+        chatId: id,
+        type: 'god',
+        senderId: 'user',
+        senderName: '话题引导',
+        content,
+        emotion: 0,
+        timestamp: Date.now(),
+      });
+      void updateChat(id, { lastMessageAt: guidedMessage.timestamp });
+      const recentMessagesWithGuide = [...recentMessages.filter((message) => message.id !== guidedMessage.id), guidedMessage];
+      await commitPersistedManualRuntime(guidedMessage, recentMessagesWithGuide);
+      startConversationLoopIfNeeded(chat);
+    });
+  }, [addMessageStable, chat, commitPersistedManualRuntime, currentChatMessages, enqueueManualInput, id, startConversationLoopIfNeeded, updateChat]);
+
   const handleSpeakAs = useCallback(async (content: string) => {
     if (!chat || !id || !speakAsCharacterId) return;
     const char = characters.find((c) => c.id === speakAsCharacterId);
@@ -528,6 +516,22 @@ export default function ChatDetailPage() {
     });
   }, [addMessageStable, characters, chat, commitPersistedManualRuntime, currentChatMessages, enqueueManualInput, id, setSpeakAsCharacter, speakAsCharacterId, startConversationLoopIfNeeded, updateChat]);
 
+  const { runSessionAction, triggerPairPrivateThread, normalizeAndRunSurfaceIntent, runAutoSocialEventFlow } = useChatSurfaceActions({
+    chat,
+    chats,
+    characters,
+    updateChat,
+    addMessage: addMessageStable,
+    appendEventMessage: appendEventMessageStable,
+    actionSchema,
+    aiProfiles,
+    speakAsChar,
+    handleGuideSend,
+    handleMemberSpeakSend,
+    handleSpeakAs,
+    setSnackbar,
+  });
+
   const handleExpressionFeedback = useCallback(async (message: Message, kind: ExpressionFeedbackKind) => {
     if (message.type !== 'ai') return;
     const character = characters.find((item) => item.id === message.senderId);
@@ -553,71 +557,7 @@ export default function ChatDetailPage() {
     });
   }, [aiProfiles, characters, upsertMessageStable]);
 
-  const runSurfaceIntent = useCallback(async (surfaceResult: SessionNormalizedIntentResult) => {
-    if (!chat) return;
-    const { buildActionFromIntent, buildBoardArtifactEventSummary } = await import('../types/sessionEngine');
-    const { intent } = surfaceResult;
-
-    if (intent.type === 'message_intent') {
-      const content = typeof intent.payload.content === 'string' ? intent.payload.content : '';
-      if (!content) return;
-      if ((intent.payload.mode === 'speakAs' || speakAsChar) && speakAsChar) {
-        await handleSpeakAs(content);
-        return;
-      }
-      await handleGuideSend(content);
-      return;
-    }
-
-    if (intent.type === 'board_intent') {
-      const summary = buildBoardArtifactEventSummary(intent);
-      await updateChat(chat.id, {
-        worldState: {
-          ...chat.worldState,
-          recentEvent: summary,
-        },
-      });
-      await appendEventMessageStable(chat.id, buildRuntimeEventContract(chat, intent, {
-        eventType: 'board_intent',
-        title: '棋盘动作',
-        summary,
-        metrics: intent.payload,
-        visibilityScope: 'public',
-      }));
-      return;
-    }
-
-    const action = buildActionFromIntent(actionSchema, intent);
-    if (action) {
-      await runSessionAction(action, typeof intent.payload.fields === 'object' && intent.payload.fields ? intent.payload.fields as Record<string, unknown> : {});
-    }
-  }, [actionSchema, appendEventMessage, chat, handleGuideSend, handleSpeakAs, runSessionAction, speakAsChar, updateChat]);
-
-  const normalizeAndRunSurfaceIntent = useCallback(async (...args: Parameters<typeof import('../types/sessionEngine')['buildNormalizedIntentResult']>) => {
-    const { buildNormalizedIntentResult } = await import('../types/sessionEngine');
-    await runSurfaceIntent(buildNormalizedIntentResult(...args));
-  }, [runSurfaceIntent]);
-
-  const runAutoSocialEventFlow = useCallback(async (sourceChat: GroupChat) => {
-    const { runSocialEventAutoFlow } = await import('../services/directSessionRuntime');
-    return runSocialEventAutoFlow(sourceChat, {
-      chats,
-      characters,
-      updateChat,
-      addChat: async (input) => useChatStore.getState().addChat(input),
-      addMessage: addMessageStable,
-      appendEventMessage: appendEventMessageStable,
-    });
-  }, [addMessage, appendEventMessage, characters, chats, updateChat]);
-
-  useEffect(() => {
-    if (!chat || chat.type !== 'group') return;
-    const latestEventId = chat.runtimeEventsV2?.at(-1)?.id || null;
-    const autoFlowKey = `${chat.id}:${chat.updatedAt}:${latestEventId}`;
-    if (lastAutoThreadCandidateIdRef.current === autoFlowKey) return;
-    lastAutoThreadCandidateIdRef.current = autoFlowKey;
-    void runAutoSocialEventFlow(chat);
-  }, [chat, runAutoSocialEventFlow]);
+  useChatAutoSocialFlow({ chat, runAutoSocialEventFlow });
 
   const handleLoadOlderMessages = useCallback(async () => {
     if (!id || loadingMoreRef.current || !hasMore || currentChatMessages.length === 0) return;
@@ -777,9 +717,7 @@ export default function ChatDetailPage() {
 
       <RightPanel title={sidebarTitle} hideMobileTitle>
         <PageSection spacing={2} fill animate={false}>
-          {chat.type === 'ai_direct' && chat.sourceChatId ? (
-            <Button variant="outlined" onClick={() => navigate(`/chats/${chat.sourceChatId}`)}>返回来源群聊</Button>
-          ) : null}
+          <SessionInfoCards cards={sessionInfoCards} onOpenChat={(chatId) => navigate(`/chats/${chatId}`)} />
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <LazyPanel>
               {runtimePanelLoading ? <Box sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">加载中…</Typography></Box> : <ChatSidebarPanel
@@ -787,8 +725,8 @@ export default function ChatDetailPage() {
                 members={members}
                 messages={currentChatMessages}
                 thinkingId={thinkingId}
-                rightPanelTab={activeSidebarTab}
-                setRightPanelTab={setRightPanelTab}
+                rightPanelTab={sidebarTabValue}
+                setRightPanelTab={handleSidebarTabChange}
                 showMemberTab={showMemberTab}
                 showRuntimeTab={showRuntimeTab}
                 memberPanelTitle={memberTabTitle}
@@ -796,8 +734,28 @@ export default function ChatDetailPage() {
                 privatePayloads={projectedDetailState?.sidebarChat.privatePayloads || privatePayloads}
                 privatePayloadTitle={projectedDetailState?.privatePayloadTitle}
                 directMemoryContext={directMemoryPanelContext}
-                showActionTab={showActionTab}
-                actionPanel={showActionTab ? <LazyPanel><SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} hideHeader frameless /></LazyPanel> : null}
+                showActivityTab={showActionTab}
+                activityPanel={showActionTab ? (
+                  <LazyPanel>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      <Button size="small" variant="outlined" onClick={() => navigate(`/calendar?conversationId=${chat.id}`)}>
+                        查看当前会话日历
+                      </Button>
+                      <WorldCalendarPanel
+                        chats={chats}
+                        characters={characters}
+                        updateChat={updateChat}
+                        isZh={isZh}
+                        conversationId={chat.id}
+                        compact
+                        title="会话日历"
+                        subtitle="世界事件驱动的会话活动时间线"
+                        showHeader
+                      />
+                      <SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} hideHeader frameless />
+                    </Box>
+                  </LazyPanel>
+                ) : null}
                 onSpeakAs={(charId) => setSpeakAsCharacter(charId)}
                 onStartDirectChat={chat.type === 'group' ? handleStartDirectChat : undefined}
                 onRemoveMember={chat.type === 'group' ? (charId) => {

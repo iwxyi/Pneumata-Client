@@ -22,7 +22,9 @@ function getActionSurfaceSx() {
 }
 
 function getActionButtonLabel(action: SessionActionDefinition) {
-  return action.type === 'start_private_thread' ? '创建AI私聊' : '执行动作';
+  if (action.type === 'start_private_thread') return '创建AI私聊';
+  if (action.type === 'apply_calendar_patch_drafts') return '应用草案';
+  return '执行动作';
 }
 
 function getFieldGridSx() {
@@ -91,10 +93,12 @@ function buildActionSurfaceVariant() {
 }
 
 function buildActionButtonVariant(action: SessionActionDefinition) {
-  return action.type === 'start_private_thread' ? 'contained' as const : 'outlined' as const;
+  if (action.type === 'start_private_thread' || action.type === 'apply_calendar_patch_drafts') return 'contained' as const;
+  return 'outlined' as const;
 }
 
 function buildActionButtonColor(action: SessionActionDefinition) {
+  if (action.type === 'apply_calendar_patch_drafts') return 'warning' as const;
   return action.type === 'start_private_thread' ? 'primary' as const : undefined;
 }
 
@@ -143,7 +147,7 @@ function buildActionFieldRows(field: NonNullable<SessionActionDefinition['fields
 }
 
 function isActionPrimary(action: SessionActionDefinition) {
-  return action.type === 'start_private_thread';
+  return action.type === 'start_private_thread' || action.type === 'apply_calendar_patch_drafts';
 }
 
 function buildActionSectionContentSpacing() {
@@ -1007,6 +1011,7 @@ function getOptionLabel(label: string) {
 }
 
 function getActionLabel(action: SessionActionDefinition) {
+  if (action.type === 'apply_calendar_patch_drafts') return '应用日历草案';
   if (action.type === 'ask_question') return '提问动作';
   if (action.type === 'director_intervention') return '导演干预';
   if (action.type === 'start_private_thread') return '发起AI私聊';
@@ -1018,6 +1023,7 @@ function getActionLabel(action: SessionActionDefinition) {
 }
 
 function getActionHint(action: SessionActionDefinition) {
+  if (action.type === 'apply_calendar_patch_drafts') return '把会话中的日历冲突修正草案一次性写入运行时事件。';
   if (action.type === 'ask_question') return '验证非聊天动作流：推进一个问题/环节，而不是直接发消息。';
   if (action.type === 'director_intervention') return '主持/导演对房间状态做一次明确干预。';
   if (action.type === 'start_private_thread') return '派生AI私聊或双边互动。';

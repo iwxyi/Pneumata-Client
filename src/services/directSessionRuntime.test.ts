@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { normalizeConversation } from '../types/chat';
-import { buildPrivateThreadOpenedEvent, buildStartPrivateThreadExecutionResult, pickAutoPairPrivateThreadCandidate, runSocialEventAutoFlow } from './directSessionRuntime';
+import { buildPrivateThreadOpenedEvent, buildStartPrivateThreadExecutionResult, createAiPrivateThread, passesWorldAttentionRestraintPolicy, pickAutoPairPrivateThreadCandidate, runSocialEventAutoFlow } from './directSessionRuntime';
 import type { AICharacter } from '../types/character';
-import type { SocialEventCandidatePayload } from '../types/runtimeEvent';
+import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
 
 function buildCandidatePayload(overrides: Partial<SocialEventCandidatePayload> = {}): SocialEventCandidatePayload {
   return {
@@ -56,7 +56,7 @@ function buildOpenedEvent(createdAt = 2) {
   };
 }
 
-function buildChatWithEvents(events: Array<ReturnType<typeof buildCandidateEvent> | ReturnType<typeof buildOpenedEvent>>) {
+function buildChatWithEvents(events: RuntimeEventV2[]) {
   return normalizeConversation({
     id: 'chat-1',
     type: 'group',
@@ -67,7 +67,7 @@ function buildChatWithEvents(events: Array<ReturnType<typeof buildCandidateEvent
     topic: '测试',
     style: 'free',
     runtimeEvolutionIntensity: 'balanced',
-    memberIds: ['a', 'b'],
+    memberIds: ['a', 'b', 'user'],
     speed: 1,
     isActive: false,
     allowIntervention: true,
@@ -267,6 +267,23 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect(result.runtimeEvents?.[0]?.summary).not.toContain('a → b');
   });
 
+  it('refuses to create AI private thread when starter/target are not in source chat members', async () => {
+    const sourceChat = buildBaseChat();
+    const addChat = vi.fn(async () => buildBaseChat());
+    const privateChat = await createAiPrivateThread({
+      sourceChat,
+      chats: [sourceChat],
+      characters: [buildCharacter('a', '喜羊羊'), buildCharacter('b', '灰太狼'), buildCharacter('outsider', '沸羊羊')],
+      starterId: 'a',
+      targetId: 'outsider',
+      addChat,
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(privateChat).toBeNull();
+    expect(addChat).not.toHaveBeenCalled();
+  });
+
   it('runs unified auto social flow for post moment candidates', async () => {
     const chat = buildChatWithEvents([buildCandidateEvent(buildCandidatePayload({ eventKind: 'post_moment', participantIds: ['a'], confidence: 0.9, reasonType: 'celebration', visibilityPlan: 'public', dedupeKey: 'moment-1' }))]);
     const updateChat = vi.fn(async () => undefined);
@@ -297,6 +314,810 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect(updateChat).toHaveBeenCalledTimes(1);
   });
 
+  it('runs unified auto social flow for check_in candidates', async () => {
+    const chat = buildChatWithEvents([buildCandidateEvent(buildCandidatePayload({
+      eventKind: 'check_in',
+      participantIds: ['a'],
+      targetIds: ['user'],
+      confidence: 0.85,
+      reasonType: 'attention_check_in',
+      visibilityPlan: 'user_private',
+      dedupeKey: 'checkin-1',
+    }))]);
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBe('evt-candidate-1');
+    expect(updateChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs unified auto social flow for react_to_moment candidates', async () => {
+    const chat = buildChatWithEvents([buildCandidateEvent(buildCandidatePayload({
+      eventKind: 'react_to_moment',
+      participantIds: ['a'],
+      targetIds: ['user'],
+      confidence: 0.86,
+      reasonType: 'attention_react_moment',
+      visibilityPlan: 'user_private',
+      dedupeKey: 'react-moment-1',
+    }))]);
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBe('evt-candidate-1');
+    expect(updateChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to world-driven attention candidate when no explicit social candidate exists', async () => {
+    const chat = buildChatWithEvents([{
+      id: 'att-1',
+      conversationId: 'chat-1',
+      kind: 'attention_candidate',
+      createdAt: Date.now() - 2_000,
+      actorIds: ['user'],
+      targetIds: ['a'],
+      summary: '用户点名 a，等待回应',
+      visibility: 'derived_public',
+      payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.9, reason: '用户刚点名了甲' },
+    } as RuntimeEventV2]);
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBeTruthy();
+    expect(updateChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('world-driven fallback prioritizes check_in when attention suggests user follow-up', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([{
+        id: 'att-1',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 2_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户点名 a，等待回应',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.92, reason: '用户刚点名了甲' },
+      } as RuntimeEventV2]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 10, competence: 2, trust: 9, threat: -1 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(updateChat).toHaveBeenCalledTimes(1);
+    const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+    const patch = firstCall?.[1];
+    expect((patch?.runtimeEventsV2 || []).some((event) => {
+      if (event.kind !== 'artifact') return false;
+      const payload = event.payload as { artifactType?: string };
+      return payload.artifactType === 'check_in_note' || payload.artifactType === 'outing_summary';
+    })).toBe(true);
+  });
+
+  it('world-driven fallback maps private_message attention into a private check-in intent', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([{
+        id: 'att-1',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 2_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户点名 a，等待回应',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.95, reason: '用户主动提到了甲，甲想私下确认近况' },
+      } as RuntimeEventV2]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 2, competence: 4, trust: 2, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+    const patch = firstCall?.[1];
+    const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'check_in');
+    expect((worldCandidate?.payload as { reasonType?: string }).reasonType).toBe('world_attention_private_message');
+    expect((worldCandidate?.payload as { visibilityPlan?: string }).visibilityPlan).toBe('user_private');
+    expect((worldCandidate?.payload as { title?: string }).title).toBe('私聊问候');
+  });
+
+  it('world-driven fallback maps ask_followup attention into a follow-up check-in intent', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([{
+        id: 'att-1',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 2_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户刚问了一个未完结话题',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.4, reason: '用户问了后续问题' },
+      } as RuntimeEventV2]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 2, competence: 2, trust: 2, threat: 1 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+    const patch = firstCall?.[1];
+    const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'check_in');
+    expect((worldCandidate?.payload as { reasonType?: string }).reasonType).toBe('world_attention_followup_question');
+    expect((worldCandidate?.payload as { activityType?: string }).activityType).toBe('追问关心');
+  });
+
+  it('world-driven fallback suppresses repeated private check-in within cooldown window', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 2_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户点名 a，等待回应',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.95, reason: '用户主动提到了甲，甲想私下确认近况' },
+        } as RuntimeEventV2,
+        {
+          id: 'artifact-check-in-recent',
+          conversationId: 'chat-1',
+          kind: 'artifact',
+          createdAt: now - 30 * 60_000,
+          actorIds: ['a'],
+          targetIds: ['user'],
+          summary: '甲刚刚问候了用户',
+          visibility: 'derived_public',
+          payload: { artifactType: 'check_in_note', eventKind: 'check_in', text: '甲刚刚问候了用户' },
+        } as RuntimeEventV2,
+      ]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 16, competence: 4, trust: 14, threat: -3 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+    const patch = firstCall?.[1];
+    const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate');
+    expect((worldCandidate?.payload as { reasonType?: string }).reasonType).not.toBe('world_attention_private_message');
+  });
+
+  it('world-driven fallback maps invite_activity attention into social_outing candidate', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 2_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户提到周末想一起出去',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.95, reason: '用户刚提到周末活动安排' },
+        } as RuntimeEventV2,
+      ]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 16, competence: 4, trust: 14, threat: -3 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+    const patch = firstCall?.[1];
+    const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'social_outing');
+    expect((worldCandidate?.payload as { reasonType?: string }).reasonType).toBe('world_attention_invite_activity');
+    expect((worldCandidate?.payload as { activityType?: string }).activityType).toBe('活动邀约');
+    expect((worldCandidate?.payload as { participantIds?: string[] }).participantIds).toEqual(['a', 'user']);
+    expect(worldCandidate?.summary).toContain('活动邀约候选');
+    expect((patch?.runtimeEventsV2 || []).some((event) => event.kind === 'artifact' && (event.payload as { eventKind?: string; artifactType?: string }).eventKind === 'social_outing' && (event.payload as { artifactType?: string }).artifactType === 'outing_summary')).toBe(true);
+  });
+
+  it('world-driven fallback maps calendar_reminder attention into status_update candidate', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 2_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户提醒了明天安排',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.88, reason: '用户提到明天的日程安排' },
+        } as RuntimeEventV2,
+        {
+          id: 'artifact-outing-recent',
+          conversationId: 'chat-1',
+          kind: 'artifact',
+          createdAt: now - 30 * 60_000,
+          actorIds: ['a'],
+          targetIds: ['user'],
+          summary: '甲刚刚发起过活动邀约',
+          visibility: 'derived_public',
+          payload: { artifactType: 'outing_summary', eventKind: 'social_outing', text: '甲刚刚发起过活动邀约' },
+        } as RuntimeEventV2,
+      ]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 12, competence: 4, trust: 10, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+    const patch = firstCall?.[1];
+    const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'status_update');
+    expect((worldCandidate?.payload as { reasonType?: string }).reasonType).toBe('world_attention_calendar_reminder');
+    expect((worldCandidate?.payload as { activityType?: string }).activityType).toBe('日程提醒');
+  });
+
+  it('world-driven post_moment uses text-only artifact when image model is unavailable', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 2_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户提到最近状态',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.9, reason: '用户刚提到近期生活状态' },
+        } as RuntimeEventV2,
+      ]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 11, competence: 4, trust: 9, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      imageModelEnabled: false,
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+    const patch = firstCall?.[1];
+    const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'post_moment');
+    if (!worldCandidate) return;
+    expect((worldCandidate.payload as { expectedArtifacts?: string[] }).expectedArtifacts).toEqual(['moment_text']);
+  });
+
+  it('world-driven post_moment may include optional image artifacts when image model is available', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 2_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户提到最近状态',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.9, reason: '用户刚提到近期生活状态' },
+        } as RuntimeEventV2,
+      ]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 11, competence: 4, trust: 9, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      imageModelEnabled: true,
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+    const patch = firstCall?.[1];
+    const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'post_moment');
+    if (!worldCandidate) return;
+    const artifacts = (worldCandidate.payload as { expectedArtifacts?: string[] }).expectedArtifacts || [];
+    expect(artifacts.includes('moment_text')).toBe(true);
+    expect(artifacts.every((item) => ['moment_text', 'moment_selfie', 'moment_group_photo', 'moment_scene_photo'].includes(item))).toBe(true);
+  });
+
+  it('skips check_in candidate consumption when restraint policy blocks due to high threat', async () => {
+    const now = new Date('2026-05-29T21:30:00+08:00').getTime();
+    const chat = {
+      ...buildChatWithEvents([{
+        id: 'evt-checkin-blocked',
+        conversationId: 'chat-1',
+        kind: 'event_candidate',
+        createdAt: now,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '甲准备私聊问候用户',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'check_in',
+          initiatorId: 'a',
+          participantIds: ['a'],
+          targetIds: ['user'],
+          reasonType: 'world_attention_followup',
+          confidence: 0.88,
+          urgency: 'soon',
+          seedIntent: '确认一下你的状态',
+          visibilityPlan: 'user_private',
+          expectedArtifacts: ['check_in_note'],
+        },
+      } as RuntimeEventV2]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 8, competence: 3, trust: 7, threat: 9 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBeNull();
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it('skips social_outing candidate consumption during quiet hours', async () => {
+    const now = new Date('2026-05-29T23:30:00+08:00').getTime();
+    const chat = {
+      ...buildChatWithEvents([{
+        id: 'evt-outing-blocked',
+        conversationId: 'chat-1',
+        kind: 'event_candidate',
+        createdAt: now,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '甲准备邀约活动',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'social_outing',
+          initiatorId: 'a',
+          participantIds: ['a', 'user'],
+          targetIds: ['user'],
+          reasonType: 'world_attention_invite_activity',
+          confidence: 0.9,
+          urgency: 'soon',
+          seedIntent: '周末一起出去走走',
+          visibilityPlan: 'mixed',
+          expectedArtifacts: ['outing_summary'],
+        },
+      } as RuntimeEventV2]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 12, competence: 3, trust: 10, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBeNull();
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it('skips consuming duplicated check_in candidate when dedupeKey artifact already exists in window', async () => {
+    const now = new Date('2026-05-29T21:30:00+08:00').getTime();
+    const chat = buildChatWithEvents([
+      {
+        id: 'evt-checkin-existing-artifact',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 20 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '甲刚完成问候',
+        visibility: 'derived_public',
+        payload: {
+          artifactType: 'check_in_note',
+          eventKind: 'check_in',
+          dedupeKey: 'checkin-dedupe-1',
+          text: '甲刚完成问候',
+        },
+      } as RuntimeEventV2,
+      {
+        id: 'evt-checkin-duplicate-candidate',
+        conversationId: 'chat-1',
+        kind: 'event_candidate',
+        createdAt: now,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '甲再次准备同一条问候',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'check_in',
+          initiatorId: 'a',
+          participantIds: ['a'],
+          targetIds: ['user'],
+          reasonType: 'world_attention_followup',
+          confidence: 0.9,
+          urgency: 'soon',
+          seedIntent: '重复问候',
+          visibilityPlan: 'user_private',
+          expectedArtifacts: ['check_in_note'],
+          dedupeKey: 'checkin-dedupe-1',
+        },
+      } as RuntimeEventV2,
+    ]);
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBeNull();
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it('skips candidate consumption when initiator is not in chat members', async () => {
+    const now = new Date('2026-05-29T21:30:00+08:00').getTime();
+    const chat = buildChatWithEvents([{
+      id: 'evt-invalid-initiator',
+      conversationId: 'chat-1',
+      kind: 'event_candidate',
+      createdAt: now,
+      actorIds: ['outsider'],
+      targetIds: ['user'],
+      summary: '外部角色准备问候用户',
+      visibility: 'derived_public',
+      payload: {
+        eventKind: 'check_in',
+        initiatorId: 'outsider',
+        participantIds: ['outsider'],
+        targetIds: ['user'],
+        reasonType: 'world_attention_followup',
+        confidence: 0.9,
+        urgency: 'soon',
+        seedIntent: '外部问候',
+        visibilityPlan: 'user_private',
+        expectedArtifacts: ['check_in_note'],
+      },
+    } as RuntimeEventV2]);
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBeNull();
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it('skips pair_private_thread candidate when participant list includes user', async () => {
+    const chat = buildChatWithEvents([{
+      id: 'evt-invalid-pair',
+      conversationId: 'chat-1',
+      kind: 'event_candidate',
+      createdAt: Date.now(),
+      actorIds: ['a'],
+      targetIds: ['user'],
+      summary: '非法双边候选',
+      visibility: 'derived_public',
+      payload: {
+        eventKind: 'pair_private_thread',
+        initiatorId: 'a',
+        participantIds: ['a', 'user'],
+        targetIds: ['user'],
+        reasonType: 'unresolved_question',
+        confidence: 0.95,
+        urgency: 'immediate',
+        seedIntent: '继续私聊',
+        visibilityPlan: 'conversation_private',
+        expectedArtifacts: ['private_thread_summary'],
+      },
+    } as RuntimeEventV2]);
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.privateChatId).toBeNull();
+    expect(result.handledEventId).toBeNull();
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it('skips check_in candidate when visibilityPlan is not user_private', async () => {
+    const chat = buildChatWithEvents([{
+      id: 'evt-invalid-checkin-visibility',
+      conversationId: 'chat-1',
+      kind: 'event_candidate',
+      createdAt: Date.now(),
+      actorIds: ['a'],
+      targetIds: ['user'],
+      summary: '可见性错误的问候候选',
+      visibility: 'derived_public',
+      payload: {
+        eventKind: 'check_in',
+        initiatorId: 'a',
+        participantIds: ['a'],
+        targetIds: ['user'],
+        reasonType: 'world_attention_followup',
+        confidence: 0.9,
+        urgency: 'soon',
+        seedIntent: '问候',
+        visibilityPlan: 'public',
+        expectedArtifacts: ['check_in_note'],
+      },
+    } as RuntimeEventV2]);
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBeNull();
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it('skips candidate consumption when initiator is missing from participantIds', async () => {
+    const chat = buildChatWithEvents([{
+      id: 'evt-invalid-participant-shape',
+      conversationId: 'chat-1',
+      kind: 'event_candidate',
+      createdAt: Date.now(),
+      actorIds: ['a'],
+      targetIds: ['user'],
+      summary: 'participantIds 不含发起者',
+      visibility: 'derived_public',
+      payload: {
+        eventKind: 'check_in',
+        initiatorId: 'a',
+        participantIds: ['b'],
+        targetIds: ['user'],
+        reasonType: 'world_attention_followup',
+        confidence: 0.9,
+        urgency: 'soon',
+        seedIntent: '问候',
+        visibilityPlan: 'user_private',
+        expectedArtifacts: ['check_in_note'],
+      },
+    } as RuntimeEventV2]);
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBeNull();
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it('skips check_in candidate when expectedArtifacts mismatches canonical artifact', async () => {
+    const chat = buildChatWithEvents([{
+      id: 'evt-invalid-expected-artifacts',
+      conversationId: 'chat-1',
+      kind: 'event_candidate',
+      createdAt: Date.now(),
+      actorIds: ['a'],
+      targetIds: ['user'],
+      summary: 'expectedArtifacts 不匹配',
+      visibility: 'derived_public',
+      payload: {
+        eventKind: 'check_in',
+        initiatorId: 'a',
+        participantIds: ['a'],
+        targetIds: ['user'],
+        reasonType: 'world_attention_followup',
+        confidence: 0.9,
+        urgency: 'soon',
+        seedIntent: '问候',
+        visibilityPlan: 'user_private',
+        expectedArtifacts: ['status_note'],
+      },
+    } as RuntimeEventV2]);
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBeNull();
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it('skips user-targeted candidate when user is not a chat member', async () => {
+    const base = buildChatWithEvents([{
+      id: 'evt-user-not-member',
+      conversationId: 'chat-1',
+      kind: 'event_candidate',
+      createdAt: Date.now(),
+      actorIds: ['a'],
+      targetIds: ['user'],
+      summary: '用户不在群里却发起问候',
+      visibility: 'derived_public',
+      payload: {
+        eventKind: 'check_in',
+        initiatorId: 'a',
+        participantIds: ['a'],
+        targetIds: ['user'],
+        reasonType: 'world_attention_followup',
+        confidence: 0.9,
+        urgency: 'soon',
+        seedIntent: '问候',
+        visibilityPlan: 'user_private',
+        expectedArtifacts: ['check_in_note'],
+      },
+    } as RuntimeEventV2]);
+    const chat = { ...base, memberIds: ['a', 'b'] };
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBeNull();
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
   it('picks the latest eligible pair private thread candidate', () => {
     const chat = buildOpenedEventStandardChat();
     expect(pickAutoPairPrivateThreadCandidate(chat)?.id).toBe(buildOpenedEventStandardExpectedId());
@@ -318,5 +1139,49 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect((opened.payload as { artifactType?: string; eventKind?: string; candidateId?: string }).artifactType).toBe('private_thread_opened');
     expect((opened.payload as { artifactType?: string; eventKind?: string; candidateId?: string }).eventKind).toBe('pair_private_thread');
     expect((opened.payload as { artifactType?: string; eventKind?: string; candidateId?: string }).candidateId).toBe('evt-candidate-1');
+  });
+});
+
+describe('passesWorldAttentionRestraintPolicy', () => {
+  it('blocks invite activity during quiet hours', () => {
+    const now = new Date('2026-05-29T23:30:00+08:00').getTime();
+    const chat = {
+      ...buildBaseChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 12, competence: 2, trust: 10, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    expect(passesWorldAttentionRestraintPolicy(chat, 'a', 'user', now, 'social_outing', 'world_attention_invite_activity')).toBe(false);
+  });
+
+  it('blocks reminder when recent user-private follow-up is still in cooldown', () => {
+    const now = new Date('2026-05-29T21:30:00+08:00').getTime();
+    const chat = buildChatWithEvents([{
+      id: 'evt-check-1',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: now - 30 * 60_000,
+      actorIds: ['a'],
+      targetIds: ['user'],
+      summary: 'a 私聊问候了 user',
+      visibility: 'derived_public',
+      payload: { eventKind: 'check_in', visibilityPlan: 'user_private', artifactType: 'check_in_note' },
+    } as RuntimeEventV2]);
+    chat.relationshipLedger = [{
+      pairKey: 'a->user',
+      actorId: 'a',
+      targetId: 'user',
+      current: { warmth: 9, competence: 2, trust: 8, threat: 0 },
+      trend: 'up' as const,
+      recentEvents: [],
+      lastUpdatedAt: now - 1_000,
+    }];
+    expect(passesWorldAttentionRestraintPolicy(chat, 'a', 'user', now, 'status_update', 'world_attention_calendar_reminder')).toBe(false);
   });
 });

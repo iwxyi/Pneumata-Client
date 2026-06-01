@@ -94,4 +94,35 @@ describe('memoryDistillation display payload', () => {
       layeredMemories: memories,
     } as GroupChat)).toEqual([]);
   });
+
+  it('uses injected now for distilledAt determinism', () => {
+    const actorId = 'char-a';
+    const targetId = 'char-b';
+    const memories = Array.from({ length: 6 }, (_, index): MemoryItem => ({
+      id: `memory-${index}`,
+      scope: 'relationship',
+      layer: 'episodic',
+      kind: index % 2 ? 'bond' : 'resentment',
+      ownerId: 'chat-1',
+      subjectIds: [actorId, targetId],
+      text: `${actorId} → ${targetId} 支持`,
+      salience: 0.7,
+      confidence: 0.8,
+      recency: 0.8,
+      reinforcementCount: 1,
+      sourceEventIds: [`event-${index}`],
+      sourceTag: 'interaction',
+      origin: 'runtime',
+      createdAt: index,
+      updatedAt: index + 1,
+    }));
+    const result = distillChatMemoryCandidates({
+      id: 'chat-1',
+      name: '群聊',
+      layeredMemories: memories,
+    } as GroupChat, [], { now: 1777000000000 });
+
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.every((item) => item.distilledAt === 1777000000000)).toBe(true);
+  });
 });

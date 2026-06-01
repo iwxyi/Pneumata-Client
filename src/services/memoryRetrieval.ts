@@ -93,6 +93,7 @@ function scoreForContext(item: MemoryItem, context: MemoryRetrievalContext) {
 }
 
 export function retrieveRelevantMemories(items: MemoryItem[], context: MemoryRetrievalContext) {
+  const now = typeof context.now === 'number' && Number.isFinite(context.now) ? Math.round(context.now) : Date.now();
   const maxArchivedItems = context.maxArchivedItems ?? 2;
   const active = [...items]
     .filter((item) => context.includeRuntimeEvidence || !isRuntimeEvidenceMemory(item))
@@ -116,7 +117,7 @@ export function retrieveRelevantMemories(items: MemoryItem[], context: MemoryRet
       const recallTokens = matchedCueTokens(item, context);
       return {
         ...item,
-        lastActivatedAt: Date.now(),
+        lastActivatedAt: now,
         ...(item.archivedAt && recallScore >= RECALL_THRESHOLD ? {
           recallScore,
           recallTokens,

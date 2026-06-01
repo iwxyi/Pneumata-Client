@@ -91,6 +91,39 @@ describe('commitGeneratedMessageTurn', () => {
     expect(runPersistedSessionCommitRuntimeMock.mock.calls[0]?.[0].message.content).toBe('等下\n你刚说谁来着？');
   });
 
+  it('uses message.metadata.generatedAt as deterministic segment timestamp base', async () => {
+    let persistIndex = 0;
+    persistStreamingMessageMock.mockImplementation(async (args: { message: { content: string } }) => {
+      const message = buildPersistedMessage(args.message.content, persistIndex);
+      persistIndex += 1;
+      return message;
+    });
+    runPersistedSessionCommitRuntimeMock.mockResolvedValue({
+      persistedMessage: buildPersistedMessage('等下\n你刚说谁来着？', 0),
+      transition: { chatPatch: {}, characterPatches: [], runtimeEvents: [] },
+      nextChat: { id: 'chat-1' },
+      nextCharacters: [],
+    });
+
+    await commitGeneratedMessageTurn({
+      ...baseParams(),
+      message: {
+        chatId: 'chat-1',
+        type: 'ai',
+        senderId: 'char-1',
+        senderName: '甲',
+        content: '等下',
+        extraMessages: ['你刚说谁来着？'],
+        metadata: { generatedAt: 777000 },
+        emotion: 0,
+      },
+    } as never);
+
+    expect(persistStreamingMessageMock).toHaveBeenCalledTimes(2);
+    expect(persistStreamingMessageMock.mock.calls[0]?.[0]?.timestamp).toBeUndefined();
+    expect(persistStreamingMessageMock.mock.calls[1]?.[0]?.timestamp).toBe(777001);
+  });
+
   it('keeps the existing single-message commit path when no explicit parts are provided', async () => {
     runSessionCommitPipelineMock.mockResolvedValue({
       persistedMessage: buildPersistedMessage('完整回复', 0),

@@ -12,6 +12,8 @@ import type { GroupChat } from '../../types/chat';
 import { buildMemberExpressionFeedbackChips, buildMemberInnerLifeChips } from '../../services/memberInnerLifePresentation';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { microPillChipSx } from '../../styles/interaction';
+import { canRunAiMemberActions } from '../../services/memberActionPolicy';
+import { inferSystemAgentSubtypeFromId } from '../../services/actorRefPresentation';
 
 interface MemberListProps {
   members: AICharacter[];
@@ -99,6 +101,13 @@ function buildMemberRowSx(isThinking: boolean) {
   };
 }
 
+function buildMemberAvatarFallback(member: AICharacter) {
+  if (member.avatar?.trim()) return member.avatar.trim().slice(0, 2);
+  const name = member.name?.trim();
+  if (!name) return '成';
+  return name.slice(0, 1);
+}
+
 export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onStartDirectChat, onUpdateSeats }: MemberListProps) {
   const { i18n } = useTranslation();
   const developerMode = useSettingsStore((state) => state.developerMode);
@@ -129,6 +138,13 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
 
   const memberLookup = useMemo(() => {
     return new Map(members.map((member) => [member.id, member]));
+  }, [members]);
+  const aiMemberIdSet = useMemo(() => {
+    return new Set(
+      members
+        .map((member) => member.id)
+        .filter((id) => id !== 'user' && !inferSystemAgentSubtypeFromId(id)),
+    );
   }, [members]);
 
   const visibleMembers = useMemo(() => {
@@ -165,6 +181,8 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
         }}
       >
         {visibleMembers.map((member) => {
+          const hasMemberActions = canRunAiMemberActions(member.id, aiMemberIdSet)
+            && Boolean(onSpeakAs || onStartDirectChat || onRemove);
           const innerLifeChips = buildMemberInnerLifeChips(member, i18n.language);
           const expressionFeedbackChips = buildMemberExpressionFeedbackChips(member, i18n.language, showDebugDetails);
           const emotionChips = buildMemberEmotionChips(member, i18n.language, showDebugDetails);
@@ -176,7 +194,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
             >
               <ListItemAvatar sx={{ minWidth: 0, flex: '0 0 auto' }}>
                 <Avatar src={isImageAvatar(member.avatar) ? member.avatar : undefined} sx={{ width: 32, height: 32, fontSize: '1rem', bgcolor: 'primary.light' }}>
-                  {isImageAvatar(member.avatar) ? undefined : member.avatar}
+                  {isImageAvatar(member.avatar) ? undefined : buildMemberAvatarFallback(member)}
                 </Avatar>
               </ListItemAvatar>
               <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -242,21 +260,23 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                   </Stack>
                 </Box>
               </Box>
-              <IconButton
-                size="small"
-                sx={{
-                  flex: '0 0 auto',
-                  mt: -0.25,
-                  opacity: 0.72,
-                  '&:hover': { opacity: 1, bgcolor: 'action.hover' },
-                }}
-                onClick={(e) => {
-                  setAnchorEl(e.currentTarget);
-                  setMenuCharId(member.id);
-                }}
-              >
-                <MoreIcon fontSize="small" />
-              </IconButton>
+              {hasMemberActions ? (
+                <IconButton
+                  size="small"
+                  sx={{
+                    flex: '0 0 auto',
+                    mt: -0.25,
+                    opacity: 0.72,
+                    '&:hover': { opacity: 1, bgcolor: 'action.hover' },
+                  }}
+                  onClick={(e) => {
+                    setAnchorEl(e.currentTarget);
+                    setMenuCharId(member.id);
+                  }}
+                >
+                  <MoreIcon fontSize="small" />
+                </IconButton>
+              ) : null}
             </ListItem>
           );
         })}
@@ -268,9 +288,9 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
       ) : null}
 
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu}>
-        {onSpeakAs && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onSpeakAs(menuCharId); }}>{i18n.language.startsWith('zh') ? '以此角色发言' : 'Speak as'}</MenuItem>}
-        {onStartDirectChat && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onStartDirectChat(menuCharId); }}>{i18n.language.startsWith('zh') ? '发起单聊' : 'Start direct chat'}</MenuItem>}
-        {onRemove && <MenuItem onClick={() => { closeMenu(); if (menuCharId) onRemove(menuCharId); }} sx={{ color: 'error.main' }}>{i18n.language.startsWith('zh') ? '移除成员' : 'Remove member'}</MenuItem>}
+        {canRunAiMemberActions(menuCharId, aiMemberIdSet) && onSpeakAs ? <MenuItem onClick={() => { closeMenu(); if (menuCharId) onSpeakAs(menuCharId); }}>{i18n.language.startsWith('zh') ? '以此角色发言' : 'Speak as'}</MenuItem> : null}
+        {canRunAiMemberActions(menuCharId, aiMemberIdSet) && onStartDirectChat ? <MenuItem onClick={() => { closeMenu(); if (menuCharId) onStartDirectChat(menuCharId); }}>{i18n.language.startsWith('zh') ? '发起单聊' : 'Start direct chat'}</MenuItem> : null}
+        {canRunAiMemberActions(menuCharId, aiMemberIdSet) && onRemove ? <MenuItem onClick={() => { closeMenu(); if (menuCharId) onRemove(menuCharId); }} sx={{ color: 'error.main' }}>{i18n.language.startsWith('zh') ? '移除成员' : 'Remove member'}</MenuItem> : null}
       </Menu>
 
       <Dialog open={seatDialogOpen} onClose={() => setSeatDialogOpen(false)} maxWidth="sm" fullWidth>

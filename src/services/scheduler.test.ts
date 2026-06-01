@@ -209,4 +209,94 @@ describe('scheduler speaker scoring', () => {
     const ethics = candidates.find((candidate) => candidate.characterId === 'ethics');
     expect(ethics?.scoreBreakdown?.topicRelevance).toBeGreaterThan(banana?.scoreBreakdown?.topicRelevance || 0);
   });
+
+  it('adds attention_state bias for actors with strong user-focused attention', () => {
+    const chat = buildChat();
+    chat.runtimeEventsV2 = [{
+      id: 'att-1',
+      conversationId: chat.id,
+      kind: 'attention_candidate',
+      createdAt: Date.now() - 60_000,
+      actorIds: ['b'],
+      targetIds: ['user'],
+      summary: '乙对用户有跟进动机',
+      visibility: 'derived_public',
+      payload: { reason: '用户刚点名乙', confidence: 0.9, targetIds: ['user'] },
+    }];
+    chat.relationshipLedger = [{
+      pairKey: 'b->user',
+      actorId: 'b',
+      targetId: 'user',
+      current: { warmth: 7, trust: 6, competence: 3, threat: 1 },
+      trend: 'up',
+      recentEvents: [],
+      lastUpdatedAt: Date.now() - 90_000,
+    }];
+
+    const candidates = calculateWeights(
+      [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      [buildMessage({ senderId: 'a', senderName: '甲', content: '先看看谁接。' })],
+      {},
+      1,
+      0,
+      null,
+      chat,
+      null,
+    );
+    const b = candidates.find((candidate) => candidate.characterId === 'b');
+    expect(b?.scoreBreakdown?.reasons).toContain('attention_state');
+  });
+
+  it('does not let attention_state override explicit targeted user guidance', () => {
+    const chat = buildChat();
+    chat.runtimeEventsV2 = [{
+      id: 'att-1',
+      conversationId: chat.id,
+      kind: 'attention_candidate',
+      createdAt: Date.now() - 60_000,
+      actorIds: ['a'],
+      targetIds: ['user'],
+      summary: '甲想跟进用户',
+      visibility: 'derived_public',
+      payload: { reason: '用户刚点名甲', confidence: 0.9, targetIds: ['user'] },
+    }];
+    chat.relationshipLedger = [{
+      pairKey: 'a->user',
+      actorId: 'a',
+      targetId: 'user',
+      current: { warmth: 7, trust: 6, competence: 3, threat: 1 },
+      trend: 'up',
+      recentEvents: [],
+      lastUpdatedAt: Date.now() - 90_000,
+    }];
+    const intent: DirectorIntent = {
+      source: 'user_message',
+      beatType: 'answer',
+      targetActorIds: ['b'],
+      pressure: 0.95,
+      reason: '用户点名乙优先回应',
+      userGuidance: {
+        kind: 'direct_reply',
+        rawText: '乙先说',
+        actorIds: ['b'],
+        mentionedActorIds: ['b'],
+        focusText: '乙先说',
+        beatType: 'answer',
+        pressure: 0.95,
+        maxTurns: 1,
+        reason: '用户点名乙优先回应',
+      },
+    };
+    const candidates = calculateWeights(
+      [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      [buildMessage({ senderId: 'a', senderName: '甲', content: '先看看谁接。' })],
+      {},
+      1,
+      0,
+      null,
+      chat,
+      intent,
+    );
+    expect(candidates.map((candidate) => candidate.characterId)).toEqual(['b']);
+  });
 });

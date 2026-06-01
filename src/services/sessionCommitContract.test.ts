@@ -75,4 +75,30 @@ describe('applyCommitTransition', () => {
     expect(createdAts[1]).toBe(1001);
     expect(createdAts[2]).toBe(1002);
   });
+
+  it('uses runtime event timestamps as deterministic lastMessageAt fallback', async () => {
+    const updateChat = vi.fn(async () => undefined);
+    await applyCommitTransition({
+      chatId: 'chat-1',
+      speakerId: 'speaker-1',
+      transition: {
+        chatPatch: {},
+        characterPatches: [],
+        runtimeEvents: [
+          { eventType: 'event-1', title: '事件1', summary: 'A', createdAt: 2000 },
+          { eventType: 'event-2', title: '事件2', summary: 'B', createdAt: 1900 },
+        ],
+      },
+      services: {
+        updateCharacter: vi.fn(async () => undefined),
+        appendEventMessage: vi.fn(async () => undefined),
+        updateChat,
+        recordSpeak: vi.fn(),
+      },
+    });
+
+    expect(updateChat).toHaveBeenCalledWith('chat-1', expect.objectContaining({
+      lastMessageAt: 2000,
+    }));
+  });
 });

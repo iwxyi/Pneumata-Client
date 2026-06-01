@@ -7,6 +7,7 @@ import { applyDriftToBehavior } from './personalityDrift';
 import type { DirectorIntent } from './directorIntent';
 import { buildSpeakerScoreBreakdown, getDirectorIntentSpeakerBias, type SpeakerScoreBreakdown } from './speakerScoring';
 import { getInnerLifeSpeakerBias, projectInnerLife } from './innerLifeEngine';
+import { projectWorldAttentionStates } from './worldRuntimeProjection';
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -234,6 +235,18 @@ export function calculateWeights(
   const forcedUserGuidanceActorIds = directorIntent?.source === 'user_message' && directorIntent.userGuidance?.actorIds.length
     ? (directorIntent.targetActorIds.length ? directorIntent.targetActorIds : directorIntent.userGuidance.actorIds)
     : [];
+  const attentionStateBiasByActor = new Map<string, number>();
+  if (chat) {
+    projectWorldAttentionStates([chat], characters, { now })
+      .filter((state) => state.targetId === 'user')
+      .forEach((state) => {
+        const rawBias = (state.attentionScore - state.restraint) * 0.32;
+        const bias = clamp(rawBias, 0, 0.26);
+        if (bias <= 0) return;
+        const existing = attentionStateBiasByActor.get(state.actorId) || 0;
+        attentionStateBiasByActor.set(state.actorId, Math.max(existing, bias));
+      });
+  }
 
   return characters
     .filter((char) => {
@@ -265,6 +278,7 @@ export function calculateWeights(
       const directorBias = getDirectorIntentSpeakerBias({ character: char, directorIntent, chat, lastSpeakerId });
       const innerLife = projectInnerLife({ chat, character: char, messages: recentMessages, now });
       const innerLifeBias = getInnerLifeSpeakerBias(innerLife);
+      const attentionStateBias = attentionStateBiasByActor.get(char.id) || 0;
       const debugBase = {
         characterId: char.id,
         characterName: char.name,
@@ -289,6 +303,9 @@ export function calculateWeights(
       weight += conflictBias;
       weight += directorBias.bias;
       weight += innerLifeBias.bias;
+      if (!(directorIntent?.source === 'user_message' && directorIntent.targetActorIds.length)) {
+        weight += attentionStateBias;
+      }
       let relationshipPressure = 0;
       let directCueBoost = 0;
       let contentLengthAdjustment = 0;
@@ -390,6 +407,7 @@ export function calculateWeights(
             conflictBias ? 'conflict' : '',
             ...directorBias.reasons,
             innerLifeBias.bias ? innerLifeBias.reason : '',
+            attentionStateBias ? 'attention_state' : '',
             relationshipPressure ? 'relationship' : '',
             repetitionMultiplier < 1 ? 'repetition_penalty' : '',
           ].filter(Boolean),

@@ -2,6 +2,9 @@ import type { Message } from '../types/message';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import { formatInnerImpulseLabel, formatInnerToneLabel, formatResponseSurfaceKindLabel, formatRoleFitLabel, formatSurfaceBasisLabel } from './runtimeDecisionLabels';
 import { formatBeatType, formatKnownReason } from './runtimeInsightPresentation';
+import { formatGuidanceExecutionReasonLabel, formatGuidanceExecutionStatusLabel, formatGuidanceKindLabel } from './guidancePresentation';
+import { classifyActorKindLabel } from './actorRefPresentation';
+import { formatFeedbackStatusLabel, formatGuidanceInputStatusLabel, resolveGuidanceExecutionStatus } from './runtimeStatusPresentation';
 
 export interface MessageRuntimeClueSection {
   key: 'memory' | 'inner' | 'surface' | 'director' | 'guidance' | 'guidance_execution' | 'narrative' | 'feedback';
@@ -41,7 +44,14 @@ function pushSection(
 
 function formatMemberNames(ids: string[] | undefined, members: DisplayTextMember[] = []) {
   if (!ids?.length) return '';
-  return ids.map((id) => members.find((member) => member.id === id)?.name || id).join('、');
+  return ids.map((id) => members.find((member) => member.id === id)?.name || '成员').join('、');
+}
+
+function formatActorKinds(ids: string[] | undefined, members: DisplayTextMember[] = []) {
+  if (!ids?.length) return '';
+  const knownIds = new Set(members.map((member) => member.id));
+  const kinds = Array.from(new Set(ids.map((id) => classifyActorKindLabel(id, { knownIds }))));
+  return kinds.join('、');
 }
 
 function formatMemoryTargetName(memoryContext: NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['memoryContext'], members: DisplayTextMember[] = []) {
@@ -49,38 +59,6 @@ function formatMemoryTargetName(memoryContext: NonNullable<NonNullable<Message['
   if (memoryContext.targetActorName) return memoryContext.targetActorName;
   const matched = members.find((member) => member.id === memoryContext.targetActorId);
   return matched?.name || '成员';
-}
-
-function formatGuidanceKind(kind: string | undefined) {
-  const labels: Record<string, string> = {
-    topic_shift: '话题引导',
-    direct_reply: '点名回应',
-    media_request: '媒体请求',
-  };
-  return kind ? labels[kind] || kind : '';
-}
-
-function formatGuidanceExecutionStatus(status: string | undefined) {
-  const labels: Record<string, string> = {
-    accepted: '已执行',
-    accepted_after_retry: '重试后执行',
-    failed_after_retry: '重试后仍偏航',
-  };
-  return status ? labels[status] || status : '';
-}
-
-function formatGuidanceExecutionReason(reason: string | undefined) {
-  const labels: Record<string, string> = {
-    matched: '已回应用户要求',
-    wrong_speaker: '发言角色不匹配',
-    missing_requested_image: '没有执行发图动作',
-    missing_requested_subject: '没有对准图片对象',
-    missing_topic_focus: '没有回到新话题',
-    missing_question_answer: '没有先回答新问题',
-    missing_direct_reply_focus: '没有先回应点名要求',
-    empty_content: '生成内容为空',
-  };
-  return reason ? labels[reason] || reason : '';
 }
 
 export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | null | undefined, members: DisplayTextMember[] = []): MessageRuntimeClueSection[] {
@@ -156,12 +134,13 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     label: '用户引导',
     promptLabel: '用户引导',
     statusKind: 'debug_explanation',
-    statusLabel: guidance?.kind === 'media_request' ? '显式请求' : '调度输入',
+    statusLabel: formatGuidanceInputStatusLabel(guidance?.kind),
     statusHint: '用于解释用户输入如何影响本轮发言者、话题焦点和媒体生成。',
     items: guidance ? [
-      guidance.kind ? `类型：${formatGuidanceKind(guidance.kind)}` : '',
+      guidance.kind ? `类型：${formatGuidanceKindLabel(guidance.kind)}` : '',
       guidance.rawText ? `用户要求：${guidance.rawText}` : '',
       guidance.actorIds?.length ? `执行角色：${formatMemberNames(guidance.actorIds, members)}` : '',
+      guidance.actorIds?.length ? `执行身份：${formatActorKinds(guidance.actorIds, members)}` : '',
       guidance.mediaRequest?.subjectActorIds?.length ? `图片对象：${formatMemberNames(guidance.mediaRequest.subjectActorIds, members)}` : '',
       guidance.mediaRequest?.subjectText && !guidance.mediaRequest.subjectActorIds?.length ? `图片对象：${guidance.mediaRequest.subjectText}` : '',
       guidance.mediaRequest?.actionText ? `图片动作：${guidance.mediaRequest.actionText}` : '',
@@ -169,18 +148,19 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     maxItems: 8,
   }, members);
   const execution = decision.guidanceExecution;
+  const guidanceExecutionStatus = resolveGuidanceExecutionStatus(execution);
   pushSection(sections, {
     key: 'guidance_execution',
     label: '引导执行',
     promptLabel: '引导执行',
-    statusKind: 'debug_explanation',
-    statusLabel: execution?.validated ? '已通过' : '需排查',
-    statusHint: '用于排查用户明确要求是否被本轮生成真正执行，包括偏航重试和强制媒体动作。',
+    statusKind: guidanceExecutionStatus.statusKind,
+    statusLabel: guidanceExecutionStatus.statusLabel,
+    statusHint: guidanceExecutionStatus.statusHint,
     items: execution ? [
-      execution.status ? `状态：${formatGuidanceExecutionStatus(execution.status)}` : '',
+      execution.status ? `状态：${formatGuidanceExecutionStatusLabel(execution.status)}` : '',
       typeof execution.retryCount === 'number' && execution.retryCount > 0 ? `重试：${execution.retryCount} 次` : '',
-      execution.rejectedReasons?.length ? `丢弃原因：${execution.rejectedReasons.map(formatGuidanceExecutionReason).join('、')}` : '',
-      execution.finalReason ? `最终校验：${formatGuidanceExecutionReason(execution.finalReason)}` : '',
+      execution.rejectedReasons?.length ? `丢弃原因：${execution.rejectedReasons.map(formatGuidanceExecutionReasonLabel).join('、')}` : '',
+      execution.finalReason ? `最终校验：${formatGuidanceExecutionReasonLabel(execution.finalReason)}` : '',
       execution.forcedMediaQueued ? '媒体动作：已按显式请求补入图片队列' : '',
     ] : [],
     maxItems: 8,
@@ -201,7 +181,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     label: '反馈',
     promptLabel: '表达反馈',
     statusKind: feedbackApplied ? 'applied_signal' : 'soft_signal',
-    statusLabel: feedbackApplied ? '已影响' : '已检索',
+    statusLabel: formatFeedbackStatusLabel(feedbackApplied),
     statusHint: feedbackApplied
       ? '这些用户表达反馈已经影响本轮提示词或表达约束。'
       : '这些用户表达反馈只是被检索到，属于软信号，不一定影响本轮。',

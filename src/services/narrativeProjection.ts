@@ -523,7 +523,7 @@ export function projectNarrativeLines(params: {
   messages: Message[];
   now?: number;
 }): NarrativeLineProjection[] {
-  const now = params.now || Date.now();
+  const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const topicLine = buildTopicLine(params.chat, params.messages, now);
   const scenarioLine = buildScenarioLine(params.chat, params.characters || [], now);
   return [

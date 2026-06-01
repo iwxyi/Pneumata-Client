@@ -183,4 +183,61 @@ describe('consolidateMemoryCandidates', () => {
     expect(anchor).toBeTruthy();
     expect(anchor?.archivedAt).toBeFalsy();
   });
+
+  it('drops malformed candidates with invalid score schema', () => {
+    const malformed = {
+      ...buildInteractionCandidate(1),
+      scoreBreakdown: {
+        stability: Number.NaN,
+        recurrence: 0.55,
+        impact: 0.8,
+        specificity: 0.7,
+        durability: 0.65,
+      },
+    } as MemoryCandidate;
+    const result = consolidateMemoryCandidates([], [malformed]);
+    expect(result).toHaveLength(0);
+  });
+
+  it('requires explicit evidence for distilled/long-term candidates', () => {
+    const result = consolidateMemoryCandidates([], [
+      buildDistilledCandidate({
+        sourceEventIds: [],
+        evidenceText: '',
+      }),
+    ]);
+    expect(result).toHaveLength(0);
+  });
+
+  it('dedupes candidates with overlapping source event ids into the same memory item', () => {
+    const first = consolidateMemoryCandidates([], [
+      buildDistilledCandidate({
+        text: '甲对乙保持戒备。',
+        sourceEventIds: ['evt-1'],
+        decision: 'create',
+      }),
+    ]);
+    const second = consolidateMemoryCandidates(first, [
+      buildDistilledCandidate({
+        text: '甲对乙的戒备仍在，但语气开始缓和。',
+        sourceEventIds: ['evt-1'],
+        decision: 'create',
+      }),
+    ]);
+
+    expect(second).toHaveLength(1);
+    expect(second[0]?.sourceEventIds.filter((id) => id === 'evt-1')).toHaveLength(1);
+  });
+
+  it('generates deterministic memory ids with the same input and timestamp', () => {
+    const candidate = buildDistilledCandidate({
+      text: '甲对乙保持戒备，但愿意先观察后判断。',
+      sourceEventIds: ['stable-1'],
+      decision: 'create',
+    });
+    const first = consolidateMemoryCandidates([], [candidate], { now: 1_717_000_000_000 });
+    const second = consolidateMemoryCandidates([], [candidate], { now: 1_717_000_000_000 });
+
+    expect(first[0]?.id).toBe(second[0]?.id);
+  });
 });

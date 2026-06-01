@@ -3,6 +3,7 @@ import { Box, Button, TextField, Typography, Chip, LinearProgress, Dialog, Dialo
 import type { AIModelProfile } from '../types/settings';
 import type { AICharacter, PersonalityParams } from '../types/character';
 import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
+import { initializeDefaultRelationshipsForCreatedCharacters } from '../services/defaultRelationshipInitializer';
 import AppSnackbar from '../components/common/AppSnackbar';
 
 const BATCH_GENERATE_GROUP_SIZE = 10;
@@ -106,6 +107,7 @@ async function processCharacterBatch(params: {
 }) {
   const existingNames = new Set(params.characters.map((char) => char.name.trim().toLowerCase()));
   const reservedNames = new Set<string>();
+  const allCreatedCharacters: AICharacter[] = [];
 
   await runInBatches(params.selectedNames, BATCH_GENERATE_GROUP_SIZE, async (batch) => {
     if (params.cancelGenerationRef.current) return;
@@ -150,6 +152,7 @@ async function processCharacterBatch(params: {
         }),
       }));
       const createdCharacters = await params.addCharacters(successfulPayloads.map((item) => item.payload));
+      allCreatedCharacters.push(...createdCharacters);
       if (useSettingsStore.getState().avatarGeneration.autoGenerateCharacterAvatar) {
         try {
           enqueueAvatarGenerationForCharacters(
@@ -190,6 +193,7 @@ async function processCharacterBatch(params: {
   });
 
   finishBatchProgress(params.setProgress);
+  return allCreatedCharacters;
 }
 
 import SearchIcon from '@mui/icons-material/Search';
@@ -451,7 +455,7 @@ export default function BatchGenerateCharactersPage() {
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
   const settings = useSettingsStore();
-  const { characters, loadCharacters, addCharacters } = useCharacterStore();
+  const { characters, loadCharacters, addCharacters, updateCharacters } = useCharacterStore();
   const [topic, setTopic] = useState('');
   const [candidateNames, setCandidateNames] = useState<string[]>([]);
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
@@ -525,7 +529,7 @@ export default function BatchGenerateCharactersPage() {
 
     try {
       const generatedGroup = getTopicDerivedCharacterGroup(topic);
-      await processCharacterBatch({
+      const createdCharacters = await processCharacterBatch({
         selectedNames,
         characters,
         generatedGroup,
@@ -539,6 +543,19 @@ export default function BatchGenerateCharactersPage() {
         getErrorMessage,
         addCharacters,
       });
+
+      const relationshipProfile = getPreferredAIProfile(useSettingsStore.getState().aiProfiles, 'text');
+      if (relationshipProfile?.apiKey && relationshipProfile.model && createdCharacters.length) {
+        void initializeDefaultRelationshipsForCreatedCharacters({
+          config: relationshipProfile,
+          createdCharacters,
+          allCharacters: useCharacterStore.getState().characters,
+          language: i18n.language.startsWith('zh') ? 'zh' : 'en',
+          updateCharacters,
+        }).catch((error) => {
+          console.error('[batch-generate:default-relationships:error]', error);
+        });
+      }
 
       await loadCharacters();
       setSnackbar({

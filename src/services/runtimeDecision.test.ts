@@ -68,6 +68,7 @@ function buildMessage(patch: Partial<Message>): Message {
     emotion: 0,
     timestamp: patch.timestamp || 1,
     isDeleted: false,
+    metadata: patch.metadata,
   };
 }
 
@@ -151,6 +152,50 @@ describe('runtimeDecision', () => {
       targetActorIds: ['a'],
       pressure: 0.95,
     });
+  });
+
+  it('accepts now=0 without falling back to Date.now', () => {
+    const intervention: RuntimeEventV2 = {
+      id: 'evt-director-zero',
+      conversationId: 'chat-1',
+      kind: 'director_intervention',
+      createdAt: 0,
+      actorIds: ['user'],
+      targetIds: ['a'],
+      summary: '让甲先回应',
+      visibility: 'moderator_only',
+      payload: {
+        intent: 'force_reply',
+        targetActorIds: ['a'],
+        pressure: 0.9,
+        text: '让甲先回应',
+      },
+    };
+    const projection = projectRuntimePressure({
+      chat: buildChat({ runtimeEventsV2: [intervention] }),
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      messages: [buildMessage({ type: 'user', content: '甲先说' })],
+      now: 0,
+    });
+    expect(projection.directorIntent?.targetActorIds).toEqual(['a']);
+  });
+
+  it('does not treat manual speak-as messages as user guidance', () => {
+    const projection = projectRuntimePressure({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      messages: [
+        buildMessage({
+          type: 'user',
+          senderId: 'a',
+          senderName: '甲',
+          content: '新话题：狼抓羊有过错吗？',
+          metadata: { manualSpeaker: { actorId: 'a', actorName: '甲' } },
+        }),
+      ],
+      now: 50,
+    });
+    expect(projection.directorIntent?.userGuidance).toBeFalsy();
   });
 
   it('treats a targeted image request as a strong user guidance intent', () => {

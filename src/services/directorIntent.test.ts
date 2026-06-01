@@ -67,6 +67,7 @@ function buildMessage(patch: Partial<Message>): Message {
     emotion: 0,
     timestamp: patch.timestamp || 1,
     isDeleted: false,
+    metadata: patch.metadata,
   };
 }
 
@@ -185,5 +186,42 @@ describe('resolveDirectorIntent', () => {
     expect(intent.beatType).toBe('cool_down');
     expect(intent.pressure).toBeGreaterThan(0.7);
     expect(intent.pressure).toBeLessThan(0.9);
+  });
+
+  it('does not treat manual speak-as user messages as topic guidance', () => {
+    const intent = resolveDirectorIntent({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      messages: [
+        buildMessage({
+          type: 'user',
+          senderId: 'a',
+          senderName: '甲',
+          content: '新话题：今晚聊身份冲突',
+          metadata: { manualSpeaker: { actorId: 'a', actorName: '甲' } },
+        }),
+      ],
+    });
+
+    expect(intent.source).not.toBe('user_message');
+    expect(intent.userGuidance).toBeFalsy();
+  });
+
+  it('treats god messages as topic guidance', () => {
+    const intent = resolveDirectorIntent({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      messages: [
+        buildMessage({
+          type: 'god',
+          senderId: 'user',
+          senderName: '主持',
+          content: '新话题：你们对规则公平性的看法',
+        }),
+      ],
+    });
+
+    expect(intent.source).toBe('user_message');
+    expect(intent.userGuidance?.kind).toBe('topic_shift');
   });
 });

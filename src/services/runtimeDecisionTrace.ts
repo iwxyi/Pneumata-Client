@@ -3,6 +3,7 @@ import { projectMessageRuntimeClues, type MessageRuntimeClueSection } from './me
 import { formatExpressionLengthLabel, formatInnerImpulseLabel, formatInnerToneLabel, formatResponseSurfaceKindLabel, formatRoleFitLabel, formatSurfaceBasisLabel } from './runtimeDecisionLabels';
 import { formatBeatType, formatDirectorSource, formatKnownReason, formatNarrativeLineType } from './runtimeInsightPresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
+import { formatFeedbackStatusLabel } from './runtimeStatusPresentation';
 
 type RuntimeDecisionDirectorIntentMeta = NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['directorIntent'];
 type RuntimeDecisionLineMeta = {
@@ -44,6 +45,8 @@ export interface RuntimeDecisionTraceItem {
   surfaceLabel: string | null;
   surfaceBasis: string[];
   rawSurface: string | null;
+  executionRelationLabel: string | null;
+  rawExecutionRelation: string | null;
   debugDetailLabel: string | null;
   rawDebugHint: string | null;
   runtimeClueSections: MessageRuntimeClueSection[];
@@ -75,6 +78,27 @@ function formatPrimaryLineLabel(line: RuntimeDecisionLineMeta, members: DisplayT
 
 function formatDirectorReason(reason: string | undefined) {
   return reason ? formatKnownReason(reason) : null;
+}
+
+function buildExecutionRelation(
+  senderId: string,
+  senderName: string,
+  decision: NonNullable<NonNullable<Message['metadata']>['runtimeDecision']> | undefined,
+  members: DisplayTextMember[] = [],
+) {
+  const actorIds = Array.isArray(decision?.directorIntent?.userGuidance?.actorIds)
+    ? decision?.directorIntent?.userGuidance?.actorIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    : [];
+  if (!actorIds.length) return { label: null, raw: null };
+  const actorNames = actorIds.map((id) => cleanTraceText(id, members));
+  const speakerName = cleanTraceText(senderName || senderId, members);
+  const matched = actorIds.includes(senderId);
+  return {
+    label: matched
+      ? `执行目标已命中 · ${speakerName}`
+      : `执行目标 ${actorNames.join('、')} · 实际发言 ${speakerName}`,
+    raw: `targets=${actorIds.join(',')} speaker=${senderId} matched=${matched ? 'yes' : 'no'}`,
+  };
 }
 
 function buildExpressionTrace(innerLife: NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['innerLife'] | undefined, surface: NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['responseSurface'] | undefined) {
@@ -194,9 +218,11 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
         ? `${formatResponseSurfaceKindLabel(surface.kind)} · ${formatRoleFitLabel(surface.roleFit)}${surface.allowMarkdown ? ' · Markdown' : ''}`
         : null;
       const expression = buildExpressionTrace(innerLife, surface);
+      const executionRelation = buildExecutionRelation(message.senderId, message.senderName, decision, members);
       const readableDirectorReason = cleanTraceText(formatDirectorReason(decision?.directorIntent?.reason) || directorReason, members);
       const debugDetailLabel = [
         directorLabel !== '无调度意图' ? `调度：${directorLabel}${readableDirectorReason ? ` · ${readableDirectorReason}` : ''}` : '',
+        executionRelation.label ? `执行/发言：${executionRelation.label}` : '',
         decision?.directorIntent?.userGuidance?.rawText ? `用户引导：${cleanTraceText(decision.directorIntent.userGuidance.rawText, members)}` : '',
         primaryLineLabel ? `线索：${primaryLineLabel}` : '',
         surfaceLabel ? `表达：${surfaceLabel}` : '',
@@ -204,6 +230,7 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
       ].filter(Boolean).join(' / ') || null;
       const rawDebugHint = [
         decision?.directorIntent ? `director=${director}` : '',
+        executionRelation.raw ? `execution=${executionRelation.raw}` : '',
         decision?.directorIntent?.userGuidance ? `guidance=${JSON.stringify(decision.directorIntent.userGuidance)}` : '',
         primaryLine ? `line=${primaryLine}` : '',
         rawSurface ? `surface=${rawSurface}` : '',
@@ -222,7 +249,7 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
           const confidence = typeof item.confidence === 'number' ? `强度 ${(item.confidence * 100).toFixed(0)}%` : '';
           const count = typeof item.count === 'number' ? `次数 ${item.count}` : '';
           const positiveCount = typeof item.positiveCount === 'number' && item.positiveCount > 0 ? `正向 ${item.positiveCount}` : '';
-          return ['已检索', label, count, positiveCount, confidence, text, evidence ? `证据：${evidence}` : ''].filter(Boolean).join(' · ');
+          return [formatFeedbackStatusLabel(false), label, count, positiveCount, confidence, text, evidence ? `证据：${evidence}` : ''].filter(Boolean).join(' · ');
         })
         .filter(Boolean);
       const appliedFeedback = expressionFeedback.filter((item) => item.applied);
@@ -234,7 +261,7 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
           const label = typeof item.label === 'string' ? item.label : '表达反馈';
           const effects = Array.isArray(item.effects) ? item.effects.filter((effect): effect is string => typeof effect === 'string') : [];
           const text = cleanTraceText(typeof item.text === 'string' ? item.text : '', members);
-          return ['已影响', label, effects.length ? `影响：${effects.join('、')}` : '', text].filter(Boolean).join(' · ');
+          return [formatFeedbackStatusLabel(true), label, effects.length ? `影响：${effects.join('、')}` : '', text].filter(Boolean).join(' · ');
         })
         .filter(Boolean);
       return {
@@ -266,6 +293,8 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
         surfaceLabel,
         surfaceBasis,
         rawSurface,
+        executionRelationLabel: executionRelation.label,
+        rawExecutionRelation: executionRelation.raw,
         debugDetailLabel,
         rawDebugHint,
         runtimeClueSections,

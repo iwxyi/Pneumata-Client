@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useUIStore } from '../../stores/useUIStore';
 
 interface ChatInputProps {
-  mode: 'guide' | 'speakAs';
+  mode: 'guide' | 'speakAs' | 'memberSpeak';
   characterName?: string;
   onSend: (content: string) => void | Promise<void>;
   onClose?: () => void;
@@ -102,9 +102,11 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
   }, []);
 
   const placeholder = placeholderOverride || (
-    mode === 'guide'
-      ? t('controls.topicGuidePlaceholder')
-      : t('controls.speakAsPlaceholder', { name: characterName })
+    mode === 'speakAs'
+      ? t('controls.speakAsPlaceholder', { name: characterName })
+      : mode === 'memberSpeak'
+        ? t('controls.memberSpeakPlaceholder')
+        : t('controls.topicGuidePlaceholder')
   );
 
   const inputHasTextSelection = useCallback(() => {

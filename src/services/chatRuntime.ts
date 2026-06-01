@@ -38,18 +38,18 @@ export function accumulateChatRuntime(
   chat: GroupChat,
   message: Pick<Message, 'content' | 'type'>,
   events: RuntimeEventPayload[] = [],
-  options: { maxTimeline?: number } = {}
+  options: { maxTimeline?: number; now?: number } = {}
 ) {
-  const normalizedEvents = events.map(normalizeRuntimeEvent);
+  const normalizedEvents = events.map((event) => normalizeRuntimeEvent(event, { now: options.now }));
   const nextTimeline = [...(chat.runtimeTimeline || [])];
 
   if (message.type === 'event') {
     const parsedEvent = parseRuntimeEvent(message.content);
-    if (parsedEvent) normalizedEvents.push(parsedEvent);
+    if (parsedEvent) normalizedEvents.push(normalizeRuntimeEvent(parsedEvent, { now: options.now }));
   }
 
   for (const event of normalizedEvents) {
-    nextTimeline.push(buildTimelineEntryFromRuntimeEvent(event));
+    nextTimeline.push(buildTimelineEntryFromRuntimeEvent(event, { now: options.now }));
   }
 
   return {
@@ -57,7 +57,7 @@ export function accumulateChatRuntime(
   };
 }
 
-export function accumulateChatRuntimeFromEvents(chat: GroupChat, events: RuntimeEventPayload[], options: { maxTimeline?: number } = {}) {
+export function accumulateChatRuntimeFromEvents(chat: GroupChat, events: RuntimeEventPayload[], options: { maxTimeline?: number; now?: number } = {}) {
   return accumulateChatRuntime(chat, { type: 'system', content: '' }, events, options);
 }
 

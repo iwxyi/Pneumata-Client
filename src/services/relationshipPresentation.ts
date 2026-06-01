@@ -1,8 +1,12 @@
-import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
 import { buildRelationshipDisplaySummary, buildRelationshipEvidenceText, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from './relationshipLedger';
 import { sanitizeUserFacingText } from './displayTextSanitizer';
+
+export interface RelationshipDisplayMember {
+  id: string;
+  name: string;
+}
 
 export interface PresentedRelationshipEntry {
   key: string;
@@ -41,21 +45,28 @@ function isLikelyInternalId(value: string) {
     || /^draft-\d+$/i.test(value);
 }
 
-function resolveRelationshipName(id: string, members: AICharacter[]) {
+function resolveRelationshipName(id: string, members: RelationshipDisplayMember[]) {
+  if (id === 'user') return '我';
   const member = members.find((item) => item.id === id);
   if (member?.name) return member.name;
   if (!id || isLikelyInternalId(id)) return '未知成员';
   return id;
 }
 
-export function buildPresentedRelationshipEntry(entry: RelationshipLedgerEntry, members: AICharacter[]): PresentedRelationshipEntry {
+function ensureRelationshipDisplayMembers(members: RelationshipDisplayMember[]) {
+  if (members.some((item) => item.id === 'user')) return members;
+  return [...members, { id: 'user', name: '我' }];
+}
+
+export function buildPresentedRelationshipEntry(entry: RelationshipLedgerEntry, members: RelationshipDisplayMember[]): PresentedRelationshipEntry {
+  const displayMembers = ensureRelationshipDisplayMembers(members);
   const normalizedEntry = normalizeRelationshipLedgerEntry(entry);
   const latestEventActorId = normalizedEntry.recentEvents.at(-1)?.actorIds?.[0] || normalizedEntry.actorId;
-  const actorName = resolveRelationshipName(normalizedEntry.actorId, members);
-  const targetName = resolveRelationshipName(normalizedEntry.targetId, members);
-  const speakerName = resolveRelationshipName(latestEventActorId, members);
+  const actorName = resolveRelationshipName(normalizedEntry.actorId, displayMembers);
+  const targetName = resolveRelationshipName(normalizedEntry.targetId, displayMembers);
+  const speakerName = resolveRelationshipName(latestEventActorId, displayMembers);
   const delta = toRelationshipDisplayDelta(normalizedEntry.current);
-  const evidenceText = sanitizeUserFacingText(cleanRelationshipText(buildRelationshipEvidenceText(normalizedEntry)), members);
+  const evidenceText = sanitizeUserFacingText(cleanRelationshipText(buildRelationshipEvidenceText(normalizedEntry)), displayMembers);
   const evidence = evidenceText ? `${speakerName || actorName}：${evidenceText}` : '';
 
   return {
@@ -67,15 +78,15 @@ export function buildPresentedRelationshipEntry(entry: RelationshipLedgerEntry, 
     speakerName,
     entry: normalizedEntry,
     delta,
-      summary: sanitizeUserFacingText(buildRelationshipDisplaySummary(normalizedEntry), members),
-      semanticSummary: sanitizeUserFacingText(normalizedEntry.derived?.semantic?.summary || '', members),
+      summary: sanitizeUserFacingText(buildRelationshipDisplaySummary(normalizedEntry), displayMembers),
+      semanticSummary: sanitizeUserFacingText(normalizedEntry.derived?.semantic?.summary || '', displayMembers),
     evidence,
     hasMeaningfulDelta: isMeaningfulRelationshipLedgerEntry(normalizedEntry),
     score: computeScore(delta),
   };
 }
 
-export function buildPresentedRelationshipLedger(chat: GroupChat, members: AICharacter[]) {
+export function buildPresentedRelationshipLedger(chat: GroupChat, members: RelationshipDisplayMember[]) {
   return (chat.relationshipLedger || [])
     .filter((entry) => !/^draft-\d+$/i.test(entry.actorId) && !/^draft-\d+$/i.test(entry.targetId))
     .map((entry) => buildPresentedRelationshipEntry(entry, members))

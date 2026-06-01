@@ -86,7 +86,7 @@ export function buildExpressionFeedbackPatch(params: {
   kind: ExpressionFeedbackKind;
   now?: number;
 }) {
-  const now = params.now || Date.now();
+  const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const candidate = buildFeedbackCandidate(params.character, params.message, params.kind);
   return {
     layeredMemories: consolidateMemoryCandidates(params.character.layeredMemories || [], [candidate]),

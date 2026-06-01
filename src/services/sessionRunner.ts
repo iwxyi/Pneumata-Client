@@ -75,7 +75,12 @@ function resolveEngineLoopDecision(chat: GroupChat, characters: AICharacter[], m
   return deriveFamilyLoopDecision(policy);
 }
 
-async function maybeRunNonChatAction(chat: GroupChat, updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>, appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number]) => Promise<void>) {
+async function maybeRunNonChatAction(
+  chat: GroupChat,
+  updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>,
+  appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number]) => Promise<void>,
+  random: () => number = Math.random,
+) {
   const engine = getSessionEngine(chat);
   const context = createSessionRuntimeContext(engine, chat);
   const actionSchema = engine.getActionSchema?.({ conversation: chat, participants: context.participants }) || null;
@@ -83,7 +88,7 @@ async function maybeRunNonChatAction(chat: GroupChat, updateChat: (id: string, p
   if (!nonChatAction) return false;
 
   const actionChance = getFamilyActionChance(chat);
-  if (Math.random() > actionChance) return false;
+  if (random() > actionChance) return false;
 
   const result = runSessionActionExecutor(chat, nonChatAction);
   if (!result) return false;
@@ -94,8 +99,8 @@ async function maybeRunNonChatAction(chat: GroupChat, updateChat: (id: string, p
   return true;
 }
 
-function getLoopWaitTime(chat: GroupChat) {
-  return (900 / (chat.speed || 1)) + Math.random() * 600;
+function getLoopWaitTime(chat: GroupChat, random: () => number = Math.random) {
+  return (900 / (chat.speed || 1)) + random() * 600;
 }
 
 function getLoopErrorWaitTime() {
@@ -171,7 +176,9 @@ export async function runSessionLoop(params: {
   applyChatRuntimeDelta?: (id: string, delta: NonNullable<DriverMessageCommitResult['chatRuntimeDelta']>, patch?: Partial<GroupChat>) => Promise<void>;
   recordSpeak: (characterId: string) => void;
   getCooldownMap?: () => Record<string, number>;
+  random?: () => number;
 }) {
+  const random = params.random || Math.random;
   activeSessionLoops.set(params.loopId, {
     chatId: params.chatId,
     startedAt: Date.now(),
@@ -228,12 +235,12 @@ export async function runSessionLoop(params: {
       const loopDecision = resolveEngineLoopDecision(currentChat, effectiveCharacters, currentMessages);
 
       if (loopDecision.canRun && loopDecision.actionFirst) {
-        const handled = await maybeRunNonChatAction(currentChat, params.updateChat, params.appendEventMessage);
+        const handled = await maybeRunNonChatAction(currentChat, params.updateChat, params.appendEventMessage, random);
         if (handled) {
           turnWorkActive = false;
           params.onTurnWorkFinished?.();
           if (params.isRunning() && !params.isPaused() && shouldWaitAfterSessionTick()) {
-            await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat)));
+            await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat, random)));
           }
           continue;
         }
@@ -243,7 +250,7 @@ export async function runSessionLoop(params: {
         turnWorkActive = false;
         params.onTurnWorkFinished?.();
         params.onLoopError(new Error('Current session phase does not allow speaking'));
-        await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat)));
+        await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat, random)));
         continue;
       }
 
@@ -325,7 +332,7 @@ export async function runSessionLoop(params: {
 
       if (params.isRunning() && !params.isPaused() && shouldWaitAfterSessionTick()) {
         markSessionLoop(params.loopId, { phase: 'sleeping' });
-        await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat)));
+        await new Promise((resolve) => setTimeout(resolve, getLoopWaitTime(currentChat, random)));
       }
       } finally {
         if (turnWorkActive) params.onTurnWorkFinished?.();

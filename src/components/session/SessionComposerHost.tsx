@@ -120,21 +120,30 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
 
       {!primarySurface || primarySurface.type !== 'text' ? (
         <ChatInput
-          mode={speakAsCharacterName ? 'speakAs' : 'guide'}
+          mode={speakAsCharacterName ? 'speakAs' : 'memberSpeak'}
           characterName={speakAsCharacterName || undefined}
-          onSend={(content) => onSubmitText({ content }, { key: 'fallback-text', type: 'text', mode: speakAsCharacterName ? 'speakAs' : 'guide' })}
+          onSend={(content) => onSubmitText({ content }, { key: 'fallback-text', type: 'text', mode: speakAsCharacterName ? 'speakAs' : 'memberSpeak' })}
           onClose={speakAsCharacterName ? onCloseSpeakAs : undefined}
           sendingLabel={sendingLabel}
           onSendError={onSendError}
           onOpenPanel={onOpenPanel}
         />
       ) : (() => {
-        const mode = speakAsCharacterName ? 'speakAs' : (primarySurface.mode || 'guide');
+        const mode = speakAsCharacterName
+          ? 'speakAs'
+          : (primarySurface.mode || (primarySurface.capability === 'speak' ? 'memberSpeak' : 'guide'));
+        const placeholderOverride = mode === 'speakAs'
+          ? undefined
+          : (
+            primarySurface.placeholder
+            || (mode === 'memberSpeak' ? '输入消息' : undefined)
+            || (boardSurface ? '输入聊天内容或解释本次操作' : undefined)
+          );
         return (
           <ChatInput
             mode={mode}
             characterName={mode === 'speakAs' ? speakAsCharacterName : undefined}
-            placeholderOverride={mode === 'speakAs' ? undefined : (primarySurface.placeholder || (boardSurface ? '输入聊天内容或解释本次操作' : undefined))}
+            placeholderOverride={placeholderOverride}
             onSend={(content) => onSubmitText({ content, actorId: primarySurface.actorId }, primarySurface)}
             onClose={mode === 'speakAs' ? onCloseSpeakAs : undefined}
             sendingLabel={sendingLabel}

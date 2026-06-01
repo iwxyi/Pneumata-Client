@@ -9,6 +9,8 @@
     "chats": "Chats",
     "characters": "Characters",
     "letters": "Letters",
+    "calendar": "Calendar",
+    "moments": "Moments",
     "intro": "Intro",
     "models": "Model Library",
     "account": "Account",
@@ -111,7 +113,8 @@
     "memberList": "Members",
     "thinking": "Thinking...",
     "speakAs": "Speak as this character",
-    "speakAsPlaceholder": "Speak as {{name}}..."
+    "speakAsPlaceholder": "Speak as {{name}}...",
+    "memberSpeakPlaceholder": "Speak as a member..."
   },
   "settings": {
     "title": "Settings",

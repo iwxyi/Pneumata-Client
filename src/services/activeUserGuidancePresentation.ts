@@ -2,9 +2,13 @@ import { getCharacterModelProfileId, type AICharacter } from '../types/character
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import { getPreferredAIProfile, type AIModelProfile } from '../types/settings';
+import { collectGuidanceProgressAfterTimestamp } from './guidanceExecution';
 import { projectRuntimePressure } from './runtimeDecision';
 import { formatBeatType } from './runtimeInsightPresentation';
 import { getGuidanceMemoryTargetActorIds } from './userGuidanceIntent';
+import { formatGuidanceKindLabel } from './guidancePresentation';
+import { formatGuidanceInputStatusLabel } from './runtimeStatusPresentation';
+import { formatSystemAgentSubtypeLabel, inferSystemAgentSubtypeFromId } from './actorRefPresentation';
 
 export interface ActiveUserGuidanceProjection {
   title: string;
@@ -26,16 +30,14 @@ export interface ActiveUserGuidanceProjection {
 
 function formatMemberNames(ids: string[] | undefined, members: AICharacter[]) {
   if (!ids?.length) return '';
-  return ids.map((id) => members.find((member) => member.id === id)?.name || '成员').join('、');
-}
-
-function formatGuidanceKind(kind: string | undefined) {
-  const labels: Record<string, string> = {
-    topic_shift: '话题引导',
-    direct_reply: '点名回应',
-    media_request: '图片请求',
-  };
-  return kind ? labels[kind] || kind : '用户引导';
+  return ids.map((id) => {
+    const memberName = members.find((member) => member.id === id)?.name;
+    if (memberName) return memberName;
+    if (id === 'user') return '我';
+    const subtype = inferSystemAgentSubtypeFromId(id);
+    if (subtype) return formatSystemAgentSubtypeLabel(subtype);
+    return '成员';
+  }).join('、');
 }
 
 function resolveImageProfile(character: AICharacter | undefined, aiProfiles: AIModelProfile[]) {
@@ -61,14 +63,39 @@ function buildImageCapabilityLabel(actorIds: string[], members: AICharacter[], a
   return { label: '未配置图片模型', warning: '被点名角色没有可用图片模型，无法真正生成图片。', tone: 'warning' as const };
 }
 
-function latestHumanGuidanceSource(messages: Message[], rawText: string) {
+function latestHumanGuidanceSource(chat: GroupChat, messages: Message[], rawText: string) {
   const latest = messages
     .filter((message) => !message.isDeleted && (message.type === 'user' || message.type === 'god'))
     .slice()
     .reverse()
     .find((message) => message.content.trim() === rawText.trim());
-  if (!latest) return '用户引导';
-  return latest.type === 'god' ? '开发者引导' : '用户引导';
+  if (!latest) return '话题引导';
+  if (latest.type === 'god') return '话题引导';
+  if (latest.metadata?.manualSpeaker) return '以角色发言';
+  if (chat.memberIds.includes(latest.senderId)) return '用户成员发言';
+  return '话题引导';
+}
+
+function resolveGuidanceSourceTimestamp(chat: GroupChat, messages: Message[], rawText: string) {
+  const matchedEvent = (chat.runtimeEventsV2 || [])
+    .slice()
+    .reverse()
+    .find((event) => {
+      if (event.kind !== 'director_intervention') return false;
+      const payload = event.payload as Record<string, unknown>;
+      if (!payload || typeof payload !== 'object') return false;
+      const guidance = payload.userGuidance as Record<string, unknown> | undefined;
+      if (guidance && typeof guidance.rawText === 'string') return guidance.rawText.trim() === rawText.trim();
+      if (typeof payload.text === 'string') return payload.text.trim() === rawText.trim();
+      return false;
+    });
+  if (matchedEvent) return matchedEvent.createdAt;
+  const matchedMessage = messages
+    .filter((message) => !message.isDeleted && (message.type === 'user' || message.type === 'god'))
+    .slice()
+    .reverse()
+    .find((message) => message.content.trim() === rawText.trim());
+  return matchedMessage?.timestamp ?? null;
 }
 
 function clipText(text: string, max = 28) {
@@ -125,11 +152,13 @@ function buildGuidanceDetailRows(params: {
   completedActorNames: string;
   subjectNames: string;
   memoryTargetNames: string;
+  completionStatusLabel: string;
   imageCapability?: ReturnType<typeof buildImageCapabilityLabel> | null;
 }) {
   if (params.guidanceKind === 'media_request') {
     return [
-      params.activeTargetNames ? { label: '锁定角色', value: params.activeTargetNames, tone: 'primary' as const } : null,
+      { label: '目标角色', value: params.activeTargetNames || params.actorNames || '未指定', tone: 'primary' as const },
+      { label: '完成状态', value: params.completionStatusLabel, tone: params.completedActorNames ? 'success' as const : 'warning' as const },
       params.subjectNames ? { label: '图片对象', value: params.subjectNames, tone: 'neutral' as const } : null,
       params.memoryTargetNames && params.memoryTargetNames !== params.subjectNames ? { label: '记忆对象', value: params.memoryTargetNames, tone: 'neutral' as const } : null,
       params.imageCapability ? { label: '图片能力', value: params.imageCapability.label, tone: params.imageCapability.tone } : null,
@@ -138,9 +167,9 @@ function buildGuidanceDetailRows(params: {
   }
   if (params.guidanceKind === 'direct_reply') {
     return [
-      params.activeTargetNames ? { label: '锁定角色', value: params.activeTargetNames, tone: 'primary' as const } : null,
+      { label: '目标角色', value: params.activeTargetNames || params.actorNames || '未指定', tone: 'primary' as const },
+      { label: '完成状态', value: params.completionStatusLabel, tone: params.completedActorNames ? 'success' as const : 'warning' as const },
       params.memoryTargetNames ? { label: '记忆对象', value: params.memoryTargetNames, tone: 'neutral' as const } : null,
-      params.actorNames && !params.activeTargetNames ? { label: '点名角色', value: params.actorNames, tone: 'neutral' as const } : null,
       params.completedActorNames ? { label: '已回应', value: params.completedActorNames, tone: 'success' as const } : null,
     ].filter((item): item is NonNullable<typeof item> => Boolean(item));
   }
@@ -170,7 +199,11 @@ export function projectActiveUserGuidance(params: {
 
   const actorNames = formatMemberNames(guidance.actorIds, params.members);
   const activeTargetNames = formatMemberNames(intent.targetActorIds, params.members);
-  const completedActorIds = guidance.actorIds.filter((id) => !intent.targetActorIds.includes(id));
+  const sourceTimestamp = resolveGuidanceSourceTimestamp(params.chat, params.messages, guidance.rawText);
+  const progress = typeof sourceTimestamp === 'number'
+    ? collectGuidanceProgressAfterTimestamp(params.messages, sourceTimestamp, guidance, params.members)
+    : { completedActorIds: new Set<string>(), consumedTurns: 0 };
+  const completedActorIds = guidance.actorIds.filter((id) => progress.completedActorIds.has(id) && !intent.targetActorIds.includes(id));
   const completedActorNames = formatMemberNames(completedActorIds, params.members);
   const subjectNames = guidance.mediaRequest?.subjectActorIds?.length
     ? formatMemberNames(guidance.mediaRequest.subjectActorIds, params.members)
@@ -182,9 +215,16 @@ export function projectActiveUserGuidance(params: {
   const imageCapability = guidance.kind === 'media_request'
     ? buildImageCapabilityLabel(guidance.actorIds, params.members, params.aiProfiles)
     : null;
+  const completionStatusLabel = activeTargetNames
+    ? `待回应：${activeTargetNames}`
+    : completedActorNames
+      ? '已完成'
+      : guidance.actorIds.length
+        ? '待执行'
+        : '生效中';
 
   const chips = [
-    formatGuidanceKind(guidance.kind),
+    guidance.kind === 'media_request' ? '图片请求' : formatGuidanceKindLabel(guidance.kind),
     guidance.kind === 'topic_shift' ? '旧话题已覆盖' : '',
     guidance.kind === 'topic_shift' ? '先回答新问题' : '',
     guidance.kind === 'topic_shift' ? '旧梗收束' : '',
@@ -216,8 +256,8 @@ export function projectActiveUserGuidance(params: {
     title,
     rawText: guidance.rawText,
     effectText,
-    sourceLabel: latestHumanGuidanceSource(params.messages, guidance.rawText),
-    statusLabel: guidance.kind === 'media_request' ? '显式请求' : '生效中',
+    sourceLabel: latestHumanGuidanceSource(params.chat, params.messages, guidance.rawText),
+    statusLabel: guidance.kind === 'topic_shift' ? '生效中' : formatGuidanceInputStatusLabel(guidance.kind),
     statusHint: '这条引导优先于叙事线、矛盾线、关系压力和最近接梗；点名执行者时，调度会先锁定尚未回应的目标角色。',
     emphasisLabel: buildGuidanceEmphasis({
       kind: guidance.kind,
@@ -233,6 +273,7 @@ export function projectActiveUserGuidance(params: {
       completedActorNames,
       subjectNames,
       memoryTargetNames: shouldShowMemoryTarget ? memoryTargetNames : '',
+      completionStatusLabel,
       imageCapability,
     }),
     chips,
@@ -240,6 +281,7 @@ export function projectActiveUserGuidance(params: {
       `动作 ${formatBeatType(guidance.beatType as never)}`,
       `压力 ${(guidance.pressure * 100).toFixed(0)}%`,
       `持续 ${guidance.maxTurns} 轮`,
+      `已消耗 ${progress.consumedTurns} 轮`,
       `source ${intent.source}`,
       `kind ${guidance.kind}`,
     ],

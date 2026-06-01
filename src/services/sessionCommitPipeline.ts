@@ -10,6 +10,8 @@ import { resolveSessionEngine } from './sessionEngineRegistry';
 import { __flushDeferredMemoryAnalysisForTests, __resetDeferredMemoryAnalysisStateForTests, getDeferredMemoryAnalysisDebugState, scheduleAsyncMemoryAnalysis } from './asyncMemoryAnalysis';
 import { applyRecalledMemoryActivation } from './memoryRecallActivation';
 import { parseRuntimeEvent } from './runtimeEventFactory';
+import { reportRecoverableError } from './diagnostics';
+import { applyCalendarAutoPatchForChat, buildCalendarAutoPatchRuntimeEventPayloads, shouldRunCalendarAutoPatchForTransition } from './worldCalendarAutoPatchRuntime';
 
 export const __resetDeferredLlmDistillationStateForTests = __resetDeferredMemoryAnalysisStateForTests;
 export const __flushDeferredLlmDistillationForTests = __flushDeferredMemoryAnalysisForTests;
@@ -123,7 +125,33 @@ async function finishAppliedSessionTransition(params: {
     }
   }
   const nextCharacters = applyTransitionToCharacters(params.characters, transitionWithRecall);
-  const nextChat = applyTransitionToChat(params.chat, transitionWithRecall);
+  let nextChat = applyTransitionToChat(params.chat, transitionWithRecall);
+  if (shouldRunCalendarAutoPatchForTransition(transitionWithRecall)) {
+    try {
+      const autoPatch = await applyCalendarAutoPatchForChat({
+        chat: nextChat,
+        characters: nextCharacters,
+        updateChat: params.updateChat,
+      });
+      const autoPatchRuntimeEvents = buildCalendarAutoPatchRuntimeEventPayloads(autoPatch.appendedRuntimeEvents);
+      if (autoPatchRuntimeEvents.length) {
+        if (params.appendEventMessages) {
+          await params.appendEventMessages(params.chatId, autoPatchRuntimeEvents, params.persistedMessage.id);
+        } else {
+          for (const eventPayload of autoPatchRuntimeEvents) {
+            await params.appendEventMessage(params.chatId, eventPayload, params.persistedMessage.id);
+          }
+        }
+      }
+      nextChat = autoPatch.nextChat;
+    } catch (error) {
+      reportRecoverableError({
+        location: 'runtime:auto-calendar-patch',
+        error,
+        userMessage: '日历冲突自动修正失败，可在日历页手动应用草案。',
+      });
+    }
+  }
   const characterIdsToCheck = transitionWithRecall.characterPatches
     .filter((item) => Array.isArray(item.patch.layeredMemories))
     .map((item) => item.characterId);

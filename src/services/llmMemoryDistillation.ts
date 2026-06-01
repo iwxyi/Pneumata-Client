@@ -168,7 +168,8 @@ function buildDistillationSource(owner: { layeredMemories?: MemoryItem[] }, owne
   return source;
 }
 
-function toCandidate(ownerId: string, source: MemoryItem[], item: LlmAnalyzedMemoryItem): MemoryCandidate {
+function toCandidate(ownerId: string, source: MemoryItem[], item: LlmAnalyzedMemoryItem, now?: number): MemoryCandidate {
+  const distilledAt = typeof now === 'number' && Number.isFinite(now) ? Math.round(now) : Date.now();
   return {
     scope: item.scope,
     layerHint: 'long_term',
@@ -182,7 +183,7 @@ function toCandidate(ownerId: string, source: MemoryItem[], item: LlmAnalyzedMem
     origin: 'distilled',
     decision: item.decision,
     distilledFromIds: source.map((entry) => entry.id),
-    distilledAt: Date.now(),
+    distilledAt,
     distillationVersion: LLM_MEMORY_ANALYSIS_VERSION,
     scoreBreakdown: {
       stability: 0.9,
@@ -228,7 +229,7 @@ export function shouldRunLlmCharacterDistillation(character: AICharacter, _turnC
   return buildDistillationSource(character, 'character').length > 0;
 }
 
-export async function distillChatMemoriesWithLlm(api: APIConfig, chat: GroupChat): Promise<MemoryCandidate[]> {
+export async function distillChatMemoriesWithLlm(api: APIConfig, chat: GroupChat, options?: { now?: number }): Promise<MemoryCandidate[]> {
   const source = buildDistillationSource(chat, 'chat');
   if (!source.length) return [];
   const systemPrompt = buildChatMemoryAnalysisPrompt();
@@ -236,10 +237,10 @@ export async function distillChatMemoriesWithLlm(api: APIConfig, chat: GroupChat
     { role: 'user', content: `群聊：${chat.name}\n主题：${chat.topic || '未设置'}\n最近高门槛证据：\n${buildMemoryAnalysisEvidenceBlock(source)}` },
   ]);
   const result = parseLlmMemoryAnalysisResult(raw);
-  return result.items.slice(0, 4).map((item) => toCandidate(chat.id, source, item));
+  return result.items.slice(0, 4).map((item) => toCandidate(chat.id, source, item, options?.now));
 }
 
-export async function distillCharacterMemoriesWithLlm(api: APIConfig, character: AICharacter): Promise<MemoryCandidate[]> {
+export async function distillCharacterMemoriesWithLlm(api: APIConfig, character: AICharacter, options?: { now?: number }): Promise<MemoryCandidate[]> {
   const source = buildDistillationSource(character, 'character');
   if (!source.length) return [];
   const systemPrompt = buildCharacterMemoryAnalysisPrompt();
@@ -247,7 +248,7 @@ export async function distillCharacterMemoriesWithLlm(api: APIConfig, character:
     { role: 'user', content: `${buildCharacterAnalysisContext(character)}\n\n最近高门槛证据：\n${buildMemoryAnalysisEvidenceBlock(source)}` },
   ]);
   const result = parseLlmMemoryAnalysisResult(raw);
-  return result.items.slice(0, 4).map((item) => toCandidate(character.id, source, item));
+  return result.items.slice(0, 4).map((item) => toCandidate(character.id, source, item, options?.now));
 }
 
 type CoreProfilePatch = Partial<CharacterCoreProfile>;

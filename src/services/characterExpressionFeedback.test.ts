@@ -130,4 +130,14 @@ describe('buildExpressionFeedbackPatch', () => {
       createdAt: 20,
     });
   });
+
+  it('keeps now=0 for runtime timeline entries', () => {
+    const patch = buildExpressionFeedbackPatch({
+      character: buildCharacter(),
+      message: buildMessage('这次语气刚好。'),
+      kind: 'fits_character',
+      now: 0,
+    });
+    expect(patch.runtimeTimeline?.[0]?.createdAt).toBe(0);
+  });
 });

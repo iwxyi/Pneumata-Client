@@ -68,7 +68,7 @@ describe('updateCharacterLayeredMemories', () => {
     });
 
     expect(layeredMemories[0]?.text).toContain('表现出挑衅、防备、嘲弄或不满');
-    expect(layeredMemories[0]?.evidenceText).toBe(content);
+    expect(layeredMemories[0]?.evidenceText).toContain('蕉太狼你倒是会看人下菜碟啊');
     expect(layeredMemories[0]?.text).not.toBe(`对 蕉太狼 的态度发生变化：${content.slice(0, 96)}`);
   });
 
@@ -150,5 +150,23 @@ describe('updateCharacterLayeredMemories', () => {
     expect(layeredMemories.some((item) => item.sourceTag === 'emotional_state')).toBe(false);
     expect(layeredMemories.some((item) => item.sourceTag === 'personality_drift')).toBe(false);
     expect(layeredMemories.some((item) => item.sourceTag === 'interaction')).toBe(true);
+  });
+
+  it('sanitizes leaked ids from relationship memory text and evidence', () => {
+    const character = buildCharacter();
+    const content = 'char-b 你又来了，3c78729f-e52d-4dde-b27f-01a949960bb8 别装了。';
+    const layeredMemories = updateCharacterLayeredMemories({
+      character,
+      targetId: 'char-b',
+      targetName: '乙',
+      content,
+      personalityDrift: {},
+    });
+    const memory = layeredMemories[0];
+    expect(memory?.text).toContain('乙');
+    expect(memory?.text).not.toContain('char-b');
+    expect(memory?.text).not.toContain('3c78729f');
+    expect(memory?.evidenceText).not.toContain('char-b');
+    expect(memory?.evidenceText).not.toContain('3c78729f');
   });
 });

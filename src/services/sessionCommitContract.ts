@@ -54,12 +54,26 @@ function dedupeRuntimeEvents(events: DriverEventPayload[]) {
   });
 }
 
-function normalizeCommitTransition(transition: DriverMessageCommitTransition, sourceMessageId?: string): DriverMessageCommitTransition {
+function normalizeCommitTransition(
+  transition: DriverMessageCommitTransition,
+  sourceMessageId?: string,
+  now?: number,
+): DriverMessageCommitTransition {
   let lastEventCreatedAt = 0;
-  const baseCreatedAt = Date.now();
+  const baseCreatedAt = typeof now === 'number' && Number.isFinite(now) ? Math.round(now) : Date.now();
+  const fallbackFromEvents = transition.runtimeEvents.length
+    ? transition.runtimeEvents.reduce((max, event, index) => {
+      const value = typeof event.createdAt === 'number' && Number.isFinite(event.createdAt) ? Math.round(event.createdAt) : (baseCreatedAt + index);
+      return Math.max(max, value);
+    }, 0)
+    : 0;
+  const fallbackLastMessageAt = fallbackFromEvents || baseCreatedAt;
+  const explicitLastMessageAt = typeof transition.chatPatch.lastMessageAt === 'number' && Number.isFinite(transition.chatPatch.lastMessageAt)
+    ? Math.round(transition.chatPatch.lastMessageAt)
+    : undefined;
   return {
     chatPatch: {
-      lastMessageAt: Date.now(),
+      lastMessageAt: explicitLastMessageAt ?? fallbackLastMessageAt,
       ...transition.chatPatch,
     },
     chatRuntimeDelta: transition.chatRuntimeDelta,
@@ -103,8 +117,9 @@ export async function applyCommitTransition(params: {
   transition: DriverMessageCommitTransition;
   services: CommitRuntimeServices;
   sourceMessageId?: string;
+  now?: number;
 }) {
-  const transition = normalizeCommitTransition(params.transition, params.sourceMessageId);
+  const transition = normalizeCommitTransition(params.transition, params.sourceMessageId, params.now);
   const timer = createRuntimeMemoryTimer('commit-apply', {
     chatId: params.chatId,
     speakerId: params.speakerId,

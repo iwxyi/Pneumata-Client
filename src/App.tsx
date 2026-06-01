@@ -25,6 +25,8 @@ const routePreloaders = [
   () => import('./pages/SyncStatusPage'),
   () => import('./pages/BatchGenerateCharactersPage'),
   () => import('./pages/LettersPage'),
+  () => import('./pages/CalendarPage'),
+  () => import('./pages/MomentsPage'),
   () => import('./pages/IntroPage'),
   () => import('./pages/LoginPage'),
 ];
@@ -39,6 +41,8 @@ const [
   loadSyncStatusPage,
   loadBatchGenerateCharactersPage,
   loadLettersPage,
+  loadCalendarPage,
+  loadMomentsPage,
   loadIntroPage,
   loadLoginPage,
 ] = routePreloaders;
@@ -52,6 +56,8 @@ const AccountPage = lazy(loadAccountPage);
 const SyncStatusPage = lazy(loadSyncStatusPage);
 const BatchGenerateCharactersPage = lazy(loadBatchGenerateCharactersPage);
 const LettersPage = lazy(loadLettersPage);
+const CalendarPage = lazy(loadCalendarPage);
+const MomentsPage = lazy(loadMomentsPage);
 const IntroPage = lazy(loadIntroPage);
 const LoginPage = lazy(loadLoginPage);
 
@@ -168,6 +174,8 @@ function RoutedApp() {
         <Route path="/characters/:id/edit" element={<CharacterMasterDetailRouteElement detail={<RouteElement><CharacterEditorPage /></RouteElement>} />} />
         <Route path="/characters/batch-generate" element={<RouteElement><BatchGenerateCharactersPage /></RouteElement>} />
         <Route path="/letters" element={<RouteElement><LettersPage /></RouteElement>} />
+        <Route path="/calendar" element={<RouteElement><CalendarPage /></RouteElement>} />
+        <Route path="/moments" element={<RouteElement><MomentsPage /></RouteElement>} />
         <Route path="/models" element={<RouteElement><AIModelsPage /></RouteElement>} />
         <Route path="/account" element={<RouteElement><AccountPage /></RouteElement>} />
         <Route path="/account/sync-status" element={<RouteElement><SyncStatusPage /></RouteElement>} />

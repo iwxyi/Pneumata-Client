@@ -80,6 +80,7 @@ function buildMemoryReactivationEvent(params: {
   speaker: AICharacter;
   recalled: Array<{ item: MemoryItem; matchedTokens: string[] }>;
   members: DisplayTextMember[];
+  createdAt: number;
 }) {
   const summaries = params.recalled
     .slice(0, 2)
@@ -90,6 +91,7 @@ function buildMemoryReactivationEvent(params: {
     eventType: 'memory_reactivation',
     title: '旧记忆回温',
     summary: `${params.speaker.name} 的旧记忆被当前发言重新唤醒：${summaries.join(' / ') || '一些旧事'}`,
+    createdAt: params.createdAt,
     timelineType: 'note' as const,
     metrics: {
       characterId: params.speaker.id,
@@ -161,6 +163,7 @@ export function applyRecalledMemoryActivation(params: {
   message: Pick<Message, 'content' | 'type' | 'senderId' | 'senderName' | 'isDeleted' | 'metadata'>;
   recentMessages: Message[];
   transition: DriverMessageCommitTransition;
+  now?: number;
 }) {
   if (params.message.type !== 'ai' || !params.message.content.trim()) return params.transition;
   const speaker = params.characters.find((item) => item.id === params.message.senderId);
@@ -173,11 +176,13 @@ export function applyRecalledMemoryActivation(params: {
 
   const cueText = buildRecallCue(params.recentMessages, params.message);
   const promptRecalled = recalledFromPromptMetadata(layeredMemories, params.message);
+  const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const recalled = (promptRecalled.length ? promptRecalled : retrieveRelevantMemories(layeredMemories, {
     speakerId: speaker.id,
     targetId: latestTargetId(params.recentMessages, speaker.id, params.chat.memberIds),
     conversationId: params.chat.id,
     maxItems: 6,
+    now,
     cueText,
     includeArchivedRecall: true,
     maxArchivedItems: 3,
@@ -189,7 +194,6 @@ export function applyRecalledMemoryActivation(params: {
     .filter((item) => item.matchedTokens.length > 0);
   if (!recalled.length) return params.transition;
 
-  const now = Date.now();
   const members = buildDisplayMembers(params.characters);
   const recalledIds = new Set(recalled.map(({ item }) => item.id));
   const nextMemories = compactMemoryItems(layeredMemories.map((item) => (
@@ -205,7 +209,8 @@ export function applyRecalledMemoryActivation(params: {
   } as AICharacter, {
     type: 'memory',
     text: `旧记忆被当前发言重新唤醒：${recalledSummary}`,
-  }).slice(-80);
+    createdAt: now,
+  }, { now }).slice(-80);
 
   const transitionWithCharacterPatch = mergeSpeakerPatch(params.transition, speaker.id, {
     layeredMemories: nextMemories,
@@ -215,7 +220,7 @@ export function applyRecalledMemoryActivation(params: {
     ...transitionWithCharacterPatch,
     runtimeEvents: [
       ...transitionWithCharacterPatch.runtimeEvents,
-      buildMemoryReactivationEvent({ speaker, recalled, members }),
+      buildMemoryReactivationEvent({ speaker, recalled, members, createdAt: now }),
     ],
   };
 }

@@ -3,7 +3,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { DirectorBeatType } from './directorIntent';
 import { resolveDirectorIntent, type DirectorIntent, type PendingReplyLike } from './directorIntent';
-import { evaluateGuidanceMessage } from './guidanceExecution';
+import { collectGuidanceProgressAfterTimestamp } from './guidanceExecution';
 import { projectNarrativeLines, selectPrimaryNarrativeLine, type NarrativeLineProjection } from './narrativeProjection';
 import { getGuidanceTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
 
@@ -46,24 +46,21 @@ function uniqueKnownActorIds(ids: unknown, characters: AICharacter[]) {
   return ids.filter((id, index, array): id is string => typeof id === 'string' && knownIds.has(id) && array.indexOf(id) === index);
 }
 
+function uniqueActorIds(ids: unknown) {
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id, index, array): id is string => typeof id === 'string' && id.trim().length > 0 && array.indexOf(id) === index);
+}
+
 function countAiResponsesAfter(messages: Message[], timestamp: number) {
   return messages.filter((message) => message.type === 'ai' && !message.isDeleted && message.timestamp > timestamp).length;
 }
 
-function hasMatchedGuidance(message: Message, guidance: UserGuidanceIntent, characters: AICharacter[]) {
-  return evaluateGuidanceMessage(message, guidance, characters).matched;
-}
-
 function getCompletedGuidanceActorIdsAfter(messages: Message[], timestamp: number, guidance: UserGuidanceIntent, characters: AICharacter[]) {
-  return new Set(
-    messages
-      .filter((message) => message.timestamp > timestamp && hasMatchedGuidance(message, guidance, characters))
-      .map((message) => message.senderId),
-  );
+  return collectGuidanceProgressAfterTimestamp(messages, timestamp, guidance, characters).completedActorIds;
 }
 
 function countConsumedGuidanceTurnsAfter(messages: Message[], timestamp: number, guidance: UserGuidanceIntent, characters: AICharacter[]) {
-  return messages.filter((message) => message.timestamp > timestamp && hasMatchedGuidance(message, guidance, characters)).length;
+  return collectGuidanceProgressAfterTimestamp(messages, timestamp, guidance, characters).consumedTurns;
 }
 
 function isExplicitPersistentGuidance(guidance: UserGuidanceIntent) {
@@ -86,6 +83,8 @@ function guidanceIntentToDirectorIntent(guidance: UserGuidanceIntent, targetActo
 export function resolveLatestActiveUserGuidance(characters: AICharacter[], messages: Message[], now = Date.now()): HumanGuidanceResolution {
   const humanMessages = messages
     .filter((message) => !message.isDeleted && (message.type === 'user' || message.type === 'god'))
+    // "speak as" belongs to character participation, not topic/director guidance.
+    .filter((message) => !(message.type === 'user' && Boolean(message.metadata?.manualSpeaker)))
     .slice()
     .reverse();
 
@@ -96,7 +95,7 @@ export function resolveLatestActiveUserGuidance(characters: AICharacter[], messa
 
     if (guidance.actorIds.length) {
       const completedActorIds = getCompletedGuidanceActorIdsAfter(messages, message.timestamp, guidance, characters);
-      const pendingActorIds = uniqueKnownActorIds(guidance.actorIds.filter((actorId) => !completedActorIds.has(actorId)), characters);
+      const pendingActorIds = uniqueActorIds(guidance.actorIds.filter((actorId) => !completedActorIds.has(actorId)));
       if (pendingActorIds.length) {
         return {
           intent: guidanceIntentToDirectorIntent(guidance, pendingActorIds),
@@ -110,7 +109,7 @@ export function resolveLatestActiveUserGuidance(characters: AICharacter[], messa
       return { intent: null, timestamp: message.timestamp };
     }
     return {
-      intent: guidanceIntentToDirectorIntent(guidance, uniqueKnownActorIds(getGuidanceTargetActorIds(guidance), characters)),
+      intent: guidanceIntentToDirectorIntent(guidance, uniqueActorIds(getGuidanceTargetActorIds(guidance))),
       timestamp: message.timestamp,
     };
   }
@@ -153,10 +152,10 @@ function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AIChar
     if (!hasPersistentTargetedGuidance && !isDirectorInterventionActive(event, messages, now)) continue;
     if (hasPersistentTargetedGuidance && !pendingGuidanceActorIds.length) continue;
 
-    const targetActorIds = uniqueKnownActorIds(payload.targetActorIds, characters);
-    const guidanceTargetActorIds = uniqueKnownActorIds(getGuidanceTargetActorIds(guidance), characters);
+    const targetActorIds = uniqueActorIds(payload.targetActorIds);
+    const guidanceTargetActorIds = uniqueActorIds(getGuidanceTargetActorIds(guidance));
     const activeTargetActorIds = pendingGuidanceActorIds.length
-      ? uniqueKnownActorIds(pendingGuidanceActorIds, characters)
+      ? uniqueActorIds(pendingGuidanceActorIds)
       : targetActorIds.length
         ? targetActorIds
         : guidanceTargetActorIds;
@@ -184,7 +183,7 @@ export function projectRuntimePressure(params: {
   if (!shouldUseFreeSpeechRuntimeDecision(params.chat)) {
     return { narrativeLines: [], primaryLine: null, directorIntent: null };
   }
-  const now = params.now || Date.now();
+  const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const activeMessages = params.messages.filter((message) => !message.isDeleted);
   const narrativeLines = projectNarrativeLines({
     chat: params.chat,

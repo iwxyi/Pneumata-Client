@@ -10,8 +10,20 @@ export type RuntimeEventKind =
   | 'decision_trace'
   | 'phase_transition'
   | 'action_resolution'
+  | 'calendar_item_patch'
+  | 'attention_candidate'
+  | 'initial_relationship_inference'
   | 'board_state'
   | 'score_update';
+
+export type ActorRef =
+  | { kind: 'ai_character'; id: string }
+  | { kind: 'user_persona'; id: string }
+  | {
+    kind: 'system_agent';
+    id: string;
+    subtype?: 'topic_guide' | 'host' | 'game_master' | 'narrator' | 'director' | 'moderator' | 'orchestrator';
+  };
 
 export type InteractionKind =
   | 'support'
@@ -166,7 +178,7 @@ export interface DecisionTracePayload {
   reason?: string;
 }
 
-export type SocialEventKind = 'pair_private_thread' | 'social_outing' | 'post_moment' | 'status_update' | 'gift_exchange' | 'conflict_expression' | 'custom';
+export type SocialEventKind = 'pair_private_thread' | 'social_outing' | 'post_moment' | 'status_update' | 'gift_exchange' | 'conflict_expression' | 'check_in' | 'react_to_moment' | 'custom';
 
 export interface SocialEventCandidatePayload {
   eventKind: SocialEventKind;
@@ -185,6 +197,13 @@ export interface SocialEventCandidatePayload {
   timeHint?: string | null;
   locationHint?: string | null;
   dedupeKey?: string | null;
+  attentionTrace?: {
+    score: number;
+    restraint: number;
+    suggestedActions: Array<'check_in' | 'ask_followup' | 'private_message' | 'react_to_moment'>;
+    reasons: string[];
+    latestEvidenceAt: number;
+  };
 }
 
 export interface SocialEventHintEnvelope {

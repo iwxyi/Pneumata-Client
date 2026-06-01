@@ -341,6 +341,109 @@ describe('runSessionCommitPipeline', () => {
     );
   });
 
+  it('emits calendar patch runtime events when commit transition introduces conflicting calendar activities', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('char-a', '甲'), buildCharacter('char-b', '乙')];
+    const transition: DriverMessageCommitTransition = {
+      chatPatch: {},
+      characterPatches: [],
+      runtimeEvents: [],
+      chatRuntimeDelta: {
+        runtimeEventsV2: {
+          orderedIds: ['evt-1', 'evt-2'],
+          upserts: [
+            {
+              id: 'evt-1',
+              conversationId: chat.id,
+              kind: 'artifact',
+              createdAt: 100,
+              actorIds: ['char-a'],
+              targetIds: ['char-b'],
+              summary: '先约晚饭',
+              payload: {
+                eventKind: 'social_outing',
+                title: '晚饭',
+                activityType: '聚餐',
+                participantIds: ['char-a', 'char-b'],
+                dedupeKey: 'outing-dinner',
+                startAt: 1800000000000,
+                durationMinutes: 120,
+              },
+            },
+            {
+              id: 'evt-2',
+              conversationId: chat.id,
+              kind: 'artifact',
+              createdAt: 110,
+              actorIds: ['char-a'],
+              targetIds: ['char-b'],
+              summary: '又约咖啡',
+              payload: {
+                eventKind: 'social_outing',
+                title: '咖啡',
+                activityType: 'coffee',
+                participantIds: ['char-a', 'char-b'],
+                dedupeKey: 'outing-coffee',
+                startAt: 1800001800000,
+                durationMinutes: 60,
+              },
+            },
+          ],
+        },
+      },
+    };
+    runChatCommitPipelineMock.mockResolvedValue({
+      persistedMessage: {
+        id: 'msg-1',
+        chatId: chat.id,
+        type: 'ai',
+        senderId: 'char-a',
+        senderName: '甲',
+        content: '那就先吃饭再喝咖啡',
+        emotion: 0,
+        timestamp: 200,
+        isDeleted: false,
+      },
+      transition,
+    });
+    shouldRunLlmChatDistillationMock.mockReturnValue(false);
+    shouldRunLlmCharacterDistillationMock.mockReturnValue(false);
+    const appendEventMessage = vi.fn(async () => undefined);
+
+    await runSessionCommitPipeline({
+      api: DEFAULT_API_CONFIG,
+      chatId: chat.id,
+      chat,
+      characters,
+      message: {
+        chatId: chat.id,
+        type: 'ai',
+        senderId: 'char-a',
+        senderName: '甲',
+        content: '那就先吃饭再喝咖啡',
+        emotion: 0,
+      },
+      currentMessages: [],
+      onCommit: vi.fn(async () => transition),
+      upsertMessage: vi.fn(),
+      updateCharacter: vi.fn(async () => undefined),
+      appendEventMessage,
+      updateChat: vi.fn(async () => undefined),
+      recordSpeak: vi.fn(),
+    });
+
+    expect(appendEventMessage).toHaveBeenCalledWith(
+      chat.id,
+      expect.objectContaining({
+        eventType: 'calendar_item_patch',
+        metrics: expect.objectContaining({
+          source: 'world_calendar_auto_patch_runtime',
+        }),
+      }),
+      'msg-1',
+    );
+  });
+
   it('syncs LLM-distilled artifact memories into runtime artifact seeds', async () => {
     const chat = buildChat();
     const characters = [buildCharacter('char-a', '甲'), buildCharacter('char-b', '乙')];

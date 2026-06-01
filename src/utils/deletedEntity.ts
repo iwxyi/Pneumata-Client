@@ -32,5 +32,8 @@ export function buildDeletedCharacter(id: string, name?: string): AICharacter {
 }
 
 export function resolveCharacterOrDeleted(characters: AICharacter[], id: string, fallbackName?: string) {
+  if (id === 'user') {
+    return buildDeletedCharacter('user', fallbackName || '我');
+  }
   return characters.find((item) => item.id === id) || buildDeletedCharacter(id, fallbackName);
 }

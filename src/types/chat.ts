@@ -183,7 +183,8 @@ export interface SessionInputSurfaceDefinition {
   label?: string;
   actorId?: string;
   placeholder?: string;
-  mode?: 'guide' | 'speakAs';
+  mode?: 'guide' | 'speakAs' | 'memberSpeak';
+  capability?: 'speak' | 'guide' | 'moderate' | 'judge' | 'observe' | 'speak_as';
   fields?: SessionInputField[];
 }
 
@@ -257,7 +258,7 @@ export function resolveSessionDefinitionForConversation(conversation: Pick<Group
   };
 }
 
-export function createDefaultTextInputSurface(params: { key?: string; label?: string; mode?: 'guide' | 'speakAs'; actorId?: string; placeholder?: string } = {}): SessionInputSurfaceDefinition {
+export function createDefaultTextInputSurface(params: { key?: string; label?: string; mode?: 'guide' | 'speakAs' | 'memberSpeak'; actorId?: string; placeholder?: string; capability?: SessionInputSurfaceDefinition['capability'] } = {}): SessionInputSurfaceDefinition {
   return {
     key: params.key || 'main-text',
     type: 'text',
@@ -265,6 +266,7 @@ export function createDefaultTextInputSurface(params: { key?: string; label?: st
     mode: params.mode || 'guide',
     actorId: params.actorId,
     placeholder: params.placeholder,
+    capability: params.capability || 'guide',
   };
 }
 
@@ -517,6 +519,7 @@ export interface GroupChat {
   style: ChatStyle;
   runtimeEvolutionIntensity: RuntimeEvolutionIntensity;
   memberIds: string[];
+  operatorIds?: string[];
   speed: number;
   isActive: boolean;
   allowIntervention: boolean;
@@ -608,6 +611,7 @@ export function normalizeConversation(input: (Omit<GroupChat, 'type' | 'governan
     runtimeEvolutionIntensity: input.runtimeEvolutionIntensity || DEFAULT_RUNTIME_EVOLUTION_INTENSITY,
     sourceChatId: input.sourceChatId || null,
     sourceMemberIds: input.sourceMemberIds || [],
+    operatorIds: input.operatorIds || [],
     layeredMemories: input.layeredMemories || [],
     runtimeSeed: {
       notes: input.runtimeSeed?.notes || input.runtimeNotes || [],

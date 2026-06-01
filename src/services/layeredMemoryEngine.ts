@@ -7,6 +7,7 @@ import type { MemoryCandidatePayload, RuntimeEventV2 } from '../types/runtimeEve
 import type { RuntimeEventPayload } from './runtimeEventFactory';
 import { normalizeRuntimeEvent } from './runtimeEventFactory';
 import { sanitizeMemoryText } from './distillationText';
+import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 
 interface RuntimeEventLike extends RuntimeEventPayload {}
 
@@ -30,12 +31,25 @@ function summarizeInteractionKind(kind: string) {
   return labels[kind] || kind;
 }
 
-function buildRelationshipMemoryText(actorId: string, targetId: string, reason: string, summary: string) {
-  return sanitizeMemoryText(`${actorId}→${targetId} ${summarizeInteractionKind(reason)}：${summary}`).slice(0, 128);
+function buildDisplayMembers(chat: GroupChat): DisplayTextMember[] {
+  return chat.memberIds.map((id) => ({
+    id,
+    name: id === 'user' ? '用户' : '成员',
+  }));
 }
 
-function buildRoomStateMemoryText(summary: string) {
-  return sanitizeMemoryText(summary).slice(0, 128);
+function sanitizeMemoryCandidateText(chat: GroupChat, text: string, maxLength = 128) {
+  const members = buildDisplayMembers(chat);
+  const sanitized = sanitizeUserFacingText(text, members);
+  return sanitizeMemoryText(sanitized).slice(0, maxLength);
+}
+
+function buildRelationshipMemoryText(chat: GroupChat, reason: string, summary: string) {
+  return sanitizeMemoryCandidateText(chat, `${summarizeInteractionKind(reason)}：${summary}`, 128);
+}
+
+function buildRoomStateMemoryText(chat: GroupChat, summary: string) {
+  return sanitizeMemoryCandidateText(chat, summary, 128);
 }
 
 function toParticipantNames(chat: GroupChat, ids: string[] = []) {
@@ -97,7 +111,7 @@ function buildMemoryCandidatesFromStructuredEvents(chat: GroupChat, events: Runt
         kind: isPositive ? 'bond' : 'resentment',
         ownerId: chat.id,
         subjectIds: normalizeSubjectIds([payload.actorId, payload.targetId]),
-        text: buildRelationshipMemoryText(payload.actorId, payload.targetId, payload.kind, event.summary),
+        text: buildRelationshipMemoryText(chat, payload.kind, event.summary),
         sourceEventIds: [event.id],
         sourceTag: event.kind,
         scoreBreakdown: { stability: 0.65, recurrence: 0.55, impact: 0.78, specificity: 0.75, durability: 0.65 },
@@ -116,7 +130,7 @@ function buildMemoryCandidatesFromStructuredEvents(chat: GroupChat, events: Runt
         kind: positive >= negative ? 'bond' : 'resentment',
         ownerId: chat.id,
         subjectIds: normalizeSubjectIds([payload.actorId, payload.targetId]),
-        text: buildRelationshipMemoryText(payload.actorId, payload.targetId, payload.reason, event.summary),
+        text: buildRelationshipMemoryText(chat, payload.reason, event.summary),
         sourceEventIds: [event.id],
         sourceTag: event.kind,
         scoreBreakdown: { stability: 0.72, recurrence: 0.58, impact: 0.82, specificity: 0.76, durability: 0.68 },
@@ -131,7 +145,7 @@ function buildMemoryCandidatesFromStructuredEvents(chat: GroupChat, events: Runt
         kind: 'status_shift',
         ownerId: chat.id,
         subjectIds: normalizeSubjectIds(toParticipantNames(chat, event.actorIds)),
-        text: buildRoomStateMemoryText(event.summary),
+        text: buildRoomStateMemoryText(chat, event.summary),
         sourceEventIds: [event.id],
         sourceTag: event.kind,
         scoreBreakdown: { stability: 0.55, recurrence: 0.62, impact: 0.72, specificity: 0.74, durability: 0.52 },
@@ -174,7 +188,7 @@ function buildDecisionCandidate(chat: GroupChat, text: string): MemoryCandidate 
     layerHint: 'long_term',
     kind: 'decision',
     ownerId: chat.id,
-    text: sanitizeMemoryText(text).slice(0, 120),
+    text: sanitizeMemoryCandidateText(chat, text, 120),
     sourceEventIds: [],
     scoreBreakdown: { stability: 0.8, recurrence: 0.4, impact: 0.7, specificity: 0.7, durability: 0.8 },
   };
@@ -187,7 +201,7 @@ function buildConflictCandidate(chat: GroupChat): MemoryCandidate | null {
     layerHint: 'episodic',
     kind: 'conflict',
     ownerId: chat.id,
-    text: sanitizeMemoryText(`${chat.worldState.conflictAxes.map((axis) => `${axis.title}:${axis.currentTilt || 0}`).join('；')}`),
+    text: sanitizeMemoryCandidateText(chat, `${chat.worldState.conflictAxes.map((axis) => `${axis.title}:${axis.currentTilt || 0}`).join('；')}`),
     sourceEventIds: [],
     scoreBreakdown: { stability: 0.55, recurrence: 0.6, impact: 0.7, specificity: 0.65, durability: 0.6 },
   };
@@ -200,7 +214,7 @@ function buildWorldStateCandidate(chat: GroupChat): MemoryCandidate | null {
     layerHint: 'working',
     kind: 'status_shift',
     ownerId: chat.id,
-    text: sanitizeMemoryText([chat.worldState.mood, chat.worldState.focus, chat.worldState.recentEvent].filter(Boolean).join(' / ')).slice(0, 120),
+    text: sanitizeMemoryCandidateText(chat, [chat.worldState.mood, chat.worldState.focus, chat.worldState.recentEvent].filter(Boolean).join(' / '), 120),
     sourceEventIds: [],
     scoreBreakdown: { stability: 0.45, recurrence: 0.55, impact: 0.6, specificity: 0.6, durability: 0.45 },
   };
@@ -213,14 +227,14 @@ function buildRelationshipCandidate(chat: GroupChat, message: Pick<Message, 'con
     layerHint: 'episodic',
     kind: 'trait_evidence',
     ownerId: chat.id,
-    text: sanitizeMemoryText(message.content.trim()).slice(0, 120),
+    text: sanitizeMemoryCandidateText(chat, message.content.trim(), 120),
     sourceEventIds: [],
     scoreBreakdown: { stability: 0.5, recurrence: 0.5, impact: 0.65, specificity: 0.7, durability: 0.5 },
   };
 }
 
 function buildMemoryCandidatesFromRuntimeEvents(chat: GroupChat, events: RuntimeEventLike[]): MemoryCandidate[] {
-  return events.map(normalizeRuntimeEvent).flatMap<MemoryCandidate>((event) => {
+  return events.map((event) => normalizeRuntimeEvent(event)).flatMap<MemoryCandidate>((event) => {
     if (event.eventType === 'group_relationship_shift' || event.eventType === 'relationship_shift') {
       return [{
         scope: 'relationship',
@@ -228,7 +242,7 @@ function buildMemoryCandidatesFromRuntimeEvents(chat: GroupChat, events: Runtime
         kind: /升温|靠近|支持|保护/.test(event.summary) ? 'bond' : 'resentment',
         ownerId: chat.id,
         subjectIds: event.pair || [],
-        text: sanitizeMemoryText(`${event.title}：${event.summary}`).slice(0, 128),
+        text: sanitizeMemoryCandidateText(chat, `${event.title}：${event.summary}`, 128),
         sourceEventIds: filterLegacyEventIds([event.eventType, String(event.createdAt || '')]),
         sourceTag: event.eventType,
         scoreBreakdown: { stability: 0.65, recurrence: 0.55, impact: 0.8, specificity: 0.7, durability: 0.65 },
@@ -242,7 +256,7 @@ function buildMemoryCandidatesFromRuntimeEvents(chat: GroupChat, events: Runtime
         kind: 'thread_effect',
         ownerId: chat.id,
         subjectIds: event.pair || [],
-        text: sanitizeMemoryText(`${event.title}：${event.summary}`).slice(0, 128),
+        text: sanitizeMemoryCandidateText(chat, `${event.title}：${event.summary}`, 128),
         sourceEventIds: filterLegacyEventIds([event.eventType, String(event.createdAt || '')]),
         sourceTag: event.eventType,
         scoreBreakdown: { stability: 0.6, recurrence: 0.45, impact: 0.75, specificity: 0.7, durability: 0.6 },
@@ -280,7 +294,7 @@ function buildMemoryCandidatesFromRuntimeEvents(chat: GroupChat, events: Runtime
         kind: 'status_shift',
         ownerId: chat.id,
         subjectIds: event.metrics && typeof event.metrics === 'object' && 'actorId' in event.metrics && typeof event.metrics.actorId === 'string' ? [event.metrics.actorId] : [],
-        text: sanitizeMemoryText(`${event.title}：撤回本身成为公开可见的余波，原文不进入公开记忆。`).slice(0, 128),
+        text: sanitizeMemoryCandidateText(chat, `${event.title}：撤回本身成为公开可见的余波，原文不进入公开记忆。`, 128),
         sourceEventIds: filterLegacyEventIds([event.eventType, String(event.createdAt || '')]),
         sourceTag: event.eventType,
         scoreBreakdown: { stability: 0.56, recurrence: 0.45, impact: 0.72, specificity: 0.7, durability: 0.52 },
@@ -292,7 +306,7 @@ function buildMemoryCandidatesFromRuntimeEvents(chat: GroupChat, events: Runtime
 }
 
 export function buildMemoryCandidates(chat: GroupChat, message: Pick<Message, 'content' | 'type' | 'senderId'>, events: RuntimeEventLike[] = []) {
-  const normalizedEvents = events.map(normalizeRuntimeEvent);
+  const normalizedEvents = events.map((event) => normalizeRuntimeEvent(event));
   const structuredCandidates = buildMemoryCandidatesFromStructuredRuntime(chat);
   const eventCandidates = buildMemoryCandidatesFromRuntimeEvents(chat, normalizedEvents);
   const fallbackCandidates = shouldUseLegacyFallback(chat, normalizedEvents) ? [

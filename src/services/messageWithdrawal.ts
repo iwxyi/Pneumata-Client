@@ -39,7 +39,7 @@ export function withWithdrawnMessage<T extends Omit<Message, 'id' | 'timestamp' 
         withdrawn: true,
         originalContent,
         reason: options?.reason,
-        withdrawnAt: options?.withdrawnAt || Date.now(),
+        withdrawnAt: typeof options?.withdrawnAt === 'number' && Number.isFinite(options.withdrawnAt) ? Math.round(options.withdrawnAt) : Date.now(),
       },
     },
   };

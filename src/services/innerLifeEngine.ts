@@ -179,7 +179,7 @@ export function projectInnerLife(params: {
   messages: Message[];
   now?: number;
 }): InnerLifeProjection {
-  const now = params.now || Date.now();
+  const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const previous = params.character.soulState || createDefaultSoulState(params.character);
   const lastMessage = latestOtherMessage(params.character, params.messages);
   const lastOwnMessage = latestOwnMessage(params.character, params.messages);

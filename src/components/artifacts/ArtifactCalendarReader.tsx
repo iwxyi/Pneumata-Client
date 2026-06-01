@@ -2,17 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TouchEvent } from 'react';
 import { Box, Button, Card, CardContent, Chip, IconButton, Typography } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
-import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import type { CharacterArtifactEntry } from '../../stores/useCharacterArtifactStore';
 import type { PaperSurfaceVariant } from '../../types/artifactAppearance';
 import MarkdownText from '../common/MarkdownText';
 import PaperSurface from '../common/PaperSurface';
 import { motion, transition } from '../../styles/motion';
+import BaseCalendar from '../calendar/BaseCalendar';
 
 type ReaderSwipeState = {
   startX: number;
@@ -48,42 +46,6 @@ function parseDateKey(dateKey: string) {
 
 function toDateKey(date: Date) {
   return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}-${`${date.getDate()}`.padStart(2, '0')}`;
-}
-
-function toMonthKey(date: Date) {
-  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}`;
-}
-
-function addMonths(date: Date, months: number) {
-  return new Date(date.getFullYear(), date.getMonth() + months, 1);
-}
-
-function getCalendarDays(monthDate: Date) {
-  const firstDay = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-  const firstWeekday = (firstDay.getDay() + 6) % 7;
-  const startDate = new Date(firstDay);
-  startDate.setDate(startDate.getDate() - firstWeekday);
-  return Array.from({ length: 42 }, (_, index) => {
-    const day = new Date(startDate);
-    day.setDate(startDate.getDate() + index);
-    return day;
-  });
-}
-
-function getWeekStart(date: Date) {
-  const start = new Date(date);
-  const weekday = (start.getDay() + 6) % 7;
-  start.setDate(start.getDate() - weekday);
-  return start;
-}
-
-function getWeekDays(date: Date) {
-  const start = getWeekStart(date);
-  return Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(start);
-    day.setDate(start.getDate() + index);
-    return day;
-  });
 }
 
 function buildFloatingNavButtonSx(side: 'left' | 'right') {
@@ -145,18 +107,9 @@ export default function ArtifactCalendarReader({
   const selectedItem = items.find((item) => item.id === selectedId) || items[0] || null;
   const selectedIndex = selectedItem ? items.findIndex((item) => item.id === selectedItem.id) : -1;
   const selectedDate = selectedItem ? parseDateKey(getEntryDateKey(selectedItem)) : null;
-  const [visibleMonth, setVisibleMonth] = useState(() => selectedDate || new Date());
   const [calendarExpanded, setCalendarExpanded] = useState(true);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const swipeRef = useRef<ReaderSwipeState | null>(null);
-  const currentMonthKey = toMonthKey(visibleMonth);
-  const monthLabel = visibleMonth.toLocaleDateString(isZh ? 'zh-CN' : 'en-US', { year: 'numeric', month: 'long' });
-  const weekdays = isZh ? ['一', '二', '三', '四', '五', '六', '日'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-  const collapsedWeekAnchor = selectedDate && toMonthKey(selectedDate) === currentMonthKey ? selectedDate : visibleMonth;
-  const calendarDays = useMemo(
-    () => calendarExpanded ? getCalendarDays(visibleMonth) : getWeekDays(collapsedWeekAnchor),
-    [calendarExpanded, collapsedWeekAnchor, visibleMonth],
-  );
   const itemsByDate = useMemo(() => {
     const map = new Map<string, CharacterArtifactEntry>();
     items.forEach((item) => {
@@ -174,14 +127,8 @@ export default function ArtifactCalendarReader({
     if (!selectedItem) setSelectedId(items[0].id);
   }, [items, selectedItem]);
 
-  useEffect(() => {
-    if (selectedDate) setVisibleMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
-  }, [selectedItem?.id]);
-
   const selectItem = (item: CharacterArtifactEntry) => {
     setSelectedId(item.id);
-    const date = parseDateKey(getEntryDateKey(item));
-    if (date) setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
   };
 
   const goToItem = (offset: number) => {
@@ -253,60 +200,36 @@ export default function ArtifactCalendarReader({
       <Box sx={{ position: { lg: 'sticky' }, top: { lg: 'calc(var(--app-floating-tab-top, 10px) + 64px)' }, alignSelf: 'start', minWidth: 0 }}>
         <Card variant="outlined" sx={{ borderRadius: 3 }}>
           <CardContent sx={{ display: 'grid', gap: 1, p: 1.25, '&:last-child': { pb: 1.25 } }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '36px minmax(0, 1fr) 36px auto', alignItems: 'center', gap: 0.5 }}>
-              <IconButton size="small" onClick={() => setVisibleMonth((prev) => addMonths(prev, -1))} aria-label={isZh ? '上个月' : 'Previous month'}>
-                <ChevronLeftIcon fontSize="small" />
-              </IconButton>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, minWidth: 0 }}>
-                <CalendarMonthIcon fontSize="small" color="primary" />
-                <Typography variant="body2" sx={{ fontWeight: 750 }} noWrap>{monthLabel}</Typography>
-              </Box>
-              <IconButton size="small" onClick={() => setVisibleMonth((prev) => addMonths(prev, 1))} aria-label={isZh ? '下个月' : 'Next month'}>
-                <ChevronRightIcon fontSize="small" />
-              </IconButton>
-              <Button
-                size="small"
-                onClick={() => setCalendarExpanded((value) => !value)}
-                aria-label={calendarExpanded ? (isZh ? '折叠日历' : 'Collapse calendar') : (isZh ? '展开日历' : 'Expand calendar')}
-                endIcon={calendarExpanded ? <UnfoldLessIcon fontSize="small" /> : <UnfoldMoreIcon fontSize="small" />}
-              >
-                {calendarExpanded ? (isZh ? '收起' : 'Collapse') : (isZh ? '展开' : 'Expand')}
-              </Button>
-            </Box>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5 }}>
-              {weekdays.map((weekday, index) => <Typography key={`${weekday}-${index}`} variant="caption" color="text.secondary" sx={{ textAlign: 'center', fontWeight: 700 }}>{weekday}</Typography>)}
-            </Box>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 0.5 }}>
-              {calendarDays.map((day) => {
-                const dateKey = toDateKey(day);
-                const item = itemsByDate.get(dateKey);
-                const selected = selectedItem ? getEntryDateKey(selectedItem) === dateKey : false;
-                const inMonth = toMonthKey(day) === currentMonthKey;
-                return (
-                  <Button
-                    key={dateKey}
-                    size="small"
-                    disabled={!item}
-                    onClick={() => item && selectItem(item)}
-                    sx={{
-                      minWidth: 0,
-                      height: 34,
-                      p: 0,
-                      borderRadius: 1.5,
-                      color: selected ? 'primary.contrastText' : inMonth ? 'text.primary' : 'text.disabled',
-                      bgcolor: selected ? 'primary.main' : item ? 'rgba(25, 118, 210, 0.10)' : 'transparent',
-                      border: '1px solid',
-                      borderColor: item ? (selected ? 'primary.main' : 'rgba(25, 118, 210, 0.24)') : 'transparent',
-                      opacity: inMonth ? 1 : 0.42,
-                      '&:hover': { bgcolor: selected ? 'primary.dark' : 'rgba(25, 118, 210, 0.16)' },
-                      '&.Mui-disabled': { color: inMonth ? 'text.disabled' : 'transparent', opacity: inMonth ? 0.55 : 0.18 },
-                    }}
-                  >
-                    {day.getDate()}
-                  </Button>
-                );
-              })}
-            </Box>
+            {selectedDate ? (
+              <BaseCalendar
+                isZh={isZh}
+                selectedDate={selectedDate}
+                onSelectDate={(day) => {
+                  const item = itemsByDate.get(toDateKey(day));
+                  if (item) selectItem(item);
+                }}
+                mode={calendarExpanded ? 'month' : 'week'}
+                toggle={{
+                  expanded: calendarExpanded,
+                  onToggle: () => setCalendarExpanded((value) => !value),
+                  expandedLabel: isZh ? '收起' : 'Collapse',
+                  collapsedLabel: isZh ? '展开' : 'Expand',
+                  expandedAria: isZh ? '折叠日历' : 'Collapse calendar',
+                  collapsedAria: isZh ? '展开日历' : 'Expand calendar',
+                }}
+                getDayMeta={(day, inMonth) => {
+                  const dateKey = toDateKey(day);
+                  const item = itemsByDate.get(dateKey);
+                  const selected = selectedItem ? getEntryDateKey(selectedItem) === dateKey : false;
+                  return {
+                    disabled: !item,
+                    selected,
+                    inMonth,
+                    hasDot: Boolean(item) && !selected,
+                  };
+                }}
+              />
+            ) : null}
           </CardContent>
         </Card>
       </Box>

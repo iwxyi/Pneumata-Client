@@ -26,7 +26,7 @@ function jsonResponse(payload: unknown) {
   return JSON.stringify(payload);
 }
 
-function buildChat() {
+function buildChat(patch: Partial<ReturnType<typeof normalizeConversation>> = {}) {
   return normalizeConversation({
     id: 'chat-1',
     type: 'group',
@@ -37,7 +37,7 @@ function buildChat() {
     topic: '测试',
     style: 'free',
     runtimeEvolutionIntensity: 'balanced',
-    memberIds: ['a', 'b'],
+    memberIds: ['a', 'b', 'user'],
     speed: 1,
     isActive: false,
     allowIntervention: true,
@@ -49,6 +49,7 @@ function buildChat() {
     createdAt: 1,
     updatedAt: 1,
     lastMessageAt: 1,
+    ...patch,
   });
 }
 
@@ -163,7 +164,7 @@ describe('openChatEngine.onMessageCommitted', () => {
   });
 
   it('records plain user guidance as conversation focus and a topic memory cue', async () => {
-    const chat = buildChat();
+    const chat = buildChat({ memberIds: ['a', 'b'] });
     const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
     const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
       conversation: chat,
@@ -184,7 +185,144 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect(result.characterPatches).toHaveLength(0);
   });
 
-  it('records targeted user media guidance as a director intervention', async () => {
+  it('treats user member messages as normal participation instead of plain guidance', async () => {
+    const chat = buildChat({ memberIds: ['user', 'a', 'b'] });
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'user',
+        senderId: 'user',
+        content: '我觉得这个方案可以再具体一点。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+
+    const applied = applyResultToChat(chat, result);
+    expect(applied.worldState.recentEvent).not.toContain('用户引导：');
+    expect(applied.runtimeEventsV2?.some((event) => event.kind === 'memory_candidate' && event.summary.includes('用户发言：'))).toBe(true);
+  });
+
+  it('treats user mention as participant interaction and updates relationship ledger', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'user',
+        senderId: 'user',
+        content: '甲你先别急，我不同意这个结论。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const applied = applyResultToChat(chat, result);
+    expect(applied.runtimeEventsV2?.some((event) => event.kind === 'interaction' && event.actorIds?.includes('user') && event.targetIds?.includes('a'))).toBe(true);
+    expect(applied.runtimeEventsV2?.some((event) => event.kind === 'relationship_delta' && event.actorIds?.includes('user') && event.targetIds?.includes('a'))).toBe(true);
+    expect(applied.relationshipLedger?.some((entry) => entry.actorId === 'user' && entry.targetId === 'a')).toBe(true);
+  });
+
+  it('infers ai-to-user interaction from recent user turn', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '你这个问题问得很好，我先直接回答你。',
+      },
+      previousAiMessage: null,
+      recentMessages: [{
+        id: 'u-1',
+        chatId: chat.id,
+        type: 'user',
+        senderId: 'user',
+        senderName: '用户',
+        content: '甲你怎么看这件事？',
+        emotion: 0,
+        timestamp: Date.now() - 2_000,
+        isDeleted: false,
+      }],
+    });
+    const applied = applyResultToChat(chat, result);
+    expect(applied.runtimeEventsV2?.some((event) => event.kind === 'interaction' && event.actorIds?.includes('a') && event.targetIds?.includes('user'))).toBe(true);
+  });
+
+  it('creates ai_response_to_user attention candidate for inferred ai-to-user interaction', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '你先别急，我会把这件事说清楚。',
+      },
+      previousAiMessage: null,
+      recentMessages: [{
+        id: 'u-2',
+        chatId: chat.id,
+        type: 'user',
+        senderId: 'user',
+        senderName: '用户',
+        content: '甲你先说明白。',
+        emotion: 0,
+        timestamp: Date.now() - 2_000,
+        isDeleted: false,
+      }],
+    });
+    const applied = applyResultToChat(chat, result);
+    const attentionEvent = applied.runtimeEventsV2?.find((event) => event.kind === 'attention_candidate' && event.actorIds?.includes('a') && event.targetIds?.includes('user'));
+    expect(attentionEvent).toBeTruthy();
+    expect((attentionEvent?.payload as { source?: string }).source).toBe('ai_response_to_user');
+  });
+
+  it('creates ai_response_to_member attention candidate for inferred ai-to-ai interaction', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '乙你刚才那个判断我认同，但我想补一个细节。',
+        interactionHint: {
+          kind: 'support',
+          actorId: 'a',
+          targetId: 'b',
+          intensity: 3,
+          tone: 'calm',
+          evidenceText: '乙你刚才那个判断我认同，但我想补一个细节。',
+          confidence: 0.9,
+        },
+      },
+      previousAiMessage: null,
+      recentMessages: [{
+        id: 'ai-previous-1',
+        chatId: chat.id,
+        type: 'ai',
+        senderId: 'b',
+        senderName: '乙',
+        content: '我建议先降风险再推进。',
+        emotion: 0,
+        timestamp: Date.now() - 2_000,
+        isDeleted: false,
+      }],
+    });
+    const applied = applyResultToChat(chat, result);
+    const attentionEvent = applied.runtimeEventsV2?.find((event) => event.kind === 'attention_candidate' && event.actorIds?.includes('a') && event.targetIds?.includes('b'));
+    expect(attentionEvent).toBeTruthy();
+    expect((attentionEvent?.payload as { source?: string }).source).toBe('ai_response_to_member');
+  });
+
+  it('treats targeted user media guidance as user attention candidate instead of director intervention', async () => {
     const chat = buildChat();
     const characters = [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼')];
     const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
@@ -201,19 +339,1440 @@ describe('openChatEngine.onMessageCommitted', () => {
 
     const applied = applyResultToChat(chat, result);
     const directorEvent = applied.runtimeEventsV2?.find((event) => event.kind === 'director_intervention');
-    expect(directorEvent).toBeTruthy();
-    expect(directorEvent?.targetIds).toEqual(['a']);
-    expect(directorEvent?.payload).toMatchObject({
-      intent: 'force_reply',
-      targetActorIds: ['a'],
-      pressure: 0.98,
-      maxTurns: 1,
-      userGuidance: {
-        kind: 'media_request',
-        actorIds: ['a'],
-        mediaRequest: { kind: 'image', subjectActorIds: ['b'] },
+    const attentionEvent = applied.runtimeEventsV2?.find((event) => event.kind === 'attention_candidate');
+    expect(directorEvent).toBeFalsy();
+    expect(attentionEvent).toBeTruthy();
+    expect(attentionEvent?.targetIds).toContain('a');
+  });
+
+  it('treats plain user follow-up as participant interaction toward latest ai speaker', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'user',
+        senderId: 'user',
+        content: '你这个解释我不同意，为什么要这么判断？',
       },
+      previousAiMessage: null,
+      recentMessages: [
+        {
+          id: 'ai-1',
+          chatId: chat.id,
+          type: 'ai',
+          senderId: 'a',
+          senderName: '甲',
+          content: '我建议先按这个方案执行。',
+          emotion: 0,
+          timestamp: Date.now() - 2_000,
+          isDeleted: false,
+        },
+      ],
     });
+
+    const applied = applyResultToChat(chat, result);
+    const interactionEvent = applied.runtimeEventsV2?.find((event) => event.kind === 'interaction' && event.actorIds?.includes('user') && event.targetIds?.includes('a'));
+    const attentionEvent = applied.runtimeEventsV2?.find((event) => event.kind === 'attention_candidate' && event.actorIds?.includes('user') && event.targetIds?.includes('a'));
+    expect(interactionEvent).toBeTruthy();
+    expect(attentionEvent).toBeTruthy();
+    expect((attentionEvent?.payload as { source?: string }).source).toBe('user_followup_message');
+  });
+
+  it('does not project non-user external sender as relationship participant', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'user',
+        senderId: 'moderator',
+        content: '甲先回答这个问题。',
+      },
+      previousAiMessage: null,
+      recentMessages: [
+        {
+          id: 'ai-1',
+          chatId: chat.id,
+          type: 'ai',
+          senderId: 'a',
+          senderName: '甲',
+          content: '我建议先按这个方案执行。',
+          emotion: 0,
+          timestamp: Date.now() - 2_000,
+          isDeleted: false,
+        },
+      ],
+    });
+
+    const applied = applyResultToChat(chat, result);
+    expect(applied.runtimeEventsV2?.some((event) => event.kind === 'interaction' && event.actorIds?.includes('moderator'))).toBe(false);
+    expect(applied.runtimeEventsV2?.some((event) => event.kind === 'relationship_delta' && event.actorIds?.includes('moderator'))).toBe(false);
+    expect(applied.runtimeEventsV2?.some((event) => event.kind === 'attention_candidate' && event.actorIds?.includes('moderator'))).toBe(false);
+  });
+
+  it('does not create user guidance memory candidate for god/director intervention message', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'god',
+        senderId: 'director',
+        content: '请甲先回答用户刚才的问题。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const applied = applyResultToChat(chat, result);
+    expect(applied.runtimeEventsV2?.some((event) => event.kind === 'director_intervention')).toBe(true);
+    expect(applied.runtimeEventsV2?.some((event) => event.kind === 'memory_candidate' && event.summary.includes('用户引导'))).toBe(false);
+    expect(applied.runtimeEventsV2?.some((event) => event.kind === 'interaction' && event.actorIds?.includes('director'))).toBe(false);
+  });
+
+  it('creates user-private follow-up candidate when actor responds after user attention targeting', async () => {
+    const chat = buildChat({
+      runtimeEventsV2: [{
+        id: 'att-1',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: Date.now() - 2_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户点名 a',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.8 },
+      }],
+    });
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我来先回应一下。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readRuntimeEvents(result);
+    const followup = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string; reasonType?: string }).eventKind === 'pair_private_thread' && (event.payload as { reasonType?: string }).reasonType === 'attention_followup');
+    expect(followup).toBeTruthy();
+    expect((followup?.payload as { participantIds?: string[] }).participantIds).toEqual(['a', 'user']);
+  });
+
+  it('does not generate user-targeted attention candidates when user is not a chat member', async () => {
+    const chat = buildChat({
+      memberIds: ['a', 'b'],
+      runtimeEventsV2: [{
+        id: 'att-1',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: Date.now() - 2_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户点名 a',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.8 },
+      }],
+    });
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我来先回应一下。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readRuntimeEvents(result);
+    expect(nextEvents.some((event) => {
+      if (event.kind !== 'event_candidate') return false;
+      const payload = event.payload as { targetIds?: string[]; eventKind?: string };
+      return (payload.targetIds || []).includes('user')
+        && ['pair_private_thread', 'check_in', 'react_to_moment', 'status_update', 'social_outing'].includes(payload.eventKind || '');
+    })).toBe(false);
+  });
+
+  it('creates check_in and react_to_moment candidates from attention and recent moments', async () => {
+    const chat = buildChat({
+      runtimeEventsV2: [
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: Date.now() - 3_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户点名 a',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.8 },
+        },
+        {
+          id: 'moment-1',
+          conversationId: 'chat-1',
+          kind: 'artifact',
+          createdAt: Date.now() - 20_000,
+          actorIds: ['b'],
+          summary: 'b 发了动态',
+          visibility: 'derived_public',
+          payload: { artifactType: 'moment_text', eventKind: 'post_moment', text: '晚饭真不错' },
+        },
+      ],
+    });
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我先回应一下刚才的问题。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readRuntimeEvents(result);
+    const checkIn = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'check_in');
+    const reactMoment = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'react_to_moment');
+    const checkInArtifact = nextEvents.find((event) => event.kind === 'artifact' && (event.payload as { eventKind?: string }).eventKind === 'check_in');
+    const reactMomentArtifact = nextEvents.find((event) => event.kind === 'artifact' && (event.payload as { eventKind?: string }).eventKind === 'react_to_moment');
+    expect(checkIn).toBeTruthy();
+    expect(reactMoment).toBeTruthy();
+    expect(checkInArtifact).toBeTruthy();
+    expect(reactMomentArtifact).toBeTruthy();
+    expect((checkInArtifact?.payload as { candidateId?: string })?.candidateId).toBeTruthy();
+    expect((reactMomentArtifact?.payload as { candidateId?: string })?.candidateId).toBeTruthy();
+    const checkInTrace = (checkIn?.payload as { attentionTrace?: { score?: number; reasons?: string[] } })?.attentionTrace;
+    const reactTrace = (reactMoment?.payload as { attentionTrace?: { score?: number; reasons?: string[] } })?.attentionTrace;
+    expect(checkInTrace?.score).toBeGreaterThan(0);
+    expect((checkInTrace?.reasons || []).length).toBeGreaterThan(0);
+    expect(reactTrace?.score).toBeGreaterThan(0);
+  });
+
+  it('suppresses check_in and react_to_moment candidates within cooldown windows', async () => {
+    const now = Date.now();
+    const chat = buildChat({
+      runtimeEventsV2: [
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 3_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户点名 a',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.8 },
+        },
+        {
+          id: 'moment-1',
+          conversationId: 'chat-1',
+          kind: 'artifact',
+          createdAt: now - 8_000,
+          actorIds: ['b'],
+          summary: 'b 发了动态',
+          visibility: 'derived_public',
+          payload: { artifactType: 'moment_text', eventKind: 'post_moment', text: '晚饭真不错' },
+        },
+        {
+          id: 'checkin-old',
+          conversationId: 'chat-1',
+          kind: 'artifact',
+          createdAt: now - 5 * 60_000,
+          actorIds: ['a'],
+          targetIds: ['user'],
+          summary: 'a 刚刚问候过用户',
+          visibility: 'derived_public',
+          payload: { artifactType: 'check_in_note', eventKind: 'check_in', text: '最近怎么样？' },
+        },
+        {
+          id: 'react-old',
+          conversationId: 'chat-1',
+          kind: 'artifact',
+          createdAt: now - 10 * 60_000,
+          actorIds: ['a'],
+          targetIds: ['user'],
+          summary: 'a 刚刚回应过动态',
+          visibility: 'derived_public',
+          payload: { artifactType: 'moment_reaction_note', eventKind: 'react_to_moment', text: '这条动态不错。' },
+        },
+      ],
+    });
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我继续说一下。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readRuntimeEvents(result);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'check_in')).toBe(false);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'react_to_moment')).toBe(false);
+    const suppressed = nextEvents.filter((event) => event.kind === 'action_resolution' && (event.payload as { eventType?: string }).eventType === 'event_candidate_suppressed');
+    expect(suppressed.length).toBeGreaterThan(0);
+    const checkInSuppressed = suppressed.find((event) => (event.payload as { candidateEventKind?: string }).candidateEventKind === 'check_in');
+    expect(checkInSuppressed).toBeTruthy();
+    expect((checkInSuppressed?.payload as { reasonType?: string }).reasonType).toBe('restraint_policy');
+    expect((checkInSuppressed?.payload as { hitWindow?: string }).hitWindow).toBe('90min');
+    expect((checkInSuppressed?.payload as { hitEventId?: string }).hitEventId).toBe('checkin-old');
+    const reactSuppressed = suppressed.find((event) => (event.payload as { candidateEventKind?: string }).candidateEventKind === 'react_to_moment');
+    expect(reactSuppressed).toBeTruthy();
+    expect((reactSuppressed?.payload as { reasonType?: string }).reasonType).toBe('dedupe_backflow_react_to_moment');
+    expect((reactSuppressed?.payload as { hitWindow?: string }).hitWindow).toBe('45min');
+    expect((reactSuppressed?.payload as { hitEventId?: string }).hitEventId).toBe('react-old');
+  });
+
+  it('records suppression event when semantic-duplicate candidate is older than existing candidate', async () => {
+    const now = Date.now();
+    const chat = buildChat({
+      runtimeEventsV2: [{
+        id: 'candidate-existing-newer',
+        conversationId: 'chat-1',
+        kind: 'event_candidate',
+        createdAt: now + 30_000,
+        actorIds: ['a'],
+        summary: 'a 提议发布一条 post_moment 动态',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'post_moment',
+          initiatorId: 'a',
+          participantIds: ['a'],
+          reasonType: 'emotion_release',
+          confidence: 0.92,
+          urgency: 'soon',
+          seedIntent: '想发动态',
+          visibilityPlan: 'public',
+          expectedArtifacts: ['moment_text'],
+          title: '朋友圈动态',
+          activityType: '记录聚会',
+          dedupeKey: 'moment-dup-1',
+        },
+      }],
+    });
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我想发条动态记录一下。',
+        socialEventHints: [{
+          eventKind: 'post_moment',
+          confidence: 0.91,
+          reasonType: 'emotion_release',
+          dedupeKey: 'moment-dup-1',
+          title: '朋友圈动态',
+          activityType: '记录聚会',
+        }],
+      } as never,
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readRuntimeEvents(result);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && event.id !== 'candidate-existing-newer' && (event.payload as { eventKind?: string }).eventKind === 'post_moment')).toBe(false);
+    const suppressed = nextEvents.find((event) => event.kind === 'action_resolution' && (event.payload as { reasonType?: string }).reasonType === 'dedupe_semantic_existing_newer');
+    expect(suppressed).toBeTruthy();
+    expect((suppressed?.payload as { eventType?: string })?.eventType).toBe('event_candidate_suppressed');
+    expect((suppressed?.payload as { reasonDetail?: string })?.reasonDetail).toContain('语义重复且已有候选更新');
+    expect((suppressed?.payload as { preferredConfidence?: number })?.preferredConfidence).toBe(0.92);
+    expect((suppressed?.payload as { suppressedConfidence?: number })?.suppressedConfidence || 0).toBeGreaterThanOrEqual(0.91);
+    expect((suppressed?.payload as { preferredCandidateId?: string })?.preferredCandidateId).toBe('candidate-existing-newer');
+    expect((suppressed?.payload as { suppressedCandidateId?: string })?.suppressedCandidateId).toBeTruthy();
+  });
+
+  it('suppresses attention private/check_in suggestions under high threat relationship', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 1, competence: 3, trust: 1, threat: 10 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 60_000,
+      }],
+      runtimeEventsV2: [
+        {
+          id: 'evt-attention',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 10 * 60_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户点名a',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+        },
+        {
+          id: 'evt-moment',
+          conversationId: 'chat-1',
+          kind: 'artifact',
+          createdAt: now - 5 * 60_000,
+          actorIds: ['b'],
+          targetIds: ['user'],
+          summary: 'B 发动态',
+          visibility: 'derived_public',
+          payload: { artifactType: 'moment_text', eventKind: 'post_moment', text: '晚饭真不错' },
+        },
+      ],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我先补一句。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'pair_private_thread')).toBe(false);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'check_in')).toBe(false);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'react_to_moment')).toBe(true);
+  });
+
+  it('suppresses user-private attention actions in quiet hours when relationship is weak', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-29T23:30:00+08:00'));
+    try {
+      const now = Date.now();
+      const chat = normalizeConversation({
+        ...buildChat(),
+        relationshipLedger: [{
+          pairKey: 'a->user',
+          actorId: 'a',
+          targetId: 'user',
+          current: { warmth: 1, competence: 3, trust: 1, threat: 0 },
+          trend: 'flat',
+          recentEvents: [],
+          lastUpdatedAt: now - 60_000,
+        }],
+        runtimeEventsV2: [{
+          id: 'evt-attention',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 5 * 60_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户点名a',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+        }],
+      });
+      const result = await openChatEngine.onMessageCommitted({
+        conversation: chat,
+        characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+        message: {
+          type: 'ai',
+          senderId: 'a',
+          content: '我先补一句。',
+          interactionHint: null,
+        },
+        previousAiMessage: null,
+        recentMessages: [],
+      });
+      const nextEvents = readAppliedRuntimeEvents(chat, result);
+      expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'check_in')).toBe(false);
+      const suppressed = nextEvents.find((event) => event.kind === 'action_resolution' && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed' && (event.payload as { reasonType?: string }).reasonType === 'restraint_policy');
+      expect(suppressed).toBeTruthy();
+      expect((suppressed?.payload as { reasonDetail?: string }).reasonDetail).toContain('关系信号');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not create public react_to_moment candidate from private-visibility moment artifact', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 6, competence: 4, trust: 5, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+      runtimeEventsV2: [{
+        id: 'evt-attention',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 2 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户点名a',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.92, targetIds: ['a'] },
+      }, {
+        id: 'evt-private-moment',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 5 * 60_000,
+        actorIds: ['b'],
+        targetIds: ['user'],
+        summary: 'B 在私域发布动态',
+        visibility: 'pair_private',
+        payload: { artifactType: 'moment_text', eventKind: 'post_moment', text: '这段内容仅私域可见' },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我先补一句。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'react_to_moment')).toBe(false);
+  });
+
+  it('suppresses attention check_in when recent user-private action already exists', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 6, competence: 4, trust: 4, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+      runtimeEventsV2: [{
+        id: 'evt-attention',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 5 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户点名a',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+      }, {
+        id: 'evt-recent-private',
+        conversationId: 'chat-1',
+        kind: 'event_candidate',
+        createdAt: now - 30 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: 'a 刚私聊跟进过',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'pair_private_thread',
+          initiatorId: 'a',
+          participantIds: ['a', 'user'],
+          targetIds: ['user'],
+          reasonType: 'attention_followup',
+          confidence: 0.82,
+          urgency: 'soon',
+          seedIntent: '刚刚跟进过',
+          visibilityPlan: 'user_private',
+          expectedArtifacts: ['private_thread_summary'],
+        },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我继续回应。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'check_in')).toBe(false);
+    const suppressed = nextEvents.find((event) => event.kind === 'action_resolution' && (event.payload as { eventType?: string; reasonType?: string; candidateEventKind?: string }).eventType === 'event_candidate_suppressed' && (event.payload as { reasonType?: string; candidateEventKind?: string }).reasonType === 'restraint_policy' && (event.payload as { candidateEventKind?: string }).candidateEventKind === 'check_in');
+    expect(suppressed).toBeTruthy();
+    expect((suppressed?.payload as { reasonDetail?: string }).reasonDetail).toContain('近期已存在用户私域动作');
+    expect((suppressed?.payload as { reasonDetail?: string }).reasonDetail).toContain('evt-recent-private');
+    expect((suppressed?.payload as { hitEventId?: string }).hitEventId).toBe('evt-recent-private');
+    expect((suppressed?.payload as { hitWindow?: string }).hitWindow).toBe('90min');
+  });
+
+  it('builds attention-driven invite_activity as social_outing candidate', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 16, competence: 4, trust: 14, threat: -2 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+      runtimeEventsV2: [{
+        id: 'evt-attention',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 2 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户提到周末可以一起活动',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.94, targetIds: ['a'] },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我们可以找时间见个面。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    const invite = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_invite_activity');
+    expect((invite?.payload as { eventKind?: string }).eventKind).toBe('social_outing');
+  });
+
+  it('builds attention-driven calendar_reminder as status_update candidate', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 12, competence: 4, trust: 10, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+      runtimeEventsV2: [{
+        id: 'evt-attention',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 2 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户提到明天安排',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+      }, {
+        id: 'evt-recent-outing',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 20 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '刚发起活动邀约',
+        visibility: 'derived_public',
+        payload: { artifactType: 'outing_summary', eventKind: 'social_outing', text: '刚发起活动邀约' },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我来补一条提醒。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    const reminder = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_calendar_reminder');
+    expect((reminder?.payload as { eventKind?: string }).eventKind).toBe('status_update');
+  });
+
+  it('suppresses status_update candidate when recent status artifact already covers the same cluster', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'evt-status-existing',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now + 20_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '甲已更新近况',
+        visibility: 'derived_public',
+        payload: {
+          artifactType: 'status_note',
+          eventKind: 'status_update',
+          title: '状态更新',
+          activityType: '近况同步',
+          dedupeKey: 'status-dup-1',
+          text: '甲已更新近况',
+        },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我再补一句近况。',
+        socialEventHints: [{
+          eventKind: 'status_update',
+          confidence: 0.9,
+          reasonType: 'self_disclosure',
+          dedupeKey: 'status-dup-1',
+          title: '状态更新',
+          activityType: '近况同步',
+        }],
+      } as never,
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readRuntimeEvents(result);
+    const suppressed = nextEvents.find((event) => event.kind === 'action_resolution'
+      && (event.payload as { reasonType?: string }).reasonType === 'dedupe_backflow_status_update');
+    expect(suppressed).toBeTruthy();
+    expect((suppressed?.payload as { hitEventId?: string }).hitEventId).toBe('evt-status-existing');
+    expect((suppressed?.payload as { hitWindow?: string }).hitWindow).toBe('cluster');
+  });
+
+  it('suppresses post_moment candidate when recent moment artifact already covers the same cluster', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'evt-moment-existing',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now + 20_000,
+        actorIds: ['a'],
+        summary: '甲已发动态',
+        visibility: 'derived_public',
+        payload: {
+          artifactType: 'moment_text',
+          eventKind: 'post_moment',
+          title: '朋友圈动态',
+          activityType: '记录聚会',
+          dedupeKey: 'moment-dup-1',
+          text: '甲已发动态',
+        },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我想发条动态记录一下。',
+        socialEventHints: [{
+          eventKind: 'post_moment',
+          confidence: 0.9,
+          reasonType: 'celebration',
+          dedupeKey: 'moment-dup-1',
+          title: '朋友圈动态',
+          activityType: '记录聚会',
+        }],
+      } as never,
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const suppressed = readRuntimeEvents(result).find((event) => event.kind === 'action_resolution'
+      && (event.payload as { reasonType?: string }).reasonType === 'dedupe_backflow_post_moment');
+    expect(suppressed).toBeTruthy();
+    expect((suppressed?.payload as { hitEventId?: string }).hitEventId).toBe('evt-moment-existing');
+    expect((suppressed?.payload as { hitWindow?: string }).hitWindow).toBe('cluster');
+  });
+
+  it('suppresses social_outing candidate when recent outing artifact already covers the same cluster', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'evt-outing-existing',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now + 20_000,
+        actorIds: ['a'],
+        targetIds: ['a', 'b'],
+        summary: '甲乙已线下活动',
+        visibility: 'derived_public',
+        payload: {
+          artifactType: 'outing_summary',
+          eventKind: 'social_outing',
+          title: '线下活动',
+          activityType: '散步',
+          dedupeKey: 'outing-dup-1',
+          text: '甲乙已线下活动',
+        },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我们周末去散步吧。',
+        socialEventHints: [{
+          eventKind: 'social_outing',
+          confidence: 0.9,
+          reasonType: 'celebration',
+          dedupeKey: 'outing-dup-1',
+          title: '线下活动',
+          activityType: '散步',
+          participantIds: ['a', 'b'],
+        }],
+      } as never,
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const suppressed = readRuntimeEvents(result).find((event) => event.kind === 'action_resolution'
+      && (event.payload as { reasonType?: string }).reasonType === 'dedupe_backflow_social_outing');
+    expect(suppressed).toBeTruthy();
+    expect((suppressed?.payload as { hitEventId?: string }).hitEventId).toBe('evt-outing-existing');
+    expect((suppressed?.payload as { hitWindow?: string }).hitWindow).toBe('cluster');
+  });
+
+  it('suppresses gift_exchange candidate when recent gift artifact already covers the same cluster', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'evt-gift-existing',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now + 20_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '甲已送出小礼物',
+        visibility: 'derived_public',
+        payload: {
+          artifactType: 'gift_note',
+          eventKind: 'gift_exchange',
+          title: '小礼物',
+          activityType: '安慰',
+          dedupeKey: 'gift-dup-1',
+          text: '甲已送出小礼物',
+        },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我给你带了个小礼物。',
+        socialEventHints: [{
+          eventKind: 'gift_exchange',
+          confidence: 0.9,
+          reasonType: 'care',
+          dedupeKey: 'gift-dup-1',
+          title: '小礼物',
+          activityType: '安慰',
+          targetIds: ['b'],
+        }],
+      } as never,
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const suppressed = readRuntimeEvents(result).find((event) => event.kind === 'action_resolution'
+      && (event.payload as { reasonType?: string }).reasonType === 'dedupe_backflow_gift_exchange');
+    expect(suppressed).toBeTruthy();
+    expect((suppressed?.payload as { hitEventId?: string }).hitEventId).toBe('evt-gift-existing');
+    expect((suppressed?.payload as { hitWindow?: string }).hitWindow).toBe('cluster');
+  });
+
+  it('prefers higher-confidence status_update when attention reminder and hint share the same dedupe key', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 12, competence: 4, trust: 10, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+      runtimeEventsV2: [{
+        id: 'evt-attention',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 2 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户提到明天安排',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+      }, {
+        id: 'evt-recent-outing',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 20 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '刚发起活动邀约',
+        visibility: 'derived_public',
+        payload: { artifactType: 'outing_summary', eventKind: 'social_outing', text: '刚发起活动邀约' },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我来更新一下提醒：明天别迟到。',
+        interactionHint: null,
+        socialEventHints: [{
+          eventKind: 'status_update',
+          confidence: 0.93,
+          reasonType: 'self_disclosure',
+          dedupeKey: `attention-reminder-${chat.id}-a`,
+          seedIntent: '补一条明确提醒。',
+          visibilityPlan: 'user_private',
+          expectedArtifacts: ['status_note'],
+        }],
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    const statusCandidates = nextEvents.filter((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'status_update');
+    expect(statusCandidates).toHaveLength(1);
+    const payload = statusCandidates[0]?.payload as { confidence?: number; dedupeKey?: string; seedIntent?: string };
+    expect(payload.dedupeKey).toBe(`attention-reminder-${chat.id}-a`);
+    expect(payload.confidence || 0).toBeGreaterThanOrEqual(0.93);
+    const suppressedDuplicate = nextEvents.find((event) => event.kind === 'action_resolution' && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed' && (event.payload as { reasonType?: string }).reasonType === 'dedupe_key_duplicate');
+    expect(suppressedDuplicate).toBeTruthy();
+    expect((suppressedDuplicate?.payload as { preferredConfidence?: number }).preferredConfidence || 0).toBeGreaterThanOrEqual(0.93);
+    expect((suppressedDuplicate?.payload as { suppressedConfidence?: number }).suppressedConfidence || 0).toBeGreaterThan(0);
+    expect((suppressedDuplicate?.payload as { preferredCandidateId?: string }).preferredCandidateId).toBeTruthy();
+    expect((suppressedDuplicate?.payload as { suppressedCandidateId?: string }).suppressedCandidateId).toBeTruthy();
+  });
+
+  it('builds attention-driven share_moment as post_moment candidate for member follow-up', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      memberIds: ['a', 'b'],
+      runtimeEventsV2: [{
+        id: 'evt-attention-member-followup',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 10 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: 'a 对 b 形成手动跟进关注候选',
+        visibility: 'derived_public',
+        payload: {
+          source: 'manual_attention_followup_member',
+          confidence: 0.92,
+          targetIds: ['b'],
+        },
+      }],
+      relationshipLedger: [{
+        pairKey: 'a->b',
+        actorId: 'a',
+        targetId: 'b',
+        current: { warmth: 7, competence: 5, trust: 6, threat: 1 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 60_000,
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我补充一个观点。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    const moment = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_share_moment');
+    expect(moment).toBeTruthy();
+    expect((moment?.payload as { eventKind?: string }).eventKind).toBe('post_moment');
+    expect((moment?.payload as { targetIds?: string[] }).targetIds).toEqual(['b']);
+  });
+
+  it('suppresses attention-driven share_moment during late night for non-night-owl persona', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-29T23:50:00+08:00'));
+    try {
+      const now = Date.now();
+      const chat = normalizeConversation({
+        ...buildChat(),
+        memberIds: ['a', 'b'],
+        runtimeEventsV2: [{
+          id: 'evt-attention-member-followup',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 20 * 60_000,
+          actorIds: ['a'],
+          targetIds: ['b'],
+          summary: 'a 对 b 形成手动跟进关注候选',
+          visibility: 'derived_public',
+          payload: {
+            source: 'manual_attention_followup_member',
+            confidence: 0.92,
+            targetIds: ['b'],
+          },
+        }],
+        relationshipLedger: [{
+          pairKey: 'a->b',
+          actorId: 'a',
+          targetId: 'b',
+          current: { warmth: 7, competence: 5, trust: 6, threat: 1 },
+          trend: 'up',
+          recentEvents: [],
+          lastUpdatedAt: now - 60_000,
+        }],
+      });
+      const result = await openChatEngine.onMessageCommitted({
+        conversation: chat,
+        characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+        message: {
+          type: 'ai',
+          senderId: 'a',
+          content: '我补充一个观点。',
+          interactionHint: null,
+        },
+        previousAiMessage: null,
+        recentMessages: [],
+      });
+      const nextEvents = readAppliedRuntimeEvents(chat, result);
+      expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_share_moment')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('allows night-owl persona to emit share_moment at late night with richer artifacts', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-29T23:50:00+08:00'));
+    try {
+      const now = Date.now();
+      const chat = normalizeConversation({
+        ...buildChat(),
+        memberIds: ['a', 'b'],
+        runtimeEventsV2: [{
+          id: 'evt-attention-member-followup',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 25 * 60_000,
+          actorIds: ['a'],
+          targetIds: ['b'],
+          summary: 'a 对 b 形成手动跟进关注候选',
+          visibility: 'derived_public',
+          payload: {
+            source: 'manual_attention_followup_member',
+            confidence: 0.92,
+            targetIds: ['b'],
+          },
+        }, {
+          id: 'evt-recent-outing-artifact',
+          conversationId: 'chat-1',
+          kind: 'artifact',
+          createdAt: now - 30 * 60_000,
+          actorIds: ['a'],
+          targetIds: ['b'],
+          summary: '刚刚线下活动结束',
+          visibility: 'derived_public',
+          payload: {
+            artifactType: 'outing_summary',
+            eventKind: 'social_outing',
+          },
+        }],
+        relationshipLedger: [{
+          pairKey: 'a->b',
+          actorId: 'a',
+          targetId: 'b',
+          current: { warmth: 8, competence: 5, trust: 7, threat: 1 },
+          trend: 'up',
+          recentEvents: [],
+          lastUpdatedAt: now - 60_000,
+        }],
+      });
+      const nightOwl = { ...buildCharacter('a', '甲'), speakingStyle: '夜猫子主播，常常夜间下播后更新动态' };
+      const result = await openChatEngine.onMessageCommitted({
+        conversation: chat,
+        characters: [nightOwl, buildCharacter('b', '乙')],
+        message: {
+          type: 'ai',
+          senderId: 'a',
+          content: '我补充一个观点。',
+          interactionHint: null,
+        },
+        previousAiMessage: null,
+        recentMessages: [],
+      });
+      const nextEvents = readAppliedRuntimeEvents(chat, result);
+      const moment = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_share_moment');
+      expect(moment).toBeTruthy();
+      const payload = moment?.payload as { expectedArtifacts?: string[] };
+      expect(payload.expectedArtifacts?.includes('moment_text')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('boosts check_in candidate confidence when user follow-up has been completed', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 7, competence: 4, trust: 6, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 60_000,
+      }],
+      runtimeEventsV2: [{
+        id: 'evt-manual-user-followup',
+        conversationId: 'chat-1',
+        kind: 'director_intervention',
+        createdAt: now - 20 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '让a跟进用户',
+        visibility: 'moderator_only',
+        payload: { eventType: 'attention_followup_user', actorId: 'a', focus: '先回应用户再追问' },
+      }, {
+        id: 'evt-a-replied-user',
+        conversationId: 'chat-1',
+        kind: 'message_generated',
+        createdAt: now - 15 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: 'a 跟进用户',
+        visibility: 'public',
+        payload: { text: '我先回应你的问题，再追问一个关键细节。' },
+      }, {
+        id: 'evt-attention-user-a',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 8 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户点名a',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+      }, {
+        id: 'evt-recent-outing',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 20 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '刚发起活动邀约',
+        visibility: 'derived_public',
+        payload: { artifactType: 'outing_summary', eventKind: 'social_outing', text: '刚发起活动邀约' },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我来补一个提醒。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    const checkIn = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'attention_check_in');
+    expect(checkIn).toBeTruthy();
+    expect((checkIn?.payload as { confidence?: number }).confidence).toBeGreaterThanOrEqual(0.84);
+  });
+
+  it('boosts share_moment candidate confidence when member follow-up has been completed', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      memberIds: ['a', 'b'],
+      runtimeEventsV2: [{
+        id: 'evt-manual-member-followup',
+        conversationId: 'chat-1',
+        kind: 'director_intervention',
+        createdAt: now - 20 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a', 'b'],
+        summary: '让a跟进b',
+        visibility: 'moderator_only',
+        payload: { eventType: 'attention_followup_member', actorId: 'a', targetId: 'b', focus: '先回应乙再追问' },
+      }, {
+        id: 'evt-a-replied-b',
+        conversationId: 'chat-1',
+        kind: 'message_generated',
+        createdAt: now - 15 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: 'a 跟进 b',
+        visibility: 'public',
+        payload: { text: '乙，我先回应你刚才的判断，再追问一个细节。' },
+      }, {
+        id: 'evt-attention-a-b',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 10 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: 'a 对 b 形成关注候选',
+        visibility: 'derived_public',
+        payload: { source: 'manual_attention_followup_member', confidence: 0.92, targetIds: ['b'] },
+      }],
+      relationshipLedger: [{
+        pairKey: 'a->b',
+        actorId: 'a',
+        targetId: 'b',
+        current: { warmth: 8, competence: 5, trust: 7, threat: 1 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我再补一句。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    const moment = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_share_moment');
+    expect(moment).toBeTruthy();
+    expect((moment?.payload as { confidence?: number }).confidence).toBeGreaterThanOrEqual(0.88);
+  });
+
+  it('blocks world attention invite_activity backflow in quiet hours', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-29T23:40:00+08:00'));
+    try {
+      const now = Date.now();
+      const chat = normalizeConversation({
+        ...buildChat(),
+        relationshipLedger: [{
+          pairKey: 'a->user',
+          actorId: 'a',
+          targetId: 'user',
+          current: { warmth: 14, competence: 4, trust: 12, threat: 0 },
+          trend: 'up',
+          recentEvents: [],
+          lastUpdatedAt: now - 2_000,
+        }],
+        runtimeEventsV2: [{
+          id: 'evt-attention',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 2 * 60_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户提到周末可以一起活动',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', confidence: 0.94, targetIds: ['a'] },
+        }],
+      });
+      const result = await openChatEngine.onMessageCommitted({
+        conversation: chat,
+        characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+        message: {
+          type: 'ai',
+          senderId: 'a',
+          content: '要不周末一起散步？',
+          interactionHint: null,
+        },
+        previousAiMessage: null,
+        recentMessages: [],
+      });
+      const nextEvents = readAppliedRuntimeEvents(chat, result);
+      expect(nextEvents.some((event) => event.kind === 'artifact' && (event.payload as { eventKind?: string }).eventKind === 'social_outing')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('blocks world attention calendar_reminder backflow when recent private follow-up exists', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 12, competence: 4, trust: 10, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 2_000,
+      }],
+      runtimeEventsV2: [{
+        id: 'evt-attention',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 2 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户提到明天安排',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+      }, {
+        id: 'evt-recent-private',
+        conversationId: 'chat-1',
+        kind: 'event_candidate',
+        createdAt: now - 30 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: 'a 刚私聊跟进过',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'pair_private_thread',
+          initiatorId: 'a',
+          participantIds: ['a', 'user'],
+          targetIds: ['user'],
+          reasonType: 'attention_followup',
+          confidence: 0.9,
+          urgency: 'soon',
+          seedIntent: '刚刚跟进过',
+          visibilityPlan: 'user_private',
+          expectedArtifacts: ['private_thread_summary'],
+        },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我来补一个提醒。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    expect(nextEvents.some((event) => event.kind === 'artifact' && (event.payload as { eventKind?: string }).eventKind === 'status_update')).toBe(false);
+  });
+
+  it('keeps attention proactive chain explainable and suppresses repeated candidates after artifact backflow', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 7, competence: 4, trust: 6, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+      runtimeEventsV2: [
+        {
+          id: 'evt-attention',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 2 * 60_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户点名a',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', confidence: 0.92, targetIds: ['a'] },
+        },
+        {
+          id: 'evt-moment',
+          conversationId: 'chat-1',
+          kind: 'artifact',
+          createdAt: now - 5 * 60_000,
+          actorIds: ['b'],
+          targetIds: ['user'],
+          summary: 'B 发动态',
+          visibility: 'derived_public',
+          payload: { artifactType: 'moment_text', eventKind: 'post_moment', text: '晚饭真不错' },
+        },
+      ],
+    });
+
+    const firstResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我先接住这个请求。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const firstApplied = applyResultToChat(chat, firstResult);
+    const firstEvents = firstApplied.runtimeEventsV2 || [];
+    const checkInCandidate = firstEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'check_in');
+    const reactCandidate = firstEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'react_to_moment');
+    const checkInArtifact = firstEvents.find((event) => event.kind === 'artifact' && (event.payload as { eventKind?: string }).eventKind === 'check_in');
+    const reactArtifact = firstEvents.find((event) => event.kind === 'artifact' && (event.payload as { eventKind?: string }).eventKind === 'react_to_moment');
+
+    expect(checkInCandidate).toBeTruthy();
+    expect(reactCandidate).toBeTruthy();
+    expect(checkInArtifact).toBeTruthy();
+    expect(reactArtifact).toBeTruthy();
+    expect((checkInCandidate?.payload as { attentionTrace?: { score?: number; reasons?: string[] } }).attentionTrace?.score).toBeGreaterThan(0);
+    expect(((checkInCandidate?.payload as { attentionTrace?: { reasons?: string[] } }).attentionTrace?.reasons || []).length).toBeGreaterThan(0);
+
+    const secondResult = await openChatEngine.onMessageCommitted({
+      conversation: firstApplied,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我再补一句。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const secondDeltaEvents = readRuntimeEvents(secondResult);
+    expect(secondDeltaEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'check_in')).toBe(false);
+    expect(secondDeltaEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'react_to_moment')).toBe(false);
   });
 
   it('records withdrawal residue without preserving the withdrawn text as public runtime', async () => {

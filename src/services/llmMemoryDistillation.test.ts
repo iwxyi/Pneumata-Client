@@ -137,12 +137,13 @@ describe('llmMemoryDistillation', () => {
     const source = buildRuntimeBatch({ prefix: 'seed', eventStart: 1, count: 18, updatedAt: 200, eventsPerItem: 1 });
     const chat = buildChat(source);
 
-    const result = await distillChatMemoriesWithLlm(DEFAULT_API_CONFIG, chat);
+    const result = await distillChatMemoriesWithLlm(DEFAULT_API_CONFIG, chat, { now: 1777000000000 });
 
     expect(generateJsonResponseMock).toHaveBeenCalledTimes(1);
     expect(result).toHaveLength(1);
     expect(result[0]?.sourceEventIds).toEqual(expect.arrayContaining(source.map((item) => item.sourceEventIds[0])));
     expect(new Set(result[0]?.sourceEventIds || []).size).toBe(18);
+    expect(result[0]?.distilledAt).toBe(1777000000000);
     expect(result[0]?.evidenceText).toContain('完整原始对话证据');
     expect(generateJsonResponseMock.mock.calls[0]?.[2]).toEqual(expect.arrayContaining([
       expect.objectContaining({

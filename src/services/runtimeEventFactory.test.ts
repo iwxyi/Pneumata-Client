@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRuntimeEventMessageContent, parseRuntimeEvent } from './runtimeEventFactory';
+import { buildRuntimeEventMessageContent, buildTimelineEntryFromRuntimeEvent, normalizeRuntimeEvent, parseRuntimeEvent } from './runtimeEventFactory';
 
 describe('runtime event message content', () => {
   it('compacts memory distillation metrics for chat message storage', () => {
@@ -103,5 +103,24 @@ describe('runtime event message content', () => {
       recallScore: 0.92,
     });
     expect(metrics?.recalledMemories?.[0]?.matchedTokens).toHaveLength(6);
+  });
+
+  it('keeps explicit createdAt=0 without replacing it', () => {
+    const event = normalizeRuntimeEvent({
+      eventType: 'test_event',
+      title: '测试',
+      summary: '保留零时间戳',
+      createdAt: 0,
+    });
+    expect(event.createdAt).toBe(0);
+  });
+
+  it('uses provided now for deterministic timeline fallback when createdAt is missing', () => {
+    const entry = buildTimelineEntryFromRuntimeEvent({
+      eventType: 'test_event',
+      title: '测试',
+      summary: '确定性时间',
+    }, { now: 1777000000000 });
+    expect(entry.createdAt).toBe(1777000000000);
   });
 });

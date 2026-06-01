@@ -6,6 +6,10 @@ function dedupeDisplayText(text: string, members: DisplayTextMember[] = []) {
   return sanitizeUserFacingText(text.replace(/^房间态势更新：/g, '').trim(), members);
 }
 
+function readMetrics(metrics: unknown) {
+  return metrics && typeof metrics === 'object' ? metrics as Record<string, unknown> : null;
+}
+
 function isMemoryDistillationEvent(metrics: unknown) {
   return typeof metrics === 'object' && metrics !== null && 'ownerType' in metrics && 'candidateTexts' in metrics;
 }
@@ -49,7 +53,7 @@ export function buildEventDisplayText(payload: { eventType?: string; title?: str
   if (payload.eventType === 'conflict_axis_shift') return dedupeDisplayText(payload.summary || '', members);
   if (payload.eventType === 'memory_reactivation') return dedupeDisplayText(payload.summary || payload.title || '旧记忆回温', members);
   if (payload.eventType === 'memory_distillation') {
-    const metrics = payload.metrics && typeof payload.metrics === 'object' ? payload.metrics as Record<string, unknown> : null;
+    const metrics = readMetrics(payload.metrics);
     const ownerLabel = typeof metrics?.ownerLabel === 'string' ? metrics.ownerLabel : '';
     const ownerType = metrics?.ownerType === 'chat' || ownerLabel.startsWith('群聊：') ? '群聊' : '角色';
     return `${buildMemoryDistillationSourcePrefix(metrics)}${ownerType}蒸馏${buildMemoryDistillationOwnerSuffix(metrics, members)}`;
@@ -65,7 +69,8 @@ export function buildEventDisplayText(payload: { eventType?: string; title?: str
 
 export function buildMemoryDistillationMeta(payload: { metrics?: unknown }, members: DisplayTextMember[] = []) {
   if (!isMemoryDistillationEvent(payload.metrics)) return null;
-  const metrics = payload.metrics as Record<string, unknown>;
+  const metrics = readMetrics(payload.metrics);
+  if (!metrics) return null;
   const mergeModeLabel = formatMemoryDistillationMergeLabel(metrics.mergeModeLabel || metrics.mergeMode, members);
   const evidenceCount = typeof metrics.newEvidenceCount === 'number' ? metrics.newEvidenceCount : 0;
   const candidateTexts = Array.isArray(metrics.candidateTexts)
@@ -82,8 +87,8 @@ export function buildMemoryDistillationMeta(payload: { metrics?: unknown }, memb
 }
 
 export function buildMemoryReactivationMeta(payload: { metrics?: unknown }, members: DisplayTextMember[] = []) {
-  if (!payload.metrics || typeof payload.metrics !== 'object') return null;
-  const metrics = payload.metrics as Record<string, unknown>;
+  const metrics = readMetrics(payload.metrics);
+  if (!metrics) return null;
   const matchedTokens = Array.isArray(metrics.matchedTokens)
     ? metrics.matchedTokens
       .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
@@ -113,7 +118,7 @@ export function buildMemoryReactivationMeta(payload: { metrics?: unknown }, memb
 
 export function shouldHideEmptyConflictEvent(payload: { eventType?: string; summary?: string; metrics?: unknown }) {
   if (payload.eventType !== 'conflict_focus_shift' && payload.eventType !== 'conflict_axis_shift') return false;
-  const metrics = payload.metrics && typeof payload.metrics === 'object' ? payload.metrics as Record<string, unknown> : null;
+  const metrics = readMetrics(payload.metrics);
   const hasSummary = Boolean(payload.summary?.trim());
   const hasMeaningfulMetrics = Boolean(
     metrics?.type

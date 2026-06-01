@@ -1,6 +1,8 @@
 import type { AICharacter } from '../types/character';
 import type { MemoryCandidate, MemoryItem } from './memoryTypes';
 import { consolidateMemoryCandidates } from './memoryConsolidation';
+import { sanitizeMemoryText } from './distillationText';
+import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 
 function buildSourceEventId(sourceTag: string, ownerId: string, targetId: string | null | undefined, text: string) {
   const normalized = text.trim().replace(/\s+/g, ' ').slice(0, 48);
@@ -13,6 +15,24 @@ function normalizeContentSnippet(content: string, maxLength = 72) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, maxLength);
+}
+
+function buildDisplayMembers(character: AICharacter, targetId?: string, targetName?: string): DisplayTextMember[] {
+  return [
+    { id: character.id, name: character.name || '成员' },
+    targetId ? { id: targetId, name: targetName || '成员' } : null,
+    { id: 'user', name: '用户' },
+  ].filter(Boolean) as DisplayTextMember[];
+}
+
+function sanitizeCharacterMemoryText(character: AICharacter, text: string, targetId?: string, targetName?: string, maxLength = 160) {
+  const members = buildDisplayMembers(character, targetId, targetName);
+  return sanitizeMemoryText(sanitizeUserFacingText(text, members)).slice(0, maxLength);
+}
+
+function sanitizeCharacterMemoryEvidence(character: AICharacter, text: string, targetId?: string, targetName?: string, maxLength = 120) {
+  const members = buildDisplayMembers(character, targetId, targetName);
+  return sanitizeMemoryText(sanitizeUserFacingText(text, members)).slice(0, maxLength);
 }
 
 function describeRelationshipTone(content: string, isPositive: boolean) {
@@ -40,8 +60,13 @@ function buildRelationshipMemoryCandidate(character: AICharacter, targetId: stri
   const isPositive = (relation?.warmth || 0) + (relation?.competence || 0) + (relation?.trust || 0) >= (relation?.threat || 0) + 12;
   const sourceTag = sourceEventTag || 'interaction';
   const tone = describeRelationshipTone(content, isPositive);
-  const evidence = normalizeContentSnippet(content);
-  const text = `对 ${targetName} 的关系倾向：${tone}${evidence ? `；证据是近期发言“${evidence}”` : ''}`;
+  const evidence = normalizeContentSnippet(sanitizeCharacterMemoryEvidence(character, content, targetId, targetName, 96));
+  const text = sanitizeCharacterMemoryText(
+    character,
+    `对 ${targetName} 的关系倾向：${tone}${evidence ? `；证据是近期发言“${evidence}”` : ''}`,
+    targetId,
+    targetName,
+  );
   return {
     scope: 'relationship',
     layerHint: 'episodic',
@@ -49,7 +74,7 @@ function buildRelationshipMemoryCandidate(character: AICharacter, targetId: stri
     ownerId: character.id,
     subjectIds: [character.id, targetId],
     text,
-    evidenceText: content,
+    evidenceText: sanitizeCharacterMemoryEvidence(character, content, targetId, targetName),
     sourceEventIds: [buildSourceEventId(sourceTag, character.id, targetId, text)],
     sourceTag,
     scoreBreakdown: { stability: 0.65, recurrence: 0.55, impact: 0.8, specificity: 0.7, durability: 0.65 },
@@ -58,15 +83,15 @@ function buildRelationshipMemoryCandidate(character: AICharacter, targetId: stri
 
 function buildSelfStateMemoryCandidate(character: AICharacter, content: string): MemoryCandidate {
   const summary = describeSelfExpression(content);
-  const evidence = normalizeContentSnippet(content);
-  const text = `近期表达倾向：${summary}${evidence ? `；证据是“${evidence}”` : ''}`;
+  const evidence = normalizeContentSnippet(sanitizeCharacterMemoryEvidence(character, content, undefined, undefined, 96));
+  const text = sanitizeCharacterMemoryText(character, `近期表达倾向：${summary}${evidence ? `；证据是“${evidence}”` : ''}`);
   return {
     scope: 'character_self',
     layerHint: 'working',
     kind: 'trait_evidence',
     ownerId: character.id,
     text,
-    evidenceText: content,
+    evidenceText: sanitizeCharacterMemoryEvidence(character, content),
     sourceEventIds: [buildSourceEventId('self_expression', character.id, null, text)],
     sourceTag: 'self_expression',
     scoreBreakdown: { stability: 0.45, recurrence: 0.45, impact: 0.6, specificity: 0.68, durability: 0.45 },
@@ -85,15 +110,17 @@ function createSoulMemoryCandidate(params: {
   sourceTag: string;
   scoreBreakdown?: MemoryCandidate['scoreBreakdown'];
 }): MemoryCandidate {
+  const evidenceText = sanitizeCharacterMemoryEvidence(params.character, params.content, params.targetId, params.targetName);
+  const text = sanitizeCharacterMemoryText(params.character, params.text, params.targetId, params.targetName);
   return {
     scope: params.scope,
     layerHint: params.layerHint,
     kind: params.kind,
     ownerId: params.character.id,
     subjectIds: params.scope === 'relationship' && params.targetId ? [params.character.id, params.targetId] : undefined,
-    text: params.text,
-    evidenceText: params.content,
-    sourceEventIds: [buildSourceEventId(params.sourceTag, params.character.id, params.targetId, params.text)],
+    text,
+    evidenceText,
+    sourceEventIds: [buildSourceEventId(params.sourceTag, params.character.id, params.targetId, text)],
     sourceTag: params.sourceTag,
     scoreBreakdown: params.scoreBreakdown || { stability: 0.52, recurrence: 0.48, impact: 0.68, specificity: 0.72, durability: 0.5 },
   };
@@ -213,7 +240,7 @@ function buildSoulStateMemoryCandidates(character: AICharacter, targetId: string
 
 function buildCoreProfileMemoryCandidates(character: AICharacter): MemoryCandidate[] {
   if (!character.coreProfile?.coreDesire && !character.coreProfile?.coreFear) return [];
-  const text = [character.coreProfile?.coreDesire ? `欲望:${character.coreProfile.coreDesire}` : '', character.coreProfile?.coreFear ? `恐惧:${character.coreProfile.coreFear}` : ''].filter(Boolean).join(' / ');
+  const text = sanitizeCharacterMemoryText(character, [character.coreProfile?.coreDesire ? `欲望:${character.coreProfile.coreDesire}` : '', character.coreProfile?.coreFear ? `恐惧:${character.coreProfile.coreFear}` : ''].filter(Boolean).join(' / '));
   return [{
     scope: 'character_self',
     layerHint: 'long_term',
@@ -229,7 +256,7 @@ function buildCoreProfileMemoryCandidates(character: AICharacter): MemoryCandida
 function buildTraitMemoryCandidates(character: AICharacter): MemoryCandidate[] {
   const candidates: MemoryCandidate[] = [];
   if (character.background?.trim()) {
-    const text = `背景线索：${character.background.slice(0, 80)}`;
+    const text = sanitizeCharacterMemoryText(character, `背景线索：${character.background.slice(0, 80)}`);
     candidates.push({
       scope: 'character_self',
       layerHint: 'long_term',
@@ -242,7 +269,7 @@ function buildTraitMemoryCandidates(character: AICharacter): MemoryCandidate[] {
     });
   }
   if (character.speakingStyle?.trim()) {
-    const text = `说话风格：${character.speakingStyle.slice(0, 60)}`;
+    const text = sanitizeCharacterMemoryText(character, `说话风格：${character.speakingStyle.slice(0, 60)}`);
     candidates.push({
       scope: 'character_self',
       layerHint: 'long_term',
@@ -255,7 +282,7 @@ function buildTraitMemoryCandidates(character: AICharacter): MemoryCandidate[] {
     });
   }
   if (character.expertise?.length) {
-    const text = `专长：${character.expertise.join(' / ').slice(0, 80)}`;
+    const text = sanitizeCharacterMemoryText(character, `专长：${character.expertise.join(' / ').slice(0, 80)}`);
     candidates.push({
       scope: 'character_self',
       layerHint: 'long_term',

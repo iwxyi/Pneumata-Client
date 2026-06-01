@@ -295,6 +295,30 @@ describe('chatEngine streaming preview', () => {
     });
   });
 
+  it('builds deterministic attachment ids when metadata now is fixed', () => {
+    const decision = {
+      image: {
+        shouldGenerate: true,
+        reason: '用户明确想看图片',
+        prompt: 'A cute WeChat-style photo of mango pomelo sago dessert on a table',
+        altText: '一杯杨枝甘露甜品',
+      },
+    };
+    const first = __chatEngineTestUtils.buildMessageMetadata({
+      decision,
+      capabilities: { image: true, audio: false },
+      content: '来啦，你看这杯杨枝甘露。',
+      now: 1777000000000,
+    });
+    const second = __chatEngineTestUtils.buildMessageMetadata({
+      decision,
+      capabilities: { image: true, audio: false },
+      content: '来啦，你看这杯杨枝甘露。',
+      now: 1777000000000,
+    });
+    expect(first?.attachments?.[0]?.id).toBe(second?.attachments?.[0]?.id);
+  });
+
   it('forces a queued image attachment for explicit media guidance when the text model omits mediaDecision', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({

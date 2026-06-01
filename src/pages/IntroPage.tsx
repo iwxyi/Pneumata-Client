@@ -335,17 +335,94 @@ function FeatureGrid() {
 
 function MockGroupChatSnapshot() {
   const { ref, revealSx } = useGroupReveal();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [visibleCount, setVisibleCount] = useState(0);
+  const [typingIndex, setTypingIndex] = useState<number | null>(null);
+  const [typedLength, setTypedLength] = useState(0);
+  const [userScrolledUp, setUserScrolledUp] = useState(false);
+  const [hasEnteredViewport, setHasEnteredViewport] = useState(false);
+
+  useEffect(() => {
+    const node = hostRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setHasEnteredViewport(true);
+        observer.disconnect();
+      }
+    }, { threshold: 0.2, rootMargin: '0px 0px -12% 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!hasEnteredViewport) return;
+    let cancelled = false;
+    const wait = (ms: number) => new Promise<void>((resolve) => {
+      window.setTimeout(resolve, ms);
+    });
+
+    const runDemo = async () => {
+      setVisibleCount(0);
+      setTypingIndex(null);
+      setTypedLength(0);
+
+      for (let index = 0; index < mockGroupChatLog.length; index += 1) {
+        if (cancelled) return;
+        const item = mockGroupChatLog[index];
+        setVisibleCount(index + 1);
+
+        if (item.type === 'time') {
+          await wait(280);
+          continue;
+        }
+
+        const content = item.content || '';
+        setTypingIndex(index);
+        setTypedLength(0);
+        await wait(180);
+        for (let i = 1; i <= content.length; i += 1) {
+          if (cancelled) return;
+          setTypedLength(i);
+          await wait(42);
+        }
+        setTypingIndex(null);
+        await wait(1000);
+      }
+    };
+
+    void runDemo();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasEnteredViewport]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node || userScrolledUp) return;
+    node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' });
+  }, [visibleCount, typedLength, userScrolledUp]);
 
   return (
     <Box ref={ref} sx={{ mb: { xs: 5, md: 7 }, ...revealSx(0) }}>
       <GlassCard sx={{ p: { xs: 1.4, sm: 1.8 }, borderRadius: 2.5, overflow: 'hidden' }}>
-        <Box sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.10)', bgcolor: 'rgba(10,10,15,0.75)', overflow: 'hidden' }}>
+        <Box ref={hostRef} sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.10)', bgcolor: 'rgba(10,10,15,0.75)', overflow: 'hidden' }}>
           <Box sx={{ px: { xs: 1.4, sm: 1.9 }, py: 1.2, borderBottom: '1px solid rgba(255,255,255,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: 'rgba(255,255,255,0.03)' }}>
             <Typography sx={{ color: '#F8F8FA', fontWeight: 760, fontSize: { xs: 14, sm: 15 } }}>生息小屋</Typography>
             <Typography sx={{ color: 'rgba(255,255,255,0.46)', fontSize: 12 }}>群聊记录</Typography>
           </Box>
-          <Box sx={{ height: { xs: 280, sm: 340, md: 380 }, overflowY: 'auto', px: { xs: 1.2, sm: 1.6 }, py: 1.2, display: 'grid', gap: 1 }}>
-            {mockGroupChatLog.map((item, index) => {
+          <Box
+            ref={scrollRef}
+            onScroll={() => {
+              const node = scrollRef.current;
+              if (!node) return;
+              const nearBottom = node.scrollTop + node.clientHeight >= node.scrollHeight - 24;
+              setUserScrolledUp(!nearBottom);
+            }}
+            sx={{ height: { xs: 280, sm: 340, md: 380 }, overflowY: 'auto', px: { xs: 1.2, sm: 1.6 }, py: 1.2, display: 'grid', alignContent: 'start', gap: 1 }}
+          >
+            {mockGroupChatLog.slice(0, visibleCount).map((item, index) => {
               if (item.type === 'time') {
                 return (
                   <Typography key={`time-${index}`} sx={{ justifySelf: 'center', color: 'rgba(255,255,255,0.45)', fontSize: 11.5, lineHeight: 1.3, py: 0.2 }}>
@@ -393,7 +470,7 @@ function MockGroupChatSnapshot() {
                         } : undefined,
                       }}
                     >
-                      {item.content}
+                      {typingIndex === index ? (item.content || '').slice(0, typedLength) || ' ' : item.content}
                     </Box>
                   </Box>
                 </Box>
@@ -1209,7 +1286,7 @@ function AnimatedHeroTitle() {
 
   const finalLeadText = titleMode === 'final' ? text.slice(0, finalHeroTitleLead.length) : '';
   const finalEmphasisText = titleMode === 'final' ? text.slice(finalHeroTitleLead.length) : '';
-  const introSize = 52;
+  const introSize = 48;
   const leadSize = 48;
 
   return (

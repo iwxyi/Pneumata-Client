@@ -147,14 +147,20 @@ export function formatConflictMetricsForDisplay(metrics: unknown) {
 
 export { readConflictHooks, readConflictPressure, readConflictType };
 
-export function normalizeRuntimeEvent(payload: RuntimeEventPayload): RuntimeEventPayload {
+function resolveCreatedAt(value: unknown, now?: number) {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.round(value);
+  if (typeof now === 'number' && Number.isFinite(now)) return Math.round(now);
+  return Date.now();
+}
+
+export function normalizeRuntimeEvent(payload: RuntimeEventPayload, options?: { now?: number }): RuntimeEventPayload {
   return {
     ...payload,
     timelineType: payload.timelineType || (payload.eventType === 'group_relationship_shift' || payload.eventType === 'relationship_shift' ? 'relationship' : 'note'),
     visibilityScope: payload.visibilityScope || 'public',
     visibleToIds: payload.visibleToIds || [],
     visibleToRoles: payload.visibleToRoles || [],
-    createdAt: payload.createdAt || Date.now(),
+    createdAt: resolveCreatedAt(payload.createdAt, options?.now),
   };
 }
 
@@ -267,12 +273,12 @@ export function describeRuntimeEvent(payload: RuntimeEventPayload) {
   return [event.title, event.summary].filter(Boolean).join('：').slice(0, 120);
 }
 
-export function buildTimelineEntryFromRuntimeEvent(payload: RuntimeEventPayload) {
-  const event = normalizeRuntimeEvent(payload);
+export function buildTimelineEntryFromRuntimeEvent(payload: RuntimeEventPayload, options?: { now?: number }) {
+  const event = normalizeRuntimeEvent(payload, options);
   return {
     type: event.timelineType || 'note',
     text: describeRuntimeEvent(event),
-    createdAt: event.createdAt || Date.now(),
+    createdAt: resolveCreatedAt(event.createdAt, options?.now),
   };
 }
 

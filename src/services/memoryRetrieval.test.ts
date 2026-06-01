@@ -126,4 +126,18 @@ describe('retrieveRelevantMemories', () => {
 
     expect(result).toEqual([]);
   });
+
+  it('uses injected now for lastActivatedAt determinism', () => {
+    const result = retrieveRelevantMemories([
+      memory({ id: 'active', text: '甲最近对乙保持礼貌距离。', recency: 1 }),
+    ], {
+      speakerId: 'char-a',
+      targetId: 'char-b',
+      conversationId: 'chat-1',
+      maxItems: 4,
+      now: 1777000000000,
+    });
+
+    expect(result[0]?.lastActivatedAt).toBe(1777000000000);
+  });
 });

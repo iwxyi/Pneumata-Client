@@ -9,7 +9,7 @@ import {
 } from '../types/character';
 import type { ConflictDevelopmentHook } from '../types/runtimeEvent';
 import type { MemoryItem } from './memoryTypes';
-import { buildNextWorldState, buildRelationshipTransition, buildWorldRuntimeEvents } from './chatRuntimeTransitionBuilder';
+import { buildChatPatch, buildNextWorldState, buildRelationshipTransition, buildWorldRuntimeEvents } from './chatRuntimeTransitionBuilder';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 
 function buildChat(overrides: Partial<ReturnType<typeof normalizeConversation>> = {}) {
@@ -207,6 +207,46 @@ describe('buildRelationshipTransition', () => {
     expect(result.runtimeEvents.some((event) => event.eventType === 'conflict_focus_shift')).toBe(false);
   });
 
+  it('rejects high-severity conflict focus without enough evidence reason text', () => {
+    const chat = buildChat();
+    const speaker = buildCharacter('char-a', '甲');
+    const target = buildCharacter('char-b', '乙');
+
+    const result = buildRelationshipTransition({
+      conversation: chat,
+      characters: [speaker, target],
+      message: {
+        type: 'ai',
+        senderId: 'char-a',
+        content: '这句话直接把矛盾升级了。',
+        interactionHint: {
+          kind: 'challenge',
+          actorId: 'char-a',
+          targetId: 'char-b',
+          intensity: 4,
+          tone: 'annoyed',
+          evidenceText: '这句话直接把矛盾升级了。',
+          confidence: 0.93,
+        },
+        conflictFocus: {
+          present: true,
+          type: 'authority_challenge',
+          severity: 0.86,
+          stage: 'open',
+          summary: '谁有资格主导这件事，已经出现正面碰撞。',
+          primaryTargetIds: ['char-b'],
+          participantIds: ['char-a', 'char-b'],
+          nextPressure: 'escalate',
+          developmentHooks: ['invite_target_response'],
+          why: '太短',
+        },
+      },
+      previousAiMessage: null,
+    });
+
+    expect(result.runtimeEvents.some((event) => event.eventType === 'conflict_focus_shift')).toBe(false);
+  });
+
   it('evolves core profile from runtime speech without replacing existing manual anchors', () => {
     const chat = buildChat();
     const speaker = buildCharacter('char-a', '甲');
@@ -279,9 +319,79 @@ describe('buildRelationshipTransition', () => {
     expect(targetPatch?.soulState?.lastImpulse).toBeTruthy();
     expect(result.runtimeEvents.some((event) => event.eventType === 'group_relationship_shift')).toBe(true);
   });
+
+  it('does not emit relationship shift event when interaction confidence is below gate', () => {
+    const chat = buildChat();
+    const speaker = buildCharacter('char-a', '甲');
+    const target = buildCharacter('char-b', '乙');
+
+    const result = buildRelationshipTransition({
+      conversation: chat,
+      characters: [speaker, target],
+      message: {
+        type: 'ai',
+        senderId: 'char-a',
+        content: '乙你这样不太行。',
+        interactionHint: {
+          kind: 'challenge',
+          actorId: 'char-a',
+          targetId: 'char-b',
+          intensity: 4,
+          tone: 'annoyed',
+          evidenceText: '乙你这样不太行。',
+          confidence: 0.6,
+        },
+      },
+      previousAiMessage: null,
+    });
+
+    expect(result.runtimeEvents.some((event) => event.eventType === 'group_relationship_shift')).toBe(false);
+  });
 });
 
 describe('buildWorldRuntimeEvents', () => {
+  it('appends attention candidate runtime event when user mentions members in group chat', () => {
+    const chat = buildChat({ runtimeEventsV2: [] });
+    const patch = buildChatPatch(
+      chat,
+      { type: 'user', senderId: 'user', content: '甲先说说，乙也跟进。' },
+      chat.worldState,
+      [],
+      resolveRuntimeEvolutionConfig('balanced'),
+      [{ id: 'char-a', name: '甲' }, { id: 'char-b', name: '乙' }],
+    );
+    const runtimeEvents = patch.runtimeEventsV2 || [];
+    const candidate = runtimeEvents.find((event) => event.kind === 'attention_candidate');
+    expect(candidate).toBeTruthy();
+    expect(candidate?.targetIds).toEqual(['char-a', 'char-b']);
+  });
+
+  it('uses message timestamp for deterministic attention candidate id and createdAt', () => {
+    const chat = buildChat({ runtimeEventsV2: [] });
+    const input = { type: 'user' as const, senderId: 'user', content: '甲先说说，乙也跟进。', timestamp: 456789 };
+    const patchA = buildChatPatch(
+      chat,
+      input,
+      chat.worldState,
+      [],
+      resolveRuntimeEvolutionConfig('balanced'),
+      [{ id: 'char-a', name: '甲' }, { id: 'char-b', name: '乙' }],
+    );
+    const patchB = buildChatPatch(
+      chat,
+      input,
+      chat.worldState,
+      [],
+      resolveRuntimeEvolutionConfig('balanced'),
+      [{ id: 'char-a', name: '甲' }, { id: 'char-b', name: '乙' }],
+    );
+    const candidateA = (patchA.runtimeEventsV2 || []).find((event) => event.kind === 'attention_candidate');
+    const candidateB = (patchB.runtimeEventsV2 || []).find((event) => event.kind === 'attention_candidate');
+    expect(candidateA?.createdAt).toBe(456789);
+    expect(candidateB?.createdAt).toBe(456789);
+    expect(candidateA?.id).toBe(candidateB?.id);
+  });
+
   it('does not emit duplicate conflict axis and world-state events when summaries stay the same', () => {
     const previousWorldState = {
       phase: 'idle' as const,
@@ -330,6 +440,32 @@ describe('buildWorldRuntimeEvents', () => {
     );
 
     expect(events.some((event) => event.eventType === 'conflict_axis_shift')).toBe(true);
+  });
+
+  it('uses message timestamp for deterministic world runtime event createdAt', () => {
+    const previousWorldState = {
+      phase: 'idle' as const,
+      mood: '',
+      focus: '',
+      recentEvent: '',
+      conflictAxes: [],
+    };
+    const nextAxes = [{ title: '群体关系', poles: ['结盟', '拆台'] as [string, string], currentTilt: -40 }];
+    const nextWorldState = {
+      ...previousWorldState,
+      conflictAxes: nextAxes,
+      recentEvent: '新的局势变化',
+    };
+
+    const events = buildWorldRuntimeEvents(
+      { type: 'ai', content: '新的一句接话', timestamp: 777 },
+      previousWorldState,
+      nextWorldState,
+      nextAxes,
+      resolveRuntimeEvolutionConfig('balanced'),
+    );
+
+    expect(events[0]?.createdAt).toBe(777);
   });
 
   it('decays stale conflict state when no new conflict focus appears', () => {
@@ -387,5 +523,61 @@ describe('buildWorldRuntimeEvents', () => {
 
     expect(result.worldState.conflictState?.primaryConflict?.severity).toBeLessThan(0.66);
     expect(result.worldState.conflictState?.primaryConflict?.stage).toBe('cooling');
+  });
+
+  it('does not adopt high-severity conflict focus into world state without evidence reason', () => {
+    const chat = buildChat();
+    const result = buildNextWorldState(chat, {
+      type: 'ai',
+      senderId: 'char-a',
+      content: '这里冲突很大。',
+      conflictFocus: {
+        present: true,
+        type: 'authority_challenge',
+        severity: 0.9,
+        stage: 'escalating',
+        summary: '冲突升级，关系正面碰撞。',
+        participantIds: ['char-a', 'char-b'],
+        primaryTargetIds: ['char-b'],
+        nextPressure: 'escalate',
+        developmentHooks: ['raise_stakes'],
+        why: '不足',
+      },
+    });
+    expect(result.worldState.conflictState).toBeNull();
+  });
+
+  it('uses message timestamp to keep conflict state ids and updatedAt deterministic', () => {
+    const chat = buildChat();
+    const payload: import('../types/runtimeEvent').ConflictFocusPayload = {
+      present: true as const,
+      type: 'authority_challenge' as const,
+      severity: 0.76,
+      stage: 'open' as const,
+      summary: '围绕主导权的公开冲突开始成形。',
+      participantIds: ['char-a', 'char-b'],
+      primaryTargetIds: ['char-b'],
+      nextPressure: 'escalate' as const,
+      developmentHooks: ['invite_target_response'],
+      why: '一方要求主导，另一方公开反驳并质疑资格。',
+    };
+    const resultA = buildNextWorldState(chat, {
+      type: 'ai',
+      senderId: 'char-a',
+      content: '冲突正在形成。',
+      timestamp: 123456,
+      conflictFocus: payload,
+    });
+    const resultB = buildNextWorldState(chat, {
+      type: 'ai',
+      senderId: 'char-a',
+      content: '冲突正在形成。',
+      timestamp: 123456,
+      conflictFocus: payload,
+    });
+
+    expect(resultA.worldState.conflictState?.primaryConflict?.id).toBe(resultB.worldState.conflictState?.primaryConflict?.id);
+    expect(resultA.worldState.conflictState?.updatedAt).toBe(123456);
+    expect(resultB.worldState.conflictState?.updatedAt).toBe(123456);
   });
 });

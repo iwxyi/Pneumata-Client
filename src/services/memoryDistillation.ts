@@ -267,7 +267,12 @@ export function shouldDistillCharacterMemories(character: AICharacter, turnCount
   return enoughGap && hasEnoughNewEvidence(eligible);
 }
 
-export function distillChatMemoryCandidates(chat: GroupChat, participants: DisplayTextMember[] = []): MemoryCandidate[] {
+export function distillChatMemoryCandidates(
+  chat: GroupChat,
+  participants: DisplayTextMember[] = [],
+  options?: { now?: number },
+): MemoryCandidate[] {
+  const now = typeof options?.now === 'number' && Number.isFinite(options.now) ? Math.round(options.now) : Date.now();
   const source = selectDistillationSource(recentEligibleItems(chat.layeredMemories || []), CHAT_DISTILLATION_MIN_ITEMS);
   if (source.length < CHAT_DISTILLATION_MIN_ITEMS) return [];
   const topBond = source.find((item) => item.kind === 'bond');
@@ -287,7 +292,7 @@ export function distillChatMemoryCandidates(chat: GroupChat, participants: Displ
       sourceTag: 'memory_distillation',
       origin: 'distilled',
       distilledFromIds: source.map((item) => item.id),
-      distilledAt: Date.now(),
+      distilledAt: now,
       distillationVersion: DISTILLATION_VERSION,
       scoreBreakdown: { stability: 0.8, recurrence: 0.7, impact: 0.72, specificity: 0.74, durability: 0.84 },
     });
@@ -305,7 +310,7 @@ export function distillChatMemoryCandidates(chat: GroupChat, participants: Displ
       sourceTag: 'memory_distillation',
       origin: 'distilled',
       distilledFromIds: source.map((item) => item.id),
-      distilledAt: Date.now(),
+      distilledAt: now,
       distillationVersion: DISTILLATION_VERSION,
       scoreBreakdown: { stability: 0.82, recurrence: 0.74, impact: 0.78, specificity: 0.76, durability: 0.86 },
     });
@@ -314,7 +319,12 @@ export function distillChatMemoryCandidates(chat: GroupChat, participants: Displ
   return candidates.slice(0, 2);
 }
 
-export function distillCharacterMemoryCandidates(character: AICharacter, participants: DisplayTextMember[] = []): MemoryCandidate[] {
+export function distillCharacterMemoryCandidates(
+  character: AICharacter,
+  participants: DisplayTextMember[] = [],
+  options?: { now?: number },
+): MemoryCandidate[] {
+  const now = typeof options?.now === 'number' && Number.isFinite(options.now) ? Math.round(options.now) : Date.now();
   const source = selectDistillationSource(recentEligibleItems(character.layeredMemories || []), CHARACTER_DISTILLATION_MIN_ITEMS);
   if (source.length < CHARACTER_DISTILLATION_MIN_ITEMS) return [];
   const relationshipItem = source[0] || null;
@@ -332,7 +342,7 @@ export function distillCharacterMemoryCandidates(character: AICharacter, partici
       sourceTag: 'memory_distillation',
       origin: 'distilled',
       distilledFromIds: source.map((item) => item.id),
-      distilledAt: Date.now(),
+      distilledAt: now,
       distillationVersion: DISTILLATION_VERSION,
       scoreBreakdown: { stability: 0.84, recurrence: 0.72, impact: 0.76, specificity: 0.8, durability: 0.88 },
     });

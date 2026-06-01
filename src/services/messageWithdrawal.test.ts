@@ -50,4 +50,18 @@ describe('messageWithdrawal', () => {
     expect(message.metadata?.withdrawal?.originalContent).toBe('刚才话重了点。');
     expect(message.metadata?.withdrawal?.withdrawnAt).toBe(123);
   });
+
+  it('treats withdrawnAt=0 as a valid timestamp', () => {
+    const message = maybeAutoWithdrawMessage({
+      chatId: 'chat-a',
+      type: 'ai' as const,
+      senderId: 'char-a',
+      senderName: '小灰灰',
+      content: '我先撤回一下。',
+      metadata: buildMetadata(),
+      emotion: 0,
+    }, { random: () => 0, now: 0, language: 'zh' });
+
+    expect(message.metadata?.withdrawal?.withdrawnAt).toBe(0);
+  });
 });

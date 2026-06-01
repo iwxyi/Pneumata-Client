@@ -1,0 +1,62 @@
+import { describe, expect, it } from 'vitest';
+import {
+  buildGroupChatDraft,
+  composeGroupMemberIds,
+  normalizeOperatorIdsInput,
+  stripUserMemberId,
+} from './chatDraftBuilder';
+
+describe('chatDraftBuilder composeGroupMemberIds', () => {
+  it('adds user as participant when includeUserAsMember is enabled', () => {
+    expect(composeGroupMemberIds(['a', 'b'], true)).toEqual(['a', 'b', 'user']);
+  });
+
+  it('removes duplicates and strips user from ai member list before composing', () => {
+    expect(composeGroupMemberIds(['a', 'user', 'a', '', 'b'], true)).toEqual(['a', 'b', 'user']);
+  });
+
+  it('keeps only ai members when includeUserAsMember is disabled', () => {
+    expect(composeGroupMemberIds(['a', 'user', 'b'], false)).toEqual(['a', 'b']);
+  });
+
+  it('strips user marker from ai member selections while keeping order and uniqueness', () => {
+    expect(stripUserMemberId(['user', 'a', 'a', '', 'b', 'user'])).toEqual(['a', 'b']);
+  });
+
+  it('persists operatorIds in group chat draft', () => {
+    const draft = buildGroupChatDraft({
+      type: 'group',
+      name: '测试群',
+      topic: '',
+      style: 'free',
+      runtimeEvolutionIntensity: 'balanced',
+      memberIds: ['a', 'user'],
+      operatorIds: ['host_moderator', 'topic_guide_bot'],
+      showRoleActions: true,
+      seedMemoryText: '',
+      seedArtifactText: '',
+      ownerCharacterId: null,
+      adminCharacterIds: [],
+      autoModeration: false,
+      allowMute: true,
+      allowPrivateThreads: true,
+      allowCliques: false,
+      allowMockery: false,
+      mood: '',
+      focus: '',
+      recentEvent: '',
+      allowSpeakAs: true,
+      allowDirectorMode: true,
+      allowEventInjection: true,
+      allowForcedReply: true,
+    });
+    expect(draft.operatorIds).toEqual(['host_moderator', 'topic_guide_bot']);
+  });
+
+  it('normalizes operator ids and filters user/member duplicates', () => {
+    const result = normalizeOperatorIdsInput('host_moderator, user, a,\n topic_guide_bot，a', ['a', 'b']);
+    expect(result.normalizedIds).toEqual(['host_moderator', 'user', 'a', 'topic_guide_bot']);
+    expect(result.effectiveIds).toEqual(['host_moderator', 'topic_guide_bot']);
+    expect(result.filteredCount).toBe(2);
+  });
+});

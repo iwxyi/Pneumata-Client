@@ -51,7 +51,7 @@ export interface SessionInputSurfaceDefinition {
   actorId?: string;
   capability?: SessionViewerCapability;
   placeholder?: string;
-  mode?: 'guide' | 'speakAs';
+  mode?: 'guide' | 'speakAs' | 'memberSpeak';
   fields?: SessionInputField[];
 }
 
@@ -339,7 +339,7 @@ export function resolveSessionDefinition(conversation: GroupChat): SessionResolv
   };
 }
 
-export function createDefaultTextInputSurface(params: { key?: string; label?: string; mode?: 'guide' | 'speakAs'; actorId?: string; placeholder?: string; capability?: SessionViewerCapability } = {}): SessionInputSurfaceDefinition {
+export function createDefaultTextInputSurface(params: { key?: string; label?: string; mode?: 'guide' | 'speakAs' | 'memberSpeak'; actorId?: string; placeholder?: string; capability?: SessionViewerCapability } = {}): SessionInputSurfaceDefinition {
   return {
     key: params.key || 'main-text',
     type: 'text',
@@ -403,25 +403,45 @@ export function normalizeSurfaceSubmission(surface: SessionInputSurfaceDefinitio
   return normalizeTextSurfaceSubmission(surface, submission as SessionTextComposerSubmission);
 }
 
-export function createIntentId() {
-  return `intent_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+function resolveIntentNow(now?: number) {
+  return typeof now === 'number' && Number.isFinite(now) ? Math.round(now) : Date.now();
 }
 
-export function attachIntentMetadata(result: SessionNormalizedIntentResult, surface: SessionInputSurfaceDefinition) {
+function resolveIntentRandom(random?: () => number) {
+  const value = random ? random() : Math.random();
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
+export function createIntentId(options: { now?: number; random?: () => number } = {}) {
+  const now = resolveIntentNow(options.now);
+  const randomSuffix = resolveIntentRandom(options.random).toString(36).slice(2, 8).padEnd(6, '0');
+  return `intent_${now}_${randomSuffix}`;
+}
+
+export function attachIntentMetadata(
+  result: SessionNormalizedIntentResult,
+  surface: SessionInputSurfaceDefinition,
+  options: { now?: number; random?: () => number } = {},
+) {
   return {
     intent: {
       ...result.intent,
       payload: {
         ...result.intent.payload,
-        intentId: createIntentId(),
+        intentId: createIntentId(options),
         surfaceType: surface.type,
       },
     },
   } satisfies SessionNormalizedIntentResult;
 }
 
-export function normalizeSurfaceSubmissionWithMetadata(surface: SessionInputSurfaceDefinition, submission: SessionTextComposerSubmission | SessionFormComposerSubmission | SessionBoardComposerSubmission) {
-  return attachIntentMetadata(normalizeSurfaceSubmission(surface, submission), surface);
+export function normalizeSurfaceSubmissionWithMetadata(
+  surface: SessionInputSurfaceDefinition,
+  submission: SessionTextComposerSubmission | SessionFormComposerSubmission | SessionBoardComposerSubmission,
+  options: { now?: number; random?: () => number } = {},
+) {
+  return attachIntentMetadata(normalizeSurfaceSubmission(surface, submission), surface, options);
 }
 
 export function buildDefaultFormSurface(actionType: string, fields: SessionInputField[], label = 'Action Form'): SessionInputSurfaceDefinition {
@@ -1181,22 +1201,25 @@ export function buildResolvedProjectionRuntimeCardDisplayTitle() {
 
 export function defaultInputSurfacesForConversation(conversation: GroupChat): SessionInputSurfaceDefinition[] {
   const definition = resolveSessionDefinition(conversation);
+  const userIsMember = conversation.memberIds.includes('user');
+  const textCapability: SessionViewerCapability = conversation.type === 'direct' || userIsMember ? 'speak' : 'guide';
+  const textMode: SessionInputSurfaceDefinition['mode'] = textCapability === 'speak' ? 'memberSpeak' : 'guide';
   if (definition.kind.surfaceProfile === 'form') {
-    return [createDefaultTextInputSurface({ key: 'fallback-text', label: 'Text fallback' })];
+    return [createDefaultTextInputSurface({ key: 'fallback-text', label: 'Text fallback', capability: textCapability, mode: textMode })];
   }
   if (definition.kind.surfaceProfile === 'hybrid') {
     return [
-      createDefaultTextInputSurface({ key: 'hybrid-text', label: 'Chat' }),
+      createDefaultTextInputSurface({ key: 'hybrid-text', label: 'Chat', capability: textCapability, mode: textMode }),
       { key: 'hybrid-actions', type: 'form', label: 'Actions' },
     ];
   }
   if (definition.kind.surfaceProfile === 'board') {
     return [
       { key: 'board-surface', type: 'board', label: 'Board' },
-      createDefaultTextInputSurface({ key: 'board-chat', label: 'Chat' }),
+      createDefaultTextInputSurface({ key: 'board-chat', label: 'Chat', capability: textCapability, mode: textMode }),
     ];
   }
-  return [createDefaultTextInputSurface()];
+  return [createDefaultTextInputSurface({ capability: textCapability, mode: textMode })];
 }
 
 export function defaultTopologySummary(conversation: GroupChat): SessionTopologySummary {
@@ -1464,21 +1487,95 @@ export function buildConversationParticipantLabel(conversation: GroupChat['type'
   return conversation === 'group' ? 'participant' : conversation === 'ai_direct' ? 'pair_private' : 'user_private';
 }
 
+type InferredSystemAgentSubtype = 'topic_guide' | 'host' | 'game_master' | 'narrator' | 'director' | 'moderator' | 'orchestrator';
+
+function inferSystemAgentSubtypeFromMemberId(id: string): InferredSystemAgentSubtype | null {
+  const normalized = id.trim().toLowerCase();
+  if (!normalized) return null;
+  if (/(^|[_:-])(gm|game|game_master|judge|referee)($|[_:-])/.test(normalized)) return 'game_master';
+  if (/(^|[_:-])(host|mc|主持)($|[_:-])/.test(normalized)) return 'host';
+  if (/(^|[_:-])(guide|guidance|topic|facilitator|引导)($|[_:-])/.test(normalized)) return 'topic_guide';
+  if (/(^|[_:-])(narrator|旁白)($|[_:-])/.test(normalized)) return 'narrator';
+  if (/(^|[_:-])(director|god|上帝|导演)($|[_:-])/.test(normalized)) return 'director';
+  if (/(^|[_:-])(moderator|mod|管理)($|[_:-])/.test(normalized)) return 'moderator';
+  if (/(^|[_:-])(system|orchestrator|scheduler|runtime)($|[_:-])/.test(normalized)) return 'orchestrator';
+  return null;
+}
+
+function inferParticipantEntityType(memberId: string): 'ai' | 'user' | 'system_agent' {
+  if (memberId === 'user') return 'user';
+  if (inferSystemAgentSubtypeFromMemberId(memberId)) return 'system_agent';
+  return 'ai';
+}
+
+function buildSystemAgentDisplayName(subtype: InferredSystemAgentSubtype | null) {
+  if (subtype === 'topic_guide') return '引导者';
+  if (subtype === 'host') return '主持人';
+  if (subtype === 'game_master') return '裁判/GM';
+  if (subtype === 'narrator') return '旁白';
+  if (subtype === 'director') return '导演/上帝';
+  if (subtype === 'moderator') return '管理者';
+  if (subtype === 'orchestrator') return '系统编排';
+  return '系统';
+}
+
+function buildParticipantCapabilities(entityType: 'ai' | 'user' | 'system_agent', subtype: InferredSystemAgentSubtype | null) {
+  if (entityType === 'ai' || entityType === 'user') return ['speak'];
+  if (subtype === 'topic_guide') return ['guide'];
+  if (subtype === 'host' || subtype === 'moderator') return ['moderate'];
+  if (subtype === 'game_master') return ['judge', 'moderate'];
+  if (subtype === 'narrator') return ['observe'];
+  if (subtype === 'director') return ['guide', 'moderate'];
+  return ['observe'];
+}
+
 export function createDefaultConversationParticipants(conversation: GroupChat): ParticipantInstance[] {
-  return conversation.memberIds.map((memberId, index) => ({
-    participantId: `${conversation.id}:${memberId}`,
-    conversationId: conversation.id,
-    entityType: 'ai',
-    entityRefId: memberId,
-    seatIndex: conversation.scenarioState?.seats?.find((seat) => seat.actorId === memberId)?.seatIndex ?? index,
-    canSpeak: true,
-    canAct: true,
-    roleKey: conversation.type === 'ai_direct' ? 'private_party' : conversation.type === 'direct' ? 'direct_partner' : 'participant',
-    faction: null,
-    flags: {
-      channelRole: buildConversationParticipantLabel(conversation.type),
-    },
-  }));
+  const orderedIds = Array.from(new Set([...(conversation.memberIds || []), ...(conversation.operatorIds || [])]));
+  return orderedIds.map((memberId, index) => {
+    const entityType = inferParticipantEntityType(memberId);
+    const systemAgentSubtype = entityType === 'system_agent' ? inferSystemAgentSubtypeFromMemberId(memberId) : null;
+    const capabilities = buildParticipantCapabilities(entityType, systemAgentSubtype);
+    const isMember = conversation.memberIds.includes(memberId);
+    const roleKey = entityType === 'user'
+      ? 'user_persona'
+      : entityType === 'system_agent'
+        ? systemAgentSubtype || 'system_agent'
+        : conversation.type === 'ai_direct'
+          ? 'private_party'
+          : conversation.type === 'direct'
+            ? 'direct_partner'
+            : 'participant';
+    return {
+      participantId: `${conversation.id}:${memberId}`,
+      conversationId: conversation.id,
+      entityType,
+      entityRefId: memberId,
+      seatIndex: isMember
+        ? (conversation.scenarioState?.seats?.find((seat) => seat.actorId === memberId)?.seatIndex ?? index)
+        : undefined,
+      displayName: entityType === 'user' ? '我' : entityType === 'system_agent' ? buildSystemAgentDisplayName(systemAgentSubtype) : undefined,
+      canSpeak: capabilities.includes('speak') || capabilities.includes('guide') || capabilities.includes('moderate') || capabilities.includes('judge'),
+      canAct: true,
+      roleKey,
+      faction: null,
+      flags: {
+        channelRole: entityType === 'system_agent' && !isMember ? 'operator' : buildConversationParticipantLabel(conversation.type),
+        actorRefKind: entityType === 'user' ? 'user_persona' : entityType === 'system_agent' ? 'system_agent' : 'ai_character',
+        systemAgentSubtype: systemAgentSubtype || null,
+        actorCapabilities: capabilities.join(','),
+        isOperator: entityType === 'system_agent' && !isMember,
+      },
+    };
+  });
+}
+
+function readParticipantCapabilities(participant: ParticipantInstance) {
+  const encoded = typeof participant.flags?.actorCapabilities === 'string' ? participant.flags.actorCapabilities : '';
+  return encoded.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function hasParticipantCapability(participant: ParticipantInstance, capability: 'speak' | 'guide' | 'moderate' | 'judge') {
+  return readParticipantCapabilities(participant).includes(capability);
 }
 
 export function createDefaultConversationPanels(context: SessionProjectionContext): RuntimePanelDefinition[] {
@@ -1490,18 +1587,24 @@ export function createDefaultConversationPanels(context: SessionProjectionContex
 
 export function createDefaultConversationActions(context: SessionProjectionContext): RuntimeAction[] {
   const actions: RuntimeAction[] = [{ type: 'speak' }];
-  if (context.conversation.type === 'group' && context.conversation.modeConfig?.allowDirectorInterventions !== false && context.conversation.directorControls.allowDirectorMode) actions.push({ type: 'director_intervention' });
-  if (context.conversation.type === 'group' && context.conversation.governance.allowPrivateThreads) actions.push({ type: 'start_private_thread' });
+  const hasDirectorCapability = context.participants.some((participant) => hasParticipantCapability(participant, 'guide') || hasParticipantCapability(participant, 'moderate') || hasParticipantCapability(participant, 'judge'));
+  const hasSystemAgent = context.participants.some((participant) => participant.entityType === 'system_agent');
+  const aiParticipantCount = context.participants.filter((participant) => participant.entityType === 'ai').length;
+  if (context.conversation.type === 'group' && context.conversation.modeConfig?.allowDirectorInterventions !== false && context.conversation.directorControls.allowDirectorMode && (hasDirectorCapability || !hasSystemAgent)) actions.push({ type: 'director_intervention' });
+  if (context.conversation.type === 'group' && context.conversation.governance.allowPrivateThreads && aiParticipantCount >= 2) actions.push({ type: 'start_private_thread' });
   return actions;
 }
 
 export function createDefaultConversationActionSchema(context: SessionEngineActionContext): SessionActionSchema | null {
   if (context.conversation.type !== 'group') return null;
-  const options = context.participants
+  const targetParticipants = context.participants.filter((participant) => participant.entityType === 'ai');
+  const hasDirectorCapability = context.participants.some((participant) => hasParticipantCapability(participant, 'guide') || hasParticipantCapability(participant, 'moderate') || hasParticipantCapability(participant, 'judge'));
+  const hasSystemAgent = context.participants.some((participant) => participant.entityType === 'system_agent');
+  const options = targetParticipants
     .map((participant, index) => ({ label: participant.displayName || `成员 ${index + 1}`, value: participant.entityRefId || '' }))
     .filter((option) => option.value);
   const actions: SessionActionDefinition[] = [];
-  if (context.conversation.modeConfig?.allowDirectorInterventions !== false && context.conversation.directorControls.allowDirectorMode) {
+  if (context.conversation.modeConfig?.allowDirectorInterventions !== false && context.conversation.directorControls.allowDirectorMode && (hasDirectorCapability || !hasSystemAgent)) {
     actions.push({
       type: 'director_intervention',
       label: '导演干预',
@@ -1515,7 +1618,7 @@ export function createDefaultConversationActionSchema(context: SessionEngineActi
       }),
     });
   }
-  if (context.conversation.governance.allowPrivateThreads) {
+  if (context.conversation.governance.allowPrivateThreads && options.length >= 2) {
     actions.push({
       type: 'start_private_thread',
       label: '发起 AI 私聊',

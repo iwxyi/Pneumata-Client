@@ -1,0 +1,113 @@
+import { describe, expect, it, vi } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { AICharacter } from '../../types/character';
+import type { GroupChat } from '../../types/chat';
+import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE } from '../../types/chat';
+import { ChatPrivateInfoCard } from './ChatPrivateInfoCard';
+
+const mockSettingsState = {
+  developerMode: false,
+  developerUI: {
+    showMemoryDebug: false,
+  },
+};
+
+vi.mock('../../stores/useSettingsStore', () => ({
+  useSettingsStore: (selector: (state: typeof mockSettingsState) => unknown) => selector(mockSettingsState),
+}));
+
+function buildCharacter(id: string, name: string): AICharacter {
+  return {
+    id,
+    name,
+    avatar: '',
+    personality: { openness: 50, extroversion: 50, agreeableness: 50, neuroticism: 50, humor: 50, creativity: 50, assertiveness: 50, empathy: 50 },
+    behavior: { proactivity: 50, aggressiveness: 50, humorIntensity: 50, empathyLevel: 50, summarizing: 50, offTopic: 50 },
+    expertise: [],
+    speakingStyle: '',
+    background: '',
+    relationships: [],
+    memory: { longTerm: [], shortTermSummary: '', secrets: [], obsessions: [], tabooTopics: [], userMemories: [] },
+    intervention: { allowSpeakAs: true, allowDirectorPrompt: true, allowPrivateThread: true },
+    isPreset: false,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function buildChat(type: GroupChat['type']): GroupChat {
+  return {
+    id: 'chat-1',
+    type,
+    mode: 'open_chat',
+    modeConfig: { freeSpeaking: true, allowInterruptions: true, allowPrivateThreads: true, allowDirectorInterventions: true, showRoleActions: true },
+    modeState: { phase: 'free' },
+    name: '测试会话',
+    topic: '测试',
+    style: 'free',
+    runtimeEvolutionIntensity: 'balanced',
+    memberIds: ['mei'],
+    speed: 1,
+    isActive: true,
+    allowIntervention: true,
+    topicSeed: '',
+    sourceChatId: null,
+    sourceMemberIds: [],
+    runtimeTimeline: [],
+    runtimeEventsV2: [],
+    relationshipLedger: [],
+    governance: DEFAULT_CONVERSATION_GOVERNANCE,
+    dramaRules: DEFAULT_CONVERSATION_DRAMA_RULES,
+    worldState: DEFAULT_CONVERSATION_WORLD_STATE,
+    directorControls: DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
+    createdAt: 1,
+    updatedAt: 1,
+    lastMessageAt: 1,
+  };
+}
+
+describe('ChatPrivateInfoCard', () => {
+  it('renders ai direct thread semantics for ai_private chats', () => {
+    const html = renderToStaticMarkup(
+      <ChatPrivateInfoCard
+        chat={{ ...buildChat('ai_direct'), memberIds: ['mei', 'hui'] }}
+        members={[buildCharacter('mei', '美羊羊'), buildCharacter('hui', '灰太狼')]}
+        directMemoryContext={null}
+      />,
+    );
+    expect(html).toContain('AI 私聊线程');
+    expect(html).toContain('可持续自动推进');
+    expect(html).toContain('发起者 美羊羊');
+    expect(html).toContain('对象 灰太狼');
+  });
+
+  it('renders direct memory axis and debug details only in developer memory debug mode', () => {
+    mockSettingsState.developerMode = true;
+    mockSettingsState.developerUI.showMemoryDebug = true;
+
+    const html = renderToStaticMarkup(
+      <ChatPrivateInfoCard
+        chat={buildChat('direct')}
+        members={[buildCharacter('mei', '美羊羊')]}
+        directMemoryContext={{
+          targetSummary: '优先检索角色对灰太狼的关系记忆',
+          memoryVisibility: '仅开发者可见',
+          recentRelationshipChanges: [],
+          recentMemoryWrites: [{ id: 'm1', text: '和灰太狼的误会缓和', layer: 'character', scope: 'global' }],
+          sourceTagSummary: 'direct_user_message × 2',
+          targetResolutionLabel: '来自人工点名',
+          targetResolution: '目标锁定灰太狼',
+        }}
+      />,
+    );
+
+    expect(html).toContain('单聊记忆主轴');
+    expect(html).toContain('优先读取自己的长期记忆');
+    expect(html).toContain('来源：direct_user_message × 2');
+    expect(html).toContain('判断方式：来自人工点名');
+    expect(html).toContain('目标识别：目标锁定灰太狼');
+
+    mockSettingsState.developerMode = false;
+    mockSettingsState.developerUI.showMemoryDebug = false;
+  });
+});

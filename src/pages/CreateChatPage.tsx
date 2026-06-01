@@ -19,7 +19,12 @@ import {
   DEFAULT_CONVERSATION_WORLD_STATE,
   DEFAULT_OPEN_CHAT_MODE_STATE,
 } from '../types/chat';
-import { buildGroupChatDraft } from '../services/chatDraftBuilder';
+import {
+  buildGroupChatDraft,
+  composeGroupMemberIds,
+  normalizeOperatorIdsInput,
+  stripUserMemberId,
+} from '../services/chatDraftBuilder';
 import { api as apiClient } from '../services/api';
 import { MIN_MEMBERS, MAX_MEMBERS } from '../constants/defaults';
 import { storageKey } from '../constants/brand';
@@ -67,6 +72,8 @@ export default function CreateChatPage() {
   const [allowCliques, setAllowCliques] = useState(false);
   const [allowMockery, setAllowMockery] = useState(false);
   const [showRoleActions, setShowRoleActions] = useState(true);
+  const [includeUserAsMember, setIncludeUserAsMember] = useState(true);
+  const [operatorIdsText, setOperatorIdsText] = useState('');
   const [runtimeEvolutionIntensity, setRuntimeEvolutionIntensity] = useState<RuntimeEvolutionIntensity>('balanced');
   const [allowSpeakAs, setAllowSpeakAs] = useState(true);
   const [allowDirectorMode, setAllowDirectorMode] = useState(true);
@@ -105,6 +112,10 @@ export default function CreateChatPage() {
     return fallback;
   };
 
+  const normalizedOperatorResult = normalizeOperatorIdsInput(operatorIdsText, selectedMembers);
+  const operatorIds = normalizedOperatorResult.effectiveIds;
+  const filteredOperatorCount = normalizedOperatorResult.filteredCount;
+
   const seedOpeningTopicMessage = useCallback(async (chatId: string, topicText?: string | null) => {
     const openingTopic = (topicText || '').trim();
     if (!openingTopic) return;
@@ -137,7 +148,7 @@ export default function CreateChatPage() {
       setName(editingChat.name || '');
       setTopic(editingChat.topic || '');
       setStyle(editingChat.style);
-      setSelectedMembers(editingChat.memberIds || []);
+      setSelectedMembers(stripUserMemberId(editingChat.memberIds || []));
       setOwnerCharacterId(editingChat.governance.ownerCharacterId || '');
       setAdminCharacterIds(editingChat.governance.adminCharacterIds || []);
       setMood(editingChat.worldState.mood || '');
@@ -148,6 +159,8 @@ export default function CreateChatPage() {
       setAllowCliques(editingChat.dramaRules.allowCliques);
       setAllowMockery(editingChat.dramaRules.allowMockery);
       setShowRoleActions(editingChat.showRoleActions ?? true);
+      setIncludeUserAsMember((editingChat.memberIds || []).includes('user'));
+      setOperatorIdsText((editingChat.operatorIds || []).join(', '));
       setRuntimeEvolutionIntensity(editingChat.runtimeEvolutionIntensity || 'balanced');
       setAllowSpeakAs(editingChat.directorControls.allowSpeakAs);
       setAllowDirectorMode(editingChat.directorControls.allowDirectorMode);
@@ -161,6 +174,7 @@ export default function CreateChatPage() {
 
     setStyle(chatDraftDefaults.style);
     setShowRoleActions(chatDraftDefaults.showRoleActions);
+    setIncludeUserAsMember(true);
     setRuntimeEvolutionIntensity(chatDraftDefaults.runtimeEvolutionIntensity);
     setOwnerCharacterId('');
     setAdminCharacterIds([]);
@@ -175,6 +189,7 @@ export default function CreateChatPage() {
     setAllowDirectorMode(true);
     setAllowEventInjection(true);
     setAllowForcedReply(true);
+    setOperatorIdsText('');
     setAutoModeration(false);
     setAllowMute(true);
     setAllowPrivateThreads(true);
@@ -207,6 +222,8 @@ export default function CreateChatPage() {
       allowCliques,
       allowMockery,
       showRoleActions,
+      includeUserAsMember,
+      operatorIdsText,
       runtimeEvolutionIntensity,
       allowSpeakAs,
       allowDirectorMode,
@@ -227,7 +244,7 @@ export default function CreateChatPage() {
       setName(String(draft.name || ''));
       setTopic(String(draft.topic || ''));
       setStyle((draft.style as ChatStyle) || chatDraftDefaults.style);
-      setSelectedMembers(Array.isArray(draft.selectedMembers) ? draft.selectedMembers as string[] : []);
+      setSelectedMembers(stripUserMemberId(Array.isArray(draft.selectedMembers) ? draft.selectedMembers as string[] : []));
       setOwnerCharacterId(String(draft.ownerCharacterId || ''));
       setAdminCharacterIds(Array.isArray(draft.adminCharacterIds) ? draft.adminCharacterIds as string[] : []);
       setMood(String(draft.mood || ''));
@@ -238,6 +255,12 @@ export default function CreateChatPage() {
       setAllowCliques(Boolean(draft.allowCliques));
       setAllowMockery(Boolean(draft.allowMockery));
       setShowRoleActions(Boolean(draft.showRoleActions));
+      setIncludeUserAsMember(
+        typeof draft.includeUserAsMember === 'boolean'
+          ? Boolean(draft.includeUserAsMember)
+          : true,
+      );
+      setOperatorIdsText(String(draft.operatorIdsText || ''));
       setRuntimeEvolutionIntensity((draft.runtimeEvolutionIntensity as RuntimeEvolutionIntensity) || chatDraftDefaults.runtimeEvolutionIntensity);
       setAllowSpeakAs(Boolean(draft.allowSpeakAs));
       setAllowDirectorMode(Boolean(draft.allowDirectorMode));
@@ -584,6 +607,8 @@ export default function CreateChatPage() {
     }
 
     const validMemberIds = Array.from(new Set(selectedMembers.filter(Boolean)));
+    const operatorIds = normalizeOperatorIdsInput(operatorIdsText, validMemberIds).effectiveIds;
+    const nextMemberIds = composeGroupMemberIds(validMemberIds, includeUserAsMember);
     const normalizedOwnerCharacterId = ownerCharacterId && validMemberIds.includes(ownerCharacterId) ? ownerCharacterId : null;
     const normalizedAdminCharacterIds = Array.from(new Set(adminCharacterIds.filter((memberId) => validMemberIds.includes(memberId) && memberId !== normalizedOwnerCharacterId)));
 
@@ -616,7 +641,8 @@ export default function CreateChatPage() {
           topic: topic.trim(),
           style,
           runtimeEvolutionIntensity,
-          memberIds: validMemberIds,
+          memberIds: nextMemberIds,
+          operatorIds,
           speed: 1,
           allowIntervention: true,
           showRoleActions,
@@ -665,7 +691,8 @@ export default function CreateChatPage() {
         topic,
         style,
         runtimeEvolutionIntensity,
-        memberIds: validMemberIds,
+        memberIds: nextMemberIds,
+        operatorIds,
         showRoleActions,
         seedMemoryText,
         seedArtifactText,
@@ -725,6 +752,12 @@ export default function CreateChatPage() {
               topic={topic}
               style={style}
               showRoleActions={showRoleActions}
+              includeUserAsMember={includeUserAsMember}
+              operatorIdsText={operatorIdsText}
+              operatorNormalizedIds={operatorIds}
+              operatorValidationHint={filteredOperatorCount > 0
+                ? (isZh ? `已自动忽略 ${filteredOperatorCount} 个与成员重复或无效的操作者 ID` : `${filteredOperatorCount} operator id(s) ignored because they overlap with members or are invalid`)
+                : ''}
               selectedMembers={selectedMembers}
               selectedCharacters={selectedCharacters}
               language={i18n.language}
@@ -735,6 +768,8 @@ export default function CreateChatPage() {
               onTopicChange={setTopic}
               onStyleChange={setStyle}
               onShowRoleActionsChange={setShowRoleActions}
+              onIncludeUserAsMemberChange={setIncludeUserAsMember}
+              onOperatorIdsTextChange={setOperatorIdsText}
               onOpenMemberDialog={() => setMemberDialogOpen(true)}
               onOpenHotDialog={openHotDialog}
               onToggleMember={toggleMember}
@@ -745,6 +780,10 @@ export default function CreateChatPage() {
               membersHintLabel={isGroupConversation ? t('chat.membersHint') : (isZh ? `${conversationNoun}中的AI角色` : `AI roles in this ${conversationNoun}`)}
               styleLabel={t('chat.style')}
               showRoleActionsLabel={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'}
+              includeUserAsMemberLabel={i18n.language.startsWith('zh') ? '把我作为群成员' : 'Include me as a member'}
+              includeUserAsMemberHint={i18n.language.startsWith('zh') ? '开启后，用户普通发言按群成员语义进入关系、关注与世界事件链路。' : 'When enabled, normal user messages are treated as member participation for relationship, attention, and world-event runtime.'}
+              operatorIdsLabel={i18n.language.startsWith('zh') ? '操作者（可选）' : 'Operators (optional)'}
+              operatorIdsHint={i18n.language.startsWith('zh') ? '逗号分隔，比如 host_moderator、topic_guide_bot。操作者可不在群成员里。' : 'Comma-separated, e.g. host_moderator, topic_guide_bot. Operators can exist outside member seats.'}
               openTopicInspirationLabel={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}
             />
             {editingChat ? (

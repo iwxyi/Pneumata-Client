@@ -2,7 +2,13 @@ import type { AICharacter } from '../types/character';
 import type { ConversationConflictAxis, DriverCharacterPatch, DriverEventPayload, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import { deriveFallbackRelationshipDelta, updateCharacterRelationshipFromDelta } from './relationshipEngine';
-import { createBaselineRelationshipCurrent, inferRelationshipDelta, reduceRelationshipLedger } from './relationshipLedger';
+import {
+  canApplyRelationshipInteraction,
+  createBaselineRelationshipCurrent,
+  getRelationshipLedgerEntry,
+  inferRelationshipDelta,
+  reduceRelationshipLedger,
+} from './relationshipLedger';
 import type { ConflictFocusPayload, ConflictFocusState, ConflictRuntimeState, RuntimeEventV2 } from '../types/runtimeEvent';
 import { deriveEmotionalState, derivePersonalityDrift, getRuntimeAffectEventDriftLine, getRuntimeAffectEventEmotionLines } from './personalityDrift';
 import { accumulateChatRuntime } from './chatRuntime';
@@ -23,6 +29,12 @@ const PRIMARY_CONFLICT_DECAY_STEP = 0.06;
 const SECONDARY_CONFLICT_DECAY_STEP = 0.04;
 const CONFLICT_ACTIVE_THRESHOLD = 0.24;
 const CONFLICT_COOLING_THRESHOLD = 0.62;
+
+function resolveMessageTimestamp(message: { timestamp?: number }, fallback: number) {
+  return typeof message.timestamp === 'number' && Number.isFinite(message.timestamp)
+    ? Math.round(message.timestamp)
+    : fallback;
+}
 
 function areRuntimeValuesEqual(left: unknown, right: unknown) {
   if (left === right) return true;
@@ -143,25 +155,35 @@ function appendDistilledMemoryEvents(conversation: GroupChat, existingEvents: Ru
   return [...existingEvents, ...newEvents];
 }
 
-function normalizeConflictFocus(payload: ConflictFocusPayload | null | undefined, conversation: GroupChat, message: Pick<Message, 'content' | 'senderId'>): ConflictFocusState | null {
+function normalizeConflictFocus(
+  payload: ConflictFocusPayload | null | undefined,
+  conversation: GroupChat,
+  message: Pick<Message, 'content' | 'senderId'>,
+  referenceTimestamp: number,
+): ConflictFocusState | null {
   if (!payload?.present || !payload.type || !payload.summary) return null;
+  const summary = payload.summary.trim();
+  if (summary.length < 8) return null;
   const severity = typeof payload.severity === 'number' && Number.isFinite(payload.severity) ? Math.max(0, Math.min(1, payload.severity)) : 0;
   if (severity < 0.55) return null;
+  const whyText = typeof payload.why === 'string' ? payload.why.trim() : '';
+  if (severity >= 0.75 && whyText.length < 6) return null;
   const participantIds = (payload.participantIds || [message.senderId]).filter((id) => conversation.memberIds.includes(id));
+  if (!participantIds.length) return null;
   const targetIds = (payload.primaryTargetIds || []).filter((id) => conversation.memberIds.includes(id));
   return {
-    id: `conflict-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: `conflict-${referenceTimestamp}-${message.senderId}-${payload.type}`,
     scope: conversation.type,
     type: payload.type,
     severity,
     stage: payload.stage || (severity >= 0.85 ? 'escalating' : severity >= 0.7 ? 'open' : 'emerging'),
-    summary: payload.summary,
+    summary,
     participantIds: participantIds.length ? participantIds : [message.senderId],
     targetIds,
     nextPressure: payload.nextPressure || 'stabilize',
     developmentHooks: payload.developmentHooks || [],
     sourceEventIds: [],
-    updatedAt: Date.now(),
+    updatedAt: referenceTimestamp,
   };
 }
 
@@ -196,7 +218,7 @@ function sameConflictBranch(left: ConflictFocusState | null | undefined, right: 
   return Boolean(leftIdentity && rightIdentity && JSON.stringify(leftIdentity) === JSON.stringify(rightIdentity));
 }
 
-function decayConflictFocus(conflict: ConflictFocusState, step: number): ConflictFocusState | null {
+function decayConflictFocus(conflict: ConflictFocusState, step: number, now: number): ConflictFocusState | null {
   const severity = Math.max(0, Number((conflict.severity - step).toFixed(2)));
   if (severity < CONFLICT_ACTIVE_THRESHOLD) return null;
   return {
@@ -204,14 +226,14 @@ function decayConflictFocus(conflict: ConflictFocusState, step: number): Conflic
     severity,
     stage: severity <= CONFLICT_COOLING_THRESHOLD ? 'cooling' : conflict.stage === 'escalating' ? 'open' : conflict.stage,
     nextPressure: severity <= CONFLICT_COOLING_THRESHOLD ? 'cool' : conflict.nextPressure,
-    updatedAt: Date.now(),
+    updatedAt: now,
   };
 }
 
-function updateConflictRuntimeState(previous: ConflictRuntimeState | null | undefined, nextConflict: ConflictFocusState | null): ConflictRuntimeState | null {
+function updateConflictRuntimeState(previous: ConflictRuntimeState | null | undefined, nextConflict: ConflictFocusState | null, now: number): ConflictRuntimeState | null {
   if (!nextConflict) {
     const decayedActiveConflicts = (previous?.activeConflicts || [])
-      .map((item) => decayConflictFocus(item, PRIMARY_CONFLICT_DECAY_STEP))
+      .map((item) => decayConflictFocus(item, PRIMARY_CONFLICT_DECAY_STEP, now))
       .filter((item): item is ConflictFocusState => Boolean(item))
       .slice(0, 6);
     if (!decayedActiveConflicts.length) return null;
@@ -222,13 +244,13 @@ function updateConflictRuntimeState(previous: ConflictRuntimeState | null | unde
       developmentHooks: primaryConflict?.developmentHooks || [],
       volatility: Math.max(0, Number(((previous?.volatility || 0) - 0.12).toFixed(2))),
       cooling: Math.min(1, Number(((previous?.cooling || 0) + 0.18).toFixed(2))),
-      updatedAt: Date.now(),
+      updatedAt: now,
     };
   }
 
   const decayedPreviousConflicts = (previous?.activeConflicts || [])
     .filter((item) => !sameConflictBranch(item, nextConflict))
-    .map((item) => decayConflictFocus(item, SECONDARY_CONFLICT_DECAY_STEP))
+    .map((item) => decayConflictFocus(item, SECONDARY_CONFLICT_DECAY_STEP, now))
     .filter((item): item is ConflictFocusState => Boolean(item));
   const activeConflicts = [nextConflict, ...decayedPreviousConflicts].slice(0, 6);
   return {
@@ -237,7 +259,7 @@ function updateConflictRuntimeState(previous: ConflictRuntimeState | null | unde
     developmentHooks: nextConflict.developmentHooks,
     volatility: Math.max(nextConflict.severity, Math.max(0, Number(((previous?.volatility || 0) - 0.06).toFixed(2)))),
     cooling: nextConflict.nextPressure === 'cool' ? Math.min(1, (previous?.cooling || 0) + 0.2) : Math.max(0, (previous?.cooling || 0) - 0.1),
-    updatedAt: Date.now(),
+    updatedAt: now,
   };
 }
 
@@ -254,6 +276,65 @@ function buildWorldStateShiftSummary(worldState: GroupChat['worldState']) {
   return [worldState.focus, worldState.recentEvent].filter(Boolean).join(' / ').slice(0, 90);
 }
 
+function pickMentionedTargetIds(content: string, participants: Array<{ id: string; name: string }>) {
+  const text = content.trim();
+  if (!text) return [];
+  return participants
+    .filter((participant) => participant.id !== 'user' && participant.name && text.includes(participant.name))
+    .map((participant) => participant.id)
+    .slice(0, 3);
+}
+
+function buildAttentionCandidateEvent(params: {
+  conversation: GroupChat;
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { timestamp?: number };
+  participants: Array<{ id: string; name: string }>;
+}): RuntimeEventV2 | null {
+  if (params.conversation.type !== 'group') return null;
+  if (params.message.type !== 'user' || params.message.senderId !== 'user') return null;
+  const targetIds = pickMentionedTargetIds(params.message.content, params.participants);
+  if (!targetIds.length) return null;
+  const createdAt = resolveMessageTimestamp(params.message, params.conversation.updatedAt || Date.now());
+  const summary = `用户点名 ${targetIds.map((id) => params.participants.find((item) => item.id === id)?.name || id).join('、')}，等待回应`;
+  return {
+    id: `att-${params.conversation.id}-${targetIds.join('-')}-${createdAt}`,
+    conversationId: params.conversation.id,
+    kind: 'attention_candidate',
+    createdAt,
+    actorIds: ['user'],
+    targetIds,
+    evidenceMessageIds: [],
+    summary,
+    eventClass: 'action',
+    visibility: 'derived_public',
+    visibleToIds: [],
+    visibleToRoles: [],
+    payload: {
+      source: 'user_group_message',
+      reason: summary,
+      confidence: 0.82,
+      targetIds,
+    },
+  };
+}
+
+function appendAttentionCandidateEvent(existingEvents: RuntimeEventV2[], candidate: RuntimeEventV2 | null) {
+  if (!candidate) return existingEvents;
+  const hasRecentDuplicate = existingEvents
+    .slice()
+    .reverse()
+    .slice(0, 12)
+    .some((event) => {
+      if (event.kind !== 'attention_candidate') return false;
+      if (Math.abs(event.createdAt - candidate.createdAt) > 10 * 60_000) return false;
+      const left = (event.targetIds || []).slice().sort().join(',');
+      const right = (candidate.targetIds || []).slice().sort().join(',');
+      return left === right;
+    });
+  if (hasRecentDuplicate) return existingEvents;
+  return [...existingEvents, candidate];
+}
+
 function shouldEmitWorldStateShift(previousWorldState: GroupChat['worldState'], nextWorldState: GroupChat['worldState'], messageType: Message['type'], config: RuntimeEvolutionConfig) {
   if (messageType !== 'ai' || config.worldMultiplier < 0.9) return false;
   const nextSummary = buildWorldStateShiftSummary(nextWorldState);
@@ -261,13 +342,18 @@ function shouldEmitWorldStateShift(previousWorldState: GroupChat['worldState'], 
   return buildWorldStateShiftSummary(previousWorldState) !== nextSummary;
 }
 
-export function buildNextWorldState(conversation: GroupChat, message: Pick<Message, 'content' | 'type' | 'senderId'> & { conflictFocus?: ConflictFocusPayload | null }, config: RuntimeEvolutionConfig = resolveRuntimeEvolutionConfig(conversation.runtimeEvolutionIntensity)) {
+export function buildNextWorldState(
+  conversation: GroupChat,
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { conflictFocus?: ConflictFocusPayload | null; timestamp?: number },
+  config: RuntimeEvolutionConfig = resolveRuntimeEvolutionConfig(conversation.runtimeEvolutionIntensity),
+) {
+  const now = resolveMessageTimestamp(message, conversation.updatedAt || Date.now());
   const existingAxes = (conversation.worldState.conflictAxes || []).length ? (conversation.worldState.conflictAxes || []) : createDefaultConflictAxes(conversation);
-  const normalizedConflict = message.type === 'ai' ? normalizeConflictFocus(message.conflictFocus || null, conversation, message) : null;
+  const normalizedConflict = message.type === 'ai' ? normalizeConflictFocus(message.conflictFocus || null, conversation, message, now) : null;
   const nextConflictAxes = normalizedConflict && message.type === 'ai' && config.worldMultiplier >= 0.7
     ? evolveConflictAxes(conversation, message.content)
     : existingAxes;
-  const nextConflictState = updateConflictRuntimeState(conversation.worldState.conflictState || null, normalizedConflict);
+  const nextConflictState = updateConflictRuntimeState(conversation.worldState.conflictState || null, normalizedConflict, now);
   return {
     worldState: {
       ...conversation.worldState,
@@ -305,7 +391,7 @@ function buildSeededRelationshipLedger(conversation: GroupChat, characters: AICh
 export function buildRelationshipTransition(params: {
   conversation: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('../types/runtimeEvent').InteractionEventPayload | null; interactionHints?: import('../types/runtimeEvent').InteractionEventPayload[] | null; conflictFocus?: ConflictFocusPayload | null };
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('../types/runtimeEvent').InteractionEventPayload | null; interactionHints?: import('../types/runtimeEvent').InteractionEventPayload[] | null; conflictFocus?: ConflictFocusPayload | null; timestamp?: number };
   previousAiMessage?: Pick<Message, 'senderId'> | null;
   recentMessages?: Message[];
   config?: RuntimeEvolutionConfig;
@@ -313,6 +399,9 @@ export function buildRelationshipTransition(params: {
   const runtimeEvents: DriverEventPayload[] = [];
   const characterPatches: DriverCharacterPatch[] = [];
   let relationshipLedger = buildSeededRelationshipLedger(params.conversation, params.characters);
+  const baseTimestamp = resolveMessageTimestamp(params.message, params.conversation.updatedAt || Date.now());
+  let eventOffset = 0;
+  const nextEventTimestamp = () => baseTimestamp + eventOffset++;
   const previousAiMessage = params.previousAiMessage;
   const config = params.config || resolveRuntimeEvolutionConfig(params.conversation.runtimeEvolutionIntensity);
   const distillationParticipants = params.characters.map((item) => ({ id: item.id, name: item.name }));
@@ -341,7 +430,7 @@ export function buildRelationshipTransition(params: {
     const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
     const speakerCoreProfile = evolveCharacterCoreProfile({ character: speaker, content: params.message.content, emotionalState: speakerEmotion });
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
-    const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: Date.now() }] : [];
+    const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: nextEventTimestamp() }] : [];
 
     const updatedSpeakerRelationships = targetEntries.reduce((relationships, { target, hint }) => {
       const explicitDelta = inferRelationshipDelta(hint)?.delta || deriveFallbackRelationshipDelta(params.message.content);
@@ -440,6 +529,7 @@ export function buildRelationshipTransition(params: {
 
       const relationshipDelta = inferRelationshipDelta(hint);
       if (!relationshipDelta) continue;
+      if (!canApplyRelationshipInteraction(hint, relationshipDelta)) continue;
       const deltaParts = [
         relationshipDelta.delta.warmth ? `亲和${relationshipDelta.delta.warmth > 0 ? '+' : ''}${relationshipDelta.delta.warmth}` : '',
         relationshipDelta.delta.competence ? `能力${relationshipDelta.delta.competence > 0 ? '+' : ''}${relationshipDelta.delta.competence}` : '',
@@ -450,11 +540,11 @@ export function buildRelationshipTransition(params: {
 
       const confidenceLabel = `${Math.round((hint.confidence || 0) * 100)}%`;
       const relationshipSummary = `${speaker.name}→${target.name}：${deltaParts.join('，')}｜${confidenceLabel}`;
-      relationshipLines.push(relationshipSummary);
+      const relationshipEventCreatedAt = nextEventTimestamp();
       const relationshipEvent: RuntimeEventV2 = {
-        id: `relationship-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: `relationship-${params.conversation.id}-${speaker.id}-${target.id}-${relationshipEventCreatedAt}`,
         conversationId: params.conversation.id,
-        createdAt: Date.now(),
+        createdAt: relationshipEventCreatedAt,
         kind: 'relationship_delta',
         actorIds: [speaker.id],
         targetIds: [target.id],
@@ -465,7 +555,17 @@ export function buildRelationshipTransition(params: {
         visibleToRoles: [],
         payload: relationshipDelta,
       };
-      relationshipLedger = reduceRelationshipLedger(relationshipLedger, hint, relationshipEvent);
+      const previousLedgerEntry = getRelationshipLedgerEntry(relationshipLedger, speaker.id, target.id);
+      const nextRelationshipLedger = reduceRelationshipLedger(relationshipLedger, hint, relationshipEvent);
+      const nextLedgerEntry = getRelationshipLedgerEntry(nextRelationshipLedger, speaker.id, target.id);
+      const applied = Boolean(
+        nextLedgerEntry
+        && nextLedgerEntry.lastUpdatedAt === relationshipEvent.createdAt
+        && (previousLedgerEntry?.lastUpdatedAt !== nextLedgerEntry.lastUpdatedAt),
+      );
+      relationshipLedger = nextRelationshipLedger;
+      if (!applied) continue;
+      relationshipLines.push(relationshipSummary);
     }
 
     if (relationshipLines.length) {
@@ -478,11 +578,11 @@ export function buildRelationshipTransition(params: {
         timelineType: 'relationship',
         eventClass: 'action',
         visibilityScope: 'public',
-        createdAt: Date.now(),
+        createdAt: nextEventTimestamp(),
       }));
     }
 
-    const normalizedConflict = normalizeConflictFocus(params.message.conflictFocus || null, params.conversation, params.message);
+    const normalizedConflict = normalizeConflictFocus(params.message.conflictFocus || null, params.conversation, params.message, baseTimestamp);
     if (hasMeaningfulConflictChange(params.conversation.worldState.conflictState?.primaryConflict || null, normalizedConflict)) {
       runtimeEvents.push(normalizeRuntimeEvent({
         eventType: 'conflict_focus_shift',
@@ -498,7 +598,7 @@ export function buildRelationshipTransition(params: {
         timelineType: 'note',
         eventClass: 'action',
         visibilityScope: 'public',
-        createdAt: Date.now(),
+        createdAt: nextEventTimestamp(),
       }));
     }
 
@@ -510,7 +610,7 @@ export function buildRelationshipTransition(params: {
         timelineType: 'note',
         eventClass: 'action',
         visibilityScope: 'public',
-        createdAt: Date.now(),
+        createdAt: nextEventTimestamp(),
       }));
     }
 
@@ -523,7 +623,7 @@ export function buildRelationshipTransition(params: {
         timelineType: 'note',
         eventClass: 'action',
         visibilityScope: 'public',
-        createdAt: Date.now(),
+        createdAt: nextEventTimestamp(),
       }));
     }
 
@@ -540,7 +640,7 @@ export function buildRelationshipTransition(params: {
         timelineType: 'note',
         eventClass: 'action',
         visibilityScope: 'public',
-        createdAt: Date.now(),
+        createdAt: nextEventTimestamp(),
       }));
     }
   }
@@ -565,7 +665,7 @@ export function buildRelationshipTransition(params: {
       personalityDrift: speakerDrift,
       sourceEventTag: params.conversation.type === 'ai_direct' ? 'ai_direct_self_message' : params.conversation.type === 'direct' ? 'direct_ai_message' : 'interaction',
     }), distillationParticipants);
-    const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: Date.now() }] : [];
+    const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: nextEventTimestamp() }] : [];
 
     characterPatches.push({
       characterId: speaker.id,
@@ -593,7 +693,7 @@ export function buildRelationshipTransition(params: {
         timelineType: 'note',
         eventClass: 'action',
         visibilityScope: 'public',
-        createdAt: Date.now(),
+        createdAt: nextEventTimestamp(),
       }));
     }
 
@@ -606,7 +706,7 @@ export function buildRelationshipTransition(params: {
         timelineType: 'note',
         eventClass: 'action',
         visibilityScope: 'public',
-        createdAt: Date.now(),
+        createdAt: nextEventTimestamp(),
       }));
     }
   }
@@ -615,13 +715,16 @@ export function buildRelationshipTransition(params: {
 }
 
 export function buildWorldRuntimeEvents(
-  message: Pick<Message, 'content' | 'type'>,
+  message: Pick<Message, 'content' | 'type'> & { timestamp?: number },
   previousWorldState: GroupChat['worldState'],
   worldState: GroupChat['worldState'],
   nextConflictAxes: ConversationConflictAxis[],
   config: RuntimeEvolutionConfig,
 ) {
   const runtimeEvents: DriverEventPayload[] = [];
+  const baseTimestamp = resolveMessageTimestamp(message, Date.now());
+  let eventOffset = 0;
+  const nextEventTimestamp = () => baseTimestamp + eventOffset++;
 
   if (shouldEmitConflictAxisShift(previousWorldState.conflictAxes || [], nextConflictAxes, message.type, config)) {
     runtimeEvents.push(normalizeRuntimeEvent({
@@ -631,6 +734,7 @@ export function buildWorldRuntimeEvents(
       timelineType: 'note',
       eventClass: 'phase',
       visibilityScope: 'public',
+      createdAt: nextEventTimestamp(),
     }));
   }
 
@@ -642,6 +746,7 @@ export function buildWorldRuntimeEvents(
       timelineType: 'note',
       eventClass: 'phase',
       visibilityScope: 'public',
+      createdAt: nextEventTimestamp(),
     }));
   }
 
@@ -650,7 +755,7 @@ export function buildWorldRuntimeEvents(
 
 export function buildChatPatch(
   conversation: GroupChat,
-  message: Pick<Message, 'content' | 'type' | 'senderId'>,
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { timestamp?: number },
   worldState: GroupChat['worldState'],
   runtimeEvents: DriverEventPayload[],
   config: RuntimeEvolutionConfig = resolveRuntimeEvolutionConfig(conversation.runtimeEvolutionIntensity),
@@ -700,7 +805,10 @@ export function buildChatPatch(
     appendMemoryCandidateEvents(conversation.runtimeEventsV2 || [], memoryCandidateEvents),
     nextLayeredMemories,
   );
-  chatPatch.runtimeEventsV2 = runtimeEventsV2WithCandidates;
+  chatPatch.runtimeEventsV2 = appendAttentionCandidateEvent(
+    runtimeEventsV2WithCandidates,
+    buildAttentionCandidateEvent({ conversation, message, participants }),
+  );
 
   return {
     ...pruneUnchangedChatRuntimePatch(conversation, chatPatch),
