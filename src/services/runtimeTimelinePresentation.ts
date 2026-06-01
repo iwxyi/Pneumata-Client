@@ -35,6 +35,7 @@ interface AttentionDebugLineParams {
   } | null;
   language?: 'zh' | 'en';
   reasonMax?: number;
+  members?: DisplayTextMember[];
 }
 
 function cleanText(text: string | undefined | null, members: DisplayTextMember[] = []) {
@@ -409,7 +410,7 @@ export function formatAttentionDebugLine(params: AttentionDebugLineParams) {
   const restraint = typeof trace.restraint === 'number' ? `${Math.round(trace.restraint * 100)}%` : '--';
   const reasonMax = typeof params.reasonMax === 'number' && params.reasonMax > 0 ? params.reasonMax : 80;
   const reason = (trace.reasons || []).map((item) => item.trim()).filter(Boolean)[0] || '';
-  const sanitizedReason = cleanText(reason);
+  const sanitizedReason = cleanText(reason, params.members || []);
   const clippedReason = sanitizedReason.length > reasonMax ? `${sanitizedReason.slice(0, reasonMax)}…` : sanitizedReason;
   return [
     isZh ? `关注 ${score}` : `Attention ${score}`,

@@ -236,6 +236,38 @@ describe('dialogueDebugProjection', () => {
     expect(card.projectionMetaLine).toContain('群聊投影');
   });
 
+  it('maps member ids inside attention meta line in structured card', () => {
+    const item: ProjectedRuntimeTimelineItem = {
+      type: 'artifact',
+      text: 'test',
+      createdAt: 1,
+      label: '产物',
+      event: { id: 'evt-6', conversationId: 'chat-1', kind: 'artifact', createdAt: 1, summary: 'test', payload: {} },
+      meta: {
+        socialEventCandidate: {
+          eventKind: 'check_in',
+          initiatorId: 'a',
+          participantIds: ['a', 'b'],
+          reasonType: 'care',
+          confidence: 0.8,
+          urgency: 'soon',
+          seedIntent: '确认近况',
+          visibilityPlan: 'conversation_private',
+          attentionTrace: {
+            score: 0.62,
+            restraint: 0.18,
+            suggestedActions: ['check_in'],
+            reasons: ['a 对 b 的关注正在升高'],
+            latestEvidenceAt: 1,
+          },
+        },
+      },
+    };
+    const card = projectDialogueStructuredEventCard(item, true, [member('a', '甲'), member('b', '乙')]);
+    expect(card.attentionMetaLine).toContain('甲 对 乙 的关注正在升高');
+    expect(card.attentionMetaLine).not.toContain('a 对 b');
+  });
+
   it('falls back to event kind title when no calendar patch meta exists', () => {
     const item: ProjectedRuntimeTimelineItem = {
       type: 'artifact',

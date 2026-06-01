@@ -395,4 +395,20 @@ describe('runtimeTimelinePresentation', () => {
     expect(line).not.toContain('eventType');
     expect(line).toContain('关系账本中的变化已经足够显著');
   });
+
+  it('maps member ids in attention debug reason when member context is provided', () => {
+    const line = formatAttentionDebugLine({
+      candidate: {
+        attentionTrace: {
+          score: 0.66,
+          restraint: 0.2,
+          reasons: ['a 对 b 的关注正在升高'],
+        },
+      },
+      language: 'zh',
+      members: [{ id: 'a', name: '甲' }, { id: 'b', name: '乙' }],
+    });
+    expect(line).toContain('甲 对 乙 的关注正在升高');
+    expect(line).not.toContain('a 对 b');
+  });
 });

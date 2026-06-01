@@ -111,11 +111,12 @@ export function projectTimelineGuidanceMetaLine(item: ProjectedRuntimeTimelineIt
   ].filter(Boolean).join(' · '), members);
 }
 
-export function projectTimelineAttentionMetaLine(item: ProjectedRuntimeTimelineItem, isZh: boolean) {
+export function projectTimelineAttentionMetaLine(item: ProjectedRuntimeTimelineItem, isZh: boolean, members: AICharacter[] = []) {
   return formatAttentionDebugLine({
     candidate: item.meta?.socialEventCandidate,
     language: isZh ? 'zh' : 'en',
     reasonMax: 120,
+    members: members.map((member) => ({ id: member.id, name: member.name })),
   });
 }
 
@@ -149,7 +150,7 @@ export function projectDialogueStructuredEventCard(item: ProjectedRuntimeTimelin
     summaryText: calendarPatchMeta?.summary ? sanitizeUserFacingText(calendarPatchMeta.summary, members) : null,
     chips: calendarPatchMeta?.chips || [],
     guidanceMetaLine: projectTimelineGuidanceMetaLine(item, isZh, members),
-    attentionMetaLine: projectTimelineAttentionMetaLine(item, isZh),
+    attentionMetaLine: projectTimelineAttentionMetaLine(item, isZh, members),
     projectionMetaLine: projectProjectionMetaLine(item, isZh, members),
   };
 }
