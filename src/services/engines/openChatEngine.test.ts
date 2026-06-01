@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openChatEngine } from './openChatEngine';
 import { normalizeConversation } from '../../types/chat';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_EMOTIONAL_STATE, type AICharacter } from '../../types/character';
@@ -14,8 +14,14 @@ vi.mock('../aiClient', () => ({
 }));
 
 beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
   generateResponseMock.mockReset();
   setAIGenerationRuntimeConfig({ enableMoments: true, enableDiaries: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 function buildApiConfig() {
