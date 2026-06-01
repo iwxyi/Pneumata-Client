@@ -14,7 +14,7 @@ import { createProjectionContext, projectRuntimeState } from './sessionProjectio
 import { openChatEngine } from './engines/openChatEngine';
 import { getRelationshipLedgerEntry } from './relationshipLedger';
 import { calculateRoomShift } from './roomStateSynthesizer';
-import { projectWorldAttentionStates } from './worldRuntimeProjection';
+import { projectWorldAttentionStates, projectWorldCalendar } from './worldRuntimeProjection';
 import { resolveSessionEngine } from './sessionEngineRegistry';
 import { buildThreadRef, getVisibilityChannelId } from './sessionTopology';
 import { reportUnresolvedDisplayEntity } from './diagnostics';
@@ -1416,6 +1416,14 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
   const actor = characters.find((item) => item.id === attention.actorId) || null;
   if (attention.attentionScore < 0.58 || attention.restraint > 0.72) return null;
   const now = Date.now();
+  const upcomingCalendarItem = projectWorldCalendar([chat], characters, { now }).items
+    .filter((item) => item.status !== 'cancelled' && item.status !== 'completed')
+    .find((item) => {
+      if (!item.participantIds.includes(attention.actorId) || !item.participantIds.includes('user')) return false;
+      const startAt = typeof item.startAt === 'number' ? item.startAt : null;
+      if (!startAt) return false;
+      return startAt >= now && startAt - now <= 6 * 60 * 60_000;
+    });
   const hasRecentFollowup = hasRecentAttentionFollowup(chat, attention.actorId, 120 * 60_000);
   const inviteReasonType: SocialEventCandidatePayload['reasonType'] = 'world_attention_invite_activity';
   const reminderReasonType: SocialEventCandidatePayload['reasonType'] = 'world_attention_calendar_reminder';
@@ -1446,9 +1454,12 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
   const canStatus = !hasRecentWorldArtifact(chat, attention.actorId, 'status_update', 90 * 60_000);
   const canPostMoment = isCharacterFeatureEnabled(actor, 'moments')
     && !hasRecentWorldArtifact(chat, attention.actorId, 'post_moment', 180 * 60_000);
-  const eventKind: SocialEventCandidatePayload['eventKind'] = canInviteActivity
-    ? 'social_outing'
-    : canCalendarReminder
+  const shouldPrioritizeCalendarReminder = Boolean(upcomingCalendarItem) && canCalendarReminder;
+  const eventKind: SocialEventCandidatePayload['eventKind'] = shouldPrioritizeCalendarReminder
+    ? 'status_update'
+    : canInviteActivity
+      ? 'social_outing'
+      : canCalendarReminder
       ? 'status_update'
       : canPrivateMessage || canAskFollowup || canCheckIn
     ? 'check_in'
@@ -1462,7 +1473,9 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
   if (!canPrivateMessage && !canAskFollowup && !canCheckIn && !canReactMoment && !canPostMoment && !canStatus && !canInviteActivity && !canCalendarReminder) return null;
   const actorName = characters.find((item) => item.id === attention.actorId)?.name || attention.actorId;
   const confidence = Math.max(0.72, Math.min(0.93, attention.attentionScore * (1 - attention.restraint * 0.35)));
-  const reasonType = canInviteActivity
+  const reasonType = shouldPrioritizeCalendarReminder
+    ? 'world_calendar_upcoming_reminder'
+    : canInviteActivity
     ? inviteReasonType
     : canCalendarReminder
       ? reminderReasonType
@@ -1471,7 +1484,10 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
     : canAskFollowup
       ? followupQuestionReasonType
       : followupReasonType;
-  const seedIntent = canInviteActivity
+  const minutesUntil = upcomingCalendarItem?.startAt ? Math.max(0, Math.round((upcomingCalendarItem.startAt - now) / 60_000)) : null;
+  const seedIntent = shouldPrioritizeCalendarReminder
+    ? `${upcomingCalendarItem?.summary || upcomingCalendarItem?.title || '临近日程提醒'}${minutesUntil !== null ? `（${minutesUntil} 分钟后）` : ''}`
+    : canInviteActivity
     ? (attention.reasons[0] || '关注状态触发一次线下邀约。')
     : canCalendarReminder
       ? (attention.reasons[0] || '关注状态触发一次日程提醒。')
@@ -1559,7 +1575,9 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
             : canCalendarReminder
               ? '日程提醒'
             : '近况同步',
-      dedupeKey: `world-attention-${eventKind}-${chat.id}-${attention.actorId}`,
+      dedupeKey: shouldPrioritizeCalendarReminder
+        ? `calendar-upcoming-reminder-${chat.id}-${attention.actorId}-${upcomingCalendarItem?.id || 'item'}`
+        : `world-attention-${eventKind}-${chat.id}-${attention.actorId}`,
     } satisfies SocialEventCandidatePayload,
   });
 }

@@ -660,6 +660,71 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect((worldCandidate?.payload as { activityType?: string }).activityType).toBe('日程提醒');
   });
 
+  it('prioritizes upcoming shared calendar item as world_calendar_upcoming_reminder', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 2_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户提到最近状态',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.9, reason: '用户刚提到近期生活状态' },
+        } as RuntimeEventV2,
+        {
+          id: 'cal-1',
+          conversationId: 'chat-1',
+          kind: 'calendar_item_patch',
+          createdAt: now - 5 * 60_000,
+          actorIds: ['a'],
+          targetIds: ['user'],
+          summary: '明早晨会安排',
+          visibility: 'derived_public',
+          payload: {
+            eventType: 'calendar_item_patch',
+            calendarItemId: 'item-upcoming-1',
+            kind: 'activity',
+            status: 'planned',
+            title: '晨会',
+            activityType: '工作会议',
+            participantIds: ['a', 'user'],
+            participantStates: { a: 'going', user: 'going' },
+            startAt: now + 2 * 60 * 60_000,
+            durationMinutes: 45,
+            summary: '晨会安排',
+          },
+        } as RuntimeEventV2,
+      ]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 12, competence: 4, trust: 10, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+    const patch = firstCall?.[1];
+    const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'status_update');
+    expect((worldCandidate?.payload as { reasonType?: string }).reasonType).toBe('world_calendar_upcoming_reminder');
+    expect((worldCandidate?.payload as { dedupeKey?: string }).dedupeKey).toContain('item-upcoming-1');
+  });
+
   it('world-driven post_moment uses text-only artifact when image model is unavailable', async () => {
     const now = Date.now();
     const chat = {
