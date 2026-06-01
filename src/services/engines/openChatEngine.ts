@@ -23,7 +23,7 @@ import { resolveRuntimeEvolutionConfig } from '../runtimeEvolutionConfig';
 import type { APIConfig } from '../../types/settings';
 import { generateResponse } from '../aiClient';
 import { getGuidanceTargetActorIds, parseUserGuidanceIntent } from '../userGuidanceIntent';
-import { projectWorldAttentionStates } from '../worldRuntimeProjection';
+import { projectWorldAttentionStates, projectWorldCalendar } from '../worldRuntimeProjection';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
@@ -514,9 +514,21 @@ function buildAttentionDrivenCalendarReminderCandidate(params: {
   const actorId = params.message.senderId;
   if (!actorId || actorId === 'user') return null;
   if (!params.conversation.memberIds.includes('user')) return null;
+  const now = Date.now();
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
     .find((item) => item.actorId === actorId && item.targetId === 'user');
   if (attentionState && !attentionState.suggestedActions.includes('calendar_reminder')) return null;
+  const upcomingCalendarItem = projectWorldCalendar([params.conversation], params.characters, { now }).items
+    .filter((item) => (
+      item.status !== 'cancelled'
+      && item.status !== 'completed'
+      && typeof item.startAt === 'number'
+      && item.startAt > now
+      && item.startAt - now <= 6 * 60 * 60_000
+      && item.participantIds.includes(actorId)
+      && item.participantIds.includes('user')
+    ))
+    .sort((left, right) => (left.startAt || 0) - (right.startAt || 0))[0];
   const recentAttention = (params.conversation.runtimeEventsV2 || [])
     .slice()
     .reverse()
@@ -524,11 +536,11 @@ function buildAttentionDrivenCalendarReminderCandidate(params: {
       event.kind === 'attention_candidate'
       && (event.actorIds || []).includes('user')
       && (event.targetIds || []).includes(actorId)
-      && Date.now() - event.createdAt <= 75 * 60_000
+      && now - event.createdAt <= 75 * 60_000
     ));
-  if (!recentAttention) return null;
+  if (!recentAttention && !upcomingCalendarItem) return null;
   const hasRecentReminder = (params.conversation.runtimeEventsV2 || []).some((event) => {
-    if (Date.now() - event.createdAt > 2 * 60 * 60_000) return false;
+    if (now - event.createdAt > 2 * 60 * 60_000) return false;
     if (event.kind !== 'artifact') return false;
     const payload = event.payload as { artifactType?: string; eventKind?: string };
     return payload.artifactType === 'status_note'
@@ -537,27 +549,40 @@ function buildAttentionDrivenCalendarReminderCandidate(params: {
       && (event.targetIds || []).includes('user');
   });
   if (hasRecentReminder) return null;
+  const minutesUntil = upcomingCalendarItem?.startAt ? Math.max(0, Math.round((upcomingCalendarItem.startAt - now) / 60_000)) : null;
+  const reminderTitle = upcomingCalendarItem?.title || '日程提醒';
+  const reminderType = upcomingCalendarItem?.activityType || reminderTitle;
+  const calendarDrivenReminder = Boolean(upcomingCalendarItem);
+  const sourceText = calendarDrivenReminder
+    ? `${upcomingCalendarItem?.summary || reminderTitle}${minutesUntil !== null ? `（${minutesUntil} 分钟后）` : ''}`
+    : params.message.content.trim().slice(0, 128);
   const payload: SocialEventCandidatePayload = {
     eventKind: 'status_update',
     initiatorId: actorId,
     participantIds: [actorId],
     targetIds: ['user'],
-    reasonType: 'world_attention_calendar_reminder',
-    confidence: 0.8,
+    reasonType: calendarDrivenReminder ? 'world_calendar_upcoming_reminder' : 'world_attention_calendar_reminder',
+    confidence: calendarDrivenReminder ? 0.86 : 0.8,
     urgency: 'soon',
-    seedIntent: '最近的互动提示有待提醒事项，适合给用户补一条日程提醒。',
+    seedIntent: calendarDrivenReminder
+      ? `${reminderTitle} 即将开始，适合提前提醒并确认用户安排。`
+      : '最近的互动提示有待提醒事项，适合给用户补一条日程提醒。',
     visibilityPlan: 'user_private',
     expectedArtifacts: ['status_note'],
-    sourceText: params.message.content.trim().slice(0, 128),
-    title: '日程提醒',
-    activityType: '日程提醒',
-    dedupeKey: `attention-reminder-${params.conversation.id}-${actorId}`,
+    sourceText,
+    title: reminderTitle,
+    activityType: reminderType,
+    dedupeKey: calendarDrivenReminder
+      ? `calendar-upcoming-reminder-${params.conversation.id}-${actorId}-${upcomingCalendarItem?.id || 'item'}`
+      : `attention-reminder-${params.conversation.id}-${actorId}`,
   };
   const tracedPayload = attachAttentionTrace(payload, attentionState);
   return createRuntimeEventV2({
     conversationId: params.conversation.id,
     kind: 'event_candidate',
-    summary: `${actorId} 生成了日程提醒候选`,
+    summary: calendarDrivenReminder
+      ? `${actorId} 基于临近日程生成了提醒候选`
+      : `${actorId} 生成了日程提醒候选`,
     actorIds: [actorId],
     targetIds: ['user'],
     visibility: 'derived_public',

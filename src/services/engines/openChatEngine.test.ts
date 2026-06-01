@@ -1012,6 +1012,54 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect((reminder?.payload as { eventKind?: string }).eventKind).toBe('status_update');
   });
 
+  it('builds calendar-driven reminder candidate from upcoming shared calendar item', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'cal-1',
+        conversationId: 'chat-1',
+        kind: 'calendar_item_patch',
+        createdAt: now - 5 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '明天晨会安排',
+        visibility: 'derived_public',
+        payload: {
+          eventType: 'calendar_item_patch',
+          calendarItemId: 'item-upcoming-1',
+          kind: 'activity',
+          status: 'planned',
+          title: '晨会',
+          activityType: '工作会议',
+          participantIds: ['a', 'user'],
+          participantStates: { a: 'going', user: 'going' },
+          startAt: now + 2 * 60 * 60_000,
+          durationMinutes: 45,
+          summary: '晨会安排',
+        },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我先说点别的。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    const reminder = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_calendar_upcoming_reminder');
+    expect(reminder).toBeTruthy();
+    expect((reminder?.payload as { eventKind?: string }).eventKind).toBe('status_update');
+    expect((reminder?.payload as { title?: string }).title).toBe('晨会');
+    expect((reminder?.payload as { dedupeKey?: string }).dedupeKey).toContain('item-upcoming-1');
+  });
+
   it('builds attention-driven comfort as check_in candidate', async () => {
     const now = Date.now();
     const chat = normalizeConversation({
