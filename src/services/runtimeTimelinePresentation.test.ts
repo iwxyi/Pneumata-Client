@@ -7,6 +7,7 @@ import {
   buildRuntimeTimelineRelationshipChips,
   buildRuntimeTimelineTitle,
   buildRuntimeTimelineTypeLabel,
+  formatAttentionDebugLine,
   projectRuntimeTimelineDisplayItem,
 } from './runtimeTimelinePresentation';
 
@@ -374,5 +375,24 @@ describe('runtimeTimelinePresentation', () => {
     expect(body).toContain('主动关怀');
     expect(body).toContain('本地裁决');
     expect(body).toContain('world_attention_restrained_fallback');
+  });
+
+  it('sanitizes attention debug reason text before rendering', () => {
+    const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
+    const line = formatAttentionDebugLine({
+      candidate: {
+        attentionTrace: {
+          score: 0.78,
+          restraint: 0.25,
+          reasons: [`${uuid} {"eventType":"room_state_snapshot_v2"} relationship ledger has become salient`],
+        },
+      },
+      language: 'zh',
+    });
+    expect(line).toContain('关注 78%');
+    expect(line).toContain('克制 25%');
+    expect(line).not.toContain(uuid);
+    expect(line).not.toContain('eventType');
+    expect(line).toContain('关系账本中的变化已经足够显著');
   });
 });

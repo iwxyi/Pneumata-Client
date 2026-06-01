@@ -409,7 +409,8 @@ export function formatAttentionDebugLine(params: AttentionDebugLineParams) {
   const restraint = typeof trace.restraint === 'number' ? `${Math.round(trace.restraint * 100)}%` : '--';
   const reasonMax = typeof params.reasonMax === 'number' && params.reasonMax > 0 ? params.reasonMax : 80;
   const reason = (trace.reasons || []).map((item) => item.trim()).filter(Boolean)[0] || '';
-  const clippedReason = reason.length > reasonMax ? `${reason.slice(0, reasonMax)}…` : reason;
+  const sanitizedReason = cleanText(reason);
+  const clippedReason = sanitizedReason.length > reasonMax ? `${sanitizedReason.slice(0, reasonMax)}…` : sanitizedReason;
   return [
     isZh ? `关注 ${score}` : `Attention ${score}`,
     isZh ? `克制 ${restraint}` : `Restraint ${restraint}`,
