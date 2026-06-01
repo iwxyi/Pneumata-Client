@@ -149,6 +149,37 @@ describe('useCharacterArtifactStore', () => {
     expect(artifactStore.getState().getDiaryEntries(character.id)).toHaveLength(0);
   });
 
+  it('enqueues diary jobs when global diary generation is disabled but character override is on', async () => {
+    const character = normalizeCharacter({
+      ...buildCharacter(),
+      generationPreferences: {
+        moments: 'follow_global',
+        diaries: 'on',
+      },
+    } as AICharacter);
+    settingsStore.getState().setAIGeneration({ enableDiaries: false });
+    artifactStore.getState().syncCharacters([character]);
+    await artifactStore.getState().resumeProcessing();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(artifactStore.getState().getDiaryEntries(character.id).length).toBeGreaterThan(0);
+  });
+
+  it('does not enqueue diary jobs when global diary generation is enabled but character override is off', async () => {
+    const character = normalizeCharacter({
+      ...buildCharacter(),
+      generationPreferences: {
+        moments: 'follow_global',
+        diaries: 'off',
+      },
+    } as AICharacter);
+    settingsStore.getState().setAIGeneration({ enableDiaries: true });
+    artifactStore.getState().syncCharacters([character]);
+    await artifactStore.getState().resumeProcessing();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(artifactStore.getState().jobs.some((job) => job.kind === 'diary')).toBe(false);
+    expect(artifactStore.getState().getDiaryEntries(character.id)).toHaveLength(0);
+  });
+
   it('regenerates an artifact from its saved generation snapshot', async () => {
     const character = buildCharacter();
     artifactStore.getState().syncCharacters([character]);

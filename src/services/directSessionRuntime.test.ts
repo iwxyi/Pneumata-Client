@@ -3,6 +3,7 @@ import { normalizeConversation } from '../types/chat';
 import { buildPrivateThreadOpenedEvent, buildStartPrivateThreadExecutionResult, createAiPrivateThread, passesWorldAttentionRestraintPolicy, pickAutoPairPrivateThreadCandidate, runSocialEventAutoFlow } from './directSessionRuntime';
 import type { AICharacter } from '../types/character';
 import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
+import { setAIGenerationRuntimeConfig } from './aiGenerationRuntimeConfig';
 
 function buildCandidatePayload(overrides: Partial<SocialEventCandidatePayload> = {}): SocialEventCandidatePayload {
   return {
@@ -745,6 +746,53 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     const artifacts = (worldCandidate.payload as { expectedArtifacts?: string[] }).expectedArtifacts || [];
     expect(artifacts.includes('moment_text')).toBe(true);
     expect(artifacts.every((item) => ['moment_text', 'moment_selfie', 'moment_group_photo', 'moment_scene_photo'].includes(item))).toBe(true);
+  });
+
+  it('does not create world-driven post_moment when global moments generation is disabled', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 2_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户提到最近状态',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.9, reason: '用户刚提到近期生活状态' },
+        } as RuntimeEventV2,
+      ]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 11, competence: 4, trust: 9, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    setAIGenerationRuntimeConfig({ enableMoments: false, enableDiaries: true });
+    try {
+      await runSocialEventAutoFlow(chat, {
+        chats: [chat],
+        characters: [buildCharacter('a', '甲')],
+        imageModelEnabled: true,
+        updateChat,
+        addChat: vi.fn(async () => buildBaseChat()),
+        addMessage: vi.fn(async () => ({})),
+        appendEventMessage: vi.fn(async () => undefined),
+      });
+      const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+      const patch = firstCall?.[1];
+      const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'post_moment');
+      expect(worldCandidate).toBeUndefined();
+    } finally {
+      setAIGenerationRuntimeConfig({ enableMoments: true, enableDiaries: true });
+    }
   });
 
   it('skips check_in candidate consumption when restraint policy blocks due to high threat', async () => {
