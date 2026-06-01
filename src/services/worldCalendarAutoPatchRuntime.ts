@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { DriverEventPayload, DriverMessageCommitTransition, GroupChat } from '../types/chat';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
+import type { APIConfig } from '../types/settings';
 import { applyWorldCalendarPatchDraftQueue } from './worldCalendarPatchApply';
 
 function isCalendarRelevantRuntimeEvent(event: RuntimeEventV2) {
@@ -53,12 +54,14 @@ export function buildCalendarAutoPatchRuntimeEventPayloads(events: RuntimeEventV
 export async function applyCalendarAutoPatchForChat(params: {
   chat: GroupChat;
   characters: AICharacter[];
+  textApiConfig?: APIConfig | null;
   updateChat: (id: string, updates: Partial<GroupChat>) => Promise<void>;
 }): Promise<{ nextChat: GroupChat; appliedCount: number; skippedCount: number; appendedRuntimeEvents: RuntimeEventV2[] }> {
   let persistedEvents = params.chat.runtimeEventsV2 || [];
   const execution = await applyWorldCalendarPatchDraftQueue({
     chats: [params.chat],
     characters: params.characters,
+    textApiConfig: params.textApiConfig || null,
     conversationId: params.chat.id,
     trigger: 'auto_runtime',
     updateChat: async (id, updates) => {

@@ -3,7 +3,8 @@ import { normalizeConversation } from '../types/chat';
 import type { AICharacter } from '../types/character';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY, DEFAULT_PERSONALITY } from '../types/character';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
-import { applyWorldCalendarPatchDraftQueue } from './worldCalendarPatchApply';
+import { applyWorldCalendarPatchDraftQueue, reorderPlanQueueWithModel } from './worldCalendarPatchApply';
+import * as aiClient from './aiClient';
 
 function character(id: string, name: string): AICharacter {
   return {
@@ -251,5 +252,32 @@ describe('worldCalendarPatchApply', () => {
     const latestPatched = updates[updates.length - 1]?.runtimeEventsV2 || [];
     const patchEvent = [...latestPatched].reverse().find((event) => event.kind === 'calendar_item_patch');
     expect((patchEvent?.payload as Record<string, unknown>)?.source).toBe('world_calendar_action_panel');
+  });
+
+  it('uses text model arbitration to reorder independent patch drafts when config is provided', async () => {
+    const jsonSpy = vi.spyOn(aiClient, 'generateJsonResponse').mockResolvedValueOnce(JSON.stringify({ orderedIndices: [1, 0] }));
+    const queue = [{
+      idempotencyKey: 'k1',
+      eventType: 'calendar_item_patch' as const,
+      calendarItemId: 'item-1',
+      patch: { startAt: 10 },
+      reason: 'first',
+      priority: 10,
+    }, {
+      idempotencyKey: 'k2',
+      eventType: 'calendar_item_patch' as const,
+      calendarItemId: 'item-2',
+      patch: { startAt: 12 },
+      reason: 'second',
+      priority: 12,
+    }];
+    const reordered = await reorderPlanQueueWithModel(
+      queue,
+      { provider: 'openai', apiKey: 'k', model: 'gpt-4o-mini' },
+    );
+    expect(jsonSpy).toHaveBeenCalled();
+    expect(reordered[0]?.calendarItemId).toBe('item-2');
+    expect(reordered[1]?.calendarItemId).toBe('item-1');
+    jsonSpy.mockRestore();
   });
 });

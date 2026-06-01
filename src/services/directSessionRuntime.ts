@@ -1708,7 +1708,26 @@ async function buildWorldDrivenCandidate(
   if (canCheckIn) choices.push(buildCandidateChoice('check_in', followupReasonType, 'checkin'));
   if (attention.suggestedActions.includes('comfort') && canCheckIn) choices.push(buildCandidateChoice('check_in', 'world_attention_comfort', 'checkin'));
   if (canReactMoment) choices.push(buildCandidateChoice('react_to_moment', followupReasonType, 'react'));
-  if (canPostMoment) choices.push(buildCandidateChoice('post_moment', 'world_attention_share_moment', 'moment'));
+  if (canPostMoment) {
+    const momentDefault = buildCandidateChoice('post_moment', 'world_attention_share_moment', 'moment');
+    choices.push(momentDefault);
+    choices.push({
+      ...momentDefault,
+      reasonType: 'world_attention_share_moment_event',
+      title: '事件记录',
+      activityType: '事件纪实',
+      seedIntent: `${attention.reasons[0] || '刚经历了一个值得记录的片段。'}适合发一条事件纪实动态。`,
+      dedupeKey: `world-attention-post_moment_event-${chat.id}-${attention.actorId}`,
+    });
+    choices.push({
+      ...momentDefault,
+      reasonType: 'world_attention_share_moment_inner',
+      title: '内心小记',
+      activityType: '心情随笔',
+      seedIntent: `${attention.reasons[0] || '情绪还在回响。'}适合发一条偏内心感受的动态。`,
+      dedupeKey: `world-attention-post_moment_inner-${chat.id}-${attention.actorId}`,
+    });
+  }
   if (canStatus) choices.push(buildCandidateChoice('status_update', 'world_attention_followup', 'status'));
   if (choices.length === 0) return null;
   let chosen = choices[0];

@@ -131,6 +131,7 @@ async function finishAppliedSessionTransition(params: {
       const autoPatch = await applyCalendarAutoPatchForChat({
         chat: nextChat,
         characters: nextCharacters,
+        textApiConfig: params.api,
         updateChat: params.updateChat,
       });
       const autoPatchRuntimeEvents = buildCalendarAutoPatchRuntimeEventPayloads(autoPatch.appendedRuntimeEvents);
