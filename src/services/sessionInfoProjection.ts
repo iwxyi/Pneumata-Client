@@ -1,5 +1,6 @@
 import type { GroupChat } from '../types/chat';
-import { sanitizeUserFacingText } from './displayTextSanitizer';
+import type { AICharacter } from '../types/character';
+import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 
 export interface SessionInfoCard {
   key: string;
@@ -12,11 +13,17 @@ export interface SessionInfoCard {
 interface ProjectSessionInfoCardsParams {
   chat: GroupChat;
   chats: GroupChat[];
+  members?: AICharacter[];
   isZh?: boolean;
 }
 
 export function projectSessionInfoCards(params: ProjectSessionInfoCardsParams): SessionInfoCard[] {
   const isZh = Boolean(params.isZh);
+  const displayMembers: DisplayTextMember[] = [
+    { id: 'user', name: '我' },
+    ...((params.members || []).map((member) => ({ id: member.id, name: member.name }))),
+  ];
+  const clean = (text: string) => sanitizeUserFacingText(text, displayMembers);
   const cards: SessionInfoCard[] = [];
   if (params.chat.type === 'direct') {
     cards.push({
@@ -50,4 +57,3 @@ export function projectSessionInfoCards(params: ProjectSessionInfoCardsParams): 
   }
   return cards;
 }
-  const clean = (text: string) => sanitizeUserFacingText(text);

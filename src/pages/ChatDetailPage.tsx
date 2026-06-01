@@ -144,8 +144,8 @@ export default function ChatDetailPage() {
   const chat = chats.find((c) => c.id === id);
   const sessionInfoCards = useMemo(() => {
     if (!chat) return [];
-    return projectSessionInfoCards({ chat, chats, isZh: true });
-  }, [chat, chats]);
+    return projectSessionInfoCards({ chat, chats, members: characters, isZh: true });
+  }, [chat, chats, characters]);
   const currentChatMessages = useCurrentChatMessages({ chatId: id, activeMessages: messages, cachedWindows: messageWindowsByChatId });
   const {
     analysisDialogOpen,

@@ -107,4 +107,46 @@ describe('sessionInfoProjection', () => {
     expect(sourceCard?.description).not.toContain(uuid);
     expect(sourceCard?.description).not.toContain('eventType');
   });
+
+  it('maps user/member ids in source chat description when member context is provided', () => {
+    const groupChat = normalizeConversation({
+      id: 'group-3',
+      type: 'group',
+      mode: 'open_chat',
+      modeConfig: { freeSpeaking: true, allowInterruptions: true, allowPrivateThreads: true, allowDirectorInterventions: true, showRoleActions: true },
+      modeState: { phase: 'free', currentSpeakerId: null, currentTopicFocus: '', lastRelationshipEventAt: null },
+      name: 'user 与 a 的小组',
+      topic: '',
+      style: 'free',
+      runtimeEvolutionIntensity: 'balanced',
+      memberIds: ['user', 'a'],
+      speed: 1,
+      isActive: false,
+      allowIntervention: true,
+      topicSeed: '',
+      governance: { ownerCharacterId: null, adminCharacterIds: [], autoModeration: false, allowMute: true, allowPrivateThreads: true },
+      dramaRules: { allowCliques: false, allowMockery: false, allowAlliances: true, allowContempt: false },
+      worldState: { phase: 'idle', mood: '', focus: '', recentEvent: '' },
+      directorControls: { allowSpeakAs: true, allowDirectorMode: true, allowEventInjection: true, allowForcedReply: true },
+      createdAt: 1,
+      updatedAt: 1,
+      lastMessageAt: 1,
+    });
+    const aiDirect = normalizeConversation({
+      ...groupChat,
+      id: 'ai-direct-3',
+      type: 'ai_direct',
+      name: '双人私聊',
+      sourceChatId: 'group-3',
+    });
+    const cards = projectSessionInfoCards({
+      chat: aiDirect,
+      chats: [groupChat, aiDirect],
+      members: [{ id: 'a', name: '甲' }] as never,
+      isZh: true,
+    });
+    const sourceCard = cards.find((item) => item.key === 'ai-direct-source-chat');
+    expect(sourceCard?.description).toContain('我 与 甲');
+    expect(sourceCard?.description).not.toContain('user 与 a');
+  });
 });
