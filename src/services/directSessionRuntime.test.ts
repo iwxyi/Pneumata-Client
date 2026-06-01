@@ -324,7 +324,11 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       });
       const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
       const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact' && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed');
+      const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact' && (event.payload as { eventType?: string; decisionType?: string; reasonType?: string }).eventType === 'world_decision_v2');
       expect((suppression?.payload as { reasonType?: string }).reasonType).toBe('world_attention_moment_quiet_hours');
+      expect((decision?.payload as { decisionType?: string; reasonType?: string }).decisionType).toBe('suppressed');
+      expect((decision?.payload as { reasonType?: string }).reasonType).toBe('world_attention_moment_quiet_hours');
+      expect((decision?.payload as { nextSuggestedAt?: number }).nextSuggestedAt).toBe((suppression?.payload as { nextSuggestedAt?: number }).nextSuggestedAt);
       expect((patch?.runtimeEventsV2 || []).some((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'moment_text')).toBe(false);
     } finally {
       vi.useRealTimers();
@@ -365,7 +369,11 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     });
     const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
     const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact' && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed');
+    const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact' && (event.payload as { eventType?: string; decisionType?: string; reasonType?: string }).eventType === 'world_decision_v2');
     expect((suppression?.payload as { reasonType?: string }).reasonType).toBe('world_attention_moment_spam_window');
+    expect((decision?.payload as { decisionType?: string; reasonType?: string }).decisionType).toBe('suppressed');
+    expect((decision?.payload as { reasonType?: string }).reasonType).toBe('world_attention_moment_spam_window');
+    expect((decision?.payload as { nextSuggestedAt?: number }).nextSuggestedAt).toBe((suppression?.payload as { nextSuggestedAt?: number }).nextSuggestedAt);
   });
 
   it('runs unified auto social flow for outing candidates', async () => {
