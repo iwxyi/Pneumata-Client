@@ -42,4 +42,34 @@ describe('worldCalendarPatchPlanner', () => {
     expect(plan.queue[0]?.idempotencyKey).toContain('event-b:event-a');
     expect(plan.queue[1]?.dependsOnItemId).toBe('event-b');
   });
+
+  it('marks chainGroupId for grouped chain drafts', () => {
+    const projection = projectionWithDrafts([
+      {
+        eventType: 'calendar_item_patch',
+        calendarItemId: 'event-chain::travel',
+        basedOnItemId: 'event-a',
+        patch: { startAt: 1800004500000, endAt: 1800008100000, durationMinutes: 60 },
+        reason: '链式顺延 travel',
+      },
+      {
+        eventType: 'calendar_item_patch',
+        calendarItemId: 'event-chain::prep',
+        basedOnItemId: 'event-a',
+        patch: { startAt: 1800008100000, endAt: 1800009000000, durationMinutes: 15 },
+        reason: '链式顺延 prep',
+      },
+      {
+        eventType: 'calendar_item_patch',
+        calendarItemId: 'event-chain',
+        basedOnItemId: 'event-a',
+        patch: { startAt: 1800009000000, endAt: 1800012600000, durationMinutes: 60 },
+        reason: '链式顺延 activity',
+      },
+    ]);
+    const plan = buildWorldCalendarPatchApplyPlan(projection);
+    const grouped = plan.queue.filter((item) => item.calendarItemId.startsWith('event-chain'));
+    expect(grouped).toHaveLength(3);
+    expect(grouped.every((item) => item.chainGroupId === 'event-chain::event-a')).toBe(true);
+  });
 });

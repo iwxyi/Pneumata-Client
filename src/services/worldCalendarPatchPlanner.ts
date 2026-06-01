@@ -5,6 +5,7 @@ export interface WorldCalendarPatchPlanItem {
   eventType: 'calendar_item_patch';
   calendarItemId: string;
   dependsOnItemId?: string;
+  chainGroupId?: string;
   patch: WorldCalendarPatchDraft['patch'];
   reason: string;
   priority: number;
@@ -20,6 +21,11 @@ function buildIdempotencyKey(draft: WorldCalendarPatchDraft) {
   return `calendar-patch:${draft.calendarItemId}:${draft.basedOnItemId}:${draft.patch.startAt}:${endAt}:${duration}`;
 }
 
+function rootCalendarItemId(id: string) {
+  const marker = id.indexOf('::');
+  return marker >= 0 ? id.slice(0, marker) : id;
+}
+
 export function buildWorldCalendarPatchApplyPlan(projection: Pick<WorldCalendarProjectionResult, 'patchDraftQueue'>): WorldCalendarPatchApplyPlan {
   const deduped = projection.patchDraftQueue.filter((draft, index, array) => (
     array.findIndex((item) => (
@@ -31,15 +37,27 @@ export function buildWorldCalendarPatchApplyPlan(projection: Pick<WorldCalendarP
     )) === index
   ));
 
-  const planItems: WorldCalendarPatchPlanItem[] = deduped.map((draft) => ({
+  const draftGroups = new Map<string, number>();
+  deduped.forEach((draft) => {
+    const key = `${rootCalendarItemId(draft.calendarItemId)}::${draft.basedOnItemId}`;
+    draftGroups.set(key, (draftGroups.get(key) || 0) + 1);
+  });
+
+  const planItems: WorldCalendarPatchPlanItem[] = deduped.map((draft) => {
+    const rootId = rootCalendarItemId(draft.calendarItemId);
+    const groupKey = `${rootId}::${draft.basedOnItemId}`;
+    const groupSize = draftGroups.get(groupKey) || 0;
+    return ({
     idempotencyKey: buildIdempotencyKey(draft),
     eventType: draft.eventType,
     calendarItemId: draft.calendarItemId,
     dependsOnItemId: draft.basedOnItemId || undefined,
+    chainGroupId: groupSize > 1 ? groupKey : undefined,
     patch: draft.patch,
     reason: draft.reason,
     priority: draft.patch.startAt,
-  }));
+  });
+  });
 
   const byCalendarItem = new Map(planItems.map((item) => [item.calendarItemId, item]));
   return {

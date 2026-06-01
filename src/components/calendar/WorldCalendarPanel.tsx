@@ -123,6 +123,10 @@ export default function WorldCalendarPanel({
   const calendarItems = projection.items;
   const patchPlan = useMemo(() => buildWorldCalendarPatchApplyPlan(projection), [projection]);
   const patchDraftQueue = patchPlan.queue;
+  const chainDraftGroupCount = useMemo(
+    () => new Set(patchDraftQueue.map((item) => item.chainGroupId).filter((item): item is string => Boolean(item))).size,
+    [patchDraftQueue],
+  );
   const currentConversation = useMemo(() => (conversationId ? chats.find((chat) => chat.id === conversationId) : null), [chats, conversationId]);
   const actorNameMap = useMemo(() => new Map(characters.map((character) => [character.id, character.name])), [characters]);
   const selectedDayStart = startOfDay(selectedDate.getTime());
@@ -324,6 +328,14 @@ export default function WorldCalendarPanel({
       {patchDraftQueue.length ? (
         <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}>
           <Chip size="small" variant="outlined" color="warning" label={isZh ? `冲突修正草案队列 ${patchDraftQueue.length} 条` : `Conflict Draft Queue ${patchDraftQueue.length}`} />
+          {chainDraftGroupCount > 0 ? (
+            <Chip
+              size="small"
+              variant="outlined"
+              color="info"
+              label={isZh ? `链式顺延 ${chainDraftGroupCount} 组` : `Chained shifts ${chainDraftGroupCount} group(s)`}
+            />
+          ) : null}
           <Button
             size="small"
             variant="contained"
