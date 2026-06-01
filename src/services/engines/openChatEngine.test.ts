@@ -1067,6 +1067,62 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect((invite?.payload as { eventKind?: string }).eventKind).toBe('social_outing');
   });
 
+  it('skips invite_activity candidate generation when a pending suppression window exists', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 16, competence: 4, trust: 14, threat: -2 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+      runtimeEventsV2: [{
+        id: 'evt-attention',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 2 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户提到周末可以一起活动',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.94, targetIds: ['a'] },
+      }, {
+        id: 'sup-outing',
+        conversationId: 'chat-1',
+        kind: 'action_resolution',
+        createdAt: now - 30_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: 'social_outing 候选已抑制',
+        visibility: 'moderator_only',
+        payload: {
+          eventType: 'event_candidate_suppressed',
+          candidateEventKind: 'social_outing',
+          reasonType: 'restraint_policy',
+          nextSuggestedAt: now + 20 * 60_000,
+        },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我们先把当前话题说完。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_invite_activity')).toBe(false);
+  });
+
   it('builds attention-driven calendar_reminder as status_update candidate', async () => {
     const now = Date.now();
     const chat = normalizeConversation({
