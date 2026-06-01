@@ -26,6 +26,13 @@ function clip(text: string, max = 96) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+function toSafeRef(value: string | undefined | null) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text.length <= 12) return text;
+  return `…${text.slice(-8)}`;
+}
+
 function formatKind(kind: MessageAttachment['kind']) {
   const labels: Record<MessageAttachment['kind'], string> = {
     image: '图片',
@@ -110,8 +117,8 @@ function buildAttachmentItem(message: Message, attachment: MessageAttachment, me
     debugHint: [
       prompt ? `提示词：${prompt}` : '',
       attachment.status === 'failed' ? detailText : '',
-      `附件 ${attachment.id}`,
-      attachment.assetId ? `资产 ${attachment.assetId}` : '',
+      `附件 ${toSafeRef(attachment.id)}`,
+      attachment.assetId ? `资产 ${toSafeRef(attachment.assetId)}` : '',
       attachment.url ? '已有资源地址' : '',
     ].filter(Boolean).join('\n'),
     tone: statusTone(attachment.status),

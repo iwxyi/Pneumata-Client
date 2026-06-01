@@ -97,4 +97,32 @@ describe('mediaGenerationPresentation', () => {
     expect(item.chips).not.toEqual(expect.arrayContaining(['失败原因：语音模型未配置']));
     expect(item.tone).toBe('rgba(244, 67, 54, 0.08)');
   });
+
+  it('uses short debug references instead of full internal attachment ids', () => {
+    const longAttachmentId = 'image-2026-very-long-internal-attachment-id-abcdef123456';
+    const longAssetId = 'asset-2026-very-long-internal-asset-id-xyz987654321';
+    const [item] = projectMediaGenerationItems([
+      buildMessage({
+        id: 'm-debug',
+        metadata: {
+          attachments: [{
+            id: longAttachmentId,
+            kind: 'image',
+            status: 'ready',
+            assetId: longAssetId,
+            altText: '示例图',
+            promptText: 'portrait photo',
+            createdAt: 10,
+            updatedAt: 20,
+            url: 'https://example.test/image.png',
+          }],
+        },
+      }),
+    ]);
+
+    expect(item.debugHint).toContain('附件 …');
+    expect(item.debugHint).toContain('资产 …');
+    expect(item.debugHint).not.toContain(longAttachmentId);
+    expect(item.debugHint).not.toContain(longAssetId);
+  });
 });
