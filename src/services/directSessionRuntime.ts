@@ -126,6 +126,20 @@ function hasRecentWorldSuppressionEvent(chat: GroupChat, actorId: string | null,
   });
 }
 
+function readPendingMomentDelayWindow(chat: GroupChat, actorId: string | null, now = Date.now()) {
+  let latest: number | null = null;
+  (chat.runtimeEventsV2 || []).forEach((event) => {
+    if (event.kind !== 'artifact') return;
+    if (actorId && (event.actorIds || [])[0] !== actorId) return;
+    const payload = event.payload as { eventType?: string; reasonType?: string; nextSuggestedAt?: number };
+    if (payload.eventType !== 'event_candidate_suppressed' || payload.reasonType !== 'world_attention_moment_delay_window') return;
+    if (typeof payload.nextSuggestedAt !== 'number' || !Number.isFinite(payload.nextSuggestedAt)) return;
+    if (payload.nextSuggestedAt <= now) return;
+    if (latest == null || payload.nextSuggestedAt > latest) latest = payload.nextSuggestedAt;
+  });
+  return latest;
+}
+
 function buildWorldSuppressionEvent(params: {
   chat: GroupChat;
   actorId: string | null;
@@ -1470,8 +1484,11 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
     .filter((event) => event.kind === 'artifact' && ['social_outing', 'check_in', 'react_to_moment', 'status_update', 'gift_exchange'].includes((event.payload as { eventKind?: string }).eventKind || ''))
     .map((event) => event.createdAt)
     .sort((a, b) => b - a)[0];
-  const postMomentDelayBlocked = typeof lastSocialArtifactAt === 'number' && now - lastSocialArtifactAt < 18 * 60_000;
-  const postMomentNextSuggestedAt = postMomentDelayBlocked ? ((lastSocialArtifactAt as number) + 18 * 60_000) : null;
+  const pendingDelayWindowUntil = readPendingMomentDelayWindow(chat, attention.actorId, now);
+  const postMomentDelayBlocked = pendingDelayWindowUntil != null || (typeof lastSocialArtifactAt === 'number' && now - lastSocialArtifactAt < 18 * 60_000);
+  const postMomentNextSuggestedAt = pendingDelayWindowUntil != null
+    ? pendingDelayWindowUntil
+    : (postMomentDelayBlocked ? ((lastSocialArtifactAt as number) + 18 * 60_000) : null);
   const canPostMoment = isCharacterFeatureEnabled(actor, 'moments')
     && !(isLateNight && !actorNightOwl)
     && !postMomentDelayBlocked
@@ -1668,7 +1685,11 @@ function evaluateWorldDrivenDecision(chat: GroupChat, characters: AICharacter[],
     .filter((event) => event.kind === 'artifact' && ['social_outing', 'check_in', 'react_to_moment', 'status_update', 'gift_exchange'].includes((event.payload as { eventKind?: string }).eventKind || ''))
     .map((event) => event.createdAt)
     .sort((a, b) => b - a)[0];
-  const postMomentDelayBlocked = typeof lastSocialArtifactAt === 'number' && now - lastSocialArtifactAt < 18 * 60_000;
+  const pendingDelayWindowUntil = readPendingMomentDelayWindow(chat, attention.actorId, now);
+  const postMomentDelayBlocked = pendingDelayWindowUntil != null || (typeof lastSocialArtifactAt === 'number' && now - lastSocialArtifactAt < 18 * 60_000);
+  const postMomentNextSuggestedAt = pendingDelayWindowUntil != null
+    ? pendingDelayWindowUntil
+    : (postMomentDelayBlocked ? ((lastSocialArtifactAt as number) + 18 * 60_000) : null);
   if (shareMomentSuggested && !momentsEnabled && !hasRecentWorldSuppressionEvent(chat, attention.actorId, 'world_attention_moment_disabled', 20 * 60_000, now)) {
     suppressionEvents.push(buildWorldSuppressionEvent({
       chat,
