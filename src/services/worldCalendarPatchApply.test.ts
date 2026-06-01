@@ -4,7 +4,7 @@ import type { AICharacter } from '../types/character';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY, DEFAULT_PERSONALITY } from '../types/character';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { applyWorldCalendarPatchDraftQueue, reorderPlanQueueWithModel } from './worldCalendarPatchApply';
-import * as aiClient from './aiClient';
+import * as orchestrator from './worldDecisionOrchestrator';
 
 function character(id: string, name: string): AICharacter {
   return {
@@ -255,7 +255,31 @@ describe('worldCalendarPatchApply', () => {
   });
 
   it('uses text model arbitration to reorder independent patch drafts when config is provided', async () => {
-    const jsonSpy = vi.spyOn(aiClient, 'generateJsonResponse').mockResolvedValueOnce(JSON.stringify({ orderedIndices: [1, 0] }));
+    const orchestratorSpy = vi.spyOn(orchestrator, 'orchestrateWorldDecision')
+      .mockResolvedValueOnce({
+        selected: { id: '1', kind: 'calendar_item_patch', localScore: 0.9 },
+        confidenceDelta: 0,
+        trace: {
+          eventType: 'world_decision_v2',
+          domain: 'calendar_patch_queue',
+          selectedId: '1',
+          selectedKind: 'calendar_item_patch',
+          decisionSource: 'model',
+          candidateCount: 2,
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        selected: { id: '0', kind: 'calendar_item_patch', localScore: 0.8 },
+        confidenceDelta: 0,
+        trace: {
+          eventType: 'world_decision_v2',
+          domain: 'calendar_patch_queue',
+          selectedId: '0',
+          selectedKind: 'calendar_item_patch',
+          decisionSource: 'model',
+          candidateCount: 1,
+        },
+      } as never);
     const queue = [{
       idempotencyKey: 'k1',
       eventType: 'calendar_item_patch' as const,
@@ -275,10 +299,10 @@ describe('worldCalendarPatchApply', () => {
       queue,
       { provider: 'openai', apiKey: 'k', model: 'gpt-4o-mini' },
     );
-    expect(jsonSpy).toHaveBeenCalled();
+    expect(orchestratorSpy).toHaveBeenCalled();
     expect(reordered.queue[0]?.calendarItemId).toBe('item-2');
     expect(reordered.queue[1]?.calendarItemId).toBe('item-1');
     expect(reordered.meta.applied).toBe(true);
-    jsonSpy.mockRestore();
+    orchestratorSpy.mockRestore();
   });
 });

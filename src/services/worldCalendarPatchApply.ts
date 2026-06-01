@@ -4,7 +4,7 @@ import type { APIConfig } from '../types/settings';
 import { projectWorldCalendar } from './worldRuntimeProjection';
 import { buildWorldCalendarPatchApplyPlan } from './worldCalendarPatchPlanner';
 import { applyWorldCalendarPatchPlanToChats } from './worldCalendarPatchExecutor';
-import { generateJsonResponse } from './aiClient';
+import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
 
 export type WorldCalendarPatchTrigger = 'manual' | 'auto_runtime' | 'sidebar_projection' | 'action_panel';
 
@@ -60,47 +60,27 @@ export async function reorderPlanQueueWithModel(
     .filter(({ item }) => !item.dependsOnItemId);
   if (independent.length <= 1) return { queue, meta: { attempted: true, applied: false, selectedIndependentCount: independent.length } };
   try {
-    const prompt = [
-      '你是日历冲突修正执行顺序裁决器。',
-      '目标：优先减少冲突扩散与用户感知打扰。',
-      '只输出 JSON: {"orderedIndices":[number,...]}',
-      '必须只使用给定索引，且不重复，不得新增。',
-    ].join('\n');
-    const raw = await generateJsonResponse(
-      textApiConfig,
-      prompt,
-      [{
-        role: 'user',
-        content: JSON.stringify({
-          candidates: independent.map(({ item, index }) => ({
-            index,
-            calendarItemId: item.calendarItemId,
-            dependsOnItemId: item.dependsOnItemId || null,
-            reason: item.reason,
-            startAt: item.patch.startAt,
-            endAt: item.patch.endAt || null,
-            durationMinutes: item.patch.durationMinutes || null,
-          })),
-        }),
-      }],
-    );
-    const parsed = JSON.parse(raw) as { orderedIndices?: number[] };
-    const ordered = Array.isArray(parsed.orderedIndices) ? parsed.orderedIndices.filter((value) => Number.isInteger(value) && value >= 0 && value < independent.length) : [];
-    if (!ordered.length) return { queue, meta: { attempted: true, applied: false, selectedIndependentCount: independent.length } };
-    const seen = new Set<number>();
-    const reordered = ordered
-      .filter((value) => {
-        if (seen.has(value)) return false;
-        seen.add(value);
-        return true;
-      })
-      .map((value) => independent[value]?.item)
-      .filter((item): item is WorldCalendarPatchApplyPlan['queue'][number] => Boolean(item));
-    const remaining = independent
-      .map(({ item }, idx) => ({ item, idx }))
-      .filter(({ idx }) => !seen.has(idx))
-      .map(({ item }) => item);
-    const reorderedIndependent = [...reordered, ...remaining];
+    const picks: Array<{ item: WorldCalendarPatchApplyPlan['queue'][number]; idx: number }> = [];
+    const remaining = independent.map(({ item, index }) => ({ item, idx: index }));
+    while (remaining.length > 0) {
+      const decision = await orchestrateWorldDecision({
+        domain: 'calendar_patch_queue',
+        textApiConfig,
+        candidates: remaining.map(({ item, idx }) => ({
+          id: String(idx),
+          kind: 'calendar_item_patch',
+          reasonType: 'calendar_conflict_reorder',
+          localScore: 1 - (item.priority / 10_000_000_000_000),
+          summary: `${item.calendarItemId}|${item.reason}|${item.patch.startAt}`,
+        })),
+      });
+      if (!decision) break;
+      const pickPos = remaining.findIndex((entry) => String(entry.idx) === decision.selected.id);
+      if (pickPos < 0) break;
+      picks.push(remaining[pickPos]!);
+      remaining.splice(pickPos, 1);
+    }
+    const reorderedIndependent = [...picks.map((entry) => entry.item), ...remaining.map((entry) => entry.item)];
     let cursor = 0;
     const reorderedQueue = queue.map((item) => {
       if (item.dependsOnItemId) return item;
