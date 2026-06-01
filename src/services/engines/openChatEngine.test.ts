@@ -2553,4 +2553,76 @@ describe('openChatEngine.onMessageCommitted', () => {
 
     expect((readRuntimeEvents(result)).some((event) => event.kind === 'artifact')).toBe(true);
   });
+
+  it('emits world influence rule evaluation event with matched and unmet rules', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '你先别急，明天上午十点我们再确认时间。',
+        metadata: {
+          runtimeDecision: {
+            worldInfluence: {
+              attentionScore: 0.76,
+              attentionRestraint: 0.41,
+              activeRuleIds: ['comfort_first', 'urgent_calendar_first', 'low_pressure_restraint'],
+              activeRuleTexts: [],
+            },
+          },
+        },
+      } as Parameters<typeof openChatEngine.onMessageCommitted>[0]['message'],
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const events = readRuntimeEvents(result);
+    const ruleEval = events.find((event) => (
+      event.kind === 'action_resolution'
+      && (event.payload as { eventType?: string }).eventType === 'world_influence_rule_evaluated'
+    ));
+    expect(ruleEval).toBeTruthy();
+    expect((ruleEval?.payload as { matchedRuleIds?: string[] }).matchedRuleIds).toEqual([
+      'comfort_first',
+      'urgent_calendar_first',
+      'low_pressure_restraint',
+    ]);
+    expect((ruleEval?.payload as { unmetRuleIds?: string[] }).unmetRuleIds || []).toHaveLength(0);
+  });
+
+  it('marks unmet world influence rules when response style violates restraint cues', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '你必须马上处理，别拖了。',
+        metadata: {
+          runtimeDecision: {
+            worldInfluence: {
+              attentionScore: 0.68,
+              attentionRestraint: 0.9,
+              activeRuleIds: ['low_pressure_restraint'],
+              activeRuleTexts: [],
+            },
+          },
+        },
+      } as Parameters<typeof openChatEngine.onMessageCommitted>[0]['message'],
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const events = readRuntimeEvents(result);
+    const ruleEval = events.find((event) => (
+      event.kind === 'action_resolution'
+      && (event.payload as { eventType?: string }).eventType === 'world_influence_rule_evaluated'
+    ));
+    expect(ruleEval).toBeTruthy();
+    expect((ruleEval?.payload as { matchedRuleIds?: string[] }).matchedRuleIds || []).toHaveLength(0);
+    expect((ruleEval?.payload as { unmetRuleIds?: string[] }).unmetRuleIds).toEqual(['low_pressure_restraint']);
+  });
 });

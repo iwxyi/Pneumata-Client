@@ -2734,10 +2734,12 @@ function evaluateWorldInfluenceRulesFromMessage(input: {
   const normalized = normalizeRuleEvalText(input.content || '');
   const caringSignal = /(还好吗|没事吧|别急|辛苦了|注意休息|先缓缓|慢慢说|我在这|抱抱|areyouok|takeyourtime|norush|imhere|i'mhere)/.test(normalized);
   const scheduleSignal = /(提醒|别忘|时间|几点|改期|冲突|确认时间|行程|schedule|remind|time|conflict|reschedule|confirm)/.test(normalized);
+  const forcefulSignal = /(必须|马上|立刻|赶紧|闭嘴|stoparguing|justdoit|must|immediately|shutup)/.test(normalized);
+  const lowPressureSignal = /(可以|要不|如果方便|不着急|慢慢来|先看看|先别急|别急|或许|也许|建议|maybe|perhaps|ifyouwant|whenever|takeitasyoucan)/.test(normalized);
   const matchedRuleIds = input.activeRuleIds.filter((ruleId) => {
     if (ruleId === 'comfort_first') return caringSignal;
     if (ruleId === 'urgent_calendar_first' || ruleId === 'calendar_conflict_clarify_first') return scheduleSignal;
-    if (ruleId === 'low_pressure_restraint') return true;
+    if (ruleId === 'low_pressure_restraint') return lowPressureSignal && !forcefulSignal;
     return false;
   });
   const unmetRuleIds = input.activeRuleIds.filter((ruleId) => !matchedRuleIds.includes(ruleId));
