@@ -1651,6 +1651,17 @@ function evaluateWorldDrivenDecision(chat: GroupChat, characters: AICharacter[],
 
   const candidate = buildWorldDrivenCandidate(chat, characters, imageModelEnabled);
   const candidatePayload = candidate?.payload as SocialEventCandidatePayload | undefined;
+  const fallbackIntent = attention.suggestedActions.includes('private_message')
+    ? 'check_in'
+    : attention.suggestedActions.includes('ask_followup')
+      ? 'check_in'
+      : attention.suggestedActions.includes('check_in')
+        ? 'check_in'
+        : attention.suggestedActions.includes('invite_activity')
+          ? 'social_outing'
+          : attention.suggestedActions.includes('react_to_moment')
+            ? 'react_to_moment'
+            : null;
   if (shareMomentSuggested && !momentsEnabled && candidatePayload?.eventKind && candidatePayload.eventKind !== 'post_moment') {
     decisionEvents.push(buildWorldDecisionEvent({
       chat,
@@ -1662,6 +1673,22 @@ function evaluateWorldDrivenDecision(chat: GroupChat, characters: AICharacter[],
       reasonDetail: `share_moment 被关闭，已改为 ${candidatePayload.eventKind}`,
       fromEventKind: 'post_moment',
       toEventKind: candidatePayload.eventKind,
+    }));
+  } else if (
+    fallbackIntent
+    && candidatePayload?.eventKind === 'status_update'
+    && fallbackIntent !== 'status_update'
+  ) {
+    decisionEvents.push(buildWorldDecisionEvent({
+      chat,
+      actorId: attention.actorId,
+      actorName,
+      decisionType: 'fallback',
+      reasonType: 'world_attention_restrained_fallback',
+      reasonLabel: '主动关怀动作改道为状态更新',
+      reasonDetail: `原倾向 ${fallbackIntent}，因冷却/克制/边界限制改为 status_update`,
+      fromEventKind: fallbackIntent,
+      toEventKind: 'status_update',
     }));
   } else if (candidatePayload?.eventKind) {
     decisionEvents.push(buildWorldDecisionEvent({
