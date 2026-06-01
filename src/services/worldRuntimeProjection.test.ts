@@ -565,6 +565,68 @@ describe('worldRuntimeProjection', () => {
     expect(travel?.locationHint).toContain('杭州');
   });
 
+  it('auto-creates preparation and rest items around activity', () => {
+    const chats = [buildChat('chat-1', '群聊一', [
+      {
+        id: 'evt-1',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 100,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '周末聚餐',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'social_outing',
+          title: '周末聚餐',
+          activityType: '聚餐',
+          participantIds: ['a', 'b'],
+          dedupeKey: 'outing-dinner',
+          startAt: 1800000000000,
+          durationMinutes: 120,
+          autoPreparationRest: true,
+        },
+      },
+    ])];
+    const items = projectWorldCalendarItems(chats, [character('a', 'A'), character('b', 'B')]);
+    const prep = items.find((item) => item.id === 'outing-dinner::prep');
+    const rest = items.find((item) => item.id === 'outing-dinner::rest');
+    expect(prep?.kind).toBe('preparation');
+    expect(prep?.startAt).toBe(1799998200000);
+    expect(prep?.endAt).toBe(1800000000000);
+    expect(rest?.kind).toBe('rest');
+    expect(rest?.startAt).toBe(1800007200000);
+    expect(rest?.endAt).toBe(1800008640000);
+  });
+
+  it('can disable automatic preparation/rest occupancy derivation', () => {
+    const chats = [buildChat('chat-1', '群聊一', [
+      {
+        id: 'evt-1',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 100,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '周末聚餐',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'social_outing',
+          title: '周末聚餐',
+          activityType: '聚餐',
+          participantIds: ['a', 'b'],
+          dedupeKey: 'outing-dinner',
+          startAt: 1800000000000,
+          durationMinutes: 120,
+          autoPreparationRest: false,
+        },
+      },
+    ])];
+    const items = projectWorldCalendarItems(chats, [character('a', 'A'), character('b', 'B')]);
+    expect(items.some((item) => item.id === 'outing-dinner::prep')).toBe(false);
+    expect(items.some((item) => item.id === 'outing-dinner::rest')).toBe(false);
+  });
+
   it('detects participant time conflicts and suggests delay minutes', () => {
     const chats = [buildChat('chat-1', '群聊一', [
       {
