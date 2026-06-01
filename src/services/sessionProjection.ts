@@ -125,6 +125,7 @@ export interface ProjectedRuntimeTimelineItem {
       suppressedCandidateId?: string;
       hitEventId?: string;
       hitWindow?: string;
+      nextSuggestedAt?: number;
     };
     worldAttentionDecision?: {
       eventType: 'world_attention_decision';
@@ -134,6 +135,7 @@ export interface ProjectedRuntimeTimelineItem {
       reasonDetail?: string;
       fromEventKind?: string;
       toEventKind?: string;
+      nextSuggestedAt?: number;
     };
     calendarPatchApplyResult?: {
       eventType: 'calendar_patch_apply_result';
@@ -289,6 +291,7 @@ function buildEventMeta(event: RuntimeEventV2) {
     suppressedCandidateId: typeof payload.suppressedCandidateId === 'string' ? payload.suppressedCandidateId : undefined,
     hitEventId: typeof payload.hitEventId === 'string' ? payload.hitEventId : undefined,
     hitWindow: typeof payload.hitWindow === 'string' ? payload.hitWindow : undefined,
+    nextSuggestedAt: typeof payload.nextSuggestedAt === 'number' ? payload.nextSuggestedAt : undefined,
   } : undefined;
   const worldAttentionDecision = payload && payload.eventType === 'world_attention_decision' ? {
     eventType: 'world_attention_decision' as const,
@@ -300,6 +303,7 @@ function buildEventMeta(event: RuntimeEventV2) {
     reasonDetail: typeof payload.reasonDetail === 'string' ? payload.reasonDetail : undefined,
     fromEventKind: typeof payload.fromEventKind === 'string' ? payload.fromEventKind : undefined,
     toEventKind: typeof payload.toEventKind === 'string' ? payload.toEventKind : undefined,
+    nextSuggestedAt: typeof payload.nextSuggestedAt === 'number' ? payload.nextSuggestedAt : undefined,
   } : undefined;
   const calendarPatchApplyResult = payload && payload.eventType === 'calendar_patch_apply_result' ? {
     eventType: 'calendar_patch_apply_result' as const,

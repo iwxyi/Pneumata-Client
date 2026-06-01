@@ -146,7 +146,8 @@ export function buildRuntimeTimelineBody(item: ProjectedRuntimeTimelineItem, mem
   if (suppression) {
     const eventKind = suppression.candidateEventKind ? formatSocialEventKind(suppression.candidateEventKind) : '候选';
     const reason = suppression.reasonDetail || suppression.reasonLabel || suppression.reasonType || '已抑制';
-    return clip(cleanText(`${eventKind} · ${reason}`, members), 88);
+    const eta = typeof suppression.nextSuggestedAt === 'number' ? ` · 建议 ${new Date(suppression.nextSuggestedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })} 后` : '';
+    return clip(cleanText(`${eventKind} · ${reason}${eta}`, members), 88);
   }
   if (worldDecision) {
     const decisionLabel = worldDecision.decisionType === 'trigger'
@@ -156,7 +157,8 @@ export function buildRuntimeTimelineBody(item: ProjectedRuntimeTimelineItem, mem
         : '抑制';
     const actionLabel = worldDecision.toEventKind ? formatSocialEventKind(worldDecision.toEventKind) : '未触发动作';
     const reason = worldDecision.reasonDetail || worldDecision.reasonLabel || worldDecision.reasonType || '';
-    return clip(cleanText(`世界驱动${decisionLabel} · ${actionLabel}${reason ? ` · ${reason}` : ''}`, members), 88);
+    const eta = typeof worldDecision.nextSuggestedAt === 'number' ? ` · 建议 ${new Date(worldDecision.nextSuggestedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}` : '';
+    return clip(cleanText(`世界驱动${decisionLabel} · ${actionLabel}${reason ? ` · ${reason}` : ''}${eta}`, members), 88);
   }
   if (patchApply) {
     return clip(cleanText(`应用 ${patchApply.appliedCount} · 跳过 ${patchApply.skippedCount} · 失败 ${patchApply.failedCount}`, members), 88);

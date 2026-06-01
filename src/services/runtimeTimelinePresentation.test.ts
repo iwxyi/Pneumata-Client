@@ -226,4 +226,26 @@ describe('runtimeTimelinePresentation', () => {
     expect(buildRuntimeTimelineMeta(decisionItem)).toContain('from 朋友圈');
     expect(buildRuntimeTimelineMeta(decisionItem)).toContain('to 状态更新');
   });
+
+  it('shows suggested next trigger time for delayed moment suppression', () => {
+    const item: ProjectedRuntimeTimelineItem = {
+      type: 'note',
+      text: '候选已抑制',
+      createdAt: 6,
+      label: '记录',
+      event: { id: 'evt-delay', conversationId: 'chat-1', kind: 'action_resolution', createdAt: 6, summary: '候选已抑制', payload: {} },
+      meta: {
+        candidateSuppression: {
+          eventType: 'event_candidate_suppressed',
+          candidateEventKind: 'post_moment',
+          reasonType: 'world_attention_moment_delay_window',
+          reasonLabel: '发圈延迟窗口',
+          reasonDetail: '距离最近社交产物时间过近，发圈候选延后。',
+          nextSuggestedAt: new Date('2026-05-29T21:30:00+08:00').getTime(),
+        },
+      },
+    };
+    const body = buildRuntimeTimelineBody(item);
+    expect(body).toContain('建议');
+  });
 });

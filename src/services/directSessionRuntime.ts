@@ -134,6 +134,7 @@ function buildWorldSuppressionEvent(params: {
   reasonLabel: string;
   reasonDetail: string;
   candidateEventKind?: SocialEventCandidatePayload['eventKind'];
+  nextSuggestedAt?: number;
 }) {
   return createRuntimeEventV2({
     conversationId: params.chat.id,
@@ -148,6 +149,7 @@ function buildWorldSuppressionEvent(params: {
       reasonType: params.reasonType,
       reasonLabel: params.reasonLabel,
       reasonDetail: params.reasonDetail,
+      nextSuggestedAt: params.nextSuggestedAt,
     },
   });
 }
@@ -162,6 +164,7 @@ function buildWorldDecisionEvent(params: {
   reasonDetail: string;
   fromEventKind?: SocialEventCandidatePayload['eventKind'];
   toEventKind?: SocialEventCandidatePayload['eventKind'];
+  nextSuggestedAt?: number;
 }) {
   const fromLabel = params.fromEventKind ? `${params.fromEventKind} -> ` : '';
   return createRuntimeEventV2({
@@ -179,6 +182,7 @@ function buildWorldDecisionEvent(params: {
       reasonDetail: params.reasonDetail,
       fromEventKind: params.fromEventKind,
       toEventKind: params.toEventKind,
+      nextSuggestedAt: params.nextSuggestedAt,
     },
   });
 }
@@ -1467,6 +1471,7 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
     .map((event) => event.createdAt)
     .sort((a, b) => b - a)[0];
   const postMomentDelayBlocked = typeof lastSocialArtifactAt === 'number' && now - lastSocialArtifactAt < 18 * 60_000;
+  const postMomentNextSuggestedAt = postMomentDelayBlocked ? ((lastSocialArtifactAt as number) + 18 * 60_000) : null;
   const canPostMoment = isCharacterFeatureEnabled(actor, 'moments')
     && !(isLateNight && !actorNightOwl)
     && !postMomentDelayBlocked
@@ -1687,32 +1692,34 @@ function evaluateWorldDrivenDecision(chat: GroupChat, characters: AICharacter[],
     }));
   }
   if (shareMomentSuggested && postMomentDelayBlocked && !hasRecentWorldSuppressionEvent(chat, attention.actorId, 'world_attention_moment_delay_window', 20 * 60_000, now)) {
+    const waitMinutes = Math.max(1, Math.ceil(((postMomentNextSuggestedAt as number) - now) / 60_000));
     suppressionEvents.push(buildWorldSuppressionEvent({
       chat,
       actorId: attention.actorId,
       actorName,
       reasonType: 'world_attention_moment_delay_window',
       reasonLabel: '发圈延迟窗口',
-      reasonDetail: '距离最近社交产物时间过近，发圈候选延后以避免机械刷屏。',
+      reasonDetail: `距离最近社交产物时间过近，发圈候选延后以避免机械刷屏（建议 ${waitMinutes} 分钟后再触发）。`,
       candidateEventKind: 'post_moment',
+      nextSuggestedAt: postMomentNextSuggestedAt as number,
     }));
   }
 
   const candidate = buildWorldDrivenCandidate(chat, characters, imageModelEnabled);
   const candidatePayload = candidate?.payload as SocialEventCandidatePayload | undefined;
-  const fallbackIntent = attention.suggestedActions.includes('private_message')
-    ? 'check_in'
-    : attention.suggestedActions.includes('ask_followup')
+  const fallbackIntent = attention.suggestedActions.includes('share_moment')
+    ? 'post_moment'
+    : attention.suggestedActions.includes('private_message')
       ? 'check_in'
-      : attention.suggestedActions.includes('check_in')
+      : attention.suggestedActions.includes('ask_followup')
         ? 'check_in'
-        : attention.suggestedActions.includes('invite_activity')
-          ? 'social_outing'
-          : attention.suggestedActions.includes('react_to_moment')
-          ? 'react_to_moment'
-          : attention.suggestedActions.includes('share_moment')
-            ? 'post_moment'
-            : null;
+        : attention.suggestedActions.includes('check_in')
+          ? 'check_in'
+          : attention.suggestedActions.includes('invite_activity')
+            ? 'social_outing'
+            : attention.suggestedActions.includes('react_to_moment')
+              ? 'react_to_moment'
+              : null;
   if (shareMomentSuggested && !momentsEnabled && candidatePayload?.eventKind && candidatePayload.eventKind !== 'post_moment') {
     decisionEvents.push(buildWorldDecisionEvent({
       chat,
@@ -1730,16 +1737,26 @@ function evaluateWorldDrivenDecision(chat: GroupChat, characters: AICharacter[],
     && candidatePayload?.eventKind === 'status_update'
     && fallbackIntent !== 'status_update'
   ) {
+    const fallbackReasonType = fallbackIntent === 'post_moment' && postMomentDelayBlocked
+      ? 'world_attention_moment_delay_window'
+      : 'world_attention_restrained_fallback';
+    const fallbackReasonLabel = fallbackIntent === 'post_moment' && postMomentDelayBlocked
+      ? '朋友圈进入延迟窗口，先走状态更新'
+      : '主动关怀动作改道为状态更新';
+    const fallbackReasonDetail = fallbackIntent === 'post_moment' && postMomentDelayBlocked
+      ? `原倾向 post_moment，当前处于延迟窗口，先改为 status_update，建议时间 ${new Date(postMomentNextSuggestedAt as number).toISOString()}`
+      : `原倾向 ${fallbackIntent}，因冷却/克制/边界限制改为 status_update`;
     decisionEvents.push(buildWorldDecisionEvent({
       chat,
       actorId: attention.actorId,
       actorName,
       decisionType: 'fallback',
-      reasonType: 'world_attention_restrained_fallback',
-      reasonLabel: '主动关怀动作改道为状态更新',
-      reasonDetail: `原倾向 ${fallbackIntent}，因冷却/克制/边界限制改为 status_update`,
+      reasonType: fallbackReasonType,
+      reasonLabel: fallbackReasonLabel,
+      reasonDetail: fallbackReasonDetail,
       fromEventKind: fallbackIntent,
       toEventKind: 'status_update',
+      nextSuggestedAt: fallbackIntent === 'post_moment' && postMomentDelayBlocked ? (postMomentNextSuggestedAt as number) : undefined,
     }));
   } else if (candidatePayload?.eventKind) {
     decisionEvents.push(buildWorldDecisionEvent({
