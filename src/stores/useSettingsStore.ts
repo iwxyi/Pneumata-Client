@@ -1,17 +1,18 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppSettingsWithMemory, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults, DeveloperUIPrefs, AvatarGenerationSettings } from '../types/settings';
+import type { AppSettingsWithMemory, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults, DeveloperUIPrefs, AvatarGenerationSettings, AIGenerationSettings } from '../types/settings';
 import type { ArtifactAppearanceSettings } from '../types/artifactAppearance';
 
 type AppSettings = AppSettingsWithMemory;
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
-import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
+import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_AI_GENERATION_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
 import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS, PAPER_SURFACE_VARIANTS } from '../types/artifactAppearance';
 import { api } from '../services/api';
 import { reportRecoverableError } from '../services/diagnostics';
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateSettingsStoreState } from './storeMigrations';
 import { scopedStorageKey } from '../constants/brand';
+import { setAIGenerationRuntimeConfig } from '../services/aiGenerationRuntimeConfig';
 
 interface SettingsStore extends AppSettings {
   _loaded: boolean;
@@ -21,6 +22,7 @@ interface SettingsStore extends AppSettings {
   memoryUI?: { showDeveloperMemory?: boolean };
   setDeveloperMode: (enabled: boolean) => void;
   setAvatarGeneration: (prefs: Partial<AvatarGenerationSettings>) => void;
+  setAIGeneration: (prefs: Partial<AIGenerationSettings>) => void;
   setAutoGenerateCharacterAvatar: (enabled: boolean) => void;
   setDeveloperUI: (prefs: Partial<DeveloperUIPrefs>) => void;
   setMemoryDeveloperView: (enabled: boolean) => void;
@@ -106,6 +108,7 @@ function buildSettingsPayload(state: AppSettings) {
     developerMode: state.developerMode,
     autoGenerateCharacterAvatar: state.avatarGeneration.autoGenerateCharacterAvatar,
     avatarGeneration: state.avatarGeneration,
+    aiGeneration: state.aiGeneration,
     developerUI: state.developerUI,
     memoryUI: state.memoryUI,
     artifactAppearance: state.artifactAppearance,
@@ -115,7 +118,7 @@ function buildSettingsPayload(state: AppSettings) {
 function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?: AIModelProfile[]; memoryUI?: { showDeveloperMemory?: boolean } }): Partial<AppSettings> {
   const aiProfiles = normalizeAIProfiles(state.aiProfiles, state.api);
   const legacyShowMemoryDebug = Boolean(state.memoryUI?.showDeveloperMemory);
-  return {
+  const normalized = {
     ...state,
     aiProfiles,
     api: buildApiFromProfiles(aiProfiles),
@@ -125,6 +128,12 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
       ...(state.avatarGeneration || {}),
       autoGenerateCharacterAvatar: state.avatarGeneration?.autoGenerateCharacterAvatar ?? Boolean((state as { autoGenerateCharacterAvatar?: boolean }).autoGenerateCharacterAvatar),
       preferNonPhotorealAvatar: state.avatarGeneration?.preferNonPhotorealAvatar ?? false,
+    },
+    aiGeneration: {
+      ...DEFAULT_AI_GENERATION_SETTINGS,
+      ...(state.aiGeneration || {}),
+      enableMoments: state.aiGeneration?.enableMoments ?? DEFAULT_AI_GENERATION_SETTINGS.enableMoments,
+      enableDiaries: state.aiGeneration?.enableDiaries ?? DEFAULT_AI_GENERATION_SETTINGS.enableDiaries,
     },
     developerUI: {
       ...DEFAULT_DEVELOPER_UI_PREFS,
@@ -150,6 +159,8 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
         : DEFAULT_ARTIFACT_APPEARANCE_SETTINGS.paperVariant,
     },
   };
+  setAIGenerationRuntimeConfig(normalized.aiGeneration);
+  return normalized;
 }
 
 function createProfile(index: number): AIModelProfile {
@@ -191,6 +202,10 @@ export const useSettingsStore = create<SettingsStore>()(
                 ...((settings as { avatarGeneration?: AvatarGenerationSettings }).avatarGeneration || {}),
                 autoGenerateCharacterAvatar: ((settings as { avatarGeneration?: AvatarGenerationSettings }).avatarGeneration?.autoGenerateCharacterAvatar)
                   ?? Boolean((settings as { autoGenerateCharacterAvatar?: boolean }).autoGenerateCharacterAvatar),
+              },
+              aiGeneration: {
+                ...DEFAULT_AI_GENERATION_SETTINGS,
+                ...((settings as { aiGeneration?: AIGenerationSettings }).aiGeneration || {}),
               },
               developerUI: settings.developerUI as DeveloperUIPrefs | undefined,
               memoryUI: settings.memoryUI as { showDeveloperMemory?: boolean } | undefined,
@@ -304,6 +319,22 @@ export const useSettingsStore = create<SettingsStore>()(
             },
             lastSyncedAt: Date.now(),
           };
+          syncToServer(buildSettingsPayload(next), set);
+          return next;
+        });
+      },
+
+      setAIGeneration: (prefs) => {
+        set((state) => {
+          const next = {
+            ...state,
+            aiGeneration: {
+              ...state.aiGeneration,
+              ...prefs,
+            },
+            lastSyncedAt: Date.now(),
+          };
+          setAIGenerationRuntimeConfig(next.aiGeneration);
           syncToServer(buildSettingsPayload(next), set);
           return next;
         });
@@ -465,6 +496,7 @@ export const useSettingsStore = create<SettingsStore>()(
         defaultSpeed: state.defaultSpeed,
         developerMode: state.developerMode,
         avatarGeneration: state.avatarGeneration,
+        aiGeneration: state.aiGeneration,
         developerUI: state.developerUI,
         memoryUI: state.memoryUI,
         chatDraftDefaults: state.chatDraftDefaults,

@@ -327,6 +327,11 @@ export interface AvatarGenerationSettings {
   preferNonPhotorealAvatar: boolean;
 }
 
+export interface AIGenerationSettings {
+  enableMoments: boolean;
+  enableDiaries: boolean;
+}
+
 export interface AppSettings {
   api: APIConfig;
   aiProfiles: AIModelProfile[];
@@ -336,6 +341,7 @@ export interface AppSettings {
   defaultSpeed: number;
   developerMode: boolean;
   avatarGeneration: AvatarGenerationSettings;
+  aiGeneration: AIGenerationSettings;
   developerUI: DeveloperUIPrefs;
   chatDraftDefaults: ChatDraftDefaults;
   customBubbleStyles: BubbleStyleDefinition[];
@@ -361,6 +367,11 @@ export const DEFAULT_DEVELOPER_UI_PREFS: DeveloperUIPrefs = {
 export const DEFAULT_AVATAR_GENERATION_SETTINGS: AvatarGenerationSettings = {
   autoGenerateCharacterAvatar: false,
   preferNonPhotorealAvatar: false,
+};
+
+export const DEFAULT_AI_GENERATION_SETTINGS: AIGenerationSettings = {
+  enableMoments: true,
+  enableDiaries: true,
 };
 
 export type AppSettingsWithMemory = AppSettings & { memoryUI?: { showDeveloperMemory?: boolean } };
@@ -481,6 +492,7 @@ export const DEFAULT_SETTINGS: AppSettingsWithMemory = {
   defaultSpeed: 1.0,
   developerMode: false,
   avatarGeneration: DEFAULT_AVATAR_GENERATION_SETTINGS,
+  aiGeneration: DEFAULT_AI_GENERATION_SETTINGS,
   developerUI: DEFAULT_DEVELOPER_UI_PREFS,
   chatDraftDefaults: DEFAULT_CHAT_DRAFT_DEFAULTS,
   customBubbleStyles: [],

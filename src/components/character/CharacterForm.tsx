@@ -37,7 +37,7 @@ import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import { useTranslation } from 'react-i18next';
 import type { Theme } from '@mui/material/styles';
-import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile, CharacterVoiceConfig, CharacterCoreProfile } from '../../types/character';
+import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile, CharacterVoiceConfig, CharacterCoreProfile, CharacterGenerationPreferences, CharacterGenerationOverride } from '../../types/character';
 import { getCharacterGroupList, normalizeCharacterGroup, normalizeCharacterModelProfileIds, getDuplicateCharacterNameKeys, getDuplicateCharacterWarningText, hasDuplicateCharacterName } from '../../types/character';
 import type { BubbleStyleDefinition } from '../../types/bubbleStyle';
 import { DEFAULT_PERSONALITY, DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CORE_PROFILE } from '../../types/character';
@@ -191,6 +191,7 @@ interface CharacterFormProps {
     intervention: CharacterInterventionConfig;
     modelProfileId?: string | null;
     modelProfileIds?: Partial<Record<AIModelType, string | null>>;
+    generationPreferences?: CharacterGenerationPreferences;
     bubbleStyle?: BubbleStyleDefinition | null;
     bubbleStyleId?: string | null;
     visualIdentity?: CharacterVisualIdentity | null;
@@ -323,6 +324,10 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   }));
   const [intervention, setIntervention] = useState<CharacterInterventionConfig>(initial?.intervention || DEFAULT_CHARACTER_INTERVENTION);
   const [modelProfileIds, setModelProfileIds] = useState(() => normalizeCharacterModelProfileIds(initial?.modelProfileIds, initial?.modelProfileId || null));
+  const [generationPreferences, setGenerationPreferences] = useState<CharacterGenerationPreferences>({
+    moments: initial?.generationPreferences?.moments || 'follow_global',
+    diaries: initial?.generationPreferences?.diaries || 'follow_global',
+  });
   const [bubbleStyleId, setBubbleStyleId] = useState<string>(initial?.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID);
   const [bubbleStyle, setBubbleStyle] = useState<BubbleStyleDefinition>(() => cloneBubbleStyle(initial?.bubbleStyle) || { ...resolveCharacterBubbleStyle({ bubbleStyleId: initial?.bubbleStyleId, customStyles: settings.customBubbleStyles || [] }) });
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
@@ -868,6 +873,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       intervention,
       modelProfileId: modelProfileIds.text || null,
       modelProfileIds,
+      generationPreferences,
       bubbleStyle: { ...bubbleStyle, id: bubbleStyleId || bubbleStyle.id || DEFAULT_AI_BUBBLE_STYLE_ID },
       bubbleStyleId,
       generatedByAI,
@@ -1418,6 +1424,38 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
                     </Select>
                   </FormControl>
                 ))}
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel>{i18n.language.startsWith('zh') ? '发朋友圈' : 'Post moments'}</InputLabel>
+                    <Select
+                      value={generationPreferences.moments || 'follow_global'}
+                      label={i18n.language.startsWith('zh') ? '发朋友圈' : 'Post moments'}
+                      onChange={(e) => {
+                        const value = (typeof e.target.value === 'string' ? e.target.value : 'follow_global') as CharacterGenerationOverride;
+                        setGenerationPreferences((prev) => ({ ...prev, moments: value }));
+                      }}
+                    >
+                      <MenuItem value="follow_global">{i18n.language.startsWith('zh') ? '跟随全局' : 'Follow global'}</MenuItem>
+                      <MenuItem value="on">{i18n.language.startsWith('zh') ? '开启' : 'On'}</MenuItem>
+                      <MenuItem value="off">{i18n.language.startsWith('zh') ? '关闭' : 'Off'}</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel>{i18n.language.startsWith('zh') ? '写日记' : 'Write diaries'}</InputLabel>
+                    <Select
+                      value={generationPreferences.diaries || 'follow_global'}
+                      label={i18n.language.startsWith('zh') ? '写日记' : 'Write diaries'}
+                      onChange={(e) => {
+                        const value = (typeof e.target.value === 'string' ? e.target.value : 'follow_global') as CharacterGenerationOverride;
+                        setGenerationPreferences((prev) => ({ ...prev, diaries: value }));
+                      }}
+                    >
+                      <MenuItem value="follow_global">{i18n.language.startsWith('zh') ? '跟随全局' : 'Follow global'}</MenuItem>
+                      <MenuItem value="on">{i18n.language.startsWith('zh') ? '开启' : 'On'}</MenuItem>
+                      <MenuItem value="off">{i18n.language.startsWith('zh') ? '关闭' : 'Off'}</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Box>
                 <Collapse in={Boolean(modelProfileIds.audio)}>
                   <Card variant="outlined" sx={buildSoftPanelSx()}>
                     <CardContent sx={{ display: 'grid', gap: 1.25 }}>

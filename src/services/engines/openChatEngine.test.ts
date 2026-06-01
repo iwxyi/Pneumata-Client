@@ -5,6 +5,7 @@ import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER
 import { DEFAULT_API_CONFIG } from '../../types/settings';
 import type { DriverMessageCommitResult } from '../../types/chat';
 import type { SocialEventCandidatePayload } from '../../types/runtimeEvent';
+import { setAIGenerationRuntimeConfig } from '../aiGenerationRuntimeConfig';
 
 const generateResponseMock = vi.fn();
 
@@ -14,6 +15,7 @@ vi.mock('../aiClient', () => ({
 
 beforeEach(() => {
   generateResponseMock.mockReset();
+  setAIGenerationRuntimeConfig({ enableMoments: true, enableDiaries: true });
 });
 
 function buildApiConfig() {
@@ -1389,6 +1391,19 @@ describe('openChatEngine.onMessageCommitted', () => {
           confidence: 0.92,
           targetIds: ['b'],
         },
+      }, {
+        id: 'evt-recent-outing-artifact',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 35 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '刚刚线下活动结束',
+        visibility: 'derived_public',
+        payload: {
+          artifactType: 'outing_summary',
+          eventKind: 'social_outing',
+        },
       }],
       relationshipLedger: [{
         pairKey: 'a->b',
@@ -1505,6 +1520,44 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect(payload?.expectedArtifacts?.includes('moment_text')).toBe(true);
     expect(payload?.title).toBeTruthy();
     expect(payload?.activityType).toBeTruthy();
+  });
+
+  it('disables post_moment candidate when character overrides moments to off', async () => {
+    const now = Date.now();
+    const actor = { ...buildCharacter('a', '甲'), generationPreferences: { moments: 'off', diaries: 'follow_global' as const } };
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'evt-prime',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 5 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户说今天很有意思',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [actor, buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '发个朋友圈记录一下。',
+        interactionHint: null,
+        socialEventHints: [{
+          eventKind: 'post_moment',
+          confidence: 0.92,
+          urgency: 'immediate',
+        }],
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'post_moment')).toBe(false);
   });
 
   it('suppresses attention-driven share_moment during late night for non-night-owl persona', async () => {
@@ -1736,6 +1789,19 @@ describe('openChatEngine.onMessageCommitted', () => {
         summary: 'a 对 b 形成关注候选',
         visibility: 'derived_public',
         payload: { source: 'manual_attention_followup_member', confidence: 0.92, targetIds: ['b'] },
+      }, {
+        id: 'evt-recent-outing-artifact',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 40 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '刚刚线下活动结束',
+        visibility: 'derived_public',
+        payload: {
+          artifactType: 'outing_summary',
+          eventKind: 'social_outing',
+        },
       }],
       relationshipLedger: [{
         pairKey: 'a->b',
@@ -1763,6 +1829,54 @@ describe('openChatEngine.onMessageCommitted', () => {
     const moment = nextEvents.find((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_share_moment');
     expect(moment).toBeTruthy();
     expect((moment?.payload as { confidence?: number }).confidence).toBeGreaterThanOrEqual(0.88);
+  });
+
+  it('suppresses world_attention_share_moment when no recent trigger artifact exists', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      memberIds: ['a', 'b'],
+      runtimeEventsV2: [{
+        id: 'evt-attention-a-b',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 10 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: 'a 对 b 形成关注候选',
+        visibility: 'derived_public',
+        payload: { source: 'manual_attention_followup_member', confidence: 0.92, targetIds: ['b'] },
+      }],
+      relationshipLedger: [{
+        pairKey: 'a->b',
+        actorId: 'a',
+        targetId: 'b',
+        current: { warmth: 8, competence: 5, trust: 7, threat: 1 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我再补一句。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_share_moment')).toBe(false);
+    const suppressed = nextEvents.find((event) => event.kind === 'action_resolution'
+      && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed'
+      && (event.payload as { reasonType?: string }).reasonType === 'restraint_policy'
+      && (event.payload as { candidateEventKind?: string }).candidateEventKind === 'post_moment');
+    expect(suppressed).toBeTruthy();
+    expect((suppressed?.payload as { reasonDetail?: string }).reasonDetail).toContain('缺少近期可投射为动态的事件触发');
   });
 
   it('blocks world attention invite_activity backflow in quiet hours', async () => {

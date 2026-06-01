@@ -110,6 +110,13 @@ export interface CharacterVisualIdentity {
   defaults?: CharacterVisualIdentityDefaults;
 }
 
+export type CharacterGenerationOverride = 'follow_global' | 'on' | 'off';
+
+export interface CharacterGenerationPreferences {
+  moments?: CharacterGenerationOverride;
+  diaries?: CharacterGenerationOverride;
+}
+
 export function normalizeCharacterVisualIdentity(input?: CharacterVisualIdentity | null): CharacterVisualIdentity {
   const referenceImages = Array.isArray(input?.referenceImages)
     ? input.referenceImages.map((image): CharacterVisualReferenceImage => ({
@@ -206,6 +213,7 @@ export interface AICharacter {
   runtimeTimeline?: Array<{ type: 'memory' | 'relationship' | 'drift'; text: string; createdAt: number }>;
   modelProfileId?: string | null;
   modelProfileIds?: Partial<Record<AIModelType, string | null>>;
+  generationPreferences?: CharacterGenerationPreferences;
   bubbleStyle?: BubbleStyleDefinition | null;
   bubbleStyleId?: string | null;
   isPreset: boolean;
@@ -492,6 +500,10 @@ export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacte
     },
     modelProfileId: input.modelProfileId || null,
     modelProfileIds: normalizeCharacterModelProfileIds(input.modelProfileIds, input.modelProfileId),
+    generationPreferences: {
+      moments: input.generationPreferences?.moments || 'follow_global',
+      diaries: input.generationPreferences?.diaries || 'follow_global',
+    },
     bubbleStyle: input.bubbleStyle || null,
   };
 }

@@ -103,7 +103,12 @@ describe('useCharacterArtifactStore', () => {
         baseUrl: 'https://example.test',
         model: 'model',
       }],
+      aiGeneration: {
+        enableMoments: true,
+        enableDiaries: true,
+      },
     });
+    settingsStore.getState().setAIGeneration({ enableMoments: true, enableDiaries: true });
   });
 
   it('creates diary entries, birth letters, and final letters', async () => {
@@ -132,6 +137,16 @@ describe('useCharacterArtifactStore', () => {
     expect(finalLetter).toBeTruthy();
     expect(finalLetter?.text).toContain('没说完的话留给小雨');
     expect(artifactStore.getState().unreadLetterCount).toBe(2);
+  });
+
+  it('does not enqueue diary jobs when global diary generation is disabled', async () => {
+    const character = buildCharacter();
+    settingsStore.getState().setAIGeneration({ enableDiaries: false });
+    artifactStore.getState().syncCharacters([character]);
+    await artifactStore.getState().resumeProcessing();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(artifactStore.getState().jobs.some((job) => job.kind === 'diary')).toBe(false);
+    expect(artifactStore.getState().getDiaryEntries(character.id)).toHaveLength(0);
   });
 
   it('regenerates an artifact from its saved generation snapshot', async () => {

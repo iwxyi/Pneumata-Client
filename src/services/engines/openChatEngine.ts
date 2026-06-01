@@ -24,6 +24,7 @@ import type { APIConfig } from '../../types/settings';
 import { generateResponse } from '../aiClient';
 import { getGuidanceTargetActorIds, parseUserGuidanceIntent } from '../userGuidanceIntent';
 import { projectWorldAttentionStates, projectWorldCalendar } from '../worldRuntimeProjection';
+import { isCharacterFeatureEnabled } from '../characterGenerationPolicy';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
@@ -649,6 +650,7 @@ function buildAttentionDrivenShareMomentCandidate(params: {
   const actorId = params.message.senderId;
   if (!actorId || actorId === 'user') return null;
   const actor = params.characters.find((item) => item.id === actorId) || null;
+  if (actor && !isCharacterFeatureEnabled(actor, 'moments')) return null;
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
     .find((item) => item.actorId === actorId && item.targetId !== 'user');
   if (!attentionState || !attentionState.suggestedActions.includes('share_moment')) return null;
@@ -1218,6 +1220,18 @@ function findRecentReactMomentArtifacts(chat: GroupChat, actorId: string, create
   });
 }
 
+function findLatestActorSocialArtifact(chat: GroupChat, actorId: string, createdAt: number) {
+  return (chat.runtimeEventsV2 || [])
+    .filter((event) => {
+      if (event.kind !== 'artifact') return false;
+      if (event.createdAt >= createdAt) return false;
+      if ((event.actorIds || [])[0] !== actorId) return false;
+      const eventKind = (event.payload as { eventKind?: string }).eventKind || '';
+      return ['social_outing', 'status_update', 'check_in', 'react_to_moment', 'gift_exchange', 'conflict_expression'].includes(eventKind);
+    })
+    .sort((left, right) => right.createdAt - left.createdAt)[0];
+}
+
 function normalizeLooseText(value: string) {
   return value
     .toLowerCase()
@@ -1277,8 +1291,28 @@ function resolveAttentionRestraintFailureDetail(chat: GroupChat, payload: Social
   hitWindow?: string;
 } | undefined {
   const actorId = payload.initiatorId;
+  if (!actorId || actorId === 'user') return undefined;
+  if (payload.reasonType === 'world_attention_share_moment') {
+    const latestSocialArtifact = findLatestActorSocialArtifact(chat, actorId, createdAt);
+    if (!latestSocialArtifact) return { detail: '缺少近期可投射为动态的事件触发，不生成发圈候选' };
+    const ageMs = createdAt - latestSocialArtifact.createdAt;
+    if (ageMs < 15 * 60_000) {
+      return {
+        detail: `事件结束后间隔过短（${Math.round(ageMs / 60_000)}min < 15min），避免立刻发圈`,
+        hitEventId: latestSocialArtifact.id,
+        hitWindow: '15min',
+      };
+    }
+    if (ageMs > 6 * 60 * 60_000) {
+      return {
+        detail: `事件已过久（${Math.round(ageMs / 60_000)}min > 360min），避免机械补发`,
+        hitEventId: latestSocialArtifact.id,
+        hitWindow: '6h',
+      };
+    }
+  }
   const targetId = payload.targetIds?.[0] || 'user';
-  if (!actorId || actorId === 'user' || targetId !== 'user') return undefined;
+  if (targetId !== 'user') return undefined;
   const relation = getRelationshipLedgerEntry(chat.relationshipLedger || [], actorId, targetId);
   const warmth = relation?.current.warmth || 0;
   const trust = relation?.current.trust || 0;
@@ -1574,9 +1608,10 @@ function buildPostMomentCandidate(params: {
 }): RuntimeEventV2 | null {
   const hinted = buildPostMomentCandidateFromHint(params);
   if (!hinted) return null;
+  const actor = params.characters.find((item) => item.id === params.message.senderId) || null;
+  if (actor && !isCharacterFeatureEnabled(actor, 'moments')) return null;
   const payload = hinted.payload as SocialEventCandidatePayload;
   const now = Date.now();
-  const actor = params.characters.find((item) => item.id === params.message.senderId) || null;
   const text = params.message.content.trim();
   const expressive = /(发个朋友圈|发条动态|想发|晒|记录一下|发出来|po一下)/i.test(text);
   const roomHeat = params.structuredRoomState?.heat || 0;

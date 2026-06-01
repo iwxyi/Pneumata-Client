@@ -18,6 +18,7 @@ import { projectWorldAttentionStates } from './worldRuntimeProjection';
 import { resolveSessionEngine } from './sessionEngineRegistry';
 import { buildThreadRef, getVisibilityChannelId } from './sessionTopology';
 import { reportUnresolvedDisplayEntity } from './diagnostics';
+import { isCharacterFeatureEnabled } from './characterGenerationPolicy';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
@@ -1341,6 +1342,7 @@ function isValidAutoFlowCandidate(chat: GroupChat, payload: SocialEventCandidate
 function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], imageModelEnabled = false) {
   const attention = projectWorldAttentionStates([chat], characters).find((item) => item.targetId === 'user' && item.actorId !== 'user');
   if (!attention) return null;
+  const actor = characters.find((item) => item.id === attention.actorId) || null;
   if (attention.attentionScore < 0.58 || attention.restraint > 0.72) return null;
   const now = Date.now();
   const hasRecentFollowup = hasRecentAttentionFollowup(chat, attention.actorId, 120 * 60_000);
@@ -1371,7 +1373,8 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
     && !hasRecentWorldArtifact(chat, attention.actorId, 'status_update', 120 * 60_000)
     && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'status_update', reminderReasonType);
   const canStatus = !hasRecentWorldArtifact(chat, attention.actorId, 'status_update', 90 * 60_000);
-  const canPostMoment = !hasRecentWorldArtifact(chat, attention.actorId, 'post_moment', 180 * 60_000);
+  const canPostMoment = isCharacterFeatureEnabled(actor, 'moments')
+    && !hasRecentWorldArtifact(chat, attention.actorId, 'post_moment', 180 * 60_000);
   const eventKind: SocialEventCandidatePayload['eventKind'] = canInviteActivity
     ? 'social_outing'
     : canCalendarReminder

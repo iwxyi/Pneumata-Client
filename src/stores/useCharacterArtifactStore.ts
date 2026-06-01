@@ -7,6 +7,7 @@ import { createScopedBufferedJsonStorage, createScopedStorage } from './storePer
 import { CLIENT_STORE_SCHEMA_VERSION } from './storeMigrations';
 import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact, looksLikeRawArtifactContext } from '../services/characterExperienceArtifacts';
 import { useSettingsStore } from './useSettingsStore';
+import { isCharacterFeatureEnabled } from '../services/characterGenerationPolicy';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { api } from '../services/api';
 
@@ -589,6 +590,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
 
           characters
             .filter((character) => character.deletedAt == null)
+            .filter((character) => isCharacterFeatureEnabled(character, 'diaries'))
             .forEach((character) => {
               const allSourceDates = collectCharacterSourceDateKeys(character)
                 .filter((dateKey) => dateKey < todayKey);

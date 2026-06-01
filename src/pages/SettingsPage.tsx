@@ -302,6 +302,7 @@ export default function SettingsPage() {
           themeColor: settings.themeColor,
           language: settings.language,
           defaultSpeed: settings.defaultSpeed,
+          aiGeneration: settings.aiGeneration,
           chatDraftDefaults: settings.chatDraftDefaults,
           customBubbleStyles: settings.customBubbleStyles,
           userBubbleStyleId: settings.userBubbleStyleId,
@@ -487,10 +488,12 @@ export default function SettingsPage() {
 
         <SurfaceCard contentSx={buildCardBodySx()}>
           <Box sx={buildSectionBodySx()}>
-            <SectionHeader title={i18n.language.startsWith('zh') ? 'AI生成' : 'AI Generation'} subtitle={i18n.language.startsWith('zh') ? '控制角色头像的自动生成与风格倾向' : 'Control automatic avatar generation and style preference'} />
+            <SectionHeader title={i18n.language.startsWith('zh') ? 'AI生成' : 'AI Generation'} subtitle={i18n.language.startsWith('zh') ? '控制头像、朋友圈与日记等自动生成能力' : 'Control avatar, moments, and diary generation behaviors'} />
             <Box sx={{ display: 'grid', gap: 1 }}>
               <FormControlLabel control={<Switch checked={settings.avatarGeneration.autoGenerateCharacterAvatar} onChange={(e) => settings.setAutoGenerateCharacterAvatar(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '自动生成角色头像' : 'Auto-generate character avatars'} />
               <FormControlLabel control={<Switch checked={settings.avatarGeneration.preferNonPhotorealAvatar} onChange={(e) => settings.setAvatarGeneration({ preferNonPhotorealAvatar: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '非写实头像' : 'Non-photoreal avatars'} />
+              <FormControlLabel control={<Switch checked={settings.aiGeneration.enableMoments} onChange={(e) => settings.setAIGeneration({ enableMoments: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用朋友圈自动生成' : 'Enable moments auto-generation'} />
+              <FormControlLabel control={<Switch checked={settings.aiGeneration.enableDiaries} onChange={(e) => settings.setAIGeneration({ enableDiaries: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用日记自动生成' : 'Enable diary auto-generation'} />
               <FormControlLabel control={<Switch checked={settings.developerMode} onChange={(e) => settings.setDeveloperMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '开发者模式' : 'Developer mode'} />
             </Box>
           </Box>
