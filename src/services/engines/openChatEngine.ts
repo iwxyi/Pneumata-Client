@@ -25,6 +25,7 @@ import { generateResponse } from '../aiClient';
 import { getGuidanceTargetActorIds, parseUserGuidanceIntent } from '../userGuidanceIntent';
 import { projectWorldAttentionStates, projectWorldCalendar } from '../worldRuntimeProjection';
 import { isCharacterFeatureEnabled } from '../characterGenerationPolicy';
+import { orchestrateWorldDecision } from '../worldDecisionOrchestrator';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
@@ -2411,15 +2412,38 @@ function inferAiInteractionTowardUserFromRecentTurn(params: {
   };
 }
 
-function buildSocialEventCandidateEvents(params: {
+async function buildSocialEventCandidateEvents(params: {
   conversation: GroupChat;
   characters: AICharacter[];
   interaction: InteractionEventPayload | null;
   relationshipLedger: GroupChat['relationshipLedger'];
   structuredRoomState: GroupChat['worldState']['structuredRoomState'];
   message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
+  apiConfig?: APIConfig;
 }) {
-  return buildSocialEventCandidates(params);
+  const selection = buildSocialEventCandidates(params);
+  if (!selection.candidates.length) return selection;
+  const decision = await orchestrateWorldDecision({
+    domain: 'open_chat',
+    textApiConfig: params.apiConfig || null,
+    candidates: selection.candidates.map((event, index) => {
+      const payload = event.payload as SocialEventCandidatePayload;
+      return {
+        id: event.id,
+        kind: payload.eventKind,
+        reasonType: payload.reasonType,
+        localScore: (payload.confidence || 0.7) - index * 0.001,
+        summary: `${payload.title || ''}/${payload.activityType || ''}/${payload.seedIntent || ''}`,
+      };
+    }),
+  });
+  if (!decision) return selection;
+  const picked = selection.candidates.find((event) => event.id === decision.selected.id);
+  if (!picked) return selection;
+  return {
+    candidates: [picked, ...selection.candidates.filter((event) => event.id !== picked.id)],
+    suppressedEvents: selection.suppressedEvents,
+  };
 }
 
 function buildMomentArtifactEvents(params: {
@@ -2654,13 +2678,14 @@ async function buildStructuredRuntime(params: {
   });
   if (!interaction) {
     const artifactEvent = buildArtifactEvent(params);
-    const socialEventCandidateSelection = buildSocialEventCandidateEvents({
+    const socialEventCandidateSelection = await buildSocialEventCandidateEvents({
       conversation: params.conversation,
       characters: params.characters,
       interaction: null,
       relationshipLedger: params.conversation.relationshipLedger || [],
       structuredRoomState: params.conversation.worldState.structuredRoomState || null,
       message: enrichedMessage,
+      apiConfig: params.apiConfig,
     });
     const socialEventCandidateEvents = socialEventCandidateSelection.candidates;
     const socialArtifacts = buildMomentArtifactEventsAndOuting({
@@ -2737,13 +2762,14 @@ async function buildStructuredRuntime(params: {
   });
 
   const artifactEvent = buildArtifactEvent(params);
-  const socialEventCandidateSelection = buildSocialEventCandidateEvents({
+  const socialEventCandidateSelection = await buildSocialEventCandidateEvents({
     conversation: params.conversation,
     characters: params.characters,
     interaction,
     relationshipLedger,
     structuredRoomState,
     message: enrichedMessage,
+    apiConfig: params.apiConfig,
   });
   const socialEventCandidateEvents = socialEventCandidateSelection.candidates;
   const momentArtifactEvents = buildMomentArtifactEventsAndOuting({
