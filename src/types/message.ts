@@ -157,6 +157,12 @@ export interface MessageMetadata {
       finalReason?: 'matched' | 'wrong_speaker' | 'missing_requested_image' | 'missing_requested_subject' | 'missing_topic_focus' | 'missing_question_answer' | 'missing_direct_reply_focus' | 'empty_content';
       forcedMediaQueued?: boolean;
     };
+    worldInfluence?: {
+      attentionScore?: number;
+      attentionRestraint?: number;
+      activeRuleIds?: string[];
+      activeRuleTexts?: string[];
+    };
     expressionFeedback?: Array<{
       id: string;
       label: string;

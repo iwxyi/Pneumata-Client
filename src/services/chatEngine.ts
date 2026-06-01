@@ -27,6 +27,7 @@ import { resolveCommittedStreamContent } from './streamingMessageLifecycle';
 import { getExpressionFeedbackCategoryLabel, summarizeExpressionFeedbackInfluence } from './expressionFeedbackInfluence';
 import type { UserGuidanceIntent } from './userGuidanceIntent';
 import { evaluateGuidanceGeneratedContent, type GuidanceExecutionReason, type GuidanceRejectionReason } from './guidanceExecution';
+import { projectWorldAttentionStates, projectWorldCalendar, projectWorldMoments } from './worldRuntimeProjection';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   extraMessages?: string[] | null;
@@ -651,6 +652,106 @@ ${surfaceLine}
 - Choose this turn's length from the current request, role ability, and social pressure. Do not target a fixed middle length, and do not make it longer or shorter merely to be different.`;
 }
 
+function buildWorldEventContextPrompt(input: {
+  chat: GroupChat;
+  speaker: AICharacter;
+  members: AICharacter[];
+  now?: number;
+}) {
+  const now = input.now ?? Date.now();
+  const attention = projectWorldAttentionStates([input.chat], input.members, { now })
+    .find((item) => item.actorId === input.speaker.id)
+    || null;
+  const upcomingCalendar = projectWorldCalendar([input.chat], input.members, { now }).items
+    .filter((item) => item.status !== 'cancelled' && item.status !== 'completed' && item.participantIds.includes(input.speaker.id))
+    .filter((item) => {
+      const startAt = item.startAt ?? null;
+      return typeof startAt === 'number' && startAt >= now && startAt - now <= 48 * 60 * 60_000;
+    })
+    .sort((a, b) => (a.startAt || 0) - (b.startAt || 0))
+    .slice(0, 2);
+  const recentMoments = projectWorldMoments([input.chat], input.members)
+    .filter((item) => item.actorId !== input.speaker.id)
+    .filter((item) => now - item.createdAt <= 24 * 60 * 60_000)
+    .slice(0, 2);
+  if (!attention && !upcomingCalendar.length && !recentMoments.length) return '';
+  const lines: string[] = [];
+  if (attention) {
+    lines.push(`- Attention state: score ${Math.round(attention.attentionScore * 100)}%, restraint ${Math.round(attention.restraint * 100)}%, suggested actions ${attention.suggestedActions.slice(0, 3).join(', ')}.`);
+  }
+  upcomingCalendar.forEach((item) => {
+    lines.push(`- Upcoming schedule: ${item.title}${item.timeHint ? ` @ ${item.timeHint}` : ''}${item.locationHint ? ` at ${item.locationHint}` : ''}.`);
+  });
+  recentMoments.forEach((item) => {
+    lines.push(`- Recent social signal: ${item.actorName} posted "${item.title}" (${item.kind}).`);
+  });
+  return `\n\nWorld event context:\n${lines.join('\n')}\n- Let these signals subtly shape tone and priorities, but do not quote this block directly.`;
+}
+
+function buildWorldEventInfluenceRulesPrompt(input: {
+  chat: GroupChat;
+  speaker: AICharacter;
+  members: AICharacter[];
+  now?: number;
+}) {
+  const snapshot = buildWorldEventInfluenceSnapshot(input);
+  return snapshot.prompt;
+}
+
+function buildWorldEventInfluenceSnapshot(input: {
+  chat: GroupChat;
+  speaker: AICharacter;
+  members: AICharacter[];
+  now?: number;
+}) {
+  const now = input.now ?? Date.now();
+  const attention = projectWorldAttentionStates([input.chat], input.members, { now })
+    .find((item) => item.actorId === input.speaker.id)
+    || null;
+  const upcomingCalendar = projectWorldCalendar([input.chat], input.members, { now }).items
+    .filter((item) => item.status !== 'cancelled' && item.status !== 'completed' && item.participantIds.includes(input.speaker.id))
+    .filter((item) => typeof item.startAt === 'number' && (item.startAt as number) >= now && (item.startAt as number) - now <= 24 * 60 * 60_000)
+    .sort((a, b) => (a.startAt || 0) - (b.startAt || 0));
+  if (!attention && !upcomingCalendar.length) return '';
+  const ruleEntries: Array<{ id: string; text: string }> = [];
+  if (attention && attention.targetId === 'user' && attention.suggestedActions.includes('comfort') && attention.attentionScore >= 0.56 && attention.restraint <= 0.75) {
+    ruleEntries.push({
+      id: 'comfort_first',
+      text: 'Before expanding into analysis or room banter, start with one concrete caring move toward the user (check-in / reassurance / gentle follow-up).',
+    });
+  }
+  if (attention && attention.restraint >= 0.72) {
+    ruleEntries.push({
+      id: 'low_pressure_restraint',
+      text: 'Keep this turn low-pressure: avoid pushing new plans, avoid repeated nudges, and prefer concise, non-intrusive wording.',
+    });
+  }
+  const urgentEvent = upcomingCalendar.find((item) => typeof item.startAt === 'number' && (item.startAt as number) - now <= 6 * 60 * 60_000);
+  if (urgentEvent) {
+    ruleEntries.push({
+      id: 'urgent_calendar_first',
+      text: `You have an upcoming schedule (${urgentEvent.title}) within 6 hours. If context allows, prioritize a concise reminder/confirmation before starting unrelated expansion.`,
+    });
+  }
+  const conflictEvent = upcomingCalendar.find((item) => Boolean(item.conflict?.hasConflict));
+  if (conflictEvent) {
+    ruleEntries.push({
+      id: 'calendar_conflict_clarify_first',
+      text: `There is a schedule conflict around "${conflictEvent.title}". Prefer clarifying time/participant constraints before proposing new activities.`,
+    });
+  }
+  const prompt = ruleEntries.length
+    ? `\n\nWorld influence rules:\n${ruleEntries.map((item) => `- ${item.text}`).join('\n')}\n- Treat these as soft ordering constraints for this turn.`
+    : '';
+  return {
+    prompt,
+    attentionScore: attention ? Number(attention.attentionScore.toFixed(3)) : undefined,
+    attentionRestraint: attention ? Number(attention.restraint.toFixed(3)) : undefined,
+    activeRuleIds: ruleEntries.map((item) => item.id),
+    activeRuleTexts: ruleEntries.map((item) => item.text),
+  };
+}
+
 function buildExpressionFeedbackPrompt(feedback: ExpressionFeedbackTrace) {
   if (!feedback.length) return '';
   const labels = Array.from(new Set(feedback.map((item) => item.label).filter(Boolean)));
@@ -942,6 +1043,12 @@ function buildRuntimeDecisionMetadata(params: {
   memoryTrace?: PromptMemoryTrace | null;
   expressionFeedback?: ExpressionFeedbackTrace;
   guidanceExecution?: GuidanceExecutionTrace | null;
+  worldInfluence?: {
+    attentionScore?: number;
+    attentionRestraint?: number;
+    activeRuleIds?: string[];
+    activeRuleTexts?: string[];
+  } | null;
 }): MessageMetadata['runtimeDecision'] | undefined {
   const memoryContext = params.memoryTrace && (params.memoryTrace.injectedIds.length || params.memoryTrace.recalledArchives.length || params.memoryTrace.targetActorId)
     ? {
@@ -952,7 +1059,7 @@ function buildRuntimeDecisionMetadata(params: {
       recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
     }
     : undefined;
-  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.intentionalRepeat && !memoryContext && !params.expressionFeedback?.length && !params.guidanceExecution) return undefined;
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.intentionalRepeat && !memoryContext && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length) return undefined;
   return {
     directorIntent: params.directorIntent ? {
       source: params.directorIntent.source,
@@ -1020,6 +1127,12 @@ function buildRuntimeDecisionMetadata(params: {
       rejectedReasons: params.guidanceExecution.rejectedReasons?.slice(0, 3),
       finalReason: params.guidanceExecution.finalReason,
       forcedMediaQueued: params.guidanceExecution.forcedMediaQueued,
+    } : undefined,
+    worldInfluence: params.worldInfluence?.activeRuleIds?.length ? {
+      attentionScore: params.worldInfluence.attentionScore,
+      attentionRestraint: params.worldInfluence.attentionRestraint,
+      activeRuleIds: params.worldInfluence.activeRuleIds?.slice(0, 6),
+      activeRuleTexts: params.worldInfluence.activeRuleTexts?.slice(0, 6),
     } : undefined,
     expressionFeedback: params.expressionFeedback?.length ? params.expressionFeedback.slice(0, 3) : undefined,
   };
@@ -1372,7 +1485,12 @@ export async function generateSpeakerMessage(params: {
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
   const userGuidance = effectiveDirectorIntent?.userGuidance || null;
-	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}
+  const worldInfluenceSnapshot = buildWorldEventInfluenceSnapshot({
+    chat: params.chat,
+    speaker: params.speaker,
+    members: effectiveMembers,
+  });
+	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}${buildWorldEventContextPrompt({ chat: params.chat, speaker: params.speaker, members: effectiveMembers })}${worldInfluenceSnapshot.prompt}
 
 Current director intent:
 - ${effectiveDirectorIntent ? describeDirectorIntent(effectiveDirectorIntent) : 'none'}
@@ -1463,6 +1581,7 @@ Current speaking intent:
           memoryTrace,
           expressionFeedback: expressionFeedbackTrace,
           guidanceExecution,
+          worldInfluence: worldInfluenceSnapshot,
 	      }),
 	    }),
 	  });
@@ -1673,4 +1792,6 @@ export const __chatEngineTestUtils = {
   finalizeResponse,
   resolveInnerLifeTypingDelayMs,
   resolveMediaProfiles,
+  buildWorldEventContextPrompt,
+  buildWorldEventInfluenceRulesPrompt,
 };

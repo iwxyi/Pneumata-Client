@@ -368,4 +368,32 @@ describe('messageRuntimeClues', () => {
       statusLabel: '已影响',
     });
   });
+
+  it('projects world influence rules into runtime clues', () => {
+    const sections = projectMessageRuntimeClues({
+      metadata: {
+        runtimeDecision: {
+          worldInfluence: {
+            attentionScore: 0.78,
+            attentionRestraint: 0.33,
+            activeRuleIds: ['comfort_first', 'urgent_calendar_first'],
+            activeRuleTexts: [
+              'Before expanding into analysis or room banter, start with one concrete caring move toward the user.',
+              'You have an upcoming schedule (晚餐) within 6 hours.',
+            ],
+          },
+        },
+      },
+    });
+    const world = sections.find((section) => section.key === 'world_influence');
+    expect(world).toMatchObject({
+      statusKind: 'applied_signal',
+      statusLabel: '规则命中',
+    });
+    expect(world?.items).toEqual(expect.arrayContaining([
+      '关注强度：78%',
+      '克制强度：33%',
+    ]));
+    expect(world?.items.some((item) => item.includes('规则：Before expanding'))).toBe(true);
+  });
 });

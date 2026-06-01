@@ -7,7 +7,7 @@ import { classifyActorKindLabel } from './actorRefPresentation';
 import { formatFeedbackStatusLabel, formatGuidanceInputStatusLabel, resolveGuidanceExecutionStatus } from './runtimeStatusPresentation';
 
 export interface MessageRuntimeClueSection {
-  key: 'memory' | 'inner' | 'surface' | 'director' | 'guidance' | 'guidance_execution' | 'narrative' | 'feedback';
+  key: 'memory' | 'inner' | 'surface' | 'director' | 'guidance' | 'guidance_execution' | 'world_influence' | 'narrative' | 'feedback';
   label: string;
   promptLabel: string;
   statusKind: 'prompt_context' | 'debug_explanation' | 'soft_signal' | 'applied_signal';
@@ -164,6 +164,23 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       execution.forcedMediaQueued ? '媒体动作：已按显式请求补入图片队列' : '',
     ] : [],
     maxItems: 8,
+  }, members);
+  const worldInfluence = decision.worldInfluence;
+  pushSection(sections, {
+    key: 'world_influence',
+    label: '世界影响',
+    promptLabel: '世界影响规则',
+    statusKind: worldInfluence?.activeRuleIds?.length ? 'applied_signal' : 'soft_signal',
+    statusLabel: worldInfluence?.activeRuleIds?.length ? '规则命中' : '无命中规则',
+    statusHint: worldInfluence?.activeRuleIds?.length
+      ? '这些规则来自世界事件投影，会影响本轮发言顺序与侧重点。'
+      : '本轮没有命中世界影响规则。',
+    items: worldInfluence ? [
+      typeof worldInfluence.attentionScore === 'number' ? `关注强度：${Math.round(worldInfluence.attentionScore * 100)}%` : '',
+      typeof worldInfluence.attentionRestraint === 'number' ? `克制强度：${Math.round(worldInfluence.attentionRestraint * 100)}%` : '',
+      ...(worldInfluence.activeRuleTexts || []).map((text) => `规则：${text}`),
+    ] : [],
+    maxItems: 10,
   }, members);
   pushSection(sections, {
     key: 'narrative',

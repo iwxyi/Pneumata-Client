@@ -39,7 +39,7 @@ function attachAttentionTrace(
     attentionTrace: {
       score: attentionState.attentionScore,
       restraint: attentionState.restraint,
-      suggestedActions: attentionState.suggestedActions as NonNullable<SocialEventCandidatePayload['attentionTrace']>['suggestedActions'],
+      suggestedActions: attentionState.suggestedActions,
       reasons: attentionState.reasons.slice(0, 4),
       latestEvidenceAt: attentionState.latestEvidenceAt,
     },
@@ -558,6 +558,56 @@ function buildAttentionDrivenCalendarReminderCandidate(params: {
     conversationId: params.conversation.id,
     kind: 'event_candidate',
     summary: `${actorId} 生成了日程提醒候选`,
+    actorIds: [actorId],
+    targetIds: ['user'],
+    visibility: 'derived_public',
+    payload: tracedPayload,
+  });
+}
+
+function buildAttentionDrivenComfortCandidate(params: {
+  conversation: GroupChat;
+  characters: AICharacter[];
+  message: Pick<Message, 'content' | 'senderId'>;
+}): RuntimeEventV2 | null {
+  const actorId = params.message.senderId;
+  if (!actorId || actorId === 'user') return null;
+  if (!params.conversation.memberIds.includes('user')) return null;
+  const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
+    .find((item) => item.actorId === actorId && item.targetId === 'user');
+  if (!attentionState || !attentionState.suggestedActions.includes('comfort')) return null;
+  const now = Date.now();
+  const hasRecentComfort = (params.conversation.runtimeEventsV2 || []).some((event) => {
+    if (now - event.createdAt > 2 * 60 * 60_000) return false;
+    if (event.kind !== 'artifact') return false;
+    const payload = event.payload as { eventKind?: string; reasonType?: string };
+    return payload.eventKind === 'check_in'
+      && payload.reasonType === 'world_attention_comfort'
+      && (event.actorIds || [])[0] === actorId
+      && (event.targetIds || []).includes('user');
+  });
+  if (hasRecentComfort) return null;
+  const payload: SocialEventCandidatePayload = {
+    eventKind: 'check_in',
+    initiatorId: actorId,
+    participantIds: [actorId, 'user'],
+    targetIds: ['user'],
+    reasonType: 'world_attention_comfort',
+    confidence: 0.83,
+    urgency: 'soon',
+    seedIntent: '察觉到用户状态波动，想补一句更具体的关心。',
+    visibilityPlan: 'user_private',
+    expectedArtifacts: ['check_in_note'],
+    sourceText: params.message.content.trim().slice(0, 128),
+    title: '关怀跟进',
+    activityType: '关怀',
+    dedupeKey: `attention-comfort-${params.conversation.id}-${actorId}`,
+  };
+  const tracedPayload = attachAttentionTrace(payload, attentionState);
+  return createRuntimeEventV2({
+    conversationId: params.conversation.id,
+    kind: 'event_candidate',
+    summary: `${actorId} 生成了关怀跟进候选`,
     actorIds: [actorId],
     targetIds: ['user'],
     visibility: 'derived_public',
@@ -1492,6 +1542,7 @@ async function resolveSocialEventHints(params: {
 
 function buildPostMomentCandidate(params: {
   conversation: GroupChat;
+  characters: AICharacter[];
   interaction: InteractionEventPayload | null;
   structuredRoomState: GroupChat['worldState']['structuredRoomState'];
   message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
@@ -1499,18 +1550,43 @@ function buildPostMomentCandidate(params: {
   const hinted = buildPostMomentCandidateFromHint(params);
   if (!hinted) return null;
   const payload = hinted.payload as SocialEventCandidatePayload;
+  const now = Date.now();
+  const actor = params.characters.find((item) => item.id === params.message.senderId) || null;
   const text = params.message.content.trim();
   const expressive = /(发个朋友圈|发条动态|想发|晒|记录一下|发出来|po一下)/i.test(text);
   const roomHeat = params.structuredRoomState?.heat || 0;
   const roomCohesion = params.structuredRoomState?.cohesion || 0;
   const emotionalPush = params.interaction && params.interaction.confidence >= 0.85 && (params.interaction.intensity >= 3 || params.interaction.kind === 'side_comment');
   if (!expressive && !emotionalPush && !(roomHeat >= 18 && roomCohesion >= 2)) return null;
+  const personaText = `${actor?.speakingStyle || ''} ${actor?.background || ''} ${(actor?.expertise || []).join(' ')}`.toLowerCase();
+  const isNightOwl = /(夜猫|熬夜|夜班|主播|直播|vlog|夜生活|night|stream)/i.test(personaText);
+  const hour = new Date(now).getHours();
+  const isLateNight = hour >= 23 || hour < 7;
+  if (isLateNight && !isNightOwl) return null;
+  const lastSocialArtifactAt = (params.conversation.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact' && ['social_outing', 'check_in', 'react_to_moment', 'status_update', 'gift_exchange'].includes((event.payload as { eventKind?: string }).eventKind || ''))
+    .map((event) => event.createdAt)
+    .sort((a, b) => b - a)[0];
+  if (typeof lastSocialArtifactAt === 'number' && now - lastSocialArtifactAt < 18 * 60 * 60_000) return null;
+  const modeSeed = Math.abs(stableEventSeed([params.conversation.id, params.message.senderId, Math.floor(now / (60 * 60_000))]).split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0));
+  const modeVariant = modeSeed % 3;
+  const expectedArtifacts = payload.expectedArtifacts?.length
+    ? payload.expectedArtifacts
+    : (modeVariant === 0 ? ['moment_text', 'moment_group_photo'] : modeVariant === 1 ? ['moment_text', 'moment_selfie'] : ['moment_text']);
+  const activityType = payload.activityType
+    || (modeVariant === 0 ? '关系互动' : modeVariant === 1 ? '随拍' : '情绪碎片');
+  const title = payload.title
+    || (modeVariant === 0 ? '朋友圈动态' : modeVariant === 1 ? '随手一拍' : '今日碎片');
   return {
     ...hinted,
     payload: {
       ...payload,
+      title,
+      activityType,
+      expectedArtifacts,
       confidence: Math.max(payload.confidence, expressive ? 0.92 : emotionalPush ? 0.86 : 0.82),
       reasonType: payload.reasonType || (roomCohesion >= 10 ? 'celebration' : 'emotion_release'),
+      urgency: payload.urgency === 'immediate' ? 'soon' : payload.urgency,
     },
   } satisfies RuntimeEventV2;
 }
@@ -2086,6 +2162,11 @@ function buildSocialEventCandidates(params: {
       characters: params.characters,
       message: params.message,
     }),
+    buildAttentionDrivenComfortCandidate({
+      conversation: params.conversation,
+      characters: params.characters,
+      message: params.message,
+    }),
     buildAttentionDrivenShareMomentCandidate({
       conversation: params.conversation,
       characters: params.characters,
@@ -2639,6 +2720,30 @@ function mergeRecentEvent(baseRecentEvent: string, structuredSummary: string | n
   return baseRecentEvent ? `${baseRecentEvent} / ${structuredSummary}`.slice(0, 120) : structuredSummary;
 }
 
+function normalizeRuleEvalText(content: string) {
+  return content
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[，。！？、,.!?:;：；“”"'‘’（）()【】\[\]-]/g, '');
+}
+
+function evaluateWorldInfluenceRulesFromMessage(input: {
+  content: string;
+  activeRuleIds: string[];
+}) {
+  const normalized = normalizeRuleEvalText(input.content || '');
+  const caringSignal = /(还好吗|没事吧|别急|辛苦了|注意休息|先缓缓|慢慢说|我在这|抱抱|areyouok|takeyourtime|norush|imhere|i'mhere)/.test(normalized);
+  const scheduleSignal = /(提醒|别忘|时间|几点|改期|冲突|确认时间|行程|schedule|remind|time|conflict|reschedule|confirm)/.test(normalized);
+  const matchedRuleIds = input.activeRuleIds.filter((ruleId) => {
+    if (ruleId === 'comfort_first') return caringSignal;
+    if (ruleId === 'urgent_calendar_first' || ruleId === 'calendar_conflict_clarify_first') return scheduleSignal;
+    if (ruleId === 'low_pressure_restraint') return true;
+    return false;
+  });
+  const unmetRuleIds = input.activeRuleIds.filter((ruleId) => !matchedRuleIds.includes(ruleId));
+  return { matchedRuleIds, unmetRuleIds };
+}
+
 
 async function onMessageCommitted(params: {
   conversation: GroupChat;
@@ -2744,11 +2849,38 @@ async function onMessageCommitted(params: {
   ) as Partial<GroupChat> & { localDistillationEvent?: DriverMessageCommitResult['runtimeEvents'][number] | null };
   const localDistillationEvent = chatPatch.localDistillationEvent || null;
   delete chatPatch.localDistillationEvent;
+  const worldInfluence = publicMessage.metadata?.runtimeDecision?.worldInfluence;
+  const worldInfluenceRuleEvalEvent = worldInfluence?.activeRuleIds?.length
+    ? (() => {
+        const { matchedRuleIds, unmetRuleIds } = evaluateWorldInfluenceRulesFromMessage({
+          content: publicMessage.content,
+          activeRuleIds: worldInfluence.activeRuleIds,
+        });
+        return createRuntimeEventV2({
+          conversationId: params.conversation.id,
+          kind: 'action_resolution',
+          summary: `世界影响规则执行：命中 ${matchedRuleIds.length}/${worldInfluence.activeRuleIds.length}`,
+          actorIds: [publicMessage.senderId],
+          visibility: 'derived_public',
+          payload: {
+            eventType: 'world_influence_rule_evaluated',
+            activeRuleIds: worldInfluence.activeRuleIds,
+            matchedRuleIds,
+            unmetRuleIds,
+            attentionScore: worldInfluence.attentionScore,
+            attentionRestraint: worldInfluence.attentionRestraint,
+          },
+        });
+      })()
+    : null;
   const nextRuntimeEventsV2 = [...runtimeEventsV2, ...withdrawalRuntimeEventsV2].slice(-MAX_OPEN_CHAT_RUNTIME_EVENTS);
-  setChangedChatPatchField(chatPatch, params.conversation, 'runtimeEventsV2', nextRuntimeEventsV2);
+  const runtimeEventsWithRuleEval = worldInfluenceRuleEvalEvent
+    ? mergeCompactedRuntimeEvents(nextRuntimeEventsV2, [], [worldInfluenceRuleEvalEvent]).slice(-MAX_OPEN_CHAT_RUNTIME_EVENTS)
+    : nextRuntimeEventsV2;
+  setChangedChatPatchField(chatPatch, params.conversation, 'runtimeEventsV2', runtimeEventsWithRuleEval);
   setChangedChatPatchField(chatPatch, params.conversation, 'relationshipLedger', effectiveRelationshipLedger);
   const chatRuntimeDelta = {
-    runtimeEventsV2: buildRuntimeEventsDelta(params.conversation, nextRuntimeEventsV2),
+    runtimeEventsV2: buildRuntimeEventsDelta(params.conversation, runtimeEventsWithRuleEval),
     relationshipLedger: buildRelationshipLedgerDelta(params.conversation, effectiveRelationshipLedger),
   };
   delete chatPatch.runtimeEventsV2;

@@ -179,6 +179,154 @@ describe('chatEngine streaming preview', () => {
     expect(__chatEngineTestUtils.finalizeResponse(content, defaultIntent, speaker, [])).toBe(content);
   });
 
+  it('builds world event context prompt from attention, calendar, and moments', () => {
+    const now = Date.now();
+    const chat = buildChat({
+      memberIds: ['mei', 'hui', 'user'],
+      runtimeEventsV2: [
+        {
+          id: 'evt-attn',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          actorIds: ['mei'],
+          targetIds: ['user'],
+          summary: '用户状态低落，想关心',
+          visibility: 'derived_public',
+          createdAt: now - 5 * 60_000,
+          payload: { targetIds: ['user'], confidence: 0.9, reason: '用户状态低落，想关心' },
+        } as never,
+        {
+          id: 'evt-cal',
+          conversationId: 'chat-1',
+          kind: 'event_candidate',
+          actorIds: ['mei'],
+          targetIds: ['mei', 'user'],
+          summary: '准备一起吃饭',
+          visibility: 'derived_public',
+          createdAt: now - 3 * 60_000,
+          payload: {
+            eventKind: 'social_outing',
+            title: '晚餐',
+            activityType: '聚餐',
+            participantIds: ['mei', 'user'],
+            startAt: now + 60 * 60_000,
+            timeHint: '今晚 19:00',
+            locationHint: '徐汇',
+          },
+        } as never,
+        {
+          id: 'evt-moment',
+          conversationId: 'chat-1',
+          kind: 'artifact',
+          actorIds: ['hui'],
+          targetIds: ['mei'],
+          summary: '灰太狼发了动态',
+          visibility: 'derived_public',
+          createdAt: now - 20 * 60_000,
+          payload: { eventKind: 'post_moment', artifactType: 'moment_text', title: '今天不错', text: '工作收工了' },
+        } as never,
+      ],
+    });
+    const prompt = __chatEngineTestUtils.buildWorldEventContextPrompt({
+      chat,
+      speaker: buildCharacter('mei', '美羊羊'),
+      members: [buildCharacter('mei', '美羊羊'), buildCharacter('hui', '灰太狼')],
+      now,
+    });
+    expect(prompt).toContain('World event context:');
+    expect(prompt).toContain('Attention state:');
+    expect(prompt).toContain('Upcoming schedule:');
+    expect(prompt).toContain('Recent social signal:');
+  });
+
+  it('builds world influence rules prompt for comfort-first and restraint', () => {
+    const now = Date.now();
+    const chat = buildChat({
+      memberIds: ['mei', 'hui', 'user'],
+      relationshipLedger: [{
+        pairKey: 'mei->user',
+        actorId: 'mei',
+        targetId: 'user',
+        current: { warmth: 16, competence: 4, trust: 12, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 30 * 60_000,
+      }] as never,
+      runtimeEventsV2: [{
+        id: 'evt-attn',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        actorIds: ['mei'],
+        targetIds: ['user'],
+        summary: '用户有点低落',
+        visibility: 'derived_public',
+        createdAt: now - 5 * 60_000,
+        payload: { targetIds: ['user'], confidence: 0.96, reason: '用户有点低落' },
+      } as never],
+    });
+    const prompt = __chatEngineTestUtils.buildWorldEventInfluenceRulesPrompt({
+      chat,
+      speaker: buildCharacter('mei', '美羊羊'),
+      members: [buildCharacter('mei', '美羊羊'), buildCharacter('hui', '灰太狼')],
+      now,
+    });
+    expect(prompt).toContain('World influence rules:');
+    expect(prompt).toContain('caring move toward the user');
+  });
+
+  it('builds world influence rules for urgent calendar and conflicts', () => {
+    const now = Date.now();
+    const chat = buildChat({
+      memberIds: ['mei', 'hui', 'user'],
+      runtimeEventsV2: [
+        {
+          id: 'evt-1',
+          conversationId: 'chat-1',
+          kind: 'event_candidate',
+          actorIds: ['mei'],
+          targetIds: ['mei', 'hui'],
+          summary: '约了晚餐',
+          visibility: 'derived_public',
+          createdAt: now - 60_000,
+          payload: {
+            eventKind: 'social_outing',
+            dedupeKey: 'dinner-1',
+            title: '晚餐',
+            participantIds: ['mei', 'hui'],
+            startAt: now + 2 * 60 * 60_000,
+            durationMinutes: 120,
+          },
+        } as never,
+        {
+          id: 'evt-2',
+          conversationId: 'chat-1',
+          kind: 'event_candidate',
+          actorIds: ['mei'],
+          targetIds: ['mei', 'hui'],
+          summary: '又约了电影',
+          visibility: 'derived_public',
+          createdAt: now - 30_000,
+          payload: {
+            eventKind: 'social_outing',
+            dedupeKey: 'movie-1',
+            title: '电影',
+            participantIds: ['mei', 'hui'],
+            startAt: now + 2.5 * 60 * 60_000,
+            durationMinutes: 120,
+          },
+        } as never,
+      ],
+    });
+    const prompt = __chatEngineTestUtils.buildWorldEventInfluenceRulesPrompt({
+      chat,
+      speaker: buildCharacter('mei', '美羊羊'),
+      members: [buildCharacter('mei', '美羊羊'), buildCharacter('hui', '灰太狼')],
+      now,
+    });
+    expect(prompt).toContain('upcoming schedule');
+    expect(prompt).toContain('schedule conflict');
+  });
+
   it('exposes image capability from the default image model when the character is not explicitly bound', () => {
     expect(__chatEngineTestUtils.buildMediaCapabilities({ id: 'char-1', modelProfileIds: {} } as AICharacter, [{
       id: 'image-default',
@@ -1199,6 +1347,23 @@ describe('chatEngine streaming preview', () => {
       targetActorName: '灰太狼',
       targetReason: '来自人工发图请求的图片对象',
     });
+  });
+
+  it('stores world influence rule traces in runtime decision metadata', () => {
+    const runtimeDecision = __chatEngineTestUtils.buildRuntimeDecisionMetadata({
+      worldInfluence: {
+        attentionScore: 0.82,
+        attentionRestraint: 0.41,
+        activeRuleIds: ['comfort_first', 'urgent_calendar_first'],
+        activeRuleTexts: ['Before expanding into analysis...', 'You have an upcoming schedule within 6 hours...'],
+      },
+    });
+    expect(runtimeDecision?.worldInfluence).toMatchObject({
+      attentionScore: 0.82,
+      attentionRestraint: 0.41,
+      activeRuleIds: ['comfort_first', 'urgent_calendar_first'],
+    });
+    expect(runtimeDecision?.worldInfluence?.activeRuleTexts?.length).toBe(2);
   });
 
   it('adds a larger typing delay for repair and withdrawal pressure', () => {

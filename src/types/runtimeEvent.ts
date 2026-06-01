@@ -200,7 +200,7 @@ export interface SocialEventCandidatePayload {
   attentionTrace?: {
     score: number;
     restraint: number;
-    suggestedActions: Array<'check_in' | 'ask_followup' | 'private_message' | 'react_to_moment'>;
+    suggestedActions: Array<'check_in' | 'ask_followup' | 'private_message' | 'react_to_moment' | 'invite_activity' | 'calendar_reminder' | 'comfort' | 'share_moment'>;
     reasons: string[];
     latestEvidenceAt: number;
   };
