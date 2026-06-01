@@ -219,12 +219,11 @@ describe('runtimeTimelinePresentation', () => {
       },
     };
 
-    expect(buildRuntimeTimelineTitle(decisionItem)).toBe('世界驱动决策');
+    expect(buildRuntimeTimelineTitle(decisionItem)).toBe('世界决策');
     expect(buildRuntimeTimelineTypeLabel(decisionItem)).toBe('调度');
-    expect(buildRuntimeTimelineBody(decisionItem)).toContain('世界驱动改道');
+    expect(buildRuntimeTimelineBody(decisionItem)).toContain('兼容裁决');
     expect(buildRuntimeTimelineBody(decisionItem)).toContain('状态更新');
-    expect(buildRuntimeTimelineMeta(decisionItem)).toContain('from 朋友圈');
-    expect(buildRuntimeTimelineMeta(decisionItem)).toContain('to 状态更新');
+    expect(buildRuntimeTimelineMeta(decisionItem)).toContain('世界决策 · 主动关怀 · 兼容');
   });
 
   it('shows suggested next trigger time for delayed moment suppression', () => {

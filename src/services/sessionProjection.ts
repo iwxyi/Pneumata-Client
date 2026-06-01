@@ -829,6 +829,36 @@ export function readWorldDecisionV2Meta(item: ProjectedRuntimeTimelineItem) {
   return item.meta?.worldDecisionV2 || null;
 }
 
+export function readUnifiedWorldDecisionMeta(item: ProjectedRuntimeTimelineItem) {
+  const v2 = readWorldDecisionV2Meta(item);
+  if (v2) {
+    return {
+      version: 'v2' as const,
+      eventType: 'world_decision_v2' as const,
+      domain: v2.domain,
+      decisionSource: v2.decisionSource,
+      selectedKind: v2.selectedKind,
+      selectedReasonType: v2.selectedReasonType,
+      candidateCount: v2.candidateCount,
+      confidenceDelta: v2.confidenceDelta,
+      reason: v2.modelReason,
+    };
+  }
+  const legacy = readWorldAttentionDecisionMeta(item);
+  if (!legacy) return null;
+  return {
+    version: 'legacy' as const,
+    eventType: 'world_attention_decision' as const,
+    domain: 'proactive_care' as const,
+    decisionSource: undefined,
+    selectedKind: legacy.toEventKind,
+    selectedReasonType: legacy.reasonType,
+    candidateCount: undefined,
+    confidenceDelta: undefined,
+    reason: legacy.reasonDetail || legacy.reasonLabel,
+  };
+}
+
 export function readCalendarPatchApplyResultMeta(item: ProjectedRuntimeTimelineItem) {
   return item.meta?.calendarPatchApplyResult || null;
 }

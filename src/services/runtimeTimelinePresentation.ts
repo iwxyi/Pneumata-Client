@@ -18,7 +18,7 @@ import {
   readSocialEventClusterMeta,
   readSocialEventEffectMeta,
   readWorldAttentionDecisionMeta,
-  readWorldDecisionV2Meta,
+  readUnifiedWorldDecisionMeta,
   type ProjectedRuntimeTimelineItem,
 } from './sessionProjection';
 import { buildCalendarPatchSummary, buildCalendarPatchTimelineTitle } from './worldCalendarPatchPresentation';
@@ -110,7 +110,7 @@ function formatActorOrigin(origin: string | undefined) {
 
 export function buildRuntimeTimelineTitle(item: ProjectedRuntimeTimelineItem) {
   if (item.event?.kind === 'calendar_item_patch') return buildCalendarPatchTimelineTitle(item.event, true);
-  if (readWorldDecisionV2Meta(item)) return '世界决策';
+  if (readUnifiedWorldDecisionMeta(item)) return '世界决策';
   if (readWorldAttentionDecisionMeta(item)) return '世界驱动决策';
   if (readCandidateSuppressionMeta(item)) return '候选抑制';
   if (readCalendarPatchApplyResultMeta(item)) return '日历草案执行';
@@ -133,7 +133,7 @@ export function buildRuntimeTimelineBody(item: ProjectedRuntimeTimelineItem, mem
   const attentionSource = readAttentionSourceMeta(item);
   const suppression = readCandidateSuppressionMeta(item);
   const worldDecision = readWorldAttentionDecisionMeta(item);
-  const worldDecisionV2 = readWorldDecisionV2Meta(item);
+  const worldDecisionUnified = readUnifiedWorldDecisionMeta(item);
   const patchApply = readCalendarPatchApplyResultMeta(item);
   const projectionInfo = readProjectionInfoMeta(item);
   const topicSnippet = projectionInfo?.topicSnippet || null;
@@ -152,17 +152,21 @@ export function buildRuntimeTimelineBody(item: ProjectedRuntimeTimelineItem, mem
     const eta = typeof suppression.nextSuggestedAt === 'number' ? ` · 建议 ${new Date(suppression.nextSuggestedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })} 后` : '';
     return clip(cleanText(`${eventKind} · ${reason}${eta}`, members), 88);
   }
-  if (worldDecisionV2) {
-    const domainLabel = worldDecisionV2.domain === 'proactive_care'
+  if (worldDecisionUnified) {
+    const domainLabel = worldDecisionUnified.domain === 'proactive_care'
       ? '主动关怀'
-      : worldDecisionV2.domain === 'open_chat'
+      : worldDecisionUnified.domain === 'open_chat'
         ? '开放群聊'
-        : worldDecisionV2.domain === 'calendar_patch_queue'
+        : worldDecisionUnified.domain === 'calendar_patch_queue'
           ? '日历草案队列'
           : '世界域';
-    const sourceLabel = worldDecisionV2.decisionSource === 'model' ? '模型裁决' : '本地裁决';
-    const kindLabel = worldDecisionV2.selectedKind ? formatSocialEventKind(worldDecisionV2.selectedKind) : '候选';
-    const reason = worldDecisionV2.modelReason ? ` · ${worldDecisionV2.modelReason}` : '';
+    const sourceLabel = worldDecisionUnified.decisionSource === 'model'
+      ? '模型裁决'
+      : worldDecisionUnified.version === 'legacy'
+        ? '兼容裁决'
+        : '本地裁决';
+    const kindLabel = worldDecisionUnified.selectedKind ? formatSocialEventKind(worldDecisionUnified.selectedKind) : '候选';
+    const reason = worldDecisionUnified.reason ? ` · ${worldDecisionUnified.reason}` : '';
     return clip(cleanText(`${domainLabel} · ${sourceLabel} · 选择 ${kindLabel}${reason}`, members), 88);
   }
   if (worldDecision) {
@@ -213,7 +217,7 @@ export function buildRuntimeTimelineMeta(item: ProjectedRuntimeTimelineItem, mem
   const attentionSource = readAttentionSourceMeta(item);
   const suppression = readCandidateSuppressionMeta(item);
   const worldDecision = readWorldAttentionDecisionMeta(item);
-  const worldDecisionV2 = readWorldDecisionV2Meta(item);
+  const worldDecisionUnified = readUnifiedWorldDecisionMeta(item);
   const patchApply = readCalendarPatchApplyResultMeta(item);
   const actorAudit = readActorAuditMeta(item);
   const projectionKind = readProjectionInfoMeta(item)?.projectionKind || null;
@@ -240,17 +244,21 @@ export function buildRuntimeTimelineMeta(item: ProjectedRuntimeTimelineItem, mem
       : '';
     return cleanText(`候选抑制 · ${eventKind}${confidenceInfo}${candidateRefInfo}${hitInfo}`, members);
   }
-  if (worldDecisionV2) {
-    const domainLabel = worldDecisionV2.domain === 'proactive_care'
+  if (worldDecisionUnified) {
+    const domainLabel = worldDecisionUnified.domain === 'proactive_care'
       ? '主动关怀'
-      : worldDecisionV2.domain === 'open_chat'
+      : worldDecisionUnified.domain === 'open_chat'
         ? '开放群聊'
-        : worldDecisionV2.domain === 'calendar_patch_queue'
+        : worldDecisionUnified.domain === 'calendar_patch_queue'
           ? '日历草案队列'
           : '世界域';
-    const sourceLabel = worldDecisionV2.decisionSource === 'model' ? '模型' : '本地';
-    const candidateInfo = typeof worldDecisionV2.candidateCount === 'number' ? ` · 候选 ${worldDecisionV2.candidateCount}` : '';
-    const deltaInfo = typeof worldDecisionV2.confidenceDelta === 'number' ? ` · Δ${worldDecisionV2.confidenceDelta.toFixed(2)}` : '';
+    const sourceLabel = worldDecisionUnified.decisionSource === 'model'
+      ? '模型'
+      : worldDecisionUnified.version === 'legacy'
+        ? '兼容'
+        : '本地';
+    const candidateInfo = typeof worldDecisionUnified.candidateCount === 'number' ? ` · 候选 ${worldDecisionUnified.candidateCount}` : '';
+    const deltaInfo = typeof worldDecisionUnified.confidenceDelta === 'number' ? ` · Δ${worldDecisionUnified.confidenceDelta.toFixed(2)}` : '';
     return cleanText(`世界决策 · ${domainLabel} · ${sourceLabel}${candidateInfo}${deltaInfo}`, members);
   }
   if (worldDecision) {
@@ -326,7 +334,7 @@ export function buildRuntimeTimelineTone(item: ProjectedRuntimeTimelineItem) {
 
 export function buildRuntimeTimelineTypeLabel(item: ProjectedRuntimeTimelineItem) {
   if (readRelationshipDeltaMeta(item) || item.event?.kind === 'interaction') return '关系';
-  if (readCandidateSuppressionMeta(item) || readCalendarPatchApplyResultMeta(item) || readWorldAttentionDecisionMeta(item) || readWorldDecisionV2Meta(item)) return '调度';
+  if (readCandidateSuppressionMeta(item) || readCalendarPatchApplyResultMeta(item) || readUnifiedWorldDecisionMeta(item)) return '调度';
   if (readSocialEventClusterMeta(item)) return '事件';
   if (item.type === 'artifact') return '产物';
   if (readRoomShiftMeta(item)) return '局势';
