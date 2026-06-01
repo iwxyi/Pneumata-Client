@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
@@ -11,6 +11,15 @@ Math.random = () => 0;
 
 afterAll(() => {
   Math.random = realMathRandom;
+});
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 function buildCharacter(id: string, name: string, patch: Partial<AICharacter> = {}): AICharacter {
