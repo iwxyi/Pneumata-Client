@@ -77,7 +77,9 @@ export function projectProjectionMetaLine(item: ProjectedRuntimeTimelineItem, is
   const topicSnippet = projection?.topicSnippet || null;
   const participantNames = projection?.participantNames || [];
   if (!projectionKind && !topicSnippet && !participantNames.length) return null;
-  return [formatProjectionKind(projectionKind, isZh), participantNames.length ? participantNames.join(' ↔ ') : null, topicSnippet].filter(Boolean).join(' · ');
+  return sanitizeUserFacingText(
+    [formatProjectionKind(projectionKind, isZh), participantNames.length ? participantNames.join(' ↔ ') : null, topicSnippet].filter(Boolean).join(' · '),
+  );
 }
 
 export function projectTimelineGuidanceMetaLine(item: ProjectedRuntimeTimelineItem, isZh: boolean) {
@@ -90,12 +92,12 @@ export function projectTimelineGuidanceMetaLine(item: ProjectedRuntimeTimelineIt
       : (isZh ? '话题引导' : 'Topic guidance');
   const actorNames = (guidance.actorNames || []).join('、');
   const subjectNames = (guidance.subjectNames || []).join('、');
-  return [
+  return sanitizeUserFacingText([
     kindLabel,
     actorNames ? `${isZh ? '执行' : 'Actors'} ${actorNames}` : '',
     subjectNames ? `${isZh ? '图片对象' : 'Image subject'} ${subjectNames}` : '',
     !subjectNames && guidance.subjectText ? `${isZh ? '图片对象' : 'Image subject'} ${guidance.subjectText}` : '',
-  ].filter(Boolean).join(' · ');
+  ].filter(Boolean).join(' · '));
 }
 
 export function projectTimelineAttentionMetaLine(item: ProjectedRuntimeTimelineItem, isZh: boolean) {

@@ -126,6 +126,36 @@ describe('dialogueDebugProjection', () => {
     expect(projectTimelineGuidanceMetaLine(item, true)).toContain('点名回应');
   });
 
+  it('sanitizes projection and guidance meta lines', () => {
+    const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
+    const item: ProjectedRuntimeTimelineItem = {
+      type: 'artifact',
+      text: 'test',
+      createdAt: 1,
+      label: '产物',
+      event: { id: 'evt-4', conversationId: 'chat-1', kind: 'artifact', createdAt: 1, summary: 'test', payload: {} },
+      meta: {
+        projectionInfo: {
+          projectionKind: 'source_chat_patch',
+          topicSnippet: `${uuid} {"eventType":"room_state_snapshot_v2"}`,
+          participantNames: ['甲', '乙'],
+        },
+        guidanceInfo: {
+          kind: 'media_request',
+          actorNames: ['甲'],
+          subjectNames: [],
+          subjectText: `${uuid} 的证件照`,
+        },
+      },
+    };
+    const projectionMeta = projectProjectionMetaLine(item, true) || '';
+    const guidanceMeta = projectTimelineGuidanceMetaLine(item, true) || '';
+    expect(projectionMeta).not.toContain(uuid);
+    expect(projectionMeta).not.toContain('eventType');
+    expect(guidanceMeta).not.toContain(uuid);
+    expect(guidanceMeta).toContain('成员');
+  });
+
   it('projects structured debug event card with calendar patch and meta lines', () => {
     const item: ProjectedRuntimeTimelineItem = {
       type: 'artifact',
