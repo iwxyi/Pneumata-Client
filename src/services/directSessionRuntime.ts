@@ -1552,11 +1552,20 @@ async function buildWorldDrivenCandidate(
   characters: AICharacter[],
   imageModelEnabled = false,
   textApiConfig?: APIConfig | null,
-) {
+): Promise<{
+  candidate: RuntimeEventV2 | null;
+  arbitration: null | {
+    modelUsed: true;
+    reason: string;
+    confidenceOffset: number;
+    selectedEventKind: SocialEventCandidatePayload['eventKind'];
+    selectedReasonType: SocialEventCandidatePayload['reasonType'];
+  };
+}> {
   const attention = projectWorldAttentionStates([chat], characters).find((item) => item.targetId === 'user' && item.actorId !== 'user');
-  if (!attention) return null;
+  if (!attention) return { candidate: null, arbitration: null };
   const actor = characters.find((item) => item.id === attention.actorId) || null;
-  if (attention.attentionScore < 0.58 || attention.restraint > 0.72) return null;
+  if (attention.attentionScore < 0.58 || attention.restraint > 0.72) return { candidate: null, arbitration: null };
   const now = Date.now();
   const upcomingCalendarItem = projectWorldCalendar([chat], characters, { now }).items
     .filter((item) => item.status !== 'cancelled' && item.status !== 'completed')
@@ -1729,10 +1738,11 @@ async function buildWorldDrivenCandidate(
     });
   }
   if (canStatus) choices.push(buildCandidateChoice('status_update', 'world_attention_followup', 'status'));
-  if (choices.length === 0) return null;
+  if (choices.length === 0) return { candidate: null, arbitration: null };
   let chosen = choices[0];
   let modelConfidenceOffset = 0;
   let modelDecisionReason = '';
+  let modelUsed = false;
   const actorName = characters.find((item) => item.id === attention.actorId)?.name || attention.actorId;
   if (textApiConfig && choices.length > 1) {
     const modelPick = await chooseWorldDrivenChoiceWithModel({
@@ -1745,10 +1755,13 @@ async function buildWorldDrivenCandidate(
       chosen = choices[modelPick.selectedIndex] || chosen;
       modelConfidenceOffset = modelPick.confidenceOffset;
       modelDecisionReason = modelPick.reason;
+      modelUsed = true;
     }
   }
   const eventKind: SocialEventCandidatePayload['eventKind'] = chosen.eventKind;
-  if (!canPrivateMessage && !canAskFollowup && !canCheckIn && !canReactMoment && !canPostMoment && !canStatus && !canInviteActivity && !canCalendarReminder) return null;
+  if (!canPrivateMessage && !canAskFollowup && !canCheckIn && !canReactMoment && !canPostMoment && !canStatus && !canInviteActivity && !canCalendarReminder) {
+    return { candidate: null, arbitration: null };
+  }
   const bias = readWorldInfluenceBias(chat, attention.actorId, now);
   const baseConfidence = attention.attentionScore * (1 - attention.restraint * 0.35);
   const confidence = Math.max(
@@ -1764,7 +1777,7 @@ async function buildWorldDrivenCandidate(
         + modelConfidenceOffset,
     ),
   );
-  return createRuntimeEventV2({
+  const candidate = createRuntimeEventV2({
     conversationId: chat.id,
     kind: 'event_candidate',
     actorIds: [attention.actorId],
@@ -1795,6 +1808,18 @@ async function buildWorldDrivenCandidate(
       dedupeKey: chosen.dedupeKey,
     } satisfies SocialEventCandidatePayload,
   });
+  return {
+    candidate,
+    arbitration: modelUsed
+      ? {
+        modelUsed: true,
+        reason: modelDecisionReason,
+        confidenceOffset: modelConfidenceOffset,
+        selectedEventKind: chosen.eventKind,
+        selectedReasonType: chosen.reasonType,
+      }
+      : null,
+  };
 }
 
 async function evaluateWorldDrivenDecision(
@@ -1946,7 +1971,8 @@ async function evaluateWorldDrivenDecision(
     }));
   }
 
-  const candidate = await buildWorldDrivenCandidate(chat, characters, imageModelEnabled, textApiConfig);
+  const candidateResult = await buildWorldDrivenCandidate(chat, characters, imageModelEnabled, textApiConfig);
+  const candidate = candidateResult.candidate;
   const candidatePayload = candidate?.payload as SocialEventCandidatePayload | undefined;
   const fallbackIntent = attention.suggestedActions.includes('share_moment')
     ? 'post_moment'
@@ -2022,6 +2048,18 @@ async function evaluateWorldDrivenDecision(
       reasonLabel: '世界驱动触发',
       reasonDetail: `根据关注状态触发 ${candidatePayload.eventKind}`,
       toEventKind: candidatePayload.eventKind,
+    }));
+  }
+  if (candidate && candidateResult.arbitration) {
+    decisionEvents.push(buildWorldDecisionEvent({
+      chat,
+      actorId: attention.actorId,
+      actorName,
+      decisionType: 'trigger',
+      reasonType: 'world_attention_model_arbitration',
+      reasonLabel: '模型裁决主动关怀动作',
+      reasonDetail: `模型选择 ${candidateResult.arbitration.selectedEventKind}${candidateResult.arbitration.reason ? `：${candidateResult.arbitration.reason}` : ''}（置信修正 ${candidateResult.arbitration.confidenceOffset >= 0 ? '+' : ''}${candidateResult.arbitration.confidenceOffset.toFixed(2)}）`,
+      toEventKind: candidateResult.arbitration.selectedEventKind,
     }));
   }
   return { candidate, suppressionEvents, decisionEvents };

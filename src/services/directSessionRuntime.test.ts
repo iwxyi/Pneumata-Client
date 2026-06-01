@@ -866,6 +866,10 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate') as RuntimeEventV2 | undefined;
     expect(worldCandidate).toBeTruthy();
     expect((worldCandidate?.payload as { seedIntent?: string }).seedIntent || '').toContain('更适合低打扰提醒');
+    const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'world_attention_decision'
+      && (event.payload as { reasonType?: string }).reasonType === 'world_attention_model_arbitration');
+    expect(decision).toBeTruthy();
     jsonSpy.mockRestore();
   });
 

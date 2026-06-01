@@ -36,6 +36,11 @@ export interface ApplyWorldCalendarPatchDraftQueueResult {
     idempotencyKey: string;
     reason: 'missing_target_conversation' | 'target_chat_not_found' | 'duplicate_idempotency';
   }>;
+  modelArbitration?: {
+    attempted: boolean;
+    applied: boolean;
+    selectedIndependentCount: number;
+  };
 }
 
 function triggerToSource(trigger: WorldCalendarPatchTrigger | undefined) {
@@ -49,11 +54,11 @@ export async function reorderPlanQueueWithModel(
   queue: WorldCalendarPatchApplyPlan['queue'],
   textApiConfig?: APIConfig | null,
 ) {
-  if (!textApiConfig || queue.length <= 1) return queue;
+  if (!textApiConfig || queue.length <= 1) return { queue, meta: { attempted: Boolean(textApiConfig), applied: false, selectedIndependentCount: 0 } };
   const independent = queue
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => !item.dependsOnItemId);
-  if (independent.length <= 1) return queue;
+  if (independent.length <= 1) return { queue, meta: { attempted: true, applied: false, selectedIndependentCount: independent.length } };
   try {
     const prompt = [
       '你是日历冲突修正执行顺序裁决器。',
@@ -81,7 +86,7 @@ export async function reorderPlanQueueWithModel(
     );
     const parsed = JSON.parse(raw) as { orderedIndices?: number[] };
     const ordered = Array.isArray(parsed.orderedIndices) ? parsed.orderedIndices.filter((value) => Number.isInteger(value) && value >= 0 && value < independent.length) : [];
-    if (!ordered.length) return queue;
+    if (!ordered.length) return { queue, meta: { attempted: true, applied: false, selectedIndependentCount: independent.length } };
     const seen = new Set<number>();
     const reordered = ordered
       .filter((value) => {
@@ -97,22 +102,24 @@ export async function reorderPlanQueueWithModel(
       .map(({ item }) => item);
     const reorderedIndependent = [...reordered, ...remaining];
     let cursor = 0;
-    return queue.map((item) => {
+    const reorderedQueue = queue.map((item) => {
       if (item.dependsOnItemId) return item;
       const next = reorderedIndependent[cursor] || item;
       cursor += 1;
       return next;
     });
+    const applied = reorderedQueue.some((item, idx) => item !== queue[idx]);
+    return { queue: reorderedQueue, meta: { attempted: true, applied, selectedIndependentCount: independent.length } };
   } catch {
-    return queue;
+    return { queue, meta: { attempted: true, applied: false, selectedIndependentCount: independent.length } };
   }
 }
 
 export async function applyWorldCalendarPatchDraftQueue(params: ApplyWorldCalendarPatchDraftQueueParams): Promise<ApplyWorldCalendarPatchDraftQueueResult> {
   const projection = projectWorldCalendar(params.chats, params.characters, { conversationId: params.conversationId });
   const basePlan = buildWorldCalendarPatchApplyPlan(projection);
-  const reorderedQueue = await reorderPlanQueueWithModel(basePlan.queue, params.textApiConfig || null);
-  const plan = { queue: reorderedQueue };
+  const reordered = await reorderPlanQueueWithModel(basePlan.queue, params.textApiConfig || null);
+  const plan = { queue: reordered.queue };
   const execution = applyWorldCalendarPatchPlanToChats(params.chats, projection, plan, {
     fallbackConversationId: params.conversationId,
     source: triggerToSource(params.trigger),
@@ -141,5 +148,6 @@ export async function applyWorldCalendarPatchDraftQueue(params: ApplyWorldCalend
     failures,
     appliedItems: execution.appliedItems,
     skippedItems: execution.skippedItems,
+    modelArbitration: reordered.meta,
   };
 }

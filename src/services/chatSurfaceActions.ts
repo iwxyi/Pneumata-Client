@@ -132,6 +132,7 @@ export async function runSessionActionImpl(
         failedCount: result.failedCount,
         queueCount: result.queueCount,
         persistedCount: result.persistedCount,
+        modelArbitration: result.modelArbitration || null,
         appliedItems: result.appliedItems.slice(0, 8),
         skippedItems: result.skippedItems.slice(0, 8),
         failures: result.failures.slice(0, 8),

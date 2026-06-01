@@ -276,8 +276,9 @@ describe('worldCalendarPatchApply', () => {
       { provider: 'openai', apiKey: 'k', model: 'gpt-4o-mini' },
     );
     expect(jsonSpy).toHaveBeenCalled();
-    expect(reordered[0]?.calendarItemId).toBe('item-2');
-    expect(reordered[1]?.calendarItemId).toBe('item-1');
+    expect(reordered.queue[0]?.calendarItemId).toBe('item-2');
+    expect(reordered.queue[1]?.calendarItemId).toBe('item-1');
+    expect(reordered.meta.applied).toBe(true);
     jsonSpy.mockRestore();
   });
 });
