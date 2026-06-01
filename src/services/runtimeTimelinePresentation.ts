@@ -143,7 +143,7 @@ export function buildRuntimeTimelineBody(item: ProjectedRuntimeTimelineItem, mem
     const focus = followup.focus ? ` · ${followup.focus}` : '';
     const targetLabel = followup.kind === 'member'
       ? (followup.targetName || '成员')
-      : '用户';
+      : '我';
     return clip(cleanText(`${followup.actorName} 跟进${targetLabel}指令 ${statusLabel}${focus}`, members), 88);
   }
   if (suppression) {
