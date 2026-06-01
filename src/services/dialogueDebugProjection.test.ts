@@ -156,6 +156,34 @@ describe('dialogueDebugProjection', () => {
     expect(guidanceMeta).toContain('成员');
   });
 
+  it('maps short participant and guidance ids into member names when member context is available', () => {
+    const item: ProjectedRuntimeTimelineItem = {
+      type: 'artifact',
+      text: 'test',
+      createdAt: 1,
+      label: '产物',
+      event: { id: 'evt-5', conversationId: 'chat-1', kind: 'artifact', createdAt: 1, summary: 'test', payload: {} },
+      meta: {
+        projectionInfo: {
+          projectionKind: 'source_chat_patch',
+          topicSnippet: '继续确认',
+          participantNames: ['a', 'b'],
+        },
+        guidanceInfo: {
+          kind: 'direct_reply',
+          actorNames: ['a'],
+          subjectNames: ['b'],
+        },
+      },
+    };
+    const members = [member('a', '甲'), member('b', '乙')];
+    const projectionMeta = projectProjectionMetaLine(item, true, members) || '';
+    const guidanceMeta = projectTimelineGuidanceMetaLine(item, true, members) || '';
+    expect(projectionMeta).toContain('甲 ↔ 乙');
+    expect(guidanceMeta).toContain('执行 甲');
+    expect(guidanceMeta).toContain('图片对象 乙');
+  });
+
   it('projects structured debug event card with calendar patch and meta lines', () => {
     const item: ProjectedRuntimeTimelineItem = {
       type: 'artifact',

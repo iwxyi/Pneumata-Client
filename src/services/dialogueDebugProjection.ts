@@ -51,6 +51,15 @@ function formatProjectionKind(projectionKind: string | null | undefined, isZh = 
   return projectionKind ? map[projectionKind] || projectionKind : '';
 }
 
+function resolveDisplayName(value: string, members: AICharacter[] = []) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw === 'user') return '我';
+  const matched = members.find((member) => member.id === raw);
+  if (matched?.name) return matched.name;
+  return raw;
+}
+
 export function projectDialogueRecentSignal(chat: GroupChat, members: AICharacter[] = []): DialogueRecentSignal {
   const recentEvent = sanitizeUserFacingText(chat.worldState.recentEvent || '暂无', members);
   const focus = sanitizeUserFacingText(chat.worldState.focus || '', members) || '未设置';
@@ -71,18 +80,19 @@ export function projectConflictDebugState(chat: GroupChat, members: AICharacter[
   };
 }
 
-export function projectProjectionMetaLine(item: ProjectedRuntimeTimelineItem, isZh: boolean) {
+export function projectProjectionMetaLine(item: ProjectedRuntimeTimelineItem, isZh: boolean, members: AICharacter[] = []) {
   const projection = readProjectionInfoMeta(item);
   const projectionKind = projection?.projectionKind || null;
   const topicSnippet = projection?.topicSnippet || null;
-  const participantNames = projection?.participantNames || [];
+  const participantNames = (projection?.participantNames || []).map((name) => resolveDisplayName(name, members));
   if (!projectionKind && !topicSnippet && !participantNames.length) return null;
   return sanitizeUserFacingText(
     [formatProjectionKind(projectionKind, isZh), participantNames.length ? participantNames.join(' ↔ ') : null, topicSnippet].filter(Boolean).join(' · '),
+    members,
   );
 }
 
-export function projectTimelineGuidanceMetaLine(item: ProjectedRuntimeTimelineItem, isZh: boolean) {
+export function projectTimelineGuidanceMetaLine(item: ProjectedRuntimeTimelineItem, isZh: boolean, members: AICharacter[] = []) {
   const guidance = readGuidanceInfoMeta(item);
   if (!guidance) return null;
   const kindLabel = guidance.kind === 'media_request'
@@ -90,14 +100,15 @@ export function projectTimelineGuidanceMetaLine(item: ProjectedRuntimeTimelineIt
     : guidance.kind === 'direct_reply'
       ? (isZh ? '点名回应' : 'Direct reply')
       : (isZh ? '话题引导' : 'Topic guidance');
-  const actorNames = (guidance.actorNames || []).join('、');
-  const subjectNames = (guidance.subjectNames || []).join('、');
+  const actorNames = (guidance.actorNames || []).map((name) => resolveDisplayName(name, members)).join('、');
+  const subjectNames = (guidance.subjectNames || []).map((name) => resolveDisplayName(name, members)).join('、');
+  const subjectText = resolveDisplayName(guidance.subjectText || '', members);
   return sanitizeUserFacingText([
     kindLabel,
     actorNames ? `${isZh ? '执行' : 'Actors'} ${actorNames}` : '',
     subjectNames ? `${isZh ? '图片对象' : 'Image subject'} ${subjectNames}` : '',
-    !subjectNames && guidance.subjectText ? `${isZh ? '图片对象' : 'Image subject'} ${guidance.subjectText}` : '',
-  ].filter(Boolean).join(' · '));
+    !subjectNames && subjectText ? `${isZh ? '图片对象' : 'Image subject'} ${subjectText}` : '',
+  ].filter(Boolean).join(' · '), members);
 }
 
 export function projectTimelineAttentionMetaLine(item: ProjectedRuntimeTimelineItem, isZh: boolean) {
@@ -124,7 +135,7 @@ export function projectProjectionTitle(item: ProjectedRuntimeTimelineItem, isZh:
 
 export function projectProjectionDescription(item: ProjectedRuntimeTimelineItem, members: AICharacter[] = []) {
   const projection = readProjectionInfoMeta(item);
-  const participantNames = projection?.participantNames || [];
+  const participantNames = (projection?.participantNames || []).map((name) => resolveDisplayName(name, members));
   const topicSnippet = projection?.topicSnippet || null;
   return sanitizeUserFacingText([participantNames.length ? participantNames.join(' ↔ ') : null, topicSnippet].filter(Boolean).join(' · '), members);
 }
@@ -137,8 +148,8 @@ export function projectDialogueStructuredEventCard(item: ProjectedRuntimeTimelin
     bodyText: sanitizeUserFacingText(item.text, members),
     summaryText: calendarPatchMeta?.summary ? sanitizeUserFacingText(calendarPatchMeta.summary, members) : null,
     chips: calendarPatchMeta?.chips || [],
-    guidanceMetaLine: projectTimelineGuidanceMetaLine(item, isZh),
+    guidanceMetaLine: projectTimelineGuidanceMetaLine(item, isZh, members),
     attentionMetaLine: projectTimelineAttentionMetaLine(item, isZh),
-    projectionMetaLine: projectProjectionMetaLine(item, isZh),
+    projectionMetaLine: projectProjectionMetaLine(item, isZh, members),
   };
 }
