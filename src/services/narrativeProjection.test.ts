@@ -142,6 +142,42 @@ describe('projectNarrativeLines', () => {
     expect(lines[0]?.possibleNextBeats[0]?.beatType).toBe('escalate');
   });
 
+  it('filters draft actor ids from conflict narrative participants', () => {
+    const lines = projectNarrativeLines({
+      chat: buildChat({
+        worldState: {
+          ...DEFAULT_CONVERSATION_WORLD_STATE,
+          conflictState: {
+            primaryConflict: {
+              id: 'conflict-draft',
+              scope: 'group',
+              type: 'value_conflict',
+              severity: 0.8,
+              stage: 'open',
+              summary: '存在草稿身份干扰',
+              participantIds: ['a', 'draft-1'],
+              targetIds: ['b', 'draft-2'],
+              nextPressure: 'escalate',
+              developmentHooks: [],
+              sourceEventIds: ['event-draft'],
+              updatedAt: 12,
+            },
+            activeConflicts: [],
+            developmentHooks: [],
+            volatility: 0.4,
+            cooling: 0.1,
+            updatedAt: 12,
+          },
+        },
+      }),
+      messages: [buildMessage({ content: '继续。' })],
+      now: 20,
+    });
+    const line = lines.find((item) => item.id === 'conflict-draft');
+    expect(line?.participantIds).toEqual(['b', 'a']);
+    expect(line?.possibleNextBeats[0]?.targetActorIds).toEqual(['b', 'a']);
+  });
+
   it('projects salient relationship ledger entries', () => {
     const lines = projectNarrativeLines({
       chat: buildChat({
@@ -394,5 +430,27 @@ describe('projectNarrativeLines', () => {
     expect(mysteryLine?.summary).not.toContain('攻击丙');
     expect(mysteryLine?.hiddenParticipantIds).toEqual(['a', 'b']);
     expect(mysteryLine?.possibleNextBeats[0]?.beatType).toBe('reveal');
+  });
+
+  it('filters draft actor ids from mystery hidden participants', () => {
+    const event: RuntimeEventV2 = {
+      id: 'evt-secret-draft',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: 10,
+      actorIds: ['draft-1', 'a'],
+      targetIds: ['draft-2', 'b'],
+      summary: '私密事件',
+      visibility: 'role_private',
+      payload: { artifactType: 'private_thread_summary' },
+    };
+    const lines = projectNarrativeLines({
+      chat: buildChat({ mode: 'werewolf', runtimeEventsV2: [event] }),
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      messages: [buildMessage({ content: '昨晚是不是有人动手？' })],
+      now: 20,
+    });
+    const mysteryLine = lines.find((line) => line.id === 'mystery:hidden-pressure');
+    expect(mysteryLine?.hiddenParticipantIds).toEqual(['a', 'b']);
   });
 });

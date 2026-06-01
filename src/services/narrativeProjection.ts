@@ -41,7 +41,11 @@ function clamp01(value: number) {
 }
 
 function unique(ids: Array<string | null | undefined>) {
-  return ids.filter((id, index, array): id is string => Boolean(id) && array.indexOf(id) === index);
+  return ids.filter((id, index, array): id is string => (
+    Boolean(id)
+    && !/^draft-\d+$/i.test(id)
+    && array.indexOf(id) === index
+  ));
 }
 
 function characterName(id: string | undefined, characters: AICharacter[]) {
@@ -449,7 +453,7 @@ function buildMysteryLines(chat: GroupChat, now: number): NarrativeLineProjectio
     title: '未公开线索',
     summary: '当前会话存在未公开信息或私密行动，可能影响公开讨论的走向。',
     participantIds: [],
-    hiddenParticipantIds: Array.from(new Set(privateEvents.flatMap((event) => [...(event.actorIds || []), ...(event.targetIds || [])]))),
+    hiddenParticipantIds: unique(privateEvents.flatMap((event) => [...(event.actorIds || []), ...(event.targetIds || [])])),
     visibility: 'derived_public',
     status: salience > 0.56 ? 'active' : 'latent',
     tension: clamp01(0.24 + Math.min(0.4, privateEvents.length * 0.06)),
