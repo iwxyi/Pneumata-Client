@@ -94,6 +94,22 @@ describe('dialogueDebugProjection', () => {
     expect(conflict?.type).toBe('价值观冲突');
   });
 
+  it('sanitizes recent signal focus and mood fields for user-facing debug panel', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      worldState: {
+        ...buildChat().worldState,
+        focus: 'a 正在追问 e055aa1d-88d4-4e96-abd2-1b35a3d56f67',
+        mood: '{"eventType":"room_state_snapshot_v2"}',
+      },
+    });
+    const signal = projectDialogueRecentSignal(chat, [member('a', '甲')]);
+    expect(signal.focus).toContain('甲');
+    expect(signal.focus).not.toContain('e055aa1d');
+    expect(signal.mood).not.toContain('eventType');
+    expect(signal.mood).not.toContain('room_state_snapshot_v2');
+  });
+
   it('projects projection and guidance meta lines', () => {
     const item: ProjectedRuntimeTimelineItem = {
       type: 'artifact',

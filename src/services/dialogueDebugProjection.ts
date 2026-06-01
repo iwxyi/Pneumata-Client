@@ -53,8 +53,8 @@ function formatProjectionKind(projectionKind: string | null | undefined, isZh = 
 
 export function projectDialogueRecentSignal(chat: GroupChat, members: AICharacter[] = []): DialogueRecentSignal {
   const recentEvent = sanitizeUserFacingText(chat.worldState.recentEvent || '暂无', members);
-  const focus = chat.worldState.focus || '未设置';
-  const mood = chat.worldState.mood || '未设置';
+  const focus = sanitizeUserFacingText(chat.worldState.focus || '', members) || '未设置';
+  const mood = sanitizeUserFacingText(chat.worldState.mood || '', members) || '未设置';
   return { recentEvent, focus, mood };
 }
 
