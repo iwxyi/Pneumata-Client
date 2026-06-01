@@ -294,7 +294,7 @@ export function buildRuntimeTimelineTone(item: ProjectedRuntimeTimelineItem) {
 
 export function buildRuntimeTimelineTypeLabel(item: ProjectedRuntimeTimelineItem) {
   if (readRelationshipDeltaMeta(item) || item.event?.kind === 'interaction') return '关系';
-  if (readCandidateSuppressionMeta(item) || readCalendarPatchApplyResultMeta(item)) return '调度';
+  if (readCandidateSuppressionMeta(item) || readCalendarPatchApplyResultMeta(item) || readWorldAttentionDecisionMeta(item)) return '调度';
   if (readSocialEventClusterMeta(item)) return '事件';
   if (item.type === 'artifact') return '产物';
   if (readRoomShiftMeta(item)) return '局势';

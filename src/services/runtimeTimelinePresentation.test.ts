@@ -198,4 +198,32 @@ describe('runtimeTimelinePresentation', () => {
     expect(buildRuntimeTimelineBody(patchApplyItem)).toBe('应用 2 · 跳过 1 · 失败 0');
     expect(buildRuntimeTimelineMeta(patchApplyItem)).toContain('队列 4');
   });
+
+  it('shows world attention decision as readable trigger/fallback/suppressed traces', () => {
+    const decisionItem: ProjectedRuntimeTimelineItem = {
+      type: 'note',
+      text: '世界驱动决策',
+      createdAt: 5,
+      label: '记录',
+      event: { id: 'evt-world-decision', conversationId: 'chat-1', kind: 'action_resolution', createdAt: 5, summary: '世界驱动决策', payload: {} },
+      meta: {
+        worldAttentionDecision: {
+          eventType: 'world_attention_decision',
+          decisionType: 'fallback',
+          reasonType: 'world_attention_moment_disabled',
+          reasonLabel: '朋友圈功能关闭，改走替代动作',
+          reasonDetail: 'share_moment 被关闭，已改为 status_update',
+          fromEventKind: 'post_moment',
+          toEventKind: 'status_update',
+        },
+      },
+    };
+
+    expect(buildRuntimeTimelineTitle(decisionItem)).toBe('世界驱动决策');
+    expect(buildRuntimeTimelineTypeLabel(decisionItem)).toBe('调度');
+    expect(buildRuntimeTimelineBody(decisionItem)).toContain('世界驱动改道');
+    expect(buildRuntimeTimelineBody(decisionItem)).toContain('状态更新');
+    expect(buildRuntimeTimelineMeta(decisionItem)).toContain('from 朋友圈');
+    expect(buildRuntimeTimelineMeta(decisionItem)).toContain('to 状态更新');
+  });
 });
