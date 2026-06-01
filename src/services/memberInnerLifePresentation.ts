@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import { summarizeExpressionFeedbackInfluence } from './expressionFeedbackInfluence';
 import { formatInnerImpulseLabel, formatSoulMetricLabel } from './runtimeDecisionLabels';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 
 export interface MemberInnerLifeChip {
   label: string;
@@ -30,11 +31,15 @@ function buildDebugHint(member: AICharacter, language: string) {
   ].map(([label, value]) => `${formatSoulMetricLabel(String(label), language)} ${Math.round(Number(value) || 0)}`).join(' / ');
 }
 
+function cleanInnerLifeText(text: string | undefined | null) {
+  return sanitizeUserFacingText(text || '');
+}
+
 export function buildMemberInnerLifeChips(member: AICharacter, language: string): MemberInnerLifeChip[] {
   const soul = member.soulState;
   if (!soul) return [];
   const isZh = language.startsWith('zh');
-  const reason = soul.lastImpulseReason || (isZh ? '由最近发言、关系和回应情况推导。' : 'Projected from recent speech, relationships, and response traces.');
+  const reason = cleanInnerLifeText(soul.lastImpulseReason || (isZh ? '由最近发言、关系和回应情况推导。' : 'Projected from recent speech, relationships, and response traces.'));
   const items: MemberInnerLifeChip[] = [];
 
   if (soul.lastImpulse === 'repair') {
@@ -93,12 +98,13 @@ export function buildMemberInnerLifeSummary(member: AICharacter, language: strin
     ? '最近互动还没有留下特别清晰的内心余波。'
     : 'Recent interactions have not left a strong inner residue yet.';
   const text = soul.lastImpulseReason || chips[0]?.hint || fallbackText;
+  const visibleText = cleanInnerLifeText(text);
   return {
     title,
-    text,
+    text: visibleText,
     chips: chips.length ? chips : [{
       label: formatInnerImpulseLabel(soul.lastImpulse, language, 'member'),
-      hint: text,
+      hint: visibleText,
       color: 'default',
     }],
     debugHint: buildDebugHint(member, language),

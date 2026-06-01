@@ -103,6 +103,29 @@ describe('buildMemberInnerLifeChips', () => {
     expect(summary?.debugHint).toContain('被忽视感 68');
     expect(summary?.debugHint).toContain('未被接住 3');
   });
+
+  it('sanitizes raw ids and runtime payload snippets from inner-life reason text', () => {
+    const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
+    const summary = buildMemberInnerLifeSummary(buildCharacter({
+      soulState: {
+        mood: { pleasure: 0, arousal: 30, dominance: 40 },
+        energy: 41,
+        attention: 50,
+        loneliness: 68,
+        repression: 25,
+        shame: 12,
+        envy: 0,
+        trustInRoom: 48,
+        ignoredStreak: 3,
+        lastImpulse: 'seek_attention',
+        lastImpulseReason: `${uuid} {"eventType":"room_state_snapshot_v2"} 连续几句没有被接住`,
+      },
+    }), 'zh-CN');
+
+    expect(summary?.text).not.toContain(uuid);
+    expect(summary?.text).not.toContain('eventType');
+    expect(summary?.chips[0]?.hint).not.toContain(uuid);
+  });
 });
 
 describe('buildMemberExpressionFeedbackChips', () => {
