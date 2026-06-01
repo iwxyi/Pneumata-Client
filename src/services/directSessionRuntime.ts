@@ -20,7 +20,7 @@ import { resolveSessionEngine } from './sessionEngineRegistry';
 import { buildThreadRef, getVisibilityChannelId } from './sessionTopology';
 import { reportUnresolvedDisplayEntity } from './diagnostics';
 import { isCharacterFeatureEnabled } from './characterGenerationPolicy';
-import { generateJsonResponse } from './aiClient';
+import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
@@ -171,60 +171,6 @@ function readWorldInfluenceBias(chat: GroupChat, actorId: string, now = Date.now
     scheduleBoost: matched.has('urgent_calendar_first') || matched.has('calendar_conflict_clarify_first') ? 0.06 : 0,
     restraintPenalty: unmet.has('low_pressure_restraint') ? 0.04 : 0,
   };
-}
-
-async function chooseWorldDrivenChoiceWithModel(params: {
-  textApiConfig: APIConfig;
-  actorId: string;
-  actorName: string;
-  choices: Array<{
-    eventKind: SocialEventCandidatePayload['eventKind'];
-    reasonType: SocialEventCandidatePayload['reasonType'];
-    mode: string;
-    title: string;
-    activityType: string;
-    seedIntent: string;
-  }>;
-}) {
-  try {
-    const prompt = [
-      '你是“主动关怀动作裁决器”。',
-      '只从给定候选中选一个最合适动作，不要新增动作。',
-      '优先考虑：自然性 > 低打扰 > 与上下文一致。',
-      '输出 JSON：{"selectedIndex":number,"confidenceOffset":number,"reason":"..."}',
-      'confidenceOffset 范围 -0.06 到 0.06。',
-    ].join('\n');
-    const userContent = JSON.stringify({
-      actorId: params.actorId,
-      actorName: params.actorName,
-      choices: params.choices.map((item, index) => ({
-        index,
-        eventKind: item.eventKind,
-        reasonType: item.reasonType,
-        title: item.title,
-        activityType: item.activityType,
-        mode: item.mode,
-        seedIntent: item.seedIntent,
-      })),
-    });
-    const raw = await generateJsonResponse(
-      params.textApiConfig,
-      prompt,
-      [{ role: 'user', content: userContent }],
-    );
-    const parsed = JSON.parse(raw) as { selectedIndex?: number; confidenceOffset?: number; reason?: string };
-    if (typeof parsed.selectedIndex !== 'number' || !Number.isFinite(parsed.selectedIndex)) return null;
-    if (parsed.selectedIndex < 0 || parsed.selectedIndex >= params.choices.length) return null;
-    const offsetRaw = typeof parsed.confidenceOffset === 'number' && Number.isFinite(parsed.confidenceOffset) ? parsed.confidenceOffset : 0;
-    const confidenceOffset = Math.max(-0.06, Math.min(0.06, offsetRaw));
-    return {
-      selectedIndex: parsed.selectedIndex,
-      confidenceOffset,
-      reason: typeof parsed.reason === 'string' ? parsed.reason.slice(0, 180) : '',
-    };
-  } catch {
-    return null;
-  }
 }
 
 function readActionCooldownNextSuggestedAt(
@@ -1744,19 +1690,23 @@ async function buildWorldDrivenCandidate(
   let modelDecisionReason = '';
   let modelUsed = false;
   const actorName = characters.find((item) => item.id === attention.actorId)?.name || attention.actorId;
-  if (textApiConfig && choices.length > 1) {
-    const modelPick = await chooseWorldDrivenChoiceWithModel({
-      textApiConfig,
-      actorId: attention.actorId,
-      actorName,
-      choices,
-    });
-    if (modelPick) {
-      chosen = choices[modelPick.selectedIndex] || chosen;
-      modelConfidenceOffset = modelPick.confidenceOffset;
-      modelDecisionReason = modelPick.reason;
-      modelUsed = true;
-    }
+  const orchestrated = await orchestrateWorldDecision({
+    domain: 'proactive_care',
+    candidates: choices.map((item, index) => ({
+      id: `${attention.actorId}:${index}:${item.eventKind}:${item.reasonType}`,
+      kind: item.eventKind,
+      reasonType: item.reasonType,
+      localScore: Math.max(0.6, 1 - index * 0.03),
+      summary: `${item.title}/${item.activityType}/${item.seedIntent}`,
+    })),
+    textApiConfig,
+  });
+  if (orchestrated) {
+    const pickedIndex = choices.findIndex((item, index) => `${attention.actorId}:${index}:${item.eventKind}:${item.reasonType}` === orchestrated.selected.id);
+    if (pickedIndex >= 0) chosen = choices[pickedIndex];
+    modelUsed = orchestrated.trace.decisionSource === 'model';
+    modelDecisionReason = orchestrated.trace.modelReason || '';
+    modelConfidenceOffset = orchestrated.confidenceDelta || 0;
   }
   const eventKind: SocialEventCandidatePayload['eventKind'] = chosen.eventKind;
   if (!canPrivateMessage && !canAskFollowup && !canCheckIn && !canReactMoment && !canPostMoment && !canStatus && !canInviteActivity && !canCalendarReminder) {
