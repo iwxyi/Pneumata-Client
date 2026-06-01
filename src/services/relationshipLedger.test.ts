@@ -1,6 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InteractionEventPayload, RuntimeEventV2 } from '../types/runtimeEvent';
 import { RELATIONSHIP_BASELINE, normalizeRelationshipLedgerEntry, reduceRelationshipLedger, replayRelationshipLedger } from './relationshipLedger';
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function buildEvent(interaction: InteractionEventPayload): RuntimeEventV2 {
   return {
