@@ -309,14 +309,19 @@ function buildWorldDecisionEvent(params: {
   actorId: string | null;
   actorName?: string;
   decisionType: 'trigger' | 'suppressed' | 'fallback';
+  decisionSource?: 'local' | 'model';
   reasonType: string;
   reasonLabel: string;
   reasonDetail: string;
   fromEventKind?: SocialEventCandidatePayload['eventKind'];
   toEventKind?: SocialEventCandidatePayload['eventKind'];
   nextSuggestedAt?: number;
+  selectedId?: string;
+  confidenceDelta?: number;
+  candidateCount?: number;
 }) {
   const fromLabel = params.fromEventKind ? `${params.fromEventKind} -> ` : '';
+  const selectedKind = params.toEventKind || params.fromEventKind || 'status_update';
   return createRuntimeEventV2({
     conversationId: params.chat.id,
     kind: 'artifact',
@@ -325,7 +330,15 @@ function buildWorldDecisionEvent(params: {
     visibility: 'derived_public',
     summary: `${params.actorName || '世界驱动'}决策：${fromLabel}${params.toEventKind || 'none'} (${params.decisionType})`,
     payload: {
-      eventType: 'world_attention_decision',
+      eventType: 'world_decision_v2',
+      domain: 'proactive_care',
+      selectedId: params.selectedId || `${params.actorId || 'world'}:${params.decisionType}:${selectedKind}:${params.reasonType}`,
+      selectedKind,
+      selectedReasonType: params.reasonType,
+      decisionSource: params.decisionSource || 'local',
+      modelReason: params.reasonDetail,
+      confidenceDelta: typeof params.confidenceDelta === 'number' ? params.confidenceDelta : undefined,
+      candidateCount: typeof params.candidateCount === 'number' ? params.candidateCount : undefined,
       decisionType: params.decisionType,
       reasonType: params.reasonType,
       reasonLabel: params.reasonLabel,
@@ -2098,10 +2111,13 @@ async function evaluateWorldDrivenDecision(
       actorId: attention.actorId,
       actorName,
       decisionType: 'trigger',
+      decisionSource: 'model',
       reasonType: 'world_attention_model_arbitration',
       reasonLabel: '模型裁决主动关怀动作',
       reasonDetail: `模型选择 ${candidateResult.arbitration.selectedEventKind}${candidateResult.arbitration.reason ? `：${candidateResult.arbitration.reason}` : ''}（置信修正 ${candidateResult.arbitration.confidenceOffset >= 0 ? '+' : ''}${candidateResult.arbitration.confidenceOffset.toFixed(2)}）`,
       toEventKind: candidateResult.arbitration.selectedEventKind,
+      selectedId: `${attention.actorId}:model:${candidateResult.arbitration.selectedEventKind}:${candidateResult.arbitration.selectedReasonType}`,
+      confidenceDelta: candidateResult.arbitration.confidenceOffset,
     }));
   }
   return { candidate, suppressionEvents, decisionEvents };

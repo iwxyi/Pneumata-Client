@@ -934,7 +934,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect(worldCandidate).toBeTruthy();
     expect(((worldCandidate?.payload as { seedIntent?: string }).seedIntent || '').length).toBeGreaterThan(0);
     const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
-      && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'world_attention_decision'
+      && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'world_decision_v2'
       && (event.payload as { reasonType?: string }).reasonType === 'world_attention_model_arbitration');
     expect(decision).toBeTruthy();
     jsonSpy.mockRestore();
@@ -1065,7 +1065,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
     const patch = firstCall?.[1];
     const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
-      && (event.payload as { eventType?: string; reasonType?: string; decisionType?: string }).eventType === 'world_attention_decision'
+      && (event.payload as { eventType?: string; reasonType?: string; decisionType?: string }).eventType === 'world_decision_v2'
       && ['world_attention_restrained_fallback', 'world_attention_cooldown_window', 'world_attention_moment_delay_window'].includes((event.payload as { reasonType?: string }).reasonType || '')
       && (event.payload as { decisionType?: string }).decisionType === 'fallback');
     const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
@@ -1172,7 +1172,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
     const patch = firstCall?.[1];
     const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
-      && (event.payload as { eventType?: string; reasonType?: string; decisionType?: string }).eventType === 'world_attention_decision'
+      && (event.payload as { eventType?: string; reasonType?: string; decisionType?: string }).eventType === 'world_decision_v2'
       && (event.payload as { decisionType?: string }).decisionType === 'fallback'
       && (event.payload as { reasonType?: string }).reasonType === 'world_attention_moment_delay_window');
     const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
@@ -1237,7 +1237,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     });
     const patch = updateChat.mock.calls.at(0)?.[1] as { runtimeEventsV2?: RuntimeEventV2[] } | undefined;
     const fallback = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
-      && (event.payload as { eventType?: string; reasonType?: string; decisionType?: string }).eventType === 'world_attention_decision'
+      && (event.payload as { eventType?: string; reasonType?: string; decisionType?: string }).eventType === 'world_decision_v2'
       && (event.payload as { reasonType?: string }).reasonType === 'world_attention_moment_delay_window'
       && (event.payload as { decisionType?: string }).decisionType === 'fallback');
     const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
@@ -1297,7 +1297,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     });
     const patch = updateChat.mock.calls.at(0)?.[1] as { runtimeEventsV2?: RuntimeEventV2[] } | undefined;
     const fallback = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
-      && (event.payload as { eventType?: string; reasonType?: string; decisionType?: string }).eventType === 'world_attention_decision'
+      && (event.payload as { eventType?: string; reasonType?: string; decisionType?: string }).eventType === 'world_decision_v2'
       && (event.payload as { reasonType?: string }).reasonType === 'world_attention_cooldown_window'
       && (event.payload as { decisionType?: string }).decisionType === 'fallback');
     const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
@@ -1483,7 +1483,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed'
       && (event.payload as { reasonType?: string }).reasonType === 'world_attention_high_restraint');
     const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
-      && (event.payload as { eventType?: string; decisionType?: string }).eventType === 'world_attention_decision'
+      && (event.payload as { eventType?: string; decisionType?: string }).eventType === 'world_decision_v2'
       && (event.payload as { decisionType?: string }).decisionType === 'suppressed');
     const checkInCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate'
       && (event.payload as { eventKind?: string }).eventKind === 'check_in');
@@ -1531,7 +1531,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed'
       && (event.payload as { reasonType?: string }).reasonType === 'world_attention_moment_disabled');
     const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
-      && (event.payload as { eventType?: string; decisionType?: string; reasonType?: string }).eventType === 'world_attention_decision'
+      && (event.payload as { eventType?: string; decisionType?: string; reasonType?: string }).eventType === 'world_decision_v2'
       && (event.payload as { decisionType?: string; reasonType?: string }).decisionType === 'fallback'
       && (event.payload as { reasonType?: string }).reasonType === 'world_attention_moment_disabled');
     const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate');
