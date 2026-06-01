@@ -111,7 +111,6 @@ function formatActorOrigin(origin: string | undefined) {
 export function buildRuntimeTimelineTitle(item: ProjectedRuntimeTimelineItem) {
   if (item.event?.kind === 'calendar_item_patch') return buildCalendarPatchTimelineTitle(item.event, true);
   if (readUnifiedWorldDecisionMeta(item)) return '世界决策';
-  if (readWorldAttentionDecisionMeta(item)) return '世界驱动决策';
   if (readCandidateSuppressionMeta(item)) return '候选抑制';
   if (readCalendarPatchApplyResultMeta(item)) return '日历草案执行';
   const cluster = readSocialEventClusterMeta(item);

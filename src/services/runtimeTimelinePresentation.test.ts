@@ -348,4 +348,31 @@ describe('runtimeTimelinePresentation', () => {
     expect(buildRuntimeTimelineBody(item)).toContain('本地裁决');
     expect(buildRuntimeTimelineMeta(item)).toContain('世界决策 · 世界域 · 本地 · 候选 2 · Δ0.00');
   });
+
+  it('shows selectedReasonType fallback in world_decision_v2 body when modelReason is empty', () => {
+    const item: ProjectedRuntimeTimelineItem = {
+      type: 'note',
+      text: '世界决策',
+      createdAt: 10,
+      label: '记录',
+      event: { id: 'evt-world-v2-local', conversationId: 'chat-1', kind: 'action_resolution', createdAt: 10, summary: '世界决策', payload: {} },
+      meta: {
+        worldDecisionV2: {
+          eventType: 'world_decision_v2',
+          domain: 'proactive_care',
+          selectedId: 'candidate-local',
+          selectedKind: 'status_update',
+          selectedReasonType: 'world_attention_restrained_fallback',
+          decisionSource: 'local',
+          modelReason: '',
+          confidenceDelta: 0.02,
+          candidateCount: 3,
+        },
+      },
+    };
+    const body = buildRuntimeTimelineBody(item);
+    expect(body).toContain('主动关怀');
+    expect(body).toContain('本地裁决');
+    expect(body).toContain('world_attention_restrained_fallback');
+  });
 });

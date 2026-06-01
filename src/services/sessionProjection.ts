@@ -872,7 +872,7 @@ export function readUnifiedWorldDecisionMeta(item: ProjectedRuntimeTimelineItem)
       selectedReasonType: v2.selectedReasonType,
       candidateCount: v2.candidateCount,
       confidenceDelta: v2.confidenceDelta,
-      reason: v2.modelReason,
+      reason: v2.modelReason || v2.selectedReasonType,
     };
   }
   const legacy = readWorldAttentionDecisionMeta(item);

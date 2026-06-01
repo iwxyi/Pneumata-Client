@@ -24,6 +24,7 @@ import {
   readSocialEventCandidateMeta,
   readSocialEventClusterMeta,
   readSocialEventEffectMeta,
+  readUnifiedWorldDecisionMeta,
   readWorldDecisionV2Meta,
   createViewerRoleForConversation,
 } from './sessionProjection';
@@ -313,6 +314,66 @@ describe('sessionProjection', () => {
     expect(meta?.decisionSource).toBe('model');
     expect(meta?.selectedKind).toBe('check_in');
     expect(meta?.candidateCount).toBe(4);
+  });
+
+  it('prefers world_decision_v2 over legacy world_attention_decision when both exist', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'evt-world-both',
+        conversationId: 'chat-1',
+        kind: 'action_resolution',
+        createdAt: 21,
+        summary: '世界决策并存',
+        visibility: 'derived_public',
+        payload: {
+          eventType: 'world_decision_v2',
+          domain: 'proactive_care',
+          selectedKind: 'status_update',
+          selectedReasonType: 'world_attention_calendar_reminder',
+          decisionSource: 'local',
+          modelReason: '',
+          candidateCount: 2,
+          // 兼容字段并存时应优先消费 v2
+          decisionType: 'fallback',
+          toEventKind: 'check_in',
+          reasonType: 'legacy_reason',
+          reasonDetail: 'legacy detail',
+        },
+      }],
+    });
+    const timeline = projectRuntimeState(chat, createProjectionContext(chat, openChatEngine.buildParticipants(chat))).runtimeTimeline;
+    const unified = readUnifiedWorldDecisionMeta(timeline[0]!);
+    expect(unified?.version).toBe('v2');
+    expect(unified?.selectedKind).toBe('status_update');
+    expect(unified?.selectedReasonType).toBe('world_attention_calendar_reminder');
+  });
+
+  it('falls back unified world decision reason to selectedReasonType when modelReason is empty', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'evt-world-local',
+        conversationId: 'chat-1',
+        kind: 'action_resolution',
+        createdAt: 22,
+        summary: '世界本地决策',
+        visibility: 'derived_public',
+        payload: {
+          eventType: 'world_decision_v2',
+          domain: 'open_chat',
+          selectedKind: 'status_update',
+          selectedReasonType: 'world_attention_restrained_fallback',
+          decisionSource: 'local',
+          modelReason: '',
+          candidateCount: 3,
+        },
+      }],
+    });
+    const timeline = projectRuntimeState(chat, createProjectionContext(chat, openChatEngine.buildParticipants(chat))).runtimeTimeline;
+    const unified = readUnifiedWorldDecisionMeta(timeline[0]!);
+    expect(unified?.version).toBe('v2');
+    expect(unified?.reason).toBe('world_attention_restrained_fallback');
   });
 
   it('projects non-participant attention ids as system actor kind labels', () => {
