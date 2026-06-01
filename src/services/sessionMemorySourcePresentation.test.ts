@@ -123,6 +123,26 @@ describe('sessionMemorySourcePresentation', () => {
     expect(presentation.sourceTooltip).toContain('创建');
   });
 
+  it('sanitizes debug mood and focus fields in source tooltip', () => {
+    const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
+    const presentation = buildPresentation({
+      includeDebug: true,
+      runtimeLabels: {
+        phase: 'idle',
+        mood: `{"eventType":"room_state_snapshot_v2","owner":"${uuid}"}`,
+        focus: `${uuid} 正在主导话题`,
+        recentEvent: `${uuid} 和 a 争论升级`,
+      },
+    });
+
+    expect(presentation.sourceTooltip).toContain('阶段：idle');
+    expect(presentation.sourceTooltip).toContain('成员');
+    expect(presentation.sourceTooltip).toContain('喜羊羊');
+    expect(presentation.sourceTooltip).not.toContain(uuid);
+    expect(presentation.sourceTooltip).not.toContain('eventType');
+    expect(presentation.sourceTooltip).not.toContain('room_state_snapshot_v2');
+  });
+
   it('projects active, axis, and historical conflicts with sanitized text', () => {
     const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
     const presentation = buildPresentation({

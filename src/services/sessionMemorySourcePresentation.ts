@@ -249,12 +249,14 @@ function buildArtifactProjection(seedArtifactText: string, members: DisplayTextM
 
 function buildSourceTooltip(params: BuildSessionMemorySourcePresentationParams, styleLabel: string, members: DisplayTextMember[]) {
   const labels = params.runtimeLabels || {};
+  const cleanMood = cleanRuntimeText(labels.mood, members) || '未设置';
+  const cleanFocus = cleanRuntimeText(labels.focus, members) || '未设置';
   return [
     `会话：${params.name || '未命名'} / ${styleLabel}`,
     `主题：${params.topic || '未设置'}`,
     `成员：${params.memberCount} 人`,
     `变化强度：${runtimeIntensityLabel(params.runtimeEvolutionIntensity)}`,
-    params.includeDebug ? `阶段：${labels.phase || '未设置'} / 气氛：${labels.mood || '未设置'} / 焦点：${labels.focus || '未设置'}` : '',
+    params.includeDebug ? `阶段：${labels.phase || '未设置'} / 气氛：${cleanMood} / 焦点：${cleanFocus}` : '',
     params.includeDebug ? `最近事件：${cleanRuntimeText(labels.recentEvent, members)}` : '',
     params.includeDebug ? summarizeLifecycleTitle(labels) : '',
   ].filter(Boolean).join('\n');
