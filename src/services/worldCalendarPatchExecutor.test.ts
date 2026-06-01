@@ -199,4 +199,49 @@ describe('worldCalendarPatchExecutor', () => {
     expect(firstEvent?.createdAt).toBe(1777000000000);
     expect(firstEvent?.id).toBe(secondEvent?.id);
   });
+
+  it('blocks subsequent chain drafts when one chain item is skipped', () => {
+    const chats = [chatWithEvents('chat-1')];
+    const result = applyWorldCalendarPatchPlanToChats(
+      chats,
+      projection([{
+        id: 'event-chain',
+        kind: 'activity',
+        status: 'confirmed',
+        title: 'A',
+        participantIds: [],
+        participantStates: {},
+        participantNames: [],
+        summary: '',
+        sourceRefs: [{ conversationId: 'chat-1', eventIds: ['e1'], weight: 1, lastEvidenceAt: 100 }],
+        conflict: null,
+        updatedAt: 100,
+      }]),
+      plan([
+        {
+          idempotencyKey: 'k0',
+          eventType: 'calendar_item_patch',
+          calendarItemId: 'event-chain::travel',
+          chainGroupId: 'event-chain::event-root',
+          patch: { startAt: 1800000000000 },
+          reason: 'travel',
+          priority: 1,
+        },
+        {
+          idempotencyKey: 'k1',
+          eventType: 'calendar_item_patch',
+          calendarItemId: 'event-chain',
+          chainGroupId: 'event-chain::event-root',
+          patch: { startAt: 1800003600000 },
+          reason: 'activity',
+          priority: 2,
+        },
+      ]),
+    );
+
+    expect(result.appliedCount).toBe(0);
+    expect(result.skippedCount).toBe(2);
+    expect(result.skippedItems[0]?.reason).toBe('missing_target_conversation');
+    expect(result.skippedItems[1]?.reason).toBe('chain_group_blocked');
+  });
 });

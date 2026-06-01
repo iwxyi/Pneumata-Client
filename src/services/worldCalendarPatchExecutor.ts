@@ -16,7 +16,7 @@ export interface WorldCalendarPatchExecutionResult {
   skippedItems: Array<{
     calendarItemId: string;
     idempotencyKey: string;
-    reason: 'missing_target_conversation' | 'target_chat_not_found' | 'duplicate_idempotency';
+    reason: 'missing_target_conversation' | 'target_chat_not_found' | 'duplicate_idempotency' | 'chain_group_blocked';
   }>;
 }
 
@@ -99,12 +99,24 @@ export function applyWorldCalendarPatchPlanToChats(
   let skippedCount = 0;
   const appliedItems: WorldCalendarPatchExecutionResult['appliedItems'] = [];
   const skippedItems: WorldCalendarPatchExecutionResult['skippedItems'] = [];
+  const blockedChainGroups = new Set<string>();
 
   const source = options.source || 'world_calendar_patch_executor';
   const baseNow = typeof options.now === 'number' && Number.isFinite(options.now) ? Math.round(options.now) : Date.now();
   plan.queue.forEach((item, index) => {
+    if (item.chainGroupId && blockedChainGroups.has(item.chainGroupId)) {
+      skippedCount += 1;
+      skippedItems.push({
+        calendarItemId: item.calendarItemId,
+        idempotencyKey: item.idempotencyKey,
+        reason: 'chain_group_blocked',
+      });
+      return;
+    }
+
     const conversationId = resolveTargetConversationId(item.calendarItemId, projection, options.fallbackConversationId);
     if (!conversationId) {
+      if (item.chainGroupId) blockedChainGroups.add(item.chainGroupId);
       skippedCount += 1;
       skippedItems.push({
         calendarItemId: item.calendarItemId,
@@ -115,6 +127,7 @@ export function applyWorldCalendarPatchPlanToChats(
     }
     const chat = byId.get(conversationId);
     if (!chat) {
+      if (item.chainGroupId) blockedChainGroups.add(item.chainGroupId);
       skippedCount += 1;
       skippedItems.push({
         calendarItemId: item.calendarItemId,
@@ -124,6 +137,7 @@ export function applyWorldCalendarPatchPlanToChats(
       return;
     }
     if (hasIdempotencyKey(chat, item.idempotencyKey)) {
+      if (item.chainGroupId) blockedChainGroups.add(item.chainGroupId);
       skippedCount += 1;
       skippedItems.push({
         calendarItemId: item.calendarItemId,
