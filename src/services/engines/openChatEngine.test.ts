@@ -1063,6 +1063,85 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect((reminder?.payload as { eventKind?: string }).eventKind).toBe('status_update');
   });
 
+  it('records nextSuggestedAt when calendar_reminder is suppressed by restraint policy', async () => {
+    const now = Date.now();
+    const chat = normalizeConversation({
+      ...buildChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 12, competence: 4, trust: 10, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: now - 10 * 60_000,
+      }],
+      runtimeEventsV2: [{
+        id: 'evt-attention',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: now - 2 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户提到明天安排',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', confidence: 0.9, targetIds: ['a'] },
+      }, {
+        id: 'evt-recent-private',
+        conversationId: 'chat-1',
+        kind: 'event_candidate',
+        createdAt: now - 30 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: 'a 刚私聊跟进过',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'pair_private_thread',
+          initiatorId: 'a',
+          participantIds: ['a', 'user'],
+          targetIds: ['user'],
+          reasonType: 'attention_followup',
+          confidence: 0.82,
+          urgency: 'soon',
+          seedIntent: '刚刚跟进过',
+          visibilityPlan: 'user_private',
+          expectedArtifacts: ['private_thread_summary'],
+        },
+      }, {
+        id: 'evt-recent-outing',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 20 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: '刚发起活动邀约',
+        visibility: 'derived_public',
+        payload: { artifactType: 'outing_summary', eventKind: 'social_outing', text: '刚发起活动邀约' },
+      }],
+    });
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我来补一条提醒。',
+        interactionHint: null,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readAppliedRuntimeEvents(chat, result);
+    expect(nextEvents.some((event) => event.kind === 'event_candidate' && (event.payload as { reasonType?: string }).reasonType === 'world_attention_calendar_reminder')).toBe(false);
+    const suppressed = nextEvents.find((event) => event.kind === 'action_resolution'
+      && (event.payload as { eventType?: string; reasonType?: string; candidateEventKind?: string }).eventType === 'event_candidate_suppressed'
+      && (event.payload as { reasonType?: string; candidateEventKind?: string }).reasonType === 'restraint_policy'
+      && (event.payload as { candidateEventKind?: string }).candidateEventKind === 'status_update');
+    expect(suppressed).toBeTruthy();
+    expect((suppressed?.payload as { hitWindow?: string }).hitWindow).toBe('2h');
+    expect(typeof (suppressed?.payload as { nextSuggestedAt?: unknown }).nextSuggestedAt).toBe('number');
+  });
+
   it('skips calendar reminders while pending status_update suppression window is active', async () => {
     const now = Date.now();
     const chat = normalizeConversation({
