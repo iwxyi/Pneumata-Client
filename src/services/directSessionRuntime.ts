@@ -496,9 +496,24 @@ function buildPrivateThreadEffectEvents(sourceChat: GroupChat, starterId: string
 
 
 function buildPostMomentSummary(actorName: string, payload: SocialEventCandidatePayload) {
-  return payload.reasonType === 'celebration'
-    ? `${actorName} 发了一条动态，记录了刚才的开心时刻。`
-    : `${actorName} 发了一条动态，表达了刚才的情绪。`;
+  const source = (payload.sourceText || '').trim();
+  const sourceHint = source ? source.replace(/\s+/g, ' ').slice(0, 22) : '';
+  const addHint = (text: string) => sourceHint ? `${text}（${sourceHint}${source.length > 22 ? '…' : ''}）` : text;
+  const expectedArtifacts = payload.expectedArtifacts || [];
+  const hasImageSignal = expectedArtifacts.some((item) => item !== 'moment_text');
+  if (payload.reasonType === 'world_attention_share_moment_event') {
+    return addHint(`${actorName} 发了一条动态，记录了刚发生的片段。`);
+  }
+  if (payload.reasonType === 'world_attention_share_moment_inner') {
+    return addHint(`${actorName} 发了一条动态，写下了当下的内心感受。`);
+  }
+  if (payload.reasonType === 'celebration') {
+    return addHint(`${actorName} 发了一条动态，记录了刚才的开心时刻。`);
+  }
+  if (hasImageSignal) {
+    return addHint(`${actorName} 发了一条动态，配了一张随手图分享近况。`);
+  }
+  return addHint(`${actorName} 发了一条动态，表达了刚才的情绪。`);
 }
 
 function buildPostMomentEffectEvents(sourceChat: GroupChat, payload: SocialEventCandidatePayload, actorName: string) {

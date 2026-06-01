@@ -98,4 +98,28 @@ describe('post moment backflow', () => {
     expect((effect?.payload as { eventKind?: string; effectType?: string }).effectType).toBe('artifact');
     expect(patch.worldState?.recentEvent).toContain('甲 发了一条动态');
   });
+
+  it('formats post moment summary as event record style for event-themed reason', () => {
+    const chat = buildChat();
+    const patch = updateSourceChatAfterPostMoment(chat, buildPayload({
+      reasonType: 'world_attention_share_moment_event',
+      sourceText: '今晚一起吃火锅，顺便拍了合照。',
+    }), '甲');
+    const moment = (patch.runtimeEventsV2 || []).find((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'moment_text');
+    const text = (moment?.payload as { text?: string }).text || '';
+    expect(text).toContain('记录了刚发生的片段');
+    expect(text).toContain('今晚一起吃火锅');
+  });
+
+  it('formats post moment summary as inner reflection style for inner-themed reason', () => {
+    const chat = buildChat();
+    const patch = updateSourceChatAfterPostMoment(chat, buildPayload({
+      reasonType: 'world_attention_share_moment_inner',
+      sourceText: '聊完之后心里松了一口气。',
+    }), '甲');
+    const moment = (patch.runtimeEventsV2 || []).find((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'moment_text');
+    const text = (moment?.payload as { text?: string }).text || '';
+    expect(text).toContain('写下了当下的内心感受');
+    expect(text).toContain('聊完之后心里松了一口气');
+  });
 });
