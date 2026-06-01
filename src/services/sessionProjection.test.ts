@@ -24,6 +24,7 @@ import {
   readSocialEventCandidateMeta,
   readSocialEventClusterMeta,
   readSocialEventEffectMeta,
+  readWorldDecisionV2Meta,
   createViewerRoleForConversation,
 } from './sessionProjection';
 import { normalizeConversation } from '../types/chat';
@@ -281,6 +282,37 @@ describe('sessionProjection', () => {
     });
     expect((projectedAttention?.reasons || []).join(' / ')).toContain('喜羊羊');
     expect((projectedAttention?.reasons || []).join(' / ')).toContain('沸羊羊');
+  });
+
+  it('extracts world_decision_v2 metadata into projected timeline', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'evt-world-v2',
+        conversationId: 'chat-1',
+        kind: 'action_resolution',
+        createdAt: 20,
+        summary: '世界决策',
+        visibility: 'derived_public',
+        payload: {
+          eventType: 'world_decision_v2',
+          domain: 'open_chat',
+          selectedId: 'candidate-1',
+          selectedKind: 'check_in',
+          decisionSource: 'model',
+          modelReason: '优先回应当前被点名对象',
+          confidenceDelta: 0.03,
+          candidateCount: 4,
+        },
+      }],
+    });
+    const timeline = projectRuntimeState(chat, createProjectionContext(chat, openChatEngine.buildParticipants(chat))).runtimeTimeline;
+    const meta = readWorldDecisionV2Meta(timeline[0]!);
+    expect(meta?.eventType).toBe('world_decision_v2');
+    expect(meta?.domain).toBe('open_chat');
+    expect(meta?.decisionSource).toBe('model');
+    expect(meta?.selectedKind).toBe('check_in');
+    expect(meta?.candidateCount).toBe(4);
   });
 
   it('projects non-participant attention ids as system actor kind labels', () => {

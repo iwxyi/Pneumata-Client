@@ -248,4 +248,32 @@ describe('runtimeTimelinePresentation', () => {
     const body = buildRuntimeTimelineBody(item);
     expect(body).toContain('建议');
   });
+
+  it('shows world_decision_v2 scheduling trace with domain/source/candidate context', () => {
+    const item: ProjectedRuntimeTimelineItem = {
+      type: 'note',
+      text: '世界决策',
+      createdAt: 7,
+      label: '记录',
+      event: { id: 'evt-world-v2', conversationId: 'chat-1', kind: 'action_resolution', createdAt: 7, summary: '世界决策', payload: {} },
+      meta: {
+        worldDecisionV2: {
+          eventType: 'world_decision_v2',
+          domain: 'open_chat',
+          selectedId: 'candidate-1',
+          selectedKind: 'check_in',
+          decisionSource: 'model',
+          modelReason: '优先回应当前被点名对象',
+          confidenceDelta: 0.03,
+          candidateCount: 4,
+        },
+      },
+    };
+
+    expect(buildRuntimeTimelineTitle(item)).toBe('世界决策');
+    expect(buildRuntimeTimelineTypeLabel(item)).toBe('调度');
+    expect(buildRuntimeTimelineBody(item)).toContain('开放群聊');
+    expect(buildRuntimeTimelineBody(item)).toContain('模型裁决');
+    expect(buildRuntimeTimelineMeta(item)).toContain('世界决策 · 开放群聊 · 模型 · 候选 4 · Δ0.03');
+  });
 });

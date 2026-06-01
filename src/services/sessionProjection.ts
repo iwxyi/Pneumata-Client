@@ -137,6 +137,17 @@ export interface ProjectedRuntimeTimelineItem {
       toEventKind?: string;
       nextSuggestedAt?: number;
     };
+    worldDecisionV2?: {
+      eventType: 'world_decision_v2';
+      domain?: 'proactive_care' | 'open_chat' | 'calendar_patch_queue';
+      selectedId?: string;
+      selectedKind?: string;
+      selectedReasonType?: string;
+      decisionSource?: 'local' | 'model';
+      modelReason?: string;
+      confidenceDelta?: number;
+      candidateCount?: number;
+    };
     calendarPatchApplyResult?: {
       eventType: 'calendar_patch_apply_result';
       appliedCount: number;
@@ -313,6 +324,21 @@ function buildEventMeta(event: RuntimeEventV2) {
     queueCount: typeof payload.queueCount === 'number' ? payload.queueCount : undefined,
     persistedCount: typeof payload.persistedCount === 'number' ? payload.persistedCount : undefined,
   } : undefined;
+  const worldDecisionV2 = payload && payload.eventType === 'world_decision_v2' ? {
+    eventType: 'world_decision_v2' as const,
+    domain: payload.domain === 'proactive_care' || payload.domain === 'open_chat' || payload.domain === 'calendar_patch_queue'
+      ? payload.domain
+      : undefined,
+    selectedId: typeof payload.selectedId === 'string' ? payload.selectedId : undefined,
+    selectedKind: typeof payload.selectedKind === 'string' ? payload.selectedKind : undefined,
+    selectedReasonType: typeof payload.selectedReasonType === 'string' ? payload.selectedReasonType : undefined,
+    decisionSource: payload.decisionSource === 'local' || payload.decisionSource === 'model'
+      ? payload.decisionSource
+      : undefined,
+    modelReason: typeof payload.modelReason === 'string' ? payload.modelReason : undefined,
+    confidenceDelta: typeof payload.confidenceDelta === 'number' ? payload.confidenceDelta : undefined,
+    candidateCount: typeof payload.candidateCount === 'number' ? payload.candidateCount : undefined,
+  } : undefined;
   return {
     memoryCandidate: event.kind === 'memory_candidate' && isMemoryCandidatePayload(event.payload) ? event.payload : undefined,
     socialEventCandidate: event.kind === 'event_candidate' && isSocialEventCandidatePayload(event.payload) ? event.payload : undefined,
@@ -328,6 +354,7 @@ function buildEventMeta(event: RuntimeEventV2) {
     calendarPatch: toCalendarPatchMeta(event),
     candidateSuppression,
     worldAttentionDecision,
+    worldDecisionV2,
     calendarPatchApplyResult,
   };
 }
@@ -659,6 +686,8 @@ function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: N
           attentionFollowup: projectAttentionFollowupMeta(event, events, index, participantNameMap),
           calendarPatch: baseMeta.calendarPatch,
           candidateSuppression: baseMeta.candidateSuppression,
+          worldAttentionDecision: baseMeta.worldAttentionDecision,
+          worldDecisionV2: baseMeta.worldDecisionV2,
           calendarPatchApplyResult: baseMeta.calendarPatchApplyResult,
         };
       })(),
@@ -794,6 +823,10 @@ export function readCandidateSuppressionMeta(item: ProjectedRuntimeTimelineItem)
 
 export function readWorldAttentionDecisionMeta(item: ProjectedRuntimeTimelineItem) {
   return item.meta?.worldAttentionDecision || null;
+}
+
+export function readWorldDecisionV2Meta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.worldDecisionV2 || null;
 }
 
 export function readCalendarPatchApplyResultMeta(item: ProjectedRuntimeTimelineItem) {
