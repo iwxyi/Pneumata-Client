@@ -262,7 +262,7 @@ function characterNameMap(characters: AICharacter[]) {
 
 function getActorName(id: string | undefined, names: Map<string, string>) {
   if (!id) return '成员';
-  if (id === 'user') return '用户';
+  if (id === 'user') return '我';
   return names.get(id) || '成员';
 }
 

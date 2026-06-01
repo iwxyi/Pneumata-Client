@@ -242,7 +242,7 @@ describe('worldRuntimeProjection', () => {
     const items = projectWorldCalendarItems(chats, [character('a', 'A')]);
     expect(items).toHaveLength(1);
     expect(items[0]?.participantIds).toEqual(['a', 'user']);
-    expect(items[0]?.participantNames).toEqual(['A', '用户']);
+    expect(items[0]?.participantNames).toEqual(['A', '我']);
     expect(items[0]?.participantStates).toEqual({ a: 'going', user: 'invited' });
   });
 
@@ -311,7 +311,7 @@ describe('worldRuntimeProjection', () => {
     const items = projectWorldCalendarItems(chats, [character('a', 'A')]);
     expect(items).toHaveLength(1);
     expect(items[0]?.participantIds).toContain('user');
-    expect(items[0]?.participantNames).toContain('用户');
+    expect(items[0]?.participantNames).toContain('我');
   });
 
   it('keeps calendar item source refs when one source conversation is deleted', () => {
@@ -1130,7 +1130,7 @@ describe('worldRuntimeProjection', () => {
     expect(states).toHaveLength(1);
     expect(states[0]?.actorName).toBe('A');
     expect(states[0]?.actorRef).toEqual({ kind: 'ai_character', id: 'a' });
-    expect(states[0]?.targetName).toBe('用户');
+    expect(states[0]?.targetName).toBe('我');
     expect(states[0]?.targetRef).toEqual({ kind: 'user_persona', id: 'user' });
     expect(states[0]?.attentionScore).toBeGreaterThan(0.7);
     expect(states[0]?.restraint).toBeLessThan(0.65);
