@@ -3,6 +3,7 @@ import type { AICharacter } from '../types/character';
 import type { APIConfig } from '../types/settings';
 import { projectWorldCalendar } from './worldRuntimeProjection';
 import { buildWorldCalendarPatchApplyPlan } from './worldCalendarPatchPlanner';
+import type { WorldCalendarPatchApplyPlan } from './worldCalendarPatchPlanner';
 import { applyWorldCalendarPatchPlanToChats } from './worldCalendarPatchExecutor';
 import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
 
@@ -34,7 +35,7 @@ export interface ApplyWorldCalendarPatchDraftQueueResult {
   skippedItems: Array<{
     calendarItemId: string;
     idempotencyKey: string;
-    reason: 'missing_target_conversation' | 'target_chat_not_found' | 'duplicate_idempotency';
+    reason: 'missing_target_conversation' | 'target_chat_not_found' | 'duplicate_idempotency' | 'chain_group_blocked';
   }>;
   modelArbitration?: {
     attempted: boolean;
