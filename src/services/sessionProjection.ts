@@ -706,7 +706,12 @@ function projectRuntimeTimelineItems(events: RuntimeEventV2[], legacyTimeline: N
           socialEventArtifact: baseMeta.socialEventArtifact ? projectSocialEventArtifactPayload(baseMeta.socialEventArtifact, participantNameMap) : undefined,
           socialEventEffect: baseMeta.socialEventEffect ? { ...baseMeta.socialEventEffect, summary: cleanProjectionText(baseMeta.socialEventEffect.summary, participantNameMap) } : undefined,
           socialEventCluster: baseMeta.socialEventCluster,
-          relationshipDelta: baseMeta.relationshipDelta ? { reason: formatRelationshipReason(baseMeta.relationshipDelta.reason), delta: baseMeta.relationshipDelta.delta || {}, axisReasons: baseMeta.relationshipDelta.axisReasons || {}, spikeType: baseMeta.relationshipDelta.spikeType } : undefined,
+          relationshipDelta: baseMeta.relationshipDelta ? {
+            reason: cleanProjectionText(formatRelationshipReason(baseMeta.relationshipDelta.reason), participantNameMap),
+            delta: baseMeta.relationshipDelta.delta || {},
+            axisReasons: baseMeta.relationshipDelta.axisReasons || {},
+            spikeType: baseMeta.relationshipDelta.spikeType,
+          } : undefined,
           roomShift: baseMeta.roomShift,
           memoryDistillation: baseMeta.memoryDistillation ? projectMemoryDistillationPayload(baseMeta.memoryDistillation, participantNameMap) : undefined,
           projectionInfo: baseMeta.projectionInfo ? projectProjectionInfoMeta(baseMeta.projectionInfo, participantNameMap) : undefined,
@@ -1048,6 +1053,11 @@ function buildAttentionFollowupActions(chat: GroupChat, members: AICharacter[], 
     comfort: '安慰陪伴',
     share_moment: '分享动态',
   };
+  const displayMembers: DisplayTextMember[] = [
+    { id: 'user', name: '我' },
+    ...members.map((member) => ({ id: member.id, name: member.name })),
+  ];
+  const cleanActionText = (text: string) => sanitizeUserFacingText(text, displayMembers);
   const rankedStates = projectWorldAttentionStates([chat], members, { now: effectiveNow })
     .filter((state) => state.attentionScore > state.restraint)
     .sort((left, right) => (right.attentionScore - right.restraint) - (left.attentionScore - left.restraint));
@@ -1060,7 +1070,7 @@ function buildAttentionFollowupActions(chat: GroupChat, members: AICharacter[], 
         type: 'attention_followup_user',
         actorId: state.actorId,
         label: `${state.actorName} 跟进用户`,
-        description: `关注${Math.round(state.attentionScore * 100)}% / 克制${Math.round(state.restraint * 100)}%，优先动作：${state.suggestedActions.slice(0, 3).map((item) => labelMap[item] || item).join('、')}。${state.reasons[0] ? ` 触发原因：${state.reasons[0]}` : ''}`,
+        description: cleanActionText(`关注${Math.round(state.attentionScore * 100)}% / 克制${Math.round(state.restraint * 100)}%，优先动作：${state.suggestedActions.slice(0, 3).map((item) => labelMap[item] || item).join('、')}。${state.reasons[0] ? ` 触发原因：${state.reasons[0]}` : ''}`),
         visibility: 'moderator_only',
         fields: [
           {
@@ -1081,7 +1091,7 @@ function buildAttentionFollowupActions(chat: GroupChat, members: AICharacter[], 
       type: 'attention_followup_member',
       actorId: state.actorId,
       label: `${state.actorName} 跟进 ${state.targetName}`,
-      description: `关注${Math.round(state.attentionScore * 100)}% / 克制${Math.round(state.restraint * 100)}%，优先动作：${state.suggestedActions.slice(0, 3).map((item) => labelMap[item] || item).join('、')}。${state.reasons[0] ? ` 触发原因：${state.reasons[0]}` : ''}`,
+      description: cleanActionText(`关注${Math.round(state.attentionScore * 100)}% / 克制${Math.round(state.restraint * 100)}%，优先动作：${state.suggestedActions.slice(0, 3).map((item) => labelMap[item] || item).join('、')}。${state.reasons[0] ? ` 触发原因：${state.reasons[0]}` : ''}`),
       visibility: 'moderator_only',
       fields: [
         {

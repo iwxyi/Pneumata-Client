@@ -1430,6 +1430,42 @@ describe('sessionProjection', () => {
     expect(targetField?.options?.[0]).toEqual({ value: 'b', label: '灰太狼' });
   });
 
+  it('sanitizes attention follow-up action reason text in descriptions', () => {
+    const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
+    const chat = normalizeConversation({
+      ...buildChat(),
+      id: 'group-attention-sanitize',
+      type: 'group',
+      memberIds: ['user', 'a'],
+      runtimeEventsV2: [{
+        id: 'att-a-sanitize',
+        conversationId: 'group-attention-sanitize',
+        kind: 'attention_candidate',
+        createdAt: 101,
+        actorIds: ['a'],
+        targetIds: ['user'],
+        summary: 'a 想跟进用户',
+        visibility: 'derived_public',
+        payload: { reason: `${uuid} {"eventType":"room_state_snapshot_v2"} user 点名 a`, confidence: 0.9, targetIds: ['user'] },
+      }],
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 8, trust: 7, competence: 6, threat: 1 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: 100,
+      }],
+    });
+    const actions = buildProjectedSessionActions(chat, [], [{ id: 'a', name: '喜羊羊' }] as never, new Date('2026-05-29T14:00:00+08:00').getTime());
+    const followup = actions.find((action) => action.type === 'attention_followup_user' && action.actorId === 'a');
+    expect(followup?.description).toContain('系统事件');
+    expect(followup?.description).toContain('我');
+    expect(followup?.description).not.toContain(uuid);
+    expect(followup?.description).not.toContain('eventType');
+  });
+
   it('labels direct private payloads as single-chat information', () => {
     const chat = normalizeConversation({
       ...buildChat(),
