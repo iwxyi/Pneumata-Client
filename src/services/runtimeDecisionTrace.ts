@@ -90,15 +90,47 @@ function buildExecutionRelation(
     ? decision?.directorIntent?.userGuidance?.actorIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
     : [];
   if (!actorIds.length) return { label: null, raw: null };
-  const actorNames = actorIds.map((id) => cleanTraceText(id, members));
+  const actorNames = actorIds.map((id) => cleanTraceText(members.find((member) => member.id === id)?.name || '成员', members));
   const speakerName = cleanTraceText(senderName || senderId, members);
   const matched = actorIds.includes(senderId);
   return {
     label: matched
       ? `执行目标已命中 · ${speakerName}`
       : `执行目标 ${actorNames.join('、')} · 实际发言 ${speakerName}`,
-    raw: `targets=${actorIds.join(',')} speaker=${senderId} matched=${matched ? 'yes' : 'no'}`,
+    raw: `targets=${actorNames.join(',')} speaker=${speakerName} matched=${matched ? 'yes' : 'no'}`,
   };
+}
+
+function formatGuidanceTraceHint(
+  guidance: NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['directorIntent'] extends infer T
+    ? T extends { userGuidance?: infer U } ? U : never
+    : never,
+  members: DisplayTextMember[] = [],
+) {
+  if (!guidance || typeof guidance !== 'object') return null;
+  const actorNames = Array.isArray((guidance as { actorIds?: unknown }).actorIds)
+    ? (guidance as { actorIds: unknown[] }).actorIds
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((id) => cleanTraceText(members.find((member) => member.id === id)?.name || '成员', members))
+    : [];
+  const mentionedNames = Array.isArray((guidance as { mentionedActorIds?: unknown }).mentionedActorIds)
+    ? (guidance as { mentionedActorIds: unknown[] }).mentionedActorIds
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((id) => cleanTraceText(members.find((member) => member.id === id)?.name || '成员', members))
+    : [];
+  const mediaRequest = (guidance as { mediaRequest?: { kind?: string; subjectText?: string; subjectActorIds?: string[] } }).mediaRequest;
+  const subjectNames = Array.isArray(mediaRequest?.subjectActorIds)
+    ? mediaRequest.subjectActorIds
+        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        .map((id) => cleanTraceText(members.find((member) => member.id === id)?.name || '成员', members))
+    : [];
+  return [
+    `kind=${cleanTraceText((guidance as { kind?: string }).kind || '', members) || 'unknown'}`,
+    actorNames.length ? `actors=${actorNames.join(',')}` : '',
+    mentionedNames.length ? `mentioned=${mentionedNames.join(',')}` : '',
+    mediaRequest?.kind ? `media=${cleanTraceText(mediaRequest.kind, members)}` : '',
+    subjectNames.length ? `subjects=${subjectNames.join(',')}` : mediaRequest?.subjectText ? `subject=${cleanTraceText(mediaRequest.subjectText, members)}` : '',
+  ].filter(Boolean).join(' ');
 }
 
 function buildExpressionTrace(innerLife: NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['innerLife'] | undefined, surface: NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['responseSurface'] | undefined) {
@@ -231,7 +263,7 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
       const rawDebugHint = [
         decision?.directorIntent ? `director=${director}` : '',
         executionRelation.raw ? `execution=${executionRelation.raw}` : '',
-        decision?.directorIntent?.userGuidance ? `guidance=${JSON.stringify(decision.directorIntent.userGuidance)}` : '',
+        decision?.directorIntent?.userGuidance ? `guidance=${formatGuidanceTraceHint(decision.directorIntent.userGuidance, members)}` : '',
         primaryLine ? `line=${primaryLine}` : '',
         rawSurface ? `surface=${rawSurface}` : '',
         expression.raw ? `expression=${expression.raw}` : '',

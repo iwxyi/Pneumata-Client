@@ -228,7 +228,41 @@ describe('runtimeDecisionTrace', () => {
     ], 1, [{ id: 'a', name: '甲' }, { id: 'b', name: '乙' }]);
 
     expect(trace.executionRelationLabel).toBe('执行目标 甲 · 实际发言 乙');
-    expect(trace.rawExecutionRelation).toContain('targets=a');
-    expect(trace.rawExecutionRelation).toContain('speaker=b');
+    expect(trace.rawExecutionRelation).toContain('targets=甲');
+    expect(trace.rawExecutionRelation).toContain('speaker=乙');
+  });
+
+  it('keeps debug hint readable without leaking raw guidance ids', () => {
+    const memberId = '3c78729f-e52d-4dde-b27f-01a949960bb8b';
+    const [trace] = projectRuntimeDecisionTrace([
+      buildMessage({
+        id: 'm6',
+        timestamp: 6,
+        senderId: 'a',
+        senderName: '甲',
+        metadata: {
+          runtimeDecision: {
+            directorIntent: {
+              source: 'user_guidance',
+              beatType: 'answer',
+              pressure: 0.7,
+              reason: '按用户要求',
+              userGuidance: {
+                kind: 'direct_reply',
+                rawText: '请乙来答',
+                actorIds: [memberId],
+                mentionedActorIds: [memberId],
+                beatType: 'answer',
+                pressure: 0.7,
+              },
+            },
+          },
+        },
+      }),
+    ], 1, [{ id: memberId, name: '乙' }]);
+
+    expect(trace.rawDebugHint).toContain('guidance=kind=direct_reply');
+    expect(trace.rawDebugHint).toContain('actors=乙');
+    expect(trace.rawDebugHint).not.toContain(memberId);
   });
 });
