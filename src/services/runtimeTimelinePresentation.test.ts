@@ -286,4 +286,66 @@ describe('runtimeTimelinePresentation', () => {
     expect(buildRuntimeTimelineBody(item)).toContain('模型裁决');
     expect(buildRuntimeTimelineMeta(item)).toContain('世界决策 · 开放群聊 · 模型 · 候选 4 · Δ0.03');
   });
+
+  it('shows calendar patch apply traces when model attempted but kept default order', () => {
+    const item: ProjectedRuntimeTimelineItem = {
+      type: 'note',
+      text: '日历草案执行',
+      createdAt: 8,
+      label: '记录',
+      event: { id: 'evt-patch-apply-2', conversationId: 'chat-1', kind: 'action_resolution', createdAt: 8, summary: '执行完成', payload: {} },
+      meta: {
+        calendarPatchApplyResult: {
+          eventType: 'calendar_patch_apply_result',
+          appliedCount: 1,
+          skippedCount: 3,
+          failedCount: 0,
+          queueCount: 5,
+          persistedCount: 1,
+          skippedReasonCounts: {
+            missing_target_conversation: 1,
+            target_chat_not_found: 1,
+            duplicate_idempotency: 1,
+          },
+          modelArbitration: {
+            attempted: true,
+            applied: false,
+            selectedIndependentCount: 4,
+          },
+        },
+      },
+    };
+
+    expect(buildRuntimeTimelineBody(item)).toBe('应用 1 · 跳过 3 · 失败 0 · 模型未改排');
+    expect(buildRuntimeTimelineMeta(item)).toContain('缺少目标会话 1');
+    expect(buildRuntimeTimelineMeta(item)).toContain('目标会话不存在 1');
+    expect(buildRuntimeTimelineMeta(item)).toContain('幂等跳过 1');
+    expect(buildRuntimeTimelineMeta(item)).toContain('模型未改排(4)');
+  });
+
+  it('falls back world_decision_v2 unknown domain to generic world domain label', () => {
+    const item: ProjectedRuntimeTimelineItem = {
+      type: 'note',
+      text: '世界决策',
+      createdAt: 9,
+      label: '记录',
+      event: { id: 'evt-world-v2-unknown', conversationId: 'chat-1', kind: 'action_resolution', createdAt: 9, summary: '世界决策', payload: {} },
+      meta: {
+        worldDecisionV2: {
+          eventType: 'world_decision_v2',
+          domain: undefined,
+          selectedId: 'candidate-x',
+          selectedKind: 'status_update',
+          selectedReasonType: 'world_attention_calendar_reminder',
+          decisionSource: 'local',
+          modelReason: '',
+          confidenceDelta: 0,
+          candidateCount: 2,
+        },
+      },
+    };
+    expect(buildRuntimeTimelineBody(item)).toContain('世界域');
+    expect(buildRuntimeTimelineBody(item)).toContain('本地裁决');
+    expect(buildRuntimeTimelineMeta(item)).toContain('世界决策 · 世界域 · 本地 · 候选 2 · Δ0.00');
+  });
 });

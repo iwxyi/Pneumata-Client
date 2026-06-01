@@ -983,6 +983,47 @@ describe('sessionProjection', () => {
     expect(readCalendarPatchApplyResultMeta(patchApplyItem!)?.modelArbitration?.applied).toBe(true);
   });
 
+  it('parses calendar patch apply model arbitration and skipped reason breakdown robustly', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      runtimeEventsV2: [{
+        id: 'evt-patch-apply-model',
+        conversationId: 'chat-1',
+        kind: 'action_resolution',
+        createdAt: 61,
+        actorIds: ['host_moderator'],
+        summary: '执行完成：应用 1，跳过 2，失败 0',
+        visibility: 'public',
+        payload: {
+          eventType: 'calendar_patch_apply_result',
+          appliedCount: 1,
+          skippedCount: 2,
+          failedCount: 0,
+          queueCount: 3,
+          persistedCount: 1,
+          skippedReasonCounts: {
+            duplicate_idempotency: 2,
+            chain_group_blocked: 'x',
+          },
+          modelArbitration: {
+            attempted: true,
+            applied: false,
+            selectedIndependentCount: 3,
+          },
+        },
+      }],
+    });
+    const timeline = projectRuntimeState(chat, createProjectionContext(chat, [{ id: 'host_moderator', name: '主持人' }] as never, 'host_moderator', 'moderator')).runtimeTimeline;
+    const item = timeline.find((entry) => entry.event?.id === 'evt-patch-apply-model');
+    const meta = readCalendarPatchApplyResultMeta(item!);
+    expect(meta?.eventType).toBe('calendar_patch_apply_result');
+    expect(meta?.skippedReasonCounts?.duplicate_idempotency).toBe(2);
+    expect(meta?.skippedReasonCounts?.chain_group_blocked).toBeUndefined();
+    expect(meta?.modelArbitration?.attempted).toBe(true);
+    expect(meta?.modelArbitration?.applied).toBe(false);
+    expect(meta?.modelArbitration?.selectedIndependentCount).toBe(3);
+  });
+
   it('projects moment, outing, status-update, conflict, and gift backflow as social event effect metadata', () => {
     const chat = normalizeConversation({
       ...buildChat(),
