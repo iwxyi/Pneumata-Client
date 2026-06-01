@@ -3,7 +3,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { SessionActionSchema, SessionNormalizedIntentResult } from '../types/sessionEngine';
-import type { AIModelProfile } from '../types/settings';
+import type { AIModelProfile, APIConfig } from '../types/settings';
 import { buildActionRuntimeContract, buildRuntimeEventContract } from './sessionRuntimeContract';
 import { canActorRunSessionAction, resolveMemberActorRef } from './memberActionPolicy';
 import { getUsablePreferredAIProfile } from '../types/settings';
@@ -62,6 +62,17 @@ function resolveActionActorOrigin(chat: GroupChat, actorId: string | undefined) 
   if (chat.memberIds.includes(actorId)) return 'member';
   if ((chat.operatorIds || []).includes(actorId)) return 'operator';
   return 'external';
+}
+
+function resolveTextApiConfig(aiProfiles: AIModelProfile[]): APIConfig | null {
+  const profile = getUsablePreferredAIProfile(aiProfiles, 'text');
+  if (!profile) return null;
+  return {
+    provider: profile.provider,
+    apiKey: profile.apiKey,
+    baseUrl: profile.baseUrl,
+    model: profile.model,
+  };
 }
 
 export async function runSessionActionImpl(
@@ -399,10 +410,12 @@ export async function runSurfaceIntentImpl(
 export async function runAutoSocialEventFlowImpl(sourceChat: GroupChat, context: AutoSocialEventFlowContext) {
   const { runSocialEventAutoFlow } = await import('./directSessionRuntime');
   const imageModelEnabled = Boolean(getUsablePreferredAIProfile(context.aiProfiles || [], 'image'));
+  const textApiConfig = resolveTextApiConfig(context.aiProfiles || []);
   return runSocialEventAutoFlow(sourceChat, {
     chats: context.chats,
     characters: context.characters,
     imageModelEnabled,
+    textApiConfig,
     updateChat: context.updateChat,
     addChat: async (input) => (await import('../stores/useChatStore')).useChatStore.getState().addChat(input as never),
     addMessage: context.addMessage,

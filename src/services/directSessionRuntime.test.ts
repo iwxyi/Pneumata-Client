@@ -4,6 +4,7 @@ import { buildPrivateThreadOpenedEvent, buildStartPrivateThreadExecutionResult, 
 import type { AICharacter } from '../types/character';
 import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
 import { setAIGenerationRuntimeConfig } from './aiGenerationRuntimeConfig';
+import * as aiClient from './aiClient';
 
 function buildCandidatePayload(overrides: Partial<SocialEventCandidatePayload> = {}): SocialEventCandidatePayload {
   return {
@@ -815,6 +816,57 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     const baseConfidence = (baseCandidate?.payload as { confidence?: number }).confidence || 0;
     const influencedConfidence = (influencedCandidate?.payload as { confidence?: number }).confidence || 0;
     expect(influencedConfidence).toBeGreaterThan(baseConfidence);
+  });
+
+  it('uses model arbitration to select proactive-care candidate when text model is available', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 2_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户提到最近状态',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.9, reason: '用户刚提到近期生活状态' },
+        } as RuntimeEventV2,
+      ]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 10, competence: 4, trust: 8, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    const jsonSpy = vi.spyOn(aiClient, 'generateJsonResponse')
+      .mockResolvedValueOnce(JSON.stringify({
+        selectedIndex: 1,
+        confidenceOffset: 0.03,
+        reason: '当前更适合低打扰提醒',
+      }));
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      textApiConfig: { provider: 'openai', apiKey: 'k', model: 'gpt-4o-mini' },
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(jsonSpy).toHaveBeenCalled();
+    const firstCall = updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined;
+    const patch = firstCall?.[1];
+    const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate') as RuntimeEventV2 | undefined;
+    expect(worldCandidate).toBeTruthy();
+    expect((worldCandidate?.payload as { seedIntent?: string }).seedIntent || '').toContain('更适合低打扰提醒');
+    jsonSpy.mockRestore();
   });
 
   it('prioritizes upcoming shared calendar item as world_calendar_upcoming_reminder', async () => {

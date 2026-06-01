@@ -2,6 +2,7 @@ import type { AICharacter } from '../types/character';
 import type { ConversationPhase, GroupChat } from '../types/chat';
 import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
 import type { SessionActionExecutionResult } from '../types/sessionEngine';
+import type { APIConfig } from '../types/settings';
 import { createDefaultConversationFrameworkPatch, mergeSessionChatPatch } from '../types/sessionEngine';
 import { DEFAULT_CONVERSATION_WORLD_STATE } from '../types/chat';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
@@ -19,6 +20,7 @@ import { resolveSessionEngine } from './sessionEngineRegistry';
 import { buildThreadRef, getVisibilityChannelId } from './sessionTopology';
 import { reportUnresolvedDisplayEntity } from './diagnostics';
 import { isCharacterFeatureEnabled } from './characterGenerationPolicy';
+import { generateJsonResponse } from './aiClient';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
@@ -169,6 +171,60 @@ function readWorldInfluenceBias(chat: GroupChat, actorId: string, now = Date.now
     scheduleBoost: matched.has('urgent_calendar_first') || matched.has('calendar_conflict_clarify_first') ? 0.06 : 0,
     restraintPenalty: unmet.has('low_pressure_restraint') ? 0.04 : 0,
   };
+}
+
+async function chooseWorldDrivenChoiceWithModel(params: {
+  textApiConfig: APIConfig;
+  actorId: string;
+  actorName: string;
+  choices: Array<{
+    eventKind: SocialEventCandidatePayload['eventKind'];
+    reasonType: SocialEventCandidatePayload['reasonType'];
+    mode: string;
+    title: string;
+    activityType: string;
+    seedIntent: string;
+  }>;
+}) {
+  try {
+    const prompt = [
+      '你是“主动关怀动作裁决器”。',
+      '只从给定候选中选一个最合适动作，不要新增动作。',
+      '优先考虑：自然性 > 低打扰 > 与上下文一致。',
+      '输出 JSON：{"selectedIndex":number,"confidenceOffset":number,"reason":"..."}',
+      'confidenceOffset 范围 -0.06 到 0.06。',
+    ].join('\n');
+    const userContent = JSON.stringify({
+      actorId: params.actorId,
+      actorName: params.actorName,
+      choices: params.choices.map((item, index) => ({
+        index,
+        eventKind: item.eventKind,
+        reasonType: item.reasonType,
+        title: item.title,
+        activityType: item.activityType,
+        mode: item.mode,
+        seedIntent: item.seedIntent,
+      })),
+    });
+    const raw = await generateJsonResponse(
+      params.textApiConfig,
+      prompt,
+      [{ role: 'user', content: userContent }],
+    );
+    const parsed = JSON.parse(raw) as { selectedIndex?: number; confidenceOffset?: number; reason?: string };
+    if (typeof parsed.selectedIndex !== 'number' || !Number.isFinite(parsed.selectedIndex)) return null;
+    if (parsed.selectedIndex < 0 || parsed.selectedIndex >= params.choices.length) return null;
+    const offsetRaw = typeof parsed.confidenceOffset === 'number' && Number.isFinite(parsed.confidenceOffset) ? parsed.confidenceOffset : 0;
+    const confidenceOffset = Math.max(-0.06, Math.min(0.06, offsetRaw));
+    return {
+      selectedIndex: parsed.selectedIndex,
+      confidenceOffset,
+      reason: typeof parsed.reason === 'string' ? parsed.reason.slice(0, 180) : '',
+    };
+  } catch {
+    return null;
+  }
 }
 
 function readActionCooldownNextSuggestedAt(
@@ -1251,6 +1307,7 @@ export interface SocialEventRuntimeOps {
   chats: GroupChat[];
   characters: AICharacter[];
   imageModelEnabled?: boolean;
+  textApiConfig?: APIConfig | null;
   updateChat: (chatId: string, patch: Partial<GroupChat>) => Promise<unknown>;
   addChat: (input: Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'>) => Promise<GroupChat>;
   addMessage: (message: { chatId: string; type: 'system'; senderId: string; senderName: string; content: string; emotion: number }) => Promise<unknown>;
@@ -1490,7 +1547,12 @@ function isValidAutoFlowCandidate(chat: GroupChat, payload: SocialEventCandidate
   return true;
 }
 
-function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], imageModelEnabled = false) {
+async function buildWorldDrivenCandidate(
+  chat: GroupChat,
+  characters: AICharacter[],
+  imageModelEnabled = false,
+  textApiConfig?: APIConfig | null,
+) {
   const attention = projectWorldAttentionStates([chat], characters).find((item) => item.targetId === 'user' && item.actorId !== 'user');
   if (!attention) return null;
   const actor = characters.find((item) => item.id === attention.actorId) || null;
@@ -1551,23 +1613,123 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
     && !postMomentDelayBlocked
     && !hasRecentWorldArtifact(chat, attention.actorId, 'post_moment', 180 * 60_000);
   const shouldPrioritizeCalendarReminder = Boolean(upcomingCalendarItem) && canCalendarReminder;
-  const eventKind: SocialEventCandidatePayload['eventKind'] = shouldPrioritizeCalendarReminder
-    ? 'status_update'
-    : canInviteActivity
-      ? 'social_outing'
-      : canCalendarReminder
-      ? 'status_update'
-      : canPrivateMessage || canAskFollowup || canCheckIn
-    ? 'check_in'
-    : canReactMoment
-      ? 'react_to_moment'
-      : canPostMoment
-        ? 'post_moment'
-        : canStatus
-          ? 'status_update'
-          : 'status_update';
-  if (!canPrivateMessage && !canAskFollowup && !canCheckIn && !canReactMoment && !canPostMoment && !canStatus && !canInviteActivity && !canCalendarReminder) return null;
+  const minutesUntil = upcomingCalendarItem?.startAt ? Math.max(0, Math.round((upcomingCalendarItem.startAt - now) / 60_000)) : null;
+  const buildCandidateChoice = (
+    eventKind: SocialEventCandidatePayload['eventKind'],
+    reasonType: SocialEventCandidatePayload['reasonType'],
+    mode: 'calendar' | 'invite' | 'private' | 'followup' | 'checkin' | 'react' | 'moment' | 'status',
+  ) => {
+    const seedIntent = mode === 'calendar'
+      ? `${upcomingCalendarItem?.summary || upcomingCalendarItem?.title || '临近日程提醒'}${minutesUntil !== null ? `（${minutesUntil} 分钟后）` : ''}`
+      : mode === 'invite'
+        ? (attention.reasons[0] || '关注状态触发一次线下邀约。')
+        : mode === 'private'
+          ? (attention.reasons[0] || '关注状态触发一次私域问候。')
+          : mode === 'followup'
+            ? (attention.reasons[0] || '关注状态触发一次追问式关心。')
+            : mode === 'checkin'
+              ? (attention.reasons[0] || '关注状态触发一次自然近况同步。')
+              : mode === 'react'
+                ? (attention.reasons[0] || '关注状态触发一次动态回应。')
+                : mode === 'moment'
+                  ? (attention.reasons[0] || '关注状态触发一次动态分享。')
+                  : (attention.reasons[0] || '关注状态触发一次状态更新。');
+    const postMomentExpectedArtifacts = eventKind === 'post_moment'
+      ? buildPostMomentExpectedArtifactsForWorldCandidate(chat, attention.actorId, now, imageModelEnabled)
+      : null;
+    const postMomentActivityType = eventKind === 'post_moment'
+      ? (postMomentExpectedArtifacts?.includes('moment_selfie')
+        ? '自拍动态'
+        : postMomentExpectedArtifacts?.includes('moment_group_photo')
+          ? '合影动态'
+          : postMomentExpectedArtifacts?.includes('moment_scene_photo')
+            ? '场景动态'
+            : '日常动态')
+      : null;
+    const postMomentTitle = eventKind === 'post_moment'
+      ? (postMomentExpectedArtifacts?.includes('moment_selfie')
+        ? '随手自拍'
+        : postMomentExpectedArtifacts?.includes('moment_group_photo')
+          ? '合影记录'
+          : postMomentExpectedArtifacts?.includes('moment_scene_photo')
+            ? '场景碎片'
+            : '朋友圈')
+      : null;
+    return {
+      eventKind,
+      reasonType,
+      mode,
+      seedIntent,
+      expectedArtifacts: eventKind === 'post_moment'
+        ? (postMomentExpectedArtifacts || ['moment_text'])
+        : eventKind === 'check_in'
+          ? ['check_in_note']
+          : eventKind === 'react_to_moment'
+            ? ['moment_reaction_note']
+            : eventKind === 'social_outing'
+              ? ['outing_summary']
+              : ['status_note'],
+      title: eventKind === 'post_moment'
+        ? (postMomentTitle || '朋友圈')
+        : eventKind === 'social_outing'
+          ? '活动邀约'
+          : eventKind === 'check_in'
+            ? (mode === 'private' ? '私聊问候' : mode === 'followup' ? '追问跟进' : mode === 'checkin' ? '问候跟进' : '关怀问候')
+            : eventKind === 'react_to_moment'
+              ? '动态回应'
+              : '状态更新',
+      activityType: eventKind === 'post_moment'
+        ? (postMomentActivityType || '日常动态')
+        : eventKind === 'social_outing'
+          ? '活动邀约'
+          : eventKind === 'check_in'
+            ? (mode === 'private' ? '私聊问候' : mode === 'followup' ? '追问关心' : mode === 'checkin' ? '问候' : '安抚关怀')
+            : eventKind === 'react_to_moment'
+              ? '动态互动'
+              : mode === 'calendar'
+                ? '日程提醒'
+                : '近况同步',
+      visibilityPlan: eventKind === 'post_moment' || eventKind === 'status_update'
+        ? 'public'
+        : eventKind === 'social_outing'
+          ? 'mixed'
+          : 'user_private' as SocialEventCandidatePayload['visibilityPlan'],
+      dedupeKey: mode === 'calendar'
+        ? `calendar-upcoming-reminder-${chat.id}-${attention.actorId}-${upcomingCalendarItem?.id || 'item'}`
+        : `world-attention-${eventKind}-${chat.id}-${attention.actorId}`,
+    };
+  };
+  const choices: Array<ReturnType<typeof buildCandidateChoice>> = [];
+  if (shouldPrioritizeCalendarReminder) choices.push(buildCandidateChoice('status_update', 'world_calendar_upcoming_reminder', 'calendar'));
+  if (canInviteActivity) choices.push(buildCandidateChoice('social_outing', inviteReasonType, 'invite'));
+  if (canCalendarReminder) choices.push(buildCandidateChoice('status_update', reminderReasonType, 'calendar'));
+  if (canPrivateMessage) choices.push(buildCandidateChoice('check_in', privateMessageReasonType, 'private'));
+  if (canAskFollowup) choices.push(buildCandidateChoice('check_in', followupQuestionReasonType, 'followup'));
+  if (canCheckIn) choices.push(buildCandidateChoice('check_in', followupReasonType, 'checkin'));
+  if (attention.suggestedActions.includes('comfort') && canCheckIn) choices.push(buildCandidateChoice('check_in', 'world_attention_comfort', 'checkin'));
+  if (canReactMoment) choices.push(buildCandidateChoice('react_to_moment', followupReasonType, 'react'));
+  if (canPostMoment) choices.push(buildCandidateChoice('post_moment', 'world_attention_share_moment', 'moment'));
+  if (canStatus) choices.push(buildCandidateChoice('status_update', 'world_attention_followup', 'status'));
+  if (choices.length === 0) return null;
+  let chosen = choices[0];
+  let modelConfidenceOffset = 0;
+  let modelDecisionReason = '';
   const actorName = characters.find((item) => item.id === attention.actorId)?.name || attention.actorId;
+  if (textApiConfig && choices.length > 1) {
+    const modelPick = await chooseWorldDrivenChoiceWithModel({
+      textApiConfig,
+      actorId: attention.actorId,
+      actorName,
+      choices,
+    });
+    if (modelPick) {
+      chosen = choices[modelPick.selectedIndex] || chosen;
+      modelConfidenceOffset = modelPick.confidenceOffset;
+      modelDecisionReason = modelPick.reason;
+    }
+  }
+  const eventKind: SocialEventCandidatePayload['eventKind'] = chosen.eventKind;
+  if (!canPrivateMessage && !canAskFollowup && !canCheckIn && !canReactMoment && !canPostMoment && !canStatus && !canInviteActivity && !canCalendarReminder) return null;
   const bias = readWorldInfluenceBias(chat, attention.actorId, now);
   const baseConfidence = attention.attentionScore * (1 - attention.restraint * 0.35);
   const confidence = Math.max(
@@ -1579,53 +1741,10 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
         + (eventKind === 'status_update' ? bias.scheduleBoost : 0)
         - (eventKind === 'social_outing' ? bias.scheduleBoost * 0.5 : 0)
         - (eventKind === 'post_moment' ? bias.scheduleBoost * 0.45 : 0)
-        - ((eventKind === 'check_in' || eventKind === 'social_outing' || eventKind === 'post_moment') ? bias.restraintPenalty : bias.restraintPenalty * 0.5),
+        - ((eventKind === 'check_in' || eventKind === 'social_outing' || eventKind === 'post_moment') ? bias.restraintPenalty : bias.restraintPenalty * 0.5)
+        + modelConfidenceOffset,
     ),
   );
-  const reasonType = shouldPrioritizeCalendarReminder
-    ? 'world_calendar_upcoming_reminder'
-    : canInviteActivity
-    ? inviteReasonType
-    : canCalendarReminder
-      ? reminderReasonType
-      : canPrivateMessage
-    ? privateMessageReasonType
-    : canAskFollowup
-      ? followupQuestionReasonType
-      : followupReasonType;
-  const minutesUntil = upcomingCalendarItem?.startAt ? Math.max(0, Math.round((upcomingCalendarItem.startAt - now) / 60_000)) : null;
-  const seedIntent = shouldPrioritizeCalendarReminder
-    ? `${upcomingCalendarItem?.summary || upcomingCalendarItem?.title || '临近日程提醒'}${minutesUntil !== null ? `（${minutesUntil} 分钟后）` : ''}`
-    : canInviteActivity
-    ? (attention.reasons[0] || '关注状态触发一次线下邀约。')
-    : canCalendarReminder
-      ? (attention.reasons[0] || '关注状态触发一次日程提醒。')
-      : canPrivateMessage
-    ? (attention.reasons[0] || '关注状态触发一次私域问候。')
-    : canAskFollowup
-      ? (attention.reasons[0] || '关注状态触发一次追问式关心。')
-      : (attention.reasons[0] || '关注状态触发一次自然近况同步。');
-  const postMomentExpectedArtifacts = eventKind === 'post_moment'
-    ? buildPostMomentExpectedArtifactsForWorldCandidate(chat, attention.actorId, now, imageModelEnabled)
-    : null;
-  const postMomentActivityType = eventKind === 'post_moment'
-    ? (postMomentExpectedArtifacts?.includes('moment_selfie')
-      ? '自拍动态'
-      : postMomentExpectedArtifacts?.includes('moment_group_photo')
-        ? '合影动态'
-        : postMomentExpectedArtifacts?.includes('moment_scene_photo')
-          ? '场景动态'
-          : '日常动态')
-    : null;
-  const postMomentTitle = eventKind === 'post_moment'
-    ? (postMomentExpectedArtifacts?.includes('moment_selfie')
-      ? '随手自拍'
-      : postMomentExpectedArtifacts?.includes('moment_group_photo')
-        ? '合影记录'
-        : postMomentExpectedArtifacts?.includes('moment_scene_photo')
-          ? '场景碎片'
-          : '朋友圈')
-    : null;
   return createRuntimeEventV2({
     conversationId: chat.id,
     kind: 'event_candidate',
@@ -1646,52 +1765,25 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
       initiatorId: attention.actorId,
       participantIds: eventKind === 'social_outing' ? [attention.actorId, 'user'] : [attention.actorId],
       targetIds: ['user'],
-      reasonType,
+      reasonType: chosen.reasonType,
       confidence,
       urgency: 'soon',
-      seedIntent,
-      visibilityPlan: eventKind === 'post_moment' || eventKind === 'status_update'
-        ? 'public'
-        : eventKind === 'social_outing'
-          ? 'mixed'
-          : 'user_private',
-      expectedArtifacts: eventKind === 'post_moment'
-        ? (postMomentExpectedArtifacts || ['moment_text'])
-        : eventKind === 'check_in'
-          ? ['check_in_note']
-          : eventKind === 'react_to_moment'
-            ? ['moment_reaction_note']
-            : eventKind === 'social_outing'
-              ? ['outing_summary']
-            : ['status_note'],
-      title: eventKind === 'post_moment'
-        ? (postMomentTitle || '朋友圈')
-        : eventKind === 'social_outing'
-          ? '活动邀约'
-        : eventKind === 'check_in'
-          ? (canPrivateMessage ? '私聊问候' : canAskFollowup ? '追问跟进' : '问候跟进')
-          : eventKind === 'react_to_moment'
-            ? '动态回应'
-            : '状态更新',
-      activityType: eventKind === 'post_moment'
-        ? (postMomentActivityType || '日常动态')
-        : eventKind === 'social_outing'
-          ? '活动邀约'
-        : eventKind === 'check_in'
-          ? (canPrivateMessage ? '私聊问候' : canAskFollowup ? '追问关心' : '问候')
-          : eventKind === 'react_to_moment'
-            ? '动态互动'
-            : canCalendarReminder
-              ? '日程提醒'
-            : '近况同步',
-      dedupeKey: shouldPrioritizeCalendarReminder
-        ? `calendar-upcoming-reminder-${chat.id}-${attention.actorId}-${upcomingCalendarItem?.id || 'item'}`
-        : `world-attention-${eventKind}-${chat.id}-${attention.actorId}`,
+      seedIntent: modelDecisionReason ? `${chosen.seedIntent}（${modelDecisionReason}）` : chosen.seedIntent,
+      visibilityPlan: chosen.visibilityPlan,
+      expectedArtifacts: chosen.expectedArtifacts,
+      title: chosen.title,
+      activityType: chosen.activityType,
+      dedupeKey: chosen.dedupeKey,
     } satisfies SocialEventCandidatePayload,
   });
 }
 
-function evaluateWorldDrivenDecision(chat: GroupChat, characters: AICharacter[], imageModelEnabled = false) {
+async function evaluateWorldDrivenDecision(
+  chat: GroupChat,
+  characters: AICharacter[],
+  imageModelEnabled = false,
+  textApiConfig?: APIConfig | null,
+) {
   const attention = projectWorldAttentionStates([chat], characters).find((item) => item.targetId === 'user' && item.actorId !== 'user');
   if (!attention) return { candidate: null as RuntimeEventV2 | null, suppressionEvents: [] as RuntimeEventV2[], decisionEvents: [] as RuntimeEventV2[] };
   const actor = characters.find((item) => item.id === attention.actorId) || null;
@@ -1835,7 +1927,7 @@ function evaluateWorldDrivenDecision(chat: GroupChat, characters: AICharacter[],
     }));
   }
 
-  const candidate = buildWorldDrivenCandidate(chat, characters, imageModelEnabled);
+  const candidate = await buildWorldDrivenCandidate(chat, characters, imageModelEnabled, textApiConfig);
   const candidatePayload = candidate?.payload as SocialEventCandidatePayload | undefined;
   const fallbackIntent = attention.suggestedActions.includes('share_moment')
     ? 'post_moment'
@@ -2019,7 +2111,12 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
     return { handledEventId: conflictCandidate.id };
   }
 
-  const worldDrivenDecision = evaluateWorldDrivenDecision(sourceChat, ops.characters, Boolean(ops.imageModelEnabled));
+  const worldDrivenDecision = await evaluateWorldDrivenDecision(
+    sourceChat,
+    ops.characters,
+    Boolean(ops.imageModelEnabled),
+    ops.textApiConfig || null,
+  );
   const worldDrivenCandidate = worldDrivenDecision.candidate;
   if (worldDrivenCandidate) {
     const payload = worldDrivenCandidate.payload as SocialEventCandidatePayload;
