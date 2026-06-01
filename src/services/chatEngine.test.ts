@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE } from '../types/chat';
@@ -14,6 +14,15 @@ const generateResponseMock = vi.hoisted(() => vi.fn());
 vi.mock('./aiClient', () => ({
   generateResponse: (...args: unknown[]) => generateResponseMock(...args),
 }));
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const speaker = { name: '喜羊羊' } as AICharacter;
 const defaultIntent: SpeakIntent = {
