@@ -795,6 +795,103 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     }
   });
 
+  it('writes suppression artifact when world attention restraint is too high', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 1_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户提到最近状态',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.92, reason: '用户刚提到近期生活状态' },
+        } as RuntimeEventV2,
+      ]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 2, competence: 3, trust: 2, threat: 10 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 500,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.handledEventId).toBeNull();
+    const patch = updateChat.mock.calls.at(0)?.[1] as { runtimeEventsV2?: RuntimeEventV2[] } | undefined;
+    const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed'
+      && (event.payload as { reasonType?: string }).reasonType === 'world_attention_high_restraint');
+    const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { eventType?: string; decisionType?: string }).eventType === 'world_attention_decision'
+      && (event.payload as { decisionType?: string }).decisionType === 'suppressed');
+    expect(suppression).toBeTruthy();
+    expect(decision).toBeTruthy();
+  });
+
+  it('writes moment-disabled suppression when share_moment is suggested for the actor', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 2_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户提到最近状态',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.9, reason: '用户刚提到近期生活状态' },
+        } as RuntimeEventV2,
+      ]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 11, competence: 4, trust: 9, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [{ ...buildCharacter('a', '甲'), generationPreferences: { moments: 'off', diaries: 'follow_global' } } as AICharacter],
+      imageModelEnabled: true,
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    const patch = updateChat.mock.calls.at(0)?.[1] as { runtimeEventsV2?: RuntimeEventV2[] } | undefined;
+    const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed'
+      && (event.payload as { reasonType?: string }).reasonType === 'world_attention_moment_disabled');
+    const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { eventType?: string; decisionType?: string; reasonType?: string }).eventType === 'world_attention_decision'
+      && (event.payload as { decisionType?: string; reasonType?: string }).decisionType === 'fallback'
+      && (event.payload as { reasonType?: string }).reasonType === 'world_attention_moment_disabled');
+    const worldCandidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate');
+    expect(suppression).toBeTruthy();
+    expect(decision).toBeTruthy();
+    expect(worldCandidate).toBeTruthy();
+  });
+
   it('skips check_in candidate consumption when restraint policy blocks due to high threat', async () => {
     const now = new Date('2026-05-29T21:30:00+08:00').getTime();
     const chat = {

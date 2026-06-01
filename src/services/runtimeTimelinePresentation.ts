@@ -17,6 +17,7 @@ import {
   readSocialEventCandidateMeta,
   readSocialEventClusterMeta,
   readSocialEventEffectMeta,
+  readWorldAttentionDecisionMeta,
   type ProjectedRuntimeTimelineItem,
 } from './sessionProjection';
 import { buildCalendarPatchSummary, buildCalendarPatchTimelineTitle } from './worldCalendarPatchPresentation';
@@ -108,6 +109,7 @@ function formatActorOrigin(origin: string | undefined) {
 
 export function buildRuntimeTimelineTitle(item: ProjectedRuntimeTimelineItem) {
   if (item.event?.kind === 'calendar_item_patch') return buildCalendarPatchTimelineTitle(item.event, true);
+  if (readWorldAttentionDecisionMeta(item)) return '世界驱动决策';
   if (readCandidateSuppressionMeta(item)) return '候选抑制';
   if (readCalendarPatchApplyResultMeta(item)) return '日历草案执行';
   const cluster = readSocialEventClusterMeta(item);
@@ -128,6 +130,7 @@ export function buildRuntimeTimelineBody(item: ProjectedRuntimeTimelineItem, mem
   const followup = readAttentionFollowupMeta(item);
   const attentionSource = readAttentionSourceMeta(item);
   const suppression = readCandidateSuppressionMeta(item);
+  const worldDecision = readWorldAttentionDecisionMeta(item);
   const patchApply = readCalendarPatchApplyResultMeta(item);
   const projectionInfo = readProjectionInfoMeta(item);
   const topicSnippet = projectionInfo?.topicSnippet || null;
@@ -144,6 +147,16 @@ export function buildRuntimeTimelineBody(item: ProjectedRuntimeTimelineItem, mem
     const eventKind = suppression.candidateEventKind ? formatSocialEventKind(suppression.candidateEventKind) : '候选';
     const reason = suppression.reasonDetail || suppression.reasonLabel || suppression.reasonType || '已抑制';
     return clip(cleanText(`${eventKind} · ${reason}`, members), 88);
+  }
+  if (worldDecision) {
+    const decisionLabel = worldDecision.decisionType === 'trigger'
+      ? '触发'
+      : worldDecision.decisionType === 'fallback'
+        ? '改道'
+        : '抑制';
+    const actionLabel = worldDecision.toEventKind ? formatSocialEventKind(worldDecision.toEventKind) : '未触发动作';
+    const reason = worldDecision.reasonDetail || worldDecision.reasonLabel || worldDecision.reasonType || '';
+    return clip(cleanText(`世界驱动${decisionLabel} · ${actionLabel}${reason ? ` · ${reason}` : ''}`, members), 88);
   }
   if (patchApply) {
     return clip(cleanText(`应用 ${patchApply.appliedCount} · 跳过 ${patchApply.skippedCount} · 失败 ${patchApply.failedCount}`, members), 88);
@@ -181,6 +194,7 @@ export function buildRuntimeTimelineMeta(item: ProjectedRuntimeTimelineItem, mem
   const followup = readAttentionFollowupMeta(item);
   const attentionSource = readAttentionSourceMeta(item);
   const suppression = readCandidateSuppressionMeta(item);
+  const worldDecision = readWorldAttentionDecisionMeta(item);
   const patchApply = readCalendarPatchApplyResultMeta(item);
   const actorAudit = readActorAuditMeta(item);
   const projectionKind = readProjectionInfoMeta(item)?.projectionKind || null;
@@ -206,6 +220,11 @@ export function buildRuntimeTimelineMeta(item: ProjectedRuntimeTimelineItem, mem
       ? ` · hit ${shortEventId(suppression.hitEventId)}${suppression.hitWindow ? `/${suppression.hitWindow}` : ''}`
       : '';
     return cleanText(`候选抑制 · ${eventKind}${confidenceInfo}${candidateRefInfo}${hitInfo}`, members);
+  }
+  if (worldDecision) {
+    const fromInfo = worldDecision.fromEventKind ? `from ${formatSocialEventKind(worldDecision.fromEventKind)}` : '';
+    const toInfo = worldDecision.toEventKind ? `to ${formatSocialEventKind(worldDecision.toEventKind)}` : '';
+    return cleanText(`世界驱动决策${fromInfo ? ` · ${fromInfo}` : ''}${toInfo ? ` · ${toInfo}` : ''}`, members);
   }
   if (patchApply) {
     const queue = typeof patchApply.queueCount === 'number' ? ` · 队列 ${patchApply.queueCount}` : '';

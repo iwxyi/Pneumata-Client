@@ -126,6 +126,15 @@ export interface ProjectedRuntimeTimelineItem {
       hitEventId?: string;
       hitWindow?: string;
     };
+    worldAttentionDecision?: {
+      eventType: 'world_attention_decision';
+      decisionType?: 'trigger' | 'suppressed' | 'fallback';
+      reasonType?: string;
+      reasonLabel?: string;
+      reasonDetail?: string;
+      fromEventKind?: string;
+      toEventKind?: string;
+    };
     calendarPatchApplyResult?: {
       eventType: 'calendar_patch_apply_result';
       appliedCount: number;
@@ -281,6 +290,17 @@ function buildEventMeta(event: RuntimeEventV2) {
     hitEventId: typeof payload.hitEventId === 'string' ? payload.hitEventId : undefined,
     hitWindow: typeof payload.hitWindow === 'string' ? payload.hitWindow : undefined,
   } : undefined;
+  const worldAttentionDecision = payload && payload.eventType === 'world_attention_decision' ? {
+    eventType: 'world_attention_decision' as const,
+    decisionType: payload.decisionType === 'trigger' || payload.decisionType === 'suppressed' || payload.decisionType === 'fallback'
+      ? payload.decisionType
+      : undefined,
+    reasonType: typeof payload.reasonType === 'string' ? payload.reasonType : undefined,
+    reasonLabel: typeof payload.reasonLabel === 'string' ? payload.reasonLabel : undefined,
+    reasonDetail: typeof payload.reasonDetail === 'string' ? payload.reasonDetail : undefined,
+    fromEventKind: typeof payload.fromEventKind === 'string' ? payload.fromEventKind : undefined,
+    toEventKind: typeof payload.toEventKind === 'string' ? payload.toEventKind : undefined,
+  } : undefined;
   const calendarPatchApplyResult = payload && payload.eventType === 'calendar_patch_apply_result' ? {
     eventType: 'calendar_patch_apply_result' as const,
     appliedCount: typeof payload.appliedCount === 'number' ? payload.appliedCount : 0,
@@ -303,6 +323,7 @@ function buildEventMeta(event: RuntimeEventV2) {
     actorAudit,
     calendarPatch: toCalendarPatchMeta(event),
     candidateSuppression,
+    worldAttentionDecision,
     calendarPatchApplyResult,
   };
 }
@@ -765,6 +786,10 @@ export function readMemoryCandidateMeta(item: ProjectedRuntimeTimelineItem) {
 
 export function readCandidateSuppressionMeta(item: ProjectedRuntimeTimelineItem) {
   return item.meta?.candidateSuppression || null;
+}
+
+export function readWorldAttentionDecisionMeta(item: ProjectedRuntimeTimelineItem) {
+  return item.meta?.worldAttentionDecision || null;
 }
 
 export function readCalendarPatchApplyResultMeta(item: ProjectedRuntimeTimelineItem) {

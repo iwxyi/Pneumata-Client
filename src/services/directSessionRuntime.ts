@@ -107,6 +107,77 @@ function appendStructuredRuntimeEvents(chat: GroupChat, events: RuntimeEventV2[]
   return events.reduce((acc, event) => appendStructuredRuntimeEvent({ ...chat, runtimeEventsV2: acc }, event), chat.runtimeEventsV2 || []);
 }
 
+function hasRecentWorldSuppressionEvent(chat: GroupChat, actorId: string | null, reasonType: string, windowMs: number, now = Date.now()) {
+  return (chat.runtimeEventsV2 || []).some((event) => {
+    if (event.kind !== 'artifact') return false;
+    if (now - event.createdAt > windowMs) return false;
+    const payload = event.payload as {
+      eventType?: string;
+      reasonType?: string;
+    };
+    if (payload.eventType !== 'event_candidate_suppressed' || payload.reasonType !== reasonType) return false;
+    if (!actorId) return true;
+    return (event.actorIds || [])[0] === actorId;
+  });
+}
+
+function buildWorldSuppressionEvent(params: {
+  chat: GroupChat;
+  actorId: string | null;
+  actorName?: string;
+  reasonType: string;
+  reasonLabel: string;
+  reasonDetail: string;
+  candidateEventKind?: SocialEventCandidatePayload['eventKind'];
+}) {
+  return createRuntimeEventV2({
+    conversationId: params.chat.id,
+    kind: 'artifact',
+    actorIds: params.actorId ? [params.actorId] : undefined,
+    targetIds: params.actorId ? ['user'] : undefined,
+    visibility: 'derived_public',
+    summary: `${params.actorName || '世界驱动'}候选已抑制：${params.reasonLabel}`,
+    payload: {
+      eventType: 'event_candidate_suppressed',
+      candidateEventKind: params.candidateEventKind,
+      reasonType: params.reasonType,
+      reasonLabel: params.reasonLabel,
+      reasonDetail: params.reasonDetail,
+    },
+  });
+}
+
+function buildWorldDecisionEvent(params: {
+  chat: GroupChat;
+  actorId: string | null;
+  actorName?: string;
+  decisionType: 'trigger' | 'suppressed' | 'fallback';
+  reasonType: string;
+  reasonLabel: string;
+  reasonDetail: string;
+  fromEventKind?: SocialEventCandidatePayload['eventKind'];
+  toEventKind?: SocialEventCandidatePayload['eventKind'];
+}) {
+  const fromLabel = params.fromEventKind ? `${params.fromEventKind} -> ` : '';
+  return createRuntimeEventV2({
+    conversationId: params.chat.id,
+    kind: 'artifact',
+    actorIds: params.actorId ? [params.actorId] : undefined,
+    targetIds: params.actorId ? ['user'] : undefined,
+    visibility: 'derived_public',
+    summary: `${params.actorName || '世界驱动'}决策：${fromLabel}${params.toEventKind || 'none'} (${params.decisionType})`,
+    payload: {
+      eventType: 'world_attention_decision',
+      decisionType: params.decisionType,
+      reasonType: params.reasonType,
+      reasonLabel: params.reasonLabel,
+      reasonDetail: params.reasonDetail,
+      fromEventKind: params.fromEventKind,
+      toEventKind: params.toEventKind,
+    },
+  });
+}
+
 function mergeRuntimeSeedWithSummary(chat: GroupChat, summary: string) {
   return {
     notes: [...(chat.runtimeSeed?.notes || []), summary].slice(-24),
@@ -1493,6 +1564,102 @@ function buildWorldDrivenCandidate(chat: GroupChat, characters: AICharacter[], i
   });
 }
 
+function evaluateWorldDrivenDecision(chat: GroupChat, characters: AICharacter[], imageModelEnabled = false) {
+  const attention = projectWorldAttentionStates([chat], characters).find((item) => item.targetId === 'user' && item.actorId !== 'user');
+  if (!attention) return { candidate: null as RuntimeEventV2 | null, suppressionEvents: [] as RuntimeEventV2[], decisionEvents: [] as RuntimeEventV2[] };
+  const actor = characters.find((item) => item.id === attention.actorId) || null;
+  const actorName = actor?.name || attention.actorId;
+  const suppressionEvents: RuntimeEventV2[] = [];
+  const decisionEvents: RuntimeEventV2[] = [];
+  const now = Date.now();
+
+  if (attention.attentionScore < 0.58 && !hasRecentWorldSuppressionEvent(chat, attention.actorId, 'world_attention_low_score', 20 * 60_000, now)) {
+    suppressionEvents.push(buildWorldSuppressionEvent({
+      chat,
+      actorId: attention.actorId,
+      actorName,
+      reasonType: 'world_attention_low_score',
+      reasonLabel: '关注分不足',
+      reasonDetail: `关注分 ${attention.attentionScore.toFixed(2)} 低于触发阈值 0.58`,
+      candidateEventKind: 'status_update',
+    }));
+    decisionEvents.push(buildWorldDecisionEvent({
+      chat,
+      actorId: attention.actorId,
+      actorName,
+      decisionType: 'suppressed',
+      reasonType: 'world_attention_low_score',
+      reasonLabel: '关注分不足',
+      reasonDetail: `关注分 ${attention.attentionScore.toFixed(2)} 低于触发阈值 0.58`,
+      toEventKind: 'status_update',
+    }));
+  }
+
+  if (attention.restraint > 0.72 && !hasRecentWorldSuppressionEvent(chat, attention.actorId, 'world_attention_high_restraint', 20 * 60_000, now)) {
+    suppressionEvents.push(buildWorldSuppressionEvent({
+      chat,
+      actorId: attention.actorId,
+      actorName,
+      reasonType: 'world_attention_high_restraint',
+      reasonLabel: '关注克制过高',
+      reasonDetail: `克制值 ${attention.restraint.toFixed(2)} 超过限制阈值 0.72`,
+      candidateEventKind: 'check_in',
+    }));
+    decisionEvents.push(buildWorldDecisionEvent({
+      chat,
+      actorId: attention.actorId,
+      actorName,
+      decisionType: 'suppressed',
+      reasonType: 'world_attention_high_restraint',
+      reasonLabel: '关注克制过高',
+      reasonDetail: `克制值 ${attention.restraint.toFixed(2)} 超过限制阈值 0.72`,
+      toEventKind: 'check_in',
+    }));
+  }
+
+  const shareMomentSuggested = attention.suggestedActions.includes('share_moment');
+  const momentsEnabled = isCharacterFeatureEnabled(actor, 'moments');
+  if (shareMomentSuggested && !momentsEnabled && !hasRecentWorldSuppressionEvent(chat, attention.actorId, 'world_attention_moment_disabled', 20 * 60_000, now)) {
+    suppressionEvents.push(buildWorldSuppressionEvent({
+      chat,
+      actorId: attention.actorId,
+      actorName,
+      reasonType: 'world_attention_moment_disabled',
+      reasonLabel: '朋友圈功能关闭',
+      reasonDetail: '该角色当前不允许自动发朋友圈，已改走其它世界驱动动作。',
+      candidateEventKind: 'post_moment',
+    }));
+  }
+
+  const candidate = buildWorldDrivenCandidate(chat, characters, imageModelEnabled);
+  const candidatePayload = candidate?.payload as SocialEventCandidatePayload | undefined;
+  if (shareMomentSuggested && !momentsEnabled && candidatePayload?.eventKind && candidatePayload.eventKind !== 'post_moment') {
+    decisionEvents.push(buildWorldDecisionEvent({
+      chat,
+      actorId: attention.actorId,
+      actorName,
+      decisionType: 'fallback',
+      reasonType: 'world_attention_moment_disabled',
+      reasonLabel: '朋友圈功能关闭，改走替代动作',
+      reasonDetail: `share_moment 被关闭，已改为 ${candidatePayload.eventKind}`,
+      fromEventKind: 'post_moment',
+      toEventKind: candidatePayload.eventKind,
+    }));
+  } else if (candidatePayload?.eventKind) {
+    decisionEvents.push(buildWorldDecisionEvent({
+      chat,
+      actorId: attention.actorId,
+      actorName,
+      decisionType: 'trigger',
+      reasonType: 'world_attention_triggered',
+      reasonLabel: '世界驱动触发',
+      reasonDetail: `根据关注状态触发 ${candidatePayload.eventKind}`,
+      toEventKind: candidatePayload.eventKind,
+    }));
+  }
+  return { candidate, suppressionEvents, decisionEvents };
+}
+
 export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialEventRuntimeOps): Promise<{ privateChatId?: string | null; handledEventId?: string | null }> {
   const pairCandidate = pickAutoPairPrivateThreadCandidate(sourceChat);
   if (pairCandidate && hasHandledSocialEvent(sourceChat, pairCandidate.id)) return { privateChatId: null, handledEventId: pairCandidate.id };
@@ -1596,12 +1763,13 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
     return { handledEventId: conflictCandidate.id };
   }
 
-  const worldDrivenCandidate = buildWorldDrivenCandidate(sourceChat, ops.characters, Boolean(ops.imageModelEnabled));
+  const worldDrivenDecision = evaluateWorldDrivenDecision(sourceChat, ops.characters, Boolean(ops.imageModelEnabled));
+  const worldDrivenCandidate = worldDrivenDecision.candidate;
   if (worldDrivenCandidate) {
     const payload = worldDrivenCandidate.payload as SocialEventCandidatePayload;
     const seededChat = {
       ...sourceChat,
-      runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [worldDrivenCandidate]),
+      runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [...worldDrivenDecision.suppressionEvents, ...worldDrivenDecision.decisionEvents, worldDrivenCandidate]),
     } as GroupChat;
     const actorName = ops.characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
     if (payload.eventKind === 'post_moment') {
@@ -1622,6 +1790,12 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
     }
     await ops.updateChat(sourceChat.id, appendHandledSocialEvent(seededChat, updateSourceChatAfterStatusUpdate(seededChat, payload, actorName), worldDrivenCandidate.id, payload.initiatorId));
     return { handledEventId: worldDrivenCandidate.id };
+  }
+
+  if (worldDrivenDecision.suppressionEvents.length || worldDrivenDecision.decisionEvents.length) {
+    await ops.updateChat(sourceChat.id, withFrameworkPatch(sourceChat, {
+      runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [...worldDrivenDecision.suppressionEvents, ...worldDrivenDecision.decisionEvents]),
+    }));
   }
 
   return { privateChatId: null, handledEventId: null };
