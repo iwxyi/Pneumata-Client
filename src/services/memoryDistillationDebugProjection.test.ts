@@ -101,4 +101,28 @@ describe('memoryDistillationDebugProjection', () => {
     expect(projection?.persistedItems).toHaveLength(1);
     expect(projection?.persistedItems[0]?.headline).toContain('群聊记忆');
   });
+
+  it('sanitizes ownerLabel and mergeModeLabel in runtime distillation captions', () => {
+    const timeline: ProjectedRuntimeTimelineItem[] = [{
+      type: 'artifact',
+      text: '蒸馏',
+      createdAt: 11,
+      label: '产物',
+      event: { id: 'evt-2', conversationId: 'chat-1', kind: 'artifact', createdAt: 11, summary: '蒸馏', payload: {} },
+      meta: {
+        memoryDistillation: {
+          ownerLabel: 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67 记忆',
+          mergeModeLabel: '{"eventType":"memory_distillation"}',
+          newEvidenceCount: 1,
+          candidateTexts: ['a 的更新'],
+        },
+      },
+    }];
+    const projection = projectMemoryDistillationDebug(buildChat(), timeline, true, [member('a', '甲')]);
+    const item = projection?.runtimeEventItems[0];
+    expect(item?.headline).toContain('成员 记忆蒸馏');
+    expect(item?.headline).not.toContain('e055aa1d');
+    expect(item?.caption).not.toContain('eventType');
+    expect(item?.caption).not.toContain('memory_distillation');
+  });
 });

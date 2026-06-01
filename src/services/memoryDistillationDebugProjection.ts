@@ -86,13 +86,14 @@ export function projectMemoryDistillationDebug(
     .reverse()
     .map((item) => {
       const payload = (readMemoryDistillationMeta(item) || {}) as Record<string, unknown>;
-      const owner = formatMemoryDistillationOwner(payload, isZh);
+      const owner = sanitizeUserFacingText(formatMemoryDistillationOwner(payload, isZh), members);
+      const mergeMode = sanitizeUserFacingText(formatMemoryDistillationMergeMode(payload, isZh), members);
       return {
         key: item.event?.id || String(item.createdAt),
         timestamp: item.createdAt,
         headline: `${owner}蒸馏`,
         bodyTexts: buildMemoryDistillationBody(payload, members),
-        caption: `${formatMemoryDistillationCounts(payload, isZh)} · ${isZh ? '合并方式' : 'Merge'} ${formatMemoryDistillationMergeMode(payload, isZh)}`,
+        caption: `${formatMemoryDistillationCounts(payload, isZh)} · ${isZh ? '合并方式' : 'Merge'} ${mergeMode}`,
       };
     });
 
