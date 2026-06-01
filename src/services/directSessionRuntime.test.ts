@@ -1,10 +1,20 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizeConversation } from '../types/chat';
 import { buildPrivateThreadOpenedEvent, buildStartPrivateThreadExecutionResult, createAiPrivateThread, passesWorldAttentionRestraintPolicy, pickAutoPairPrivateThreadCandidate, runSocialEventAutoFlow } from './directSessionRuntime';
 import type { AICharacter } from '../types/character';
 import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
 import { setAIGenerationRuntimeConfig } from './aiGenerationRuntimeConfig';
 import * as aiClient from './aiClient';
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
+  setAIGenerationRuntimeConfig({ enableMoments: true, enableDiaries: true });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function buildCandidatePayload(overrides: Partial<SocialEventCandidatePayload> = {}): SocialEventCandidatePayload {
   return {
