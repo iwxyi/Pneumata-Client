@@ -76,7 +76,19 @@ describe('roomOverviewProjection', () => {
     const rows = projectRoomOverviewRows(chat, [member('a', '甲')]);
     expect(rows).toEqual([
       { key: 'overview-room', label: '局势', value: '互动很热 / 氛围分散 / 话题有点发散' },
-      { key: 'overview-stage', label: '阶段', value: 'warming' },
+      { key: 'overview-stage', label: '阶段', value: '预热阶段' },
     ]);
+  });
+
+  it('falls back to raw phase value when phase is unknown', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      worldState: {
+        ...buildChat().worldState,
+        phase: 'unknown_phase' as never,
+      },
+    });
+    const rows = projectRoomOverviewRows(chat, [member('a', '甲')]);
+    expect(rows).toEqual([{ key: 'overview-stage', label: '阶段', value: 'unknown_phase' }]);
   });
 });

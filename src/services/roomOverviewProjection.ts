@@ -36,7 +36,14 @@ function buildOverviewRoomLabel(room: NonNullable<GroupChat['worldState']['struc
 }
 
 function buildOverviewStageLabel(chat: GroupChat) {
-  return chat.worldState.phase === 'idle' ? '自由聊天' : chat.worldState.phase;
+  const labels: Record<string, string> = {
+    idle: '自由聊天',
+    warming: '预热阶段',
+    debating: '讨论阶段',
+    aligned: '对齐阶段',
+    chaotic: '混乱阶段',
+  };
+  return labels[chat.worldState.phase] || chat.worldState.phase || '自由聊天';
 }
 
 export function projectRoomOverviewRows(chat: GroupChat & { primaryRecentEvent?: string }, _members: AICharacter[]): ProjectedRoomOverviewRow[] {
