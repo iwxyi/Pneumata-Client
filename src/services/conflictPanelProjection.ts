@@ -15,12 +15,16 @@ function cleanText(value: string | undefined | null, members: DisplayTextMember[
 }
 
 function memberName(id: string, members: AICharacter[]) {
+  if (id === 'user') return '我';
   return members.find((item) => item.id === id)?.name || '成员';
 }
 
 export function projectConflictPanelItems(chat: GroupChat, members: AICharacter[]): ProjectedConflictItem[] {
   const seen = new Set<string>();
-  const displayMembers = members.map((member) => ({ id: member.id, name: member.name }));
+  const displayMembers: DisplayTextMember[] = [
+    { id: 'user', name: '我' },
+    ...members.map((member) => ({ id: member.id, name: member.name })),
+  ];
   const active = [
     chat.worldState.conflictState?.primaryConflict,
     ...(chat.worldState.conflictState?.activeConflicts || []),

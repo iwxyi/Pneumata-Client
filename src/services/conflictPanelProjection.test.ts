@@ -128,4 +128,37 @@ describe('conflictPanelProjection', () => {
     expect(items).toHaveLength(1);
     expect(items[0]?.key).toBe('dup');
   });
+
+  it('maps user participant id to 我 in chips', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      memberIds: ['user', 'a'],
+      worldState: {
+        ...buildChat().worldState,
+        conflictState: {
+          primaryConflict: {
+            id: 'user-conflict',
+            scope: 'group',
+            type: 'value_conflict',
+            severity: 0.62,
+            stage: 'open',
+            summary: 'user 与 a 在观点上有分歧',
+            participantIds: ['user'],
+            targetIds: ['a'],
+            nextPressure: 'stabilize',
+            developmentHooks: ['invite_target_response'],
+            sourceEventIds: ['evt-user'],
+            updatedAt: 1,
+          },
+          activeConflicts: [],
+          developmentHooks: [],
+          volatility: 0.2,
+          cooling: 0.3,
+          updatedAt: 1,
+        },
+      },
+    });
+    const items = projectConflictPanelItems(chat, [member('a', '甲')]);
+    expect(items[0]?.chips).toEqual(expect.arrayContaining(['我', '甲']));
+  });
 });
