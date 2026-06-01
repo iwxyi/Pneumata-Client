@@ -122,7 +122,7 @@ export function buildRuntimeTimelineTitle(item: ProjectedRuntimeTimelineItem) {
 
 export function buildRuntimeTimelineBody(item: ProjectedRuntimeTimelineItem, members: DisplayTextMember[] = []) {
   if (item.event?.kind === 'calendar_item_patch') {
-    return clip(cleanText(buildCalendarPatchSummary(item.event, true) || item.text, members), 88);
+    return clip(cleanText(buildCalendarPatchSummary(item.event, true, members) || item.text, members), 88);
   }
   const candidate = readSocialEventCandidateMeta(item);
   const artifact = readSocialEventArtifactMeta(item);

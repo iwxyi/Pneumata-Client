@@ -120,11 +120,15 @@ export function projectTimelineAttentionMetaLine(item: ProjectedRuntimeTimelineI
   });
 }
 
-export function projectCalendarPatchMeta(item: ProjectedRuntimeTimelineItem, isZh: boolean) {
+export function projectCalendarPatchMeta(item: ProjectedRuntimeTimelineItem, isZh: boolean, members: AICharacter[] = []) {
   if (item.event?.kind !== 'calendar_item_patch') return null;
+  const displayMembers = [
+    { id: 'user', name: '我' },
+    ...members.map((member) => ({ id: member.id, name: member.name })),
+  ];
   return {
     title: buildCalendarPatchTimelineTitle(item.event, isZh),
-    summary: buildCalendarPatchSummary(item.event, isZh),
+    summary: buildCalendarPatchSummary(item.event, isZh, displayMembers),
     chips: buildCalendarPatchDebugChips(item.event, isZh),
   };
 }
@@ -142,7 +146,7 @@ export function projectProjectionDescription(item: ProjectedRuntimeTimelineItem,
 }
 
 export function projectDialogueStructuredEventCard(item: ProjectedRuntimeTimelineItem, isZh: boolean, members: AICharacter[] = []): DialogueStructuredEventCard {
-  const calendarPatchMeta = projectCalendarPatchMeta(item, isZh);
+  const calendarPatchMeta = projectCalendarPatchMeta(item, isZh, members);
   return {
     title: calendarPatchMeta?.title || projectEventKindLabel(item.event?.kind || 'artifact', isZh),
     timestampLabel: new Date(item.createdAt).toLocaleString(),

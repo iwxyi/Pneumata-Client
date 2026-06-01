@@ -282,4 +282,29 @@ describe('dialogueDebugProjection', () => {
     expect(card.summaryText).toBeNull();
     expect(card.chips).toEqual([]);
   });
+
+  it('maps user and member ids in calendar patch summary when member context is available', () => {
+    const item: ProjectedRuntimeTimelineItem = {
+      type: 'artifact',
+      text: 'summary',
+      createdAt: 1,
+      label: '产物',
+      event: {
+        id: 'evt-7',
+        conversationId: 'chat-1',
+        kind: 'calendar_item_patch',
+        createdAt: 1,
+        summary: 'summary',
+        payload: {
+          source: 'world_calendar_patch_executor',
+          reason: 'user 邀请 a 参加活动',
+        },
+      },
+      meta: {},
+    };
+    const card = projectDialogueStructuredEventCard(item, true, [member('a', '甲')]);
+    expect(card.summaryText).toContain('我');
+    expect(card.summaryText).toContain('甲');
+    expect(card.summaryText).not.toContain('user 邀请 a');
+  });
 });
