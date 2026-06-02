@@ -1,11 +1,12 @@
 import { Box, CircularProgress, Typography } from '@mui/material';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import type { Message } from '../../types/message';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { Message, MessageAttachment } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import MessageBubble from './MessageBubble';
 import { resolveCharacterOrDeleted } from '../../utils/deletedEntity';
 import { buildChatRenderItems } from './chatRenderModel';
 import type { ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
+import ImageLightbox from '../common/ImageLightbox';
 
 const TOP_REACH_THRESHOLD = 64;
 const BOTTOM_STICKY_THRESHOLD = 96;
@@ -47,6 +48,7 @@ export default function MessageList({
 }: MessageListProps) {
   const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [viewerKey, setViewerKey] = useState<string | null>(null);
   const topLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
   const hasJumpedToBottomRef = useRef(false);
@@ -58,6 +60,34 @@ export default function MessageList({
     lastItemKey: renderItems.at(-1)?.key ?? null,
     lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
   });
+
+  const chatImageTimeline = useMemo(() => messages
+    .filter((message) => !message.isDeleted)
+    .sort((left, right) => left.timestamp - right.timestamp)
+    .flatMap((message) => (message.metadata?.attachments || [])
+      .filter((attachment) => attachment.kind === 'image' && attachment.status === 'ready' && Boolean(attachment.url))
+      .map((attachment) => ({
+        key: `${message.id}-${attachment.id}`,
+        messageId: message.id,
+        attachmentId: attachment.id,
+        src: attachment.url as string,
+        fullSrc: attachment.url as string,
+        alt: attachment.altText || message.senderName,
+      }))), [messages]);
+
+  const viewerIndex = viewerKey ? chatImageTimeline.findIndex((item) => item.key === viewerKey) : -1;
+  const viewerOpen = viewerIndex >= 0;
+
+  const openChatImage = useCallback((message: Message, attachment: MessageAttachment) => {
+    const key = `${message.id}-${attachment.id}`;
+    if (!chatImageTimeline.some((item) => item.key === key)) return;
+    setViewerKey(key);
+  }, [chatImageTimeline]);
+
+  const loadOlderFromViewer = useCallback(() => {
+    if (!onReachTop || isLoadingOlder || !hasMore) return;
+    void onReachTop();
+  }, [hasMore, isLoadingOlder, onReachTop]);
 
   const topStatusText = useMemo(() => {
     if (messages.length === 0) return null;
@@ -226,10 +256,20 @@ export default function MessageList({
             onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
             onExpressionFeedback={item.pending || item.message.type !== 'ai' ? undefined : onExpressionFeedback}
             onRetryMedia={item.pending ? undefined : onRetryMedia}
+            onOpenImage={item.pending ? undefined : openChatImage}
             pending={item.pending}
           />
         ))}
       </Box>
+      <ImageLightbox
+        open={viewerOpen}
+        images={chatImageTimeline}
+        index={Math.max(0, viewerIndex)}
+        onIndexChange={(index) => setViewerKey(chatImageTimeline[index]?.key || null)}
+        onReachStart={hasMore && !isLoadingOlder ? loadOlderFromViewer : undefined}
+        reachStartVersion={messages.length}
+        onClose={() => setViewerKey(null)}
+      />
     </Box>
   );
 }

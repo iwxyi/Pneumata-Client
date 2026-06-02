@@ -4,10 +4,13 @@ import { normalizeConversation } from '../../types/chat';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_MEMORY, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_EMOTIONAL_STATE, type AICharacter } from '../../types/character';
 import { DEFAULT_API_CONFIG } from '../../types/settings';
 import type { DriverMessageCommitResult } from '../../types/chat';
-import type { SocialEventCandidatePayload } from '../../types/runtimeEvent';
+import type { SocialEventCandidatePayload, SocialEventHintEnvelope } from '../../types/runtimeEvent';
 import { setAIGenerationRuntimeConfig } from '../aiGenerationRuntimeConfig';
 
 const generateResponseMock = vi.fn();
+type OpenChatCommittedMessageForTest = Parameters<typeof openChatEngine.onMessageCommitted>[0]['message'] & {
+  socialEventHints?: SocialEventHintEnvelope[] | null;
+};
 
 vi.mock('../aiClient', () => ({
   generateResponse: (...args: unknown[]) => generateResponseMock(...args),
@@ -62,7 +65,7 @@ function buildChat(patch: Partial<ReturnType<typeof normalizeConversation>> = {}
   });
 }
 
-function buildCharacter(id: string, name: string): AICharacter {
+function buildCharacter(id: string, name: string, patch: Partial<AICharacter> = {}): AICharacter {
   return {
     id,
     name,
@@ -90,6 +93,7 @@ function buildCharacter(id: string, name: string): AICharacter {
     fieldVersions: {},
     createdAt: 1,
     updatedAt: 1,
+    ...patch,
   };
 }
 
@@ -150,7 +154,7 @@ describe('openChatEngine.onMessageCommitted', () => {
         expectedArtifacts: ['private_thread_summary'],
         dedupeKey: 'pair-a-b-thread-1',
       }],
-    };
+    } satisfies OpenChatCommittedMessageForTest;
     const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
       conversation: chat,
       characters,
@@ -307,11 +311,11 @@ describe('openChatEngine.onMessageCommitted', () => {
           actorId: 'a',
           targetId: 'b',
           intensity: 3,
-          tone: 'calm',
+          tone: 'warm',
           evidenceText: '乙你刚才那个判断我认同，但我想补一个细节。',
           confidence: 0.9,
         },
-      },
+      } as OpenChatCommittedMessageForTest,
       previousAiMessage: null,
       recentMessages: [{
         id: 'ai-previous-1',
@@ -1833,7 +1837,7 @@ describe('openChatEngine.onMessageCommitted', () => {
           visibilityPlan: 'user_private',
           expectedArtifacts: ['status_note'],
         }],
-      },
+      } as OpenChatCommittedMessageForTest,
       previousAiMessage: null,
       recentMessages: [],
     });
@@ -1946,7 +1950,7 @@ describe('openChatEngine.onMessageCommitted', () => {
             urgency: 'immediate',
             seedIntent: '想发一条朋友圈',
           }],
-        },
+        } as OpenChatCommittedMessageForTest,
         previousAiMessage: null,
         recentMessages: [],
       });
@@ -1987,7 +1991,7 @@ describe('openChatEngine.onMessageCommitted', () => {
           urgency: 'immediate',
           seedIntent: '想发一条朋友圈',
         }],
-      },
+      } as OpenChatCommittedMessageForTest,
       previousAiMessage: null,
       recentMessages: [],
     });
@@ -2003,7 +2007,7 @@ describe('openChatEngine.onMessageCommitted', () => {
 
   it('disables post_moment candidate when character overrides moments to off', async () => {
     const now = Date.now();
-    const actor = { ...buildCharacter('a', '甲'), generationPreferences: { moments: 'off', diaries: 'follow_global' as const } };
+    const actor = { ...buildCharacter('a', '甲'), generationPreferences: { moments: 'off' as const, diaries: 'follow_global' as const } };
     const chat = normalizeConversation({
       ...buildChat(),
       runtimeEventsV2: [{
@@ -2031,7 +2035,7 @@ describe('openChatEngine.onMessageCommitted', () => {
           confidence: 0.92,
           urgency: 'immediate',
         }],
-      },
+      } as OpenChatCommittedMessageForTest,
       previousAiMessage: null,
       recentMessages: [],
     });

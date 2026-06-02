@@ -939,7 +939,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     await runSocialEventAutoFlow(chat, {
       chats: [chat],
       characters: [buildCharacter('a', '甲')],
-      textApiConfig: { provider: 'openai', apiKey: 'k', model: 'gpt-4o-mini' },
+      textApiConfig: { provider: 'openai', baseUrl: '', apiKey: 'k', model: 'gpt-4o-mini' },
       updateChat,
       addChat: vi.fn(async () => buildBaseChat()),
       addMessage: vi.fn(async () => ({})),
@@ -1253,7 +1253,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       addMessage: vi.fn(async () => ({})),
       appendEventMessage: vi.fn(async () => undefined),
     });
-    const patch = updateChat.mock.calls.at(0)?.[1] as { runtimeEventsV2?: RuntimeEventV2[] } | undefined;
+    const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
     const fallback = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
       && (event.payload as { eventType?: string; reasonType?: string; decisionType?: string }).eventType === 'world_decision_v2'
       && (event.payload as { reasonType?: string }).reasonType === 'world_attention_moment_delay_window'
@@ -1313,7 +1313,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       addMessage: vi.fn(async () => ({})),
       appendEventMessage: vi.fn(async () => undefined),
     });
-    const patch = updateChat.mock.calls.at(0)?.[1] as { runtimeEventsV2?: RuntimeEventV2[] } | undefined;
+    const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
     const fallback = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
       && (event.payload as { eventType?: string; reasonType?: string; decisionType?: string }).eventType === 'world_decision_v2'
       && (event.payload as { reasonType?: string }).reasonType === 'world_attention_cooldown_window'
@@ -1496,7 +1496,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       addMessage: vi.fn(async () => ({})),
       appendEventMessage: vi.fn(async () => undefined),
     });
-    const patch = updateChat.mock.calls.at(0)?.[1] as { runtimeEventsV2?: RuntimeEventV2[] } | undefined;
+    const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
     const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
       && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed'
       && (event.payload as { reasonType?: string }).reasonType === 'world_attention_high_restraint');
@@ -1544,7 +1544,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       addMessage: vi.fn(async () => ({})),
       appendEventMessage: vi.fn(async () => undefined),
     });
-    const patch = updateChat.mock.calls.at(0)?.[1] as { runtimeEventsV2?: RuntimeEventV2[] } | undefined;
+    const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
     const suppression = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
       && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed'
       && (event.payload as { reasonType?: string }).reasonType === 'world_attention_moment_disabled');

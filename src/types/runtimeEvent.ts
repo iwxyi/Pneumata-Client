@@ -192,6 +192,7 @@ export interface SocialEventCandidatePayload {
   visibilityPlan: 'public' | 'conversation_private' | 'user_private' | 'mixed';
   expectedArtifacts?: string[];
   sourceText?: string;
+  momentText?: string;
   title?: string;
   activityType?: string;
   timeHint?: string | null;
@@ -279,6 +280,17 @@ export interface SocialEventArtifactPayload {
   eventKind: SocialEventKind;
   text: string;
   expectedArtifacts?: string[];
+  media?: Array<{
+    assetId?: string;
+    thumbnailAssetId?: string;
+    url: string;
+    thumbnailUrl?: string;
+    fullUrl?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    alt?: string;
+    storage?: 'cloud_asset' | 'local_indexeddb' | 'inline';
+  }>;
 }
 
 export type ConflictType =

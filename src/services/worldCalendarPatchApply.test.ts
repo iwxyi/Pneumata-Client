@@ -297,7 +297,7 @@ describe('worldCalendarPatchApply', () => {
     }];
     const reordered = await reorderPlanQueueWithModel(
       queue,
-      { provider: 'openai', apiKey: 'k', model: 'gpt-4o-mini' },
+      { provider: 'openai', baseUrl: '', apiKey: 'k', model: 'gpt-4o-mini' },
     );
     expect(orchestratorSpy).toHaveBeenCalled();
     expect(reordered.queue[0]?.calendarItemId).toBe('item-2');

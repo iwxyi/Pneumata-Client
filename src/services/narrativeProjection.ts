@@ -41,14 +41,15 @@ function clamp01(value: number) {
 }
 
 function unique(ids: Array<string | null | undefined>) {
-  return ids.filter((id, index, array): id is string => (
-    Boolean(id)
-    && !/^draft-\d+$/i.test(id)
-    && array.indexOf(id) === index
-  ));
+  const seen = new Set<string>();
+  return ids.filter((id): id is string => {
+    if (!id || /^draft-\d+$/i.test(id) || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
-function characterName(id: string | undefined, characters: AICharacter[]) {
+function characterName(id: string | null | undefined, characters: AICharacter[]) {
   if (!id) return '成员';
   return characters.find((character) => character.id === id)?.name || '成员';
 }

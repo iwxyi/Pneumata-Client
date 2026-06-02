@@ -712,7 +712,15 @@ function buildWorldEventInfluenceSnapshot(input: {
     .filter((item) => item.status !== 'cancelled' && item.status !== 'completed' && item.participantIds.includes(input.speaker.id))
     .filter((item) => typeof item.startAt === 'number' && (item.startAt as number) >= now && (item.startAt as number) - now <= 24 * 60 * 60_000)
     .sort((a, b) => (a.startAt || 0) - (b.startAt || 0));
-  if (!attention && !upcomingCalendar.length) return '';
+  if (!attention && !upcomingCalendar.length) {
+    return {
+      prompt: '',
+      attentionScore: undefined,
+      attentionRestraint: undefined,
+      activeRuleIds: [],
+      activeRuleTexts: [],
+    };
+  }
   const ruleEntries: Array<{ id: string; text: string }> = [];
   if (attention && attention.targetId === 'user' && attention.suggestedActions.includes('comfort') && attention.attentionScore >= 0.56 && attention.restraint <= 0.75) {
     ruleEntries.push({
@@ -1587,7 +1595,8 @@ Current speaking intent:
 	  });
   const visibleMessage = maybeAutoWithdrawMessage(completedMessage, { language: 'zh' });
   if (visibleMessage.metadata?.withdrawal?.withdrawn) {
-    const { extraMessages: _extraMessages, ...withdrawnMessage } = visibleMessage;
+    const withdrawnMessage = { ...visibleMessage };
+    delete withdrawnMessage.extraMessages;
     const withdrawal = withdrawnMessage.metadata?.withdrawal;
     await params.onLocalInterception?.({
       kind: 'auto_withdraw',

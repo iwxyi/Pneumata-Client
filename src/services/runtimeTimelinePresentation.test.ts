@@ -56,6 +56,7 @@ describe('runtimeTimelinePresentation', () => {
       event: { id: 'evt-2', conversationId: 'chat-1', kind: 'artifact', createdAt: 1, summary: '跟进', payload: {} },
       meta: {
         attentionFollowup: {
+          kind: 'member',
           actorId: 'a',
           actorName: '甲',
           focus: '先回应再追问',

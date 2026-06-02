@@ -21,6 +21,7 @@ import { buildThreadRef, getVisibilityChannelId } from './sessionTopology';
 import { reportUnresolvedDisplayEntity } from './diagnostics';
 import { isCharacterFeatureEnabled } from './characterGenerationPolicy';
 import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
+import { buildMomentPostText } from './momentTextBuilder';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
@@ -531,6 +532,7 @@ function buildPostMomentSummary(actorName: string, payload: SocialEventCandidate
 
 function buildPostMomentEffectEvents(sourceChat: GroupChat, payload: SocialEventCandidatePayload, actorName: string) {
   const summary = buildPostMomentSummary(actorName, payload);
+  const momentText = buildMomentPostText(actorName, payload);
   const shiftedRoom = calculateRoomShift(sourceChat.worldState.structuredRoomState || null, {
     kind: payload.reasonType === 'celebration' ? 'support' : 'side_comment',
     actorId: payload.initiatorId,
@@ -579,7 +581,8 @@ function buildPostMomentEffectEvents(sourceChat: GroupChat, payload: SocialEvent
       payload: {
         artifactType: 'moment_text',
         eventKind: 'post_moment',
-        text: summary,
+        text: momentText,
+        publicSummary: summary,
         expectedArtifacts: payload.expectedArtifacts || [],
         dedupeKey: payload.dedupeKey,
         title: payload.title,
@@ -1665,9 +1668,6 @@ async function buildWorldDrivenCandidate(
     .sort((a, b) => b - a)[0];
   const pendingDelayWindowUntil = readPendingMomentDelayWindow(chat, attention.actorId, now);
   const postMomentDelayBlocked = pendingDelayWindowUntil != null || (typeof lastSocialArtifactAt === 'number' && now - lastSocialArtifactAt < 18 * 60_000);
-  const postMomentNextSuggestedAt = pendingDelayWindowUntil != null
-    ? pendingDelayWindowUntil
-    : (postMomentDelayBlocked ? ((lastSocialArtifactAt as number) + 18 * 60_000) : null);
   const canPostMoment = isCharacterFeatureEnabled(actor, 'moments')
     && !(isLateNight && !actorNightOwl)
     && !postMomentDelayBlocked
@@ -2057,7 +2057,6 @@ async function evaluateWorldDrivenDecision(
   } else if (
     fallbackIntent
     && candidatePayload?.eventKind === 'status_update'
-    && fallbackIntent !== 'status_update'
   ) {
     const cooldownFallbackNextAt = fallbackIntent === 'check_in'
       ? checkInCooldownNextAt

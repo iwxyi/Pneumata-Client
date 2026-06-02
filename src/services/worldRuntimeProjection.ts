@@ -2,6 +2,7 @@ import type { GroupChat } from '../types/chat';
 import type { AICharacter } from '../types/character';
 import type { ActorRef, RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
 import { buildAiIdSet, toActorRef } from './actorRefPresentation';
+import { buildMomentCandidatePreview } from './momentTextBuilder';
 
 export interface WorldCalendarSourceRef {
   conversationId: string;
@@ -83,10 +84,23 @@ export interface WorldCalendarProjectionResult {
 export interface WorldMomentItem {
   id: string;
   kind: 'post_moment' | 'status_update' | 'check_in' | 'react_to_moment';
+  debugState?: 'candidate' | 'published';
   actorId?: string;
   actorName: string;
   title: string;
   text: string;
+  media: Array<{
+    assetId?: string;
+    thumbnailAssetId?: string;
+    url: string;
+    thumbnailUrl?: string;
+    fullUrl?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    alt?: string;
+    storage?: 'cloud_asset' | 'local_indexeddb' | 'inline';
+  }>;
+  debugEvidence: string[];
   activityType?: string;
   expectedArtifacts: string[];
   conversationId: string;
@@ -162,12 +176,65 @@ function isPrivateMomentVisibility(visibility: RuntimeEventV2['visibility']) {
 }
 
 function resolveMomentPublicText(event: RuntimeEventV2, payload: Record<string, unknown>) {
-  const explicitPublicText = getString(payload.publicText) || getString(payload.publicSummary) || getString(payload.publicExcerpt);
-  if (explicitPublicText) return explicitPublicText;
   if (isPrivateMomentVisibility(event.visibility)) {
-    return getString(payload.title) || event.summary || '来自私域互动的动态更新';
+    const explicitPublicText = getString(payload.publicText) || getString(payload.publicSummary) || getString(payload.publicExcerpt);
+    return explicitPublicText || getString(payload.title) || event.summary || '来自私域互动的动态更新';
   }
-  return getString(payload.text) || event.summary;
+  return getString(payload.text) || getString(payload.publicText) || getString(payload.summary) || event.summary;
+}
+
+function isLegacyMomentRecordText(value: string) {
+  return /发了一条动态[：:]/.test(value)
+    || /发了一条动态，(记录了|写下了|表达了|配了一张)/.test(value);
+}
+
+function getMomentMedia(payload: Record<string, unknown>) {
+  const media: WorldMomentItem['media'] = [];
+  const addMedia = (item: unknown) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return;
+    const record = item as Record<string, unknown>;
+    const thumbnailUrl = getString(record.thumbnailUrl) || getString(record.thumbnail) || getString(record.url) || getString(record.imageUrl) || getString(record.dataUrl);
+    const fullUrl = getString(record.fullUrl) || getString(record.full) || getString(record.url) || getString(record.imageUrl) || getString(record.dataUrl);
+    const url = thumbnailUrl || fullUrl;
+    if (!url) return;
+    media.push({
+      assetId: getString(record.assetId) || undefined,
+      thumbnailAssetId: getString(record.thumbnailAssetId) || undefined,
+      url,
+      thumbnailUrl,
+      fullUrl,
+      mimeType: getString(record.mimeType) || undefined,
+      sizeBytes: typeof record.sizeBytes === 'number' ? record.sizeBytes : undefined,
+      alt: getString(record.alt) || getString(record.prompt) || undefined,
+      storage: getString(record.storage) as WorldMomentItem['media'][number]['storage'],
+    });
+  };
+  addMedia(payload);
+  if (Array.isArray(payload.media)) payload.media.forEach(addMedia);
+  if (Array.isArray(payload.images)) payload.images.forEach(addMedia);
+  return media;
+}
+
+function getMomentDebugEvidence(event: RuntimeEventV2, payload: Record<string, unknown>, debugState: WorldMomentItem['debugState']) {
+  const rows: string[] = [];
+  const seenValues = new Set<string>();
+  const pushRow = (label: string, value: string) => {
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (!normalized || seenValues.has(normalized)) return;
+    seenValues.add(normalized);
+    rows.push(`${label}：${normalized}`);
+  };
+  pushRow('状态', debugState === 'candidate' ? '候选' : '已发布');
+  pushRow('原因', getString(payload.reasonType));
+  if (getNumber(payload.confidence) !== null) pushRow('置信度', `${((getNumber(payload.confidence) as number) * 100).toFixed(0)}%`);
+  pushRow('意图', getString(payload.seedIntent));
+  pushRow('来源', getString(payload.sourceText));
+  pushRow('公开摘要', getString(payload.publicSummary));
+  pushRow('题材', getString(payload.activityType));
+  if (getStringArray(payload.expectedArtifacts).length) pushRow('产物', getStringArray(payload.expectedArtifacts).join(' / '));
+  pushRow('去重键', getString(payload.dedupeKey));
+  pushRow('事件摘要', event.summary || '');
+  return rows;
 }
 
 function asParticipantScheduleState(value: unknown): ParticipantScheduleState | null {
@@ -893,10 +960,34 @@ export function projectWorldCalendarItems(chats: GroupChat[], characters: AIChar
   return projectWorldCalendar(chats, characters, options).items;
 }
 
-export function projectWorldMoments(chats: GroupChat[], characters: AICharacter[]) {
+export function projectWorldMoments(chats: GroupChat[], characters: AICharacter[], options: { includeCandidates?: boolean } = {}) {
   const names = characterNameMap(characters);
   const moments: WorldMomentItem[] = [];
   const byDedupeKey = new Map<string, number>();
+  const candidateRefsByDedupeKey = new Map<string, WorldMomentItem['sourceRefs']>();
+  const mergeMomentSourceRef = (sourceRefs: WorldMomentItem['sourceRefs'], chat: GroupChat, event: RuntimeEventV2) => {
+    const matchedSource = sourceRefs.find((item) => item.conversationId === chat.id);
+    if (!matchedSource) {
+      sourceRefs.push({
+        conversationId: chat.id,
+        conversationName: getConversationDisplayName(chat),
+        eventIds: [event.id],
+        weight: getSourceEvidenceWeight(event),
+        lastEvidenceAt: event.createdAt,
+      });
+      return;
+    }
+    const previousEventCount = matchedSource.eventIds.length;
+    const mergedEventIds = Array.from(new Set([...matchedSource.eventIds, event.id]));
+    matchedSource.eventIds = mergedEventIds;
+    matchedSource.weight = mergeSourceEvidence(
+      matchedSource.weight,
+      getSourceEvidenceWeight(event),
+      previousEventCount,
+      mergedEventIds.length,
+    );
+    matchedSource.lastEvidenceAt = Math.max(matchedSource.lastEvidenceAt, event.createdAt);
+  };
   chats.forEach((chat) => {
     (chat.runtimeEventsV2 || []).forEach((event) => {
       const payload = getPayload(event);
@@ -915,34 +1006,57 @@ export function projectWorldMoments(chats: GroupChat[], characters: AICharacter[
       const isCheckIn = isCheckInArtifact || isCheckInCandidate;
       const isReactMoment = isReactMomentArtifact || isReactMomentCandidate;
       if (!isMoment && !isStatus && !isCheckIn && !isReactMoment) return;
+      if (isMomentArtifact && isLegacyMomentRecordText(getString(payload.text)) && !options.includeCandidates) return;
       const actorId = event.actorIds?.[0];
       const dedupeKey = getString(payload.dedupeKey);
+      if (event.kind === 'event_candidate') {
+        if (dedupeKey) {
+          const candidateRefs = candidateRefsByDedupeKey.get(dedupeKey) || [];
+          mergeMomentSourceRef(candidateRefs, chat, event);
+          candidateRefsByDedupeKey.set(dedupeKey, candidateRefs);
+          const existingIndex = byDedupeKey.get(dedupeKey);
+          if (typeof existingIndex === 'number' && moments[existingIndex]) {
+            const existing = moments[existingIndex];
+            const sourceRefs = [...existing.sourceRefs];
+            mergeMomentSourceRef(sourceRefs, chat, event);
+            moments[existingIndex] = { ...existing, sourceRefs };
+          }
+        }
+        if (options.includeCandidates) {
+          const sourceRefs = [{
+            conversationId: chat.id,
+            conversationName: getConversationDisplayName(chat),
+            eventIds: [event.id],
+            weight: getSourceEvidenceWeight(event),
+            lastEvidenceAt: event.createdAt,
+          }];
+          moments.push({
+            id: event.id,
+            kind: isStatus ? 'status_update' : isCheckIn ? 'check_in' : isReactMoment ? 'react_to_moment' : 'post_moment',
+            debugState: 'candidate',
+            actorId,
+            actorName: getActorName(actorId, names),
+            title: getString(payload.title) || '候选动态',
+            text: buildMomentCandidatePreview(getActorName(actorId, names), payload as unknown as SocialEventCandidatePayload),
+            media: getMomentMedia(payload),
+            debugEvidence: getMomentDebugEvidence(event, payload, 'candidate'),
+            activityType: getString(payload.activityType) || getString(payload.reasonType) || undefined,
+            expectedArtifacts: getStringArray(payload.expectedArtifacts),
+            conversationId: chat.id,
+            conversationName: getConversationDisplayName(chat),
+            sourceRefs,
+            visibility: event.visibility,
+            createdAt: event.createdAt,
+          });
+        }
+        return;
+      }
       if (dedupeKey && byDedupeKey.has(dedupeKey)) {
         const existingIndex = byDedupeKey.get(dedupeKey) as number;
         const existing = moments[existingIndex];
         if (existing) {
           const sourceRefs = [...existing.sourceRefs];
-          const matchedSource = sourceRefs.find((item) => item.conversationId === chat.id);
-          if (!matchedSource) {
-            sourceRefs.push({
-              conversationId: chat.id,
-              conversationName: getConversationDisplayName(chat),
-              eventIds: [event.id],
-              weight: getSourceEvidenceWeight(event),
-              lastEvidenceAt: event.createdAt,
-            });
-          } else {
-            const previousEventCount = matchedSource.eventIds.length;
-            const mergedEventIds = Array.from(new Set([...matchedSource.eventIds, event.id]));
-            matchedSource.eventIds = mergedEventIds;
-            matchedSource.weight = mergeSourceEvidence(
-              matchedSource.weight,
-              getSourceEvidenceWeight(event),
-              previousEventCount,
-              mergedEventIds.length,
-            );
-            matchedSource.lastEvidenceAt = Math.max(matchedSource.lastEvidenceAt, event.createdAt);
-          }
+          mergeMomentSourceRef(sourceRefs, chat, event);
           const upgraded = event.kind === 'artifact' && existing.id !== event.id;
           moments[existingIndex] = {
             ...existing,
@@ -951,6 +1065,7 @@ export function projectWorldMoments(chats: GroupChat[], characters: AICharacter[
               ? {
                 id: event.id,
                 text: resolveMomentPublicText(event, payload) || existing.text,
+                media: getMomentMedia(payload).length ? getMomentMedia(payload) : existing.media,
                 expectedArtifacts: getStringArray(payload.expectedArtifacts).length ? getStringArray(payload.expectedArtifacts) : existing.expectedArtifacts,
                 visibility: event.visibility || existing.visibility,
                 createdAt: event.createdAt,
@@ -962,16 +1077,12 @@ export function projectWorldMoments(chats: GroupChat[], characters: AICharacter[
         }
         return;
       }
-      const sourceRef = {
-        conversationId: chat.id,
-        conversationName: getConversationDisplayName(chat),
-        eventIds: [event.id],
-        weight: getSourceEvidenceWeight(event),
-        lastEvidenceAt: event.createdAt,
-      };
+      const sourceRefs = dedupeKey ? [...(candidateRefsByDedupeKey.get(dedupeKey) || [])] : [];
+      mergeMomentSourceRef(sourceRefs, chat, event);
       moments.push({
         id: event.id,
         kind: isStatus ? 'status_update' : isCheckIn ? 'check_in' : isReactMoment ? 'react_to_moment' : 'post_moment',
+        debugState: 'published',
         actorId,
         actorName: getActorName(actorId, names),
         title: getString(payload.title) || (
@@ -984,11 +1095,13 @@ export function projectWorldMoments(chats: GroupChat[], characters: AICharacter[
                 : '朋友圈'
         ),
         text: resolveMomentPublicText(event, payload),
+        media: getMomentMedia(payload),
+        debugEvidence: getMomentDebugEvidence(event, payload, 'published'),
         activityType: getString(payload.activityType) || undefined,
         expectedArtifacts: getStringArray(payload.expectedArtifacts),
         conversationId: chat.id,
         conversationName: getConversationDisplayName(chat),
-        sourceRefs: [sourceRef],
+        sourceRefs,
         visibility: event.visibility,
         createdAt: event.createdAt,
       });

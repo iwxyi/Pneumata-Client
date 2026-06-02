@@ -945,7 +945,7 @@ describe('worldRuntimeProjection', () => {
     expect(projection.patchDraftQueue[1]?.patch.startAt).toBe(1800006300000);
   });
 
-  it('projects moments from candidates and upgrades them when artifact with same dedupe key appears', () => {
+  it('projects published moment artifacts and merges candidate source refs with the same dedupe key', () => {
     const chats = [buildChat('chat-1', '群聊一', [
       {
         id: 'evt-1',
@@ -974,6 +974,62 @@ describe('worldRuntimeProjection', () => {
     expect(moments).toHaveLength(1);
     expect(moments[0]?.id).toBe('evt-2');
     expect(moments[0]?.text).toContain('夜宵结束');
+    expect(moments[0]?.text).not.toContain('想发朋友圈');
+    expect(moments[0]?.sourceRefs[0]?.eventIds).toEqual(['evt-1', 'evt-2']);
+  });
+
+  it('does not expose pending moment candidates as published feed posts', () => {
+    const chats = [buildChat('chat-1', '群聊一', [
+      {
+        id: 'evt-1',
+        conversationId: 'chat-1',
+        kind: 'event_candidate',
+        createdAt: 100,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: 'A 提议发布一条 post_moment 动态',
+        visibility: 'derived_public',
+        payload: { eventKind: 'post_moment', dedupeKey: 'moment-1', title: '朋友圈', text: '先记一下今晚夜宵', expectedArtifacts: ['moment_text'] },
+      },
+    ])];
+    const moments = projectWorldMoments(chats, [character('a', 'A'), character('b', 'B')]);
+    expect(moments).toHaveLength(0);
+  });
+
+  it('can expose pending moment candidates for developer debugging', () => {
+    const chats = [buildChat('chat-1', '群聊一', [
+      {
+        id: 'evt-1',
+        conversationId: 'chat-1',
+        kind: 'event_candidate',
+        createdAt: 100,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: 'A 提议发布一条 post_moment 动态',
+        visibility: 'derived_public',
+        payload: { eventKind: 'post_moment', dedupeKey: 'moment-debug-1', title: '朋友圈', seedIntent: '想发一条更内心化的动态。', expectedArtifacts: ['moment_text'] },
+      },
+    ])];
+    const moments = projectWorldMoments(chats, [character('a', 'A'), character('b', 'B')], { includeCandidates: true });
+    expect(moments).toHaveLength(1);
+    expect(moments[0]?.debugState).toBe('candidate');
+    expect(moments[0]?.text).toContain('内心化');
+  });
+
+  it('hides legacy record-style moment artifacts from the normal feed', () => {
+    const chats = [buildChat('chat-1', '群聊一', [
+      {
+        id: 'evt-legacy',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 100,
+        actorIds: ['a'],
+        summary: 'A 发了一条动态：带着点情绪地记录了刚才的事',
+        visibility: 'derived_public',
+        payload: { eventKind: 'post_moment', artifactType: 'moment_text', dedupeKey: 'moment-legacy-1', text: 'A 发了一条动态：带着点情绪地记录了刚才的事' },
+      },
+    ])];
+    expect(projectWorldMoments(chats, [character('a', 'A')])).toHaveLength(0);
   });
 
   it('uses public summary text for private-visibility moments', () => {
@@ -1000,6 +1056,84 @@ describe('worldRuntimeProjection', () => {
     expect(moments).toHaveLength(1);
     expect(moments[0]?.text).toBe('和朋友聊完后，心情更轻松了。');
     expect(moments[0]?.text).not.toContain('私聊正文');
+  });
+
+  it('uses generated moment text instead of public summary for public moments', () => {
+    const chats = [buildChat('chat-1', '群聊一', [
+      {
+        id: 'evt-public',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 130,
+        actorIds: ['a'],
+        summary: 'A 发了一条动态，写下了当下的内心感受。',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'post_moment',
+          artifactType: 'moment_text',
+          dedupeKey: 'moment-public-1',
+          title: '朋友圈',
+          text: '有些话当场说出来就变味了。先放在这里，等风过去再看。',
+          publicSummary: 'A 发了一条动态，写下了当下的内心感受。',
+        },
+      },
+    ])];
+    const moments = projectWorldMoments(chats, [character('a', 'A')]);
+    expect(moments).toHaveLength(1);
+    expect(moments[0]?.text).toContain('先放在这里');
+    expect(moments[0]?.text).not.toContain('发了一条动态');
+  });
+
+  it('projects moment media from artifact payload', () => {
+    const chats = [buildChat('chat-1', '群聊一', [
+      {
+        id: 'evt-media',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 140,
+        actorIds: ['a'],
+        summary: 'A 发了图文朋友圈',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'post_moment',
+          artifactType: 'moment_text',
+          dedupeKey: 'moment-media-1',
+          text: '今天的光线、气氛和人都刚刚好。',
+          media: [{ assetId: 'asset-1', thumbnailAssetId: 'thumb-1', thumbnailUrl: 'local-thumb', fullUrl: 'local-full', mimeType: 'image/webp', sizeBytes: 120000, storage: 'local_indexeddb', alt: '合影' }],
+        },
+      },
+    ])];
+    const moments = projectWorldMoments(chats, [character('a', 'A')]);
+    expect(moments[0]?.media[0]?.assetId).toBe('asset-1');
+    expect(moments[0]?.media[0]?.thumbnailAssetId).toBe('thumb-1');
+    expect(moments[0]?.media[0]?.url).toBe('local-thumb');
+    expect(moments[0]?.media[0]?.fullUrl).toBe('local-full');
+    expect(moments[0]?.media[0]?.sizeBytes).toBe(120000);
+    expect(moments[0]?.media[0]?.storage).toBe('local_indexeddb');
+  });
+
+  it('dedupes identical public summary and event summary in moment debug evidence', () => {
+    const chats = [buildChat('chat-1', '群聊一', [
+      {
+        id: 'evt-debug',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 150,
+        actorIds: ['a'],
+        summary: 'A 发了一条动态，写下了当下的内心感受。',
+        visibility: 'derived_public',
+        payload: {
+          eventKind: 'post_moment',
+          artifactType: 'moment_text',
+          dedupeKey: 'moment-debug-2',
+          text: '有些话当场说出来就变味了。',
+          publicSummary: 'A 发了一条动态，写下了当下的内心感受。',
+        },
+      },
+    ])];
+    const moments = projectWorldMoments(chats, [character('a', 'A')]);
+    const duplicateRows = moments[0]?.debugEvidence.filter((row) => row.includes('A 发了一条动态')) || [];
+    expect(duplicateRows).toHaveLength(1);
   });
 
   it('aggregates moment source refs across conversations when dedupe key matches', () => {

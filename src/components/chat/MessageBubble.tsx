@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Box, Typography, Avatar, Button, Dialog, DialogContent, DialogTitle, Menu, MenuItem, Chip, Tooltip, keyframes, LinearProgress, Divider } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
-import type { Message } from '../../types/message';
+import type { Message, MessageAttachment } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
@@ -144,6 +144,7 @@ interface MessageBubbleProps {
   onAnalyze?: (message: Message) => void;
   onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
   onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void>;
+  onOpenImage?: (message: Message, attachment: MessageAttachment) => void;
   pending?: boolean;
   currentUser?: { nickname?: string; avatar?: string };
   members?: DisplayTextMember[];
@@ -160,7 +161,10 @@ const typingBounce = keyframes`
   30% { transform: translateY(-4px); opacity: 1; }
 `;
 
-function renderMessageContent(message: Message, options: { onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void> } = {}) {
+function renderMessageContent(message: Message, options: {
+  onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void>;
+  onOpenImage?: (message: Message, attachment: MessageAttachment) => void;
+} = {}) {
   const attachments = message.metadata?.attachments || [];
   const statusChipColor = (status: string | undefined): 'error' | 'success' | 'primary' => {
     if (status === 'failed') return 'error';
@@ -197,7 +201,8 @@ function renderMessageContent(message: Message, options: { onRetryMedia?: (messa
                   component="img"
                   src={attachment.url}
                   alt={attachment.altText}
-                  sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  onClick={() => options.onOpenImage?.(message, attachment)}
+                  sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', cursor: options.onOpenImage ? 'zoom-in' : 'default' }}
                 />
               </Box>
             );
@@ -295,7 +300,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, pending = false, currentUser, members = [] }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, pending = false, currentUser, members = [] }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
@@ -498,7 +503,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
                   </Box>
                 </Tooltip>
               ) : withdrawalNoticeNode
-            ) : renderMessageContent(message, { onRetryMedia })}
+            ) : renderMessageContent(message, { onRetryMedia, onOpenImage })}
           </Box>
         </Box>
 
@@ -515,7 +520,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
 
       <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{message.senderName}</DialogTitle>
-        <DialogContent>{renderMessageContent(message, { onRetryMedia })}</DialogContent>
+        <DialogContent>{renderMessageContent(message, { onRetryMedia, onOpenImage })}</DialogContent>
       </Dialog>
 
       <Menu

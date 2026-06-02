@@ -12,7 +12,6 @@ import type {
   SocialEventHintEnvelope,
   SocialOutingAnalysisResult,
   PostMomentAnalysisResult,
-  PairPrivateThreadAnalysisResult,
 } from '../../types/runtimeEvent';
 import { DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../../types/chat';
 import { buildChatPatch, buildNextWorldState, buildRelationshipTransition, buildWorldRuntimeEvents } from '../chatRuntimeTransitionBuilder';
@@ -26,6 +25,7 @@ import { getGuidanceTargetActorIds, parseUserGuidanceIntent } from '../userGuida
 import { projectWorldAttentionStates, projectWorldCalendar } from '../worldRuntimeProjection';
 import { isCharacterFeatureEnabled } from '../characterGenerationPolicy';
 import { orchestrateWorldDecision } from '../worldDecisionOrchestrator';
+import { buildMomentPostText } from '../momentTextBuilder';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
@@ -72,7 +72,7 @@ function attachAttentionTrace(
     attentionTrace: {
       score: attentionState.attentionScore,
       restraint: attentionState.restraint,
-      suggestedActions: attentionState.suggestedActions,
+      suggestedActions: attentionState.suggestedActions as NonNullable<SocialEventCandidatePayload['attentionTrace']>['suggestedActions'],
       reasons: attentionState.reasons.slice(0, 4),
       latestEvidenceAt: attentionState.latestEvidenceAt,
     },
@@ -338,13 +338,6 @@ function buildAttentionDrivenPrivateThreadCandidate(params: {
       && Date.now() - event.createdAt <= 20 * 60_000
     ));
   if (!recentAttention) return null;
-  const followupBoosted = hasRecentCompletedAttentionFollowup(
-    params.conversation,
-    actorId,
-    'user',
-    Date.now(),
-    90 * 60_000,
-  );
   const payload: SocialEventCandidatePayload = {
     eventKind: 'pair_private_thread',
     initiatorId: actorId,
@@ -1277,7 +1270,7 @@ function normalizeLooseText(value: string) {
   return value
     .toLowerCase()
     .replace(/\s+/g, '')
-    .replace(/[，。！？、,.!?:;：；“”"'‘’（）()【】\[\]-]/g, '');
+    .replace(/[，。！？、,.!?:;：；“”"'‘’（）()【】[\]-]/g, '');
 }
 
 function matchesFollowupFocus(focus: string | null | undefined, text: string) {
@@ -1552,51 +1545,6 @@ async function analyzePostMoment(params: {
   }
 }
 
-function toPairPrivateThreadHint(result: PairPrivateThreadAnalysisResult | null, conversation: GroupChat, senderId: string): SocialEventHintEnvelope | null {
-  if (!result?.shouldCreate || (result.confidence || 0) < 0.8) return null;
-  const participantIds = Array.isArray(result.participantIds)
-    ? result.participantIds.filter((id) => conversation.memberIds.includes(id))
-    : [];
-  if (participantIds.length !== 2) return null;
-  return {
-    eventKind: 'pair_private_thread',
-    participantIds,
-    targetIds: result.targetIds?.filter((id) => conversation.memberIds.includes(id)),
-    reasonType: result.reasonType || 'unresolved_question',
-    confidence: Math.max(0.8, result.confidence || 0),
-    urgency: 'soon',
-    seedIntent: result.seedIntent || '想私下继续聊刚才的话题。',
-    visibilityPlan: 'conversation_private',
-    expectedArtifacts: ['private_thread_summary'],
-    dedupeKey: result.dedupeKey ?? `${senderId}::${participantIds.filter((id) => id !== senderId)[0] || participantIds[1]}`,
-  };
-}
-
-async function analyzePairPrivateThread(params: {
-  conversation: GroupChat;
-  message: Pick<Message, 'content' | 'senderId'>;
-  characters: AICharacter[];
-  recentMessages?: Message[];
-  apiConfig?: APIConfig;
-}): Promise<PairPrivateThreadAnalysisResult | null> {
-  if (!params.apiConfig) return null;
-  const recentTranscript = (params.recentMessages || [])
-    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
-    .slice(-8)
-    .map((message) => `${message.senderName}: ${message.content}`)
-    .join('\n');
-  const recentPrivateThreads = buildRecentSocialEventContext(params.conversation, 'pair_private_thread')
-    .map((event) => `- ${event.summary}`)
-    .join('\n');
-  const prompt = `你是群聊社交事件分析器。判断这条新消息之后，角色是否很可能想和某个具体成员私下继续聊。\n\n只输出 JSON：\n{\n  "shouldCreate": boolean,\n  "participantIds": string[] | null,\n  "targetIds": string[] | null,\n  "confidence": number,\n  "reasonType": string | null,\n  "dedupeKey": string | null,\n  "seedIntent": string | null\n}\n\n要求：\n1. 不要机械镜像 interactionHint，只有在确实存在私下继续聊的强动机时才 shouldCreate=true。\n2. participantIds 必须恰好 2 人，且来自成员 id。\n3. 如果最近已经有同一对成员的私聊提议，复用相同 dedupeKey。\n4. 拿不准就 shouldCreate=false 或降低 confidence。\n\n成员：\n${buildCharacterReference(params.characters.filter((character) => params.conversation.memberIds.includes(character.id)))}\n\n最近对话：\n${recentTranscript}\n\n最近双人私聊事件：\n${recentPrivateThreads || '无'}\n\n当前消息（speakerId=${params.message.senderId}）：\n${params.message.content}`;
-  try {
-    const raw = await generateResponse(params.apiConfig, prompt, [{ role: 'user', content: '只输出 JSON。' }]);
-    return JSON.parse(cleanJson(raw)) as PairPrivateThreadAnalysisResult;
-  } catch {
-    return null;
-  }
-}
-
 function shouldAnalyzeSocialOuting(content: string) {
   return /(今晚|明天|周末|改天|一起去|约饭|吃火锅|聚餐|看展|唱歌|散步|庆祝|线下|见面|出去玩|喝一杯|喝奶茶|吃饭)/i.test(content);
 }
@@ -1732,7 +1680,7 @@ function normalizeSemanticText(value: string | null | undefined) {
   return (value || '')
     .toLowerCase()
     .replace(/\s+/g, '')
-    .replace(/[，。！？、,.!?:;：；“”"'‘’（）()【】\[\]-]/g, '');
+    .replace(/[，。！？、,.!?:;：；“”"'‘’（）()【】[\]-]/g, '');
 }
 
 function normalizeSemanticParticipantSet(ids: string[] | undefined) {
@@ -1940,7 +1888,7 @@ function dedupeSocialEventCandidates(chat: GroupChat, candidates: RuntimeEventV2
   };
 }
 
-function legacyBuildExistingCandidateClusterMap(chat: GroupChat) {
+function legacyBuildExistingCandidateClusterMap() {
   return new Map<string, RuntimeEventV2>();
 }
 
@@ -2456,10 +2404,7 @@ function buildMomentArtifactEvents(params: {
     .map((event) => {
       const payload = event.payload as SocialEventCandidatePayload;
       const actorName = params.characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
-      const celebratory = payload.reasonType === 'celebration';
-      const text = celebratory
-        ? `${actorName} 发了一条动态：${payload.expectedArtifacts?.includes('moment_food_photo') ? '晒了吃饭/活动照片' : '记录了刚才的开心时刻'}`
-        : `${actorName} 发了一条动态：带着点情绪地记录了刚才的事`;
+      const text = buildMomentPostText(actorName, payload);
       return createRuntimeEventV2({
         conversationId: params.conversation.id,
         kind: 'artifact',
@@ -2897,7 +2842,7 @@ function normalizeRuleEvalText(content: string) {
   return content
     .toLowerCase()
     .replace(/\s+/g, '')
-    .replace(/[，。！？、,.!?:;：；“”"'‘’（）()【】\[\]-]/g, '');
+    .replace(/[，。！？、,.!?:;：；“”"'‘’（）()【】[\]-]/g, '');
 }
 
 function evaluateWorldInfluenceRulesFromMessage(input: {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Box, Button, IconButton, Menu, MenuItem, Stack, Typography } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -86,10 +86,21 @@ export default function BaseCalendar({
   dayCellMinHeight,
   dayContentMinHeight,
 }: BaseCalendarProps) {
-  const [visibleMonth, setVisibleMonth] = useState(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
-  const lastSelectedDateKeyRef = useRef(toDateKey(selectedDate));
+  const selectedDateKey = toDateKey(selectedDate);
+  const selectedMonth = useMemo(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1), [selectedDate]);
+  const [visibleMonthState, setVisibleMonthState] = useState(() => ({
+    selectedDateKey,
+    month: selectedMonth,
+  }));
   const [yearMenuAnchor, setYearMenuAnchor] = useState<null | HTMLElement>(null);
   const [monthMenuAnchor, setMonthMenuAnchor] = useState<null | HTMLElement>(null);
+  const visibleMonth = visibleMonthState.selectedDateKey === selectedDateKey ? visibleMonthState.month : selectedMonth;
+  const setVisibleMonth = (updater: Date | ((previous: Date) => Date)) => {
+    setVisibleMonthState((previous) => ({
+      selectedDateKey,
+      month: typeof updater === 'function' ? updater(previous.selectedDateKey === selectedDateKey ? previous.month : selectedMonth) : updater,
+    }));
+  };
   const monthKey = toMonthKey(visibleMonth);
   const yearLabel = `${visibleMonth.getFullYear()}${isZh ? '年' : ''}`;
   const monthLabel = visibleMonth.toLocaleDateString(isZh ? 'zh-CN' : 'en-US', monthFormat || { month: 'long' });
@@ -108,13 +119,6 @@ export default function BaseCalendar({
 
   const anchor = toMonthKey(selectedDate) === monthKey ? selectedDate : visibleMonth;
   const calendarDays = useMemo(() => mode === 'month' ? getCalendarDays(visibleMonth) : getWeekDays(anchor), [mode, visibleMonth, anchor]);
-
-  useEffect(() => {
-    const nextKey = toDateKey(selectedDate);
-    if (nextKey === lastSelectedDateKeyRef.current) return;
-    lastSelectedDateKeyRef.current = nextKey;
-    setVisibleMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
-  }, [selectedDate]);
 
   return (
     <Box sx={{ display: 'grid', gap: 1 }}>

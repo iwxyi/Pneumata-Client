@@ -60,7 +60,6 @@ function buildChat() {
 describe('post moment backflow', () => {
   it('dedupe helper treats same-cluster moment as already backflowed', () => {
     const chat = buildChat();
-    const payload = buildPayload({ dedupeKey: 'moment-a-1' });
     chat.runtimeEventsV2?.push({
       id: 'evt-artifact',
       conversationId: 'chat-1',
@@ -99,7 +98,7 @@ describe('post moment backflow', () => {
     expect(patch.worldState?.recentEvent).toContain('甲 发了一条动态');
   });
 
-  it('formats post moment summary as event record style for event-themed reason', () => {
+  it('formats event-themed post moment as a real feed text instead of event record prose', () => {
     const chat = buildChat();
     const patch = updateSourceChatAfterPostMoment(chat, buildPayload({
       reasonType: 'world_attention_share_moment_event',
@@ -107,11 +106,12 @@ describe('post moment backflow', () => {
     }), '甲');
     const moment = (patch.runtimeEventsV2 || []).find((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'moment_text');
     const text = (moment?.payload as { text?: string }).text || '';
-    expect(text).toContain('记录了刚发生的片段');
-    expect(text).toContain('今晚一起吃火锅');
+    expect(text).not.toContain('发了一条动态');
+    expect(text).not.toContain('记录了刚发生的片段');
+    expect(text.length).toBeGreaterThan(8);
   });
 
-  it('formats post moment summary as inner reflection style for inner-themed reason', () => {
+  it('formats inner-themed post moment as reflective feed text instead of projection summary', () => {
     const chat = buildChat();
     const patch = updateSourceChatAfterPostMoment(chat, buildPayload({
       reasonType: 'world_attention_share_moment_inner',
@@ -119,7 +119,8 @@ describe('post moment backflow', () => {
     }), '甲');
     const moment = (patch.runtimeEventsV2 || []).find((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'moment_text');
     const text = (moment?.payload as { text?: string }).text || '';
-    expect(text).toContain('写下了当下的内心感受');
-    expect(text).toContain('聊完之后心里松了一口气');
+    expect(text).not.toContain('发了一条动态');
+    expect(text).not.toContain('写下了当下的内心感受');
+    expect(text.length).toBeGreaterThan(8);
   });
 });

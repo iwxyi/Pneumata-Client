@@ -310,7 +310,7 @@ function buildEventMeta(event: RuntimeEventV2) {
     hitWindow: typeof payload.hitWindow === 'string' ? payload.hitWindow : undefined,
     nextSuggestedAt: typeof payload.nextSuggestedAt === 'number' ? payload.nextSuggestedAt : undefined,
   } : undefined;
-  const worldAttentionDecision = payload && payload.eventType === 'world_attention_decision' ? {
+  const worldAttentionDecision: NonNullable<NonNullable<ProjectedRuntimeTimelineItem['meta']>['worldAttentionDecision']> | undefined = payload && payload.eventType === 'world_attention_decision' ? {
     eventType: 'world_attention_decision' as const,
     decisionType: payload.decisionType === 'trigger' || payload.decisionType === 'suppressed' || payload.decisionType === 'fallback'
       ? payload.decisionType
@@ -355,7 +355,7 @@ function buildEventMeta(event: RuntimeEventV2) {
       }
       : undefined,
   } : undefined;
-  const worldDecisionV2 = payload && payload.eventType === 'world_decision_v2' ? {
+  const worldDecisionV2: NonNullable<NonNullable<ProjectedRuntimeTimelineItem['meta']>['worldDecisionV2']> | undefined = payload && payload.eventType === 'world_decision_v2' ? {
     eventType: 'world_decision_v2' as const,
     domain: payload.domain === 'proactive_care' || payload.domain === 'open_chat' || payload.domain === 'calendar_patch_queue'
       ? payload.domain
@@ -1071,12 +1071,12 @@ function buildAttentionFollowupActions(chat: GroupChat, members: AICharacter[], 
         actorId: state.actorId,
         label: `${state.actorName} 跟进用户`,
         description: cleanActionText(`关注${Math.round(state.attentionScore * 100)}% / 克制${Math.round(state.restraint * 100)}%，优先动作：${state.suggestedActions.slice(0, 3).map((item) => labelMap[item] || item).join('、')}。${state.reasons[0] ? ` 触发原因：${state.reasons[0]}` : ''}`),
-        visibility: 'moderator_only',
+        visibility: 'moderator_only' as const,
         fields: [
           {
             key: 'focus',
             label: '跟进内容',
-            type: 'text',
+            type: 'text' as const,
             required: false,
             placeholder: '例如：先回应用户刚才的问题，再追问细节',
           },
@@ -1092,19 +1092,19 @@ function buildAttentionFollowupActions(chat: GroupChat, members: AICharacter[], 
       actorId: state.actorId,
       label: `${state.actorName} 跟进 ${state.targetName}`,
       description: cleanActionText(`关注${Math.round(state.attentionScore * 100)}% / 克制${Math.round(state.restraint * 100)}%，优先动作：${state.suggestedActions.slice(0, 3).map((item) => labelMap[item] || item).join('、')}。${state.reasons[0] ? ` 触发原因：${state.reasons[0]}` : ''}`),
-      visibility: 'moderator_only',
+      visibility: 'moderator_only' as const,
       fields: [
         {
           key: 'targetId',
           label: '跟进对象',
-          type: 'single_select',
+          type: 'single_select' as const,
           required: true,
           options: [{ value: state.targetId, label: state.targetName }],
         },
         {
           key: 'focus',
           label: '跟进内容',
-          type: 'text',
+          type: 'text' as const,
           required: false,
           placeholder: '例如：先接住对方刚才的观点，再追问关键细节',
         },

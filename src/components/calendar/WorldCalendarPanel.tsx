@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Button, Card, CardContent, Chip, Dialog, DialogContent, DialogTitle, Divider, FormControl, MenuItem, Select, Stack, Typography } from '@mui/material';
+import { Box, Button, Card, CardContent, Chip, Dialog, DialogContent, DialogTitle, FormControl, MenuItem, Select, Stack, Typography } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import PlaceIcon from '@mui/icons-material/Place';
 import ScheduleIcon from '@mui/icons-material/Schedule';
@@ -52,11 +52,6 @@ function formatScheduleHint(item: { startAt?: number | null; endAt?: number | nu
   if (hasStart && hasDuration) return isZh ? `${new Date(item.startAt as number).toLocaleString()}（约${item.durationMinutes}分钟）` : `${new Date(item.startAt as number).toLocaleString()} (~${item.durationMinutes} min)`;
   if (hasStart) return new Date(item.startAt as number).toLocaleString();
   return item.timeHint || null;
-}
-
-function formatConflictWindow(startAt?: number | null, endAt?: number | null) {
-  if (typeof startAt !== 'number' || typeof endAt !== 'number') return null;
-  return `${new Date(startAt).toLocaleTimeString()} - ${new Date(endAt).toLocaleTimeString()}`;
 }
 
 function getCalendarStatusMeta(status: WorldCalendarItem['status'], isZh: boolean) {
@@ -146,7 +141,7 @@ export default function WorldCalendarPanel({
   const dayTitlesByStart = useMemo(() => {
     const map = new Map<number, string[]>();
     baseFilteredItems.forEach((item) => {
-      const key = startOfDay(item.timestamp);
+      const key = startOfDay(item.startAt ?? item.updatedAt);
       const titles = map.get(key);
       if (titles) {
         titles.push(item.title);
