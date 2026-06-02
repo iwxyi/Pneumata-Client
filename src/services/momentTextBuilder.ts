@@ -14,6 +14,32 @@ function cleanMomentPostText(value: string) {
     .trim();
 }
 
+function cleanCompanionshipSeed(value: string) {
+  return value
+    .replace(/\b(?:companionship|projection|runtime|phase|score|intimacy|attachment|longing)\b/ig, '')
+    .replace(/(?:陪伴投影|关系投影|运行时|系统字段|关系评分|分数|阶段名|阶段|私密回声|关系纹理|系统记录|用户记忆)/g, '')
+    .replace(/(?:小秘密|共同梗\/约定|放心不下)\s*[:：]/g, '')
+    .replace(/用户/g, '某个人')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
+function buildCompanionshipMomentText(seed: string, companionshipSeeds: string[]) {
+  const cleanedSeeds = companionshipSeeds.map(cleanCompanionshipSeed).filter(Boolean);
+  if (!cleanedSeeds.length) return '';
+  const relationCue = cleanedSeeds.join(' / ');
+  return cleanMomentPostText(pickBySeed(`${seed}:${relationCue}`, [
+    '有些话不用讲得太明白，懂的人看到就会懂。今天先把这一点余味放在这里。',
+    '刚才突然想起一个只有熟人才接得住的小细节。不是要解释，就是觉得这一刻还挺值得留一下。',
+    '有些约定没必要挂在嘴边，但会在心里占一个小位置。今天也算被它轻轻提醒了一下。',
+    '热闹过去以后，反而剩下一点很安静的感觉。发出来不是为了说明什么，只是怕它太快散掉。',
+    relationCue.includes('秘密') || relationCue.includes('保密')
+      ? '今天有个瞬间很想笑，但原因不能说。懂的人自己领会就好。'
+      : '',
+  ].filter(Boolean)));
+}
+
 function pickBySeed(seed: string, choices: string[]) {
   if (!choices.length) return '';
   let hash = 0;
@@ -35,8 +61,10 @@ export function buildMomentPostText(actorName: string, payload: SocialEventCandi
     source,
   ].filter(Boolean).join('|');
   const hasPhoto = (payload.expectedArtifacts || []).some((item) => item !== 'moment_text');
+  const companionshipText = buildCompanionshipMomentText(seed, payload.companionshipSeeds || []);
 
   if (payload.reasonType === 'world_attention_share_moment_inner' || payload.activityType === '情绪碎片') {
+    if (companionshipText) return companionshipText;
     return cleanMomentPostText(pickBySeed(seed, [
       '有些话当场说出来就变味了。先放在这里，等风过去再看。',
       '刚才那一瞬间其实挺安静的，热闹都在外面，心里反而慢了半拍。',
@@ -61,12 +89,15 @@ export function buildMomentPostText(actorName: string, payload: SocialEventCandi
   }
 
   if (payload.reasonType === 'world_attention_share_moment_event' || payload.activityType === '关系互动') {
+    if (companionshipText) return companionshipText;
     return cleanMomentPostText(pickBySeed(seed, [
       source ? `刚才那句还挺戳人的：${source}。先记一笔。` : '刚才这段对话有点意思，过会儿再回头看，应该还能笑一下。',
       '人和人之间有时候就差这么一小段没说完的话。今天先记到这里。',
       '刚才那个气氛很微妙，像是大家都懂，但谁也没把话说满。',
     ]));
   }
+
+  if (companionshipText) return companionshipText;
 
   return cleanMomentPostText(pickBySeed(seed, [
     payload.seedIntent || '今天有一点想记录的东西，先放这里。',

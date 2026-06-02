@@ -22,6 +22,7 @@ import { reportUnresolvedDisplayEntity } from './diagnostics';
 import { isCharacterFeatureEnabled } from './characterGenerationPolicy';
 import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
 import { buildMomentPostText } from './momentTextBuilder';
+import { buildCompanionshipArtifactSeeds } from './companionshipProjection';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
@@ -1843,6 +1844,17 @@ async function buildWorldDrivenCandidate(
         + modelConfidenceOffset,
     ),
   );
+  const relatedCharacters = characters.filter((item) => item.id !== attention.actorId && chat.memberIds.includes(item.id));
+  const companionshipSeeds = eventKind === 'post_moment' && actor
+    ? buildCompanionshipArtifactSeeds({
+      character: actor,
+      relatedCharacters,
+      surface: 'public_moment',
+      includeUserMemory: false,
+      max: 4,
+      now,
+    })
+    : [];
   const candidate = createRuntimeEventV2({
     conversationId: chat.id,
     kind: 'event_candidate',
@@ -1869,6 +1881,7 @@ async function buildWorldDrivenCandidate(
       seedIntent: modelDecisionReason ? `${chosen.seedIntent}（${modelDecisionReason}）` : chosen.seedIntent,
       visibilityPlan: chosen.visibilityPlan,
       expectedArtifacts: chosen.expectedArtifacts,
+      companionshipSeeds: eventKind === 'post_moment' ? companionshipSeeds : undefined,
       title: chosen.title,
       activityType: chosen.activityType,
       dedupeKey: chosen.dedupeKey,

@@ -123,4 +123,22 @@ describe('post moment backflow', () => {
     expect(text).not.toContain('写下了当下的内心感受');
     expect(text.length).toBeGreaterThan(8);
   });
+
+  it('backflows companionship residue as natural public moment text', () => {
+    const chat = buildChat();
+    const patch = updateSourceChatAfterPostMoment(chat, buildPayload({
+      reasonType: 'world_attention_share_moment_inner',
+      companionshipSeeds: [
+        '公开动态可以只留下“有人懂”的余味，不点名用户，也不写成私密记忆：用户说下次一起把话说完。',
+        '公开动态可以把和乙之间的关系余波写成一句含蓄状态，不要暴露秘密细节：共同梗/约定：约定争执后先递台阶。',
+      ],
+    }), '甲');
+    const moment = (patch.runtimeEventsV2 || []).find((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string }).artifactType === 'moment_text');
+    const text = (moment?.payload as { text?: string }).text || '';
+    expect(text.length).toBeGreaterThan(8);
+    expect(text).not.toContain('用户');
+    expect(text).not.toContain('关系余波');
+    expect(text).not.toContain('共同梗/约定：');
+    expect(text).not.toContain('发了一条动态');
+  });
 });

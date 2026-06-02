@@ -5,6 +5,7 @@ import type { Message } from '../types/message';
 import type { SessionActionDefinition } from '../types/sessionEngine';
 import { buildDirectMemoryPanelContext } from '../services/promptBuilder';
 import { buildProjectedSessionActions } from '../services/sessionProjection';
+import { buildCompanionshipStatusSignature } from '../services/companionshipProjection';
 
 type SessionProjectionData = Awaited<ReturnType<typeof import('../services/sessionEngineKernel')['resolveSessionProjectionData']>>;
 type ProjectedChatDetailState = ReturnType<typeof import('../services/sessionProjection')['buildProjectedChatDetailState']>;
@@ -142,7 +143,10 @@ export function useChatSidebarProjection(params: {
 
   const directMemoryPanelContext = useMemo(() => {
     if (!chat || chat.type !== 'direct' || !activeMembers[0]) return null;
-    return buildDirectMemoryPanelContext(activeMembers[0], currentChatMessages, new Map(characters.map((item) => [item.id, item] as const)));
+    return {
+      ...buildDirectMemoryPanelContext(activeMembers[0], currentChatMessages, new Map(characters.map((item) => [item.id, item] as const))),
+      companionshipStatus: buildCompanionshipStatusSignature({ chat, character: activeMembers[0], messages: currentChatMessages }),
+    };
   }, [activeMembers, characters, chat, currentChatMessages]);
 
   const sessionActions = useMemo(() => {

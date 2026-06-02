@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import type { AICharacter } from '../../types/character';
 import type { MemoryItem } from '../../services/memoryTypes';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useChatStore } from '../../stores/useChatStore';
+import { useMessageStore } from '../../stores/useMessageStore';
 import SimpleBarChart from '../common/SimpleBarChart';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
@@ -26,6 +28,9 @@ import { summarizeExpressionFeedbackInfluence } from '../../services/expressionF
 import { buildMemberInnerLifeChips } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { formatInnerImpulseLabel } from '../../services/runtimeDecisionLabels';
+import { buildCharacterCompanionshipStates, buildCompanionshipStatusSignature, buildSharedMemoryAnchors } from '../../services/companionshipProjection';
+import type { Message } from '../../types/message';
+import type { CharacterCompanionshipState, SharedMemoryAnchor } from '../../types/companionship';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -66,6 +71,10 @@ function buildRelationshipMemoryItems(character: Partial<AICharacter>): MemoryIt
     createdAt: relation.updatedAt || now,
     updatedAt: relation.updatedAt || now,
   }));
+}
+
+function latestByTime<T extends { lastMessageAt?: number; updatedAt?: number; createdAt?: number }>(items: T[]) {
+  return items.slice().sort((a, b) => (b.lastMessageAt || b.updatedAt || b.createdAt || 0) - (a.lastMessageAt || a.updatedAt || a.createdAt || 0))[0];
 }
 
 function getTraitLabel(key: string, language: string) {
@@ -316,6 +325,126 @@ function buildRelationshipUserHint(relation: NonNullable<AICharacter['relationsh
   const readable = buildRelationshipReadableChips(relation).join(' / ');
   const note = relation.note && relation.note !== relation.characterId ? sanitizeUserFacingText(relation.note, members) : '';
   return [readable ? `当前倾向：${readable}` : '', note ? `最近证据：${note}` : ''].filter(Boolean).join('\n') || '这段关系来自角色资料和最近互动的累计印象。';
+}
+
+function formatCharacterCompanionshipStyle(style: CharacterCompanionshipState['style']) {
+  const labels: Record<CharacterCompanionshipState['style'], string> = {
+    close_friend: '亲近朋友',
+    sibling_like: '像家人',
+    romantic_tension: '暧昧张力',
+    mentor_protege: '照看/学习',
+    partner: '可靠搭档',
+    rival_with_care: '带刺关心',
+  };
+  return labels[style];
+}
+
+function formatSharedMemoryAnchorKind(kind: SharedMemoryAnchor['kind']) {
+  const labels: Record<SharedMemoryAnchor['kind'], string> = {
+    first_time: '第一次',
+    confession: '心意确认',
+    conflict: '旧冲突',
+    repair: '修复',
+    inside_joke: '共同梗',
+    shared_secret: '小秘密',
+    promise: '约定',
+    milestone: '里程碑',
+  };
+  return labels[kind];
+}
+
+function SharedMemoryAnchorPanel({
+  anchors,
+  resolveCharacterName,
+  developerMode,
+}: {
+  anchors: SharedMemoryAnchor[];
+  resolveCharacterName: (id: string, fallback?: string) => string;
+  developerMode: boolean;
+}) {
+  return anchors.length ? (
+    <Stack spacing={1}>
+      {anchors.slice(0, developerMode ? 8 : 4).map((anchor) => {
+        const participantNames = anchor.participantIds.map((id) => resolveCharacterName(id)).join(' × ');
+        const chips = developerMode
+          ? [
+              formatSharedMemoryAnchorKind(anchor.kind),
+              `显著 ${anchor.salience}`,
+              `置信 ${anchor.confidence}`,
+              anchor.source === 'layered_memory' ? '分层记忆' : '关系备注',
+            ]
+          : [formatSharedMemoryAnchorKind(anchor.kind), participantNames].filter(Boolean);
+        return (
+          <Box key={anchor.id} sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
+            <Stack spacing={0.65}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, minWidth: 0, flexWrap: 'wrap' }}>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>{anchor.title}</Typography>
+                <Typography variant="caption" color="text.secondary">{participantNames}</Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary">
+                {anchor.text}
+              </Typography>
+              {chips.length ? <StatChipRow items={chips} /> : null}
+              {developerMode && anchor.evidence ? (
+                <Typography variant="caption" color="text.secondary">
+                  证据：{anchor.evidence}
+                </Typography>
+              ) : null}
+            </Stack>
+          </Box>
+        );
+      })}
+    </Stack>
+  ) : <Typography variant="caption" color="text.secondary">暂无共同锚点。高显著的第一次、约定、小秘密、冲突或修复记忆会在这里出现。</Typography>;
+}
+
+function CharacterCompanionshipPanel({
+  states,
+  resolveCharacterName,
+  developerMode,
+}: {
+  states: CharacterCompanionshipState[];
+  resolveCharacterName: (id: string, fallback?: string) => string;
+  developerMode: boolean;
+}) {
+  return states.length ? (
+    <Stack spacing={1}>
+      {states.slice(0, developerMode ? 8 : 4).map((state) => {
+        const chips = developerMode
+          ? [
+              `亲近 ${state.closeness}`,
+              `护短 ${state.protectiveness}`,
+              `依赖 ${state.reliance}`,
+            ]
+          : [
+              state.closeness >= 58 ? '很熟' : state.closeness >= 36 ? '熟悉' : '',
+              state.protectiveness >= 58 ? '护短明显' : state.protectiveness >= 36 ? '会在意' : '',
+              state.reliance >= 58 ? '很信赖' : state.reliance >= 36 ? '可依赖' : '',
+            ].filter(Boolean);
+        const textureLines = [
+          state.sharedSecrets.length ? `秘密：${state.sharedSecrets.join('、')}` : '',
+          state.sharedRituals.length ? `仪式/共同梗：${state.sharedRituals.join('、')}` : '',
+          state.unresolvedCareTopics.length ? `未完成关心：${state.unresolvedCareTopics.join('、')}` : '',
+        ].filter(Boolean);
+        return (
+          <Box key={`${state.actorId}-${state.targetId}`} sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
+            <Stack spacing={0.65}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, flexWrap: 'wrap' }}>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>{resolveCharacterName(state.targetId)}</Typography>
+                <Chip size="small" label={formatCharacterCompanionshipStyle(state.style)} variant="outlined" />
+              </Box>
+              {chips.length ? <StatChipRow items={chips} /> : null}
+              {textureLines.length ? (
+                <Typography variant="caption" color="text.secondary">
+                  {textureLines.join('；')}
+                </Typography>
+              ) : null}
+            </Stack>
+          </Box>
+        );
+      })}
+    </Stack>
+  ) : <Typography variant="caption" color="text.secondary">暂无可投影的角色陪伴关系。关系积累到一定强度后，这里会显示护短、默契、搭档感或带刺关心。</Typography>;
 }
 
 function isLikelyInternalCharacterId(value: string) {
@@ -612,10 +741,13 @@ export function CharacterMemoryInspector({ character }: RuntimeInsightsPanelProp
 
 export function CharacterRelationshipInspector({ character }: RuntimeInsightsPanelProps) {
   const characters = useCharacterStore((state) => state.characters);
+  const chats = useChatStore((state) => state.chats);
+  const messages = useMessageStore((state) => state.messages);
+  const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const isDeveloperView = developerMode && Boolean(showDeveloperMemory);
-  const relationships = character.relationships || [];
+  const relationships = useMemo(() => character.relationships || [], [character.relationships]);
   const resolveCharacterName = useMemo(() => {
     const byId = new Map(characters.map((item) => [item.id, item.name]));
     return (id: string, fallback?: string) => {
@@ -631,12 +763,112 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
     }));
     return items.slice(0, 8);
   }, [character, resolveCharacterName]);
+  const characterCompanionshipStates = useMemo(() => {
+    if (!character.id || !character.personality || !character.memory) return [];
+    return buildCharacterCompanionshipStates(character as AICharacter, character.updatedAt || character.createdAt || 0);
+  }, [character]);
+  const sharedMemoryAnchors = useMemo(() => {
+    if (!character.id || !character.personality || !character.memory) return [];
+    return buildSharedMemoryAnchors(character as AICharacter, character.updatedAt || character.createdAt || 0);
+  }, [character]);
+  const companionshipView = useMemo(() => {
+    if (!character.id || !character.personality || !character.memory) return null;
+    const directChats = chats.filter((chat) => chat.type === 'direct' && chat.memberIds.includes(character.id || ''));
+    const directChat = latestByTime(directChats);
+    if (!directChat) return null;
+    const chatMessages = [
+      ...(directChat.latestMessage ? [directChat.latestMessage] : []),
+      ...messages.filter((message) => message.chatId === directChat.id),
+      ...(messageWindowsByChatId[directChat.id]?.messages || []),
+    ].filter((message, index, source): message is Message => Boolean(message) && source.findIndex((item) => item?.id === message?.id) === index);
+    const signature = buildCompanionshipStatusSignature({
+      chat: directChat,
+      character: character as AICharacter,
+      messages: chatMessages,
+    });
+    return {
+      chatName: directChat.name,
+      signature,
+    };
+  }, [character, chats, messageWindowsByChatId, messages]);
 
   return (
     <PageSection spacing={2}>
       <SurfaceCard>
         <SectionHeader title="关系概览" dense />
         <RelationshipOverviewPanel relationships={relationships} relationshipMemories={relationshipMemories} resolveCharacterName={resolveCharacterName} developerMode={isDeveloperView} members={characters} />
+      </SurfaceCard>
+      <SurfaceCard>
+        <SectionHeader title="角色陪伴" dense action={isDeveloperView ? <DebugChip /> : undefined} />
+        <CharacterCompanionshipPanel states={characterCompanionshipStates} resolveCharacterName={resolveCharacterName} developerMode={isDeveloperView} />
+      </SurfaceCard>
+      <SurfaceCard>
+        <SectionHeader title="共同锚点" dense action={isDeveloperView ? <DebugChip /> : undefined} />
+        <SharedMemoryAnchorPanel anchors={sharedMemoryAnchors} resolveCharacterName={resolveCharacterName} developerMode={isDeveloperView} />
+      </SurfaceCard>
+      <SurfaceCard>
+        <SectionHeader title="陪伴关系" dense action={isDeveloperView ? <DebugChip /> : undefined} />
+        {companionshipView?.signature ? (
+          <Stack spacing={1.25}>
+            <Typography variant="body2" color="text.primary">
+              {companionshipView.signature.text}
+            </Typography>
+            {companionshipView.signature.addressing ? (
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 0.75 }}>
+                <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>当前称呼</Typography>
+                  <Typography variant="body2" noWrap>{companionshipView.signature.addressing.currentAddress}</Typography>
+                </Box>
+                <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>私下称呼</Typography>
+                  <Typography variant="body2" noWrap>{companionshipView.signature.addressing.privateAddress || companionshipView.signature.addressing.currentAddress}</Typography>
+                </Box>
+                <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>公开称呼</Typography>
+                  <Typography variant="body2" noWrap>{companionshipView.signature.addressing.publicAddress || '用户'}</Typography>
+                </Box>
+              </Box>
+            ) : null}
+            {companionshipView.signature.unsentDraft || companionshipView.signature.offlineTrace ? (
+              <Box sx={{ p: 1.25, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35 }}>
+                  {companionshipView.signature.unsentDraft ? '未发送的话' : '离线痕迹'}
+                </Typography>
+                <Typography variant="body2">
+                  {companionshipView.signature.unsentDraft || companionshipView.signature.offlineTrace}
+                </Typography>
+              </Box>
+            ) : null}
+            {companionshipView.signature.chips.length ? (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+                {companionshipView.signature.chips.map((chip) => (
+                  <Chip key={chip} label={chip} size="small" variant="outlined" />
+                ))}
+              </Box>
+            ) : null}
+            <Typography variant="caption" color="text.secondary">
+              来自最近单聊：{companionshipView.chatName}
+            </Typography>
+            {companionshipView.signature.addressing?.forbiddenAddresses.length ? (
+              <Typography variant="caption" color="text.secondary">
+                禁用称呼：{companionshipView.signature.addressing.forbiddenAddresses.join('、')}
+              </Typography>
+            ) : null}
+            {isDeveloperView ? (
+              <Box sx={{ display: 'grid', gap: 0.5 }}>
+                {companionshipView.signature.debugLines.map((line) => (
+                  <Typography key={line} variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', wordBreak: 'break-word' }}>
+                    {line}
+                  </Typography>
+                ))}
+              </Box>
+            ) : null}
+          </Stack>
+        ) : (
+          <Typography variant="caption" color="text.secondary">
+            暂无可投影的用户单聊陪伴关系。建立单聊并产生互动后，这里会显示称呼、关心事项和关系边界。
+          </Typography>
+        )}
       </SurfaceCard>
     </PageSection>
   );
@@ -650,7 +882,7 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const isDeveloperView = developerMode && Boolean(showDeveloperMemory);
-  const relationships = character.relationships || [];
+  const relationships = useMemo(() => character.relationships || [], [character.relationships]);
   const resolveCharacterName = useMemo(() => {
     const byId = new Map(characters.map((item) => [item.id, item.name]));
     return (id: string, fallback?: string) => {
@@ -660,15 +892,17 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
     };
   }, [characters]);
   const behavior = character.behavior;
-  const personalityDrift = character.personalityDrift || {};
+  const personalityDrift = useMemo(() => character.personalityDrift || {}, [character.personalityDrift]);
   const effectiveBehavior = useMemo(
     () => (character.behavior ? applyDriftToBehavior(character as AICharacter) : null),
     [character]
   );
+  const fallbackTimelineAt = character.updatedAt || character.createdAt || 0;
+  const driftSummary = formatLocalizedDriftSummary(personalityDrift, i18n.language);
   const timeline = useMemo(() => character.runtimeTimeline || [
-    ...relationships.slice(-3).map((relation) => ({ type: 'relationship' as const, text: `${relation.note || relation.characterId} · ${relation.updatedAt ? new Date(relation.updatedAt).toLocaleString() : '最近更新'}`, createdAt: relation.updatedAt || Date.now() })),
-    ...(formatLocalizedDriftSummary(personalityDrift, i18n.language) ? [{ type: 'drift' as const, text: formatLocalizedDriftSummary(personalityDrift, i18n.language), createdAt: Date.now() }] : []),
-  ], [character.runtimeTimeline, relationships, personalityDrift]);
+    ...relationships.slice(-3).map((relation) => ({ type: 'relationship' as const, text: `${relation.note || relation.characterId} · ${relation.updatedAt ? new Date(relation.updatedAt).toLocaleString() : '最近更新'}`, createdAt: relation.updatedAt || fallbackTimelineAt })),
+    ...(driftSummary ? [{ type: 'drift' as const, text: driftSummary, createdAt: fallbackTimelineAt }] : []),
+  ], [character.runtimeTimeline, relationships, fallbackTimelineAt, driftSummary]);
   const filteredTimeline = timelineFilter === 'all' ? timeline : timeline.filter((item) => item.type === timelineFilter);
   const dominantEmotionLabel = getDominantEmotionLabel(character.emotionalState, i18n.language);
   const runtimeSummaryItems = [

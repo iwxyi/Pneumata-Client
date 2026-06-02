@@ -194,6 +194,7 @@ describe('characterExperienceArtifacts', () => {
     expect(context.secondReactionSeeds.length).toBeGreaterThan(0);
     expect(context.selfDoubtSeeds.length).toBeGreaterThan(0);
     expect(Array.isArray(context.flashbackSeeds)).toBe(true);
+    expect(Array.isArray(context.companionshipSeeds)).toBe(true);
     expect(context.imperfectFormHints.length).toBeGreaterThan(0);
     expect(context.metaphorSeeds.length).toBeGreaterThan(0);
     expect(context.metaphorSeeds.join(' / ')).not.toContain('今日心情：');
@@ -213,7 +214,8 @@ describe('characterExperienceArtifacts', () => {
     const serializedContext = String((generateResponseMock.mock.calls[0]?.[2] as Array<{ content: string }> | undefined)?.[0]?.content || '');
     expect(prompt).toContain('日记是角色卸下面具后只面对自己的私密记录');
     expect(prompt).toContain('openingStyle、narrativeAngle、formHint 只是入口建议');
-    expect(prompt).toContain('secondReactionSeeds、selfDoubtSeeds、flashbackSeeds、imperfectFormHints、metaphorSeeds 是可选私密材料');
+    expect(prompt).toContain('secondReactionSeeds、selfDoubtSeeds、flashbackSeeds、companionshipSeeds、imperfectFormHints、metaphorSeeds 是可选私密材料');
+    expect(prompt).toContain('companionshipSeeds 只能写成角色自己的私下感受');
     expect(prompt).toContain('recentDiaryOpenings、recentDiaryContentPatterns 和 recentDiaryContinuity 只用来感知近期节奏');
     expect(prompt).toContain('长期事件、长期情绪或同一段关系可以反复出现');
     expect(serializedContext).not.toContain('openingAvoidance');
@@ -222,12 +224,72 @@ describe('characterExperienceArtifacts', () => {
     expect(serializedContext).toContain('secondReactionSeeds');
     expect(serializedContext).toContain('selfDoubtSeeds');
     expect(serializedContext).toContain('flashbackSeeds');
+    expect(serializedContext).toContain('companionshipSeeds');
     expect(serializedContext).toContain('imperfectFormHints');
     expect(serializedContext).toContain('metaphorSeeds');
     expect(serializedContext).toContain('短促情绪词开场');
     expect(serializedContext).toContain('情绪先行');
     expect(serializedContext).not.toContain('气死我了');
     expect(serializedContext).not.toContain('今天又被人误会');
+  });
+
+  it('adds companionship seeds to daily diary context without leaking runtime fields', () => {
+    const character = buildCharacter();
+    const context = buildCharacterDailyDiaryContext({
+      ...character,
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说过最近面试压力很大。'],
+      },
+      layeredMemories: [
+        ...(character.layeredMemories || []),
+        {
+          id: 'anchor-user',
+          scope: 'relationship',
+          layer: 'long_term',
+          kind: 'bond',
+          ownerId: 'c1',
+          subjectIds: ['c1', 'user'],
+          text: '第一次深夜聊天后，苏苏记住了用户没有退出对话。',
+          evidenceText: '用户那晚陪苏苏聊到很晚。',
+          salience: 0.9,
+          confidence: 0.9,
+          recency: 0.7,
+          reinforcementCount: 2,
+          sourceEventIds: ['evt-user-anchor'],
+          origin: 'distilled',
+          createdAt: 100,
+          updatedAt: 200,
+        },
+      ],
+      relationships: [
+        ...(character.relationships || []),
+        {
+          characterId: 'c2',
+          warmth: 72,
+          competence: 18,
+          trust: 66,
+          threat: 2,
+          note: '共同秘密是只有她们知道的暗号；约定下次把话说完。',
+          updatedAt: 200,
+        },
+      ],
+    }, [{ id: 'c2', name: '小雨' } as AICharacter], '1970-01-01');
+    const serialized = JSON.stringify(context);
+
+    expect(context.companionshipSeeds.join('\n')).toContain('第一次深夜聊天');
+    expect(context.companionshipSeeds.join('\n')).toContain('用户');
+    expect(context.companionshipSeeds.join('\n')).toContain('小雨');
+    expect(context.companionshipSeeds.join('\n')).toContain('共同秘密');
+    expect(serialized).not.toContain('companionshipContext');
+    expect(serialized).not.toContain('phase');
+    expect(serialized).not.toContain('score');
+    expect(serialized).not.toContain('c1');
+    expect(serialized).not.toContain('c2');
   });
 
   it('summarizes recurring diary topics without feeding previous diary prose back to the model', () => {

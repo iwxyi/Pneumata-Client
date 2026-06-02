@@ -27,6 +27,7 @@ import { projectWorldAttentionStates, projectWorldCalendar } from '../worldRunti
 import { isCharacterFeatureEnabled } from '../characterGenerationPolicy';
 import { orchestrateWorldDecision } from '../worldDecisionOrchestrator';
 import { buildMomentPostText } from '../momentTextBuilder';
+import { buildCharacterCompanionshipStates } from '../companionshipProjection';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
@@ -379,6 +380,106 @@ function buildAttentionDrivenPrivateThreadCandidate(params: {
     targetIds: ['user'],
     visibility: 'derived_public',
     payload: tracedPayload,
+  });
+}
+
+function pickCompanionshipPrivateThreadState(params: {
+  conversation: GroupChat;
+  actor: AICharacter;
+}) {
+  const memberIds = new Set(params.conversation.memberIds.filter((id) => id !== 'user'));
+  const now = Date.now();
+  return buildCharacterCompanionshipStates(params.actor, now)
+    .filter((state) => memberIds.has(state.targetId))
+    .map((state) => {
+      const textureScore = state.sharedSecrets.length * 9 + state.sharedRituals.length * 7 + state.unresolvedCareTopics.length * 12;
+      const score = state.closeness * 0.36 + state.protectiveness * 0.34 + state.reliance * 0.28 + textureScore;
+      return { state, score };
+    })
+    .filter(({ state, score }) => {
+      if (state.unresolvedCareTopics.length) return score >= 44;
+      if (state.sharedSecrets.length || state.sharedRituals.length) return score >= 52;
+      return score >= 68;
+    })
+    .sort((left, right) => right.score - left.score)[0] || null;
+}
+
+function buildCompanionshipPrivateThreadOpening(actorName: string, targetName: string, texture: string, sourceText: string) {
+  const cleanedTexture = texture.replace(/\s+/g, ' ').trim();
+  const cleanedSource = sourceText.replace(/\s+/g, ' ').trim();
+  if (/担心|放心不下|想帮|护着/.test(cleanedTexture)) {
+    return `${targetName}，刚才在群里我没接着问，是不想让你难堪。但这件事我还是有点放心不下，想单独确认一下。`;
+  }
+  if (/约定|暗号|共同梗|仪式/.test(cleanedTexture)) {
+    return `${targetName}，刚才那一下我突然想起我们之前说好的事。群里不太适合展开，我想单独跟你把这个接上。`;
+  }
+  if (/秘密|只有.*知道|保密/.test(cleanedTexture)) {
+    return `${targetName}，有些话在群里说出来就不是那个味道了。刚才那点我想单独和你确认一下。`;
+  }
+  if (cleanedSource) {
+    return `${targetName}，刚才你听到我那句了吗？我不是随口一说，想单独和你接着聊一下。`;
+  }
+  return `${targetName}，刚才在群里我没完全说完，想单独和你接着聊一下。`;
+}
+
+function buildCompanionshipPrivateThreadCandidate(params: {
+  conversation: GroupChat;
+  characters: AICharacter[];
+  message: Pick<Message, 'content' | 'senderId'>;
+}): RuntimeEventV2 | null {
+  const actor = params.characters.find((item) => item.id === params.message.senderId);
+  if (!actor || actor.id === 'user') return null;
+  if (params.conversation.type !== 'group') return null;
+  if (!params.conversation.memberIds.includes(actor.id)) return null;
+  const picked = pickCompanionshipPrivateThreadState({ conversation: params.conversation, actor });
+  if (!picked) return null;
+  const target = params.characters.find((item) => item.id === picked.state.targetId);
+  if (!target) return null;
+  const texture = [
+    picked.state.unresolvedCareTopics[0],
+    picked.state.sharedRituals[0],
+    picked.state.sharedSecrets[0],
+  ].filter(Boolean).join('；');
+  const reasonType = picked.state.unresolvedCareTopics.length
+    ? 'companionship_care_followup'
+    : picked.state.sharedRituals.length
+      ? 'companionship_ritual_followup'
+      : picked.state.sharedSecrets.length
+        ? 'companionship_secret_followup'
+        : 'companionship_bond_followup';
+  const seedIntent = texture
+    ? `${actor.name} 对 ${target.name} 的陪伴关系有未尽余波：${texture}`
+    : `${actor.name} 和 ${target.name} 的关系已经足够熟悉，适合私下补一句没有在群里说完的话。`;
+  const openingMessage = buildCompanionshipPrivateThreadOpening(actor.name, target.name, texture, params.message.content);
+  const confidence = Math.max(0.82, Math.min(0.94, picked.score / 100));
+  const payload: SocialEventCandidatePayload = {
+    eventKind: 'pair_private_thread',
+    initiatorId: actor.id,
+    participantIds: [actor.id, target.id],
+    targetIds: [target.id],
+    reasonType,
+    confidence,
+    urgency: 'soon',
+    seedIntent,
+    triggerReason: texture
+      ? `角色-角色陪伴关系触发：${texture}`
+      : '角色-角色陪伴关系达到可私下延续的强度。',
+    openingMessage,
+    visibilityPlan: 'conversation_private',
+    expectedArtifacts: ['private_thread_summary'],
+    sourceText: params.message.content.trim().slice(0, 128),
+    title: '陪伴私聊',
+    activityType: '角色陪伴跟进',
+    dedupeKey: `companionship-private-thread-${params.conversation.id}-${actor.id}-${target.id}`,
+  };
+  return createRuntimeEventV2({
+    conversationId: params.conversation.id,
+    kind: 'event_candidate',
+    summary: `${actor.name} 因陪伴关系想和 ${target.name} 私下接一句`,
+    actorIds: [actor.id],
+    targetIds: [target.id],
+    visibility: 'derived_public',
+    payload,
   });
 }
 
@@ -2357,6 +2458,11 @@ function buildSocialEventCandidates(params: {
       interaction: params.interaction,
       relationshipLedger: params.relationshipLedger,
       structuredRoomState: params.structuredRoomState,
+      message: params.message,
+    }),
+    buildCompanionshipPrivateThreadCandidate({
+      conversation: params.conversation,
+      characters: params.characters,
       message: params.message,
     }),
     buildPostMomentCandidate(params),

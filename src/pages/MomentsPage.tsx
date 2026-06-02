@@ -11,6 +11,7 @@ import SurfaceCard from '../components/common/SurfaceCard';
 import { compactPillChipSx } from '../styles/interaction';
 import { sanitizeUserFacingText } from '../services/displayTextSanitizer';
 import { projectWorldMoments } from '../services/worldRuntimeProjection';
+import { buildCompanionshipArtifactSeeds } from '../services/companionshipProjection';
 import { isImageAvatar } from '../utils/avatar';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { updateSourceChatAfterPostMoment } from '../services/directSessionRuntime';
@@ -167,6 +168,14 @@ export default function MomentsPage() {
     const actor = pickedChat.members[Math.floor(Math.random() * pickedChat.members.length)];
     const now = Date.now();
     const mode = now % 3;
+    const companionshipSeeds = buildCompanionshipArtifactSeeds({
+      character: actor,
+      relatedCharacters: pickedChat.members.filter((member) => member.id !== actor.id),
+      surface: 'public_moment',
+      includeUserMemory: false,
+      max: 4,
+      now,
+    });
     const payload: SocialEventCandidatePayload = {
       eventKind: 'post_moment',
       initiatorId: actor.id,
@@ -183,6 +192,7 @@ export default function MomentsPage() {
       visibilityPlan: 'public',
       expectedArtifacts: mode === 1 ? ['moment_text', 'moment_group_photo'] : ['moment_text'],
       sourceText: pickedChat.chat.worldState?.recentEvent || pickedChat.chat.topic || pickedChat.chat.name,
+      companionshipSeeds,
       title: mode === 2 ? '今日碎片' : '朋友圈动态',
       activityType: mode === 2 ? '情绪碎片' : mode === 1 ? '关系互动' : '即时分享',
       dedupeKey: `debug-moment-${pickedChat.chat.id}-${actor.id}-${now}`,
@@ -211,8 +221,10 @@ export default function MomentsPage() {
               `目标对象：${targetNames}`,
               `种子意图：${payload.seedIntent}`,
               `来源片段：${payload.sourceText || '无'}`,
+              payload.companionshipSeeds?.length ? `关系余味线索：\n${payload.companionshipSeeds.map((item) => `- ${item}`).join('\n')}` : '关系余味线索：无',
               `是否可能配图：${payload.expectedArtifacts?.some((artifact) => artifact !== 'moment_text') ? '是' : '否'}`,
               '要求：像真实朋友圈，不要像系统记录；可短可长，符合人设；不要过度解释事件；可以含一点内心、吐槽、余味或随手记录；不要输出标题。',
+              '如果使用关系余味线索，只能写成公开朋友圈里含蓄可见的余味，不要点名用户，不要泄露秘密，不要输出“关系余味线索”等字段名。',
             ].join('\n'),
           }],
           maxTokens: 220,

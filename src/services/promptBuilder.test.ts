@@ -75,6 +75,31 @@ function buildChat() {
   });
 }
 
+function buildDirectChat() {
+  return normalizeConversation({
+    ...buildChat(),
+    type: 'direct',
+    name: '苏苏单聊',
+    relationshipLedger: [{
+      pairKey: 'char-a->user',
+      actorId: 'char-a',
+      targetId: 'user',
+      current: { warmth: 48, competence: 8, trust: 42, threat: 4 },
+      derived: {
+        semantic: {
+          stage: '深度绑定',
+          labels: ['喜欢', '深度牵挂'],
+          summary: '深度绑定：喜欢、深度牵挂',
+          intensity: 72,
+        },
+      },
+      trend: 'up',
+      recentEvents: [{ id: 'evt-1', kind: 'interaction', createdAt: 10, summary: '用户记得苏苏提过的压力。', actorIds: ['char-a'], targetIds: ['user'] }],
+      lastUpdatedAt: 10,
+    }],
+  });
+}
+
 function buildMessage(overrides: Partial<Message> = {}): Message {
   return {
     id: overrides.id || 'msg-1',
@@ -181,6 +206,75 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).toContain('总会关注鞋包搭配');
     expect(prompt).toContain('被质疑审美时会防御');
     expect(prompt).toContain('用户预算有限但重视质感');
+  });
+
+  it('injects companionship context for direct chats without confirming romance', () => {
+    const character = buildCharacter({
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说过明天面试会紧张。'],
+      },
+    });
+    const prompt = buildSystemPromptWithContext(character, buildDirectChat(), 0, [
+      buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '明天面试有点紧张。' }),
+    ], new Map([[character.id, character]]));
+
+    expect(prompt).toContain('## Companionship Context');
+    expect(prompt).toContain('Pending care topics');
+    expect(prompt).toContain('明天面试');
+    expect(prompt).toContain('Do not claim a confirmed romantic relationship');
+    expect(prompt).not.toContain('phase: confirmed relationship');
+  });
+
+  it('injects user shared memory anchors into direct companionship context', () => {
+    const character = buildCharacter({
+      layeredMemories: [{
+        id: 'user-anchor',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '第一次深夜聊天后，苏苏记住了用户当时没有退出对话。',
+        evidenceText: '用户那晚陪苏苏聊到很晚。',
+        salience: 0.9,
+        confidence: 0.9,
+        recency: 0.7,
+        reinforcementCount: 2,
+        sourceEventIds: ['evt-user-anchor'],
+        origin: 'distilled',
+        createdAt: 10,
+        updatedAt: 20,
+      }],
+      relationships: [{
+        characterId: 'char-b',
+        warmth: 90,
+        competence: 10,
+        trust: 90,
+        threat: 0,
+        note: '共同秘密是只有他们知道的暗号。',
+      }],
+    });
+    const prompt = buildSystemPromptWithContext(character, buildDirectChat(), 0, [
+      buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '今天有点累。' }),
+    ], new Map([[character.id, character]]));
+
+    expect(prompt).toContain('Shared memory anchors with the user');
+    expect(prompt).toContain('第一次深夜聊天');
+    expect(prompt).not.toContain('只有他们知道的暗号');
+  });
+
+  it('does not inject companionship context for group chats', () => {
+    const character = buildCharacter();
+    const prompt = buildSystemPromptWithContext(character, buildChat(), 0, [
+      buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '明天面试有点紧张。' }),
+    ], new Map([[character.id, character]]));
+
+    expect(prompt).not.toContain('## Companionship Context');
   });
 
   it('exposes archived memories that were actually injected into the prompt trace', () => {

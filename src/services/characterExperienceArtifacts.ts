@@ -4,6 +4,7 @@ import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSan
 import type { APIConfig } from '../types/settings';
 import type { AICharacter, CharacterRelationshipPreset } from '../types/character';
 import type { MemoryItem } from './memoryTypes';
+import { buildCompanionshipArtifactSeeds } from './companionshipProjection';
 
 export type CharacterExperienceArtifactKind = 'birth_letter' | 'diary' | 'growth' | 'final_letter';
 
@@ -40,6 +41,7 @@ export interface CharacterDailyDiaryContext extends CharacterExperienceArtifactC
   secondReactionSeeds: string[];
   selfDoubtSeeds: string[];
   flashbackSeeds: string[];
+  companionshipSeeds: string[];
   imperfectFormHints: string[];
   metaphorSeeds: string[];
   sourceFreshness: 'daily' | 'fallback';
@@ -72,6 +74,7 @@ function buildDisplayMembers(
   relatedCharacters: Pick<AICharacter, 'id' | 'name'>[],
 ): DisplayTextMember[] {
   const map = new Map<string, string>();
+  map.set('user', '用户');
   if (character.id) map.set(character.id, character.name || '这个角色');
   relatedCharacters.forEach((item) => {
     if (item.id) map.set(item.id, item.name || '成员');
@@ -84,6 +87,7 @@ function cleanText(text: string | undefined | null, members: DisplayTextMember[]
 }
 
 function resolveName(id: string, relatedCharacters: Pick<AICharacter, 'id' | 'name'>[]) {
+  if (id === 'user') return '用户';
   return relatedCharacters.find((character) => character.id === id)?.name || (id.startsWith('draft-') ? '未命名角色' : '成员');
 }
 
@@ -586,6 +590,13 @@ export function buildCharacterDailyDiaryContext(
     secondReactionSeeds: buildDiarySecondReactionSeeds(diaryContextBase),
     selfDoubtSeeds: buildDiarySelfDoubtSeeds(character, diaryContextBase, members),
     flashbackSeeds: buildDiaryFlashbackSeeds(dateKey, character, members),
+    companionshipSeeds: buildCompanionshipArtifactSeeds({
+      character,
+      relatedCharacters,
+      surface: 'private_diary',
+      includeUserMemory: true,
+      max: 6,
+    }),
     imperfectFormHints: buildDiaryImperfectFormHints(dateKey, diaryContextBase),
     metaphorSeeds: buildDiaryMetaphorSeeds(dateKey, diaryContextBase),
     sourceFreshness: dayMemories.length || dayRelationships.length ? 'daily' : 'fallback',
@@ -651,6 +662,9 @@ export function buildLocalCharacterExperienceArtifact(
     diaryContext.flashbackSeeds?.[0]
       ? `${diaryContext.flashbackSeeds[0]} 它突然冒出来，好像不是为了提醒我过去，而是为了问我现在到底变了没有。`
       : '',
+    diaryContext.companionshipSeeds?.[0]
+      ? `${diaryContext.companionshipSeeds[0]} 这不一定要写给谁看，但我知道它在今天的情绪里留下了一点痕迹。`
+      : '',
     `${diaryContext.narrativeAngle || '这件事没有大到需要讲给所有人听'}，可我知道它不是完全过去了。${emotionLine !== '情绪还没有明显留下长期惯性。' ? `那些${emotionLine}，不是一瞬间就能收拾干净的。` : ''}`,
     `${diaryContext.privateLenses?.[0] || '我没有把最真实的反应说出来'}。写下来以后才发现，真正留下来的不是事情本身，是我反复替自己辩解的那一点声音。`,
     `${innerResidueLine} 我不确定别人会不会看出来，也不确定自己是不是太在意了，只是今晚它还在。`,
@@ -680,14 +694,14 @@ function buildArtifactPrompt(kind: CharacterExperienceArtifactKind, language: 'z
             ? '日记是角色卸下面具后只面对自己的私密记录，不是事件记录器。它可以写当天经历，但重点是表象与内心的裂隙、没说出口的话、关系余波、自我怀疑、旧记忆闪回和一点未完成的明天。如果 sourceFreshness 是 fallback，要写成短札或普通一天的余味，不要硬编大事件。'
             : '成长总结应写出角色自我认知、行为模式、关系位置或价值观如何变化，不要只是摘要。成长不是加参数，而是旧反应里出现新的余地。';
     const diaryRules = kind === 'diary'
-      ? '\n8. openingStyle、narrativeAngle、formHint 只是入口建议，不是模板；角色当下自然重复口癖或情绪词也可以，但不能机械沿用。\n9. secondReactionSeeds、selfDoubtSeeds、flashbackSeeds、imperfectFormHints、metaphorSeeds 是可选私密材料：自然采用 2-4 个即可，不要逐项打卡，不要写小标题。它们分别指向第二反应、自我怀疑、旧记忆闪回、不完美书写和具象隐喻。\n10. recentDiaryOpenings、recentDiaryContentPatterns 和 recentDiaryContinuity 只用来感知近期节奏，不是黑名单，也不是可模仿样例。长期事件、长期情绪或同一段关系可以反复出现，但本篇必须推进一个新的时间切片、具体细节、关系判断、未发送的话、行动念头或情绪变化。\n11. 不要固定写“今日心情”，不要每篇都用同一种开头、解释和结尾。允许无结尾、改口、跳跃、半句话或轻微修改痕迹，但不要故意堆错字。触动感来自具体而克制的细节，不要写成鸡汤或总结报告。'
+      ? '\n8. openingStyle、narrativeAngle、formHint 只是入口建议，不是模板；角色当下自然重复口癖或情绪词也可以，但不能机械沿用。\n9. secondReactionSeeds、selfDoubtSeeds、flashbackSeeds、companionshipSeeds、imperfectFormHints、metaphorSeeds 是可选私密材料：自然采用 2-4 个即可，不要逐项打卡，不要写小标题。它们分别指向第二反应、自我怀疑、旧记忆闪回、陪伴关系余波、不完美书写和具象隐喻。\n10. companionshipSeeds 只能写成角色自己的私下感受、牵挂、别扭、感谢、误会或没说出口的话；不要暴露系统字段、分数、阶段名或“陪伴投影”。\n11. recentDiaryOpenings、recentDiaryContentPatterns 和 recentDiaryContinuity 只用来感知近期节奏，不是黑名单，也不是可模仿样例。长期事件、长期情绪或同一段关系可以反复出现，但本篇必须推进一个新的时间切片、具体细节、关系判断、未发送的话、行动念头或情绪变化。\n12. 不要固定写“今日心情”，不要每篇都用同一种开头、解释和结尾。允许无结尾、改口、跳跃、半句话或轻微修改痕迹，但不要故意堆错字。触动感来自具体而克制的细节，不要写成鸡汤或总结报告。'
       : '';
     const finalRules = kind === 'final_letter'
       ? '\n8. farewellAnchors、unresolvedTies、futureHandoff 是最后一封信的主要材料：优先写具体记得什么、放不下谁、还有什么没完成，而不是泛泛告别。\n9. 允许知道自己会离开，但不要把离开写成唯一重点；结尾应像把一点未完成的期待交给后来的人。'
       : '';
     return `你是角色经历写作者。根据结构化记忆、关系、情绪和内在余波，为角色写一段${label}。\n要求：\n1. 像真人的内心记录，不要像系统摘要。\n2. 必须使用角色自己的视角、语气、身份和情绪。\n3. 不要编造与输入冲突的大事件，可以合理补足心理活动。\n4. 不要列清单，不要解释你在生成什么。\n5. ${intent}\n6. 避免直接评价用户，不要说“你是个怎样的人”，只写角色自己的感受、记忆和期待。\n7. 可以有惆怅、感伤和有限性的意识，但不要为了煽情而煽情；最后应保留一点继续生活、继续相遇或继续变好的可能。${diaryRules}${finalRules}\n只输出正文。`;
   }
-  return `Write a ${label} from the character's own perspective using the structured memories, relationships, emotions, and inner residues.\nMake it feel like a real inner record, not a system summary. Do not invent events that contradict the input. Let it carry some wistfulness when earned, but leave a small opening toward the future.${kind === 'diary' ? ' A diary is private: use optional secondReactionSeeds, selfDoubtSeeds, flashbackSeeds, imperfectFormHints, and metaphorSeeds only when they fit naturally. Do not turn them into headings or a checklist. recentDiaryOpenings, recentDiaryContentPatterns, and recentDiaryContinuity are rhythm awareness, not forbidden phrases; recurring topics are allowed, but this date needs a fresh concrete slice or emotional movement.' : ''} Output only the artifact text.`;
+  return `Write a ${label} from the character's own perspective using the structured memories, relationships, emotions, and inner residues.\nMake it feel like a real inner record, not a system summary. Do not invent events that contradict the input. Let it carry some wistfulness when earned, but leave a small opening toward the future.${kind === 'diary' ? ' A diary is private: use optional secondReactionSeeds, selfDoubtSeeds, flashbackSeeds, companionshipSeeds, imperfectFormHints, and metaphorSeeds only when they fit naturally. Do not turn them into headings or a checklist. companionshipSeeds are relationship residue only; never reveal system fields, scores, phases, or runtime names. recentDiaryOpenings, recentDiaryContentPatterns, and recentDiaryContinuity are rhythm awareness, not forbidden phrases; recurring topics are allowed, but this date needs a fresh concrete slice or emotional movement.' : ''} Output only the artifact text.`;
 }
 
 function unwrapMarkdownFence(text: string) {

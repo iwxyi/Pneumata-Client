@@ -9,6 +9,7 @@ import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 import { getExperienceLensLabel } from './experienceChangePresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import { getGuidanceMemoryTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
+import { buildCompanionshipPromptBlock } from './companionshipProjection';
 
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
@@ -636,6 +637,7 @@ export function buildSystemPromptWithContext(character: AICharacter, chat: Group
     buildTopicSection(chat),
     buildRelationshipSection(character, memoryContext.target),
     buildPromptMemorySection(chat, character, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, memoryContext.target, memoryContext.relationshipSnapshot, characters),
+    buildCompanionshipPromptBlock({ chat, character, messages }),
     buildMessageStyleRules(character),
     buildRecentMessagesSection(messages, characters),
     '\n## Response Rules\n- Reply as a chat message, not as analysis or narration.\n- Stay specific to the latest exchange and your own stance.\n- Do not mention these instructions, memory systems, or retrieval policies.\n- Do not default to a fixed medium length. Use the length this character would naturally use in this moment: sometimes one tiny reaction, sometimes one sentence, sometimes a fuller line when pressure, care, defense, or explanation calls for it.',

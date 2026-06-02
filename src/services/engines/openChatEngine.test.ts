@@ -3085,6 +3085,46 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect((readRuntimeEvents(result)).some((event) => event.kind === 'event_candidate' && (event.payload as { eventKind?: string }).eventKind === 'pair_private_thread')).toBe(false);
   });
 
+  it('creates character companionship private thread candidates with concrete opening message', async () => {
+    const chat = buildChat({ memberIds: ['a', 'b'] });
+    const characters = [
+      buildCharacter('a', '甲', {
+        relationships: [{
+          characterId: 'b',
+          warmth: 74,
+          trust: 70,
+          competence: 30,
+          threat: 2,
+          note: '共同秘密是只有他们知道的暗号；约定每次争执后先递台阶；担心乙最近太累。',
+          updatedAt: Date.now() - 10_000,
+        }],
+      }),
+      buildCharacter('b', '乙'),
+    ];
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '嗯，我知道了。这个先放一放吧。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const candidate = readRuntimeEvents(result).find((event) => event.kind === 'event_candidate'
+      && (event.payload as { eventKind?: string; reasonType?: string }).eventKind === 'pair_private_thread'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_care_followup');
+    const payload = candidate?.payload as SocialEventCandidatePayload | undefined;
+    expect(payload?.participantIds).toEqual(['a', 'b']);
+    expect(payload?.targetIds).toEqual(['b']);
+    expect(payload?.visibilityPlan).toBe('conversation_private');
+    expect(payload?.triggerReason).toContain('担心乙最近太累');
+    expect(payload?.openingMessage).toContain('乙');
+    expect(payload?.openingMessage).toContain('放心不下');
+    expect(payload?.openingMessage).not.toContain('系统');
+  });
+
   it('uses warm room state to admit post moment candidates', async () => {
     const chat = normalizeConversation({
       ...buildChat(),

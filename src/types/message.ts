@@ -1,3 +1,5 @@
+import type { CompanionshipRuntimeTrace } from './companionship';
+
 export type MessageType = 'ai' | 'user' | 'system' | 'god' | 'event';
 
 export type MessageAttachmentKind = 'image' | 'audio' | 'sticker';
@@ -148,6 +150,7 @@ export interface MessageMetadata {
         recallScore?: number;
       }>;
     };
+    companionshipContext?: CompanionshipRuntimeTrace;
     guidanceExecution?: {
       status: 'accepted' | 'accepted_after_retry' | 'failed_after_retry';
       validated: boolean;

@@ -231,6 +231,7 @@ function getMomentDebugEvidence(event: RuntimeEventV2, payload: Record<string, u
   pushRow('来源', getString(payload.sourceText));
   pushRow('公开摘要', getString(payload.publicSummary));
   pushRow('题材', getString(payload.activityType));
+  if (getStringArray(payload.companionshipSeeds).length) pushRow('陪伴余波', getStringArray(payload.companionshipSeeds).join(' / '));
   if (getStringArray(payload.expectedArtifacts).length) pushRow('产物', getStringArray(payload.expectedArtifacts).join(' / '));
   pushRow('去重键', getString(payload.dedupeKey));
   pushRow('事件摘要', event.summary || '');

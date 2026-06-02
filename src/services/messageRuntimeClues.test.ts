@@ -103,6 +103,45 @@ describe('messageRuntimeClues', () => {
     ]);
   });
 
+  it('projects companionship runtime trace as developer-visible clues', () => {
+    const sections = projectMessageRuntimeClues({
+      metadata: {
+        runtimeDecision: {
+          companionshipContext: {
+            style: 'ambiguous',
+            phase: 'ambiguous',
+            currentAddress: '小夏',
+            sharedAnchors: ['第一次: 第一次深夜聊天后还记得对方没有离开'],
+            pendingCareTopics: ['明天面试有点紧张。'],
+            rememberedUserPlans: ['用户明天有面试。'],
+            boundaries: ['用户不想恋爱暧昧，只想当朋友。'],
+            boundaryReasons: ['user does not want romantic framing'],
+            evidence: ['深度绑定：喜欢、深度牵挂'],
+            intimacy: { attraction: 72, intimacy: 68, attachment: 66, longing: 50, exclusivity: 18, security: 76 },
+            userProfileConfidence: 68,
+          },
+        },
+      },
+    });
+
+    const companionship = sections.find((section) => section.key === 'companionship');
+    expect(companionship).toMatchObject({
+      label: '陪伴',
+      promptLabel: '陪伴上下文',
+      statusKind: 'prompt_context',
+      statusLabel: 'ambiguous · ambiguous',
+    });
+    expect(companionship?.items).toEqual(expect.arrayContaining([
+      '阶段：ambiguous',
+      '称呼：小夏',
+      '共同锚点：第一次: 第一次深夜聊天后还记得对方没有离开',
+      '关心事项：明天面试有点紧张。',
+      '用户边界：用户不想恋爱暧昧，只想当朋友。',
+      '克制原因：user does not want romantic framing',
+      '画像置信：68%',
+    ]));
+  });
+
   it('localizes runtime enum values before display or prompt use', () => {
     const message: Pick<Message, 'metadata'> = {
       metadata: {

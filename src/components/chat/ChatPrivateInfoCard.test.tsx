@@ -97,17 +97,53 @@ describe('ChatPrivateInfoCard', () => {
           sourceTagSummary: 'direct_user_message × 2',
           targetResolutionLabel: '来自人工点名',
           targetResolution: '目标锁定灰太狼',
+          companionshipStatus: {
+            text: '惦记着小夏提过的事：明天面试有点紧张。',
+            tone: 'ambiguous',
+            chips: ['暧昧未确认', '有关心事项'],
+            debugLines: ['phase=ambiguous style=ambiguous', 'intimacy attraction=72 intimacy=68 longing=50 security=76'],
+            updatedAt: 1,
+          },
         }}
       />,
     );
 
     expect(html).toContain('单聊记忆主轴');
     expect(html).toContain('优先读取自己的长期记忆');
+    expect(html).toContain('惦记着小夏提过的事');
+    expect(html).toContain('暧昧未确认');
+    expect(html).toContain('有关心事项');
     expect(html).toContain('来源：direct_user_message × 2');
     expect(html).toContain('判断方式：来自人工点名');
     expect(html).toContain('目标识别：目标锁定灰太狼');
+    expect(html).toContain('陪伴：phase=ambiguous style=ambiguous');
 
     mockSettingsState.developerMode = false;
     mockSettingsState.developerUI.showMemoryDebug = false;
+  });
+
+  it('renders companionship status without developer debug lines in normal mode', () => {
+    const html = renderToStaticMarkup(
+      <ChatPrivateInfoCard
+        chat={buildChat('direct')}
+        members={[buildCharacter('mei', '美羊羊')]}
+        directMemoryContext={{
+          targetSummary: '',
+          memoryVisibility: '仅开发者可见',
+          recentRelationshipChanges: [],
+          companionshipStatus: {
+            text: '开始把你当成需要认真回应的人。',
+            tone: 'curious',
+            chips: ['开始在意'],
+            debugLines: ['phase=curious style=friend'],
+            updatedAt: 1,
+          },
+        }}
+      />,
+    );
+
+    expect(html).toContain('开始把你当成需要认真回应的人');
+    expect(html).toContain('开始在意');
+    expect(html).not.toContain('phase=curious');
   });
 });

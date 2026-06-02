@@ -10,6 +10,7 @@ import type { ConflictFocusPayload, InteractionEventPayload, SocialEventHintEnve
 import { normalizeInteractionHintCollection } from '../types/runtimeEvent';
 import { generateResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildChatMessages, buildPromptMemoryTrace, type PromptMemoryTrace } from './promptBuilder';
+import { buildCompanionshipRuntimeTrace } from './companionshipProjection';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
 import { calculateWeights, getSpeakerSelectionResult, resolvePendingReplyContext, selectSpeaker } from './scheduler';
@@ -1049,6 +1050,7 @@ function buildRuntimeDecisionMetadata(params: {
   surface?: ResponseSurface | null;
   intentionalRepeat?: boolean;
   memoryTrace?: PromptMemoryTrace | null;
+  companionshipTrace?: NonNullable<MessageMetadata['runtimeDecision']>['companionshipContext'] | null;
   expressionFeedback?: ExpressionFeedbackTrace;
   guidanceExecution?: GuidanceExecutionTrace | null;
   worldInfluence?: {
@@ -1067,7 +1069,7 @@ function buildRuntimeDecisionMetadata(params: {
       recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
     }
     : undefined;
-  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.intentionalRepeat && !memoryContext && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length) return undefined;
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.intentionalRepeat && !memoryContext && !params.companionshipTrace && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length) return undefined;
   return {
     directorIntent: params.directorIntent ? {
       source: params.directorIntent.source,
@@ -1127,6 +1129,7 @@ function buildRuntimeDecisionMetadata(params: {
     } : undefined,
     intentionalRepeat: params.intentionalRepeat || undefined,
     memoryContext,
+    companionshipContext: params.companionshipTrace || undefined,
     guidanceExecution: params.guidanceExecution ? {
       status: params.guidanceExecution.status,
       validated: params.guidanceExecution.validated,
@@ -1492,6 +1495,7 @@ export async function generateSpeakerMessage(params: {
   const responseSurface = resolveResponseSurface(params.chat, enginePromptContext, activeMessages, params.speaker);
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
+  const companionshipTrace = buildCompanionshipRuntimeTrace({ chat: params.chat, character: params.speaker, messages: activeMessages });
   const userGuidance = effectiveDirectorIntent?.userGuidance || null;
   const worldInfluenceSnapshot = buildWorldEventInfluenceSnapshot({
     chat: params.chat,
@@ -1587,6 +1591,7 @@ Current speaking intent:
           surface: responseSurface,
           intentionalRepeat: Boolean(generated.parsedEnvelope?.intentionalRepeat),
           memoryTrace,
+          companionshipTrace,
           expressionFeedback: expressionFeedbackTrace,
           guidanceExecution,
           worldInfluence: worldInfluenceSnapshot,

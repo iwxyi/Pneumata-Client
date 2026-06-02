@@ -36,6 +36,41 @@ function buildCharacter(id: string, name: string): AICharacter {
   return { id, name } as AICharacter;
 }
 
+type TestRuntimeMessageInput = {
+  chatId: string;
+  type: 'ai' | 'system';
+  senderId: string;
+  senderName: string;
+  content: string;
+  emotion: number;
+};
+
+type TestAppendEventPayload = {
+  eventType: string;
+  title: string;
+  summary: string;
+  pair?: [string, string];
+  metrics?: unknown;
+  visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public';
+  visibleToIds?: string[];
+  visibleToRoles?: string[];
+};
+
+function buildAddMessageMock() {
+  return vi.fn(async (message: TestRuntimeMessageInput) => {
+    void message;
+    return {};
+  });
+}
+
+function buildAppendEventMessageMock() {
+  return vi.fn(async (chatId: string, payload: TestAppendEventPayload) => {
+    void chatId;
+    void payload;
+    return undefined;
+  });
+}
+
 function buildCandidateEvent(payload: SocialEventCandidatePayload, createdAt = 1) {
   return {
     id: `evt-candidate-${createdAt}`,
@@ -99,36 +134,12 @@ function buildBaseChat() {
   return buildChatWithEvents([]);
 }
 
-function buildCandidateChat() {
-  return buildChatWithEvents([buildCandidateEvent(buildCandidatePayload())]);
-}
-
-function buildCooldownChat() {
-  return buildChatWithEvents([buildCandidateEvent(buildCandidatePayload(), 1000), buildOpenedEvent(1005)]);
-}
-
-function buildLowConfidenceChat() {
-  return buildChatWithEvents([buildCandidateEvent(buildCandidatePayload({ confidence: 0.65 }))]);
-}
-
 function buildOpenedBaseChat() {
   return buildBaseChat();
 }
 
 function buildOpenedCandidate() {
   return buildCandidateEvent(buildCandidatePayload());
-}
-
-function buildShouldSkipChat() {
-  return buildCooldownChat();
-}
-
-function buildShouldSkipLowConfidenceChat() {
-  return buildLowConfidenceChat();
-}
-
-function buildShouldPickChat() {
-  return buildCandidateChat();
 }
 
 function buildOpenedEventChat() {
@@ -139,68 +150,12 @@ function buildOpenedEventCandidate() {
   return buildOpenedCandidate();
 }
 
-function buildOpenedEventLowConfidenceCandidate() {
-  return buildCandidateEvent(buildCandidatePayload({ confidence: 0.65 }));
-}
-
-function buildOpenedEventCooldownCandidate() {
-  return buildCandidateEvent(buildCandidatePayload(), 1000);
-}
-
-function buildOpenedEventCooldownArtifact() {
-  return buildOpenedEvent(1005);
-}
-
-function buildOpenedEventCooldownChat() {
-  return buildChatWithEvents([buildOpenedEventCooldownCandidate(), buildOpenedEventCooldownArtifact()]);
-}
-
-function buildOpenedEventLowConfidenceChat() {
-  return buildChatWithEvents([buildOpenedEventLowConfidenceCandidate()]);
-}
-
 function buildOpenedEventPairThreadChat() {
   return buildOpenedEventChat();
 }
 
 function buildOpenedEventPairThreadCandidate() {
   return buildOpenedEventCandidate();
-}
-
-function buildOpenedEventShouldSkipChat() {
-  return buildOpenedEventCooldownChat();
-}
-
-function buildOpenedEventShouldSkipLowConfidenceChat() {
-  return buildOpenedEventLowConfidenceChat();
-}
-
-function buildOpenedEventShouldPickChat() {
-  return buildShouldPickChat();
-}
-
-function buildOpenedEventShouldPickCandidate() {
-  return buildOpenedEventPairThreadCandidate();
-}
-
-function buildOpenedEventShouldSkipCandidate() {
-  return buildOpenedEventCooldownCandidate();
-}
-
-function buildOpenedEventShouldSkipLowConfidenceCandidate() {
-  return buildOpenedEventLowConfidenceCandidate();
-}
-
-function buildOpenedEventVisibilityChat() {
-  return buildOpenedEventPairThreadChat();
-}
-
-function buildOpenedEventVisibilityCandidate() {
-  return buildOpenedEventPairThreadCandidate();
-}
-
-function buildOpenedEventVisibilityOpened() {
-  return buildOpenedEvent();
 }
 
 function buildOpenedEventLowConfidencePayload() {
@@ -233,26 +188,6 @@ function buildOpenedEventLowChat() {
 
 function buildOpenedEventCooldownWindowChat() {
   return buildOpenedEventWithOpened(1000, 1005);
-}
-
-function buildOpenedEventNoCooldownWindowChat() {
-  return buildOpenedEventWithOpened(1000, 1000 - 1000 * 60 * 31);
-}
-
-function buildOpenedEventNoCooldownCandidate() {
-  return buildCandidateEvent(buildOpenedEventStandardPayload(), 1000);
-}
-
-function buildOpenedEventNoCooldownOpened() {
-  return buildOpenedEvent(1000 - 1000 * 60 * 31);
-}
-
-function buildOpenedEventNoCooldownStructuredChat() {
-  return buildChatWithEvents([buildOpenedEventNoCooldownCandidate(), buildOpenedEventNoCooldownOpened()]);
-}
-
-function buildOpenedEventNoCooldownExpectedId() {
-  return 'evt-candidate-1000';
 }
 
 function buildOpenedEventLowExpectedNull() {
@@ -298,7 +233,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
 
   it('seeds AI private thread with source-aware opening message', async () => {
     const sourceChat = buildBaseChat();
-    const addMessage = vi.fn(async (_message: { chatId: string; type: 'ai' | 'system'; senderId: string; senderName: string; content: string; emotion: number }) => ({}));
+    const addMessage = buildAddMessageMock();
     const privateChat = await createAiPrivateThread({
       sourceChat,
       chats: [sourceChat],
@@ -327,7 +262,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       triggerReason: '甲在群里追问乙的关键回避，适合转入私聊。',
       openingMessage: '乙，刚才你避开的那句话我没放下。你可以只跟我说真实原因。',
     }))]);
-    const addMessage = vi.fn(async (_message: { chatId: string; type: 'ai' | 'system'; senderId: string; senderName: string; content: string; emotion: number }) => ({}));
+    const addMessage = buildAddMessageMock();
     const result = await runSocialEventAutoFlow(chat, {
       chats: [chat],
       characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
@@ -341,6 +276,38 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       type: 'ai',
       senderId: 'a',
       content: '乙，刚才你避开的那句话我没放下。你可以只跟我说真实原因。',
+    });
+  });
+
+  it('auto-opens companionship private thread candidates with their relationship-aware first message', async () => {
+    const chat = buildChatWithEvents([buildCandidateEvent(buildCandidatePayload({
+      reasonType: 'companionship_care_followup',
+      confidence: 0.9,
+      seedIntent: '甲对乙的陪伴关系有未尽余波：担心乙最近太累。',
+      triggerReason: '角色-角色陪伴关系触发：担心乙最近太累。',
+      openingMessage: '乙，刚才在群里我没接着问，是不想让你难堪。但这件事我还是有点放心不下，想单独确认一下。',
+      dedupeKey: 'companionship-private-thread-chat-1-a-b',
+    }))]);
+    const addMessage = buildAddMessageMock();
+    const appendEventMessage = buildAppendEventMessageMock();
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      updateChat: vi.fn(async () => undefined),
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage,
+      appendEventMessage,
+    });
+    expect(result.privateChatId).toBe('chat-1');
+    expect(addMessage.mock.calls[1]?.[0]).toMatchObject({
+      type: 'ai',
+      senderId: 'a',
+      senderName: '甲',
+      content: '乙，刚才在群里我没接着问，是不想让你难堪。但这件事我还是有点放心不下，想单独确认一下。',
+    });
+    expect(appendEventMessage.mock.calls[0]?.[1]).toMatchObject({
+      eventType: 'private_chat_started',
+      summary: '角色-角色陪伴关系触发：担心乙最近太累。',
     });
   });
 
@@ -1536,7 +1503,7 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       }],
     };
     const updateChat = vi.fn(async () => undefined);
-    const result = await runSocialEventAutoFlow(chat, {
+    await runSocialEventAutoFlow(chat, {
       chats: [chat],
       characters: [buildCharacter('a', '甲')],
       updateChat,

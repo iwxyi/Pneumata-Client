@@ -195,6 +195,7 @@ export interface SocialEventCandidatePayload {
   triggerReason?: string;
   openingMessage?: string;
   momentText?: string;
+  companionshipSeeds?: string[];
   title?: string;
   activityType?: string;
   timeHint?: string | null;

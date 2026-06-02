@@ -8,9 +8,9 @@ import type { Message } from '../../types/message';
 import { formatRelativeTime } from '../../utils/format';
 import { useTranslation } from 'react-i18next';
 import { useMessageStore } from '../../stores/useMessageStore';
-import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
-import { isUserFacingMemoryItem } from '../../services/memoryPresentation';
+import { buildCompanionshipStatusSignature } from '../../services/companionshipProjection';
 import { buildInteractiveSurfaceSx, buildSelectionRailSx } from '../../styles/interaction';
+import { buildChatSubtitle } from './chatCardSubtitle';
 
 interface ChatCardProps {
   chat: GroupChat;
@@ -18,47 +18,6 @@ interface ChatCardProps {
   onClick: () => void;
   onPrefetch?: () => void;
   selected?: boolean;
-}
-
-function cleanRelationshipPreview(text: string) {
-  return text
-    .replace(/^[^\s]+→/, '')
-    .replace(/^[^↔]+↔[^：:]+[：:]/, '')
-    .trim();
-}
-
-function buildRelationshipPreview(members: AICharacter[]) {
-  return members
-    .flatMap((member) => member.relationships
-      .filter((relation) => Boolean(relation.note?.trim()))
-      .slice(0, 1)
-      .map((relation) => {
-        const preview = cleanRelationshipPreview(relation.note || '');
-        return preview ? `${member.name}：${preview}` : '';
-      }))
-    .find(Boolean) || '';
-}
-
-function clipPreview(text: string, max = 72) {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
-function buildLatestMessagePreview(message: Message | null, members: AICharacter[]) {
-  if (!message || message.isDeleted || message.type === 'system' || message.type === 'event') return '';
-  const senderName = message.type === 'user'
-    ? '你'
-    : message.type === 'god'
-      ? 'God Mode'
-      : members.find((member) => member.id === message.senderId)?.name || message.senderName || '未知';
-  return clipPreview(sanitizeUserFacingText(`${senderName}：${message.content}`, members));
-}
-
-function buildChatSubtitle(chat: GroupChat, members: AICharacter[], latestMessage: Message | null) {
-  const latestMessagePreview = buildLatestMessagePreview(latestMessage, members);
-  const relationshipPreview = buildRelationshipPreview(members);
-  const memorySummary = sanitizeUserFacingText((chat.layeredMemories || []).filter(isUserFacingMemoryItem).slice(-2).map((item) => item.text).join(' / '), members);
-  const recentEvent = sanitizeUserFacingText(chat.worldState?.recentEvent || '', members);
-  return latestMessagePreview || clipPreview(sanitizeUserFacingText(relationshipPreview || memorySummary || recentEvent || chat.topic || '', members));
 }
 
 function isPreviewableMessage(message: Message | null | undefined): message is Message {
@@ -81,7 +40,15 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch, select
   const resolvedLatestMessage = latestByTimestamp([chat.latestMessage, latestKnownMessage]) || null;
   const members = characters.filter((c) => chat.memberIds.includes(c.id));
   const isDirect = chat.type === 'direct' || chat.type === 'ai_direct';
-  const subtitle = buildChatSubtitle(chat, members, resolvedLatestMessage);
+  const directMessages = allKnownMessages.filter((message) => message.chatId === chat.id);
+  const directKnownMessages = latestByTimestamp([chat.latestMessage])
+    ? [chat.latestMessage as Message, ...directMessages.filter((message) => message.id !== chat.latestMessage?.id)]
+    : directMessages;
+  const companionshipStatus = chat.type === 'direct' && members[0]
+    ? buildCompanionshipStatusSignature({ chat, character: members[0], messages: directKnownMessages })
+    : null;
+  const companionshipPreview = companionshipStatus?.unsentDraft || companionshipStatus?.offlineTrace || companionshipStatus?.text || '';
+  const subtitle = buildChatSubtitle(chat, members, resolvedLatestMessage, companionshipPreview);
 
   return (
     <Card

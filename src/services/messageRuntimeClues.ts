@@ -7,7 +7,7 @@ import { classifyActorKindLabel } from './actorRefPresentation';
 import { formatFeedbackStatusLabel, formatGuidanceInputStatusLabel, resolveGuidanceExecutionStatus } from './runtimeStatusPresentation';
 
 export interface MessageRuntimeClueSection {
-  key: 'memory' | 'inner' | 'surface' | 'director' | 'guidance' | 'guidance_execution' | 'world_influence' | 'narrative' | 'feedback';
+  key: 'memory' | 'companionship' | 'inner' | 'surface' | 'director' | 'guidance' | 'guidance_execution' | 'world_influence' | 'narrative' | 'feedback';
   label: string;
   promptLabel: string;
   statusKind: 'prompt_context' | 'debug_explanation' | 'soft_signal' | 'applied_signal';
@@ -86,6 +86,27 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       item.recallReason ? `原因：${item.recallReason}` : '',
       ]),
     ],
+    maxItems: 10,
+  }, members);
+  const companionship = decision.companionshipContext;
+  pushSection(sections, {
+    key: 'companionship',
+    label: '陪伴',
+    promptLabel: '陪伴上下文',
+    statusKind: 'prompt_context',
+    statusLabel: companionship ? `${companionship.phase} · ${companionship.style}` : '无',
+    statusHint: '用于解释单聊中角色如何理解与用户的持续关系、称呼、关心事项和边界。',
+    items: companionship ? [
+      `阶段：${companionship.phase}`,
+      `称呼：${companionship.currentAddress}`,
+      companionship.sharedAnchors.length ? `共同锚点：${companionship.sharedAnchors.join(' / ')}` : '',
+      companionship.pendingCareTopics.length ? `关心事项：${companionship.pendingCareTopics.join(' / ')}` : '',
+      companionship.rememberedUserPlans.length ? `记得计划：${companionship.rememberedUserPlans.join(' / ')}` : '',
+      companionship.boundaries.length ? `用户边界：${companionship.boundaries.join(' / ')}` : '',
+      companionship.boundaryReasons.length ? `克制原因：${companionship.boundaryReasons.join(' / ')}` : '',
+      `画像置信：${companionship.userProfileConfidence}%`,
+      companionship.evidence.length ? `证据：${companionship.evidence.join(' / ')}` : '',
+    ] : [],
     maxItems: 10,
   }, members);
   pushSection(sections, {

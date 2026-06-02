@@ -47,6 +47,7 @@ import { useCharacterStore } from '../../stores/useCharacterStore';
 import { useCharacterArtifactStore, type CharacterArtifactEntry } from '../../stores/useCharacterArtifactStore';
 import type { AIModelType } from '../../types/settings';
 import { getPreferredAIProfile } from '../../types/settings';
+import type { GroupChat } from '../../types/chat';
 import { avatarGenerationQueue, type AvatarGenerationStatus } from '../../services/avatarGenerationQueue';
 import { canAutoGenerateAvatarDraft, enqueueAvatarGenerationForCharacter } from '../../services/avatarGeneration';
 import { isImageAvatar as isImageAvatarValue } from '../../utils/avatar';
@@ -61,6 +62,8 @@ import { DEFAULT_AI_BUBBLE_STYLE_ID } from '../../constants/bubbleStyles';
 import { buildBubblePreview, cloneBubbleStyle, createCharacterBubbleStyleId, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import ArtifactCalendarReader from '../artifacts/ArtifactCalendarReader';
 import BubbleStylePickerDialog from '../bubble/BubbleStylePickerDialog';
+import WorldCalendarPanel from '../calendar/WorldCalendarPanel';
+import { buildCharacterFormTabs } from './characterFormTabs';
 
 function buildEditorCardSx() {
   return {
@@ -165,7 +168,7 @@ function dedupeVisualAssets(assets: CharacterVisualReferenceImage[]) {
   });
 }
 
-const processedVisualImageTaskIds = new Set<string>();
+const MODEL_TYPE_ORDER: AIModelType[] = ['text', 'image', 'audio', 'document'];
 
 interface CharacterFormProps {
   initial?: Partial<AICharacter>;
@@ -174,6 +177,12 @@ interface CharacterFormProps {
   onDraftNameChange?: (name: string) => void;
   onDelete?: () => void;
   deleteLabel?: string;
+  calendarContext?: {
+    chats: GroupChat[];
+    characters: AICharacter[];
+    updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
+    actorId: string;
+  };
   onSave: (data: {
     name: string;
     avatar: string;
@@ -284,7 +293,7 @@ function InlineTagEditor({ value, onChange, placeholder, addLabel }: InlineTagEd
   );
 }
 
-export default function CharacterForm({ initial, existingNames = [], saveError = null, onDraftNameChange, onDelete, deleteLabel, onSave }: CharacterFormProps) {
+export default function CharacterForm({ initial, existingNames = [], saveError = null, onDraftNameChange, onDelete, deleteLabel, calendarContext, onSave }: CharacterFormProps) {
   const { t, i18n } = useTranslation();
   const settings = useSettingsStore();
   const showSpeechStyle = settings.developerMode && settings.developerUI.showSpeechStyle;
@@ -307,7 +316,6 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   }));
   const [speechProfile, setSpeechProfile] = useState<CharacterSpeechProfile | undefined>(initial?.speechProfile);
   const [voiceConfig, setVoiceConfig] = useState<CharacterVoiceConfig>(initial?.voiceConfig || { enabled: false });
-  const [relationshipsText, setRelationshipsText] = useState(() => (initial?.relationships || []).map((item) => item.note || '').join('\n'));
   const [group, setGroup] = useState(initial?.group || '');
   const [memory, setMemory] = useState<CharacterMemoryConfig>(initial?.memory || DEFAULT_CHARACTER_MEMORY);
   const [coreProfile, setCoreProfile] = useState<CharacterCoreProfile>(() => ({
@@ -368,8 +376,6 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     audio: i18n.language.startsWith('zh') ? '语音' : 'Audio',
     document: i18n.language.startsWith('zh') ? '文档' : 'Document',
   };
-  const modelTypeOrder: AIModelType[] = ['text', 'image', 'audio', 'document'];
-
   const customBubbleStyles = settings.customBubbleStyles || [];
   const selectedBubbleStyle = resolveCharacterBubbleStyle({ bubbleStyle, bubbleStyleId, customStyles: customBubbleStyles });
   const selectedBubblePreview = buildBubblePreview(selectedBubbleStyle);
@@ -445,7 +451,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     if (initial?.id || modelDefaultsAppliedRef.current) return;
     setModelProfileIds((current) => {
       const next = { ...current };
-      for (const type of modelTypeOrder) {
+      for (const type of MODEL_TYPE_ORDER) {
         if (type === 'audio') continue;
         if (next[type]) continue;
         next[type] = getPreferredAIProfile(profilesByType[type], type)?.id || null;
@@ -453,7 +459,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       return next;
     });
     modelDefaultsAppliedRef.current = true;
-  }, [initial?.id, modelTypeOrder, profilesByType]);
+  }, [initial?.id, profilesByType]);
 
   useEffect(() => {
     if (!initial) return;
@@ -481,7 +487,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       unmetNeeds: initial.coreProfile?.unmetNeeds || [],
       hiddenSoftSpots: initial.coreProfile?.hiddenSoftSpots || [],
     });
-  }, [initial?.id, initial?.modelProfileId, initial?.modelProfileIds]);
+  }, [initial]);
 
   useEffect(() => {
     visualAssetsRef.current = visualAssets;
@@ -823,18 +829,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       setGenerateError(duplicateNameErrorText);
       return;
     }
-    const relationshipNotes = relationshipsText
-      .split('\n')
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((note, index) => ({
-        characterId: `draft-${index}`,
-        warmth: 0,
-        competence: 0,
-        trust: 0,
-        threat: 0,
-        note,
-      }));
+    const relationshipNotes = initial?.relationships || [];
     const normalizedVisualAssets = visualAssets.map((asset) => ({
       ...asset,
       isPrimary: asset.id === (visualIdentity.primaryReferenceImageId || visualAssets.find((item) => item.isPrimary)?.id || visualAssets[0]?.id),
@@ -1403,7 +1398,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             </Box>
             <Collapse in={modelConfigExpanded}>
               <Box sx={{ display: 'grid', gap: 1, pt: 0.5 }}>
-                {modelTypeOrder.map((type) => (
+                {MODEL_TYPE_ORDER.map((type) => (
                   <FormControl key={type} size="small" fullWidth>
                     <InputLabel>{modelTypeLabels[type]}</InputLabel>
                     <Select
@@ -1555,6 +1550,18 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   );
 
   const runtimeTab = <RuntimeInsightsPanel character={runtimeCharacter} />;
+  const availableTabs = useMemo(() => {
+    return buildCharacterFormTabs({
+      isEditingExistingCharacter,
+      isZh: i18n.language.startsWith('zh'),
+    });
+  }, [i18n.language, isEditingExistingCharacter]);
+
+  useEffect(() => {
+    if (!availableTabs.some((item) => item.value === configTab)) {
+      setConfigTab(0);
+    }
+  }, [availableTabs, configTab]);
 
   const handleRegenerateBubble = async () => {
     if (!name.trim() || generating) return null;
@@ -1597,14 +1604,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
         <FloatingSegmentedTabs
           value={configTab}
           onChange={setConfigTab}
-          items={[
-            { value: 0, label: i18n.language.startsWith('zh') ? '设定' : 'Config' },
-            { value: 1, label: i18n.language.startsWith('zh') ? '人格' : 'Persona' },
-            { value: 2, label: i18n.language.startsWith('zh') ? '关系' : 'Relations' },
-            { value: 3, label: i18n.language.startsWith('zh') ? '记忆' : 'Memory' },
-            { value: 4, label: i18n.language.startsWith('zh') ? '运行态' : 'Runtime' },
-            { value: 5, label: i18n.language.startsWith('zh') ? '日记' : 'Diary' },
-          ]}
+          items={availableTabs}
         />
       </Box>
 
@@ -1654,8 +1654,21 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       {configTab === 4 ? runtimeTab : null}
 
       {configTab === 5 ? (
+        calendarContext ? (
+          <WorldCalendarPanel
+            chats={calendarContext.chats}
+            characters={calendarContext.characters}
+            updateChat={calendarContext.updateChat}
+            isZh={i18n.language.startsWith('zh')}
+            actorId={calendarContext.actorId}
+            title={i18n.language.startsWith('zh') ? '活动' : 'Activities'}
+            showHeader
+          />
+        ) : null
+      ) : null}
+
+      {configTab === 6 ? (
         <Box sx={{ display: 'grid', gap: 1.5 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{i18n.language.startsWith('zh') ? '自动日记' : 'Auto diary'}</Typography>
           <ArtifactCalendarReader
             items={diaryEntries}
             language={i18n.language}
