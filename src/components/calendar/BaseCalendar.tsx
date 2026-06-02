@@ -123,7 +123,12 @@ export default function BaseCalendar({
   return (
     <Box sx={{ display: 'grid', gap: 1 }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: '36px minmax(0, 1fr) 36px auto', alignItems: 'center', gap: 0.5 }}>
-        <IconButton size="small" onClick={() => setVisibleMonth((prev) => addMonths(prev, -1))} aria-label={isZh ? '上个月' : 'Previous month'}>
+        <IconButton
+          size="small"
+          onClick={() => setVisibleMonth((prev) => addMonths(prev, -1))}
+          aria-label={isZh ? '上个月' : 'Previous month'}
+          sx={{ borderRadius: 999, bgcolor: 'action.hover', '&:hover': { bgcolor: 'action.selected' } }}
+        >
           <ChevronLeftIcon fontSize="small" />
         </IconButton>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, minWidth: 0 }}>
@@ -132,7 +137,7 @@ export default function BaseCalendar({
             size="small"
             disableRipple
             onClick={(event) => setYearMenuAnchor(event.currentTarget)}
-            sx={{ minWidth: 0, px: 0.5, fontWeight: 750, textTransform: 'none' }}
+            sx={{ minWidth: 0, px: 0.8, borderRadius: 999, fontWeight: 750, textTransform: 'none' }}
           >
             {yearLabel}
           </Button>
@@ -140,12 +145,17 @@ export default function BaseCalendar({
             size="small"
             disableRipple
             onClick={(event) => setMonthMenuAnchor(event.currentTarget)}
-            sx={{ minWidth: 0, px: 0.5, fontWeight: 750, textTransform: 'none' }}
+            sx={{ minWidth: 0, px: 0.8, borderRadius: 999, fontWeight: 750, textTransform: 'none' }}
           >
             {monthLabel}
           </Button>
         </Box>
-        <IconButton size="small" onClick={() => setVisibleMonth((prev) => addMonths(prev, 1))} aria-label={isZh ? '下个月' : 'Next month'}>
+        <IconButton
+          size="small"
+          onClick={() => setVisibleMonth((prev) => addMonths(prev, 1))}
+          aria-label={isZh ? '下个月' : 'Next month'}
+          sx={{ borderRadius: 999, bgcolor: 'action.hover', '&:hover': { bgcolor: 'action.selected' } }}
+        >
           <ChevronRightIcon fontSize="small" />
         </IconButton>
         {toggle ? (
@@ -155,6 +165,7 @@ export default function BaseCalendar({
             onClick={toggle.onToggle}
             aria-label={toggle.expanded ? toggle.expandedAria : toggle.collapsedAria}
             endIcon={toggle.expanded ? <UnfoldLessIcon fontSize="small" /> : <UnfoldMoreIcon fontSize="small" />}
+            sx={{ borderRadius: 999, minHeight: 30, px: 1.2, whiteSpace: 'nowrap' }}
           >
             {toggle.expanded ? toggle.expandedLabel : toggle.collapsedLabel}
           </Button>
@@ -228,7 +239,7 @@ export default function BaseCalendar({
                 minWidth: 0,
                 minHeight: dayCellMinHeight ?? (mode === 'month' ? 38 : 34),
                 p: 0.4,
-                borderRadius: 1.5,
+                borderRadius: 1,
                 display: 'grid',
                 placeItems: 'center',
                 color: selected ? 'primary.contrastText' : inMonth ? 'text.primary' : 'text.disabled',
@@ -236,7 +247,12 @@ export default function BaseCalendar({
                 border: '1px solid',
                 borderColor: selected ? 'primary.main' : 'transparent',
                 opacity: inMonth ? 1 : 0.42,
-                '&:hover': { bgcolor: selected ? 'primary.dark' : 'rgba(25, 118, 210, 0.12)' },
+                transition: (theme) => theme.transitions.create(['background-color', 'border-color', 'box-shadow'], { duration: theme.transitions.duration.shortest }),
+                '&:hover': {
+                  bgcolor: selected ? 'primary.dark' : 'action.hover',
+                  borderColor: selected ? 'primary.dark' : 'divider',
+                  boxShadow: selected ? 'none' : '0 0 0 1px rgba(127,127,127,0.04) inset',
+                },
                 '&.Mui-disabled': { opacity: inMonth ? 0.58 : 0.22 },
               }}
             >

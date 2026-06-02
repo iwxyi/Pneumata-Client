@@ -45,6 +45,7 @@ export interface DeveloperUIPrefs {
   showConflictEvents: boolean;
   showStateEvents: boolean;
   showMemoryDistillationEvents: boolean;
+  showCalendarEvents: boolean;
   showLocalInterceptionHints: boolean;
   showSpeechStyle: boolean;
   showAdvancedRuntimePanels: boolean;
@@ -75,6 +76,7 @@ export function normalizeDeveloperUiPrefs(input?: Partial<DeveloperUIPrefs> | nu
     showConflictEvents: Boolean(input?.showConflictEvents),
     showStateEvents: Boolean(input?.showStateEvents),
     showMemoryDistillationEvents: Boolean(input?.showMemoryDistillationEvents),
+    showCalendarEvents: Boolean(input?.showCalendarEvents),
     showLocalInterceptionHints: Boolean(input?.showLocalInterceptionHints),
     showSpeechStyle: Boolean(input?.showSpeechStyle),
     showAdvancedRuntimePanels: Boolean(input?.showAdvancedRuntimePanels),
@@ -101,7 +103,7 @@ export function getDeveloperUiVisibility(input: Partial<DeveloperUIPrefs> | null
 }
 
 export function getDeveloperUiToggleKeys() {
-  return ['showMemoryDebug', 'showRelationshipEvents', 'showAffectEvents', 'showConflictEvents', 'showStateEvents', 'showMemoryDistillationEvents', 'showLocalInterceptionHints', 'showSpeechStyle', 'showAdvancedRuntimePanels', 'showMomentDebug', 'showWithdrawnMessageContent', 'dramaBoost'] as const;
+  return ['showMemoryDebug', 'showRelationshipEvents', 'showAffectEvents', 'showConflictEvents', 'showStateEvents', 'showMemoryDistillationEvents', 'showCalendarEvents', 'showLocalInterceptionHints', 'showSpeechStyle', 'showAdvancedRuntimePanels', 'showMomentDebug', 'showWithdrawnMessageContent', 'dramaBoost'] as const;
 }
 
 export function getDeveloperUiAffectKey() {
@@ -359,6 +361,7 @@ export const DEFAULT_DEVELOPER_UI_PREFS: DeveloperUIPrefs = {
   showConflictEvents: false,
   showStateEvents: false,
   showMemoryDistillationEvents: false,
+  showCalendarEvents: false,
   showLocalInterceptionHints: false,
   showSpeechStyle: false,
   showAdvancedRuntimePanels: false,

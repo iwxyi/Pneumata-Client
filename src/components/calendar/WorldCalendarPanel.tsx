@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Button, Card, CardContent, Chip, Dialog, DialogContent, DialogTitle, FormControl, MenuItem, Select, Stack, Typography } from '@mui/material';
+import { Box, Button, Chip, Dialog, DialogContent, DialogTitle, FormControl, MenuItem, Select, Stack, Typography } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import PlaceIcon from '@mui/icons-material/Place';
 import ScheduleIcon from '@mui/icons-material/Schedule';
@@ -10,6 +10,7 @@ import type { AICharacter } from '../../types/character';
 import type { WorldCalendarItem } from '../../services/worldRuntimeProjection';
 import EmptyState from '../common/EmptyState';
 import AppSnackbar from '../common/AppSnackbar';
+import SurfaceCard from '../common/SurfaceCard';
 import { projectWorldCalendar } from '../../services/worldRuntimeProjection';
 import { buildWorldCalendarPatchApplyPlan } from '../../services/worldCalendarPatchPlanner';
 import { applyWorldCalendarPatchDraftQueue } from '../../services/worldCalendarPatchApply';
@@ -21,8 +22,27 @@ import {
   type CalendarKindFilter,
   type CalendarStatusFilter,
 } from '../../services/worldCalendarViewModel';
-import { compactPillChipSx } from '../../styles/interaction';
+import { buildInteractiveSurfaceSx, compactPillChipSx } from '../../styles/interaction';
 import BaseCalendar from './BaseCalendar';
+
+const calendarFilterChipSx = {
+  ...compactPillChipSx,
+  height: 30,
+  fontSize: 12,
+  '& .MuiChip-label': { px: 1.2, lineHeight: '30px' },
+};
+
+const calendarMetaChipSx = {
+  ...compactPillChipSx,
+  height: 24,
+  maxWidth: '100%',
+  '& .MuiChip-label': {
+    px: 1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+};
 
 function formatTime(timestamp: number) {
   return new Date(timestamp).toLocaleString();
@@ -184,7 +204,7 @@ export default function WorldCalendarPanel({
   };
 
   return (
-    <Box sx={{ px: compact ? 0 : { xs: 1.5, md: 2.5 }, py: compact ? 0 : { xs: 1.25, md: 2.5 }, maxWidth: 'none', mx: 'auto' }}>
+    <Box sx={{ px: compact ? 0 : { xs: 1.25, sm: 1.75, md: 2 }, py: compact ? 0 : { xs: 1.25, sm: 1.75, md: 2 }, maxWidth: 'none', mx: 'auto' }}>
       {showHeader ? (
         <Stack direction="row" spacing={1.25} sx={{ mb: 2, alignItems: 'center' }}>
           <CalendarMonthIcon color="primary" />
@@ -201,7 +221,7 @@ export default function WorldCalendarPanel({
         <Chip
           size="small"
           variant="outlined"
-          sx={{ mb: 2 }}
+          sx={{ ...calendarMetaChipSx, mb: 2 }}
           label={isZh ? `当前会话：${currentConversation?.name || '已删除会话'}` : `Conversation: ${currentConversation?.name || 'Deleted conversation'}`}
         />
       ) : null}
@@ -209,14 +229,13 @@ export default function WorldCalendarPanel({
         <Chip
           size="small"
           variant="outlined"
-          sx={{ mb: 2, ml: conversationId ? 1 : 0 }}
+          sx={{ ...calendarMetaChipSx, mb: 2, ml: conversationId ? 1 : 0 }}
           label={isZh ? `参与者：${actorId === 'user' ? '用户' : (actorNameMap.get(actorId) || actorId)}` : `Participant: ${actorId === 'user' ? 'User' : (actorNameMap.get(actorId) || actorId)}`}
         />
       ) : null}
 
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} sx={{ mb: 2 }}>
-        <Card
-          variant="outlined"
+        <SurfaceCard
           sx={{
             width: '100%',
             flex: {
@@ -225,46 +244,44 @@ export default function WorldCalendarPanel({
                 ? '0 1 clamp(420px, 44vw, 560px)'
                 : '0 0 clamp(360px, 34vw, 450px)',
             },
-            borderRadius: 2,
             alignSelf: 'stretch',
           }}
+          contentSx={{ p: { xs: 1, sm: 1.25 }, '&:last-child': { pb: { xs: 1, sm: 1.25 } } }}
         >
-          <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
-            <BaseCalendar
-              isZh={isZh}
-              selectedDate={selectedDate}
-              onSelectDate={setSelectedDate}
-              mode="month"
-              dayCellMinHeight={isCalendarExpanded ? 72 : 38}
-              dayContentMinHeight={isCalendarExpanded ? 62 : 30}
-              toggle={{
-                expanded: isCalendarExpanded,
-                onToggle: () => setIsCalendarExpanded((prev) => !prev),
-                expandedLabel: isZh ? '收起' : 'Collapse',
-                collapsedLabel: isZh ? '展开' : 'Expand',
-                expandedAria: isZh ? '收起日期详情' : 'Collapse date details',
-                collapsedAria: isZh ? '展开日期详情' : 'Expand date details',
-              }}
-              monthFormat={{ month: 'long' }}
-              getDayMeta={(day, inMonth) => {
-                const key = startOfDay(day.getTime());
-                const titles = dayTitlesByStart.get(key) || [];
-                return {
-                  inMonth,
-                  hasDot: !isCalendarExpanded && titles.length > 0,
-                  titles: isCalendarExpanded ? titles.slice(0, 2) : [],
-                };
-              }}
-            />
-          </CardContent>
-        </Card>
+          <BaseCalendar
+            isZh={isZh}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            mode="month"
+            dayCellMinHeight={isCalendarExpanded ? 72 : 38}
+            dayContentMinHeight={isCalendarExpanded ? 62 : 30}
+            toggle={{
+              expanded: isCalendarExpanded,
+              onToggle: () => setIsCalendarExpanded((prev) => !prev),
+              expandedLabel: isZh ? '收起' : 'Collapse',
+              collapsedLabel: isZh ? '展开' : 'Expand',
+              expandedAria: isZh ? '收起日期详情' : 'Collapse date details',
+              collapsedAria: isZh ? '展开日期详情' : 'Expand date details',
+            }}
+            monthFormat={{ month: 'long' }}
+            getDayMeta={(day, inMonth) => {
+              const key = startOfDay(day.getTime());
+              const titles = dayTitlesByStart.get(key) || [];
+              return {
+                inMonth,
+                hasDot: !isCalendarExpanded && titles.length > 0,
+                titles: isCalendarExpanded ? titles.slice(0, 2) : [],
+              };
+            }}
+          />
+        </SurfaceCard>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box sx={{ mb: 1.35, display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
-              <Chip size="small" clickable sx={{ ...compactPillChipSx, height: 30, '& .MuiChip-label': { lineHeight: '30px' } }} color={kindFilter === 'all' ? 'primary' : 'default'} variant={kindFilter === 'all' ? 'filled' : 'outlined'} label={isZh ? '全部' : 'All'} onClick={() => setKindFilter('all')} />
-              <Chip size="small" clickable sx={{ ...compactPillChipSx, height: 30, '& .MuiChip-label': { lineHeight: '30px' } }} color={kindFilter === 'activity' ? 'primary' : 'default'} variant={kindFilter === 'activity' ? 'filled' : 'outlined'} label={isZh ? '活动' : 'Activities'} onClick={() => setKindFilter('activity')} />
-              <Chip size="small" clickable sx={{ ...compactPillChipSx, height: 30, '& .MuiChip-label': { lineHeight: '30px' } }} color={kindFilter === 'travel' ? 'primary' : 'default'} variant={kindFilter === 'travel' ? 'filled' : 'outlined'} label={isZh ? '行程' : 'Travel'} onClick={() => setKindFilter('travel')} />
-              <Chip size="small" clickable sx={{ ...compactPillChipSx, height: 30, '& .MuiChip-label': { lineHeight: '30px' } }} color={kindFilter === 'reminder' ? 'primary' : 'default'} variant={kindFilter === 'reminder' ? 'filled' : 'outlined'} label={isZh ? '提醒' : 'Reminders'} onClick={() => setKindFilter('reminder')} />
+              <Chip size="small" clickable sx={calendarFilterChipSx} color={kindFilter === 'all' ? 'primary' : 'default'} variant={kindFilter === 'all' ? 'filled' : 'outlined'} label={isZh ? '全部' : 'All'} onClick={() => setKindFilter('all')} />
+              <Chip size="small" clickable sx={calendarFilterChipSx} color={kindFilter === 'activity' ? 'primary' : 'default'} variant={kindFilter === 'activity' ? 'filled' : 'outlined'} label={isZh ? '活动' : 'Activities'} onClick={() => setKindFilter('activity')} />
+              <Chip size="small" clickable sx={calendarFilterChipSx} color={kindFilter === 'travel' ? 'primary' : 'default'} variant={kindFilter === 'travel' ? 'filled' : 'outlined'} label={isZh ? '行程' : 'Travel'} onClick={() => setKindFilter('travel')} />
+              <Chip size="small" clickable sx={calendarFilterChipSx} color={kindFilter === 'reminder' ? 'primary' : 'default'} variant={kindFilter === 'reminder' ? 'filled' : 'outlined'} label={isZh ? '提醒' : 'Reminders'} onClick={() => setKindFilter('reminder')} />
             </Box>
             <FormControl
               size="small"
@@ -316,18 +333,19 @@ export default function WorldCalendarPanel({
               </Select>
             </FormControl>
           </Box>
-          <Typography variant="subtitle2" sx={{ mb: 1.25, fontWeight: 700, color: 'text.secondary' }}>
+          <Typography variant="subtitle2" sx={{ mb: 1.25, fontWeight: 760, color: 'text.secondary' }}>
             {formatDayTitle(selectedDayStart || Date.now(), isZh)}
           </Typography>
 
       {patchDraftQueue.length ? (
         <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}>
-          <Chip size="small" variant="outlined" color="warning" label={isZh ? `冲突修正草案队列 ${patchDraftQueue.length} 条` : `Conflict Draft Queue ${patchDraftQueue.length}`} />
+          <Chip size="small" variant="outlined" color="warning" sx={calendarMetaChipSx} label={isZh ? `冲突修正草案队列 ${patchDraftQueue.length} 条` : `Conflict Draft Queue ${patchDraftQueue.length}`} />
           {chainDraftGroupCount > 0 ? (
             <Chip
               size="small"
               variant="outlined"
               color="info"
+              sx={calendarMetaChipSx}
               label={isZh ? `链式顺延 ${chainDraftGroupCount} 组` : `Chained shifts ${chainDraftGroupCount} group(s)`}
             />
           ) : null}
@@ -355,35 +373,34 @@ export default function WorldCalendarPanel({
                 const scheduleHint = formatScheduleHint(item, isZh);
                 const statusMeta = getCalendarStatusMeta(item.status, isZh);
                 return (
-                  <Card
+                  <SurfaceCard
                     key={item.id}
-                    variant="outlined"
-                    sx={{ borderRadius: 2, cursor: 'pointer' }}
+                    sx={{ cursor: 'pointer', ...buildInteractiveSurfaceSx() }}
+                    contentSx={{ p: compact ? 1.2 : 1.45, '&:last-child': { pb: compact ? 1.2 : 1.45 } }}
                     onClick={() => setDetailItemId(item.id)}
                   >
-                    <CardContent sx={{ p: compact ? 1.2 : 1.45, '&:last-child': { pb: compact ? 1.2 : 1.45 } }}>
                       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between' }}>
                         <Box sx={{ minWidth: 0 }}>
                           <Typography variant="subtitle1" sx={{ fontWeight: 760, letterSpacing: 0 }}>{item.title}</Typography>
                           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.2 }}>{item.summary}</Typography>
                         </Box>
-                        <Chip size="small" color={statusMeta.color} variant="outlined" label={statusMeta.label} />
+                        <Chip size="small" color={statusMeta.color} variant="outlined" sx={calendarMetaChipSx} label={statusMeta.label} />
                       </Stack>
                       <Stack direction="row" spacing={1} useFlexGap sx={{ mt: 1, flexWrap: 'wrap' }}>
-                        {scheduleHint ? <Chip size="small" icon={<ScheduleIcon />} label={scheduleHint} /> : null}
-                        {item.locationHint ? <Chip size="small" icon={<PlaceIcon />} label={item.locationHint} /> : null}
-                        {item.participantNames.length ? <Chip size="small" icon={<GroupsIcon />} label={item.participantNames.join('、')} /> : null}
+                        {scheduleHint ? <Chip size="small" icon={<ScheduleIcon />} sx={calendarMetaChipSx} label={scheduleHint} /> : null}
+                        {item.locationHint ? <Chip size="small" icon={<PlaceIcon />} sx={calendarMetaChipSx} label={item.locationHint} /> : null}
+                        {item.participantNames.length ? <Chip size="small" icon={<GroupsIcon />} sx={calendarMetaChipSx} label={item.participantNames.join('、')} /> : null}
                         {Object.keys(item.participantStates).length ? (
                           <Chip
                             size="small"
                             variant="outlined"
+                            sx={calendarMetaChipSx}
                             label={(isZh ? '参与状态' : 'Participant states') + ' · ' + summarizeParticipantStateCounts(item.participantStates, isZh).slice(0, 2).join(' / ')}
                           />
                         ) : null}
-                        <Chip size="small" variant="outlined" label={`${isZh ? '来源' : 'Sources'} ${item.sourceRefs.length}`} />
+                        <Chip size="small" variant="outlined" sx={calendarMetaChipSx} label={`${isZh ? '来源' : 'Sources'} ${item.sourceRefs.length}`} />
                       </Stack>
-                    </CardContent>
-                  </Card>
+                  </SurfaceCard>
                 );
               })}
             </Stack>

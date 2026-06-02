@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Avatar, Box, Button, Chip, Paper, Snackbar, Stack, Typography } from '@mui/material';
+import { Alert, Avatar, Box, Button, Chip, Snackbar, Stack, Typography } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
@@ -7,6 +7,8 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import EmptyState from '../components/common/EmptyState';
 import ImageLightbox from '../components/common/ImageLightbox';
+import SurfaceCard from '../components/common/SurfaceCard';
+import { compactPillChipSx } from '../styles/interaction';
 import { sanitizeUserFacingText } from '../services/displayTextSanitizer';
 import { projectWorldMoments } from '../services/worldRuntimeProjection';
 import { isImageAvatar } from '../utils/avatar';
@@ -34,8 +36,17 @@ function cleanGeneratedMomentText(value: string) {
     .replace(/```$/i, '')
     .replace(/^["“”']+|["“”']+$/g, '')
     .replace(/^朋友圈[:：]\s*/i, '')
+    .replace(/(?:\s*[（(]\s*)?(?:配图|图片|附图)\s*[:：][\s\S]*?(?:[）)])?\s*$/iu, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => !/^(朋友圈动态|朋友圈|Moments?)$/i.test(line))
+    .join('\n')
     .trim()
     .slice(0, 260);
+}
+
+function cleanDisplayedMomentText(value: string) {
+  return cleanGeneratedMomentText(value);
 }
 
 function getErrorMessage(error: unknown) {
@@ -292,9 +303,9 @@ export default function MomentsPage() {
     setHeaderBackAction(null);
     setHeaderActions(
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-        {developerMode && showMomentDebug ? <Chip size="small" label={isZh ? '调试' : 'Debug'} color="warning" variant="outlined" /> : null}
+        {developerMode && showMomentDebug ? <Chip size="small" label={isZh ? '调试' : 'Debug'} color="warning" variant="outlined" sx={compactPillChipSx} /> : null}
         {developerMode && showMomentDebug ? (
-          <Button size="small" variant="contained" startIcon={<AutoAwesomeIcon />} disabled={!canGenerate} onClick={handleGenerateMoment}>
+          <Button size="small" variant="contained" startIcon={<AutoAwesomeIcon />} disabled={!canGenerate} onClick={handleGenerateMoment} sx={{ borderRadius: 999, minHeight: 30 }}>
             {isZh ? '生成' : 'Generate'}
           </Button>
         ) : null}
@@ -308,34 +319,35 @@ export default function MomentsPage() {
   }, [canGenerate, developerMode, handleGenerateMoment, isZh, setHeaderActions, setHeaderBackAction, setHeaderTitle, showMomentDebug]);
 
   return (
-    <Box sx={{ px: { xs: 2, md: 3 }, py: { xs: 1.5, md: 3 }, maxWidth: 900, mx: 'auto' }}>
+    <Box sx={{ px: { xs: 1.5, sm: 2, md: 3 }, pt: { xs: 1, sm: 1.5, md: 2 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 112px)', md: 4 }, maxWidth: 920, mx: 'auto' }}>
       {!moments.length ? (
         <EmptyState
           icon="📝"
           message={isZh ? '还没有朋友圈动态。角色发布后的动态会显示在这里。' : 'No moments yet. Published character posts will appear here.'}
         />
       ) : (
-        <Stack spacing={1.5}>
+        <Stack spacing={{ xs: 1.25, sm: 1.5 }}>
           {visibleMoments.map((moment) => {
             const avatar = moment.actorId ? characterAvatars.get(moment.actorId) : undefined;
-            const text = sanitizeUserFacingText(moment.text, textMembers);
+            const text = cleanDisplayedMomentText(sanitizeUserFacingText(moment.text, textMembers));
             return (
-              <Paper
+              <SurfaceCard
                 key={moment.id}
-                elevation={0}
-                sx={{
-                  p: { xs: 1.5, sm: 2 },
-                  borderRadius: 2,
-                  border: 1,
-                  borderColor: 'divider',
-                  bgcolor: 'background.paper',
-                }}
+                contentSx={{ p: { xs: 1.5, sm: 1.75 }, '&:last-child': { pb: { xs: 1.5, sm: 1.75 } } }}
               >
-                <Stack direction="row" spacing={1.4} sx={{ alignItems: 'flex-start' }}>
+                <Stack direction="row" spacing={{ xs: 1.15, sm: 1.4 }} sx={{ alignItems: 'flex-start' }}>
                   <Avatar
                     src={isImageAvatar(avatar) ? avatar : undefined}
                     alt={moment.actorName}
-                    sx={{ width: 44, height: 44, bgcolor: 'primary.light', fontSize: '1rem', flexShrink: 0 }}
+                    sx={{
+                      width: { xs: 40, sm: 44 },
+                      height: { xs: 40, sm: 44 },
+                      bgcolor: 'primary.light',
+                      color: 'primary.contrastText',
+                      fontSize: '1rem',
+                      fontWeight: 760,
+                      flexShrink: 0,
+                    }}
                   >
                     {isImageAvatar(avatar) ? undefined : formatAvatarFallback(avatar, moment.actorName)}
                   </Avatar>
@@ -348,15 +360,15 @@ export default function MomentsPage() {
                     </Typography>
                     {developerMode && showMomentDebug && moment.debugState === 'candidate' ? (
                       <Stack direction="row" spacing={0.75} useFlexGap sx={{ mt: 0.8, flexWrap: 'wrap' }}>
-                        <Chip size="small" label={isZh ? '候选' : 'Candidate'} color="warning" variant="outlined" />
-                        {moment.activityType ? <Chip size="small" label={sanitizeUserFacingText(moment.activityType, textMembers)} variant="outlined" /> : null}
-                        {moment.expectedArtifacts.map((artifact) => <Chip key={artifact} size="small" label={artifact} variant="outlined" />)}
+                        <Chip size="small" label={isZh ? '候选' : 'Candidate'} color="warning" variant="outlined" sx={compactPillChipSx} />
+                        {moment.activityType ? <Chip size="small" label={sanitizeUserFacingText(moment.activityType, textMembers)} variant="outlined" sx={compactPillChipSx} /> : null}
+                        {moment.expectedArtifacts.map((artifact) => <Chip key={artifact} size="small" label={artifact} variant="outlined" sx={compactPillChipSx} />)}
                       </Stack>
                     ) : null}
                     {developerMode && showMomentDebug && moment.debugState !== 'candidate' ? (
                       <Stack direction="row" spacing={0.75} useFlexGap sx={{ mt: 0.8, flexWrap: 'wrap' }}>
-                        <Chip size="small" label={isZh ? '已发布' : 'Published'} color="success" variant="outlined" />
-                        {moment.media.length ? <Chip size="small" label={isZh ? `图片 ${moment.media.length}` : `Images ${moment.media.length}`} variant="outlined" /> : null}
+                        <Chip size="small" label={isZh ? '已发布' : 'Published'} color="success" variant="outlined" sx={compactPillChipSx} />
+                        {moment.media.length ? <Chip size="small" label={isZh ? `图片 ${moment.media.length}` : `Images ${moment.media.length}`} variant="outlined" sx={compactPillChipSx} /> : null}
                       </Stack>
                     ) : null}
                     <Typography
@@ -377,6 +389,7 @@ export default function MomentsPage() {
                           display: 'grid',
                           gap: 0.75,
                           gridTemplateColumns: moment.media.length > 1 ? { xs: '1fr 1fr', sm: 'repeat(3, minmax(0, 1fr))' } : 'minmax(0, 420px)',
+                          maxWidth: moment.media.length > 1 ? { sm: 420 } : 420,
                         }}
                       >
                         {moment.media.slice(0, 4).map((item, index) => (
@@ -405,7 +418,7 @@ export default function MomentsPage() {
                     ) : null}
                   </Box>
                 </Stack>
-              </Paper>
+              </SurfaceCard>
             );
           })}
           {hasMoreMoments ? (

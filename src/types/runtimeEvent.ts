@@ -192,6 +192,8 @@ export interface SocialEventCandidatePayload {
   visibilityPlan: 'public' | 'conversation_private' | 'user_private' | 'mixed';
   expectedArtifacts?: string[];
   sourceText?: string;
+  triggerReason?: string;
+  openingMessage?: string;
   momentText?: string;
   title?: string;
   activityType?: string;
@@ -217,6 +219,8 @@ export interface SocialEventHintEnvelope {
   seedIntent?: string;
   visibilityPlan?: 'public' | 'conversation_private' | 'user_private' | 'mixed';
   expectedArtifacts?: string[];
+  triggerReason?: string;
+  openingMessage?: string;
   title?: string;
   activityType?: string;
   timeHint?: string | null;
@@ -266,6 +270,8 @@ export interface PairPrivateThreadAnalysisResult {
   reasonType?: string;
   dedupeKey?: string | null;
   seedIntent?: string;
+  triggerReason?: string;
+  openingMessage?: string;
 }
 
 export interface SocialEventEffectPayload {

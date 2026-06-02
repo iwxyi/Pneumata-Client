@@ -1353,9 +1353,20 @@ export function buildPrivateThreadOpenedEvent(chat: GroupChat, candidateEvent: R
       eventKind: payload.eventKind,
       participantIds: payload.participantIds,
       reasonType: payload.reasonType,
+      triggerReason: payload.triggerReason,
+      openingMessage: payload.openingMessage,
     },
   });
 }
+
+type SocialRuntimeMessageInput = {
+  chatId: string;
+  type: 'ai' | 'system';
+  senderId: string;
+  senderName: string;
+  content: string;
+  emotion: number;
+};
 
 export interface SocialEventRuntimeOps {
   chats: GroupChat[];
@@ -1364,7 +1375,7 @@ export interface SocialEventRuntimeOps {
   textApiConfig?: APIConfig | null;
   updateChat: (chatId: string, patch: Partial<GroupChat>) => Promise<unknown>;
   addChat: (input: Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'>) => Promise<GroupChat>;
-  addMessage: (message: { chatId: string; type: 'system'; senderId: string; senderName: string; content: string; emotion: number }) => Promise<unknown>;
+  addMessage: (message: SocialRuntimeMessageInput) => Promise<unknown>;
   appendEventMessage: (chatId: string, payload: { eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown; visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public'; visibleToIds?: string[]; visibleToRoles?: string[] }) => Promise<void>;
 }
 
@@ -2135,6 +2146,8 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
       characters: ops.characters,
       starterId: actorId,
       targetId,
+      triggerReason: payload.triggerReason || payload.seedIntent,
+      openingMessage: payload.openingMessage || payload.seedIntent,
       addChat: ops.addChat,
       addMessage: ops.addMessage,
       appendEventMessage: ops.appendEventMessage,
@@ -2363,14 +2376,24 @@ export function buildStartPrivateThreadExecutionResult(chat: GroupChat, actorId:
   };
 }
 
+function normalizePrivateThreadOpeningMessage(openingMessage: string | null | undefined, targetName: string, triggerReason?: string | null) {
+  const trimmed = (openingMessage || '').trim();
+  if (trimmed && !/^系统[:：]/.test(trimmed)) return trimmed.slice(0, 1200);
+  const reason = (triggerReason || '').trim();
+  if (reason) return `${targetName}，刚才那件事我还是想单独和你接着聊一下。${reason.length > 36 ? `我在意的是：${reason.slice(0, 80)}` : reason}`;
+  return `${targetName}，刚才在群里我没完全说完，想单独和你接着聊一下。`;
+}
+
 export async function createAiPrivateThread(params: {
   sourceChat: GroupChat;
   chats: GroupChat[];
   characters: AICharacter[];
   starterId: string;
   targetId: string;
+  triggerReason?: string | null;
+  openingMessage?: string | null;
   addChat: (input: Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'>) => Promise<GroupChat>;
-  addMessage: (message: { chatId: string; type: 'system'; senderId: string; senderName: string; content: string; emotion: number }) => Promise<unknown>;
+  addMessage: (message: SocialRuntimeMessageInput) => Promise<unknown>;
   appendEventMessage: (chatId: string, payload: { eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown; visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public'; visibleToIds?: string[]; visibleToRoles?: string[] }) => Promise<void>;
 }) {
   const memberSet = new Set(params.sourceChat.memberIds);
@@ -2393,11 +2416,29 @@ export async function createAiPrivateThread(params: {
     emotion: 0,
   });
 
+  const openingMessage = normalizePrivateThreadOpeningMessage(params.openingMessage, target.name, params.triggerReason);
+  if (openingMessage) {
+    await params.addMessage({
+      chatId: privateChat.id,
+      type: 'ai',
+      senderId: initiator.id,
+      senderName: initiator.name,
+      content: openingMessage,
+      emotion: 0.25,
+    });
+  }
+
   await params.appendEventMessage(params.sourceChat.id, {
     eventType: 'private_chat_started',
     title: `${initiator.name} 与 ${target.name} 开启了AI私聊`,
-    summary: '群聊将跟踪这段私下互动带来的关系变化。',
+    summary: params.triggerReason || '群聊将跟踪这段私下互动带来的关系变化。',
     pair: [initiator.name, target.name],
+    metrics: {
+      starterId: initiator.id,
+      targetId: target.id,
+      triggerReason: params.triggerReason || null,
+      openingMessage: openingMessage || null,
+    },
     visibilityScope: 'derived_public',
   });
 

@@ -51,13 +51,22 @@ function renderMemoryReactivationMeta(payload: { metrics?: unknown }, members: D
   );
 }
 
-function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { showRelationshipEvents: boolean; showAffectEvents: boolean; showConflictEvents: boolean; showStateEvents: boolean; showMemoryDistillationEvents: boolean; showMemoryDebug: boolean; showLocalInterceptionHints: boolean }) {
+function isCalendarDeveloperEvent(eventType: unknown) {
+  const value = String(eventType || '');
+  return value === 'calendar_item_patch'
+    || value === 'calendar_patch_apply_result'
+    || value === 'calendar_activity'
+    || value.startsWith('calendar_activity_');
+}
+
+function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { showRelationshipEvents: boolean; showAffectEvents: boolean; showConflictEvents: boolean; showStateEvents: boolean; showMemoryDistillationEvents: boolean; showCalendarEvents: boolean; showMemoryDebug: boolean; showLocalInterceptionHints: boolean }) {
   if (!payload?.eventType) return false;
   if (['group_relationship_shift', 'relationship_shift'].includes(String(payload.eventType))) return flags.showRelationshipEvents;
   if (['speaker_drift_shift', 'speaker_emotion_shift', 'target_emotion_shift'].includes(String(payload.eventType))) return flags.showAffectEvents;
   if (isConflictDeveloperEvent(payload.eventType)) return flags.showConflictEvents;
   if (isStateDeveloperEvent(payload.eventType)) return flags.showStateEvents;
   if (payload.eventType === 'memory_distillation') return flags.showMemoryDistillationEvents || flags.showMemoryDebug;
+  if (isCalendarDeveloperEvent(payload.eventType)) return flags.showCalendarEvents;
   if (payload.eventType === 'memory_reactivation') return flags.showMemoryDebug;
   if (payload.eventType === 'local_interception') return flags.showLocalInterceptionHints;
   return false;
@@ -78,6 +87,12 @@ function buildEventTypeChip(payload: { eventType?: string }) {
     room_state_snapshot_v2: { label: '态势', color: 'primary' },
     memory_distillation: { label: '蒸馏', color: 'info' },
     memory_reactivation: { label: '回温', color: 'warning' },
+    calendar_item_patch: { label: '日历', color: 'info' },
+    calendar_patch_apply_result: { label: '日历', color: 'info' },
+    calendar_activity: { label: '日历', color: 'info' },
+    calendar_activity_started: { label: '日历', color: 'info' },
+    calendar_activity_candidate: { label: '日历', color: 'info' },
+    calendar_activity_updated: { label: '日历', color: 'info' },
     local_interception: { label: '拦截', color: 'warning' },
   };
   const item = config[eventType] || { label: '提示', color: 'default' as const };
@@ -311,6 +326,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const showConflictEvents = useSettingsStore((state) => state.developerUI.showConflictEvents);
   const showStateEvents = useSettingsStore((state) => state.developerUI.showStateEvents);
   const showMemoryDistillationEvents = useSettingsStore((state) => state.developerUI.showMemoryDistillationEvents);
+  const showCalendarEvents = useSettingsStore((state) => state.developerUI.showCalendarEvents);
   const showLocalInterceptionHints = useSettingsStore((state) => state.developerUI.showLocalInterceptionHints);
   const showWithdrawnMessageContent = useSettingsStore((state) => state.developerUI.showWithdrawnMessageContent);
   const navigate = useNavigate();
@@ -428,7 +444,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
     if (!developerMode) return null;
     const parsed = parseRuntimeEvent(message.content);
     const payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown } = parsed || { title: '事件', summary: message.content };
-    if (!shouldRenderDeveloperEvent(payload, { showRelationshipEvents, showAffectEvents, showConflictEvents, showStateEvents, showMemoryDistillationEvents, showMemoryDebug, showLocalInterceptionHints })) return null;
+    if (!shouldRenderDeveloperEvent(payload, { showRelationshipEvents, showAffectEvents, showConflictEvents, showStateEvents, showMemoryDistillationEvents, showCalendarEvents, showMemoryDebug, showLocalInterceptionHints })) return null;
     return renderEventBubble(message.id, payload, members);
   }
 

@@ -12,6 +12,7 @@ import type {
   SocialEventHintEnvelope,
   SocialOutingAnalysisResult,
   PostMomentAnalysisResult,
+  PairPrivateThreadAnalysisResult,
 } from '../../types/runtimeEvent';
 import { DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../../types/chat';
 import { buildChatPatch, buildNextWorldState, buildRelationshipTransition, buildWorldRuntimeEvents } from '../chatRuntimeTransitionBuilder';
@@ -266,6 +267,8 @@ function buildPairPrivateThreadCandidateFromHint(params: {
     visibilityPlan: hint.visibilityPlan || 'conversation_private',
     expectedArtifacts: hint.expectedArtifacts || ['private_thread_summary'],
     sourceText: params.message.content.trim().slice(0, 128),
+    triggerReason: hint.triggerReason || hint.seedIntent || '当前群聊出现了适合转入双人私聊的未尽话题。',
+    openingMessage: hint.openingMessage,
     title: hint.title,
     activityType: hint.activityType,
     timeHint: hint.timeHint ?? null,
@@ -294,6 +297,17 @@ function buildPairPrivateThreadCandidate(params: {
   if (!hinted) return null;
   const payload = hinted.payload as SocialEventCandidatePayload;
   const targetId = payload.targetIds?.[0] || payload.participantIds.find((id) => id !== payload.initiatorId) || null;
+  const explicitPrivateIntent = Boolean(payload.triggerReason && payload.openingMessage && payload.confidence >= 0.85);
+  if (targetId && explicitPrivateIntent) {
+    return {
+      ...hinted,
+      payload: {
+        ...payload,
+        reasonType: payload.reasonType || 'unresolved_question',
+        confidence: Math.max(payload.confidence, 0.86),
+      },
+    } satisfies RuntimeEventV2;
+  }
   if (!targetId || !params.interaction || params.interaction.targetId !== targetId) return null;
   if (params.interaction.intensity < 3 || params.interaction.confidence < 0.85) return null;
   const relation = getRelationshipLedgerEntry(params.relationshipLedger || [], payload.initiatorId, targetId);
@@ -313,6 +327,8 @@ function buildPairPrivateThreadCandidate(params: {
       ...payload,
       reasonType: payload.reasonType || (reason === 'support' || reason === 'defend' ? 'mutual_affinity' : 'unresolved_question'),
       confidence: Math.max(payload.confidence, roomFocus ? 0.88 : 0.82),
+      triggerReason: payload.triggerReason || `基于当前${reason}互动，${payload.initiatorId}需要和${targetId}私下延续刚才的话题。`,
+      openingMessage: payload.openingMessage || payload.seedIntent,
     },
   } satisfies RuntimeEventV2;
 }
@@ -347,6 +363,8 @@ function buildAttentionDrivenPrivateThreadCandidate(params: {
     confidence: 0.81,
     urgency: 'soon',
     seedIntent: '用户刚刚点名了我，适合私下跟进确认。',
+    triggerReason: '用户刚刚点名或触发关注状态，角色需要转入私域跟进确认。',
+    openingMessage: '刚才你提到我的时候，我有点在意。方便的话，我想单独问问你真实的想法。',
     visibilityPlan: 'user_private',
     expectedArtifacts: ['private_thread_summary'],
     sourceText: params.message.content.trim().slice(0, 128),
@@ -1545,12 +1563,64 @@ async function analyzePostMoment(params: {
   }
 }
 
+function toPairPrivateThreadHint(result: PairPrivateThreadAnalysisResult | null, conversation: GroupChat, senderId: string): SocialEventHintEnvelope | null {
+  if (!result?.shouldCreate || (result.confidence || 0) < 0.8) return null;
+  const participantIds = Array.isArray(result.participantIds)
+    ? result.participantIds.filter((id) => id !== 'user' && conversation.memberIds.includes(id))
+    : [];
+  if (participantIds.length !== 2 || !participantIds.includes(senderId)) return null;
+  return {
+    eventKind: 'pair_private_thread',
+    participantIds,
+    targetIds: result.targetIds?.filter((id) => id !== 'user' && conversation.memberIds.includes(id)),
+    reasonType: result.reasonType || 'unresolved_question',
+    confidence: Math.max(0.8, result.confidence || 0),
+    urgency: 'soon',
+    seedIntent: result.seedIntent || '想私下继续聊刚才的话题。',
+    triggerReason: result.triggerReason || result.seedIntent || '当前群聊出现了适合双人延续的未尽话题。',
+    openingMessage: result.openingMessage || result.seedIntent || '刚才那个点我还是想和你单独接着聊一下。',
+    visibilityPlan: 'conversation_private',
+    expectedArtifacts: ['private_thread_summary'],
+    dedupeKey: result.dedupeKey ?? `${senderId}::${participantIds.find((id) => id !== senderId) || participantIds[1]}`,
+  };
+}
+
+async function analyzePairPrivateThread(params: {
+  conversation: GroupChat;
+  message: Pick<Message, 'content' | 'senderId'>;
+  characters: AICharacter[];
+  recentMessages?: Message[];
+  apiConfig?: APIConfig;
+}): Promise<PairPrivateThreadAnalysisResult | null> {
+  if (!params.apiConfig || params.message.senderId === 'user') return null;
+  const memberCharacters = params.characters.filter((character) => params.conversation.memberIds.includes(character.id));
+  const recentTranscript = (params.recentMessages || [])
+    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
+    .slice(-10)
+    .map((message) => `${message.senderName}: ${message.content}`)
+    .join('\n');
+  const recentPrivateThreads = buildRecentSocialEventContext(params.conversation, 'pair_private_thread')
+    .map((event) => `- ${event.summary}`)
+    .join('\n');
+  const prompt = `你是群聊社交事件分析器。判断这条新消息之后，发言角色是否真的需要和某个AI角色派生一个双人私聊，并写出私聊第一句。\n\n只输出 JSON：\n{\n  "shouldCreate": boolean,\n  "participantIds": string[] | null,\n  "targetIds": string[] | null,\n  "confidence": number,\n  "reasonType": string | null,\n  "dedupeKey": string | null,\n  "seedIntent": string | null,\n  "triggerReason": string | null,\n  "openingMessage": string | null\n}\n\n要求：\n1. participantIds 必须恰好 2 个AI角色 id，且必须包含 speakerId=${params.message.senderId}；不要包含 user。\n2. openingMessage 是 speakerId 角色发给另一个角色的第一句私聊消息，要契合当前群聊上下文和角色人设；可以短招呼、追问、解释、安抚，也可以较长，但不能像系统说明。\n3. triggerReason 用一句话说明为什么当前场景会触发这段私聊，必须基于最近对话，不要泛泛而谈。\n4. 只有确实存在“公开群聊不适合继续讲、两人关系需要转入私下、某个问题需要避开他人追问、或者关系余波需要双人处理”时才 shouldCreate=true。\n5. 如果只是普通回复、玩笑、寒暄、或可以继续在群里聊，返回 shouldCreate=false。\n6. 如果和最近已有私聊是同一对同一语义，返回相同 dedupeKey。\n\n成员：\n${buildCharacterReference(memberCharacters)}\n\n最近对话：\n${recentTranscript}\n\n最近双人私聊事件：\n${recentPrivateThreads || '无'}\n\n当前消息（speakerId=${params.message.senderId}）：\n${params.message.content}`;
+  try {
+    const raw = await generateResponse(params.apiConfig, prompt, [{ role: 'user', content: '只输出 JSON。' }]);
+    return JSON.parse(cleanJson(raw)) as PairPrivateThreadAnalysisResult;
+  } catch {
+    return null;
+  }
+}
+
 function shouldAnalyzeSocialOuting(content: string) {
   return /(今晚|明天|周末|改天|一起去|约饭|吃火锅|聚餐|看展|唱歌|散步|庆祝|线下|见面|出去玩|喝一杯|喝奶茶|吃饭)/i.test(content);
 }
 
 function shouldAnalyzePostMoment(content: string) {
   return /(发个朋友圈|发条动态|想发|晒|记录一下|发出来|po一下|纪念一下|发成动态|发一条|朋友圈|动态)/i.test(content);
+}
+
+function shouldAnalyzePairPrivateThread(content: string) {
+  return /(私下|单独|悄悄|别在群里|回头聊|另聊|私聊|只跟你|避开|别让|继续聊|我想问你|你刚才说的|刚才那个问题)/i.test(content);
 }
 
 async function resolveSocialEventHints(params: {
@@ -1563,6 +1633,7 @@ async function resolveSocialEventHints(params: {
   const baseHints = [...(params.message.socialEventHints || [])];
   const hasOutingHint = baseHints.some((hint) => hint.eventKind === 'social_outing');
   const hasMomentHint = baseHints.some((hint) => hint.eventKind === 'post_moment');
+  const hasPairPrivateThreadHint = baseHints.some((hint) => hint.eventKind === 'pair_private_thread');
   if (!hasOutingHint && shouldAnalyzeSocialOuting(params.message.content)) {
     const analyzed = await analyzeSocialOuting({
       conversation: params.conversation,
@@ -1583,6 +1654,17 @@ async function resolveSocialEventHints(params: {
       apiConfig: params.apiConfig,
     });
     const mapped = toPostMomentHint(analyzed, params.conversation, params.message.senderId);
+    if (mapped) baseHints.push(mapped);
+  }
+  if (!hasPairPrivateThreadHint && shouldAnalyzePairPrivateThread(params.message.content)) {
+    const analyzed = await analyzePairPrivateThread({
+      conversation: params.conversation,
+      message: params.message,
+      characters: params.characters,
+      recentMessages: params.recentMessages,
+      apiConfig: params.apiConfig,
+    });
+    const mapped = toPairPrivateThreadHint(analyzed, params.conversation, params.message.senderId);
     if (mapped) baseHints.push(mapped);
   }
   return baseHints.length ? baseHints : null;
@@ -1741,6 +1823,8 @@ function mergeCandidatePayloads(existing: SocialEventCandidatePayload, incoming:
     timeHint: choosePreferredText(existing.timeHint || undefined, incoming.timeHint || undefined) ?? null,
     locationHint: choosePreferredText(existing.locationHint || undefined, incoming.locationHint || undefined) ?? null,
     seedIntent: choosePreferredText(existing.seedIntent, incoming.seedIntent) || incoming.seedIntent,
+    triggerReason: choosePreferredText(existing.triggerReason, incoming.triggerReason),
+    openingMessage: choosePreferredText(existing.openingMessage, incoming.openingMessage),
     sourceText: choosePreferredText(existing.sourceText, incoming.sourceText),
     confidence: choosePreferredConfidence(existing.confidence, incoming.confidence),
     participantIds: Array.from(new Set([...(existing.participantIds || []), ...(incoming.participantIds || [])])),

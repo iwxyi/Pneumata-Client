@@ -6,6 +6,7 @@ import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
+import SurfaceCard from '../components/common/SurfaceCard';
 
 export default function CalendarPage() {
   const { i18n } = useTranslation();
@@ -44,21 +45,7 @@ export default function CalendarPage() {
         mx: 'auto',
       }}
     >
-      <Box
-        sx={{
-          width: '100%',
-          borderRadius: 2,
-          border: '1px solid',
-          borderColor: 'divider',
-          bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(20,24,32,0.74)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
-          boxShadow: (theme) => theme.palette.mode === 'light'
-            ? '0 10px 30px rgba(15,23,42,0.06)'
-            : '0 10px 28px rgba(0,0,0,0.28)',
-          overflow: 'hidden',
-        }}
-      >
+      <SurfaceCard sx={{ width: '100%', overflow: 'hidden' }} contentSx={{ p: 0, '&:last-child': { pb: 0 } }}>
         <WorldCalendarPanel
           chats={chats}
           characters={characters}
@@ -69,7 +56,7 @@ export default function CalendarPage() {
           compact={false}
           showHeader={false}
         />
-      </Box>
+      </SurfaceCard>
     </Box>
   );
 }

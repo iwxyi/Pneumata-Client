@@ -296,6 +296,54 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect(addChat).not.toHaveBeenCalled();
   });
 
+  it('seeds AI private thread with source-aware opening message', async () => {
+    const sourceChat = buildBaseChat();
+    const addMessage = vi.fn(async (_message: { chatId: string; type: 'ai' | 'system'; senderId: string; senderName: string; content: string; emotion: number }) => ({}));
+    const privateChat = await createAiPrivateThread({
+      sourceChat,
+      chats: [sourceChat],
+      characters: [buildCharacter('a', '喜羊羊'), buildCharacter('b', '灰太狼')],
+      starterId: 'a',
+      targetId: 'b',
+      triggerReason: '灰太狼刚才回避了群里的关键问题，喜羊羊想私下追问。',
+      openingMessage: '灰太狼，刚才那个问题你在群里没有接。我想单独问一句，你到底在担心什么？',
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage,
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(privateChat).not.toBeNull();
+    expect(addMessage).toHaveBeenCalledTimes(2);
+    expect(addMessage.mock.calls[1]?.[0]).toMatchObject({
+      chatId: privateChat?.id,
+      type: 'ai',
+      senderId: 'a',
+      senderName: '喜羊羊',
+      content: '灰太狼，刚才那个问题你在群里没有接。我想单独问一句，你到底在担心什么？',
+    });
+  });
+
+  it('passes candidate opening message into auto-opened AI private thread', async () => {
+    const chat = buildChatWithEvents([buildCandidateEvent(buildCandidatePayload({
+      triggerReason: '甲在群里追问乙的关键回避，适合转入私聊。',
+      openingMessage: '乙，刚才你避开的那句话我没放下。你可以只跟我说真实原因。',
+    }))]);
+    const addMessage = vi.fn(async (_message: { chatId: string; type: 'ai' | 'system'; senderId: string; senderName: string; content: string; emotion: number }) => ({}));
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      updateChat: vi.fn(async () => undefined),
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage,
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+    expect(result.privateChatId).toBe('chat-1');
+    expect(addMessage.mock.calls[1]?.[0]).toMatchObject({
+      type: 'ai',
+      senderId: 'a',
+      content: '乙，刚才你避开的那句话我没放下。你可以只跟我说真实原因。',
+    });
+  });
+
   it('runs unified auto social flow for post moment candidates', async () => {
     const chat = buildChatWithEvents([buildCandidateEvent(buildCandidatePayload({ eventKind: 'post_moment', participantIds: ['a'], confidence: 0.9, reasonType: 'celebration', visibilityPlan: 'public', dedupeKey: 'moment-1' }))]);
     const updateChat = vi.fn(async () => undefined);
