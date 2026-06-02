@@ -110,7 +110,16 @@ export function createBufferedJsonStorage<T>(
       storage.removeItem(name);
       return;
     }
-    storage.setItem(name, JSON.stringify(pending.value, options.replacer));
+    try {
+      storage.setItem(name, JSON.stringify(pending.value, options.replacer));
+    } catch (error) {
+      const errorName = error instanceof DOMException ? error.name : '';
+      if (errorName === 'QuotaExceededError' || errorName === 'NS_ERROR_DOM_QUOTA_REACHED') {
+        console.warn('[storage] persistence skipped: storage quota exceeded', { name, error });
+        return;
+      }
+      throw error;
+    }
   };
 
   const flushAll = () => {

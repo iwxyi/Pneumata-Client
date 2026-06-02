@@ -6,7 +6,7 @@ import { api } from '../services/api';
 import { reportRecoverableError } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { buildWarmState } from './storeWarmHelpers';
-import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
+import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateChatStoreState } from './storeMigrations';
@@ -150,6 +150,37 @@ const CHAT_RUNTIME_PERSIST_LIMITS = {
   runtimeEventsV2: 120,
   relationshipLedger: 120,
 };
+const MAX_PERSISTED_DATA_URL_CHARS = 2048;
+
+function isInlineDataUrl(value: string) {
+  return /^data:[^;]+;base64,/i.test(value);
+}
+
+function shouldDropPersistedString(key: string, value: string) {
+  const normalizedKey = key.toLowerCase();
+  return isInlineDataUrl(value) && (value.length > MAX_PERSISTED_DATA_URL_CHARS || normalizedKey.includes('dataurl') || normalizedKey === 'url' || normalizedKey.endsWith('url'));
+}
+
+function stripLargeInlineMediaForPersistence<T>(value: T, key = '', seen = new WeakSet<object>()): T {
+  if (typeof value === 'string') {
+    return (shouldDropPersistedString(key, value) ? undefined : value) as T;
+  }
+  if (!value || typeof value !== 'object') return value;
+  if (seen.has(value)) return undefined as T;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripLargeInlineMediaForPersistence(item, key, seen))
+      .filter((item) => item !== undefined) as T;
+  }
+  const source = value as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  Object.entries(source).forEach(([entryKey, entryValue]) => {
+    const stripped = stripLargeInlineMediaForPersistence(entryValue, entryKey, seen);
+    if (stripped !== undefined) next[entryKey] = stripped;
+  });
+  return next as T;
+}
 
 function takeRecentItems<T>(items: T[] | undefined, limit: number): T[] {
   if (!Array.isArray(items)) return [];
@@ -176,7 +207,7 @@ function compactChatRuntimeFieldsForPersistence<T extends Partial<GroupChat>>(ch
       runtimeTimeline: takeRecentItems(chat.runtimeTimeline, CHAT_RUNTIME_PERSIST_LIMITS.runtimeTimeline),
     } : {}),
     ...(chat.runtimeEventsV2 !== undefined ? {
-      runtimeEventsV2: takeRecentItems(chat.runtimeEventsV2, CHAT_RUNTIME_PERSIST_LIMITS.runtimeEventsV2),
+      runtimeEventsV2: stripLargeInlineMediaForPersistence(takeRecentItems(chat.runtimeEventsV2, CHAT_RUNTIME_PERSIST_LIMITS.runtimeEventsV2)),
     } : {}),
     ...(chat.relationshipLedger !== undefined ? {
       relationshipLedger: takeRecentItems(chat.relationshipLedger, CHAT_RUNTIME_PERSIST_LIMITS.relationshipLedger),
@@ -276,13 +307,6 @@ function getChatStorageKey() {
 
 function getChatStoreStorageName() {
   return scopedStorageKey('chats');
-}
-
-function createChatStorage() {
-  return createScopedStorage({
-    getScopedKey: getChatStorageKey,
-    storageName: getChatStoreStorageName(),
-  });
 }
 
 function normalizeChats(items: GroupChat[]) {

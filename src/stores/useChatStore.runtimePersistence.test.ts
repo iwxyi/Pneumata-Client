@@ -159,4 +159,36 @@ describe('chat runtime persistence', () => {
     expect(persisted.chats[0].runtimeEventsV2).toHaveLength(limits.runtimeEventsV2);
     expect(persisted.chats[0].relationshipLedger).toHaveLength(limits.relationshipLedger);
   });
+
+  it('strips inline data url media from chat runtime persistence and cloud patches', async () => {
+    const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
+    const { buildPersistedChatState, compactChatPatchForCloud } = __chatRuntimePersistenceForTests;
+    const dataUrl = `data:image/png;base64,${'a'.repeat(6000)}`;
+    const event = runtimeEvent(1);
+    event.payload = {
+      artifactType: 'moment_text',
+      media: [{
+        url: dataUrl,
+        thumbnailUrl: dataUrl,
+        fullUrl: dataUrl,
+        dataUrl,
+        alt: '测试图片',
+      }],
+    };
+
+    const persisted = buildPersistedChatState({
+      chats: [chat({ runtimeEventsV2: [event] })],
+      currentChatId: 'chat-1',
+      lastSyncedAt: 1,
+      pendingOperations: [],
+    });
+    const cloudPatch = compactChatPatchForCloud({ runtimeEventsV2: [event] });
+
+    expect(JSON.stringify(persisted)).not.toContain('data:image/png;base64');
+    expect(JSON.stringify(cloudPatch)).not.toContain('data:image/png;base64');
+    expect(persisted.chats[0].runtimeEventsV2?.[0]?.payload).toMatchObject({
+      artifactType: 'moment_text',
+      media: [{ alt: '测试图片' }],
+    });
+  });
 });
