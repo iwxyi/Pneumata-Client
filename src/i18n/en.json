@@ -12,9 +12,11 @@
     "calendar": "Calendar",
     "moments": "Moments",
     "intro": "Intro",
-    "models": "Model Library",
+    "models": "Models",
     "account": "Account",
-    "settings": "Settings"
+    "settings": "Settings",
+    "localMode": "Local mode",
+    "signInSync": "Sign in & sync"
   },
   "home": {
     "title": "Welcome to Pneumata",

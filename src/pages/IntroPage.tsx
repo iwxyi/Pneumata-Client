@@ -409,7 +409,7 @@ function MockGroupChatSnapshot() {
       <GlassCard sx={{ p: { xs: 1.4, sm: 1.8 }, borderRadius: 2.5, overflow: 'hidden' }}>
         <Box ref={hostRef} sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.10)', bgcolor: 'rgba(10,10,15,0.75)', overflow: 'hidden' }}>
           <Box sx={{ px: { xs: 1.4, sm: 1.9 }, py: 1.2, borderBottom: '1px solid rgba(255,255,255,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: 'rgba(255,255,255,0.03)' }}>
-            <Typography sx={{ color: '#F8F8FA', fontWeight: 760, fontSize: { xs: 14, sm: 15 } }}>生息小屋</Typography>
+            <Typography sx={{ color: '#F8F8FA', fontWeight: 760, fontSize: { xs: 14, sm: 15 } }}>生息小屋（QQ群：571886312）</Typography>
             <Typography sx={{ color: 'rgba(255,255,255,0.46)', fontSize: 12 }}>群聊记录</Typography>
           </Box>
           <Box

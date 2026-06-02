@@ -9,6 +9,7 @@ import {
   Divider,
   Tooltip,
   Badge,
+  Avatar,
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import ChatIcon from '@mui/icons-material/Chat';
@@ -27,7 +28,9 @@ import { useTranslation } from 'react-i18next';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useUIStore } from '../../stores/useUIStore';
 import { useCharacterArtifactStore } from '../../stores/useCharacterArtifactStore';
+import { useAuthStore } from '../../stores/useAuthStore';
 import { motion, transition } from '../../styles/motion';
+import { isImageAvatar } from '../../utils/avatar';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -37,15 +40,14 @@ const navItems = [
   { path: '/', icon: <HomeIcon />, labelKey: 'nav.home' },
   { path: '/chats', icon: <ChatIcon />, labelKey: 'nav.chats' },
   { path: '/characters', icon: <PersonIcon />, labelKey: 'nav.characters' },
-  { path: '/models', icon: <ModelsIcon />, labelKey: 'nav.models' },
-  { path: '/letters', icon: <MailIcon />, labelKey: 'nav.letters' },
-  { path: '/calendar', icon: <CalendarIcon />, labelKey: 'nav.calendar' },
   { path: '/moments', icon: <MomentsIcon />, labelKey: 'nav.moments' },
-  { path: '/account', icon: <AccountIcon />, labelKey: 'nav.account' },
-  { path: '/settings', icon: <SettingsIcon />, labelKey: 'nav.settings' },
+  { path: '/calendar', icon: <CalendarIcon />, labelKey: 'nav.calendar' },
+  { path: '/letters', icon: <MailIcon />, labelKey: 'nav.letters' },
+  { path: '/models', icon: <ModelsIcon />, labelKey: 'nav.models' },
 ];
 
 const introNavItem = { path: '/intro', icon: <IntroIcon />, labelKey: 'nav.intro' };
+const settingsNavItem = { path: '/settings', icon: <SettingsIcon />, labelKey: 'nav.settings' };
 
 export default function Sidebar({ collapsed }: SidebarProps) {
   const navigate = useNavigate();
@@ -54,6 +56,12 @@ export default function Sidebar({ collapsed }: SidebarProps) {
   const { isDesktop } = useResponsive();
   const { toggleSidebar, setSidebarOpen } = useUIStore();
   const unreadLetterCount = useCharacterArtifactStore((state) => state.unreadLetterCount);
+  const user = useAuthStore((state) => state.user);
+  const authMode = useAuthStore((state) => state.authMode);
+  const isAccountActive = location.pathname.startsWith('/account');
+  const accountTitle = user?.nickname || (authMode === 'cloud' ? t('nav.account') : t('nav.localMode'));
+  const accountSubtitle = user?.phone || (authMode === 'cloud' ? t('nav.account') : t('nav.signInSync'));
+  const accountAvatar = user?.avatar;
 
   const handleNav = (path: string) => {
     navigate(path);
@@ -141,6 +149,108 @@ export default function Sidebar({ collapsed }: SidebarProps) {
     );
   };
 
+  const renderUtilityItem = (item: typeof introNavItem | typeof settingsNavItem) => {
+    const isActive = location.pathname.startsWith(item.path);
+    const button = (
+      <ListItemButton
+        key={item.path}
+        onClick={() => handleNav(item.path)}
+        sx={{
+          flex: 1,
+          minWidth: 0,
+          minHeight: collapsed ? 42 : 50,
+          borderRadius: 1,
+          px: collapsed ? 0.5 : 0.75,
+          py: 0.6,
+          display: 'flex',
+          flexDirection: collapsed ? 'row' : 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: collapsed ? 0 : 0.35,
+          color: isActive ? 'primary.main' : 'text.secondary',
+          border: '1px solid',
+          borderColor: isActive ? 'primary.main' : 'transparent',
+          bgcolor: isActive ? (theme) => `${theme.palette.primary.main}1A` : 'transparent',
+          transition: transition(['background-color', 'border-color', 'color', 'transform'], 220, motion.softOut),
+          '&:hover': {
+            transform: 'translateY(-1px)',
+            bgcolor: isActive ? (theme) => `${theme.palette.primary.main}1F` : 'rgba(148,163,184,0.08)',
+            borderColor: isActive ? 'primary.main' : 'rgba(148,163,184,0.14)',
+          },
+        }}
+      >
+        {item.icon}
+        {!collapsed ? (
+          <Typography variant="caption" noWrap sx={{ fontSize: 11, fontWeight: isActive ? 760 : 650, lineHeight: 1.1, letterSpacing: 0 }}>
+            {t(item.labelKey)}
+          </Typography>
+        ) : null}
+      </ListItemButton>
+    );
+    return (
+      <Tooltip key={item.path} title={t(item.labelKey)} placement={collapsed ? 'right' : 'top'}>
+        {button}
+      </Tooltip>
+    );
+  };
+
+  const accountButton = (
+    <ListItemButton
+      onClick={() => handleNav('/account')}
+      selected={isAccountActive}
+      sx={{
+        borderRadius: 1,
+        justifyContent: collapsed ? 'center' : 'flex-start',
+        gap: collapsed ? 0 : 1.15,
+        px: collapsed ? 0.75 : 1,
+        py: collapsed ? 0.75 : 0.95,
+        minHeight: collapsed ? 42 : 50,
+        minWidth: 0,
+        border: '1px solid',
+        borderColor: isAccountActive ? 'primary.main' : 'transparent',
+        bgcolor: isAccountActive ? (theme) => `${theme.palette.primary.main}1A` : 'transparent',
+        transition: transition(['background-color', 'border-color', 'transform'], 220, motion.softOut),
+        '&:hover': {
+          transform: collapsed ? 'none' : 'translateX(2px)',
+          bgcolor: isAccountActive ? (theme) => `${theme.palette.primary.main}1F` : 'rgba(148,163,184,0.08)',
+          borderColor: isAccountActive ? 'primary.main' : 'rgba(148,163,184,0.12)',
+        },
+        '&.Mui-selected': {
+          bgcolor: (theme) => `${theme.palette.primary.main}1A`,
+        },
+        '&.Mui-selected:hover': {
+          bgcolor: (theme) => `${theme.palette.primary.main}1F`,
+        },
+      }}
+    >
+      <Avatar
+        src={isImageAvatar(accountAvatar) ? accountAvatar : undefined}
+        sx={{
+          width: 36,
+          height: 36,
+          borderRadius: 1,
+          bgcolor: isAccountActive ? 'primary.main' : 'action.hover',
+          color: isAccountActive ? 'primary.contrastText' : 'text.secondary',
+          fontWeight: 820,
+          fontSize: 16,
+          flex: '0 0 auto',
+        }}
+      >
+        {isImageAvatar(accountAvatar) ? undefined : (accountAvatar?.trim().slice(0, 2) || accountTitle.trim().slice(0, 1) || <AccountIcon fontSize="small" />)}
+      </Avatar>
+      {!collapsed ? (
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="subtitle2" noWrap sx={{ fontWeight: 820, lineHeight: 1.12, letterSpacing: 0 }}>
+            {accountTitle}
+          </Typography>
+          <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', opacity: 0.78, mt: 0.25 }}>
+            {accountSubtitle}
+          </Typography>
+        </Box>
+      ) : null}
+    </ListItemButton>
+  );
+
   return (
     <Box
       sx={{
@@ -159,42 +269,18 @@ export default function Sidebar({ collapsed }: SidebarProps) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: collapsed ? 'center' : 'space-between',
+          flexDirection: collapsed ? 'column' : 'row',
           px: collapsed ? 1 : 1.4,
-          py: 1.4,
-          minHeight: 72,
-          gap: 1,
+          py: collapsed ? 1 : 1.2,
+          minHeight: collapsed ? 94 : 72,
+          gap: collapsed ? 0.7 : 1,
         }}
       >
-        {!collapsed && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.15, minWidth: 0 }}>
-            <Box
-              sx={{
-                width: 36,
-                height: 36,
-                borderRadius: 1,
-                display: 'grid',
-                placeItems: 'center',
-                flex: '0 0 auto',
-                color: 'primary.main',
-                border: '1px solid',
-                borderColor: 'primary.main',
-                bgcolor: (theme) => `${theme.palette.primary.main}16`,
-                fontWeight: 860,
-                fontSize: 17,
-              }}
-            >
-              P
-            </Box>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 840, lineHeight: 1.1, letterSpacing: 0 }}>
-                {t('app.name')}
-              </Typography>
-              <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', opacity: 0.76, mt: 0.25 }}>
-                Living character engine
-              </Typography>
-            </Box>
-          </Box>
-        )}
+        {collapsed ? (
+          <Tooltip title={`${accountTitle}${accountSubtitle ? ` · ${accountSubtitle}` : ''}`} placement="right">
+            {accountButton}
+          </Tooltip>
+        ) : accountButton}
         {!collapsed && (
           <IconButton size="small" onClick={toggleSidebar} sx={{ borderRadius: 2, color: 'text.secondary' }}>
             <CollapseIcon />
@@ -214,7 +300,34 @@ export default function Sidebar({ collapsed }: SidebarProps) {
       </List>
       <Box sx={{ px: collapsed ? 0.65 : 1.1, pb: 1.4 }}>
         <Divider sx={{ mb: 1, borderColor: 'rgba(148,163,184,0.14)' }} />
-        {renderNavItem(introNavItem)}
+        {collapsed ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            {renderUtilityItem(settingsNavItem)}
+          </Box>
+        ) : (
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'stretch',
+              justifyContent: 'center',
+              gap: 0.75,
+              position: 'relative',
+              '&::before': {
+                content: '""',
+                position: 'absolute',
+                top: 7,
+                bottom: 7,
+                left: '50%',
+                width: '1px',
+                bgcolor: 'rgba(148,163,184,0.16)',
+                transform: 'translateX(-0.5px)',
+              },
+            }}
+          >
+            {renderUtilityItem(settingsNavItem)}
+            {renderUtilityItem(introNavItem)}
+          </Box>
+        )}
       </Box>
     </Box>
   );

@@ -12,9 +12,11 @@
     "calendar": "日历",
     "moments": "朋友圈",
     "intro": "介绍",
-    "models": "模型库",
+    "models": "模型",
     "account": "账号",
-    "settings": "设置"
+    "settings": "设置",
+    "localMode": "本地模式",
+    "signInSync": "点击登录并同步"
   },
   "home": {
     "title": "欢迎来到 Pneumata",

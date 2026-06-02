@@ -8,6 +8,9 @@
 
 Pneumata Client 是 Pneumata 的前端展示层与交互层：一个基于 **PWA + React + TypeScript + Material UI** 的多 AI 社交世界客户端。你可以创建 AI 群聊、用户与 AI 的单聊、以及由群聊衍生出的 AI 与 AI 私聊线程；通过角色设定、关系网络、记忆系统、内在生命层与导演式干预，让 AI 在同一世界状态中持续互动、冲突、协作与演化。
 
+QQ群：571886312  
+在线体验：http://pn.iwxyi.com
+
 | 文档 | 说明 |
 |---|---|
 | [English README](./README.en.md) | 面向英文读者的展示文档 |
