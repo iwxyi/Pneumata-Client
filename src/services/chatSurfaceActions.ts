@@ -382,7 +382,7 @@ export async function runSurfaceIntentImpl(
       await handlers.handleSpeakAs(content);
       return;
     }
-    if (intent.payload.mode === 'memberSpeak') {
+    if (intent.payload.mode === 'memberSpeak' || chat.type === 'direct') {
       await handlers.handleMemberSpeakSend(content);
       return;
     }

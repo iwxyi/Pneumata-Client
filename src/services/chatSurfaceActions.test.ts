@@ -49,6 +49,16 @@ function buildChat() {
   });
 }
 
+function buildDirectChat() {
+  return normalizeConversation({
+    ...buildChat(),
+    id: 'direct-1',
+    type: 'direct',
+    name: 'direct-1',
+    memberIds: ['a'],
+  });
+}
+
 function buildContext(): ChatSurfaceActionContext {
   const chat = buildChat();
   return {
@@ -388,6 +398,26 @@ describe('chatSurfaceActions', () => {
     await runSurfaceIntentImpl(context, intent, { runSessionAction, handleGuideSend, handleMemberSpeakSend, handleSpeakAs });
     expect(handleGuideSend).toHaveBeenCalledWith('你好');
     expect(handleMemberSpeakSend).not.toHaveBeenCalled();
+    expect(handleSpeakAs).not.toHaveBeenCalled();
+    expect(runSessionAction).not.toHaveBeenCalled();
+  });
+
+  it('routes direct chat text to user sender even when legacy surface says guide', async () => {
+    const chat = buildDirectChat();
+    const context = { ...buildContext(), chat, chats: [chat] };
+    const runSessionAction = vi.fn(async () => undefined);
+    const handleGuideSend = vi.fn(async () => undefined);
+    const handleMemberSpeakSend = vi.fn(async () => undefined);
+    const handleSpeakAs = vi.fn(async () => undefined);
+    const intent = {
+      intent: {
+        type: 'message_intent',
+        payload: { content: '你在吗', mode: 'guide' },
+      },
+    } as SessionNormalizedIntentResult;
+    await runSurfaceIntentImpl(context, intent, { runSessionAction, handleGuideSend, handleMemberSpeakSend, handleSpeakAs });
+    expect(handleMemberSpeakSend).toHaveBeenCalledWith('你在吗');
+    expect(handleGuideSend).not.toHaveBeenCalled();
     expect(handleSpeakAs).not.toHaveBeenCalled();
     expect(runSessionAction).not.toHaveBeenCalled();
   });
