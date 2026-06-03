@@ -384,7 +384,7 @@ function mergeChats(localChats: GroupChat[], remoteChats: GroupChat[], pendingOp
 
   for (const remote of normalizeChats(remoteChats)) {
     const local = merged.get(remote.id);
-    if (!local || remote.updatedAt >= local.updatedAt) merged.set(remote.id, normalizeConversation(mergeChatRecord(local, remote)));
+    if (!local || remote.updatedAt > local.updatedAt) merged.set(remote.id, normalizeConversation(mergeChatRecord(local, remote)));
   }
 
   return sortChats(projectEntities(Array.from(merged.values()), pendingOperations));
