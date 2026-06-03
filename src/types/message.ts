@@ -133,6 +133,12 @@ export interface MessageMetadata {
       roleFit: 'limited' | 'ordinary' | 'capable';
       basis: string[];
     };
+    latestHumanTurn?: {
+      type: 'user' | 'god';
+      senderName?: string;
+      text: string;
+      aiTurnsSince: number;
+    };
     intentionalRepeat?: boolean;
     memoryContext?: {
       injectedIds?: string[];

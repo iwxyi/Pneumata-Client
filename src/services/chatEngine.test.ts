@@ -562,6 +562,40 @@ describe('chatEngine streaming preview', () => {
     expect(message.extraMessages ?? null).toBeNull();
   });
 
+  it('prioritizes the latest human turn as a generic behavior constraint', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '那我直接说安排：八点到，锅底和蘸料分开带，谁迟到谁洗碗。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const hui = buildCharacter('hui', '灰太狼');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat(),
+      speaker: mei,
+      characters: [mei, hui],
+      messages: [
+        buildUserMessage('你们换一种接法，别再只换开头继续同一个套路。', 1),
+        buildAiMessage('hui', '灰太狼', '那我也继续安排一下，八点羊肉火锅我来掌勺。', 2),
+      ],
+      apiConfig: buildProfiles(),
+    });
+
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+    expect(prompt).toContain('## Latest Human Turn Priority');
+    expect(prompt).toContain('你们换一种接法，别再只换开头继续同一个套路。');
+    expect(prompt).toContain('infer the job of that human input');
+    expect(prompt).toContain('do not replace one repeated surface habit with another repeated surface habit');
+    expect(message.metadata?.runtimeDecision?.latestHumanTurn).toMatchObject({
+      type: 'user',
+      text: '你们换一种接法，别再只换开头继续同一个套路。',
+      aiTurnsSince: 1,
+    });
+  });
+
   it('allows up to five visible bubbles and merges overflow into the final extra bubble', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
