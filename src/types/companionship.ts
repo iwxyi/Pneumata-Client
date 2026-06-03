@@ -287,6 +287,22 @@ export interface CompanionshipOnlineReturnEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipSharedSecretEventPayload {
+  eventType: 'companionship_shared_secret';
+  characterId: string;
+  userId?: string;
+  secretId: string;
+  action: 'recorded' | 'hinted_publicly' | 'leaked' | 'confessed' | 'revoked';
+  participantIds: string[];
+  privateText: string;
+  publicMask?: string;
+  reason?: string;
+  evidence?: string;
+  emotionalWeight?: number;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;

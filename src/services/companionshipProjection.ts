@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -1628,7 +1628,7 @@ export function buildUserCompanionshipProjection(params: {
     sharedAnchors,
     now,
   });
-  const sharedSecrets = buildSharedSecrets(character, now);
+  const sharedSecrets = buildSharedSecrets(character, now, chat);
   const intimateConflict = buildIntimateConflictState({
     chat,
     characterId: character.id,
@@ -1859,9 +1859,75 @@ function buildSecretPublicMask(anchor: SharedMemoryAnchor) {
   return '一个没有展开说的秘密';
 }
 
-export function buildSharedSecrets(character: AICharacter, now = 0): SharedSecret[] {
-  return buildSharedMemoryAnchors(character, now, undefined)
+function sharedSecretEventPayloadOf(event: RuntimeEventV2): CompanionshipSharedSecretEventPayload | null {
+  const payload = event.payload as Partial<CompanionshipSharedSecretEventPayload> | undefined;
+  if (!payload || payload.eventType !== 'companionship_shared_secret' || !payload.characterId || !payload.secretId || !payload.action || !payload.privateText || !Array.isArray(payload.participantIds)) return null;
+  return payload as CompanionshipSharedSecretEventPayload;
+}
+
+function secretLeakStateFromAction(action: CompanionshipSharedSecretEventPayload['action']): SharedSecret['leakState'] {
+  if (action === 'leaked') return 'leaked';
+  if (action === 'confessed') return 'confessed';
+  if (action === 'hinted_publicly') return 'hinted_publicly';
+  return 'sealed';
+}
+
+function secretKey(text: string) {
+  return compactText(text, 180).replace(/\s+/g, '').slice(0, 72);
+}
+
+function buildRuntimeEventSharedSecrets(chat: GroupChat | undefined, character: AICharacter, now: number) {
+  const activeById = new Map<string, SharedSecret>();
+  const revokedKeys = new Set<string>();
+  (chat?.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .slice()
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+    .forEach((event) => {
+      const payload = sharedSecretEventPayloadOf(event);
+      if (!payload || payload.characterId !== character.id) return;
+      const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 1;
+      if (confidence < 0.6) return;
+      const participantIds = Array.from(new Set(payload.participantIds.filter(Boolean))).slice(0, 6);
+      if (!participantIds.includes(character.id)) return;
+      const privateText = compactText(payload.privateText, 180);
+      const key = secretKey(privateText);
+      if (!privateText || !key) return;
+      if (payload.action === 'revoked') {
+        activeById.delete(payload.secretId);
+        revokedKeys.add(key);
+        return;
+      }
+      revokedKeys.delete(key);
+      activeById.set(payload.secretId, {
+        id: payload.secretId,
+        participantIds,
+        privateText,
+        publicMask: compactText(payload.publicMask || (participantIds.includes(USER_ACTOR_ID) ? '有一件只适合留在心里的事' : '一个没有展开说的秘密'), 80),
+        leakState: secretLeakStateFromAction(payload.action),
+        emotionalWeight: clampRelationshipScore(payload.emotionalWeight ?? 68),
+        sourceAnchorId: `runtime-${event.id}`,
+        sourceEventIds: [event.id],
+        updatedAt: event.createdAt || now,
+      });
+    });
+  return {
+    activeSecrets: Array.from(activeById.values()).sort((left, right) => (right.emotionalWeight + right.updatedAt / DAY_MS) - (left.emotionalWeight + left.updatedAt / DAY_MS)),
+    revokedKeys,
+  };
+}
+
+function isSecretSuppressedByRuntimeEvent(anchor: SharedMemoryAnchor, revokedKeys: Set<string>) {
+  const key = secretKey(`${anchor.text}\n${anchor.evidence || ''}`);
+  if (!key) return false;
+  return Array.from(revokedKeys).some((revoked) => key.includes(revoked) || revoked.includes(key));
+}
+
+export function buildSharedSecrets(character: AICharacter, now = 0, chat?: GroupChat): SharedSecret[] {
+  const runtimeState = buildRuntimeEventSharedSecrets(chat, character, now);
+  const anchorSecrets = buildSharedMemoryAnchors(character, now, chat)
     .filter((anchor) => anchor.kind === 'shared_secret')
+    .filter((anchor) => !isSecretSuppressedByRuntimeEvent(anchor, runtimeState.revokedKeys))
     .map((anchor): SharedSecret => ({
       id: `secret-${anchor.id}`,
       participantIds: anchor.participantIds,
@@ -1872,7 +1938,8 @@ export function buildSharedSecrets(character: AICharacter, now = 0): SharedSecre
       sourceAnchorId: anchor.id,
       sourceEventIds: anchor.sourceId ? [anchor.sourceId] : [],
       updatedAt: anchor.updatedAt || now,
-    }))
+    }));
+  return [...runtimeState.activeSecrets, ...anchorSecrets]
     .sort((a, b) => (b.emotionalWeight + b.updatedAt / DAY_MS) - (a.emotionalWeight + a.updatedAt / DAY_MS))
     .slice(0, 8);
 }
@@ -2117,7 +2184,7 @@ export function buildCompanionshipArtifactSeeds(params: {
   const members = buildCompanionshipDisplayMembers(character, relatedCharacters);
   const seeds: string[] = [];
   const isPublic = surface === 'public_moment';
-  const sharedSecrets = buildSharedSecrets(companionCharacter, now);
+  const sharedSecrets = buildSharedSecrets(companionCharacter, now, chat);
   const rituals = buildRitualRegistry({ character: companionCharacter, chat, messages, now });
 
   buildSharedMemoryAnchors(companionCharacter, now, chat)
@@ -2222,7 +2289,7 @@ export function buildCompanionshipRuntimeTrace(params: {
   const profile = bond.userProfile;
   const carePolicy = bond.carePolicy;
   const sharedAnchorLabels = getSharedAnchorLabels(params.character, params.now || Date.now(), params.chat);
-  const sharedSecretLabels = buildSharedSecrets(params.character, params.now || Date.now())
+  const sharedSecretLabels = buildSharedSecrets(params.character, params.now || Date.now(), params.chat)
     .filter((secret) => secret.participantIds.includes(USER_ACTOR_ID))
     .map((secret) => secret.publicMask)
     .slice(0, 3);

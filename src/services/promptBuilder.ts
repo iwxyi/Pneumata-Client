@@ -343,7 +343,7 @@ function buildTargetedResponseContext(chat: GroupChat, target: AICharacter | und
 }
 
 function buildSharedSecretPromptBlock(chat: GroupChat, character: AICharacter, target: AICharacter | undefined, characters: Map<string, AICharacter>) {
-  const secrets = buildSharedSecrets(character, chat.updatedAt || Date.now())
+  const secrets = buildSharedSecrets(character, chat.updatedAt || Date.now(), chat)
     .filter((secret) => secret.participantIds.includes(character.id))
     .slice(0, 4);
   if (!secrets.length) return '';
@@ -380,7 +380,7 @@ function buildSharedSecretPromptBlock(chat: GroupChat, character: AICharacter, t
 }
 
 function buildSharedSecretTraceLines(chat: GroupChat, character: AICharacter, target: AICharacter | undefined, characters: Map<string, AICharacter>) {
-  const secrets = buildSharedSecrets(character, chat.updatedAt || Date.now())
+  const secrets = buildSharedSecrets(character, chat.updatedAt || Date.now(), chat)
     .filter((secret) => secret.participantIds.includes(character.id))
     .slice(0, 4);
   if (!secrets.length) return [];

@@ -269,6 +269,36 @@ function promiseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
   };
 }
 
+function sharedSecretEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-shared-secret-1',
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt: 1_000,
+    actorIds: ['user', 'char-a'],
+    targetIds: ['char-a', 'user'],
+    summary: '苏苏记录了一个只适合私下保存的小秘密。',
+    visibility: 'pair_private',
+    eventClass: 'artifact',
+    payload: {
+      eventType: 'companionship_shared_secret',
+      characterId: 'char-a',
+      userId: 'user',
+      secretId: 'secret-user-codeword',
+      action: 'recorded',
+      participantIds: ['char-a', 'user'],
+      privateText: '用户只把那个暗号告诉过苏苏，不能告诉别人。',
+      publicMask: '有一件只适合留在心里的事',
+      reason: '用户明确说这是只告诉苏苏的暗号。',
+      evidence: '这是只有我们知道的暗号。',
+      emotionalWeight: 82,
+      confidence: 0.9,
+      decisionSource: 'model',
+    },
+    ...overrides,
+  };
+}
+
 function relationship(current: RelationshipLedgerEntry['current']): RelationshipLedgerEntry {
   return {
     pairKey: 'char-a->user',
@@ -2280,6 +2310,104 @@ describe('companionshipProjection', () => {
     });
     expect(secrets[0].emotionalWeight).toBeGreaterThan(70);
     expect(secrets.some((secret) => secret.leakState === 'leaked')).toBe(true);
+  });
+
+  it('reads shared secrets from runtime events and keeps public masks', () => {
+    const directChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [sharedSecretEvent()]);
+    const secrets = buildSharedSecrets(character(), 1_200, directChat);
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '这是只有我们知道的暗号。', timestamp: 900 })],
+      now: 1_200,
+    });
+
+    expect(secrets[0]).toMatchObject({
+      id: 'secret-user-codeword',
+      privateText: '用户只把那个暗号告诉过苏苏，不能告诉别人。',
+      publicMask: '有一件只适合留在心里的事',
+      leakState: 'sealed',
+      sourceAnchorId: 'runtime-evt-shared-secret-1',
+    });
+    expect(trace?.sharedSecrets.join('\n')).toContain('有一件只适合留在心里的事');
+    expect(trace?.sharedSecrets.join('\n')).not.toContain('暗号告诉过苏苏');
+  });
+
+  it('turns leaked shared secret runtime events into intimate conflict consequences', () => {
+    const directChat = chat('direct', [relationship({ warmth: 64, trust: 60, competence: 10, threat: 6 })], [
+      sharedSecretEvent({
+        id: 'evt-shared-secret-leaked',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_shared_secret',
+          characterId: 'char-a',
+          userId: 'user',
+          secretId: 'secret-user-codeword',
+          action: 'leaked',
+          participantIds: ['char-a', 'user'],
+          privateText: '用户只把那个暗号告诉过苏苏，结果被说漏了。',
+          publicMask: '有一件只适合留在心里的事',
+          evidence: '那个暗号被说漏了。',
+          emotionalWeight: 88,
+          confidence: 0.92,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '那个暗号被说漏了。', timestamp: 1_000 })],
+      now: 1_200,
+    });
+
+    expect(projection.userBond?.intimateConflict?.severity).toBeGreaterThan(0);
+    expect(projection.userBond?.intimateConflict?.evidence.join('\n')).toContain('秘密泄露后果');
+    expect(projection.promptLines.join('\n')).toContain('Current intimate conflict/repair state');
+  });
+
+  it('uses revoked shared secret events to suppress matching anchor secrets', () => {
+    const secretCharacter = character({
+      layeredMemories: [{
+        id: 'secret-user',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '共同秘密是用户只把那个暗号告诉过苏苏，不能告诉别人。',
+        evidenceText: '用户说这是只有我们知道的暗号。',
+        salience: 0.92,
+        confidence: 0.9,
+        recency: 0.8,
+        reinforcementCount: 2,
+        sourceEventIds: ['evt-secret-user'],
+        origin: 'distilled',
+        createdAt: 100,
+        updatedAt: 300,
+      }],
+    });
+    const directChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [
+      sharedSecretEvent({
+        id: 'evt-shared-secret-revoked',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_shared_secret',
+          characterId: 'char-a',
+          userId: 'user',
+          secretId: 'secret-user-codeword',
+          action: 'revoked',
+          participantIds: ['char-a', 'user'],
+          privateText: '用户只把那个暗号告诉过苏苏，不能告诉别人。',
+          evidence: '这个暗号以后别记了。',
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const secrets = buildSharedSecrets(secretCharacter, 1_200, directChat);
+
+    expect(secrets.map((secret) => secret.privateText).join('\n')).not.toContain('暗号告诉过苏苏');
   });
 
   it('projects ritual registry from addressing, dates, and shared anchors', () => {
