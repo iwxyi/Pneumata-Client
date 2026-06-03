@@ -240,6 +240,35 @@ function onlineReturnEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEven
   };
 }
 
+function promiseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-promise-1',
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt: 1_000,
+    actorIds: ['user', 'char-a'],
+    targetIds: ['char-a', 'user'],
+    summary: '苏苏记录了一个还没完成的约定。',
+    visibility: 'pair_private',
+    eventClass: 'artifact',
+    payload: {
+      eventType: 'companionship_promise',
+      characterId: 'char-a',
+      userId: 'user',
+      promiseId: 'promise-weekend-movie',
+      promiseText: '周末一起看那部电影',
+      action: 'opened',
+      participantIds: ['char-a', 'user'],
+      reason: '用户和苏苏说好周末一起看电影。',
+      evidence: '周末一起看那部电影吧。',
+      dueAt: 2_000,
+      confidence: 0.9,
+      decisionSource: 'model',
+    },
+    ...overrides,
+  };
+}
+
 function relationship(current: RelationshipLedgerEntry['current']): RelationshipLedgerEntry {
   return {
     pairKey: 'char-a->user',
@@ -1028,6 +1057,109 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).toContain('Pending promises/unfinished shared plans');
     expect(status?.debugLines.join('\n')).toContain('promises=');
     expect(trace?.pendingPromises.join('\n')).toContain('周末一起看');
+  });
+
+  it('reads pending promises from runtime events before fallback projections', () => {
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [promiseEvent()]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '今天先聊到这里。', timestamp: 900 })],
+      now: 1_200,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '今天先聊到这里。', timestamp: 900 })],
+      now: 1_200,
+    });
+
+    expect(projection.userBond?.pendingPromises[0]).toMatchObject({
+      id: 'promise-weekend-movie',
+      text: '周末一起看那部电影',
+      source: 'runtime_event',
+      status: 'open',
+      evidence: '周末一起看那部电影吧。',
+      dueAt: 2_000,
+    });
+    expect(projection.promptLines.join('\n')).toContain('周末一起看那部电影');
+    expect(trace?.pendingPromises.join('\n')).toContain('周末一起看那部电影');
+  });
+
+  it('uses closed promise events to suppress matching fallback promises', () => {
+    const promiseCharacter = character({
+      layeredMemories: [{
+        id: 'promise-anchor',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '说好周末一起看那部电影，用户还想等苏苏一起。',
+        evidenceText: '用户说：周末一起看那部电影吧。',
+        salience: 0.86,
+        confidence: 0.9,
+        recency: 0.8,
+        reinforcementCount: 1,
+        sourceEventIds: ['evt-promise-anchor'],
+        origin: 'distilled',
+        createdAt: 700,
+        updatedAt: 850,
+      }],
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说下次要告诉苏苏面试结果。'],
+      },
+    });
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
+      promiseEvent({
+        id: 'evt-promise-fulfilled-movie',
+        createdAt: 1_100,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-weekend-movie',
+          promiseText: '周末一起看那部电影',
+          action: 'fulfilled',
+          participantIds: ['char-a', 'user'],
+          evidence: '已经一起看完了。',
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+      promiseEvent({
+        id: 'evt-promise-revoked-interview',
+        createdAt: 1_120,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-interview-result',
+          promiseText: '告诉苏苏面试结果',
+          action: 'revoked',
+          participantIds: ['char-a', 'user'],
+          evidence: '这个不用再问了。',
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: promiseCharacter,
+      messages: [message({ content: '今天先聊到这里。', timestamp: 900 })],
+      now: 1_200,
+    });
+
+    const pendingText = projection.userBond?.pendingPromises.map((item) => item.text).join('\n') || '';
+    expect(pendingText).not.toContain('周末一起看');
+    expect(pendingText).not.toContain('告诉苏苏面试结果');
+    expect(projection.promptLines.join('\n')).not.toContain('Pending promises/unfinished shared plans');
   });
 
   it('projects intimate conflict state from model-led crisis phase events', () => {

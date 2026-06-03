@@ -60,8 +60,8 @@ export interface PendingPromise {
   id: string;
   text: string;
   participantIds: string[];
-  source: 'shared_anchor' | 'user_profile' | 'recent_message' | 'manual';
-  status: 'open' | 'fulfilled' | 'stale';
+  source: 'shared_anchor' | 'user_profile' | 'recent_message' | 'runtime_event' | 'manual';
+  status: 'open' | 'fulfilled' | 'stale' | 'blocked' | 'revoked';
   evidence?: string;
   dueAt?: number;
   updatedAt: number;
@@ -194,6 +194,21 @@ export interface CompanionshipCareTopicEventPayload {
   topicText: string;
   action: 'opened' | 'closed' | 'blocked' | 'stale';
   urgency: PendingCareTopic['urgency'];
+  reason?: string;
+  evidence?: string;
+  dueAt?: number;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
+export interface CompanionshipPromiseEventPayload {
+  eventType: 'companionship_promise';
+  characterId: string;
+  userId?: string;
+  promiseId: string;
+  promiseText: string;
+  action: 'opened' | 'fulfilled' | 'blocked' | 'stale' | 'revoked';
+  participantIds?: string[];
   reason?: string;
   evidence?: string;
   dueAt?: number;

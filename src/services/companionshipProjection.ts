@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -998,16 +998,74 @@ function promiseId(parts: Array<string | number | undefined>) {
   return hash.toString(36);
 }
 
+function promiseKey(text: string) {
+  return compactText(text, 160).replace(/\s+/g, '').slice(0, 64);
+}
+
+function promisePayloadOf(event: RuntimeEventV2): CompanionshipPromiseEventPayload | null {
+  const payload = event.payload as Partial<CompanionshipPromiseEventPayload> | undefined;
+  if (!payload || payload.eventType !== 'companionship_promise' || !payload.characterId || !payload.promiseId || !payload.promiseText || !payload.action) return null;
+  return payload as CompanionshipPromiseEventPayload;
+}
+
+function buildPromiseEventState(chat: GroupChat, characterId: string, now: number) {
+  const activeById = new Map<string, PendingPromise>();
+  const closedKeys = new Set<string>();
+  (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .slice()
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+    .forEach((event) => {
+      const payload = promisePayloadOf(event);
+      if (!payload || payload.characterId !== characterId || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return;
+      const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 1;
+      if (confidence < 0.6) return;
+      const text = compactText(payload.promiseText, 140);
+      const key = promiseKey(text);
+      if (!text || !key) return;
+      if (payload.action !== 'opened') {
+        activeById.delete(payload.promiseId);
+        closedKeys.add(key);
+        return;
+      }
+      closedKeys.delete(key);
+      activeById.set(payload.promiseId, {
+        id: payload.promiseId,
+        text,
+        participantIds: payload.participantIds?.length ? payload.participantIds : [characterId, USER_ACTOR_ID],
+        source: 'runtime_event',
+        status: 'open',
+        evidence: compactText(payload.evidence || payload.reason || event.summary, 120),
+        dueAt: payload.dueAt || dueAtFromPromiseText(text, event.createdAt || now),
+        updatedAt: event.createdAt || now,
+      });
+    });
+  return {
+    activePromises: Array.from(activeById.values()).sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0)),
+    closedKeys,
+  };
+}
+
+function isPromiseSuppressed(text: string, closedKeys: Set<string>) {
+  const key = promiseKey(text);
+  if (!key) return false;
+  if (closedKeys.has(key)) return true;
+  return Array.from(closedKeys).some((closed) => key.includes(closed) || closed.includes(key));
+}
+
 function buildPendingPromises(params: {
+  chat: GroupChat;
   characterId: string;
   profile: UserProfileMemoryProjection;
   messages: Message[];
   sharedAnchors: SharedMemoryAnchor[];
   now: number;
 }): PendingPromise[] {
-  const promises: PendingPromise[] = [];
+  const promiseEventState = buildPromiseEventState(params.chat, params.characterId, params.now);
+  const promises: PendingPromise[] = [...promiseEventState.activePromises];
   params.sharedAnchors
     .filter((anchor) => anchor.kind === 'promise' && !isPromiseFulfilledText(`${anchor.text}\n${anchor.evidence || ''}`))
+    .filter((anchor) => !isPromiseSuppressed(`${anchor.text}\n${anchor.evidence || ''}`, promiseEventState.closedKeys))
     .forEach((anchor) => {
       promises.push({
         id: `anchor-${anchor.id}`,
@@ -1023,6 +1081,7 @@ function buildPendingPromises(params: {
 
   params.profile.sourceTexts
     .filter((text) => isPromiseText(text) && !isPromiseFulfilledText(text))
+    .filter((text) => !isPromiseSuppressed(text, promiseEventState.closedKeys))
     .slice(-4)
     .forEach((text, index) => {
       promises.push({
@@ -1041,6 +1100,7 @@ function buildPendingPromises(params: {
     .filter(isUserMessage)
     .slice(-12)
     .filter((message) => isPromiseText(message.content) && !isPromiseFulfilledText(message.content))
+    .filter((message) => !isPromiseSuppressed(message.content, promiseEventState.closedKeys))
     .slice(-3)
     .forEach((message, index) => {
       promises.push({
@@ -1561,6 +1621,7 @@ export function buildUserCompanionshipProjection(params: {
   const contacts = getLatestContact(messages, character.id);
   const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now);
   const pendingPromises = buildPendingPromises({
+    chat,
     characterId: character.id,
     profile: userProfile,
     messages,
