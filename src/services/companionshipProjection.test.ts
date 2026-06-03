@@ -829,6 +829,89 @@ describe('companionshipProjection', () => {
     expect(projection.evidence.join('\n')).toContain('慢慢说开');
   });
 
+  it('turns leaked user shared secrets into intimate conflict consequences', () => {
+    const secretCharacter = character({
+      layeredMemories: [{
+        id: 'secret-leaked',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '共同秘密是用户只把暗号告诉过苏苏，但后来已经公开说漏了。',
+        evidenceText: '用户发现那个暗号传开了，觉得信任受损。',
+        salience: 0.92,
+        confidence: 0.91,
+        recency: 0.8,
+        reinforcementCount: 2,
+        sourceEventIds: ['evt-secret-leaked'],
+        origin: 'distilled',
+        createdAt: 700,
+        updatedAt: 900,
+      }],
+    });
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({
+        warmth: 54,
+        trust: 48,
+        competence: 10,
+        threat: 4,
+      })]),
+      character: secretCharacter,
+      messages: [message({ content: '那个暗号怎么会被别人知道？', timestamp: 920 })],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.intimateConflict).toMatchObject({
+      kind: 'accusation',
+      participantIds: ['char-a', 'user'],
+    });
+    expect(projection.userBond?.intimateConflict?.severity).toBeGreaterThan(70);
+    expect(projection.userBond?.intimateConflict?.evidence.join('\n')).toContain('秘密泄露后果');
+    expect(projection.promptLines.join('\n')).toContain('Current intimate conflict/repair state');
+  });
+
+  it('turns confessed user shared secrets into repair consequences', () => {
+    const secretCharacter = character({
+      layeredMemories: [{
+        id: 'secret-confessed',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '共同秘密是苏苏后来主动坦白并承认了那个只有他们知道的暗号。',
+        evidenceText: '苏苏说开了这件事，用户没有立刻原谅但愿意听。',
+        salience: 0.86,
+        confidence: 0.88,
+        recency: 0.7,
+        reinforcementCount: 1,
+        sourceEventIds: ['evt-secret-confessed'],
+        origin: 'distilled',
+        createdAt: 700,
+        updatedAt: 900,
+      }],
+    });
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({
+        warmth: 58,
+        trust: 46,
+        competence: 10,
+        threat: 8,
+      })]),
+      character: secretCharacter,
+      messages: [message({ content: '你愿意说开就好，但我还需要一点时间。', timestamp: 920 })],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.intimateConflict).toMatchObject({
+      kind: 'repair_attempt',
+      participantIds: ['char-a', 'user'],
+    });
+    expect(projection.userBond?.intimateConflict?.repairReadiness).toBeGreaterThan(45);
+    expect(projection.userBond?.intimateConflict?.evidence.join('\n')).toContain('秘密坦白后果');
+  });
+
   it('adapts care policy for anxious attachment cues without exposing labels in prompt', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({

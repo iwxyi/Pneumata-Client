@@ -776,6 +776,8 @@ function buildUnresolvedTensions(entry: RelationshipLedgerEntry | null) {
 function conflictKindFromTexts(texts: string[], phase: CompanionshipPhase): IntimateConflictKind {
   const joined = texts.join('\n');
   if (phase === 'reconciling') return /(和好|说开|原谅|修复完成|重新开始)/.test(joined) ? 'reconciliation' : 'repair_attempt';
+  if (/(秘密.*(公开|传开|泄露|说漏|被发现)|说漏.*秘密|泄露.*秘密)/.test(joined)) return 'accusation';
+  if (/(秘密.*(坦白|主动说出|承认了|说开了)|坦白.*秘密)/.test(joined)) return 'repair_attempt';
   if (/(冷战|先别聊|暂时不聊|不回复|不想说话)/.test(joined)) return 'cold_war';
   if (/(别理|不回应|不回消息|消失|拉黑)/.test(joined)) return 'silent_treatment';
   if (/(你总是|你从来|指责|质问|失望|别这样)/.test(joined)) return 'accusation';
@@ -802,35 +804,47 @@ function buildIntimateConflictState(params: {
   phaseEvent: ResolvedPhaseEvent | null;
   entry: RelationshipLedgerEntry | null;
   sharedAnchors: SharedMemoryAnchor[];
+  sharedSecrets: SharedSecret[];
   intimacy: IntimacyProjection;
   now: number;
 }): IntimateConflictState | undefined {
   const conflictAnchors = params.sharedAnchors.filter((anchor) => anchor.kind === 'conflict');
   const repairAnchors = params.sharedAnchors.filter((anchor) => anchor.kind === 'repair');
+  const leakedSecrets = params.sharedSecrets.filter((secret) => secret.participantIds.includes(USER_ACTOR_ID) && secret.leakState === 'leaked');
+  const confessedSecrets = params.sharedSecrets.filter((secret) => secret.participantIds.includes(USER_ACTOR_ID) && secret.leakState === 'confessed');
   const ledgerTexts = [
     params.entry?.derived?.semantic?.summary || '',
     ...(params.entry?.recentEvents || []).slice(-3).map((event) => event.summary),
   ].filter(Boolean);
   const phaseTexts = params.phaseEvent?.evidence || [];
   const anchorTexts = [...conflictAnchors, ...repairAnchors].map((anchor) => [anchor.title, anchor.text, anchor.evidence].filter(Boolean).join('：'));
-  const evidence = [...phaseTexts, ...anchorTexts, ...ledgerTexts].map((item) => compactText(item, 120)).filter(Boolean).slice(0, 5);
-  const hasActiveConflict = params.phase === 'crisis' || params.phase === 'cooling' || conflictAnchors.length > 0 || (params.entry?.current.threat || 0) >= 28 || ledgerTexts.some((text) => /(冲突|冷战|失望|受伤|不舒服|争吵|裂痕|防备|修复|和好|道歉|说开)/.test(text));
-  const hasRepair = params.phase === 'reconciling' || repairAnchors.length > 0 || ledgerTexts.some((text) => /(修复|和好|道歉|说开|原谅|台阶|缓和)/.test(text));
+  const secretTexts = [
+    ...leakedSecrets.map((secret) => `秘密泄露后果：${secret.publicMask}；需要处理被说漏、被发现或信任受损的余波。`),
+    ...confessedSecrets.map((secret) => `秘密坦白后果：${secret.publicMask}；需要处理主动说开后的修复和安全感。`),
+  ];
+  const evidence = [...phaseTexts, ...anchorTexts, ...secretTexts, ...ledgerTexts].map((item) => compactText(item, 120)).filter(Boolean).slice(0, 5);
+  const hasSecretLeak = leakedSecrets.length > 0;
+  const hasSecretConfession = confessedSecrets.length > 0;
+  const hasActiveConflict = params.phase === 'crisis' || params.phase === 'cooling' || conflictAnchors.length > 0 || hasSecretLeak || (params.entry?.current.threat || 0) >= 28 || ledgerTexts.some((text) => /(冲突|冷战|失望|受伤|不舒服|争吵|裂痕|防备|修复|和好|道歉|说开)/.test(text));
+  const hasRepair = params.phase === 'reconciling' || repairAnchors.length > 0 || hasSecretConfession || ledgerTexts.some((text) => /(修复|和好|道歉|说开|原谅|台阶|缓和)/.test(text));
   if (!hasActiveConflict && !hasRepair) return undefined;
   const kind = hasRepair && params.phase !== 'crisis'
     ? conflictKindFromTexts(['修复', ...evidence], params.phase === 'reconciling' ? 'reconciling' : params.phase)
     : conflictKindFromTexts(evidence, params.phase);
   const threat = params.entry?.current.threat || 0;
   const anchorSeverity = conflictAnchors.reduce((max, anchor) => Math.max(max, anchor.salience * anchor.confidence * 100), 0);
+  const secretSeverity = leakedSecrets.reduce((max, secret) => Math.max(max, secret.emotionalWeight), 0);
   const severity = clampScore(Math.max(
     params.phase === 'crisis' ? 76 : params.phase === 'cooling' ? 48 : 0,
     threat * 1.4,
     anchorSeverity,
+    secretSeverity,
     hasRepair ? 32 : 0,
   ));
   const repairReadiness = clampScore(
     (params.phase === 'reconciling' ? 42 : 0)
     + repairAnchors.length * 22
+    + confessedSecrets.length * 24
     + Math.max(0, params.intimacy.security - 24) * 0.65
     + (kind === 'reconciliation' ? 18 : 0)
     - (kind === 'silent_treatment' || kind === 'cold_war' ? 12 : 0),
@@ -846,11 +860,13 @@ function buildIntimateConflictState(params: {
       params.phaseEvent?.sourceEventId,
       ...conflictAnchors.map((anchor) => anchor.sourceId || anchor.id),
       ...repairAnchors.map((anchor) => anchor.sourceId || anchor.id),
+      ...[...leakedSecrets, ...confessedSecrets].flatMap((secret) => [secret.sourceAnchorId, ...secret.sourceEventIds]),
       ...(params.entry?.recentEvents || []).slice(-2).map((event) => event.id),
     ].filter(Boolean) as string[],
     updatedAt: Math.max(
       params.phaseEvent?.enteredAt || 0,
       ...[...conflictAnchors, ...repairAnchors].map((anchor) => anchor.updatedAt || 0),
+      ...[...leakedSecrets, ...confessedSecrets].map((secret) => secret.updatedAt || 0),
       params.entry?.lastUpdatedAt || 0,
       params.now,
     ),
@@ -1114,12 +1130,14 @@ export function buildUserCompanionshipProjection(params: {
     sharedAnchors,
     now,
   });
+  const sharedSecrets = buildSharedSecrets(character, now);
   const intimateConflict = buildIntimateConflictState({
     characterId: character.id,
     phase,
     phaseEvent,
     entry: ledger,
     sharedAnchors,
+    sharedSecrets,
     intimacy,
     now,
   });
