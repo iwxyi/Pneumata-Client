@@ -469,8 +469,8 @@ export function normalizeAIProfiles(aiProfiles?: AIModelProfile[], api?: APIConf
     return {
       ...DEFAULT_AI_PROFILE,
       ...profile,
-      id: index === 0 ? 'default' : (profile.id || `profile-${index + 1}`),
-      name: index === 0 ? (profile.name || 'Default') : (profile.name || `Model ${index + 1}`),
+      id: profile.id || (index === 0 ? 'default' : `profile-${index + 1}`),
+      name: profile.name || (index === 0 ? 'Default' : `Model ${index + 1}`),
       type,
       isDefault,
       imageCapabilities: type === 'image' ? normalizeImageCapabilities(profile.imageCapabilities) : undefined,

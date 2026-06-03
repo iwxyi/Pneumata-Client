@@ -257,7 +257,7 @@ export const useSettingsStore = create<SettingsStore>()(
         set((state) => {
           const nextApi = { ...state.api, ...config };
           const nextProfiles = [...state.aiProfiles];
-          nextProfiles[0] = { ...nextProfiles[0], ...nextApi, id: 'default' };
+          nextProfiles[0] = { ...nextProfiles[0], ...nextApi, id: nextProfiles[0].id || 'default' };
           const next = { ...(syncState({ ...state, api: nextApi, aiProfiles: nextProfiles }) as SettingsStore), lastSyncedAt: Date.now() };
           syncToServer(buildSettingsPayload(next), set);
           return next;
@@ -276,7 +276,7 @@ export const useSettingsStore = create<SettingsStore>()(
               return {
                 ...profile,
                 ...config,
-                id: index === 0 ? 'default' : profile.id,
+                id: profile.id,
                 type: nextType,
                 isDefault: shouldBecomeDefault ? true : (config.isDefault === false ? false : profile.isDefault),
               };
