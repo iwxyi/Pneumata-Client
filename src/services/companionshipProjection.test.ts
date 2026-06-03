@@ -720,6 +720,112 @@ describe('companionshipProjection', () => {
     expect(projection.evidence.join('\n')).toContain('慢慢说开');
   });
 
+  it('adapts care policy for anxious attachment cues without exposing labels in prompt', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({
+        warmth: 62,
+        trust: 58,
+        competence: 10,
+        threat: 4,
+      })]),
+      character: character(),
+      messages: [
+        message({ content: '你怎么不回我，是不是不想理我了？', timestamp: 800 }),
+        message({ content: '我只是想确认你还在。', timestamp: 900 }),
+      ],
+      now: 1_000,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({
+        warmth: 62,
+        trust: 58,
+        competence: 10,
+        threat: 4,
+      })]),
+      character: character(),
+      messages: [
+        message({ content: '你怎么不回我，是不是不想理我了？', timestamp: 800 }),
+        message({ content: '我只是想确认你还在。', timestamp: 900 }),
+      ],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.attachmentProfile.inferredStyle).toBe('anxious');
+    expect(projection.userBond?.carePolicy.silenceAnxietyThresholdHours).toBeLessThan(24);
+    expect(projection.promptLines.join('\n')).toContain('User attachment adaptation');
+    expect(projection.promptLines.join('\n')).not.toContain('anxious');
+    expect(trace?.attachmentProfile?.adaptations.join('\n')).toContain('reassurance');
+  });
+
+  it('adapts proactive care policy for avoidant attachment and user space cues', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({
+        warmth: 58,
+        trust: 52,
+        competence: 10,
+        threat: 4,
+      })]),
+      character: character({
+        memory: {
+          shortTermSummary: '',
+          longTerm: [],
+          secrets: [],
+          obsessions: [],
+          tabooTopics: [],
+          userMemories: ['用户说不想主动打扰，也不要追问。'],
+        },
+      }),
+      messages: [message({ content: '我需要一点空间，先别问了。', timestamp: 900 })],
+      now: 1_000,
+    });
+    const policy = buildCompanionshipCarePolicyForCharacter({
+      character: character({
+        memory: {
+          shortTermSummary: '',
+          longTerm: [],
+          secrets: [],
+          obsessions: [],
+          tabooTopics: [],
+          userMemories: ['用户说不想主动打扰，也不要追问。'],
+        },
+      }),
+      chat: chat('direct', [relationship({
+        warmth: 58,
+        trust: 52,
+        competence: 10,
+        threat: 4,
+      })]),
+      messages: [message({ content: '我需要一点空间，先别问了。', timestamp: 900 })],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.attachmentProfile.inferredStyle).toBe('avoidant');
+    expect(projection.userBond?.carePolicy.allowMissYou).toBe(false);
+    expect(policy.dailyInitiationBudget).toBe(0);
+    expect(policy.expressionIntensity).toBeLessThanOrEqual(28);
+  });
+
+  it('keeps mixed closeness and distance cues steady as disorganized attachment adaptation', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({
+        warmth: 62,
+        trust: 52,
+        competence: 10,
+        threat: 8,
+      })]),
+      character: character(),
+      messages: [
+        message({ content: '你怎么不回我，别不理我。', timestamp: 800 }),
+        message({ content: '算了，我又想要一点空间，先别追问。', timestamp: 900 }),
+      ],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.attachmentProfile.inferredStyle).toBe('disorganized');
+    expect(projection.userBond?.carePolicy.allowMissYou).toBe(false);
+    expect(projection.userBond?.attachmentProfile.adaptations.join('\n')).toContain('alternates closeness and distance');
+  });
+
   it('does not project intimate conflict state for ordinary warm direct chats', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({

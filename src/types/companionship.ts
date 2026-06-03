@@ -82,6 +82,13 @@ export interface CarePolicy {
   boundaryReasons: string[];
 }
 
+export interface UserAttachmentProfile {
+  inferredStyle: 'secure' | 'anxious' | 'avoidant' | 'disorganized';
+  confidence: number;
+  evidence: string[];
+  adaptations: string[];
+}
+
 export interface UserProfileMemoryProjection {
   userId: string;
   displayName?: string;
@@ -149,6 +156,7 @@ export interface UserBondState {
   intimateConflict?: IntimateConflictState;
   addressing: AddressingState;
   userProfile: UserProfileMemoryProjection;
+  attachmentProfile: UserAttachmentProfile;
   preferredIntimacyStyle: PreferredIntimacyStyle;
   carePolicy: CarePolicy;
 }
@@ -254,6 +262,7 @@ export interface CompanionshipRuntimeTrace {
   boundaries: string[];
   boundaryReasons: string[];
   carePolicy: Pick<CarePolicy, 'dailyInitiationBudget' | 'triggerSensitivity' | 'silenceAnxietyThresholdHours' | 'expressionIntensity' | 'allowGoodMorning' | 'allowGoodNight' | 'allowMissYou'>;
+  attachmentProfile?: UserAttachmentProfile;
   evidence: string[];
   intimacy: IntimacyProjection;
   userProfileConfidence: number;

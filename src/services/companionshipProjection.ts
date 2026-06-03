@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState } from '../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -251,6 +251,94 @@ function applyUserBoundariesToCarePolicy(policy: CarePolicy, profile: UserProfil
     ...next,
     boundaryReasons,
   };
+}
+
+function buildUserAttachmentProfile(params: {
+  messages: Message[];
+  profile: UserProfileMemoryProjection;
+  intimacy: IntimacyProjection;
+  now: number;
+}): UserAttachmentProfile {
+  const recentUserTexts = params.messages
+    .filter((item) => isUserMessage(item))
+    .slice(-18)
+    .map((item) => compactText(item.content, 140));
+  const allTexts = [...recentUserTexts, ...params.profile.sourceTexts].join('\n');
+  const evidence: string[] = [];
+  const anxiousScore = [
+    /(在不在|怎么不回|为什么不回|是不是不想理我|是不是不喜欢我|你会不会离开|别不理我|别消失|想确认)/,
+    /(需要|想要).{0,12}(确认|安全感|陪着|回应|回复)/,
+  ].reduce((score, pattern) => score + (pattern.test(allTexts) ? 2 : 0), 0)
+    + Math.min(3, recentUserTexts.filter((text) => /(在不在|回我|别不理|想你|陪我)/.test(text)).length);
+  const avoidantScore = [
+    /(别|不要|不想|不需要).{0,14}(主动|打扰|私聊|追问|关心|黏|暧昧|恋爱|情侣|对象)/,
+    /(给我|想要|需要).{0,10}(空间|距离|安静)/,
+    /(先别聊|少联系|不用回|别问了)/,
+  ].reduce((score, pattern) => score + (pattern.test(allTexts) ? 2 : 0), 0);
+  if (anxiousScore > 0) evidence.push(...recentUserTexts.filter((text) => /(在不在|怎么不回|别不理|安全感|陪我|想你|确认)/.test(text)).slice(-2));
+  if (avoidantScore > 0) evidence.push(...params.profile.boundaries.slice(0, 2), ...recentUserTexts.filter((text) => /(空间|距离|安静|别问|少联系|不用回|不要主动|别打扰)/.test(text)).slice(-2));
+  const mixed = anxiousScore >= 2 && avoidantScore >= 2;
+  const inferredStyle: UserAttachmentProfile['inferredStyle'] = mixed
+    ? 'disorganized'
+    : anxiousScore >= 2
+      ? 'anxious'
+      : avoidantScore >= 2
+        ? 'avoidant'
+        : 'secure';
+  const confidence = inferredStyle === 'secure'
+    ? clampScore(42 + Math.min(24, params.profile.confidence * 0.25) + (params.intimacy.security >= 48 ? 12 : 0))
+    : clampScore(48 + Math.max(anxiousScore, avoidantScore) * 10 + (mixed ? 10 : 0));
+  const adaptations: string[] = [];
+  if (inferredStyle === 'anxious') {
+    adaptations.push('give concrete reassurance without overpromising');
+    adaptations.push('respond to silence with warmth before intensity');
+  } else if (inferredStyle === 'avoidant') {
+    adaptations.push('respect space and avoid repeated follow-up');
+    adaptations.push('keep care low-pressure and easy to ignore');
+  } else if (inferredStyle === 'disorganized') {
+    adaptations.push('stay steady when the user alternates closeness and distance');
+    adaptations.push('avoid escalating intimacy after mixed signals');
+  } else {
+    adaptations.push('keep a steady reciprocal pace');
+  }
+  return {
+    inferredStyle,
+    confidence,
+    evidence: Array.from(new Set(evidence.filter(Boolean))).slice(0, 4),
+    adaptations,
+  };
+}
+
+function applyAttachmentToCarePolicy(policy: CarePolicy, attachment: UserAttachmentProfile): CarePolicy {
+  if (attachment.confidence < 58) return policy;
+  if (attachment.inferredStyle === 'anxious') {
+    return {
+      ...policy,
+      triggerSensitivity: Math.min(100, policy.triggerSensitivity + 8),
+      silenceAnxietyThresholdHours: Math.max(4, Math.round(policy.silenceAnxietyThresholdHours * 0.78)),
+      expressionIntensity: Math.min(100, policy.expressionIntensity + 6),
+    };
+  }
+  if (attachment.inferredStyle === 'avoidant') {
+    return {
+      ...policy,
+      dailyInitiationBudget: Math.min(policy.dailyInitiationBudget, 1),
+      triggerSensitivity: Math.min(policy.triggerSensitivity, 32),
+      silenceAnxietyThresholdHours: Math.max(policy.silenceAnxietyThresholdHours, 48),
+      expressionIntensity: Math.min(policy.expressionIntensity, 36),
+      allowMissYou: false,
+    };
+  }
+  if (attachment.inferredStyle === 'disorganized') {
+    return {
+      ...policy,
+      dailyInitiationBudget: Math.min(policy.dailyInitiationBudget, 1),
+      triggerSensitivity: Math.min(policy.triggerSensitivity, 42),
+      expressionIntensity: Math.min(policy.expressionIntensity, 44),
+      allowMissYou: false,
+    };
+  }
+  return policy;
 }
 
 function parseClockMinutes(value: string) {
@@ -781,6 +869,7 @@ export function buildCompanionshipStatusSignature(params: {
       `phase=${bond.phase} style=${bond.style}`,
       `address=${bond.addressing.currentAddress} confidence=${bond.userProfile.confidence}`,
       `intimacy attraction=${bond.intimacy.attraction} intimacy=${bond.intimacy.intimacy} longing=${bond.intimacy.longing} security=${bond.intimacy.security}`,
+      `attachment=${bond.attachmentProfile.inferredStyle} confidence=${bond.attachmentProfile.confidence}${bond.attachmentProfile.adaptations.length ? ` adaptations=${bond.attachmentProfile.adaptations.join(' / ')}` : ''}`,
       bond.intimateConflict ? `conflict=${bond.intimateConflict.kind} severity=${bond.intimateConflict.severity} repair=${bond.intimateConflict.repairReadiness} summary=${bond.intimateConflict.summary}` : '',
       bond.pendingCareTopics.length ? `care=${bond.pendingCareTopics.map((item) => item.text).join(' / ')}` : '',
       bond.userProfile.boundaries.length ? `boundaries=${bond.userProfile.boundaries.join(' / ')}` : '',
@@ -870,6 +959,7 @@ function buildPromptLines(bond: UserBondState, carePolicy: CarePolicy, evidence:
     sharedAnchors.length ? `- Shared memory anchors with the user: ${sharedAnchors.map(formatSharedAnchorForPrompt).join(' / ')}. Use as relationship texture only when relevant; do not expose internal labels.` : '',
     bond.pendingCareTopics.length ? `- Pending care topics: ${bond.pendingCareTopics.map((item) => item.text).join(' / ')}.` : '',
     bond.intimateConflict ? `- Current intimate conflict/repair state: ${bond.intimateConflict.summary} Repair readiness ${bond.intimateConflict.repairReadiness}; severity ${bond.intimateConflict.severity}. Use this only to choose restraint, accountability, apology, space, or gentle repair.` : '',
+    bond.attachmentProfile.confidence >= 58 ? `- User attachment adaptation: ${bond.attachmentProfile.adaptations.join(' / ')}. Do not label the user or mention attachment style.` : '',
     bond.unresolvedTensions.length ? `- Current restraint: ${bond.unresolvedTensions.join(' / ')}.` : '',
     `- Care policy: budget ${carePolicy.dailyInitiationBudget}/day, sensitivity ${carePolicy.triggerSensitivity}, expression ${carePolicy.expressionIntensity}, silence threshold ${carePolicy.silenceAnxietyThresholdHours}h.`,
     carePolicy.boundaryReasons.length ? `- Boundary restraints: ${carePolicy.boundaryReasons.join(' / ')}.` : '',
@@ -914,7 +1004,8 @@ export function buildUserCompanionshipProjection(params: {
   });
   const evidence = buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent);
   const preferredIntimacyStyle = inferPreferredStyle(character, intimacy);
-  const carePolicy = buildCarePolicy(phase, preferredIntimacyStyle, userProfile);
+  const attachmentProfile = buildUserAttachmentProfile({ messages, profile: userProfile, intimacy, now });
+  const carePolicy = applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredIntimacyStyle, userProfile), attachmentProfile);
   const bond: UserBondState = {
     userId: USER_ACTOR_ID,
     characterId: character.id,
@@ -933,6 +1024,7 @@ export function buildUserCompanionshipProjection(params: {
     intimateConflict,
     addressing: buildAddressing(userProfile, phase, now),
     userProfile,
+    attachmentProfile,
     preferredIntimacyStyle,
     carePolicy,
   };
@@ -1401,6 +1493,7 @@ export function buildCompanionshipRuntimeTrace(params: {
       allowGoodNight: carePolicy.allowGoodNight,
       allowMissYou: carePolicy.allowMissYou,
     },
+    attachmentProfile: bond.attachmentProfile,
     evidence: projection.evidence.slice(0, 5),
     intimacy: bond.intimacy,
     userProfileConfidence: profile.confidence,
@@ -1448,7 +1541,8 @@ export function buildCompanionshipCarePolicyForCharacter(params: {
     };
   const phase = params.phase || (params.chat ? resolveCompanionshipPhaseEvent(params.chat, character.id)?.phase || inferPhase(intimacy, ledger) : null) || 'curious';
   const preferredStyle = inferPreferredStyle(character, intimacy);
-  return buildCarePolicy(phase, preferredStyle, userProfile);
+  const attachmentProfile = buildUserAttachmentProfile({ messages, profile: userProfile, intimacy, now });
+  return applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredStyle, userProfile), attachmentProfile);
 }
 
 export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
