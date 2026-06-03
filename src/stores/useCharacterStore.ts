@@ -72,11 +72,12 @@ function applyLocalEmptyDeletedCharacters(characters: AICharacter[]) {
   return characters.filter((character) => character.deletedAt == null);
 }
 
-type CharacterCreatePayload = Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'> & { id?: string };
+type CharacterCreatePayload = Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'> & { id?: string; operationId?: string };
 
 async function createCharacterRemote(charData: CharacterCreatePayload) {
   const result = await api.createCharacter({
     id: charData.id,
+    operationId: charData.operationId,
     name: charData.name,
     avatar: charData.avatar,
     personality: charData.personality as unknown as Record<string, number>,
@@ -563,6 +564,7 @@ async function executeCharacterOperation(operation: PendingCharacterOperation) {
     return createCharacterRemote({
       ...(operation.patch as CharacterCreatePayload),
       id: operation.entityId,
+      operationId: operation.id,
     });
   }
   const character = useCharacterStore.getState().characters.find((item) => item.id === operation.entityId);

@@ -102,11 +102,12 @@ async function flushGuestChatsToCloud(addChatRemote: (chat: Omit<GroupChat, 'id'
   clearGuestChatUploadFlag();
 }
 
-type ChatCreatePayload = Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'> & { id?: string };
+type ChatCreatePayload = Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'> & { id?: string; operationId?: string };
 
 async function createChatRemote(chatData: ChatCreatePayload) {
   const result = await api.createChat({
     id: chatData.id,
+    operationId: chatData.operationId,
     type: chatData.type,
     mode: chatData.mode,
     modeConfig: chatData.modeConfig,
@@ -493,6 +494,7 @@ async function executeChatOperation(operation: PendingChatOperation) {
     return createChatRemote({
       ...(operation.patch as ChatCreatePayload),
       id: operation.entityId,
+      operationId: operation.id,
     });
   }
   return api.syncChatPatch(operation.entityId, {
