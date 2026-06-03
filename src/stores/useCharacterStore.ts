@@ -578,13 +578,6 @@ async function executeCharacterOperation(operation: PendingCharacterOperation) {
   });
 }
 
-async function applyCharacterRestore(ids: string[]) {
-  const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
-  if (!normalizedIds.length) return;
-  if (normalizedIds.length === 1) return api.restoreCharacter(normalizedIds[0]);
-  await api.bulkRestoreCharacters(normalizedIds);
-}
-
 async function applyCharacterPurge(ids: string[]) {
   const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
   if (!normalizedIds.length) return;
@@ -955,6 +948,7 @@ export const useCharacterStore = create<CharacterStore>()(
           const normalizedIds = Array.from(new Set([id].filter(Boolean)));
           if (!normalizedIds.length) return;
           enqueueFinalLettersForDeletion(get().characters, normalizedIds);
+          const deletedAt = Date.now();
           if (shouldSkipCloudSync()) {
             set((state) => {
               const characters = deleteCharactersLocally(state, normalizedIds);
@@ -963,15 +957,7 @@ export const useCharacterStore = create<CharacterStore>()(
             });
             return;
           }
-          await Promise.all(normalizedIds.map((characterId) => api.deleteCharacter(characterId)));
-          const projectedState = await reloadProjectedCharacterState(get().pendingOperations);
-          set({
-            characters: projectedState.visible,
-            lastSyncedAt: Date.now(),
-            pendingEditSyncCount: get().pendingOperations.length,
-            pendingEditSyncError: latestCharacterError(get().pendingOperations),
-          });
-          syncCharacterArtifacts(projectedState.visible);
+          await Promise.all(normalizedIds.map((characterId) => get().syncPatch(characterId, { deletedAt }, 'patch')));
         },
 
         deleteCharacters: async (ids) => {
@@ -986,19 +972,8 @@ export const useCharacterStore = create<CharacterStore>()(
             });
             return;
           }
-          if (normalizedIds.length === 1) {
-            await api.deleteCharacter(normalizedIds[0]);
-          } else {
-            await api.bulkDeleteCharacters(normalizedIds);
-          }
-          const projectedState = await reloadProjectedCharacterState(get().pendingOperations);
-          set({
-            characters: projectedState.visible,
-            lastSyncedAt: Date.now(),
-            pendingEditSyncCount: get().pendingOperations.length,
-            pendingEditSyncError: latestCharacterError(get().pendingOperations),
-          });
-          syncCharacterArtifacts(projectedState.visible);
+          const deletedAt = Date.now();
+          await Promise.all(normalizedIds.map((characterId) => get().syncPatch(characterId, { deletedAt }, 'patch')));
         },
 
         restoreCharacters: async (ids) => {
@@ -1012,15 +987,7 @@ export const useCharacterStore = create<CharacterStore>()(
             });
             return;
           }
-          await applyCharacterRestore(normalizedIds);
-          const projectedState = await reloadProjectedCharacterState(get().pendingOperations);
-          set({
-            characters: projectedState.visible,
-            lastSyncedAt: Date.now(),
-            pendingEditSyncCount: get().pendingOperations.length,
-            pendingEditSyncError: latestCharacterError(get().pendingOperations),
-          });
-          syncCharacterArtifacts(projectedState.visible);
+          await Promise.all(normalizedIds.map((characterId) => get().syncPatch(characterId, { deletedAt: null }, 'patch')));
         },
 
         purgeCharacters: async (ids) => {

@@ -504,13 +504,6 @@ async function executeChatOperation(operation: PendingChatOperation) {
   });
 }
 
-async function applyChatRestore(ids: string[]) {
-  const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
-  if (!normalizedIds.length) return;
-  if (normalizedIds.length === 1) return api.restoreChat(normalizedIds[0]);
-  await api.bulkRestoreChats(normalizedIds);
-}
-
 async function applyChatPurge(ids: string[]) {
   const normalizedIds = Array.from(new Set(ids.filter(Boolean)));
   if (!normalizedIds.length) return;
@@ -903,6 +896,7 @@ export const useChatStore = create<ChatStore>()(
 
         deleteChat: async (id) => {
           if (!id) return;
+          const deletedAt = Date.now();
           if (shouldSkipCloudSync()) {
             set((state) => ({
               chats: state.chats.map((chat) => chat.id === id ? applyLocalChatDelete(chat) : chat).filter((chat) => chat.deletedAt == null),
@@ -910,15 +904,8 @@ export const useChatStore = create<ChatStore>()(
             }));
             return;
           }
-          await api.deleteChat(id);
-          const projectedState = await reloadProjectedChatState(get().pendingOperations);
-          set((state) => ({
-            chats: projectedState.visible,
-            currentChatId: state.currentChatId === id ? null : state.currentChatId,
-            lastSyncedAt: Date.now(),
-            pendingEditSyncCount: get().pendingOperations.length,
-            pendingEditSyncError: latestChatError(get().pendingOperations),
-          }));
+          await get().syncPatch(id, { deletedAt, isActive: false }, 'patch');
+          set((state) => ({ currentChatId: state.currentChatId === id ? null : state.currentChatId }));
         },
 
         restoreChats: async (ids) => {
@@ -930,14 +917,7 @@ export const useChatStore = create<ChatStore>()(
             }));
             return;
           }
-          await applyChatRestore(normalizedIds);
-          const projectedState = await reloadProjectedChatState(get().pendingOperations);
-          set({
-            chats: projectedState.visible,
-            lastSyncedAt: Date.now(),
-            pendingEditSyncCount: get().pendingOperations.length,
-            pendingEditSyncError: latestChatError(get().pendingOperations),
-          });
+          await Promise.all(normalizedIds.map((chatId) => get().syncPatch(chatId, { deletedAt: null }, 'patch')));
         },
 
         purgeChats: async (ids) => {
