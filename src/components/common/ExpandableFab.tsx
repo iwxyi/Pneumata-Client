@@ -3,7 +3,7 @@ import type { SxProps, Theme } from '@mui/material/styles';
 import type { ReactNode } from 'react';
 import { motion, transition } from '../../styles/motion';
 
-const fabSpring = 'linear(0, 0.009 1%, 0.038 2.2%, 0.146 4.8%, 0.319 8%, 0.558 12.1%, 0.893 18%, 1.102 23.1%, 1.182 28.2%, 1.168 33.1%, 1.087 42.4%, 1.019 53.2%, 0.988 65.1%, 0.998 80.2%, 1)';
+const fabSpring = 'linear(0, 0.01 1%, 0.042 2.1%, 0.161 4.7%, 0.353 7.9%, 0.616 12%, 0.986 17.9%, 1.179 22.8%, 1.276 28.2%, 1.237 34.4%, 1.118 44.8%, 1.028 56.4%, 0.982 69.2%, 0.998 84%, 1)';
 const fabSettle = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 interface ExpandableFabProps {
@@ -31,7 +31,7 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
           zIndex: 1300,
           width: canHover ? 56 : expandedWidth,
           minWidth: canHover ? 56 : expandedWidth,
-          maxWidth: canHover ? expandedWidth + 12 : expandedWidth,
+          maxWidth: canHover ? expandedWidth + 20 : expandedWidth,
           height: 56,
           minHeight: 56,
           p: 0,
@@ -51,8 +51,8 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
             minWidth: expandedWidth,
             borderRadius: '999px',
             transition: [
-              transition(['width', 'min-width'], 760, fabSpring),
-              transition(['box-shadow'], 500, fabSpring),
+              transition(['width', 'min-width'], 820, fabSpring),
+              transition(['box-shadow'], 540, fabSpring),
             ].join(', '),
             boxShadow: (theme) => theme.palette.mode === 'light'
               ? '0 20px 42px rgba(15,23,42,0.22)'
