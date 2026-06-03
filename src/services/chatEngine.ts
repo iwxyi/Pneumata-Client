@@ -1060,12 +1060,14 @@ function buildRuntimeDecisionMetadata(params: {
     activeRuleTexts?: string[];
   } | null;
 }): MessageMetadata['runtimeDecision'] | undefined {
-  const memoryContext = params.memoryTrace && (params.memoryTrace.injectedIds.length || params.memoryTrace.recalledArchives.length || params.memoryTrace.targetActorId)
+  const sharedSecretGuards = params.memoryTrace?.sharedSecretGuards || [];
+  const memoryContext = params.memoryTrace && (params.memoryTrace.injectedIds.length || params.memoryTrace.recalledArchives.length || params.memoryTrace.targetActorId || sharedSecretGuards.length)
     ? {
       injectedIds: params.memoryTrace.injectedIds.slice(0, 18),
       targetActorId: params.memoryTrace.targetActorId,
       targetActorName: params.memoryTrace.targetActorName,
       targetReason: params.memoryTrace.targetReason,
+      sharedSecretGuards: sharedSecretGuards.slice(0, 4),
       recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
     }
     : undefined;

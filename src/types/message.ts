@@ -139,6 +139,7 @@ export interface MessageMetadata {
       targetActorId?: string;
       targetActorName?: string;
       targetReason?: string;
+      sharedSecretGuards?: string[];
       recalledArchives?: Array<{
         id: string;
         scope: string;

@@ -103,6 +103,29 @@ describe('messageRuntimeClues', () => {
     ]);
   });
 
+  it('projects shared-secret guards as memory debug clues', () => {
+    const sections = projectMessageRuntimeClues({
+      metadata: {
+        runtimeDecision: {
+          memoryContext: {
+            targetActorId: 'hui',
+            targetActorName: '灰太狼',
+            targetReason: '来自最近 AI 发言者',
+            injectedIds: [],
+            recalledArchives: [],
+            sharedSecretGuards: ['群聊避嫌：一个只有熟人懂的暗号 · sealed'],
+          },
+        },
+      },
+    }, [{ id: 'hui', name: '灰太狼' }]);
+
+    expect(sections.find((section) => section.key === 'memory')?.items).toEqual([
+      '召回对象：灰太狼',
+      '对象依据：来自最近 AI 发言者',
+      '秘密边界：群聊避嫌：一个只有熟人懂的暗号 · sealed',
+    ]);
+  });
+
   it('projects companionship runtime trace as developer-visible clues', () => {
     const sections = projectMessageRuntimeClues({
       metadata: {

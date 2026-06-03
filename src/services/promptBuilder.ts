@@ -9,7 +9,7 @@ import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 import { getExperienceLensLabel } from './experienceChangePresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import { getGuidanceMemoryTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
-import { buildCompanionshipPromptBlock } from './companionshipProjection';
+import { buildCompanionshipPromptBlock, buildSharedSecrets } from './companionshipProjection';
 
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
@@ -32,6 +32,7 @@ export interface PromptMemoryTraceItem {
 export interface PromptMemoryTrace {
   injectedIds: string[];
   recalledArchives: PromptMemoryTraceItem[];
+  sharedSecretGuards?: string[];
   targetActorId?: string;
   targetActorName?: string;
   targetReason?: string;
@@ -341,6 +342,63 @@ function buildTargetedResponseContext(chat: GroupChat, target: AICharacter | und
   return `${impact ? `\n## Targeted Response Lens\n- ${impact}` : ''}${roomPressure}`;
 }
 
+function buildSharedSecretPromptBlock(chat: GroupChat, character: AICharacter, target: AICharacter | undefined, characters: Map<string, AICharacter>) {
+  const secrets = buildSharedSecrets(character, chat.updatedAt || Date.now())
+    .filter((secret) => secret.participantIds.includes(character.id))
+    .slice(0, 4);
+  if (!secrets.length) return '';
+
+  const members = buildPromptDisplayMembers(character, characters);
+  if (chat.type === 'ai_direct' && target) {
+    const privateSecrets = secrets
+      .filter((secret) => secret.participantIds.includes(target.id))
+      .slice(0, 2);
+    if (!privateSecrets.length) return '';
+    return `\n## Pair-Private Shared Secrets\n${privateSecrets.map((secret) => `- With ${target.name}: ${cleanPromptText(secret.privateText, members, 180)}${secret.leakState !== 'sealed' ? ` (state: ${secret.leakState})` : ''}`).join('\n')}\n- This is a pair-private thread: you may use these as subtext or recall them directly if it feels natural, but do not turn them into exposition.`;
+  }
+
+  if (chat.type !== 'group') return '';
+  const visibleMemberIds = new Set(chat.memberIds || []);
+  const publicMasks = secrets
+    .filter((secret) => secret.participantIds.some((id) => visibleMemberIds.has(id)))
+    .map((secret) => {
+      const participantNames = secret.participantIds
+        .filter((id) => id !== character.id)
+        .map((id) => characters.get(id)?.name || cleanPromptText(id, members, 60))
+        .filter(Boolean)
+        .join('、');
+      const leak = secret.leakState === 'sealed'
+        ? 'sealed'
+        : secret.leakState === 'hinted_publicly'
+          ? 'already hinted'
+          : 'already exposed';
+      return `- ${participantNames ? `Around ${participantNames}: ` : ''}${cleanPromptText(secret.publicMask, members, 120)} (${leak}).`;
+    })
+    .slice(0, 3);
+  if (!publicMasks.length) return '';
+  return `\n## Public Shared-Secret Guard\n${publicMasks.join('\n')}\n- This is a public group room. Do not reveal privateText, exact evidence, or hidden details. Let the secret shape hesitation, glances, omissions, coded replies, topic changes, or protective deflection instead.`;
+}
+
+function buildSharedSecretTraceLines(chat: GroupChat, character: AICharacter, target: AICharacter | undefined, characters: Map<string, AICharacter>) {
+  const secrets = buildSharedSecrets(character, chat.updatedAt || Date.now())
+    .filter((secret) => secret.participantIds.includes(character.id))
+    .slice(0, 4);
+  if (!secrets.length) return [];
+  const members = buildPromptDisplayMembers(character, characters);
+  if (chat.type === 'ai_direct' && target) {
+    return secrets
+      .filter((secret) => secret.participantIds.includes(target.id))
+      .slice(0, 2)
+      .map((secret) => `AI私聊可召回：${target.name} · ${cleanPromptText(secret.publicMask, members, 120)} · ${secret.leakState}`);
+  }
+  if (chat.type !== 'group') return [];
+  const visibleMemberIds = new Set(chat.memberIds || []);
+  return secrets
+    .filter((secret) => secret.participantIds.some((id) => visibleMemberIds.has(id)))
+    .slice(0, 3)
+    .map((secret) => `群聊避嫌：${cleanPromptText(secret.publicMask, members, 120)} · ${secret.leakState}`);
+}
+
 function buildPromptTargetingContext(chat: GroupChat, target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, characters: Map<string, AICharacter>) {
   return `${buildTargetedResponseContext(chat, target, relationshipSnapshot, characters)}${buildTargetedReplyBiasPrompt(chat, target)}`;
 }
@@ -394,7 +452,7 @@ function buildMemoryPriorityPrompt(chat: GroupChat) {
 function buildPromptMemorySection(chat: GroupChat, character: AICharacter, conversationMemories: MemoryItem[], characterMemories: MemoryItem[], targetedCharacterMemories: MemoryItem[], target: AICharacter | undefined, relationshipSnapshot: AICharacter['relationships'][number] | null, characters: Map<string, AICharacter>) {
   const merged = buildMergedMemories([...targetedCharacterMemories, ...characterMemories, ...conversationMemories]);
   const members = buildPromptDisplayMembers(character, characters);
-  return `${buildManualMemorySeedPrompt(character, members)}${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories, members)}${buildPromptInfluenceContext(chat, character, target, relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, target, relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildPromptReasoningSummary(chat)}${buildMemoryPriorityPrompt(chat)}`;
+  return `${buildManualMemorySeedPrompt(character, members)}${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories, members)}${buildPromptInfluenceContext(chat, character, target, relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, target, relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildSharedSecretPromptBlock(chat, character, target, characters)}${buildPromptReasoningSummary(chat)}${buildMemoryPriorityPrompt(chat)}`;
 }
 
 function traceMemoryItem(item: MemoryItem, members: DisplayTextMember[]): PromptMemoryTraceItem {
@@ -410,7 +468,7 @@ function traceMemoryItem(item: MemoryItem, members: DisplayTextMember[]): Prompt
   };
 }
 
-function buildTraceFromPromptMemories(items: MemoryItem[], members: DisplayTextMember[], target?: { actorId: string; actorName: string; reason: string }): PromptMemoryTrace {
+function buildTraceFromPromptMemories(items: MemoryItem[], members: DisplayTextMember[], sharedSecretGuards: string[], target?: { actorId: string; actorName: string; reason: string }): PromptMemoryTrace {
   const merged = buildMergedMemories(items);
   return {
     injectedIds: merged.map((item) => item.id),
@@ -418,6 +476,7 @@ function buildTraceFromPromptMemories(items: MemoryItem[], members: DisplayTextM
       .filter((item) => item.archivedAt && item.recallReason)
       .map((item) => traceMemoryItem(item, members))
       .slice(0, 4),
+    sharedSecretGuards: sharedSecretGuards.slice(0, 4),
     targetActorId: target?.actorId,
     targetActorName: target?.actorName ? cleanPromptText(target.actorName, members, 80) : undefined,
     targetReason: target?.reason ? cleanPromptText(target.reason, members, 120) : undefined,
@@ -447,6 +506,7 @@ function resolvePromptMemoryContext(character: AICharacter, chat: GroupChat, mes
     trace: buildTraceFromPromptMemories(
       [...targetedCharacterMemories, ...characterMemories, ...conversationMemories],
       members,
+      buildSharedSecretTraceLines(chat, character, target, characters),
       target ? {
         actorId: target.id,
         actorName: target.name,
@@ -468,7 +528,7 @@ export function buildCrossModeMemoryPrompt(character: AICharacter, chat: GroupCh
     ...memoryContext.conversationMemories,
   ]);
   const members = buildPromptDisplayMembers(character, characters);
-  return `${buildManualMemorySeedPrompt(character, members)}${buildPromptMemoryBundle(chat, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, members)}${buildPromptInfluenceContext(chat, character, memoryContext.target, memoryContext.relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildMemoryPriorityPrompt(chat)}`;
+  return `${buildManualMemorySeedPrompt(character, members)}${buildPromptMemoryBundle(chat, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, members)}${buildPromptInfluenceContext(chat, character, memoryContext.target, memoryContext.relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildSharedSecretPromptBlock(chat, character, memoryContext.target, characters)}${buildMemoryPriorityPrompt(chat)}`;
 }
 
 function buildTopicSection(chat: GroupChat) {

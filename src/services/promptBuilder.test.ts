@@ -100,6 +100,15 @@ function buildDirectChat() {
   });
 }
 
+function buildAiDirectChat() {
+  return normalizeConversation({
+    ...buildChat(),
+    type: 'ai_direct',
+    name: '苏苏和阿远',
+    memberIds: ['char-a', 'char-b'],
+  });
+}
+
 function buildMessage(overrides: Partial<Message> = {}): Message {
   return {
     id: overrides.id || 'msg-1',
@@ -275,6 +284,68 @@ describe('buildSystemPromptWithContext', () => {
     ], new Map([[character.id, character]]));
 
     expect(prompt).not.toContain('## Companionship Context');
+  });
+
+  it('keeps shared secrets masked in public group prompts', () => {
+    const speaker = buildCharacter({
+      relationships: [{
+        characterId: 'char-b',
+        warmth: 72,
+        competence: 10,
+        trust: 86,
+        threat: 0,
+        note: '共同秘密是只有他们知道的暗号：雨夜便利店。',
+      }],
+    });
+    const target = buildCharacter({ id: 'char-b', name: '阿远' });
+    const chat = { ...buildChat(), memberIds: ['char-a', 'char-b'] };
+    const prompt = buildSystemPromptWithContext(speaker, chat, 0, [buildMessage()], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]));
+
+    expect(prompt).toContain('## Public Shared-Secret Guard');
+    expect(prompt).toContain('一个只有熟人懂的暗号');
+    expect(prompt).toContain('Do not reveal privateText');
+    expect(prompt).not.toContain('雨夜便利店');
+
+    const trace = buildPromptMemoryTrace(speaker, chat, [buildMessage()], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]));
+    expect(trace.sharedSecretGuards).toContain('群聊避嫌：一个只有熟人懂的暗号 · sealed');
+  });
+
+  it('allows pair-private shared secret recall in AI direct prompts', () => {
+    const speaker = buildCharacter({
+      relationships: [{
+        characterId: 'char-b',
+        warmth: 72,
+        competence: 10,
+        trust: 86,
+        threat: 0,
+        note: '共同秘密是只有他们知道的暗号：雨夜便利店。',
+      }],
+    });
+    const target = buildCharacter({ id: 'char-b', name: '阿远' });
+    const prompt = buildSystemPromptWithContext(speaker, buildAiDirectChat(), 0, [
+      buildMessage({ senderId: 'char-b', senderName: '阿远', content: '你刚刚在群里怎么突然岔开话题？' }),
+    ], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]));
+
+    expect(prompt).toContain('## Pair-Private Shared Secrets');
+    expect(prompt).toContain('雨夜便利店');
+    expect(prompt).toContain('you may use these as subtext or recall them directly');
+
+    const trace = buildPromptMemoryTrace(speaker, buildAiDirectChat(), [
+      buildMessage({ senderId: 'char-b', senderName: '阿远', content: '你刚刚在群里怎么突然岔开话题？' }),
+    ], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]));
+    expect(trace.sharedSecretGuards).toContain('AI私聊可召回：阿远 · 一个只有熟人懂的暗号 · sealed');
   });
 
   it('exposes archived memories that were actually injected into the prompt trace', () => {

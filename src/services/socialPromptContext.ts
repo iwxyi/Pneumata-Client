@@ -4,6 +4,20 @@ import type { Message } from '../types/message';
 import { getRelationshipBetween, getRelationshipWeight } from './relationshipEngine';
 import { retrieveRelevantMemories } from './memoryRetrieval';
 
+function compactSocialPromptText(text: string, max = 180) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return normalized.length > max ? `${normalized.slice(0, max)}...` : normalized;
+}
+
+function maskRelationshipNoteForPrompt(note: string) {
+  const normalized = compactSocialPromptText(note);
+  if (/(共同秘密|秘密|小秘密|只有.*知道|不能告诉|保密)/.test(normalized)) {
+    if (/(暗号|共同梗|玩笑)/.test(normalized)) return 'there is a private inside signal between you; do not spell it out in public';
+    return 'there is private interpersonal baggage here; let it shape omission, restraint, or subtext instead of stating details';
+  }
+  return normalized;
+}
+
 export function findRecentTarget(messages: Message[], characters: Map<string, AICharacter>, selfId: string) {
   const recent = messages.filter((msg) => !msg.isDeleted).slice(-4);
   for (let index = recent.length - 1; index >= 0; index -= 1) {
@@ -36,7 +50,7 @@ export function buildRelationshipPrompt(character: AICharacter, targetCharacter?
   const baggage: string[] = [];
   if (relation.threat >= 10) baggage.push('you may still carry vigilance, defensiveness, or unresolved conflict from earlier exchanges');
   if (relation.warmth >= 12 || relation.competence >= 12 || relation.trust >= 12) baggage.push('you may feel some loyalty, deference, or willingness to extend the benefit of the doubt');
-  if (relation.note?.trim()) baggage.push(`recent interpersonal baggage: ${relation.note}`);
+  if (relation.note?.trim()) baggage.push(`recent interpersonal baggage: ${maskRelationshipNoteForPrompt(relation.note)}`);
 
   return `\n## Social Appraisal\n- Current target: ${targetCharacter.name}\n- Dynamic stance: ${weight > 0.3 ? 'supportive / affiliative' : weight < -0.3 ? 'guarded / adversarial' : 'mixed / uncertain'}\n${cues.map((cue) => `- ${cue}`).join('\n')}\n${baggage.map((item) => `- ${item}`).join('\n')}`;
 }

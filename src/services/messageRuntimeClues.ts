@@ -67,8 +67,9 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
 
   const sections: MessageRuntimeClueSection[] = [];
   const recalled = decision.memoryContext?.recalledArchives || [];
+  const sharedSecretGuards = decision.memoryContext?.sharedSecretGuards || [];
   const memoryTargetName = formatMemoryTargetName(decision.memoryContext, members);
-  const hasInjectedMemory = Boolean(recalled.length);
+  const hasInjectedMemory = Boolean(recalled.length || sharedSecretGuards.length);
   pushSection(sections, {
     key: 'memory',
     label: '记忆',
@@ -85,6 +86,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       item.summary ? `旧档注入：${item.summary}` : '',
       item.recallReason ? `原因：${item.recallReason}` : '',
       ]),
+      ...sharedSecretGuards.map((item) => `秘密边界：${item}`),
     ],
     maxItems: 10,
   }, members);
