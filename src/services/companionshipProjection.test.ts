@@ -239,6 +239,89 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.unresolvedTensions.length).toBeGreaterThan(0);
   });
 
+  it('adjusts intimacy projection from shared repair anchors', () => {
+    const baseChat = chat('direct', [relationship({ warmth: 38, trust: 30, competence: 10, threat: 28 })]);
+    const baseProjection = buildUserCompanionshipProjection({
+      chat: baseChat,
+      character: character(),
+      messages: [message({ content: '那天说开以后，好像没那么僵了。', timestamp: 200 })],
+      now: 500,
+    });
+    const repairProjection = buildUserCompanionshipProjection({
+      chat: baseChat,
+      character: character({
+        layeredMemories: [{
+          id: 'repair-anchor',
+          scope: 'relationship',
+          layer: 'long_term',
+          kind: 'bond',
+          ownerId: 'char-a',
+          subjectIds: ['char-a', 'user'],
+          text: '第一次认真和好后，苏苏记住了用户没有离开。',
+          evidenceText: '用户主动递了台阶，两个人把误会说开了。',
+          salience: 0.9,
+          confidence: 0.9,
+          recency: 0.8,
+          reinforcementCount: 2,
+          sourceEventIds: ['evt-repair-anchor'],
+          origin: 'distilled',
+          createdAt: 100,
+          updatedAt: 300,
+        }],
+      }),
+      messages: [message({ content: '那天说开以后，好像没那么僵了。', timestamp: 200 })],
+      now: 500,
+    });
+
+    expect(repairProjection.userBond?.intimacy.security || 0).toBeGreaterThan(baseProjection.userBond?.intimacy.security || 0);
+    expect(repairProjection.userBond?.intimacy.intimacy || 0).toBeGreaterThan(baseProjection.userBond?.intimacy.intimacy || 0);
+  });
+
+  it('uses user boundaries to restrain romantic and exclusive intimacy projection', () => {
+    const warmLedger = [relationship({ warmth: 86, trust: 82, competence: 10, threat: 4 })];
+    const unrestricted = buildUserCompanionshipProjection({
+      chat: chat('direct', warmLedger),
+      character: character(),
+      messages: [message({ content: '今天也想和你聊一会。', timestamp: 200 })],
+      now: 500,
+    });
+    const restrained = buildUserCompanionshipProjection({
+      chat: chat('direct', warmLedger, [{
+        id: 'evt-profile-boundary',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 250,
+        actorIds: ['user'],
+        targetIds: ['char-a'],
+        evidenceMessageIds: ['m-1'],
+        summary: '苏苏记录了用户画像线索',
+        visibility: 'pair_private',
+        eventClass: 'artifact',
+        payload: {
+          eventType: 'companionship_user_profile_memory',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'upsert',
+          decisionSource: 'model',
+          items: [{
+            kind: 'boundary',
+            text: '用户只想当朋友，不希望恋爱暧昧或占有吃醋',
+            evidence: '只想当朋友，不要暧昧',
+            confidence: 0.9,
+            sensitive: true,
+          }],
+        },
+      }]),
+      character: character(),
+      messages: [message({ content: '今天也想和你聊一会。', timestamp: 200 })],
+      now: 500,
+    });
+
+    expect(restrained.userBond?.intimacy.attraction || 0).toBeLessThan(unrestricted.userBond?.intimacy.attraction || 0);
+    expect(restrained.userBond?.intimacy.exclusivity || 0).toBeLessThan(unrestricted.userBond?.intimacy.exclusivity || 0);
+    expect(restrained.userBond?.carePolicy.allowMissYou).toBe(false);
+  });
+
   it('extracts user profile boundaries and restrains romantic proactive care', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })]),

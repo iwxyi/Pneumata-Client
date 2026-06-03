@@ -98,6 +98,39 @@ function projectIntimacy(entry: RelationshipLedgerEntry | null, messages: Messag
   };
 }
 
+function adjustIntimacyProjection(params: {
+  base: IntimacyProjection;
+  sharedAnchors: SharedMemoryAnchor[];
+  profile: UserProfileMemoryProjection;
+  entry: RelationshipLedgerEntry | null;
+}): IntimacyProjection {
+  const anchorBoost = params.sharedAnchors.reduce((total, anchor) => {
+    const weight = anchor.kind === 'repair' || anchor.kind === 'confession' || anchor.kind === 'milestone' ? 1.2 : 1;
+    return total + anchor.salience * anchor.confidence * weight;
+  }, 0);
+  const hasRepairAnchor = params.sharedAnchors.some((anchor) => anchor.kind === 'repair');
+  const hasConflictAnchor = params.sharedAnchors.some((anchor) => anchor.kind === 'conflict');
+  const boundaryText = params.profile.boundaries.join('\n');
+  const blocksRomance = /不.*(恋爱|暧昧|情侣|对象|占有|吃醋)|只.*朋友/.test(boundaryText);
+  const blocksProactive = /(不要|不想|不希望|不需要|不愿|少).{0,8}(主动|打扰|私聊|提醒|追问|关心)/.test(boundaryText);
+  const repairMentions = [
+    params.entry?.derived?.semantic?.summary || '',
+    ...(params.entry?.recentEvents || []).map((event) => event.summary),
+  ].filter(Boolean).filter((text) => /(修复|和好|道歉|说开|原谅|台阶|缓和)/.test(text)).length;
+  const conflictMentions = [
+    params.entry?.derived?.semantic?.summary || '',
+    ...(params.entry?.recentEvents || []).map((event) => event.summary),
+  ].filter(Boolean).filter((text) => /(冲突|冷战|失望|受伤|不舒服|争吵|裂痕|防备)/.test(text)).length;
+  return {
+    attraction: clampScore(params.base.attraction + anchorBoost * 5 - (blocksRomance ? 24 : 0)),
+    intimacy: clampScore(params.base.intimacy + anchorBoost * 7 + repairMentions * 5 - (hasConflictAnchor ? 4 : 0)),
+    attachment: clampScore(params.base.attachment + anchorBoost * 8 + (hasRepairAnchor ? 6 : 0) - (blocksProactive ? 8 : 0)),
+    longing: clampScore(params.base.longing + anchorBoost * 4 - (blocksProactive ? 18 : 0)),
+    exclusivity: clampScore(params.base.exclusivity + (hasConflictAnchor ? 5 : 0) - (blocksRomance ? 22 : 0)),
+    security: clampScore(params.base.security + anchorBoost * 4 + repairMentions * 8 + (hasRepairAnchor ? 8 : 0) - conflictMentions * 8 - (hasConflictAnchor ? 6 : 0)),
+  };
+}
+
 function inferPhase(intimacy: IntimacyProjection, entry: RelationshipLedgerEntry | null): CompanionshipPhase {
   const stage = entry?.derived?.semantic?.stage || '';
   const labels = entry?.derived?.semantic?.labels || [];
@@ -261,15 +294,6 @@ function buildCarePolicy(phase: CompanionshipPhase, style: PreferredIntimacyStyl
     expressionIntensity: clampScore(base.expressionIntensity + styleBoost),
     quietHours: { start: '23:30', end: '08:00' },
   }, profile);
-}
-
-function readCompanionshipPhaseFromChat(chat: GroupChat | undefined, characterId: string, messages: Message[], now: number): CompanionshipPhase | null {
-  if (!chat) return null;
-  const ledger = getCharacterToUserLedger(chat, characterId);
-  const phaseEvent = resolveCompanionshipPhaseEvent(chat, characterId);
-  if (phaseEvent?.phase) return phaseEvent.phase;
-  if (!ledger) return null;
-  return inferPhase(projectIntimacy(ledger, messages, characterId, now), ledger);
 }
 
 function getUserMemoryTexts(character: AICharacter) {
@@ -711,15 +735,20 @@ export function buildUserCompanionshipProjection(params: {
   if (chat.type !== 'direct') return { userBond: null, evidence: [], promptLines: [] };
   const now = params.now || Date.now();
   const ledger = getCharacterToUserLedger(chat, character.id);
-  const intimacy = projectIntimacy(ledger, messages, character.id, now);
+  const userProfile = buildUserProfileProjection(chat, character, messages, now);
+  const sharedAnchors = buildUserSharedAnchors(character, now);
+  const intimacy = adjustIntimacyProjection({
+    base: projectIntimacy(ledger, messages, character.id, now),
+    sharedAnchors,
+    profile: userProfile,
+    entry: ledger,
+  });
   const phaseEvent = resolveCompanionshipPhaseEvent(chat, character.id);
   const inferredPhase = inferPhase(intimacy, ledger);
   const phase = phaseEvent?.phase || inferredPhase;
   const contacts = getLatestContact(messages, character.id);
-  const userProfile = buildUserProfileProjection(chat, character, messages, now);
   const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now);
   const evidence = buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent);
-  const sharedAnchors = buildUserSharedAnchors(character, now);
   const preferredIntimacyStyle = inferPreferredStyle(character, intimacy);
   const carePolicy = buildCarePolicy(phase, preferredIntimacyStyle, userProfile);
   const bond: UserBondState = {
@@ -1060,9 +1089,14 @@ export function buildCompanionshipCarePolicyForCharacter(params: {
   } as AICharacter;
   const profileChat = params.chat || ({ runtimeEventsV2: [] } as unknown as GroupChat);
   const userProfile = buildUserProfileProjection(profileChat, character, messages, now);
-  const phase = params.phase || readCompanionshipPhaseFromChat(params.chat, character.id, messages, now) || 'curious';
+  const ledger = params.chat ? getCharacterToUserLedger(params.chat, character.id) : null;
   const intimacy = params.chat
-    ? projectIntimacy(getCharacterToUserLedger(params.chat, character.id), messages, character.id, now)
+    ? adjustIntimacyProjection({
+      base: projectIntimacy(ledger, messages, character.id, now),
+      sharedAnchors: buildUserSharedAnchors(character, now),
+      profile: userProfile,
+      entry: ledger,
+    })
     : {
       attraction: 0,
       intimacy: 0,
@@ -1071,6 +1105,7 @@ export function buildCompanionshipCarePolicyForCharacter(params: {
       exclusivity: 0,
       security: 50,
     };
+  const phase = params.phase || (params.chat ? resolveCompanionshipPhaseEvent(params.chat, character.id)?.phase || inferPhase(intimacy, ledger) : null) || 'curious';
   const preferredStyle = inferPreferredStyle(character, intimacy);
   return buildCarePolicy(phase, preferredStyle, userProfile);
 }
