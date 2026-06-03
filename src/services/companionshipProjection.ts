@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload } from '../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -261,12 +261,81 @@ function applyUserBoundariesToCarePolicy(policy: CarePolicy, profile: UserProfil
   };
 }
 
+const ATTACHMENT_STYLES: UserAttachmentProfile['inferredStyle'][] = ['secure', 'anxious', 'avoidant', 'disorganized'];
+
+function isAttachmentStyle(value: unknown): value is UserAttachmentProfile['inferredStyle'] {
+  return typeof value === 'string' && ATTACHMENT_STYLES.includes(value as UserAttachmentProfile['inferredStyle']);
+}
+
+function normalizeEventConfidenceScore(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return 0;
+  return clampScore(value <= 1 ? value * 100 : value);
+}
+
+function attachmentProfileEventPayloadOf(event: RuntimeEventV2): CompanionshipAttachmentProfileEventPayload | null {
+  const payload = event.payload as Record<string, unknown> | undefined;
+  if (!payload || payload.eventType !== 'companionship_attachment_profile') return null;
+  const characterId = typeof payload.characterId === 'string' ? payload.characterId : '';
+  if (!characterId || !isAttachmentStyle(payload.inferredStyle)) return null;
+  const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 0;
+  const evidence = Array.isArray(payload.evidence)
+    ? payload.evidence.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => compactText(item, 120))
+    : undefined;
+  const adaptations = Array.isArray(payload.adaptations)
+    ? payload.adaptations.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => compactText(item, 120)).slice(0, 4)
+    : undefined;
+  return {
+    eventType: 'companionship_attachment_profile',
+    characterId,
+    userId: typeof payload.userId === 'string' ? payload.userId : undefined,
+    inferredStyle: payload.inferredStyle,
+    confidence,
+    evidence,
+    adaptations,
+    reason: typeof payload.reason === 'string' ? compactText(payload.reason, 140) : undefined,
+    decisionSource: payload.decisionSource === 'model' || payload.decisionSource === 'local_fallback' ? payload.decisionSource : undefined,
+  };
+}
+
+function resolveAttachmentProfileEvent(chat: GroupChat | undefined, characterId: string): UserAttachmentProfile | null {
+  const events = (chat?.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .slice()
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  for (const event of events) {
+    const payload = attachmentProfileEventPayloadOf(event);
+    if (!payload || payload.characterId !== characterId) continue;
+    const userId = payload.userId || USER_ACTOR_ID;
+    if (userId !== USER_ACTOR_ID) continue;
+    const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+    const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+    if (!actorMatches || !targetMatches) continue;
+    const fallbackAdaptations: Record<UserAttachmentProfile['inferredStyle'], string[]> = {
+      secure: ['keep a steady reciprocal pace'],
+      anxious: ['give concrete reassurance without overpromising', 'respond to silence with warmth before intensity'],
+      avoidant: ['respect space and avoid repeated follow-up', 'keep care low-pressure and easy to ignore'],
+      disorganized: ['stay steady when the user alternates closeness and distance', 'avoid escalating intimacy after mixed signals'],
+    };
+    return {
+      inferredStyle: payload.inferredStyle,
+      confidence: normalizeEventConfidenceScore(payload.confidence),
+      evidence: [payload.reason, ...(payload.evidence || [])].filter(Boolean).slice(0, 4) as string[],
+      adaptations: payload.adaptations?.length ? payload.adaptations : fallbackAdaptations[payload.inferredStyle],
+    };
+  }
+  return null;
+}
+
 function buildUserAttachmentProfile(params: {
+  chat?: GroupChat;
+  characterId: string;
   messages: Message[];
   profile: UserProfileMemoryProjection;
   intimacy: IntimacyProjection;
   now: number;
 }): UserAttachmentProfile {
+  const eventProfile = resolveAttachmentProfileEvent(params.chat, params.characterId);
+  if (eventProfile) return eventProfile;
   const recentUserTexts = params.messages
     .filter((item) => isUserMessage(item))
     .slice(-18)
@@ -1242,7 +1311,7 @@ export function buildUserCompanionshipProjection(params: {
   });
   const evidence = buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent);
   const preferredIntimacyStyle = inferPreferredStyle(character, intimacy);
-  const attachmentProfile = buildUserAttachmentProfile({ messages, profile: userProfile, intimacy, now });
+  const attachmentProfile = buildUserAttachmentProfile({ chat, characterId: character.id, messages, profile: userProfile, intimacy, now });
   const carePolicy = applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredIntimacyStyle, userProfile), attachmentProfile);
   const bond: UserBondState = {
     userId: USER_ACTOR_ID,
@@ -1917,7 +1986,7 @@ export function buildCompanionshipCarePolicyForCharacter(params: {
     };
   const phase = params.phase || (params.chat ? resolveCompanionshipPhaseEvent(params.chat, character.id)?.phase || inferPhase(intimacy, ledger) : null) || 'curious';
   const preferredStyle = inferPreferredStyle(character, intimacy);
-  const attachmentProfile = buildUserAttachmentProfile({ messages, profile: userProfile, intimacy, now });
+  const attachmentProfile = buildUserAttachmentProfile({ chat: params.chat, characterId: character.id, messages, profile: userProfile, intimacy, now });
   return applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredStyle, userProfile), attachmentProfile);
 }
 

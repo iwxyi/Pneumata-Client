@@ -230,6 +230,18 @@ export interface CompanionshipIntimateConflictEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipAttachmentProfileEventPayload {
+  eventType: 'companionship_attachment_profile';
+  characterId: string;
+  userId?: string;
+  inferredStyle: UserAttachmentProfile['inferredStyle'];
+  confidence: number;
+  evidence?: string[];
+  adaptations?: string[];
+  reason?: string;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;

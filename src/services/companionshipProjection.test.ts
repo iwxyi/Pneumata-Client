@@ -157,6 +157,31 @@ function intimateConflictEvent(overrides: Partial<RuntimeEventV2> = {}): Runtime
   };
 }
 
+function attachmentProfileEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-attachment-1',
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt: 1_000,
+    actorIds: ['user', 'char-a'],
+    targetIds: ['char-a', 'user'],
+    summary: '模型更新了用户依恋适配画像。',
+    visibility: 'pair_private',
+    eventClass: 'artifact',
+    payload: {
+      eventType: 'companionship_attachment_profile',
+      characterId: 'char-a',
+      userId: 'user',
+      inferredStyle: 'avoidant',
+      confidence: 0.88,
+      evidence: ['用户多次表示需要空间，不希望被追问。'],
+      adaptations: ['respect explicit space requests', 'keep follow-up lightweight'],
+      decisionSource: 'model',
+    },
+    ...overrides,
+  };
+}
+
 function relationship(current: RelationshipLedgerEntry['current']): RelationshipLedgerEntry {
   return {
     pairKey: 'char-a->user',
@@ -1152,6 +1177,70 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).toContain('User attachment adaptation');
     expect(projection.promptLines.join('\n')).not.toContain('anxious');
     expect(trace?.attachmentProfile?.adaptations.join('\n')).toContain('reassurance');
+  });
+
+  it('prioritizes model-led attachment profile events over local attachment inference', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 62,
+      trust: 58,
+      competence: 10,
+      threat: 4,
+    })], [attachmentProfileEvent()]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [
+        message({ content: '你怎么不回我，是不是不想理我了？', timestamp: 800 }),
+        message({ content: '我只是想确认你还在。', timestamp: 900 }),
+      ],
+      now: 1_100,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [
+        message({ content: '你怎么不回我，是不是不想理我了？', timestamp: 800 }),
+        message({ content: '我只是想确认你还在。', timestamp: 900 }),
+      ],
+      now: 1_100,
+    });
+
+    expect(projection.userBond?.attachmentProfile).toMatchObject({
+      inferredStyle: 'avoidant',
+      confidence: 88,
+      adaptations: ['respect explicit space requests', 'keep follow-up lightweight'],
+    });
+    expect(projection.userBond?.carePolicy.allowMissYou).toBe(false);
+    expect(projection.promptLines.join('\n')).toContain('User attachment adaptation');
+    expect(projection.promptLines.join('\n')).not.toContain('avoidant');
+    expect(trace?.attachmentProfile?.evidence.join('\n')).toContain('需要空间');
+  });
+
+  it('exposes fallback attachment profile events in companionship diagnostics', () => {
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({ warmth: 46, trust: 38, competence: 10, threat: 20 })], [
+        attachmentProfileEvent({
+          id: 'evt-attachment-fallback',
+          payload: {
+            eventType: 'companionship_attachment_profile',
+            characterId: 'char-a',
+            userId: 'user',
+            inferredStyle: 'anxious',
+            confidence: 0.54,
+            evidence: ['本地兜底检测到用户反复确认对方是否还在。'],
+            adaptations: ['give concise reassurance'],
+            decisionSource: 'local_fallback',
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [message({ content: '你是不是不想理我了？', timestamp: 900 })],
+      now: 1_000,
+    });
+
+    expect(trace?.diagnostics).toEqual(expect.arrayContaining([
+      'attachment_profile: source=local_fallback confidence=54% event=evt-attachment-fallback',
+    ]));
   });
 
   it('adapts proactive care policy for avoidant attachment and user space cues', () => {
