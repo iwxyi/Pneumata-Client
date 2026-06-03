@@ -23,6 +23,7 @@ import {
   Collapse,
   Tooltip,
   Alert,
+  CircularProgress,
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import EditIcon from '@mui/icons-material/Edit';
@@ -354,6 +355,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [coreProfileExpanded, setCoreProfileExpanded] = useState(false);
   const [visualIdentityExpanded, setVisualIdentityExpanded] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [generatingVisualDescription, setGeneratingVisualDescription] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const duplicateNameErrorText = i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists';
@@ -826,9 +828,9 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const isImageAvatar = isImageAvatarValue(avatar);
   const inlineError = saveError || generateError;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const normalizedName = name.trim();
-    if (!normalizedName || generating) return;
+    if (!normalizedName || generating || isSaving) return;
     const isSameAsInitial = initial?.name?.trim().toLowerCase() === normalizedName.toLowerCase();
     const duplicated = !isSameAsInitial && existingNames.some((item) => item.trim().toLowerCase() === normalizedName.toLowerCase());
     if (duplicated) {
@@ -845,40 +847,45 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       referenceImages: [],
       primaryReferenceImageId: visualIdentity.primaryReferenceImageId || normalizedVisualAssets.find((asset) => asset.isPrimary)?.id || null,
     };
-    onSave({
-      name: normalizedName,
-      avatar,
-      personality,
-      behavior,
-      expertise,
-      speakingStyle,
-      background,
-      visualIdentity: normalizedVisualIdentity,
-      speechProfile,
-      voiceConfig,
-      relationships: relationshipNotes,
-      group: normalizeCharacterGroup(group),
-      memory,
-      coreProfile: {
-        ...DEFAULT_CORE_PROFILE,
-        ...coreProfile,
-        valuePriority: coreProfile.valuePriority || [],
-        biases: coreProfile.biases || [],
-        values: coreProfile.values || coreProfile.valuePriority || [],
-        sensitivities: coreProfile.sensitivities || [],
-        perceptionBiases: coreProfile.perceptionBiases || coreProfile.biases || [],
-        interactionHabits: coreProfile.interactionHabits || [],
-        unmetNeeds: coreProfile.unmetNeeds || [],
-        hiddenSoftSpots: coreProfile.hiddenSoftSpots || [],
-      },
-      intervention,
-      modelProfileId: modelProfileIds.text || null,
-      modelProfileIds,
-      generationPreferences,
-      bubbleStyle: { ...bubbleStyle, id: bubbleStyleId || bubbleStyle.id || DEFAULT_AI_BUBBLE_STYLE_ID },
-      bubbleStyleId,
-      generatedByAI,
-    });
+    setIsSaving(true);
+    try {
+      await onSave({
+        name: normalizedName,
+        avatar,
+        personality,
+        behavior,
+        expertise,
+        speakingStyle,
+        background,
+        visualIdentity: normalizedVisualIdentity,
+        speechProfile,
+        voiceConfig,
+        relationships: relationshipNotes,
+        group: normalizeCharacterGroup(group),
+        memory,
+        coreProfile: {
+          ...DEFAULT_CORE_PROFILE,
+          ...coreProfile,
+          valuePriority: coreProfile.valuePriority || [],
+          biases: coreProfile.biases || [],
+          values: coreProfile.values || coreProfile.valuePriority || [],
+          sensitivities: coreProfile.sensitivities || [],
+          perceptionBiases: coreProfile.perceptionBiases || coreProfile.biases || [],
+          interactionHabits: coreProfile.interactionHabits || [],
+          unmetNeeds: coreProfile.unmetNeeds || [],
+          hiddenSoftSpots: coreProfile.hiddenSoftSpots || [],
+        },
+        intervention,
+        modelProfileId: modelProfileIds.text || null,
+        modelProfileIds,
+        generationPreferences,
+        bubbleStyle: { ...bubbleStyle, id: bubbleStyleId || bubbleStyle.id || DEFAULT_AI_BUBBLE_STYLE_ID },
+        bubbleStyleId,
+        generatedByAI,
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const renderTagEditor = (value: string[], onChange: (next: string[]) => void, placeholder: string) => (
@@ -1785,8 +1792,8 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
         onCustomStylesChange={settings.setCustomBubbleStyles}
       />
 
-      <Fab color="primary" variant="extended" onClick={handleSubmit} disabled={!name.trim() || generating} aria-label={t('character.save')} sx={{ position: 'fixed', right: { xs: 24, sm: 32, md: 36 }, bottom: { xs: 24, sm: 32, md: 36 }, zIndex: 1300, minHeight: 56, px: 2.25, gap: 1, borderRadius: 18, boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)', '&:hover': { boxShadow: '0 14px 32px rgba(0,0,0,0.26), 0 6px 12px rgba(0,0,0,0.18)', transform: 'translateY(-1px)' }, '&:active': { boxShadow: '0 6px 14px rgba(0,0,0,0.18)', transform: 'translateY(0)' }, transition: 'box-shadow 0.2s ease, transform 0.2s ease' }}>
-        <SaveIcon fontSize="small" />{t('character.save')}
+      <Fab color="primary" variant="extended" onClick={handleSubmit} disabled={!name.trim() || generating || isSaving} aria-label={t('character.save')} sx={{ position: 'fixed', right: { xs: 24, sm: 32, md: 36 }, bottom: { xs: 24, sm: 32, md: 36 }, zIndex: 1300, minHeight: 56, px: 2.25, gap: 1, borderRadius: 18, boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)', '&:hover': { boxShadow: '0 14px 32px rgba(0,0,0,0.26), 0 6px 12px rgba(0,0,0,0.18)', transform: 'translateY(-1px)' }, '&:active': { boxShadow: '0 6px 14px rgba(0,0,0,0.18)', transform: 'translateY(0)' }, transition: 'box-shadow 0.2s ease, transform 0.2s ease' }}>
+        {isSaving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon fontSize="small" />}{t('character.save')}
       </Fab>
     </Box>
   );
