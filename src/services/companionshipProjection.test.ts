@@ -931,6 +931,82 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.intimateConflict?.summary).toContain('误会已经说开');
   });
 
+  it('derives shared memory anchors from intimate conflict runtime events', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 34,
+      trust: 28,
+      competence: 10,
+      threat: 48,
+    })], [intimateConflictEvent({
+      id: 'evt-intimate-anchor',
+      createdAt: 1_200,
+      summary: '用户和苏苏把一次冷战慢慢说开。',
+      payload: {
+        eventType: 'companionship_intimate_conflict',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'resolved',
+        kind: 'reconciliation',
+        severity: 18,
+        repairReadiness: 88,
+        summary: '冷战后双方愿意重新接近。',
+        evidence: ['用户说：这次说开以后，就别再用沉默互相试探了。'],
+        participantIds: ['char-a', 'user'],
+        confidence: 0.9,
+        decisionSource: 'model',
+      },
+    })]);
+    const anchors = buildSharedMemoryAnchors(character(), 1_300, directChat);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '这次说开以后，就别再用沉默互相试探了。', timestamp: 1_190 })],
+      now: 1_300,
+    });
+
+    expect(anchors.find((anchor) => anchor.id === 'runtime-evt-intimate-anchor')).toMatchObject({
+      kind: 'repair',
+      source: 'runtime_event',
+      sourceId: 'evt-intimate-anchor',
+      participantIds: ['char-a', 'user'],
+    });
+    expect(anchors.find((anchor) => anchor.id === 'runtime-evt-intimate-anchor')?.evidence).toContain('沉默互相试探');
+    expect(projection.evidence.join('\n')).toContain('冷战后双方愿意重新接近');
+    expect(projection.promptLines.join('\n')).toContain('Shared memory anchors with the user');
+  });
+
+  it('allows companionship artifact seeds from runtime-event anchors even without existing character memories', () => {
+    const directChat = chat('direct', [], [intimateConflictEvent({
+      id: 'evt-runtime-seed-repair',
+      createdAt: 1_200,
+      summary: '用户和苏苏把一次误会说开。',
+      payload: {
+        eventType: 'companionship_intimate_conflict',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'resolved',
+        kind: 'reconciliation',
+        severity: 14,
+        repairReadiness: 82,
+        summary: '误会说开后，两个人都记住了别用沉默互相试探。',
+        evidence: ['用户说：以后不舒服就直接说。'],
+        participantIds: ['char-a', 'user'],
+        confidence: 0.88,
+        decisionSource: 'model',
+      },
+    })]);
+    const seeds = buildCompanionshipArtifactSeeds({
+      character: character(),
+      chat: directChat,
+      messages: [],
+      surface: 'private_diary',
+      now: 1_300,
+    });
+
+    expect(seeds.join('\n')).toContain('误会说开');
+    expect(seeds.join('\n')).toContain('日记');
+  });
+
   it('exposes low-confidence or fallback intimate conflict events in companionship diagnostics', () => {
     const trace = buildCompanionshipRuntimeTrace({
       chat: chat('direct', [relationship({ warmth: 46, trust: 38, competence: 10, threat: 20 })], [

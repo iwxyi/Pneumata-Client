@@ -251,7 +251,7 @@ export interface SharedMemoryAnchor {
   text: string;
   salience: number;
   confidence: number;
-  source: 'layered_memory' | 'relationship_note';
+  source: 'layered_memory' | 'relationship_note' | 'runtime_event';
   sourceId?: string;
   evidence?: string;
   createdAt: number;

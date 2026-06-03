@@ -48,6 +48,14 @@ function canProjectCompanionshipArtifacts(character: Partial<AICharacter>): char
   return Boolean(character.id && (character.layeredMemories?.length || character.relationships?.length || character.memory?.userMemories?.length));
 }
 
+function hasCompanionshipRuntimeEvents(chat: GroupChat | undefined, characterId: string | undefined) {
+  if (!chat || !characterId) return false;
+  return (chat.runtimeEventsV2 || []).some((event) => {
+    const payload = event.payload as Record<string, unknown> | undefined;
+    return Boolean(payload?.eventType && typeof payload.eventType === 'string' && payload.eventType.startsWith('companionship_') && payload.characterId === characterId);
+  });
+}
+
 function clampRelationshipScore(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -610,8 +618,8 @@ function buildPhaseEvidence(entry: RelationshipLedgerEntry | null, topics: Pendi
   return [...phaseEvidence, semantic, ...recent, ...topicEvidence].filter(Boolean).slice(0, 6) as string[];
 }
 
-function buildUserSharedAnchors(character: AICharacter, now: number) {
-  return buildSharedMemoryAnchors(character, now)
+function buildUserSharedAnchors(character: AICharacter, now: number, chat?: GroupChat) {
+  return buildSharedMemoryAnchors(character, now, chat)
     .filter((anchor) => anchor.participantIds.includes(USER_ACTOR_ID) || /用户/.test(anchor.text) || /用户/.test(anchor.evidence || ''))
     .slice(0, 3);
 }
@@ -620,8 +628,8 @@ function formatSharedAnchorForPrompt(anchor: SharedMemoryAnchor) {
   return `${anchor.title}: ${compactText(anchor.text, 96)}`;
 }
 
-function getSharedAnchorLabels(character: AICharacter, now: number) {
-  return buildUserSharedAnchors(character, now).map(formatSharedAnchorForPrompt);
+function getSharedAnchorLabels(character: AICharacter, now: number, chat?: GroupChat) {
+  return buildUserSharedAnchors(character, now, chat).map(formatSharedAnchorForPrompt);
 }
 
 function buildCompanionshipDiagnostics(chat: GroupChat, characterId: string) {
@@ -1074,7 +1082,7 @@ export function buildCompanionshipStatusSignature(params: {
   const projection = buildUserCompanionshipProjection({ ...params, now });
   const bond = projection.userBond;
   if (!bond) return null;
-  const sharedAnchorLabels = getSharedAnchorLabels(params.character, now);
+  const sharedAnchorLabels = getSharedAnchorLabels(params.character, now, params.chat);
   const carePolicy = bond.carePolicy;
   const offlineTrace = buildOfflineTrace(bond, carePolicy, now);
   const unsentDraft = buildUnsentDraft(bond, carePolicy, now);
@@ -1201,7 +1209,7 @@ export function buildUserCompanionshipProjection(params: {
   const now = params.now || Date.now();
   const ledger = getCharacterToUserLedger(chat, character.id);
   const userProfile = buildUserProfileProjection(chat, character, messages, now);
-  const sharedAnchors = buildUserSharedAnchors(character, now);
+  const sharedAnchors = buildUserSharedAnchors(character, now, chat);
   const intimacy = adjustIntimacyProjection({
     base: projectIntimacy(ledger, messages, character.id, now),
     sharedAnchors,
@@ -1340,7 +1348,42 @@ function splitRelationshipNoteAnchorTexts(note: string) {
     .filter((item) => item.length >= 4);
 }
 
-export function buildSharedMemoryAnchors(character: AICharacter, now = 0): SharedMemoryAnchor[] {
+function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: AICharacter, now: number): SharedMemoryAnchor[] {
+  return (chat?.runtimeEventsV2 || [])
+    .map((event): SharedMemoryAnchor | null => {
+      const payload = intimateConflictEventPayloadOf(event);
+      if (!payload || payload.characterId !== character.id) return null;
+      const userId = payload.userId || USER_ACTOR_ID;
+      if (userId !== USER_ACTOR_ID) return null;
+      const participantIds = payload.participantIds?.length ? payload.participantIds : [character.id, USER_ACTOR_ID];
+      if (!participantIds.includes(character.id) || !participantIds.includes(USER_ACTOR_ID)) return null;
+      const isRepair = payload.action === 'repair_attempted' || payload.action === 'resolved' || payload.kind === 'repair_attempt' || payload.kind === 'reconciliation';
+      const kind: SharedMemoryAnchor['kind'] = isRepair ? 'repair' : 'conflict';
+      const evidence = [event.summary, ...(payload.evidence || [])].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 3).join(' / ');
+      const fallbackText = isRepair
+        ? '一次亲密冲突后的修复尝试，需要记住双方愿意重新说开的痕迹。'
+        : '一次亲密关系里的冲突或误会，需要记住具体伤点和克制边界。';
+      const severity = clampRelationshipScore(payload.severity ?? (isRepair ? 42 : 58));
+      const repair = clampRelationshipScore(payload.repairReadiness ?? (isRepair ? 64 : 18));
+      return {
+        id: `runtime-${event.id}`,
+        kind,
+        participantIds,
+        title: formatSharedAnchorTitle(kind),
+        text: compactText(payload.summary || event.summary || fallbackText, 180),
+        salience: clampRelationshipScore(isRepair ? 44 + repair * 0.42 : 50 + severity * 0.44),
+        confidence: clampRelationshipScore((payload.confidence ?? 0.72) * 100),
+        source: 'runtime_event',
+        sourceId: event.id,
+        evidence,
+        createdAt: event.createdAt || now,
+        updatedAt: event.createdAt || now,
+      };
+    })
+    .filter((item): item is SharedMemoryAnchor => Boolean(item));
+}
+
+export function buildSharedMemoryAnchors(character: AICharacter, now = 0, chat?: GroupChat): SharedMemoryAnchor[] {
   const layeredAnchors = (character.layeredMemories || [])
     .filter((item) => isMemoryAnchorCandidate(item))
     .map((item): SharedMemoryAnchor | null => {
@@ -1390,7 +1433,9 @@ export function buildSharedMemoryAnchors(character: AICharacter, now = 0): Share
   });
 
   const seen = new Set<string>();
-  return [...layeredAnchors, ...relationshipAnchors]
+  const runtimeEventAnchors = buildRuntimeEventSharedAnchors(chat, character, now);
+
+  return [...layeredAnchors, ...relationshipAnchors, ...runtimeEventAnchors]
     .filter((anchor) => {
       const key = `${anchor.kind}:${anchor.participantIds.slice().sort().join(',')}:${anchor.text.replace(/\s+/g, '').slice(0, 48)}`;
       if (seen.has(key)) return false;
@@ -1415,7 +1460,7 @@ function buildSecretPublicMask(anchor: SharedMemoryAnchor) {
 }
 
 export function buildSharedSecrets(character: AICharacter, now = 0): SharedSecret[] {
-  return buildSharedMemoryAnchors(character, now)
+  return buildSharedMemoryAnchors(character, now, undefined)
     .filter((anchor) => anchor.kind === 'shared_secret')
     .map((anchor): SharedSecret => ({
       id: `secret-${anchor.id}`,
@@ -1598,7 +1643,7 @@ export function buildRitualRegistry(params: {
       updatedAt: now,
     });
   });
-  buildSharedMemoryAnchors(params.character, now)
+  buildSharedMemoryAnchors(params.character, now, params.chat)
     .map(ritualFromAnchor)
     .filter((item): item is RitualRegistryEntry => Boolean(item))
     .forEach((ritual) => rituals.push(ritual));
@@ -1666,14 +1711,16 @@ export function buildCompanionshipArtifactSeeds(params: {
     max = surface === 'public_moment' ? 4 : 6,
     now = character.updatedAt || character.createdAt || Date.now(),
   } = params;
-  if (!canProjectCompanionshipArtifacts(character)) return [];
+  if (!character.id) return [];
+  if (!canProjectCompanionshipArtifacts(character) && !hasCompanionshipRuntimeEvents(chat, character.id)) return [];
+  const companionCharacter = character as AICharacter;
   const members = buildCompanionshipDisplayMembers(character, relatedCharacters);
   const seeds: string[] = [];
   const isPublic = surface === 'public_moment';
-  const sharedSecrets = buildSharedSecrets(character as AICharacter, now);
-  const rituals = buildRitualRegistry({ character: character as AICharacter, chat, messages, now });
+  const sharedSecrets = buildSharedSecrets(companionCharacter, now);
+  const rituals = buildRitualRegistry({ character: companionCharacter, chat, messages, now });
 
-  buildSharedMemoryAnchors(character, now)
+  buildSharedMemoryAnchors(companionCharacter, now, chat)
     .slice(0, isPublic ? 3 : 4)
     .forEach((anchor) => {
       if (anchor.kind === 'shared_secret') return;
@@ -1723,7 +1770,7 @@ export function buildCompanionshipArtifactSeeds(params: {
     seeds.push(`关系仪式可以作为日记里的生活感材料：${text}。`);
   });
 
-  buildCharacterCompanionshipStates(character, now)
+  buildCharacterCompanionshipStates(companionCharacter, now)
     .slice(0, isPublic ? 2 : 3)
     .forEach((state) => {
       const targetName = resolveCompanionshipActorName(state.targetId, relatedCharacters);
@@ -1774,7 +1821,7 @@ export function buildCompanionshipRuntimeTrace(params: {
   if (!bond) return null;
   const profile = bond.userProfile;
   const carePolicy = bond.carePolicy;
-  const sharedAnchorLabels = getSharedAnchorLabels(params.character, params.now || Date.now());
+  const sharedAnchorLabels = getSharedAnchorLabels(params.character, params.now || Date.now(), params.chat);
   const sharedSecretLabels = buildSharedSecrets(params.character, params.now || Date.now())
     .filter((secret) => secret.participantIds.includes(USER_ACTOR_ID))
     .map((secret) => secret.publicMask)
@@ -1856,7 +1903,7 @@ export function buildCompanionshipCarePolicyForCharacter(params: {
   const intimacy = params.chat
     ? adjustIntimacyProjection({
       base: projectIntimacy(ledger, messages, character.id, now),
-      sharedAnchors: buildUserSharedAnchors(character, now),
+      sharedAnchors: buildUserSharedAnchors(character, now, params.chat),
       profile: userProfile,
       entry: ledger,
     })
