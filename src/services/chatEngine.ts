@@ -68,7 +68,6 @@ interface ResponseSurface {
 
 type ExpressionFeedbackTrace = NonNullable<NonNullable<MessageMetadata['runtimeDecision']>['expressionFeedback']>;
 type GuidanceExecutionTrace = NonNullable<NonNullable<MessageMetadata['runtimeDecision']>['guidanceExecution']>;
-type LatestHumanTurnTrace = NonNullable<NonNullable<MessageMetadata['runtimeDecision']>['latestHumanTurn']>;
 type GenerationWithGuidanceTrace = {
   parsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope>;
   finalResponse: string;
@@ -778,50 +777,6 @@ ${lines.join('\n')}
 ${hardHints.join('\n')}`;
 }
 
-function resolveLatestHumanTurnTrace(messages: Message[]): LatestHumanTurnTrace | null {
-  const visible = messages.filter((message) => !message.isDeleted);
-  const latestHumanIndex = visible
-    .map((message, index) => ({ message, index }))
-    .reverse()
-    .find(({ message }) => {
-      if (message.type !== 'user' && message.type !== 'god') return false;
-      if (message.type === 'user' && message.metadata?.manualSpeaker) return false;
-      return Boolean(message.content.trim());
-    });
-  if (!latestHumanIndex) return null;
-  const aiTurnsSince = visible
-    .slice(latestHumanIndex.index + 1)
-    .filter((message) => message.type === 'ai')
-    .length;
-  return {
-    type: latestHumanIndex.message.type as 'user' | 'god',
-    senderName: latestHumanIndex.message.senderName,
-    text: latestHumanIndex.message.content.trim().slice(0, 240),
-    aiTurnsSince,
-  };
-}
-
-function buildLatestHumanTurnPriorityPrompt(turn: LatestHumanTurnTrace | null) {
-  if (!turn?.text) return '';
-  const authority = turn.type === 'god' ? 'developer intervention' : 'latest human turn';
-  const phase = turn.aiTurnsSince <= 0
-    ? 'fresh human turn'
-    : turn.aiTurnsSince <= 2
-      ? 'active room agenda'
-      : 'background room context';
-  const freshnessLine = turn.aiTurnsSince <= 0
-    ? '- This human turn has not been answered yet. Let the next visible move address or advance it, while still sounding like this character.'
-    : '- One or more AI turns already followed this human input. Do not restart as if every speaker is independently answering the user; continue the live room from the latest speaker, unresolved detail, relationship pressure, or distinct character motive.';
-  return `\n## Latest Human Turn Context
-- Current human input (${authority}, ${turn.aiTurnsSince} AI turn(s) since, ${phase}): ${turn.text}
-- Infer the job of that human input from its meaning: question, topic move, correction, constraint, approval/disapproval, or ordinary participation.
-${freshnessLine}
-- Treat it as room context, not a command that every character must answer in the same frame.
-- For broad group questions, contribute only a distinct in-character angle, objection, practical detail, or social reaction. Do not make every member produce the same category of answer.
-- If it is a correction or constraint, apply it as a behavioral boundary without announcing compliance; do not replace one repeated surface habit with another repeated surface habit.
-- The first sentence should be a live social move, not a universal answer wrapper. It may answer, react to another member, push back, add a missing detail, redirect, tease, concede, or move logistics forward.`;
-}
-
 function getCharacterNameById(characters: AICharacter[], id: string) {
   return characters.find((character) => character.id === id)?.name || id;
 }
@@ -1093,7 +1048,6 @@ function buildRuntimeDecisionMetadata(params: {
   speakerScore?: SpeakerScoreBreakdown | null;
   innerLife?: InnerLifeProjection | null;
   surface?: ResponseSurface | null;
-  latestHumanTurn?: LatestHumanTurnTrace | null;
   intentionalRepeat?: boolean;
   memoryTrace?: PromptMemoryTrace | null;
   companionshipTrace?: NonNullable<MessageMetadata['runtimeDecision']>['companionshipContext'] | null;
@@ -1117,7 +1071,7 @@ function buildRuntimeDecisionMetadata(params: {
       recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
     }
     : undefined;
-  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.latestHumanTurn && !params.intentionalRepeat && !memoryContext && !params.companionshipTrace && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length) return undefined;
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.intentionalRepeat && !memoryContext && !params.companionshipTrace && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length) return undefined;
   return {
     directorIntent: params.directorIntent ? {
       source: params.directorIntent.source,
@@ -1175,7 +1129,6 @@ function buildRuntimeDecisionMetadata(params: {
       roleFit: params.surface.roleFit,
       basis: params.surface.basis.slice(0, 8),
     } : undefined,
-    latestHumanTurn: params.latestHumanTurn || undefined,
     intentionalRepeat: params.intentionalRepeat || undefined,
     memoryContext,
     companionshipContext: params.companionshipTrace || undefined,
@@ -1555,7 +1508,6 @@ export async function generateSpeakerMessage(params: {
   const mediaCapabilities = buildMediaCapabilities(params.speaker, mediaProfiles);
   const responseSurface = resolveResponseSurface(params.chat, enginePromptContext, activeMessages, params.speaker);
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
-  const latestHumanTurnTrace = resolveLatestHumanTurnTrace(activeMessages);
   const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
   const companionshipTrace = buildCompanionshipRuntimeTrace({ chat: params.chat, character: params.speaker, messages: activeMessages });
   const userGuidance = effectiveDirectorIntent?.userGuidance || null;
@@ -1564,7 +1516,7 @@ export async function generateSpeakerMessage(params: {
     speaker: params.speaker,
     members: effectiveMembers,
   });
-	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}${buildLatestHumanTurnPriorityPrompt(latestHumanTurnTrace)}${buildWorldEventContextPrompt({ chat: params.chat, speaker: params.speaker, members: effectiveMembers })}${worldInfluenceSnapshot.prompt}
+	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}${buildWorldEventContextPrompt({ chat: params.chat, speaker: params.speaker, members: effectiveMembers })}${worldInfluenceSnapshot.prompt}
 
 Current director intent:
 - ${effectiveDirectorIntent ? describeDirectorIntent(effectiveDirectorIntent) : 'none'}
@@ -1651,7 +1603,6 @@ Current speaking intent:
 	        speakerScore: params.speakerScore,
           innerLife,
           surface: responseSurface,
-          latestHumanTurn: latestHumanTurnTrace,
           intentionalRepeat: Boolean(generated.parsedEnvelope?.intentionalRepeat),
           memoryTrace,
           companionshipTrace,

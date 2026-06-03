@@ -562,7 +562,7 @@ describe('chatEngine streaming preview', () => {
     expect(message.extraMessages ?? null).toBeNull();
   });
 
-  it('prioritizes the latest human turn as a generic behavior constraint', async () => {
+  it('keeps ordinary user turns in transcript instead of elevating them into system-level guidance', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
       content: '那我直接说安排：八点到，锅底和蘸料分开带，谁迟到谁洗碗。',
@@ -585,50 +585,11 @@ describe('chatEngine streaming preview', () => {
     });
 
     const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
-    expect(prompt).toContain('## Latest Human Turn Context');
-    expect(prompt).toContain('你们换一种接法，别再只换开头继续同一个套路。');
-    expect(prompt).toContain('Infer the job of that human input');
-    expect(prompt).toContain('not a command that every character must answer in the same frame');
-    expect(prompt).toContain('do not replace one repeated surface habit with another repeated surface habit');
-    expect(message.metadata?.runtimeDecision?.latestHumanTurn).toMatchObject({
-      type: 'user',
-      text: '你们换一种接法，别再只换开头继续同一个套路。',
-      aiTurnsSince: 1,
-    });
-  });
-
-  it('keeps older human questions as room context instead of forcing every later speaker to answer the user', async () => {
-    generateResponseMock.mockReset();
-    generateResponseMock.mockResolvedValue(JSON.stringify({
-      content: '小灰灰都带水果了，我就不跟着凑一盘了，换成冰镇酸梅汤吧，吃辣的时候正好救命。',
-      interactionHints: null,
-      socialEventHints: null,
-      conflictFocus: null,
-    }));
-    const mei = buildCharacter('mei', '美羊羊');
-    const hui = buildCharacter('hui', '灰太狼');
-
-    const message = await generateSpeakerMessage({
-      chat: buildChat(),
-      speaker: mei,
-      characters: [mei, hui],
-      messages: [
-        buildUserMessage('那其他人带些什么呢', 1),
-        buildAiMessage('hui', '灰太狼', '我带锅底底料和蘸料配方。', 2),
-        buildAiMessage('mei', '美羊羊', '我带点餐后水果吧。', 3),
-        buildAiMessage('hui', '灰太狼', '那我再补一份羊肉卷，省得不够吃。', 4),
-      ],
-      apiConfig: buildProfiles(),
-    });
-
-    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
-    expect(prompt).toContain('background room context');
-    expect(prompt).toContain('Do not restart as if every speaker is independently answering the user');
-    expect(prompt).toContain('continue the live room from the latest speaker');
-    expect(message.metadata?.runtimeDecision?.latestHumanTurn).toMatchObject({
-      text: '那其他人带些什么呢',
-      aiTurnsSince: 3,
-    });
+    const chatMessages = generateResponseMock.mock.calls[0]?.[2] as Array<{ role: string; content: string }>;
+    expect(prompt).not.toContain('## Latest Human Turn Context');
+    expect(prompt).not.toContain('你们换一种接法，别再只换开头继续同一个套路。');
+    expect(chatMessages.some((item) => item.content === 'User: 你们换一种接法，别再只换开头继续同一个套路。')).toBe(true);
+    expect((message.metadata?.runtimeDecision as Record<string, unknown> | undefined)?.latestHumanTurn).toBeUndefined();
   });
 
   it('allows up to five visible bubbles and merges overflow into the final extra bubble', async () => {
