@@ -752,25 +752,6 @@ describe('chatEngine streaming preview', () => {
     expect(message.content).toBe('赔偿金额可以先从合同约定的定额违约金入手，再让法院按传播范围、过错程度和工资水平去调减。');
   });
 
-  it('rejects saturated room opening frames instead of only checking full-line similarity', () => {
-    const recentMessages = [
-      buildUserMessage('晚上八点吃羊肉火锅怎么样？', 1),
-      buildAiMessage('fei', '沸羊羊', '等等，羊肉火锅？！谁当羊肉啊？我先声明我可不好嚼。', 2),
-      buildAiMessage('lan', '懒羊羊', '哈哈，你们吵你们的，我就在草堆上躺着等火锅。', 3),
-      buildAiMessage('jiao', '蕉太狼', '哈哈，小灰灰你这主意倒挺像我那变异香蕉配辣椒酱。', 4),
-      buildAiMessage('xi', '喜羊羊', '哈哈，蕉太狼你倒是挺会操心的，不过这个锅底听着不靠谱。', 5),
-      buildAiMessage('hong', '红太狼', '哈哈，喜羊羊你少在这挑拨离间，火锅我来掌勺。', 6),
-    ];
-
-    const reason = __chatEngineTestUtils.evaluateHiddenEchoDraft(
-      '哈哈，暖羊羊你这芝麻酱听着倒是挺香，不过别忘了羊肉片。',
-      recentMessages,
-      'mei',
-    );
-
-    expect(reason).toContain('opening');
-  });
-
   it('allows intentional repeated tone or format when the model marks intentionalRepeat', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({

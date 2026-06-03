@@ -132,6 +132,43 @@ describe('scheduler speaker scoring', () => {
     expect(b?.scoreBreakdown?.reasons).toContain('emotion:tension');
   });
 
+  it('does not treat generic second-person wording as an explicit direct cue', () => {
+    const candidates = calculateWeights(
+      [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      [buildMessage({ senderId: 'a', senderName: '甲', content: '你这也太不靠谱了吧？' })],
+      {},
+      1,
+      0,
+      null,
+      buildChat(),
+    );
+
+    const b = candidates.find((candidate) => candidate.characterId === 'b');
+    expect(b?.scoreBreakdown?.addressed).toBe(0);
+  });
+
+  it('boosts a direct cue only when the previous AI line explicitly addresses that actor', () => {
+    const addressedMessage = buildMessage({ senderId: 'a', senderName: '甲', content: '刚才那个锅底方案我不太同意。' }) as Message & {
+      addressedTargetIds: string[];
+      primaryAddressedTargetId: string;
+    };
+    addressedMessage.addressedTargetIds = ['b'];
+    addressedMessage.primaryAddressedTargetId = 'b';
+
+    const candidates = calculateWeights(
+      [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      [addressedMessage],
+      {},
+      1,
+      0,
+      null,
+      buildChat(),
+    );
+
+    const b = candidates.find((candidate) => candidate.characterId === 'b');
+    expect(b?.scoreBreakdown?.addressed).toBeGreaterThan(0);
+  });
+
   it('lets explicit user media guidance override cooldown and suppress non-target speakers', () => {
     const intent: DirectorIntent = {
       source: 'user_message',

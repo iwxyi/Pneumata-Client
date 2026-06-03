@@ -649,12 +649,23 @@ function resolvePromptTarget(chat: GroupChat, messages: Message[], characters: M
       ? undefined
       : undefined;
   }
-  const recentTargetId = messages
+  const latestAi = messages
     .filter((item) => !item.isDeleted && item.senderId !== speaker.id && item.type === 'ai')
     .slice()
-    .reverse()[0]?.senderId;
-  const recentTarget = recentTargetId ? characters.get(recentTargetId) : undefined;
-  return recentTarget ? { target: recentTarget, reason: '来自最近 AI 发言者' } : undefined;
+    .reverse()[0];
+  if (!latestAi) return undefined;
+  if (chat.type !== 'group') {
+    const recentTarget = characters.get(latestAi.senderId);
+    return recentTarget ? { target: recentTarget, reason: '来自最近 AI 发言者' } : undefined;
+  }
+  const addressedMessage = latestAi as Message & { addressedTargetIds?: string[] | null; primaryAddressedTargetId?: string | null };
+  const addressedTargetIds = [
+    addressedMessage.primaryAddressedTargetId,
+    ...(addressedMessage.addressedTargetIds || []),
+  ].filter(Boolean);
+  const explicitlyAddressed = addressedTargetIds.includes(speaker.id) || latestAi.content.includes(speaker.name);
+  const recentTarget = explicitlyAddressed ? characters.get(latestAi.senderId) : undefined;
+  return recentTarget ? { target: recentTarget, reason: addressedTargetIds.includes(speaker.id) ? '来自上一条消息的明确指向' : '来自上一条消息点名' } : undefined;
 }
 
 function getRelationshipSnapshot(character: AICharacter, target: AICharacter | undefined) {

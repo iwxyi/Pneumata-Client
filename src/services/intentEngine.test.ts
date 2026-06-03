@@ -68,6 +68,22 @@ describe('intentEngine soul state adaptation', () => {
     expect(intent.emotionalTone).toBe('defensive');
   });
 
+  it('keeps generic second-person pressure as room-level intent without a resolved target', () => {
+    const intent = deriveSpeakIntentFromContext(character({
+      behavior: { proactivity: 50, aggressiveness: 80, humorIntensity: 20, empathyLevel: 50, summarizing: 20, offTopic: 20 },
+    }), undefined, '你这也太不靠谱了吧？');
+
+    expect(intent.target).toBe('group');
+  });
+
+  it('uses direct-reply intent only after target resolution identifies the addressed actor', () => {
+    const intent = deriveSpeakIntentFromContext(character({
+      behavior: { proactivity: 50, aggressiveness: 80, humorIntensity: 20, empathyLevel: 50, summarizing: 20, offTopic: 20 },
+    }), 'b', '你这也太不靠谱了吧？');
+
+    expect(intent.target).toBe('b');
+  });
+
   it('turns ignored loneliness into a side remark', () => {
     const intent = deriveSpeakIntent(character({
       soulState: {

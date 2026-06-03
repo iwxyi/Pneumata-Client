@@ -194,6 +194,39 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).not.toContain('你这个问题问到了实务中的痛点');
   });
 
+  it('does not target the latest AI speaker in group prompts without explicit address evidence', () => {
+    const speaker = buildCharacter({ id: 'char-a', name: '喜羊羊' });
+    const latestAi = buildCharacter({ id: 'char-b', name: '灰太狼' });
+    const trace = buildPromptMemoryTrace(speaker, { ...buildChat(), memberIds: ['char-a', 'char-b'] }, [
+      buildMessage({ senderId: 'char-b', senderName: '灰太狼', content: '你这话听着就不靠谱。' }),
+    ], new Map([
+      [speaker.id, speaker],
+      [latestAi.id, latestAi],
+    ]));
+
+    expect(trace.targetActorId).toBeUndefined();
+    expect(trace.targetReason).toBeUndefined();
+  });
+
+  it('targets the latest AI speaker in group prompts when that message explicitly addresses the current speaker', () => {
+    const speaker = buildCharacter({ id: 'char-a', name: '喜羊羊' });
+    const latestAi = buildCharacter({ id: 'char-b', name: '灰太狼' });
+    const message = buildMessage({ senderId: 'char-b', senderName: '灰太狼', content: '刚才那个锅底方案我不太同意。' }) as Message & {
+      addressedTargetIds: string[];
+      primaryAddressedTargetId: string;
+    };
+    message.addressedTargetIds = ['char-a'];
+    message.primaryAddressedTargetId = 'char-a';
+
+    const trace = buildPromptMemoryTrace(speaker, { ...buildChat(), memberIds: ['char-a', 'char-b'] }, [message], new Map([
+      [speaker.id, speaker],
+      [latestAi.id, latestAi],
+    ]));
+
+    expect(trace.targetActorId).toBe('char-b');
+    expect(trace.targetReason).toBe('来自上一条消息的明确指向');
+  });
+
   it('includes every manual memory seed field in the unified prompt', () => {
     const character = buildCharacter({
       memory: {
@@ -352,7 +385,10 @@ describe('buildSystemPromptWithContext', () => {
     const speaker = buildCharacter({ layeredMemories: [memory()] });
     const target = buildCharacter({ id: 'char-b', name: '阿远' });
     const chat = { ...buildChat(), memberIds: ['char-a', 'char-b'] };
-    const trace = buildPromptMemoryTrace(speaker, chat, [buildMessage()], new Map([
+    const message = buildMessage() as Message & { addressedTargetIds: string[]; primaryAddressedTargetId: string };
+    message.addressedTargetIds = [speaker.id];
+    message.primaryAddressedTargetId = speaker.id;
+    const trace = buildPromptMemoryTrace(speaker, chat, [message], new Map([
       [speaker.id, speaker],
       [target.id, target],
     ]));
@@ -507,8 +543,14 @@ describe('buildSystemPromptWithContext', () => {
     });
     const target = buildCharacter({ id: leakyTargetId, name: '灰太狼' });
     const chat = { ...buildChat(), memberIds: [leakySpeakerId, leakyTargetId] };
+    const message = buildMessage({ senderId: leakyTargetId, senderName: '灰太狼', content: '你还记得那次追问吗？' }) as Message & {
+      addressedTargetIds: string[];
+      primaryAddressedTargetId: string;
+    };
+    message.addressedTargetIds = [speaker.id];
+    message.primaryAddressedTargetId = speaker.id;
     const trace = buildPromptMemoryTrace(speaker, chat, [
-      buildMessage({ senderId: leakyTargetId, senderName: '灰太狼', content: '你还记得那次追问吗？' }),
+      message,
     ], new Map([
       [speaker.id, speaker],
       [target.id, target],

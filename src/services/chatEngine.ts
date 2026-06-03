@@ -435,60 +435,6 @@ function calculateBigramSimilarity(a: string, b: string) {
   return union ? intersection / union : 0;
 }
 
-function stripOpeningRoleActions(content: string) {
-  return content
-    .replace(/^[\s\n]+/, '')
-    .replace(/^(?:（[^（）]{1,24}）|\([^()]{1,24}\)|\*[^*\n]{1,24}\*)\s*/g, '')
-    .trim();
-}
-
-function getOpeningMarker(content: string) {
-  const normalized = stripOpeningRoleActions(content).replace(/\s+/g, '');
-  const match = normalized.match(/^(哈哈哈|哈哈|哈|嘿嘿|嘻嘻|咳咳|等等|等下|不是|不是我说|哎呀|欸|诶|啧|行吧|说真的)/);
-  return match?.[1] || '';
-}
-
-function normalizeOpeningFrame(content: string) {
-  const normalized = stripOpeningRoleActions(content)
-    .replace(/\s+/g, '')
-    .replace(/[，,、。.!！?？~～:：;；"'“”‘’]/g, '');
-  const marker = getOpeningMarker(normalized);
-  const withoutMarker = marker ? normalized.slice(marker.length) : normalized;
-  const addressedThenConnector = withoutMarker.match(/^(?:[\u4e00-\u9fa5A-Za-z0-9]{1,8}(?:哥哥|姐姐|爷爷|奶奶|叔叔|阿姨|大哥|老师|同学)?)(你这|你|这话|这|倒是|说得|说的)/);
-  if (marker && addressedThenConnector) return `${marker}+address+${addressedThenConnector[1]}`;
-  if (marker) return `${marker}+${withoutMarker.slice(0, 2) || 'open'}`;
-  const directAddress = normalized.match(/^(?:[\u4e00-\u9fa5A-Za-z0-9]{1,8}(?:哥哥|姐姐|爷爷|奶奶|叔叔|阿姨|大哥|老师|同学)?)(你这|你|这话|这|倒是)/);
-  if (directAddress) return `address+${directAddress[1]}`;
-  return '';
-}
-
-function evaluateOpeningFrameEcho(content: string, messages: Message[]) {
-  const draftMarker = getOpeningMarker(content);
-  const draftFrame = normalizeOpeningFrame(content);
-  if (!draftMarker && !draftFrame) return null;
-
-  const recentAi = messages
-    .filter((message) => message.type === 'ai' && !message.isDeleted)
-    .slice(-10);
-  if (!recentAi.length) return null;
-
-  if (draftMarker) {
-    const sameMarkerCount = recentAi.filter((message) => getOpeningMarker(message.content) === draftMarker).length;
-    if (sameMarkerCount >= 3) {
-      return `The draft reuses an over-saturated room opening marker "${draftMarker}" (${sameMarkerCount} recent AI turns already start that way).`;
-    }
-  }
-
-  if (draftFrame) {
-    const sameFrameCount = recentAi.filter((message) => normalizeOpeningFrame(message.content) === draftFrame).length;
-    if (sameFrameCount >= 2) {
-      return `The draft repeats the room's opening-frame pattern "${draftFrame}" (${sameFrameCount} recent AI turns already use that frame).`;
-    }
-  }
-
-  return null;
-}
-
 function buildRecentEchoProfile(messages: Message[]) {
   const recentAi = messages.filter((message) => message.type === 'ai' && !message.isDeleted).slice(-12);
   return {
@@ -514,8 +460,6 @@ function evaluateHiddenEchoDraft(content: string, messages: Message[], speakerId
   if (hasLegitimateRepeatContext(messages)) return null;
   const normalizedDraft = normalizeCompact(content);
   if (normalizedDraft.length < 4) return null;
-  const openingFrameEcho = evaluateOpeningFrameEcho(content, messages);
-  if (openingFrameEcho) return openingFrameEcho;
   const profile = buildRecentEchoProfile(messages);
   for (const message of profile.recentAi) {
     const normalizedRecent = normalizeCompact(message.content);
