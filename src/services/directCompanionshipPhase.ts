@@ -110,8 +110,8 @@ async function judgeCompanionshipPhaseWithModel(params: {
     '任务：判断“用户这一条新消息”是否明确产生了用户-角色关系阶段事件。',
     '必须保守：普通玩笑、假设、角色扮演台词、讨论别人关系、泛泛喜欢、日常冷静诉求、普通不舒服，都不要创建事件。',
     '只有用户明确把自己和当前角色的关系推进/降级/修复时才 shouldCreate=true。',
-    'confirmed 必须是明确确认恋人/对象/情侣等关系边界；confessing 是明确表白但未确认；crisis 是明确受伤、暂停或关系危机；reconciling 是明确和好或修复。',
-    '返回 JSON: {"shouldCreate":boolean,"phase":"confessing|confirmed|crisis|reconciling|cooling|none","style":"romantic|ambiguous|friend|family|mentor|custom|null","confidence":number,"reason":"...","evidence":["..."]}',
+    'confirmed 必须是明确确认恋人/对象/情侣等关系边界；confessing 是明确表白但未确认；passionate 是确认关系后用户明确表达高频陪伴、热恋式靠近或强烈想念；deep 是长期稳定、信任、共同承诺或成熟陪伴被明确说出；cooling 是用户明确降温、疏离、想减少互动但未到危机；crisis 是明确受伤、暂停或关系危机；reconciling 是明确和好或修复。',
+    '返回 JSON: {"shouldCreate":boolean,"phase":"confessing|confirmed|passionate|deep|cooling|crisis|reconciling|none","style":"romantic|ambiguous|friend|family|mentor|custom|null","confidence":number,"reason":"...","evidence":["..."]}',
     'confidence 取 0-1。拿不准必须 shouldCreate=false 或 confidence<0.7。',
   ].join('\n');
   const payload = {

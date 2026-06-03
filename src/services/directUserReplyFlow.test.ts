@@ -162,6 +162,49 @@ describe('directUserReplyFlow companionship phase events', () => {
     });
   });
 
+  it('accepts model-led mature and cooling phase transitions', async () => {
+    generateJsonResponseMock.mockResolvedValueOnce(JSON.stringify({
+      shouldCreate: true,
+      phase: 'deep',
+      style: 'romantic',
+      confidence: 0.84,
+      reason: '用户明确表达长期稳定的亲密承诺。',
+      evidence: ['我们慢慢走很久也可以'],
+    }));
+    const deepEvent = await resolveCompanionshipPhaseEventFromDirectUserMessage({
+      chat: chat('direct'),
+      character: character(),
+      message: message('我不需要每天轰轰烈烈，但想和你慢慢走很久。'),
+      textApiConfig: { provider: 'openai', apiKey: 'key', baseUrl: 'https://example.test', model: 'model' },
+    });
+
+    generateJsonResponseMock.mockResolvedValueOnce(JSON.stringify({
+      shouldCreate: true,
+      phase: 'cooling',
+      style: 'friend',
+      confidence: 0.82,
+      reason: '用户明确表达希望降温并减少亲密互动。',
+      evidence: ['最近先少联系一点'],
+    }));
+    const coolingEvent = await resolveCompanionshipPhaseEventFromDirectUserMessage({
+      chat: chat('direct'),
+      character: character(),
+      message: message('最近我们先少联系一点吧，我想把距离拉回来。'),
+      textApiConfig: { provider: 'openai', apiKey: 'key', baseUrl: 'https://example.test', model: 'model' },
+    });
+
+    expect(deepEvent?.payload).toMatchObject({
+      phase: 'deep',
+      style: 'romantic',
+      decisionSource: 'model',
+    });
+    expect(coolingEvent?.payload).toMatchObject({
+      phase: 'cooling',
+      style: 'friend',
+      decisionSource: 'model',
+    });
+  });
+
   it('trusts conservative model rejection to avoid local keyword false positives', async () => {
     generateJsonResponseMock.mockResolvedValueOnce(JSON.stringify({
       shouldCreate: false,
