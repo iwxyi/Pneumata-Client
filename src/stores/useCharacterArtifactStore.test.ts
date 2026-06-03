@@ -13,6 +13,25 @@ vi.stubGlobal('localStorage', {
   get length() { return localStore.size; },
 });
 
+const apiMocks = vi.hoisted(() => ({
+  getCharacterArtifactSummaries: vi.fn(),
+  getCharacterArtifactItem: vi.fn(),
+  upsertCharacterArtifactItem: vi.fn(),
+}));
+
+vi.mock('../services/api', async () => {
+  const actual = await vi.importActual<typeof import('../services/api')>('../services/api');
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      getCharacterArtifactSummaries: apiMocks.getCharacterArtifactSummaries,
+      getCharacterArtifactItem: apiMocks.getCharacterArtifactItem,
+      upsertCharacterArtifactItem: apiMocks.upsertCharacterArtifactItem,
+    },
+  };
+});
+
 vi.mock('../services/characterExperienceArtifacts', async () => {
   const actual = await vi.importActual<typeof import('../services/characterExperienceArtifacts')>('../services/characterExperienceArtifacts');
   return {
@@ -90,6 +109,11 @@ beforeAll(async () => {
 describe('useCharacterArtifactStore', () => {
   beforeEach(() => {
     localStore.clear();
+    apiMocks.getCharacterArtifactSummaries.mockReset();
+    apiMocks.getCharacterArtifactItem.mockReset();
+    apiMocks.upsertCharacterArtifactItem.mockReset();
+    apiMocks.getCharacterArtifactSummaries.mockResolvedValue({ items: [], updatedAt: Date.now() });
+    apiMocks.upsertCharacterArtifactItem.mockResolvedValue({ success: true, updatedAt: Date.now(), revision: 1 });
     generateDailyDiaryMock.mockClear();
     artifactStore.setState({ items: [], jobs: [], isProcessing: false, unreadLetterCount: 0 });
     settingsStore.setState({
@@ -337,5 +361,59 @@ describe('useCharacterArtifactStore', () => {
     const generatedDateKeys = generateDailyDiaryMock.mock.calls.map(([params]) => params.dateKey);
     expect(generatedDateKeys).toEqual([dateKeyDaysAgo(20), dateKeyDaysAgo(2)]);
     expect(artifactStore.getState().getDiaryEntries('c-old')[0]?.dateKey).toBe(dateKeyDaysAgo(20));
+  });
+
+  it('applies remote artifact tombstones without fetching detail or reuploading the local snapshot', async () => {
+    localStore.set('pneumata-token', 'token');
+    localStore.set('pneumata-auth-mode', 'cloud');
+    artifactStore.setState({
+      items: [{
+        id: 'letter-1',
+        kind: 'final_letter',
+        characterId: 'c1',
+        characterName: '苏苏',
+        dateKey: null,
+        sourceKey: 'final',
+        title: '苏苏的信',
+        text: '本地还保留着这封信。',
+        source: 'ai',
+        unread: true,
+        createdAt: 100,
+        updatedAt: 200,
+      }],
+      jobs: [],
+      isProcessing: false,
+      unreadLetterCount: 1,
+    });
+    apiMocks.getCharacterArtifactSummaries.mockResolvedValueOnce({
+      updatedAt: 500,
+      items: [{
+        id: 'letter-1',
+        kind: 'final_letter',
+        characterId: 'c1',
+        characterName: '苏苏',
+        dateKey: null,
+        sourceKey: 'final',
+        title: '苏苏的信',
+        source: 'ai',
+        unread: false,
+        createdAt: 100,
+        updatedAt: 500,
+        deletedAt: 450,
+        revision: 2,
+      }],
+    });
+
+    await artifactStore.getState().syncCloud({ kind: 'final_letter' });
+
+    const tombstone = artifactStore.getState().items.find((item) => item.id === 'letter-1');
+    expect(apiMocks.getCharacterArtifactSummaries).toHaveBeenCalledWith({ kind: 'final_letter', includeDeleted: true });
+    expect(apiMocks.getCharacterArtifactItem).not.toHaveBeenCalled();
+    expect(apiMocks.upsertCharacterArtifactItem).not.toHaveBeenCalled();
+    expect(tombstone?.deletedAt).toBe(450);
+    expect(tombstone?.text).toContain('本地还保留');
+    expect(tombstone?.unread).toBe(false);
+    expect(artifactStore.getState().getLetterEntries()).toHaveLength(0);
+    expect(artifactStore.getState().unreadLetterCount).toBe(0);
   });
 });

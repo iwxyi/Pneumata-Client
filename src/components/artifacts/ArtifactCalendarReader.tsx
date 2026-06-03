@@ -5,6 +5,7 @@ import type { Theme } from '@mui/material/styles';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import DeleteIcon from '@mui/icons-material/Delete';
 import type { CharacterArtifactEntry } from '../../stores/useCharacterArtifactStore';
 import type { PaperSurfaceVariant } from '../../types/artifactAppearance';
 import MarkdownText from '../common/MarkdownText';
@@ -22,6 +23,7 @@ type ReaderSwipeState = {
 
 interface ArtifactCalendarReaderProps {
   items: CharacterArtifactEntry[];
+  deletedItems?: CharacterArtifactEntry[];
   language: string;
   paperVariant: PaperSurfaceVariant;
   readerHeight: string;
@@ -93,6 +95,7 @@ function startedOnInteractiveElement(target: EventTarget | null) {
 
 export default function ArtifactCalendarReader({
   items,
+  deletedItems = [],
   language,
   paperVariant,
   readerHeight,
@@ -104,7 +107,9 @@ export default function ArtifactCalendarReader({
 }: ArtifactCalendarReaderProps) {
   const isZh = language.startsWith('zh');
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id || null);
-  const selectedItem = items.find((item) => item.id === selectedId) || items[0] || null;
+  const selectedDeletedItem = deletedItems.find((item) => item.id === selectedId) || null;
+  const selectedItem = items.find((item) => item.id === selectedId) || selectedDeletedItem || items[0] || null;
+  const selectedItemDeleted = Boolean(selectedItem?.deletedAt);
   const selectedIndex = selectedItem ? items.findIndex((item) => item.id === selectedItem.id) : -1;
   const selectedDate = selectedItem ? parseDateKey(getEntryDateKey(selectedItem)) : null;
   const [calendarExpanded, setCalendarExpanded] = useState(true);
@@ -182,7 +187,7 @@ export default function ArtifactCalendarReader({
     }
   };
 
-  if (!items.length) {
+  if (!items.length && !selectedDeletedItem) {
     return (
       <PaperSurface variant={paperVariant} minHeight={220} contentInset={false}>
         <Box className="paper-surface-content" sx={{ maxWidth: 560 }}>
@@ -257,12 +262,23 @@ export default function ArtifactCalendarReader({
                 {getMeta ? getMeta(selectedItem) : getEntryDateKey(selectedItem)}
               </Typography>
             </Box>
-            <Chip size="small" variant="outlined" label={`${selectedIndex >= 0 ? items.length - selectedIndex : 1}/${items.length}${countUnit}`} sx={{ bgcolor: 'rgba(255,255,255,0.55)' }} />
+            {selectedItemDeleted ? (
+              <Chip size="small" color="error" variant="outlined" icon={<DeleteIcon />} label={isZh ? '已删除' : 'Deleted'} sx={{ bgcolor: 'rgba(255,255,255,0.55)' }} />
+            ) : (
+              <Chip size="small" variant="outlined" label={`${selectedIndex >= 0 ? items.length - selectedIndex : 1}/${items.length}${countUnit}`} sx={{ bgcolor: 'rgba(255,255,255,0.55)' }} />
+            )}
           </Box>
+          {selectedItemDeleted ? (
+            <Box className="paper-surface-content" sx={{ mb: 1, flexShrink: 0 }}>
+              <Typography variant="body2" color="error" sx={{ fontWeight: 800 }}>
+                {isZh ? '这项内容已在其他设备删除，本地仅保留只读快照。' : 'This item was deleted on another device. This local copy is read-only.'}
+              </Typography>
+            </Box>
+          ) : null}
           <Box className="paper-surface-content" sx={{ mt: 1, typography: 'body2', userSelect: 'text', WebkitUserSelect: 'text', flex: 1, minHeight: 0, overflow: 'auto', pr: { xs: 0.5, sm: 1 } }}>
             <MarkdownText text={selectedItem?.text || ''} />
           </Box>
-          {onRegenerateDebug && selectedItem ? (
+          {onRegenerateDebug && selectedItem && !selectedItemDeleted ? (
             <Box className="paper-surface-content" sx={{ pt: 1.25, display: 'flex', justifyContent: 'flex-start', flexShrink: 0 }}>
               <Button
                 size="small"

@@ -88,12 +88,16 @@ export default function LettersPage() {
     };
   }, [resumeArtifactProcessing, syncArtifactCloud, syncArtifactsFromCharacters, tab]);
 
-  const letters = useMemo(() => items.filter((item) => item.kind === 'birth_letter' || item.kind === 'final_letter').slice().sort((a, b) => b.createdAt - a.createdAt), [items]);
-  const diaries = useMemo(() => items.filter((item) => item.kind === 'diary').slice().sort((a, b) => (a.dateKey || '').localeCompare(b.dateKey || '') || a.createdAt - b.createdAt), [items]);
+  const letters = useMemo(() => items.filter((item) => item.deletedAt == null && (item.kind === 'birth_letter' || item.kind === 'final_letter')).slice().sort((a, b) => b.createdAt - a.createdAt), [items]);
+  const diaries = useMemo(() => items.filter((item) => item.deletedAt == null && item.kind === 'diary').slice().sort((a, b) => (a.dateKey || '').localeCompare(b.dateKey || '') || a.createdAt - b.createdAt), [items]);
+  const deletedLetters = useMemo(() => items.filter((item) => item.deletedAt != null && (item.kind === 'birth_letter' || item.kind === 'final_letter')), [items]);
+  const deletedDiaries = useMemo(() => items.filter((item) => item.deletedAt != null && item.kind === 'diary'), [items]);
   const activeItems = tab === 'letters' ? letters : diaries;
+  const deletedActiveItems = tab === 'letters' ? deletedLetters : deletedDiaries;
   const characterNameMap = useMemo(() => new Map(characters.map((character) => [character.id, character.name])), [characters]);
   const characterOptions = useMemo(() => buildCharacterOptions(activeItems, characterNameMap, i18n.language), [activeItems, characterNameMap, i18n.language]);
   const visibleItems = useMemo(() => characterFilter === 'all' ? activeItems : activeItems.filter((item) => item.characterId === characterFilter), [activeItems, characterFilter]);
+  const visibleDeletedItems = useMemo(() => characterFilter === 'all' ? deletedActiveItems : deletedActiveItems.filter((item) => item.characterId === characterFilter), [deletedActiveItems, characterFilter]);
   const characterById = useMemo(() => new Map(characters.map((character) => [character.id, character])), [characters]);
 
   const handleRegenerateDebug = async (item: CharacterArtifactEntry) => {
@@ -217,6 +221,7 @@ export default function LettersPage() {
 
         <ArtifactCalendarReader
           items={visibleItems}
+          deletedItems={visibleDeletedItems}
           language={i18n.language}
           paperVariant={paperVariant}
           readerHeight={readerHeight}

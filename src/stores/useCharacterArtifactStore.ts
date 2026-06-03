@@ -35,6 +35,7 @@ export interface CharacterArtifactEntry {
   unread: boolean;
   createdAt: number;
   updatedAt: number;
+  deletedAt?: number | null;
   generationSnapshot?: CharacterArtifactGenerationSnapshot;
 }
 
@@ -204,7 +205,7 @@ function isBirthLetterEntry(item: CharacterArtifactEntry) {
 }
 
 function computeUnreadLetterCount(items: CharacterArtifactEntry[]) {
-  return items.filter((item) => (isFinalLetterEntry(item) || isBirthLetterEntry(item)) && item.unread).length;
+  return items.filter((item) => item.deletedAt == null && (isFinalLetterEntry(item) || isBirthLetterEntry(item)) && item.unread).length;
 }
 
 function buildArtifactLogicalKey(item: CharacterArtifactEntry) {
@@ -214,6 +215,9 @@ function buildArtifactLogicalKey(item: CharacterArtifactEntry) {
 }
 
 function chooseBetterArtifactEntry(a: CharacterArtifactEntry, b: CharacterArtifactEntry) {
+  if ((a.deletedAt || 0) !== (b.deletedAt || 0)) {
+    return (b.deletedAt || 0) > (a.deletedAt || 0) ? b : a;
+  }
   const aRaw = looksLikeRawArtifactContext(a.text);
   const bRaw = looksLikeRawArtifactContext(b.text);
   if (aRaw !== bRaw) return aRaw ? b : a;
@@ -240,7 +244,7 @@ function mergeArtifactItems(...sources: CharacterArtifactEntry[][]) {
 
 function buildItemsSignature(items: CharacterArtifactEntry[]) {
   return items
-    .map((item) => `${item.id}:${item.updatedAt}:${item.unread ? 1 : 0}:${item.text.length}`)
+    .map((item) => `${item.id}:${item.updatedAt}:${item.deletedAt || 0}:${item.unread ? 1 : 0}:${item.text.length}`)
     .sort()
     .join('|');
 }
@@ -250,12 +254,14 @@ function hasArtifactText(item: CharacterArtifactEntry | undefined) {
 }
 
 function shouldFetchArtifactDetail(summary: CharacterArtifactSummaryEntry, local: CharacterArtifactEntry | undefined) {
+  if (summary.deletedAt != null) return false;
   if (!local) return true;
   if (!hasArtifactText(local)) return true;
   return (summary.updatedAt || 0) > (local.updatedAt || 0);
 }
 
 function shouldUploadArtifactItem(local: CharacterArtifactEntry, summary: CharacterArtifactSummaryEntry | undefined) {
+  if (local.deletedAt != null || summary?.deletedAt != null) return false;
   if (!summary) return true;
   return (local.updatedAt || 0) > (summary.updatedAt || 0);
 }
@@ -266,6 +272,44 @@ function artifactMatchesQuery(item: CharacterArtifactEntry, query: CharacterArti
   if (query.dateFrom && (!item.dateKey || item.dateKey < query.dateFrom)) return false;
   if (query.dateTo && (!item.dateKey || item.dateKey > query.dateTo)) return false;
   return true;
+}
+
+function applyRemoteDeletedArtifactSummaries(items: CharacterArtifactEntry[], summaries: CharacterArtifactSummaryEntry[]) {
+  if (!summaries.length) return items;
+  const byId = new Map(items.map((item) => [item.id, item]));
+  summaries.forEach((summary) => {
+    if (summary.deletedAt == null) return;
+    const existing = byId.get(summary.id);
+    const deletedAt = summary.deletedAt;
+    if (!existing) {
+      byId.set(summary.id, {
+        id: summary.id,
+        kind: summary.kind,
+        characterId: summary.characterId,
+        characterName: summary.characterName,
+        dateKey: summary.dateKey ?? null,
+        sourceKey: summary.sourceKey ?? null,
+        title: summary.title,
+        text: '',
+        source: summary.source,
+        unread: false,
+        createdAt: summary.createdAt,
+        updatedAt: Math.max(summary.updatedAt || 0, deletedAt),
+        deletedAt,
+      });
+      return;
+    }
+    if ((existing.deletedAt || 0) >= deletedAt) return;
+    byId.set(summary.id, {
+      ...existing,
+      characterName: summary.characterName || existing.characterName,
+      title: summary.title || existing.title,
+      unread: false,
+      updatedAt: Math.max(existing.updatedAt || 0, summary.updatedAt || 0, deletedAt),
+      deletedAt,
+    });
+  });
+  return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 function createArtifactEntry(params: {
@@ -682,8 +726,8 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           queueMicrotask(scheduleCloudSync);
           return { items, unreadLetterCount: computeUnreadLetterCount(items) };
         }),
-        getDiaryEntries: (characterId) => get().items.filter((item) => item.kind === 'diary' && item.characterId === characterId).sort((a, b) => (a.dateKey || '').localeCompare(b.dateKey || '') || a.createdAt - b.createdAt),
-        getLetterEntries: () => get().items.filter((item) => item.kind === 'birth_letter' || item.kind === 'final_letter').sort((a, b) => b.createdAt - a.createdAt),
+        getDiaryEntries: (characterId) => get().items.filter((item) => item.deletedAt == null && item.kind === 'diary' && item.characterId === characterId).sort((a, b) => (a.dateKey || '').localeCompare(b.dateKey || '') || a.createdAt - b.createdAt),
+        getLetterEntries: () => get().items.filter((item) => item.deletedAt == null && (item.kind === 'birth_letter' || item.kind === 'final_letter')).sort((a, b) => b.createdAt - a.createdAt),
         regenerateArtifact: async ({ itemId, character, relatedCharacters }) => {
           const item = get().items.find((entry) => entry.id === itemId);
           if (!item) throw new Error('Artifact not found');
@@ -734,7 +778,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           }
           cloudSyncRunning = true;
           try {
-            const remote = await api.getCharacterArtifactSummaries(query);
+            const remote = await api.getCharacterArtifactSummaries({ ...query, includeDeleted: true });
             const currentKey = getArtifactStorageKey();
             const guestKey = getGuestArtifactStorageKey();
             const persistedCurrentItems = readPersistedItemsFromKey(currentKey);
@@ -742,9 +786,11 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             const localItems = mergeArtifactItems(persistedCurrentItems, guestItems, get().items);
             const localById = new Map(localItems.map((item) => [item.id, item]));
             const remoteSummaryById = new Map((remote.items || []).map((item) => [item.id, item]));
+            const remoteDeletedSummaries = (remote.items || []).filter((summary) => summary.deletedAt != null);
             const shouldFetchDetails = Boolean(query.kind || query.characterId || query.dateFrom || query.dateTo);
             const remoteDetails = shouldFetchDetails
               ? await Promise.all((remote.items || [])
+                  .filter((summary) => summary.deletedAt == null)
                   .filter((summary) => shouldFetchArtifactDetail(summary, localById.get(summary.id)))
                   .map(async (summary) => {
                     try {
@@ -759,15 +805,16 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
               localItems,
               remoteDetails.filter((item): item is CharacterArtifactEntry => Boolean(item)),
             );
+            const projectedItems = applyRemoteDeletedArtifactSummaries(mergedItems, remoteDeletedSummaries);
             const localSignature = buildItemsSignature(get().items);
-            const mergedSignature = buildItemsSignature(mergedItems);
+            const mergedSignature = buildItemsSignature(projectedItems);
             if (mergedSignature !== localSignature) {
               set({
-                items: mergedItems,
-                unreadLetterCount: computeUnreadLetterCount(mergedItems),
+                items: projectedItems,
+                unreadLetterCount: computeUnreadLetterCount(projectedItems),
               });
             }
-            const uploads = mergedItems.filter((item) => artifactMatchesQuery(item, query) && shouldUploadArtifactItem(item, remoteSummaryById.get(item.id)));
+            const uploads = projectedItems.filter((item) => artifactMatchesQuery(item, query) && shouldUploadArtifactItem(item, remoteSummaryById.get(item.id)));
             if (uploads.length) {
               await Promise.all(uploads.map((item) => api.upsertCharacterArtifactItem(item)));
             }

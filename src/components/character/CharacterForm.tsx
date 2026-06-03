@@ -944,7 +944,13 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const diaryEntries = useMemo(() => {
     if (!initial?.id) return [];
     return getDiaryEntriesSorted(artifactItems
-      .filter((item) => item.kind === 'diary' && item.characterId === initial.id)
+      .filter((item) => item.deletedAt == null && item.kind === 'diary' && item.characterId === initial.id)
+    );
+  }, [artifactItems, initial?.id]);
+  const deletedDiaryEntries = useMemo(() => {
+    if (!initial?.id) return [];
+    return getDiaryEntriesSorted(artifactItems
+      .filter((item) => item.deletedAt != null && item.kind === 'diary' && item.characterId === initial.id)
     );
   }, [artifactItems, initial?.id]);
   const artifactReaderHeight = 'clamp(420px, calc(100dvh - 180px), 1040px)';
@@ -1692,6 +1698,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
         <Box sx={{ display: 'grid', gap: 1.5 }}>
           <ArtifactCalendarReader
             items={diaryEntries}
+            deletedItems={deletedDiaryEntries}
             language={i18n.language}
             paperVariant={settings.artifactAppearance.paperVariant}
             readerHeight={artifactReaderHeight}

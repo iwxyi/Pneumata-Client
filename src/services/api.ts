@@ -50,6 +50,7 @@ export interface CharacterArtifactSyncEntry {
   unread: boolean;
   createdAt: number;
   updatedAt: number;
+  deletedAt?: number | null;
   generationSnapshot?: {
     promptVersion: 'character-experience-artifacts-v2';
     character: Partial<AICharacter>;
