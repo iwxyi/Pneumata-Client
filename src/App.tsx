@@ -130,24 +130,6 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     }
   }, [authMode, isLoggedIn, loadSettings]);
 
-  useEffect(() => {
-    const preload = () => {
-      for (const loadRoute of routePreloaders) {
-        void loadRoute();
-      }
-    };
-    const scheduler = (window as typeof window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-      cancelIdleCallback?: (id: number) => void;
-    }).requestIdleCallback;
-    if (typeof scheduler === 'function') {
-      const handle = scheduler(preload, { timeout: 1600 });
-      return () => window.cancelIdleCallback?.(handle);
-    }
-    const handle = window.setTimeout(preload, 800);
-    return () => window.clearTimeout(handle);
-  }, []);
-
   return <>{children}</>;
 }
 
