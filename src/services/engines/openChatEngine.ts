@@ -343,13 +343,16 @@ function buildAttentionDrivenPrivateThreadCandidate(params: {
   if (!actorId || actorId === 'user') return null;
   if (!params.conversation.memberIds.includes('user')) return null;
   const actor = params.characters.find((item) => item.id === actorId) || null;
-  if (shouldBlockUserProactiveContactByCompanionshipPolicy({
-    character: actor,
-    eventKind: 'check_in',
-    reasonType: 'world_attention_private_message',
-  }).blocked) return null;
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
     .find((item) => item.actorId === actorId && item.targetId === 'user');
+  if (shouldBlockUserProactiveContactByCompanionshipPolicy({
+    character: actor,
+    chat: params.conversation,
+    eventKind: 'check_in',
+    reasonType: 'world_attention_private_message',
+    attentionScore: attentionState?.attentionScore,
+    enforceTemporalPolicy: false,
+  }).blocked) return null;
   if (attentionState && !attentionState.suggestedActions.includes('private_message')) return null;
   const recentAttention = (params.conversation.runtimeEventsV2 || [])
     .slice()
@@ -499,13 +502,16 @@ function buildAttentionDrivenCheckInCandidate(params: {
   if (hasPendingCandidateSuppression(params.conversation, actorId, 'check_in', Date.now())) return null;
   if (!params.conversation.memberIds.includes('user')) return null;
   const actor = params.characters.find((item) => item.id === actorId) || null;
-  if (shouldBlockUserProactiveContactByCompanionshipPolicy({
-    character: actor,
-    eventKind: 'check_in',
-    reasonType: 'attention_check_in',
-  }).blocked) return null;
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
     .find((item) => item.actorId === actorId && item.targetId === 'user');
+  if (shouldBlockUserProactiveContactByCompanionshipPolicy({
+    character: actor,
+    chat: params.conversation,
+    eventKind: 'check_in',
+    reasonType: 'attention_check_in',
+    attentionScore: attentionState?.attentionScore,
+    enforceTemporalPolicy: false,
+  }).blocked) return null;
   if (attentionState && !attentionState.suggestedActions.includes('check_in')) return null;
   const recentAttention = (params.conversation.runtimeEventsV2 || [])
     .slice()

@@ -8,7 +8,7 @@ import {
 import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
-import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
+import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipCarePolicyForCharacter, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
 
 function character(overrides: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -399,6 +399,87 @@ describe('companionshipProjection', () => {
       eventKind: 'status_update',
       reasonType: 'world_attention_calendar_reminder',
       now: 300,
+    }).blocked).toBe(false);
+  });
+
+  it('projects phase-sensitive care policy into user bond and runtime trace', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [
+        phaseEvent({
+          payload: {
+            eventType: 'companionship_phase_event',
+            characterId: 'char-a',
+            userId: 'user',
+            phase: 'passionate',
+            style: 'romantic',
+            reason: '双方确认后进入热恋期。',
+            evidence: ['用户和苏苏明确说想每天多聊一点。'],
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [message({ timestamp: 200 })],
+      now: 1_000,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [
+        phaseEvent({
+          payload: {
+            eventType: 'companionship_phase_event',
+            characterId: 'char-a',
+            userId: 'user',
+            phase: 'passionate',
+            style: 'romantic',
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [message({ timestamp: 200 })],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.phase).toBe('passionate');
+    expect(projection.userBond?.carePolicy.dailyInitiationBudget).toBeGreaterThanOrEqual(4);
+    expect(projection.userBond?.carePolicy.triggerSensitivity).toBeGreaterThanOrEqual(76);
+    expect(projection.promptLines.join('\n')).toContain('Care policy: budget');
+    expect(trace?.carePolicy.dailyInitiationBudget).toBeGreaterThanOrEqual(4);
+  });
+
+  it('uses phase-sensitive proactive budget without blocking immediate user-prompted follow-up', () => {
+    const crisisChat = chat('group', [relationship({ warmth: 20, trust: 12, competence: 10, threat: 50 })], [
+      phaseEvent({
+        payload: {
+          eventType: 'companionship_phase_event',
+          characterId: 'char-a',
+          userId: 'user',
+          phase: 'crisis',
+          style: 'friend',
+          reason: '用户表达受伤，需要暂停主动靠近。',
+        },
+      }),
+    ]);
+    const carePolicy = buildCompanionshipCarePolicyForCharacter({
+      character: character(),
+      chat: crisisChat,
+      now: new Date('2026-06-01T14:00:00+08:00').getTime(),
+    });
+
+    expect(carePolicy.dailyInitiationBudget).toBe(0);
+    expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: character(),
+      chat: crisisChat,
+      eventKind: 'status_update',
+      reasonType: 'world_attention_status_idle',
+      attentionScore: 0.9,
+      now: new Date('2026-06-01T14:00:00+08:00').getTime(),
+    }).blocked).toBe(true);
+    expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: character(),
+      chat: crisisChat,
+      eventKind: 'check_in',
+      reasonType: 'world_attention_private_message',
+      attentionScore: 0.9,
+      now: new Date('2026-06-01T14:00:00+08:00').getTime(),
     }).blocked).toBe(false);
   });
 

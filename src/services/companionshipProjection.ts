@@ -218,6 +218,25 @@ function applyUserBoundariesToCarePolicy(policy: CarePolicy, profile: UserProfil
   };
 }
 
+function parseClockMinutes(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+function isWithinCarePolicyQuietHours(timestamp: number, quietHours: CarePolicy['quietHours']) {
+  const start = parseClockMinutes(quietHours.start);
+  const end = parseClockMinutes(quietHours.end);
+  if (start == null || end == null || start === end) return false;
+  const date = new Date(timestamp);
+  const minuteOfDay = date.getHours() * 60 + date.getMinutes();
+  if (start < end) return minuteOfDay >= start && minuteOfDay < end;
+  return minuteOfDay >= start || minuteOfDay < end;
+}
+
 function buildCarePolicy(phase: CompanionshipPhase, style: PreferredIntimacyStyle, profile: UserProfileMemoryProjection): CarePolicy {
   const byPhase: Record<CompanionshipPhase, Omit<CarePolicy, 'quietHours'>> = {
     stranger: { dailyInitiationBudget: 0, triggerSensitivity: 18, silenceAnxietyThresholdHours: 96, expressionIntensity: 18, allowGoodMorning: false, allowGoodNight: false, allowMissYou: false, boundaryReasons: [] },
@@ -240,6 +259,15 @@ function buildCarePolicy(phase: CompanionshipPhase, style: PreferredIntimacyStyl
     expressionIntensity: clampScore(base.expressionIntensity + styleBoost),
     quietHours: { start: '23:30', end: '08:00' },
   }, profile);
+}
+
+function readCompanionshipPhaseFromChat(chat: GroupChat | undefined, characterId: string, messages: Message[], now: number): CompanionshipPhase | null {
+  if (!chat) return null;
+  const ledger = getCharacterToUserLedger(chat, characterId);
+  const phaseEvent = resolveCompanionshipPhaseEvent(chat, characterId);
+  if (phaseEvent?.phase) return phaseEvent.phase;
+  if (!ledger) return null;
+  return inferPhase(projectIntimacy(ledger, messages, characterId, now), ledger);
 }
 
 function getUserMemoryTexts(character: AICharacter) {
@@ -575,7 +603,7 @@ export function buildCompanionshipStatusSignature(params: {
   const bond = projection.userBond;
   if (!bond) return null;
   const sharedAnchorLabels = getSharedAnchorLabels(params.character, now);
-  const carePolicy = buildCarePolicy(bond.phase, bond.preferredIntimacyStyle, bond.userProfile);
+  const carePolicy = bond.carePolicy;
   const offlineTrace = buildOfflineTrace(bond, carePolicy, now);
   const unsentDraft = buildUnsentDraft(bond, carePolicy, now);
   return {
@@ -665,6 +693,7 @@ export function buildUserCompanionshipProjection(params: {
     addressing: buildAddressing(userProfile, phase, now),
     userProfile,
     preferredIntimacyStyle,
+    carePolicy,
   };
   return {
     userBond: bond,
@@ -935,7 +964,7 @@ export function buildCompanionshipRuntimeTrace(params: {
   const bond = projection.userBond;
   if (!bond) return null;
   const profile = bond.userProfile;
-  const carePolicy = buildCarePolicy(bond.phase, bond.preferredIntimacyStyle, profile);
+  const carePolicy = bond.carePolicy;
   const sharedAnchorLabels = getSharedAnchorLabels(params.character, params.now || Date.now());
   return {
     style: bond.style,
@@ -946,6 +975,15 @@ export function buildCompanionshipRuntimeTrace(params: {
     rememberedUserPlans: bond.rememberedUserPlans.slice(0, 4),
     boundaries: profile.boundaries.slice(0, 4),
     boundaryReasons: carePolicy.boundaryReasons.slice(0, 4),
+    carePolicy: {
+      dailyInitiationBudget: carePolicy.dailyInitiationBudget,
+      triggerSensitivity: carePolicy.triggerSensitivity,
+      silenceAnxietyThresholdHours: carePolicy.silenceAnxietyThresholdHours,
+      expressionIntensity: carePolicy.expressionIntensity,
+      allowGoodMorning: carePolicy.allowGoodMorning,
+      allowGoodNight: carePolicy.allowGoodNight,
+      allowMissYou: carePolicy.allowMissYou,
+    },
     evidence: projection.evidence.slice(0, 5),
     intimacy: bond.intimacy,
     userProfileConfidence: profile.confidence,
@@ -954,6 +992,7 @@ export function buildCompanionshipRuntimeTrace(params: {
 
 export function buildCompanionshipCarePolicyForCharacter(params: {
   character: AICharacter;
+  chat?: GroupChat;
   messages?: Message[];
   phase?: CompanionshipPhase;
   now?: number;
@@ -973,29 +1012,38 @@ export function buildCompanionshipCarePolicyForCharacter(params: {
     },
   } as AICharacter;
   const userProfile = buildUserProfileProjection(character, messages, now);
-  const preferredStyle = inferPreferredStyle(character, {
-    attraction: 0,
-    intimacy: 0,
-    attachment: 0,
-    longing: 0,
-    exclusivity: 0,
-    security: 50,
-  });
-  return buildCarePolicy(params.phase || 'curious', preferredStyle, userProfile);
+  const phase = params.phase || readCompanionshipPhaseFromChat(params.chat, character.id, messages, now) || 'curious';
+  const intimacy = params.chat
+    ? projectIntimacy(getCharacterToUserLedger(params.chat, character.id), messages, character.id, now)
+    : {
+      attraction: 0,
+      intimacy: 0,
+      attachment: 0,
+      longing: 0,
+      exclusivity: 0,
+      security: 50,
+    };
+  const preferredStyle = inferPreferredStyle(character, intimacy);
+  return buildCarePolicy(phase, preferredStyle, userProfile);
 }
 
 export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
   character: AICharacter | null | undefined;
   eventKind: 'check_in' | 'react_to_moment' | 'social_outing' | 'status_update';
   reasonType?: string | null;
+  chat?: GroupChat;
   messages?: Message[];
+  attentionScore?: number;
+  enforceTemporalPolicy?: boolean;
   now?: number;
 }): { blocked: boolean; reason?: string; carePolicy?: CarePolicy } {
   if (!params.character) return { blocked: false };
+  const now = params.now || Date.now();
   const carePolicy = buildCompanionshipCarePolicyForCharacter({
     character: params.character,
+    chat: params.chat,
     messages: params.messages,
-    now: params.now,
+    now,
   });
   if (carePolicy.boundaryReasons.includes('user prefers low proactive contact')) {
     return {
@@ -1004,8 +1052,8 @@ export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
       carePolicy,
     };
   }
+  const reasonType = params.reasonType || '';
   if (carePolicy.boundaryReasons.includes('user rejects greeting rituals') && params.eventKind === 'check_in') {
-    const reasonType = params.reasonType || '';
     if (reasonType === 'world_attention_private_message'
       || reasonType === 'world_attention_followup'
       || reasonType === 'world_attention_followup_question'
@@ -1013,6 +1061,38 @@ export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
       return {
         blocked: true,
         reason: 'user rejects greeting rituals',
+        carePolicy,
+      };
+    }
+  }
+  const isCalendarReminder = params.eventKind === 'status_update' && reasonType === 'world_attention_calendar_reminder';
+  const isImmediateUserPromptedFollowup = reasonType === 'world_attention_private_message'
+    || reasonType === 'world_attention_followup'
+    || reasonType === 'world_attention_followup_question'
+    || reasonType === 'world_attention_invite_activity'
+    || reasonType === 'attention_check_in'
+    || reasonType === 'attention_followup';
+  if (!isCalendarReminder && !isImmediateUserPromptedFollowup && carePolicy.dailyInitiationBudget <= 0) {
+    return {
+      blocked: true,
+      reason: 'companionship proactive budget is zero for current phase',
+      carePolicy,
+    };
+  }
+  if (params.enforceTemporalPolicy !== false && !isCalendarReminder && isWithinCarePolicyQuietHours(now, carePolicy.quietHours)) {
+    return {
+      blocked: true,
+      reason: 'companionship quiet hours',
+      carePolicy,
+    };
+  }
+  if (!isImmediateUserPromptedFollowup && typeof params.attentionScore === 'number') {
+    const requiredScore = carePolicy.triggerSensitivity / 100;
+    const reminderRelaxation = params.eventKind === 'status_update' ? 0.16 : 0;
+    if (params.attentionScore < Math.max(0.35, requiredScore - reminderRelaxation)) {
+      return {
+        blocked: true,
+        reason: 'companionship trigger sensitivity not met',
         carePolicy,
       };
     }

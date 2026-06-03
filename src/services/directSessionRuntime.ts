@@ -1478,10 +1478,18 @@ export function passesWorldAttentionRestraintPolicy(
   eventKind: SocialEventCandidatePayload['eventKind'],
   reasonType: SocialEventCandidatePayload['reasonType'],
   actor?: AICharacter | null,
+  options: { attentionScore?: number } = {},
 ) {
   if (!actorId || actorId === 'user' || targetId !== 'user') return true;
   if (eventKind === 'check_in' || eventKind === 'react_to_moment' || eventKind === 'social_outing' || eventKind === 'status_update') {
-    if (shouldBlockUserProactiveContactByCompanionshipPolicy({ character: actor, eventKind, reasonType, now: createdAt }).blocked) return false;
+    if (shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: actor,
+      chat,
+      eventKind,
+      reasonType,
+      attentionScore: options.attentionScore,
+      now: createdAt,
+    }).blocked) return false;
   }
   const relation = getRelationshipLedgerEntry(chat.relationshipLedger || [], actorId, targetId);
   const warmth = relation?.current.warmth || 0;
@@ -1654,26 +1662,26 @@ async function buildWorldDrivenCandidate(
   const canPrivateMessage = attention.suggestedActions.includes('private_message')
     && !hasRecentFollowup
     && !hasRecentWorldArtifact(chat, attention.actorId, 'check_in', 120 * 60_000)
-    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'check_in', privateMessageReasonType, actor);
+    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'check_in', privateMessageReasonType, actor, { attentionScore: attention.attentionScore });
   const canAskFollowup = attention.suggestedActions.includes('ask_followup')
     && !hasRecentFollowup
     && !hasRecentWorldArtifact(chat, attention.actorId, 'check_in', 120 * 60_000)
-    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'check_in', followupQuestionReasonType, actor);
+    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'check_in', followupQuestionReasonType, actor, { attentionScore: attention.attentionScore });
   const canCheckIn = attention.suggestedActions.includes('check_in')
     && !hasRecentWorldArtifact(chat, attention.actorId, 'check_in', 90 * 60_000)
-    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'check_in', followupReasonType, actor);
+    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'check_in', followupReasonType, actor, { attentionScore: attention.attentionScore });
   const canReactMoment = attention.suggestedActions.includes('react_to_moment')
     && hasRecentMomentSignal(chat, 7 * 24 * 60 * 60_000)
     && !hasRecentWorldArtifact(chat, attention.actorId, 'react_to_moment', 120 * 60_000)
-    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'react_to_moment', followupReasonType, actor);
+    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'react_to_moment', followupReasonType, actor, { attentionScore: attention.attentionScore });
   const canInviteActivity = attention.suggestedActions.includes('invite_activity')
     && !hasRecentWorldArtifact(chat, attention.actorId, 'social_outing', 6 * 60 * 60_000)
-    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'social_outing', inviteReasonType, actor);
+    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'social_outing', inviteReasonType, actor, { attentionScore: attention.attentionScore });
   const canCalendarReminder = attention.suggestedActions.includes('calendar_reminder')
     && !hasRecentWorldArtifact(chat, attention.actorId, 'status_update', 120 * 60_000)
-    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'status_update', reminderReasonType, actor);
+    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'status_update', reminderReasonType, actor, { attentionScore: attention.attentionScore });
   const canStatus = !hasRecentWorldArtifact(chat, attention.actorId, 'status_update', 90 * 60_000)
-    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'status_update', 'world_attention_followup', actor);
+    && passesWorldAttentionRestraintPolicy(chat, attention.actorId, 'user', now, 'status_update', 'world_attention_followup', actor, { attentionScore: attention.attentionScore });
   const isLateNight = (() => {
     const hour = new Date(now).getHours();
     return hour >= 23 || hour < 7;
@@ -2005,8 +2013,10 @@ async function evaluateWorldDrivenDecision(
   const companionshipBoundary = boundaryCandidateKind
     ? shouldBlockUserProactiveContactByCompanionshipPolicy({
       character: actor,
+      chat,
       eventKind: boundaryCandidateKind,
       reasonType: boundaryReasonType,
+      attentionScore: attention.attentionScore,
       now,
     })
     : { blocked: false as const };

@@ -96,6 +96,7 @@ export interface UserBondState {
   addressing: AddressingState;
   userProfile: UserProfileMemoryProjection;
   preferredIntimacyStyle: PreferredIntimacyStyle;
+  carePolicy: CarePolicy;
 }
 
 export interface CompanionshipPhaseEventPayload {
@@ -154,6 +155,7 @@ export interface CompanionshipRuntimeTrace {
   rememberedUserPlans: string[];
   boundaries: string[];
   boundaryReasons: string[];
+  carePolicy: Pick<CarePolicy, 'dailyInitiationBudget' | 'triggerSensitivity' | 'silenceAnxietyThresholdHours' | 'expressionIntensity' | 'allowGoodMorning' | 'allowGoodNight' | 'allowMissYou'>;
   evidence: string[];
   intimacy: IntimacyProjection;
   userProfileConfidence: number;
