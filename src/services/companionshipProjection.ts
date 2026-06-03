@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, SharedMemoryAnchor, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -979,6 +979,37 @@ export function buildSharedMemoryAnchors(character: AICharacter, now = 0): Share
     .slice(0, 12);
 }
 
+function inferSecretLeakState(text: string): SharedSecret['leakState'] {
+  if (/(已经公开|传开|泄露|说漏|被发现)/.test(text)) return 'leaked';
+  if (/(坦白|主动说出|承认了|说开了)/.test(text)) return 'confessed';
+  if (/(暗示|影射|含蓄提到|公开留白)/.test(text)) return 'hinted_publicly';
+  return 'sealed';
+}
+
+function buildSecretPublicMask(anchor: SharedMemoryAnchor) {
+  if (anchor.participantIds.includes(USER_ACTOR_ID)) return '有一件只适合留在心里的事';
+  if (/(暗号|共同梗|玩笑)/.test(anchor.text)) return '一个只有熟人懂的暗号';
+  return '一个没有展开说的秘密';
+}
+
+export function buildSharedSecrets(character: AICharacter, now = 0): SharedSecret[] {
+  return buildSharedMemoryAnchors(character, now)
+    .filter((anchor) => anchor.kind === 'shared_secret')
+    .map((anchor): SharedSecret => ({
+      id: `secret-${anchor.id}`,
+      participantIds: anchor.participantIds,
+      privateText: anchor.text,
+      publicMask: buildSecretPublicMask(anchor),
+      leakState: inferSecretLeakState(`${anchor.text}\n${anchor.evidence || ''}`),
+      emotionalWeight: clampRelationshipScore(anchor.salience * 0.58 + anchor.confidence * 0.34 + (anchor.participantIds.includes(USER_ACTOR_ID) ? 8 : 0)),
+      sourceAnchorId: anchor.id,
+      sourceEventIds: anchor.sourceId ? [anchor.sourceId] : [],
+      updatedAt: anchor.updatedAt || now,
+    }))
+    .sort((a, b) => (b.emotionalWeight + b.updatedAt / DAY_MS) - (a.emotionalWeight + a.updatedAt / DAY_MS))
+    .slice(0, 8);
+}
+
 export function buildCharacterCompanionshipStates(character: AICharacter, now = 0): CharacterCompanionshipState[] {
   return (character.relationships || [])
     .filter((relation) => relation.characterId && relation.characterId !== USER_ACTOR_ID && !relation.characterId.startsWith('draft-'))
@@ -1029,10 +1060,12 @@ export function buildCompanionshipArtifactSeeds(params: {
   const members = buildCompanionshipDisplayMembers(character, relatedCharacters);
   const seeds: string[] = [];
   const isPublic = surface === 'public_moment';
+  const sharedSecrets = buildSharedSecrets(character as AICharacter, now);
 
   buildSharedMemoryAnchors(character, now)
     .slice(0, isPublic ? 3 : 4)
     .forEach((anchor) => {
+      if (anchor.kind === 'shared_secret') return;
       const text = cleanArtifactSeedText(anchor.text, members, isPublic ? 90 : 140);
       if (!text) return;
       if (isPublic) {
@@ -1040,8 +1073,6 @@ export function buildCompanionshipArtifactSeeds(params: {
           seeds.push(`公开动态可以只留下“有人懂”的余味，不点名用户，也不写成私密记忆：${text}。`);
         } else if (anchor.kind === 'inside_joke') {
           seeds.push(`公开动态可以像随手提到一个只有熟人懂的梗，不解释来龙去脉：${text}。`);
-        } else if (anchor.kind === 'shared_secret') {
-          seeds.push(`公开动态可以写成含蓄留白，不泄露秘密本身：${text}。`);
         } else if (anchor.kind === 'promise') {
           seeds.push(`公开动态可以把未完成约定写成一句自然期待：${text}。`);
         } else {
@@ -1056,12 +1087,24 @@ export function buildCompanionshipArtifactSeeds(params: {
       seeds.push(`${participants ? `和${participants}有关的` : ''}${anchor.title}可以成为日记里的私密回声：${text}。`);
     });
 
+  sharedSecrets.slice(0, isPublic ? 2 : 3).forEach((secret) => {
+    const participantNames = secret.participantIds
+      .map((id) => resolveCompanionshipActorName(id, relatedCharacters))
+      .filter((name) => name !== (character.name || '这个角色'))
+      .join('和');
+    if (isPublic) {
+      seeds.push(`公开动态只能使用秘密的公开遮罩，不泄露具体内容：${secret.publicMask}。`);
+      return;
+    }
+    seeds.push(`${participantNames ? `和${participantNames}之间的` : ''}小秘密可以成为私密日记材料：${cleanArtifactSeedText(secret.privateText, members, 140)}。`);
+  });
+
   buildCharacterCompanionshipStates(character, now)
     .slice(0, isPublic ? 2 : 3)
     .forEach((state) => {
       const targetName = resolveCompanionshipActorName(state.targetId, relatedCharacters);
       const texture = [
-        state.sharedSecrets[0] ? `小秘密：${cleanArtifactSeedText(state.sharedSecrets[0], members, 80)}` : '',
+        !isPublic && state.sharedSecrets[0] ? `小秘密：${cleanArtifactSeedText(state.sharedSecrets[0], members, 80)}` : '',
         state.sharedRituals[0] ? `共同梗/约定：${cleanArtifactSeedText(state.sharedRituals[0], members, 80)}` : '',
         state.unresolvedCareTopics[0] ? `放心不下：${cleanArtifactSeedText(state.unresolvedCareTopics[0], members, 80)}` : '',
       ].filter(Boolean).join('；');
@@ -1108,11 +1151,16 @@ export function buildCompanionshipRuntimeTrace(params: {
   const profile = bond.userProfile;
   const carePolicy = bond.carePolicy;
   const sharedAnchorLabels = getSharedAnchorLabels(params.character, params.now || Date.now());
+  const sharedSecretLabels = buildSharedSecrets(params.character, params.now || Date.now())
+    .filter((secret) => secret.participantIds.includes(USER_ACTOR_ID))
+    .map((secret) => secret.publicMask)
+    .slice(0, 3);
   return {
     style: bond.style,
     phase: bond.phase,
     currentAddress: bond.addressing.currentAddress,
     sharedAnchors: sharedAnchorLabels.slice(0, 4),
+    sharedSecrets: sharedSecretLabels,
     pendingCareTopics: bond.pendingCareTopics.map((item) => item.text).slice(0, 4),
     rememberedUserPlans: bond.rememberedUserPlans.slice(0, 4),
     boundaries: profile.boundaries.slice(0, 4),

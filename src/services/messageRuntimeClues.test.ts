@@ -112,6 +112,7 @@ describe('messageRuntimeClues', () => {
             phase: 'ambiguous',
             currentAddress: '小夏',
             sharedAnchors: ['第一次: 第一次深夜聊天后还记得对方没有离开'],
+            sharedSecrets: ['有一件只适合留在心里的事'],
             pendingCareTopics: ['明天面试有点紧张。'],
             rememberedUserPlans: ['用户明天有面试。'],
             boundaries: ['用户不想恋爱暧昧，只想当朋友。'],

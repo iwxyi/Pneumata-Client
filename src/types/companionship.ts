@@ -187,6 +187,18 @@ export interface SharedMemoryAnchor {
   updatedAt: number;
 }
 
+export interface SharedSecret {
+  id: string;
+  participantIds: string[];
+  privateText: string;
+  publicMask: string;
+  leakState: 'sealed' | 'hinted_publicly' | 'leaked' | 'confessed';
+  emotionalWeight: number;
+  sourceAnchorId: string;
+  sourceEventIds: string[];
+  updatedAt: number;
+}
+
 export interface CompanionshipProjection {
   userBond: UserBondState | null;
   evidence: string[];
@@ -198,6 +210,7 @@ export interface CompanionshipRuntimeTrace {
   phase: CompanionshipPhase;
   currentAddress: string;
   sharedAnchors: string[];
+  sharedSecrets: string[];
   pendingCareTopics: string[];
   rememberedUserPlans: string[];
   boundaries: string[];

@@ -8,7 +8,7 @@ import {
 import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
-import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipCarePolicyForCharacter, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildHomeCompanionshipSnapshot, buildSharedMemoryAnchors, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
+import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipCarePolicyForCharacter, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildHomeCompanionshipSnapshot, buildSharedMemoryAnchors, buildSharedSecrets, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
 import { buildCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
 
 function character(overrides: Partial<AICharacter> = {}): AICharacter {
@@ -943,6 +943,49 @@ describe('companionshipProjection', () => {
     expect(anchors.some((item) => item.participantIds.includes('draft-new'))).toBe(false);
   });
 
+  it('projects shared secrets with public masks and leak state', () => {
+    const secrets = buildSharedSecrets(
+      character({
+        layeredMemories: [{
+          id: 'secret-user',
+          scope: 'relationship',
+          layer: 'long_term',
+          kind: 'bond',
+          ownerId: 'char-a',
+          subjectIds: ['char-a', 'user'],
+          text: '共同秘密是用户只把那个暗号告诉过苏苏，不能告诉别人。',
+          evidenceText: '用户说这是只有我们知道的暗号。',
+          salience: 0.92,
+          confidence: 0.9,
+          recency: 0.8,
+          reinforcementCount: 2,
+          sourceEventIds: ['evt-secret-user'],
+          origin: 'distilled',
+          createdAt: 100,
+          updatedAt: 300,
+        }],
+        relationships: [{
+          characterId: 'char-b',
+          warmth: 70,
+          trust: 65,
+          competence: 20,
+          threat: 4,
+          note: '共同秘密是已经公开说漏的旧暗号。',
+          updatedAt: 400,
+        }],
+      }),
+      500,
+    );
+
+    expect(secrets[0]).toMatchObject({
+      publicMask: '有一件只适合留在心里的事',
+      leakState: 'sealed',
+      sourceAnchorId: 'memory-secret-user',
+    });
+    expect(secrets[0].emotionalWeight).toBeGreaterThan(70);
+    expect(secrets.some((secret) => secret.leakState === 'leaked')).toBe(true);
+  });
+
   it('builds private and public artifact seeds with different user-memory boundaries', () => {
     const base = character({
       relationships: [{
@@ -983,6 +1026,9 @@ describe('companionshipProjection', () => {
     expect(privateSeeds.join('\n')).toContain('小雨');
     expect(publicSeeds.join('\n')).toContain('公开动态');
     expect(publicSeeds.join('\n')).toContain('小雨');
+    expect(publicSeeds.join('\n')).toContain('公开遮罩');
+    expect(publicSeeds.join('\n')).toContain('一个只有熟人懂的暗号');
+    expect(publicSeeds.join('\n')).not.toContain('只有他们知道的暗号');
     expect(publicSeeds.join('\n')).not.toContain('面试');
     expect(publicSeeds.join('\n')).not.toContain('希望别被公开点名');
   });
