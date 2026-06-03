@@ -1,10 +1,11 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, SharedMemoryAnchor } from '../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, SharedMemoryAnchor, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import { readActiveCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
+import { userProfileMemoryPayloadOf } from './directUserProfileMemory';
 import { isMemoryAnchorCandidate } from './memoryLifecycle';
 import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 
@@ -185,7 +186,7 @@ function hasBoundary(profile: UserProfileMemoryProjection, patterns: RegExp[]) {
 function applyUserBoundariesToCarePolicy(policy: CarePolicy, profile: UserProfileMemoryProjection): CarePolicy {
   const boundaryReasons: string[] = [];
   let next = { ...policy };
-  if (hasBoundary(profile, [/不要.*(主动|打扰|私聊|提醒)/, /不想.*(主动|打扰|私聊|提醒)/, /少.*(主动|打扰|私聊|提醒)/])) {
+  if (hasBoundary(profile, [/不要.*(主动|打扰|私聊|提醒)/, /不想.*(主动|打扰|私聊|提醒)/, /不希望.*(主动|打扰|私聊|提醒)/, /不需要.*(主动|打扰|私聊|提醒)/, /不愿.*(主动|打扰|私聊|提醒)/, /少.*(主动|打扰|私聊|提醒)/])) {
     boundaryReasons.push('user prefers low proactive contact');
     next = {
       ...next,
@@ -197,7 +198,7 @@ function applyUserBoundariesToCarePolicy(policy: CarePolicy, profile: UserProfil
       allowMissYou: false,
     };
   }
-  if (hasBoundary(profile, [/不.*(恋爱|暧昧|情侣|对象|占有|吃醋)/, /不要.*(恋爱|暧昧|情侣|对象|占有|吃醋)/, /只.*朋友/])) {
+  if (hasBoundary(profile, [/不.*(恋爱|暧昧|情侣|对象|占有|吃醋)/, /不要.*(恋爱|暧昧|情侣|对象|占有|吃醋)/, /不希望.*(恋爱|暧昧|情侣|对象|占有|吃醋)/, /只.*朋友/])) {
     boundaryReasons.push('user does not want romantic framing');
     next = {
       ...next,
@@ -205,7 +206,7 @@ function applyUserBoundariesToCarePolicy(policy: CarePolicy, profile: UserProfil
       allowMissYou: false,
     };
   }
-  if (hasBoundary(profile, [/不要.*(早安|晚安)/, /不想.*(早安|晚安)/])) {
+  if (hasBoundary(profile, [/不要.*(早安|晚安)/, /不想.*(早安|晚安)/, /不希望.*(早安|晚安)/, /不需要.*(早安|晚安)/, /不愿.*(早安|晚安)/])) {
     boundaryReasons.push('user rejects greeting rituals');
     next = {
       ...next,
@@ -293,6 +294,35 @@ function collectByPattern(texts: string[], patterns: RegExp[], max = 5) {
   return uniqueTexts(texts.filter((text) => matchAny(text, patterns)), max);
 }
 
+function collectProfileEventItems(chat: GroupChat, characterId: string) {
+  const byKey = new Map<string, UserProfileMemoryEventItem & { updatedAt: number }>();
+  (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .forEach((event) => {
+      const payload = userProfileMemoryPayloadOf(event);
+      if (!payload || payload.characterId !== characterId || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return;
+      payload.items.forEach((item) => {
+        if (!item.text || item.confidence < 0.6) return;
+        const key = `${item.kind}:${compactText(item.text, 140)}`;
+        const previous = byKey.get(key);
+        if (!previous || event.createdAt >= previous.updatedAt) {
+          byKey.set(key, { ...item, text: compactText(item.text, 140), evidence: compactText(item.evidence || event.summary, 140), updatedAt: event.createdAt });
+        }
+      });
+    });
+  return Array.from(byKey.values()).sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+function profileTextsByKind(items: Array<UserProfileMemoryEventItem & { updatedAt: number }>, kind: UserProfileMemoryKind, max = 5) {
+  return uniqueTexts(items.filter((item) => item.kind === kind).map((item) => item.text), max);
+}
+
+function extractProfileEventName(text: string | undefined) {
+  if (!text) return undefined;
+  return text.match(/(?:称呼为|叫做|叫我|名字是|昵称是)[:：]?\s*([^，。；;、\s]{1,12})/)?.[1]
+    || text.match(/([^，。；;、\s]{1,12})$/)?.[1];
+}
+
 function extractAddressPreference(texts: string[]) {
   return texts
     .map((item) => item.match(/(?:叫我|称呼我|喊我|昵称是|名字是)[:：]?\s*([^，。；;、\s]{1,12})/)?.[1])
@@ -318,33 +348,42 @@ function extractDisplayName(messages: Message[], texts: string[]) {
     .find(Boolean);
 }
 
-function buildUserProfileProjection(character: AICharacter, messages: Message[], now: number): UserProfileMemoryProjection {
+function buildUserProfileProjection(chat: GroupChat, character: AICharacter, messages: Message[], now: number): UserProfileMemoryProjection {
+  const profileItems = collectProfileEventItems(chat, character.id);
   const memoryTexts = getUserMemoryTexts(character);
   const recentUserTexts = messages
     .filter((item) => !item.isDeleted && (item.senderId === USER_ACTOR_ID || item.type === 'user' || item.type === 'god'))
     .slice(-10)
     .map((item) => compactText(item.content, 160));
-  const allTexts = uniqueTexts([...memoryTexts, ...recentUserTexts], 12);
-  const boundaries = collectByPattern(allTexts, [
+  const eventTexts = profileItems.map((item) => item.text);
+  const fallbackTexts = profileItems.length ? memoryTexts : [...memoryTexts, ...recentUserTexts];
+  const allTexts = uniqueTexts([...eventTexts, ...fallbackTexts], 16);
+  const eventBoundaries = profileTextsByKind(profileItems, 'boundary');
+  const boundaries = uniqueTexts([...eventBoundaries, ...collectByPattern(allTexts, [
     /不要.*(主动|打扰|私聊|提醒|早安|晚安|恋爱|暧昧|情侣|对象|占有|吃醋)/,
     /不想.*(主动|打扰|私聊|提醒|早安|晚安|恋爱|暧昧|情侣|对象|占有|吃醋)/,
     /只.*朋友/,
     /别.*(叫|喊|称呼|主动|打扰|暧昧|恋爱)/,
-  ]);
+  ])], 6);
+  const addressPreference = extractProfileEventName(profileTextsByKind(profileItems, 'address_preference', 1)[0])
+    || extractProfileEventName(profileTextsByKind(profileItems, 'display_name', 1)[0])
+    || extractAddressPreference(allTexts);
+  const displayName = extractProfileEventName(profileTextsByKind(profileItems, 'display_name', 1)[0])
+    || extractDisplayName(messages, allTexts);
   return {
     userId: USER_ACTOR_ID,
-    displayName: extractDisplayName(messages, allTexts),
-    addressPreference: extractAddressPreference(allTexts),
-    scheduleHints: collectByPattern(allTexts, [/作息|早睡|熬夜|上班|下班|通勤|周末|晚上|早上|白天/]),
-    pressureSources: collectByPattern(allTexts, [/压力|焦虑|难受|不舒服|生病|失眠|加班|面试|考试|ddl|截止/]),
-    preferences: collectByPattern(allTexts, [/喜欢|偏好|想要|爱吃|常去|想试|习惯/]),
-    dislikes: collectByPattern(allTexts, [/讨厌|不喜欢|不想|不要|雷点|介意/]),
+    displayName,
+    addressPreference,
+    scheduleHints: uniqueTexts([...profileTextsByKind(profileItems, 'schedule_hint'), ...collectByPattern(allTexts, [/作息|早睡|熬夜|上班|下班|通勤|周末|晚上|早上|白天/])]),
+    pressureSources: uniqueTexts([...profileTextsByKind(profileItems, 'pressure_source'), ...collectByPattern(allTexts, [/压力|焦虑|难受|不舒服|生病|失眠|加班|面试|考试|ddl|截止/])]),
+    preferences: uniqueTexts([...profileTextsByKind(profileItems, 'preference'), ...collectByPattern(allTexts, [/喜欢|偏好|想要|爱吃|常去|想试|习惯/])]),
+    dislikes: uniqueTexts([...profileTextsByKind(profileItems, 'dislike'), ...collectByPattern(allTexts, [/讨厌|不喜欢|不想|不要|雷点|介意/])]),
     boundaries,
-    importantDates: collectByPattern(allTexts, [/生日|纪念日|考试|面试|约定|截止|ddl|明天|后天|周末/]),
-    recentPlans: collectByPattern(allTexts, [/计划|打算|要去|准备|明天|后天|周末|今晚|最近|下次/]),
-    emotionalPatterns: collectByPattern(allTexts, [/低落|焦虑|压力|紧张|开心|难过|生气|委屈|失眠/]),
+    importantDates: uniqueTexts([...profileTextsByKind(profileItems, 'important_date'), ...collectByPattern(allTexts, [/生日|纪念日|考试|面试|约定|截止|ddl|明天|后天|周末/])]),
+    recentPlans: uniqueTexts([...profileTextsByKind(profileItems, 'recent_plan'), ...collectByPattern(allTexts, [/计划|打算|要去|准备|明天|后天|周末|今晚|最近|下次/])]),
+    emotionalPatterns: uniqueTexts([...profileTextsByKind(profileItems, 'emotional_pattern'), ...collectByPattern(allTexts, [/低落|焦虑|压力|紧张|开心|难过|生气|委屈|失眠/])]),
     sourceTexts: allTexts,
-    confidence: clampScore(Math.min(100, memoryTexts.length * 14 + recentUserTexts.length * 6 + boundaries.length * 8)),
+    confidence: clampScore(Math.min(100, profileItems.length * 18 + memoryTexts.length * 14 + recentUserTexts.length * 6 + boundaries.length * 8)),
     updatedAt: now,
   };
 }
@@ -673,7 +712,7 @@ export function buildUserCompanionshipProjection(params: {
   const inferredPhase = inferPhase(intimacy, ledger);
   const phase = phaseEvent?.phase || inferredPhase;
   const contacts = getLatestContact(messages, character.id);
-  const userProfile = buildUserProfileProjection(character, messages, now);
+  const userProfile = buildUserProfileProjection(chat, character, messages, now);
   const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now);
   const evidence = buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent);
   const sharedAnchors = buildUserSharedAnchors(character, now);
@@ -1015,7 +1054,8 @@ export function buildCompanionshipCarePolicyForCharacter(params: {
       userMemories: [],
     },
   } as AICharacter;
-  const userProfile = buildUserProfileProjection(character, messages, now);
+  const profileChat = params.chat || ({ runtimeEventsV2: [] } as unknown as GroupChat);
+  const userProfile = buildUserProfileProjection(profileChat, character, messages, now);
   const phase = params.phase || readCompanionshipPhaseFromChat(params.chat, character.id, messages, now) || 'curious';
   const intimacy = params.chat
     ? projectIntimacy(getCharacterToUserLedger(params.chat, character.id), messages, character.id, now)

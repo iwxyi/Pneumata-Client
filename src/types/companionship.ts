@@ -78,6 +78,38 @@ export interface UserProfileMemoryProjection {
   updatedAt: number;
 }
 
+export type UserProfileMemoryKind =
+  | 'display_name'
+  | 'address_preference'
+  | 'schedule_hint'
+  | 'pressure_source'
+  | 'preference'
+  | 'dislike'
+  | 'boundary'
+  | 'important_date'
+  | 'recent_plan'
+  | 'emotional_pattern';
+
+export interface UserProfileMemoryEventItem {
+  kind: UserProfileMemoryKind;
+  text: string;
+  evidence: string;
+  confidence: number;
+  sensitive?: boolean;
+}
+
+export interface UserProfileMemoryEventPayload {
+  eventType: 'companionship_user_profile_memory';
+  characterId: string;
+  userId?: string;
+  action: 'upsert' | 'revoke';
+  items: UserProfileMemoryEventItem[];
+  reason?: string;
+  evidence?: string;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface UserBondState {
   userId: string;
   characterId: string;

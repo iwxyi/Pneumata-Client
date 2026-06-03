@@ -267,6 +267,56 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).not.toContain('allowMissYou true');
   });
 
+  it('prioritizes model-led user profile memory events in user profile projection', () => {
+    const profileEvent: RuntimeEventV2 = {
+      id: 'evt-profile-1',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: 250,
+      actorIds: ['user'],
+      targetIds: ['char-a'],
+      evidenceMessageIds: ['m-1'],
+      summary: '苏苏记录了用户画像线索',
+      visibility: 'pair_private',
+      eventClass: 'artifact',
+      payload: {
+        eventType: 'companionship_user_profile_memory',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'upsert',
+        decisionSource: 'model',
+        items: [
+          {
+            kind: 'address_preference',
+            text: '用户希望被称呼为小夏',
+            evidence: '以后叫我小夏就好',
+            confidence: 0.9,
+          },
+          {
+            kind: 'boundary',
+            text: '用户不希望被早安晚安打扰',
+            evidence: '不要早安晚安',
+            confidence: 0.86,
+            sensitive: true,
+          },
+        ],
+      },
+    };
+
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [profileEvent]),
+      character: character(),
+      messages: [message({ content: '这个压力锅最近真的很好用。', timestamp: 200 })],
+      now: 300,
+    });
+
+    expect(projection.userBond?.addressing.currentAddress).toBe('小夏');
+    expect(projection.userBond?.userProfile.boundaries).toContain('用户不希望被早安晚安打扰');
+    expect(projection.userBond?.userProfile.pressureSources).toEqual([]);
+    expect(projection.userBond?.carePolicy.allowGoodMorning).toBe(false);
+    expect(projection.userBond?.carePolicy.allowGoodNight).toBe(false);
+  });
+
   it('projects private, public, and forbidden addresses from user memory', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })]),
