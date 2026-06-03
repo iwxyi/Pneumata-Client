@@ -9,6 +9,7 @@ import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipCarePolicyForCharacter, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
+import { buildCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
 
 function character(overrides: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -353,6 +354,42 @@ describe('companionshipProjection', () => {
 
     expect(projection.userBond?.pendingCareTopics).toEqual([]);
     expect(projection.promptLines.join('\n')).not.toContain('Pending care topics');
+  });
+
+  it('reads runtime care topic events into pending care projection and removes them after closure', () => {
+    const opened = buildCompanionshipCareTopicEventsFromDirectUserMessage({
+      chat: chat('direct'),
+      character: character(),
+      message: message({ id: 'msg-open', content: '明天面试有点紧张。', timestamp: 200 }),
+    });
+    const openProjection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], opened),
+      character: character(),
+      messages: [],
+      now: 300,
+    });
+
+    expect(openProjection.userBond?.pendingCareTopics[0]).toMatchObject({
+      source: 'runtime_event',
+      text: '明天面试有点紧张。',
+      status: 'active',
+    });
+    expect(openProjection.promptLines.join('\n')).toContain('Pending care topics');
+
+    const closed = buildCompanionshipCareTopicEventsFromDirectUserMessage({
+      chat: chat('direct', [], opened),
+      character: character(),
+      message: message({ id: 'msg-close', content: '面试结束了，已经搞定了。', timestamp: 400 }),
+    });
+    const closedProjection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [...opened, ...closed]),
+      character: character(),
+      messages: [],
+      now: 500,
+    });
+
+    expect(closedProjection.userBond?.pendingCareTopics).toEqual([]);
+    expect(closedProjection.promptLines.join('\n')).not.toContain('Pending care topics');
   });
 
   it('blocks proactive contact when user memory rejects active disturbance', () => {

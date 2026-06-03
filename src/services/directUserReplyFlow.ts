@@ -2,6 +2,7 @@ import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { AICharacter } from '../types/character';
 import type { DriverMessageCommitResult, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
+import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { deriveEmotionalState, derivePersonalityDrift } from './personalityDrift';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { updateCharacterLayeredMemories } from './characterLayeredMemory';
@@ -12,6 +13,7 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import type { LocalInterceptionEvent } from './chatEngine';
+import { buildCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
 import { resolveCompanionshipPhaseEventFromDirectUserMessage } from './directCompanionshipPhase';
 
 export async function runDirectUserReplyFlow(params: {
@@ -47,16 +49,22 @@ export async function runDirectUserReplyFlow(params: {
     textApiConfig,
     recentMessages: getProjectedMessages(),
   });
-  const chatForGeneration = phaseEvent
+  const careTopicEvents = buildCompanionshipCareTopicEventsFromDirectUserMessage({
+    chat: params.chat,
+    character: directCharacter,
+    message: params.userMessage,
+  });
+  const companionshipEvents = [phaseEvent, ...careTopicEvents].filter((event): event is RuntimeEventV2 => Boolean(event));
+  const chatForGeneration = companionshipEvents.length
     ? {
         ...params.chat,
         runtimeEventsV2: [
           ...(params.chat.runtimeEventsV2 || []).filter((event) => !event.evidenceMessageIds?.includes(params.userMessage.id)),
-          phaseEvent,
+          ...companionshipEvents,
         ].slice(-160),
       }
     : params.chat;
-  if (phaseEvent) {
+  if (companionshipEvents.length) {
     await params.updateChat(params.chat.id, { runtimeEventsV2: chatForGeneration.runtimeEventsV2 });
   }
 

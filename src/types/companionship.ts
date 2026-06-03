@@ -112,6 +112,19 @@ export interface CompanionshipPhaseEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipCareTopicEventPayload {
+  eventType: 'companionship_care_topic';
+  characterId: string;
+  userId?: string;
+  topicId: string;
+  topicText: string;
+  action: 'opened' | 'closed' | 'blocked' | 'stale';
+  urgency: PendingCareTopic['urgency'];
+  reason?: string;
+  evidence?: string;
+  dueAt?: number;
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;

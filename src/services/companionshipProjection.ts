@@ -4,6 +4,7 @@ import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProj
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
+import { readActiveCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
 import { isMemoryAnchorCandidate } from './memoryLifecycle';
 import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 
@@ -413,10 +414,12 @@ function applyCareTopicLifecycle(topics: PendingCareTopic[], profile: UserProfil
     .slice(0, 4);
 }
 
-function buildPendingCareTopics(profile: UserProfileMemoryProjection, messages: Message[], now: number): PendingCareTopic[] {
+function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: UserProfileMemoryProjection, messages: Message[], now: number): PendingCareTopic[] {
+  const runtimeTopics = readActiveCompanionshipCareTopicsFromEvents(chat, characterId, now);
   const memoryTopics = profile.sourceTexts
     .filter((text) => /(考试|面试|加班|生病|不舒服|压力|焦虑|计划|明天|周末|生日|纪念日|约定|想试|要去)/.test(text))
     .filter((text) => !isCareClosureText(text))
+    .filter((text) => !runtimeTopics.some((topic) => topic.text === compactText(text, 140)))
     .slice(0, 3)
     .map((text, index) => ({
       id: `memory-${index}`,
@@ -431,6 +434,7 @@ function buildPendingCareTopics(profile: UserProfileMemoryProjection, messages: 
     .slice(-6)
     .filter((item) => /(明天|今晚|最近|考试|面试|加班|难受|不舒服|压力|生日|周末|要去|打算)/.test(item.content))
     .filter((item) => !isCareClosureText(item.content))
+    .filter((item) => !runtimeTopics.some((topic) => topic.evidence === compactText(item.content, 120) || topic.text === compactText(item.content, 140)))
     .slice(-2)
     .map((item, index) => ({
       id: `recent-${index}`,
@@ -441,7 +445,7 @@ function buildPendingCareTopics(profile: UserProfileMemoryProjection, messages: 
       evidence: compactText(item.content, 120),
       updatedAt: item.timestamp || now,
     }));
-  return applyCareTopicLifecycle([...recentUser, ...memoryTopics], profile, messages, now);
+  return applyCareTopicLifecycle([...runtimeTopics, ...recentUser, ...memoryTopics], profile, messages, now);
 }
 
 function buildPhaseEvidence(entry: RelationshipLedgerEntry | null, topics: PendingCareTopic[], phaseEvent: ResolvedPhaseEvent | null = null) {
@@ -670,7 +674,7 @@ export function buildUserCompanionshipProjection(params: {
   const phase = phaseEvent?.phase || inferredPhase;
   const contacts = getLatestContact(messages, character.id);
   const userProfile = buildUserProfileProjection(character, messages, now);
-  const pendingCareTopics = buildPendingCareTopics(userProfile, messages, now);
+  const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now);
   const evidence = buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent);
   const sharedAnchors = buildUserSharedAnchors(character, now);
   const preferredIntimacyStyle = inferPreferredStyle(character, intimacy);
