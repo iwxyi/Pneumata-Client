@@ -286,7 +286,9 @@ function mergeCharacters(localCharacters: AICharacter[], remoteCharacters: AICha
   for (const character of normalizeCharacters(localCharacters)) merged.set(character.id, character);
   for (const remote of normalizeCharacters(remoteCharacters)) {
     const local = merged.get(remote.id);
-    if (!local || remote.updatedAt >= local.updatedAt) merged.set(remote.id, normalizeCharacter(mergeCharacterRecord(local, remote)));
+    if (!local || remote.updatedAt >= local.updatedAt || remote.characterDetailLoaded) {
+      merged.set(remote.id, normalizeCharacter(mergeCharacterRecord(local, remote)));
+    }
   }
   return sortCharacters(projectEntities(Array.from(merged.values()), pendingOperations));
 }
