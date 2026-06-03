@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise } from '../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -1348,6 +1348,86 @@ function ritualFromAnchor(anchor: SharedMemoryAnchor): RitualRegistryEntry | nul
   };
 }
 
+function ritualEventPayloadOf(event: RuntimeEventV2): CompanionshipRitualEventPayload | null {
+  const payload = event.payload as Record<string, unknown> | undefined;
+  if (!payload || payload.eventType !== 'companionship_ritual') return null;
+  const action = payload.action;
+  if (action !== 'performed' && action !== 'suppressed' && action !== 'skipped') return null;
+  const kind = payload.kind;
+  if (
+    kind !== 'daily_greeting'
+    && kind !== 'anniversary'
+    && kind !== 'inside_joke'
+    && kind !== 'pet_name'
+    && kind !== 'reconciliation'
+    && kind !== 'milestone'
+  ) return null;
+  const characterId = typeof payload.characterId === 'string' ? payload.characterId : '';
+  const ritualId = typeof payload.ritualId === 'string' ? payload.ritualId : '';
+  if (!characterId || !ritualId) return null;
+  return {
+    eventType: 'companionship_ritual',
+    characterId,
+    userId: typeof payload.userId === 'string' ? payload.userId : undefined,
+    ritualId,
+    kind,
+    action,
+    participantIds: Array.isArray(payload.participantIds) ? payload.participantIds.filter((item): item is string => typeof item === 'string') : [],
+    reason: typeof payload.reason === 'string' ? payload.reason : undefined,
+    evidence: typeof payload.evidence === 'string' ? payload.evidence : undefined,
+    nextAvailableAt: typeof payload.nextAvailableAt === 'number' && Number.isFinite(payload.nextAvailableAt) ? payload.nextAvailableAt : undefined,
+  };
+}
+
+function buildRitualEventState(chat: GroupChat | undefined, characterId: string) {
+  const state = new Map<string, {
+    lastPerformedAt?: number;
+    suppressedReason?: string;
+    nextAvailableAt?: number;
+    updatedAt: number;
+  }>();
+  (chat?.runtimeEventsV2 || []).forEach((event) => {
+    const payload = ritualEventPayloadOf(event);
+    if (!payload || payload.characterId !== characterId) return;
+    const createdAt = event.createdAt || 0;
+    const previous = state.get(payload.ritualId);
+    if (previous && previous.updatedAt > createdAt) return;
+    state.set(payload.ritualId, {
+      lastPerformedAt: payload.action === 'performed' ? createdAt : previous?.lastPerformedAt,
+      suppressedReason: payload.action !== 'performed' ? compactText(payload.reason || payload.evidence || 'ritual suppressed', 120) : undefined,
+      nextAvailableAt: payload.nextAvailableAt,
+      updatedAt: createdAt,
+    });
+  });
+  return state;
+}
+
+function applyRitualExecutionState(ritual: RitualRegistryEntry, eventState: ReturnType<typeof buildRitualEventState>, now: number): RitualRegistryEntry {
+  const state = eventState.get(ritual.id);
+  const lastPerformedAt = state?.lastPerformedAt;
+  const cooldownNextAt = lastPerformedAt && ritual.cooldownHours > 0
+    ? lastPerformedAt + ritual.cooldownHours * 60 * 60_000
+    : undefined;
+  const nextAvailableAt = Math.max(cooldownNextAt || 0, state?.nextAvailableAt || 0) || undefined;
+  const boundaryReasons = [
+    ...ritual.boundaryReasons,
+    state?.suppressedReason ? `ritual suppressed: ${state.suppressedReason}` : '',
+    nextAvailableAt && nextAvailableAt > now ? `ritual cooldown until ${new Date(nextAvailableAt).toISOString()}` : '',
+  ].filter(Boolean);
+  const executionState: RitualRegistryEntry['executionState'] = boundaryReasons.some((reason) => reason.startsWith('ritual suppressed'))
+    ? 'suppressed'
+    : nextAvailableAt && nextAvailableAt > now
+      ? 'cooldown'
+      : 'available';
+  return {
+    ...ritual,
+    lastPerformedAt: lastPerformedAt || ritual.lastPerformedAt,
+    nextAvailableAt,
+    executionState,
+    boundaryReasons,
+  };
+}
+
 export function buildRitualRegistry(params: {
   character: AICharacter;
   chat?: GroupChat;
@@ -1413,6 +1493,7 @@ export function buildRitualRegistry(params: {
     .map(ritualFromAnchor)
     .filter((item): item is RitualRegistryEntry => Boolean(item))
     .forEach((ritual) => rituals.push(ritual));
+  const eventState = buildRitualEventState(params.chat, params.character.id);
   const seen = new Set<string>();
   return rituals
     .filter((ritual) => {
@@ -1421,6 +1502,7 @@ export function buildRitualRegistry(params: {
       seen.add(key);
       return true;
     })
+    .map((ritual) => applyRitualExecutionState(ritual, eventState, now))
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .slice(0, 10);
 }
@@ -1457,6 +1539,8 @@ export function buildCharacterCompanionshipStates(character: AICharacter, now = 
 
 export function buildCompanionshipArtifactSeeds(params: {
   character: Partial<AICharacter>;
+  chat?: GroupChat;
+  messages?: Message[];
   relatedCharacters?: Pick<AICharacter, 'id' | 'name'>[];
   surface?: 'private_diary' | 'public_moment';
   includeUserMemory?: boolean;
@@ -1465,6 +1549,8 @@ export function buildCompanionshipArtifactSeeds(params: {
 }): string[] {
   const {
     character,
+    chat,
+    messages,
     relatedCharacters = [],
     surface = 'private_diary',
     includeUserMemory = surface !== 'public_moment',
@@ -1476,7 +1562,7 @@ export function buildCompanionshipArtifactSeeds(params: {
   const seeds: string[] = [];
   const isPublic = surface === 'public_moment';
   const sharedSecrets = buildSharedSecrets(character as AICharacter, now);
-  const rituals = buildRitualRegistry({ character: character as AICharacter, now });
+  const rituals = buildRitualRegistry({ character: character as AICharacter, chat, messages, now });
 
   buildSharedMemoryAnchors(character, now)
     .slice(0, isPublic ? 3 : 4)
@@ -1516,6 +1602,7 @@ export function buildCompanionshipArtifactSeeds(params: {
   });
 
   rituals.slice(0, isPublic ? 2 : 3).forEach((ritual) => {
+    if (ritual.executionState === 'cooldown' || ritual.executionState === 'suppressed') return;
     if (isPublic && ritual.participantIds.includes(USER_ACTOR_ID)) return;
     const text = cleanArtifactSeedText(ritual.content, members, isPublic ? 90 : 140);
     if (!text) return;
@@ -1588,7 +1675,15 @@ export function buildCompanionshipRuntimeTrace(params: {
     chat: params.chat,
     messages: params.messages,
     now: params.now || Date.now(),
-  }).map((ritual) => ritual.content).slice(0, 4);
+  }).map((ritual) => {
+    const state = ritual.executionState || 'available';
+    const suffix = state === 'cooldown' && ritual.nextAvailableAt
+      ? ` · 冷却至 ${new Date(ritual.nextAvailableAt).toLocaleString()}`
+      : state === 'suppressed'
+        ? ` · 抑制：${ritual.boundaryReasons.slice(-1)[0] || '有边界限制'}`
+        : '';
+    return `${ritual.content} · ${state}${suffix}`;
+  }).slice(0, 4);
   const diagnostics = buildCompanionshipDiagnostics(params.chat, params.character.id);
   return {
     style: bond.style,

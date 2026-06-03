@@ -201,6 +201,19 @@ export interface CompanionshipCareTopicEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipRitualEventPayload {
+  eventType: 'companionship_ritual';
+  characterId: string;
+  userId?: string;
+  ritualId: string;
+  kind: RitualRegistryEntry['kind'];
+  action: 'performed' | 'suppressed' | 'skipped';
+  participantIds: string[];
+  reason?: string;
+  evidence?: string;
+  nextAvailableAt?: number;
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;
@@ -252,6 +265,8 @@ export interface RitualRegistryEntry {
   boundaryReasons: string[];
   sourceAnchorId?: string;
   lastPerformedAt?: number;
+  nextAvailableAt?: number;
+  executionState?: 'available' | 'cooldown' | 'suppressed';
   updatedAt: number;
 }
 

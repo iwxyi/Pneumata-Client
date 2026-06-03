@@ -102,6 +102,31 @@ function phaseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
   };
 }
 
+function ritualEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-ritual-1',
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt: 1_000,
+    actorIds: ['char-a'],
+    targetIds: ['user'],
+    summary: '苏苏使用了一次轻度问候仪式。',
+    visibility: 'pair_private',
+    eventClass: 'artifact',
+    payload: {
+      eventType: 'companionship_ritual',
+      characterId: 'char-a',
+      userId: 'user',
+      ritualId: 'ritual-char-a-daily-greeting',
+      kind: 'daily_greeting',
+      action: 'performed',
+      participantIds: ['char-a', 'user'],
+      reason: '用户上线后自然接了一句问候。',
+    },
+    ...overrides,
+  };
+}
+
 function relationship(current: RelationshipLedgerEntry['current']): RelationshipLedgerEntry {
   return {
     pairKey: 'char-a->user',
@@ -1363,6 +1388,52 @@ describe('companionshipProjection', () => {
 
     expect(rituals.some((ritual) => ritual.kind === 'daily_greeting')).toBe(false);
     expect(rituals.find((ritual) => ritual.kind === 'pet_name')?.boundaryReasons).toContain('user rejects greeting rituals');
+  });
+
+  it('reads ritual execution events into cooldown state and debug trace', () => {
+    const ritualChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [ritualEvent()]);
+    const ritualCharacter = character({
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说：叫我小夏。'],
+      },
+    });
+    const rituals = buildRitualRegistry({
+      character: ritualCharacter,
+      chat: ritualChat,
+      messages: [],
+      now: 2_000,
+    });
+    const greeting = rituals.find((ritual) => ritual.id === 'ritual-char-a-daily-greeting');
+
+    expect(greeting).toMatchObject({
+      lastPerformedAt: 1_000,
+      executionState: 'cooldown',
+    });
+    expect(greeting?.nextAvailableAt).toBe(1_000 + 12 * 60 * 60_000);
+    expect(greeting?.boundaryReasons.join('\n')).toContain('ritual cooldown until');
+
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: ritualChat,
+      character: ritualCharacter,
+      messages: [],
+      now: 2_000,
+    });
+    expect(trace?.rituals.join('\n')).toContain('cooldown');
+    expect(trace?.rituals.join('\n')).toContain('冷却至');
+
+    const seeds = buildCompanionshipArtifactSeeds({
+      character: ritualCharacter,
+      chat: ritualChat,
+      messages: [],
+      surface: 'private_diary',
+      now: 2_000,
+    });
+    expect(seeds.join('\n')).not.toContain('早安/晚安');
   });
 
   it('builds private and public artifact seeds with different user-memory boundaries', () => {
