@@ -170,10 +170,12 @@ describe('buildSystemPromptWithContext', () => {
 
     expect(rendered[0]?.role).toBe('user');
     expect(rendered[0]?.content).toContain('Transcript fact record, not wording/style sample - 心理学家.');
-    expect(rendered[0]?.content).toContain('Context payload');
+    expect(rendered[0]?.content).toContain('visible_text=withheld');
     expect(rendered[0]?.content).not.toContain('心理学家: 这句话的重点');
+    expect(rendered[0]?.content).not.toContain('不是她说了什么');
     expect(rendered[1]?.content).toContain('latest AI turn');
     expect(rendered[1]?.content).not.toContain('娱乐记者: 那这合照就更微妙了。');
+    expect(rendered[1]?.content).not.toContain('那这合照');
   });
 
   it('does not feed repeated AI opening templates back as raw imitation samples', () => {
@@ -189,7 +191,7 @@ describe('buildSystemPromptWithContext', () => {
     expect(rendered.filter((item) => item.content.includes('Transcript fact record'))).toHaveLength(2);
   });
 
-  it('summarizes rich surface markers without feeding raw reaction formats back to the model', () => {
+  it('withholds AI visible text and attachment descriptions without format-specific filtering', () => {
     const rendered = buildChatMessages([
       buildMessage({
         type: 'ai',
@@ -210,10 +212,10 @@ describe('buildSystemPromptWithContext', () => {
     ], new Map(), 12);
 
     const content = rendered[0]?.content || '';
-    expect(content).toContain('Surface markers withheld');
-    expect(content).toContain('nonverbal reaction marker');
-    expect(content).toContain('sticker attachment');
+    expect(content).toContain('visible_text=withheld');
+    expect(content).toContain('attachments=sticker');
     expect(content).not.toContain('😂');
+    expect(content).not.toContain('这操作也太熟练了');
     expect(content).not.toContain('夸张大笑表情');
   });
 

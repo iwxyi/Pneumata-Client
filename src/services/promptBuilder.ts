@@ -673,36 +673,20 @@ function getRelationshipSnapshot(character: AICharacter, target: AICharacter | u
   return character.relationships.find((item) => item.characterId === target.id) || null;
 }
 
-function stripSurfaceMarkers(content: string) {
-  return content
-    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, '')
-    .replace(/([!?！？~～…])\1+/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
+function getLengthBand(length: number) {
+  if (length <= 0) return 'empty';
+  if (length <= 12) return 'micro';
+  if (length <= 40) return 'short';
+  if (length <= 100) return 'medium';
+  return 'long';
 }
 
-function buildSurfaceMarkerSummary(message: Message) {
-  const markers: string[] = [];
-  if (/[\p{Extended_Pictographic}]/u.test(message.content)) markers.push('nonverbal reaction marker');
-  const attachments = message.metadata?.attachments || [];
-  const attachmentKinds = Array.from(new Set(attachments.map((attachment) => attachment.kind).filter(Boolean)));
-  attachmentKinds.forEach((kind) => markers.push(`${kind} attachment`));
-  return markers.length ? ` Surface markers withheld: ${markers.join(', ')}.` : '';
-}
-
-function compactAiTranscriptEvidence(message: Message, max = 180) {
-  const normalized = stripSurfaceMarkers(message.content);
-  if (!normalized) return '[empty visible turn]';
-  const withoutRoleActions = normalized
-    .replace(/^(?:（[^（）]{1,32}）|\([^()]{1,32}\)|\*[^*\n]{1,32}\*)\s*/g, '')
-    .trim();
-  const clauses = withoutRoleActions
-    .split(/(?<=[。！？!?])|[，,；;]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const semanticClauses = clauses.length > 1 ? clauses.slice(1) : clauses;
-  const compact = (semanticClauses.join('；') || withoutRoleActions).slice(0, max);
-  return compact || '[visible turn present; surface text withheld]';
+function buildAiTurnStateRecord(message: Message) {
+  const attachmentKinds = Array.from(new Set((message.metadata?.attachments || [])
+    .map((attachment) => attachment.kind)
+    .filter(Boolean)));
+  const attachmentLine = attachmentKinds.length ? ` attachments=${attachmentKinds.join(',')};` : '';
+  return `visible_text=withheld; length=${getLengthBand(Array.from(message.content || '').length)};${attachmentLine}`;
 }
 
 export function buildChatMessages(messages: Message[], characters: Map<string, AICharacter>, limit = 12) {
@@ -731,9 +715,9 @@ export function buildChatMessages(messages: Message[], characters: Map<string, A
           ? `${senderName}: ${message.content}`
           : [
             `Transcript fact record, not wording/style sample - ${senderName}.`,
-            `Use this as state/context only; do not imitate its visible sentence form.`,
-            `Visible turn surface is ${message.id === latestAiId ? 'latest AI turn' : 'earlier AI turn'} and is intentionally compacted.`,
-            `Context payload: ${compactAiTranscriptEvidence(message)}.${buildSurfaceMarkerSummary(message)}`,
+            `Use this as turn-state context only; the AI visible text is withheld to avoid feeding imitation samples back into generation.`,
+            `Turn position: ${message.id === latestAiId ? 'latest AI turn' : 'earlier AI turn'}.`,
+            `State payload: ${buildAiTurnStateRecord(message)}`,
           ].join(' '),
       };
     });
