@@ -804,12 +804,22 @@ function resolveLatestHumanTurnTrace(messages: Message[]): LatestHumanTurnTrace 
 function buildLatestHumanTurnPriorityPrompt(turn: LatestHumanTurnTrace | null) {
   if (!turn?.text) return '';
   const authority = turn.type === 'god' ? 'developer intervention' : 'latest human turn';
-  return `\n## Latest Human Turn Priority
-- Current human input (${authority}, ${turn.aiTurnsSince} AI turn(s) since): ${turn.text}
-- Before drafting, infer the job of that human input from its meaning: question, topic move, correction, constraint, approval/disapproval, or ordinary participation.
-- If it is a correction or constraint, change the next visible behavior. Do not merely acknowledge the correction, and do not replace one repeated surface habit with another repeated surface habit.
-- If later AI turns have already satisfied the content request, do not re-answer stale content; keep any ongoing behavioral constraint from that human input.
-- The first sentence must earn its place by doing a concrete new job in the room: answer, decide, add a detail, redirect, challenge, concede, or move logistics forward. It should not exist only as an acknowledgement wrapper around the old room pattern.`;
+  const phase = turn.aiTurnsSince <= 0
+    ? 'fresh human turn'
+    : turn.aiTurnsSince <= 2
+      ? 'active room agenda'
+      : 'background room context';
+  const freshnessLine = turn.aiTurnsSince <= 0
+    ? '- This human turn has not been answered yet. Let the next visible move address or advance it, while still sounding like this character.'
+    : '- One or more AI turns already followed this human input. Do not restart as if every speaker is independently answering the user; continue the live room from the latest speaker, unresolved detail, relationship pressure, or distinct character motive.';
+  return `\n## Latest Human Turn Context
+- Current human input (${authority}, ${turn.aiTurnsSince} AI turn(s) since, ${phase}): ${turn.text}
+- Infer the job of that human input from its meaning: question, topic move, correction, constraint, approval/disapproval, or ordinary participation.
+${freshnessLine}
+- Treat it as room context, not a command that every character must answer in the same frame.
+- For broad group questions, contribute only a distinct in-character angle, objection, practical detail, or social reaction. Do not make every member produce the same category of answer.
+- If it is a correction or constraint, apply it as a behavioral boundary without announcing compliance; do not replace one repeated surface habit with another repeated surface habit.
+- The first sentence should be a live social move, not a universal answer wrapper. It may answer, react to another member, push back, add a missing detail, redirect, tease, concede, or move logistics forward.`;
 }
 
 function getCharacterNameById(characters: AICharacter[], id: string) {
