@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Button, Typography } from '@mui/material';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
@@ -23,7 +23,7 @@ export default function CharacterEditorPage() {
   const editId = isCreate ? null : (id || null);
   const settings = useSettingsStore();
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
-  const { characters, loadCharacters, loadCharacter, addCharacter, updateCharacter, updateCharacters, deleteCharacter, initializePresets } = useCharacterStore();
+  const { characters, loadCharacters, loadCharacter, addCharacter, updateCharacter, updateCharacters, deleteCharacter, initializePresets, remoteDeletedCharacterIds } = useCharacterStore();
   const chats = useChatStore((state) => state.chats);
   const loadChats = useChatStore((state) => state.loadChats);
   const loadWorldRuntime = useChatStore((state) => state.loadWorldRuntime);
@@ -73,6 +73,7 @@ export default function CharacterEditorPage() {
   }, [editId, syncArtifactCloud]);
 
   const editChar = useMemo(() => (editId ? characters.find((character) => character.id === editId) : undefined), [characters, editId]);
+  const isRemoteDeletedCharacter = Boolean(editId && remoteDeletedCharacterIds.includes(editId));
   const headerTitle = useMemo(() => {
     const normalizedName = draftNameState.editId === editId ? draftNameState.name.trim() : '';
     if (editId) return normalizedName || editChar?.name || t('character.edit');
@@ -95,6 +96,26 @@ export default function CharacterEditorPage() {
 
   const duplicateNameErrorText = i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists';
   const shouldWaitForCharacter = Boolean(editId && (!editChar || !editChar.characterDetailLoaded) && !(bootstrapComplete && !editChar));
+  if (isRemoteDeletedCharacter) {
+    return (
+      <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto', display: 'grid', gap: 1.5 }}>
+        <Typography variant="h6">
+          {i18n.language.startsWith('zh') ? '角色已在其他设备删除' : 'Character deleted on another device'}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          {i18n.language.startsWith('zh')
+            ? '当前页面已停止编辑，避免把旧缓存重新同步回云端。你可以到回收站恢复，或返回角色列表。'
+            : 'Editing is stopped to avoid syncing stale cached data back to the cloud. Restore it from the recycle bin or return to the library.'}
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button variant="outlined" onClick={() => navigate('/settings/recycle-bin')}>
+            {i18n.language.startsWith('zh') ? '查看回收站' : 'Open recycle bin'}
+          </Button>
+          <Button onClick={goBack}>{i18n.language.startsWith('zh') ? '返回' : 'Back'}</Button>
+        </Box>
+      </Box>
+    );
+  }
   if (editId && !editChar && !shouldWaitForCharacter) {
     return (
       <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>

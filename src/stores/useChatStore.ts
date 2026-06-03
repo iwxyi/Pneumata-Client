@@ -268,6 +268,8 @@ interface ChatStore extends PersistedChatState {
   isLoading: boolean;
   pendingEditSyncCount: number;
   pendingEditSyncError: string | null;
+  remoteDeletedChatIds: string[];
+  remoteDeletedChats: GroupChat[];
   loadChats: () => Promise<void>;
   loadChat: (id: string) => Promise<GroupChat | null>;
   loadWorldRuntime: () => Promise<void>;
@@ -606,6 +608,8 @@ export const useChatStore = create<ChatStore>()(
         pendingOperations: [],
         pendingEditSyncCount: 0,
         pendingEditSyncError: null,
+        remoteDeletedChatIds: [],
+        remoteDeletedChats: [],
         isLoading: false,
 
         loadChats: async () => {
@@ -635,6 +639,8 @@ export const useChatStore = create<ChatStore>()(
               const visible = await reloadVisibleChatState(get().pendingOperations);
               set((state) => ({
                 chats: mergeVisibleChats(state.chats, visible, state.pendingOperations),
+                remoteDeletedChatIds: state.remoteDeletedChatIds.filter((id) => !visible.some((chat) => chat.id === id)),
+                remoteDeletedChats: state.remoteDeletedChats.filter((chat) => !visible.some((visibleChat) => visibleChat.id === chat.id)),
                 isLoading: false,
                 lastSyncedAt: Date.now(),
                 pendingEditSyncCount: get().pendingOperations.length,
@@ -658,15 +664,28 @@ export const useChatStore = create<ChatStore>()(
           if (!id) return null;
           await ensureChatStoreHydrated();
           const cached = get().chats.find((chat) => chat.id === id);
-          if (cached?.runtimeDetailLoaded) return cached;
           if (shouldSkipCloudSync()) return cached || null;
           const existing = chatDetailLoadPromises.get(id);
           if (existing) return existing;
           const promise = (async () => {
             try {
               const detail = await fetchChatDetail(id);
+              if (detail.deletedAt != null) {
+                const snapshot = cached || detail;
+                set((state) => ({
+                  chats: state.chats.filter((chat) => chat.id !== id),
+                  remoteDeletedChatIds: Array.from(new Set([...state.remoteDeletedChatIds, id])),
+                  remoteDeletedChats: [snapshot, ...state.remoteDeletedChats.filter((chat) => chat.id !== id)],
+                  lastSyncedAt: state.lastSyncedAt || Date.now(),
+                  pendingEditSyncCount: state.pendingOperations.length,
+                  pendingEditSyncError: latestChatError(state.pendingOperations),
+                }));
+                return snapshot;
+              }
               set((state) => ({
                 chats: mergeVisibleChats(state.chats, [detail], state.pendingOperations),
+                remoteDeletedChatIds: state.remoteDeletedChatIds.filter((chatId) => chatId !== id),
+                remoteDeletedChats: state.remoteDeletedChats.filter((chat) => chat.id !== id),
                 lastSyncedAt: state.lastSyncedAt || Date.now(),
                 pendingEditSyncCount: state.pendingOperations.length,
                 pendingEditSyncError: latestChatError(state.pendingOperations),

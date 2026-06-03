@@ -101,7 +101,7 @@ export default function ChatDetailPage() {
   const isSplitDetailPane = pane.role === 'detail';
   const { setHideMobileBottomNav } = useLayoutHeaderActions();
 
-  const { chats, updateChat, applyChatRuntimeDelta, loadChat, markChatsWarm, isLoading: chatsLoading } = useChatStore();
+  const { chats, updateChat, applyChatRuntimeDelta, loadChat, markChatsWarm, isLoading: chatsLoading, remoteDeletedChatIds, remoteDeletedChats } = useChatStore();
   const { characters, updateCharacter, updateCharacters, loadCharacters, markCharactersWarm } = useCharacterStore();
   const { messages, messageWindowsByChatId, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, upsertMessages, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
@@ -111,6 +111,7 @@ export default function ChatDetailPage() {
   const dramaBoost = useSettingsStore((s) => s.developerUI.dramaBoost);
   const showLocalInterceptionHints = useSettingsStore((s) => s.developerMode && s.developerUI.showLocalInterceptionHints);
   const currentUser = useAuthStore((s) => s.user);
+  const isRemoteDeletedChat = Boolean(id && remoteDeletedChatIds.includes(id));
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' }>({ open: false, message: '', severity: 'error' });
   const [detailBootstrapComplete, setDetailBootstrapComplete] = useState(false);
@@ -141,7 +142,8 @@ export default function ChatDetailPage() {
     };
   }, [id, loadCharacters, loadChat, markCharactersWarm, markChatsWarm]);
 
-  const chat = chats.find((c) => c.id === id);
+  const remoteDeletedChat = remoteDeletedChats.find((c) => c.id === id);
+  const chat = chats.find((c) => c.id === id) || remoteDeletedChat;
   const sessionInfoCards = useMemo(() => {
     if (!chat) return [];
     return projectSessionInfoCards({ chat, chats, members: characters, isZh: true });
@@ -225,6 +227,12 @@ export default function ChatDetailPage() {
     isRunningRef.current = isRunning;
     isPausedRef.current = isPaused;
   }, [isPaused, isRunning]);
+
+  useEffect(() => {
+    if (!isRemoteDeletedChat) return;
+    pause();
+    stop();
+  }, [isRemoteDeletedChat, pause, stop]);
 
   useEffect(() => {
     activeChatIdRef.current = id ?? null;
@@ -579,7 +587,7 @@ export default function ChatDetailPage() {
     navigate(fromTab ? `/chats?tab=${fromTab}` : '/chats');
   }, [fromTab, navigate]);
 
-  const canAutoRunConversation = chat?.type !== 'direct';
+  const canAutoRunConversation = chat?.type !== 'direct' && !isRemoteDeletedChat;
 
   const handleHeaderPrimaryAction = useCallback(() => {
     if (!chat || !id || !canAutoRunConversation) return;
@@ -607,9 +615,18 @@ export default function ChatDetailPage() {
   if (!chat) {
     return (
       <Box sx={{ display: 'grid', placeItems: 'center', height: '100%', p: 3 }}>
-        <Typography variant="body2" color="text.secondary">
-          {chatsLoading || !detailBootstrapComplete ? '正在打开会话...' : '未找到这个会话'}
-        </Typography>
+        <Box sx={{ display: 'grid', gap: 1.5, justifyItems: 'center', textAlign: 'center' }}>
+          <Typography variant="body2" color="text.secondary">
+            {isRemoteDeletedChat
+              ? '这个会话已在其他设备删除'
+              : (chatsLoading || !detailBootstrapComplete ? '正在打开会话...' : '未找到这个会话')}
+          </Typography>
+          {isRemoteDeletedChat ? (
+            <Button size="small" variant="outlined" onClick={() => navigate('/settings/recycle-bin')}>
+              查看回收站
+            </Button>
+          ) : null}
+        </Box>
       </Box>
     );
   }
@@ -651,7 +668,7 @@ export default function ChatDetailPage() {
                 <ArrowBackIcon />
             </IconButton>
           ) : null}
-          actions={(
+          actions={isRemoteDeletedChat ? null : (
             <>
               {headerPrimaryActionButton}
               {!isMobile ? (
@@ -665,6 +682,23 @@ export default function ChatDetailPage() {
             </>
           )}
         />
+        {isRemoteDeletedChat ? (
+          <Box sx={{
+            position: 'absolute',
+            left: 12,
+            right: 12,
+            top: isSplitDetailPane ? 76 : 'calc(88px + env(safe-area-inset-top, 0px))',
+            zIndex: 3,
+            p: 1.25,
+            borderRadius: 1,
+            bgcolor: 'warning.light',
+            color: 'warning.contrastText',
+            boxShadow: 2,
+          }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>此会话已在其他设备删除</Typography>
+            <Typography variant="caption">当前仅保留本地只读历史；已停止自动生成和新消息提交。</Typography>
+          </Box>
+        ) : null}
         <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1 }}>
           <MessageList
             key={id}
@@ -681,10 +715,10 @@ export default function ChatDetailPage() {
             loadingText={t('common.loading')}
             topHint="没有更早的消息"
             topInset={isSplitDetailPane ? { xs: '76px', sm: '76px' } : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
-            bottomInset={{ xs: 'calc(82px + env(safe-area-inset-bottom, 0px))', sm: '82px' }}
+            bottomInset={isRemoteDeletedChat ? { xs: '24px', sm: '24px' } : { xs: 'calc(82px + env(safe-area-inset-bottom, 0px))', sm: '82px' }}
           />
         </Box>
-        <Box
+        {isRemoteDeletedChat ? null : <Box
           sx={{
             position: 'absolute',
             left: 0,
@@ -712,10 +746,10 @@ export default function ChatDetailPage() {
               return normalizeAndRunSurfaceIntent(surface, submission);
             }}
           />
-        </Box>
+        </Box>}
       </Box>
 
-      <RightPanel title={sidebarTitle} hideMobileTitle>
+      {isRemoteDeletedChat ? null : <RightPanel title={sidebarTitle} hideMobileTitle>
         <PageSection spacing={2} fill animate={false}>
           <SessionInfoCards cards={sessionInfoCards} onOpenChat={(chatId) => navigate(`/chats/${chatId}`)} />
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -794,7 +828,7 @@ export default function ChatDetailPage() {
             </LazyPanel>
           </Box>
         </PageSection>
-      </RightPanel>
+      </RightPanel>}
 
       <MessageAnalysisDialog
         open={analysisDialogOpen}

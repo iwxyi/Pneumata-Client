@@ -419,6 +419,7 @@ interface CharacterStore extends PersistedCharacterState {
   isLoading: boolean;
   pendingEditSyncCount: number;
   pendingEditSyncError: string | null;
+  remoteDeletedCharacterIds: string[];
   loadCharacters: () => Promise<void>;
   loadCharacter: (id: string) => Promise<AICharacter | null>;
   prefetchCharacters: () => Promise<void>;
@@ -680,6 +681,7 @@ export const useCharacterStore = create<CharacterStore>()(
         pendingOperations: [],
         pendingEditSyncCount: 0,
         pendingEditSyncError: null,
+        remoteDeletedCharacterIds: [],
         isLoading: false,
 
         loadCharacters: async () => {
@@ -709,6 +711,7 @@ export const useCharacterStore = create<CharacterStore>()(
               const visible = await reloadVisibleCharacterState(get().pendingOperations);
               set((state) => ({
                 characters: mergeVisibleCharacters(state.characters, visible, state.pendingOperations),
+                remoteDeletedCharacterIds: state.remoteDeletedCharacterIds.filter((id) => !visible.some((character) => character.id === id)),
                 isLoading: false,
                 lastSyncedAt: Date.now(),
                 pendingEditSyncCount: get().pendingOperations.length,
@@ -732,15 +735,25 @@ export const useCharacterStore = create<CharacterStore>()(
           if (!id) return null;
           await ensureCharacterStoreHydrated();
           const cached = get().characters.find((character) => character.id === id);
-          if (cached?.characterDetailLoaded) return cached;
           if (shouldSkipCloudSync()) return cached || null;
           const existing = characterDetailLoadPromises.get(id);
           if (existing) return existing;
           const promise = (async () => {
             try {
               const detail = await fetchCharacterDetail(id);
+              if (detail.deletedAt != null) {
+                set((state) => ({
+                  characters: state.characters.filter((character) => character.id !== id),
+                  remoteDeletedCharacterIds: Array.from(new Set([...state.remoteDeletedCharacterIds, id])),
+                  lastSyncedAt: state.lastSyncedAt || Date.now(),
+                  pendingEditSyncCount: state.pendingOperations.length,
+                  pendingEditSyncError: latestCharacterError(state.pendingOperations),
+                }));
+                return cached || detail;
+              }
               set((state) => ({
                 characters: mergeVisibleCharacters(state.characters, [detail], state.pendingOperations),
+                remoteDeletedCharacterIds: state.remoteDeletedCharacterIds.filter((characterId) => characterId !== id),
                 lastSyncedAt: state.lastSyncedAt || Date.now(),
                 pendingEditSyncCount: state.pendingOperations.length,
                 pendingEditSyncError: latestCharacterError(state.pendingOperations),
