@@ -158,6 +158,7 @@ class ApiClient {
   }
 
   async createCharacter(data: {
+    id?: string;
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null; personalityDrift?: object; emotionalState?: object; soulState?: object; coreProfile?: object;
     visualIdentity?: CharacterVisualIdentity | null;
@@ -263,6 +264,7 @@ class ApiClient {
   }
 
   async createChat(data: {
+    id?: string;
     type?: string; mode?: string; modeConfig?: object; modeState?: object; name: string; topic?: string; style?: string; runtimeEvolutionIntensity?: 'slow' | 'balanced' | 'fast'; memberIds: string[];
     speed?: number; isActive?: boolean; allowIntervention?: boolean; showRoleActions?: boolean; topicSeed?: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeSeed?: { notes?: string[]; artifacts?: string[] }; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     runtimeEventsV2?: object[]; relationshipLedger?: object[]; governance?: unknown; dramaRules?: unknown; worldState?: unknown; directorControls?: unknown;
