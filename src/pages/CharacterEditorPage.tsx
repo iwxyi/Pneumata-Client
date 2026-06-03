@@ -52,7 +52,7 @@ export default function CharacterEditorPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([editId ? loadCharacter(editId) : loadCharacters(), loadChats(), loadWorldRuntime()])
+    void (editId ? loadCharacter(editId) : loadCharacters())
       .then(() => initializePresets())
       .finally(() => {
         if (!cancelled) setBootstrapComplete(true);
@@ -60,7 +60,7 @@ export default function CharacterEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [editId, initializePresets, loadCharacter, loadCharacters, loadChats, loadWorldRuntime]);
+  }, [editId, initializePresets, loadCharacter, loadCharacters]);
 
   useEffect(() => {
     void loadChats();
