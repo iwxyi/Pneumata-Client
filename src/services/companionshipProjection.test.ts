@@ -8,7 +8,7 @@ import {
 import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
-import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipCarePolicyForCharacter, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
+import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipCarePolicyForCharacter, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildHomeCompanionshipSnapshot, buildSharedMemoryAnchors, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
 import { buildCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
 
 function character(overrides: Partial<AICharacter> = {}): AICharacter {
@@ -752,6 +752,42 @@ describe('companionshipProjection', () => {
     });
 
     expect(signature?.offlineTrace).toContain('保持安静');
+    expect(signature?.unsentDraft).toBeUndefined();
+  });
+
+  it('projects online return text for home-level companionship status', () => {
+    const latestUserAt = 200;
+    const directChat = chat('direct', [relationship({ warmth: 72, trust: 70, competence: 10, threat: 2 })]);
+    const companion = character({ memory: { shortTermSummary: '', longTerm: [], secrets: [], obsessions: [], tabooTopics: [], userMemories: ['用户说：叫我小夏。'] } });
+    const signature = buildCompanionshipStatusSignature({
+      chat: directChat,
+      character: companion,
+      messages: [message({ content: '我先去忙了，晚点回来。', timestamp: latestUserAt })],
+      now: latestUserAt + 30 * 60 * 60 * 1000,
+    });
+    const snapshot = buildHomeCompanionshipSnapshot({
+      chats: [directChat],
+      characters: [companion],
+      messages: [message({ chatId: directChat.id, content: '我先去忙了，晚点回来。', timestamp: latestUserAt })],
+      now: latestUserAt + 30 * 60 * 60 * 1000,
+    });
+
+    expect(signature?.onlineReturn).toContain('小夏');
+    expect(signature?.debugLines.join('\n')).toContain('onlineReturn=');
+    expect(snapshot?.text).toBe(signature?.onlineReturn);
+    expect(snapshot?.characterName).toBe('苏苏');
+  });
+
+  it('does not project online return when user boundary blocks proactive contact', () => {
+    const latestUserAt = 200;
+    const signature = buildCompanionshipStatusSignature({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 70, competence: 10, threat: 2 })]),
+      character: character({ memory: { shortTermSummary: '', longTerm: [], secrets: [], obsessions: [], tabooTopics: [], userMemories: ['用户不想主动打扰，也不要主动私聊。'] } }),
+      messages: [message({ content: '我先去忙了。', timestamp: latestUserAt })],
+      now: latestUserAt + 30 * 60 * 60 * 1000,
+    });
+
+    expect(signature?.onlineReturn).toBeUndefined();
     expect(signature?.unsentDraft).toBeUndefined();
   });
 

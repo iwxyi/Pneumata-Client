@@ -216,5 +216,6 @@ export interface CompanionshipStatusSignature {
   addressing?: AddressingState;
   offlineTrace?: string;
   unsentDraft?: string;
+  onlineReturn?: string;
   updatedAt: number;
 }

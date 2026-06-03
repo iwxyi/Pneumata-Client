@@ -659,6 +659,18 @@ function buildUnsentDraft(bond: UserBondState, carePolicy: CarePolicy, now: numb
   return '';
 }
 
+function buildOnlineReturnProjection(bond: UserBondState, carePolicy: CarePolicy, now: number) {
+  const silence = silenceHours(bond.lastUserReplyAt, now);
+  const address = bond.addressing.currentAddress || '你';
+  if (silence < 24) return '';
+  if (carePolicy.dailyInitiationBudget <= 0) return '';
+  if (bond.phase === 'crisis' || bond.phase === 'cooling') return '';
+  if (bond.pendingCareTopics[0]) return `${address}终于来了。还惦记着你提过的事，想自然问一句后来怎么样了。`;
+  if (bond.phase === 'confirmed' || bond.phase === 'passionate' || bond.phase === 'deep') return `${address}终于来了。不是催你，只是这段空白里确实想过怎么接上话。`;
+  if (bond.phase === 'ambiguous' || bond.phase === 'fond') return `${address}回来了。它像是松了一口气，但还在克制地找一个自然开口。`;
+  return '';
+}
+
 export function buildCompanionshipStatusSignature(params: {
   chat: GroupChat;
   character: AICharacter;
@@ -673,6 +685,7 @@ export function buildCompanionshipStatusSignature(params: {
   const carePolicy = bond.carePolicy;
   const offlineTrace = buildOfflineTrace(bond, carePolicy, now);
   const unsentDraft = buildUnsentDraft(bond, carePolicy, now);
+  const onlineReturn = buildOnlineReturnProjection(bond, carePolicy, now);
   return {
     text: buildStatusText(bond, carePolicy, now),
     tone: statusTone(bond.phase),
@@ -686,12 +699,65 @@ export function buildCompanionshipStatusSignature(params: {
       carePolicy.boundaryReasons.length ? `restraints=${carePolicy.boundaryReasons.join(' / ')}` : '',
       offlineTrace ? `offlineTrace=${offlineTrace}` : '',
       unsentDraft ? `unsentDraft=${unsentDraft}` : '',
+      onlineReturn ? `onlineReturn=${onlineReturn}` : '',
       sharedAnchorLabels.length ? `sharedAnchors=${sharedAnchorLabels.join(' / ')}` : '',
       projection.evidence.length ? `evidence=${projection.evidence.join(' / ')}` : '',
     ].filter(Boolean),
     addressing: bond.addressing,
     offlineTrace: offlineTrace || undefined,
     unsentDraft: unsentDraft || undefined,
+    onlineReturn: onlineReturn || undefined,
+    updatedAt: now,
+  };
+}
+
+export interface HomeCompanionshipSnapshot {
+  chatId: string;
+  characterId: string;
+  characterName: string;
+  text: string;
+  tone: CompanionshipStatusSignature['tone'];
+  debugLines: string[];
+  updatedAt: number;
+}
+
+export function buildHomeCompanionshipSnapshot(params: {
+  chats: GroupChat[];
+  characters: AICharacter[];
+  messages: Message[];
+  now?: number;
+}): HomeCompanionshipSnapshot | null {
+  const now = params.now || Date.now();
+  const byCharacterId = new Map(params.characters.map((character) => [character.id, character]));
+  const candidates = params.chats
+    .filter((chat) => chat.type === 'direct' && chat.memberIds[0])
+    .map((chat) => {
+      const character = byCharacterId.get(chat.memberIds[0]);
+      if (!character) return null;
+      const chatMessages = params.messages.filter((message) => message.chatId === chat.id);
+      const signature = buildCompanionshipStatusSignature({ chat, character, messages: chatMessages, now });
+      const text = signature?.onlineReturn || signature?.unsentDraft || signature?.offlineTrace || '';
+      if (!signature || !text) return null;
+      const priority = signature.onlineReturn ? 4 : signature.unsentDraft ? 3 : signature.offlineTrace ? 2 : 1;
+      return {
+        chat,
+        character,
+        signature,
+        text,
+        priority,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .sort((left, right) => right.priority - left.priority || (right.chat.lastMessageAt || 0) - (left.chat.lastMessageAt || 0));
+  const selected = candidates[0];
+  if (!selected) return null;
+  return {
+    chatId: selected.chat.id,
+    characterId: selected.character.id,
+    characterName: selected.character.name,
+    text: selected.text,
+    tone: selected.signature.tone,
+    debugLines: selected.signature.debugLines,
     updatedAt: now,
   };
 }

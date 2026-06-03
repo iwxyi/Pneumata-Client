@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Box, Typography, Button, Divider, IconButton } from '@mui/material';
+import { Box, Typography, Button, Divider, IconButton, Chip } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -17,6 +17,7 @@ import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
+import { useMessageStore } from '../stores/useMessageStore';
 import { hasUsableDefaultTextAI } from '../types/settings';
 import ChatCard from '../components/chat/ChatCard';
 import EmptyState from '../components/common/EmptyState';
@@ -24,6 +25,7 @@ import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
 import { avatarGenerationQueue, type AvatarGenerationQueueSummary } from '../services/avatarGenerationQueue';
+import { buildHomeCompanionshipSnapshot } from '../services/companionshipProjection';
 import { motion, transition } from '../styles/motion';
 
 interface HomeOverviewCard {
@@ -210,6 +212,8 @@ export default function HomePage() {
   const { chats, prefetchChats, markChatsWarm } = useChatStore();
   const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
   const aiProfiles = useSettingsStore((state) => state.aiProfiles);
+  const messages = useMessageStore((state) => state.messages);
+  const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const activeDiaryJobs = useCharacterArtifactStore((state) => state.jobs.filter((job) => job.kind === 'diary' && (job.status === 'pending' || job.status === 'running')).length);
   const authMode = useAuthStore((state) => state.authMode);
@@ -236,6 +240,15 @@ export default function HomePage() {
   const needsLogin = authMode === 'local' || !isLoggedIn;
   const needsOwnCharacter = characters.length > 0 && customCharacters.length === 0;
   const hasActiveAvatarTasks = avatarQueueSummary.active > 0;
+  const knownMessages = [
+    ...messages,
+    ...Object.values(messageWindowsByChatId).flatMap((window) => window.messages || []),
+  ];
+  const companionshipSnapshot = buildHomeCompanionshipSnapshot({
+    chats: recentChats,
+    characters,
+    messages: knownMessages,
+  });
 
   const attentionStats: HomeOverviewCard[] = [
     ...(needsAIModelSetup ? [{
@@ -327,7 +340,7 @@ export default function HomePage() {
         <SurfaceCard>
           <SectionHeader title="工作台概览" />
           <Box sx={buildStatGridSx()}>
-            {stats.map((stat, index) => (
+            {stats.map((stat) => (
               <Box key={stat.label} sx={buildStatCellSx()}>
                 <SurfaceCard
                   sx={stat.attention ? buildAttentionCardSx() : buildStatCardSx()}
@@ -364,6 +377,39 @@ export default function HomePage() {
 
         <SurfaceCard>
           <SectionHeader title={recentChatsTitle} action={<Button size="small" variant="outlined" onClick={() => navigate(`/chats?tab=${recentChatsActionTab}`)}>查看全部</Button>} />
+          {companionshipSnapshot ? (
+            <Box
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate(`/chats/${companionshipSnapshot.chatId}?fromTab=1`)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') navigate(`/chats/${companionshipSnapshot.chatId}?fromTab=1`);
+              }}
+              sx={{
+                mb: 1.5,
+                px: 1.5,
+                py: 1.25,
+                border: 1,
+                borderColor: 'divider',
+                borderRadius: 1,
+                bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(49,90,156,0.045)' : 'rgba(120,156,220,0.075)',
+                cursor: 'pointer',
+                transition: transition(['border-color', 'background-color'], motion.durations.base, motion.gentleSpring),
+                '&:hover': {
+                  borderColor: 'primary.main',
+                  bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(49,90,156,0.075)' : 'rgba(120,156,220,0.11)',
+                },
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                <Chip size="small" label={companionshipSnapshot.characterName} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                <Typography variant="caption" color="text.secondary">回来以后</Typography>
+              </Box>
+              <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.55 }}>
+                {companionshipSnapshot.text}
+              </Typography>
+            </Box>
+          ) : null}
           {recentChats.length === 0 ? (
             <EmptyState
               icon="🍵"
