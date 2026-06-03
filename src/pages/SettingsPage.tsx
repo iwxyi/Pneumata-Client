@@ -282,11 +282,15 @@ export default function SettingsPage() {
 
   const handleBackup = async () => {
     try {
-      const [characters, chats] = await Promise.all([
+      const [characterSummaries, chatSummaries] = await Promise.all([
         api.getCharacters(),
         api.getChats(),
       ]);
-      const allMessages = await Promise.all(chats.map((c: { id: string }) => api.getMessages(c.id)));
+      const [characters, chats] = await Promise.all([
+        Promise.all(characterSummaries.map((character: { id: string }) => api.getCharacter(character.id))),
+        Promise.all(chatSummaries.map((chat: { id: string }) => api.getChat(chat.id))),
+      ]);
+      const allMessages = await Promise.all(chats.map((chat) => api.getMessages(String(chat.id))));
       const data = {
         characters,
         chats,

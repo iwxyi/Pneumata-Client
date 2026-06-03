@@ -101,7 +101,7 @@ export default function ChatDetailPage() {
   const isSplitDetailPane = pane.role === 'detail';
   const { setHideMobileBottomNav } = useLayoutHeaderActions();
 
-  const { chats, updateChat, applyChatRuntimeDelta, loadChats, markChatsWarm, isLoading: chatsLoading } = useChatStore();
+  const { chats, updateChat, applyChatRuntimeDelta, loadChat, markChatsWarm, isLoading: chatsLoading } = useChatStore();
   const { characters, updateCharacter, updateCharacters, loadCharacters, markCharactersWarm } = useCharacterStore();
   const { messages, messageWindowsByChatId, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, upsertMessages, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
@@ -133,13 +133,13 @@ export default function ChatDetailPage() {
     setDetailBootstrapComplete(false);
     markChatsWarm();
     markCharactersWarm();
-    void Promise.all([loadChats(), loadCharacters()]).finally(() => {
+    void Promise.all([id ? loadChat(id) : Promise.resolve(null), loadCharacters()]).finally(() => {
       if (!cancelled) setDetailBootstrapComplete(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [loadCharacters, loadChats, markCharactersWarm, markChatsWarm]);
+  }, [id, loadCharacters, loadChat, markCharactersWarm, markChatsWarm]);
 
   const chat = chats.find((c) => c.id === id);
   const sessionInfoCards = useMemo(() => {

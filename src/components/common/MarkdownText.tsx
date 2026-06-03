@@ -47,7 +47,7 @@ export default function MarkdownText({ text, softLineBreaks = true }: { text: st
       sx={{
         fontSize: 'inherit',
         lineHeight: 1.75,
-        '& > :first-child': { mt: 0 },
+        '& > :first-of-type': { mt: 0 },
         '& > :last-child': { mb: 0 },
         '& p': { mt: 0, mb: 0.65, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
         '& h1, & h2, & h3, & h4': { mt: 1.15, mb: 0.55, fontWeight: 850, lineHeight: 1.35 },

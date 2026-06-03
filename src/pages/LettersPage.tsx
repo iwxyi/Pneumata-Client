@@ -46,6 +46,8 @@ export default function LettersPage() {
   const unreadLetterCount = useCharacterArtifactStore((state) => state.unreadLetterCount);
   const markLettersRead = useCharacterArtifactStore((state) => state.markLettersRead);
   const regenerateArtifact = useCharacterArtifactStore((state) => state.regenerateArtifact);
+  const syncArtifactsFromCharacters = useCharacterArtifactStore((state) => state.syncCharacters);
+  const resumeArtifactProcessing = useCharacterArtifactStore((state) => state.resumeProcessing);
   const paperVariant = useSettingsStore((state) => state.artifactAppearance.paperVariant);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const [tab, setTab] = useState<LettersTab>(() => readPersistentUiValue(LETTERS_TAB_KEY, 'letters', isLettersTab));
@@ -64,6 +66,18 @@ export default function LettersPage() {
       setHideMobileBottomNav(false);
     };
   }, [i18n.language, markLettersRead, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve(useCharacterArtifactStore.persist.rehydrate()).then(() => {
+      if (cancelled) return;
+      syncArtifactsFromCharacters(useCharacterStore.getState().characters);
+      void resumeArtifactProcessing();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [resumeArtifactProcessing, syncArtifactsFromCharacters]);
 
   const letters = useMemo(() => items.filter((item) => item.kind === 'birth_letter' || item.kind === 'final_letter').slice().sort((a, b) => b.createdAt - a.createdAt), [items]);
   const diaries = useMemo(() => items.filter((item) => item.kind === 'diary').slice().sort((a, b) => (a.dateKey || '').localeCompare(b.dateKey || '') || a.createdAt - b.createdAt), [items]);

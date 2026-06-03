@@ -17,14 +17,16 @@ export default function CalendarPage() {
   const actorId = searchParams.get('actorId');
   const chats = useChatStore((state) => state.chats);
   const loadChats = useChatStore((state) => state.loadChats);
+  const loadWorldRuntime = useChatStore((state) => state.loadWorldRuntime);
   const updateChat = useChatStore((state) => state.updateChat);
   const characters = useCharacterStore((state) => state.characters);
   const loadCharacters = useCharacterStore((state) => state.loadCharacters);
 
   useEffect(() => {
     void loadChats();
+    void loadWorldRuntime();
     void loadCharacters();
-  }, [loadCharacters, loadChats]);
+  }, [loadCharacters, loadChats, loadWorldRuntime]);
 
   useEffect(() => {
     setHeaderTitle(isZh ? '日历' : 'Calendar');

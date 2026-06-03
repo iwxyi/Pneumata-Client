@@ -220,6 +220,7 @@ export interface AICharacter {
   isPreset: boolean;
   deletedAt?: number | null;
   fieldVersions?: Record<string, number>;
+  characterDetailLoaded?: boolean;
   createdAt: number;
   updatedAt: number;
 }

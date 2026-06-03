@@ -248,12 +248,41 @@ function assertUniqueCharacterNameBatch(characters: AICharacter[], charsData: Ar
   assertUniqueCharacterNames(characters, charsData.map((item) => item.name));
 }
 
+function mergeCharacterRecord(local: AICharacter | undefined, remote: AICharacter) {
+  if (!local || remote.characterDetailLoaded !== false || local.characterDetailLoaded === false) {
+    return remote;
+  }
+  return {
+    ...remote,
+    characterDetailLoaded: true,
+    personalityDrift: local.personalityDrift,
+    emotionalState: local.emotionalState,
+    soulState: local.soulState,
+    coreProfile: local.coreProfile,
+    visualIdentity: local.visualIdentity,
+    speechProfile: local.speechProfile,
+    voiceConfig: local.voiceConfig,
+    behavior: local.behavior,
+    speakingStyle: local.speakingStyle,
+    background: local.background,
+    relationships: local.relationships,
+    memory: local.memory,
+    layeredMemories: local.layeredMemories,
+    intervention: local.intervention,
+    runtimeTimeline: local.runtimeTimeline,
+    modelProfileId: local.modelProfileId,
+    modelProfileIds: local.modelProfileIds,
+    generationPreferences: local.generationPreferences,
+    bubbleStyle: local.bubbleStyle,
+  };
+}
+
 function mergeCharacters(localCharacters: AICharacter[], remoteCharacters: AICharacter[], pendingOperations: PendingCharacterOperation[] = []) {
   const merged = new Map<string, AICharacter>();
   for (const character of normalizeCharacters(localCharacters)) merged.set(character.id, character);
   for (const remote of normalizeCharacters(remoteCharacters)) {
     const local = merged.get(remote.id);
-    if (!local || remote.updatedAt >= local.updatedAt) merged.set(remote.id, remote);
+    if (!local || remote.updatedAt >= local.updatedAt) merged.set(remote.id, normalizeCharacter(mergeCharacterRecord(local, remote)));
   }
   return sortCharacters(projectEntities(Array.from(merged.values()), pendingOperations));
 }
@@ -273,6 +302,11 @@ function mergeDeletedCharacters(localCharacters: AICharacter[], remoteCharacters
 async function fetchCharacterSnapshot() {
   const result = await api.getCharacters() as unknown as AICharacter[];
   return normalizeCharacters(result);
+}
+
+async function fetchCharacterDetail(id: string) {
+  const result = await api.getCharacter(id);
+  return normalizeCharacter(result as unknown as AICharacter);
 }
 
 async function fetchDeletedCharacterSnapshot() {
@@ -379,6 +413,7 @@ interface CharacterStore extends PersistedCharacterState {
   pendingEditSyncCount: number;
   pendingEditSyncError: string | null;
   loadCharacters: () => Promise<void>;
+  loadCharacter: (id: string) => Promise<AICharacter | null>;
   prefetchCharacters: () => Promise<void>;
   flushPendingOperations: () => Promise<void>;
   queuePatch: (entityId: string, patch: Record<string, unknown>, kind?: PendingCharacterOperation['kind']) => void;
@@ -437,6 +472,8 @@ const canAttemptSync = canAttemptOnlineSync;
 const CHARACTER_SYNC_DELAYS = [1000, 3000, 10000, 30000];
 const CHARACTER_REFRESH_TTL_MS = 30_000;
 const characterSyncScheduler = createSyncScheduler();
+let characterListLoadPromise: Promise<void> | null = null;
+const characterDetailLoadPromises = new Map<string, Promise<AICharacter | null>>();
 
 function scheduleCharacterFlush(flush: () => Promise<void>, delay = 0) {
   characterSyncScheduler.schedule(flush, delay);
@@ -642,30 +679,71 @@ export const useCharacterStore = create<CharacterStore>()(
             }),
             characters: visibleCharactersFromState(state),
           }));
-          syncCharacterArtifacts(get().characters);
           if (shouldSkipCloudSync()) {
             set({ isLoading: false });
             return;
           }
-          try {
-            await uploadGuestCharactersToCloud();
-            const visible = await reloadVisibleCharacterState(get().pendingOperations);
-            set({
-              characters: visible,
-              isLoading: false,
-              lastSyncedAt: Date.now(),
-              pendingEditSyncCount: get().pendingOperations.length,
-              pendingEditSyncError: latestCharacterError(get().pendingOperations),
-            });
-            syncCharacterArtifacts(visible);
-          } catch (error) {
-            reportRecoverableError({
-              location: 'cloud-sync:characters-load',
-              error,
-              userMessage: '角色云同步失败，请检查网络后重试。',
-            });
-            set({ isLoading: false, pendingEditSyncError: classifySyncError(error) });
+          if (get().characters.length > 0 && Date.now() - get().lastSyncedAt < CHARACTER_REFRESH_TTL_MS) {
+            set({ isLoading: false });
+            return;
           }
+          if (characterListLoadPromise) return characterListLoadPromise;
+          characterListLoadPromise = (async () => {
+            try {
+              await uploadGuestCharactersToCloud();
+              const visible = await reloadVisibleCharacterState(get().pendingOperations);
+              set((state) => ({
+                characters: mergeVisibleCharacters(state.characters, visible, state.pendingOperations),
+                isLoading: false,
+                lastSyncedAt: Date.now(),
+                pendingEditSyncCount: get().pendingOperations.length,
+                pendingEditSyncError: latestCharacterError(get().pendingOperations),
+              }));
+            } catch (error) {
+              reportRecoverableError({
+                location: 'cloud-sync:characters-load',
+                error,
+                userMessage: '角色云同步失败，请检查网络后重试。',
+              });
+              set({ isLoading: false, pendingEditSyncError: classifySyncError(error) });
+            } finally {
+              characterListLoadPromise = null;
+            }
+          })();
+          return characterListLoadPromise;
+        },
+
+        loadCharacter: async (id) => {
+          if (!id) return null;
+          await ensureCharacterStoreHydrated();
+          const cached = get().characters.find((character) => character.id === id);
+          if (cached?.characterDetailLoaded) return cached;
+          if (shouldSkipCloudSync()) return cached || null;
+          const existing = characterDetailLoadPromises.get(id);
+          if (existing) return existing;
+          const promise = (async () => {
+            try {
+              const detail = await fetchCharacterDetail(id);
+              set((state) => ({
+                characters: mergeVisibleCharacters(state.characters, [detail], state.pendingOperations),
+                lastSyncedAt: state.lastSyncedAt || Date.now(),
+                pendingEditSyncCount: state.pendingOperations.length,
+                pendingEditSyncError: latestCharacterError(state.pendingOperations),
+              }));
+              return detail;
+            } catch (error) {
+              reportRecoverableError({
+                location: 'cloud-sync:character-detail-load',
+                error,
+                userMessage: '角色详情同步失败，请检查网络后重试。',
+              });
+              return get().characters.find((character) => character.id === id) || null;
+            } finally {
+              characterDetailLoadPromises.delete(id);
+            }
+          })();
+          characterDetailLoadPromises.set(id, promise);
+          return promise;
         },
 
         prefetchCharacters: async () => {

@@ -97,6 +97,7 @@ export default function MomentsPage() {
   const isZh = i18n.language.startsWith('zh');
   const chats = useChatStore((state) => state.chats);
   const loadChats = useChatStore((state) => state.loadChats);
+  const loadWorldRuntime = useChatStore((state) => state.loadWorldRuntime);
   const updateChat = useChatStore((state) => state.updateChat);
   const characters = useCharacterStore((state) => state.characters);
   const loadCharacters = useCharacterStore((state) => state.loadCharacters);
@@ -110,8 +111,9 @@ export default function MomentsPage() {
 
   useEffect(() => {
     void loadChats();
+    void loadWorldRuntime();
     void loadCharacters();
-  }, [loadCharacters, loadChats]);
+  }, [loadCharacters, loadChats, loadWorldRuntime]);
 
   const characterAvatars = useMemo(() => new Map(characters.map((character) => [character.id, character.avatar])), [characters]);
   const textMembers = useMemo(() => characters.map((character) => ({ id: character.id, name: character.name })), [characters]);

@@ -22,15 +22,23 @@ export default function CharacterEditorPage() {
   const editId = isCreate ? null : (id || null);
   const settings = useSettingsStore();
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
-  const { characters, loadCharacters, addCharacter, updateCharacter, updateCharacters, deleteCharacter, initializePresets } = useCharacterStore();
+  const { characters, loadCharacters, loadCharacter, addCharacter, updateCharacter, updateCharacters, deleteCharacter, initializePresets } = useCharacterStore();
   const chats = useChatStore((state) => state.chats);
   const loadChats = useChatStore((state) => state.loadChats);
+  const loadWorldRuntime = useChatStore((state) => state.loadWorldRuntime);
   const updateChatSession = useChatStore((state) => state.updateChat);
   const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const characterDataReady = bootstrapComplete || characters.length > 0;
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [draftNameState, setDraftNameState] = useState<{ editId: string | null; name: string }>({ editId: null, name: '' });
+
+  const handleDraftNameChange = useCallback((name: string) => {
+    setDraftNameState((prev) => {
+      if (prev.editId === editId && prev.name === name) return prev;
+      return { editId, name };
+    });
+  }, [editId]);
 
   const goBack = useCallback(() => {
     if (returnTo) {
@@ -42,10 +50,7 @@ export default function CharacterEditorPage() {
 
   useEffect(() => {
     let cancelled = false;
-    if (characters.length > 0) {
-      return undefined;
-    }
-    void Promise.all([loadCharacters(), loadChats()])
+    void Promise.all([editId ? loadCharacter(editId) : loadCharacters(), loadChats(), loadWorldRuntime()])
       .then(() => initializePresets())
       .finally(() => {
         if (!cancelled) setBootstrapComplete(true);
@@ -53,11 +58,12 @@ export default function CharacterEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [characters.length, initializePresets, loadCharacters, loadChats]);
+  }, [editId, initializePresets, loadCharacter, loadCharacters, loadChats, loadWorldRuntime]);
 
   useEffect(() => {
     void loadChats();
-  }, [loadChats]);
+    void loadWorldRuntime();
+  }, [loadChats, loadWorldRuntime]);
 
   const editChar = useMemo(() => (editId ? characters.find((character) => character.id === editId) : undefined), [characters, editId]);
   const headerTitle = useMemo(() => {
@@ -81,7 +87,7 @@ export default function CharacterEditorPage() {
   }, [editId, goBack, headerTitle, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, t]);
 
   const duplicateNameErrorText = i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists';
-  const shouldWaitForCharacter = Boolean(editId && !editChar && !characterDataReady);
+  const shouldWaitForCharacter = Boolean(editId && (!editChar || !editChar.characterDetailLoaded) && !(bootstrapComplete && !editChar));
   if (editId && !editChar && !shouldWaitForCharacter) {
     return (
       <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
@@ -111,7 +117,7 @@ export default function CharacterEditorPage() {
         initial={editChar}
         existingNames={characters.map((character) => character.name)}
         saveError={saveError}
-        onDraftNameChange={(name) => setDraftNameState({ editId, name })}
+        onDraftNameChange={handleDraftNameChange}
         onDelete={editId ? () => setDeleteOpen(true) : undefined}
         deleteLabel={t('common.delete')}
         calendarContext={editId ? {

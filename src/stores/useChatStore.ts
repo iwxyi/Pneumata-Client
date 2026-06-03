@@ -264,6 +264,8 @@ interface ChatStore extends PersistedChatState {
   pendingEditSyncCount: number;
   pendingEditSyncError: string | null;
   loadChats: () => Promise<void>;
+  loadChat: (id: string) => Promise<GroupChat | null>;
+  loadWorldRuntime: () => Promise<void>;
   prefetchChats: () => Promise<void>;
   flushPendingOperations: () => Promise<void>;
   queuePatch: (entityId: string, patch: Record<string, unknown>, kind?: PendingChatOperation['kind']) => void;
@@ -343,6 +345,32 @@ function applyLocalChatRuntimeDelta(
   });
 }
 
+function mergeChatRecord(local: GroupChat | undefined, remote: GroupChat) {
+  if (!local || remote.runtimeDetailLoaded !== false || local.runtimeDetailLoaded === false) {
+    return remote;
+  }
+  return {
+    ...remote,
+    runtimeDetailLoaded: true,
+    runtimeSeed: local.runtimeSeed,
+    layeredMemories: local.layeredMemories,
+    runtimeTimeline: local.runtimeTimeline,
+    runtimeEventsV2: local.runtimeEventsV2,
+    relationshipLedger: local.relationshipLedger,
+  };
+}
+
+function mergeWorldRuntimeRecord(local: GroupChat | undefined, remote: GroupChat) {
+  if (!local || local.runtimeDetailLoaded === false) return remote;
+  return {
+    ...local,
+    worldRuntimeLoaded: true,
+    runtimeEventsV2: remote.runtimeEventsV2 || local.runtimeEventsV2,
+    updatedAt: Math.max(local.updatedAt || 0, remote.updatedAt || 0),
+    lastMessageAt: Math.max(local.lastMessageAt || 0, remote.lastMessageAt || 0),
+  };
+}
+
 function mergeChats(localChats: GroupChat[], remoteChats: GroupChat[], pendingOperations: PendingChatOperation[] = []) {
   const merged = new Map<string, GroupChat>();
 
@@ -350,7 +378,7 @@ function mergeChats(localChats: GroupChat[], remoteChats: GroupChat[], pendingOp
 
   for (const remote of normalizeChats(remoteChats)) {
     const local = merged.get(remote.id);
-    if (!local || remote.updatedAt >= local.updatedAt) merged.set(remote.id, remote);
+    if (!local || remote.updatedAt >= local.updatedAt) merged.set(remote.id, normalizeConversation(mergeChatRecord(local, remote)));
   }
 
   return sortChats(projectEntities(Array.from(merged.values()), pendingOperations));
@@ -367,6 +395,16 @@ function mergeDeletedChats(localChats: GroupChat[], remoteChats: GroupChat[], pe
 async function fetchChatSnapshot() {
   const result = await api.getChats() as unknown as GroupChat[];
   return normalizeChats(result);
+}
+
+async function fetchChatDetail(id: string) {
+  const result = await api.getChat(id);
+  return normalizeConversation(result as unknown as GroupChat);
+}
+
+async function fetchWorldRuntimeSnapshot() {
+  const result = await api.getWorldRuntimeChats();
+  return normalizeChats(result as unknown as GroupChat[]);
 }
 
 async function fetchDeletedChatSnapshot() {
@@ -399,6 +437,10 @@ const canSyncChats = canAttemptOnlineSync;
 const CHAT_SYNC_DELAYS = [1000, 3000, 10000, 30000];
 const CHAT_REFRESH_TTL_MS = 30_000;
 const chatSyncScheduler = createSyncScheduler();
+let chatListLoadPromise: Promise<void> | null = null;
+const chatDetailLoadPromises = new Map<string, Promise<GroupChat | null>>();
+let worldRuntimeLoadPromise: Promise<void> | null = null;
+let worldRuntimeLoadedAt = 0;
 
 function scheduleChatFlush(flush: () => Promise<void>, delay = 0) {
   chatSyncScheduler.schedule(flush, delay);
@@ -569,24 +611,98 @@ export const useChatStore = create<ChatStore>()(
             set({ isLoading: false });
             return;
           }
-          try {
-            await maybeUploadGuestChats(get);
-            const visible = await reloadVisibleChatState(get().pendingOperations);
-            set({
-              chats: visible,
-              isLoading: false,
-              lastSyncedAt: Date.now(),
-              pendingEditSyncCount: get().pendingOperations.length,
-              pendingEditSyncError: latestChatError(get().pendingOperations),
-            });
-          } catch (error) {
-            reportRecoverableError({
-              location: 'cloud-sync:chats-load',
-              error,
-              userMessage: '聊天云同步失败，请检查网络后重试。',
-            });
-            set({ isLoading: false, pendingEditSyncError: classifySyncError(error) });
+          if (get().chats.length > 0 && Date.now() - get().lastSyncedAt < CHAT_REFRESH_TTL_MS) {
+            set({ isLoading: false });
+            return;
           }
+          if (chatListLoadPromise) return chatListLoadPromise;
+          chatListLoadPromise = (async () => {
+            try {
+              await maybeUploadGuestChats(get);
+              const visible = await reloadVisibleChatState(get().pendingOperations);
+              set((state) => ({
+                chats: mergeVisibleChats(state.chats, visible, state.pendingOperations),
+                isLoading: false,
+                lastSyncedAt: Date.now(),
+                pendingEditSyncCount: get().pendingOperations.length,
+                pendingEditSyncError: latestChatError(get().pendingOperations),
+              }));
+            } catch (error) {
+              reportRecoverableError({
+                location: 'cloud-sync:chats-load',
+                error,
+                userMessage: '聊天云同步失败，请检查网络后重试。',
+              });
+              set({ isLoading: false, pendingEditSyncError: classifySyncError(error) });
+            } finally {
+              chatListLoadPromise = null;
+            }
+          })();
+          return chatListLoadPromise;
+        },
+
+        loadChat: async (id) => {
+          if (!id) return null;
+          await ensureChatStoreHydrated();
+          const cached = get().chats.find((chat) => chat.id === id);
+          if (cached?.runtimeDetailLoaded) return cached;
+          if (shouldSkipCloudSync()) return cached || null;
+          const existing = chatDetailLoadPromises.get(id);
+          if (existing) return existing;
+          const promise = (async () => {
+            try {
+              const detail = await fetchChatDetail(id);
+              set((state) => ({
+                chats: mergeVisibleChats(state.chats, [detail], state.pendingOperations),
+                lastSyncedAt: state.lastSyncedAt || Date.now(),
+                pendingEditSyncCount: state.pendingOperations.length,
+                pendingEditSyncError: latestChatError(state.pendingOperations),
+              }));
+              return detail;
+            } catch (error) {
+              reportRecoverableError({
+                location: 'cloud-sync:chat-detail-load',
+                error,
+                userMessage: '聊天详情同步失败，请检查网络后重试。',
+              });
+              return get().chats.find((chat) => chat.id === id) || null;
+            } finally {
+              chatDetailLoadPromises.delete(id);
+            }
+          })();
+          chatDetailLoadPromises.set(id, promise);
+          return promise;
+        },
+
+        loadWorldRuntime: async () => {
+          await ensureChatStoreHydrated();
+          if (shouldSkipCloudSync()) return;
+          if (Date.now() - worldRuntimeLoadedAt < CHAT_REFRESH_TTL_MS) return;
+          if (worldRuntimeLoadPromise) return worldRuntimeLoadPromise;
+          worldRuntimeLoadPromise = (async () => {
+            try {
+              const snapshot = await fetchWorldRuntimeSnapshot();
+              set((state) => {
+                const byId = new Map(state.chats.map((chat) => [chat.id, chat] as const));
+                const mergedRuntime = snapshot.map((remote) => normalizeConversation(mergeWorldRuntimeRecord(byId.get(remote.id), remote)));
+                return {
+                  chats: mergeVisibleChats(state.chats, mergedRuntime, state.pendingOperations),
+                  pendingEditSyncCount: state.pendingOperations.length,
+                  pendingEditSyncError: latestChatError(state.pendingOperations),
+                };
+              });
+              worldRuntimeLoadedAt = Date.now();
+            } catch (error) {
+              reportRecoverableError({
+                location: 'cloud-sync:world-runtime-load',
+                error,
+                userMessage: '世界运行摘要同步失败，请检查网络后重试。',
+              });
+            } finally {
+              worldRuntimeLoadPromise = null;
+            }
+          })();
+          return worldRuntimeLoadPromise;
         },
 
         prefetchChats: async () => {

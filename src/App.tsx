@@ -126,9 +126,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     if (isLoggedIn || authMode === 'local') {
       void loadSettings();
       void useCharacterStore.getState().loadCharacters();
-      void Promise.resolve(useCharacterArtifactStore.persist.rehydrate()).then(() => {
-        void useCharacterArtifactStore.getState().resumeProcessing();
-      });
+      void useCharacterArtifactStore.persist.rehydrate();
     }
   }, [authMode, isLoggedIn, loadSettings]);
 

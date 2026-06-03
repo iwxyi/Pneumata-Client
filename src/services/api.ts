@@ -153,6 +153,10 @@ class ApiClient {
     }>>('GET', '/characters');
   }
 
+  async getCharacter(id: string) {
+    return this.request<Record<string, unknown>>('GET', `/characters/${id}`);
+  }
+
   async createCharacter(data: {
     name: string; avatar?: string; personality: Record<string, number>;
     behavior?: object; expertise: string[]; speakingStyle: string; background: string; group?: string | null; personalityDrift?: object; emotionalState?: object; soulState?: object; coreProfile?: object;
@@ -248,6 +252,14 @@ class ApiClient {
         timestamp: number; isDeleted: boolean;
       } | null; createdAt: number; updatedAt: number; lastMessageAt: number;
     }>>('GET', '/chats');
+  }
+
+  async getChat(id: string) {
+    return this.request<Record<string, unknown>>('GET', `/chats/${id}`);
+  }
+
+  async getWorldRuntimeChats() {
+    return this.request<Array<Record<string, unknown>>>('GET', '/chats/world-runtime');
   }
 
   async createChat(data: {

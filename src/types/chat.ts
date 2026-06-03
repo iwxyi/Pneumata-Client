@@ -542,6 +542,8 @@ export interface GroupChat {
   deletedAt?: number | null;
   fieldVersions?: Record<string, number>;
   latestMessage?: Message | null;
+  runtimeDetailLoaded?: boolean;
+  worldRuntimeLoaded?: boolean;
   createdAt: number;
   updatedAt: number;
   lastMessageAt: number;
