@@ -242,6 +242,22 @@ export interface CompanionshipAttachmentProfileEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipAddressingEventPayload {
+  eventType: 'companionship_addressing';
+  characterId: string;
+  userId?: string;
+  action: 'update' | 'set_current' | 'set_private' | 'set_public' | 'forbid' | 'unforbid' | 'revoke';
+  currentAddress?: string;
+  privateAddress?: string;
+  publicAddress?: string;
+  forbiddenAddresses?: string[];
+  reason?: string;
+  evidence?: string;
+  initiatedBy?: AddressingState['addressHistory'][number]['initiatedBy'];
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;

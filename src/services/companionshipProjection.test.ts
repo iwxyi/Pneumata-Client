@@ -184,6 +184,36 @@ function attachmentProfileEvent(overrides: Partial<RuntimeEventV2> = {}): Runtim
   };
 }
 
+function addressingEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-addressing-1',
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt: 1_000,
+    actorIds: ['user', 'char-a'],
+    targetIds: ['char-a', 'user'],
+    summary: '模型更新了苏苏对用户的称呼。',
+    visibility: 'pair_private',
+    eventClass: 'artifact',
+    payload: {
+      eventType: 'companionship_addressing',
+      characterId: 'char-a',
+      userId: 'user',
+      action: 'update',
+      currentAddress: '阿夏',
+      privateAddress: '阿夏',
+      publicAddress: '夏夏',
+      forbiddenAddresses: ['宝宝'],
+      reason: '用户接受私下更亲近的称呼，但不喜欢宝宝。',
+      evidence: '私下可以叫我阿夏，别叫宝宝。',
+      initiatedBy: 'mutual',
+      confidence: 0.9,
+      decisionSource: 'model',
+    },
+    ...overrides,
+  };
+}
+
 function relationship(current: RelationshipLedgerEntry['current']): RelationshipLedgerEntry {
   return {
     pairKey: 'char-a->user',
@@ -516,6 +546,85 @@ describe('companionshipProjection', () => {
       adoptedAt: 300,
       initiatedBy: 'user',
     });
+  });
+
+  it('prioritizes model-led addressing events over profile fallback', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [addressingEvent()]),
+      character: character({
+        memory: {
+          shortTermSummary: '',
+          longTerm: [],
+          secrets: [],
+          obsessions: [],
+          tabooTopics: [],
+          userMemories: ['用户说：叫我小夏。'],
+        },
+      }),
+      messages: [message({ content: '最近压力有点大。', timestamp: 200 })],
+      now: 1_100,
+    });
+
+    expect(projection.userBond?.addressing.currentAddress).toBe('阿夏');
+    expect(projection.userBond?.addressing.privateAddress).toBe('阿夏');
+    expect(projection.userBond?.addressing.publicAddress).toBe('夏夏');
+    expect(projection.userBond?.addressing.forbiddenAddresses).toContain('宝宝');
+    expect(projection.userBond?.addressing.addressHistory.at(-1)).toMatchObject({
+      value: '阿夏',
+      initiatedBy: 'mutual',
+    });
+  });
+
+  it('keeps forbidden addressing out of current and private addresses', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [
+        addressingEvent({
+          payload: {
+            eventType: 'companionship_addressing',
+            characterId: 'char-a',
+            userId: 'user',
+            action: 'update',
+            currentAddress: '宝宝',
+            privateAddress: '宝宝',
+            publicAddress: '小夏',
+            forbiddenAddresses: ['宝宝'],
+            confidence: 0.92,
+            decisionSource: 'model',
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [message({ content: '最近压力有点大。', timestamp: 200 })],
+      now: 1_100,
+    });
+
+    expect(projection.userBond?.addressing.currentAddress).toBe('小夏');
+    expect(projection.userBond?.addressing.privateAddress).toBeUndefined();
+    expect(projection.userBond?.addressing.publicAddress).toBe('小夏');
+  });
+
+  it('exposes low-confidence or local addressing events in companionship diagnostics', () => {
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [
+        addressingEvent({
+          id: 'evt-addressing-local',
+          payload: {
+            eventType: 'companionship_addressing',
+            characterId: 'char-a',
+            userId: 'user',
+            action: 'set_private',
+            privateAddress: '小夏',
+            confidence: 0.62,
+            decisionSource: 'local_fallback',
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [message({ content: '最近压力有点大。', timestamp: 200 })],
+      now: 1_100,
+    });
+
+    expect(trace?.diagnostics.join('\n')).toContain('addressing: source=local_fallback confidence=62% event=evt-addressing-local');
   });
 
   it('falls back to neutral addressing during crisis while preserving private preference', () => {

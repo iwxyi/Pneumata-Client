@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -788,14 +788,120 @@ function buildCompanionshipDiagnostics(chat: GroupChat, characterId: string) {
     .slice(0, 5);
 }
 
-function buildAddressing(profile: UserProfileMemoryProjection, phase: CompanionshipPhase, now: number) {
+function cleanAddressValue(value: unknown) {
+  if (typeof value !== 'string') return undefined;
+  const text = value.replace(/\s+/g, '').trim();
+  if (!text || text.length > 16) return undefined;
+  return text;
+}
+
+function cleanAddressList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return uniqueTexts(value.map(cleanAddressValue).filter(Boolean) as string[], 12);
+}
+
+function addressingPayloadOf(event: RuntimeEventV2): CompanionshipAddressingEventPayload | null {
+  const payload = event.payload as Partial<CompanionshipAddressingEventPayload> | undefined;
+  if (!payload || payload.eventType !== 'companionship_addressing' || !payload.characterId || !payload.action) return null;
+  return payload as CompanionshipAddressingEventPayload;
+}
+
+function resolveAddressingFromEvents(chat: GroupChat, characterId: string, base: AddressingState, phase: CompanionshipPhase, now: number): AddressingState {
+  const events = (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .map((event) => ({ event, payload: addressingPayloadOf(event) }))
+    .filter((item): item is { event: RuntimeEventV2; payload: CompanionshipAddressingEventPayload } => {
+      if (!item.payload) return false;
+      if (item.payload.characterId !== characterId || (item.payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return false;
+      const confidence = typeof item.payload.confidence === 'number' && Number.isFinite(item.payload.confidence) ? item.payload.confidence : 1;
+      return confidence >= 0.6;
+    })
+    .sort((a, b) => (a.event.createdAt || 0) - (b.event.createdAt || 0));
+  if (!events.length) return base;
+
+  let next: AddressingState = {
+    ...base,
+    forbiddenAddresses: [...base.forbiddenAddresses],
+    addressHistory: [...base.addressHistory],
+  };
+  events.forEach(({ event, payload }) => {
+    const current = cleanAddressValue(payload.currentAddress);
+    const privateAddress = cleanAddressValue(payload.privateAddress);
+    const publicAddress = cleanAddressValue(payload.publicAddress);
+    const forbidden = cleanAddressList(payload.forbiddenAddresses);
+    const reason = compactText(payload.reason || payload.evidence || event.summary || 'addressing runtime event', 120);
+    const initiatedBy = payload.initiatedBy || 'mutual';
+    if (payload.action === 'revoke') {
+      next = {
+        ...next,
+        currentAddress: '你',
+        privateAddress: undefined,
+        publicAddress: '用户',
+        addressHistory: next.addressHistory.concat({
+          value: '你',
+          adoptedAt: event.createdAt || now,
+          reason,
+          initiatedBy,
+        }),
+      };
+      return;
+    }
+    if (payload.action === 'forbid') {
+      next = {
+        ...next,
+        forbiddenAddresses: uniqueTexts([...next.forbiddenAddresses, ...forbidden, current, privateAddress, publicAddress].filter(Boolean) as string[], 12),
+      };
+      return;
+    }
+    if (payload.action === 'unforbid') {
+      const removing = new Set([...forbidden, current, privateAddress, publicAddress].filter(Boolean) as string[]);
+      next = {
+        ...next,
+        forbiddenAddresses: next.forbiddenAddresses.filter((item) => !removing.has(item)),
+      };
+      return;
+    }
+    const chosenCurrent = payload.action === 'set_current' || payload.action === 'update' ? current : undefined;
+    const chosenPrivate = payload.action === 'set_private' || payload.action === 'update' ? privateAddress : undefined;
+    const chosenPublic = payload.action === 'set_public' || payload.action === 'update' ? publicAddress : undefined;
+    next = {
+      ...next,
+      currentAddress: chosenCurrent || next.currentAddress,
+      privateAddress: chosenPrivate || next.privateAddress,
+      publicAddress: chosenPublic || next.publicAddress,
+      forbiddenAddresses: uniqueTexts([...next.forbiddenAddresses, ...forbidden], 12),
+    };
+    const adopted = chosenCurrent || chosenPrivate || chosenPublic;
+    if (adopted) {
+      next.addressHistory = next.addressHistory.concat({
+        value: adopted,
+        adoptedAt: event.createdAt || now,
+        reason,
+        initiatedBy,
+      }).slice(-8);
+    }
+  });
+  const isRestrained = phase === 'cooling' || phase === 'crisis' || phase === 'reconciling';
+  const safePrivate = next.privateAddress && !next.forbiddenAddresses.includes(next.privateAddress) ? next.privateAddress : undefined;
+  const safePublic = next.publicAddress && !next.forbiddenAddresses.includes(next.publicAddress) ? next.publicAddress : '用户';
+  const safeCurrent = next.currentAddress && !next.forbiddenAddresses.includes(next.currentAddress) ? next.currentAddress : undefined;
+  return {
+    ...next,
+    currentAddress: isRestrained ? (safePublic === '用户' ? '你' : safePublic) : (safeCurrent || safePrivate || safePublic || '你'),
+    privateAddress: safePrivate,
+    publicAddress: safePublic,
+    forbiddenAddresses: uniqueTexts(next.forbiddenAddresses, 12),
+  };
+}
+
+function buildAddressing(profile: UserProfileMemoryProjection, phase: CompanionshipPhase, now: number, chat?: GroupChat, characterId?: string) {
   const preferred = profile.addressPreference || profile.displayName;
   const forbiddenAddresses = extractForbiddenAddresses(profile.sourceTexts);
   const safePreferred = preferred && !forbiddenAddresses.includes(preferred) ? preferred : undefined;
   const neutralAddress = profile.displayName && !forbiddenAddresses.includes(profile.displayName) ? profile.displayName : '你';
   const isRestrained = phase === 'cooling' || phase === 'crisis' || phase === 'reconciling';
   const currentAddress = isRestrained ? neutralAddress : (safePreferred || neutralAddress);
-  return {
+  const base = {
     defaultName: '你',
     currentAddress,
     privateAddress: safePreferred || neutralAddress,
@@ -808,6 +914,7 @@ function buildAddressing(profile: UserProfileMemoryProjection, phase: Companions
       initiatedBy: 'user' as const,
     }] : [],
   };
+  return chat && characterId ? resolveAddressingFromEvents(chat, characterId, base, phase, now) : base;
 }
 
 function buildRememberedPlans(topics: PendingCareTopic[]) {
@@ -1398,7 +1505,7 @@ export function buildUserCompanionshipProjection(params: {
     rememberedUserPlans: buildRememberedPlans(pendingCareTopics),
     unresolvedTensions: buildUnresolvedTensions(ledger),
     intimateConflict,
-    addressing: buildAddressing(userProfile, phase, now),
+    addressing: buildAddressing(userProfile, phase, now, chat, character.id),
     userProfile,
     attachmentProfile,
     preferredIntimacyStyle,
