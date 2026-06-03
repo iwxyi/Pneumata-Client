@@ -240,6 +240,7 @@ describe('directUserReplyFlow companionship phase events', () => {
 
   it('falls back to local judgment only when model judgment fails', async () => {
     generateJsonResponseMock.mockRejectedValueOnce(new Error('model unavailable'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const event = await resolveCompanionshipPhaseEventFromDirectUserMessage({
       chat: chat('direct'),
@@ -252,5 +253,10 @@ describe('directUserReplyFlow companionship phase events', () => {
       phase: 'reconciling',
       decisionSource: 'local_fallback',
     });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[recoverable-warning] companionship:phase-model-fallback'), expect.objectContaining({
+      fallback: 'local_fallback',
+      messagePreview: '我们别冷战了，慢慢说开吧。',
+    }));
+    warnSpy.mockRestore();
   });
 });

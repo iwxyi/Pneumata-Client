@@ -229,6 +229,7 @@ describe('directCompanionshipCare', () => {
 
   it('falls back to local care-topic judgment only when model judgment fails', async () => {
     generateJsonResponseMock.mockRejectedValueOnce(new Error('model unavailable'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const events = await resolveCompanionshipCareTopicEventsFromDirectUserMessage({
       chat: chat(),
@@ -242,5 +243,10 @@ describe('directCompanionshipCare', () => {
       action: 'opened',
       decisionSource: 'local_fallback',
     });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[recoverable-warning] companionship:care-topic-model-fallback'), expect.objectContaining({
+      fallback: 'local_fallback',
+      messagePreview: '明天面试有点紧张。',
+    }));
+    warnSpy.mockRestore();
   });
 });

@@ -5,6 +5,7 @@ import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { APIConfig } from '../types/settings';
 import { generateJsonResponse } from './aiClient';
+import { reportRecoverableWarning } from './diagnostics';
 
 const USER_ACTOR_ID = 'user';
 
@@ -472,7 +473,19 @@ export async function resolveCompanionshipCareTopicEventsFromDirectUserMessage(p
         decision,
         activeTopics,
       });
-    } catch {
+    } catch (error) {
+      reportRecoverableWarning({
+        location: 'companionship:care-topic-model-fallback',
+        error,
+        message: '关心事项模型裁决失败，已退回本地保守判断。',
+        extra: {
+          chatId: params.chat.id,
+          characterId: params.character.id,
+          messageId: params.message.id,
+          messagePreview: compactText(params.message.content, 80),
+          fallback: 'local_fallback',
+        },
+      });
       return buildCompanionshipCareTopicEventsFromDirectUserMessage(params);
     }
   }

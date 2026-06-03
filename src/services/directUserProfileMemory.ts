@@ -5,6 +5,7 @@ import type { UserProfileMemoryEventItem, UserProfileMemoryEventPayload, UserPro
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { APIConfig } from '../types/settings';
 import { generateJsonResponse } from './aiClient';
+import { reportRecoverableWarning } from './diagnostics';
 
 const USER_ACTOR_ID = 'user';
 const MEMORY_KINDS: UserProfileMemoryKind[] = [
@@ -266,7 +267,19 @@ export async function resolveUserProfileMemoryEventFromDirectUserMessage(params:
         decisionSource: 'model',
         reason: 'model extracted explicit user profile cues',
       });
-    } catch {
+    } catch (error) {
+      reportRecoverableWarning({
+        location: 'companionship:user-profile-model-fallback',
+        error,
+        message: '用户画像模型裁决失败，已退回本地保守判断。',
+        extra: {
+          chatId: params.chat.id,
+          characterId: params.character.id,
+          messageId: params.message.id,
+          messagePreview: compactText(params.message.content, 80),
+          fallback: 'local_fallback',
+        },
+      });
       return buildUserProfileMemoryEventFromDirectUserMessage(params);
     }
   }

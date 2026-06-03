@@ -5,6 +5,7 @@ import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { APIConfig } from '../types/settings';
 import { generateJsonResponse } from './aiClient';
+import { reportRecoverableWarning } from './diagnostics';
 
 function compactPhaseEvidence(text: string, max = 120) {
   const normalized = text.replace(/\s+/g, ' ').trim();
@@ -198,7 +199,19 @@ export async function resolveCompanionshipPhaseEventFromDirectUserMessage(params
       });
       if (decision) return buildCompanionshipPhaseEvent({ ...params, decision });
       return null;
-    } catch {
+    } catch (error) {
+      reportRecoverableWarning({
+        location: 'companionship:phase-model-fallback',
+        error,
+        message: '关系阶段模型裁决失败，已退回本地保守判断。',
+        extra: {
+          chatId: params.chat.id,
+          characterId: params.character.id,
+          messageId: params.message.id,
+          messagePreview: compactPhaseEvidence(params.message.content, 80),
+          fallback: 'local_fallback',
+        },
+      });
       const fallback = buildLocalFallbackDecision(params.message.content);
       return fallback ? buildCompanionshipPhaseEvent({ ...params, decision: fallback }) : null;
     }

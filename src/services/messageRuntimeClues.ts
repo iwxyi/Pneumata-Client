@@ -106,6 +106,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       companionship.rememberedUserPlans.length ? `记得计划：${companionship.rememberedUserPlans.join(' / ')}` : '',
       companionship.boundaries.length ? `用户边界：${companionship.boundaries.join(' / ')}` : '',
       companionship.boundaryReasons.length ? `克制原因：${companionship.boundaryReasons.join(' / ')}` : '',
+      companionship.diagnostics.length ? `运行诊断：${companionship.diagnostics.join(' / ')}` : '',
       `画像置信：${companionship.userProfileConfidence}%`,
       companionship.evidence.length ? `证据：${companionship.evidence.join(' / ')}` : '',
     ] : [],

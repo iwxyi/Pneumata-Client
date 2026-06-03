@@ -263,6 +263,7 @@ export interface CompanionshipRuntimeTrace {
   boundaryReasons: string[];
   carePolicy: Pick<CarePolicy, 'dailyInitiationBudget' | 'triggerSensitivity' | 'silenceAnxietyThresholdHours' | 'expressionIntensity' | 'allowGoodMorning' | 'allowGoodNight' | 'allowMissYou'>;
   attachmentProfile?: UserAttachmentProfile;
+  diagnostics: string[];
   evidence: string[];
   intimacy: IntimacyProjection;
   userProfileConfidence: number;

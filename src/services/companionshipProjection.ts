@@ -624,6 +624,25 @@ function getSharedAnchorLabels(character: AICharacter, now: number) {
   return buildUserSharedAnchors(character, now).map(formatSharedAnchorForPrompt);
 }
 
+function buildCompanionshipDiagnostics(chat: GroupChat, characterId: string) {
+  return (chat.runtimeEventsV2 || [])
+    .slice()
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .flatMap((event) => {
+      const payload = event.payload as Record<string, unknown> | undefined;
+      if (!payload || typeof payload.eventType !== 'string' || !payload.eventType.startsWith('companionship_')) return [];
+      if (typeof payload.characterId === 'string' && payload.characterId !== characterId) return [];
+      const decisionSource = typeof payload.decisionSource === 'string' ? payload.decisionSource : '';
+      const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined;
+      if (decisionSource !== 'local_fallback' && (confidence === undefined || confidence >= 0.7)) return [];
+      const eventLabel = payload.eventType.replace(/^companionship_/, '');
+      const sourceText = decisionSource ? `source=${decisionSource}` : 'source=unknown';
+      const confidenceText = confidence !== undefined ? ` confidence=${Math.round(confidence * 100)}%` : '';
+      return [`${eventLabel}: ${sourceText}${confidenceText} event=${event.id}`];
+    })
+    .slice(0, 5);
+}
+
 function buildAddressing(profile: UserProfileMemoryProjection, phase: CompanionshipPhase, now: number) {
   const preferred = profile.addressPreference || profile.displayName;
   const forbiddenAddresses = extractForbiddenAddresses(profile.sourceTexts);
@@ -1467,6 +1486,7 @@ export function buildCompanionshipRuntimeTrace(params: {
     messages: params.messages,
     now: params.now || Date.now(),
   }).map((ritual) => ritual.content).slice(0, 4);
+  const diagnostics = buildCompanionshipDiagnostics(params.chat, params.character.id);
   return {
     style: bond.style,
     phase: bond.phase,
@@ -1494,6 +1514,7 @@ export function buildCompanionshipRuntimeTrace(params: {
       allowMissYou: carePolicy.allowMissYou,
     },
     attachmentProfile: bond.attachmentProfile,
+    diagnostics,
     evidence: projection.evidence.slice(0, 5),
     intimacy: bond.intimacy,
     userProfileConfidence: profile.confidence,

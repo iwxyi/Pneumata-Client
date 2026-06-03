@@ -616,6 +616,33 @@ describe('companionshipProjection', () => {
     expect(trace?.carePolicy.dailyInitiationBudget).toBeGreaterThanOrEqual(4);
   });
 
+  it('exposes companionship local fallback diagnostics in runtime trace', () => {
+    const fallbackEvent = phaseEvent({
+      id: 'evt-phase-fallback',
+      payload: {
+        eventType: 'companionship_phase_event',
+        characterId: 'char-a',
+        userId: 'user',
+        phase: 'reconciling',
+        style: 'friend',
+        confidence: 0.62,
+        decisionSource: 'local_fallback',
+        reason: 'local fallback detected repair wording',
+        evidence: ['我们别冷战了，慢慢说开吧。'],
+      },
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({ warmth: 46, trust: 38, competence: 10, threat: 20 })], [fallbackEvent]),
+      character: character(),
+      messages: [message({ content: '我们别冷战了，慢慢说开吧。', timestamp: 900 })],
+      now: 1_000,
+    });
+
+    expect(trace?.diagnostics).toEqual(expect.arrayContaining([
+      'phase_event: source=local_fallback confidence=62% event=evt-phase-fallback',
+    ]));
+  });
+
   it('projects intimate conflict state from model-led crisis phase events', () => {
     const crisis = phaseEvent({
       id: 'evt-crisis-1',

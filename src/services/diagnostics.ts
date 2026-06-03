@@ -66,6 +66,21 @@ export function reportRecoverableError(params: {
   notifyDiagnosticToast({ message: params.userMessage, severity: 'error', location: params.location });
 }
 
+export function reportRecoverableWarning(params: {
+  location: string;
+  error?: unknown;
+  message: string;
+  extra?: Record<string, unknown>;
+}) {
+  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+    console.warn(`[recoverable-warning] ${params.location}`, {
+      error: params.error,
+      message: params.message,
+      ...(params.extra || {}),
+    });
+  }
+}
+
 export function reportUnhandledError(location: string, error: unknown, extra?: Record<string, unknown>): never {
   if (typeof console !== 'undefined' && typeof console.error === 'function') {
     console.error(`[unhandled] ${location}`, { error, ...(extra || {}) });

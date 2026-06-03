@@ -127,6 +127,7 @@ describe('messageRuntimeClues', () => {
               allowGoodNight: true,
               allowMissYou: true,
             },
+            diagnostics: ['care_topic: source=local_fallback confidence=62% event=evt-care-1'],
             evidence: ['深度绑定：喜欢、深度牵挂'],
             intimacy: { attraction: 72, intimacy: 68, attachment: 66, longing: 50, exclusivity: 18, security: 76 },
             userProfileConfidence: 68,
@@ -149,6 +150,7 @@ describe('messageRuntimeClues', () => {
       '关心事项：明天面试有点紧张。',
       '用户边界：用户不想恋爱暧昧，只想当朋友。',
       '克制原因：user does not want romantic framing',
+      '运行诊断：care_topic: source=local_fallback confidence=62% event=evt-care-1',
       '画像置信：68%',
     ]));
   });

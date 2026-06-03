@@ -141,6 +141,7 @@ describe('directUserProfileMemory', () => {
 
   it('falls back to local profile extraction only when model fails', async () => {
     generateJsonResponseMock.mockRejectedValueOnce(new Error('model unavailable'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const event = await resolveUserProfileMemoryEventFromDirectUserMessage({
       chat: chat(),
@@ -153,6 +154,11 @@ describe('directUserProfileMemory', () => {
       eventType: 'companionship_user_profile_memory',
       decisionSource: 'local_fallback',
     });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[recoverable-warning] companionship:user-profile-model-fallback'), expect.objectContaining({
+      fallback: 'local_fallback',
+      messagePreview: '以后叫我小夏就好。',
+    }));
+    warnSpy.mockRestore();
   });
 
   it('does not create local profile events for ordinary direct or group messages', () => {
