@@ -23,7 +23,7 @@ import { isCharacterFeatureEnabled } from './characterGenerationPolicy';
 import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
 import { buildMomentPostText } from './momentTextBuilder';
 import { buildCompanionshipArtifactSeeds, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
-import { readDueCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
+import { readDueCompanionshipCareTopicsFromEvents, readStaleCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
@@ -1666,6 +1666,37 @@ function buildDueCompanionshipCareCandidate(
   });
 }
 
+function buildStaleCompanionshipCareEvents(
+  chat: GroupChat,
+  characters: AICharacter[],
+  now: number,
+): RuntimeEventV2[] {
+  return characters
+    .filter((character) => chat.memberIds.includes(character.id))
+    .flatMap((character) => readStaleCompanionshipCareTopicsFromEvents(chat, character.id, now).map((topic) => createRuntimeEventV2({
+      conversationId: chat.id,
+      kind: 'artifact',
+      actorIds: ['user'],
+      targetIds: [character.id],
+      visibility: 'pair_private',
+      summary: `${character.name} 将过期关心事项标记为不再主动追问`,
+      payload: {
+        eventType: 'companionship_care_topic',
+        characterId: character.id,
+        userId: 'user',
+        topicId: topic.id,
+        topicText: topic.text,
+        action: 'stale',
+        urgency: topic.urgency,
+        reason: topic.restraintReason || 'care topic is past its useful follow-up window',
+        evidence: topic.evidence,
+        decisionSource: 'local_fallback',
+        confidence: 0.8,
+      },
+    })))
+    .slice(0, 4);
+}
+
 async function buildWorldDrivenCandidate(
   chat: GroupChat,
   characters: AICharacter[],
@@ -1964,6 +1995,14 @@ async function evaluateWorldDrivenDecision(
   textApiConfig?: APIConfig | null,
 ) {
   const now = Date.now();
+  const staleCareEvents = buildStaleCompanionshipCareEvents(chat, characters, now);
+  if (staleCareEvents.length) {
+    return {
+      candidate: null as RuntimeEventV2 | null,
+      suppressionEvents: staleCareEvents,
+      decisionEvents: [] as RuntimeEventV2[],
+    };
+  }
   const dueCareCandidate = buildDueCompanionshipCareCandidate(chat, characters, now);
   if (dueCareCandidate) {
     const payload = dueCareCandidate.payload as SocialEventCandidatePayload;

@@ -334,6 +334,36 @@ export function readDueCompanionshipCareTopicsFromEvents(chat: GroupChat, charac
     .slice(0, 4);
 }
 
+export function readStaleCompanionshipCareTopicsFromEvents(chat: GroupChat, characterId: string, now = Date.now()): PendingCareTopic[] {
+  const byId = new Map<string, { event: RuntimeEventV2; payload: CompanionshipCareTopicEventPayload }>();
+  (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .forEach((event) => {
+      const payload = carePayloadOf(event);
+      if (!payload || payload.characterId !== characterId || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return;
+      const previous = byId.get(payload.topicId);
+      if (!previous || event.createdAt >= previous.event.createdAt) byId.set(payload.topicId, { event, payload });
+    });
+  return Array.from(byId.values())
+    .filter(({ payload }) => {
+      if (payload.action !== 'opened' || typeof payload.dueAt !== 'number') return false;
+      const staleAfterMs = payload.urgency === 'high' ? 7 * 24 * 60 * 60_000 : 14 * 24 * 60 * 60_000;
+      return now - payload.dueAt > staleAfterMs;
+    })
+    .sort((left, right) => (left.payload.dueAt || left.event.createdAt) - (right.payload.dueAt || right.event.createdAt))
+    .map(({ event, payload }) => ({
+      id: payload.topicId,
+      text: compactText(payload.topicText, 140),
+      source: 'runtime_event' as const,
+      urgency: payload.urgency,
+      status: 'stale' as const,
+      restraintReason: 'care topic is past its useful follow-up window',
+      evidence: payload.evidence || event.summary,
+      updatedAt: event.createdAt,
+    }))
+    .slice(0, 4);
+}
+
 export function buildCompanionshipCareTopicEventsFromDirectUserMessage(params: {
   chat: GroupChat;
   character: AICharacter;

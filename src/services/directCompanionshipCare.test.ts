@@ -4,7 +4,7 @@ import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { generateJsonResponse } from './aiClient';
-import { buildCompanionshipCareTopicEventsFromDirectUserMessage, readActiveCompanionshipCareTopicsFromEvents, resolveCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
+import { buildCompanionshipCareTopicEventsFromDirectUserMessage, readActiveCompanionshipCareTopicsFromEvents, readStaleCompanionshipCareTopicsFromEvents, resolveCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
 
 vi.mock('./aiClient', () => ({
   generateJsonResponse: vi.fn(),
@@ -142,6 +142,22 @@ describe('directCompanionshipCare', () => {
       topicId: (opened[0]?.payload as { topicId: string }).topicId,
     });
     expect(readActiveCompanionshipCareTopicsFromEvents(chat([...opened, ...blocked]), 'char-a', 3000)).toEqual([]);
+  });
+
+  it('reads overdue care topics as stale after their useful follow-up window', () => {
+    const opened = buildCompanionshipCareTopicEventsFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: message('明天面试有点紧张。', 'msg-open', 1000),
+    });
+    const dueAt = (opened[0]?.payload as { dueAt?: number }).dueAt || 0;
+    const staleTopics = readStaleCompanionshipCareTopicsFromEvents(chat(opened), 'char-a', dueAt + 8 * 24 * 60 * 60_000);
+
+    expect(staleTopics[0]).toMatchObject({
+      id: (opened[0]?.payload as { topicId: string }).topicId,
+      status: 'stale',
+      restraintReason: 'care topic is past its useful follow-up window',
+    });
   });
 
   it('uses model judgment to open care topic when text api config exists', async () => {

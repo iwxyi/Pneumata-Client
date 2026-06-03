@@ -645,6 +645,51 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect(updateChat).not.toHaveBeenCalled();
   });
 
+  it('marks very overdue pending-care topic as stale instead of creating check_in', async () => {
+    const now = Date.now();
+    const chat = buildDirectChatWithEvents([{
+      id: 'care-open',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: now - 20 * 24 * 60 * 60_000,
+      actorIds: ['user'],
+      targetIds: ['a'],
+      summary: '甲记录了一个需要后续关心的用户事项',
+      visibility: 'pair_private',
+      payload: {
+        eventType: 'companionship_care_topic',
+        characterId: 'a',
+        userId: 'user',
+        topicId: 'care-a-interview-1',
+        topicText: '明天面试有点紧张。',
+        action: 'opened',
+        urgency: 'high',
+        evidence: '明天面试有点紧张。',
+        dueAt: now - 8 * 24 * 60 * 60_000 - 1_000,
+      },
+    } as RuntimeEventV2]);
+    const updateChat = vi.fn(async () => undefined);
+
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+
+    expect(updateChat).toHaveBeenCalledTimes(1);
+    const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
+    const stale = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { eventType?: string; action?: string }).eventType === 'companionship_care_topic'
+      && (event.payload as { action?: string }).action === 'stale');
+    const checkIn = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_pending_care_due');
+    expect(stale).toBeTruthy();
+    expect(checkIn).toBeUndefined();
+  });
+
   it('blocks due pending-care check_in when user rejects proactive contact', async () => {
     const now = Date.now();
     const chat = buildDirectChatWithEvents([{
