@@ -1,21 +1,26 @@
-import { Alert, Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useMessageStore } from '../stores/useMessageStore';
+import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import EmptyState from '../components/common/EmptyState';
 
 export default function SyncStatusPage() {
   const { i18n } = useTranslation();
   const characterStore = useCharacterStore();
   const chatStore = useChatStore();
+  const messageStore = useMessageStore();
+  const artifactStore = useCharacterArtifactStore();
   const authMode = useAuthStore((s) => s.authMode);
+  const isZh = i18n.language.startsWith('zh');
 
   const items = useMemo(() => {
     const characterItems = (characterStore.pendingOperations || []).map((item) => ({
       id: item.id,
-      scope: i18n.language.startsWith('zh') ? '角色' : 'Characters',
+      scope: isZh ? '角色' : 'Characters',
       kind: item.kind,
       status: item.status,
       createdAt: item.clientTimestamp,
@@ -26,7 +31,7 @@ export default function SyncStatusPage() {
 
     const chatItems = (chatStore.pendingOperations || []).map((item) => ({
       id: item.id,
-      scope: i18n.language.startsWith('zh') ? '聊天' : 'Chats',
+      scope: isZh ? '聊天' : 'Chats',
       kind: item.kind,
       status: item.status,
       createdAt: item.clientTimestamp,
@@ -35,39 +40,89 @@ export default function SyncStatusPage() {
       targetCount: item.targetIds.length,
     }));
 
-    return [...characterItems, ...chatItems].sort((a, b) => b.createdAt - a.createdAt);
-  }, [characterStore.pendingOperations, chatStore.pendingOperations, i18n.language]);
+    const messageItems = (messageStore.pendingOperations || []).map((item) => ({
+      id: item.id,
+      scope: isZh ? '消息' : 'Messages',
+      kind: item.kind,
+      status: item.status,
+      createdAt: item.createdAt,
+      attemptCount: item.attemptCount,
+      lastError: item.lastError || null,
+      targetCount: 1,
+    }));
+
+    const artifactItems = (artifactStore.jobs || [])
+      .filter((item) => item.status === 'pending' || item.status === 'running' || item.status === 'failed')
+      .map((item) => ({
+        id: item.id,
+        scope: isZh ? '信件 / 日记' : 'Letters / Diary',
+        kind: item.kind,
+        status: item.status === 'running' ? 'syncing' : item.status,
+        createdAt: item.createdAt,
+        attemptCount: item.attempts,
+        lastError: item.error || null,
+        targetCount: 1,
+      }));
+
+    return [...characterItems, ...chatItems, ...messageItems, ...artifactItems].sort((a, b) => b.createdAt - a.createdAt);
+  }, [artifactStore.jobs, characterStore.pendingOperations, chatStore.pendingOperations, isZh, messageStore.pendingOperations]);
 
   const labelMap: Record<string, string> = {
-    delete: i18n.language.startsWith('zh') ? '删除' : 'Delete',
-    restore: i18n.language.startsWith('zh') ? '恢复' : 'Restore',
-    purge: i18n.language.startsWith('zh') ? '彻底删除' : 'Purge',
-    empty_deleted: i18n.language.startsWith('zh') ? '清空回收站' : 'Empty trash',
-    create: i18n.language.startsWith('zh') ? '创建' : 'Create',
-    patch: i18n.language.startsWith('zh') ? '编辑' : 'Edit',
-    pending: i18n.language.startsWith('zh') ? '待同步' : 'Pending',
-    syncing: i18n.language.startsWith('zh') ? '同步中' : 'Syncing',
-    failed: i18n.language.startsWith('zh') ? '同步失败' : 'Failed',
+    delete: isZh ? '删除' : 'Delete',
+    restore: isZh ? '恢复' : 'Restore',
+    purge: isZh ? '彻底删除' : 'Purge',
+    empty_deleted: isZh ? '清空回收站' : 'Empty trash',
+    create: isZh ? '创建' : 'Create',
+    patch: isZh ? '编辑' : 'Edit',
+    birth_letter: isZh ? '诞生信' : 'Birth letter',
+    final_letter: isZh ? '信件' : 'Letter',
+    diary: isZh ? '日记' : 'Diary',
+    pending: isZh ? '待同步' : 'Pending',
+    syncing: isZh ? '同步中' : 'Syncing',
+    failed: isZh ? '同步失败' : 'Failed',
+    succeeded: isZh ? '已完成' : 'Succeeded',
   };
+
+  const retryAll = () => {
+    void chatStore.flushPendingOperations();
+    void characterStore.flushPendingOperations();
+    void messageStore.flushPendingOperations();
+    void artifactStore.resumeProcessing();
+  };
+
+  const failedCount = items.filter((item) => item.status === 'failed').length;
+  const pendingCount = items.filter((item) => item.status === 'pending').length;
+  const syncingCount = items.filter((item) => item.status === 'syncing').length;
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 }, maxWidth: 960, mx: 'auto' }}>
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
-        {i18n.language.startsWith('zh') ? '同步详情' : 'Sync details'}
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
+        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+          {isZh ? '同步详情' : 'Sync details'}
+        </Typography>
+        <Button size="small" variant="outlined" onClick={retryAll} disabled={items.length === 0}>
+          {isZh ? '重试全部' : 'Retry all'}
+        </Button>
+      </Box>
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        {i18n.language.startsWith('zh') ? '这里显示本地优先的创建和编辑同步队列；临时网络失败会自动重试，校验失败会停在失败状态等待处理。' : 'This page shows local-first create and edit sync operations. Temporary network failures retry automatically; validation failures stay failed for review.'}
+        {isZh ? '这里显示本地优先的创建、编辑、消息发送和信件/日记生成队列；临时网络失败会自动重试，校验失败会停在失败状态等待处理。' : 'This page shows local-first create, edit, message, and artifact queues. Temporary network failures retry automatically; validation failures stay failed for review.'}
       </Typography>
+
+      <Stack direction="row" spacing={1} useFlexGap sx={{ mb: 2, flexWrap: 'wrap' }}>
+        <Chip size="small" label={isZh ? `待同步 ${pendingCount}` : `Pending ${pendingCount}`} variant="outlined" />
+        <Chip size="small" label={isZh ? `同步中 ${syncingCount}` : `Syncing ${syncingCount}`} variant="outlined" color={syncingCount > 0 ? 'primary' : 'default'} />
+        <Chip size="small" label={isZh ? `失败 ${failedCount}` : `Failed ${failedCount}`} variant="outlined" color={failedCount > 0 ? 'error' : 'default'} />
+      </Stack>
 
       {authMode === 'local' ? (
         <Alert severity="info" sx={{ mb: 2 }}>
-          {i18n.language.startsWith('zh') ? '当前为离线本地模式：云同步已关闭，登录后会自动尝试上传本地数据。' : 'You are in local-only offline mode. Cloud sync is disabled and local data will be uploaded automatically after login.'}
+          {isZh ? '当前为离线本地模式：云同步已关闭，登录后会自动尝试上传本地数据。' : 'You are in local-only offline mode. Cloud sync is disabled and local data will be uploaded automatically after login.'}
         </Alert>
       ) : null}
 
       {items.length === 0 ? (
-        <EmptyState variant="plain" message={i18n.language.startsWith('zh') ? '当前没有待同步的编辑项' : 'No queued edit sync items'} />
+        <EmptyState variant="plain" message={isZh ? '当前没有待同步项' : 'No queued sync items'} />
       ) : (
         <Stack spacing={1.5}>
           {items.map((item) => (
@@ -84,7 +139,7 @@ export default function SyncStatusPage() {
                   </Typography>
                 </Box>
                 <Typography variant="body2" color="text.secondary">
-                  {i18n.language.startsWith('zh') ? `目标数量：${item.targetCount}，重试次数：${item.attemptCount}` : `Targets: ${item.targetCount}, Retries: ${item.attemptCount}`}
+                  {isZh ? `目标数量：${item.targetCount}，重试次数：${item.attemptCount}` : `Targets: ${item.targetCount}, Retries: ${item.attemptCount}`}
                 </Typography>
                 {item.lastError ? (
                   <Typography variant="body2" color="error.main">
@@ -92,7 +147,7 @@ export default function SyncStatusPage() {
                   </Typography>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
-                    {i18n.language.startsWith('zh') ? '暂无错误，队列中的创建或编辑通常会很快完成。' : 'No error recorded. Queued creates or edits usually finish quickly.'}
+                    {isZh ? '暂无错误，队列中的本地操作通常会很快完成。' : 'No error recorded. Queued local operations usually finish quickly.'}
                   </Typography>
                 )}
               </CardContent>
