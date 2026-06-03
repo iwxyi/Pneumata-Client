@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -573,6 +573,90 @@ function buildUnresolvedTensions(entry: RelationshipLedgerEntry | null) {
   ].filter(Boolean).slice(0, 3) as string[];
 }
 
+function conflictKindFromTexts(texts: string[], phase: CompanionshipPhase): IntimateConflictKind {
+  const joined = texts.join('\n');
+  if (phase === 'reconciling') return /(和好|说开|原谅|修复完成|重新开始)/.test(joined) ? 'reconciliation' : 'repair_attempt';
+  if (/(冷战|先别聊|暂时不聊|不回复|不想说话)/.test(joined)) return 'cold_war';
+  if (/(别理|不回应|不回消息|消失|拉黑)/.test(joined)) return 'silent_treatment';
+  if (/(你总是|你从来|指责|质问|失望|别这样)/.test(joined)) return 'accusation';
+  if (/(算了|没事|不用说了|不想解释|退回去)/.test(joined)) return 'withdrawal';
+  if (/(我很受伤|真实感受|崩溃|委屈|撑不住)/.test(joined)) return 'vulnerability_burst';
+  return 'testing';
+}
+
+function conflictSummary(kind: IntimateConflictKind, severity: number, repairReadiness: number) {
+  const intensity = severity >= 70 ? '很强' : severity >= 44 ? '明显' : '轻微';
+  if (kind === 'repair_attempt') return `关系正在尝试修复，冲突余波${intensity}，需要先接住对方而不是急着恢复亲密。`;
+  if (kind === 'reconciliation') return `关系已经出现和好或修复证据，可以温和承认余波，并把安全感慢慢补回来。`;
+  if (kind === 'cold_war') return `关系像是进入冷战或暂停沟通，冲突余波${intensity}，开口要克制。`;
+  if (kind === 'silent_treatment') return `关系有明显不回应或隔离感，冲突余波${intensity}，不能用热情强行压过去。`;
+  if (kind === 'accusation') return `对话里有指责或失望，冲突余波${intensity}，需要回应具体伤点。`;
+  if (kind === 'withdrawal') return `对方在退缩或把话收回去，冲突余波${intensity}，需要给空间和台阶。`;
+  if (kind === 'vulnerability_burst') return `对方暴露了受伤或委屈，冲突余波${intensity}，需要优先安放情绪。`;
+  return `关系里有试探性的紧张，修复成熟度约${repairReadiness}，不要贸然推进亲密。`;
+}
+
+function buildIntimateConflictState(params: {
+  characterId: string;
+  phase: CompanionshipPhase;
+  phaseEvent: ResolvedPhaseEvent | null;
+  entry: RelationshipLedgerEntry | null;
+  sharedAnchors: SharedMemoryAnchor[];
+  intimacy: IntimacyProjection;
+  now: number;
+}): IntimateConflictState | undefined {
+  const conflictAnchors = params.sharedAnchors.filter((anchor) => anchor.kind === 'conflict');
+  const repairAnchors = params.sharedAnchors.filter((anchor) => anchor.kind === 'repair');
+  const ledgerTexts = [
+    params.entry?.derived?.semantic?.summary || '',
+    ...(params.entry?.recentEvents || []).slice(-3).map((event) => event.summary),
+  ].filter(Boolean);
+  const phaseTexts = params.phaseEvent?.evidence || [];
+  const anchorTexts = [...conflictAnchors, ...repairAnchors].map((anchor) => [anchor.title, anchor.text, anchor.evidence].filter(Boolean).join('：'));
+  const evidence = [...phaseTexts, ...anchorTexts, ...ledgerTexts].map((item) => compactText(item, 120)).filter(Boolean).slice(0, 5);
+  const hasActiveConflict = params.phase === 'crisis' || params.phase === 'cooling' || conflictAnchors.length > 0 || (params.entry?.current.threat || 0) >= 28 || ledgerTexts.some((text) => /(冲突|冷战|失望|受伤|不舒服|争吵|裂痕|防备|修复|和好|道歉|说开)/.test(text));
+  const hasRepair = params.phase === 'reconciling' || repairAnchors.length > 0 || ledgerTexts.some((text) => /(修复|和好|道歉|说开|原谅|台阶|缓和)/.test(text));
+  if (!hasActiveConflict && !hasRepair) return undefined;
+  const kind = hasRepair && params.phase !== 'crisis'
+    ? conflictKindFromTexts(['修复', ...evidence], params.phase === 'reconciling' ? 'reconciling' : params.phase)
+    : conflictKindFromTexts(evidence, params.phase);
+  const threat = params.entry?.current.threat || 0;
+  const anchorSeverity = conflictAnchors.reduce((max, anchor) => Math.max(max, anchor.salience * anchor.confidence * 100), 0);
+  const severity = clampScore(Math.max(
+    params.phase === 'crisis' ? 76 : params.phase === 'cooling' ? 48 : 0,
+    threat * 1.4,
+    anchorSeverity,
+    hasRepair ? 32 : 0,
+  ));
+  const repairReadiness = clampScore(
+    (params.phase === 'reconciling' ? 42 : 0)
+    + repairAnchors.length * 22
+    + Math.max(0, params.intimacy.security - 24) * 0.65
+    + (kind === 'reconciliation' ? 18 : 0)
+    - (kind === 'silent_treatment' || kind === 'cold_war' ? 12 : 0),
+  );
+  return {
+    kind,
+    severity,
+    repairReadiness,
+    summary: conflictSummary(kind, severity, repairReadiness),
+    evidence,
+    participantIds: [params.characterId, USER_ACTOR_ID],
+    sourceEventIds: [
+      params.phaseEvent?.sourceEventId,
+      ...conflictAnchors.map((anchor) => anchor.sourceId || anchor.id),
+      ...repairAnchors.map((anchor) => anchor.sourceId || anchor.id),
+      ...(params.entry?.recentEvents || []).slice(-2).map((event) => event.id),
+    ].filter(Boolean) as string[],
+    updatedAt: Math.max(
+      params.phaseEvent?.enteredAt || 0,
+      ...[...conflictAnchors, ...repairAnchors].map((anchor) => anchor.updatedAt || 0),
+      params.entry?.lastUpdatedAt || 0,
+      params.now,
+    ),
+  };
+}
+
 function phaseLabel(phase: CompanionshipPhase) {
   const labels: Record<CompanionshipPhase, string> = {
     stranger: 'stranger',
@@ -697,6 +781,7 @@ export function buildCompanionshipStatusSignature(params: {
       `phase=${bond.phase} style=${bond.style}`,
       `address=${bond.addressing.currentAddress} confidence=${bond.userProfile.confidence}`,
       `intimacy attraction=${bond.intimacy.attraction} intimacy=${bond.intimacy.intimacy} longing=${bond.intimacy.longing} security=${bond.intimacy.security}`,
+      bond.intimateConflict ? `conflict=${bond.intimateConflict.kind} severity=${bond.intimateConflict.severity} repair=${bond.intimateConflict.repairReadiness} summary=${bond.intimateConflict.summary}` : '',
       bond.pendingCareTopics.length ? `care=${bond.pendingCareTopics.map((item) => item.text).join(' / ')}` : '',
       bond.userProfile.boundaries.length ? `boundaries=${bond.userProfile.boundaries.join(' / ')}` : '',
       carePolicy.boundaryReasons.length ? `restraints=${carePolicy.boundaryReasons.join(' / ')}` : '',
@@ -784,6 +869,7 @@ function buildPromptLines(bond: UserBondState, carePolicy: CarePolicy, evidence:
     `- Address the user naturally as "${bond.addressing.currentAddress}" unless the latest message suggests another appropriate address.`,
     sharedAnchors.length ? `- Shared memory anchors with the user: ${sharedAnchors.map(formatSharedAnchorForPrompt).join(' / ')}. Use as relationship texture only when relevant; do not expose internal labels.` : '',
     bond.pendingCareTopics.length ? `- Pending care topics: ${bond.pendingCareTopics.map((item) => item.text).join(' / ')}.` : '',
+    bond.intimateConflict ? `- Current intimate conflict/repair state: ${bond.intimateConflict.summary} Repair readiness ${bond.intimateConflict.repairReadiness}; severity ${bond.intimateConflict.severity}. Use this only to choose restraint, accountability, apology, space, or gentle repair.` : '',
     bond.unresolvedTensions.length ? `- Current restraint: ${bond.unresolvedTensions.join(' / ')}.` : '',
     `- Care policy: budget ${carePolicy.dailyInitiationBudget}/day, sensitivity ${carePolicy.triggerSensitivity}, expression ${carePolicy.expressionIntensity}, silence threshold ${carePolicy.silenceAnxietyThresholdHours}h.`,
     carePolicy.boundaryReasons.length ? `- Boundary restraints: ${carePolicy.boundaryReasons.join(' / ')}.` : '',
@@ -817,6 +903,15 @@ export function buildUserCompanionshipProjection(params: {
   const phase = phaseEvent?.phase || inferredPhase;
   const contacts = getLatestContact(messages, character.id);
   const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now);
+  const intimateConflict = buildIntimateConflictState({
+    characterId: character.id,
+    phase,
+    phaseEvent,
+    entry: ledger,
+    sharedAnchors,
+    intimacy,
+    now,
+  });
   const evidence = buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent);
   const preferredIntimacyStyle = inferPreferredStyle(character, intimacy);
   const carePolicy = buildCarePolicy(phase, preferredIntimacyStyle, userProfile);
@@ -835,6 +930,7 @@ export function buildUserCompanionshipProjection(params: {
     pendingCareTopics,
     rememberedUserPlans: buildRememberedPlans(pendingCareTopics),
     unresolvedTensions: buildUnresolvedTensions(ledger),
+    intimateConflict,
     addressing: buildAddressing(userProfile, phase, now),
     userProfile,
     preferredIntimacyStyle,
@@ -842,7 +938,7 @@ export function buildUserCompanionshipProjection(params: {
   };
   return {
     userBond: bond,
-    evidence: [...sharedAnchors.map(formatSharedAnchorForPrompt), ...evidence].slice(0, 6),
+    evidence: [...sharedAnchors.map(formatSharedAnchorForPrompt), ...(intimateConflict?.evidence || []), ...evidence].slice(0, 6),
     promptLines: buildPromptLines(bond, carePolicy, evidence, sharedAnchors),
   };
 }
@@ -1286,6 +1382,12 @@ export function buildCompanionshipRuntimeTrace(params: {
     sharedAnchors: sharedAnchorLabels.slice(0, 4),
     sharedSecrets: sharedSecretLabels,
     rituals: ritualLabels,
+    intimateConflict: bond.intimateConflict ? {
+      kind: bond.intimateConflict.kind,
+      severity: bond.intimateConflict.severity,
+      repairReadiness: bond.intimateConflict.repairReadiness,
+      summary: bond.intimateConflict.summary,
+    } : undefined,
     pendingCareTopics: bond.pendingCareTopics.map((item) => item.text).slice(0, 4),
     rememberedUserPlans: bond.rememberedUserPlans.slice(0, 4),
     boundaries: profile.boundaries.slice(0, 4),

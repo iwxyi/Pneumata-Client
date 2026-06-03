@@ -24,6 +24,27 @@ export interface IntimacyProjection {
   security: number;
 }
 
+export type IntimateConflictKind =
+  | 'cold_war'
+  | 'silent_treatment'
+  | 'testing'
+  | 'accusation'
+  | 'withdrawal'
+  | 'vulnerability_burst'
+  | 'repair_attempt'
+  | 'reconciliation';
+
+export interface IntimateConflictState {
+  kind: IntimateConflictKind;
+  severity: number;
+  repairReadiness: number;
+  summary: string;
+  evidence: string[];
+  participantIds: string[];
+  sourceEventIds: string[];
+  updatedAt: number;
+}
+
 export interface PendingCareTopic {
   id: string;
   text: string;
@@ -125,6 +146,7 @@ export interface UserBondState {
   pendingCareTopics: PendingCareTopic[];
   rememberedUserPlans: string[];
   unresolvedTensions: string[];
+  intimateConflict?: IntimateConflictState;
   addressing: AddressingState;
   userProfile: UserProfileMemoryProjection;
   preferredIntimacyStyle: PreferredIntimacyStyle;
@@ -226,6 +248,7 @@ export interface CompanionshipRuntimeTrace {
   sharedAnchors: string[];
   sharedSecrets: string[];
   rituals: string[];
+  intimateConflict?: Pick<IntimateConflictState, 'kind' | 'severity' | 'repairReadiness' | 'summary'>;
   pendingCareTopics: string[];
   rememberedUserPlans: string[];
   boundaries: string[];

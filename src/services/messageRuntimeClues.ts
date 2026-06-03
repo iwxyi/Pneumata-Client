@@ -100,6 +100,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       `阶段：${companionship.phase}`,
       `称呼：${companionship.currentAddress}`,
       companionship.sharedAnchors.length ? `共同锚点：${companionship.sharedAnchors.join(' / ')}` : '',
+      companionship.intimateConflict ? `亲密冲突：${companionship.intimateConflict.summary}（强度 ${companionship.intimateConflict.severity}，修复成熟度 ${companionship.intimateConflict.repairReadiness}）` : '',
       companionship.pendingCareTopics.length ? `关心事项：${companionship.pendingCareTopics.join(' / ')}` : '',
       companionship.rememberedUserPlans.length ? `记得计划：${companionship.rememberedUserPlans.join(' / ')}` : '',
       companionship.boundaries.length ? `用户边界：${companionship.boundaries.join(' / ')}` : '',

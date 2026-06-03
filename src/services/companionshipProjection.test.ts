@@ -616,6 +616,127 @@ describe('companionshipProjection', () => {
     expect(trace?.carePolicy.dailyInitiationBudget).toBeGreaterThanOrEqual(4);
   });
 
+  it('projects intimate conflict state from model-led crisis phase events', () => {
+    const crisis = phaseEvent({
+      id: 'evt-crisis-1',
+      createdAt: 900,
+      summary: '用户表达被苏苏的话伤到，需要先冷静。',
+      payload: {
+        eventType: 'companionship_phase_event',
+        characterId: 'char-a',
+        userId: 'user',
+        phase: 'crisis',
+        style: 'friend',
+        reason: '用户明确表达关系危机。',
+        evidence: ['你刚刚那句话让我很受伤，我们先冷静一下。'],
+      },
+    });
+    const directChat = chat('direct', [relationship({
+      warmth: 32,
+      trust: 18,
+      competence: 10,
+      threat: 42,
+    })], [crisis]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '你刚刚那句话让我很受伤，我们先冷静一下。', timestamp: 900 })],
+      now: 1_000,
+    });
+    const status = buildCompanionshipStatusSignature({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '你刚刚那句话让我很受伤，我们先冷静一下。', timestamp: 900 })],
+      now: 1_000,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '你刚刚那句话让我很受伤，我们先冷静一下。', timestamp: 900 })],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.intimateConflict).toMatchObject({
+      kind: 'vulnerability_burst',
+      participantIds: ['char-a', 'user'],
+    });
+    expect(projection.userBond?.intimateConflict?.severity).toBeGreaterThanOrEqual(70);
+    expect(projection.promptLines.join('\n')).toContain('Current intimate conflict/repair state');
+    expect(status?.debugLines.join('\n')).toContain('conflict=vulnerability_burst');
+    expect(trace?.intimateConflict?.summary).toContain('受伤');
+  });
+
+  it('projects repair state from reconciling phase events and repair anchors', () => {
+    const repairCharacter = character({
+      layeredMemories: [{
+        id: 'repair-anchor',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '那次冷战后，用户和苏苏慢慢说开并和好了。',
+        evidenceText: '用户说我们别冷战了，慢慢说开吧。',
+        salience: 0.88,
+        confidence: 0.9,
+        recency: 0.8,
+        reinforcementCount: 1,
+        sourceEventIds: ['evt-repair-anchor'],
+        origin: 'distilled',
+        createdAt: 700,
+        updatedAt: 850,
+      }],
+    });
+    const repair = phaseEvent({
+      id: 'evt-repair-1',
+      createdAt: 900,
+      summary: '用户愿意和苏苏重新说开。',
+      payload: {
+        eventType: 'companionship_phase_event',
+        characterId: 'char-a',
+        userId: 'user',
+        phase: 'reconciling',
+        style: 'friend',
+        reason: '用户表达修复意愿。',
+        evidence: ['我们别冷战了，慢慢说开吧。'],
+      },
+    });
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({
+        warmth: 48,
+        trust: 38,
+        competence: 10,
+        threat: 24,
+      })], [repair]),
+      character: repairCharacter,
+      messages: [message({ content: '我们别冷战了，慢慢说开吧。', timestamp: 900 })],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.intimateConflict).toMatchObject({
+      kind: 'reconciliation',
+    });
+    expect(projection.userBond?.intimateConflict?.repairReadiness).toBeGreaterThan(50);
+    expect(projection.evidence.join('\n')).toContain('慢慢说开');
+  });
+
+  it('does not project intimate conflict state for ordinary warm direct chats', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({
+        warmth: 66,
+        trust: 60,
+        competence: 10,
+        threat: 4,
+      })]),
+      character: character(),
+      messages: [message({ content: '今天看到一家店，感觉你会喜欢。', timestamp: 900 })],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.intimateConflict).toBeUndefined();
+    expect(projection.promptLines.join('\n')).not.toContain('Current intimate conflict/repair state');
+  });
+
   it('uses phase-sensitive proactive budget without blocking immediate user-prompted follow-up', () => {
     const crisisChat = chat('group', [relationship({ warmth: 20, trust: 12, competence: 10, threat: 50 })], [
       phaseEvent({
