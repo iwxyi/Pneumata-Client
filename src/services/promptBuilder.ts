@@ -673,8 +673,25 @@ function getRelationshipSnapshot(character: AICharacter, target: AICharacter | u
   return character.relationships.find((item) => item.characterId === target.id) || null;
 }
 
-function compactAiTranscriptEvidence(content: string, max = 180) {
-  const normalized = content.replace(/\s+/g, ' ').trim();
+function stripSurfaceMarkers(content: string) {
+  return content
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, '')
+    .replace(/([!?！？~～…])\1+/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildSurfaceMarkerSummary(message: Message) {
+  const markers: string[] = [];
+  if (/[\p{Extended_Pictographic}]/u.test(message.content)) markers.push('nonverbal reaction marker');
+  const attachments = message.metadata?.attachments || [];
+  const attachmentKinds = Array.from(new Set(attachments.map((attachment) => attachment.kind).filter(Boolean)));
+  attachmentKinds.forEach((kind) => markers.push(`${kind} attachment`));
+  return markers.length ? ` Surface markers withheld: ${markers.join(', ')}.` : '';
+}
+
+function compactAiTranscriptEvidence(message: Message, max = 180) {
+  const normalized = stripSurfaceMarkers(message.content);
   if (!normalized) return '[empty visible turn]';
   const withoutRoleActions = normalized
     .replace(/^(?:（[^（）]{1,32}）|\([^()]{1,32}\)|\*[^*\n]{1,32}\*)\s*/g, '')
@@ -716,7 +733,7 @@ export function buildChatMessages(messages: Message[], characters: Map<string, A
             `Transcript fact record, not wording/style sample - ${senderName}.`,
             `Use this as state/context only; do not imitate its visible sentence form.`,
             `Visible turn surface is ${message.id === latestAiId ? 'latest AI turn' : 'earlier AI turn'} and is intentionally compacted.`,
-            `Context payload: ${compactAiTranscriptEvidence(message.content)}`,
+            `Context payload: ${compactAiTranscriptEvidence(message)}.${buildSurfaceMarkerSummary(message)}`,
           ].join(' '),
       };
     });

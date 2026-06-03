@@ -189,6 +189,34 @@ describe('buildSystemPromptWithContext', () => {
     expect(rendered.filter((item) => item.content.includes('Transcript fact record'))).toHaveLength(2);
   });
 
+  it('summarizes rich surface markers without feeding raw reaction formats back to the model', () => {
+    const rendered = buildChatMessages([
+      buildMessage({
+        type: 'ai',
+        senderId: 'char-a',
+        senderName: '甲',
+        content: '这操作也太熟练了😂😂',
+        metadata: {
+          attachments: [{
+            id: 'sticker-1',
+            kind: 'sticker',
+            status: 'ready',
+            altText: '夸张大笑表情',
+            createdAt: 1,
+            updatedAt: 1,
+          }],
+        },
+      }),
+    ], new Map(), 12);
+
+    const content = rendered[0]?.content || '';
+    expect(content).toContain('Surface markers withheld');
+    expect(content).toContain('nonverbal reaction marker');
+    expect(content).toContain('sticker attachment');
+    expect(content).not.toContain('😂');
+    expect(content).not.toContain('夸张大笑表情');
+  });
+
   it('does not duplicate raw recent dialogue inside the system prompt window summary', () => {
     const character = buildCharacter();
     const prompt = buildSystemPromptWithContext(character, buildChat(), 0, [
