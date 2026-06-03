@@ -199,6 +199,20 @@ export interface SharedSecret {
   updatedAt: number;
 }
 
+export interface RitualRegistryEntry {
+  id: string;
+  kind: 'daily_greeting' | 'anniversary' | 'inside_joke' | 'pet_name' | 'reconciliation' | 'milestone';
+  participantIds: string[];
+  trigger: 'time' | 'date' | 'keyword' | 'phase_change' | 'conflict_resolved';
+  content: string;
+  evolution: string[];
+  cooldownHours: number;
+  boundaryReasons: string[];
+  sourceAnchorId?: string;
+  lastPerformedAt?: number;
+  updatedAt: number;
+}
+
 export interface CompanionshipProjection {
   userBond: UserBondState | null;
   evidence: string[];
@@ -211,6 +225,7 @@ export interface CompanionshipRuntimeTrace {
   currentAddress: string;
   sharedAnchors: string[];
   sharedSecrets: string[];
+  rituals: string[];
   pendingCareTopics: string[];
   rememberedUserPlans: string[];
   boundaries: string[];

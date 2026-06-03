@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -386,6 +386,9 @@ function buildUserProfileProjection(chat: GroupChat, character: AICharacter, mes
   const boundaries = uniqueTexts([...eventBoundaries, ...collectByPattern(allTexts, [
     /不要.*(主动|打扰|私聊|提醒|早安|晚安|恋爱|暧昧|情侣|对象|占有|吃醋)/,
     /不想.*(主动|打扰|私聊|提醒|早安|晚安|恋爱|暧昧|情侣|对象|占有|吃醋)/,
+    /不希望.*(主动|打扰|私聊|提醒|早安|晚安|恋爱|暧昧|情侣|对象|占有|吃醋)/,
+    /不需要.*(主动|打扰|私聊|提醒|早安|晚安|恋爱|暧昧|情侣|对象|占有|吃醋)/,
+    /不愿.*(主动|打扰|私聊|提醒|早安|晚安|恋爱|暧昧|情侣|对象|占有|吃醋)/,
     /只.*朋友/,
     /别.*(叫|喊|称呼|主动|打扰|暧昧|恋爱)/,
   ])], 6);
@@ -1010,6 +1013,108 @@ export function buildSharedSecrets(character: AICharacter, now = 0): SharedSecre
     .slice(0, 8);
 }
 
+function ritualFromAnchor(anchor: SharedMemoryAnchor): RitualRegistryEntry | null {
+  const kind: RitualRegistryEntry['kind'] | null = anchor.kind === 'inside_joke'
+    ? 'inside_joke'
+    : anchor.kind === 'repair'
+      ? 'reconciliation'
+      : anchor.kind === 'milestone' || anchor.kind === 'confession' || anchor.kind === 'first_time'
+        ? 'milestone'
+        : anchor.kind === 'promise'
+          ? 'anniversary'
+          : null;
+  if (!kind) return null;
+  return {
+    id: `ritual-${anchor.id}`,
+    kind,
+    participantIds: anchor.participantIds,
+    trigger: kind === 'reconciliation' ? 'conflict_resolved' : kind === 'anniversary' ? 'date' : kind === 'inside_joke' ? 'keyword' : 'phase_change',
+    content: anchor.text,
+    evolution: [anchor.title, anchor.evidence].filter(Boolean).map((item) => compactText(item, 120)),
+    cooldownHours: kind === 'inside_joke' ? 24 : kind === 'reconciliation' ? 72 : 24 * 14,
+    boundaryReasons: [],
+    sourceAnchorId: anchor.id,
+    updatedAt: anchor.updatedAt,
+  };
+}
+
+export function buildRitualRegistry(params: {
+  character: AICharacter;
+  chat?: GroupChat;
+  messages?: Message[];
+  now?: number;
+}): RitualRegistryEntry[] {
+  const now = params.now || Date.now();
+  const messages = params.messages || [];
+  const profileChat = params.chat || ({ runtimeEventsV2: [] } as unknown as GroupChat);
+  const profile = buildUserProfileProjection(profileChat, params.character, messages, now);
+  const phase = params.chat
+    ? resolveCompanionshipPhaseEvent(params.chat, params.character.id)?.phase || null
+    : null;
+  const boundaryReasons: string[] = [];
+  if (hasBoundary(profile, [/不要.*(早安|晚安)/, /不想.*(早安|晚安)/, /不希望.*(早安|晚安)/, /不需要.*(早安|晚安)/, /不愿.*(早安|晚安)/])) {
+    boundaryReasons.push('user rejects greeting rituals');
+  }
+  if (hasBoundary(profile, [/不.*(恋爱|暧昧|情侣|对象|占有|吃醋)/, /只.*朋友/])) {
+    boundaryReasons.push('user does not want romantic framing');
+  }
+  const address = buildAddressing(profile, phase || 'curious', now).currentAddress;
+  const rituals: RitualRegistryEntry[] = [];
+  if (!boundaryReasons.includes('user rejects greeting rituals')) {
+    rituals.push({
+      id: `ritual-${params.character.id}-daily-greeting`,
+      kind: 'daily_greeting',
+      participantIds: [params.character.id, USER_ACTOR_ID],
+      trigger: 'time',
+      content: `用${address}能接受的轻度方式表达早安/晚安，不机械打卡。`,
+      evolution: profile.scheduleHints.slice(0, 2),
+      cooldownHours: 12,
+      boundaryReasons: [],
+      updatedAt: now,
+    });
+  }
+  if (address && address !== '用户' && address !== '你') {
+    rituals.push({
+      id: `ritual-${params.character.id}-pet-name-${address}`,
+      kind: 'pet_name',
+      participantIds: [params.character.id, USER_ACTOR_ID],
+      trigger: 'keyword',
+      content: `私下称呼可以自然使用“${address}”，但冲突或冷淡时退回中性称呼。`,
+      evolution: profile.sourceTexts.filter((text) => text.includes(address)).slice(0, 3),
+      cooldownHours: 0,
+      boundaryReasons,
+      updatedAt: now,
+    });
+  }
+  profile.importantDates.slice(0, 3).forEach((dateText, index) => {
+    rituals.push({
+      id: `ritual-${params.character.id}-important-date-${index}`,
+      kind: 'anniversary',
+      participantIds: [params.character.id, USER_ACTOR_ID],
+      trigger: 'date',
+      content: dateText,
+      evolution: [dateText],
+      cooldownHours: 24 * 7,
+      boundaryReasons: [],
+      updatedAt: now,
+    });
+  });
+  buildSharedMemoryAnchors(params.character, now)
+    .map(ritualFromAnchor)
+    .filter((item): item is RitualRegistryEntry => Boolean(item))
+    .forEach((ritual) => rituals.push(ritual));
+  const seen = new Set<string>();
+  return rituals
+    .filter((ritual) => {
+      const key = `${ritual.kind}:${ritual.participantIds.slice().sort().join(',')}:${ritual.content.replace(/\s+/g, '').slice(0, 48)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    .slice(0, 10);
+}
+
 export function buildCharacterCompanionshipStates(character: AICharacter, now = 0): CharacterCompanionshipState[] {
   return (character.relationships || [])
     .filter((relation) => relation.characterId && relation.characterId !== USER_ACTOR_ID && !relation.characterId.startsWith('draft-'))
@@ -1061,6 +1166,7 @@ export function buildCompanionshipArtifactSeeds(params: {
   const seeds: string[] = [];
   const isPublic = surface === 'public_moment';
   const sharedSecrets = buildSharedSecrets(character as AICharacter, now);
+  const rituals = buildRitualRegistry({ character: character as AICharacter, now });
 
   buildSharedMemoryAnchors(character, now)
     .slice(0, isPublic ? 3 : 4)
@@ -1097,6 +1203,18 @@ export function buildCompanionshipArtifactSeeds(params: {
       return;
     }
     seeds.push(`${participantNames ? `和${participantNames}之间的` : ''}小秘密可以成为私密日记材料：${cleanArtifactSeedText(secret.privateText, members, 140)}。`);
+  });
+
+  rituals.slice(0, isPublic ? 2 : 3).forEach((ritual) => {
+    if (isPublic && ritual.participantIds.includes(USER_ACTOR_ID)) return;
+    const text = cleanArtifactSeedText(ritual.content, members, isPublic ? 90 : 140);
+    if (!text) return;
+    if (isPublic) {
+      if (ritual.kind === 'daily_greeting' || ritual.kind === 'pet_name') return;
+      seeds.push(`公开动态可以把关系仪式写成生活痕迹，不解释系统含义：${text}。`);
+      return;
+    }
+    seeds.push(`关系仪式可以作为日记里的生活感材料：${text}。`);
   });
 
   buildCharacterCompanionshipStates(character, now)
@@ -1155,12 +1273,19 @@ export function buildCompanionshipRuntimeTrace(params: {
     .filter((secret) => secret.participantIds.includes(USER_ACTOR_ID))
     .map((secret) => secret.publicMask)
     .slice(0, 3);
+  const ritualLabels = buildRitualRegistry({
+    character: params.character,
+    chat: params.chat,
+    messages: params.messages,
+    now: params.now || Date.now(),
+  }).map((ritual) => ritual.content).slice(0, 4);
   return {
     style: bond.style,
     phase: bond.phase,
     currentAddress: bond.addressing.currentAddress,
     sharedAnchors: sharedAnchorLabels.slice(0, 4),
     sharedSecrets: sharedSecretLabels,
+    rituals: ritualLabels,
     pendingCareTopics: bond.pendingCareTopics.map((item) => item.text).slice(0, 4),
     rememberedUserPlans: bond.rememberedUserPlans.slice(0, 4),
     boundaries: profile.boundaries.slice(0, 4),
