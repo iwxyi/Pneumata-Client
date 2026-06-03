@@ -9,6 +9,7 @@ const mockSettingsState = {
   developerMode: false,
   developerUI: {
     showMemoryDebug: false,
+    showCompanionshipDebug: false,
   },
 };
 
@@ -120,6 +121,43 @@ describe('ChatPrivateInfoCard', () => {
 
     mockSettingsState.developerMode = false;
     mockSettingsState.developerUI.showMemoryDebug = false;
+    mockSettingsState.developerUI.showCompanionshipDebug = false;
+  });
+
+  it('renders companionship debug lines with companionship diagnostics enabled', () => {
+    mockSettingsState.developerMode = true;
+    mockSettingsState.developerUI.showMemoryDebug = false;
+    mockSettingsState.developerUI.showCompanionshipDebug = true;
+
+    const html = renderToStaticMarkup(
+      <ChatPrivateInfoCard
+        chat={buildChat('direct')}
+        members={[buildCharacter('mei', '美羊羊')]}
+        directMemoryContext={{
+          targetSummary: '',
+          memoryVisibility: '仅开发者可见',
+          recentRelationshipChanges: [],
+          sourceTagSummary: 'direct_user_message × 2',
+          targetResolutionLabel: '来自人工点名',
+          targetResolution: '目标锁定灰太狼',
+          companionshipStatus: {
+            text: '记得你们说好周末一起看电影。',
+            tone: 'warm',
+            chips: ['有未完成约定'],
+            debugLines: ['promises=周末一起看电影', 'diagnostics=care-topic local_fallback confidence=0.42'],
+            updatedAt: 1,
+          },
+        }}
+      />,
+    );
+
+    expect(html).toContain('陪伴：promises=周末一起看电影');
+    expect(html).toContain('陪伴：diagnostics=care-topic local_fallback confidence=0.42');
+    expect(html).not.toContain('来源：direct_user_message × 2');
+    expect(html).not.toContain('目标识别：目标锁定灰太狼');
+
+    mockSettingsState.developerMode = false;
+    mockSettingsState.developerUI.showCompanionshipDebug = false;
   });
 
   it('renders companionship status without developer debug lines in normal mode', () => {

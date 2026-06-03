@@ -433,6 +433,7 @@ export default function SettingsPage() {
               <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showSpeechStyle} onChange={(e) => settings.setDeveloperUI({ showSpeechStyle: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '发言风格面板' : 'Speech style panel'} />
               <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showAdvancedRuntimePanels} onChange={(e) => settings.setDeveloperUI({ showAdvancedRuntimePanels: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '高级运行面板' : 'Advanced runtime panels'} />
               <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showMemoryDebug} onChange={(e) => settings.setDeveloperUI({ showMemoryDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '记忆证据与参数' : 'Memory evidence and metrics'} />
+              <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showCompanionshipDebug} onChange={(e) => settings.setDeveloperUI({ showCompanionshipDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '陪伴运行诊断' : 'Companionship diagnostics'} />
               <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showConflictEvents} onChange={(e) => settings.setDeveloperUI({ showConflictEvents: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '矛盾焦点与发展钩子' : 'Conflict focus and development hooks'} />
             </Box>
           </Box>

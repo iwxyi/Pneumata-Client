@@ -57,7 +57,9 @@ function buildStatusSx(tone: CompanionshipStatusSignature['tone']) {
 export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: ChatPrivateInfoCardProps) {
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
-  const showDebugDetails = developerMode && showMemoryDebug;
+  const showCompanionshipDebug = useSettingsStore((state) => state.developerUI.showCompanionshipDebug);
+  const showMemoryDetails = developerMode && showMemoryDebug;
+  const showCompanionshipDetails = developerMode && (showMemoryDebug || showCompanionshipDebug);
 
   if (chat.type === 'ai_direct') {
     const [actorName, targetName] = members.map((member) => member.name);
@@ -81,7 +83,7 @@ export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: Chat
 
   if (chat.type !== 'direct' || !members[0]) return null;
   const character = members[0];
-  const memoryChips = showDebugDetails
+  const memoryChips = showMemoryDetails
     ? [
       `角色记忆 ${(character.layeredMemories || []).length}`,
       `关系 ${(character.relationships || []).length}`,
@@ -122,11 +124,11 @@ export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: Chat
           <Typography variant="caption" color="text.secondary">最近关系变化：{recentRelationshipText}</Typography>
         ) : null}
         {recentMemoryText ? <Typography variant="caption" color="text.secondary">最近记忆：{recentMemoryText}</Typography> : null}
-        {showDebugDetails && directMemoryContext?.memoryVisibility ? <Typography variant="caption" color="text.secondary">{directMemoryContext.memoryVisibility}</Typography> : null}
-        {showDebugDetails && directMemoryContext?.sourceTagSummary ? <Typography variant="caption" color="text.secondary">来源：{directMemoryContext.sourceTagSummary}</Typography> : null}
-        {showDebugDetails && directMemoryContext?.targetResolutionLabel ? <Typography variant="caption" color="text.secondary">判断方式：{directMemoryContext.targetResolutionLabel}</Typography> : null}
-        {showDebugDetails && directMemoryContext?.targetResolution ? <Typography variant="caption" color="text.secondary">目标识别：{sanitizeUserFacingText(directMemoryContext.targetResolution, members)}</Typography> : null}
-        {showDebugDetails && companionshipStatus?.debugLines.length ? (
+        {showMemoryDetails && directMemoryContext?.memoryVisibility ? <Typography variant="caption" color="text.secondary">{directMemoryContext.memoryVisibility}</Typography> : null}
+        {showMemoryDetails && directMemoryContext?.sourceTagSummary ? <Typography variant="caption" color="text.secondary">来源：{directMemoryContext.sourceTagSummary}</Typography> : null}
+        {showMemoryDetails && directMemoryContext?.targetResolutionLabel ? <Typography variant="caption" color="text.secondary">判断方式：{directMemoryContext.targetResolutionLabel}</Typography> : null}
+        {showMemoryDetails && directMemoryContext?.targetResolution ? <Typography variant="caption" color="text.secondary">目标识别：{sanitizeUserFacingText(directMemoryContext.targetResolution, members)}</Typography> : null}
+        {showCompanionshipDetails && companionshipStatus?.debugLines.length ? (
           <Stack spacing={0.25}>
             {companionshipStatus.debugLines.slice(0, 5).map((line) => (
               <Typography key={line} variant="caption" color="text.secondary">陪伴：{sanitizeUserFacingText(line, members)}</Typography>

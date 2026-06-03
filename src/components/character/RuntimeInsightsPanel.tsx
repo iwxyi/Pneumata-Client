@@ -824,7 +824,8 @@ export function CharacterMemoryInspector({ character }: RuntimeInsightsPanelProp
   const characters = useCharacterStore((state) => state.characters);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
-  const includeRuntimeEvidence = developerMode && Boolean(showDeveloperMemory);
+  const showCompanionshipDebug = useSettingsStore((state) => state.developerUI.showCompanionshipDebug);
+  const includeRuntimeEvidence = developerMode && Boolean(showDeveloperMemory || showCompanionshipDebug);
   const memoryMembers = useMemo(() => {
     const selfMember = character.id ? [{ id: character.id, name: character.name || '当前角色' }] : [];
     return [...characters, ...selfMember];
@@ -844,7 +845,8 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
   const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
-  const isDeveloperView = developerMode && Boolean(showDeveloperMemory);
+  const showCompanionshipDebug = useSettingsStore((state) => state.developerUI.showCompanionshipDebug);
+  const isDeveloperView = developerMode && Boolean(showDeveloperMemory || showCompanionshipDebug);
   const relationships = useMemo(() => character.relationships || [], [character.relationships]);
   const resolveCharacterName = useMemo(() => {
     const byId = new Map(characters.map((item) => [item.id, item.name]));
@@ -988,7 +990,8 @@ export default function RuntimeInsightsPanel({ character }: RuntimeInsightsPanel
   const characters = useCharacterStore((state) => state.characters);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
-  const isDeveloperView = developerMode && Boolean(showDeveloperMemory);
+  const showCompanionshipDebug = useSettingsStore((state) => state.developerUI.showCompanionshipDebug);
+  const isDeveloperView = developerMode && Boolean(showDeveloperMemory || showCompanionshipDebug);
   const relationships = useMemo(() => character.relationships || [], [character.relationships]);
   const resolveCharacterName = useMemo(() => {
     const byId = new Map(characters.map((item) => [item.id, item.name]));
