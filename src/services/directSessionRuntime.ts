@@ -23,6 +23,7 @@ import { isCharacterFeatureEnabled } from './characterGenerationPolicy';
 import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
 import { buildMomentPostText } from './momentTextBuilder';
 import { buildCompanionshipArtifactSeeds, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
+import { readDueCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
@@ -1569,7 +1570,7 @@ function shouldConsumeCandidateWithRestraint(chat: GroupChat, payload: SocialEve
 
 function isValidAutoFlowCandidate(chat: GroupChat, payload: SocialEventCandidatePayload) {
   const memberIds = new Set(chat.memberIds || []);
-  const userInChat = memberIds.has('user');
+  const userInChat = memberIds.has('user') || chat.type === 'direct';
   const initiatorId = payload.initiatorId;
   if (!initiatorId || !memberIds.has(initiatorId)) return false;
 
@@ -1625,6 +1626,46 @@ function isValidAutoFlowCandidate(chat: GroupChat, payload: SocialEventCandidate
   return true;
 }
 
+function buildDueCompanionshipCareCandidate(
+  chat: GroupChat,
+  characters: AICharacter[],
+  now: number,
+): RuntimeEventV2 | null {
+  const actor = characters.find((character) => chat.memberIds.includes(character.id));
+  if (!actor) return null;
+  const topic = readDueCompanionshipCareTopicsFromEvents(chat, actor.id, now)[0];
+  if (!topic) return null;
+  const reasonType = 'companionship_pending_care_due';
+  if (hasRecentWorldArtifact(chat, actor.id, 'check_in', 90 * 60_000)) return null;
+  if (!passesWorldAttentionRestraintPolicy(chat, actor.id, 'user', now, 'check_in', reasonType, actor, { attentionScore: topic.urgency === 'high' ? 0.86 : 0.74 })) return null;
+  const confidence = topic.urgency === 'high' ? 0.88 : topic.urgency === 'medium' ? 0.84 : 0.78;
+  return createRuntimeEventV2({
+    conversationId: chat.id,
+    kind: 'event_candidate',
+    actorIds: [actor.id],
+    targetIds: ['user'],
+    visibility: 'derived_public',
+    summary: `${actor.name} 触发到期关心事项问候候选`,
+    payload: {
+      eventKind: 'check_in',
+      initiatorId: actor.id,
+      participantIds: [actor.id],
+      targetIds: ['user'],
+      reasonType,
+      confidence,
+      urgency: topic.urgency === 'high' ? 'immediate' : 'soon',
+      seedIntent: `用户之前提到“${topic.text}”，现在适合自然问一句后来怎么样了。`,
+      triggerReason: `PendingCareTopic due: ${topic.text}`,
+      visibilityPlan: 'user_private',
+      expectedArtifacts: ['check_in_note'],
+      sourceText: topic.evidence || topic.text,
+      title: '关心追问',
+      activityType: '关心事项追问',
+      dedupeKey: `companionship-care-due-${chat.id}-${actor.id}-${topic.id}`,
+    } satisfies SocialEventCandidatePayload,
+  });
+}
+
 async function buildWorldDrivenCandidate(
   chat: GroupChat,
   characters: AICharacter[],
@@ -1640,11 +1681,13 @@ async function buildWorldDrivenCandidate(
     selectedReasonType: SocialEventCandidatePayload['reasonType'];
   };
 }> {
+  const now = Date.now();
+  const dueCareCandidate = buildDueCompanionshipCareCandidate(chat, characters, now);
+  if (dueCareCandidate) return { candidate: dueCareCandidate, arbitration: null };
   const attention = projectWorldAttentionStates([chat], characters).find((item) => item.targetId === 'user' && item.actorId !== 'user');
   if (!attention) return { candidate: null, arbitration: null };
   const actor = characters.find((item) => item.id === attention.actorId) || null;
   if (attention.attentionScore < 0.58 || attention.restraint > 0.72) return { candidate: null, arbitration: null };
-  const now = Date.now();
   const upcomingCalendarItem = projectWorldCalendar([chat], characters, { now }).items
     .filter((item) => item.status !== 'cancelled' && item.status !== 'completed')
     .find((item) => {
@@ -1920,13 +1963,32 @@ async function evaluateWorldDrivenDecision(
   imageModelEnabled = false,
   textApiConfig?: APIConfig | null,
 ) {
+  const now = Date.now();
+  const dueCareCandidate = buildDueCompanionshipCareCandidate(chat, characters, now);
+  if (dueCareCandidate) {
+    const payload = dueCareCandidate.payload as SocialEventCandidatePayload;
+    const actorName = characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
+    return {
+      candidate: dueCareCandidate,
+      suppressionEvents: [] as RuntimeEventV2[],
+      decisionEvents: [buildWorldDecisionEvent({
+        chat,
+        actorId: payload.initiatorId,
+        actorName,
+        decisionType: 'trigger',
+        reasonType: 'companionship_pending_care_due',
+        reasonLabel: '关心事项到期',
+        reasonDetail: payload.triggerReason || payload.seedIntent,
+        toEventKind: 'check_in',
+      })],
+    };
+  }
   const attention = projectWorldAttentionStates([chat], characters).find((item) => item.targetId === 'user' && item.actorId !== 'user');
   if (!attention) return { candidate: null as RuntimeEventV2 | null, suppressionEvents: [] as RuntimeEventV2[], decisionEvents: [] as RuntimeEventV2[] };
   const actor = characters.find((item) => item.id === attention.actorId) || null;
   const actorName = actor?.name || attention.actorId;
   const suppressionEvents: RuntimeEventV2[] = [];
   const decisionEvents: RuntimeEventV2[] = [];
-  const now = Date.now();
 
   if (attention.attentionScore < 0.58 && !hasRecentWorldSuppressionEvent(chat, attention.actorId, 'world_attention_low_score', 20 * 60_000, now)) {
     suppressionEvents.push(buildWorldSuppressionEvent({

@@ -139,6 +139,35 @@ export function readActiveCompanionshipCareTopicsFromEvents(chat: GroupChat, cha
     .slice(0, 4);
 }
 
+export function readDueCompanionshipCareTopicsFromEvents(chat: GroupChat, characterId: string, now = Date.now()): PendingCareTopic[] {
+  const byId = new Map<string, { event: RuntimeEventV2; payload: CompanionshipCareTopicEventPayload }>();
+  (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .forEach((event) => {
+      const payload = carePayloadOf(event);
+      if (!payload || payload.characterId !== characterId || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return;
+      const previous = byId.get(payload.topicId);
+      if (!previous || event.createdAt >= previous.event.createdAt) byId.set(payload.topicId, { event, payload });
+    });
+  return Array.from(byId.values())
+    .filter(({ payload }) => payload.action === 'opened' && typeof payload.dueAt === 'number' && payload.dueAt <= now)
+    .sort((left, right) => {
+      const leftDueAt = left.payload.dueAt || left.event.createdAt;
+      const rightDueAt = right.payload.dueAt || right.event.createdAt;
+      return leftDueAt - rightDueAt;
+    })
+    .map(({ event, payload }) => ({
+      id: payload.topicId,
+      text: compactText(payload.topicText, 140),
+      source: 'runtime_event' as const,
+      urgency: payload.urgency,
+      status: 'active' as const,
+      evidence: payload.evidence || event.summary,
+      updatedAt: event.createdAt,
+    }))
+    .slice(0, 4);
+}
+
 export function buildCompanionshipCareTopicEventsFromDirectUserMessage(params: {
   chat: GroupChat;
   character: AICharacter;

@@ -134,6 +134,15 @@ function buildBaseChat() {
   return buildChatWithEvents([]);
 }
 
+function buildDirectChatWithEvents(events: RuntimeEventV2[]) {
+  return normalizeConversation({
+    ...buildBaseChat(),
+    type: 'direct',
+    memberIds: ['a'],
+    runtimeEventsV2: events,
+  });
+}
+
 function buildOpenedBaseChat() {
   return buildBaseChat();
 }
@@ -528,6 +537,159 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       const payload = event.payload as { artifactType?: string };
       return payload.artifactType === 'check_in_note' || payload.artifactType === 'outing_summary';
     })).toBe(true);
+  });
+
+  it('creates and consumes check_in candidate when a direct pending care topic is due', async () => {
+    const now = Date.now();
+    const chat = buildDirectChatWithEvents([{
+      id: 'care-open',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: now - 48 * 60 * 60_000,
+      actorIds: ['user'],
+      targetIds: ['a'],
+      summary: '甲记录了一个需要后续关心的用户事项',
+      visibility: 'pair_private',
+      payload: {
+        eventType: 'companionship_care_topic',
+        characterId: 'a',
+        userId: 'user',
+        topicId: 'care-a-interview-1',
+        topicText: '明天面试有点紧张。',
+        action: 'opened',
+        urgency: 'high',
+        evidence: '明天面试有点紧张。',
+        dueAt: now - 1_000,
+      },
+    } as RuntimeEventV2]);
+    const updateChat = vi.fn(async () => undefined);
+
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+
+    expect(updateChat).toHaveBeenCalledTimes(1);
+    const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
+    const candidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_pending_care_due');
+    const artifact = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { artifactType?: string; dedupeKey?: string }).artifactType === 'check_in_note'
+      && ((event.payload as { dedupeKey?: string }).dedupeKey || '').includes('care-a-interview-1'));
+    const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'world_decision_v2'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_pending_care_due');
+    expect(candidate).toBeTruthy();
+    expect(artifact).toBeTruthy();
+    expect(decision).toBeTruthy();
+  });
+
+  it('does not create pending-care check_in after the topic is closed', async () => {
+    const now = Date.now();
+    const chat = buildDirectChatWithEvents([
+      {
+        id: 'care-open',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 48 * 60 * 60_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '甲记录了一个需要后续关心的用户事项',
+        visibility: 'pair_private',
+        payload: {
+          eventType: 'companionship_care_topic',
+          characterId: 'a',
+          userId: 'user',
+          topicId: 'care-a-interview-1',
+          topicText: '明天面试有点紧张。',
+          action: 'opened',
+          urgency: 'high',
+          dueAt: now - 1_000,
+        },
+      } as RuntimeEventV2,
+      {
+        id: 'care-closed',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 10_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '甲记录用户完成了一个关心事项',
+        visibility: 'pair_private',
+        payload: {
+          eventType: 'companionship_care_topic',
+          characterId: 'a',
+          userId: 'user',
+          topicId: 'care-a-interview-1',
+          topicText: '明天面试有点紧张。',
+          action: 'closed',
+          urgency: 'high',
+        },
+      } as RuntimeEventV2,
+    ]);
+    const updateChat = vi.fn(async () => undefined);
+
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it('blocks due pending-care check_in when user rejects proactive contact', async () => {
+    const now = Date.now();
+    const chat = buildDirectChatWithEvents([{
+      id: 'care-open',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: now - 48 * 60 * 60_000,
+      actorIds: ['user'],
+      targetIds: ['a'],
+      summary: '甲记录了一个需要后续关心的用户事项',
+      visibility: 'pair_private',
+      payload: {
+        eventType: 'companionship_care_topic',
+        characterId: 'a',
+        userId: 'user',
+        topicId: 'care-a-interview-1',
+        topicText: '明天面试有点紧张。',
+        action: 'opened',
+        urgency: 'high',
+        dueAt: now - 1_000,
+      },
+    } as RuntimeEventV2]);
+    const updateChat = vi.fn(async () => undefined);
+    const actor = {
+      ...buildCharacter('a', '甲'),
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说不要主动打扰，也别提醒或私聊。'],
+      },
+    } as AICharacter;
+
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [actor],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+
+    expect(updateChat).not.toHaveBeenCalled();
   });
 
   it('world-driven fallback maps private_message attention into a private check-in intent', async () => {
