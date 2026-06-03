@@ -74,6 +74,15 @@ function isCareBlockText(text: string) {
   return /(不用|不要|别|不想).{0,8}(提醒|追问|问|关心)/.test(text);
 }
 
+function isLikelyNonUserCareCue(text: string) {
+  return /(压力锅|紧张刺激|剧情.*(压力|紧张)|游戏.*(压力|紧张)|电影.*(压力|紧张)|角色.*(不舒服|难受|焦虑|低落)|别人.*(不舒服|难受|焦虑|低落)|他说.*(不舒服|难受|焦虑|低落)|她说.*(不舒服|难受|焦虑|低落))/.test(text);
+}
+
+function hasExplicitUserCareCue(text: string) {
+  if (/(明天|今晚|后天|周末|要去|打算|计划|约定|准备|面试|考试|加班|ddl|截止|生日|纪念日)/.test(text)) return true;
+  return /(我|自己|最近|这几天|今天|今晚|昨晚|明天|上班|工作|学校|考试|面试|睡|身体|胃|头).{0,18}(生病|不舒服|难受|失眠|压力|焦虑|紧张|委屈|低落)|(生病|不舒服|难受|失眠|压力|焦虑|紧张|委屈|低落).{0,18}(我|自己|最近|这几天|今天|今晚|昨晚|明天|上班|工作|学校|考试|面试|睡|身体|胃|头)/.test(text);
+}
+
 function detectCareDomain(text: string) {
   if (/面试/.test(text)) return 'interview';
   if (/考试|考完/.test(text)) return 'exam';
@@ -112,6 +121,8 @@ function dueAtFor(text: string, createdAt: number) {
 
 function isCareOpeningText(text: string) {
   if (isCareClosureText(text)) return false;
+  if (isLikelyNonUserCareCue(text)) return false;
+  if (!hasExplicitUserCareCue(text)) return false;
   return /(明天|今晚|最近|考试|面试|加班|难受|不舒服|压力|焦虑|紧张|生日|纪念日|周末|要去|打算|计划|约定|准备|ddl|截止)/.test(text);
 }
 

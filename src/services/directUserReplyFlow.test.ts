@@ -136,6 +136,19 @@ describe('directUserReplyFlow companionship phase events', () => {
     })).toBeNull();
   });
 
+  it('does not create local crisis phase events from non-relationship discomfort text', () => {
+    expect(buildCompanionshipPhaseEventFromDirectUserMessage({
+      chat: chat('direct'),
+      character: character(),
+      message: message('今天工作让我很不舒服，我得先冷静一下。'),
+    })).toBeNull();
+    expect(buildCompanionshipPhaseEventFromDirectUserMessage({
+      chat: chat('direct'),
+      character: character(),
+      message: message('这个游戏剧情让我很受伤。'),
+    })).toBeNull();
+  });
+
   it('uses model judgment before local fallback when text api config exists', async () => {
     generateJsonResponseMock.mockResolvedValueOnce(JSON.stringify({
       shouldCreate: true,

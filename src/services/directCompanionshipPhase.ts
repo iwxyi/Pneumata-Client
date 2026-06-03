@@ -43,7 +43,12 @@ function cleanJsonCandidate(raw: string) {
 function detectCompanionshipPhaseFromUserText(content: string): Omit<PhaseDecision, 'decisionSource' | 'confidence' | 'evidence'> | null {
   const text = content.trim();
   if (!text) return null;
-  if (/(分开|结束这段关系|不想继续|冷静一下|先别聊|你让我失望|你刚刚.*不舒服|那句话.*不舒服|我很受伤|别这样)/.test(text)) {
+  const looksNonRelationshipContext = /(工作|学校|游戏|电影|剧情|小说|漫画|综艺|别人|他说|她说).{0,18}(冷静一下|不舒服|受伤|失望|难受)|(冷静一下|不舒服|受伤|失望|难受).{0,18}(工作|学校|游戏|电影|剧情|小说|漫画|综艺|别人|他说|她说)/.test(text);
+  if (
+    !looksNonRelationshipContext
+    && (/(分开|结束这段关系|不想继续这段关系|不想继续和你|先别聊了|你让我失望|你刚刚.*不舒服|那句话.*不舒服|我很受伤|别这样)/.test(text)
+      || /(我们|你|这段关系|和你).{0,16}(冷静一下|先别聊|暂停|失望|受伤|不舒服)/.test(text))
+  ) {
     return { phase: 'crisis', reason: '用户明确表达受伤、失望、暂停或关系危机。' };
   }
   if (/(和好|重新来|重新开始|慢慢说|好好说开|原谅你|给彼此.*台阶|我也有不对|我们别冷战)/.test(text)) {

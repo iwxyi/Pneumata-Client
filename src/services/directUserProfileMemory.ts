@@ -55,6 +55,14 @@ function normalizeConfidence(value: unknown) {
   return Math.max(0, Math.min(1, value > 1 ? value / 100 : value));
 }
 
+function isLikelyNonUserSensitiveCue(text: string) {
+  return /(压力锅|紧张刺激|剧情.*(压力|紧张)|游戏.*(压力|紧张)|电影.*(压力|紧张)|角色.*(不舒服|难受|焦虑|低落)|别人.*(不舒服|难受|焦虑|低落)|他说.*(不舒服|难受|焦虑|低落)|她说.*(不舒服|难受|焦虑|低落))/.test(text);
+}
+
+function hasExplicitUserSensitiveCue(text: string) {
+  return /(我|自己|最近|这几天|今天|今晚|昨晚|明天|上班|工作|学校|考试|面试|睡|身体|胃|头).{0,18}(生病|不舒服|难受|失眠|压力|焦虑|紧张|委屈|低落)|(生病|不舒服|难受|失眠|压力|焦虑|紧张|委屈|低落).{0,18}(我|自己|最近|这几天|今天|今晚|昨晚|明天|上班|工作|学校|考试|面试|睡|身体|胃|头)/.test(text);
+}
+
 function normalizeModelItems(raw: unknown, userContent: string): UserProfileMemoryEventItem[] {
   if (!raw || typeof raw !== 'object') return [];
   const value = raw as Record<string, unknown>;
@@ -120,7 +128,7 @@ function buildLocalFallbackItems(text: string): UserProfileMemoryEventItem[] {
       sensitive: /(生日|纪念日|面试|考试)/.test(text),
     });
   }
-  if (/(生病|不舒服|难受|失眠|压力|焦虑|紧张|委屈|低落)/.test(text)) {
+  if (!isLikelyNonUserSensitiveCue(text) && hasExplicitUserSensitiveCue(text)) {
     items.push({
       kind: /(生病|不舒服|难受|失眠)/.test(text) ? 'pressure_source' : 'emotional_pattern',
       text,

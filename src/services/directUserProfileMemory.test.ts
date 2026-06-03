@@ -167,4 +167,39 @@ describe('directUserProfileMemory', () => {
       message: message('以后叫我小夏就好。'),
     })).toBeNull();
   });
+
+  it('does not persist local sensitive profile memories from ambiguous keyword matches', () => {
+    expect(buildUserProfileMemoryEventFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: message('这个压力锅最近真的很好用。'),
+    })).toBeNull();
+    expect(buildUserProfileMemoryEventFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: message('这个游戏的紧张刺激做得很不错。'),
+    })).toBeNull();
+    expect(buildUserProfileMemoryEventFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: message('他说自己最近不舒服。'),
+    })).toBeNull();
+  });
+
+  it('keeps local fallback for explicit user sensitive cues when model is unavailable', () => {
+    const event = buildUserProfileMemoryEventFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: message('我最近工作压力有点大。'),
+    });
+
+    expect(event?.payload).toMatchObject({
+      eventType: 'companionship_user_profile_memory',
+      decisionSource: 'local_fallback',
+    });
+    expect((event?.payload as { items: Array<{ kind: string; sensitive?: boolean }> }).items[0]).toMatchObject({
+      kind: 'emotional_pattern',
+      sensitive: true,
+    });
+  });
 });

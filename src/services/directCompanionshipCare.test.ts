@@ -209,6 +209,24 @@ describe('directCompanionshipCare', () => {
     expect(events).toEqual([]);
   });
 
+  it('does not open local care topics from ambiguous keyword matches', () => {
+    expect(buildCompanionshipCareTopicEventsFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: message('这个压力锅最近真的很好用。'),
+    })).toEqual([]);
+    expect(buildCompanionshipCareTopicEventsFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: message('这个游戏的紧张刺激做得很不错。'),
+    })).toEqual([]);
+    expect(buildCompanionshipCareTopicEventsFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: message('他说自己最近不舒服。'),
+    })).toEqual([]);
+  });
+
   it('falls back to local care-topic judgment only when model judgment fails', async () => {
     generateJsonResponseMock.mockRejectedValueOnce(new Error('model unavailable'));
 
