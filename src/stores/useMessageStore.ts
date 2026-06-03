@@ -8,6 +8,8 @@ import { hasLocalDataUrlMedia, scrubLocalMediaUrlsForCloud, uploadLocalMessageMe
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateMessageStoreState } from './storeMigrations';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
+import { createSyncScheduler } from './storeSyncScheduler';
+import { canAttemptOnlineSync, classifySyncError, recoverInterruptedOperations } from './storeSyncHelpers';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 
 function isLocalOnlyMode() {
@@ -4213,11 +4215,16 @@ interface CachedMessageWindow {
 }
 
 interface PendingMessageOperation {
+  id: string;
   kind: 'create' | 'delete';
   chatId: string;
+  localMessageId?: string;
   messageId?: string;
-  payload?: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>;
+  payload?: Message;
   createdAt: number;
+  attemptCount: number;
+  status: 'pending' | 'syncing' | 'failed';
+  lastError?: string;
 }
 
 interface PersistedMessageState {
@@ -4252,10 +4259,9 @@ export function clearPersistedMessageStore() {
 }
 
 function buildPersistedMessageState(state: PersistedMessageState): PersistedMessageState {
-  if (shouldSkipCloudSync()) return state;
   return {
-    messageWindowsByChatId: {},
-    pendingOperations: [],
+    messageWindowsByChatId: trimCache(state.messageWindowsByChatId || {}),
+    pendingOperations: recoverInterruptedOperations(state.pendingOperations || []),
   };
 }
 
@@ -4393,6 +4399,9 @@ function trimCache(cache: Record<string, CachedMessageWindow>) {
 }
 
 const messageStorage = createMessageStorage();
+const MESSAGE_SYNC_DELAYS = [1000, 3000, 10000, 30000];
+const messageSyncScheduler = createSyncScheduler();
+let messageSyncLifecycleRegistered = false;
 let messageHydrationPromise: Promise<void> | null = null;
 
 function ensureMessageStoreHydrated() {
@@ -4407,6 +4416,71 @@ function shouldRevalidateMessageWindow(lastSyncedAt: number | undefined, revalid
   if (!revalidate) return false;
   if (!lastSyncedAt) return true;
   return Date.now() - lastSyncedAt > 15_000;
+}
+
+function createPendingMessageOperation(message: Message): PendingMessageOperation {
+  const operationId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${message.id}-${Math.random().toString(36).slice(2, 10)}`;
+  return {
+    id: `message-create-${operationId}`,
+    kind: 'create',
+    chatId: message.chatId,
+    localMessageId: message.id,
+    messageId: message.serverId || message.id,
+    payload: message,
+    createdAt: Date.now(),
+    attemptCount: 0,
+    status: 'pending',
+  };
+}
+
+function messagePayloadForCloud(message: Message, operationId: string) {
+  const metadata = hasLocalDataUrlMedia(message) ? scrubLocalMediaUrlsForCloud(message) : message.metadata;
+  return {
+    type: message.type,
+    senderId: message.senderId,
+    senderName: message.senderName,
+    content: message.content,
+    metadata,
+    emotion: message.emotion,
+    timestamp: message.timestamp,
+    clientKey: message.clientKey || message.id,
+    operationId,
+  };
+}
+
+function mergeMessageServerConfirmation(localMessage: Message, savedMessage: unknown): Message {
+  const saved = savedMessage as Partial<Message> | null | undefined;
+  return {
+    ...localMessage,
+    serverId: saved?.serverId || saved?.id || localMessage.serverId,
+    clientKey: localMessage.clientKey || saved?.clientKey,
+    isDeleted: Boolean(saved?.isDeleted ?? localMessage.isDeleted),
+    isOptimistic: false,
+    isStreaming: false,
+  };
+}
+
+function upsertPendingCreateOperation(queue: PendingMessageOperation[], message: Message) {
+  const clientKey = message.clientKey || message.id;
+  const existing = queue.find((operation) => operation.kind === 'create' && (
+    operation.localMessageId === message.id || operation.payload?.clientKey === clientKey
+  ));
+  if (existing) {
+    return queue.map((operation) => operation.id === existing.id
+      ? { ...operation, payload: message, status: operation.status === 'syncing' ? 'syncing' as const : 'pending' as const }
+      : operation);
+  }
+  return [...queue, createPendingMessageOperation(message)];
+}
+
+function removePendingMessageOperation(queue: PendingMessageOperation[], operationId: string) {
+  return queue.filter((operation) => operation.id !== operationId);
+}
+
+function updatePendingMessageOperation(queue: PendingMessageOperation[], operationId: string, patch: Partial<PendingMessageOperation>) {
+  return queue.map((operation) => operation.id === operationId ? { ...operation, ...patch } : operation);
 }
 
 interface MessageStore {
@@ -4427,6 +4501,8 @@ interface MessageStore {
   addMessage: (msg: Omit<Message, 'id' | 'timestamp' | 'isDeleted'> & { timestamp?: number }) => Promise<Message>;
   upsertMessage: (message: Message) => void;
   upsertMessages: (messages: Message[]) => void;
+  queueMessageSync: (message: Message) => void;
+  flushPendingOperations: () => Promise<void>;
   clearChatMessagesLocal: (chatId: string) => void;
   deleteMessage: (id: string) => Promise<void>;
   deleteLastNMessages: (chatId: string, n: number) => Promise<void>;
@@ -4436,8 +4512,54 @@ interface MessageStore {
 
 export const useMessageStore = create<MessageStore>()(
   persist(
-    (set, get) => ({
-      messages: [],
+    (set, get) => {
+      const flushPendingOperations = async () => {
+        const state = get();
+        const nextOperation = state.pendingOperations.find((operation) => operation.status === 'pending');
+        if (!nextOperation || !canAttemptOnlineSync()) return;
+
+        set((current) => ({
+          pendingOperations: updatePendingMessageOperation(current.pendingOperations, nextOperation.id, { status: 'syncing' }),
+        }));
+
+        try {
+          if (nextOperation.kind === 'create' && nextOperation.payload) {
+            const localMessage = nextOperation.payload;
+            const savedMessage = await api.createMessage(localMessage.chatId, messagePayloadForCloud(localMessage, nextOperation.id));
+            const persistedMessage = mergeMessageServerConfirmation(localMessage, savedMessage);
+            set((current) => ({
+              ...localUpsertMessage(current, persistedMessage),
+              pendingOperations: removePendingMessageOperation(current.pendingOperations, nextOperation.id),
+            }));
+            if (hasLocalDataUrlMedia(localMessage)) {
+              await uploadLocalMessageMediaToCloud({ localMessage, cloudMessage: persistedMessage });
+            }
+          }
+          set((current) => ({
+            pendingOperations: removePendingMessageOperation(current.pendingOperations, nextOperation.id),
+          }));
+          messageSyncScheduler.schedule(flushPendingOperations, 50);
+        } catch (error) {
+          const classified = classifySyncError(error);
+          const attemptCount = nextOperation.attemptCount + 1;
+          set((current) => ({
+            pendingOperations: updatePendingMessageOperation(current.pendingOperations, nextOperation.id, {
+              status: 'pending',
+              attemptCount,
+              lastError: classified,
+            }),
+          }));
+          messageSyncScheduler.schedule(flushPendingOperations, MESSAGE_SYNC_DELAYS[Math.min(attemptCount, MESSAGE_SYNC_DELAYS.length - 1)]);
+        }
+      };
+
+      if (!messageSyncLifecycleRegistered) {
+        messageSyncScheduler.registerLifecycle(flushPendingOperations, 300);
+        messageSyncLifecycleRegistered = true;
+      }
+
+      return {
+        messages: [],
       messageWindowsByChatId: {},
       pendingOperations: [],
       activeChatId: null,
@@ -4451,6 +4573,7 @@ export const useMessageStore = create<MessageStore>()(
 
       openChatWindow: async (chatId: string, options?: { limit?: number; revalidate?: boolean }) => {
         await ensureMessageStoreHydrated();
+        if (!shouldSkipCloudSync()) messageSyncScheduler.schedule(flushPendingOperations, 100);
         get().hydrateMessagesFromCache(chatId);
         const currentWindow = get().messageWindowsByChatId[chatId];
         const shouldRevalidate = shouldRevalidateMessageWindow(currentWindow?.lastSyncedAt, options?.revalidate ?? true);
@@ -4532,26 +4655,20 @@ export const useMessageStore = create<MessageStore>()(
       },
 
       addMessage: async (msgData) => {
-        if (shouldSkipCloudSync()) {
-          let created: Message | null = null;
-          set((state) => {
-            const next = localMessageInsertResult(state, msgData);
-            created = next.message;
-            return next;
-          });
-          return created as unknown as Message;
-        }
-        const result = await api.createMessage(msgData.chatId, {
-          type: msgData.type,
-          senderId: msgData.senderId,
-          senderName: msgData.senderName,
-          content: msgData.content,
-          metadata: msgData.metadata,
-          emotion: msgData.emotion,
+        let created: Message | null = null;
+        set((state) => {
+          const next = localMessageInsertResult(state, msgData);
+          created = next.message;
+          const pendingOperations = shouldSkipCloudSync()
+            ? state.pendingOperations
+            : upsertPendingCreateOperation(state.pendingOperations, next.message);
+          return {
+            ...next,
+            pendingOperations,
+          };
         });
-        const message = result as unknown as Message;
-        get().upsertMessage(message);
-        return message;
+        if (!shouldSkipCloudSync()) messageSyncScheduler.schedule(flushPendingOperations, 120);
+        return created as unknown as Message;
       },
 
       upsertMessage: (message) => {
@@ -4604,6 +4721,21 @@ export const useMessageStore = create<MessageStore>()(
           };
         });
       },
+
+      queueMessageSync: (message) => {
+        if (shouldSkipCloudSync()) return;
+        const normalized = normalizeMessage({
+          ...message,
+          clientKey: message.clientKey || message.id,
+        });
+        set((state) => ({
+          ...localUpsertMessage(state, normalized),
+          pendingOperations: upsertPendingCreateOperation(state.pendingOperations, normalized),
+        }));
+        messageSyncScheduler.schedule(flushPendingOperations, 120);
+      },
+
+      flushPendingOperations,
 
       clearChatMessagesLocal: (chatId) => {
         set((state) => {
@@ -4675,7 +4807,8 @@ export const useMessageStore = create<MessageStore>()(
       getRecentMessages: (n) => {
         return get().messages.filter((m) => !m.isDeleted).slice(-n);
       },
-    }),
+      };
+    },
     {
       name: getMessageStoreStorageName(),
       storage: messageStorage,

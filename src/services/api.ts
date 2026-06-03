@@ -324,7 +324,7 @@ class ApiClient {
 
   async createMessage(chatId: string, data: {
     type: string; senderId: string; senderName: string;
-    content: string; emotion?: number; metadata?: unknown; timestamp?: number;
+    content: string; emotion?: number; metadata?: unknown; timestamp?: number; clientKey?: string; operationId?: string;
   }) {
     return this.request<Record<string, unknown>>('POST', `/chats/${chatId}/messages`, data);
   }

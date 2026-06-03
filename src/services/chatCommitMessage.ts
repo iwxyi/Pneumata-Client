@@ -1,7 +1,5 @@
 import type { Message } from '../types/message';
-import { api } from './api';
 import { resolveCommittedStreamContent } from './streamingMessageLifecycle';
-import { reportRecoverableError } from './diagnostics';
 
 interface PersistLocalFirstMessageParams {
   message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>;
@@ -52,24 +50,10 @@ function writeMessages(upsertMessages: (messages: Message[]) => void, messages: 
   upsertMessages(messages);
 }
 
-function mergeServerConfirmation(localMessage: Message, savedMessage: unknown): Message {
-  const saved = savedMessage as Partial<Message> | null | undefined;
-  return {
-    id: localMessage.id,
-    clientKey: localMessage.clientKey,
-    serverId: saved?.serverId || saved?.id,
-    chatId: localMessage.chatId,
-    type: localMessage.type,
-    senderId: localMessage.senderId,
-    senderName: localMessage.senderName,
-    content: localMessage.content,
-    metadata: localMessage.metadata,
-    emotion: localMessage.emotion,
-    timestamp: localMessage.timestamp,
-    isDeleted: Boolean(saved?.isDeleted ?? localMessage.isDeleted),
-    isOptimistic: false,
-    isStreaming: false,
-  };
+function queueMessageSync(message: Message) {
+  void import('../stores/useMessageStore').then(({ useMessageStore }) => {
+    useMessageStore.getState().queueMessageSync(message);
+  });
 }
 
 function delayMs(ms: number) {
@@ -152,26 +136,8 @@ export async function persistLocalFirstMessage(params: PersistLocalFirstMessageP
     await (params.delay || delayMs)(params.withdrawalRevealDelayMs ?? 1200);
   }
   writeMessage(params.upsertMessage, localMessage, params.deferLocalUpsert);
-
-  void api.createMessage(messagePayload.chatId, {
-    type: messagePayload.type,
-    senderId: messagePayload.senderId,
-    senderName: messagePayload.senderName,
-    content: messagePayload.content,
-    metadata: messagePayload.metadata,
-    emotion: messagePayload.emotion,
-  }).then((savedMessage) => {
-    const persistedMessage = mergeServerConfirmation(localMessage, savedMessage);
-    writeMessage(params.upsertMessage, persistedMessage, params.deferLocalUpsert);
-    params.onPersisted?.(persistedMessage);
-  }).catch((error) => {
-    reportRecoverableError({
-      location: 'chat-commit-message.persist-one',
-      error,
-      userMessage: '消息保存到云端失败，本地内容已保留。',
-      extra: { chatId: messagePayload.chatId, senderId: messagePayload.senderId, messageType: messagePayload.type },
-    });
-  });
+  queueMessageSync(localMessage);
+  params.onPersisted?.(localMessage);
 
   return localMessage;
 }
@@ -180,28 +146,9 @@ export async function persistLocalFirstMessages(params: PersistLocalFirstMessage
   if (!params.messages.length) return [];
   const localMessages = params.messages.map((entry) => createCommittedLocalMessage(entry.message, { timestamp: entry.timestamp }));
   writeMessages(params.upsertMessages, localMessages, params.deferLocalUpsert);
-
-  void Promise.all(params.messages.map((entry, index) => api.createMessage(entry.message.chatId, {
-    type: entry.message.type,
-    senderId: entry.message.senderId,
-    senderName: entry.message.senderName,
-    content: entry.message.content,
-    metadata: entry.message.metadata,
-    emotion: entry.message.emotion,
-  }).then((savedMessage) => {
-    const localMessage = localMessages[index];
-    const persistedMessage = mergeServerConfirmation(localMessage, savedMessage);
-    entry.onPersisted?.(persistedMessage);
-    return persistedMessage;
-  }))).then((persistedMessages) => {
-    writeMessages(params.upsertMessages, persistedMessages, params.deferLocalUpsert);
-  }).catch((error) => {
-    reportRecoverableError({
-      location: 'chat-commit-message.persist-batch',
-      error,
-      userMessage: '部分消息保存到云端失败，本地内容已保留。',
-      extra: { count: params.messages.length },
-    });
+  localMessages.forEach((message, index) => {
+    queueMessageSync(message);
+    params.messages[index]?.onPersisted?.(message);
   });
 
   return localMessages;

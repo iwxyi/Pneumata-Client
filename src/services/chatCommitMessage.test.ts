@@ -1,23 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Message } from '../types/message';
 import { createCommittedLocalMessage, persistLocalFirstMessage } from './chatCommitMessage';
-import { api } from './api';
 
-vi.mock('./api', () => ({
-  api: {
-    createMessage: vi.fn(async (chatId: string, data: { type: string; senderId: string; senderName: string; content: string; emotion?: number }) => ({
-      id: 'server-message-1',
-      chatId,
-      type: data.type,
-      senderId: data.senderId,
-      senderName: data.senderName,
-      content: data.content,
-      emotion: data.emotion ?? 0,
-      timestamp: 999999,
-      isDeleted: false,
-      relationshipDebug: { large: 'payload' },
-      rawResponse: Array.from({ length: 8 }, (_, index) => ({ index, text: 'server-only metadata' })),
-    })),
+const queueMessageSyncMock = vi.fn();
+
+vi.mock('../stores/useMessageStore', () => ({
+  useMessageStore: {
+    getState: () => ({
+      queueMessageSync: queueMessageSyncMock,
+    }),
   },
 }));
 
@@ -50,20 +41,13 @@ describe('persistLocalFirstMessage', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(api.createMessage).toHaveBeenCalledWith('chat-1', {
-      type: 'event',
-      senderId: 'system',
-      senderName: 'System',
+    expect(queueMessageSyncMock).toHaveBeenCalledWith(expect.objectContaining({
+      id: localMessage.id,
+      chatId: 'chat-1',
       content: '{"eventType":"relationship_shift"}',
-      emotion: 0,
-    });
-    expect(upserts).toHaveLength(2);
-    expect(upserts[1]?.id).toBe(localMessage.id);
-    expect(upserts[1]?.serverId).toBe('server-message-1');
-    expect(upserts[1]?.timestamp).toBe(123456);
-    expect(upserts[1]?.isOptimistic).toBe(false);
-    expect('relationshipDebug' in (upserts[1] as unknown as Record<string, unknown>)).toBe(false);
-    expect('rawResponse' in (upserts[1] as unknown as Record<string, unknown>)).toBe(false);
+      timestamp: 123456,
+    }));
+    expect(upserts).toHaveLength(1);
   });
 
   it('reuses an existing local streaming message instead of creating a second bubble', async () => {
@@ -104,11 +88,13 @@ describe('persistLocalFirstMessage', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(upserts).toHaveLength(2);
+    expect(upserts).toHaveLength(1);
     expect(upserts[0]?.id).toBe(existingLocalMessage.id);
     expect(upserts[0]?.content).toBe('真正完成');
-    expect(upserts[1]?.id).toBe(existingLocalMessage.id);
-    expect(upserts[1]?.serverId).toBe('server-message-1');
+    expect(queueMessageSyncMock).toHaveBeenCalledWith(expect.objectContaining({
+      id: existingLocalMessage.id,
+      content: '真正完成',
+    }));
   });
 
   it('keeps the fuller streamed text when final commit content is a suffix', async () => {
@@ -145,7 +131,7 @@ describe('persistLocalFirstMessage', () => {
     expect(localMessage.content).toBe(existingLocalMessage.content);
     expect(upserts[0]?.content).toBe(existingLocalMessage.content);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(api.createMessage).toHaveBeenLastCalledWith('chat-1', expect.objectContaining({
+    expect(queueMessageSyncMock).toHaveBeenLastCalledWith(expect.objectContaining({
       content: existingLocalMessage.content,
     }));
   });
