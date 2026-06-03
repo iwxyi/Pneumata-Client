@@ -324,7 +324,12 @@ export function calculateWeights(
           weight += relationDramaBoost;
           relationshipPressure += relationDramaBoost;
         }
-        const directCue = lastAiMessage.content.includes(char.name) || /你|你这|不是吧|等等|可问题是|那你|你咋|你是不是|你先别/.test(lastAiMessage.content);
+        const addressedMessage = lastAiMessage as Message & { addressedTargetIds?: string[] | null; primaryAddressedTargetId?: string | null };
+        const explicitTargets = [
+          addressedMessage.primaryAddressedTargetId,
+          ...(addressedMessage.addressedTargetIds || []),
+        ].filter(Boolean);
+        const directCue = lastAiMessage.content.includes(char.name) || explicitTargets.includes(char.id);
         if (directCue) {
           directCueBoost = 0.18;
           weight += directCueBoost;

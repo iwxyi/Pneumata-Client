@@ -362,10 +362,10 @@ export function deriveSpeakIntentFromContext(character: AICharacter, recentTarge
   if (directedIntent) return adaptBaseIntent(character, directedIntent);
   const base = deriveSpeakIntent(character, recentTargetId);
   const pressure = getRecentConversationPressure(recentText);
-  if (mentionsTarget(recentText) && base.stance === 'challenge') {
+  if (recentTargetId && mentionsTarget(recentText) && base.stance === 'challenge') {
     return adaptQuestionIntent(character, withMessageShape({ ...base, stance: isQuestionLike(recentText) ? 'challenge' : 'probe', delivery: 'quick_question' }));
   }
-  if (mentionsTarget(recentText) && base.stance === 'support') {
+  if (recentTargetId && mentionsTarget(recentText) && base.stance === 'support') {
     return adaptBaseIntent(character, withMessageShape({ ...base, stance: 'back_up', delivery: pressure > 0 ? 'side_remark' : 'short_reply' }));
   }
   if (pressure > 0.1) {
