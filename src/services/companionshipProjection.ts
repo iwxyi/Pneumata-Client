@@ -140,6 +140,74 @@ function adjustIntimacyProjection(params: {
   };
 }
 
+function adjustIntimacyForCompanionshipRuntime(params: {
+  base: IntimacyProjection;
+  sharedSecrets: SharedSecret[];
+  intimateConflict?: IntimateConflictState;
+  attachmentProfile: UserAttachmentProfile;
+}): IntimacyProjection {
+  const userSecrets = params.sharedSecrets.filter((secret) => secret.participantIds.includes(USER_ACTOR_ID));
+  const sealedWeight = userSecrets
+    .filter((secret) => secret.leakState === 'sealed' || secret.leakState === 'hinted_publicly')
+    .reduce((total, secret) => total + secret.emotionalWeight, 0);
+  const confessedWeight = userSecrets
+    .filter((secret) => secret.leakState === 'confessed')
+    .reduce((total, secret) => total + secret.emotionalWeight, 0);
+  const leakedWeight = userSecrets
+    .filter((secret) => secret.leakState === 'leaked')
+    .reduce((total, secret) => total + secret.emotionalWeight, 0);
+  const conflictSeverity = params.intimateConflict?.severity || 0;
+  const repairReadiness = params.intimateConflict?.repairReadiness || 0;
+  const isRepairing = params.intimateConflict?.kind === 'repair_attempt' || params.intimateConflict?.kind === 'reconciliation';
+  const attachment = params.attachmentProfile.confidence >= 58 ? params.attachmentProfile.inferredStyle : 'secure';
+  return {
+    attraction: clampScore(
+      params.base.attraction
+      + sealedWeight * 0.04
+      + confessedWeight * 0.03
+      - leakedWeight * 0.08
+      - conflictSeverity * 0.16
+      + (isRepairing ? repairReadiness * 0.05 : 0),
+    ),
+    intimacy: clampScore(
+      params.base.intimacy
+      + sealedWeight * 0.08
+      + confessedWeight * 0.1
+      - leakedWeight * 0.06
+      - conflictSeverity * 0.12
+      + (isRepairing ? repairReadiness * 0.14 : 0),
+    ),
+    attachment: clampScore(
+      params.base.attachment
+      + sealedWeight * 0.06
+      + confessedWeight * 0.08
+      - leakedWeight * 0.04
+      + (attachment === 'anxious' ? 6 : attachment === 'avoidant' ? -4 : attachment === 'disorganized' ? -2 : 0),
+    ),
+    longing: clampScore(
+      params.base.longing
+      + sealedWeight * 0.04
+      - leakedWeight * 0.05
+      + (attachment === 'anxious' ? 8 : attachment === 'avoidant' ? -10 : attachment === 'disorganized' ? -4 : 0),
+    ),
+    exclusivity: clampScore(
+      params.base.exclusivity
+      + sealedWeight * 0.02
+      + leakedWeight * 0.06
+      - (attachment === 'avoidant' ? 8 : 0),
+    ),
+    security: clampScore(
+      params.base.security
+      + sealedWeight * 0.04
+      + confessedWeight * 0.12
+      - leakedWeight * 0.16
+      - conflictSeverity * 0.2
+      + (isRepairing ? repairReadiness * 0.18 : 0)
+      - (attachment === 'anxious' ? 4 : attachment === 'disorganized' ? 6 : 0),
+    ),
+  };
+}
+
 function inferPhase(intimacy: IntimacyProjection, entry: RelationshipLedgerEntry | null): CompanionshipPhase {
   const stage = entry?.derived?.semantic?.stage || '';
   const labels = entry?.derived?.semantic?.labels || [];
@@ -1679,14 +1747,14 @@ export function buildUserCompanionshipProjection(params: {
   const ledger = getCharacterToUserLedger(chat, character.id);
   const userProfile = buildUserProfileProjection(chat, character, messages, now);
   const sharedAnchors = buildUserSharedAnchors(character, now, chat);
-  const intimacy = adjustIntimacyProjection({
+  const baseIntimacy = adjustIntimacyProjection({
     base: projectIntimacy(ledger, messages, character.id, now),
     sharedAnchors,
     profile: userProfile,
     entry: ledger,
   });
   const phaseEvent = resolveCompanionshipPhaseEvent(chat, character.id);
-  const inferredPhase = inferPhase(intimacy, ledger);
+  const inferredPhase = inferPhase(baseIntimacy, ledger);
   const phase = phaseEvent?.phase || inferredPhase;
   const contacts = getLatestContact(messages, character.id);
   const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now);
@@ -1707,12 +1775,18 @@ export function buildUserCompanionshipProjection(params: {
     entry: ledger,
     sharedAnchors,
     sharedSecrets,
-    intimacy,
+    intimacy: baseIntimacy,
     now,
   });
   const evidence = buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent);
+  const attachmentProfile = buildUserAttachmentProfile({ chat, characterId: character.id, messages, profile: userProfile, intimacy: baseIntimacy, now });
+  const intimacy = adjustIntimacyForCompanionshipRuntime({
+    base: baseIntimacy,
+    sharedSecrets,
+    intimateConflict,
+    attachmentProfile,
+  });
   const preferredIntimacyStyle = inferPreferredStyle(character, intimacy);
-  const attachmentProfile = buildUserAttachmentProfile({ chat, characterId: character.id, messages, profile: userProfile, intimacy, now });
   const carePolicy = applyGlobalCompanionshipSettingsToCarePolicy(applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredIntimacyStyle, userProfile), attachmentProfile), character);
   const bond: UserBondState = {
     userId: USER_ACTOR_ID,

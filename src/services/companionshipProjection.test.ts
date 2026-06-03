@@ -2653,6 +2653,73 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).toContain('Current intimate conflict/repair state');
   });
 
+  it('adjusts intimacy projection from shared secrets, conflict, and attachment adaptation', () => {
+    const ledger = [relationship({ warmth: 64, trust: 60, competence: 10, threat: 6 })];
+    const messages = [message({ content: '这是只有我们知道的暗号。', timestamp: 900 })];
+    const baseProjection = buildUserCompanionshipProjection({
+      chat: chat('direct', ledger),
+      character: character(),
+      messages,
+      now: 1_200,
+    });
+    const sealedProjection = buildUserCompanionshipProjection({
+      chat: chat('direct', ledger, [sharedSecretEvent()]),
+      character: character(),
+      messages,
+      now: 1_200,
+    });
+    const leakedProjection = buildUserCompanionshipProjection({
+      chat: chat('direct', ledger, [
+        sharedSecretEvent({
+          id: 'evt-shared-secret-leaked-for-intimacy',
+          createdAt: 1_000,
+          payload: {
+            eventType: 'companionship_shared_secret',
+            characterId: 'char-a',
+            userId: 'user',
+            secretId: 'secret-user-codeword',
+            action: 'leaked',
+            participantIds: ['char-a', 'user'],
+            privateText: '用户只把那个暗号告诉过苏苏，结果被说漏了。',
+            publicMask: '有一件只适合留在心里的事',
+            evidence: '那个暗号被说漏了。',
+            emotionalWeight: 88,
+            confidence: 0.92,
+            decisionSource: 'model',
+          },
+        }),
+      ]),
+      character: character(),
+      messages,
+      now: 1_200,
+    });
+    const anxiousProjection = buildUserCompanionshipProjection({
+      chat: chat('direct', ledger, [attachmentProfileEvent({
+        id: 'evt-attachment-anxious-for-intimacy',
+        payload: {
+          eventType: 'companionship_attachment_profile',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'corrected',
+          inferredStyle: 'anxious',
+          confidence: 0.92,
+          evidence: ['用户需要更明确的回应。'],
+          adaptations: ['give concrete reassurance without overpromising'],
+          decisionSource: 'model',
+        },
+      })]),
+      character: character(),
+      messages,
+      now: 1_200,
+    });
+
+    expect(sealedProjection.userBond?.intimacy.intimacy || 0).toBeGreaterThan(baseProjection.userBond?.intimacy.intimacy || 0);
+    expect(sealedProjection.userBond?.intimacy.security || 0).toBeGreaterThan(baseProjection.userBond?.intimacy.security || 0);
+    expect(leakedProjection.userBond?.intimacy.security || 0).toBeLessThan(sealedProjection.userBond?.intimacy.security || 0);
+    expect(leakedProjection.userBond?.intimateConflict?.severity || 0).toBeGreaterThan(0);
+    expect(anxiousProjection.userBond?.intimacy.longing || 0).toBeGreaterThan(baseProjection.userBond?.intimacy.longing || 0);
+  });
+
   it('uses revoked shared secret events to suppress matching anchor secrets', () => {
     const secretCharacter = character({
       layeredMemories: [{
