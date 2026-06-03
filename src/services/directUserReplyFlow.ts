@@ -15,6 +15,7 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import type { LocalInterceptionEvent } from './chatEngine';
 import { resolveCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
 import { resolveCompanionshipPhaseEventFromDirectUserMessage } from './directCompanionshipPhase';
+import { buildCompanionshipRitualEventsFromDirectUserMessage } from './directCompanionshipRitual';
 import { resolveUserProfileMemoryEventFromDirectUserMessage } from './directUserProfileMemory';
 
 export async function runDirectUserReplyFlow(params: {
@@ -64,7 +65,13 @@ export async function runDirectUserReplyFlow(params: {
     textApiConfig,
     recentMessages: getProjectedMessages(),
   });
-  const companionshipEvents = [phaseEvent, ...careTopicEvents, userProfileEvent].filter((event): event is RuntimeEventV2 => Boolean(event));
+  const ritualEvents = buildCompanionshipRitualEventsFromDirectUserMessage({
+    chat: params.chat,
+    character: directCharacter,
+    message: params.userMessage,
+    recentMessages: getProjectedMessages(),
+  });
+  const companionshipEvents = [phaseEvent, ...careTopicEvents, userProfileEvent, ...ritualEvents].filter((event): event is RuntimeEventV2 => Boolean(event));
   const chatForGeneration = companionshipEvents.length
     ? {
         ...params.chat,

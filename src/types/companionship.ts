@@ -227,6 +227,8 @@ export interface CompanionshipRitualEventPayload {
   reason?: string;
   evidence?: string;
   nextAvailableAt?: number;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
 }
 
 export interface CompanionshipIntimateConflictEventPayload {

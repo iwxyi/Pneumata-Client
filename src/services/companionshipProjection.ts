@@ -1997,6 +1997,8 @@ function ritualEventPayloadOf(event: RuntimeEventV2): CompanionshipRitualEventPa
     reason: typeof payload.reason === 'string' ? payload.reason : undefined,
     evidence: typeof payload.evidence === 'string' ? payload.evidence : undefined,
     nextAvailableAt: typeof payload.nextAvailableAt === 'number' && Number.isFinite(payload.nextAvailableAt) ? payload.nextAvailableAt : undefined,
+    confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
+    decisionSource: payload.decisionSource === 'model' || payload.decisionSource === 'local_fallback' ? payload.decisionSource : undefined,
   };
 }
 
