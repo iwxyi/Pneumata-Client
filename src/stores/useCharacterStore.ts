@@ -1089,9 +1089,7 @@ export const useCharacterStore = create<CharacterStore>()(
           syncCharacterArtifacts(get().characters);
         },
 
-        initializePresets: async () => {
-          await get().loadCharacters();
-        },
+        initializePresets: async () => undefined,
       };
     },
     {
