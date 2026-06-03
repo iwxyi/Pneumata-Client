@@ -739,7 +739,7 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).not.toContain('这话扎心');
     expect(prompt).not.toContain('镜头到底对着谁');
     expect(chatMessages.every((item) => item.role === 'user')).toBe(true);
-    expect(chatMessages.some((item) => item.content.includes('not a style sample'))).toBe(true);
+    expect(chatMessages.some((item) => item.content.includes('not wording/style sample'))).toBe(true);
     expect(message.content).toBe('这个问题的关键——不是她发了什么，而是谁替她决定了发什么。');
   });
 

@@ -673,15 +673,32 @@ function getRelationshipSnapshot(character: AICharacter, target: AICharacter | u
   return character.relationships.find((item) => item.characterId === target.id) || null;
 }
 
+function compactAiTranscriptEvidence(content: string, max = 180) {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  if (!normalized) return '[empty visible turn]';
+  const withoutRoleActions = normalized
+    .replace(/^(?:（[^（）]{1,32}）|\([^()]{1,32}\)|\*[^*\n]{1,32}\*)\s*/g, '')
+    .trim();
+  const clauses = withoutRoleActions
+    .split(/(?<=[。！？!?])|[，,；;]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const semanticClauses = clauses.length > 1 ? clauses.slice(1) : clauses;
+  const compact = (semanticClauses.join('；') || withoutRoleActions).slice(0, max);
+  return compact || '[visible turn present; surface text withheld]';
+}
+
 export function buildChatMessages(messages: Message[], characters: Map<string, AICharacter>, limit = 12) {
-  return messages
+  const visible = messages
     .filter((message) => {
       if (message.isDeleted) return false;
       if (message.type === 'system') return false;
       if (message.type !== 'event') return true;
       return false;
     })
-    .slice(-limit)
+    .slice(-limit);
+  const latestAiId = visible.slice().reverse().find((message) => message.type === 'ai')?.id || null;
+  return visible
     .map((message) => {
       const isHumanGuidance = message.type === 'user' || message.type === 'god';
       const senderName = isHumanGuidance
@@ -695,7 +712,12 @@ export function buildChatMessages(messages: Message[], characters: Map<string, A
         role: 'user' as const,
         content: isHumanGuidance
           ? `${senderName}: ${message.content}`
-          : `Transcript evidence, not a style sample - ${senderName}: ${message.content}`,
+          : [
+            `Transcript fact record, not wording/style sample - ${senderName}.`,
+            `Use this as state/context only; do not imitate its visible sentence form.`,
+            `Visible turn surface is ${message.id === latestAiId ? 'latest AI turn' : 'earlier AI turn'} and is intentionally compacted.`,
+            `Context payload: ${compactAiTranscriptEvidence(message.content)}`,
+          ].join(' '),
       };
     });
 }
