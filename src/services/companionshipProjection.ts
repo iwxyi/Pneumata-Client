@@ -551,33 +551,82 @@ function collectByPattern(texts: string[], patterns: RegExp[], max = 5) {
   return uniqueTexts(texts.filter((text) => matchAny(text, patterns)), max);
 }
 
-function collectProfileEventItems(chat: GroupChat, characterId: string) {
-  const byKey = new Map<string, UserProfileMemoryEventItem & { updatedAt: number }>();
-  (chat.runtimeEventsV2 || [])
-    .filter((event) => event.kind === 'artifact')
-    .forEach((event) => {
-      const payload = userProfileMemoryPayloadOf(event);
-      if (!payload || payload.characterId !== characterId || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return;
-      payload.items.forEach((item) => {
-        if (!item.text || item.confidence < 0.6) return;
-        const key = `${item.kind}:${compactText(item.text, 140)}`;
-        const previous = byKey.get(key);
-        if (!previous || event.createdAt >= previous.updatedAt) {
-          byKey.set(key, { ...item, text: compactText(item.text, 140), evidence: compactText(item.evidence || event.summary, 140), updatedAt: event.createdAt });
-        }
-      });
-    });
-  return Array.from(byKey.values()).sort((left, right) => right.updatedAt - left.updatedAt);
-}
+type ResolvedUserProfileMemoryItem = UserProfileMemoryEventItem & { updatedAt: number };
 
-function profileTextsByKind(items: Array<UserProfileMemoryEventItem & { updatedAt: number }>, kind: UserProfileMemoryKind, max = 5) {
-  return uniqueTexts(items.filter((item) => item.kind === kind).map((item) => item.text), max);
+function profileEventItemKey(item: Pick<UserProfileMemoryEventItem, 'kind' | 'text'>) {
+  return `${item.kind}:${compactText(item.text, 140)}`;
 }
 
 function extractProfileEventName(text: string | undefined) {
   if (!text) return undefined;
   return text.match(/(?:称呼为|叫做|叫我|名字是|昵称是)[:：]?\s*([^，。；;、\s]{1,12})/)?.[1]
     || text.match(/([^，。；;、\s]{1,12})$/)?.[1];
+}
+
+function profileItemsMatch(left: Pick<UserProfileMemoryEventItem, 'kind' | 'text'>, right: Pick<UserProfileMemoryEventItem, 'kind' | 'text'>) {
+  if (left.kind !== right.kind) return false;
+  const leftText = compactText(left.text, 140);
+  const rightText = compactText(right.text, 140);
+  if (!leftText || !rightText) return false;
+  if (leftText === rightText) return true;
+  if ((left.kind === 'address_preference' || left.kind === 'display_name')) {
+    const leftName = extractProfileEventName(leftText);
+    const rightName = extractProfileEventName(rightText);
+    return Boolean(leftName && rightName && leftName === rightName);
+  }
+  if (leftText.length >= 6 && rightText.length >= 6) {
+    return leftText.includes(rightText) || rightText.includes(leftText);
+  }
+  return false;
+}
+
+function fallbackTextMatchesRevokedProfileItem(text: string, item: ResolvedUserProfileMemoryItem) {
+  const source = compactText(text, 180);
+  if (!source) return false;
+  if (item.kind === 'address_preference' || item.kind === 'display_name') {
+    const revokedName = extractProfileEventName(item.text);
+    return Boolean(revokedName && source.includes(revokedName) && /(叫我|称呼我|喊我|昵称是|名字是|我的名字是|我叫)/.test(source));
+  }
+  return profileItemsMatch({ kind: item.kind, text: source }, item);
+}
+
+function filterRevokedFallbackTexts(texts: string[], revokedItems: ResolvedUserProfileMemoryItem[]) {
+  if (!revokedItems.length) return texts;
+  return texts.filter((text) => !revokedItems.some((item) => fallbackTextMatchesRevokedProfileItem(text, item)));
+}
+
+function collectProfileEventState(chat: GroupChat, characterId: string) {
+  const byKey = new Map<string, ResolvedUserProfileMemoryItem>();
+  const revokedItems: ResolvedUserProfileMemoryItem[] = [];
+  (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .slice()
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+    .forEach((event) => {
+      const payload = userProfileMemoryPayloadOf(event);
+      if (!payload || payload.characterId !== characterId || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return;
+      payload.items.forEach((item) => {
+        if (!item.text || item.confidence < 0.6) return;
+        const resolved = { ...item, text: compactText(item.text, 140), evidence: compactText(item.evidence || event.summary, 140), updatedAt: event.createdAt };
+        if (payload.action === 'revoke') {
+          revokedItems.push(resolved);
+          Array.from(byKey.entries()).forEach(([key, active]) => {
+            if (profileItemsMatch(active, resolved)) byKey.delete(key);
+          });
+          return;
+        }
+        const key = profileEventItemKey(resolved);
+        byKey.set(key, resolved);
+      });
+    });
+  return {
+    activeItems: Array.from(byKey.values()).sort((left, right) => right.updatedAt - left.updatedAt),
+    revokedItems: revokedItems.sort((left, right) => right.updatedAt - left.updatedAt),
+  };
+}
+
+function profileTextsByKind(items: ResolvedUserProfileMemoryItem[], kind: UserProfileMemoryKind, max = 5) {
+  return uniqueTexts(items.filter((item) => item.kind === kind).map((item) => item.text), max);
 }
 
 function extractAddressPreference(texts: string[]) {
@@ -606,14 +655,15 @@ function extractDisplayName(messages: Message[], texts: string[]) {
 }
 
 function buildUserProfileProjection(chat: GroupChat, character: AICharacter, messages: Message[], now: number): UserProfileMemoryProjection {
-  const profileItems = collectProfileEventItems(chat, character.id);
+  const { activeItems: profileItems, revokedItems } = collectProfileEventState(chat, character.id);
   const memoryTexts = getUserMemoryTexts(character);
   const recentUserTexts = messages
     .filter((item) => !item.isDeleted && (item.senderId === USER_ACTOR_ID || item.type === 'user' || item.type === 'god'))
     .slice(-10)
     .map((item) => compactText(item.content, 160));
   const eventTexts = profileItems.map((item) => item.text);
-  const fallbackTexts = profileItems.length ? memoryTexts : [...memoryTexts, ...recentUserTexts];
+  const rawFallbackTexts = profileItems.length ? memoryTexts : [...memoryTexts, ...recentUserTexts];
+  const fallbackTexts = filterRevokedFallbackTexts(rawFallbackTexts, revokedItems);
   const allTexts = uniqueTexts([...eventTexts, ...fallbackTexts], 16);
   const eventBoundaries = profileTextsByKind(profileItems, 'boundary');
   const boundaries = uniqueTexts([...eventBoundaries, ...collectByPattern(allTexts, [

@@ -543,6 +543,115 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).toContain('High-confidence user profile cues');
   });
 
+  it('applies user profile memory revoke events before prompt projection', () => {
+    const upsertEvent: RuntimeEventV2 = {
+      id: 'evt-profile-boundary-upsert',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: 250,
+      actorIds: ['user'],
+      targetIds: ['char-a'],
+      evidenceMessageIds: ['m-1'],
+      summary: '苏苏记录了用户边界。',
+      visibility: 'pair_private',
+      eventClass: 'artifact',
+      payload: {
+        eventType: 'companionship_user_profile_memory',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'upsert',
+        decisionSource: 'model',
+        items: [{
+          kind: 'boundary',
+          text: '用户不希望被早安晚安打扰',
+          evidence: '不要早安晚安',
+          confidence: 0.9,
+          sensitive: true,
+        }],
+      },
+    };
+    const revokeEvent: RuntimeEventV2 = {
+      ...upsertEvent,
+      id: 'evt-profile-boundary-revoke',
+      createdAt: 300,
+      summary: '用户撤回了早安晚安边界。',
+      payload: {
+        eventType: 'companionship_user_profile_memory',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'revoke',
+        decisionSource: 'model',
+        items: [{
+          kind: 'boundary',
+          text: '用户不希望被早安晚安打扰',
+          evidence: '现在可以早安晚安',
+          confidence: 0.92,
+          sensitive: true,
+        }],
+      },
+    };
+
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [upsertEvent, revokeEvent]),
+      character: character(),
+      messages: [message({ content: '今天也想聊。', timestamp: 400 })],
+      now: 500,
+    });
+
+    expect(projection.userBond?.userProfile.boundaries).not.toContain('用户不希望被早安晚安打扰');
+    expect(projection.userBond?.carePolicy.allowGoodMorning).toBe(true);
+    expect(projection.userBond?.carePolicy.allowGoodNight).toBe(true);
+    expect(projection.promptLines.join('\n')).not.toContain('用户不希望被早安晚安打扰');
+  });
+
+  it('uses user profile revoke events to suppress compatible fallback memories', () => {
+    const revokeEvent: RuntimeEventV2 = {
+      id: 'evt-profile-address-revoke',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: 300,
+      actorIds: ['user'],
+      targetIds: ['char-a'],
+      evidenceMessageIds: ['m-1'],
+      summary: '用户撤回了旧称呼偏好。',
+      visibility: 'pair_private',
+      eventClass: 'artifact',
+      payload: {
+        eventType: 'companionship_user_profile_memory',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'revoke',
+        decisionSource: 'model',
+        items: [{
+          kind: 'address_preference',
+          text: '用户希望被称呼为小夏',
+          evidence: '别再叫我小夏了',
+          confidence: 0.9,
+        }],
+      },
+    };
+
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [revokeEvent]),
+      character: character({
+        memory: {
+          shortTermSummary: '',
+          longTerm: [],
+          secrets: [],
+          obsessions: [],
+          tabooTopics: [],
+          userMemories: ['用户说：叫我小夏。'],
+        },
+      }),
+      messages: [message({ content: '今天也想聊。', timestamp: 400 })],
+      now: 500,
+    });
+
+    expect(projection.userBond?.addressing.currentAddress).toBe('你');
+    expect(projection.userBond?.userProfile.addressPreference).toBeUndefined();
+    expect(projection.promptLines.join('\n')).not.toContain('小夏');
+  });
+
   it('projects private, public, and forbidden addresses from user memory', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })]),
