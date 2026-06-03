@@ -315,6 +315,7 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.userProfile.pressureSources).toEqual([]);
     expect(projection.userBond?.carePolicy.allowGoodMorning).toBe(false);
     expect(projection.userBond?.carePolicy.allowGoodNight).toBe(false);
+    expect(projection.promptLines.join('\n')).toContain('High-confidence user profile cues');
   });
 
   it('projects private, public, and forbidden addresses from user memory', () => {

@@ -678,10 +678,14 @@ function buildPromptLines(bond: UserBondState, carePolicy: CarePolicy, evidence:
   const lines = [
     `- Bond style: ${bond.style}; phase: ${phaseLabel(bond.phase)}.`,
     `- Intimacy cues: attraction ${intimacy.attraction}, intimacy ${intimacy.intimacy}, attachment ${intimacy.attachment}, longing ${intimacy.longing}, security ${intimacy.security}. Use them as internal guidance, not as words to reveal.`,
-    profile.sourceTexts.length ? `- User profile cues: ${[
+    profile.sourceTexts.length ? `- High-confidence user profile cues: ${[
+      profile.scheduleHints.length ? `schedule ${profile.scheduleHints.join(' / ')}` : '',
       profile.preferences.length ? `preferences ${profile.preferences.join(' / ')}` : '',
+      profile.dislikes.length ? `dislikes ${profile.dislikes.join(' / ')}` : '',
       profile.pressureSources.length ? `pressure ${profile.pressureSources.join(' / ')}` : '',
+      profile.importantDates.length ? `important dates ${profile.importantDates.join(' / ')}` : '',
       profile.recentPlans.length ? `plans ${profile.recentPlans.join(' / ')}` : '',
+      profile.emotionalPatterns.length ? `emotional patterns ${profile.emotionalPatterns.join(' / ')}` : '',
     ].filter(Boolean).join('; ')}.` : '',
     profile.boundaries.length ? `- User boundaries: ${profile.boundaries.join(' / ')}. These override intimacy and proactive care.` : '',
     `- Address the user naturally as "${bond.addressing.currentAddress}" unless the latest message suggests another appropriate address.`,
