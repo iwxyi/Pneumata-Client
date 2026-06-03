@@ -103,29 +103,6 @@ async function flushGuestChatsToCloud(addChatRemote: (chat: Omit<GroupChat, 'id'
 
 type ChatCreatePayload = Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'> & { id?: string };
 
-function isLocalCreatedChatId(id: string) {
-  return id.startsWith('local-chat-');
-}
-
-function getSyncedLocalChatCreateKey() {
-  return `${getChatStorageKey()}:synced-local-creates`;
-}
-
-function readSyncedLocalChatCreates() {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(getSyncedLocalChatCreateKey()) || '[]') as string[]);
-  } catch {
-    return new Set<string>();
-  }
-}
-
-function markLocalChatCreateSynced(id: string) {
-  if (!id) return;
-  const synced = readSyncedLocalChatCreates();
-  synced.add(id);
-  localStorage.setItem(getSyncedLocalChatCreateKey(), JSON.stringify(Array.from(synced).slice(-500)));
-}
-
 async function createChatRemote(chatData: ChatCreatePayload) {
   const result = await api.createChat({
     id: chatData.id,
@@ -157,28 +134,8 @@ async function createChatRemote(chatData: ChatCreatePayload) {
   return normalizeConversation(result as unknown as GroupChat);
 }
 
-async function uploadLocalCreatedChatsToCloud(chats: GroupChat[]) {
-  if (shouldSkipCloudSync()) return;
-  const synced = readSyncedLocalChatCreates();
-  const localCreatedChats = chats.filter((chat) => isLocalCreatedChatId(chat.id) && chat.deletedAt == null && !synced.has(chat.id));
-  if (!localCreatedChats.length) return;
-  const results = await Promise.allSettled(localCreatedChats.map((chat) => createChatRemote({ ...chat, id: chat.id })));
-  results.forEach((result, index) => {
-    if (result.status === 'fulfilled') markLocalChatCreateSynced(localCreatedChats[index]?.id || '');
-  });
-  const rejected = results.find((result) => result.status === 'rejected');
-  if (rejected) {
-    reportRecoverableError({
-      location: 'cloud-sync:local-created-chats-upload',
-      error: rejected.reason,
-      userMessage: '部分本地创建的聊天暂未同步到云端，稍后会继续重试。',
-      extra: { count: localCreatedChats.length },
-    });
-  }
-}
-
 interface PendingChatOperation extends SyncPatchOperation<Record<string, unknown>> {
-  kind: 'patch';
+  kind: 'create' | 'patch';
   targetIds: string[];
 }
 
@@ -525,6 +482,12 @@ function mergeChatPatchOperations(operations: PendingChatOperation[]) {
 }
 
 async function executeChatOperation(operation: PendingChatOperation) {
+  if (operation.kind === 'create') {
+    return createChatRemote({
+      ...(operation.patch as ChatCreatePayload),
+      id: operation.entityId,
+    });
+  }
   return api.syncChatPatch(operation.entityId, {
     operationId: operation.id,
     clientTimestamp: operation.clientTimestamp,
@@ -615,16 +578,19 @@ export const useChatStore = create<ChatStore>()(
         } catch (error) {
           const classified = classifySyncError(error);
           const attemptCount = nextOperation.attemptCount + 1;
+          const status = classified.startsWith('validation:') ? 'failed' : 'pending';
           set((current) => ({
             pendingOperations: updatePendingChatOperation(current.pendingOperations, nextOperation.id, {
-              status: 'pending',
+              status,
               attemptCount,
               lastError: classified,
             }),
             pendingEditSyncCount: current.pendingOperations.length,
             pendingEditSyncError: classified,
           }));
-          scheduleChatFlush(flushPendingOperations, CHAT_SYNC_DELAYS[Math.min(attemptCount, CHAT_SYNC_DELAYS.length - 1)]);
+          if (status === 'pending') {
+            scheduleChatFlush(flushPendingOperations, CHAT_SYNC_DELAYS[Math.min(attemptCount, CHAT_SYNC_DELAYS.length - 1)]);
+          }
         }
       };
 
@@ -666,7 +632,6 @@ export const useChatStore = create<ChatStore>()(
           chatListLoadPromise = (async () => {
             try {
               await maybeUploadGuestChats(get);
-              await uploadLocalCreatedChatsToCloud(get().chats);
               const visible = await reloadVisibleChatState(get().pendingOperations);
               set((state) => ({
                 chats: mergeVisibleChats(state.chats, visible, state.pendingOperations),
@@ -852,26 +817,27 @@ export const useChatStore = create<ChatStore>()(
 
         addChat: async (chatData) => {
           const chat = applyLocalChatCreate(chatData);
-          set((state) => ({
-            chats: [chat, ...state.chats.filter((item) => item.id !== chat.id)].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
-            currentChatId: chat.id,
-          }));
+          set((state) => {
+            const pendingOperations = shouldSkipCloudSync()
+              ? state.pendingOperations
+              : mergeChatPatchOperations([
+                ...state.pendingOperations,
+                createPendingChatOperation({
+                  kind: 'create',
+                  targetIds: [chat.id],
+                  patch: compactChatPatchForCloud({ ...chat, id: chat.id } as Record<string, unknown>),
+                }),
+              ]);
+            return {
+              chats: [chat, ...state.chats.filter((item) => item.id !== chat.id)].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
+              currentChatId: chat.id,
+              pendingOperations,
+              pendingEditSyncCount: pendingOperations.length,
+              pendingEditSyncError: latestChatError(pendingOperations),
+            };
+          });
           if (!shouldSkipCloudSync()) {
-            void createChatRemote({ ...chatData, id: chat.id }).then((remoteChat) => {
-              markLocalChatCreateSynced(chat.id);
-              set((state) => ({
-                chats: mergeVisibleChats(state.chats.filter((item) => item.id !== chat.id), [remoteChat], state.pendingOperations),
-                currentChatId: state.currentChatId === chat.id ? remoteChat.id : state.currentChatId,
-                lastSyncedAt: Date.now(),
-              }));
-            }).catch((error) => {
-              reportRecoverableError({
-                location: 'cloud-sync:chat-create',
-                error,
-                userMessage: '聊天已保存在本地，云端创建失败后会保留本地数据。',
-                extra: { chatId: chat.id },
-              });
-            });
+            scheduleChatFlush(flushPendingOperations, 120);
           }
           return chat;
         },

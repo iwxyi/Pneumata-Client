@@ -73,29 +73,6 @@ function applyLocalEmptyDeletedCharacters(characters: AICharacter[]) {
 
 type CharacterCreatePayload = Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'> & { id?: string };
 
-function isLocalCreatedCharacterId(id: string) {
-  return id.startsWith('local-character-');
-}
-
-function getSyncedLocalCharacterCreateKey() {
-  return `${getCharacterStorageKey()}:synced-local-creates`;
-}
-
-function readSyncedLocalCharacterCreates() {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(getSyncedLocalCharacterCreateKey()) || '[]') as string[]);
-  } catch {
-    return new Set<string>();
-  }
-}
-
-function markLocalCharacterCreateSynced(id: string) {
-  if (!id) return;
-  const synced = readSyncedLocalCharacterCreates();
-  synced.add(id);
-  localStorage.setItem(getSyncedLocalCharacterCreateKey(), JSON.stringify(Array.from(synced).slice(-500)));
-}
-
 async function createCharacterRemote(charData: CharacterCreatePayload) {
   const result = await api.createCharacter({
     id: charData.id,
@@ -126,26 +103,6 @@ async function createCharacterRemote(charData: CharacterCreatePayload) {
     bubbleStyleId: charData.bubbleStyleId,
   });
   return normalizeCharacter(result as unknown as AICharacter);
-}
-
-async function uploadLocalCreatedCharactersToCloud(characters: AICharacter[]) {
-  if (shouldSkipCloudSync()) return;
-  const synced = readSyncedLocalCharacterCreates();
-  const localCreatedCharacters = characters.filter((character) => isLocalCreatedCharacterId(character.id) && !character.isPreset && character.deletedAt == null && !synced.has(character.id));
-  if (!localCreatedCharacters.length) return;
-  const results = await Promise.allSettled(localCreatedCharacters.map((character) => createCharacterRemote({ ...character, id: character.id })));
-  results.forEach((result, index) => {
-    if (result.status === 'fulfilled') markLocalCharacterCreateSynced(localCreatedCharacters[index]?.id || '');
-  });
-  const rejected = results.find((result) => result.status === 'rejected');
-  if (rejected) {
-    reportRecoverableError({
-      location: 'cloud-sync:local-created-characters-upload',
-      error: rejected.reason,
-      userMessage: '部分本地创建的角色暂未同步到云端，稍后会继续重试。',
-      extra: { count: localCreatedCharacters.length },
-    });
-  }
 }
 
 const guestCharacterUploadFlag = createGuestUploadFlag<AICharacter>(
@@ -367,7 +324,7 @@ async function fetchAllCharacterSnapshots() {
 }
 
 interface PendingCharacterOperation extends SyncPatchOperation<Record<string, unknown>> {
-  kind: 'patch';
+  kind: 'create' | 'patch';
   targetIds: string[];
 }
 
@@ -598,6 +555,12 @@ function importCharactersBatchLocally(state: CharacterStore, chars: AICharacter[
 }
 
 async function executeCharacterOperation(operation: PendingCharacterOperation) {
+  if (operation.kind === 'create') {
+    return createCharacterRemote({
+      ...(operation.patch as CharacterCreatePayload),
+      id: operation.entityId,
+    });
+  }
   const character = useCharacterStore.getState().characters.find((item) => item.id === operation.entityId);
   if (character?.isPreset) {
     return { success: true, character: null };
@@ -688,16 +651,19 @@ export const useCharacterStore = create<CharacterStore>()(
         } catch (error) {
           const classified = classifySyncError(error);
           const attemptCount = nextOperation.attemptCount + 1;
+          const status = classified.startsWith('validation:') ? 'failed' : 'pending';
           set((current) => ({
             pendingOperations: updatePendingCharacterOperation(current.pendingOperations, nextOperation.id, {
-              status: 'pending',
+              status,
               attemptCount,
               lastError: classified,
             }),
             pendingEditSyncCount: current.pendingOperations.length,
             pendingEditSyncError: classified,
           }));
-          scheduleCharacterFlush(flushPendingOperations, CHARACTER_SYNC_DELAYS[Math.min(attemptCount, CHARACTER_SYNC_DELAYS.length - 1)]);
+          if (status === 'pending') {
+            scheduleCharacterFlush(flushPendingOperations, CHARACTER_SYNC_DELAYS[Math.min(attemptCount, CHARACTER_SYNC_DELAYS.length - 1)]);
+          }
         }
       };
 
@@ -738,7 +704,6 @@ export const useCharacterStore = create<CharacterStore>()(
           characterListLoadPromise = (async () => {
             try {
               await uploadGuestCharactersToCloud();
-              await uploadLocalCreatedCharactersToCloud(get().characters);
               const visible = await reloadVisibleCharacterState(get().pendingOperations);
               set((state) => ({
                 characters: mergeVisibleCharacters(state.characters, visible, state.pendingOperations),
@@ -864,8 +829,8 @@ export const useCharacterStore = create<CharacterStore>()(
           if (!charsData.length) return [];
           assertUniqueCharacterNameBatch(get().characters, charsData);
           const createdCharacters: AICharacter[] = [];
-          set((state) => ({
-            characters: (() => {
+          set((state) => {
+            const characters = (() => {
               let nextCharacters = state.characters;
               for (const charData of charsData) {
                 const local = createCharacterLocally({ ...state, characters: nextCharacters }, charData);
@@ -873,33 +838,31 @@ export const useCharacterStore = create<CharacterStore>()(
                 nextCharacters = local.characters;
               }
               return nextCharacters;
-            })(),
-          }));
+            })();
+            const operations = shouldSkipCloudSync()
+              ? []
+              : createdCharacters.map((character) => createPendingCharacterOperation({
+                kind: 'create',
+                targetIds: [character.id],
+                patch: compactCharacterPatchForCloud({ ...character, id: character.id } as Record<string, unknown>),
+              }));
+            const queued = operations.length
+              ? queueAndProjectCharacters({ ...state, characters } as CharacterStore, operations)
+              : {
+                pendingOperations: state.pendingOperations,
+                pendingEditSyncCount: state.pendingOperations.length,
+                pendingEditSyncError: latestCharacterError(state.pendingOperations),
+              };
+            return {
+              characters,
+              pendingOperations: queued.pendingOperations,
+              pendingEditSyncCount: queued.pendingEditSyncCount,
+              pendingEditSyncError: queued.pendingEditSyncError,
+            };
+          });
           enqueueBirthLettersForCreation(createdCharacters, get().characters);
           if (!shouldSkipCloudSync()) {
-            void Promise.all(createdCharacters.map((character) => createCharacterRemote({ ...character, id: character.id }))).then((remoteCharacters) => {
-              createdCharacters.forEach((character) => markLocalCharacterCreateSynced(character.id));
-              set((state) => {
-                const localIds = new Set(createdCharacters.map((character) => character.id));
-                const characters = mergeCharacters(
-                  state.characters.filter((character) => !localIds.has(character.id)),
-                  remoteCharacters,
-                  state.pendingOperations,
-                ).filter((item) => item.deletedAt == null);
-                syncCharacterArtifacts(characters);
-                return {
-                  characters,
-                  lastSyncedAt: Date.now(),
-                };
-              });
-            }).catch((error) => {
-              reportRecoverableError({
-                location: 'cloud-sync:characters-create',
-                error,
-                userMessage: '角色已保存在本地，云端创建失败后会保留本地数据。',
-                extra: { count: createdCharacters.length },
-              });
-            });
+            scheduleCharacterFlush(flushPendingOperations, 120);
           }
           return createdCharacters;
         },

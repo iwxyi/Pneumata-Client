@@ -43,8 +43,11 @@ export default function SyncStatusPage() {
     restore: i18n.language.startsWith('zh') ? '恢复' : 'Restore',
     purge: i18n.language.startsWith('zh') ? '彻底删除' : 'Purge',
     empty_deleted: i18n.language.startsWith('zh') ? '清空回收站' : 'Empty trash',
+    create: i18n.language.startsWith('zh') ? '创建' : 'Create',
+    patch: i18n.language.startsWith('zh') ? '编辑' : 'Edit',
     pending: i18n.language.startsWith('zh') ? '待同步' : 'Pending',
     syncing: i18n.language.startsWith('zh') ? '同步中' : 'Syncing',
+    failed: i18n.language.startsWith('zh') ? '同步失败' : 'Failed',
   };
 
   return (
@@ -54,7 +57,7 @@ export default function SyncStatusPage() {
       </Typography>
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        {i18n.language.startsWith('zh') ? '这里只显示字段编辑同步队列；删除、恢复、彻底删除和清空回收站已改为直接服务端操作。' : 'This page only shows queued field-edit sync operations. Delete, restore, purge, and empty-trash actions now run directly on the server.'}
+        {i18n.language.startsWith('zh') ? '这里显示本地优先的创建和编辑同步队列；临时网络失败会自动重试，校验失败会停在失败状态等待处理。' : 'This page shows local-first create and edit sync operations. Temporary network failures retry automatically; validation failures stay failed for review.'}
       </Typography>
 
       {authMode === 'local' ? (
@@ -89,7 +92,7 @@ export default function SyncStatusPage() {
                   </Typography>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
-                    {i18n.language.startsWith('zh') ? '暂无错误，队列中的字段编辑通常会很快完成。' : 'No error recorded. Queued field edits usually finish quickly.'}
+                    {i18n.language.startsWith('zh') ? '暂无错误，队列中的创建或编辑通常会很快完成。' : 'No error recorded. Queued creates or edits usually finish quickly.'}
                   </Typography>
                 )}
               </CardContent>
