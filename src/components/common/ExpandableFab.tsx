@@ -3,6 +3,9 @@ import type { SxProps, Theme } from '@mui/material/styles';
 import type { ReactNode } from 'react';
 import { motion, transition } from '../../styles/motion';
 
+const springOut = 'linear(0, 0.012 1.3%, 0.05 2.7%, 0.189 5.8%, 0.415 9.4%, 0.974 18.4%, 1.116 22.6%, 1.17 26.3%, 1.152 30.7%, 1.067 38.1%, 1.017 44.3%, 0.996 50.6%, 0.993 57.1%, 1.003 73.7%, 1)';
+const settleOut = 'linear(0, 0.012 1.5%, 0.048 3%, 0.154 6.3%, 0.353 10.4%, 0.756 18.6%, 0.954 24.6%, 1.03 31.4%, 1.016 39.6%, 0.998 53.6%, 1)';
+
 interface ExpandableFabProps {
   icon: ReactNode;
   label: ReactNode;
@@ -38,10 +41,12 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
           boxShadow: (theme) => theme.palette.mode === 'light'
             ? '0 16px 34px rgba(15,23,42,0.18)'
             : '0 18px 42px rgba(0,0,0,0.40)',
-          transition: transition(['width', 'min-width', 'box-shadow', 'transform'], 380, 'cubic-bezier(0.22, 1, 0.36, 1)'),
+          transition: transition(['width', 'min-width', 'box-shadow', 'transform'], 460, settleOut),
           '&:hover, &:focus-visible': canHover ? {
             width: expandedWidth,
             minWidth: expandedWidth,
+            transform: 'translateY(-1px) scale(1.018)',
+            transitionTimingFunction: springOut,
             boxShadow: (theme) => theme.palette.mode === 'light'
               ? '0 20px 42px rgba(15,23,42,0.22)'
               : '0 22px 52px rgba(0,0,0,0.46)',
@@ -72,11 +77,12 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
             overflow: 'hidden',
             opacity: canHover ? 0 : 1,
             transform: canHover ? 'translateX(-4px)' : 'translateX(0)',
-            transition: 'opacity 180ms ease 90ms, transform 340ms cubic-bezier(0.22, 1, 0.36, 1)',
+            transition: `opacity 170ms ease 80ms, transform 440ms ${settleOut}`,
           },
           '&:hover .ExpandableFab-label, &:focus-visible .ExpandableFab-label': canHover ? {
             opacity: 1,
             transform: 'translateX(0)',
+            transitionTimingFunction: `ease, ${springOut}`,
           } : undefined,
         },
         ...(Array.isArray(sx) ? sx : [sx]),
