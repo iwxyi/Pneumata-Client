@@ -8,6 +8,7 @@ import { readActiveCompanionshipCareTopicsFromEvents } from './directCompanionsh
 import { userProfileMemoryPayloadOf } from './directUserProfileMemory';
 import { isMemoryAnchorCandidate } from './memoryLifecycle';
 import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
+import { getCompanionshipRuntimeConfig } from './companionshipRuntimeConfig';
 
 const USER_ACTOR_ID = 'user';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -416,6 +417,61 @@ function applyAttachmentToCarePolicy(policy: CarePolicy, attachment: UserAttachm
     };
   }
   return policy;
+}
+
+function applyGlobalCompanionshipSettingsToCarePolicy(policy: CarePolicy): CarePolicy {
+  const settings = getCompanionshipRuntimeConfig();
+  const boundaryReasons = [...policy.boundaryReasons];
+  let next: CarePolicy = {
+    ...policy,
+    quietHours: settings.quietHours.enabled
+      ? { start: settings.quietHours.start, end: settings.quietHours.end }
+      : { start: '00:00', end: '00:00' },
+  };
+  if (!settings.enableProactiveCare) {
+    boundaryReasons.push('global setting disables proactive companionship');
+    next = {
+      ...next,
+      dailyInitiationBudget: 0,
+      triggerSensitivity: Math.min(next.triggerSensitivity, 12),
+      expressionIntensity: Math.min(next.expressionIntensity, 18),
+      allowGoodMorning: false,
+      allowGoodNight: false,
+      allowMissYou: false,
+    };
+  }
+  if (!settings.allowGoodMorning) {
+    boundaryReasons.push('global setting disables good morning ritual');
+    next = { ...next, allowGoodMorning: false };
+  }
+  if (!settings.allowGoodNight) {
+    boundaryReasons.push('global setting disables good night ritual');
+    next = { ...next, allowGoodNight: false };
+  }
+  if (!settings.allowMissYou) {
+    boundaryReasons.push('global setting disables miss-you expression');
+    next = { ...next, allowMissYou: false, expressionIntensity: Math.min(next.expressionIntensity, 52) };
+  }
+  if (settings.careIntensity === 'restrained') {
+    boundaryReasons.push('global care intensity is restrained');
+    next = {
+      ...next,
+      dailyInitiationBudget: Math.min(next.dailyInitiationBudget, 1),
+      triggerSensitivity: Math.min(next.triggerSensitivity, 42),
+      expressionIntensity: Math.min(next.expressionIntensity, 42),
+    };
+  } else if (settings.careIntensity === 'expressive' && settings.enableProactiveCare) {
+    next = {
+      ...next,
+      dailyInitiationBudget: Math.min(4, next.dailyInitiationBudget + 1),
+      triggerSensitivity: clampScore(next.triggerSensitivity + 8),
+      expressionIntensity: clampScore(next.expressionIntensity + 8),
+    };
+  }
+  return {
+    ...next,
+    boundaryReasons: Array.from(new Set(boundaryReasons)),
+  };
 }
 
 function parseClockMinutes(value: string) {
@@ -1312,7 +1368,7 @@ export function buildUserCompanionshipProjection(params: {
   const evidence = buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent);
   const preferredIntimacyStyle = inferPreferredStyle(character, intimacy);
   const attachmentProfile = buildUserAttachmentProfile({ chat, characterId: character.id, messages, profile: userProfile, intimacy, now });
-  const carePolicy = applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredIntimacyStyle, userProfile), attachmentProfile);
+  const carePolicy = applyGlobalCompanionshipSettingsToCarePolicy(applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredIntimacyStyle, userProfile), attachmentProfile));
   const bond: UserBondState = {
     userId: USER_ACTOR_ID,
     characterId: character.id,
@@ -1987,7 +2043,7 @@ export function buildCompanionshipCarePolicyForCharacter(params: {
   const phase = params.phase || (params.chat ? resolveCompanionshipPhaseEvent(params.chat, character.id)?.phase || inferPhase(intimacy, ledger) : null) || 'curious';
   const preferredStyle = inferPreferredStyle(character, intimacy);
   const attachmentProfile = buildUserAttachmentProfile({ chat: params.chat, characterId: character.id, messages, profile: userProfile, intimacy, now });
-  return applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredStyle, userProfile), attachmentProfile);
+  return applyGlobalCompanionshipSettingsToCarePolicy(applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredStyle, userProfile), attachmentProfile));
 }
 
 export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
@@ -2035,6 +2091,13 @@ export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
     || reasonType === 'world_attention_invite_activity'
     || reasonType === 'attention_check_in'
     || reasonType === 'attention_followup';
+  if (!isCalendarReminder && !isImmediateUserPromptedFollowup && carePolicy.boundaryReasons.includes('global setting disables proactive companionship')) {
+    return {
+      blocked: true,
+      reason: 'global setting disables proactive companionship',
+      carePolicy,
+    };
+  }
   if (!isCalendarReminder && !isImmediateUserPromptedFollowup && carePolicy.dailyInitiationBudget <= 0) {
     return {
       blocked: true,

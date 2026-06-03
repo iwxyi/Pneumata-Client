@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  Box, Typography, Button, Chip,
+  Box, Typography, Button, Chip, TextField,
   ToggleButtonGroup, ToggleButton,
   FormControlLabel, Switch,
 } from '@mui/material';
@@ -551,6 +551,25 @@ export default function SettingsPage() {
               <FormControlLabel control={<Switch checked={settings.avatarGeneration.preferNonPhotorealAvatar} onChange={(e) => settings.setAvatarGeneration({ preferNonPhotorealAvatar: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '非写实头像' : 'Non-photoreal avatars'} />
               <FormControlLabel control={<Switch checked={settings.aiGeneration.enableMoments} onChange={(e) => settings.setAIGeneration({ enableMoments: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用朋友圈自动生成' : 'Enable moments auto-generation'} />
               <FormControlLabel control={<Switch checked={settings.aiGeneration.enableDiaries} onChange={(e) => settings.setAIGeneration({ enableDiaries: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用日记自动生成' : 'Enable diary auto-generation'} />
+              <FormControlLabel control={<Switch checked={settings.companionship.enableProactiveCare} onChange={(e) => settings.setCompanionship({ enableProactiveCare: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用主动陪伴' : 'Enable proactive companionship'} />
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '陪伴表达强度' : 'Companionship intensity'}</Typography>
+                <ToggleButtonGroup value={settings.companionship.careIntensity} exclusive onChange={(_, v) => v && settings.setCompanionship({ careIntensity: v })} size="small" sx={buildToggleGroupSx()}>
+                  <ToggleButton value="restrained">{i18n.language.startsWith('zh') ? '克制' : 'Restrained'}</ToggleButton>
+                  <ToggleButton value="balanced">{i18n.language.startsWith('zh') ? '平衡' : 'Balanced'}</ToggleButton>
+                  <ToggleButton value="expressive">{i18n.language.startsWith('zh') ? '主动' : 'Expressive'}</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 1, alignItems: 'center' }}>
+                <FormControlLabel control={<Switch checked={settings.companionship.allowGoodMorning} onChange={(e) => settings.setCompanionship({ allowGoodMorning: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '允许早安' : 'Good morning'} />
+                <FormControlLabel control={<Switch checked={settings.companionship.allowGoodNight} onChange={(e) => settings.setCompanionship({ allowGoodNight: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '允许晚安' : 'Good night'} />
+                <FormControlLabel control={<Switch checked={settings.companionship.allowMissYou} onChange={(e) => settings.setCompanionship({ allowMissYou: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '允许想念表达' : 'Miss-you expression'} />
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1.1fr) repeat(2, minmax(0, 0.8fr))' }, gap: 1, alignItems: 'center' }}>
+                <FormControlLabel control={<Switch checked={settings.companionship.quietHours.enabled} onChange={(e) => settings.setCompanionship({ quietHours: { ...settings.companionship.quietHours, enabled: e.target.checked } })} />} label={i18n.language.startsWith('zh') ? '陪伴免打扰' : 'Companionship quiet hours'} />
+                <TextField type="time" size="small" label={i18n.language.startsWith('zh') ? '开始' : 'Start'} value={settings.companionship.quietHours.start} onChange={(e) => settings.setCompanionship({ quietHours: { ...settings.companionship.quietHours, start: e.target.value } })} disabled={!settings.companionship.quietHours.enabled} slotProps={{ inputLabel: { shrink: true } }} />
+                <TextField type="time" size="small" label={i18n.language.startsWith('zh') ? '结束' : 'End'} value={settings.companionship.quietHours.end} onChange={(e) => settings.setCompanionship({ quietHours: { ...settings.companionship.quietHours, end: e.target.value } })} disabled={!settings.companionship.quietHours.enabled} slotProps={{ inputLabel: { shrink: true } }} />
+              </Box>
               <FormControlLabel control={<Switch checked={settings.developerMode} onChange={(e) => settings.setDeveloperMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '开发者模式' : 'Developer mode'} />
             </Box>
           </Box>

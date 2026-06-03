@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_CHARACTER_BEHAVIOR,
   DEFAULT_CHARACTER_INTERVENTION,
@@ -8,8 +8,10 @@ import {
 import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
+import { DEFAULT_COMPANIONSHIP_SETTINGS } from '../types/settings';
 import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipCarePolicyForCharacter, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildHomeCompanionshipSnapshot, buildRitualRegistry, buildSharedMemoryAnchors, buildSharedSecrets, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
 import { buildCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
+import { setCompanionshipRuntimeConfig } from './companionshipRuntimeConfig';
 
 function character(overrides: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -218,6 +220,10 @@ function message(overrides: Partial<Message>): Message {
 }
 
 describe('companionshipProjection', () => {
+  beforeEach(() => {
+    setCompanionshipRuntimeConfig(DEFAULT_COMPANIONSHIP_SETTINGS);
+  });
+
   it('projects a direct user bond from relationship ledger and user memory without confirming romance', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })]),
@@ -1364,6 +1370,81 @@ describe('companionshipProjection', () => {
       reasonType: 'world_attention_private_message',
       attentionScore: 0.9,
       now: new Date('2026-06-01T14:00:00+08:00').getTime(),
+    }).blocked).toBe(false);
+  });
+
+  it('applies global companionship settings to proactive care policy and traces', () => {
+    setCompanionshipRuntimeConfig({
+      enableProactiveCare: false,
+      allowGoodMorning: false,
+      allowGoodNight: false,
+      allowMissYou: false,
+      careIntensity: 'restrained',
+    });
+    const directChat = chat('direct', [relationship({ warmth: 78, trust: 72, competence: 10, threat: 2 })]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '今天也想和你聊一会。', timestamp: 900 })],
+      now: 1_000,
+    });
+    const decision = shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: character(),
+      chat: directChat,
+      eventKind: 'status_update',
+      reasonType: 'world_attention_status_idle',
+      attentionScore: 1,
+      now: new Date('2026-06-01T14:00:00+08:00').getTime(),
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '今天也想和你聊一会。', timestamp: 900 })],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.carePolicy.dailyInitiationBudget).toBe(0);
+    expect(projection.userBond?.carePolicy.allowGoodMorning).toBe(false);
+    expect(projection.userBond?.carePolicy.allowGoodNight).toBe(false);
+    expect(projection.userBond?.carePolicy.allowMissYou).toBe(false);
+    expect(projection.promptLines.join('\n')).toContain('global setting disables proactive companionship');
+    expect(decision).toMatchObject({
+      blocked: true,
+      reason: 'global setting disables proactive companionship',
+    });
+    expect(trace?.boundaryReasons).toEqual(expect.arrayContaining(['global setting disables proactive companionship']));
+  });
+
+  it('respects global quiet-hour overrides for companionship proactive gating', () => {
+    const night = new Date('2026-06-01T01:00:00+08:00').getTime();
+    const baseCharacter = character();
+    const directChat = chat('direct', [relationship({ warmth: 78, trust: 72, competence: 10, threat: 2 })]);
+
+    setCompanionshipRuntimeConfig({
+      quietHours: { enabled: true, start: '23:30', end: '08:00' },
+    });
+    expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: baseCharacter,
+      chat: directChat,
+      eventKind: 'status_update',
+      reasonType: 'world_attention_status_idle',
+      attentionScore: 1,
+      now: night,
+    })).toMatchObject({
+      blocked: true,
+      reason: 'companionship quiet hours',
+    });
+
+    setCompanionshipRuntimeConfig({
+      quietHours: { enabled: false, start: '23:30', end: '08:00' },
+    });
+    expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: baseCharacter,
+      chat: directChat,
+      eventKind: 'status_update',
+      reasonType: 'world_attention_status_idle',
+      attentionScore: 1,
+      now: night,
     }).blocked).toBe(false);
   });
 

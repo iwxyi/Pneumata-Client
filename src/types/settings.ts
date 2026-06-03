@@ -338,6 +338,21 @@ export interface AIGenerationSettings {
   enableDiaries: boolean;
 }
 
+export type CompanionshipCareIntensity = 'restrained' | 'balanced' | 'expressive';
+
+export interface CompanionshipSettings {
+  enableProactiveCare: boolean;
+  allowGoodMorning: boolean;
+  allowGoodNight: boolean;
+  allowMissYou: boolean;
+  careIntensity: CompanionshipCareIntensity;
+  quietHours: {
+    enabled: boolean;
+    start: string;
+    end: string;
+  };
+}
+
 export interface AppSettings {
   api: APIConfig;
   aiProfiles: AIModelProfile[];
@@ -348,6 +363,7 @@ export interface AppSettings {
   developerMode: boolean;
   avatarGeneration: AvatarGenerationSettings;
   aiGeneration: AIGenerationSettings;
+  companionship: CompanionshipSettings;
   developerUI: DeveloperUIPrefs;
   chatDraftDefaults: ChatDraftDefaults;
   customBubbleStyles: BubbleStyleDefinition[];
@@ -381,6 +397,19 @@ export const DEFAULT_AVATAR_GENERATION_SETTINGS: AvatarGenerationSettings = {
 export const DEFAULT_AI_GENERATION_SETTINGS: AIGenerationSettings = {
   enableMoments: true,
   enableDiaries: true,
+};
+
+export const DEFAULT_COMPANIONSHIP_SETTINGS: CompanionshipSettings = {
+  enableProactiveCare: true,
+  allowGoodMorning: true,
+  allowGoodNight: true,
+  allowMissYou: true,
+  careIntensity: 'balanced',
+  quietHours: {
+    enabled: true,
+    start: '23:30',
+    end: '08:00',
+  },
 };
 
 export type AppSettingsWithMemory = AppSettings & { memoryUI?: { showDeveloperMemory?: boolean } };
@@ -502,6 +531,7 @@ export const DEFAULT_SETTINGS: AppSettingsWithMemory = {
   developerMode: false,
   avatarGeneration: DEFAULT_AVATAR_GENERATION_SETTINGS,
   aiGeneration: DEFAULT_AI_GENERATION_SETTINGS,
+  companionship: DEFAULT_COMPANIONSHIP_SETTINGS,
   developerUI: DEFAULT_DEVELOPER_UI_PREFS,
   chatDraftDefaults: DEFAULT_CHAT_DRAFT_DEFAULTS,
   customBubbleStyles: [],
