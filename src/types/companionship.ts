@@ -123,6 +123,8 @@ export interface CompanionshipCareTopicEventPayload {
   reason?: string;
   evidence?: string;
   dueAt?: number;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
 }
 
 export interface CharacterCompanionshipState {

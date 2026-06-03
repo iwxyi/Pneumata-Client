@@ -13,7 +13,7 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import type { LocalInterceptionEvent } from './chatEngine';
-import { buildCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
+import { resolveCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
 import { resolveCompanionshipPhaseEventFromDirectUserMessage } from './directCompanionshipPhase';
 
 export async function runDirectUserReplyFlow(params: {
@@ -49,10 +49,12 @@ export async function runDirectUserReplyFlow(params: {
     textApiConfig,
     recentMessages: getProjectedMessages(),
   });
-  const careTopicEvents = buildCompanionshipCareTopicEventsFromDirectUserMessage({
+  const careTopicEvents = await resolveCompanionshipCareTopicEventsFromDirectUserMessage({
     chat: params.chat,
     character: directCharacter,
     message: params.userMessage,
+    textApiConfig,
+    recentMessages: getProjectedMessages(),
   });
   const companionshipEvents = [phaseEvent, ...careTopicEvents].filter((event): event is RuntimeEventV2 => Boolean(event));
   const chatForGeneration = companionshipEvents.length

@@ -1,9 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_EMOTIONAL_STATE, type AICharacter } from '../types/character';
 import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
-import { buildCompanionshipCareTopicEventsFromDirectUserMessage, readActiveCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
+import { generateJsonResponse } from './aiClient';
+import { buildCompanionshipCareTopicEventsFromDirectUserMessage, readActiveCompanionshipCareTopicsFromEvents, resolveCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
+
+vi.mock('./aiClient', () => ({
+  generateJsonResponse: vi.fn(),
+}));
+
+const generateJsonResponseMock = vi.mocked(generateJsonResponse);
+
+beforeEach(() => {
+  generateJsonResponseMock.mockReset();
+});
 
 function character(): AICharacter {
   return {
@@ -131,5 +142,71 @@ describe('directCompanionshipCare', () => {
       topicId: (opened[0]?.payload as { topicId: string }).topicId,
     });
     expect(readActiveCompanionshipCareTopicsFromEvents(chat([...opened, ...blocked]), 'char-a', 3000)).toEqual([]);
+  });
+
+  it('uses model judgment to open care topic when text api config exists', async () => {
+    generateJsonResponseMock.mockResolvedValueOnce(JSON.stringify({
+      shouldCreate: true,
+      action: 'opened',
+      topicText: '用户明天下午要面试，显得有点紧张。',
+      urgency: 'high',
+      dueInHours: 36,
+      confidence: 0.88,
+      reason: '用户明确提到自己的面试和紧张状态。',
+      evidence: '明天下午面试，有点紧张',
+    }));
+
+    const events = await resolveCompanionshipCareTopicEventsFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: message('明天下午面试，有点紧张。'),
+      textApiConfig: { provider: 'openai', apiKey: 'key', baseUrl: 'https://example.test', model: 'model' },
+    });
+
+    expect(generateJsonResponseMock).toHaveBeenCalledTimes(1);
+    expect(events[0]?.payload).toMatchObject({
+      eventType: 'companionship_care_topic',
+      action: 'opened',
+      topicText: '用户明天下午要面试，显得有点紧张。',
+      urgency: 'high',
+      confidence: 0.88,
+      decisionSource: 'model',
+    });
+  });
+
+  it('trusts conservative model rejection to avoid local keyword false positives', async () => {
+    generateJsonResponseMock.mockResolvedValueOnce(JSON.stringify({
+      shouldCreate: false,
+      action: 'none',
+      confidence: 0.2,
+      reason: '用户在说压力锅，不是自己的压力事项。',
+      evidence: '',
+    }));
+
+    const events = await resolveCompanionshipCareTopicEventsFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: message('这个压力锅最近真的很好用。'),
+      textApiConfig: { provider: 'openai', apiKey: 'key', baseUrl: 'https://example.test', model: 'model' },
+    });
+
+    expect(events).toEqual([]);
+  });
+
+  it('falls back to local care-topic judgment only when model judgment fails', async () => {
+    generateJsonResponseMock.mockRejectedValueOnce(new Error('model unavailable'));
+
+    const events = await resolveCompanionshipCareTopicEventsFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: message('明天面试有点紧张。'),
+      textApiConfig: { provider: 'openai', apiKey: 'key', baseUrl: 'https://example.test', model: 'model' },
+    });
+
+    expect(events[0]?.payload).toMatchObject({
+      eventType: 'companionship_care_topic',
+      action: 'opened',
+      decisionSource: 'local_fallback',
+    });
   });
 });
