@@ -28,9 +28,9 @@ import { summarizeExpressionFeedbackInfluence } from '../../services/expressionF
 import { buildMemberInnerLifeChips } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { formatInnerImpulseLabel } from '../../services/runtimeDecisionLabels';
-import { buildCharacterCompanionshipStates, buildCompanionshipStatusSignature, buildSharedMemoryAnchors } from '../../services/companionshipProjection';
+import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors } from '../../services/companionshipProjection';
 import type { Message } from '../../types/message';
-import type { CharacterCompanionshipState, SharedMemoryAnchor } from '../../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipRuntimeTrace, SharedMemoryAnchor } from '../../types/companionship';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -447,6 +447,89 @@ function CharacterCompanionshipPanel({
   ) : <Typography variant="caption" color="text.secondary">暂无可投影的角色陪伴关系。关系积累到一定强度后，这里会显示护短、默契、搭档感或带刺关心。</Typography>;
 }
 
+function CompanionshipDeveloperTracePanel({ trace }: { trace: CompanionshipRuntimeTrace | null | undefined }) {
+  if (!trace) return null;
+  const intimacyItems = [
+    ['吸引', trace.intimacy.attraction],
+    ['亲密', trace.intimacy.intimacy],
+    ['依恋', trace.intimacy.attachment],
+    ['想念', trace.intimacy.longing],
+    ['安全', trace.intimacy.security],
+  ] as const;
+  const policyItems = [
+    `主动预算 ${trace.carePolicy.dailyInitiationBudget}/天`,
+    `触发敏感 ${trace.carePolicy.triggerSensitivity}`,
+    `沉默阈值 ${trace.carePolicy.silenceAnxietyThresholdHours}h`,
+    `表达强度 ${trace.carePolicy.expressionIntensity}`,
+    trace.carePolicy.allowMissYou ? '允许想念表达' : '禁用想念表达',
+  ];
+  return (
+    <Stack spacing={1}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 0.75 }}>
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>阶段/风格</Typography>
+          <Typography variant="body2">{trace.phase} · {trace.style}</Typography>
+        </Box>
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>画像置信</Typography>
+          <Typography variant="body2">{trace.userProfileConfidence}%</Typography>
+        </Box>
+      </Box>
+      <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>亲密投影</Typography>
+        <Stack spacing={0.65}>
+          {intimacyItems.map(([label, value]) => (
+            <Box key={label} sx={{ display: 'grid', gridTemplateColumns: '44px 1fr 36px', alignItems: 'center', gap: 0.75 }}>
+              <Typography variant="caption" color="text.secondary">{label}</Typography>
+              <LinearProgress variant="determinate" value={value} sx={{ height: 6, borderRadius: 999 }} />
+              <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'right' }}>{value}</Typography>
+            </Box>
+          ))}
+        </Stack>
+      </Box>
+      <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>主动策略</Typography>
+        <StatChipRow items={policyItems} />
+        {trace.boundaryReasons.length ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.65 }}>
+            克制：{trace.boundaryReasons.join(' / ')}
+          </Typography>
+        ) : null}
+      </Box>
+      {trace.attachmentProfile ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>依恋适配</Typography>
+          <StatChipRow items={[trace.attachmentProfile.inferredStyle, `置信 ${trace.attachmentProfile.confidence}%`, ...trace.attachmentProfile.adaptations]} />
+          {trace.attachmentProfile.evidence.length ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.65 }}>
+              证据：{trace.attachmentProfile.evidence.join(' / ')}
+            </Typography>
+          ) : null}
+        </Box>
+      ) : null}
+      {trace.intimateConflict ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'warning.main', color: 'warning.contrastText' }}>
+          <Typography variant="caption" sx={{ display: 'block', opacity: 0.78 }}>亲密冲突/修复</Typography>
+          <Typography variant="body2">{trace.intimateConflict.summary}</Typography>
+          <Typography variant="caption" sx={{ display: 'block', opacity: 0.78 }}>
+            {trace.intimateConflict.kind} · 强度 {trace.intimateConflict.severity} · 修复成熟度 {trace.intimateConflict.repairReadiness}
+          </Typography>
+        </Box>
+      ) : null}
+      {trace.diagnostics.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'error.main', color: 'error.contrastText' }}>
+          <Typography variant="caption" sx={{ display: 'block', opacity: 0.78 }}>运行诊断</Typography>
+          {trace.diagnostics.map((item) => (
+            <Typography key={item} variant="caption" sx={{ display: 'block', fontFamily: 'monospace', wordBreak: 'break-word' }}>
+              {item}
+            </Typography>
+          ))}
+        </Box>
+      ) : null}
+    </Stack>
+  );
+}
+
 function isLikelyInternalCharacterId(value: string) {
   return /^[0-9a-f-]{18,}$/i.test(value);
 }
@@ -786,9 +869,15 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       character: character as AICharacter,
       messages: chatMessages,
     });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character as AICharacter,
+      messages: chatMessages,
+    });
     return {
       chatName: directChat.name,
       signature,
+      trace,
     };
   }, [character, chats, messageWindowsByChatId, messages]);
 
@@ -855,13 +944,16 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
               </Typography>
             ) : null}
             {isDeveloperView ? (
-              <Box sx={{ display: 'grid', gap: 0.5 }}>
-                {companionshipView.signature.debugLines.map((line) => (
-                  <Typography key={line} variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', wordBreak: 'break-word' }}>
-                    {line}
-                  </Typography>
-                ))}
-              </Box>
+              <Stack spacing={1}>
+                <CompanionshipDeveloperTracePanel trace={companionshipView.trace} />
+                <Box sx={{ display: 'grid', gap: 0.5 }}>
+                  {companionshipView.signature.debugLines.map((line) => (
+                    <Typography key={line} variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', wordBreak: 'break-word' }}>
+                      {line}
+                    </Typography>
+                  ))}
+                </Box>
+              </Stack>
             ) : null}
           </Stack>
         ) : (
