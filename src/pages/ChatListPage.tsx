@@ -14,11 +14,12 @@ import EmptyState from '../components/common/EmptyState';
 import ListSkeletonGrid from '../components/common/ListSkeletonGrid';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
+import ExpandableFab from '../components/common/ExpandableFab';
 import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import { DETAIL_COLLAPSED_CHANGE_EVENT, DETAIL_COLLAPSED_STORAGE_KEY, readDetailCollapsedState, writeDetailCollapsedState } from '../components/layout/masterDetailState';
 import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
 import { motion, transition } from '../styles/motion';
-import { buildFloatingActionSx, buildListGridSx } from '../styles/interaction';
+import { buildListGridSx } from '../styles/interaction';
 
 const CHAT_LIST_TAB_KEY = 'chat-list-tab';
 const isChatListTab = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 2;
@@ -303,17 +304,13 @@ export default function ChatListPage() {
       />
 
       {tab !== 2 ? (
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
+        <ExpandableFab
+          icon={<AddIcon />}
+          label={createLabel}
+          ariaLabel={createLabel}
           onClick={() => navigate(createPath)}
-          sx={{
-            ...floatingActionPositionSx,
-            ...buildFloatingActionSx(),
-          }}
-        >
-          {createLabel}
-        </Button>
+          sx={floatingActionPositionSx}
+        />
       ) : null}
     </Box>
   );

@@ -18,6 +18,7 @@ import EmptyState from '../components/common/EmptyState';
 import ListSkeletonGrid from '../components/common/ListSkeletonGrid';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import AppSnackbar from '../components/common/AppSnackbar';
+import ExpandableFab from '../components/common/ExpandableFab';
 import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import { canDeleteCharacterGroup, getCharacterGroupList, getCharactersInGroup, isPresetCharacterSelectable, normalizeCharacterGroup, getDuplicateCharacterBannerText, getDuplicateCharacterCount } from '../types/character';
 import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
@@ -28,7 +29,7 @@ import { useChatStore } from '../stores/useChatStore';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 import type { AICharacter } from '../types/character';
 import { readPersistentUiValue, writePersistentUiValue } from '../utils/persistentUiState';
-import { buildFloatingActionSx, buildListGridSx } from '../styles/interaction';
+import { buildListGridSx } from '../styles/interaction';
 
 type CharacterSortField = 'name' | 'createdAt';
 type CharacterSortDirection = 'asc' | 'desc';
@@ -679,17 +680,13 @@ export default function CharacterLibraryPage() {
         message={snackbar.message}
       />
 
-      <Button
-        variant="contained"
-        startIcon={<AddIcon />}
+      <ExpandableFab
+        icon={<AddIcon />}
+        label={t('character.create')}
+        ariaLabel={t('character.create')}
         onClick={openCreateForm}
-        sx={{
-          ...floatingActionPositionSx,
-          ...buildFloatingActionSx(),
-        }}
-      >
-        {t('character.create')}
-      </Button>
+        sx={floatingActionPositionSx}
+      />
     </Box>
   );
 }
