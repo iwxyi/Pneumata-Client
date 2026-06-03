@@ -214,6 +214,22 @@ export interface CompanionshipRitualEventPayload {
   nextAvailableAt?: number;
 }
 
+export interface CompanionshipIntimateConflictEventPayload {
+  eventType: 'companionship_intimate_conflict';
+  characterId: string;
+  userId?: string;
+  action: 'opened' | 'updated' | 'repair_attempted' | 'resolved' | 'reopened';
+  kind: IntimateConflictKind;
+  severity?: number;
+  repairReadiness?: number;
+  summary?: string;
+  evidence?: string[];
+  participantIds?: string[];
+  sourceEventIds?: string[];
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;

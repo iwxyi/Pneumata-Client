@@ -127,6 +127,36 @@ function ritualEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
   };
 }
 
+function intimateConflictEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-intimate-conflict-1',
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt: 1_000,
+    actorIds: ['user', 'char-a'],
+    targetIds: ['char-a', 'user'],
+    summary: '用户和苏苏进入一次冷战后的试探修复。',
+    visibility: 'pair_private',
+    eventClass: 'artifact',
+    payload: {
+      eventType: 'companionship_intimate_conflict',
+      characterId: 'char-a',
+      userId: 'user',
+      action: 'repair_attempted',
+      kind: 'repair_attempt',
+      severity: 44,
+      repairReadiness: 68,
+      summary: '两个人还没有完全说开，但用户愿意给一个台阶。',
+      evidence: ['用户说：我们先别冷战了，慢慢说开。'],
+      participantIds: ['char-a', 'user'],
+      sourceEventIds: ['evt-source-conflict'],
+      confidence: 0.88,
+      decisionSource: 'model',
+    },
+    ...overrides,
+  };
+}
+
 function relationship(current: RelationshipLedgerEntry['current']): RelationshipLedgerEntry {
   return {
     pairKey: 'char-a->user',
@@ -827,6 +857,105 @@ describe('companionshipProjection', () => {
     });
     expect(projection.userBond?.intimateConflict?.repairReadiness).toBeGreaterThan(50);
     expect(projection.evidence.join('\n')).toContain('慢慢说开');
+  });
+
+  it('prioritizes explicit intimate conflict runtime events over inferred conflict projection', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 40,
+      trust: 34,
+      competence: 10,
+      threat: 52,
+    })], [intimateConflictEvent()]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '我们先别冷战了，慢慢说开。', timestamp: 990 })],
+      now: 1_100,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '我们先别冷战了，慢慢说开。', timestamp: 990 })],
+      now: 1_100,
+    });
+
+    expect(projection.userBond?.intimateConflict).toMatchObject({
+      kind: 'repair_attempt',
+      severity: 44,
+      repairReadiness: 68,
+      summary: '两个人还没有完全说开，但用户愿意给一个台阶。',
+      participantIds: ['char-a', 'user'],
+    });
+    expect(projection.userBond?.intimateConflict?.sourceEventIds).toEqual(expect.arrayContaining(['evt-intimate-conflict-1', 'evt-source-conflict']));
+    expect(projection.promptLines.join('\n')).toContain('Current intimate conflict/repair state');
+    expect(trace?.intimateConflict?.repairReadiness).toBe(68);
+  });
+
+  it('uses resolved intimate conflict events to keep recent repair from being overwritten by old ledger tension', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 32,
+      trust: 24,
+      competence: 10,
+      threat: 58,
+    })], [intimateConflictEvent({
+      id: 'evt-intimate-resolved',
+      createdAt: 1_200,
+      summary: '用户和苏苏已经把误会说开。',
+      payload: {
+        eventType: 'companionship_intimate_conflict',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'resolved',
+        kind: 'repair_attempt',
+        severity: 16,
+        repairReadiness: 86,
+        summary: '误会已经说开，但表达上仍要留一点余波。',
+        evidence: ['用户说：这件事说开了，我们就别翻旧账了。'],
+        participantIds: ['char-a', 'user'],
+        confidence: 0.91,
+        decisionSource: 'model',
+      },
+    })]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '这件事说开了，我们就别翻旧账了。', timestamp: 1_190 })],
+      now: 1_300,
+    });
+
+    expect(projection.userBond?.intimateConflict).toMatchObject({
+      kind: 'reconciliation',
+      severity: 16,
+      repairReadiness: 86,
+    });
+    expect(projection.userBond?.intimateConflict?.summary).toContain('误会已经说开');
+  });
+
+  it('exposes low-confidence or fallback intimate conflict events in companionship diagnostics', () => {
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({ warmth: 46, trust: 38, competence: 10, threat: 20 })], [
+        intimateConflictEvent({
+          id: 'evt-intimate-fallback',
+          payload: {
+            eventType: 'companionship_intimate_conflict',
+            characterId: 'char-a',
+            userId: 'user',
+            action: 'opened',
+            kind: 'cold_war',
+            confidence: 0.52,
+            decisionSource: 'local_fallback',
+            evidence: ['先别聊了。'],
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [message({ content: '先别聊了。', timestamp: 900 })],
+      now: 1_000,
+    });
+
+    expect(trace?.diagnostics).toEqual(expect.arrayContaining([
+      'intimate_conflict: source=local_fallback confidence=52% event=evt-intimate-fallback',
+    ]));
   });
 
   it('turns leaked user shared secrets into intimate conflict consequences', () => {

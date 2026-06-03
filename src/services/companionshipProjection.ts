@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload } from '../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -773,6 +773,93 @@ function buildUnresolvedTensions(entry: RelationshipLedgerEntry | null) {
   ].filter(Boolean).slice(0, 3) as string[];
 }
 
+const INTIMATE_CONFLICT_KINDS: IntimateConflictKind[] = [
+  'cold_war',
+  'silent_treatment',
+  'testing',
+  'accusation',
+  'withdrawal',
+  'vulnerability_burst',
+  'repair_attempt',
+  'reconciliation',
+];
+
+function isIntimateConflictKind(value: unknown): value is IntimateConflictKind {
+  return typeof value === 'string' && INTIMATE_CONFLICT_KINDS.includes(value as IntimateConflictKind);
+}
+
+function intimateConflictEventPayloadOf(event: RuntimeEventV2): CompanionshipIntimateConflictEventPayload | null {
+  const payload = event.payload as Record<string, unknown> | undefined;
+  if (!payload || payload.eventType !== 'companionship_intimate_conflict') return null;
+  const action = payload.action;
+  if (action !== 'opened' && action !== 'updated' && action !== 'repair_attempted' && action !== 'resolved' && action !== 'reopened') return null;
+  if (!isIntimateConflictKind(payload.kind)) return null;
+  const characterId = typeof payload.characterId === 'string' ? payload.characterId : '';
+  if (!characterId) return null;
+  const evidence = Array.isArray(payload.evidence)
+    ? payload.evidence.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => compactText(item, 120))
+    : undefined;
+  const participantIds = Array.isArray(payload.participantIds)
+    ? payload.participantIds.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 6)
+    : undefined;
+  const sourceEventIds = Array.isArray(payload.sourceEventIds)
+    ? payload.sourceEventIds.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 8)
+    : undefined;
+  return {
+    eventType: 'companionship_intimate_conflict',
+    characterId,
+    userId: typeof payload.userId === 'string' ? payload.userId : undefined,
+    action,
+    kind: payload.kind,
+    severity: typeof payload.severity === 'number' && Number.isFinite(payload.severity) ? payload.severity : undefined,
+    repairReadiness: typeof payload.repairReadiness === 'number' && Number.isFinite(payload.repairReadiness) ? payload.repairReadiness : undefined,
+    summary: typeof payload.summary === 'string' ? compactText(payload.summary, 160) : undefined,
+    evidence,
+    participantIds,
+    sourceEventIds,
+    confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
+    decisionSource: payload.decisionSource === 'model' || payload.decisionSource === 'local_fallback' ? payload.decisionSource : undefined,
+  };
+}
+
+function resolveIntimateConflictEvent(chat: GroupChat, characterId: string, now: number): IntimateConflictState | null {
+  const events = (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .slice()
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  for (const event of events) {
+    const payload = intimateConflictEventPayloadOf(event);
+    if (!payload || payload.characterId !== characterId) continue;
+    const userId = payload.userId || USER_ACTOR_ID;
+    if (userId !== USER_ACTOR_ID) continue;
+    const participantIds = payload.participantIds?.length ? payload.participantIds : [characterId, USER_ACTOR_ID];
+    if (!participantIds.includes(characterId) || !participantIds.includes(USER_ACTOR_ID)) continue;
+    const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+    const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+    if (!actorMatches || !targetMatches) continue;
+    const severity = clampScore(payload.severity ?? (payload.action === 'resolved' ? 18 : payload.action === 'repair_attempted' ? 36 : 50));
+    const repairReadiness = clampScore(payload.repairReadiness ?? (
+      payload.action === 'resolved' ? 82 : payload.action === 'repair_attempted' ? 58 : payload.kind === 'reconciliation' ? 72 : 24
+    ));
+    const evidence = [
+      event.summary,
+      ...(payload.evidence || []),
+    ].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 5);
+    const kind = payload.action === 'resolved' && payload.kind !== 'reconciliation' ? 'reconciliation' : payload.kind;
+    return {
+      kind,
+      severity,
+      repairReadiness,
+      summary: payload.summary || conflictSummary(kind, severity, repairReadiness),
+      evidence,
+      participantIds,
+      sourceEventIds: Array.from(new Set([event.id, ...(payload.sourceEventIds || [])])).slice(0, 8),
+      updatedAt: event.createdAt || now,
+    };
+  }
+  return null;
+}
+
 function conflictKindFromTexts(texts: string[], phase: CompanionshipPhase): IntimateConflictKind {
   const joined = texts.join('\n');
   if (phase === 'reconciling') return /(和好|说开|原谅|修复完成|重新开始)/.test(joined) ? 'reconciliation' : 'repair_attempt';
@@ -799,6 +886,7 @@ function conflictSummary(kind: IntimateConflictKind, severity: number, repairRea
 }
 
 function buildIntimateConflictState(params: {
+  chat: GroupChat;
   characterId: string;
   phase: CompanionshipPhase;
   phaseEvent: ResolvedPhaseEvent | null;
@@ -808,6 +896,8 @@ function buildIntimateConflictState(params: {
   intimacy: IntimacyProjection;
   now: number;
 }): IntimateConflictState | undefined {
+  const explicitConflict = resolveIntimateConflictEvent(params.chat, params.characterId, params.now);
+  if (explicitConflict) return explicitConflict;
   const conflictAnchors = params.sharedAnchors.filter((anchor) => anchor.kind === 'conflict');
   const repairAnchors = params.sharedAnchors.filter((anchor) => anchor.kind === 'repair');
   const leakedSecrets = params.sharedSecrets.filter((secret) => secret.participantIds.includes(USER_ACTOR_ID) && secret.leakState === 'leaked');
@@ -1132,6 +1222,7 @@ export function buildUserCompanionshipProjection(params: {
   });
   const sharedSecrets = buildSharedSecrets(character, now);
   const intimateConflict = buildIntimateConflictState({
+    chat,
     characterId: character.id,
     phase,
     phaseEvent,
