@@ -3,9 +3,9 @@ import type { SxProps, Theme } from '@mui/material/styles';
 import type { ReactNode } from 'react';
 import { motion, transition } from '../../styles/motion';
 
-const fabSpring = 'cubic-bezier(0.18, 1.3, 0.28, 1)';
+const fabSpring = 'cubic-bezier(0.12, 1.48, 0.24, 1)';
 const fabSettle = 'cubic-bezier(0.22, 1, 0.36, 1)';
-const fabLabelSpring = 'cubic-bezier(0.16, 1.36, 0.26, 1)';
+const fabLabelSpring = 'cubic-bezier(0.1, 1.54, 0.22, 1)';
 
 interface ExpandableFabProps {
   icon: ReactNode;
@@ -32,7 +32,7 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
           zIndex: 1300,
           width: canHover ? 56 : expandedWidth,
           minWidth: canHover ? 56 : expandedWidth,
-          maxWidth: expandedWidth,
+          maxWidth: canHover ? expandedWidth + 14 : expandedWidth,
           height: 56,
           minHeight: 56,
           p: 0,
@@ -50,14 +50,21 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
           '&:hover, &:focus-visible': canHover ? {
             width: expandedWidth,
             minWidth: expandedWidth,
+            animation: 'ExpandableFab-jelly-shell 680ms cubic-bezier(0.18, 1.18, 0.28, 1)',
             transition: [
-              transition(['width', 'min-width'], 560, fabSpring),
+              transition(['width', 'min-width'], 640, fabSpring),
               transition(['box-shadow'], 440, fabSpring),
             ].join(', '),
             boxShadow: (theme) => theme.palette.mode === 'light'
               ? '0 20px 42px rgba(15,23,42,0.22)'
               : '0 22px 52px rgba(0,0,0,0.46)',
           } : undefined,
+          '@keyframes ExpandableFab-jelly-shell': {
+            '0%': { borderRadius: 999 },
+            '38%': { borderRadius: 24 },
+            '62%': { borderRadius: 34 },
+            '100%': { borderRadius: 999 },
+          },
           '&:active': {
             transform: 'translateY(1px) scale(0.985)',
             transitionTimingFunction: motion.press,
@@ -75,8 +82,8 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
             transition: transition(['transform'], 360, fabSettle),
           },
           '&:hover .ExpandableFab-icon, &:focus-visible .ExpandableFab-icon': canHover ? {
-            transform: 'translateX(-1px) scale(1.08)',
-            transitionDuration: '500ms',
+            transform: 'translateX(-2px) scaleX(1.16) scaleY(0.9)',
+            transitionDuration: '620ms',
             transitionTimingFunction: fabSpring,
           } : undefined,
           '& .ExpandableFab-label': {
@@ -90,14 +97,14 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             opacity: canHover ? 0 : 1,
-            transform: canHover ? 'translate3d(8px, 0, 0) scale(0.94)' : 'translate3d(0, 0, 0) scale(1)',
+            transform: canHover ? 'translate3d(14px, 0, 0) scaleX(0.86) scaleY(1.08)' : 'translate3d(0, 0, 0) scale(1)',
             transformOrigin: 'left center',
             transition: `opacity 150ms ease, transform 300ms ${fabSettle}`,
           },
           '&:hover .ExpandableFab-label, &:focus-visible .ExpandableFab-label': canHover ? {
             opacity: 1,
             transform: 'translate3d(0, 0, 0) scale(1)',
-            transition: `opacity 220ms ease 120ms, transform 560ms ${fabLabelSpring} 80ms`,
+            transition: `opacity 220ms ease 120ms, transform 680ms ${fabLabelSpring} 80ms`,
           } : undefined,
         },
         ...(Array.isArray(sx) ? sx : [sx]),
