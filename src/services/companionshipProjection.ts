@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -1316,6 +1316,49 @@ function buildOnlineReturnProjection(bond: UserBondState, carePolicy: CarePolicy
   return '';
 }
 
+interface ResolvedOnlineReturnEvent {
+  text: string;
+  blocked: boolean;
+  sourceEventId: string;
+}
+
+function onlineReturnPayloadOf(event: RuntimeEventV2): CompanionshipOnlineReturnEventPayload | null {
+  const payload = event.payload as Partial<CompanionshipOnlineReturnEventPayload> | undefined;
+  if (!payload || payload.eventType !== 'companionship_online_return' || !payload.characterId || !payload.action) return null;
+  return payload as CompanionshipOnlineReturnEventPayload;
+}
+
+function resolveOnlineReturnEvent(chat: GroupChat, characterId: string, now: number): ResolvedOnlineReturnEvent | null {
+  const events = (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .map((event) => ({ event, payload: onlineReturnPayloadOf(event) }))
+    .filter((item): item is { event: RuntimeEventV2; payload: CompanionshipOnlineReturnEventPayload } => {
+      if (!item.payload) return false;
+      if (item.payload.characterId !== characterId || (item.payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return false;
+      if (typeof item.payload.availableAt === 'number' && item.payload.availableAt > now) return false;
+      if (typeof item.payload.expiresAt === 'number' && item.payload.expiresAt <= now) return false;
+      const confidence = typeof item.payload.confidence === 'number' && Number.isFinite(item.payload.confidence) ? item.payload.confidence : 1;
+      return confidence >= 0.6;
+    })
+    .sort((a, b) => (b.event.createdAt || 0) - (a.event.createdAt || 0));
+  const latest = events[0];
+  if (!latest) return null;
+  if (latest.payload.action === 'suppressed' || latest.payload.action === 'dismissed') {
+    return {
+      text: '',
+      blocked: true,
+      sourceEventId: latest.event.id,
+    };
+  }
+  const text = compactText(latest.payload.text || latest.payload.reason || latest.event.summary, 80);
+  if (!text) return null;
+  return {
+    text,
+    blocked: false,
+    sourceEventId: latest.event.id,
+  };
+}
+
 export function buildCompanionshipStatusSignature(params: {
   chat: GroupChat;
   character: AICharacter;
@@ -1330,7 +1373,8 @@ export function buildCompanionshipStatusSignature(params: {
   const carePolicy = bond.carePolicy;
   const offlineTrace = buildOfflineTrace(bond, carePolicy, now);
   const unsentDraft = buildUnsentDraft(bond, carePolicy, now);
-  const onlineReturn = buildOnlineReturnProjection(bond, carePolicy, now);
+  const onlineReturnEvent = resolveOnlineReturnEvent(params.chat, params.character.id, now);
+  const onlineReturn = onlineReturnEvent?.blocked ? '' : (onlineReturnEvent?.text || buildOnlineReturnProjection(bond, carePolicy, now));
   return {
     text: buildStatusText(bond, carePolicy, now),
     tone: statusTone(bond.phase),
@@ -1347,7 +1391,8 @@ export function buildCompanionshipStatusSignature(params: {
       carePolicy.boundaryReasons.length ? `restraints=${carePolicy.boundaryReasons.join(' / ')}` : '',
       offlineTrace ? `offlineTrace=${offlineTrace}` : '',
       unsentDraft ? `unsentDraft=${unsentDraft}` : '',
-      onlineReturn ? `onlineReturn=${onlineReturn}` : '',
+      onlineReturn ? `onlineReturn=${onlineReturn}${onlineReturnEvent ? ` source=${onlineReturnEvent.sourceEventId}` : ''}` : '',
+      onlineReturnEvent?.blocked ? `onlineReturn=suppressed source=${onlineReturnEvent.sourceEventId}` : '',
       sharedAnchorLabels.length ? `sharedAnchors=${sharedAnchorLabels.join(' / ')}` : '',
       projection.evidence.length ? `evidence=${projection.evidence.join(' / ')}` : '',
     ].filter(Boolean),

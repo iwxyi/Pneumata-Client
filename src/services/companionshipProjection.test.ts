@@ -214,6 +214,32 @@ function addressingEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV
   };
 }
 
+function onlineReturnEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-online-return-1',
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt: 1_000,
+    actorIds: ['char-a'],
+    targetIds: ['user'],
+    summary: '苏苏准备了一条用户回来后的轻量问候。',
+    visibility: 'pair_private',
+    eventClass: 'artifact',
+    payload: {
+      eventType: 'companionship_online_return',
+      characterId: 'char-a',
+      userId: 'user',
+      action: 'projected',
+      text: '小夏回来了。苏苏把刚才想问的话先放轻一点，只留一句欢迎回来。',
+      reason: '用户离开较久后返回，适合低打扰接上话。',
+      evidence: '用户上一条消息是晚点回来。',
+      confidence: 0.88,
+      decisionSource: 'model',
+    },
+    ...overrides,
+  };
+}
+
 function relationship(current: RelationshipLedgerEntry['current']): RelationshipLedgerEntry {
   return {
     pairKey: 'char-a->user',
@@ -1738,6 +1764,73 @@ describe('companionshipProjection', () => {
     expect(signature?.debugLines.join('\n')).toContain('onlineReturn=');
     expect(snapshot?.text).toBe(signature?.onlineReturn);
     expect(snapshot?.characterName).toBe('苏苏');
+  });
+
+  it('prioritizes online return runtime events over local status projection', () => {
+    const latestUserAt = 200;
+    const directChat = chat('direct', [relationship({ warmth: 72, trust: 70, competence: 10, threat: 2 })], [onlineReturnEvent()]);
+    const companion = character({ memory: { shortTermSummary: '', longTerm: [], secrets: [], obsessions: [], tabooTopics: [], userMemories: ['用户说：叫我小夏。'] } });
+    const signature = buildCompanionshipStatusSignature({
+      chat: directChat,
+      character: companion,
+      messages: [message({ content: '我先去忙了，晚点回来。', timestamp: latestUserAt })],
+      now: latestUserAt + 30 * 60 * 60 * 1000,
+    });
+
+    expect(signature?.onlineReturn).toBe('小夏回来了。苏苏把刚才想问的话先放轻一点，只留一句欢迎回来。');
+    expect(signature?.debugLines.join('\n')).toContain('onlineReturn=小夏回来了');
+    expect(signature?.debugLines.join('\n')).toContain('source=evt-online-return-1');
+  });
+
+  it('uses suppressed online return events to block local online return fallback', () => {
+    const latestUserAt = 200;
+    const directChat = chat('direct', [relationship({ warmth: 72, trust: 70, competence: 10, threat: 2 })], [
+      onlineReturnEvent({
+        id: 'evt-online-return-suppressed',
+        payload: {
+          eventType: 'companionship_online_return',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'suppressed',
+          reason: '用户已经关闭首页回归提示。',
+          confidence: 0.92,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const signature = buildCompanionshipStatusSignature({
+      chat: directChat,
+      character: character({ memory: { shortTermSummary: '', longTerm: [], secrets: [], obsessions: [], tabooTopics: [], userMemories: ['用户说：叫我小夏。'] } }),
+      messages: [message({ content: '我先去忙了，晚点回来。', timestamp: latestUserAt })],
+      now: latestUserAt + 30 * 60 * 60 * 1000,
+    });
+
+    expect(signature?.onlineReturn).toBeUndefined();
+    expect(signature?.debugLines.join('\n')).toContain('onlineReturn=suppressed source=evt-online-return-suppressed');
+  });
+
+  it('exposes local online return events in companionship diagnostics', () => {
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 70, competence: 10, threat: 2 })], [
+        onlineReturnEvent({
+          id: 'evt-online-return-local',
+          payload: {
+            eventType: 'companionship_online_return',
+            characterId: 'char-a',
+            userId: 'user',
+            action: 'projected',
+            text: '小夏回来了。',
+            confidence: 0.64,
+            decisionSource: 'local_fallback',
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [message({ content: '我先去忙了。', timestamp: 200 })],
+      now: 200 + 30 * 60 * 60 * 1000,
+    });
+
+    expect(trace?.diagnostics.join('\n')).toContain('online_return: source=local_fallback confidence=64% event=evt-online-return-local');
   });
 
   it('does not project online return when user boundary blocks proactive contact', () => {

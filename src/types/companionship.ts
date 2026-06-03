@@ -258,6 +258,20 @@ export interface CompanionshipAddressingEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipOnlineReturnEventPayload {
+  eventType: 'companionship_online_return';
+  characterId: string;
+  userId?: string;
+  action: 'projected' | 'shown' | 'suppressed' | 'dismissed';
+  text?: string;
+  reason?: string;
+  evidence?: string;
+  availableAt?: number;
+  expiresAt?: number;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;
