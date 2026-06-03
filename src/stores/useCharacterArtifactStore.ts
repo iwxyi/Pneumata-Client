@@ -82,6 +82,7 @@ interface CharacterArtifactStore extends ArtifactSnapshot {
   }) => Promise<CharacterArtifactEntry>;
   syncCloud: (query?: CharacterArtifactQuery) => Promise<void>;
   resumeProcessing: () => Promise<void>;
+  discardFailedJob: (jobId: string) => void;
 }
 
 function getArtifactStorageKey() {
@@ -842,6 +843,11 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           void get().syncCloud();
           await processNext();
         },
+        discardFailedJob: (jobId) => set((state) => {
+          const job = state.jobs.find((item) => item.id === jobId);
+          if (job?.status !== 'failed') return {};
+          return { jobs: state.jobs.filter((item) => item.id !== jobId) };
+        }),
       };
     },
     {

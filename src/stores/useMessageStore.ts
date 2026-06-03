@@ -4503,6 +4503,7 @@ interface MessageStore {
   upsertMessages: (messages: Message[]) => void;
   queueMessageSync: (message: Message) => void;
   flushPendingOperations: () => Promise<void>;
+  discardFailedOperation: (operationId: string) => void;
   clearChatMessagesLocal: (chatId: string) => void;
   deleteMessage: (id: string) => Promise<void>;
   deleteLastNMessages: (chatId: string, n: number) => Promise<void>;
@@ -4736,6 +4737,12 @@ export const useMessageStore = create<MessageStore>()(
       },
 
       flushPendingOperations,
+
+      discardFailedOperation: (operationId) => set((state) => {
+        const operation = state.pendingOperations.find((item) => item.id === operationId);
+        if (operation?.status !== 'failed') return {};
+        return { pendingOperations: removePendingMessageOperation(state.pendingOperations, operationId) };
+      }),
 
       clearChatMessagesLocal: (chatId) => {
         set((state) => {

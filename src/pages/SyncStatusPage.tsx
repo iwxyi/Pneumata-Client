@@ -20,6 +20,7 @@ export default function SyncStatusPage() {
   const items = useMemo(() => {
     const characterItems = (characterStore.pendingOperations || []).map((item) => ({
       id: item.id,
+      scopeType: 'character' as const,
       scope: isZh ? '角色' : 'Characters',
       kind: item.kind,
       status: item.status,
@@ -31,6 +32,7 @@ export default function SyncStatusPage() {
 
     const chatItems = (chatStore.pendingOperations || []).map((item) => ({
       id: item.id,
+      scopeType: 'chat' as const,
       scope: isZh ? '聊天' : 'Chats',
       kind: item.kind,
       status: item.status,
@@ -42,6 +44,7 @@ export default function SyncStatusPage() {
 
     const messageItems = (messageStore.pendingOperations || []).map((item) => ({
       id: item.id,
+      scopeType: 'message' as const,
       scope: isZh ? '消息' : 'Messages',
       kind: item.kind,
       status: item.status,
@@ -55,6 +58,7 @@ export default function SyncStatusPage() {
       .filter((item) => item.status === 'pending' || item.status === 'running' || item.status === 'failed')
       .map((item) => ({
         id: item.id,
+        scopeType: 'artifact' as const,
         scope: isZh ? '信件 / 日记' : 'Letters / Diary',
         kind: item.kind,
         status: item.status === 'running' ? 'syncing' : item.status,
@@ -90,6 +94,14 @@ export default function SyncStatusPage() {
     void artifactStore.resumeProcessing();
   };
 
+  const discardFailed = (item: { id: string; scopeType: 'character' | 'chat' | 'message' | 'artifact'; status: string }) => {
+    if (item.status !== 'failed') return;
+    if (item.scopeType === 'character') characterStore.discardFailedOperation(item.id);
+    if (item.scopeType === 'chat') chatStore.discardFailedOperation(item.id);
+    if (item.scopeType === 'message') messageStore.discardFailedOperation(item.id);
+    if (item.scopeType === 'artifact') artifactStore.discardFailedJob(item.id);
+  };
+
   const failedCount = items.filter((item) => item.status === 'failed').length;
   const pendingCount = items.filter((item) => item.status === 'pending').length;
   const syncingCount = items.filter((item) => item.status === 'syncing').length;
@@ -107,6 +119,9 @@ export default function SyncStatusPage() {
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         {isZh ? '这里显示本地优先的创建、编辑、消息发送和信件/日记生成队列；临时网络失败会自动重试，校验失败会停在失败状态等待处理。' : 'This page shows local-first create, edit, message, and artifact queues. Temporary network failures retry automatically; validation failures stay failed for review.'}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+        {isZh ? '放弃失败项只会移除对应同步任务；已经保存在本地的内容不会因此自动删除。' : 'Discarding a failed item only removes that sync task. Content already saved locally is not deleted automatically.'}
       </Typography>
 
       <Stack direction="row" spacing={1} useFlexGap sx={{ mb: 2, flexWrap: 'wrap' }}>
@@ -150,6 +165,13 @@ export default function SyncStatusPage() {
                     {isZh ? '暂无错误，队列中的本地操作通常会很快完成。' : 'No error recorded. Queued local operations usually finish quickly.'}
                   </Typography>
                 )}
+                {item.status === 'failed' ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <Button size="small" color="warning" onClick={() => discardFailed(item)}>
+                      {isZh ? '放弃此同步任务' : 'Discard this sync task'}
+                    </Button>
+                  </Box>
+                ) : null}
               </CardContent>
             </Card>
           ))}

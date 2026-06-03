@@ -432,6 +432,7 @@ interface CharacterStore extends PersistedCharacterState {
   getPendingEditError: () => string | null;
   getPendingEditCount: () => number;
   clearPendingOperations: () => void;
+  discardFailedOperation: (operationId: string) => void;
   loadPendingSnapshot: () => Promise<AICharacter[]>;
   loadProjectedRecycleBin: () => Promise<AICharacter[]>;
   hydrateProjectedState: () => void;
@@ -826,6 +827,17 @@ export const useCharacterStore = create<CharacterStore>()(
         getPendingEditError: () => latestCharacterError(get().pendingOperations),
         getPendingEditCount: () => get().pendingOperations.length,
         clearPendingOperations: () => set({ pendingOperations: [], pendingEditSyncCount: 0, pendingEditSyncError: null }),
+        discardFailedOperation: (operationId) => set((state) => {
+          const operation = state.pendingOperations.find((item) => item.id === operationId);
+          if (operation?.status !== 'failed') return {};
+          const pendingOperations = removePendingCharacterOperation(state.pendingOperations, operationId);
+          return {
+            characters: projectVisibleCharacters(state.characters, pendingOperations),
+            pendingOperations,
+            pendingEditSyncCount: pendingOperations.length,
+            pendingEditSyncError: latestCharacterError(pendingOperations),
+          };
+        }),
         loadPendingSnapshot: async () => get().loadProjectedCharacters(),
         loadProjectedRecycleBin: async () => get().loadProjectedDeletedCharacters(),
         hydrateProjectedState: () => set((state) => ({ characters: projectVisibleCharacters(state.characters, state.pendingOperations) })),

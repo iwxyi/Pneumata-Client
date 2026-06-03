@@ -283,6 +283,7 @@ interface ChatStore extends PersistedChatState {
   getPendingEditError: () => string | null;
   getPendingEditCount: () => number;
   clearPendingOperations: () => void;
+  discardFailedOperation: (operationId: string) => void;
   loadPendingSnapshot: () => Promise<GroupChat[]>;
   loadProjectedRecycleBin: () => Promise<GroupChat[]>;
   hydrateProjectedState: () => void;
@@ -829,6 +830,17 @@ export const useChatStore = create<ChatStore>()(
         getPendingEditError: () => latestChatError(get().pendingOperations),
         getPendingEditCount: () => get().pendingOperations.length,
         clearPendingOperations: () => set({ pendingOperations: [], pendingEditSyncCount: 0, pendingEditSyncError: null }),
+        discardFailedOperation: (operationId) => set((state) => {
+          const operation = state.pendingOperations.find((item) => item.id === operationId);
+          if (operation?.status !== 'failed') return {};
+          const pendingOperations = removePendingChatOperation(state.pendingOperations, operationId);
+          return {
+            chats: projectVisibleChats(state.chats, pendingOperations),
+            pendingOperations,
+            pendingEditSyncCount: pendingOperations.length,
+            pendingEditSyncError: latestChatError(pendingOperations),
+          };
+        }),
         loadPendingSnapshot: async () => get().loadProjectedChats(),
         loadProjectedRecycleBin: async () => get().loadProjectedDeletedChats(),
         hydrateProjectedState: () => set((state) => ({ chats: projectVisibleChats(state.chats, state.pendingOperations) })),
