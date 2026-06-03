@@ -27,7 +27,7 @@ import { projectWorldAttentionStates, projectWorldCalendar } from '../worldRunti
 import { isCharacterFeatureEnabled } from '../characterGenerationPolicy';
 import { orchestrateWorldDecision } from '../worldDecisionOrchestrator';
 import { buildMomentPostText } from '../momentTextBuilder';
-import { buildCharacterCompanionshipStates } from '../companionshipProjection';
+import { buildCharacterCompanionshipStates, shouldBlockUserProactiveContactByCompanionshipPolicy } from '../companionshipProjection';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
@@ -342,6 +342,12 @@ function buildAttentionDrivenPrivateThreadCandidate(params: {
   const actorId = params.message.senderId;
   if (!actorId || actorId === 'user') return null;
   if (!params.conversation.memberIds.includes('user')) return null;
+  const actor = params.characters.find((item) => item.id === actorId) || null;
+  if (shouldBlockUserProactiveContactByCompanionshipPolicy({
+    character: actor,
+    eventKind: 'check_in',
+    reasonType: 'world_attention_private_message',
+  }).blocked) return null;
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
     .find((item) => item.actorId === actorId && item.targetId === 'user');
   if (attentionState && !attentionState.suggestedActions.includes('private_message')) return null;
@@ -492,6 +498,12 @@ function buildAttentionDrivenCheckInCandidate(params: {
   if (!actorId || actorId === 'user') return null;
   if (hasPendingCandidateSuppression(params.conversation, actorId, 'check_in', Date.now())) return null;
   if (!params.conversation.memberIds.includes('user')) return null;
+  const actor = params.characters.find((item) => item.id === actorId) || null;
+  if (shouldBlockUserProactiveContactByCompanionshipPolicy({
+    character: actor,
+    eventKind: 'check_in',
+    reasonType: 'attention_check_in',
+  }).blocked) return null;
   const attentionState = projectWorldAttentionStates([params.conversation], params.characters)
     .find((item) => item.actorId === actorId && item.targetId === 'user');
   if (attentionState && !attentionState.suggestedActions.includes('check_in')) return null;

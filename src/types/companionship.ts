@@ -98,6 +98,19 @@ export interface UserBondState {
   preferredIntimacyStyle: PreferredIntimacyStyle;
 }
 
+export interface CompanionshipPhaseEventPayload {
+  eventType: 'companionship_phase_event';
+  characterId: string;
+  userId?: string;
+  phase: CompanionshipPhase;
+  style?: CompanionshipStyle;
+  evidence?: string[];
+  reason?: string;
+  initiatedBy?: 'user' | 'character' | 'mutual' | 'system';
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;

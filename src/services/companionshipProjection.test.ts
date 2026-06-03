@@ -7,8 +7,8 @@ import {
 } from '../types/character';
 import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
-import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
-import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors, buildUserCompanionshipProjection } from './companionshipProjection';
+import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
+import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
 
 function character(overrides: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -49,7 +49,7 @@ function character(overrides: Partial<AICharacter> = {}): AICharacter {
   };
 }
 
-function chat(type: 'group' | 'direct' = 'direct', relationshipLedger: RelationshipLedgerEntry[] = []) {
+function chat(type: 'group' | 'direct' = 'direct', relationshipLedger: RelationshipLedgerEntry[] = [], runtimeEventsV2: RuntimeEventV2[] = []) {
   return normalizeConversation({
     id: 'chat-1',
     type,
@@ -66,6 +66,7 @@ function chat(type: 'group' | 'direct' = 'direct', relationshipLedger: Relations
     allowIntervention: true,
     topicSeed: '',
     relationshipLedger,
+    runtimeEventsV2,
     governance: { ownerCharacterId: null, adminCharacterIds: [], autoModeration: false, allowMute: true, allowPrivateThreads: true },
     dramaRules: { allowCliques: false, allowMockery: false, allowAlliances: true, allowContempt: false },
     worldState: { phase: 'idle', mood: '', focus: '', recentEvent: '', conflictAxes: [] },
@@ -74,6 +75,30 @@ function chat(type: 'group' | 'direct' = 'direct', relationshipLedger: Relations
     updatedAt: 1,
     lastMessageAt: 1,
   });
+}
+
+function phaseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-phase-1',
+    conversationId: 'chat-1',
+    kind: 'phase_transition',
+    createdAt: 800,
+    actorIds: ['user', 'char-a'],
+    targetIds: ['char-a', 'user'],
+    summary: '用户和苏苏明确确认了关系。',
+    visibility: 'pair_private',
+    eventClass: 'phase',
+    payload: {
+      eventType: 'companionship_phase_event',
+      characterId: 'char-a',
+      userId: 'user',
+      phase: 'confirmed',
+      style: 'romantic',
+      reason: '双方明确说出喜欢并确认关系边界。',
+      evidence: ['用户说我们就按恋人关系相处。'],
+    },
+    ...overrides,
+  };
 }
 
 function relationship(current: RelationshipLedgerEntry['current']): RelationshipLedgerEntry {
@@ -125,6 +150,79 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.intimacy.security).toBeGreaterThan(60);
     expect(projection.userBond?.pendingCareTopics[0]?.text).toContain('明天面试');
     expect(projection.promptLines.join('\n')).toContain('Do not claim a confirmed romantic relationship');
+  });
+
+  it('does not enter confirmed relationship phase from scores alone', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 96, trust: 92, competence: 20, threat: 0 })]),
+      character: character(),
+      messages: [message({ content: '今天也想和你聊一会。', timestamp: 200 })],
+      now: 900,
+    });
+
+    expect(projection.userBond?.phase).not.toBe('confirmed');
+    expect(projection.userBond?.phase).not.toBe('passionate');
+    expect(projection.userBond?.phase).not.toBe('deep');
+    expect(projection.userBond?.style).toBe('ambiguous');
+  });
+
+  it('uses explicit companionship phase events for confirmed relationship state', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 70, trust: 68, competence: 20, threat: 0 })], [phaseEvent()]),
+      character: character(),
+      messages: [message({ content: '今天也想和你聊一会。', timestamp: 200 })],
+      now: 900,
+    });
+
+    expect(projection.userBond?.phase).toBe('confirmed');
+    expect(projection.userBond?.style).toBe('romantic');
+    expect(projection.userBond?.phaseEnteredAt).toBe(800);
+    expect(projection.userBond?.phaseEvidence.join('\n')).toContain('明确确认了关系');
+    expect(projection.userBond?.phaseEvidence.join('\n')).toContain('恋人关系');
+    expect(projection.promptLines.join('\n')).toContain('confirmed relationship');
+  });
+
+  it('uses the latest valid companionship phase event and ignores unrelated actors', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 70, trust: 68, competence: 20, threat: 0 })], [
+        phaseEvent({
+          id: 'evt-other',
+          createdAt: 1000,
+          summary: '另一个角色确认关系。',
+          actorIds: ['char-b', 'user'],
+          targetIds: ['char-b', 'user'],
+          payload: {
+            eventType: 'companionship_phase_event',
+            characterId: 'char-b',
+            userId: 'user',
+            phase: 'passionate',
+          },
+        }),
+        phaseEvent({
+          id: 'evt-repair',
+          createdAt: 900,
+          summary: '苏苏和用户完成了一次试探性的和好。',
+          payload: {
+            eventType: 'companionship_phase_event',
+            characterId: 'char-a',
+            userId: 'user',
+            phase: 'reconciling',
+            style: 'friend',
+            reason: '用户递了台阶，苏苏选择先放软语气。',
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [message({ content: '我们慢慢说吧。', timestamp: 200 })],
+      now: 1100,
+    });
+
+    expect(projection.userBond?.phase).toBe('reconciling');
+    expect(projection.userBond?.style).toBe('friend');
+    expect(projection.userBond?.phaseEnteredAt).toBe(900);
+    expect(projection.userBond?.addressing.currentAddress).toBe('你');
+    expect(projection.evidence.join('\n')).toContain('试探性的和好');
+    expect(projection.evidence.join('\n')).not.toContain('另一个角色');
   });
 
   it('reduces security and moves to crisis when threat is high', () => {
@@ -255,6 +353,53 @@ describe('companionshipProjection', () => {
 
     expect(projection.userBond?.pendingCareTopics).toEqual([]);
     expect(projection.promptLines.join('\n')).not.toContain('Pending care topics');
+  });
+
+  it('blocks proactive contact when user memory rejects active disturbance', () => {
+    const decision = shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: character({
+        memory: {
+          shortTermSummary: '',
+          longTerm: [],
+          secrets: [],
+          obsessions: [],
+          tabooTopics: [],
+          userMemories: ['用户说不要主动打扰，也别提醒或私聊。'],
+        },
+      }),
+      eventKind: 'check_in',
+      reasonType: 'world_attention_private_message',
+      now: 300,
+    });
+
+    expect(decision.blocked).toBe(true);
+    expect(decision.reason).toBe('user prefers low proactive contact');
+  });
+
+  it('only blocks greeting-like check-ins when user rejects greeting rituals', () => {
+    const baseCharacter = character({
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说不要早安晚安。'],
+      },
+    });
+
+    expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: baseCharacter,
+      eventKind: 'check_in',
+      reasonType: 'attention_check_in',
+      now: 300,
+    }).blocked).toBe(true);
+    expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: baseCharacter,
+      eventKind: 'status_update',
+      reasonType: 'world_attention_calendar_reminder',
+      now: 300,
+    }).blocked).toBe(false);
   });
 
   it('builds a low-noise companionship status signature for direct side panels', () => {

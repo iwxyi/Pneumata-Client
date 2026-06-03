@@ -1523,6 +1523,74 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect(suppression || decision || !checkInCandidate).toBeTruthy();
   });
 
+  it('writes companionship-boundary suppression and does not fallback to user-directed status update', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildChatWithEvents([
+        {
+          id: 'att-1',
+          conversationId: 'chat-1',
+          kind: 'attention_candidate',
+          createdAt: now - 1_000,
+          actorIds: ['user'],
+          targetIds: ['a'],
+          summary: '用户点名 a，等待回应',
+          visibility: 'derived_public',
+          payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.95, reason: '用户刚提到近期生活状态' },
+        } as RuntimeEventV2,
+      ]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 18, competence: 4, trust: 16, threat: -2 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 500,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+    const actor = {
+      ...buildCharacter('a', '甲'),
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说不要主动打扰，也别提醒或私聊。'],
+      },
+    } as AICharacter;
+
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [actor],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+
+    const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
+    const events = patch?.runtimeEventsV2 || [];
+    const suppression = events.find((event) => event.kind === 'artifact'
+      && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'event_candidate_suppressed'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_boundary');
+    const decision = events.find((event) => event.kind === 'artifact'
+      && (event.payload as { eventType?: string; reasonType?: string; decisionType?: string }).eventType === 'world_decision_v2'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_boundary'
+      && (event.payload as { decisionType?: string }).decisionType === 'suppressed');
+    const userDirectedCandidate = events.find((event) => {
+      if (event.kind !== 'event_candidate') return false;
+      const payload = event.payload as { eventKind?: string; targetIds?: string[] };
+      return Boolean(payload.targetIds?.includes('user') && ['check_in', 'status_update', 'social_outing', 'react_to_moment'].includes(payload.eventKind || ''));
+    });
+
+    expect(suppression).toBeTruthy();
+    expect(decision).toBeTruthy();
+    expect(userDirectedCandidate).toBeUndefined();
+  });
+
   it('writes moment-disabled suppression when share_moment is suggested for the actor', async () => {
     const now = Date.now();
     const chat = {
@@ -1969,6 +2037,36 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
 });
 
 describe('passesWorldAttentionRestraintPolicy', () => {
+  it('blocks user-targeted proactive care when companionship boundary rejects active contact', () => {
+    const now = new Date('2026-05-29T21:30:00+08:00').getTime();
+    const chat = {
+      ...buildBaseChat(),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 50, competence: 2, trust: 50, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const actor = {
+      ...buildCharacter('a', '甲'),
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说不要主动打扰，也别提醒或私聊。'],
+      },
+    } as AICharacter;
+
+    expect(passesWorldAttentionRestraintPolicy(chat, 'a', 'user', now, 'check_in', 'world_attention_private_message', actor)).toBe(false);
+    expect(passesWorldAttentionRestraintPolicy(chat, 'a', 'user', now, 'social_outing', 'world_attention_invite_activity', actor)).toBe(false);
+  });
+
   it('blocks invite activity during quiet hours', () => {
     const now = new Date('2026-05-29T23:30:00+08:00').getTime();
     const chat = {

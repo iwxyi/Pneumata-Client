@@ -1,8 +1,8 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, SharedMemoryAnchor } from '../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, SharedMemoryAnchor } from '../types/companionship';
 import type { Message } from '../types/message';
-import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
+import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import { isMemoryAnchorCandidate } from './memoryLifecycle';
 import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
@@ -108,6 +108,64 @@ function inferPhase(intimacy: IntimacyProjection, entry: RelationshipLedgerEntry
   if (intimacy.attraction >= 46 && intimacy.intimacy >= 38 && intimacy.security >= 36) return 'fond';
   if (intimacy.attachment >= 28 || intimacy.intimacy >= 24) return 'curious';
   return 'stranger';
+}
+
+const COMPANIONSHIP_PHASES: CompanionshipPhase[] = ['stranger', 'curious', 'fond', 'ambiguous', 'confessing', 'confirmed', 'passionate', 'deep', 'cooling', 'crisis', 'reconciling'];
+const COMPANIONSHIP_STYLES: CompanionshipStyle[] = ['romantic', 'ambiguous', 'friend', 'family', 'mentor', 'custom'];
+
+function isCompanionshipPhase(value: unknown): value is CompanionshipPhase {
+  return typeof value === 'string' && COMPANIONSHIP_PHASES.includes(value as CompanionshipPhase);
+}
+
+function isCompanionshipStyle(value: unknown): value is CompanionshipStyle {
+  return typeof value === 'string' && COMPANIONSHIP_STYLES.includes(value as CompanionshipStyle);
+}
+
+interface ResolvedPhaseEvent {
+  phase: CompanionshipPhase;
+  style?: CompanionshipStyle;
+  enteredAt: number;
+  evidence: string[];
+  sourceEventId: string;
+}
+
+function resolveCompanionshipPhaseEvent(chat: GroupChat, characterId: string): ResolvedPhaseEvent | null {
+  const events = (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .slice()
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  for (const event of events) {
+    const payload = event.payload as Record<string, unknown>;
+    const eventType = typeof payload.eventType === 'string' ? payload.eventType : '';
+    if (eventType !== 'companionship_phase_event') continue;
+    const payloadCharacterId = typeof payload.characterId === 'string' ? payload.characterId : '';
+    const payloadUserId = typeof payload.userId === 'string' ? payload.userId : USER_ACTOR_ID;
+    if (payloadCharacterId && payloadCharacterId !== characterId) continue;
+    if (payloadUserId && payloadUserId !== USER_ACTOR_ID) continue;
+    const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+    const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+    if (!actorMatches || !targetMatches) continue;
+    if (!isCompanionshipPhase(payload.phase)) continue;
+    const evidence = Array.isArray(payload.evidence)
+      ? payload.evidence.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => compactText(item, 120))
+      : [];
+    const reason = typeof payload.reason === 'string' ? compactText(payload.reason, 120) : '';
+    return {
+      phase: payload.phase,
+      style: isCompanionshipStyle(payload.style) ? payload.style : undefined,
+      enteredAt: event.createdAt || Date.now(),
+      evidence: [event.summary, reason, ...evidence].filter(Boolean).slice(0, 5),
+      sourceEventId: event.id,
+    };
+  }
+  return null;
+}
+
+function resolveBondStyle(phase: CompanionshipPhase, explicitStyle?: CompanionshipStyle): CompanionshipStyle {
+  if (explicitStyle) return explicitStyle;
+  if (phase === 'ambiguous' || phase === 'confessing') return 'ambiguous';
+  if (phase === 'confirmed' || phase === 'passionate' || phase === 'deep') return 'romantic';
+  return 'friend';
 }
 
 function inferPreferredStyle(character: AICharacter, intimacy: IntimacyProjection): PreferredIntimacyStyle {
@@ -358,11 +416,12 @@ function buildPendingCareTopics(profile: UserProfileMemoryProjection, messages: 
   return applyCareTopicLifecycle([...recentUser, ...memoryTopics], profile, messages, now);
 }
 
-function buildPhaseEvidence(entry: RelationshipLedgerEntry | null, topics: PendingCareTopic[]) {
+function buildPhaseEvidence(entry: RelationshipLedgerEntry | null, topics: PendingCareTopic[], phaseEvent: ResolvedPhaseEvent | null = null) {
   const semantic = entry?.derived?.semantic?.summary;
   const recent = entry?.recentEvents?.slice(-2).map((item) => compactText(item.summary, 120)).filter(Boolean) || [];
   const topicEvidence = topics.slice(0, 2).map((item) => `care topic: ${item.text}`);
-  return [semantic, ...recent, ...topicEvidence].filter(Boolean).slice(0, 5) as string[];
+  const phaseEvidence = phaseEvent ? phaseEvent.evidence.map((item) => `phase event: ${item}`) : [];
+  return [...phaseEvidence, semantic, ...recent, ...topicEvidence].filter(Boolean).slice(0, 6) as string[];
 }
 
 function buildUserSharedAnchors(character: AICharacter, now: number) {
@@ -578,20 +637,22 @@ export function buildUserCompanionshipProjection(params: {
   const now = params.now || Date.now();
   const ledger = getCharacterToUserLedger(chat, character.id);
   const intimacy = projectIntimacy(ledger, messages, character.id, now);
-  const phase = inferPhase(intimacy, ledger);
+  const phaseEvent = resolveCompanionshipPhaseEvent(chat, character.id);
+  const inferredPhase = inferPhase(intimacy, ledger);
+  const phase = phaseEvent?.phase || inferredPhase;
   const contacts = getLatestContact(messages, character.id);
   const userProfile = buildUserProfileProjection(character, messages, now);
   const pendingCareTopics = buildPendingCareTopics(userProfile, messages, now);
-  const evidence = buildPhaseEvidence(ledger, pendingCareTopics);
+  const evidence = buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent);
   const sharedAnchors = buildUserSharedAnchors(character, now);
   const preferredIntimacyStyle = inferPreferredStyle(character, intimacy);
   const carePolicy = buildCarePolicy(phase, preferredIntimacyStyle, userProfile);
   const bond: UserBondState = {
     userId: USER_ACTOR_ID,
     characterId: character.id,
-    style: phase === 'ambiguous' ? 'ambiguous' : 'friend',
+    style: resolveBondStyle(phase, phaseEvent?.style),
     phase,
-    phaseEnteredAt: ledger?.lastUpdatedAt || contacts.lastMeaningfulContactAt || now,
+    phaseEnteredAt: phaseEvent?.enteredAt || ledger?.lastUpdatedAt || contacts.lastMeaningfulContactAt || now,
     phaseEvidence: evidence,
     transitionReadiness: clampScore((intimacy.attraction + intimacy.intimacy + intimacy.security) / 3),
     intimacy,
@@ -889,4 +950,72 @@ export function buildCompanionshipRuntimeTrace(params: {
     intimacy: bond.intimacy,
     userProfileConfidence: profile.confidence,
   };
+}
+
+export function buildCompanionshipCarePolicyForCharacter(params: {
+  character: AICharacter;
+  messages?: Message[];
+  phase?: CompanionshipPhase;
+  now?: number;
+}): CarePolicy {
+  const now = params.now || Date.now();
+  const messages = params.messages || [];
+  const character = {
+    ...params.character,
+    personality: params.character.personality || { openness: 50, extroversion: 50, agreeableness: 50, neuroticism: 50, humor: 50, creativity: 50, assertiveness: 50, empathy: 50 },
+    memory: params.character.memory || {
+      shortTermSummary: '',
+      longTerm: [],
+      secrets: [],
+      obsessions: [],
+      tabooTopics: [],
+      userMemories: [],
+    },
+  } as AICharacter;
+  const userProfile = buildUserProfileProjection(character, messages, now);
+  const preferredStyle = inferPreferredStyle(character, {
+    attraction: 0,
+    intimacy: 0,
+    attachment: 0,
+    longing: 0,
+    exclusivity: 0,
+    security: 50,
+  });
+  return buildCarePolicy(params.phase || 'curious', preferredStyle, userProfile);
+}
+
+export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
+  character: AICharacter | null | undefined;
+  eventKind: 'check_in' | 'react_to_moment' | 'social_outing' | 'status_update';
+  reasonType?: string | null;
+  messages?: Message[];
+  now?: number;
+}): { blocked: boolean; reason?: string; carePolicy?: CarePolicy } {
+  if (!params.character) return { blocked: false };
+  const carePolicy = buildCompanionshipCarePolicyForCharacter({
+    character: params.character,
+    messages: params.messages,
+    now: params.now,
+  });
+  if (carePolicy.boundaryReasons.includes('user prefers low proactive contact')) {
+    return {
+      blocked: true,
+      reason: 'user prefers low proactive contact',
+      carePolicy,
+    };
+  }
+  if (carePolicy.boundaryReasons.includes('user rejects greeting rituals') && params.eventKind === 'check_in') {
+    const reasonType = params.reasonType || '';
+    if (reasonType === 'world_attention_private_message'
+      || reasonType === 'world_attention_followup'
+      || reasonType === 'world_attention_followup_question'
+      || reasonType === 'attention_check_in') {
+      return {
+        blocked: true,
+        reason: 'user rejects greeting rituals',
+        carePolicy,
+      };
+    }
+  }
+  return { blocked: false, carePolicy };
 }

@@ -513,6 +513,48 @@ describe('openChatEngine.onMessageCommitted', () => {
     })).toBe(false);
   });
 
+  it('does not generate user-targeted attention candidates when companionship boundary rejects active contact', async () => {
+    const chat = buildChat({
+      runtimeEventsV2: [{
+        id: 'att-1',
+        conversationId: 'chat-1',
+        kind: 'attention_candidate',
+        createdAt: Date.now() - 2_000,
+        actorIds: ['user'],
+        targetIds: ['a'],
+        summary: '用户点名 a',
+        visibility: 'derived_public',
+        payload: { source: 'user_group_message', targetIds: ['a'], confidence: 0.8 },
+      }],
+    });
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [
+        buildCharacter('a', '甲', {
+          memory: {
+            ...DEFAULT_CHARACTER_MEMORY,
+            userMemories: ['用户说不要主动打扰，也别提醒或私聊。'],
+          },
+        }),
+        buildCharacter('b', '乙'),
+      ],
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '我来先回应一下。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextEvents = readRuntimeEvents(result);
+    expect(nextEvents.some((event) => {
+      if (event.kind !== 'event_candidate') return false;
+      const payload = event.payload as { targetIds?: string[]; eventKind?: string };
+      return (payload.targetIds || []).includes('user')
+        && ['pair_private_thread', 'check_in'].includes(payload.eventKind || '');
+    })).toBe(false);
+  });
+
   it('creates check_in and react_to_moment candidates from attention and recent moments', async () => {
     const chat = buildChat({
       runtimeEventsV2: [

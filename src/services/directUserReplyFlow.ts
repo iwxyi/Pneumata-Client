@@ -12,6 +12,7 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import type { LocalInterceptionEvent } from './chatEngine';
+import { resolveCompanionshipPhaseEventFromDirectUserMessage } from './directCompanionshipPhase';
 
 export async function runDirectUserReplyFlow(params: {
   api: APIConfig | APIConfig[];
@@ -33,6 +34,31 @@ export async function runDirectUserReplyFlow(params: {
 }) {
   const directCharacter = params.characters.find((item) => item.id === params.chat.memberIds[0]);
   if (!directCharacter) return;
+  const getProjectedMessages = () => projectCurrentChatMessages({
+    chatId: params.chatId,
+    activeMessages: useMessageStore.getState().messages,
+    cachedWindow: useMessageStore.getState().messageWindowsByChatId[params.chatId],
+  });
+  const textApiConfig = Array.isArray(params.api) ? params.api[0] : params.api;
+  const phaseEvent = await resolveCompanionshipPhaseEventFromDirectUserMessage({
+    chat: params.chat,
+    character: directCharacter,
+    message: params.userMessage,
+    textApiConfig,
+    recentMessages: getProjectedMessages(),
+  });
+  const chatForGeneration = phaseEvent
+    ? {
+        ...params.chat,
+        runtimeEventsV2: [
+          ...(params.chat.runtimeEventsV2 || []).filter((event) => !event.evidenceMessageIds?.includes(params.userMessage.id)),
+          phaseEvent,
+        ].slice(-160),
+      }
+    : params.chat;
+  if (phaseEvent) {
+    await params.updateChat(params.chat.id, { runtimeEventsV2: chatForGeneration.runtimeEventsV2 });
+  }
 
   const evolution = resolveRuntimeEvolutionConfig(params.chat.runtimeEvolutionIntensity);
   const drift = derivePersonalityDrift(directCharacter, params.content, evolution.driftMultiplier * 0.5);
@@ -59,17 +85,12 @@ export async function runDirectUserReplyFlow(params: {
     import('./sessionEngineRegistry'),
   ]);
   const sessionEngine = getSessionEngine(params.chat.mode);
-  const getProjectedMessages = () => projectCurrentChatMessages({
-    chatId: params.chatId,
-    activeMessages: useMessageStore.getState().messages,
-    cachedWindow: useMessageStore.getState().messageWindowsByChatId[params.chatId],
-  });
 
   await generateAndCommitAiMessage({
-    api: Array.isArray(params.api) ? params.api[0] : params.api,
+    api: textApiConfig,
     aiProfiles: params.aiProfiles,
     chatId: params.chatId,
-    chat: params.chat,
+    chat: chatForGeneration,
     speaker: directCharacter,
     characters: params.characters,
     timestamp: params.userMessage.timestamp + 1,
@@ -77,7 +98,7 @@ export async function runDirectUserReplyFlow(params: {
     onLocalInterception: params.onLocalInterception,
     generationContext: {
       buildPromptContext: (speaker) => sessionEngine.buildGenerationPromptContext?.({
-        conversation: params.chat,
+        conversation: chatForGeneration,
         characters: params.characters,
         messages: getProjectedMessages(),
         speaker,
