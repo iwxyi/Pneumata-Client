@@ -1762,6 +1762,93 @@ describe('companionshipProjection', () => {
     expect(trace?.attachmentProfile?.evidence.join('\n')).toContain('需要空间');
   });
 
+  it('uses corrected attachment profile events as explicit user/model correction', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 62,
+      trust: 58,
+      competence: 10,
+      threat: 4,
+    })], [attachmentProfileEvent({
+      id: 'evt-attachment-corrected',
+      payload: {
+        eventType: 'companionship_attachment_profile',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'corrected',
+        inferredStyle: 'secure',
+        confidence: 0.96,
+        evidence: ['用户明确表示不要按焦虑或回避模式适配，正常相处就好。'],
+        adaptations: ['keep a steady reciprocal pace'],
+        decisionSource: 'model',
+      },
+    })]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [
+        message({ content: '你怎么不回我，是不是不想理我了？', timestamp: 800 }),
+        message({ content: '我只是想确认你还在。', timestamp: 900 }),
+      ],
+      now: 1_100,
+    });
+
+    expect(projection.userBond?.attachmentProfile).toMatchObject({
+      inferredStyle: 'secure',
+      confidence: 96,
+      adaptations: ['keep a steady reciprocal pace'],
+    });
+    expect(projection.userBond?.carePolicy.silenceAnxietyThresholdHours).toBe(24);
+    expect(projection.promptLines.join('\n')).toContain('keep a steady reciprocal pace');
+  });
+
+  it('uses disabled attachment profile events to stop attachment adaptations', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 62,
+      trust: 58,
+      competence: 10,
+      threat: 4,
+    })], [attachmentProfileEvent({
+      id: 'evt-attachment-disabled',
+      payload: {
+        eventType: 'companionship_attachment_profile',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'disabled',
+        confidence: 1,
+        reason: '用户关闭依恋适配。',
+        evidence: ['不要分析我的依恋类型。'],
+        decisionSource: 'model',
+      },
+    })]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [
+        message({ content: '你怎么不回我，是不是不想理我了？', timestamp: 800 }),
+        message({ content: '我只是想确认你还在。', timestamp: 900 }),
+      ],
+      now: 1_100,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [
+        message({ content: '你怎么不回我，是不是不想理我了？', timestamp: 800 }),
+        message({ content: '我只是想确认你还在。', timestamp: 900 }),
+      ],
+      now: 1_100,
+    });
+
+    expect(projection.userBond?.attachmentProfile).toMatchObject({
+      inferredStyle: 'secure',
+      confidence: 0,
+      adaptations: [],
+    });
+    expect(projection.userBond?.carePolicy.silenceAnxietyThresholdHours).toBe(24);
+    expect(projection.promptLines.join('\n')).not.toContain('User attachment adaptation');
+    expect(trace?.attachmentProfile?.evidence.join('\n')).toContain('用户关闭依恋适配');
+  });
+
   it('exposes fallback attachment profile events in companionship diagnostics', () => {
     const trace = buildCompanionshipRuntimeTrace({
       chat: chat('direct', [relationship({ warmth: 46, trust: 38, competence: 10, threat: 20 })], [
@@ -2676,6 +2763,35 @@ describe('companionshipProjection', () => {
 
     expect(rituals.some((ritual) => ritual.kind === 'daily_greeting')).toBe(false);
     expect(rituals.find((ritual) => ritual.kind === 'pet_name')?.boundaryReasons).toContain('user rejects greeting rituals');
+  });
+
+  it('uses ritual event content and evolution when projecting ritual registry', () => {
+    const rituals = buildRitualRegistry({
+      character: character(),
+      chat: chat('direct', [], [ritualEvent({
+        id: 'evt-ritual-evolved',
+        createdAt: 1_200,
+        payload: {
+          eventType: 'companionship_ritual',
+          characterId: 'char-a',
+          userId: 'user',
+          ritualId: 'ritual-char-a-daily-greeting',
+          kind: 'daily_greeting',
+          action: 'performed',
+          participantIds: ['char-a', 'user'],
+          content: '晚安时会先问小夏今天有没有好好收尾，而不是机械打卡。',
+          evolution: ['从普通晚安变成睡前轻轻确认状态。'],
+          confidence: 0.88,
+          decisionSource: 'model',
+        },
+      })]),
+      messages: [message({ content: '晚安，今天就先这样。', timestamp: 1_100 })],
+      now: 1_300,
+    });
+
+    const greeting = rituals.find((ritual) => ritual.id === 'ritual-char-a-daily-greeting');
+    expect(greeting?.content).toBe('晚安时会先问小夏今天有没有好好收尾，而不是机械打卡。');
+    expect(greeting?.evolution).toContain('从普通晚安变成睡前轻轻确认状态。');
   });
 
   it('reads ritual execution events into cooldown state and debug trace', () => {

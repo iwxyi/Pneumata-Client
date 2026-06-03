@@ -224,6 +224,8 @@ export interface CompanionshipRitualEventPayload {
   kind: RitualRegistryEntry['kind'];
   action: 'performed' | 'suppressed' | 'skipped';
   participantIds: string[];
+  content?: string;
+  evolution?: string[];
   reason?: string;
   evidence?: string;
   nextAvailableAt?: number;
@@ -251,7 +253,8 @@ export interface CompanionshipAttachmentProfileEventPayload {
   eventType: 'companionship_attachment_profile';
   characterId: string;
   userId?: string;
-  inferredStyle: UserAttachmentProfile['inferredStyle'];
+  action?: 'inferred' | 'corrected' | 'disabled' | 'enabled';
+  inferredStyle?: UserAttachmentProfile['inferredStyle'];
   confidence: number;
   evidence?: string[];
   adaptations?: string[];

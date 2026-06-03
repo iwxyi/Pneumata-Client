@@ -119,6 +119,7 @@ describe('directCompanionshipRitual', () => {
       ritualId: 'ritual-char-a-daily-greeting',
       kind: 'daily_greeting',
       action: 'performed',
+      content: '用我能接受的轻度方式表达早安/晚安，不机械打卡。',
       confidence: 0.72,
       decisionSource: 'local_fallback',
     });

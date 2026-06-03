@@ -277,7 +277,11 @@ function attachmentProfileEventPayloadOf(event: RuntimeEventV2): CompanionshipAt
   const payload = event.payload as Record<string, unknown> | undefined;
   if (!payload || payload.eventType !== 'companionship_attachment_profile') return null;
   const characterId = typeof payload.characterId === 'string' ? payload.characterId : '';
-  if (!characterId || !isAttachmentStyle(payload.inferredStyle)) return null;
+  if (!characterId) return null;
+  const action = payload.action === 'corrected' || payload.action === 'disabled' || payload.action === 'enabled' || payload.action === 'inferred'
+    ? payload.action
+    : 'inferred';
+  if ((action === 'inferred' || action === 'corrected') && !isAttachmentStyle(payload.inferredStyle)) return null;
   const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 0;
   const evidence = Array.isArray(payload.evidence)
     ? payload.evidence.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => compactText(item, 120))
@@ -289,7 +293,8 @@ function attachmentProfileEventPayloadOf(event: RuntimeEventV2): CompanionshipAt
     eventType: 'companionship_attachment_profile',
     characterId,
     userId: typeof payload.userId === 'string' ? payload.userId : undefined,
-    inferredStyle: payload.inferredStyle,
+    action,
+    inferredStyle: isAttachmentStyle(payload.inferredStyle) ? payload.inferredStyle : undefined,
     confidence,
     evidence,
     adaptations,
@@ -298,7 +303,11 @@ function attachmentProfileEventPayloadOf(event: RuntimeEventV2): CompanionshipAt
   };
 }
 
-function resolveAttachmentProfileEvent(chat: GroupChat | undefined, characterId: string): UserAttachmentProfile | null {
+type ResolvedAttachmentProfileEvent =
+  | { mode: 'profile'; profile: UserAttachmentProfile }
+  | { mode: 'enabled' };
+
+function resolveAttachmentProfileEvent(chat: GroupChat | undefined, characterId: string): ResolvedAttachmentProfileEvent | null {
   const events = (chat?.runtimeEventsV2 || [])
     .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
     .slice()
@@ -311,6 +320,19 @@ function resolveAttachmentProfileEvent(chat: GroupChat | undefined, characterId:
     const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
     const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
     if (!actorMatches || !targetMatches) continue;
+    if (payload.action === 'enabled') return { mode: 'enabled' };
+    if (payload.action === 'disabled') {
+      return {
+        mode: 'profile',
+        profile: {
+          inferredStyle: 'secure',
+          confidence: 0,
+          evidence: [payload.reason, ...(payload.evidence || [])].filter(Boolean).slice(0, 4) as string[],
+          adaptations: [],
+        },
+      };
+    }
+    if (!payload.inferredStyle) continue;
     const fallbackAdaptations: Record<UserAttachmentProfile['inferredStyle'], string[]> = {
       secure: ['keep a steady reciprocal pace'],
       anxious: ['give concrete reassurance without overpromising', 'respond to silence with warmth before intensity'],
@@ -318,10 +340,13 @@ function resolveAttachmentProfileEvent(chat: GroupChat | undefined, characterId:
       disorganized: ['stay steady when the user alternates closeness and distance', 'avoid escalating intimacy after mixed signals'],
     };
     return {
-      inferredStyle: payload.inferredStyle,
-      confidence: normalizeEventConfidenceScore(payload.confidence),
-      evidence: [payload.reason, ...(payload.evidence || [])].filter(Boolean).slice(0, 4) as string[],
-      adaptations: payload.adaptations?.length ? payload.adaptations : fallbackAdaptations[payload.inferredStyle],
+      mode: 'profile',
+      profile: {
+        inferredStyle: payload.inferredStyle,
+        confidence: normalizeEventConfidenceScore(payload.confidence),
+        evidence: [payload.reason, ...(payload.evidence || [])].filter(Boolean).slice(0, 4) as string[],
+        adaptations: payload.adaptations?.length ? payload.adaptations : fallbackAdaptations[payload.inferredStyle],
+      },
     };
   }
   return null;
@@ -336,7 +361,7 @@ function buildUserAttachmentProfile(params: {
   now: number;
 }): UserAttachmentProfile {
   const eventProfile = resolveAttachmentProfileEvent(params.chat, params.characterId);
-  if (eventProfile) return eventProfile;
+  if (eventProfile?.mode === 'profile') return eventProfile.profile;
   const recentUserTexts = params.messages
     .filter((item) => isUserMessage(item))
     .slice(-18)
@@ -2164,6 +2189,8 @@ function ritualEventPayloadOf(event: RuntimeEventV2): CompanionshipRitualEventPa
     kind,
     action,
     participantIds: Array.isArray(payload.participantIds) ? payload.participantIds.filter((item): item is string => typeof item === 'string') : [],
+    content: typeof payload.content === 'string' ? compactText(payload.content, 180) : undefined,
+    evolution: Array.isArray(payload.evolution) ? payload.evolution.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => compactText(item, 120)).slice(0, 6) : undefined,
     reason: typeof payload.reason === 'string' ? payload.reason : undefined,
     evidence: typeof payload.evidence === 'string' ? payload.evidence : undefined,
     nextAvailableAt: typeof payload.nextAvailableAt === 'number' && Number.isFinite(payload.nextAvailableAt) ? payload.nextAvailableAt : undefined,
@@ -2177,6 +2204,8 @@ function buildRitualEventState(chat: GroupChat | undefined, characterId: string)
     lastPerformedAt?: number;
     suppressedReason?: string;
     nextAvailableAt?: number;
+    content?: string;
+    evolution?: string[];
     updatedAt: number;
   }>();
   (chat?.runtimeEventsV2 || []).forEach((event) => {
@@ -2189,6 +2218,8 @@ function buildRitualEventState(chat: GroupChat | undefined, characterId: string)
       lastPerformedAt: payload.action === 'performed' ? createdAt : previous?.lastPerformedAt,
       suppressedReason: payload.action !== 'performed' ? compactText(payload.reason || payload.evidence || 'ritual suppressed', 120) : undefined,
       nextAvailableAt: payload.nextAvailableAt,
+      content: payload.content || previous?.content,
+      evolution: payload.evolution?.length ? payload.evolution : previous?.evolution,
       updatedAt: createdAt,
     });
   });
@@ -2214,6 +2245,8 @@ function applyRitualExecutionState(ritual: RitualRegistryEntry, eventState: Retu
       : 'available';
   return {
     ...ritual,
+    content: state?.content || ritual.content,
+    evolution: state?.evolution?.length ? Array.from(new Set([...ritual.evolution, ...state.evolution])).slice(0, 8) : ritual.evolution,
     lastPerformedAt: lastPerformedAt || ritual.lastPerformedAt,
     nextAvailableAt,
     executionState,

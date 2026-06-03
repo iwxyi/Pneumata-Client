@@ -33,7 +33,7 @@ function createRitualRuntimeEvent(params: {
   chat: GroupChat;
   character: AICharacter;
   message: Message;
-  ritual: Pick<RitualRegistryEntry, 'id' | 'kind' | 'participantIds'>;
+  ritual: Pick<RitualRegistryEntry, 'id' | 'kind' | 'participantIds'> & Partial<Pick<RitualRegistryEntry, 'content' | 'evolution'>>;
   action: CompanionshipRitualEventPayload['action'];
   reason: string;
   nextAvailableAt?: number;
@@ -47,6 +47,8 @@ function createRitualRuntimeEvent(params: {
     kind: params.ritual.kind,
     action: params.action,
     participantIds: params.ritual.participantIds?.length ? params.ritual.participantIds : [params.character.id, USER_ACTOR_ID],
+    content: params.action === 'performed' ? compactText(params.ritual.content, 180) : undefined,
+    evolution: params.action === 'performed' ? (params.ritual.evolution || []).map((item) => compactText(item, 120)).filter(Boolean).slice(0, 6) : undefined,
     reason: compactText(params.reason, 140),
     evidence: compactText(params.message.content, 140),
     nextAvailableAt: params.nextAvailableAt,
