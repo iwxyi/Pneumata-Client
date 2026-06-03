@@ -4651,7 +4651,11 @@ export const useMessageStore = create<MessageStore>()(
             userMessage: '消息云同步失败，请检查网络后重试。',
             extra: { chatId },
           });
-          set({ isLoading: false, isLoadingOlder: false });
+          set((state) => ({
+            ...(isAppend ? {} : localFetchedMessages(state, chatId)),
+            isLoading: false,
+            isLoadingOlder: false,
+          }));
         }
       },
 
