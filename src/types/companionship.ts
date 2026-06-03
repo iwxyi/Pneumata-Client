@@ -56,6 +56,17 @@ export interface PendingCareTopic {
   updatedAt: number;
 }
 
+export interface PendingPromise {
+  id: string;
+  text: string;
+  participantIds: string[];
+  source: 'shared_anchor' | 'user_profile' | 'recent_message' | 'manual';
+  status: 'open' | 'fulfilled' | 'stale';
+  evidence?: string;
+  dueAt?: number;
+  updatedAt: number;
+}
+
 export interface AddressingState {
   defaultName: string;
   currentAddress: string;
@@ -151,6 +162,7 @@ export interface UserBondState {
   lastUserReplyAt?: number;
   lastCharacterInitiatedAt?: number;
   pendingCareTopics: PendingCareTopic[];
+  pendingPromises: PendingPromise[];
   rememberedUserPlans: string[];
   unresolvedTensions: string[];
   intimateConflict?: IntimateConflictState;
@@ -258,6 +270,7 @@ export interface CompanionshipRuntimeTrace {
   rituals: string[];
   intimateConflict?: Pick<IntimateConflictState, 'kind' | 'severity' | 'repairReadiness' | 'summary'>;
   pendingCareTopics: string[];
+  pendingPromises: string[];
   rememberedUserPlans: string[];
   boundaries: string[];
   boundaryReasons: string[];

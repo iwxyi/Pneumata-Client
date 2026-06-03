@@ -643,6 +643,63 @@ describe('companionshipProjection', () => {
     ]));
   });
 
+  it('projects pending promises into bond, prompt, status debug, and runtime trace', () => {
+    const promiseCharacter = character({
+      layeredMemories: [{
+        id: 'promise-anchor',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '说好周末一起看那部电影，用户还想等苏苏一起。',
+        evidenceText: '用户说：周末一起看那部电影吧。',
+        salience: 0.86,
+        confidence: 0.9,
+        recency: 0.8,
+        reinforcementCount: 1,
+        sourceEventIds: ['evt-promise-anchor'],
+        origin: 'distilled',
+        createdAt: 700,
+        updatedAt: 850,
+      }],
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说下次要告诉苏苏面试结果。'],
+      },
+    });
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })]);
+    const messages = [message({ content: '下次我回来告诉你结果。', timestamp: 900 })];
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: promiseCharacter,
+      messages,
+      now: 1_000,
+    });
+    const status = buildCompanionshipStatusSignature({
+      chat: directChat,
+      character: promiseCharacter,
+      messages,
+      now: 1_000,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: promiseCharacter,
+      messages,
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.pendingPromises.map((item) => item.text).join('\n')).toContain('周末一起看');
+    expect(projection.userBond?.pendingPromises.map((item) => item.text).join('\n')).toContain('告诉苏苏面试结果');
+    expect(projection.promptLines.join('\n')).toContain('Pending promises/unfinished shared plans');
+    expect(status?.debugLines.join('\n')).toContain('promises=');
+    expect(trace?.pendingPromises.join('\n')).toContain('周末一起看');
+  });
+
   it('projects intimate conflict state from model-led crisis phase events', () => {
     const crisis = phaseEvent({
       id: 'evt-crisis-1',

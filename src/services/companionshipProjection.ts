@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile } from '../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -672,6 +672,99 @@ function buildRememberedPlans(topics: PendingCareTopic[]) {
     .slice(0, 3);
 }
 
+function isPromiseText(text: string) {
+  return /(约定|说好|答应|承诺|下次|以后一起|等你|一起看|一起去|告诉你结果|回来告诉|讲给你听|补给你|还欠)/.test(text);
+}
+
+function isPromiseFulfilledText(text: string) {
+  return /(已经|完成|履行|兑现|做完|看完|去过|告诉过|讲完|补上|不算了|取消|不用了|算了)/.test(text);
+}
+
+function dueAtFromPromiseText(text: string, updatedAt: number) {
+  if (/今晚/.test(text)) return updatedAt + 12 * 60 * 60_000;
+  if (/明天|下次见|下次聊/.test(text)) return updatedAt + 48 * 60 * 60_000;
+  if (/周末|这周|下周/.test(text)) return updatedAt + 7 * DAY_MS;
+  return undefined;
+}
+
+function promiseId(parts: Array<string | number | undefined>) {
+  const joined = parts.filter((item) => item !== undefined && item !== null && String(item).length > 0).join('|');
+  let hash = 0;
+  for (let index = 0; index < joined.length; index += 1) {
+    hash = (hash * 31 + joined.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function buildPendingPromises(params: {
+  characterId: string;
+  profile: UserProfileMemoryProjection;
+  messages: Message[];
+  sharedAnchors: SharedMemoryAnchor[];
+  now: number;
+}): PendingPromise[] {
+  const promises: PendingPromise[] = [];
+  params.sharedAnchors
+    .filter((anchor) => anchor.kind === 'promise' && !isPromiseFulfilledText(`${anchor.text}\n${anchor.evidence || ''}`))
+    .forEach((anchor) => {
+      promises.push({
+        id: `anchor-${anchor.id}`,
+        text: compactText(anchor.text, 140),
+        participantIds: anchor.participantIds,
+        source: 'shared_anchor',
+        status: 'open',
+        evidence: compactText(anchor.evidence || anchor.text, 120),
+        dueAt: dueAtFromPromiseText(`${anchor.text}\n${anchor.evidence || ''}`, anchor.updatedAt || params.now),
+        updatedAt: anchor.updatedAt || params.now,
+      });
+    });
+
+  params.profile.sourceTexts
+    .filter((text) => isPromiseText(text) && !isPromiseFulfilledText(text))
+    .slice(-4)
+    .forEach((text, index) => {
+      promises.push({
+        id: `profile-${index}-${promiseId([params.characterId, text])}`,
+        text: compactText(text, 140),
+        participantIds: [params.characterId, USER_ACTOR_ID],
+        source: 'user_profile',
+        status: 'open',
+        evidence: compactText(text, 120),
+        dueAt: dueAtFromPromiseText(text, params.now),
+        updatedAt: params.now,
+      });
+    });
+
+  params.messages
+    .filter(isUserMessage)
+    .slice(-12)
+    .filter((message) => isPromiseText(message.content) && !isPromiseFulfilledText(message.content))
+    .slice(-3)
+    .forEach((message, index) => {
+      promises.push({
+        id: `recent-${index}-${message.id}`,
+        text: compactText(message.content, 140),
+        participantIds: [params.characterId, USER_ACTOR_ID],
+        source: 'recent_message',
+        status: 'open',
+        evidence: compactText(message.content, 120),
+        dueAt: dueAtFromPromiseText(message.content, message.timestamp || params.now),
+        updatedAt: message.timestamp || params.now,
+      });
+    });
+
+  const seen = new Set<string>();
+  return promises
+    .filter((promise) => {
+      const key = promise.text.replace(/\s+/g, '').slice(0, 48);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+    .slice(0, 5);
+}
+
 function buildUnresolvedTensions(entry: RelationshipLedgerEntry | null) {
   if (!entry || entry.current.threat < 18) return [];
   return [
@@ -891,6 +984,7 @@ export function buildCompanionshipStatusSignature(params: {
       `attachment=${bond.attachmentProfile.inferredStyle} confidence=${bond.attachmentProfile.confidence}${bond.attachmentProfile.adaptations.length ? ` adaptations=${bond.attachmentProfile.adaptations.join(' / ')}` : ''}`,
       bond.intimateConflict ? `conflict=${bond.intimateConflict.kind} severity=${bond.intimateConflict.severity} repair=${bond.intimateConflict.repairReadiness} summary=${bond.intimateConflict.summary}` : '',
       bond.pendingCareTopics.length ? `care=${bond.pendingCareTopics.map((item) => item.text).join(' / ')}` : '',
+      bond.pendingPromises.length ? `promises=${bond.pendingPromises.map((item) => item.text).join(' / ')}` : '',
       bond.userProfile.boundaries.length ? `boundaries=${bond.userProfile.boundaries.join(' / ')}` : '',
       carePolicy.boundaryReasons.length ? `restraints=${carePolicy.boundaryReasons.join(' / ')}` : '',
       offlineTrace ? `offlineTrace=${offlineTrace}` : '',
@@ -977,6 +1071,7 @@ function buildPromptLines(bond: UserBondState, carePolicy: CarePolicy, evidence:
     `- Address the user naturally as "${bond.addressing.currentAddress}" unless the latest message suggests another appropriate address.`,
     sharedAnchors.length ? `- Shared memory anchors with the user: ${sharedAnchors.map(formatSharedAnchorForPrompt).join(' / ')}. Use as relationship texture only when relevant; do not expose internal labels.` : '',
     bond.pendingCareTopics.length ? `- Pending care topics: ${bond.pendingCareTopics.map((item) => item.text).join(' / ')}.` : '',
+    bond.pendingPromises.length ? `- Pending promises/unfinished shared plans: ${bond.pendingPromises.map((item) => item.text).join(' / ')}. Treat them as remembered commitments, not pressure.` : '',
     bond.intimateConflict ? `- Current intimate conflict/repair state: ${bond.intimateConflict.summary} Repair readiness ${bond.intimateConflict.repairReadiness}; severity ${bond.intimateConflict.severity}. Use this only to choose restraint, accountability, apology, space, or gentle repair.` : '',
     bond.attachmentProfile.confidence >= 58 ? `- User attachment adaptation: ${bond.attachmentProfile.adaptations.join(' / ')}. Do not label the user or mention attachment style.` : '',
     bond.unresolvedTensions.length ? `- Current restraint: ${bond.unresolvedTensions.join(' / ')}.` : '',
@@ -1012,6 +1107,13 @@ export function buildUserCompanionshipProjection(params: {
   const phase = phaseEvent?.phase || inferredPhase;
   const contacts = getLatestContact(messages, character.id);
   const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now);
+  const pendingPromises = buildPendingPromises({
+    characterId: character.id,
+    profile: userProfile,
+    messages,
+    sharedAnchors,
+    now,
+  });
   const intimateConflict = buildIntimateConflictState({
     characterId: character.id,
     phase,
@@ -1038,6 +1140,7 @@ export function buildUserCompanionshipProjection(params: {
     lastUserReplyAt: contacts.lastUserReplyAt,
     lastCharacterInitiatedAt: contacts.lastCharacterInitiatedAt,
     pendingCareTopics,
+    pendingPromises,
     rememberedUserPlans: buildRememberedPlans(pendingCareTopics),
     unresolvedTensions: buildUnresolvedTensions(ledger),
     intimateConflict,
@@ -1501,6 +1604,7 @@ export function buildCompanionshipRuntimeTrace(params: {
       summary: bond.intimateConflict.summary,
     } : undefined,
     pendingCareTopics: bond.pendingCareTopics.map((item) => item.text).slice(0, 4),
+    pendingPromises: bond.pendingPromises.map((item) => item.text).slice(0, 4),
     rememberedUserPlans: bond.rememberedUserPlans.slice(0, 4),
     boundaries: profile.boundaries.slice(0, 4),
     boundaryReasons: carePolicy.boundaryReasons.slice(0, 4),

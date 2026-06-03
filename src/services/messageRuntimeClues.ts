@@ -103,6 +103,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       companionship.intimateConflict ? `亲密冲突：${companionship.intimateConflict.summary}（强度 ${companionship.intimateConflict.severity}，修复成熟度 ${companionship.intimateConflict.repairReadiness}）` : '',
       companionship.attachmentProfile ? `依恋适配：${companionship.attachmentProfile.inferredStyle} · 置信 ${companionship.attachmentProfile.confidence}% · ${companionship.attachmentProfile.adaptations.join(' / ')}` : '',
       companionship.pendingCareTopics.length ? `关心事项：${companionship.pendingCareTopics.join(' / ')}` : '',
+      companionship.pendingPromises.length ? `未完成约定：${companionship.pendingPromises.join(' / ')}` : '',
       companionship.rememberedUserPlans.length ? `记得计划：${companionship.rememberedUserPlans.join(' / ')}` : '',
       companionship.boundaries.length ? `用户边界：${companionship.boundaries.join(' / ')}` : '',
       companionship.boundaryReasons.length ? `克制原因：${companionship.boundaryReasons.join(' / ')}` : '',

@@ -496,6 +496,21 @@ function CompanionshipDeveloperTracePanel({ trace }: { trace: CompanionshipRunti
           </Typography>
         ) : null}
       </Box>
+      {trace.pendingCareTopics.length || trace.pendingPromises.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>未完成事项</Typography>
+          {trace.pendingCareTopics.length ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              关心事项：{trace.pendingCareTopics.join(' / ')}
+            </Typography>
+          ) : null}
+          {trace.pendingPromises.length ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              约定：{trace.pendingPromises.join(' / ')}
+            </Typography>
+          ) : null}
+        </Box>
+      ) : null}
       {trace.attachmentProfile ? (
         <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>依恋适配</Typography>
