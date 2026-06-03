@@ -47,6 +47,7 @@ export default function LettersPage() {
   const markLettersRead = useCharacterArtifactStore((state) => state.markLettersRead);
   const regenerateArtifact = useCharacterArtifactStore((state) => state.regenerateArtifact);
   const syncArtifactsFromCharacters = useCharacterArtifactStore((state) => state.syncCharacters);
+  const syncArtifactCloud = useCharacterArtifactStore((state) => state.syncCloud);
   const resumeArtifactProcessing = useCharacterArtifactStore((state) => state.resumeProcessing);
   const paperVariant = useSettingsStore((state) => state.artifactAppearance.paperVariant);
   const developerMode = useSettingsStore((state) => state.developerMode);
@@ -73,11 +74,19 @@ export default function LettersPage() {
       if (cancelled) return;
       syncArtifactsFromCharacters(useCharacterStore.getState().characters);
       void resumeArtifactProcessing();
+      void (async () => {
+        if (tab === 'letters') {
+          await syncArtifactCloud({ kind: 'birth_letter' });
+          await syncArtifactCloud({ kind: 'final_letter' });
+          return;
+        }
+        await syncArtifactCloud({ kind: 'diary' });
+      })();
     });
     return () => {
       cancelled = true;
     };
-  }, [resumeArtifactProcessing, syncArtifactsFromCharacters]);
+  }, [resumeArtifactProcessing, syncArtifactCloud, syncArtifactsFromCharacters, tab]);
 
   const letters = useMemo(() => items.filter((item) => item.kind === 'birth_letter' || item.kind === 'final_letter').slice().sort((a, b) => b.createdAt - a.createdAt), [items]);
   const diaries = useMemo(() => items.filter((item) => item.kind === 'diary').slice().sort((a, b) => (a.dateKey || '').localeCompare(b.dateKey || '') || a.createdAt - b.createdAt), [items]);

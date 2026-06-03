@@ -58,6 +58,21 @@ export interface CharacterArtifactSyncEntry {
   };
 }
 
+export type CharacterArtifactSyncKind = CharacterArtifactSyncEntry['kind'];
+
+export interface CharacterArtifactSummaryEntry extends Omit<CharacterArtifactSyncEntry, 'text' | 'generationSnapshot'> {
+  deletedAt?: number | null;
+  revision?: number;
+}
+
+export interface CharacterArtifactQuery {
+  kind?: CharacterArtifactSyncKind;
+  characterId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  includeDeleted?: boolean;
+}
+
 export class ApiError extends Error {
   code?: string;
   status?: number;
@@ -394,6 +409,36 @@ class ApiClient {
 
   async getCharacterArtifacts() {
     return this.request<{ items: CharacterArtifactSyncEntry[]; updatedAt: number }>('GET', '/character-artifacts');
+  }
+
+  async getCharacterArtifactSummaries(query: CharacterArtifactQuery = {}) {
+    const params = new URLSearchParams();
+    if (query.kind) params.set('kind', query.kind);
+    if (query.characterId) params.set('characterId', query.characterId);
+    if (query.dateFrom) params.set('dateFrom', query.dateFrom);
+    if (query.dateTo) params.set('dateTo', query.dateTo);
+    if (query.includeDeleted) params.set('includeDeleted', 'true');
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return this.request<{ items: CharacterArtifactSummaryEntry[]; updatedAt: number }>('GET', `/character-artifacts/summary${suffix}`);
+  }
+
+  async getCharacterArtifactDetails(query: CharacterArtifactQuery = {}) {
+    const params = new URLSearchParams();
+    if (query.kind) params.set('kind', query.kind);
+    if (query.characterId) params.set('characterId', query.characterId);
+    if (query.dateFrom) params.set('dateFrom', query.dateFrom);
+    if (query.dateTo) params.set('dateTo', query.dateTo);
+    if (query.includeDeleted) params.set('includeDeleted', 'true');
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return this.request<{ items: CharacterArtifactSyncEntry[]; updatedAt: number }>('GET', `/character-artifacts${suffix}`);
+  }
+
+  async getCharacterArtifactItem(id: string) {
+    return this.request<{ item: CharacterArtifactSyncEntry }>('GET', `/character-artifacts/items/${encodeURIComponent(id)}`);
+  }
+
+  async upsertCharacterArtifactItem(item: CharacterArtifactSyncEntry) {
+    return this.request<{ success: boolean; updatedAt: number; revision: number }>('PUT', `/character-artifacts/items/${encodeURIComponent(item.id)}`, item);
   }
 
   async updateCharacterArtifacts(data: { items: CharacterArtifactSyncEntry[]; updatedAt: number }) {

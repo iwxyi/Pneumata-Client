@@ -9,7 +9,7 @@ import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buil
 import { useSettingsStore } from './useSettingsStore';
 import { isCharacterFeatureEnabled } from '../services/characterGenerationPolicy';
 import { scopedStorageKey, storageKey } from '../constants/brand';
-import { api } from '../services/api';
+import { api, type CharacterArtifactQuery, type CharacterArtifactSummaryEntry } from '../services/api';
 
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
 export type CharacterArtifactJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
@@ -78,7 +78,7 @@ interface CharacterArtifactStore extends ArtifactSnapshot {
     character?: Partial<AICharacter> | null;
     relatedCharacters?: Array<{ id: string; name: string }>;
   }) => Promise<CharacterArtifactEntry>;
-  syncCloud: () => Promise<void>;
+  syncCloud: (query?: CharacterArtifactQuery) => Promise<void>;
   resumeProcessing: () => Promise<void>;
 }
 
@@ -249,6 +249,29 @@ function buildItemsSignature(items: CharacterArtifactEntry[]) {
     .map((item) => `${item.id}:${item.updatedAt}:${item.unread ? 1 : 0}:${item.text.length}`)
     .sort()
     .join('|');
+}
+
+function hasArtifactText(item: CharacterArtifactEntry | undefined) {
+  return Boolean(item && typeof item.text === 'string' && item.text.length > 0);
+}
+
+function shouldFetchArtifactDetail(summary: CharacterArtifactSummaryEntry, local: CharacterArtifactEntry | undefined) {
+  if (!local) return true;
+  if (!hasArtifactText(local)) return true;
+  return (summary.updatedAt || 0) > (local.updatedAt || 0);
+}
+
+function shouldUploadArtifactItem(local: CharacterArtifactEntry, summary: CharacterArtifactSummaryEntry | undefined) {
+  if (!summary) return true;
+  return (local.updatedAt || 0) > (summary.updatedAt || 0);
+}
+
+function artifactMatchesQuery(item: CharacterArtifactEntry, query: CharacterArtifactQuery) {
+  if (query.kind && item.kind !== query.kind) return false;
+  if (query.characterId && item.characterId !== query.characterId) return false;
+  if (query.dateFrom && (!item.dateKey || item.dateKey < query.dateFrom)) return false;
+  if (query.dateTo && (!item.dateKey || item.dateKey > query.dateTo)) return false;
+  return true;
 }
 
 function createArtifactEntry(params: {
@@ -477,6 +500,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
       let cloudSyncTimer: ReturnType<typeof setTimeout> | null = null;
       let cloudSyncRunning = false;
       let cloudSyncPending = false;
+      let cloudSyncPendingQuery: CharacterArtifactQuery | undefined;
 
       const scheduleCloudSync = () => {
         if (!isCloudMode()) return;
@@ -707,24 +731,39 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           if (!nextEntry) throw new Error('Artifact regeneration failed');
           return nextEntry;
         },
-        syncCloud: async () => {
+        syncCloud: async (query = {}) => {
           if (!isCloudMode()) return;
           if (cloudSyncRunning) {
             cloudSyncPending = true;
+            cloudSyncPendingQuery = query;
             return;
           }
           cloudSyncRunning = true;
           try {
-            const remote = await api.getCharacterArtifacts();
+            const remote = await api.getCharacterArtifactSummaries(query);
             const currentKey = getArtifactStorageKey();
             const guestKey = getGuestArtifactStorageKey();
             const persistedCurrentItems = readPersistedItemsFromKey(currentKey);
             const guestItems = currentKey === guestKey ? [] : readPersistedItemsFromKey(guestKey);
+            const localItems = mergeArtifactItems(persistedCurrentItems, guestItems, get().items);
+            const localById = new Map(localItems.map((item) => [item.id, item]));
+            const remoteSummaryById = new Map((remote.items || []).map((item) => [item.id, item]));
+            const shouldFetchDetails = Boolean(query.kind || query.characterId || query.dateFrom || query.dateTo);
+            const remoteDetails = shouldFetchDetails
+              ? await Promise.all((remote.items || [])
+                  .filter((summary) => shouldFetchArtifactDetail(summary, localById.get(summary.id)))
+                  .map(async (summary) => {
+                    try {
+                      return (await api.getCharacterArtifactItem(summary.id)).item;
+                    } catch (error) {
+                      console.error('Failed to fetch character artifact item:', { id: summary.id, error });
+                      return null;
+                    }
+                  }))
+              : [];
             const mergedItems = mergeArtifactItems(
-              remote.items || [],
-              persistedCurrentItems,
-              guestItems,
-              get().items,
+              localItems,
+              remoteDetails.filter((item): item is CharacterArtifactEntry => Boolean(item)),
             );
             const localSignature = buildItemsSignature(get().items);
             const mergedSignature = buildItemsSignature(mergedItems);
@@ -734,16 +773,19 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
                 unreadLetterCount: computeUnreadLetterCount(mergedItems),
               });
             }
-            if (buildItemsSignature(remote.items || []) !== mergedSignature) {
-              await api.updateCharacterArtifacts({ items: mergedItems, updatedAt: now() });
+            const uploads = mergedItems.filter((item) => artifactMatchesQuery(item, query) && shouldUploadArtifactItem(item, remoteSummaryById.get(item.id)));
+            if (uploads.length) {
+              await Promise.all(uploads.map((item) => api.upsertCharacterArtifactItem(item)));
             }
           } catch (error) {
             console.error('Failed to sync character artifacts:', error);
           } finally {
             cloudSyncRunning = false;
             if (cloudSyncPending) {
+              const nextQuery = cloudSyncPendingQuery;
               cloudSyncPending = false;
-              scheduleCloudSync();
+              cloudSyncPendingQuery = undefined;
+              void get().syncCloud(nextQuery);
             }
           }
         },

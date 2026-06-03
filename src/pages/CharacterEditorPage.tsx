@@ -6,6 +6,7 @@ import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
+import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import CharacterForm from '../components/character/CharacterForm';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import { enqueueAvatarGenerationForCharacter } from '../services/avatarGeneration';
@@ -27,6 +28,7 @@ export default function CharacterEditorPage() {
   const loadChats = useChatStore((state) => state.loadChats);
   const loadWorldRuntime = useChatStore((state) => state.loadWorldRuntime);
   const updateChatSession = useChatStore((state) => state.updateChat);
+  const syncArtifactCloud = useCharacterArtifactStore((state) => state.syncCloud);
   const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const characterDataReady = bootstrapComplete || characters.length > 0;
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -64,6 +66,11 @@ export default function CharacterEditorPage() {
     void loadChats();
     void loadWorldRuntime();
   }, [loadChats, loadWorldRuntime]);
+
+  useEffect(() => {
+    if (!editId) return;
+    void syncArtifactCloud({ kind: 'diary', characterId: editId });
+  }, [editId, syncArtifactCloud]);
 
   const editChar = useMemo(() => (editId ? characters.find((character) => character.id === editId) : undefined), [characters, editId]);
   const headerTitle = useMemo(() => {
