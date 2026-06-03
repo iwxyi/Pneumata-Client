@@ -10,6 +10,7 @@ import { useSettingsStore } from './useSettingsStore';
 import { isCharacterFeatureEnabled } from '../services/characterGenerationPolicy';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { api, type CharacterArtifactQuery, type CharacterArtifactSummaryEntry } from '../services/api';
+import { getLocalDataUserId } from '../services/authStorageScope';
 
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
 export type CharacterArtifactJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
@@ -83,14 +84,7 @@ interface CharacterArtifactStore extends ArtifactSnapshot {
 }
 
 function getArtifactStorageKey() {
-  const userRaw = localStorage.getItem(storageKey('user'));
-  let userId = 'guest';
-  try {
-    userId = userRaw ? JSON.parse(userRaw).id || 'guest' : 'guest';
-  } catch {
-    userId = 'guest';
-  }
-  return scopedStorageKey(`character-artifacts-${userId}`);
+  return scopedStorageKey(`character-artifacts-${getLocalDataUserId()}`);
 }
 
 function getGuestArtifactStorageKey() {

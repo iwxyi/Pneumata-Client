@@ -12,6 +12,7 @@ import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateChatStoreState } from './storeMigrations';
 import { isRuntimeMemoryMonitorEnabled, recordRuntimeMemory } from '../services/runtimeMemoryMonitor';
 import { scopedStorageKey, storageKey } from '../constants/brand';
+import { getLocalDataUserId } from '../services/authStorageScope';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -303,8 +304,7 @@ interface ChatStore extends PersistedChatState {
 }
 
 function getUserId() {
-  const userRaw = localStorage.getItem(storageKey('user'));
-  return userRaw ? JSON.parse(userRaw).id : 'guest';
+  return getLocalDataUserId();
 }
 
 function getChatStorageKey() {

@@ -11,6 +11,7 @@ import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
 import { canAttemptOnlineSync, classifySyncError, recoverInterruptedOperations } from './storeSyncHelpers';
 import { scopedStorageKey, storageKey } from '../constants/brand';
+import { getLocalDataUserId } from '../services/authStorageScope';
 
 function isLocalOnlyMode() {
   return useAuthStore.getState().authMode === 'local';
@@ -4233,8 +4234,7 @@ interface PersistedMessageState {
 }
 
 function getUserId() {
-  const userRaw = localStorage.getItem(storageKey('user'));
-  return userRaw ? JSON.parse(userRaw).id : 'guest';
+  return getLocalDataUserId();
 }
 
 function getMessageStorageKey() {

@@ -12,6 +12,7 @@ import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateCharacterStoreState } from './storeMigrations';
 import { useCharacterArtifactStore } from './useCharacterArtifactStore';
 import { scopedStorageKey, storageKey } from '../constants/brand';
+import { getLocalDataUserId } from '../services/authStorageScope';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -458,8 +459,7 @@ interface CharacterStore extends PersistedCharacterState {
 }
 
 function getUserId() {
-  const userRaw = localStorage.getItem(storageKey('user'));
-  return userRaw ? JSON.parse(userRaw).id : 'guest';
+  return getLocalDataUserId();
 }
 
 function getCharacterStorageKey() {

@@ -114,13 +114,6 @@ class ApiClient {
 
     const response = await fetch(url, options);
 
-    if (response.status === 401) {
-      localStorage.removeItem(storageKey('token'));
-      localStorage.removeItem(storageKey('user'));
-      window.location.href = '/login';
-      throw new Error('登录已过期，请重新登录');
-    }
-
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: '请求失败', code: 'REQUEST_FAILED' }));
       const detail = typeof error.detail === 'string' && error.detail ? ` (${error.detail})` : '';

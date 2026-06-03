@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api } from '../services/api';
+import { ApiError, api } from '../services/api';
 import { clearPersistedChatStore, useChatStore } from './useChatStore';
 import { clearPersistedCharacterStore, useCharacterStore } from './useCharacterStore';
 import { clearPersistedMessageStore } from './useMessageStore';
@@ -7,6 +7,7 @@ import { useSettingsStore } from './useSettingsStore';
 import { storageKey } from '../constants/brand';
 import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot } from '../services/localToCloudBootstrap';
 import { reportRecoverableError } from '../services/diagnostics';
+import { rememberCloudUserId } from '../services/authStorageScope';
 
 interface User {
   id: string;
@@ -65,6 +66,7 @@ function setAuthToken(token: string) {
 
 function setAuthUser(user: User) {
   localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  rememberCloudUserId(user);
 }
 
 function clearAuthTokenAndUser() {
@@ -175,11 +177,15 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       void refreshStoresAfterCloudAuth();
       return true;
     } catch (error) {
-      // Token invalid
-      console.warn('[cloud-sync] auth check failed; falling back to local mode', { error });
-      clearAuthTokenAndUser();
-      setAuthMode('local');
-      set({ token: null, user: null, isLoggedIn: false, authMode: 'local' });
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        console.warn('[cloud-sync] token rejected; falling back to local mode', { error });
+        clearAuthTokenAndUser();
+        setAuthMode('local');
+        set({ token: null, user: null, isLoggedIn: false, authMode: 'local' });
+        return false;
+      }
+      console.warn('[cloud-sync] auth check unavailable; keeping cloud-local cache active', { error });
+      set({ isLoggedIn: true, authMode: 'cloud' });
       return false;
     }
   },
