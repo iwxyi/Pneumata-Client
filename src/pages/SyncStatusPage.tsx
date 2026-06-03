@@ -8,6 +8,30 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import EmptyState from '../components/common/EmptyState';
 
+function clipText(value: unknown, max = 120) {
+  if (value == null) return '';
+  const text = String(value).replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > max ? `${text.slice(0, max - 1)}...` : text;
+}
+
+function summarizePatch(patch: Record<string, unknown> | undefined, isZh: boolean) {
+  const keys = Object.keys(patch || {}).filter((key) => key !== 'updatedAt');
+  if (!keys.length) return isZh ? '本地操作没有可展示的字段变更' : 'No displayable field changes in this local operation';
+  return isZh ? `变更字段：${keys.slice(0, 8).join('、')}${keys.length > 8 ? '...' : ''}` : `Fields: ${keys.slice(0, 8).join(', ')}${keys.length > 8 ? '...' : ''}`;
+}
+
+function downloadJson(filename: string, data: unknown) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function SyncStatusPage() {
   const { i18n } = useTranslation();
   const characterStore = useCharacterStore();
@@ -28,6 +52,12 @@ export default function SyncStatusPage() {
       attemptCount: item.attemptCount,
       lastError: item.lastError || null,
       targetCount: item.targetIds.length,
+      targetLabel: characterStore.characters.find((character) => character.id === item.entityId)?.name || item.entityId,
+      summary: summarizePatch(item.patch, isZh),
+      exportPayload: {
+        operation: item,
+        localSnapshot: characterStore.characters.find((character) => character.id === item.entityId) || null,
+      },
     }));
 
     const chatItems = (chatStore.pendingOperations || []).map((item) => ({
@@ -40,9 +70,22 @@ export default function SyncStatusPage() {
       attemptCount: item.attemptCount,
       lastError: item.lastError || null,
       targetCount: item.targetIds.length,
+      targetLabel: chatStore.chats.find((chat) => chat.id === item.entityId)?.name || item.entityId,
+      summary: summarizePatch(item.patch, isZh),
+      exportPayload: {
+        operation: item,
+        localSnapshot: chatStore.chats.find((chat) => chat.id === item.entityId) || null,
+      },
     }));
 
     const messageItems = (messageStore.pendingOperations || []).map((item) => ({
+      targetMessage: item.payload
+        || Object.values(messageStore.messageWindowsByChatId || {})
+          .flatMap((window) => window.messages || [])
+          .find((message) => message.id === item.localMessageId || message.id === item.messageId || message.clientKey === item.localMessageId),
+      chat: chatStore.chats.find((chat) => chat.id === item.chatId),
+      item,
+    })).map(({ item, targetMessage, chat }) => ({
       id: item.id,
       scopeType: 'message' as const,
       scope: isZh ? '消息' : 'Messages',
@@ -52,6 +95,13 @@ export default function SyncStatusPage() {
       attemptCount: item.attemptCount,
       lastError: item.lastError || null,
       targetCount: 1,
+      targetLabel: chat?.name || item.chatId,
+      summary: targetMessage?.content ? clipText(targetMessage.content) : (isZh ? '本地消息快照未在当前缓存窗口中找到' : 'Local message snapshot was not found in cached windows'),
+      exportPayload: {
+        operation: item,
+        localSnapshot: targetMessage || null,
+        chatSnapshot: chat || null,
+      },
     }));
 
     const artifactItems = (artifactStore.jobs || [])
@@ -66,10 +116,16 @@ export default function SyncStatusPage() {
         attemptCount: item.attempts,
         lastError: item.error || null,
         targetCount: 1,
+        targetLabel: item.snapshot?.name || item.characterId,
+        summary: [item.dateKey, item.sourceKey].filter(Boolean).join(' · ') || (isZh ? '角色经历生成任务' : 'Character artifact generation job'),
+        exportPayload: {
+          job: item,
+          localSnapshot: artifactStore.items.find((artifact) => artifact.id === item.id || artifact.characterId === item.characterId && artifact.kind === item.kind && artifact.sourceKey === item.sourceKey && artifact.dateKey === item.dateKey) || null,
+        },
       }));
 
     return [...characterItems, ...chatItems, ...messageItems, ...artifactItems].sort((a, b) => b.createdAt - a.createdAt);
-  }, [artifactStore.jobs, characterStore.pendingOperations, chatStore.pendingOperations, isZh, messageStore.pendingOperations]);
+  }, [artifactStore.items, artifactStore.jobs, characterStore.characters, characterStore.pendingOperations, chatStore.chats, chatStore.pendingOperations, isZh, messageStore.messageWindowsByChatId, messageStore.pendingOperations]);
 
   const labelMap: Record<string, string> = {
     delete: isZh ? '删除' : 'Delete',
@@ -105,6 +161,29 @@ export default function SyncStatusPage() {
   const failedCount = items.filter((item) => item.status === 'failed').length;
   const pendingCount = items.filter((item) => item.status === 'pending').length;
   const syncingCount = items.filter((item) => item.status === 'syncing').length;
+  const failedItems = items.filter((item) => item.status === 'failed');
+  const exportFailed = () => downloadJson(`pneumata-sync-failed-${new Date().toISOString().replace(/[:.]/g, '-')}.json`, {
+    exportedAt: Date.now(),
+    authMode,
+    items: failedItems.map((item) => ({
+      id: item.id,
+      scopeType: item.scopeType,
+      scope: item.scope,
+      kind: item.kind,
+      status: item.status,
+      createdAt: item.createdAt,
+      attemptCount: item.attemptCount,
+      lastError: item.lastError,
+      targetLabel: item.targetLabel,
+      summary: item.summary,
+      data: item.exportPayload,
+    })),
+  });
+  const exportItem = (item: typeof items[number]) => downloadJson(`pneumata-sync-${item.scopeType}-${item.id}.json`, {
+    exportedAt: Date.now(),
+    authMode,
+    item,
+  });
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 }, maxWidth: 960, mx: 'auto' }}>
@@ -114,6 +193,9 @@ export default function SyncStatusPage() {
         </Typography>
         <Button size="small" variant="outlined" onClick={retryAll} disabled={items.length === 0}>
           {isZh ? '重试全部' : 'Retry all'}
+        </Button>
+        <Button size="small" variant="outlined" onClick={exportFailed} disabled={failedItems.length === 0}>
+          {isZh ? '导出失败项' : 'Export failed'}
         </Button>
       </Box>
 
@@ -156,6 +238,12 @@ export default function SyncStatusPage() {
                 <Typography variant="body2" color="text.secondary">
                   {isZh ? `目标数量：${item.targetCount}，重试次数：${item.attemptCount}` : `Targets: ${item.targetCount}, Retries: ${item.attemptCount}`}
                 </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {item.targetLabel}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {item.summary}
+                </Typography>
                 {item.lastError ? (
                   <Typography variant="body2" color="error.main">
                     {item.lastError}
@@ -166,7 +254,10 @@ export default function SyncStatusPage() {
                   </Typography>
                 )}
                 {item.status === 'failed' ? (
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
+                    <Button size="small" variant="outlined" onClick={() => exportItem(item)}>
+                      {isZh ? '导出此项' : 'Export item'}
+                    </Button>
                     <Button size="small" color="warning" onClick={() => discardFailed(item)}>
                       {isZh ? '放弃此同步任务' : 'Discard this sync task'}
                     </Button>
