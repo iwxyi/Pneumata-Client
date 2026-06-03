@@ -95,7 +95,7 @@ export default function CharacterEditorPage() {
   }, [editId, goBack, headerTitle, setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, t]);
 
   const duplicateNameErrorText = i18n.language.startsWith('zh') ? '已存在同名角色' : 'A character with the same name already exists';
-  const shouldWaitForCharacter = Boolean(editId && (!editChar || !editChar.characterDetailLoaded) && !(bootstrapComplete && !editChar));
+  const shouldWaitForCharacter = Boolean(editId && !editChar && !bootstrapComplete);
   if (isRemoteDeletedCharacter) {
     return (
       <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto', display: 'grid', gap: 1.5 }}>
