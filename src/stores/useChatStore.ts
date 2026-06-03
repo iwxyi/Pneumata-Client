@@ -17,6 +17,7 @@ import {
   classifySyncError,
   createPendingOperation,
   latestSyncError,
+  recoverInterruptedOperations,
   removePendingOperation,
   shouldSkipCloudSync,
   updatePendingOperation,
@@ -240,7 +241,7 @@ function buildPersistedChatState(state: PersistedChatState): PersistedChatState 
     } as GroupChat)),
     currentChatId: state.currentChatId,
     lastSyncedAt: state.lastSyncedAt,
-    pendingOperations: state.pendingOperations
+    pendingOperations: recoverInterruptedOperations(state.pendingOperations)
       .map((operation) => ({
         ...operation,
         patch: compactChatPatchForCloud(operation.patch),
@@ -925,7 +926,13 @@ export const useChatStore = create<ChatStore>()(
       name: getChatStoreStorageName(),
       storage: chatStorage,
       version: CLIENT_STORE_SCHEMA_VERSION,
-      migrate: (persistedState) => migrateChatStoreState(persistedState as PersistedChatState) as PersistedChatState,
+      migrate: (persistedState) => {
+        const migrated = migrateChatStoreState(persistedState as PersistedChatState) as PersistedChatState;
+        return {
+          ...migrated,
+          pendingOperations: recoverInterruptedOperations(migrated.pendingOperations || []),
+        };
+      },
       partialize: (state) => buildPersistedChatState({
         chats: state.chats,
         currentChatId: state.currentChatId,

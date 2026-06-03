@@ -26,6 +26,13 @@ export function latestSyncError<T extends { lastError?: string }>(queue: T[]) {
   return [...queue].reverse().find((item) => item.lastError)?.lastError || null;
 }
 
+function createOperationId(kind: string, timestamp: number, targetIds: string[]) {
+  const randomId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2, 12);
+  return `${kind}-${timestamp}-${targetIds[0] || 'all'}-${randomId}`;
+}
+
 export function createPendingOperation<TPatch extends Record<string, unknown>, TOp extends SyncPatchOperation<TPatch> & { kind: string; targetIds: string[] }>(
   params: {
     kind: TOp['kind'];
@@ -37,7 +44,7 @@ export function createPendingOperation<TPatch extends Record<string, unknown>, T
   const timestamp = params.timestamp ?? Date.now();
   const targetIds = params.targetIds ?? [];
   return {
-    id: `${params.kind}-${timestamp}-${targetIds[0] || 'all'}`,
+    id: createOperationId(String(params.kind), timestamp, targetIds),
     kind: params.kind,
     entityId: targetIds[0] || '',
     patch: (params.patch || {}) as TPatch,
@@ -55,4 +62,14 @@ export function removePendingOperation<T extends { id: string }>(queue: T[], ope
 
 export function updatePendingOperation<T extends { id: string }>(queue: T[], operationId: string, patch: Partial<T>) {
   return queue.map((item) => item.id === operationId ? { ...item, ...patch } : item);
+}
+
+export function recoverInterruptedOperations<T extends { status: 'pending' | 'syncing' | 'failed'; lastError?: string }>(queue: T[] = []) {
+  return queue.map((item) => item.status === 'syncing'
+    ? {
+      ...item,
+      status: 'pending' as const,
+      lastError: item.lastError || 'network: 上次同步中断，已重新排队',
+    }
+    : item);
 }

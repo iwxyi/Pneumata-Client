@@ -17,6 +17,7 @@ import {
   classifySyncError,
   createPendingOperation,
   latestSyncError,
+  recoverInterruptedOperations,
   removePendingOperation,
   shouldSkipCloudSync,
   updatePendingOperation,
@@ -399,7 +400,7 @@ function buildPersistedCharacterState(state: PersistedCharacterState): Persisted
       updatedAt: character.updatedAt,
     } as AICharacter)),
     lastSyncedAt: state.lastSyncedAt,
-    pendingOperations: state.pendingOperations
+    pendingOperations: recoverInterruptedOperations(state.pendingOperations)
       .map((operation) => ({
         ...operation,
         patch: compactCharacterPatchForCloud(operation.patch),
@@ -1073,7 +1074,13 @@ export const useCharacterStore = create<CharacterStore>()(
       name: getCharacterStoreStorageName(),
       storage: characterStorage,
       version: CLIENT_STORE_SCHEMA_VERSION,
-      migrate: (persistedState) => migrateCharacterStoreState(persistedState as PersistedCharacterState) as PersistedCharacterState,
+      migrate: (persistedState) => {
+        const migrated = migrateCharacterStoreState(persistedState as PersistedCharacterState) as PersistedCharacterState;
+        return {
+          ...migrated,
+          pendingOperations: recoverInterruptedOperations(migrated.pendingOperations || []),
+        };
+      },
       partialize: (state) => buildPersistedCharacterState({
         characters: state.characters,
         lastSyncedAt: state.lastSyncedAt,
