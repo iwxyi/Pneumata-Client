@@ -419,8 +419,17 @@ function applyAttachmentToCarePolicy(policy: CarePolicy, attachment: UserAttachm
   return policy;
 }
 
-function applyGlobalCompanionshipSettingsToCarePolicy(policy: CarePolicy): CarePolicy {
-  const settings = getCompanionshipRuntimeConfig();
+function applyGlobalCompanionshipSettingsToCarePolicy(policy: CarePolicy, character: AICharacter): CarePolicy {
+  const baseSettings = getCompanionshipRuntimeConfig();
+  const companionshipOverride = character.generationPreferences?.companionship;
+  const settings = {
+    ...baseSettings,
+    enableProactiveCare: companionshipOverride === 'on'
+      ? true
+      : companionshipOverride === 'off'
+        ? false
+        : baseSettings.enableProactiveCare,
+  };
   const boundaryReasons = [...policy.boundaryReasons];
   let next: CarePolicy = {
     ...policy,
@@ -429,7 +438,7 @@ function applyGlobalCompanionshipSettingsToCarePolicy(policy: CarePolicy): CareP
       : { start: '00:00', end: '00:00' },
   };
   if (!settings.enableProactiveCare) {
-    boundaryReasons.push('global setting disables proactive companionship');
+    boundaryReasons.push(companionshipOverride === 'off' ? 'character setting disables proactive companionship' : 'global setting disables proactive companionship');
     next = {
       ...next,
       dailyInitiationBudget: 0,
@@ -467,6 +476,9 @@ function applyGlobalCompanionshipSettingsToCarePolicy(policy: CarePolicy): CareP
       triggerSensitivity: clampScore(next.triggerSensitivity + 8),
       expressionIntensity: clampScore(next.expressionIntensity + 8),
     };
+  }
+  if (companionshipOverride === 'on') {
+    boundaryReasons.push('character setting enables proactive companionship');
   }
   return {
     ...next,
@@ -1368,7 +1380,7 @@ export function buildUserCompanionshipProjection(params: {
   const evidence = buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent);
   const preferredIntimacyStyle = inferPreferredStyle(character, intimacy);
   const attachmentProfile = buildUserAttachmentProfile({ chat, characterId: character.id, messages, profile: userProfile, intimacy, now });
-  const carePolicy = applyGlobalCompanionshipSettingsToCarePolicy(applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredIntimacyStyle, userProfile), attachmentProfile));
+  const carePolicy = applyGlobalCompanionshipSettingsToCarePolicy(applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredIntimacyStyle, userProfile), attachmentProfile), character);
   const bond: UserBondState = {
     userId: USER_ACTOR_ID,
     characterId: character.id,
@@ -2043,7 +2055,7 @@ export function buildCompanionshipCarePolicyForCharacter(params: {
   const phase = params.phase || (params.chat ? resolveCompanionshipPhaseEvent(params.chat, character.id)?.phase || inferPhase(intimacy, ledger) : null) || 'curious';
   const preferredStyle = inferPreferredStyle(character, intimacy);
   const attachmentProfile = buildUserAttachmentProfile({ chat: params.chat, characterId: character.id, messages, profile: userProfile, intimacy, now });
-  return applyGlobalCompanionshipSettingsToCarePolicy(applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredStyle, userProfile), attachmentProfile));
+  return applyGlobalCompanionshipSettingsToCarePolicy(applyAttachmentToCarePolicy(buildCarePolicy(phase, preferredStyle, userProfile), attachmentProfile), character);
 }
 
 export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
@@ -2095,6 +2107,13 @@ export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
     return {
       blocked: true,
       reason: 'global setting disables proactive companionship',
+      carePolicy,
+    };
+  }
+  if (!isCalendarReminder && !isImmediateUserPromptedFollowup && carePolicy.boundaryReasons.includes('character setting disables proactive companionship')) {
+    return {
+      blocked: true,
+      reason: 'character setting disables proactive companionship',
       carePolicy,
     };
   }

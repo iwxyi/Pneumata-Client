@@ -115,6 +115,7 @@ export type CharacterGenerationOverride = 'follow_global' | 'on' | 'off';
 export interface CharacterGenerationPreferences {
   moments?: CharacterGenerationOverride;
   diaries?: CharacterGenerationOverride;
+  companionship?: CharacterGenerationOverride;
 }
 
 export function normalizeCharacterVisualIdentity(input?: CharacterVisualIdentity | null): CharacterVisualIdentity {
@@ -503,6 +504,7 @@ export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacte
     generationPreferences: {
       moments: input.generationPreferences?.moments || 'follow_global',
       diaries: input.generationPreferences?.diaries || 'follow_global',
+      companionship: input.generationPreferences?.companionship || 'follow_global',
     },
     bubbleStyle: input.bubbleStyle || null,
   };

@@ -335,6 +335,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [generationPreferences, setGenerationPreferences] = useState<CharacterGenerationPreferences>({
     moments: initial?.generationPreferences?.moments || 'follow_global',
     diaries: initial?.generationPreferences?.diaries || 'follow_global',
+    companionship: initial?.generationPreferences?.companionship || 'follow_global',
   });
   const [bubbleStyleId, setBubbleStyleId] = useState<string>(initial?.bubbleStyleId || DEFAULT_AI_BUBBLE_STYLE_ID);
   const [bubbleStyle, setBubbleStyle] = useState<BubbleStyleDefinition>(() => cloneBubbleStyle(initial?.bubbleStyle) || { ...resolveCharacterBubbleStyle({ bubbleStyleId: initial?.bubbleStyleId, customStyles: settings.customBubbleStyles || [] }) });
@@ -464,6 +465,11 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   useEffect(() => {
     if (!initial) return;
     setModelProfileIds(normalizeCharacterModelProfileIds(initial.modelProfileIds, initial.modelProfileId || null));
+    setGenerationPreferences({
+      moments: initial.generationPreferences?.moments || 'follow_global',
+      diaries: initial.generationPreferences?.diaries || 'follow_global',
+      companionship: initial.generationPreferences?.companionship || 'follow_global',
+    });
     setVoiceConfig(initial.voiceConfig || { enabled: false });
     setVisualIdentity({
       description: initial.visualIdentity?.description || '',
@@ -1419,7 +1425,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
                     </Select>
                   </FormControl>
                 ))}
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1 }}>
                   <FormControl size="small" fullWidth>
                     <InputLabel>{i18n.language.startsWith('zh') ? '发朋友圈' : 'Post moments'}</InputLabel>
                     <Select
@@ -1428,6 +1434,21 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
                       onChange={(e) => {
                         const value = (typeof e.target.value === 'string' ? e.target.value : 'follow_global') as CharacterGenerationOverride;
                         setGenerationPreferences((prev) => ({ ...prev, moments: value }));
+                      }}
+                    >
+                      <MenuItem value="follow_global">{i18n.language.startsWith('zh') ? '跟随全局' : 'Follow global'}</MenuItem>
+                      <MenuItem value="on">{i18n.language.startsWith('zh') ? '开启' : 'On'}</MenuItem>
+                      <MenuItem value="off">{i18n.language.startsWith('zh') ? '关闭' : 'Off'}</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel>{i18n.language.startsWith('zh') ? '主动陪伴' : 'Proactive care'}</InputLabel>
+                    <Select
+                      value={generationPreferences.companionship || 'follow_global'}
+                      label={i18n.language.startsWith('zh') ? '主动陪伴' : 'Proactive care'}
+                      onChange={(e) => {
+                        const value = (typeof e.target.value === 'string' ? e.target.value : 'follow_global') as CharacterGenerationOverride;
+                        setGenerationPreferences((prev) => ({ ...prev, companionship: value }));
                       }}
                     >
                       <MenuItem value="follow_global">{i18n.language.startsWith('zh') ? '跟随全局' : 'Follow global'}</MenuItem>

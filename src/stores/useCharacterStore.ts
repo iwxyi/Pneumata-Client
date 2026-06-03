@@ -6,7 +6,7 @@ import { api } from '../services/api';
 import { reportRecoverableError } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { buildWarmState } from './storeWarmHelpers';
-import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
+import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateCharacterStoreState } from './storeMigrations';
@@ -94,6 +94,7 @@ async function createCharacterRemote(charData: Omit<AICharacter, 'id' | 'created
     runtimeTimeline: charData.runtimeTimeline,
     modelProfileId: charData.modelProfileId,
     modelProfileIds: charData.modelProfileIds,
+    generationPreferences: charData.generationPreferences,
     bubbleStyle: charData.bubbleStyle,
     bubbleStyleId: charData.bubbleStyleId,
   });
@@ -139,6 +140,7 @@ function buildLocalImportedCharacters(chars: AICharacter[]) {
     runtimeTimeline: character.runtimeTimeline,
     modelProfileId: character.modelProfileId,
     modelProfileIds: character.modelProfileIds,
+    generationPreferences: character.generationPreferences,
     bubbleStyle: character.bubbleStyle,
     bubbleStyleId: character.bubbleStyleId,
     fieldVersions: character.fieldVersions,
@@ -246,10 +248,6 @@ function assertUniqueCharacterNameBatch(characters: AICharacter[], charsData: Ar
   assertUniqueCharacterNames(characters, charsData.map((item) => item.name));
 }
 
-function isDuplicateCharacterNameError(error: unknown) {
-  return error instanceof Error && (error.message === 'DUPLICATE_CHARACTER_NAME' || ('code' in error && (error as { code?: string }).code === 'DUPLICATE_CHARACTER_NAME'));
-}
-
 function mergeCharacters(localCharacters: AICharacter[], remoteCharacters: AICharacter[], pendingOperations: PendingCharacterOperation[] = []) {
   const merged = new Map<string, AICharacter>();
   for (const character of normalizeCharacters(localCharacters)) merged.set(character.id, character);
@@ -344,6 +342,7 @@ function buildPersistedCharacterState(state: PersistedCharacterState): Persisted
       bubbleStyleId: character.bubbleStyleId || null,
       modelProfileId: character.modelProfileId || null,
       modelProfileIds: character.modelProfileIds,
+      generationPreferences: character.generationPreferences,
       personality: character.personality,
       personalityDrift: character.personalityDrift,
       emotionalState: character.emotionalState,
@@ -428,13 +427,6 @@ function getCharacterStorageKey() {
 
 function getCharacterStoreStorageName() {
   return scopedStorageKey('characters');
-}
-
-function createCharacterStorage() {
-  return createScopedStorage({
-    getScopedKey: getCharacterStorageKey,
-    storageName: getCharacterStoreStorageName(),
-  });
 }
 
 const latestCharacterError = latestSyncError;

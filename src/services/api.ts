@@ -148,7 +148,7 @@ class ApiClient {
       personalityDrift?: object; emotionalState?: object; soulState?: object; coreProfile?: object;
       speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyle?: BubbleStyleDefinition | null; bubbleStyleId?: string | null;
-      generationPreferences?: { moments?: 'follow_global' | 'on' | 'off'; diaries?: 'follow_global' | 'on' | 'off' };
+      generationPreferences?: { moments?: 'follow_global' | 'on' | 'off'; diaries?: 'follow_global' | 'on' | 'off'; companionship?: 'follow_global' | 'on' | 'off' };
       isPreset: boolean; deletedAt?: number | null; fieldVersions?: Record<string, number>; createdAt: number; updatedAt: number;
     }>>('GET', '/characters');
   }
@@ -160,7 +160,7 @@ class ApiClient {
     visualReferenceImages?: CharacterVisualReferenceImage[];
     speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyle?: BubbleStyleDefinition | null; bubbleStyleId?: string | null;
-    generationPreferences?: { moments?: 'follow_global' | 'on' | 'off'; diaries?: 'follow_global' | 'on' | 'off' };
+    generationPreferences?: { moments?: 'follow_global' | 'on' | 'off'; diaries?: 'follow_global' | 'on' | 'off'; companionship?: 'follow_global' | 'on' | 'off' };
   }) {
     return this.request<Record<string, unknown>>('POST', '/characters', data);
   }
@@ -172,7 +172,7 @@ class ApiClient {
     visualReferenceImages?: CharacterVisualReferenceImage[];
     speechProfile?: object; voiceConfig?: object; relationships?: object[]; memory?: object; layeredMemories?: object[]; intervention?: object; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
     modelProfileId?: string | null; modelProfileIds?: Partial<Record<'text' | 'image' | 'audio' | 'document', string | null>>; bubbleStyleId?: string | null;
-    generationPreferences?: { moments?: 'follow_global' | 'on' | 'off'; diaries?: 'follow_global' | 'on' | 'off' };
+    generationPreferences?: { moments?: 'follow_global' | 'on' | 'off'; diaries?: 'follow_global' | 'on' | 'off'; companionship?: 'follow_global' | 'on' | 'off' };
   }>) {
     return this.request<{ characters: Record<string, unknown>[] }>('POST', '/characters/batch', { items });
   }
