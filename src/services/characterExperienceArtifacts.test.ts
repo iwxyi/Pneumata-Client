@@ -300,12 +300,13 @@ describe('characterExperienceArtifacts', () => {
       [
         '烦死了。今天又因为小雨那句话没睡好，我差点把消息发出去又删了。',
         '气死我了！小雨明明只是随口一说，我却一直想着明天要不要装作不在意。',
+        '还是放心不下。说好下次一起去看展，我想问问她后来怎么样，又怕像是在催。',
       ],
     );
     const serialized = JSON.stringify(context);
 
     expect(context.recentDiaryOpenings).toContain('短促情绪词开场');
-    expect(context.recentDiaryContentPatterns).toEqual(expect.arrayContaining(['情绪先行', '关系反复', '未说出口', '行动念头']));
+    expect(context.recentDiaryContentPatterns).toEqual(expect.arrayContaining(['情绪先行', '关系反复', '未说出口', '行动念头', '关心/约定回流']));
     expect(context.recentDiaryContinuity).toContain('长期事件、长期情绪或同一个人可以反复出现');
     expect(context.recentDiaryContinuity).toContain('新的时间切片');
     expect(context.flashbackSeeds.length).toBeGreaterThan(0);

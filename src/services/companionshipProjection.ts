@@ -623,7 +623,7 @@ function buildCarePolicy(phase: CompanionshipPhase, style: PreferredIntimacyStyl
 }
 
 function getUserMemoryTexts(character: AICharacter) {
-  const manual = character.memory.userMemories || [];
+  const manual = character.memory?.userMemories || [];
   const layered = (character.layeredMemories || [])
     .filter((item) => item.subjectIds?.includes(USER_ACTOR_ID) || item.sourceTag?.includes('direct_user') || item.text.includes('用户'))
     .sort((a, b) => (b.salience + b.confidence + b.updatedAt / DAY_MS) - (a.salience + a.confidence + a.updatedAt / DAY_MS))
@@ -2539,6 +2539,24 @@ export function buildCompanionshipArtifactSeeds(params: {
         seeds.push(`对${targetName}可以写一点没有公开说出的在意、护短、信赖或别扭靠近。`);
       }
     });
+
+  if (!isPublic && params.chat?.type === 'direct') {
+    const projection = buildUserCompanionshipProjection({
+      chat: params.chat,
+      character: companionCharacter,
+      messages: messages || [],
+      now,
+    });
+    const bond = projection.userBond;
+    bond?.pendingCareTopics.slice(0, 2).forEach((topic) => {
+      const text = cleanArtifactSeedText(topic.text, members, 120);
+      if (text) seeds.push(`未完成关心事项可以在日记里回流成“想问但没有急着问出口”的私下牵挂：${text}。`);
+    });
+    bond?.pendingPromises.slice(0, 2).forEach((promise) => {
+      const text = cleanArtifactSeedText(promise.text, members, 120);
+      if (text) seeds.push(`未完成约定可以在日记里成为轻微期待或担心落空的余波，不要写成催促：${text}。`);
+    });
+  }
 
   if (includeUserMemory) {
     (character.memory?.userMemories || [])

@@ -290,6 +290,7 @@ function describeDiaryContentPatterns(text: string, members: DisplayTextMember[]
     mentionsKnownName || /关系|误会|在意|信任|靠近|疏远|喜欢|讨厌|他|她|你/.test(normalized) ? '关系反复' : '',
     /没说|没发|删掉|删了|差点|消息|忍住|憋|藏|不敢|不好意思/.test(normalized) ? '未说出口' : '',
     /明天|下次|以后|想要|准备|决定|试试|行动|去/.test(normalized) ? '行动念头' : '',
+    /关心|惦记|放心不下|后来怎么样|问问|约定|承诺|说好|下次一起/.test(normalized) ? '关心/约定回流' : '',
     /窗|桌|衣|手|声音|灯|雨|风|房间|门|手机|屏幕/.test(normalized) ? '具体物象' : '',
     /我到底|存在|醒来|消失|被看见|记住|忘记|自己/.test(normalized) ? '自我确认' : '',
   ].filter(Boolean);

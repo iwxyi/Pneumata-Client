@@ -1172,6 +1172,59 @@ describe('companionshipProjection', () => {
     expect(trace?.pendingPromises.join('\n')).toContain('周末一起看那部电影');
   });
 
+  it('feeds pending care topics and promises into private diary seeds but not public moment seeds', () => {
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
+      {
+        id: 'evt-care-topic-diary',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 1_000,
+        actorIds: ['user', 'char-a'],
+        targetIds: ['char-a', 'user'],
+        summary: '苏苏记录了一个需要后续关心的话题。',
+        visibility: 'pair_private',
+        eventClass: 'artifact',
+        payload: {
+          eventType: 'companionship_care_topic',
+          characterId: 'char-a',
+          userId: 'user',
+          topicId: 'care-interview',
+          topicText: '明天面试有点紧张',
+          action: 'opened',
+          urgency: 'high',
+          evidence: '用户说：明天面试有点紧张。',
+          dueAt: 2_000,
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      } as RuntimeEventV2,
+      promiseEvent(),
+    ]);
+    const privateSeeds = buildCompanionshipArtifactSeeds({
+      character: character(),
+      chat: directChat,
+      messages: [message({ content: '明天面试有点紧张。', timestamp: 900 })],
+      surface: 'private_diary',
+      max: 8,
+      now: 1_200,
+    });
+    const publicSeeds = buildCompanionshipArtifactSeeds({
+      character: character(),
+      chat: directChat,
+      messages: [message({ content: '明天面试有点紧张。', timestamp: 900 })],
+      surface: 'public_moment',
+      max: 8,
+      now: 1_200,
+    });
+
+    expect(privateSeeds.join('\n')).toContain('未完成关心事项');
+    expect(privateSeeds.join('\n')).toContain('明天面试');
+    expect(privateSeeds.join('\n')).toContain('未完成约定');
+    expect(privateSeeds.join('\n')).toContain('周末一起看那部电影');
+    expect(publicSeeds.join('\n')).not.toContain('明天面试');
+    expect(publicSeeds.join('\n')).not.toContain('周末一起看那部电影');
+  });
+
   it('uses closed promise events to suppress matching fallback promises', () => {
     const promiseCharacter = character({
       layeredMemories: [{
