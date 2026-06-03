@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Typography, Button, Checkbox, Fab } from '@mui/material';
+import { Box, Typography, Button, Checkbox } from '@mui/material';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import RestoreFromTrashIcon from '@mui/icons-material/RestoreFromTrash';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +14,7 @@ import type { GroupChat } from '../types/chat';
 import { resolveCharacterOrDeleted } from '../utils/deletedEntity';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import AppSnackbar from '../components/common/AppSnackbar';
+import ExpandableFab from '../components/common/ExpandableFab';
 import { buildListGridSx } from '../styles/interaction';
 
 function OverlayCheckbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
@@ -229,9 +230,15 @@ export default function RecycleBinPage() {
         </Box>
       )}
 
-      <Fab color="error" variant="extended" onClick={() => setConfirmMode('empty')} sx={{ position: 'fixed', right: { xs: 20, sm: 28, md: 36 }, bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', sm: 32, md: 36 }, zIndex: 1300 }}>
-        {i18n.language.startsWith('zh') ? '清空回收站' : 'Empty recycle bin'}
-      </Fab>
+      <ExpandableFab
+        color="error"
+        icon={<DeleteSweepIcon />}
+        label={i18n.language.startsWith('zh') ? '清空回收站' : 'Empty recycle bin'}
+        ariaLabel={i18n.language.startsWith('zh') ? '清空回收站' : 'Empty recycle bin'}
+        onClick={() => setConfirmMode('empty')}
+        sx={{ position: 'fixed', right: { xs: 20, sm: 28, md: 36 }, bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', sm: 32, md: 36 } }}
+        expandedWidth={188}
+      />
 
       <ConfirmDialog
         open={confirmMode === 'restore'}

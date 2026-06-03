@@ -35,6 +35,7 @@ import MemberSelectionDialog from '../components/createChat/MemberSelectionDialo
 import { normalizeRuntimeSeedLines } from '../services/runtimeSeed';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import AppSnackbar from '../components/common/AppSnackbar';
+import ExpandableFab from '../components/common/ExpandableFab';
 import { buildInteractiveSurfaceSx } from '../styles/interaction';
 
 const HotTopicDialogContainer = lazy(() => import('../components/createChat/HotTopicDialogContainer'));
@@ -894,23 +895,19 @@ export default function CreateChatPage() {
           />
         ) : null}
 
-        <Button
-          variant="contained"
+        <ExpandableFab
+          icon={<AutoAwesomeIcon />}
+          label={saving ? t('common.loading') : startChatLabel}
+          ariaLabel={saving ? t('common.loading') : startChatLabel}
           onClick={handleCreateAction}
           disabled={saving}
           sx={{
             position: 'fixed',
             right: { xs: 20, sm: 28, md: 36 },
             bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', sm: 32, md: 36 },
-            zIndex: 1300,
-            minHeight: 56,
-            px: 2.25,
-            borderRadius: 18,
-            boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)',
           }}
-        >
-          {saving ? t('common.loading') : startChatLabel}
-        </Button>
+          expandedWidth={176}
+        />
       </Box>
 
       <AppSnackbar

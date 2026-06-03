@@ -22,6 +22,7 @@ import ConfirmDialog from '../components/common/ConfirmDialog';
 import PageSection from '../components/common/PageSection';
 import SurfaceCard from '../components/common/SurfaceCard';
 import AppSnackbar from '../components/common/AppSnackbar';
+import ExpandableFab from '../components/common/ExpandableFab';
 import { getPopularModels, getProviderCatalogEntry, getProviderDefaults, getProvidersForType, inferImageCapabilities } from '../constants/aiModelCatalog';
 import { motion, transition } from '../styles/motion';
 
@@ -715,23 +716,17 @@ export default function AIModelsPage() {
         destructive
       />
 
-      <Button
-        variant="contained"
-        startIcon={<AddIcon />}
+      <ExpandableFab
+        icon={<AddIcon />}
+        label={i18n.language.startsWith('zh') ? '添加模型' : 'Add model'}
+        ariaLabel={i18n.language.startsWith('zh') ? '添加模型' : 'Add model'}
         onClick={() => settings.addAIProfile()}
         sx={{
           position: 'fixed',
           right: { xs: 20, sm: 28, md: 36 },
           bottom: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 88px)', sm: 32, md: 36 },
-          zIndex: 1300,
-          minHeight: 56,
-          px: 2.25,
-          borderRadius: 18,
-          boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)',
         }}
-      >
-        {i18n.language.startsWith('zh') ? '添加模型' : 'Add model'}
-      </Button>
+      />
     </Box>
   );
 }

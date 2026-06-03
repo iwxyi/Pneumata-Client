@@ -1,4 +1,4 @@
-import { Fab, Tooltip, useMediaQuery } from '@mui/material';
+import { Fab, useMediaQuery } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material/styles';
 import type { ReactNode } from 'react';
 import { motion, transition } from '../../styles/motion';
@@ -11,12 +11,13 @@ interface ExpandableFabProps {
   color?: 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning';
   disabled?: boolean;
   sx?: SxProps<Theme>;
+  expandedWidth?: number;
 }
 
-export default function ExpandableFab({ icon, label, ariaLabel, onClick, color = 'primary', disabled = false, sx }: ExpandableFabProps) {
+export default function ExpandableFab({ icon, label, ariaLabel, onClick, color = 'primary', disabled = false, sx, expandedWidth = 132 }: ExpandableFabProps) {
   const canHover = useMediaQuery('(hover: hover) and (pointer: fine)');
 
-  const button = (
+  return (
     <Fab
       color={color}
       onClick={onClick}
@@ -25,24 +26,22 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
       sx={[
         {
           zIndex: 1300,
-          minWidth: canHover ? 56 : 'auto',
-          width: canHover ? 56 : 'auto',
+          width: canHover ? 56 : expandedWidth,
+          minWidth: canHover ? 56 : expandedWidth,
+          maxWidth: expandedWidth,
           height: 56,
           minHeight: 56,
-          px: canHover ? 0 : 2.25,
+          p: 0,
           overflow: 'hidden',
           justifyContent: 'flex-start',
           borderRadius: 999,
-          gap: canHover ? 0 : 1,
           boxShadow: (theme) => theme.palette.mode === 'light'
             ? '0 16px 34px rgba(15,23,42,0.18)'
             : '0 18px 42px rgba(0,0,0,0.40)',
-          transition: transition(['width', 'min-width', 'padding', 'gap', 'box-shadow', 'transform'], 420, 'cubic-bezier(0.18, 1.35, 0.22, 1)'),
+          transition: transition(['width', 'min-width', 'box-shadow', 'transform'], 380, 'cubic-bezier(0.22, 1, 0.36, 1)'),
           '&:hover, &:focus-visible': canHover ? {
-            width: 'auto',
-            minWidth: 56,
-            px: 2.25,
-            gap: 1,
+            width: expandedWidth,
+            minWidth: expandedWidth,
             boxShadow: (theme) => theme.palette.mode === 'light'
               ? '0 20px 42px rgba(15,23,42,0.22)'
               : '0 22px 52px rgba(0,0,0,0.46)',
@@ -52,17 +51,30 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
             transitionTimingFunction: motion.press,
             transitionDuration: `${motion.durations.instant}ms`,
           },
-          '& .ExpandableFab-label': {
+          '& .ExpandableFab-icon': {
+            width: 56,
+            minWidth: 56,
+            height: 56,
             display: 'inline-flex',
             alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          },
+          '& .ExpandableFab-label': {
+            minWidth: 0,
+            width: expandedWidth - 68,
+            pr: 2,
+            ml: -0.25,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
             whiteSpace: 'nowrap',
-            maxWidth: canHover ? 0 : 220,
+            overflow: 'hidden',
             opacity: canHover ? 0 : 1,
-            transform: canHover ? 'translateX(-8px)' : 'translateX(0)',
-            transition: 'max-width 420ms cubic-bezier(0.18, 1.35, 0.22, 1), opacity 180ms ease 70ms, transform 360ms cubic-bezier(0.18, 1.35, 0.22, 1)',
+            transform: canHover ? 'translateX(-4px)' : 'translateX(0)',
+            transition: 'opacity 180ms ease 90ms, transform 340ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
           '&:hover .ExpandableFab-label, &:focus-visible .ExpandableFab-label': canHover ? {
-            maxWidth: 220,
             opacity: 1,
             transform: 'translateX(0)',
           } : undefined,
@@ -72,14 +84,7 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
     >
       <span
         aria-hidden
-        style={{
-          width: 56,
-          minWidth: 56,
-          height: 56,
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
+        className="ExpandableFab-icon"
       >
         {icon}
       </span>
@@ -90,6 +95,4 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
       </span>
     </Fab>
   );
-
-  return canHover ? <Tooltip title={ariaLabel} placement="left">{button}</Tooltip> : button;
 }

@@ -10,7 +10,6 @@ import {
   Select,
   MenuItem,
   IconButton,
-  Fab,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -63,6 +62,7 @@ import { DEFAULT_AI_BUBBLE_STYLE_ID } from '../../constants/bubbleStyles';
 import { buildBubblePreview, cloneBubbleStyle, createCharacterBubbleStyleId, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import ArtifactCalendarReader from '../artifacts/ArtifactCalendarReader';
 import BubbleStylePickerDialog from '../bubble/BubbleStylePickerDialog';
+import ExpandableFab from '../common/ExpandableFab';
 import WorldCalendarPanel from '../calendar/WorldCalendarPanel';
 import { buildCharacterFormTabs } from './characterFormTabs';
 
@@ -1792,9 +1792,15 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
         onCustomStylesChange={settings.setCustomBubbleStyles}
       />
 
-      <Fab color="primary" variant="extended" onClick={handleSubmit} disabled={!name.trim() || generating || isSaving} aria-label={t('character.save')} sx={{ position: 'fixed', right: { xs: 24, sm: 32, md: 36 }, bottom: { xs: 24, sm: 32, md: 36 }, zIndex: 1300, minHeight: 56, px: 2.25, gap: 1, borderRadius: 18, boxShadow: '0 10px 24px rgba(0,0,0,0.22), 0 3px 8px rgba(0,0,0,0.16)', '&:hover': { boxShadow: '0 14px 32px rgba(0,0,0,0.26), 0 6px 12px rgba(0,0,0,0.18)', transform: 'translateY(-1px)' }, '&:active': { boxShadow: '0 6px 14px rgba(0,0,0,0.18)', transform: 'translateY(0)' }, transition: 'box-shadow 0.2s ease, transform 0.2s ease' }}>
-        {isSaving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon fontSize="small" />}{t('character.save')}
-      </Fab>
+      <ExpandableFab
+        icon={isSaving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon fontSize="small" />}
+        label={t('character.save')}
+        ariaLabel={t('character.save')}
+        onClick={handleSubmit}
+        disabled={!name.trim() || generating || isSaving}
+        sx={{ position: 'fixed', right: { xs: 24, sm: 32, md: 36 }, bottom: { xs: 24, sm: 32, md: 36 } }}
+        expandedWidth={132}
+      />
     </Box>
   );
 }
