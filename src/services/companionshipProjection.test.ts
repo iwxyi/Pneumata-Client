@@ -240,6 +240,62 @@ function onlineReturnEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEven
   };
 }
 
+function unsentDraftEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-unsent-draft-1',
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt: 1_000,
+    actorIds: ['char-a'],
+    targetIds: ['user'],
+    summary: '苏苏留下了一条没有真正发出的草稿。',
+    visibility: 'pair_private',
+    eventClass: 'artifact',
+    payload: {
+      eventType: 'companionship_unsent_draft',
+      characterId: 'char-a',
+      userId: 'user',
+      action: 'drafted',
+      text: '写到一半又删掉了：小夏，面试前别硬撑，我在这儿。',
+      reason: '用户提到明天面试，角色想关心但保持克制。',
+      evidence: '明天面试有点紧张。',
+      confidence: 0.88,
+      decisionSource: 'model',
+    },
+    ...overrides,
+  };
+}
+
+function sharedAnchorEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-shared-anchor-1',
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt: 1_000,
+    actorIds: ['user', 'char-a'],
+    targetIds: ['char-a', 'user'],
+    summary: '苏苏记录了一个和用户之间的共同记忆锚点。',
+    visibility: 'pair_private',
+    eventClass: 'artifact',
+    payload: {
+      eventType: 'companionship_shared_anchor',
+      characterId: 'char-a',
+      userId: 'user',
+      anchorId: 'late-night-anchor',
+      action: 'upsert',
+      kind: 'first_time',
+      participantIds: ['char-a', 'user'],
+      title: '第一次深夜聊天',
+      text: '第一次深夜聊天后，苏苏记住了用户没有离开。',
+      evidence: '用户那晚陪苏苏聊到很晚。',
+      salience: 82,
+      confidence: 0.9,
+      decisionSource: 'model',
+    },
+    ...overrides,
+  };
+}
+
 function promiseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
   return {
     id: 'evt-promise-1',
@@ -1412,6 +1468,84 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).toContain('Shared memory anchors with the user');
   });
 
+  it('projects explicit shared anchor runtime events into anchors and direct prompt evidence', () => {
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [sharedAnchorEvent()]);
+    const anchors = buildSharedMemoryAnchors(character(), 1_300, directChat);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '那天谢谢你陪我聊到很晚。', timestamp: 1_100 })],
+      now: 1_300,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '那天谢谢你陪我聊到很晚。', timestamp: 1_100 })],
+      now: 1_300,
+    });
+
+    expect(anchors.find((anchor) => anchor.id === 'runtime-anchor-late-night-anchor')).toMatchObject({
+      kind: 'first_time',
+      source: 'runtime_event',
+      participantIds: ['char-a', 'user'],
+      title: '第一次深夜聊天',
+    });
+    expect(projection.promptLines.join('\n')).toContain('第一次深夜聊天后，苏苏记住了用户没有离开');
+    expect(trace?.sharedAnchors.join('\n')).toContain('第一次深夜聊天');
+  });
+
+  it('uses revoked shared anchor runtime events to suppress matching fallback anchors', () => {
+    const anchorCharacter = character({
+      layeredMemories: [{
+        id: 'anchor-user',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '第一次深夜聊天后，苏苏记住了用户没有离开。',
+        evidenceText: '用户那晚陪苏苏聊到很晚。',
+        salience: 0.9,
+        confidence: 0.9,
+        recency: 0.7,
+        reinforcementCount: 2,
+        sourceEventIds: ['evt-anchor'],
+        origin: 'distilled',
+        createdAt: 100,
+        updatedAt: 200,
+      }],
+    });
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [
+      sharedAnchorEvent({
+        id: 'evt-shared-anchor-revoke',
+        createdAt: 1_200,
+        payload: {
+          eventType: 'companionship_shared_anchor',
+          characterId: 'char-a',
+          userId: 'user',
+          anchorId: 'memory-anchor-user',
+          action: 'revoke',
+          kind: 'first_time',
+          participantIds: ['char-a', 'user'],
+          text: '第一次深夜聊天后，苏苏记住了用户没有离开。',
+          evidence: '用户撤回了这条共同记忆。',
+          confidence: 0.94,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const anchors = buildSharedMemoryAnchors(anchorCharacter, 1_300, directChat);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: anchorCharacter,
+      messages: [message({ content: '今天有点累。', timestamp: 200 })],
+      now: 1_300,
+    });
+
+    expect(anchors.some((anchor) => anchor.text.includes('第一次深夜聊天'))).toBe(false);
+    expect(projection.promptLines.join('\n')).not.toContain('第一次深夜聊天');
+  });
+
   it('allows companionship artifact seeds from runtime-event anchors even without existing character memories', () => {
     const directChat = chat('direct', [], [intimateConflictEvent({
       id: 'evt-runtime-seed-repair',
@@ -2012,6 +2146,72 @@ describe('companionshipProjection', () => {
 
     expect(signature?.offlineTrace).toContain('保持安静');
     expect(signature?.unsentDraft).toBeUndefined();
+  });
+
+  it('prioritizes unsent draft runtime events over local status projection', () => {
+    const latestUserAt = 200;
+    const directChat = chat('direct', [relationship({ warmth: 72, trust: 70, competence: 10, threat: 2 })], [unsentDraftEvent()]);
+    const signature = buildCompanionshipStatusSignature({
+      chat: directChat,
+      character: character({ memory: { shortTermSummary: '', longTerm: [], secrets: [], obsessions: [], tabooTopics: [], userMemories: ['用户说：叫我小夏。'] } }),
+      messages: [message({ content: '明天面试有点紧张。', timestamp: latestUserAt })],
+      now: latestUserAt + 13 * 60 * 60 * 1000,
+    });
+
+    expect(signature?.unsentDraft).toBe('写到一半又删掉了：小夏，面试前别硬撑，我在这儿。');
+    expect(signature?.debugLines.join('\n')).toContain('unsentDraft=写到一半又删掉了');
+    expect(signature?.debugLines.join('\n')).toContain('source=evt-unsent-draft-1');
+  });
+
+  it('uses suppressed unsent draft events to block local unsent draft fallback', () => {
+    const latestUserAt = 200;
+    const directChat = chat('direct', [relationship({ warmth: 72, trust: 70, competence: 10, threat: 2 })], [
+      unsentDraftEvent({
+        id: 'evt-unsent-draft-suppressed',
+        payload: {
+          eventType: 'companionship_unsent_draft',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'suppressed',
+          reason: '用户关闭了未发送草稿提示。',
+          confidence: 0.92,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const signature = buildCompanionshipStatusSignature({
+      chat: directChat,
+      character: character({ memory: { shortTermSummary: '', longTerm: [], secrets: [], obsessions: [], tabooTopics: [], userMemories: ['用户说：叫我小夏。'] } }),
+      messages: [message({ content: '明天面试有点紧张。', timestamp: latestUserAt })],
+      now: latestUserAt + 13 * 60 * 60 * 1000,
+    });
+
+    expect(signature?.unsentDraft).toBeUndefined();
+    expect(signature?.debugLines.join('\n')).toContain('unsentDraft=suppressed source=evt-unsent-draft-suppressed');
+  });
+
+  it('exposes local unsent draft events in companionship diagnostics', () => {
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 70, competence: 10, threat: 2 })], [
+        unsentDraftEvent({
+          id: 'evt-unsent-draft-local',
+          payload: {
+            eventType: 'companionship_unsent_draft',
+            characterId: 'char-a',
+            userId: 'user',
+            action: 'drafted',
+            text: '想问你后来怎么样了。',
+            confidence: 0.64,
+            decisionSource: 'local_fallback',
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [message({ content: '明天面试有点紧张。', timestamp: 200 })],
+      now: 200 + 13 * 60 * 60 * 1000,
+    });
+
+    expect(trace?.diagnostics.join('\n')).toContain('unsent_draft: source=local_fallback confidence=64% event=evt-unsent-draft-local');
   });
 
   it('projects online return text for home-level companionship status', () => {

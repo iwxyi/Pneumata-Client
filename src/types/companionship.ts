@@ -289,6 +289,20 @@ export interface CompanionshipOnlineReturnEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipUnsentDraftEventPayload {
+  eventType: 'companionship_unsent_draft';
+  characterId: string;
+  userId?: string;
+  action: 'drafted' | 'shown' | 'suppressed' | 'dismissed' | 'expired';
+  text?: string;
+  reason?: string;
+  evidence?: string;
+  availableAt?: number;
+  expiresAt?: number;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface CompanionshipSharedSecretEventPayload {
   eventType: 'companionship_shared_secret';
   characterId: string;
@@ -302,6 +316,25 @@ export interface CompanionshipSharedSecretEventPayload {
   evidence?: string;
   emotionalWeight?: number;
   confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
+export interface CompanionshipSharedAnchorEventPayload {
+  eventType: 'companionship_shared_anchor';
+  characterId: string;
+  userId?: string;
+  anchorId: string;
+  action: 'upsert' | 'merge' | 'archive' | 'revoke';
+  kind?: SharedMemoryAnchor['kind'];
+  participantIds?: string[];
+  title?: string;
+  text?: string;
+  salience?: number;
+  confidence?: number;
+  evidence?: string;
+  mergedAnchorIds?: string[];
+  sourceEventIds?: string[];
+  reason?: string;
   decisionSource?: 'model' | 'local_fallback';
 }
 

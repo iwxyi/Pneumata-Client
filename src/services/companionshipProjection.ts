@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -1432,10 +1432,53 @@ interface ResolvedOnlineReturnEvent {
   sourceEventId: string;
 }
 
+interface ResolvedUnsentDraftEvent {
+  text: string;
+  blocked: boolean;
+  sourceEventId: string;
+}
+
 function onlineReturnPayloadOf(event: RuntimeEventV2): CompanionshipOnlineReturnEventPayload | null {
   const payload = event.payload as Partial<CompanionshipOnlineReturnEventPayload> | undefined;
   if (!payload || payload.eventType !== 'companionship_online_return' || !payload.characterId || !payload.action) return null;
   return payload as CompanionshipOnlineReturnEventPayload;
+}
+
+function unsentDraftPayloadOf(event: RuntimeEventV2): CompanionshipUnsentDraftEventPayload | null {
+  const payload = event.payload as Partial<CompanionshipUnsentDraftEventPayload> | undefined;
+  if (!payload || payload.eventType !== 'companionship_unsent_draft' || !payload.characterId || !payload.action) return null;
+  return payload as CompanionshipUnsentDraftEventPayload;
+}
+
+function resolveUnsentDraftEvent(chat: GroupChat, characterId: string, now: number): ResolvedUnsentDraftEvent | null {
+  const events = (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .map((event) => ({ event, payload: unsentDraftPayloadOf(event) }))
+    .filter((item): item is { event: RuntimeEventV2; payload: CompanionshipUnsentDraftEventPayload } => {
+      if (!item.payload) return false;
+      if (item.payload.characterId !== characterId || (item.payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return false;
+      if (typeof item.payload.availableAt === 'number' && item.payload.availableAt > now) return false;
+      if (typeof item.payload.expiresAt === 'number' && item.payload.expiresAt <= now) return false;
+      const confidence = typeof item.payload.confidence === 'number' && Number.isFinite(item.payload.confidence) ? item.payload.confidence : 1;
+      return confidence >= 0.6;
+    })
+    .sort((a, b) => (b.event.createdAt || 0) - (a.event.createdAt || 0));
+  const latest = events[0];
+  if (!latest) return null;
+  if (latest.payload.action === 'suppressed' || latest.payload.action === 'dismissed' || latest.payload.action === 'expired') {
+    return {
+      text: '',
+      blocked: true,
+      sourceEventId: latest.event.id,
+    };
+  }
+  const text = compactText(latest.payload.text || latest.payload.reason || latest.event.summary, 80);
+  if (!text) return null;
+  return {
+    text,
+    blocked: false,
+    sourceEventId: latest.event.id,
+  };
 }
 
 function resolveOnlineReturnEvent(chat: GroupChat, characterId: string, now: number): ResolvedOnlineReturnEvent | null {
@@ -1482,7 +1525,8 @@ export function buildCompanionshipStatusSignature(params: {
   const sharedAnchorLabels = getSharedAnchorLabels(params.character, now, params.chat);
   const carePolicy = bond.carePolicy;
   const offlineTrace = buildOfflineTrace(bond, carePolicy, now);
-  const unsentDraft = buildUnsentDraft(bond, carePolicy, now);
+  const unsentDraftEvent = resolveUnsentDraftEvent(params.chat, params.character.id, now);
+  const unsentDraft = unsentDraftEvent?.blocked ? '' : (unsentDraftEvent?.text || buildUnsentDraft(bond, carePolicy, now));
   const onlineReturnEvent = resolveOnlineReturnEvent(params.chat, params.character.id, now);
   const onlineReturn = onlineReturnEvent?.blocked ? '' : (onlineReturnEvent?.text || buildOnlineReturnProjection(bond, carePolicy, now));
   return {
@@ -1500,7 +1544,8 @@ export function buildCompanionshipStatusSignature(params: {
       bond.userProfile.boundaries.length ? `boundaries=${bond.userProfile.boundaries.join(' / ')}` : '',
       carePolicy.boundaryReasons.length ? `restraints=${carePolicy.boundaryReasons.join(' / ')}` : '',
       offlineTrace ? `offlineTrace=${offlineTrace}` : '',
-      unsentDraft ? `unsentDraft=${unsentDraft}` : '',
+      unsentDraft ? `unsentDraft=${unsentDraft}${unsentDraftEvent ? ` source=${unsentDraftEvent.sourceEventId}` : ''}` : '',
+      unsentDraftEvent?.blocked ? `unsentDraft=suppressed source=${unsentDraftEvent.sourceEventId}` : '',
       onlineReturn ? `onlineReturn=${onlineReturn}${onlineReturnEvent ? ` source=${onlineReturnEvent.sourceEventId}` : ''}` : '',
       onlineReturnEvent?.blocked ? `onlineReturn=suppressed source=${onlineReturnEvent.sourceEventId}` : '',
       sharedAnchorLabels.length ? `sharedAnchors=${sharedAnchorLabels.join(' / ')}` : '',
@@ -1748,8 +1793,129 @@ function splitRelationshipNoteAnchorTexts(note: string) {
     .filter((item) => item.length >= 4);
 }
 
+function sharedAnchorPayloadOf(event: RuntimeEventV2): CompanionshipSharedAnchorEventPayload | null {
+  const payload = event.payload as Record<string, unknown> | undefined;
+  if (!payload || payload.eventType !== 'companionship_shared_anchor') return null;
+  const action = payload.action;
+  if (action !== 'upsert' && action !== 'merge' && action !== 'archive' && action !== 'revoke') return null;
+  const characterId = typeof payload.characterId === 'string' ? payload.characterId : '';
+  const anchorId = typeof payload.anchorId === 'string' ? payload.anchorId : '';
+  if (!characterId || !anchorId) return null;
+  const kind = payload.kind;
+  const participantIds = Array.isArray(payload.participantIds)
+    ? payload.participantIds.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 6)
+    : undefined;
+  const mergedAnchorIds = Array.isArray(payload.mergedAnchorIds)
+    ? payload.mergedAnchorIds.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 8)
+    : undefined;
+  const sourceEventIds = Array.isArray(payload.sourceEventIds)
+    ? payload.sourceEventIds.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 8)
+    : undefined;
+  return {
+    eventType: 'companionship_shared_anchor',
+    characterId,
+    userId: typeof payload.userId === 'string' ? payload.userId : undefined,
+    anchorId,
+    action,
+    kind: kind === 'first_time'
+      || kind === 'confession'
+      || kind === 'conflict'
+      || kind === 'repair'
+      || kind === 'inside_joke'
+      || kind === 'shared_secret'
+      || kind === 'promise'
+      || kind === 'milestone'
+      ? kind
+      : undefined,
+    participantIds,
+    title: typeof payload.title === 'string' ? compactText(payload.title, 80) : undefined,
+    text: typeof payload.text === 'string' ? compactText(payload.text, 180) : undefined,
+    salience: typeof payload.salience === 'number' && Number.isFinite(payload.salience) ? payload.salience : undefined,
+    confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
+    evidence: typeof payload.evidence === 'string' ? compactText(payload.evidence, 180) : undefined,
+    mergedAnchorIds,
+    sourceEventIds,
+    reason: typeof payload.reason === 'string' ? compactText(payload.reason, 120) : undefined,
+    decisionSource: payload.decisionSource === 'model' || payload.decisionSource === 'local_fallback' ? payload.decisionSource : undefined,
+  };
+}
+
+function sharedAnchorTextKey(anchor: Pick<SharedMemoryAnchor, 'kind' | 'participantIds' | 'text'>) {
+  return `${anchor.kind}:${anchor.participantIds.slice().sort().join(',')}:${anchor.text.replace(/\s+/g, '').slice(0, 48)}`;
+}
+
+function sharedAnchorPayloadTextKey(payload: CompanionshipSharedAnchorEventPayload, characterId: string) {
+  const kind = payload.kind || classifySharedMemoryAnchor(`${payload.text || ''}\n${payload.evidence || ''}`);
+  const text = compactText(payload.text || payload.evidence || payload.reason, 180);
+  if (!kind || !text) return '';
+  const participantIds = normalizeAnchorParticipants(characterId, payload.participantIds?.length ? payload.participantIds.filter((id) => id !== characterId) : [payload.userId || USER_ACTOR_ID]);
+  return sharedAnchorTextKey({ kind, participantIds, text });
+}
+
+function isSharedAnchorSuppressed(anchor: SharedMemoryAnchor, state: ReturnType<typeof buildRuntimeEventSharedAnchorState>) {
+  return state.closedIds.has(anchor.id)
+    || Boolean(anchor.sourceId && state.closedIds.has(anchor.sourceId))
+    || state.closedTextKeys.has(sharedAnchorTextKey(anchor));
+}
+
+function buildRuntimeEventSharedAnchorState(chat: GroupChat | undefined, character: AICharacter, now: number) {
+  const activeById = new Map<string, SharedMemoryAnchor>();
+  const closedIds = new Set<string>();
+  const closedTextKeys = new Set<string>();
+  (chat?.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .slice()
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+    .forEach((event) => {
+      const payload = sharedAnchorPayloadOf(event);
+      if (!payload || payload.characterId !== character.id) return;
+      const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 1;
+      if (confidence < 0.6) return;
+      const textKey = sharedAnchorPayloadTextKey(payload, character.id);
+      if (payload.action === 'archive' || payload.action === 'revoke') {
+        activeById.delete(payload.anchorId);
+        closedIds.add(payload.anchorId);
+        (payload.mergedAnchorIds || []).forEach((id) => closedIds.add(id));
+        if (textKey) closedTextKeys.add(textKey);
+        return;
+      }
+      const kind = payload.kind || classifySharedMemoryAnchor(`${payload.text || ''}\n${payload.evidence || ''}`);
+      const text = compactText(payload.text || payload.evidence || payload.reason, 180);
+      if (!kind || !text) return;
+      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds?.length ? payload.participantIds.filter((id) => id !== character.id) : [payload.userId || USER_ACTOR_ID]);
+      (payload.mergedAnchorIds || []).forEach((id) => {
+        if (id !== payload.anchorId) {
+          activeById.delete(id);
+          closedIds.add(id);
+        }
+      });
+      closedIds.delete(payload.anchorId);
+      if (textKey) closedTextKeys.delete(textKey);
+      activeById.set(payload.anchorId, {
+        id: `runtime-anchor-${payload.anchorId}`,
+        kind,
+        participantIds,
+        title: payload.title || formatSharedAnchorTitle(kind),
+        text,
+        salience: clampRelationshipScore(payload.salience ?? 68),
+        confidence: clampRelationshipScore(confidence * 100),
+        source: 'runtime_event',
+        sourceId: event.id,
+        evidence: payload.evidence || event.summary || payload.reason,
+        createdAt: event.createdAt || now,
+        updatedAt: event.createdAt || now,
+      });
+    });
+  return {
+    activeAnchors: Array.from(activeById.values()),
+    closedIds,
+    closedTextKeys,
+  };
+}
+
 function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: AICharacter, now: number): SharedMemoryAnchor[] {
-  return (chat?.runtimeEventsV2 || [])
+  const explicitState = buildRuntimeEventSharedAnchorState(chat, character, now);
+  const conflictAnchors = (chat?.runtimeEventsV2 || [])
     .map((event): SharedMemoryAnchor | null => {
       const payload = intimateConflictEventPayloadOf(event);
       if (!payload || payload.characterId !== character.id) return null;
@@ -1781,9 +1947,11 @@ function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: 
       };
     })
     .filter((item): item is SharedMemoryAnchor => Boolean(item));
+  return [...explicitState.activeAnchors, ...conflictAnchors.filter((anchor) => !isSharedAnchorSuppressed(anchor, explicitState))];
 }
 
 export function buildSharedMemoryAnchors(character: AICharacter, now = 0, chat?: GroupChat): SharedMemoryAnchor[] {
+  const runtimeAnchorState = buildRuntimeEventSharedAnchorState(chat, character, now);
   const layeredAnchors = (character.layeredMemories || [])
     .filter((item) => isMemoryAnchorCandidate(item))
     .map((item): SharedMemoryAnchor | null => {
@@ -1806,7 +1974,8 @@ export function buildSharedMemoryAnchors(character: AICharacter, now = 0, chat?:
         updatedAt: item.updatedAt || item.distilledAt || now,
       };
     })
-    .filter((item): item is SharedMemoryAnchor => Boolean(item));
+    .filter((item): item is SharedMemoryAnchor => Boolean(item))
+    .filter((anchor) => !isSharedAnchorSuppressed(anchor, runtimeAnchorState));
 
   const relationshipAnchors = (character.relationships || []).flatMap((relation, relationIndex) => {
     if (!relation.characterId || relation.characterId === USER_ACTOR_ID || relation.characterId.startsWith('draft-')) return [];
@@ -1829,7 +1998,8 @@ export function buildSharedMemoryAnchors(character: AICharacter, now = 0, chat?:
         createdAt: relation.updatedAt || now,
         updatedAt: relation.updatedAt || now,
       };
-    }).filter((item): item is SharedMemoryAnchor => Boolean(item));
+    }).filter((item): item is SharedMemoryAnchor => Boolean(item))
+      .filter((anchor) => !isSharedAnchorSuppressed(anchor, runtimeAnchorState));
   });
 
   const seen = new Set<string>();
@@ -1837,7 +2007,7 @@ export function buildSharedMemoryAnchors(character: AICharacter, now = 0, chat?:
 
   return [...layeredAnchors, ...relationshipAnchors, ...runtimeEventAnchors]
     .filter((anchor) => {
-      const key = `${anchor.kind}:${anchor.participantIds.slice().sort().join(',')}:${anchor.text.replace(/\s+/g, '').slice(0, 48)}`;
+      const key = sharedAnchorTextKey(anchor);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
