@@ -3,8 +3,9 @@ import type { SxProps, Theme } from '@mui/material/styles';
 import type { ReactNode } from 'react';
 import { motion, transition } from '../../styles/motion';
 
-const springOut = 'linear(0, 0.012 1.3%, 0.05 2.7%, 0.189 5.8%, 0.415 9.4%, 0.974 18.4%, 1.116 22.6%, 1.17 26.3%, 1.152 30.7%, 1.067 38.1%, 1.017 44.3%, 0.996 50.6%, 0.993 57.1%, 1.003 73.7%, 1)';
-const settleOut = 'linear(0, 0.012 1.5%, 0.048 3%, 0.154 6.3%, 0.353 10.4%, 0.756 18.6%, 0.954 24.6%, 1.03 31.4%, 1.016 39.6%, 0.998 53.6%, 1)';
+const fabEnter = 'cubic-bezier(0.05, 0.7, 0.1, 1)';
+const fabExit = 'cubic-bezier(0.3, 0, 0.8, 0.15)';
+const fabLabelEnter = 'cubic-bezier(0.2, 1.22, 0.34, 1)';
 
 interface ExpandableFabProps {
   icon: ReactNode;
@@ -41,12 +42,19 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
           boxShadow: (theme) => theme.palette.mode === 'light'
             ? '0 16px 34px rgba(15,23,42,0.18)'
             : '0 18px 42px rgba(0,0,0,0.40)',
-          transition: transition(['width', 'min-width', 'box-shadow', 'transform'], 460, settleOut),
+          transformOrigin: 'right center',
+          transition: [
+            transition(['width', 'min-width'], 360, fabExit),
+            transition(['box-shadow', 'transform'], 260, motion.softInOut),
+          ].join(', '),
           '&:hover, &:focus-visible': canHover ? {
             width: expandedWidth,
             minWidth: expandedWidth,
-            transform: 'translateY(-1px) scale(1.018)',
-            transitionTimingFunction: springOut,
+            transform: 'translateY(-2px) scale(1.012)',
+            transition: [
+              transition(['width', 'min-width'], 620, fabEnter),
+              transition(['box-shadow', 'transform'], 460, motion.gentleSpring),
+            ].join(', '),
             boxShadow: (theme) => theme.palette.mode === 'light'
               ? '0 20px 42px rgba(15,23,42,0.22)'
               : '0 22px 52px rgba(0,0,0,0.46)',
@@ -64,7 +72,14 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0,
+            transform: 'translateX(0) rotate(0deg)',
+            transition: transition(['transform'], 360, motion.softOut),
           },
+          '&:hover .ExpandableFab-icon, &:focus-visible .ExpandableFab-icon': canHover ? {
+            transform: 'translateX(-1px) rotate(-5deg)',
+            transitionDuration: '520ms',
+            transitionTimingFunction: motion.gentleSpring,
+          } : undefined,
           '& .ExpandableFab-label': {
             minWidth: 0,
             width: expandedWidth - 68,
@@ -76,13 +91,14 @@ export default function ExpandableFab({ icon, label, ariaLabel, onClick, color =
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             opacity: canHover ? 0 : 1,
-            transform: canHover ? 'translateX(-4px)' : 'translateX(0)',
-            transition: `opacity 170ms ease 80ms, transform 440ms ${settleOut}`,
+            transform: canHover ? 'translate3d(6px, 3px, 0) scale(0.96)' : 'translate3d(0, 0, 0) scale(1)',
+            transformOrigin: 'left center',
+            transition: `opacity 150ms ease, transform 280ms ${fabExit}`,
           },
           '&:hover .ExpandableFab-label, &:focus-visible .ExpandableFab-label': canHover ? {
             opacity: 1,
-            transform: 'translateX(0)',
-            transitionTimingFunction: `ease, ${springOut}`,
+            transform: 'translate3d(0, 0, 0) scale(1)',
+            transition: `opacity 220ms ease 150ms, transform 520ms ${fabLabelEnter} 90ms`,
           } : undefined,
         },
         ...(Array.isArray(sx) ? sx : [sx]),
