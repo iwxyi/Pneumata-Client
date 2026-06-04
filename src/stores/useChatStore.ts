@@ -19,6 +19,7 @@ import {
   canAttemptOnlineSync,
   classifySyncError,
   createPendingOperation,
+  getPendingQueueWorkerPriority,
   latestSyncError,
   recoverInterruptedOperations,
   removePendingOperation,
@@ -563,7 +564,9 @@ const CHAT_DETAIL_REFRESH_TTL_MS = 120_000;
 const CHAT_SUMMARY_SCOPE: SyncChangeScope = 'chats.summary';
 const WORLD_RUNTIME_SCOPE: SyncChangeScope = 'world-runtime.window';
 const chatDetailScope = (id: string): SyncChangeScope => `chats.detail:${id}`;
-const chatSyncScheduler = createSyncScheduler('chat.pending-operations', { priority: 80 });
+const chatSyncScheduler = createSyncScheduler('chat.pending-operations', {
+  priority: () => getPendingQueueWorkerPriority(useChatStore.getState().pendingOperations, 80, pendingChatOperationPriority),
+});
 const chatSyncScopes = createSyncScopeMetadata(CHAT_REFRESH_TTL_MS, {
   getStorageKey: () => scopedStorageKey(`chat-sync-scopes-${getLocalDataUserId()}`),
 });

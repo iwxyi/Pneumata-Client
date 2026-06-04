@@ -43,6 +43,16 @@ export function selectDueOperation<T extends { status: 'pending' | 'syncing' | '
   return dueOperations.reduce((best, item) => (priority(item) > priority(best) ? item : best), dueOperations[0]);
 }
 
+export function getPendingQueueWorkerPriority<T extends { status: 'pending' | 'syncing' | 'failed'; retryAt?: number }>(
+  operations: T[],
+  basePriority: number,
+  priority: (operation: T) => number,
+  now = Date.now(),
+) {
+  const dueOperation = selectDueOperation(operations, now, priority);
+  return basePriority + (dueOperation ? priority(dueOperation) : 0);
+}
+
 export function nextRetryAt(attemptCount: number, delays: number[], now = Date.now()) {
   const delay = delays[Math.min(attemptCount, delays.length - 1)] ?? delays.at(-1) ?? 0;
   return delay > 0 ? now + delay : now;

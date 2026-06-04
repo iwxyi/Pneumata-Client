@@ -95,6 +95,20 @@ describe('storeSyncHelpers', () => {
     expect(helpers.selectDueOperation(operations, 2_000, (operation) => operation.id === 'later' ? 20 : operation.priority ?? 0)?.id).toBe('later');
   });
 
+  it('raises worker priority by the highest due operation priority only', () => {
+    const operations = [
+      { id: 'later', status: 'pending' as const, attemptCount: 0, retryAt: 2_000, priority: 100 },
+      { id: 'low', status: 'pending' as const, attemptCount: 0, retryAt: 0, priority: 10 },
+      { id: 'high', status: 'pending' as const, attemptCount: 0, retryAt: 0, priority: 80 },
+      { id: 'syncing', status: 'syncing' as const, attemptCount: 0, retryAt: 0, priority: 200 },
+    ];
+
+    expect(helpers.getPendingQueueWorkerPriority(operations, 70, (operation) => operation.priority, 1_000)).toBe(150);
+    expect(helpers.getPendingQueueWorkerPriority(operations, 70, (operation) => operation.priority, 1_999)).toBe(150);
+    expect(helpers.getPendingQueueWorkerPriority(operations, 70, (operation) => operation.priority, 2_000)).toBe(170);
+    expect(helpers.getPendingQueueWorkerPriority([], 70, (operation: { priority: number }) => operation.priority, 2_000)).toBe(70);
+  });
+
   it('classifies failures and returns a retry operation from the shared worker executor', async () => {
     const operations = [{
       id: 'op-1',

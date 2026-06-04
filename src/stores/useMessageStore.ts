@@ -9,7 +9,7 @@ import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateMessageStoreState } from './storeMigrations';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
-import { canAttemptOnlineSync, recoverInterruptedOperations, runPendingOperationQueue } from './storeSyncHelpers';
+import { canAttemptOnlineSync, getPendingQueueWorkerPriority, recoverInterruptedOperations, runPendingOperationQueue } from './storeSyncHelpers';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
@@ -4556,7 +4556,9 @@ function trimCache(cache: Record<string, CachedMessageWindow>) {
 const messageStorage = createMessageStorage();
 const MESSAGE_SYNC_DELAYS = [1000, 3000, 10000, 30000];
 const MESSAGE_WINDOW_REFRESH_TTL_MS = 5 * 60_000;
-const messageSyncScheduler = createSyncScheduler('message.pending-operations', { priority: 100 });
+const messageSyncScheduler = createSyncScheduler('message.pending-operations', {
+  priority: () => getPendingQueueWorkerPriority(useMessageStore.getState().pendingOperations, 100, pendingMessageOperationPriority),
+});
 const messageSyncScopes = createSyncScopeMetadata(MESSAGE_WINDOW_REFRESH_TTL_MS, {
   getStorageKey: () => scopedStorageKey(`message-sync-scopes-${getLocalDataUserId()}`),
 });

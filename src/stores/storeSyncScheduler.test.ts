@@ -84,6 +84,35 @@ describe('storeSyncScheduler', () => {
     expect(lowFlush).toHaveBeenCalledTimes(1);
   });
 
+  it('re-evaluates dynamic worker priority when scheduling', async () => {
+    const {
+      createSyncScheduler,
+      getSyncWorkerPriority,
+      scheduleSyncWorkersByPriority,
+    } = await import('./storeSyncScheduler');
+    let dynamicPriority = 10;
+    const dynamicFlush = vi.fn(async () => {});
+    const staticFlush = vi.fn(async () => {});
+    const dynamic = createSyncScheduler('priority.dynamic', { priority: () => dynamicPriority });
+    const staticWorker = createSyncScheduler('priority.static', { priority: 50 });
+
+    dynamic.registerLifecycle(dynamicFlush, 300);
+    staticWorker.registerLifecycle(staticFlush, 300);
+
+    expect(getSyncWorkerPriority('priority.dynamic')).toBe(10);
+    let order = scheduleSyncWorkersByPriority(100);
+    expect(order.findIndex((id) => id === 'priority.static')).toBeLessThan(
+      order.findIndex((id) => id === 'priority.dynamic'),
+    );
+
+    dynamicPriority = 100;
+    expect(getSyncWorkerPriority('priority.dynamic')).toBe(100);
+    order = scheduleSyncWorkersByPriority(100);
+    expect(order.findIndex((id) => id === 'priority.dynamic')).toBeLessThan(
+      order.findIndex((id) => id === 'priority.static'),
+    );
+  });
+
   it('pauses lifecycle workers while bootstrap lock is active and resumes after unlock', async () => {
     const {
       beginCloudSyncBootstrapLock,

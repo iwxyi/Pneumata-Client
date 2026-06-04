@@ -19,6 +19,7 @@ import {
   canAttemptOnlineSync,
   classifySyncError,
   createPendingOperation,
+  getPendingQueueWorkerPriority,
   latestSyncError,
   recoverInterruptedOperations,
   removePendingOperation,
@@ -514,7 +515,9 @@ const CHARACTER_REFRESH_TTL_MS = 30_000;
 const CHARACTER_DETAIL_REFRESH_TTL_MS = 120_000;
 const CHARACTER_SUMMARY_SCOPE: SyncChangeScope = 'characters.summary';
 const characterDetailScope = (id: string): SyncChangeScope => `characters.detail:${id}`;
-const characterSyncScheduler = createSyncScheduler('character.pending-operations', { priority: 70 });
+const characterSyncScheduler = createSyncScheduler('character.pending-operations', {
+  priority: () => getPendingQueueWorkerPriority(useCharacterStore.getState().pendingOperations, 70, pendingCharacterOperationPriority),
+});
 const characterSyncScopes = createSyncScopeMetadata(CHARACTER_REFRESH_TTL_MS, {
   getStorageKey: () => scopedStorageKey(`character-sync-scopes-${getLocalDataUserId()}`),
 });
