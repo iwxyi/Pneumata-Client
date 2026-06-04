@@ -284,6 +284,7 @@ interface ChatStore extends PersistedChatState {
   loadChat: (id: string) => Promise<GroupChat | null>;
   loadWorldRuntime: () => Promise<void>;
   prefetchChats: () => Promise<void>;
+  prefetchWorldRuntime: () => Promise<void>;
   flushPendingOperations: () => Promise<void>;
   queuePatch: (entityId: string, patch: Record<string, unknown>, kind?: PendingChatOperation['kind']) => void;
   loadProjectedDeletedChats: () => Promise<GroupChat[]>;
@@ -939,6 +940,11 @@ export const useChatStore = create<ChatStore>()(
           const state = get();
           if (state.chats.length > 0 && chatSyncScopes.isFresh(CHAT_SUMMARY_SCOPE)) return;
           void get().loadChats();
+        },
+
+        prefetchWorldRuntime: async () => {
+          if (chatSyncScopes.isFresh(WORLD_RUNTIME_SCOPE)) return;
+          void get().loadWorldRuntime();
         },
 
         getChat: (id) => get().chats.find((chat) => chat.id === id),

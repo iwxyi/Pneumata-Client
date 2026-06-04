@@ -108,6 +108,8 @@ export default function AIModelsPage() {
   const characters = useCharacterStore((state) => state.characters);
   const characterLoading = useCharacterStore((state) => state.isLoading);
   const loadCharacters = useCharacterStore((state) => state.loadCharacters);
+  const markCharactersWarm = useCharacterStore((state) => state.markCharactersWarm);
+  const prefetchCharacters = useCharacterStore((state) => state.prefetchCharacters);
   const updateCharacter = useCharacterStore((state) => state.updateCharacter);
   const [showKey, setShowKey] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -196,9 +198,10 @@ export default function AIModelsPage() {
 
   useEffect(() => {
     if (characters.length === 0 && !characterLoading) {
-      void loadCharacters();
+      markCharactersWarm();
+      void prefetchCharacters();
     }
-  }, [characters.length, characterLoading, loadCharacters]);
+  }, [characters.length, characterLoading, markCharactersWarm, prefetchCharacters]);
 
   const handleTestConnection = async (profileId: string) => {
     const profile = settings.aiProfiles.find((item) => item.id === profileId);

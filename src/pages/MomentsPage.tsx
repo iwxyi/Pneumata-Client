@@ -96,11 +96,13 @@ export default function MomentsPage() {
   const { i18n } = useTranslation();
   const isZh = i18n.language.startsWith('zh');
   const chats = useChatStore((state) => state.chats);
-  const loadChats = useChatStore((state) => state.loadChats);
-  const loadWorldRuntime = useChatStore((state) => state.loadWorldRuntime);
+  const markChatsWarm = useChatStore((state) => state.markChatsWarm);
+  const prefetchChats = useChatStore((state) => state.prefetchChats);
+  const prefetchWorldRuntime = useChatStore((state) => state.prefetchWorldRuntime);
   const updateChat = useChatStore((state) => state.updateChat);
   const characters = useCharacterStore((state) => state.characters);
-  const loadCharacters = useCharacterStore((state) => state.loadCharacters);
+  const markCharactersWarm = useCharacterStore((state) => state.markCharactersWarm);
+  const prefetchCharacters = useCharacterStore((state) => state.prefetchCharacters);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMomentDebug = useSettingsStore((state) => state.developerUI.showMomentDebug);
   const aiProfiles = useSettingsStore((state) => state.aiProfiles);
@@ -110,10 +112,12 @@ export default function MomentsPage() {
   const [visibleCount, setVisibleCount] = useState(MOMENT_PAGE_SIZE);
 
   useEffect(() => {
-    void loadChats();
-    void loadWorldRuntime();
-    void loadCharacters();
-  }, [loadCharacters, loadChats, loadWorldRuntime]);
+    markChatsWarm();
+    markCharactersWarm();
+    void prefetchChats();
+    void prefetchWorldRuntime();
+    void prefetchCharacters();
+  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats, prefetchWorldRuntime]);
 
   const characterAvatars = useMemo(() => new Map(characters.map((character) => [character.id, character.avatar])), [characters]);
   const textMembers = useMemo(() => characters.map((character) => ({ id: character.id, name: character.name })), [characters]);

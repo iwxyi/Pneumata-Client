@@ -80,7 +80,7 @@ export default function CharacterLibraryPage() {
   const pane = usePaneLayout();
   const isMasterPane = pane.role === 'master';
   const { chats, addChat } = useChatStore();
-  const { characters, loadCharacters, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, isLoading } = useCharacterStore();
+  const { characters, loadCharacters, markCharactersWarm, prefetchCharacters, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, isLoading } = useCharacterStore();
   const [tab, setTab] = useState(() => readPersistentUiValue(CHARACTER_LIBRARY_TAB_KEY, 0, isCharacterLibraryTab));
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string>(() => readPersistentUiValue(CHARACTER_LIBRARY_GROUP_KEY, 'all', isCharacterLibraryGroup));
@@ -117,14 +117,10 @@ export default function CharacterLibraryPage() {
   };
 
   useEffect(() => {
-    void loadCharacters()
-      .then(() => {
-        setLoadError(null);
-      })
-      .catch((error) => {
-        setLoadError(error instanceof Error ? error.message : (i18n.language.startsWith('zh') ? '角色加载失败' : 'Failed to load characters'));
-      });
-  }, [i18n.language, loadCharacters]);
+    markCharactersWarm();
+    setLoadError(null);
+    void prefetchCharacters();
+  }, [markCharactersWarm, prefetchCharacters]);
 
   useEffect(() => {
     writePersistentUiValue(CHARACTER_LIBRARY_TAB_KEY, tab);

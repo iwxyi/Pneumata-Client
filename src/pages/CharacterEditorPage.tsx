@@ -23,10 +23,11 @@ export default function CharacterEditorPage() {
   const editId = isCreate ? null : (id || null);
   const settings = useSettingsStore();
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
-  const { characters, loadCharacters, loadCharacter, addCharacter, updateCharacter, updateCharacters, deleteCharacter, initializePresets, remoteDeletedCharacterIds } = useCharacterStore();
+  const { characters, loadCharacter, addCharacter, updateCharacter, updateCharacters, deleteCharacter, initializePresets, remoteDeletedCharacterIds, markCharactersWarm, prefetchCharacters } = useCharacterStore();
   const chats = useChatStore((state) => state.chats);
-  const loadChats = useChatStore((state) => state.loadChats);
-  const loadWorldRuntime = useChatStore((state) => state.loadWorldRuntime);
+  const markChatsWarm = useChatStore((state) => state.markChatsWarm);
+  const prefetchChats = useChatStore((state) => state.prefetchChats);
+  const prefetchWorldRuntime = useChatStore((state) => state.prefetchWorldRuntime);
   const updateChatSession = useChatStore((state) => state.updateChat);
   const syncArtifactCloud = useCharacterArtifactStore((state) => state.syncCloud);
   const [bootstrapComplete, setBootstrapComplete] = useState(false);
@@ -59,8 +60,9 @@ export default function CharacterEditorPage() {
         });
       void initializePresets();
     } else {
-      void loadCharacters()
-        .then(() => initializePresets())
+      markCharactersWarm();
+      void prefetchCharacters();
+      void initializePresets()
         .finally(() => {
           if (!cancelled) setBootstrapComplete(true);
         });
@@ -68,12 +70,15 @@ export default function CharacterEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [editId, initializePresets, loadCharacter, loadCharacters]);
+  }, [editId, initializePresets, loadCharacter, markCharactersWarm, prefetchCharacters]);
 
   useEffect(() => {
-    void loadChats();
-    void loadWorldRuntime();
-  }, [loadChats, loadWorldRuntime]);
+    markChatsWarm();
+    markCharactersWarm();
+    void prefetchChats();
+    void prefetchCharacters();
+    void prefetchWorldRuntime();
+  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats, prefetchWorldRuntime]);
 
   useEffect(() => {
     if (!editId) return;
