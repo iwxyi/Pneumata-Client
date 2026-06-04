@@ -279,7 +279,7 @@ function mergeCharacterRecord(local: AICharacter | undefined, remote: AICharacte
     modelProfileId: local.modelProfileId,
     modelProfileIds: local.modelProfileIds,
     generationPreferences: local.generationPreferences,
-    bubbleStyle: local.bubbleStyle,
+    bubbleStyle: local.bubbleStyle || remote.bubbleStyle,
   };
 }
 
@@ -288,7 +288,8 @@ function mergeCharacters(localCharacters: AICharacter[], remoteCharacters: AICha
   for (const character of normalizeCharacters(localCharacters)) merged.set(character.id, character);
   for (const remote of normalizeCharacters(remoteCharacters)) {
     const local = merged.get(remote.id);
-    if (!local || remote.updatedAt > local.updatedAt || (remote.characterDetailLoaded && !local.characterDetailLoaded)) {
+    const fillsMissingBubbleStyle = Boolean(!local?.bubbleStyle && remote.bubbleStyle);
+    if (!local || remote.updatedAt > local.updatedAt || (remote.characterDetailLoaded && !local.characterDetailLoaded) || fillsMissingBubbleStyle) {
       merged.set(remote.id, normalizeCharacter(mergeCharacterRecord(local, remote)));
     }
   }

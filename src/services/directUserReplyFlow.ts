@@ -34,8 +34,15 @@ export async function runDirectUserReplyFlow(params: {
   recordSpeak: (characterId: string) => void;
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
 }) {
-  const directCharacter = params.characters.find((item) => item.id === params.chat.memberIds[0]);
+  const directCharacterId = params.chat.memberIds[0];
+  const cachedDirectCharacter = params.characters.find((item) => item.id === directCharacterId);
+  const directCharacter = (cachedDirectCharacter?.characterDetailLoaded === false
+    ? await useCharacterStore.getState().loadCharacter(directCharacterId)
+    : cachedDirectCharacter) || cachedDirectCharacter;
   if (!directCharacter) return;
+  const generationCharacters = useCharacterStore.getState().characters.length
+    ? useCharacterStore.getState().characters
+    : params.characters;
   const getProjectedMessages = () => projectCurrentChatMessages({
     chatId: params.chatId,
     activeMessages: useMessageStore.getState().messages,
@@ -103,14 +110,14 @@ export async function runDirectUserReplyFlow(params: {
     chatId: params.chatId,
     chat: chatForGeneration,
     speaker: directCharacter,
-    characters: params.characters,
+    characters: generationCharacters,
     timestamp: params.userMessage.timestamp + 1,
     currentMessages: getProjectedMessages(),
     onLocalInterception: params.onLocalInterception,
     generationContext: {
       buildPromptContext: (speaker) => sessionEngine.buildGenerationPromptContext?.({
         conversation: chatForGeneration,
-        characters: params.characters,
+        characters: generationCharacters,
         messages: getProjectedMessages(),
         speaker,
       }) || null,

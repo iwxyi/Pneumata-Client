@@ -102,7 +102,7 @@ export default function ChatDetailPage() {
   const { setHideMobileBottomNav } = useLayoutHeaderActions();
 
   const { chats, updateChat, applyChatRuntimeDelta, loadChat, markChatsWarm, isLoading: chatsLoading, remoteDeletedChatIds, remoteDeletedChats } = useChatStore();
-  const { characters, updateCharacter, updateCharacters, loadCharacters, markCharactersWarm } = useCharacterStore();
+  const { characters, updateCharacter, updateCharacters, loadCharacter, markCharactersWarm } = useCharacterStore();
   const { messages, messageWindowsByChatId, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, upsertMessages, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
   const api = useSettingsStore((s) => s.api);
@@ -134,13 +134,17 @@ export default function ChatDetailPage() {
     setDetailBootstrapComplete(false);
     markChatsWarm();
     markCharactersWarm();
-    void Promise.all([id ? loadChat(id) : Promise.resolve(null), loadCharacters()]).finally(() => {
+    void (async () => {
+      const loadedChat = id ? await loadChat(id) : null;
+      const memberIds = loadedChat?.memberIds || useChatStore.getState().chats.find((item) => item.id === id)?.memberIds || [];
+      await Promise.all(memberIds.map((memberId) => loadCharacter(memberId)));
+    })().finally(() => {
       if (!cancelled) setDetailBootstrapComplete(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [id, loadCharacters, loadChat, markCharactersWarm, markChatsWarm]);
+  }, [id, loadCharacter, loadChat, markCharactersWarm, markChatsWarm]);
 
   const remoteDeletedChat = remoteDeletedChats.find((c) => c.id === id);
   const chat = chats.find((c) => c.id === id) || remoteDeletedChat;

@@ -144,6 +144,7 @@ export async function runSessionLoop(params: {
   getStreamingMessage?: () => Message | null;
   getCurrentChat?: () => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
+  ensureCharacterDetail?: (characterId: string) => Promise<AICharacter | null>;
   isRunning: () => boolean;
   isPaused: () => boolean;
   isActiveLoop: (loopId: string) => boolean;
@@ -266,6 +267,7 @@ export async function runSessionLoop(params: {
             params.onSpeakerSelected(charId);
             roundStreamingMessage = params.getStreamingMessage?.() || null;
           },
+          ensureSpeakerDetail: (charId) => params.ensureCharacterDetail?.(charId) || Promise.resolve(undefined),
           onMessageChunk: (content) => {
             if (!isActiveLoop(params)) return;
             params.onMessageChunk(content);

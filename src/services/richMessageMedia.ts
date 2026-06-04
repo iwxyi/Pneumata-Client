@@ -5,6 +5,7 @@ import { api } from './api';
 import { generateImageWithAdapter, synthesizeSpeechWithAdapter } from './aiGenerationAdapter';
 import { storageKey } from '../constants/brand';
 import { reportRecoverableError } from './diagnostics';
+import { isCloudSyncEnabled } from './cloudSyncPreference';
 
 function findProfile(profiles: AIModelProfile[], id?: string | null) {
   const profile = id ? profiles.find((item) => item.id === id) : null;
@@ -33,7 +34,7 @@ async function ensureDataUrl(value: string) {
 }
 
 export function isLocalOnlyMediaMode() {
-  return (typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey('auth-mode')) : 'local') !== 'cloud';
+  return !isCloudSyncEnabled() || (typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey('auth-mode')) : 'local') !== 'cloud';
 }
 
 function updateAttachment(metadata: MessageMetadata | undefined, attachmentId: string, patch: Partial<MessageAttachment>): MessageMetadata {

@@ -83,6 +83,7 @@ export function useChatRunLoop(params: {
         getStreamingMessage: () => current.streamingMessageRef.current,
         getCurrentChat: () => useChatStore.getState().chats.find((item) => item.id === current.chatId),
         getCurrentCharacters: () => useCharacterStore.getState().characters,
+        ensureCharacterDetail: (characterId) => useCharacterStore.getState().loadCharacter(characterId),
         isRunning: () => current.isRunningRef.current,
         isPaused: () => current.isPausedRef.current || (current.isManualInputPending() && !current.streamingMessageRef.current && pendingCommitCountRef.current === 0),
         isActiveLoop: (currentLoopId) => current.activeChatIdRef.current === current.chatId && current.loopTokenRef.current === currentLoopId,

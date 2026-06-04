@@ -12,9 +12,10 @@ import { createSyncScheduler } from './storeSyncScheduler';
 import { canAttemptOnlineSync, classifySyncError, recoverInterruptedOperations } from './storeSyncHelpers';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
+import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 
 function isLocalOnlyMode() {
-  return useAuthStore.getState().authMode === 'local';
+  return useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled();
 }
 
 function createLocalMessage(msgData: Omit<Message, 'id' | 'timestamp' | 'isDeleted'> & { timestamp?: number }): Message {

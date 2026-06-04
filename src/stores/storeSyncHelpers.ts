@@ -1,12 +1,13 @@
 import { useAuthStore } from './useAuthStore';
 import type { SyncPatchOperation } from '../services/syncProjector';
+import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 
 export function isLocalOnlyMode() {
   return useAuthStore.getState().authMode === 'local';
 }
 
 export function shouldSkipCloudSync() {
-  return isLocalOnlyMode();
+  return isLocalOnlyMode() || !isCloudSyncEnabled();
 }
 
 export function canAttemptOnlineSync() {

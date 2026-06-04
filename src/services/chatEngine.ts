@@ -170,6 +170,7 @@ export const setEmotion = (characterId: string, value: number): void => { emotio
 
 export interface ChatEngineCallbacks {
   onSpeakerSelected: (characterId: string, speaker?: AICharacter) => void;
+  ensureSpeakerDetail?: (characterId: string, speaker?: AICharacter) => Promise<AICharacter | null | undefined>;
   onMessageChunk: (content: string) => void;
   onMessageComplete: (message: GeneratedRoundMessage) => void | Promise<void>;
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
@@ -1751,15 +1752,17 @@ export const runOneRound = async (
   if (!speaker) return;
   const selectedCandidate = candidates.find((candidate) => candidate.characterId === speaker.id);
   callbacks.onSpeakerSelected(speaker.id, speaker);
+  const hydratedSpeaker = await callbacks.ensureSpeakerDetail?.(speaker.id, speaker);
 
   try {
-    let activeSpeaker = speaker;
+    let activeSpeaker = hydratedSpeaker || speaker;
     let completedMessage: GeneratedRoundMessage;
     try {
+      const generationCharacters = activeSpeaker === speaker ? characters : characters.map((item) => item.id === activeSpeaker.id ? activeSpeaker : item);
       completedMessage = await generateSpeakerMessage({
         chat,
         speaker: activeSpeaker,
-        characters,
+        characters: generationCharacters,
         messages,
         apiConfig,
         profiles,
@@ -1788,10 +1791,13 @@ export const runOneRound = async (
       activeSpeaker = rotated;
       const rotatedCandidate = candidates.find((candidate) => candidate.characterId === activeSpeaker.id);
       callbacks.onSpeakerSelected(activeSpeaker.id, activeSpeaker);
+      const hydratedRotated = await callbacks.ensureSpeakerDetail?.(activeSpeaker.id, activeSpeaker);
+      if (hydratedRotated) activeSpeaker = hydratedRotated;
+      const generationCharacters = activeSpeaker === rotated ? characters : characters.map((item) => item.id === activeSpeaker.id ? activeSpeaker : item);
       completedMessage = await generateSpeakerMessage({
         chat,
         speaker: activeSpeaker,
-        characters,
+        characters: generationCharacters,
         messages,
         apiConfig,
         profiles,

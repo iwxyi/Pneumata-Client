@@ -11,6 +11,7 @@ import { isCharacterFeatureEnabled } from '../services/characterGenerationPolicy
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { api, type CharacterArtifactQuery, type CharacterArtifactSummaryEntry, type CharacterArtifactSyncEntry } from '../services/api';
 import { getLocalDataUserId } from '../services/authStorageScope';
+import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
 export type CharacterArtifactJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
@@ -94,7 +95,7 @@ function getGuestArtifactStorageKey() {
 }
 
 function isCloudMode() {
-  return Boolean(localStorage.getItem(storageKey('token'))) && localStorage.getItem(storageKey('auth-mode')) !== 'local';
+  return isCloudSyncEnabled() && Boolean(localStorage.getItem(storageKey('token'))) && localStorage.getItem(storageKey('auth-mode')) !== 'local';
 }
 
 function readPersistedItemsFromKey(key: string) {

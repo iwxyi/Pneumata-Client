@@ -4,7 +4,6 @@ import { Box, LinearProgress, ThemeProvider, CssBaseline, useMediaQuery } from '
 import { createAppTheme } from './theme';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useAuthStore } from './stores/useAuthStore';
-import { useCharacterStore } from './stores/useCharacterStore';
 import { useCharacterArtifactStore } from './stores/useCharacterArtifactStore';
 import AppLayout from './components/layout/AppLayout';
 import MasterDetailLayout from './components/layout/MasterDetailLayout';
@@ -125,7 +124,6 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoggedIn || authMode === 'local') {
       void loadSettings();
-      void useCharacterStore.getState().loadCharacters();
       void useCharacterArtifactStore.persist.rehydrate();
     }
   }, [authMode, isLoggedIn, loadSettings]);
@@ -134,6 +132,7 @@ function DataLoader({ children }: { children: React.ReactNode }) {
     if (!isLoggedIn && authMode !== 'local') return;
     const preload = () => {
       void loadCharacterLibraryPage();
+      void loadCharacterEditorPage();
     };
     const scheduler = (window as typeof window & {
       requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
@@ -167,8 +166,8 @@ function RoutedApp() {
         <Route path="/chats/:id/edit" element={<ChatMasterDetailRouteElement detail={<RouteElement><CreateChatPage /></RouteElement>} />} />
         <Route path="/chats/:id" element={<ChatMasterDetailRouteElement detail={<ChatDetailRouteElement />} detailTitle={null} />} />
         <Route path="/characters" element={<CharacterMasterDetailRouteElement detail={null} fallback="master" />} />
-        <Route path="/characters/create" element={<CharacterMasterDetailRouteElement detail={<RouteElement><CharacterEditorPage /></RouteElement>} />} />
-        <Route path="/characters/:id/edit" element={<CharacterMasterDetailRouteElement detail={<RouteElement><CharacterEditorPage /></RouteElement>} />} />
+        <Route path="/characters/create" element={<RouteElement><CharacterEditorPage /></RouteElement>} />
+        <Route path="/characters/:id/edit" element={<RouteElement><CharacterEditorPage /></RouteElement>} />
         <Route path="/characters/batch-generate" element={<RouteElement><BatchGenerateCharactersPage /></RouteElement>} />
         <Route path="/letters" element={<RouteElement><LettersPage /></RouteElement>} />
         <Route path="/calendar" element={<RouteElement><CalendarPage /></RouteElement>} />

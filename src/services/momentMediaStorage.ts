@@ -2,6 +2,7 @@ import { storageKey } from '../constants/brand';
 import type { AICharacter } from '../types/character';
 import { prepareAvatarUploadDataUrl } from '../utils/avatarUpload';
 import { api } from './api';
+import { isCloudSyncEnabled } from './cloudSyncPreference';
 
 const LOCAL_MOMENT_MEDIA_DB = 'pneumata-moment-media';
 const LOCAL_MOMENT_MEDIA_STORE = 'assets';
@@ -39,7 +40,7 @@ function authMode() {
 }
 
 function isCloudMode() {
-  return authMode() === 'cloud';
+  return isCloudSyncEnabled() && authMode() === 'cloud';
 }
 
 export function estimateDataUrlBytes(dataUrl: string) {

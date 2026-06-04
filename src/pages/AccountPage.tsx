@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Avatar, Box, Button, Card, CardContent, Alert, TextField, Typography, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { Avatar, Box, Button, Card, CardContent, Alert, TextField, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Switch, FormControlLabel } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
@@ -11,6 +11,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useMessageStore } from '../stores/useMessageStore';
 import AppSnackbar from '../components/common/AppSnackbar';
 import LogoutIcon from '@mui/icons-material/Logout';
+import { isCloudSyncEnabled, setCloudSyncEnabled } from '../services/cloudSyncPreference';
 
 const MAX_AVATAR_FILE_SIZE = 2 * 1024 * 1024;
 const MAX_AVATAR_DIMENSION = 512;
@@ -97,6 +98,7 @@ export default function AccountPage() {
     severity: 'success',
   });
   const [syncingAll, setSyncingAll] = useState(false);
+  const [cloudSyncEnabled, setCloudSyncEnabledState] = useState(isCloudSyncEnabled);
 
   useEffect(() => {
     setNickname(user?.nickname || '');
@@ -132,6 +134,10 @@ export default function AccountPage() {
       navigate('/login');
       return;
     }
+    if (!cloudSyncEnabled) {
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先开启云同步' : 'Turn on cloud sync first', severity: 'error' });
+      return;
+    }
     setSyncingAll(true);
     try {
       await Promise.all([chatStore.loadChats(), characterStore.loadCharacters()]);
@@ -146,6 +152,10 @@ export default function AccountPage() {
   const handleDownloadAll = async () => {
     if (authMode === 'local') {
       navigate('/login');
+      return;
+    }
+    if (!cloudSyncEnabled) {
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先开启云同步' : 'Turn on cloud sync first', severity: 'error' });
       return;
     }
     setSyncingAll(true);
@@ -335,6 +345,17 @@ export default function AccountPage() {
 
   const isImageAvatar = isImageAvatarValue(avatar);
   const phoneLabel = i18n.language.startsWith('zh') ? '手机号' : 'Phone';
+  const handleCloudSyncToggle = (enabled: boolean) => {
+    setCloudSyncEnabled(enabled);
+    setCloudSyncEnabledState(enabled);
+    setSnackbar({
+      open: true,
+      message: enabled
+        ? (i18n.language.startsWith('zh') ? '已开启云同步。后续操作会按需同步到云端。' : 'Cloud sync is on. Future changes will sync when needed.')
+        : (i18n.language.startsWith('zh') ? '已关闭云同步。后续数据只保存在本设备。' : 'Cloud sync is off. Future data stays on this device.'),
+      severity: 'success',
+    });
+  };
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 12, sm: 8 }, maxWidth: 860, mx: 'auto' }}>
@@ -415,6 +436,23 @@ export default function AccountPage() {
                 {i18n.language.startsWith('zh') ? '查看详情' : 'Details'}
               </Button>
             </Box>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={authMode !== 'local' && cloudSyncEnabled}
+                  disabled={authMode === 'local'}
+                  onChange={(event) => handleCloudSyncToggle(event.target.checked)}
+                />
+              }
+              label={i18n.language.startsWith('zh') ? '开启云同步' : 'Enable cloud sync'}
+            />
+            <Typography variant="body2" color="text.secondary">
+              {authMode === 'local'
+                ? (i18n.language.startsWith('zh') ? '登录后才可使用云同步。' : 'Sign in to use cloud sync.')
+                : cloudSyncEnabled
+                  ? (i18n.language.startsWith('zh') ? '当前设备会按需上传和拉取云端数据。后续可接入会员权限，非付费用户禁用此开关。' : 'This device uploads and downloads cloud data as needed. Paid entitlement can disable this for free users later.')
+                  : (i18n.language.startsWith('zh') ? '云同步已关闭，当前设备只读写本地缓存，不会自动访问云端数据接口。' : 'Cloud sync is off. This device uses local cache only and will not automatically call cloud data APIs.')}
+            </Typography>
             <Typography variant="body2" color="text.secondary">
               {i18n.language.startsWith('zh') ? '设置同步' : 'Settings sync'}：{formatSyncTime(settingsStore.lastSyncedAt, i18n.language.startsWith('zh') ? '未同步' : 'Not synced')}
             </Typography>
@@ -433,10 +471,10 @@ export default function AccountPage() {
               </Typography>
             ) : null}
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <Button variant="outlined" onClick={handleUploadAll} disabled={syncingAll}>
+              <Button variant="outlined" onClick={handleUploadAll} disabled={syncingAll || (authMode !== 'local' && !cloudSyncEnabled)}>
                 {syncingAll ? (i18n.language.startsWith('zh') ? '同步中' : 'Syncing') : (i18n.language.startsWith('zh') ? '上传所有数据' : 'Upload all data')}
               </Button>
-              <Button variant="outlined" onClick={handleDownloadAll} disabled={syncingAll}>
+              <Button variant="outlined" onClick={handleDownloadAll} disabled={syncingAll || (authMode !== 'local' && !cloudSyncEnabled)}>
                 {syncingAll ? (i18n.language.startsWith('zh') ? '同步中' : 'Syncing') : (i18n.language.startsWith('zh') ? '下载所有数据' : 'Download all data')}
               </Button>
             </Box>

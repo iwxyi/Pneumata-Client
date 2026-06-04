@@ -14,6 +14,7 @@ import { CLIENT_STORE_SCHEMA_VERSION, migrateSettingsStoreState } from './storeM
 import { scopedStorageKey } from '../constants/brand';
 import { setAIGenerationRuntimeConfig } from '../services/aiGenerationRuntimeConfig';
 import { setCompanionshipRuntimeConfig } from '../services/companionshipRuntimeConfig';
+import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 
 interface SettingsStore extends AppSettings {
   _loaded: boolean;
@@ -60,7 +61,7 @@ function clearSavedStateTimer() {
 function syncToServer(data: Record<string, unknown>, set: SettingsSet) {
   if (syncTimer) clearTimeout(syncTimer);
   clearSavedStateTimer();
-  if (useAuthStore.getState().authMode === 'local') {
+  if (useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled()) {
     set((state) => ({ ...state, syncStatus: 'idle', syncError: null }));
     return;
   }
@@ -194,7 +195,7 @@ export const useSettingsStore = create<SettingsStore>()(
       syncError: null,
 
       loadSettings: async () => {
-        if (useAuthStore.getState().authMode === 'local') {
+        if (useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled()) {
           set((state) => ({ ...state, _loaded: true, syncStatus: 'idle', syncError: null }));
           return;
         }
@@ -513,6 +514,10 @@ export const useSettingsStore = create<SettingsStore>()(
       },
 
       syncCurrentSettingsToServer: async () => {
+        if (useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled()) {
+          set((state) => ({ ...state, syncStatus: 'idle', syncError: null }));
+          return;
+        }
         const current = useSettingsStore.getState();
         await api.updateSettings(buildSettingsPayload(current));
         set((state) => ({ ...state, syncStatus: 'saved', syncError: null, lastSyncedAt: Date.now() }));

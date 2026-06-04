@@ -25,6 +25,8 @@ import { APP_DIAGNOSTIC_TOAST_EVENT, type DiagnosticToastDetail } from '../../se
 const routeMeta = [
   { match: (pathname: string) => pathname === '/', titleKey: 'nav.home' },
   { match: (pathname: string) => pathname === '/chats' || pathname.startsWith('/chats/'), titleKey: 'nav.chats' },
+  { match: (pathname: string) => pathname === '/characters/create', titleKey: 'character.create' },
+  { match: (pathname: string) => /^\/characters\/[^/]+\/edit$/.test(pathname), titleKey: 'character.edit' },
   { match: (pathname: string) => pathname.startsWith('/characters'), titleKey: 'nav.characters' },
   { match: (pathname: string) => pathname.startsWith('/moments'), titleKey: 'nav.moments' },
   { match: (pathname: string) => pathname.startsWith('/calendar'), titleKey: 'nav.calendar' },
@@ -43,8 +45,7 @@ function isMasterDetailPath(pathname: string) {
   return pathname === '/chats'
     || pathname === '/characters'
     || /^\/chats\/(create|[^/]+|[^/]+\/edit)$/.test(pathname)
-    || pathname === '/direct/create'
-    || /^\/characters\/(create|[^/]+\/edit)$/.test(pathname);
+    || pathname === '/direct/create';
 }
 
 const SIDEBAR_WIDTH = 280;
