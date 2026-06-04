@@ -9,7 +9,7 @@ import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buil
 import { useSettingsStore } from './useSettingsStore';
 import { isCharacterFeatureEnabled } from '../services/characterGenerationPolicy';
 import { scopedStorageKey, storageKey } from '../constants/brand';
-import { api, type CharacterArtifactQuery, type CharacterArtifactSummaryEntry } from '../services/api';
+import { api, type CharacterArtifactQuery, type CharacterArtifactSummaryEntry, type CharacterArtifactSyncEntry } from '../services/api';
 import { getLocalDataUserId } from '../services/authStorageScope';
 
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
@@ -265,6 +265,110 @@ function shouldUploadArtifactItem(local: CharacterArtifactEntry, summary: Charac
   if (local.deletedAt != null || summary?.deletedAt != null) return false;
   if (!summary) return true;
   return (local.updatedAt || 0) > (summary.updatedAt || 0);
+}
+
+function compactString(value: string | undefined | null, max: number) {
+  const text = typeof value === 'string' ? value : '';
+  return text.length > max ? text.slice(0, max) : text;
+}
+
+function compactArtifactCharacterSnapshot(character: Partial<AICharacter> | undefined): Partial<AICharacter> | undefined {
+  if (!character) return undefined;
+  return {
+    id: character.id,
+    name: character.name,
+    background: compactString(character.background, 2000),
+    speakingStyle: compactString(character.speakingStyle, 1000),
+    expertise: (character.expertise || []).slice(0, 12),
+    group: character.group,
+    relationships: (character.relationships || []).slice(-24),
+    memory: character.memory ? {
+      shortTermSummary: compactString(character.memory.shortTermSummary, 1200),
+      longTerm: (character.memory.longTerm || []).slice(-24),
+      secrets: (character.memory.secrets || []).slice(-12),
+      obsessions: (character.memory.obsessions || []).slice(-12),
+      tabooTopics: (character.memory.tabooTopics || []).slice(-12),
+      userMemories: (character.memory.userMemories || []).slice(-24),
+    } : undefined,
+    layeredMemories: (character.layeredMemories || []).slice(-40).map((memory) => ({
+      ...memory,
+      text: compactString(memory.text, 600),
+      evidenceText: compactString(memory.evidenceText, 600),
+      evidenceTrail: (memory.evidenceTrail || []).slice(-3).map((trail) => ({
+        ...trail,
+        text: compactString(trail.text, 400),
+        memoryText: compactString(trail.memoryText, 400),
+        sourceEventIds: (trail.sourceEventIds || []).slice(-8),
+      })),
+      sourceEventIds: (memory.sourceEventIds || []).slice(-12),
+    })),
+    emotionalState: character.emotionalState,
+    soulState: character.soulState,
+    coreProfile: character.coreProfile,
+    visualIdentity: character.visualIdentity ? {
+      description: compactString(character.visualIdentity.description, 1000),
+      styleHint: compactString(character.visualIdentity.styleHint, 500),
+      negativePrompt: compactString(character.visualIdentity.negativePrompt, 500),
+      seed: character.visualIdentity.seed,
+      primaryReferenceImageId: character.visualIdentity.primaryReferenceImageId,
+      defaults: character.visualIdentity.defaults,
+      referenceImages: (character.visualIdentity.referenceImages || []).slice(0, 6).map((image) => ({
+        id: image.id,
+        assetId: image.assetId,
+        url: '',
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        checksum: image.checksum,
+        label: image.label,
+        source: image.source,
+        isPrimary: image.isPrimary,
+        createdAt: image.createdAt,
+      })),
+    } : undefined,
+    runtimeTimeline: (character.runtimeTimeline || []).slice(-24).map((entry) => ({
+      ...entry,
+      text: compactString(entry.text, 500),
+    })),
+    createdAt: character.createdAt,
+    updatedAt: character.updatedAt,
+  };
+}
+
+function projectArtifactItemForCloudUpload(item: CharacterArtifactEntry): CharacterArtifactSyncEntry {
+  return {
+    ...item,
+    characterName: compactString(item.characterName, 200),
+    sourceKey: item.sourceKey ? compactString(item.sourceKey, 160) : null,
+    title: compactString(item.title, 300),
+    generationSnapshot: item.generationSnapshot ? {
+      promptVersion: item.generationSnapshot.promptVersion,
+      character: compactArtifactCharacterSnapshot(item.generationSnapshot.character) || {},
+      relatedCharacters: (item.generationSnapshot.relatedCharacters || []).slice(0, 32).map((character) => ({
+        id: compactString(character.id, 191),
+        name: compactString(character.name, 120),
+      })),
+      generatedAt: item.generationSnapshot.generatedAt,
+    } : undefined,
+  };
+}
+
+function buildArtifactUploadDebug(item: CharacterArtifactEntry) {
+  const projected = projectArtifactItemForCloudUpload(item);
+  return {
+    id: item.id,
+    kind: item.kind,
+    characterId: item.characterId,
+    lengths: {
+      id: item.id.length,
+      characterId: item.characterId.length,
+      characterName: item.characterName.length,
+      sourceKey: item.sourceKey?.length || 0,
+      title: item.title.length,
+      text: item.text.length,
+      generationSnapshot: projected.generationSnapshot ? JSON.stringify(projected.generationSnapshot).length : 0,
+      rawGenerationSnapshot: item.generationSnapshot ? JSON.stringify(item.generationSnapshot).length : 0,
+    },
+  };
 }
 
 function artifactMatchesQuery(item: CharacterArtifactEntry, query: CharacterArtifactQuery) {
@@ -817,7 +921,14 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             }
             const uploads = projectedItems.filter((item) => artifactMatchesQuery(item, query) && shouldUploadArtifactItem(item, remoteSummaryById.get(item.id)));
             if (uploads.length) {
-              await Promise.all(uploads.map((item) => api.upsertCharacterArtifactItem(item)));
+              for (const item of uploads) {
+                try {
+                  await api.upsertCharacterArtifactItem(projectArtifactItemForCloudUpload(item));
+                } catch (error) {
+                  console.error('Failed to upload character artifact item:', { item: buildArtifactUploadDebug(item), error });
+                  throw error;
+                }
+              }
             }
           } catch (error) {
             console.error('Failed to sync character artifacts:', error);
