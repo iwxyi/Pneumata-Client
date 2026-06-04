@@ -47,6 +47,28 @@ describe('storeSyncHelpers', () => {
     expect(recovered.lastError).toBe('server_unavailable: 502');
   });
 
+  it('requeues failed operations for explicit user retry', () => {
+    const operations = [
+      { id: 'failed', status: 'failed' as const, attemptCount: 2, retryAt: 9_999, lockedAt: 123, lastError: 'validation: bad' },
+      { id: 'pending', status: 'pending' as const, attemptCount: 0, retryAt: 0, lockedAt: 0 },
+    ];
+
+    const retried = helpers.retryFailedOperations(operations);
+
+    expect(retried).not.toBe(operations);
+    expect(retried[0]).toMatchObject({
+      id: 'failed',
+      status: 'pending',
+      retryAt: 0,
+      lockedAt: 0,
+      lastError: undefined,
+    });
+    expect(retried[1]).toBe(operations[1]);
+
+    const noFailed = [operations[1]];
+    expect(helpers.retryFailedOperations(noFailed)).toBe(noFailed);
+  });
+
   it('runs due operations through the shared worker executor', async () => {
     const operations = [{
       id: 'op-1',

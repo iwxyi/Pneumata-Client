@@ -211,3 +211,18 @@ export function recoverInterruptedOperations<T extends { status: 'pending' | 'sy
     }
     : item);
 }
+
+export function retryFailedOperations<T extends { status: 'pending' | 'syncing' | 'failed'; lastError?: string; retryAt?: number; lockedAt?: number }>(queue: T[] = []) {
+  let changed = false;
+  const nextQueue = queue.map((item) => item.status === 'failed'
+    ? {
+      ...item,
+      status: 'pending' as const,
+      lastError: undefined,
+      retryAt: 0,
+      lockedAt: 0,
+    }
+    : item);
+  changed = nextQueue.some((item, index) => item !== queue[index]);
+  return changed ? nextQueue : queue;
+}

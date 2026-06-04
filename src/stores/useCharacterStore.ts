@@ -23,6 +23,7 @@ import {
   latestSyncError,
   recoverInterruptedOperations,
   removePendingOperation,
+  retryFailedOperations,
   runPendingOperationQueue,
   shouldSkipCloudSync,
   updatePendingOperation,
@@ -466,6 +467,7 @@ interface CharacterStore extends PersistedCharacterState {
   clearPendingOperations: () => void;
   confirmCreateOperationsSynced: (entityIds: string[]) => void;
   discardFailedOperation: (operationId: string) => void;
+  retryFailedOperations: () => void;
   loadPendingSnapshot: () => Promise<AICharacter[]>;
   loadProjectedRecycleBin: () => Promise<AICharacter[]>;
   hydrateProjectedState: () => void;
@@ -1001,6 +1003,15 @@ export const useCharacterStore = create<CharacterStore>()(
           const pendingOperations = removePendingCharacterOperation(state.pendingOperations, operationId);
           return {
             characters: projectVisibleCharacters(state.characters, pendingOperations),
+            pendingOperations,
+            pendingEditSyncCount: pendingOperations.length,
+            pendingEditSyncError: latestCharacterError(pendingOperations),
+          };
+        }),
+        retryFailedOperations: () => set((state) => {
+          const pendingOperations = retryFailedOperations(state.pendingOperations);
+          if (pendingOperations === state.pendingOperations) return {};
+          return {
             pendingOperations,
             pendingEditSyncCount: pendingOperations.length,
             pendingEditSyncError: latestCharacterError(pendingOperations),

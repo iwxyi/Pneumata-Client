@@ -8,6 +8,7 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import EmptyState from '../components/common/EmptyState';
 import { readCloudSyncBootstrapStatus, type CloudSyncBootstrapStatus } from '../services/cloudSyncBootstrapStatus';
+import { scheduleSyncWorkersByPriority } from '../stores/storeSyncScheduler';
 
 function clipText(value: unknown, max = 120) {
   if (value == null) return '';
@@ -157,9 +158,10 @@ export default function SyncStatusPage() {
   };
 
   const retryAll = () => {
-    void chatStore.flushPendingOperations();
-    void characterStore.flushPendingOperations();
-    void messageStore.flushPendingOperations();
+    chatStore.retryFailedOperations();
+    characterStore.retryFailedOperations();
+    messageStore.retryFailedOperations();
+    scheduleSyncWorkersByPriority(0);
     void artifactStore.resumeProcessing();
   };
 

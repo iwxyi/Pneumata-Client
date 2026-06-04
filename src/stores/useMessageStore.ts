@@ -9,7 +9,7 @@ import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateMessageStoreState } from './storeMigrations';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
-import { canAttemptOnlineSync, getPendingQueueWorkerPriority, recoverInterruptedOperations, runPendingOperationQueue } from './storeSyncHelpers';
+import { canAttemptOnlineSync, getPendingQueueWorkerPriority, recoverInterruptedOperations, retryFailedOperations, runPendingOperationQueue } from './storeSyncHelpers';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
@@ -4683,6 +4683,7 @@ interface MessageStore {
   queueMessageSync: (message: Message) => void;
   flushPendingOperations: () => Promise<void>;
   discardFailedOperation: (operationId: string) => void;
+  retryFailedOperations: () => void;
   clearChatMessagesLocal: (chatId: string) => void;
   deleteMessage: (id: string) => Promise<void>;
   deleteLastNMessages: (chatId: string, n: number) => Promise<void>;
@@ -4973,6 +4974,11 @@ export const useMessageStore = create<MessageStore>()(
         const operation = state.pendingOperations.find((item) => item.id === operationId);
         if (operation?.status !== 'failed') return {};
         return { pendingOperations: removePendingMessageOperation(state.pendingOperations, operationId) };
+      }),
+      retryFailedOperations: () => set((state) => {
+        const pendingOperations = retryFailedOperations(state.pendingOperations);
+        if (pendingOperations === state.pendingOperations) return {};
+        return { pendingOperations };
       }),
 
       clearChatMessagesLocal: (chatId) => {
