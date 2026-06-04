@@ -13,10 +13,8 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import type { LocalInterceptionEvent } from './chatEngine';
-import { resolveCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
-import { resolveCompanionshipPhaseEventFromDirectUserMessage } from './directCompanionshipPhase';
+import { resolveDirectCompanionshipAssessmentEvents } from './directCompanionshipAssessment';
 import { buildCompanionshipRitualEventsFromDirectUserMessage } from './directCompanionshipRitual';
-import { resolveUserProfileMemoryEventFromDirectUserMessage } from './directUserProfileMemory';
 
 export async function runDirectUserReplyFlow(params: {
   api: APIConfig | APIConfig[];
@@ -44,46 +42,34 @@ export async function runDirectUserReplyFlow(params: {
     cachedWindow: useMessageStore.getState().messageWindowsByChatId[params.chatId],
   });
   const textApiConfig = Array.isArray(params.api) ? params.api[0] : params.api;
-  const phaseEvent = await resolveCompanionshipPhaseEventFromDirectUserMessage({
-    chat: params.chat,
-    character: directCharacter,
-    message: params.userMessage,
-    textApiConfig,
-    recentMessages: getProjectedMessages(),
-  });
-  const careTopicEvents = await resolveCompanionshipCareTopicEventsFromDirectUserMessage({
-    chat: params.chat,
-    character: directCharacter,
-    message: params.userMessage,
-    textApiConfig,
-    recentMessages: getProjectedMessages(),
-  });
-  const userProfileEvent = await resolveUserProfileMemoryEventFromDirectUserMessage({
-    chat: params.chat,
-    character: directCharacter,
-    message: params.userMessage,
-    textApiConfig,
-    recentMessages: getProjectedMessages(),
-  });
-  const ritualEvents = buildCompanionshipRitualEventsFromDirectUserMessage({
-    chat: params.chat,
-    character: directCharacter,
-    message: params.userMessage,
-    recentMessages: getProjectedMessages(),
-  });
-  const companionshipEvents = [phaseEvent, ...careTopicEvents, userProfileEvent, ...ritualEvents].filter((event): event is RuntimeEventV2 => Boolean(event));
-  const chatForGeneration = companionshipEvents.length
-    ? {
-        ...params.chat,
-        runtimeEventsV2: [
-          ...(params.chat.runtimeEventsV2 || []).filter((event) => !event.evidenceMessageIds?.includes(params.userMessage.id)),
-          ...companionshipEvents,
-        ].slice(-160),
-      }
-    : params.chat;
-  if (companionshipEvents.length) {
-    await params.updateChat(params.chat.id, { runtimeEventsV2: chatForGeneration.runtimeEventsV2 });
-  }
+  const chatForGeneration = params.chat;
+  const scheduleDirectRuntimeAssessment = () => {
+    void (async () => {
+      const latestChat = useChatStore.getState().chats.find((item) => item.id === params.chat.id) || params.chat;
+      const latestCharacter = useCharacterStore.getState().characters.find((item) => item.id === directCharacter.id) || directCharacter;
+      const assessmentEvents = await resolveDirectCompanionshipAssessmentEvents({
+        chat: latestChat,
+        character: latestCharacter,
+        message: params.userMessage,
+        textApiConfig,
+        recentMessages: getProjectedMessages(),
+      });
+      const ritualEvents = buildCompanionshipRitualEventsFromDirectUserMessage({
+        chat: latestChat,
+        character: latestCharacter,
+        message: params.userMessage,
+        recentMessages: getProjectedMessages(),
+      });
+      const companionshipEvents = [...assessmentEvents, ...ritualEvents].filter((event): event is RuntimeEventV2 => Boolean(event));
+      if (!companionshipEvents.length) return;
+      const currentChat = useChatStore.getState().chats.find((item) => item.id === params.chat.id) || latestChat;
+      const runtimeEventsV2 = [
+        ...(currentChat.runtimeEventsV2 || []).filter((event) => !event.evidenceMessageIds?.includes(params.userMessage.id)),
+        ...companionshipEvents,
+      ].slice(-160);
+      await params.updateChat(params.chat.id, { runtimeEventsV2 });
+    })();
+  };
 
   const evolution = resolveRuntimeEvolutionConfig(params.chat.runtimeEvolutionIntensity);
   const drift = derivePersonalityDrift(directCharacter, params.content, evolution.driftMultiplier * 0.5);
@@ -148,4 +134,5 @@ export async function runDirectUserReplyFlow(params: {
     getCurrentChat: (chatId) => useChatStore.getState().chats.find((item) => item.id === chatId),
     getCurrentCharacters: () => useCharacterStore.getState().characters,
   });
+  scheduleDirectRuntimeAssessment();
 }

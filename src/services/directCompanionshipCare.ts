@@ -141,7 +141,7 @@ function isSameCareDomain(topicText: string, closureText: string) {
 }
 
 type CareTopicDecisionSource = 'model' | 'local_fallback';
-type CareTopicDecision = {
+export type CompanionshipCareTopicDecision = {
   action: 'opened' | 'closed' | 'blocked';
   topicText: string;
   topicId?: string;
@@ -153,7 +153,7 @@ type CareTopicDecision = {
   decisionSource: CareTopicDecisionSource;
 };
 
-function normalizeModelCareDecision(raw: unknown, userContent: string, createdAt: number): CareTopicDecision | null {
+function normalizeModelCareDecision(raw: unknown, userContent: string, createdAt: number): CompanionshipCareTopicDecision | null {
   if (!raw || typeof raw !== 'object') return null;
   const value = raw as Record<string, unknown>;
   const shouldCreate = value.shouldCreate === true;
@@ -184,7 +184,7 @@ function normalizeModelCareDecision(raw: unknown, userContent: string, createdAt
   };
 }
 
-function findMatchingActiveTopic(activeTopics: PendingCareTopic[], decision: Pick<CareTopicDecision, 'topicId' | 'topicText'>) {
+function findMatchingActiveTopic(activeTopics: PendingCareTopic[], decision: Pick<CompanionshipCareTopicDecision, 'topicId' | 'topicText'>) {
   if (decision.topicId) {
     const byId = activeTopics.find((topic) => topic.id === decision.topicId);
     if (byId) return byId;
@@ -192,11 +192,11 @@ function findMatchingActiveTopic(activeTopics: PendingCareTopic[], decision: Pic
   return activeTopics.find((topic) => isSameCareDomain(topic.text, decision.topicText)) || activeTopics[0] || null;
 }
 
-function buildEventsFromCareDecision(params: {
+export function buildCompanionshipCareTopicEventsFromDecision(params: {
   chat: GroupChat;
   character: AICharacter;
   message: Message;
-  decision: CareTopicDecision;
+  decision: CompanionshipCareTopicDecision;
   activeTopics: PendingCareTopic[];
 }): RuntimeEventV2[] {
   if (params.decision.action === 'opened') {
@@ -255,7 +255,7 @@ async function judgeCareTopicWithModel(params: {
   message: Message;
   activeTopics: PendingCareTopic[];
   recentMessages?: Message[];
-}): Promise<CareTopicDecision | null> {
+}): Promise<CompanionshipCareTopicDecision | null> {
   const recentTranscript = (params.recentMessages || [])
     .filter((item) => !item.isDeleted && item.type !== 'system' && item.type !== 'event')
     .slice(-8)
@@ -466,7 +466,7 @@ export async function resolveCompanionshipCareTopicEventsFromDirectUserMessage(p
         recentMessages: params.recentMessages,
       });
       if (!decision) return [];
-      return buildEventsFromCareDecision({
+      return buildCompanionshipCareTopicEventsFromDecision({
         chat: params.chat,
         character: params.character,
         message: params.message,

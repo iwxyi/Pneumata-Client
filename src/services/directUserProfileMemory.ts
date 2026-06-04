@@ -141,7 +141,7 @@ function buildLocalFallbackItems(text: string): UserProfileMemoryEventItem[] {
   return dedupeItems(items).slice(0, 4);
 }
 
-function createUserProfileMemoryEvent(params: {
+export function createUserProfileMemoryEvent(params: {
   chat: GroupChat;
   character: AICharacter;
   message: Message;

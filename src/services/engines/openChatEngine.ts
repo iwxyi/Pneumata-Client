@@ -186,6 +186,7 @@ async function resolveInteraction(params: {
 }) {
   const hint = params.message.interactionHint || null;
   if (hint?.targetId && (hint.confidence || 0) >= 0.8) return hint;
+  if (params.conversation.type !== 'group') return hint;
   if (params.apiConfig) {
     const fallback = await judgeInteractionEvent({
       api: params.apiConfig,

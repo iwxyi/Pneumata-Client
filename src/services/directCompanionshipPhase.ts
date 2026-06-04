@@ -13,7 +13,7 @@ function compactPhaseEvidence(text: string, max = 120) {
 }
 
 type PhaseDecisionSource = 'model' | 'local_fallback';
-type PhaseDecision = {
+export type CompanionshipPhaseDecision = {
   phase: CompanionshipPhase;
   style?: CompanionshipStyle;
   reason: string;
@@ -41,7 +41,7 @@ function cleanJsonCandidate(raw: string) {
   return object?.[0] || text;
 }
 
-function detectCompanionshipPhaseFromUserText(content: string): Omit<PhaseDecision, 'decisionSource' | 'confidence' | 'evidence'> | null {
+function detectCompanionshipPhaseFromUserText(content: string): Omit<CompanionshipPhaseDecision, 'decisionSource' | 'confidence' | 'evidence'> | null {
   const text = content.trim();
   if (!text) return null;
   const looksNonRelationshipContext = /(工作|学校|游戏|电影|剧情|小说|漫画|综艺|别人|他说|她说).{0,18}(冷静一下|不舒服|受伤|失望|难受)|(冷静一下|不舒服|受伤|失望|难受).{0,18}(工作|学校|游戏|电影|剧情|小说|漫画|综艺|别人|他说|她说)/.test(text);
@@ -64,7 +64,7 @@ function detectCompanionshipPhaseFromUserText(content: string): Omit<PhaseDecisi
   return null;
 }
 
-function buildLocalFallbackDecision(content: string): PhaseDecision | null {
+function buildLocalFallbackDecision(content: string): CompanionshipPhaseDecision | null {
   const detected = detectCompanionshipPhaseFromUserText(content);
   if (!detected) return null;
   return {
@@ -75,7 +75,7 @@ function buildLocalFallbackDecision(content: string): PhaseDecision | null {
   };
 }
 
-function normalizeModelDecision(raw: unknown, userContent: string): PhaseDecision | null {
+function normalizeModelDecision(raw: unknown, userContent: string): CompanionshipPhaseDecision | null {
   if (!raw || typeof raw !== 'object') return null;
   const value = raw as Record<string, unknown>;
   const shouldCreate = value.shouldCreate === true;
@@ -105,7 +105,7 @@ async function judgeCompanionshipPhaseWithModel(params: {
   character: AICharacter;
   message: Message;
   recentMessages?: Message[];
-}): Promise<PhaseDecision | null> {
+}): Promise<CompanionshipPhaseDecision | null> {
   const recentTranscript = (params.recentMessages || [])
     .filter((item) => !item.isDeleted && item.type !== 'system' && item.type !== 'event')
     .slice(-8)
@@ -136,11 +136,11 @@ async function judgeCompanionshipPhaseWithModel(params: {
   return normalizeModelDecision(parsed, params.message.content);
 }
 
-function buildCompanionshipPhaseEvent(params: {
+export function buildCompanionshipPhaseEventFromDecision(params: {
   chat: GroupChat;
   character: AICharacter;
   message: Message;
-  decision: PhaseDecision;
+  decision: CompanionshipPhaseDecision;
 }): RuntimeEventV2 | null {
   if (params.chat.type !== 'direct') return null;
   const payload: CompanionshipPhaseEventPayload = {
@@ -177,7 +177,7 @@ export function buildCompanionshipPhaseEventFromDirectUserMessage(params: {
 }): RuntimeEventV2 | null {
   const decision = buildLocalFallbackDecision(params.message.content);
   if (!decision) return null;
-  return buildCompanionshipPhaseEvent({ ...params, decision });
+  return buildCompanionshipPhaseEventFromDecision({ ...params, decision });
 }
 
 export async function resolveCompanionshipPhaseEventFromDirectUserMessage(params: {
@@ -197,7 +197,7 @@ export async function resolveCompanionshipPhaseEventFromDirectUserMessage(params
         message: params.message,
         recentMessages: params.recentMessages,
       });
-      if (decision) return buildCompanionshipPhaseEvent({ ...params, decision });
+      if (decision) return buildCompanionshipPhaseEventFromDecision({ ...params, decision });
       return null;
     } catch (error) {
       reportRecoverableWarning({
@@ -213,9 +213,9 @@ export async function resolveCompanionshipPhaseEventFromDirectUserMessage(params
         },
       });
       const fallback = buildLocalFallbackDecision(params.message.content);
-      return fallback ? buildCompanionshipPhaseEvent({ ...params, decision: fallback }) : null;
+      return fallback ? buildCompanionshipPhaseEventFromDecision({ ...params, decision: fallback }) : null;
     }
   }
   const fallback = buildLocalFallbackDecision(params.message.content);
-  return fallback ? buildCompanionshipPhaseEvent({ ...params, decision: fallback }) : null;
+  return fallback ? buildCompanionshipPhaseEventFromDecision({ ...params, decision: fallback }) : null;
 }
