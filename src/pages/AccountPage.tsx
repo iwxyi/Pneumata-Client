@@ -9,6 +9,8 @@ import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useMessageStore } from '../stores/useMessageStore';
+import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
+import { scheduleSyncWorkersByPriority } from '../stores/storeSyncScheduler';
 import AppSnackbar from '../components/common/AppSnackbar';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { isCloudSyncEnabled, setCloudSyncEnabled } from '../services/cloudSyncPreference';
@@ -78,6 +80,7 @@ export default function AccountPage() {
   const characterStore = useCharacterStore();
   const settingsStore = useSettingsStore();
   const messageStore = useMessageStore();
+  const artifactStore = useCharacterArtifactStore();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [nickname, setNickname] = useState(user?.nickname || '');
   const [avatar, setAvatar] = useState(user?.avatar || '🍵');
@@ -142,8 +145,12 @@ export default function AccountPage() {
     }
     setSyncingAll(true);
     try {
-      await Promise.all([chatStore.loadChats(), characterStore.loadCharacters()]);
-      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已上传并拉取最新云端数据' : 'Uploaded and refreshed cloud data', severity: 'success' });
+      chatStore.retryFailedOperations();
+      characterStore.retryFailedOperations();
+      messageStore.retryFailedOperations();
+      scheduleSyncWorkersByPriority(0);
+      void artifactStore.resumeProcessing();
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已安排后台上传待同步数据' : 'Queued pending uploads in the background', severity: 'success' });
     } catch (error) {
       setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
     } finally {
@@ -162,8 +169,12 @@ export default function AccountPage() {
     }
     setSyncingAll(true);
     try {
-      await Promise.all([chatStore.loadChats(), characterStore.loadCharacters()]);
-      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已下载最新云端数据' : 'Downloaded latest cloud data', severity: 'success' });
+      chatStore.markChatsWarm();
+      characterStore.markCharactersWarm();
+      void chatStore.refreshChatSummaryFromCloud();
+      void characterStore.refreshCharacterSummaryFromCloud();
+      void settingsStore.loadSettings();
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已安排后台拉取云端摘要' : 'Queued cloud summary refresh in the background', severity: 'success' });
     } catch (error) {
       setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
     } finally {
@@ -506,10 +517,10 @@ export default function AccountPage() {
             ) : null}
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <Button variant="outlined" onClick={handleUploadAll} disabled={syncingAll || (authMode !== 'local' && !cloudSyncEnabled)}>
-                {syncingAll ? (i18n.language.startsWith('zh') ? '同步中' : 'Syncing') : (i18n.language.startsWith('zh') ? '上传所有数据' : 'Upload all data')}
+                {syncingAll ? (i18n.language.startsWith('zh') ? '同步中' : 'Syncing') : (i18n.language.startsWith('zh') ? '同步待上传' : 'Sync pending uploads')}
               </Button>
               <Button variant="outlined" onClick={handleDownloadAll} disabled={syncingAll || (authMode !== 'local' && !cloudSyncEnabled)}>
-                {syncingAll ? (i18n.language.startsWith('zh') ? '同步中' : 'Syncing') : (i18n.language.startsWith('zh') ? '下载所有数据' : 'Download all data')}
+                {syncingAll ? (i18n.language.startsWith('zh') ? '同步中' : 'Syncing') : (i18n.language.startsWith('zh') ? '检查云端更新' : 'Check cloud updates')}
               </Button>
             </Box>
           </CardContent>

@@ -456,6 +456,7 @@ interface CharacterStore extends PersistedCharacterState {
   loadCharacters: () => Promise<void>;
   loadCharacter: (id: string) => Promise<AICharacter | null>;
   prefetchCharacters: () => Promise<void>;
+  refreshCharacterSummaryFromCloud: () => Promise<void>;
   flushPendingOperations: () => Promise<void>;
   queuePatch: (entityId: string, patch: Record<string, unknown>, kind?: PendingCharacterOperation['kind']) => void;
   loadProjectedDeletedCharacters: () => Promise<AICharacter[]>;
@@ -934,6 +935,11 @@ export const useCharacterStore = create<CharacterStore>()(
         prefetchCharacters: async () => {
           const state = get();
           if (state.characters.length > 0 && characterSyncScopes.isFresh(CHARACTER_SUMMARY_SCOPE)) return;
+          void get().loadCharacters();
+        },
+
+        refreshCharacterSummaryFromCloud: async () => {
+          characterSyncScopes.clear(CHARACTER_SUMMARY_SCOPE);
           void get().loadCharacters();
         },
 
