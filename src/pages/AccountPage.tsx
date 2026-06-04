@@ -368,7 +368,11 @@ export default function AccountPage() {
     try {
       const snapshot = await captureLocalCloudBootstrapSnapshot();
       await runWithCloudSyncBootstrapLock(() => bootstrapLocalDataToCloud(snapshot));
-      await Promise.all([chatStore.loadChats(), characterStore.loadCharacters(), settingsStore.loadSettings()]);
+      chatStore.markChatsWarm();
+      characterStore.markCharactersWarm();
+      void chatStore.prefetchChats();
+      void characterStore.prefetchCharacters();
+      void settingsStore.loadSettings();
       setSnackbar({
         open: true,
         message: i18n.language.startsWith('zh') ? '已开启云同步，并完成本地与云端数据准备。' : 'Cloud sync is on. Local and cloud data are prepared.',

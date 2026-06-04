@@ -38,12 +38,15 @@ interface AuthStore {
   changePhone: (phone: string, code: string) => Promise<void>;
 }
 
-async function refreshStoresAfterCloudAuth() {
-  await Promise.allSettled([
-    useSettingsStore.getState().loadSettings(),
-    useChatStore.getState().loadChats(),
-    useCharacterStore.getState().loadCharacters(),
-  ]);
+function refreshStoresAfterCloudAuth() {
+  const settingsStore = useSettingsStore.getState();
+  const chatStore = useChatStore.getState();
+  const characterStore = useCharacterStore.getState();
+  chatStore.markChatsWarm();
+  characterStore.markCharactersWarm();
+  void settingsStore.loadSettings();
+  void chatStore.prefetchChats();
+  void characterStore.prefetchCharacters();
 }
 
 const AUTH_TOKEN_KEY = storageKey('token');
@@ -135,7 +138,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           throw error;
         }
       }
-      await refreshStoresAfterCloudAuth();
+      refreshStoresAfterCloudAuth();
     } catch (error) {
       set({ isLoading: false });
       throw error;
@@ -175,7 +178,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const user = await api.getMe();
       setAuthUser(user);
       set({ user, isLoggedIn: true, authMode: 'cloud' });
-      void refreshStoresAfterCloudAuth();
+      refreshStoresAfterCloudAuth();
       return true;
     } catch (error) {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {

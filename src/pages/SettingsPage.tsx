@@ -18,6 +18,7 @@ import { api } from '../services/api';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
+import { useMessageStore } from '../stores/useMessageStore';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
@@ -282,19 +283,13 @@ export default function SettingsPage() {
 
   const handleBackup = async () => {
     try {
-      const [characterSummaries, chatSummaries] = await Promise.all([
-        api.getCharacters(),
-        api.getChats(),
-      ]);
-      const [characters, chats] = await Promise.all([
-        Promise.all(characterSummaries.map((character: { id: string }) => api.getCharacter(character.id))),
-        Promise.all(chatSummaries.map((chat: { id: string }) => api.getChat(chat.id))),
-      ]);
-      const allMessages = await Promise.all(chats.map((chat) => api.getMessages(String(chat.id))));
+      const characterStore = useCharacterStore.getState();
+      const chatStore = useChatStore.getState();
+      const messageStore = useMessageStore.getState();
       const data = {
-        characters,
-        chats,
-        messages: allMessages.flat(),
+        characters: characterStore.characters,
+        chats: chatStore.chats,
+        messages: Object.values(messageStore.messageWindowsByChatId).flatMap((window) => window.messages),
         settings: {
           api: { ...settings.api, apiKey: '' },
           aiProfiles: settings.aiProfiles.map((profile) => ({ ...profile, apiKey: '' })),
@@ -348,8 +343,12 @@ export default function SettingsPage() {
             }
           }
         }
-        await useCharacterStore.getState().loadCharacters();
-        await useChatStore.getState().loadChats();
+        const characterStore = useCharacterStore.getState();
+        const chatStore = useChatStore.getState();
+        characterStore.markCharactersWarm();
+        chatStore.markChatsWarm();
+        void characterStore.prefetchCharacters();
+        void chatStore.prefetchChats();
         setSnackbar({ open: true, message: t('settings.restoreSuccess'), severity: 'success' });
       } catch {
         setSnackbar({ open: true, message: t('common.error'), severity: 'error' });
@@ -360,20 +359,23 @@ export default function SettingsPage() {
 
   const handleClearAll = async () => {
     try {
-      const chats = await api.getChats();
+      const chatStore = useChatStore.getState();
+      const characterStore = useCharacterStore.getState();
+      const chats = chatStore.chats;
       for (const chat of chats) {
-        await useChatStore.getState().deleteChat((chat as { id: string }).id);
+        await chatStore.deleteChat(chat.id);
       }
-      const chars = await api.getCharacters();
-      const customCharacterIds = chars
-        .filter((char) => !(char as { isPreset: boolean }).isPreset)
-        .map((char) => (char as { id: string }).id);
+      const customCharacterIds = characterStore.characters
+        .filter((char) => !char.isPreset)
+        .map((char) => char.id);
       if (customCharacterIds.length) {
-        await useCharacterStore.getState().deleteCharacters(customCharacterIds);
+        await characterStore.deleteCharacters(customCharacterIds);
       }
       settings.resetSettings();
-      await useCharacterStore.getState().loadCharacters();
-      await useChatStore.getState().loadChats();
+      characterStore.markCharactersWarm();
+      chatStore.markChatsWarm();
+      void characterStore.prefetchCharacters();
+      void chatStore.prefetchChats();
       setClearConfirm(false);
       setSnackbar({ open: true, message: t('common.success'), severity: 'success' });
     } catch {
