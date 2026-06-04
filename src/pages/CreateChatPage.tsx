@@ -454,7 +454,8 @@ export default function CreateChatPage() {
           conflictState: null,
         },
       });
-      await useChatStore.getState().loadChats();
+      markChatsWarm();
+      void prefetchChats();
       setClearMemoryConfirmOpen(false);
       setSnackbar({
         open: true,
@@ -464,7 +465,7 @@ export default function CreateChatPage() {
     } catch (error) {
       showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '清空聊天记忆失败' : 'Failed to clear chat memory'));
     }
-  }, [editingChat, i18n.language, updateChat]);
+  }, [editingChat, i18n.language, markChatsWarm, prefetchChats, updateChat]);
 
   const headerTitle = editingChat ? (name.trim() || editingChat.name || (isZh ? `编辑${conversationNoun}` : `Edit ${conversationNoun}`)) : t('chat.create');
   const autofillLabel = aiAutofilling ? t('common.loading') : (i18n.language.startsWith('zh') ? '自动补全' : 'Auto fill');

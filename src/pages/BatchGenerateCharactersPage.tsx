@@ -455,7 +455,7 @@ export default function BatchGenerateCharactersPage() {
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
   const settings = useSettingsStore();
-  const { characters, loadCharacters, addCharacters, updateCharacters } = useCharacterStore();
+  const { characters, markCharactersWarm, prefetchCharacters, addCharacters, updateCharacters } = useCharacterStore();
   const [topic, setTopic] = useState('');
   const [candidateNames, setCandidateNames] = useState<string[]>([]);
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
@@ -557,7 +557,8 @@ export default function BatchGenerateCharactersPage() {
         });
       }
 
-      await loadCharacters();
+      markCharactersWarm();
+      void prefetchCharacters();
       setSnackbar({
         open: true,
         message: cancelGenerationRef.current
