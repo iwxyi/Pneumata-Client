@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Card, CardContent, CardActionArea, Box, Typography, Avatar, AvatarGroup, Chip } from '@mui/material';
 import { isImageAvatar } from '../../utils/avatar';
 import DirectIcon from '@mui/icons-material/ChatBubbleOutlined';
@@ -7,7 +8,6 @@ import type { AICharacter } from '../../types/character';
 import type { Message } from '../../types/message';
 import { formatRelativeTime } from '../../utils/format';
 import { useTranslation } from 'react-i18next';
-import { useMessageStore } from '../../stores/useMessageStore';
 import { buildCompanionshipStatusSignature } from '../../services/companionshipProjection';
 import { buildInteractiveSurfaceSx, buildSelectionRailSx } from '../../styles/interaction';
 import { buildChatSubtitle } from './chatCardSubtitle';
@@ -30,20 +30,14 @@ function latestByTimestamp(messages: Array<Message | null | undefined>) {
     .sort((a, b) => b.timestamp - a.timestamp)[0];
 }
 
-export default function ChatCard({ chat, characters, onClick, onPrefetch, selected = false }: ChatCardProps) {
+function ChatCard({ chat, characters, onClick, onPrefetch, selected = false }: ChatCardProps) {
   const { t } = useTranslation();
-  const messages = useMessageStore((state) => state.messages);
-  const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
-
-  const allKnownMessages = [...messages, ...(messageWindowsByChatId[chat.id]?.messages || [])];
-  const latestKnownMessage = latestByTimestamp(allKnownMessages.filter((message) => message.chatId === chat.id));
-  const resolvedLatestMessage = latestByTimestamp([chat.latestMessage, latestKnownMessage]) || null;
+  const resolvedLatestMessage = latestByTimestamp([chat.latestMessage]) || null;
   const members = characters.filter((c) => chat.memberIds.includes(c.id));
   const isDirect = chat.type === 'direct' || chat.type === 'ai_direct';
-  const directMessages = allKnownMessages.filter((message) => message.chatId === chat.id);
   const directKnownMessages = latestByTimestamp([chat.latestMessage])
-    ? [chat.latestMessage as Message, ...directMessages.filter((message) => message.id !== chat.latestMessage?.id)]
-    : directMessages;
+    ? [chat.latestMessage as Message]
+    : [];
   const companionshipStatus = chat.type === 'direct' && members[0]
     ? buildCompanionshipStatusSignature({ chat, character: members[0], messages: directKnownMessages })
     : null;
@@ -122,3 +116,10 @@ export default function ChatCard({ chat, characters, onClick, onPrefetch, select
     </Card>
   );
 }
+
+export default memo(ChatCard, (prev, next) => (
+  prev.chat === next.chat
+  && prev.characters === next.characters
+  && prev.selected === next.selected
+  && prev.onPrefetch === next.onPrefetch
+));

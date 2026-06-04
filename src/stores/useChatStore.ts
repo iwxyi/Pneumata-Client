@@ -2,12 +2,14 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { GroupChat } from '../types/chat';
 import { normalizeConversation } from '../types/chat';
-import { api } from '../services/api';
+import type { Message } from '../types/message';
+import { api, type SyncChangeScope } from '../services/api';
 import { reportRecoverableError } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { buildWarmState } from './storeWarmHelpers';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
+import { createSyncScopeMetadata } from './syncScopeMetadata';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateChatStoreState } from './storeMigrations';
 import { isRuntimeMemoryMonitorEnabled, recordRuntimeMemory } from '../services/runtimeMemoryMonitor';
@@ -20,6 +22,7 @@ import {
   latestSyncError,
   recoverInterruptedOperations,
   removePendingOperation,
+  runPendingOperationQueue,
   shouldSkipCloudSync,
   updatePendingOperation,
 } from './storeSyncHelpers';
@@ -139,6 +142,12 @@ async function createChatRemote(chatData: ChatCreatePayload) {
 interface PendingChatOperation extends SyncPatchOperation<Record<string, unknown>> {
   kind: 'create' | 'patch';
   targetIds: string[];
+}
+
+function pendingChatOperationPriority(operation: PendingChatOperation) {
+  if (operation.kind === 'create') return 100;
+  if ('deletedAt' in operation.patch) return 80;
+  return 10;
 }
 
 interface PersistedChatState {
@@ -284,6 +293,7 @@ interface ChatStore extends PersistedChatState {
   getPendingEditError: () => string | null;
   getPendingEditCount: () => number;
   clearPendingOperations: () => void;
+  confirmCreateOperationsSynced: (entityIds: string[]) => void;
   discardFailedOperation: (operationId: string) => void;
   loadPendingSnapshot: () => Promise<GroupChat[]>;
   loadProjectedRecycleBin: () => Promise<GroupChat[]>;
@@ -325,6 +335,25 @@ function normalizeChats(items: GroupChat[]) {
 
 function sortChats(chats: GroupChat[]) {
   return [...chats].sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+}
+
+function buildChatListSignature(chats: GroupChat[]) {
+  return chats
+    .map((chat) => [
+      chat.id,
+      chat.updatedAt || 0,
+      chat.lastMessageAt || 0,
+      chat.deletedAt || 0,
+      chat.latestMessage?.id || '',
+      chat.latestMessage?.timestamp || 0,
+      chat.latestMessage?.content || '',
+      chat.runtimeDetailLoaded ? 1 : 0,
+      chat.worldRuntimeLoaded ? 1 : 0,
+      chat.runtimeEventsV2?.at(-1)?.id || '',
+      chat.runtimeEventsV2?.length || 0,
+      chat.relationshipLedger?.length || 0,
+    ].join(':'))
+    .join('|');
 }
 
 function applyRuntimeEventsDelta(chat: GroupChat, delta: NonNullable<import('../types/chat').DriverMessageCommitTransition['chatRuntimeDelta']>['runtimeEventsV2']) {
@@ -404,6 +433,77 @@ function mergeDeletedChats(localChats: GroupChat[], remoteChats: GroupChat[], pe
   return mergeChats(localChats, remoteChats, pendingOperations).filter((chat) => chat.deletedAt != null);
 }
 
+function hasNonDeletePendingChatOperation(pendingOperations: PendingChatOperation[], chatId: string) {
+  return pendingOperations.some((operation) => (
+    operation.entityId === chatId
+    && operation.patch.deletedAt == null
+  ));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function normalizeChatSummaryChange(change: Record<string, unknown>) {
+  if (change.entity !== 'chat_summary' || typeof change.id !== 'string') return null;
+  const patch = isRecord(change.patch) ? change.patch : {};
+  const chat = normalizeConversation({
+    ...patch,
+    id: change.id,
+    latestMessage: isRecord(patch.latestMessage) ? patch.latestMessage as unknown as Message : null,
+  } as unknown as GroupChat);
+  return {
+    op: change.op === 'delete' ? 'delete' as const : 'upsert' as const,
+    chat,
+  };
+}
+
+function chatSummariesFromChanges(changes: Array<Record<string, unknown>>) {
+  const parsed = changes.map(normalizeChatSummaryChange).filter(Boolean) as Array<ReturnType<typeof normalizeChatSummaryChange> & {}>;
+  if (parsed.length !== changes.length) return null;
+  return {
+    upserts: parsed.filter((item) => item.op === 'upsert').map((item) => item.chat),
+    deletes: parsed.filter((item) => item.op === 'delete').map((item) => item.chat),
+  };
+}
+
+function worldRuntimeChatsFromChanges(changes: Array<Record<string, unknown>> | undefined) {
+  if (!changes?.length) return null;
+  const chats: GroupChat[] = [];
+  for (const change of changes) {
+    if (change.entity !== 'world_runtime_chat' || change.op !== 'upsert' || typeof change.id !== 'string' || !isRecord(change.patch)) {
+      return null;
+    }
+    chats.push(normalizeConversation({
+      ...change.patch,
+      id: change.id,
+      runtimeDetailLoaded: false,
+      worldRuntimeLoaded: true,
+    } as unknown as GroupChat));
+  }
+  return chats;
+}
+
+function chatDetailFromChanges(changes: Array<Record<string, unknown>> | undefined, id: string) {
+  if (!changes?.length) return null;
+  const change = changes.find((item) => item.entity === 'chat_detail' && item.id === id);
+  if (!change) return null;
+  if (change.op === 'delete') {
+    return normalizeConversation({
+      id,
+      ...(isRecord(change.patch) ? change.patch : {}),
+      deletedAt: isRecord(change.patch) && typeof change.patch.deletedAt === 'number' ? change.patch.deletedAt : Date.now(),
+      runtimeDetailLoaded: true,
+    } as unknown as GroupChat);
+  }
+  if (!isRecord(change.patch)) return null;
+  return normalizeConversation({
+    ...change.patch,
+    id,
+    runtimeDetailLoaded: true,
+  } as unknown as GroupChat);
+}
+
 async function fetchChatSnapshot() {
   const result = await api.getChats() as unknown as GroupChat[];
   return normalizeChats(result);
@@ -437,6 +537,16 @@ async function reloadVisibleChatState(pendingOperations: PendingChatOperation[])
   return mergeVisibleChats([], active, pendingOperations);
 }
 
+async function probeChatScopeChanges(scope: SyncChangeScope, options: { forceFull?: boolean } = {}) {
+  const scopeState = chatSyncScopes.getState(scope);
+  const since = options.forceFull ? null : scopeState.cursor ?? scopeState.revision ?? null;
+  try {
+    return await api.getSyncChanges({ scope, since });
+  } catch {
+    return null;
+  }
+}
+
 function projectVisibleChats(chats: GroupChat[], pendingOperations: PendingChatOperation[]) {
   return projectEntities(chats, pendingOperations).filter((item) => item.deletedAt == null);
 }
@@ -448,11 +558,14 @@ const updatePendingChatOperation = updatePendingOperation;
 const canSyncChats = canAttemptOnlineSync;
 const CHAT_SYNC_DELAYS = [1000, 3000, 10000, 30000];
 const CHAT_REFRESH_TTL_MS = 30_000;
-const chatSyncScheduler = createSyncScheduler();
-let chatListLoadPromise: Promise<void> | null = null;
-const chatDetailLoadPromises = new Map<string, Promise<GroupChat | null>>();
-let worldRuntimeLoadPromise: Promise<void> | null = null;
-let worldRuntimeLoadedAt = 0;
+const CHAT_DETAIL_REFRESH_TTL_MS = 120_000;
+const CHAT_SUMMARY_SCOPE: SyncChangeScope = 'chats.summary';
+const WORLD_RUNTIME_SCOPE: SyncChangeScope = 'world-runtime.window';
+const chatDetailScope = (id: string): SyncChangeScope => `chats.detail:${id}`;
+const chatSyncScheduler = createSyncScheduler('chat.pending-operations', { priority: 80 });
+const chatSyncScopes = createSyncScopeMetadata(CHAT_REFRESH_TTL_MS, {
+  getStorageKey: () => scopedStorageKey(`chat-sync-scopes-${getLocalDataUserId()}`),
+});
 
 function scheduleChatFlush(flush: () => Promise<void>, delay = 0) {
   chatSyncScheduler.schedule(flush, delay);
@@ -558,42 +671,36 @@ export const useChatStore = create<ChatStore>()(
   persist(
     (set, get) => {
       const flushPendingOperations = async () => {
-        const state = get();
-        const nextOperation = state.pendingOperations.find((item) => item.status === 'pending');
-        if (!nextOperation || !canSyncChats()) return;
-
-        set((current) => ({
-          pendingOperations: updatePendingChatOperation(current.pendingOperations, nextOperation.id, { status: 'syncing' }),
-        }));
-
-        try {
-          await executeChatOperation(nextOperation);
-          const nextQueue = removePendingChatOperation(get().pendingOperations, nextOperation.id);
-          set((current) => ({
-            chats: projectEntities(current.chats, nextQueue).filter((chat) => chat.deletedAt == null),
-            pendingOperations: nextQueue,
-            pendingEditSyncCount: nextQueue.length,
-            pendingEditSyncError: latestChatError(nextQueue),
-            lastSyncedAt: Date.now(),
-          }));
-          scheduleChatFlush(flushPendingOperations, 50);
-        } catch (error) {
-          const classified = classifySyncError(error);
-          const attemptCount = nextOperation.attemptCount + 1;
-          const status = classified.startsWith('validation:') ? 'failed' : 'pending';
-          set((current) => ({
-            pendingOperations: updatePendingChatOperation(current.pendingOperations, nextOperation.id, {
-              status,
-              attemptCount,
-              lastError: classified,
-            }),
-            pendingEditSyncCount: current.pendingOperations.length,
-            pendingEditSyncError: classified,
-          }));
-          if (status === 'pending') {
-            scheduleChatFlush(flushPendingOperations, CHAT_SYNC_DELAYS[Math.min(attemptCount, CHAT_SYNC_DELAYS.length - 1)]);
-          }
-        }
+        await runPendingOperationQueue<PendingChatOperation>({
+          getOperations: () => get().pendingOperations,
+          canRun: canSyncChats,
+          retryDelays: CHAT_SYNC_DELAYS,
+          isTerminalError: (classified) => classified.startsWith('validation:'),
+          priority: pendingChatOperationPriority,
+          updateOperation: (operationId, operation) => {
+            set((current) => ({
+              pendingOperations: updatePendingChatOperation(current.pendingOperations, operationId, operation),
+            }));
+          },
+          execute: executeChatOperation,
+          onSuccess: (operation) => {
+            const nextQueue = removePendingChatOperation(get().pendingOperations, operation.id);
+            set((current) => ({
+              chats: projectEntities(current.chats, nextQueue).filter((chat) => chat.deletedAt == null),
+              pendingOperations: nextQueue,
+              pendingEditSyncCount: nextQueue.length,
+              pendingEditSyncError: latestChatError(nextQueue),
+              lastSyncedAt: Date.now(),
+            }));
+          },
+          onFailure: (_operation, _error, retry) => {
+            set((current) => ({
+              pendingEditSyncCount: current.pendingOperations.length,
+              pendingEditSyncError: retry.classified,
+            }));
+          },
+          scheduleNext: (delay) => scheduleChatFlush(flushPendingOperations, delay),
+        });
       };
 
       if (!chatSyncLifecycleRegistered) {
@@ -628,17 +735,75 @@ export const useChatStore = create<ChatStore>()(
             set({ isLoading: false });
             return;
           }
-          if (get().chats.length > 0 && Date.now() - get().lastSyncedAt < CHAT_REFRESH_TTL_MS) {
+          if (get().chats.length > 0 && chatSyncScopes.isFresh(CHAT_SUMMARY_SCOPE)) {
             set({ isLoading: false });
             return;
           }
-          if (chatListLoadPromise) return chatListLoadPromise;
-          chatListLoadPromise = (async () => {
+          return chatSyncScopes.run(CHAT_SUMMARY_SCOPE, async () => {
             try {
               await maybeUploadGuestChats(get);
+              const changeProbe = await probeChatScopeChanges(CHAT_SUMMARY_SCOPE, { forceFull: get().chats.length === 0 });
+              if (changeProbe?.status === 'not_modified') {
+                chatSyncScopes.markChecked(CHAT_SUMMARY_SCOPE, {
+                  cursor: changeProbe.cursor,
+                  revision: changeProbe.revision,
+                  applied: false,
+                });
+                set({ isLoading: false });
+                return;
+              }
+              const summaryChanges = changeProbe?.changes?.length ? chatSummariesFromChanges(changeProbe.changes) : null;
+              if (summaryChanges) {
+                set((state) => {
+                  const deleteConflicts = summaryChanges.deletes.filter((chat) => hasNonDeletePendingChatOperation(state.pendingOperations, chat.id));
+                  const applicableDeletes = summaryChanges.deletes.filter((chat) => !hasNonDeletePendingChatOperation(state.pendingOperations, chat.id));
+                  const changedChats = [...summaryChanges.upserts, ...applicableDeletes];
+                  const merged = mergeChats(state.chats, changedChats, state.pendingOperations);
+                  const nextChats = merged.filter((chat) => chat.deletedAt == null);
+                  const deletedIds = new Set(applicableDeletes.map((chat) => chat.id));
+                  const deletedSnapshots = merged.filter((chat) => deletedIds.has(chat.id) && chat.deletedAt != null);
+                  const conflictSnapshots = deleteConflicts.map((remote) => state.chats.find((chat) => chat.id === remote.id) || remote);
+                  const changed = buildChatListSignature(nextChats) !== buildChatListSignature(state.chats);
+                  chatSyncScopes.markChecked(CHAT_SUMMARY_SCOPE, {
+                    cursor: changeProbe?.cursor,
+                    revision: changeProbe?.revision,
+                    applied: changed || deletedSnapshots.length > 0 || conflictSnapshots.length > 0,
+                  });
+                  return {
+                    ...(changed ? { chats: nextChats } : {}),
+                    remoteDeletedChatIds: Array.from(new Set([
+                      ...state.remoteDeletedChatIds.filter((id) => !summaryChanges.upserts.some((chat) => chat.id === id)),
+                      ...deletedSnapshots.map((chat) => chat.id),
+                      ...deleteConflicts.map((chat) => chat.id),
+                    ])),
+                    remoteDeletedChats: [
+                      ...conflictSnapshots,
+                      ...deletedSnapshots,
+                      ...state.remoteDeletedChats
+                        .filter((chat) => !summaryChanges.upserts.some((visibleChat) => visibleChat.id === chat.id))
+                        .filter((chat) => !conflictSnapshots.some((conflictChat) => conflictChat.id === chat.id))
+                        .filter((chat) => !deletedSnapshots.some((deletedChat) => deletedChat.id === chat.id)),
+                    ],
+                    isLoading: false,
+                    lastSyncedAt: Date.now(),
+                    pendingEditSyncCount: state.pendingOperations.length,
+                    pendingEditSyncError: latestChatError(state.pendingOperations),
+                  };
+                });
+                return;
+              }
               const visible = await reloadVisibleChatState(get().pendingOperations);
               set((state) => ({
-                chats: mergeVisibleChats(state.chats, visible, state.pendingOperations),
+                ...(() => {
+                  const nextChats = mergeVisibleChats(state.chats, visible, state.pendingOperations);
+                  const changed = buildChatListSignature(nextChats) !== buildChatListSignature(state.chats);
+                  chatSyncScopes.markChecked(CHAT_SUMMARY_SCOPE, {
+                    cursor: changeProbe?.cursor,
+                    revision: changeProbe?.revision,
+                    applied: changed,
+                  });
+                  return changed ? { chats: nextChats } : {};
+                })(),
                 remoteDeletedChatIds: state.remoteDeletedChatIds.filter((id) => !visible.some((chat) => chat.id === id)),
                 remoteDeletedChats: state.remoteDeletedChats.filter((chat) => !visible.some((visibleChat) => visibleChat.id === chat.id)),
                 isLoading: false,
@@ -647,17 +812,15 @@ export const useChatStore = create<ChatStore>()(
                 pendingEditSyncError: latestChatError(get().pendingOperations),
               }));
             } catch (error) {
+              chatSyncScopes.markError(CHAT_SUMMARY_SCOPE, error);
               reportRecoverableError({
                 location: 'cloud-sync:chats-load',
                 error,
                 userMessage: '聊天云同步失败，请检查网络后重试。',
               });
               set({ isLoading: false, pendingEditSyncError: classifySyncError(error) });
-            } finally {
-              chatListLoadPromise = null;
             }
-          })();
-          return chatListLoadPromise;
+          }, { markCheckedOnSuccess: false });
         },
 
         loadChat: async (id) => {
@@ -665,15 +828,32 @@ export const useChatStore = create<ChatStore>()(
           await ensureChatStoreHydrated();
           const cached = get().chats.find((chat) => chat.id === id);
           if (shouldSkipCloudSync()) return cached || null;
-          const existing = chatDetailLoadPromises.get(id);
-          if (existing) return existing;
-          const promise = (async () => {
+          const scope = chatDetailScope(id);
+          if (cached?.runtimeDetailLoaded && chatSyncScopes.isFresh(scope, CHAT_DETAIL_REFRESH_TTL_MS)) {
+            return cached;
+          }
+          return chatSyncScopes.run(scope, async () => {
             try {
-              const detail = await fetchChatDetail(id);
+              const changeProbe = cached?.runtimeDetailLoaded ? await probeChatScopeChanges(scope) : null;
+              if (changeProbe?.status === 'not_modified') {
+                chatSyncScopes.markChecked(scope, {
+                  cursor: changeProbe.cursor,
+                  revision: changeProbe.revision,
+                  applied: false,
+                });
+                return cached || null;
+              }
+              const detail = chatDetailFromChanges(changeProbe?.changes, id) || await fetchChatDetail(id);
               if (detail.deletedAt != null) {
                 const snapshot = cached || detail;
+                const hasPendingConflict = hasNonDeletePendingChatOperation(get().pendingOperations, id);
+                chatSyncScopes.markChecked(scope, {
+                  cursor: changeProbe?.cursor,
+                  revision: changeProbe?.revision,
+                  applied: true,
+                });
                 set((state) => ({
-                  chats: state.chats.filter((chat) => chat.id !== id),
+                  chats: hasPendingConflict ? projectVisibleChats(state.chats, state.pendingOperations) : state.chats.filter((chat) => chat.id !== id),
                   remoteDeletedChatIds: Array.from(new Set([...state.remoteDeletedChatIds, id])),
                   remoteDeletedChats: [snapshot, ...state.remoteDeletedChats.filter((chat) => chat.id !== id)],
                   lastSyncedAt: state.lastSyncedAt || Date.now(),
@@ -682,64 +862,82 @@ export const useChatStore = create<ChatStore>()(
                 }));
                 return snapshot;
               }
-              set((state) => ({
-                chats: mergeVisibleChats(state.chats, [detail], state.pendingOperations),
-                remoteDeletedChatIds: state.remoteDeletedChatIds.filter((chatId) => chatId !== id),
-                remoteDeletedChats: state.remoteDeletedChats.filter((chat) => chat.id !== id),
-                lastSyncedAt: state.lastSyncedAt || Date.now(),
-                pendingEditSyncCount: state.pendingOperations.length,
-                pendingEditSyncError: latestChatError(state.pendingOperations),
-              }));
+              set((state) => {
+                const nextChats = mergeVisibleChats(state.chats, [detail], state.pendingOperations);
+                const changed = buildChatListSignature(nextChats) !== buildChatListSignature(state.chats);
+                chatSyncScopes.markChecked(scope, {
+                  cursor: changeProbe?.cursor,
+                  revision: changeProbe?.revision,
+                  applied: changed,
+                });
+                return {
+                  ...(changed ? { chats: nextChats } : {}),
+                  remoteDeletedChatIds: state.remoteDeletedChatIds.filter((chatId) => chatId !== id),
+                  remoteDeletedChats: state.remoteDeletedChats.filter((chat) => chat.id !== id),
+                  lastSyncedAt: state.lastSyncedAt || Date.now(),
+                  pendingEditSyncCount: state.pendingOperations.length,
+                  pendingEditSyncError: latestChatError(state.pendingOperations),
+                };
+              });
               return detail;
             } catch (error) {
+              chatSyncScopes.markError(scope, error);
               reportRecoverableError({
                 location: 'cloud-sync:chat-detail-load',
                 error,
                 userMessage: '聊天详情同步失败，请检查网络后重试。',
               });
               return get().chats.find((chat) => chat.id === id) || null;
-            } finally {
-              chatDetailLoadPromises.delete(id);
             }
-          })();
-          chatDetailLoadPromises.set(id, promise);
-          return promise;
+          }, { markCheckedOnSuccess: false });
         },
 
         loadWorldRuntime: async () => {
           await ensureChatStoreHydrated();
           if (shouldSkipCloudSync()) return;
-          if (Date.now() - worldRuntimeLoadedAt < CHAT_REFRESH_TTL_MS) return;
-          if (worldRuntimeLoadPromise) return worldRuntimeLoadPromise;
-          worldRuntimeLoadPromise = (async () => {
+          if (chatSyncScopes.isFresh(WORLD_RUNTIME_SCOPE)) return;
+          return chatSyncScopes.run(WORLD_RUNTIME_SCOPE, async () => {
             try {
-              const snapshot = await fetchWorldRuntimeSnapshot();
+              const changeProbe = await probeChatScopeChanges(WORLD_RUNTIME_SCOPE);
+              if (changeProbe?.status === 'not_modified') {
+                chatSyncScopes.markChecked(WORLD_RUNTIME_SCOPE, {
+                  cursor: changeProbe.cursor,
+                  revision: changeProbe.revision,
+                  applied: false,
+                });
+                return;
+              }
+              const snapshot = worldRuntimeChatsFromChanges(changeProbe?.changes) || await fetchWorldRuntimeSnapshot();
               set((state) => {
                 const byId = new Map(state.chats.map((chat) => [chat.id, chat] as const));
                 const mergedRuntime = snapshot.map((remote) => normalizeConversation(mergeWorldRuntimeRecord(byId.get(remote.id), remote)));
+                const nextChats = mergeVisibleChats(state.chats, mergedRuntime, state.pendingOperations);
+                const changed = buildChatListSignature(nextChats) !== buildChatListSignature(state.chats);
+                chatSyncScopes.markChecked(WORLD_RUNTIME_SCOPE, {
+                  cursor: changeProbe?.cursor,
+                  revision: changeProbe?.revision,
+                  applied: changed,
+                });
                 return {
-                  chats: mergeVisibleChats(state.chats, mergedRuntime, state.pendingOperations),
+                  ...(changed ? { chats: nextChats } : {}),
                   pendingEditSyncCount: state.pendingOperations.length,
                   pendingEditSyncError: latestChatError(state.pendingOperations),
                 };
               });
-              worldRuntimeLoadedAt = Date.now();
             } catch (error) {
+              chatSyncScopes.markError(WORLD_RUNTIME_SCOPE, error);
               reportRecoverableError({
                 location: 'cloud-sync:world-runtime-load',
                 error,
                 userMessage: '世界运行摘要同步失败，请检查网络后重试。',
               });
-            } finally {
-              worldRuntimeLoadPromise = null;
             }
-          })();
-          return worldRuntimeLoadPromise;
+          }, { markCheckedOnSuccess: false });
         },
 
         prefetchChats: async () => {
           const state = get();
-          if (state.chats.length > 0 && Date.now() - state.lastSyncedAt < CHAT_REFRESH_TTL_MS) return;
+          if (state.chats.length > 0 && chatSyncScopes.isFresh(CHAT_SUMMARY_SCOPE)) return;
           void get().loadChats();
         },
 
@@ -825,6 +1023,20 @@ export const useChatStore = create<ChatStore>()(
         getPendingEditError: () => latestChatError(get().pendingOperations),
         getPendingEditCount: () => get().pendingOperations.length,
         clearPendingOperations: () => set({ pendingOperations: [], pendingEditSyncCount: 0, pendingEditSyncError: null }),
+        confirmCreateOperationsSynced: (entityIds) => set((state) => {
+          const normalizedIds = new Set(entityIds.filter(Boolean));
+          if (!normalizedIds.size) return {};
+          const pendingOperations = state.pendingOperations.filter((operation) => (
+            operation.kind !== 'create' || !normalizedIds.has(operation.entityId)
+          ));
+          if (pendingOperations.length === state.pendingOperations.length) return {};
+          return {
+            chats: projectVisibleChats(state.chats, pendingOperations),
+            pendingOperations,
+            pendingEditSyncCount: pendingOperations.length,
+            pendingEditSyncError: latestChatError(pendingOperations),
+          };
+        }),
         discardFailedOperation: (operationId) => set((state) => {
           const operation = state.pendingOperations.find((item) => item.id === operationId);
           if (operation?.status !== 'failed') return {};

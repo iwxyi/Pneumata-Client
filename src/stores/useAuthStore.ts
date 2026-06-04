@@ -8,6 +8,7 @@ import { storageKey } from '../constants/brand';
 import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot } from '../services/localToCloudBootstrap';
 import { reportRecoverableError } from '../services/diagnostics';
 import { rememberCloudUserId } from '../services/authStorageScope';
+import { runWithCloudSyncBootstrapLock } from '../services/cloudSyncBootstrapLock';
 
 interface User {
   id: string;
@@ -120,7 +121,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       });
       if (localSnapshot) {
         try {
-          await bootstrapLocalDataToCloud(localSnapshot);
+          await runWithCloudSyncBootstrapLock(() => bootstrapLocalDataToCloud(localSnapshot));
         } catch (error) {
           clearAuthTokenAndUser();
           setAuthMode('local');

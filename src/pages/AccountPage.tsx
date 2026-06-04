@@ -12,6 +12,8 @@ import { useMessageStore } from '../stores/useMessageStore';
 import AppSnackbar from '../components/common/AppSnackbar';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { isCloudSyncEnabled, setCloudSyncEnabled } from '../services/cloudSyncPreference';
+import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot } from '../services/localToCloudBootstrap';
+import { runWithCloudSyncBootstrapLock } from '../services/cloudSyncBootstrapLock';
 
 const MAX_AVATAR_FILE_SIZE = 2 * 1024 * 1024;
 const MAX_AVATAR_DIMENSION = 512;
@@ -345,16 +347,44 @@ export default function AccountPage() {
 
   const isImageAvatar = isImageAvatarValue(avatar);
   const phoneLabel = i18n.language.startsWith('zh') ? '手机号' : 'Phone';
-  const handleCloudSyncToggle = (enabled: boolean) => {
+  const handleCloudSyncToggle = async (enabled: boolean) => {
+    if (authMode === 'local') {
+      navigate('/login');
+      return;
+    }
+    const previousEnabled = cloudSyncEnabled;
     setCloudSyncEnabled(enabled);
     setCloudSyncEnabledState(enabled);
-    setSnackbar({
-      open: true,
-      message: enabled
-        ? (i18n.language.startsWith('zh') ? '已开启云同步。后续操作会按需同步到云端。' : 'Cloud sync is on. Future changes will sync when needed.')
-        : (i18n.language.startsWith('zh') ? '已关闭云同步。后续数据只保存在本设备。' : 'Cloud sync is off. Future data stays on this device.'),
-      severity: 'success',
-    });
+    if (!enabled) {
+      setSnackbar({
+        open: true,
+        message: i18n.language.startsWith('zh') ? '已关闭云同步。后续数据只保存在本设备。' : 'Cloud sync is off. Future data stays on this device.',
+        severity: 'success',
+      });
+      return;
+    }
+
+    setSyncingAll(true);
+    try {
+      const snapshot = await captureLocalCloudBootstrapSnapshot();
+      await runWithCloudSyncBootstrapLock(() => bootstrapLocalDataToCloud(snapshot));
+      await Promise.all([chatStore.loadChats(), characterStore.loadCharacters(), settingsStore.loadSettings()]);
+      setSnackbar({
+        open: true,
+        message: i18n.language.startsWith('zh') ? '已开启云同步，并完成本地与云端数据准备。' : 'Cloud sync is on. Local and cloud data are prepared.',
+        severity: 'success',
+      });
+    } catch (error) {
+      setCloudSyncEnabled(previousEnabled);
+      setCloudSyncEnabledState(previousEnabled);
+      setSnackbar({
+        open: true,
+        message: error instanceof Error ? error.message : t('common.error'),
+        severity: 'error',
+      });
+    } finally {
+      setSyncingAll(false);
+    }
   };
 
   return (
@@ -440,7 +470,7 @@ export default function AccountPage() {
               control={
                 <Switch
                   checked={authMode !== 'local' && cloudSyncEnabled}
-                  disabled={authMode === 'local'}
+                  disabled={authMode === 'local' || syncingAll}
                   onChange={(event) => handleCloudSyncToggle(event.target.checked)}
                 />
               }

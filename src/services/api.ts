@@ -74,6 +74,25 @@ export interface CharacterArtifactQuery {
   includeDeleted?: boolean;
 }
 
+export type SyncChangeScope =
+  | 'characters.summary'
+  | `characters.detail:${string}`
+  | 'chats.summary'
+  | `chats.detail:${string}`
+  | `messages.window:${string}`
+  | 'world-runtime.window'
+  | 'artifacts.summary'
+  | `artifacts.summary:${string}`
+  | 'settings.account';
+
+export interface SyncChangesResponse {
+  status: 'modified' | 'not_modified';
+  scope: SyncChangeScope;
+  cursor: string;
+  revision: string;
+  changes: Array<Record<string, unknown>>;
+}
+
 export class ApiError extends Error {
   code?: string;
   status?: number;
@@ -319,6 +338,14 @@ class ApiClient {
     return this.request<{ success: boolean; deletedIds: string[] }>('DELETE', '/chats/recycle-bin/empty-all');
   }
 
+  async getSyncChanges(params: { scope: SyncChangeScope; since?: string | number | null }) {
+    const query = new URLSearchParams({ scope: params.scope });
+    if (params.since !== undefined && params.since !== null && String(params.since).trim()) {
+      query.set('since', String(params.since));
+    }
+    return this.request<SyncChangesResponse>('GET', `/sync/changes?${query.toString()}`);
+  }
+
   async getDeletedChatStats() {
     return this.request<{ group: number; direct: number; aiDirect: number }>('GET', '/chats/recycle-bin/stats');
   }
@@ -404,7 +431,7 @@ class ApiClient {
   }
 
   async getCharacterArtifacts() {
-    return this.request<{ items: CharacterArtifactSyncEntry[]; updatedAt: number }>('GET', '/character-artifacts');
+    return this.request<{ items: CharacterArtifactSummaryEntry[]; updatedAt: number }>('GET', '/character-artifacts');
   }
 
   async getCharacterArtifactSummaries(query: CharacterArtifactQuery = {}) {
@@ -425,6 +452,7 @@ class ApiClient {
     if (query.dateFrom) params.set('dateFrom', query.dateFrom);
     if (query.dateTo) params.set('dateTo', query.dateTo);
     if (query.includeDeleted) params.set('includeDeleted', 'true');
+    params.set('includeText', 'true');
     const suffix = params.toString() ? `?${params.toString()}` : '';
     return this.request<{ items: CharacterArtifactSyncEntry[]; updatedAt: number }>('GET', `/character-artifacts${suffix}`);
   }

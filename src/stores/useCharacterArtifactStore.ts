@@ -4,14 +4,16 @@ import type { AICharacter } from '../types/character';
 import type { AIModelProfile } from '../types/settings';
 import { getUsableDefaultTextAIProfile, hasUsableDefaultTextAI, isAIProfileUsable } from '../types/settings';
 import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
+import { createSyncScopeMetadata } from './syncScopeMetadata';
 import { CLIENT_STORE_SCHEMA_VERSION } from './storeMigrations';
 import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact, looksLikeRawArtifactContext } from '../services/characterExperienceArtifacts';
 import { useSettingsStore } from './useSettingsStore';
 import { isCharacterFeatureEnabled } from '../services/characterGenerationPolicy';
 import { scopedStorageKey, storageKey } from '../constants/brand';
-import { api, type CharacterArtifactQuery, type CharacterArtifactSummaryEntry, type CharacterArtifactSyncEntry } from '../services/api';
+import { api, type CharacterArtifactQuery, type CharacterArtifactSummaryEntry, type CharacterArtifactSyncEntry, type SyncChangeScope } from '../services/api';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
+import { isCloudSyncBootstrapLocked } from '../services/cloudSyncBootstrapLock';
 
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
 export type CharacterArtifactJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
@@ -95,7 +97,10 @@ function getGuestArtifactStorageKey() {
 }
 
 function isCloudMode() {
-  return isCloudSyncEnabled() && Boolean(localStorage.getItem(storageKey('token'))) && localStorage.getItem(storageKey('auth-mode')) !== 'local';
+  return isCloudSyncEnabled()
+    && !isCloudSyncBootstrapLocked()
+    && Boolean(localStorage.getItem(storageKey('token')))
+    && localStorage.getItem(storageKey('auth-mode')) !== 'local';
 }
 
 function readPersistedItemsFromKey(key: string) {
@@ -128,6 +133,70 @@ function now() {
 }
 
 const DIARY_BACKFILL_WINDOW_DAYS = 7;
+const ARTIFACT_SYNC_TTL_MS = 30_000;
+const ARTIFACT_SUMMARY_SCOPE: SyncChangeScope = 'artifacts.summary';
+const artifactSyncScopes = createSyncScopeMetadata(ARTIFACT_SYNC_TTL_MS, {
+  getStorageKey: () => scopedStorageKey(`artifact-sync-scopes-${getLocalDataUserId()}`),
+});
+
+function artifactSyncScope(query: CharacterArtifactQuery = {}) {
+  const parts = [
+    query.kind ? `kind:${query.kind}` : '',
+    query.characterId ? `character:${query.characterId}` : '',
+    query.dateFrom ? `from:${query.dateFrom}` : '',
+    query.dateTo ? `to:${query.dateTo}` : '',
+  ].filter(Boolean);
+  return `artifacts.summary${parts.length ? `:${parts.join('|')}` : ''}`;
+}
+
+async function probeArtifactSummaryChanges(scope: SyncChangeScope, options: { forceFull?: boolean } = {}) {
+  const scopeState = artifactSyncScopes.getState(scope);
+  const since = options.forceFull ? null : scopeState.cursor ?? scopeState.revision ?? null;
+  try {
+    return await api.getSyncChanges({ scope, since });
+  } catch {
+    return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function normalizeArtifactSummaryChange(change: Record<string, unknown>): CharacterArtifactSummaryEntry | null {
+  if (change.entity !== 'artifact_summary' || typeof change.id !== 'string') return null;
+  const patch = isRecord(change.patch) ? change.patch : {};
+  if (typeof patch.kind !== 'string' || typeof patch.characterId !== 'string') return null;
+  return {
+    id: change.id,
+    kind: patch.kind as CharacterArtifactKind,
+    characterId: patch.characterId,
+    characterName: typeof patch.characterName === 'string' ? patch.characterName : '',
+    dateKey: typeof patch.dateKey === 'string' ? patch.dateKey : null,
+    sourceKey: typeof patch.sourceKey === 'string' ? patch.sourceKey : null,
+    title: typeof patch.title === 'string' ? patch.title : '',
+    source: patch.source === 'ai' ? 'ai' : 'local',
+    unread: Boolean(patch.unread),
+    createdAt: Number(patch.createdAt || 0),
+    updatedAt: Number(patch.updatedAt || 0),
+    deletedAt: patch.deletedAt == null ? null : Number(patch.deletedAt),
+    revision: Number(patch.revision || change.revision || 1),
+  };
+}
+
+function artifactSummariesFromChanges(changes: Array<Record<string, unknown>> | undefined) {
+  if (!changes?.length) return null;
+  const summaries: CharacterArtifactSummaryEntry[] = [];
+  for (const change of changes) {
+    const summary = normalizeArtifactSummaryChange(change);
+    if (!summary) return null;
+    summaries.push(summary);
+  }
+  return {
+    items: summaries,
+    updatedAt: summaries.reduce((max, item) => Math.max(max, item.updatedAt || 0), 0),
+  };
+}
 
 function dateKeyOf(value: number) {
   const date = new Date(value);
@@ -406,6 +475,7 @@ function applyRemoteDeletedArtifactSummaries(items: CharacterArtifactEntry[], su
       return;
     }
     if ((existing.deletedAt || 0) >= deletedAt) return;
+    if ((existing.updatedAt || 0) >= deletedAt) return;
     byId.set(summary.id, {
       ...existing,
       characterName: summary.characterName || existing.characterName,
@@ -645,9 +715,11 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
       let cloudSyncRunning = false;
       let cloudSyncPending = false;
       let cloudSyncPendingQuery: CharacterArtifactQuery | undefined;
+      let cloudSyncDirty = false;
 
       const scheduleCloudSync = () => {
         if (!isCloudMode()) return;
+        cloudSyncDirty = true;
         if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
         cloudSyncTimer = setTimeout(() => {
           cloudSyncTimer = null;
@@ -877,14 +949,29 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
         },
         syncCloud: async (query = {}) => {
           if (!isCloudMode()) return;
+          const scope = artifactSyncScope(query);
+          const forceSync = cloudSyncDirty;
+          if (!forceSync && artifactSyncScopes.isFresh(scope)) return;
           if (cloudSyncRunning) {
             cloudSyncPending = true;
             cloudSyncPendingQuery = query;
             return;
           }
           cloudSyncRunning = true;
+          cloudSyncDirty = false;
           try {
-            const remote = await api.getCharacterArtifactSummaries({ ...query, includeDeleted: true });
+            const syncScope = scope as SyncChangeScope;
+            const changeProbe = !forceSync ? await probeArtifactSummaryChanges(syncScope, { forceFull: get().items.length === 0 }) : null;
+            if (changeProbe?.status === 'not_modified') {
+              artifactSyncScopes.markChecked(scope, {
+                cursor: changeProbe.cursor,
+                revision: changeProbe.revision,
+                applied: false,
+              });
+              return;
+            }
+            const remote = artifactSummariesFromChanges(changeProbe?.changes)
+              || await api.getCharacterArtifactSummaries({ ...query, includeDeleted: true });
             const currentKey = getArtifactStorageKey();
             const guestKey = getGuestArtifactStorageKey();
             const persistedCurrentItems = readPersistedItemsFromKey(currentKey);
@@ -931,8 +1018,22 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
                 }
               }
             }
+            artifactSyncScopes.markChecked(scope, {
+              cursor: changeProbe?.cursor,
+              revision: changeProbe?.revision,
+              applied: mergedSignature !== localSignature || uploads.length > 0,
+            });
+            if (scope === ARTIFACT_SUMMARY_SCOPE) {
+              artifactSyncScopes.markChecked(ARTIFACT_SUMMARY_SCOPE, {
+                cursor: changeProbe?.cursor,
+                revision: changeProbe?.revision,
+                applied: mergedSignature !== localSignature || uploads.length > 0,
+              });
+            }
           } catch (error) {
             console.error('Failed to sync character artifacts:', error);
+            artifactSyncScopes.markError(scope, error);
+            if (forceSync) cloudSyncDirty = true;
           } finally {
             cloudSyncRunning = false;
             if (cloudSyncPending) {

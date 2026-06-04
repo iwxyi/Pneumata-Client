@@ -1,18 +1,19 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Message } from '../types/message';
-import { getMessageRenderIdentity, isLocalOnlyMessageId, messagesShareIdentity } from '../services/messageIdentity';
-import { api } from '../services/api';
+import { buildMessageIdentityKeys, getMessageRenderIdentity, isLocalOnlyMessageId, messagesShareIdentity } from '../services/messageIdentity';
+import { api, type SyncChangeScope } from '../services/api';
 import { reportRecoverableError } from '../services/diagnostics';
 import { hasLocalDataUrlMedia, scrubLocalMediaUrlsForCloud, uploadLocalMessageMediaToCloud } from '../services/richMessageMedia';
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateMessageStoreState } from './storeMigrations';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
-import { canAttemptOnlineSync, classifySyncError, recoverInterruptedOperations } from './storeSyncHelpers';
+import { canAttemptOnlineSync, recoverInterruptedOperations, runPendingOperationQueue } from './storeSyncHelpers';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
+import { createSyncScopeMetadata } from './syncScopeMetadata';
 
 function isLocalOnlyMode() {
   return useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled();
@@ -115,13 +116,18 @@ function locallyDeleteLastN(state: MessageStore, chatId: string, n: number) {
   };
 }
 
+function activeMessageWindow(messages: Message[], limit = DEFAULT_MESSAGE_WINDOW_LIMIT) {
+  return messages.slice(-limit);
+}
+
 function localHydratedWindow(state: MessageStore, chatId: string) {
   const cachedWindow = state.messageWindowsByChatId[chatId];
   const cachedMessages = cachedWindow?.messages || [];
+  const activeMessages = activeMessageWindow(cachedMessages);
   return {
     activeChatId: chatId,
-    messages: cachedMessages,
-    hasMore: cachedMessages.length >= 20,
+    messages: activeMessages,
+    hasMore: cachedMessages.length > activeMessages.length || cachedMessages.length >= DEFAULT_MESSAGE_WINDOW_LIMIT,
   };
 }
 
@@ -136,15 +142,31 @@ function localUpsertMessage(state: MessageStore, message: Message) {
   };
 }
 
-function localLoadMessages(state: MessageStore, chatId: string) {
+function localLoadMessages(state: MessageStore, chatId: string, options?: { append?: boolean; before?: number; limit?: number }) {
   const currentWindow = state.messageWindowsByChatId[chatId];
   const current = currentWindow?.messages || [];
+  const limit = options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT;
+  if (options?.append && options.before !== undefined) {
+    const olderMessages = current.filter((message) => message.timestamp < Number(options.before)).slice(-limit);
+    const activeCurrent = state.activeChatId === chatId ? state.messages : activeMessageWindow(current, limit);
+    const nextMessages = trimActiveMessages(mergeMessages(activeCurrent, olderMessages));
+    const earliestTimestamp = nextMessages.find((message) => message.chatId === chatId && !message.isDeleted)?.timestamp ?? Number.NEGATIVE_INFINITY;
+    const hasMoreLocal = current.some((message) => !message.isDeleted && message.timestamp < earliestTimestamp);
+    return {
+      messages: nextMessages,
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: hasMoreLocal,
+    };
+  }
+  const activeMessages = activeMessageWindow(current, limit);
   return {
-    messages: current,
+    messages: activeMessages,
     activeChatId: chatId,
     isLoading: false,
     isLoadingOlder: false,
-    hasMore: false,
+    hasMore: current.length > activeMessages.length,
   };
 }
 
@@ -241,8 +263,8 @@ function applyLocalMessageDeleteLastN(state: MessageStore, chatId: string, n: nu
   return localDeleteWindowMessages(state, chatId, n);
 }
 
-function buildLocalMessageFetch(state: MessageStore, chatId: string) {
-  return buildLocalMessageWindowState(state, chatId);
+function buildLocalMessageFetch(state: MessageStore, chatId: string, options?: { append?: boolean; before?: number; limit?: number }) {
+  return localLoadMessages(state, chatId, options);
 }
 
 function hydrateLocalChatWindow(state: MessageStore, chatId: string) {
@@ -261,8 +283,8 @@ function localMessageDeleteBatchResult(state: MessageStore, chatId: string, n: n
   return applyLocalMessageDeleteLastN(state, chatId, n);
 }
 
-function localFetchedMessages(state: MessageStore, chatId: string) {
-  return buildLocalMessageFetch(state, chatId);
+function localFetchedMessages(state: MessageStore, chatId: string, options?: { append?: boolean; before?: number; limit?: number }) {
+  return buildLocalMessageFetch(state, chatId, options);
 }
 
 function localHydratedMessages(state: MessageStore, chatId: string) {
@@ -4206,9 +4228,11 @@ function maybeReplayCoreGuestMessages() {
 
 void maybeReplayCoreGuestMessages;
 
-const MAX_CACHED_MESSAGES_PER_CHAT = 120;
-const MAX_ACTIVE_MESSAGES_PER_CHAT = 400;
+const DEFAULT_MESSAGE_WINDOW_LIMIT = 40;
+const MAX_CACHED_MESSAGES_PER_CHAT = 100;
+const MAX_ACTIVE_MESSAGES_PER_CHAT = 1000;
 const MAX_CACHED_CHATS = 12;
+const MAX_PERSISTED_DATA_URL_CHARS = 2048;
 
 interface CachedMessageWindow {
   messages: Message[];
@@ -4227,6 +4251,12 @@ interface PendingMessageOperation {
   attemptCount: number;
   status: 'pending' | 'syncing' | 'failed';
   lastError?: string;
+  retryAt?: number;
+  lockedAt?: number;
+}
+
+function pendingMessageOperationPriority(operation: PendingMessageOperation) {
+  return operation.kind === 'create' ? 100 : 20;
 }
 
 interface PersistedMessageState {
@@ -4259,9 +4289,56 @@ export function clearPersistedMessageStore() {
   localStorage.removeItem(getMessageStoreStorageName());
 }
 
-function buildPersistedMessageState(state: PersistedMessageState): PersistedMessageState {
+function isInlineDataUrl(value: string) {
+  return /^data:[^;]+;base64,/i.test(value);
+}
+
+function shouldDropPersistedString(key: string, value: string) {
+  const normalizedKey = key.toLowerCase();
+  return isInlineDataUrl(value) && (
+    value.length > MAX_PERSISTED_DATA_URL_CHARS
+    || normalizedKey.includes('dataurl')
+    || normalizedKey === 'url'
+    || normalizedKey.endsWith('url')
+  );
+}
+
+function stripLargeInlineMediaForPersistence<T>(value: T, key = '', seen = new WeakSet<object>()): T {
+  if (typeof value === 'string') {
+    return (shouldDropPersistedString(key, value) ? undefined : value) as T;
+  }
+  if (!value || typeof value !== 'object') return value;
+  if (seen.has(value)) return undefined as T;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripLargeInlineMediaForPersistence(item, key, seen))
+      .filter((item) => item !== undefined) as T;
+  }
+  const source = value as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  Object.entries(source).forEach(([entryKey, entryValue]) => {
+    const stripped = stripLargeInlineMediaForPersistence(entryValue, entryKey, seen);
+    if (stripped !== undefined) next[entryKey] = stripped;
+  });
+  return next as T;
+}
+
+function compactMessageForPersistence(message: Message) {
+  const normalized = normalizeMessage(message);
   return {
-    messageWindowsByChatId: trimCache(state.messageWindowsByChatId || {}),
+    ...normalized,
+    metadata: stripLargeInlineMediaForPersistence(normalized.metadata),
+  };
+}
+
+function buildPersistedMessageState(state: PersistedMessageState): PersistedMessageState {
+  const compactedWindows = Object.fromEntries(Object.entries(state.messageWindowsByChatId || {}).map(([chatId, window]) => [chatId, {
+    ...window,
+    messages: (window.messages || []).map(compactMessageForPersistence),
+  }]));
+  return {
+    messageWindowsByChatId: trimCache(compactedWindows),
     pendingOperations: recoverInterruptedOperations(state.pendingOperations || []),
   };
 }
@@ -4289,6 +4366,35 @@ function normalizeMessage(message: Message): Message {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function messagesFromWindowChanges(changes: Array<Record<string, unknown>> | undefined, chatId: string) {
+  if (!changes?.length) return null;
+  const messages: Message[] = [];
+  for (const change of changes) {
+    if (change.entity !== 'message_window_message' || typeof change.id !== 'string' || !isRecord(change.patch)) return null;
+    const patch = change.patch;
+    if (patch.chatId !== chatId) return null;
+    messages.push(normalizeMessage({
+      id: change.id,
+      clientKey: typeof patch.clientKey === 'string' ? patch.clientKey : undefined,
+      serverId: typeof patch.serverId === 'string' ? patch.serverId : change.id,
+      chatId,
+      type: patch.type as Message['type'],
+      senderId: typeof patch.senderId === 'string' ? patch.senderId : 'system',
+      senderName: typeof patch.senderName === 'string' ? patch.senderName : 'System',
+      content: typeof patch.content === 'string' ? patch.content : '',
+      metadata: isRecord(patch.metadata) ? patch.metadata as Message['metadata'] : undefined,
+      emotion: Number(patch.emotion || 0),
+      timestamp: Number(patch.timestamp || 0),
+      isDeleted: change.op === 'delete' ? true : Boolean(patch.isDeleted),
+    }));
+  }
+  return messages.sort(compareMessagesByTimeline);
+}
+
 function compareMessagesByTimeline(left: Message, right: Message) {
   if (left.timestamp !== right.timestamp) return left.timestamp - right.timestamp;
   if (left.type === 'event' && right.type !== 'event') return 1;
@@ -4297,17 +4403,47 @@ function compareMessagesByTimeline(left: Message, right: Message) {
 }
 
 function dedupeMessages(messages: Message[]) {
-  const normalizedMessages = messages.map(normalizeMessage);
-  return normalizedMessages.filter((message, index, array) => array.findIndex((item) => {
-    if (messagesShareIdentity(item, message)) return true;
-    if (buildMessageContentKey(item) !== buildMessageContentKey(message)) return false;
-    return Math.abs(item.timestamp - message.timestamp) <= 5000;
-  }) === index).filter((message, index, array) => array.findIndex((item) => {
-    if (messagesShareIdentity(item, message)) return true;
-    if (buildMessageContentKey(item) !== buildMessageContentKey(message)) return false;
-    if (Math.abs(item.timestamp - message.timestamp) > 5000) return false;
-    return (!item.serverId && !message.serverId) || (item.isStreaming && message.isStreaming);
-  }) === index);
+  const result: Message[] = [];
+  const identityIndex = new Map<string, number>();
+  const contentIndex = new Map<string, number[]>();
+  const remember = (message: Message, index: number) => {
+    for (const key of buildMessageIdentityKeys(message)) identityIndex.set(key, index);
+    const contentKey = buildMessageContentKey(message);
+    if (!contentIndex.has(contentKey)) contentIndex.set(contentKey, []);
+    contentIndex.get(contentKey)?.push(index);
+  };
+
+  for (const message of messages.map(normalizeMessage)) {
+    const identityMatch = buildMessageIdentityKeys(message)
+      .map((key) => identityIndex.get(key))
+      .find((index): index is number => index !== undefined);
+    if (identityMatch !== undefined) {
+      result[identityMatch] = mergeMessagePair(result[identityMatch], message);
+      remember(result[identityMatch], identityMatch);
+      continue;
+    }
+
+    const contentMatches = contentIndex.get(buildMessageContentKey(message)) || [];
+    const duplicateIndex = contentMatches.find((index) => {
+      const existing = result[index];
+      if (Math.abs(existing.timestamp - message.timestamp) > 5000) return false;
+      return true;
+    });
+    if (duplicateIndex !== undefined) {
+      const existing = result[duplicateIndex];
+      if ((!existing.serverId && !message.serverId) || (existing.isStreaming && message.isStreaming)) {
+        result[duplicateIndex] = mergeMessagePair(existing, message);
+        remember(result[duplicateIndex], duplicateIndex);
+      }
+      continue;
+    }
+
+    const nextIndex = result.length;
+    result.push(message);
+    remember(message, nextIndex);
+  }
+
+  return result;
 }
 
 function hasLocalMessageIdentity(message: Message) {
@@ -4344,37 +4480,55 @@ function mergeMessagePair(existing: Message, incoming: Message) {
 
 function mergeMessages(localMessages: Message[], remoteMessages: Message[]) {
   const merged = new Map<string, Message>();
-  const buildContentKey = (message: Message) => buildMessageContentKey(message);
+  const identityIndex = new Map<string, string>();
+  const contentIndex = new Map<string, string[]>();
+  const indexMessage = (identity: string, message: Message) => {
+    for (const key of buildMessageIdentityKeys(message)) identityIndex.set(key, identity);
+    const contentKey = buildMessageContentKey(message);
+    if (!contentIndex.has(contentKey)) contentIndex.set(contentKey, []);
+    const identities = contentIndex.get(contentKey);
+    if (identities && !identities.includes(identity)) identities.push(identity);
+  };
 
   for (const message of localMessages.map(normalizeMessage)) {
-    merged.set(getMessageRenderIdentity(message), message);
+    const identity = getMessageRenderIdentity(message);
+    merged.set(identity, message);
+    indexMessage(identity, message);
   }
 
   for (const remote of remoteMessages.map(normalizeMessage)) {
-    let localEntry = Array.from(merged.entries()).find(([, candidate]) => messagesShareIdentity(candidate, remote)) || null;
-    let local = localEntry?.[1] || null;
+    let localIdentity = buildMessageIdentityKeys(remote)
+      .map((key) => identityIndex.get(key))
+      .find((identity): identity is string => Boolean(identity)) || null;
+    let local = localIdentity ? merged.get(localIdentity) || null : null;
 
     if (!local) {
-      localEntry = Array.from(merged.entries()).find(([, candidate]) => {
+      const candidates = contentIndex.get(buildMessageContentKey(remote)) || [];
+      localIdentity = candidates.find((identity) => {
+        const candidate = merged.get(identity);
+        if (!candidate) return false;
         if (candidate.serverId) return false;
         if (candidate.chatId !== remote.chatId || candidate.type !== remote.type || candidate.senderId !== remote.senderId || candidate.content !== remote.content) return false;
         return Math.abs(candidate.timestamp - remote.timestamp) <= 5000;
       }) || null;
-      local = localEntry?.[1] || null;
+      local = localIdentity ? merged.get(localIdentity) || null : null;
     }
 
     if (!local) {
-      merged.set(getMessageRenderIdentity(remote), remote);
+      const identity = getMessageRenderIdentity(remote);
+      merged.set(identity, remote);
+      indexMessage(identity, remote);
       continue;
     }
 
-    const localIdentity = localEntry?.[0] || getMessageRenderIdentity(local);
+    if (!localIdentity) continue;
     const mergedMessage = mergeMessagePair(local, remote);
     if (localIdentity !== getMessageRenderIdentity(mergedMessage)) merged.delete(localIdentity);
-    merged.set(getMessageRenderIdentity(mergedMessage), mergedMessage);
+    const nextIdentity = getMessageRenderIdentity(mergedMessage);
+    merged.set(nextIdentity, mergedMessage);
+    indexMessage(nextIdentity, mergedMessage);
   }
 
-  void buildContentKey;
   return dedupeMessages(Array.from(merged.values())).sort(compareMessagesByTimeline);
 }
 
@@ -4401,13 +4555,22 @@ function trimCache(cache: Record<string, CachedMessageWindow>) {
 
 const messageStorage = createMessageStorage();
 const MESSAGE_SYNC_DELAYS = [1000, 3000, 10000, 30000];
-const messageSyncScheduler = createSyncScheduler();
+const MESSAGE_WINDOW_REFRESH_TTL_MS = 5 * 60_000;
+const messageSyncScheduler = createSyncScheduler('message.pending-operations', { priority: 100 });
+const messageSyncScopes = createSyncScopeMetadata(MESSAGE_WINDOW_REFRESH_TTL_MS, {
+  getStorageKey: () => scopedStorageKey(`message-sync-scopes-${getLocalDataUserId()}`),
+});
 let messageSyncLifecycleRegistered = false;
 let messageHydrationPromise: Promise<void> | null = null;
+let messageStoreHydrated = false;
 
-function ensureMessageStoreHydrated() {
-  if (useMessageStore.persist.hasHydrated()) return Promise.resolve();
+function ensureMessageStoreHydrated(): Promise<void> {
+  if (messageStoreHydrated || useMessageStore.persist.hasHydrated()) {
+    messageStoreHydrated = true;
+    return Promise.resolve();
+  }
   messageHydrationPromise ??= Promise.resolve(useMessageStore.persist.rehydrate()).finally(() => {
+    messageStoreHydrated = true;
     messageHydrationPromise = null;
   });
   return messageHydrationPromise;
@@ -4417,6 +4580,19 @@ function shouldRevalidateMessageWindow(lastSyncedAt: number | undefined, revalid
   if (!revalidate) return false;
   if (!lastSyncedAt) return true;
   return Date.now() - lastSyncedAt > 15_000;
+}
+
+const messageWindowScope = (chatId: string): SyncChangeScope => `messages.window:${chatId}`;
+
+async function probeMessageWindowChanges(chatId: string) {
+  const scope = messageWindowScope(chatId);
+  const scopeState = messageSyncScopes.getState(scope);
+  const since = scopeState.cursor ?? scopeState.revision ?? null;
+  try {
+    return await api.getSyncChanges({ scope, since });
+  } catch {
+    return null;
+  }
 }
 
 function createPendingMessageOperation(message: Message): PendingMessageOperation {
@@ -4493,7 +4669,7 @@ interface MessageStore {
   isLoadingOlder: boolean;
   hasMore: boolean;
 
-  hydrateMessagesFromCache: (chatId: string) => void;
+  hydrateMessagesFromCache: (chatId: string) => Promise<void>;
   openChatWindow: (chatId: string, options?: { limit?: number; revalidate?: boolean }) => Promise<void>;
   closeChatWindow: (chatId: string, options?: { clearActiveOnly?: boolean }) => void;
   prefetchMessages: (chatId: string, options?: { limit?: number }) => Promise<void>;
@@ -4516,43 +4692,37 @@ export const useMessageStore = create<MessageStore>()(
   persist(
     (set, get) => {
       const flushPendingOperations = async () => {
-        const state = get();
-        const nextOperation = state.pendingOperations.find((operation) => operation.status === 'pending');
-        if (!nextOperation || !canAttemptOnlineSync()) return;
-
-        set((current) => ({
-          pendingOperations: updatePendingMessageOperation(current.pendingOperations, nextOperation.id, { status: 'syncing' }),
-        }));
-
-        try {
-          if (nextOperation.kind === 'create' && nextOperation.payload) {
-            const localMessage = nextOperation.payload;
-            const savedMessage = await api.createMessage(localMessage.chatId, messagePayloadForCloud(localMessage, nextOperation.id));
-            const persistedMessage = mergeMessageServerConfirmation(localMessage, savedMessage);
+        await runPendingOperationQueue<PendingMessageOperation>({
+          getOperations: () => get().pendingOperations,
+          canRun: canAttemptOnlineSync,
+          retryDelays: MESSAGE_SYNC_DELAYS,
+          priority: pendingMessageOperationPriority,
+          updateOperation: (operationId, operation) => {
             set((current) => ({
-              ...localUpsertMessage(current, persistedMessage),
-              pendingOperations: removePendingMessageOperation(current.pendingOperations, nextOperation.id),
+              pendingOperations: updatePendingMessageOperation(current.pendingOperations, operationId, operation),
             }));
-            if (hasLocalDataUrlMedia(localMessage)) {
-              await uploadLocalMessageMediaToCloud({ localMessage, cloudMessage: persistedMessage });
+          },
+          execute: async (operation) => {
+            if (operation.kind === 'create' && operation.payload) {
+              const localMessage = operation.payload;
+              const savedMessage = await api.createMessage(localMessage.chatId, messagePayloadForCloud(localMessage, operation.id));
+              const persistedMessage = mergeMessageServerConfirmation(localMessage, savedMessage);
+              set((current) => ({
+                ...localUpsertMessage(current, persistedMessage),
+                pendingOperations: removePendingMessageOperation(current.pendingOperations, operation.id),
+              }));
+              if (hasLocalDataUrlMedia(localMessage)) {
+                await uploadLocalMessageMediaToCloud({ localMessage, cloudMessage: persistedMessage });
+              }
             }
-          }
-          set((current) => ({
-            pendingOperations: removePendingMessageOperation(current.pendingOperations, nextOperation.id),
-          }));
-          messageSyncScheduler.schedule(flushPendingOperations, 50);
-        } catch (error) {
-          const classified = classifySyncError(error);
-          const attemptCount = nextOperation.attemptCount + 1;
-          set((current) => ({
-            pendingOperations: updatePendingMessageOperation(current.pendingOperations, nextOperation.id, {
-              status: 'pending',
-              attemptCount,
-              lastError: classified,
-            }),
-          }));
-          messageSyncScheduler.schedule(flushPendingOperations, MESSAGE_SYNC_DELAYS[Math.min(attemptCount, MESSAGE_SYNC_DELAYS.length - 1)]);
-        }
+          },
+          onSuccess: (operation) => {
+            set((current) => ({
+              pendingOperations: removePendingMessageOperation(current.pendingOperations, operation.id),
+            }));
+          },
+          scheduleNext: (delay) => messageSyncScheduler.schedule(flushPendingOperations, delay),
+        });
       };
 
       if (!messageSyncLifecycleRegistered) {
@@ -4570,17 +4740,24 @@ export const useMessageStore = create<MessageStore>()(
       hasMore: true,
 
       hydrateMessagesFromCache: (chatId) => {
-        set((state) => localHydratedMessages(state, chatId));
+        const applyCachedWindow = () => {
+          set((state) => localHydratedMessages(state, chatId));
+        };
+        if (messageStoreHydrated) {
+          applyCachedWindow();
+          return Promise.resolve();
+        }
+        return ensureMessageStoreHydrated().then(applyCachedWindow);
       },
 
       openChatWindow: async (chatId: string, options?: { limit?: number; revalidate?: boolean }) => {
         await ensureMessageStoreHydrated();
         if (!shouldSkipCloudSync()) messageSyncScheduler.schedule(flushPendingOperations, 100);
-        get().hydrateMessagesFromCache(chatId);
+        await get().hydrateMessagesFromCache(chatId);
         const currentWindow = get().messageWindowsByChatId[chatId];
         const shouldRevalidate = shouldRevalidateMessageWindow(currentWindow?.lastSyncedAt, options?.revalidate ?? true);
         if (!get().hasMessageWindow(chatId) || shouldRevalidate) {
-          await get().loadMessages(chatId, { limit: options?.limit ?? 20 });
+          await get().loadMessages(chatId, { limit: options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT });
         }
       },
 
@@ -4599,7 +4776,7 @@ export const useMessageStore = create<MessageStore>()(
       prefetchMessages: async (chatId: string, options?: { limit?: number }) => {
         await ensureMessageStoreHydrated();
         if (get().messageWindowsByChatId[chatId]?.messages?.length) return;
-        await get().loadMessages(chatId, { limit: options?.limit ?? 20 });
+        await get().loadMessages(chatId, { limit: options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT });
       },
 
       hasMessageWindow: (chatId: string) => Boolean(get().messageWindowsByChatId[chatId]?.messages?.length),
@@ -4608,26 +4785,65 @@ export const useMessageStore = create<MessageStore>()(
         const isAppend = Boolean(options?.append);
         set({ isLoading: !isAppend, isLoadingOlder: isAppend, activeChatId: chatId });
         if (shouldSkipCloudSync()) {
-          set((state) => localFetchedMessages(state, chatId));
+          set((state) => localFetchedMessages(state, chatId, options));
           return;
         }
         try {
           await uploadGuestMessagesToCloud();
-          const limit = options?.limit ?? 20;
-          const fetched = await api.getMessages(chatId, { limit, before: options?.before }) as unknown as Message[];
+          const limit = options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT;
+          const currentWindowBeforeFetch = get().messageWindowsByChatId[chatId];
+          const canProbeWindow = !isAppend && !options?.before && Boolean(currentWindowBeforeFetch?.messages?.length);
+          if (canProbeWindow && messageSyncScopes.isFresh(messageWindowScope(chatId))) {
+            const activeMessages = activeMessageWindow(currentWindowBeforeFetch?.messages || [], limit);
+            set((state) => ({
+              activeChatId: chatId,
+              messages: state.activeChatId === chatId && state.messages.some((message) => message.chatId === chatId)
+                ? state.messages
+                : activeMessages,
+              isLoading: false,
+              isLoadingOlder: false,
+              hasMore: (currentWindowBeforeFetch?.messages?.length || 0) > activeMessages.length || (currentWindowBeforeFetch?.messages?.length || 0) >= limit,
+            }));
+            return;
+          }
+          const changeProbe = canProbeWindow ? await probeMessageWindowChanges(chatId) : null;
+          if (changeProbe?.status === 'not_modified') {
+            const activeMessages = activeMessageWindow(currentWindowBeforeFetch?.messages || [], limit);
+            messageSyncScopes.markChecked(messageWindowScope(chatId), {
+              cursor: changeProbe.cursor,
+              revision: changeProbe.revision,
+              applied: false,
+            });
+            set((state) => ({
+              activeChatId: chatId,
+              messages: state.activeChatId === chatId && state.messages.some((message) => message.chatId === chatId)
+                ? state.messages
+                : activeMessages,
+              isLoading: false,
+              isLoadingOlder: false,
+              hasMore: (currentWindowBeforeFetch?.messages?.length || 0) > activeMessages.length || (currentWindowBeforeFetch?.messages?.length || 0) >= limit,
+            }));
+            return;
+          }
+          const fetched = messagesFromWindowChanges(changeProbe?.changes, chatId)
+            || await api.getMessages(chatId, { limit, before: options?.before }) as unknown as Message[];
           set((state) => {
             const currentWindow = state.messageWindowsByChatId[chatId];
             const current = currentWindow?.messages || [];
-            const activeCurrent = state.activeChatId === chatId ? state.messages : current;
+            const activeMessagesForChat = state.messages.filter((message) => message.chatId === chatId);
+            const activeCurrent = activeMessagesForChat.length ? activeMessagesForChat : activeMessageWindow(current, limit);
             const merged = mergeMessages(current, fetched);
             const trimmed = trimMessages(merged);
-            const nextActiveMessages = trimActiveMessages(mergeMessages(activeCurrent, fetched));
+            const mergedActiveMessages = mergeMessages(activeCurrent, fetched);
+            const nextActiveMessages = isAppend
+              ? trimActiveMessages(mergedActiveMessages)
+              : activeMessageWindow(mergedActiveMessages, limit);
             const currentVisibleCount = countUniqueMessages(activeCurrent);
             const nextVisibleCount = countUniqueMessages(nextActiveMessages);
             const addedOlderMessages = nextVisibleCount > currentVisibleCount;
             const nextHasMore = isAppend
-              ? fetched.length > 0 && addedOlderMessages
-              : fetched.length > 0;
+              ? fetched.length >= limit && addedOlderMessages
+              : fetched.length >= limit;
             const nextCache = trimCache({
               ...state.messageWindowsByChatId,
               [chatId]: {
@@ -4636,6 +4852,13 @@ export const useMessageStore = create<MessageStore>()(
                 updatedAt: trimmed.at(-1)?.timestamp || currentWindow?.updatedAt || Date.now(),
               },
             });
+            if (!isAppend && !options?.before) {
+              messageSyncScopes.markChecked(messageWindowScope(chatId), {
+                cursor: changeProbe?.cursor,
+                revision: changeProbe?.revision,
+                applied: fetched.length > 0,
+              });
+            }
             return {
               messages: state.activeChatId === chatId ? nextActiveMessages : state.messages,
               activeChatId: chatId,
@@ -4646,6 +4869,7 @@ export const useMessageStore = create<MessageStore>()(
             };
           });
         } catch (error) {
+          if (!isAppend && !options?.before) messageSyncScopes.markError(messageWindowScope(chatId), error);
           reportRecoverableError({
             location: 'cloud-sync:messages-load',
             error,

@@ -8,10 +8,14 @@ import { buildChatRenderItems } from './chatRenderModel';
 import type { ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import ImageLightbox from '../common/ImageLightbox';
 
-const TOP_REACH_THRESHOLD = 64;
+const TOP_PREFETCH_THRESHOLD = 520;
 const BOTTOM_STICKY_THRESHOLD = 96;
 const SMOOTH_SCROLL_DISTANCE_LIMIT = 900;
 type ResponsiveInset = number | string | Record<string, number | string>;
+interface ScrollAnchorSnapshot {
+  messageId: string;
+  offsetTop: number;
+}
 
 interface MessageListProps {
   messages: Message[];
@@ -52,7 +56,8 @@ export default function MessageList({
   const topLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
   const hasJumpedToBottomRef = useRef(false);
-  const prependRestoreRef = useRef<{ height: number; top: number } | null>(null);
+  const prependRestoreRef = useRef<ScrollAnchorSnapshot | null>(null);
+  const latestScrollAnchorRef = useRef<ScrollAnchorSnapshot | null>(null);
   const autoFillTriggeredRef = useRef(false);
   const lastScrollTopRef = useRef(0);
   const previousRenderMetricsRef = useRef({
@@ -99,6 +104,43 @@ export default function MessageList({
     element.scrollHeight - element.scrollTop - element.clientHeight
   ), []);
 
+  const captureScrollAnchor = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return null;
+    const containerRect = container.getBoundingClientRect();
+    const nodes = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'));
+    const firstVisible = nodes.find((node) => node.getBoundingClientRect().bottom > containerRect.top + 1) || nodes[0];
+    const messageId = firstVisible?.dataset.messageId;
+    if (!firstVisible || !messageId) return null;
+    return {
+      messageId,
+      offsetTop: firstVisible.getBoundingClientRect().top - containerRect.top,
+    };
+  }, []);
+
+  const restoreScrollAnchor = useCallback((snapshot: ScrollAnchorSnapshot) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const target = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'))
+      .find((node) => node.dataset.messageId === snapshot.messageId);
+    if (!target) return;
+    const currentOffset = target.getBoundingClientRect().top - containerRect.top;
+    const delta = currentOffset - snapshot.offsetTop;
+    if (Math.abs(delta) < 1) return;
+    container.scrollTop += delta;
+    lastScrollTopRef.current = container.scrollTop;
+  }, []);
+
+  const rememberScrollAnchor = useCallback(() => {
+    const snapshot = captureScrollAnchor();
+    latestScrollAnchorRef.current = snapshot;
+    if (isLoadingOlder && snapshot) {
+      prependRestoreRef.current = snapshot;
+    }
+    return snapshot;
+  }, [captureScrollAnchor, isLoadingOlder]);
+
   const updatePinnedState = useCallback(() => {
     const container = containerRef.current;
     if (!container) return false;
@@ -129,15 +171,17 @@ export default function MessageList({
   }, [renderItems.length, scrollToBottom]);
 
   useLayoutEffect(() => {
-    const container = containerRef.current;
     const snapshot = prependRestoreRef.current;
-    if (!container || !snapshot) return;
+    if (!snapshot) return;
     prependRestoreRef.current = null;
-    const delta = container.scrollHeight - snapshot.height;
-    container.scrollTop = snapshot.top + delta;
-    lastScrollTopRef.current = container.scrollTop;
+    restoreScrollAnchor(snapshot);
     updatePinnedState();
-  }, [messages, updatePinnedState]);
+    const handle = window.requestAnimationFrame(() => {
+      restoreScrollAnchor(snapshot);
+      updatePinnedState();
+    });
+    return () => window.cancelAnimationFrame(handle);
+  }, [renderItems, restoreScrollAnchor, updatePinnedState]);
 
   useLayoutEffect(() => {
     const currentMetrics = {
@@ -173,14 +217,11 @@ export default function MessageList({
     if (!container || !onReachTop || isLoadingOlder || !hasMore || autoFillTriggeredRef.current) return;
     if (container.scrollHeight > container.clientHeight + 1) return;
 
-    prependRestoreRef.current = {
-      height: container.scrollHeight,
-      top: container.scrollTop,
-    };
+    prependRestoreRef.current = latestScrollAnchorRef.current || captureScrollAnchor();
     autoFillTriggeredRef.current = true;
     topLoadTriggeredRef.current = true;
     void onReachTop();
-  }, [hasMore, isLoadingOlder, onReachTop, renderItems.length]);
+  }, [captureScrollAnchor, hasMore, isLoadingOlder, onReachTop, renderItems.length]);
 
   return (
     <Box
@@ -197,18 +238,16 @@ export default function MessageList({
         } else {
           updatePinnedState();
         }
+        rememberScrollAnchor();
 
-        if (container.scrollTop > TOP_REACH_THRESHOLD) {
+        if (container.scrollTop > TOP_PREFETCH_THRESHOLD) {
           topLoadTriggeredRef.current = false;
           return;
         }
 
         if (!onReachTop || topLoadTriggeredRef.current || isLoadingOlder || !hasMore) return;
 
-        prependRestoreRef.current = {
-          height: container.scrollHeight,
-          top: container.scrollTop,
-        };
+        prependRestoreRef.current = latestScrollAnchorRef.current || captureScrollAnchor();
         topLoadTriggeredRef.current = true;
         void onReachTop();
       }}
@@ -224,6 +263,7 @@ export default function MessageList({
         bgcolor: 'transparent',
         scrollPaddingTop: topInset || 16,
         scrollPaddingBottom: bottomInset || 16,
+        overflowAnchor: 'none',
       }}
     >
       {messages.length > 0 ? (

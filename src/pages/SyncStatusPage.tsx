@@ -1,5 +1,5 @@
 import { Alert, Box, Button, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
@@ -7,6 +7,7 @@ import { useAuthStore } from '../stores/useAuthStore';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import EmptyState from '../components/common/EmptyState';
+import { readCloudSyncBootstrapStatus, type CloudSyncBootstrapStatus } from '../services/cloudSyncBootstrapStatus';
 
 function clipText(value: unknown, max = 120) {
   if (value == null) return '';
@@ -40,6 +41,16 @@ export default function SyncStatusPage() {
   const artifactStore = useCharacterArtifactStore();
   const authMode = useAuthStore((s) => s.authMode);
   const isZh = i18n.language.startsWith('zh');
+  const [bootstrapStatus, setBootstrapStatus] = useState<CloudSyncBootstrapStatus | null>(() => readCloudSyncBootstrapStatus());
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const status = event instanceof CustomEvent ? event.detail?.status as CloudSyncBootstrapStatus | null : readCloudSyncBootstrapStatus();
+      setBootstrapStatus(status || null);
+    };
+    window.addEventListener('pneumata-cloud-sync-bootstrap-status-changed', handler);
+    return () => window.removeEventListener('pneumata-cloud-sync-bootstrap-status-changed', handler);
+  }, []);
 
   const items = useMemo(() => {
     const characterItems = (characterStore.pendingOperations || []).map((item) => ({
@@ -141,6 +152,8 @@ export default function SyncStatusPage() {
     syncing: isZh ? '同步中' : 'Syncing',
     failed: isZh ? '同步失败' : 'Failed',
     succeeded: isZh ? '已完成' : 'Succeeded',
+    planned: isZh ? '已生成计划' : 'Planned',
+    running: isZh ? '准备同步中' : 'Running',
   };
 
   const retryAll = () => {
@@ -184,6 +197,11 @@ export default function SyncStatusPage() {
     authMode,
     item,
   });
+  const exportBootstrapStatus = () => downloadJson(`pneumata-cloud-sync-bootstrap-${new Date().toISOString().replace(/[:.]/g, '-')}.json`, {
+    exportedAt: Date.now(),
+    authMode,
+    bootstrapStatus,
+  });
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 }, maxWidth: 960, mx: 'auto' }}>
@@ -216,6 +234,83 @@ export default function SyncStatusPage() {
         <Alert severity="info" sx={{ mb: 2 }}>
           {isZh ? '当前为离线本地模式：云同步已关闭，登录后会自动尝试上传本地数据。' : 'You are in local-only offline mode. Cloud sync is disabled and local data will be uploaded automatically after login.'}
         </Alert>
+      ) : null}
+
+      {bootstrapStatus ? (
+        <Card variant="outlined" sx={{ mb: 2 }}>
+          <CardContent sx={{ display: 'grid', gap: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                {isZh ? '云同步开启计划' : 'Cloud sync bootstrap plan'}
+              </Typography>
+              <Chip
+                size="small"
+                label={labelMap[bootstrapStatus.state] || bootstrapStatus.state}
+                color={bootstrapStatus.state === 'failed' ? 'error' : bootstrapStatus.state === 'succeeded' ? 'success' : 'primary'}
+                variant="outlined"
+              />
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              {new Date(bootstrapStatus.updatedAt).toLocaleString()}
+            </Typography>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+              <Chip size="small" label={isZh ? `待创建角色 ${bootstrapStatus.charactersToCreate}` : `Characters to create ${bootstrapStatus.charactersToCreate}`} variant="outlined" />
+              <Chip size="small" label={isZh ? `已匹配角色 ${bootstrapStatus.charactersAlreadyRemote}` : `Matched characters ${bootstrapStatus.charactersAlreadyRemote}`} variant="outlined" />
+              <Chip size="small" label={isZh ? `待创建聊天 ${bootstrapStatus.chatsToCreate}` : `Chats to create ${bootstrapStatus.chatsToCreate}`} variant="outlined" />
+              <Chip size="small" label={isZh ? `已匹配聊天 ${bootstrapStatus.chatsAlreadyRemote}` : `Matched chats ${bootstrapStatus.chatsAlreadyRemote}`} variant="outlined" />
+              <Chip size="small" label={isZh ? `待重放消息 ${bootstrapStatus.pendingMessageCreates}` : `Pending messages ${bootstrapStatus.pendingMessageCreates}`} variant="outlined" />
+              <Chip size="small" label={isZh ? `同名冲突 ${bootstrapStatus.characterNameConflicts}` : `Name conflicts ${bootstrapStatus.characterNameConflicts}`} color={bootstrapStatus.characterNameConflicts > 0 ? 'warning' : 'default'} variant="outlined" />
+            </Stack>
+            {(bootstrapStatus.characterNameConflictDetails || []).length > 0 ? (
+              <Box sx={{ display: 'grid', gap: 1 }}>
+                <Typography variant="body2" color="warning.main" sx={{ fontWeight: 600 }}>
+                  {isZh ? '同名角色会保留两份，上传本地角色时自动追加“（本地）”后缀；后续需要在冲突处理页合并。' : 'Same-name characters are kept as separate records. Local uploads get a local suffix and can be merged later.'}
+                </Typography>
+                <Stack spacing={0.75}>
+                  {bootstrapStatus.characterNameConflictDetails?.map((item) => (
+                    <Box
+                      key={`${item.localId}:${item.remoteId}`}
+                      sx={{
+                        p: 1,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        display: 'grid',
+                        gap: 0.25,
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {item.localName || item.remoteName}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {isZh ? `本地 ${item.localId} / 云端 ${item.remoteId}` : `Local ${item.localId} / Cloud ${item.remoteId}`}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Stack>
+                {bootstrapStatus.characterNameConflictDetailOverflow ? (
+                  <Typography variant="caption" color="text.secondary">
+                    {isZh ? `另有 ${bootstrapStatus.characterNameConflictDetailOverflow} 条冲突未在页面展开，可导出计划查看。` : `${bootstrapStatus.characterNameConflictDetailOverflow} more conflicts are not expanded here. Export the plan to inspect them.`}
+                  </Typography>
+                ) : null}
+              </Box>
+            ) : null}
+            {bootstrapStatus.lastError ? (
+              <Typography variant="body2" color="error.main">
+                {bootstrapStatus.lastError}
+              </Typography>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                {isZh ? '此计划只记录摘要对账结果；完整冲突解决仍会继续补齐。' : 'This records the summary reconcile plan. Full conflict resolution is still being expanded.'}
+              </Typography>
+            )}
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button size="small" variant="outlined" onClick={exportBootstrapStatus}>
+                {isZh ? '导出开启计划' : 'Export plan'}
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
       ) : null}
 
       {items.length === 0 ? (

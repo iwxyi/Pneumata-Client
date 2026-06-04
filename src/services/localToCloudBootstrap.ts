@@ -7,13 +7,57 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
+import {
+  BOOTSTRAP_STATUS_CONFLICT_DETAIL_LIMIT,
+  readCloudSyncBootstrapStatus,
+  writeCloudSyncBootstrapStatus,
+  type CloudSyncBootstrapStatus,
+} from './cloudSyncBootstrapStatus';
 
 type MessageWindowSnapshot = Record<string, { messages: Message[]; lastSyncedAt?: number; updatedAt?: number }>;
+
+interface BootstrapPendingEntityOperation {
+  id: string;
+  kind: string;
+  entityId: string;
+  targetIds?: string[];
+  status: 'pending' | 'syncing' | 'failed';
+}
+
+interface BootstrapPendingMessageOperation {
+  id: string;
+  kind: string;
+  chatId: string;
+  localMessageId?: string;
+  messageId?: string;
+  status: 'pending' | 'syncing' | 'failed';
+}
 
 export interface LocalCloudBootstrapSnapshot {
   characters: AICharacter[];
   chats: GroupChat[];
   messageWindowsByChatId: MessageWindowSnapshot;
+  settingsShouldUpload: boolean;
+  pendingCharacterOperations?: BootstrapPendingEntityOperation[];
+  pendingChatOperations?: BootstrapPendingEntityOperation[];
+  pendingMessageOperations?: BootstrapPendingMessageOperation[];
+}
+
+interface BootstrapRemoteSummary {
+  characters: Array<Pick<AICharacter, 'id' | 'name' | 'deletedAt' | 'isPreset'>>;
+  chats: Array<Pick<GroupChat, 'id' | 'name' | 'deletedAt'>>;
+}
+
+export interface BootstrapReconcilePlan {
+  remote: BootstrapRemoteSummary;
+  charactersToCreate: AICharacter[];
+  charactersAlreadyRemote: AICharacter[];
+  characterNameConflicts: Array<{ localId: string; localName: string; remoteId: string; remoteName: string }>;
+  chatsToCreate: GroupChat[];
+  chatsAlreadyRemote: GroupChat[];
+  pendingCharacterCreates: BootstrapPendingEntityOperation[];
+  pendingChatCreates: BootstrapPendingEntityOperation[];
+  pendingMessageCreates: BootstrapPendingMessageOperation[];
   settingsShouldUpload: boolean;
 }
 
@@ -39,6 +83,9 @@ export async function captureLocalCloudBootstrapSnapshot(): Promise<LocalCloudBo
     chats: cloneJson(chatState.chats || []),
     messageWindowsByChatId: cloneJson(messageState.messageWindowsByChatId || {}),
     settingsShouldUpload: true,
+    pendingCharacterOperations: cloneJson(characterState.getPendingOperations?.() || characterState.pendingOperations || []),
+    pendingChatOperations: cloneJson(chatState.getPendingOperations?.() || chatState.pendingOperations || []),
+    pendingMessageOperations: cloneJson(messageState.pendingOperations || []),
   };
 }
 
@@ -59,6 +106,136 @@ function hasBootstrapData(snapshot: LocalCloudBootstrapSnapshot) {
   return snapshot.settingsShouldUpload || hasCharacters || hasChats || hasMessages;
 }
 
+function normalizeNameKey(name: string | null | undefined) {
+  return (name || '').trim().toLowerCase();
+}
+
+function activeRemoteIds<T extends { id: string; deletedAt?: number | null }>(items: T[]) {
+  return new Set(items.filter((item) => item.deletedAt == null).map((item) => item.id));
+}
+
+function activeRemoteNameMap<T extends { id: string; name: string; deletedAt?: number | null }>(items: T[]) {
+  const map = new Map<string, T>();
+  for (const item of items) {
+    if (item.deletedAt != null) continue;
+    const key = normalizeNameKey(item.name);
+    if (!key || map.has(key)) continue;
+    map.set(key, item);
+  }
+  return map;
+}
+
+export function createBootstrapReconcilePlan(
+  snapshot: LocalCloudBootstrapSnapshot,
+  remote: BootstrapRemoteSummary,
+): BootstrapReconcilePlan {
+  const remoteCharacterIds = activeRemoteIds(remote.characters);
+  const remoteChatIds = activeRemoteIds(remote.chats);
+  const remoteCharacterNames = activeRemoteNameMap(remote.characters);
+  const localCharacters = snapshot.characters.filter((character) => !character.isPreset && character.deletedAt == null);
+  const localChats = snapshot.chats.filter((chat) => chat.deletedAt == null);
+  const charactersToCreate = localCharacters.filter((character) => !remoteCharacterIds.has(character.id));
+  const pendingCharacterCreates = (snapshot.pendingCharacterOperations || []).filter((operation) => operation.kind === 'create');
+  const pendingChatCreates = (snapshot.pendingChatOperations || []).filter((operation) => operation.kind === 'create');
+  const pendingMessageCreates = (snapshot.pendingMessageOperations || []).filter((operation) => operation.kind === 'create');
+
+  return {
+    remote,
+    charactersToCreate,
+    charactersAlreadyRemote: localCharacters.filter((character) => remoteCharacterIds.has(character.id)),
+    characterNameConflicts: charactersToCreate
+      .map((character) => {
+        const remoteCharacter = remoteCharacterNames.get(normalizeNameKey(character.name));
+        return remoteCharacter
+          ? {
+              localId: character.id,
+              localName: character.name,
+              remoteId: remoteCharacter.id,
+              remoteName: remoteCharacter.name,
+            }
+          : null;
+      })
+      .filter((item): item is { localId: string; localName: string; remoteId: string; remoteName: string } => Boolean(item)),
+    chatsToCreate: localChats.filter((chat) => !remoteChatIds.has(chat.id)),
+    chatsAlreadyRemote: localChats.filter((chat) => remoteChatIds.has(chat.id)),
+    pendingCharacterCreates,
+    pendingChatCreates,
+    pendingMessageCreates,
+    settingsShouldUpload: snapshot.settingsShouldUpload,
+  };
+}
+
+function buildBootstrapStatus(
+  state: CloudSyncBootstrapStatus['state'],
+  plan: BootstrapReconcilePlan,
+  lastError: string | null = null,
+): CloudSyncBootstrapStatus {
+  const detailOverflow = Math.max(0, plan.characterNameConflicts.length - BOOTSTRAP_STATUS_CONFLICT_DETAIL_LIMIT);
+  return {
+    updatedAt: Date.now(),
+    state,
+    charactersToCreate: plan.charactersToCreate.length,
+    charactersAlreadyRemote: plan.charactersAlreadyRemote.length,
+    characterNameConflicts: plan.characterNameConflicts.length,
+    chatsToCreate: plan.chatsToCreate.length,
+    chatsAlreadyRemote: plan.chatsAlreadyRemote.length,
+    pendingCharacterCreates: plan.pendingCharacterCreates.length,
+    pendingChatCreates: plan.pendingChatCreates.length,
+    pendingMessageCreates: plan.pendingMessageCreates.length,
+    characterNameConflictDetails: plan.characterNameConflicts.slice(0, BOOTSTRAP_STATUS_CONFLICT_DETAIL_LIMIT),
+    characterNameConflictDetailOverflow: detailOverflow,
+    lastError,
+  };
+}
+
+function failedBootstrapStatusFromPrevious(error: unknown): CloudSyncBootstrapStatus {
+  const previousStatus = readCloudSyncBootstrapStatus();
+  return {
+    updatedAt: Date.now(),
+    state: 'failed',
+    charactersToCreate: Number(previousStatus?.charactersToCreate || 0),
+    charactersAlreadyRemote: Number(previousStatus?.charactersAlreadyRemote || 0),
+    characterNameConflicts: Number(previousStatus?.characterNameConflicts || 0),
+    chatsToCreate: Number(previousStatus?.chatsToCreate || 0),
+    chatsAlreadyRemote: Number(previousStatus?.chatsAlreadyRemote || 0),
+    pendingCharacterCreates: Number(previousStatus?.pendingCharacterCreates || 0),
+    pendingChatCreates: Number(previousStatus?.pendingChatCreates || 0),
+    pendingMessageCreates: Number(previousStatus?.pendingMessageCreates || 0),
+    characterNameConflictDetails: previousStatus?.characterNameConflictDetails || [],
+    characterNameConflictDetailOverflow: Number(previousStatus?.characterNameConflictDetailOverflow || 0),
+    lastError: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function summaryEntriesFromChanges<T>(changes: Array<Record<string, unknown>> | undefined, entity: string, normalize: (value: unknown) => T) {
+  const entries: T[] = [];
+  for (const change of changes || []) {
+    if (change.entity !== entity || typeof change.patch !== 'object' || !change.patch) continue;
+    entries.push(normalize(change.patch));
+  }
+  return entries;
+}
+
+async function fetchRemoteBootstrapSummary(): Promise<BootstrapRemoteSummary> {
+  const [characterChanges, chatChanges] = await Promise.allSettled([
+    api.getSyncChanges({ scope: 'characters.summary' }),
+    api.getSyncChanges({ scope: 'chats.summary' }),
+  ]);
+
+  const characters = characterChanges.status === 'fulfilled'
+    ? summaryEntriesFromChanges(characterChanges.value.changes, 'character_summary', (value) => normalizeCharacter(value as AICharacter))
+    : (await api.getCharacters() as unknown as AICharacter[]).map((character) => normalizeCharacter(character));
+  const chats = chatChanges.status === 'fulfilled'
+    ? summaryEntriesFromChanges(chatChanges.value.changes, 'chat_summary', (value) => normalizeConversation(value as GroupChat))
+    : (await api.getChats() as unknown as GroupChat[]).map((chat) => normalizeConversation(chat));
+
+  return { characters, chats };
+}
+
+export async function buildBootstrapReconcilePlan(snapshot: LocalCloudBootstrapSnapshot) {
+  return createBootstrapReconcilePlan(snapshot, await fetchRemoteBootstrapSummary());
+}
+
 function buildUniqueName(baseName: string, usedNames: Set<string>) {
   const normalizedBase = (baseName || '未命名角色').trim() || '未命名角色';
   let candidate = normalizedBase;
@@ -75,20 +252,30 @@ async function uploadSettings() {
   await useSettingsStore.getState().syncCurrentSettingsToServer();
 }
 
-async function uploadCharacters(snapshot: LocalCloudBootstrapSnapshot) {
-  const remoteCharacters = (await api.getCharacters() as unknown as AICharacter[]).map((character) => normalizeCharacter(character));
+function pendingCreateOperationIdByEntity(operations: BootstrapPendingEntityOperation[]) {
+  return new Map(operations
+    .filter((operation) => operation.kind === 'create' && operation.entityId && operation.id)
+    .map((operation) => [operation.entityId, operation.id]));
+}
+
+async function uploadCharacters(plan: BootstrapReconcilePlan) {
   const usedNames = new Set(
-    remoteCharacters
+    plan.remote.characters
       .filter((character) => !character.isPreset && character.deletedAt == null)
       .map((character) => character.name.trim().toLowerCase())
       .filter(Boolean),
   );
   const idMap = new Map<string, string>();
-  const localCharacters = snapshot.characters.filter((character) => !character.isPreset && character.deletedAt == null);
+  for (const character of plan.charactersAlreadyRemote) {
+    idMap.set(character.id, character.id);
+  }
+  const pendingOperationIds = pendingCreateOperationIdByEntity(plan.pendingCharacterCreates);
 
-  for (const character of localCharacters) {
+  for (const character of plan.charactersToCreate) {
     const name = buildUniqueName(character.name, usedNames);
     const created = normalizeCharacter(await api.createCharacter({
+      id: character.id,
+      operationId: pendingOperationIds.get(character.id),
       name,
       avatar: character.avatar,
       personality: character.personality as unknown as Record<string, number>,
@@ -142,12 +329,17 @@ function mapJsonReferences<T>(value: T, characterIdMap: Map<string, string>): T 
   }
 }
 
-async function uploadChats(snapshot: LocalCloudBootstrapSnapshot, characterIdMap: Map<string, string>) {
+async function uploadChats(plan: BootstrapReconcilePlan, characterIdMap: Map<string, string>) {
   const chatIdMap = new Map<string, string>();
-  const localChats = snapshot.chats.filter((chat) => chat.deletedAt == null);
+  for (const chat of plan.chatsAlreadyRemote) {
+    chatIdMap.set(chat.id, chat.id);
+  }
+  const pendingOperationIds = pendingCreateOperationIdByEntity(plan.pendingChatCreates);
 
-  for (const chat of localChats) {
+  for (const chat of plan.chatsToCreate) {
     const created = normalizeConversation(await api.createChat({
+      id: chat.id,
+      operationId: pendingOperationIds.get(chat.id),
       type: chat.type,
       mode: chat.mode,
       modeConfig: mapJsonReferences(chat.modeConfig, characterIdMap),
@@ -180,13 +372,34 @@ async function uploadChats(snapshot: LocalCloudBootstrapSnapshot, characterIdMap
   return chatIdMap;
 }
 
-function collectMessagesForUpload(snapshot: LocalCloudBootstrapSnapshot, chatIdMap: Map<string, string>) {
+function confirmBootstrapCreateOperations(plan: BootstrapReconcilePlan, characterIdMap: Map<string, string>, chatIdMap: Map<string, string>) {
+  const syncedCharacterIds = plan.pendingCharacterCreates
+    .map((operation) => operation.entityId)
+    .filter((id) => characterIdMap.has(id));
+  const syncedChatIds = plan.pendingChatCreates
+    .map((operation) => operation.entityId)
+    .filter((id) => chatIdMap.has(id));
+  if (syncedCharacterIds.length) {
+    useCharacterStore.getState().confirmCreateOperationsSynced?.(syncedCharacterIds);
+  }
+  if (syncedChatIds.length) {
+    useChatStore.getState().confirmCreateOperationsSynced?.(syncedChatIds);
+  }
+}
+
+function collectMessagesForUpload(snapshot: LocalCloudBootstrapSnapshot, chatIdMap: Map<string, string>, plan: BootstrapReconcilePlan) {
   const messages: Message[] = [];
   const seen = new Set<string>();
+  const pendingMessageIds = new Set(
+    plan.pendingMessageCreates
+      .map((operation) => operation.localMessageId || operation.messageId)
+      .filter(Boolean),
+  );
   for (const [localChatId, window] of Object.entries(snapshot.messageWindowsByChatId)) {
     if (!chatIdMap.has(localChatId)) continue;
     for (const message of window.messages || []) {
       if (message.isDeleted || message.type === 'event') continue;
+      if (pendingMessageIds.has(message.id) || (message.clientKey && pendingMessageIds.has(message.clientKey))) continue;
       const key = `${message.id}:${message.chatId}:${message.timestamp}:${message.content}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -200,8 +413,9 @@ async function uploadMessages(
   snapshot: LocalCloudBootstrapSnapshot,
   chatIdMap: Map<string, string>,
   characterIdMap: Map<string, string>,
+  plan: BootstrapReconcilePlan,
 ) {
-  const messages = collectMessagesForUpload(snapshot, chatIdMap);
+  const messages = collectMessagesForUpload(snapshot, chatIdMap, plan);
   for (const message of messages) {
     const cloudChatId = chatIdMap.get(message.chatId);
     if (!cloudChatId) continue;
@@ -235,14 +449,30 @@ export async function bootstrapLocalDataToCloud(snapshot: LocalCloudBootstrapSna
   });
   try {
     await uploadSettings();
-    const characterIdMap = await uploadCharacters(snapshot);
-    const chatIdMap = await uploadChats(snapshot, characterIdMap);
-    await uploadMessages(snapshot, chatIdMap, characterIdMap);
+    const plan = await buildBootstrapReconcilePlan(snapshot);
+    writeCloudSyncBootstrapStatus(buildBootstrapStatus('planned', plan));
+    console.info('[cloud-sync] bootstrap reconcile plan prepared', {
+      charactersToCreate: plan.charactersToCreate.length,
+      charactersAlreadyRemote: plan.charactersAlreadyRemote.length,
+      characterNameConflicts: plan.characterNameConflicts.length,
+      chatsToCreate: plan.chatsToCreate.length,
+      chatsAlreadyRemote: plan.chatsAlreadyRemote.length,
+      pendingCharacterCreates: plan.pendingCharacterCreates.length,
+      pendingChatCreates: plan.pendingChatCreates.length,
+      pendingMessageCreates: plan.pendingMessageCreates.length,
+    });
+    writeCloudSyncBootstrapStatus(buildBootstrapStatus('running', plan));
+    const characterIdMap = await uploadCharacters(plan);
+    const chatIdMap = await uploadChats(plan, characterIdMap);
+    await uploadMessages(snapshot, chatIdMap, characterIdMap, plan);
+    confirmBootstrapCreateOperations(plan, characterIdMap, chatIdMap);
+    writeCloudSyncBootstrapStatus(buildBootstrapStatus('succeeded', plan));
     console.info('[cloud-sync] bootstrap local data to cloud finished', {
       charactersUploaded: characterIdMap.size,
       chatsUploaded: chatIdMap.size,
     });
   } catch (error) {
+    writeCloudSyncBootstrapStatus(failedBootstrapStatusFromPrevious(error));
     reportRecoverableError({
       location: 'cloud-sync:bootstrap-local-data',
       error,

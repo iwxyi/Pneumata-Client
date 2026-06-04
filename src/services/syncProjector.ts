@@ -6,6 +6,8 @@ export interface SyncPatchOperation<TPatch extends Record<string, unknown>> {
   status: 'pending' | 'syncing' | 'failed';
   attemptCount: number;
   lastError?: string;
+  retryAt?: number;
+  lockedAt?: number;
 }
 
 export function applyFieldPatch<T extends { fieldVersions?: Record<string, number> }>(entity: T, patch: Record<string, unknown>, clientTimestamp: number): T {

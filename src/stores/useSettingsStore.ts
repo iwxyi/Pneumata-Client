@@ -7,14 +7,16 @@ type AppSettings = AppSettingsWithMemory;
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
 import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_AI_GENERATION_SETTINGS, DEFAULT_COMPANIONSHIP_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
 import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS, PAPER_SURFACE_VARIANTS } from '../types/artifactAppearance';
-import { api } from '../services/api';
+import { api, type SyncChangeScope } from '../services/api';
 import { reportRecoverableError } from '../services/diagnostics';
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateSettingsStoreState } from './storeMigrations';
 import { scopedStorageKey } from '../constants/brand';
+import { getLocalDataUserId } from '../services/authStorageScope';
 import { setAIGenerationRuntimeConfig } from '../services/aiGenerationRuntimeConfig';
 import { setCompanionshipRuntimeConfig } from '../services/companionshipRuntimeConfig';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
+import { createSyncScopeMetadata } from './syncScopeMetadata';
 
 interface SettingsStore extends AppSettings {
   _loaded: boolean;
@@ -47,9 +49,19 @@ interface SettingsStore extends AppSettings {
 }
 
 type SettingsSet = (partial: SettingsStore | Partial<SettingsStore> | ((state: SettingsStore) => SettingsStore | Partial<SettingsStore>), replace?: false) => unknown;
+type RemoteSettingsPayload = Partial<AppSettings> & {
+  autoGenerateCharacterAvatar?: boolean;
+  api?: APIConfig;
+  aiProfiles?: AIModelProfile[];
+  memoryUI?: { showDeveloperMemory?: boolean };
+};
 
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
 let savedStateTimer: ReturnType<typeof setTimeout> | null = null;
+const SETTINGS_ACCOUNT_SCOPE: SyncChangeScope = 'settings.account';
+const settingsSyncScopes = createSyncScopeMetadata(30_000, {
+  getStorageKey: () => scopedStorageKey(`settings-sync-scopes-${getLocalDataUserId()}`),
+});
 
 function clearSavedStateTimer() {
   if (savedStateTimer) {
@@ -84,6 +96,27 @@ function syncToServer(data: Record<string, unknown>, set: SettingsSet) {
         set((state) => ({ ...state, syncStatus: 'error', syncError: err instanceof Error ? err.message : String(err) }));
       });
   }, 500);
+}
+
+async function probeSettingsChanges() {
+  const scopeState = settingsSyncScopes.getState(SETTINGS_ACCOUNT_SCOPE);
+  const since = scopeState.cursor ?? scopeState.revision ?? null;
+  try {
+    return await api.getSyncChanges({ scope: SETTINGS_ACCOUNT_SCOPE, since });
+  } catch {
+    return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function settingsFromChanges(changes: Array<Record<string, unknown>> | undefined) {
+  if (!changes?.length) return null;
+  const change = changes.find((item) => item.entity === 'settings_account' && item.op === 'upsert');
+  if (!change || !isRecord(change.patch)) return null;
+  return change.patch;
 }
 
 function buildApiFromProfiles(aiProfiles: AIModelProfile[]): APIConfig {
@@ -187,7 +220,7 @@ function createProfile(index: number): AIModelProfile {
 
 export const useSettingsStore = create<SettingsStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...DEFAULT_SETTINGS,
       _loaded: false,
       lastSyncedAt: 0,
@@ -200,7 +233,27 @@ export const useSettingsStore = create<SettingsStore>()(
           return;
         }
         try {
-          const settings = await api.getSettings();
+          const hasLocalSettings = get()._loaded || get().lastSyncedAt > 0;
+          if (hasLocalSettings && settingsSyncScopes.isFresh(SETTINGS_ACCOUNT_SCOPE)) {
+            set((state) => ({ ...state, _loaded: true, syncStatus: 'idle', syncError: null }));
+            return;
+          }
+          const changeProbe = hasLocalSettings ? await probeSettingsChanges() : null;
+          if (changeProbe?.status === 'not_modified') {
+            settingsSyncScopes.markChecked(SETTINGS_ACCOUNT_SCOPE, {
+              cursor: changeProbe.cursor,
+              revision: changeProbe.revision,
+              applied: false,
+            });
+            set((state) => ({ ...state, _loaded: true, syncStatus: 'idle', syncError: null }));
+            return;
+          }
+          const settings = (settingsFromChanges(changeProbe?.changes) || await api.getSettings()) as RemoteSettingsPayload;
+          settingsSyncScopes.markChecked(SETTINGS_ACCOUNT_SCOPE, {
+            cursor: changeProbe?.cursor,
+            revision: changeProbe?.revision,
+            applied: true,
+          });
           set({
             ...syncState({
               api: settings.api as APIConfig,
@@ -245,6 +298,7 @@ export const useSettingsStore = create<SettingsStore>()(
             syncError: null,
           });
         } catch (error) {
+          settingsSyncScopes.markError(SETTINGS_ACCOUNT_SCOPE, error);
           reportRecoverableError({
             location: 'cloud-sync:settings-load',
             error,

@@ -52,11 +52,19 @@ export default function CharacterEditorPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void (editId ? loadCharacter(editId) : loadCharacters())
-      .then(() => initializePresets())
-      .finally(() => {
-        if (!cancelled) setBootstrapComplete(true);
-      });
+    if (editId) {
+      void loadCharacter(editId)
+        .finally(() => {
+          if (!cancelled) setBootstrapComplete(true);
+        });
+      void initializePresets();
+    } else {
+      void loadCharacters()
+        .then(() => initializePresets())
+        .finally(() => {
+          if (!cancelled) setBootstrapComplete(true);
+        });
+    }
     return () => {
       cancelled = true;
     };

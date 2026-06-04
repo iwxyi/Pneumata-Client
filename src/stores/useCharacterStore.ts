@@ -2,17 +2,19 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AICharacter } from '../types/character';
 import { normalizeCharacter, normalizeCharacterGroup } from '../types/character';
-import { api } from '../services/api';
+import { api, type SyncChangeScope } from '../services/api';
 import { reportRecoverableError } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { buildWarmState } from './storeWarmHelpers';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
+import { createSyncScopeMetadata } from './syncScopeMetadata';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateCharacterStoreState } from './storeMigrations';
 import { useCharacterArtifactStore } from './useCharacterArtifactStore';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
+import { isReservedNonCharacterActorId } from '../services/actorRefPresentation';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -20,6 +22,7 @@ import {
   latestSyncError,
   recoverInterruptedOperations,
   removePendingOperation,
+  runPendingOperationQueue,
   shouldSkipCloudSync,
   updatePendingOperation,
 } from './storeSyncHelpers';
@@ -220,6 +223,19 @@ function sortCharacters(characters: AICharacter[]) {
   return [...characters].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
 }
 
+function buildCharacterListSignature(characters: AICharacter[]) {
+  return characters
+    .map((character) => [
+      character.id,
+      character.updatedAt || 0,
+      character.deletedAt || 0,
+      character.characterDetailLoaded ? 1 : 0,
+      character.bubbleStyle ? 1 : 0,
+      character.bubbleStyleId || '',
+    ].join(':'))
+    .join('|');
+}
+
 function normalizeCharacterNameKey(name: string | null | undefined) {
   return (name || '').trim().toLowerCase();
 }
@@ -308,6 +324,13 @@ function mergeDeletedCharacters(localCharacters: AICharacter[], remoteCharacters
   return mergeCharacters(localCharacters, remoteCharacters, pendingOperations).filter((item) => item.deletedAt != null);
 }
 
+function hasNonDeletePendingCharacterOperation(pendingOperations: PendingCharacterOperation[], characterId: string) {
+  return pendingOperations.some((operation) => (
+    operation.entityId === characterId
+    && operation.patch.deletedAt == null
+  ));
+}
+
 async function fetchCharacterSnapshot() {
   const result = await api.getCharacters() as unknown as AICharacter[];
   return normalizeCharacters(result);
@@ -331,6 +354,12 @@ async function fetchAllCharacterSnapshots() {
 interface PendingCharacterOperation extends SyncPatchOperation<Record<string, unknown>> {
   kind: 'create' | 'patch';
   targetIds: string[];
+}
+
+function pendingCharacterOperationPriority(operation: PendingCharacterOperation) {
+  if (operation.kind === 'create') return 100;
+  if ('deletedAt' in operation.patch) return 80;
+  return 10;
 }
 
 interface PersistedCharacterState {
@@ -434,6 +463,7 @@ interface CharacterStore extends PersistedCharacterState {
   getPendingEditError: () => string | null;
   getPendingEditCount: () => number;
   clearPendingOperations: () => void;
+  confirmCreateOperationsSynced: (entityIds: string[]) => void;
   discardFailedOperation: (operationId: string) => void;
   loadPendingSnapshot: () => Promise<AICharacter[]>;
   loadProjectedRecycleBin: () => Promise<AICharacter[]>;
@@ -481,9 +511,13 @@ const updatePendingCharacterOperation = updatePendingOperation;
 const canAttemptSync = canAttemptOnlineSync;
 const CHARACTER_SYNC_DELAYS = [1000, 3000, 10000, 30000];
 const CHARACTER_REFRESH_TTL_MS = 30_000;
-const characterSyncScheduler = createSyncScheduler();
-let characterListLoadPromise: Promise<void> | null = null;
-const characterDetailLoadPromises = new Map<string, Promise<AICharacter | null>>();
+const CHARACTER_DETAIL_REFRESH_TTL_MS = 120_000;
+const CHARACTER_SUMMARY_SCOPE: SyncChangeScope = 'characters.summary';
+const characterDetailScope = (id: string): SyncChangeScope => `characters.detail:${id}`;
+const characterSyncScheduler = createSyncScheduler('character.pending-operations', { priority: 70 });
+const characterSyncScopes = createSyncScopeMetadata(CHARACTER_REFRESH_TTL_MS, {
+  getStorageKey: () => scopedStorageKey(`character-sync-scopes-${getLocalDataUserId()}`),
+});
 
 function scheduleCharacterFlush(flush: () => Promise<void>, delay = 0) {
   characterSyncScheduler.schedule(flush, delay);
@@ -603,6 +637,58 @@ async function reloadVisibleCharacterState(pendingOperations: PendingCharacterOp
   return mergeVisibleCharacters([], active, pendingOperations);
 }
 
+async function probeCharacterSummaryChanges(options: { forceFull?: boolean } = {}) {
+  const scopeState = characterSyncScopes.getState(CHARACTER_SUMMARY_SCOPE);
+  const since = options.forceFull ? null : scopeState.cursor ?? scopeState.revision ?? null;
+  try {
+    return await api.getSyncChanges({ scope: CHARACTER_SUMMARY_SCOPE, since });
+  } catch {
+    return null;
+  }
+}
+
+function characterSummariesFromChanges(changes: Array<Record<string, unknown>> | undefined) {
+  const items: AICharacter[] = [];
+  for (const change of changes || []) {
+    if (change.entity !== 'character_summary' || typeof change.patch !== 'object' || !change.patch) continue;
+    items.push(normalizeCharacter(change.patch as unknown as AICharacter));
+  }
+  return items;
+}
+
+function characterDetailFromChanges(changes: Array<Record<string, unknown>> | undefined, id: string) {
+  if (!changes?.length) return null;
+  const change = changes.find((item) => item.entity === 'character_detail' && item.id === id);
+  if (!change) return null;
+  const patch = (change.patch && typeof change.patch === 'object' && !Array.isArray(change.patch))
+    ? change.patch as Record<string, unknown>
+    : {};
+  if (change.op === 'delete') {
+    return normalizeCharacter({
+      ...patch,
+      id,
+      deletedAt: typeof patch.deletedAt === 'number' ? patch.deletedAt : Date.now(),
+      characterDetailLoaded: true,
+    } as unknown as AICharacter);
+  }
+  if (!Object.keys(patch).length) return null;
+  return normalizeCharacter({
+    ...patch,
+    id,
+    characterDetailLoaded: true,
+  } as unknown as AICharacter);
+}
+
+async function probeCharacterDetailChanges(scope: SyncChangeScope) {
+  const scopeState = characterSyncScopes.getState(scope);
+  const since = scopeState.cursor ?? scopeState.revision ?? null;
+  try {
+    return await api.getSyncChanges({ scope, since });
+  } catch {
+    return null;
+  }
+}
+
 export function clearPersistedCharacterStore() {
   localStorage.removeItem(getCharacterStorageKey());
   localStorage.removeItem(getCharacterStoreStorageName());
@@ -629,42 +715,36 @@ export const useCharacterStore = create<CharacterStore>()(
   persist(
     (set, get) => {
       const flushPendingOperations = async () => {
-        const state = get();
-        const nextOperation = state.pendingOperations.find((item) => item.status === 'pending');
-        if (!nextOperation || !canAttemptSync()) return;
-
-        set((current) => ({
-          pendingOperations: updatePendingCharacterOperation(current.pendingOperations, nextOperation.id, { status: 'syncing' }),
-        }));
-
-        try {
-          await executeCharacterOperation(nextOperation);
-          const nextQueue = removePendingCharacterOperation(get().pendingOperations, nextOperation.id);
-          set((current) => ({
-            characters: projectVisibleCharacters(current.characters, nextQueue),
-            pendingOperations: nextQueue,
-            pendingEditSyncCount: nextQueue.length,
-            pendingEditSyncError: latestCharacterError(nextQueue),
-            lastSyncedAt: Date.now(),
-          }));
-          scheduleCharacterFlush(flushPendingOperations, 50);
-        } catch (error) {
-          const classified = classifySyncError(error);
-          const attemptCount = nextOperation.attemptCount + 1;
-          const status = classified.startsWith('validation:') ? 'failed' : 'pending';
-          set((current) => ({
-            pendingOperations: updatePendingCharacterOperation(current.pendingOperations, nextOperation.id, {
-              status,
-              attemptCount,
-              lastError: classified,
-            }),
-            pendingEditSyncCount: current.pendingOperations.length,
-            pendingEditSyncError: classified,
-          }));
-          if (status === 'pending') {
-            scheduleCharacterFlush(flushPendingOperations, CHARACTER_SYNC_DELAYS[Math.min(attemptCount, CHARACTER_SYNC_DELAYS.length - 1)]);
-          }
-        }
+        await runPendingOperationQueue<PendingCharacterOperation>({
+          getOperations: () => get().pendingOperations,
+          canRun: canAttemptSync,
+          retryDelays: CHARACTER_SYNC_DELAYS,
+          isTerminalError: (classified) => classified.startsWith('validation:'),
+          priority: pendingCharacterOperationPriority,
+          updateOperation: (operationId, operation) => {
+            set((current) => ({
+              pendingOperations: updatePendingCharacterOperation(current.pendingOperations, operationId, operation),
+            }));
+          },
+          execute: executeCharacterOperation,
+          onSuccess: (operation) => {
+            const nextQueue = removePendingCharacterOperation(get().pendingOperations, operation.id);
+            set((current) => ({
+              characters: projectVisibleCharacters(current.characters, nextQueue),
+              pendingOperations: nextQueue,
+              pendingEditSyncCount: nextQueue.length,
+              pendingEditSyncError: latestCharacterError(nextQueue),
+              lastSyncedAt: Date.now(),
+            }));
+          },
+          onFailure: (_operation, _error, retry) => {
+            set((current) => ({
+              pendingEditSyncCount: current.pendingOperations.length,
+              pendingEditSyncError: retry.classified,
+            }));
+          },
+          scheduleNext: (delay) => scheduleCharacterFlush(flushPendingOperations, delay),
+        });
       };
 
       if (!characterSyncLifecycleRegistered) {
@@ -697,17 +777,71 @@ export const useCharacterStore = create<CharacterStore>()(
             set({ isLoading: false });
             return;
           }
-          if (get().characters.length > 0 && Date.now() - get().lastSyncedAt < CHARACTER_REFRESH_TTL_MS) {
+          if (get().characters.length > 0 && characterSyncScopes.isFresh(CHARACTER_SUMMARY_SCOPE)) {
             set({ isLoading: false });
             return;
           }
-          if (characterListLoadPromise) return characterListLoadPromise;
-          characterListLoadPromise = (async () => {
+          return characterSyncScopes.run(CHARACTER_SUMMARY_SCOPE, async () => {
             try {
               await uploadGuestCharactersToCloud();
+              const changeProbe = await probeCharacterSummaryChanges({ forceFull: get().characters.length === 0 });
+              if (changeProbe?.status === 'not_modified') {
+                characterSyncScopes.markChecked(CHARACTER_SUMMARY_SCOPE, {
+                  cursor: changeProbe.cursor,
+                  revision: changeProbe.revision,
+                  applied: false,
+                });
+                set({ isLoading: false });
+                return;
+              }
+              const changedSummaries = characterSummariesFromChanges(changeProbe?.changes);
+              if (changeProbe?.status === 'modified' && changedSummaries.length) {
+                set((state) => {
+                  const deleteConflicts = changedSummaries.filter((character) => (
+                    character.deletedAt != null
+                    && !character.isPreset
+                    && hasNonDeletePendingCharacterOperation(state.pendingOperations, character.id)
+                  ));
+                  const applicableSummaries = changedSummaries.filter((character) => (
+                    character.deletedAt == null
+                    || character.isPreset
+                    || !hasNonDeletePendingCharacterOperation(state.pendingOperations, character.id)
+                  ));
+                  const nextCharacters = mergeCharacters(state.characters, applicableSummaries, state.pendingOperations);
+                  const nextVisible = nextCharacters.filter((item) => item.deletedAt == null);
+                  const changed = buildCharacterListSignature(nextVisible) !== buildCharacterListSignature(state.characters);
+                  characterSyncScopes.markChecked(CHARACTER_SUMMARY_SCOPE, {
+                    cursor: changeProbe.cursor,
+                    revision: changeProbe.revision,
+                    applied: changed || deleteConflicts.length > 0,
+                  });
+                  const deleteConflictIds = new Set(deleteConflicts.map((character) => character.id));
+                  return {
+                    ...(changed ? { characters: nextVisible } : {}),
+                    remoteDeletedCharacterIds: Array.from(new Set([
+                      ...state.remoteDeletedCharacterIds,
+                      ...changedSummaries.filter((character) => character.deletedAt != null && !character.isPreset).map((character) => character.id),
+                    ])).filter((id) => deleteConflictIds.has(id) || !nextVisible.some((character) => character.id === id)),
+                    isLoading: false,
+                    lastSyncedAt: Date.now(),
+                    pendingEditSyncCount: get().pendingOperations.length,
+                    pendingEditSyncError: latestCharacterError(get().pendingOperations),
+                  };
+                });
+                return;
+              }
               const visible = await reloadVisibleCharacterState(get().pendingOperations);
               set((state) => ({
-                characters: mergeVisibleCharacters(state.characters, visible, state.pendingOperations),
+                ...(() => {
+                  const nextCharacters = mergeVisibleCharacters(state.characters, visible, state.pendingOperations);
+                  const changed = buildCharacterListSignature(nextCharacters) !== buildCharacterListSignature(state.characters);
+                  characterSyncScopes.markChecked(CHARACTER_SUMMARY_SCOPE, {
+                    cursor: changeProbe?.cursor,
+                    revision: changeProbe?.revision,
+                    applied: changed,
+                  });
+                  return changed ? { characters: nextCharacters } : {};
+                })(),
                 remoteDeletedCharacterIds: state.remoteDeletedCharacterIds.filter((id) => !visible.some((character) => character.id === id)),
                 isLoading: false,
                 lastSyncedAt: Date.now(),
@@ -715,32 +849,47 @@ export const useCharacterStore = create<CharacterStore>()(
                 pendingEditSyncError: latestCharacterError(get().pendingOperations),
               }));
             } catch (error) {
+              characterSyncScopes.markError(CHARACTER_SUMMARY_SCOPE, error);
               reportRecoverableError({
                 location: 'cloud-sync:characters-load',
                 error,
                 userMessage: '角色云同步失败，请检查网络后重试。',
               });
               set({ isLoading: false, pendingEditSyncError: classifySyncError(error) });
-            } finally {
-              characterListLoadPromise = null;
             }
-          })();
-          return characterListLoadPromise;
+          }, { markCheckedOnSuccess: false });
         },
 
         loadCharacter: async (id) => {
-          if (!id) return null;
+          if (!id || isReservedNonCharacterActorId(id)) return null;
           await ensureCharacterStoreHydrated();
           const cached = get().characters.find((character) => character.id === id);
           if (shouldSkipCloudSync()) return cached || null;
-          const existing = characterDetailLoadPromises.get(id);
-          if (existing) return existing;
-          const promise = (async () => {
+          const scope = characterDetailScope(id);
+          if (cached?.characterDetailLoaded && characterSyncScopes.isFresh(scope, CHARACTER_DETAIL_REFRESH_TTL_MS)) {
+            return cached;
+          }
+          return characterSyncScopes.run(scope, async () => {
             try {
-              const detail = await fetchCharacterDetail(id);
+              const changeProbe = cached?.characterDetailLoaded ? await probeCharacterDetailChanges(scope) : null;
+              if (changeProbe?.status === 'not_modified') {
+                characterSyncScopes.markChecked(scope, {
+                  cursor: changeProbe.cursor,
+                  revision: changeProbe.revision,
+                  applied: false,
+                });
+                return cached || null;
+              }
+              const detail = characterDetailFromChanges(changeProbe?.changes, id) || await fetchCharacterDetail(id);
               if (detail.deletedAt != null) {
+                const hasPendingConflict = hasNonDeletePendingCharacterOperation(get().pendingOperations, id);
+                characterSyncScopes.markChecked(scope, {
+                  cursor: changeProbe?.cursor,
+                  revision: changeProbe?.revision,
+                  applied: true,
+                });
                 set((state) => ({
-                  characters: state.characters.filter((character) => character.id !== id),
+                  characters: hasPendingConflict ? projectVisibleCharacters(state.characters, state.pendingOperations) : state.characters.filter((character) => character.id !== id),
                   remoteDeletedCharacterIds: Array.from(new Set([...state.remoteDeletedCharacterIds, id])),
                   lastSyncedAt: state.lastSyncedAt || Date.now(),
                   pendingEditSyncCount: state.pendingOperations.length,
@@ -748,32 +897,38 @@ export const useCharacterStore = create<CharacterStore>()(
                 }));
                 return cached || detail;
               }
-              set((state) => ({
-                characters: mergeVisibleCharacters(state.characters, [detail], state.pendingOperations),
-                remoteDeletedCharacterIds: state.remoteDeletedCharacterIds.filter((characterId) => characterId !== id),
-                lastSyncedAt: state.lastSyncedAt || Date.now(),
-                pendingEditSyncCount: state.pendingOperations.length,
-                pendingEditSyncError: latestCharacterError(state.pendingOperations),
-              }));
+              set((state) => {
+                const nextCharacters = mergeVisibleCharacters(state.characters, [detail], state.pendingOperations);
+                const changed = buildCharacterListSignature(nextCharacters) !== buildCharacterListSignature(state.characters);
+                characterSyncScopes.markChecked(scope, {
+                  cursor: changeProbe?.cursor,
+                  revision: changeProbe?.revision,
+                  applied: changed,
+                });
+                return {
+                  ...(changed ? { characters: nextCharacters } : {}),
+                  remoteDeletedCharacterIds: state.remoteDeletedCharacterIds.filter((characterId) => characterId !== id),
+                  lastSyncedAt: state.lastSyncedAt || Date.now(),
+                  pendingEditSyncCount: state.pendingOperations.length,
+                  pendingEditSyncError: latestCharacterError(state.pendingOperations),
+                };
+              });
               return detail;
             } catch (error) {
+              characterSyncScopes.markError(scope, error);
               reportRecoverableError({
                 location: 'cloud-sync:character-detail-load',
                 error,
                 userMessage: '角色详情同步失败，请检查网络后重试。',
               });
               return get().characters.find((character) => character.id === id) || null;
-            } finally {
-              characterDetailLoadPromises.delete(id);
             }
-          })();
-          characterDetailLoadPromises.set(id, promise);
-          return promise;
+          }, { markCheckedOnSuccess: false });
         },
 
         prefetchCharacters: async () => {
           const state = get();
-          if (state.characters.length > 0 && Date.now() - state.lastSyncedAt < CHARACTER_REFRESH_TTL_MS) return;
+          if (state.characters.length > 0 && characterSyncScopes.isFresh(CHARACTER_SUMMARY_SCOPE)) return;
           void get().loadCharacters();
         },
 
@@ -823,6 +978,20 @@ export const useCharacterStore = create<CharacterStore>()(
         getPendingEditError: () => latestCharacterError(get().pendingOperations),
         getPendingEditCount: () => get().pendingOperations.length,
         clearPendingOperations: () => set({ pendingOperations: [], pendingEditSyncCount: 0, pendingEditSyncError: null }),
+        confirmCreateOperationsSynced: (entityIds) => set((state) => {
+          const normalizedIds = new Set(entityIds.filter(Boolean));
+          if (!normalizedIds.size) return {};
+          const pendingOperations = state.pendingOperations.filter((operation) => (
+            operation.kind !== 'create' || !normalizedIds.has(operation.entityId)
+          ));
+          if (pendingOperations.length === state.pendingOperations.length) return {};
+          return {
+            characters: projectVisibleCharacters(state.characters, pendingOperations),
+            pendingOperations,
+            pendingEditSyncCount: pendingOperations.length,
+            pendingEditSyncError: latestCharacterError(pendingOperations),
+          };
+        }),
         discardFailedOperation: (operationId) => set((state) => {
           const operation = state.pendingOperations.find((item) => item.id === operationId);
           if (operation?.status !== 'failed') return {};

@@ -60,8 +60,8 @@ describe('useMessageStore', () => {
   it('caps active chat messages during repeated upserts', async () => {
     const { useMessageStore } = await import('./useMessageStore');
     const chatId = 'chat-1';
-    const existingMessages = Array.from({ length: 400 }, (_, index) => buildMessage(index, chatId));
-    const cachedMessages = existingMessages.slice(-120);
+    const existingMessages = Array.from({ length: 1000 }, (_, index) => buildMessage(index, chatId));
+    const cachedMessages = existingMessages.slice(-100);
 
     useMessageStore.setState({
       messages: existingMessages,
@@ -79,15 +79,15 @@ describe('useMessageStore', () => {
       hasMore: true,
     });
 
-    useMessageStore.getState().upsertMessage(buildMessage(400, chatId));
+    useMessageStore.getState().upsertMessage(buildMessage(1000, chatId));
 
     const state = useMessageStore.getState();
-    expect(state.messages).toHaveLength(400);
+    expect(state.messages).toHaveLength(1000);
     expect(state.messages[0]?.id).toBe('message-1');
-    expect(state.messages.at(-1)?.id).toBe('message-400');
-    expect(state.messageWindowsByChatId[chatId]?.messages).toHaveLength(120);
-    expect(state.messageWindowsByChatId[chatId]?.messages[0]?.id).toBe('message-281');
-    expect(state.messageWindowsByChatId[chatId]?.messages.at(-1)?.id).toBe('message-400');
+    expect(state.messages.at(-1)?.id).toBe('message-1000');
+    expect(state.messageWindowsByChatId[chatId]?.messages).toHaveLength(100);
+    expect(state.messageWindowsByChatId[chatId]?.messages[0]?.id).toBe('message-901');
+    expect(state.messageWindowsByChatId[chatId]?.messages.at(-1)?.id).toBe('message-1000');
   });
 
   it('strips non-message fields when merging fetched and persisted messages', async () => {

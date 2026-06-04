@@ -1,13 +1,14 @@
 import { useAuthStore } from './useAuthStore';
 import type { SyncPatchOperation } from '../services/syncProjector';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
+import { isCloudSyncBootstrapLocked } from '../services/cloudSyncBootstrapLock';
 
 export function isLocalOnlyMode() {
   return useAuthStore.getState().authMode === 'local';
 }
 
 export function shouldSkipCloudSync() {
-  return isLocalOnlyMode() || !isCloudSyncEnabled();
+  return isLocalOnlyMode() || !isCloudSyncEnabled() || isCloudSyncBootstrapLocked();
 }
 
 export function canAttemptOnlineSync() {
@@ -25,6 +26,26 @@ export function classifySyncError(error: unknown) {
 
 export function latestSyncError<T extends { lastError?: string }>(queue: T[]) {
   return [...queue].reverse().find((item) => item.lastError)?.lastError || null;
+}
+
+export function isOperationDue<T extends { status: 'pending' | 'syncing' | 'failed'; retryAt?: number }>(operation: T, now = Date.now()) {
+  return operation.status === 'pending' && (!operation.retryAt || operation.retryAt <= now);
+}
+
+export function selectDueOperation<T extends { status: 'pending' | 'syncing' | 'failed'; retryAt?: number }>(
+  operations: T[],
+  now = Date.now(),
+  priority?: (operation: T) => number,
+) {
+  const dueOperations = operations.filter((item) => isOperationDue(item, now));
+  if (!dueOperations.length) return undefined;
+  if (!priority) return dueOperations[0];
+  return dueOperations.reduce((best, item) => (priority(item) > priority(best) ? item : best), dueOperations[0]);
+}
+
+export function nextRetryAt(attemptCount: number, delays: number[], now = Date.now()) {
+  const delay = delays[Math.min(attemptCount, delays.length - 1)] ?? delays.at(-1) ?? 0;
+  return delay > 0 ? now + delay : now;
 }
 
 function createOperationId(kind: string, timestamp: number, targetIds: string[]) {
@@ -54,6 +75,8 @@ export function createPendingOperation<TPatch extends Record<string, unknown>, T
     attemptCount: 0,
     status: 'pending',
     lastError: undefined,
+    retryAt: 0,
+    lockedAt: 0,
   } as TOp;
 }
 
@@ -65,12 +88,116 @@ export function updatePendingOperation<T extends { id: string }>(queue: T[], ope
   return queue.map((item) => item.id === operationId ? { ...item, ...patch } : item);
 }
 
-export function recoverInterruptedOperations<T extends { status: 'pending' | 'syncing' | 'failed'; lastError?: string }>(queue: T[] = []) {
+export function markOperationLocked<T extends { lockedAt?: number }>(operation: T, now = Date.now()) {
+  return { ...operation, lockedAt: now };
+}
+
+export function markOperationRetry<T extends { status: 'pending' | 'syncing' | 'failed'; attemptCount: number; lastError?: string; retryAt?: number; lockedAt?: number }>(
+  operation: T,
+  error: string,
+  retryAt: number,
+  status: T['status'] = 'pending' as T['status'],
+) {
+  return {
+    ...operation,
+    status,
+    attemptCount: operation.attemptCount + 1,
+    lastError: error,
+    retryAt: status === 'pending' ? retryAt : 0,
+    lockedAt: 0,
+  };
+}
+
+export interface DueOperationWorker<T extends { id: string; status: 'pending' | 'syncing' | 'failed'; attemptCount: number; retryAt?: number; lockedAt?: number }, TResult = unknown> {
+  getOperations: () => T[];
+  canRun: () => boolean;
+  markSyncing: (operation: T, lockedOperation: T) => void;
+  execute: (operation: T) => Promise<TResult>;
+  onSuccess: (operation: T, result: TResult) => void;
+  onFailure: (operation: T, error: unknown, retry: { classified: string; status: T['status']; retryAt: number; retryOperation: T }) => void;
+  retryDelays: number[];
+  isTerminalError?: (classified: string) => boolean;
+  priority?: (operation: T) => number;
+  now?: () => number;
+}
+
+export interface PendingOperationQueueWorker<T extends { id: string; status: 'pending' | 'syncing' | 'failed'; attemptCount: number; retryAt?: number; lockedAt?: number }, TResult = unknown> {
+  getOperations: () => T[];
+  canRun: () => boolean;
+  updateOperation: (operationId: string, operation: T) => void;
+  execute: (operation: T) => Promise<TResult>;
+  onSuccess: (operation: T, result: TResult) => void;
+  onFailure?: (operation: T, error: unknown, retry: { classified: string; status: T['status']; retryAt: number; retryOperation: T }) => void;
+  scheduleNext?: (delay: number) => void;
+  retryDelays: number[];
+  isTerminalError?: (classified: string) => boolean;
+  priority?: (operation: T) => number;
+  now?: () => number;
+}
+
+export async function runDueOperation<T extends { id: string; status: 'pending' | 'syncing' | 'failed'; attemptCount: number; retryAt?: number; lockedAt?: number }, TResult = unknown>(
+  worker: DueOperationWorker<T, TResult>,
+) {
+  const now = worker.now?.() ?? Date.now();
+  const operation = selectDueOperation(worker.getOperations(), now, worker.priority);
+  if (!operation || !worker.canRun()) return { ran: false as const };
+
+  const lockedOperation = { ...markOperationLocked(operation, now), status: 'syncing' as const } as T;
+  worker.markSyncing(operation, lockedOperation);
+
+  try {
+    const result = await worker.execute(operation);
+    worker.onSuccess(operation, result);
+    return { ran: true as const, status: 'success' as const, operation, result };
+  } catch (error) {
+    const classified = classifySyncError(error);
+    const attemptCount = operation.attemptCount + 1;
+    const status = worker.isTerminalError?.(classified) ? 'failed' as T['status'] : 'pending' as T['status'];
+    const retryAt = status === 'pending'
+      ? nextRetryAt(attemptCount, worker.retryDelays, now)
+      : 0;
+    const retryOperation = markOperationRetry(operation, classified, retryAt, status) as T;
+    worker.onFailure(operation, error, { classified, status, retryAt, retryOperation });
+    return { ran: true as const, status: 'failure' as const, operation, error, classified, retryAt };
+  }
+}
+
+export async function runPendingOperationQueue<T extends { id: string; status: 'pending' | 'syncing' | 'failed'; attemptCount: number; retryAt?: number; lockedAt?: number }, TResult = unknown>(
+  worker: PendingOperationQueueWorker<T, TResult>,
+) {
+  return runDueOperation<T, TResult>({
+    getOperations: worker.getOperations,
+    canRun: worker.canRun,
+    retryDelays: worker.retryDelays,
+    isTerminalError: worker.isTerminalError,
+    priority: worker.priority,
+    now: worker.now,
+    markSyncing: (operation, lockedOperation) => {
+      worker.updateOperation(operation.id, lockedOperation);
+    },
+    execute: worker.execute,
+    onSuccess: (operation, result) => {
+      worker.onSuccess(operation, result);
+      worker.scheduleNext?.(50);
+    },
+    onFailure: (operation, error, retry) => {
+      worker.updateOperation(operation.id, retry.retryOperation);
+      worker.onFailure?.(operation, error, retry);
+      if (retry.status === 'pending') {
+        const now = worker.now?.() ?? Date.now();
+        worker.scheduleNext?.(Math.max(0, retry.retryAt - now));
+      }
+    },
+  });
+}
+
+export function recoverInterruptedOperations<T extends { status: 'pending' | 'syncing' | 'failed'; lastError?: string; lockedAt?: number }>(queue: T[] = []) {
   return queue.map((item) => item.status === 'syncing'
     ? {
       ...item,
       status: 'pending' as const,
       lastError: item.lastError || 'network: 上次同步中断，已重新排队',
+      lockedAt: 0,
     }
     : item);
 }

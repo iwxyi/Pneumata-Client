@@ -33,6 +33,16 @@ export function classifyActorRefKind(id: string | undefined | null, options: Act
   return 'system_agent';
 }
 
+export function isCharacterActorId(id: string | undefined | null, options: ActorRefClassifyOptions = {}) {
+  return classifyActorRefKind(id, options) === 'ai_character';
+}
+
+export function isReservedNonCharacterActorId(id: string | undefined | null) {
+  if (!id) return true;
+  if (id === 'user' || id === 'system') return true;
+  return Boolean(inferSystemAgentSubtypeFromId(id));
+}
+
 export function toActorRef(id: string | undefined | null, options: ActorRefClassifyOptions = {}): ActorRef | undefined {
   if (!id) return undefined;
   const kind = classifyActorRefKind(id, options);

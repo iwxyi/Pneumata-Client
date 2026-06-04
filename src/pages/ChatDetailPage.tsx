@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Box, IconButton, Button, Typography } from '@mui/material';
 import PageSection from '../components/common/PageSection';
 import AppSnackbar from '../components/common/AppSnackbar';
@@ -39,6 +39,7 @@ import { useChatSurfaceActions } from '../hooks/useChatSurfaceActions';
 import { useChatAutoSocialFlow } from '../hooks/useChatAutoSocialFlow';
 import { runDirectUserReplyFlow } from '../services/directUserReplyFlow';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
+import { isReservedNonCharacterActorId } from '../services/actorRefPresentation';
 import SessionInfoCards from '../components/chat/SessionInfoCards';
 import { projectSessionInfoCards } from '../services/sessionInfoProjection';
 import { useResponsive } from '../hooks/useResponsive';
@@ -48,6 +49,7 @@ import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
+const CHAT_MESSAGE_WINDOW_SIZE = 40;
 
 function PanelFallback() {
   return null;
@@ -90,6 +92,7 @@ function buildLocalInterceptionSummary(event: LocalInterceptionEvent) {
 }
 
 type SidebarTabValue = 'members' | 'narrative' | 'world' | 'activities';
+const EMPTY_MESSAGES: never[] = [];
 
 export default function ChatDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -101,9 +104,9 @@ export default function ChatDetailPage() {
   const isSplitDetailPane = pane.role === 'detail';
   const { setHideMobileBottomNav } = useLayoutHeaderActions();
 
-  const { chats, updateChat, applyChatRuntimeDelta, loadChat, markChatsWarm, isLoading: chatsLoading, remoteDeletedChatIds, remoteDeletedChats } = useChatStore();
+  const { chats, updateChat, applyChatRuntimeDelta, loadChat, prefetchChats, markChatsWarm, isLoading: chatsLoading, remoteDeletedChatIds, remoteDeletedChats } = useChatStore();
   const { characters, updateCharacter, updateCharacters, loadCharacter, markCharactersWarm } = useCharacterStore();
-  const { messages, messageWindowsByChatId, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, upsertMessages, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
+  const { messages, messageWindowsByChatId, hydrateMessagesFromCache, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, upsertMessages, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
   const api = useSettingsStore((s) => s.api);
   const aiProfiles = useSettingsStore((s) => s.aiProfiles);
@@ -115,6 +118,7 @@ export default function ChatDetailPage() {
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' }>({ open: false, message: '', severity: 'error' });
   const [detailBootstrapComplete, setDetailBootstrapComplete] = useState(false);
+  const [sidebarMessagesReady, setSidebarMessagesReady] = useState(false);
 
   const loopTokenRef = useRef<string | null>(null);
   const isRunningRef = useRef(false);
@@ -129,22 +133,28 @@ export default function ChatDetailPage() {
     clearStreamingMessageRef,
   } = useStreamingMessageState(upsertMessage);
 
+  useLayoutEffect(() => {
+    if (!id) return;
+    void hydrateMessagesFromCache(id);
+  }, [hydrateMessagesFromCache, id]);
+
   useEffect(() => {
     let cancelled = false;
     setDetailBootstrapComplete(false);
     markChatsWarm();
     markCharactersWarm();
+    void prefetchChats();
     void (async () => {
       const loadedChat = id ? await loadChat(id) : null;
       const memberIds = loadedChat?.memberIds || useChatStore.getState().chats.find((item) => item.id === id)?.memberIds || [];
-      await Promise.all(memberIds.map((memberId) => loadCharacter(memberId)));
+      void Promise.all(memberIds.filter((memberId) => !isReservedNonCharacterActorId(memberId)).map((memberId) => loadCharacter(memberId)));
     })().finally(() => {
       if (!cancelled) setDetailBootstrapComplete(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [id, loadCharacter, loadChat, markCharactersWarm, markChatsWarm]);
+  }, [id, loadCharacter, loadChat, markCharactersWarm, markChatsWarm, prefetchChats]);
 
   const remoteDeletedChat = remoteDeletedChats.find((c) => c.id === id);
   const chat = chats.find((c) => c.id === id) || remoteDeletedChat;
@@ -153,6 +163,7 @@ export default function ChatDetailPage() {
     return projectSessionInfoCards({ chat, chats, members: characters, isZh: true });
   }, [chat, chats, characters]);
   const currentChatMessages = useCurrentChatMessages({ chatId: id, activeMessages: messages, cachedWindows: messageWindowsByChatId });
+  const sidebarMessages = sidebarMessagesReady ? currentChatMessages : EMPTY_MESSAGES;
   const {
     analysisDialogOpen,
     analysisError,
@@ -204,7 +215,7 @@ export default function ChatDetailPage() {
     members,
     activeMembers,
     characters,
-    currentChatMessages,
+    currentChatMessages: sidebarMessages,
     rightPanelTab,
     speakAsChar,
   });
@@ -214,6 +225,20 @@ export default function ChatDetailPage() {
   }, [setRightPanelTab]);
   void dramaBoost;
   void rightPanelOpen;
+
+  useEffect(() => {
+    setSidebarMessagesReady(false);
+    const scheduler = (window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    }).requestIdleCallback;
+    if (typeof scheduler === 'function') {
+      const handle = scheduler(() => setSidebarMessagesReady(true), { timeout: 700 });
+      return () => window.cancelIdleCallback?.(handle);
+    }
+    const handle = window.setTimeout(() => setSidebarMessagesReady(true), 160);
+    return () => window.clearTimeout(handle);
+  }, [id]);
 
   useEffect(() => {
     if (!isDesktop) setRightPanelOpen(false);
@@ -419,7 +444,7 @@ export default function ChatDetailPage() {
 
   useEffect(() => {
     if (id) {
-      void openChatWindow(id, { limit: 20, revalidate: true });
+      void openChatWindow(id, { limit: CHAT_MESSAGE_WINDOW_SIZE, revalidate: true });
       return () => {
         activeChatIdRef.current = null;
         loopTokenRef.current = null;
@@ -444,7 +469,7 @@ export default function ChatDetailPage() {
         emotion: 0,
         timestamp: Date.now(),
       });
-      void updateChat(id, { lastMessageAt: userMessage.timestamp });
+      void updateChat(id, { lastMessageAt: userMessage.timestamp, latestMessage: userMessage });
       const recentMessagesWithUser = [...recentMessages.filter((message) => message.id !== userMessage.id), userMessage];
       if (chat.type === 'direct') {
         await runDirectUserReplyFlow({
@@ -491,7 +516,7 @@ export default function ChatDetailPage() {
         emotion: 0,
         timestamp: Date.now(),
       });
-      void updateChat(id, { lastMessageAt: guidedMessage.timestamp });
+      void updateChat(id, { lastMessageAt: guidedMessage.timestamp, latestMessage: guidedMessage });
       const recentMessagesWithGuide = [...recentMessages.filter((message) => message.id !== guidedMessage.id), guidedMessage];
       await commitPersistedManualRuntime(guidedMessage, recentMessagesWithGuide);
       startConversationLoopIfNeeded(chat);
@@ -520,7 +545,7 @@ export default function ChatDetailPage() {
           },
         },
       });
-      void updateChat(id, { lastMessageAt: spokeMessage.timestamp });
+      void updateChat(id, { lastMessageAt: spokeMessage.timestamp, latestMessage: spokeMessage });
       const recentMessagesWithSpeaker = [...recentMessages.filter((message) => message.id !== spokeMessage.id), spokeMessage];
       await commitPersistedManualRuntime(spokeMessage, recentMessagesWithSpeaker);
       setSpeakAsCharacter(null);
@@ -575,7 +600,7 @@ export default function ChatDetailPage() {
     if (!id || loadingMoreRef.current || !hasMore || currentChatMessages.length === 0) return;
     loadingMoreRef.current = true;
     try {
-      await loadMessages(id, { append: true, before: currentChatMessages[0].timestamp, limit: 20 });
+      await loadMessages(id, { append: true, before: currentChatMessages[0].timestamp, limit: CHAT_MESSAGE_WINDOW_SIZE });
     } finally {
       loadingMoreRef.current = false;
     }
@@ -761,7 +786,7 @@ export default function ChatDetailPage() {
               {runtimePanelLoading ? <Box sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">加载中…</Typography></Box> : <ChatSidebarPanel
                 chat={projectedSidebarChat || { ...chat, primaryRecentEvent: projectedRuntimeState?.primaryRecentEvent }}
                 members={members}
-                messages={currentChatMessages}
+                messages={sidebarMessages}
                 thinkingId={thinkingId}
                 rightPanelTab={sidebarTabValue}
                 setRightPanelTab={handleSidebarTabChange}

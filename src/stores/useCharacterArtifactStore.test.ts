@@ -14,6 +14,7 @@ vi.stubGlobal('localStorage', {
 });
 
 const apiMocks = vi.hoisted(() => ({
+  getSyncChanges: vi.fn(),
   getCharacterArtifactSummaries: vi.fn(),
   getCharacterArtifactItem: vi.fn(),
   upsertCharacterArtifactItem: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('../services/api', async () => {
     ...actual,
     api: {
       ...actual.api,
+      getSyncChanges: apiMocks.getSyncChanges,
       getCharacterArtifactSummaries: apiMocks.getCharacterArtifactSummaries,
       getCharacterArtifactItem: apiMocks.getCharacterArtifactItem,
       upsertCharacterArtifactItem: apiMocks.upsertCharacterArtifactItem,
@@ -109,9 +111,11 @@ beforeAll(async () => {
 describe('useCharacterArtifactStore', () => {
   beforeEach(() => {
     localStore.clear();
+    apiMocks.getSyncChanges.mockReset();
     apiMocks.getCharacterArtifactSummaries.mockReset();
     apiMocks.getCharacterArtifactItem.mockReset();
     apiMocks.upsertCharacterArtifactItem.mockReset();
+    apiMocks.getSyncChanges.mockRejectedValue(new Error('sync probe unavailable'));
     apiMocks.getCharacterArtifactSummaries.mockResolvedValue({ items: [], updatedAt: Date.now() });
     apiMocks.upsertCharacterArtifactItem.mockResolvedValue({ success: true, updatedAt: Date.now(), revision: 1 });
     generateDailyDiaryMock.mockClear();
@@ -415,5 +419,94 @@ describe('useCharacterArtifactStore', () => {
     expect(tombstone?.unread).toBe(false);
     expect(artifactStore.getState().getLetterEntries()).toHaveLength(0);
     expect(artifactStore.getState().unreadLetterCount).toBe(0);
+  });
+
+  it('keeps a newer local artifact when remote tombstone is older or equal and uses canonical summary scope', async () => {
+    localStore.set('pneumata-token', 'token');
+    localStore.set('pneumata-auth-mode', 'cloud');
+    artifactStore.setState({
+      items: [{
+        id: 'letter-newer',
+        kind: 'final_letter',
+        characterId: 'c1',
+        characterName: '苏苏',
+        dateKey: null,
+        sourceKey: 'final',
+        title: '本地新版',
+        text: '本地刚刚修改过。',
+        source: 'ai',
+        unread: true,
+        createdAt: 100,
+        updatedAt: 450,
+      }],
+      jobs: [],
+      isProcessing: false,
+      unreadLetterCount: 1,
+    });
+    apiMocks.getCharacterArtifactSummaries.mockResolvedValueOnce({
+      updatedAt: 450,
+      items: [{
+        id: 'letter-newer',
+        kind: 'final_letter',
+        characterId: 'c1',
+        characterName: '苏苏',
+        dateKey: null,
+        sourceKey: 'final',
+        title: '远端删除',
+        source: 'ai',
+        unread: false,
+        createdAt: 100,
+        updatedAt: 450,
+        deletedAt: 450,
+        revision: 2,
+      }],
+    });
+
+    await artifactStore.getState().syncCloud({ kind: 'birth_letter', includeDeleted: true });
+
+    const item = artifactStore.getState().items.find((entry) => entry.id === 'letter-newer');
+    expect(apiMocks.getSyncChanges).toHaveBeenCalledWith({
+      scope: 'artifacts.summary:kind:birth_letter',
+      since: null,
+    });
+    expect(apiMocks.getCharacterArtifactSummaries).toHaveBeenCalledWith({ kind: 'birth_letter', includeDeleted: true });
+    expect(item?.deletedAt).toBeUndefined();
+    expect(item?.title).toBe('本地新版');
+    expect(item?.text).toContain('本地刚刚');
+    expect(artifactStore.getState().getLetterEntries()).toHaveLength(1);
+    expect(artifactStore.getState().unreadLetterCount).toBe(1);
+  });
+
+  it('ignores stale sync cursors when the local artifact view is empty', async () => {
+    localStore.set('pneumata-token', 'token');
+    localStore.set('pneumata-auth-mode', 'cloud');
+    localStore.set('pneumata-artifact-sync-scopes-guest', JSON.stringify({
+      scopes: {
+        'artifacts.summary': {
+          lastCheckedAt: 100,
+          lastAppliedAt: 100,
+          cursor: 'artifacts.summary:stale',
+          revision: 'artifact-rev-stale',
+          lastError: null,
+          errorCount: 0,
+          retryAt: 0,
+        },
+      },
+      updatedAt: 100,
+    }));
+    apiMocks.getSyncChanges.mockResolvedValueOnce({
+      status: 'not_modified',
+      scope: 'artifacts.summary',
+      cursor: 'artifacts.summary:current',
+      revision: 'artifact-rev-current',
+      changes: [],
+    });
+
+    await artifactStore.getState().syncCloud();
+
+    expect(apiMocks.getSyncChanges).toHaveBeenCalledWith({
+      scope: 'artifacts.summary',
+      since: null,
+    });
   });
 });

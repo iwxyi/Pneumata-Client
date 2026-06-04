@@ -1,5 +1,5 @@
 import type { Message } from '../types/message';
-import { getMessageRenderIdentity, messagesShareIdentity } from './messageIdentity';
+import { buildMessageIdentityKeys, getMessageRenderIdentity, messagesShareIdentity } from './messageIdentity';
 
 export interface MessageWindowLike {
   messages?: Message[];
@@ -39,27 +39,53 @@ export function projectCurrentChatMessages(params: {
   cachedWindow?: MessageWindowLike | null;
 }) {
   const byId = new Map<string, Message>();
+  const identityIndex = new Map<string, string>();
+  const contentIndex = new Map<string, string[]>();
+  const indexMessage = (identity: string, message: Message) => {
+    for (const key of buildMessageIdentityKeys(message)) identityIndex.set(key, identity);
+    const key = contentIdentity(message);
+    if (!contentIndex.has(key)) contentIndex.set(key, []);
+    const identities = contentIndex.get(key);
+    if (identities && !identities.includes(identity)) identities.push(identity);
+  };
+  const activeMessages = params.activeMessages.filter((message) => message.chatId === params.chatId);
+  const cachedMessages = (params.cachedWindow?.messages || [])
+    .filter((message) => message.chatId === params.chatId)
+    .slice(-40);
   const candidates = [
-    ...(params.cachedWindow?.messages || []),
-    ...params.activeMessages.filter((message) => message.chatId === params.chatId),
-  ].filter((message) => message.chatId === params.chatId);
+    ...cachedMessages,
+    ...activeMessages,
+  ];
 
   for (const message of candidates) {
-    const matched = Array.from(byId.entries()).find(([, existing]) => messagesShareIdentity(existing, message));
-    if (!matched) {
-      byId.set(getMessageRenderIdentity(message), message);
+    let identity = buildMessageIdentityKeys(message)
+      .map((key) => identityIndex.get(key))
+      .find((candidate): candidate is string => Boolean(candidate)) || null;
+    let existing = identity ? byId.get(identity) || null : null;
+
+    if (!existing) {
+      identity = (contentIndex.get(contentIdentity(message)) || []).find((candidateIdentity) => {
+        const candidate = byId.get(candidateIdentity);
+        if (!candidate) return false;
+        if (!messagesShareIdentity(candidate, message) && contentIdentity(candidate) !== contentIdentity(message)) return false;
+        return Math.abs(candidate.timestamp - message.timestamp) <= 5000;
+      }) || null;
+      existing = identity ? byId.get(identity) || null : null;
+    }
+
+    if (!existing || !identity) {
+      const nextIdentity = getMessageRenderIdentity(message);
+      byId.set(nextIdentity, message);
+      indexMessage(nextIdentity, message);
       continue;
     }
-    const [id, existing] = matched;
-    byId.set(id, mergeProjectedMessage(existing, message));
+
+    const merged = mergeProjectedMessage(existing, message);
+    const nextIdentity = getMessageRenderIdentity(merged);
+    if (nextIdentity !== identity) byId.delete(identity);
+    byId.set(nextIdentity, merged);
+    indexMessage(nextIdentity, merged);
   }
 
-  const merged = Array.from(byId.values());
-  return merged
-    .filter((message, index, array) => array.findIndex((candidate) => {
-      if (messagesShareIdentity(candidate, message)) return true;
-      if (contentIdentity(candidate) !== contentIdentity(message)) return false;
-      return Math.abs(candidate.timestamp - message.timestamp) <= 5000;
-    }) === index)
-    .sort(compareByTimeline);
+  return Array.from(byId.values()).sort(compareByTimeline);
 }
