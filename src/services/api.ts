@@ -473,6 +473,17 @@ class ApiClient {
     }>('PUT', `/character-artifacts/items/${encodeURIComponent(item.id)}`, item);
   }
 
+  async deleteCharacterArtifactItem(id: string, data: { operationId?: string; baseRevision?: number; deletedAt?: number } = {}) {
+    return this.request<{
+      success: boolean;
+      accepted?: boolean;
+      status?: 'accepted' | 'rejected';
+      reason?: 'stale_base' | 'older_update';
+      deletedAt: number;
+      revision: number;
+    }>('DELETE', `/character-artifacts/items/${encodeURIComponent(id)}`, data);
+  }
+
   async updateCharacterArtifacts(data: { items: CharacterArtifactSyncEntry[]; updatedAt: number }) {
     return this.request<{ success: boolean; updatedAt: number }>('PUT', '/character-artifacts', data);
   }
