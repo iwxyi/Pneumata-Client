@@ -39,6 +39,7 @@ export interface CharacterArtifactEntry {
   createdAt: number;
   updatedAt: number;
   deletedAt?: number | null;
+  revision?: number;
   generationSnapshot?: CharacterArtifactGenerationSnapshot;
 }
 
@@ -337,6 +338,10 @@ function shouldUploadArtifactItem(local: CharacterArtifactEntry, summary: Charac
   return (local.updatedAt || 0) > (summary.updatedAt || 0);
 }
 
+function buildArtifactUploadOperationId(item: CharacterArtifactEntry) {
+  return `artifact-upsert:${item.id}:${item.updatedAt || item.createdAt || 0}`;
+}
+
 function compactString(value: string | undefined | null, max: number) {
   const text = typeof value === 'string' ? value : '';
   return text.length > max ? text.slice(0, max) : text;
@@ -410,6 +415,7 @@ function projectArtifactItemForCloudUpload(item: CharacterArtifactEntry): Charac
     characterName: compactString(item.characterName, 200),
     sourceKey: item.sourceKey ? compactString(item.sourceKey, 160) : null,
     title: compactString(item.title, 300),
+    revision: item.revision,
     generationSnapshot: item.generationSnapshot ? {
       promptVersion: item.generationSnapshot.promptVersion,
       character: compactArtifactCharacterSnapshot(item.generationSnapshot.character) || {},
@@ -471,6 +477,7 @@ function applyRemoteDeletedArtifactSummaries(items: CharacterArtifactEntry[], su
         createdAt: summary.createdAt,
         updatedAt: Math.max(summary.updatedAt || 0, deletedAt),
         deletedAt,
+        revision: summary.revision,
       });
       return;
     }
@@ -483,6 +490,7 @@ function applyRemoteDeletedArtifactSummaries(items: CharacterArtifactEntry[], su
       unread: false,
       updatedAt: Math.max(existing.updatedAt || 0, summary.updatedAt || 0, deletedAt),
       deletedAt,
+      revision: Math.max(existing.revision || 0, summary.revision || 0) || undefined,
     });
   });
   return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
@@ -1011,7 +1019,20 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             if (uploads.length) {
               for (const item of uploads) {
                 try {
-                  await api.upsertCharacterArtifactItem(projectArtifactItemForCloudUpload(item));
+                  const response = await api.upsertCharacterArtifactItem({
+                    ...projectArtifactItemForCloudUpload(item),
+                    operationId: buildArtifactUploadOperationId(item),
+                    baseRevision: item.revision || 0,
+                    clientTimestamp: item.updatedAt || item.createdAt || Date.now(),
+                  });
+                  if (response.status === 'rejected' || response.accepted === false) {
+                    console.warn('Skipped stale character artifact upload:', {
+                      item: buildArtifactUploadDebug(item),
+                      reason: response.reason,
+                      revision: response.revision,
+                      updatedAt: response.updatedAt,
+                    });
+                  }
                 } catch (error) {
                   console.error('Failed to upload character artifact item:', { item: buildArtifactUploadDebug(item), error });
                   throw error;

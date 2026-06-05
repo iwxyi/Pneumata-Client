@@ -51,6 +51,7 @@ export interface CharacterArtifactSyncEntry {
   createdAt: number;
   updatedAt: number;
   deletedAt?: number | null;
+  revision?: number;
   generationSnapshot?: {
     promptVersion: 'character-experience-artifacts-v2';
     character: Partial<AICharacter>;
@@ -461,8 +462,15 @@ class ApiClient {
     return this.request<{ item: CharacterArtifactSyncEntry }>('GET', `/character-artifacts/items/${encodeURIComponent(id)}`);
   }
 
-  async upsertCharacterArtifactItem(item: CharacterArtifactSyncEntry) {
-    return this.request<{ success: boolean; updatedAt: number; revision: number }>('PUT', `/character-artifacts/items/${encodeURIComponent(item.id)}`, item);
+  async upsertCharacterArtifactItem(item: CharacterArtifactSyncEntry & { operationId?: string; baseRevision?: number; clientTimestamp?: number }) {
+    return this.request<{
+      success: boolean;
+      accepted?: boolean;
+      status?: 'accepted' | 'rejected';
+      reason?: 'stale_base' | 'older_update';
+      updatedAt: number;
+      revision: number;
+    }>('PUT', `/character-artifacts/items/${encodeURIComponent(item.id)}`, item);
   }
 
   async updateCharacterArtifacts(data: { items: CharacterArtifactSyncEntry[]; updatedAt: number }) {
