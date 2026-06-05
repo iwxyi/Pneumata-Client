@@ -9,6 +9,7 @@ import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import EmptyState from '../components/common/EmptyState';
 import { readCloudSyncBootstrapStatus, type CloudSyncBootstrapStatus } from '../services/cloudSyncBootstrapStatus';
 import { scheduleSyncWorkersByPriority } from '../stores/storeSyncScheduler';
+import { buildOperationsDiffPreview, buildPatchDiffPreview } from '../services/syncDiffPreview';
 
 function clipText(value: unknown, max = 120) {
   if (value == null) return '';
@@ -66,6 +67,7 @@ export default function SyncStatusPage() {
       targetCount: item.targetIds.length,
       targetLabel: characterStore.characters.find((character) => character.id === item.entityId)?.name || item.entityId,
       summary: summarizePatch(item.patch, isZh),
+      diffPreview: buildPatchDiffPreview(item.patch),
       exportPayload: {
         operation: item,
         localSnapshot: characterStore.characters.find((character) => character.id === item.entityId) || null,
@@ -92,10 +94,12 @@ export default function SyncStatusPage() {
         targetLabel: item.localSnapshot?.name || item.id,
         summary: isZh ? '云端已删除，本地仍有未同步编辑；本地投影会继续保留，等待手动处理。' : 'Remote deleted this item while local edits are still pending. Local projection is preserved for manual resolution.',
         conflictTargetId: item.id,
+        diffPreview: buildOperationsDiffPreview(item.pending),
         exportPayload: {
           conflict: 'remote_delete_with_local_pending',
           remoteDeletedId: item.id,
           pendingOperations: item.pending,
+          diffPreview: buildOperationsDiffPreview(item.pending),
           localSnapshot: item.localSnapshot,
         },
       }));
@@ -112,6 +116,7 @@ export default function SyncStatusPage() {
       targetCount: item.targetIds.length,
       targetLabel: chatStore.chats.find((chat) => chat.id === item.entityId)?.name || item.entityId,
       summary: summarizePatch(item.patch, isZh),
+      diffPreview: buildPatchDiffPreview(item.patch),
       exportPayload: {
         operation: item,
         localSnapshot: chatStore.chats.find((chat) => chat.id === item.entityId) || null,
@@ -138,10 +143,12 @@ export default function SyncStatusPage() {
         targetLabel: item.localSnapshot?.name || item.id,
         summary: isZh ? '云端已删除，本地仍有未同步编辑；本地投影会继续保留，等待手动处理。' : 'Remote deleted this item while local edits are still pending. Local projection is preserved for manual resolution.',
         conflictTargetId: item.id,
+        diffPreview: buildOperationsDiffPreview(item.pending),
         exportPayload: {
           conflict: 'remote_delete_with_local_pending',
           remoteDeletedId: item.id,
           pendingOperations: item.pending,
+          diffPreview: buildOperationsDiffPreview(item.pending),
           localSnapshot: item.localSnapshot,
         },
       }));
@@ -409,6 +416,24 @@ export default function SyncStatusPage() {
                 <Typography variant="body2" color="text.secondary">
                   {item.summary}
                 </Typography>
+                {'diffPreview' in item && item.diffPreview?.length ? (
+                  <Box sx={{ display: 'grid', gap: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                      {isZh ? '本地待提交字段' : 'Local pending fields'}
+                    </Typography>
+                    <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                      {item.diffPreview.map((diff) => (
+                        <Chip
+                          key={`${item.id}:${diff.field}`}
+                          size="small"
+                          variant="outlined"
+                          label={`${diff.field}: ${diff.value}`}
+                          sx={{ maxWidth: '100%', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
+                        />
+                      ))}
+                    </Stack>
+                  </Box>
+                ) : null}
                 {item.lastError ? (
                   <Typography variant="body2" color="error.main">
                     {item.lastError}
