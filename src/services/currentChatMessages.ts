@@ -9,6 +9,10 @@ function contentIdentity(message: Message) {
   return `${message.chatId}::${message.type}::${message.senderId}::${message.content}`;
 }
 
+function isContentDedupeEligible(message: Message) {
+  return !message.isStreaming && Boolean(message.content);
+}
+
 function shouldKeepExistingMessage(existing: Message, incoming: Message) {
   return Boolean(incoming.isStreaming && !existing.isStreaming && messagesShareIdentity(existing, incoming));
 }
@@ -43,6 +47,7 @@ export function projectCurrentChatMessages(params: {
   const contentIndex = new Map<string, string[]>();
   const indexMessage = (identity: string, message: Message) => {
     for (const key of buildMessageIdentityKeys(message)) identityIndex.set(key, identity);
+    if (!isContentDedupeEligible(message)) return;
     const key = contentIdentity(message);
     if (!contentIndex.has(key)) contentIndex.set(key, []);
     const identities = contentIndex.get(key);
@@ -63,10 +68,11 @@ export function projectCurrentChatMessages(params: {
       .find((candidate): candidate is string => Boolean(candidate)) || null;
     let existing = identity ? byId.get(identity) || null : null;
 
-    if (!existing) {
+    if (!existing && isContentDedupeEligible(message)) {
       identity = (contentIndex.get(contentIdentity(message)) || []).find((candidateIdentity) => {
         const candidate = byId.get(candidateIdentity);
         if (!candidate) return false;
+        if (!isContentDedupeEligible(candidate)) return false;
         if (!messagesShareIdentity(candidate, message) && contentIdentity(candidate) !== contentIdentity(message)) return false;
         return Math.abs(candidate.timestamp - message.timestamp) <= 5000;
       }) || null;

@@ -204,6 +204,60 @@ describe('useMessageStore', () => {
     expect(state.messageWindowsByChatId[chatId]?.messages[0]?.content).toBe(committed.content);
   });
 
+  it('does not merge a new streaming turn into the previous same-speaker message by content', async () => {
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const previous: Message = {
+      id: 'previous-message-1',
+      chatId,
+      type: 'ai',
+      senderId: 'character-1',
+      senderName: '角色',
+      content: '上一条刚说过的话',
+      emotion: 0,
+      timestamp: 1000,
+      isDeleted: false,
+      isStreaming: false,
+    };
+    const streaming: Message = {
+      id: 'streaming-message-2',
+      clientKey: 'streaming-message-2',
+      chatId,
+      type: 'ai',
+      senderId: 'character-1',
+      senderName: '角色',
+      content: previous.content,
+      emotion: 0,
+      timestamp: 2000,
+      isDeleted: false,
+      isStreaming: true,
+    };
+
+    useMessageStore.setState({
+      messages: [previous],
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: [previous],
+          lastSyncedAt: 0,
+          updatedAt: previous.timestamp,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: true,
+    });
+
+    useMessageStore.getState().upsertMessage(streaming);
+
+    const state = useMessageStore.getState();
+    expect(state.messages.map((message) => message.id)).toEqual(['previous-message-1', 'streaming-message-2']);
+    expect(state.messages[0]?.isStreaming).toBe(false);
+    expect(state.messages[1]?.isStreaming).toBe(true);
+    expect(state.messageWindowsByChatId[chatId]?.messages.map((message) => message.id)).toEqual(['previous-message-1', 'streaming-message-2']);
+  });
+
   it('merges local streamed messages with server confirmations by shared server id', async () => {
     const { useMessageStore } = await import('./useMessageStore');
     const chatId = 'chat-1';

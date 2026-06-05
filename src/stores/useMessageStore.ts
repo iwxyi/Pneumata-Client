@@ -4362,6 +4362,10 @@ function buildMessageContentKey(message: Message) {
   return `${message.chatId}::${message.type}::${message.senderId}::${message.content}`;
 }
 
+function isMessageContentDedupeEligible(message: Message) {
+  return !message.isStreaming && Boolean(message.content);
+}
+
 function normalizeMessage(message: Message): Message {
   return {
     id: message.id,
@@ -4423,6 +4427,7 @@ function dedupeMessages(messages: Message[]) {
   const contentIndex = new Map<string, number[]>();
   const remember = (message: Message, index: number) => {
     for (const key of buildMessageIdentityKeys(message)) identityIndex.set(key, index);
+    if (!isMessageContentDedupeEligible(message)) return;
     const contentKey = buildMessageContentKey(message);
     if (!contentIndex.has(contentKey)) contentIndex.set(contentKey, []);
     contentIndex.get(contentKey)?.push(index);
@@ -4438,7 +4443,7 @@ function dedupeMessages(messages: Message[]) {
       continue;
     }
 
-    const contentMatches = contentIndex.get(buildMessageContentKey(message)) || [];
+    const contentMatches = isMessageContentDedupeEligible(message) ? contentIndex.get(buildMessageContentKey(message)) || [] : [];
     const duplicateIndex = contentMatches.find((index) => {
       const existing = result[index];
       if (Math.abs(existing.timestamp - message.timestamp) > 5000) return false;
@@ -4499,6 +4504,7 @@ function mergeMessages(localMessages: Message[], remoteMessages: Message[]) {
   const contentIndex = new Map<string, string[]>();
   const indexMessage = (identity: string, message: Message) => {
     for (const key of buildMessageIdentityKeys(message)) identityIndex.set(key, identity);
+    if (!isMessageContentDedupeEligible(message)) return;
     const contentKey = buildMessageContentKey(message);
     if (!contentIndex.has(contentKey)) contentIndex.set(contentKey, []);
     const identities = contentIndex.get(contentKey);
@@ -4517,11 +4523,12 @@ function mergeMessages(localMessages: Message[], remoteMessages: Message[]) {
       .find((identity): identity is string => Boolean(identity)) || null;
     let local = localIdentity ? merged.get(localIdentity) || null : null;
 
-    if (!local) {
+    if (!local && isMessageContentDedupeEligible(remote)) {
       const candidates = contentIndex.get(buildMessageContentKey(remote)) || [];
       localIdentity = candidates.find((identity) => {
         const candidate = merged.get(identity);
         if (!candidate) return false;
+        if (!isMessageContentDedupeEligible(candidate)) return false;
         if (candidate.serverId) return false;
         if (candidate.chatId !== remote.chatId || candidate.type !== remote.type || candidate.senderId !== remote.senderId || candidate.content !== remote.content) return false;
         return Math.abs(candidate.timestamp - remote.timestamp) <= 5000;

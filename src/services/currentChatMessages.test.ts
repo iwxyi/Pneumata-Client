@@ -108,6 +108,34 @@ describe('projectCurrentChatMessages', () => {
     expect(projected[0]?.serverId).toBe('server-message-1');
   });
 
+  it('keeps a new streaming turn separate from the previous same-speaker message with matching content', () => {
+    const projected = projectCurrentChatMessages({
+      chatId: 'chat-1',
+      activeMessages: [
+        message({
+          id: 'stream-2',
+          clientKey: 'stream-2',
+          content: '上一条刚说过的话',
+          timestamp: 2000,
+          isStreaming: true,
+        }),
+      ],
+      cachedWindow: {
+        messages: [
+          message({
+            id: 'previous-1',
+            content: '上一条刚说过的话',
+            timestamp: 1000,
+            isStreaming: false,
+          }),
+        ],
+      },
+    });
+
+    expect(projected.map((item) => item.id)).toEqual(['previous-1', 'stream-2']);
+    expect(projected.map((item) => item.isStreaming)).toEqual([false, true]);
+  });
+
   it('ignores messages from other chats', () => {
     const projected = projectCurrentChatMessages({
       chatId: 'chat-1',
