@@ -392,13 +392,30 @@ function mergeChatRecord(local: GroupChat | undefined, remote: GroupChat) {
     return remote;
   }
   return {
-    ...remote,
+    ...local,
+    id: remote.id,
+    type: remote.type,
+    mode: remote.mode,
+    name: remote.name,
+    topic: remote.topic,
+    style: remote.style,
+    runtimeEvolutionIntensity: remote.runtimeEvolutionIntensity,
+    memberIds: remote.memberIds,
+    sourceChatId: remote.sourceChatId,
+    sourceMemberIds: remote.sourceMemberIds,
+    speed: remote.speed,
+    isActive: remote.isActive,
+    allowIntervention: remote.allowIntervention,
+    showRoleActions: remote.showRoleActions,
+    topicSeed: remote.topicSeed,
+    deletedAt: remote.deletedAt,
+    fieldVersions: remote.fieldVersions,
+    createdAt: remote.createdAt,
+    updatedAt: remote.updatedAt,
+    lastMessageAt: remote.lastMessageAt,
+    worldState: remote.worldState,
+    latestMessage: remote.latestMessage,
     runtimeDetailLoaded: true,
-    runtimeSeed: local.runtimeSeed,
-    layeredMemories: local.layeredMemories,
-    runtimeTimeline: local.runtimeTimeline,
-    runtimeEventsV2: local.runtimeEventsV2,
-    relationshipLedger: local.relationshipLedger,
   };
 }
 

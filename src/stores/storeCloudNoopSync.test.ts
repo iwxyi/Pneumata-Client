@@ -196,6 +196,89 @@ describe('cloud no-op sync', () => {
     expect(writes).toBe(0);
   });
 
+  it('merges chat summary changes without clearing loaded chat runtime details', async () => {
+    apiMocks.getSyncChanges.mockResolvedValueOnce({
+      status: 'modified',
+      cursor: 'chats.summary:rev-2',
+      revision: 'chats.summary:rev-2',
+      changes: [{
+        op: 'upsert',
+        entity: 'chat_summary',
+        id: 'chat-1',
+        revision: 2,
+        patch: {
+          id: 'chat-1',
+          type: 'group',
+          mode: 'open_chat',
+          name: '测试群聊新版',
+          topic: '测试主题',
+          style: 'free',
+          runtimeEvolutionIntensity: 'balanced',
+          memberIds: ['character-1'],
+          sourceChatId: null,
+          sourceMemberIds: [],
+          speed: 1,
+          isActive: true,
+          allowIntervention: true,
+          showRoleActions: true,
+          topicSeed: '',
+          deletedAt: null,
+          fieldVersions: {},
+          createdAt: 1,
+          updatedAt: 2,
+          lastMessageAt: 2,
+          worldState: DEFAULT_CONVERSATION_WORLD_STATE,
+          runtimeDetailLoaded: false,
+          latestMessage: {
+            id: 'message-2',
+            chatId: 'chat-1',
+            type: 'ai',
+            senderId: 'character-1',
+            senderName: '小甲',
+            content: '最新摘要消息',
+            emotion: 60,
+            timestamp: 2,
+            isDeleted: false,
+          },
+        },
+      }],
+    });
+    const { useChatStore } = await import('./useChatStore');
+    await useChatStore.persist.rehydrate();
+    useChatStore.setState({
+      chats: [chat({
+        name: '测试群聊',
+        runtimeDetailLoaded: true,
+        runtimeSeed: { notes: ['完整前情'], artifacts: ['完整产物'] },
+        layeredMemories: [{ id: 'memory-1', scope: 'conversation', layer: 'long_term', kind: 'artifact', ownerId: 'chat-1', text: '完整会话记忆', salience: 0.7, confidence: 0.7, recency: 0.7, reinforcementCount: 1, sourceEventIds: [], createdAt: 1, updatedAt: 1 }],
+        runtimeTimeline: [{ type: 'note', text: '完整时间线', createdAt: 1 }],
+        updatedAt: 1,
+        lastMessageAt: 1,
+      })],
+      currentChatId: null,
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: [],
+      remoteDeletedChats: [],
+      isLoading: false,
+    });
+
+    await useChatStore.getState().loadChats();
+
+    const merged = useChatStore.getState().chats[0];
+    expect(merged.name).toBe('测试群聊新版');
+    expect(merged.updatedAt).toBe(2);
+    expect(merged.lastMessageAt).toBe(2);
+    expect(merged.latestMessage?.content).toBe('最新摘要消息');
+    expect(merged.runtimeDetailLoaded).toBe(true);
+    expect(merged.runtimeSeed?.notes).toEqual(['完整前情']);
+    expect(merged.layeredMemories?.[0]?.text).toBe('完整会话记忆');
+    expect(merged.runtimeTimeline?.[0]?.text).toBe('完整时间线');
+    expect(apiMocks.getChats).not.toHaveBeenCalled();
+  });
+
   it('does not rewrite characters or fetch character summaries when the remote scope is not modified', async () => {
     const { useCharacterStore } = await import('./useCharacterStore');
     await useCharacterStore.persist.rehydrate();
@@ -243,6 +326,65 @@ describe('cloud no-op sync', () => {
 
     unsubscribe();
     expect(writes).toBe(0);
+  });
+
+  it('merges character summary changes without clearing loaded character details', async () => {
+    apiMocks.getSyncChanges.mockResolvedValueOnce({
+      status: 'modified',
+      cursor: 'characters.summary:rev-2',
+      revision: 'characters.summary:rev-2',
+      changes: [{
+        op: 'upsert',
+        entity: 'character_summary',
+        id: 'character-1',
+        revision: 2,
+        patch: {
+          id: 'character-1',
+          name: '小甲新版',
+          avatar: '',
+          personality: { openness: 70, extroversion: 50, agreeableness: 50, neuroticism: 50, humor: 50, creativity: 50, assertiveness: 50, empathy: 50 },
+          expertise: ['测试'],
+          group: null,
+          bubbleStyleId: null,
+          bubbleStyle: null,
+          isPreset: false,
+          deletedAt: null,
+          fieldVersions: {},
+          createdAt: 1,
+          updatedAt: 2,
+          characterDetailLoaded: false,
+        },
+      }],
+    });
+    const { useCharacterStore } = await import('./useCharacterStore');
+    await useCharacterStore.persist.rehydrate();
+    useCharacterStore.setState({
+      characters: [character({
+        name: '小甲',
+        background: '完整背景不能被摘要覆盖',
+        speakingStyle: '完整说话方式',
+        layeredMemories: [{ id: 'memory-1', scope: 'character_self', layer: 'long_term', kind: 'trait_evidence', ownerId: 'character-1', text: '完整记忆', salience: 0.7, confidence: 0.7, recency: 0.7, reinforcementCount: 1, sourceEventIds: [], createdAt: 1, updatedAt: 1 }],
+        characterDetailLoaded: true,
+        updatedAt: 1,
+      })],
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedCharacterIds: [],
+      isLoading: false,
+    });
+
+    await useCharacterStore.getState().loadCharacters();
+
+    const merged = useCharacterStore.getState().characters[0];
+    expect(merged.name).toBe('小甲新版');
+    expect(merged.updatedAt).toBe(2);
+    expect(merged.characterDetailLoaded).toBe(true);
+    expect(merged.background).toBe('完整背景不能被摘要覆盖');
+    expect(merged.speakingStyle).toBe('完整说话方式');
+    expect(merged.layeredMemories?.[0]?.text).toBe('完整记忆');
+    expect(apiMocks.getCharacters).not.toHaveBeenCalled();
   });
 
   it('does not rewrite artifacts or fetch artifact summaries when the remote scope is not modified', async () => {
