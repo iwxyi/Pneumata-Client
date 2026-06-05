@@ -586,7 +586,7 @@ function buildRecentMessagesSection(messages: Message[], characters: Map<string,
   const humanCount = visible.filter((message) => message.type === 'user' || message.type === 'god').length;
   const aiCount = visible.filter((message) => message.type === 'ai').length;
   const activeSpeakers = Array.from(new Set(visible.map((message) => getPromptMessageSpeakerName(message, characters)))).slice(-6);
-  return `\n## Conversation Window\n- The complete recent transcript is provided separately as user-role conversation messages. This system section intentionally does not repeat raw dialogue.\n- Recent visible turns: ${visible.length} (${humanCount} human / ${aiCount} AI).\n- Latest visible turn: ${latest ? `${getPromptMessageTypeLabel(latest)} from ${getPromptMessageSpeakerName(latest, characters)}` : 'none'}.\n- Latest AI speaker in window: ${latestAi ? getPromptMessageSpeakerName(latestAi, characters) : 'none'}.\n- Active speakers in window: ${activeSpeakers.join(', ') || 'none'}.\n- Treat the transcript messages as factual context and relationship evidence, not style samples. Do not copy their emoji/sticker markers, opening fillers, endings, cadence, or full sentence shape unless you are explicitly quoting someone on purpose.`;
+  return `\n## Conversation Window\n- The complete recent transcript is provided separately as chat messages. Only your own prior visible turns are assistant messages; other speakers are user-side transcript context. This system section intentionally does not repeat raw dialogue.\n- Recent visible turns: ${visible.length} (${humanCount} human / ${aiCount} AI).\n- Latest visible turn: ${latest ? `${getPromptMessageTypeLabel(latest)} from ${getPromptMessageSpeakerName(latest, characters)}` : 'none'}.\n- Latest AI speaker in window: ${latestAi ? getPromptMessageSpeakerName(latestAi, characters) : 'none'}.\n- Active speakers in window: ${activeSpeakers.join(', ') || 'none'}.\n- Treat the transcript messages as factual context and relationship evidence, not style samples. Do not copy their emoji/sticker markers, opening fillers, endings, cadence, or full sentence shape unless you are explicitly quoting someone on purpose.`;
 }
 
 function normalizeStoredGuidance(message: Message): UserGuidanceIntent | null {
@@ -673,23 +673,34 @@ function getRelationshipSnapshot(character: AICharacter, target: AICharacter | u
   return character.relationships.find((item) => item.characterId === target.id) || null;
 }
 
-function getLengthBand(length: number) {
-  if (length <= 0) return 'empty';
-  if (length <= 12) return 'micro';
-  if (length <= 40) return 'short';
-  if (length <= 100) return 'medium';
-  return 'long';
+export interface PromptTranscriptOptions {
+  currentSpeakerId?: string;
+  chatType?: GroupChat['type'];
 }
 
-function buildAiTurnStateRecord(message: Message) {
-  const attachmentKinds = Array.from(new Set((message.metadata?.attachments || [])
-    .map((attachment) => attachment.kind)
-    .filter(Boolean)));
-  const attachmentLine = attachmentKinds.length ? ` attachments=${attachmentKinds.join(',')};` : '';
-  return `visible_text=withheld; length=${getLengthBand(Array.from(message.content || '').length)};${attachmentLine}`;
+function getTranscriptSpeakerName(message: Message, characters: Map<string, AICharacter>) {
+  if (message.type === 'user' || message.type === 'god') return message.senderName || 'User';
+  if (message.type === 'system') return 'System';
+  if (message.type === 'event') return 'Event';
+  return message.senderName || characters.get(message.senderId)?.name || 'Unknown';
 }
 
-export function buildChatMessages(messages: Message[], characters: Map<string, AICharacter>, limit = 12) {
+function compactTranscriptContent(content: string, max = 1400) {
+  const trimmed = (content || '').trim();
+  if (Array.from(trimmed).length <= max) return trimmed;
+  return `${Array.from(trimmed).slice(0, max).join('')}...`;
+}
+
+function buildUserSideTranscriptContent(message: Message, characters: Map<string, AICharacter>) {
+  return `${getTranscriptSpeakerName(message, characters)}: ${compactTranscriptContent(message.content)}`;
+}
+
+export function buildChatMessages(
+  messages: Message[],
+  characters: Map<string, AICharacter>,
+  limit = 12,
+  options: PromptTranscriptOptions = {},
+) {
   const visible = messages
     .filter((message) => {
       if (message.isDeleted) return false;
@@ -698,27 +709,17 @@ export function buildChatMessages(messages: Message[], characters: Map<string, A
       return false;
     })
     .slice(-limit);
-  const latestAiId = visible.slice().reverse().find((message) => message.type === 'ai')?.id || null;
   return visible
     .map((message) => {
-      const isHumanGuidance = message.type === 'user' || message.type === 'god';
-      const senderName = isHumanGuidance
-        ? 'User'
-        : message.type === 'system'
-          ? 'System'
-          : message.type === 'event'
-            ? 'Event'
-            : message.senderName || characters.get(message.senderId)?.name || 'Unknown';
+      if (message.type === 'ai' && options.currentSpeakerId && message.senderId === options.currentSpeakerId) {
+        return {
+          role: 'assistant' as const,
+          content: compactTranscriptContent(message.content),
+        };
+      }
       return {
         role: 'user' as const,
-        content: isHumanGuidance
-          ? `${senderName}: ${message.content}`
-          : [
-            `Transcript fact record, not wording/style sample - ${senderName}.`,
-            `Use this as turn-state context only; the AI visible text is withheld to avoid feeding imitation samples back into generation.`,
-            `Turn position: ${message.id === latestAiId ? 'latest AI turn' : 'earlier AI turn'}.`,
-            `State payload: ${buildAiTurnStateRecord(message)}`,
-          ].join(' '),
+        content: buildUserSideTranscriptContent(message, characters),
       };
     });
 }

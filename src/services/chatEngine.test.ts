@@ -588,7 +588,7 @@ describe('chatEngine streaming preview', () => {
     const chatMessages = generateResponseMock.mock.calls[0]?.[2] as Array<{ role: string; content: string }>;
     expect(prompt).not.toContain('## Latest Human Turn Context');
     expect(prompt).not.toContain('你们换一种接法，别再只换开头继续同一个套路。');
-    expect(chatMessages.some((item) => item.content === 'User: 你们换一种接法，别再只换开头继续同一个套路。')).toBe(true);
+    expect(chatMessages.some((item) => item.content === '用户: 你们换一种接法，别再只换开头继续同一个套路。')).toBe(true);
     expect((message.metadata?.runtimeDecision as Record<string, unknown> | undefined)?.latestHumanTurn).toBeUndefined();
   });
 
@@ -731,11 +731,11 @@ describe('chatEngine streaming preview', () => {
     expect(onLocalInterception).not.toHaveBeenCalled();
     expect(prompt).toContain('## Style Quarantine');
     expect(prompt).toContain('choose your own sentence architecture');
-    expect(prompt).toContain('The complete recent transcript is provided separately as user-role conversation messages');
+    expect(prompt).toContain('The complete recent transcript is provided separately as chat messages');
     expect(prompt).not.toContain('这话扎心');
     expect(prompt).not.toContain('镜头到底对着谁');
     expect(chatMessages.every((item) => item.role === 'user')).toBe(true);
-    expect(chatMessages.some((item) => item.content.includes('not wording/style sample'))).toBe(true);
+    expect(chatMessages.some((item) => item.content.includes('娱乐记者: 这话扎心'))).toBe(true);
     expect(message.content).toBe('这个问题的关键——不是她发了什么，而是谁替她决定了发什么。');
   });
 

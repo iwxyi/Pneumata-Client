@@ -118,7 +118,7 @@ function buildRecentTranscriptScope(messages: Message[]) {
   const latest = recent.at(-1);
   const speakers = Array.from(new Set(recent.map((message) => (message.type === 'user' || message.type === 'god') ? 'User' : message.senderName))).slice(-6);
   return [
-    '- The complete recent transcript is supplied as separate user-role conversation messages. This contract intentionally does not repeat raw dialogue.',
+    '- The complete recent transcript is supplied as separate chat messages. Only the current speaker\'s own prior visible turns are assistant messages. This contract intentionally does not repeat raw dialogue.',
     `- Recent window for judging interaction fields: ${recent.length} turns (${humanCount} human / ${aiCount} AI).`,
     `- Latest turn: ${latest ? `${latest.type === 'ai' ? 'AI' : 'human'} from ${(latest.type === 'user' || latest.type === 'god') ? 'User' : latest.senderName}` : 'none'}.`,
     `- Speakers in window: ${speakers.join(', ') || 'none'}.`,

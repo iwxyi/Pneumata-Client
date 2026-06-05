@@ -132,7 +132,7 @@ function buildRecentContextSignalSummary(messages: Message[]) {
   const aiCount = recent.filter((message) => message.type === 'ai').length;
   const speakers = Array.from(new Set(recent.map(getSessionMessageSpeakerName))).slice(-6);
   return [
-    `- Complete recent transcript is supplied as separate user-role messages and is not repeated here.`,
+    `- Complete recent transcript is supplied as separate chat messages and is not repeated here.`,
     `- Recent window: ${recent.length} turns (${humanCount} human / ${aiCount} AI).`,
     `- Latest turn: ${latest ? `${latest.type === 'ai' ? 'AI' : 'human'} from ${getSessionMessageSpeakerName(latest)}` : 'none'}.`,
     `- Active speakers: ${speakers.join(', ') || 'none'}.`,
@@ -1529,7 +1529,10 @@ Current speaking intent:
 - Decide the visible length yourself from the latest user request, the room context, and this character's actual ability. The local intent labels are not word-count rules.
 - Stay socially situated and in character. A tiny reaction is valid when the moment is tiny; a practical explanation, tradeoff analysis, or step-by-step answer is valid when the user asks for it.
 - Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, mediaCapabilities })}${promptSuffix}`;
-  const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT);
+  const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT, {
+    currentSpeakerId: params.speaker.id,
+    chatType: params.chat.type,
+  });
   const resolvedApi = resolveApiConfigForCharacter(params.speaker, params.apiConfig, params.profiles);
   const generated = await generateNonDuplicateResponse({
     resolvedApi,

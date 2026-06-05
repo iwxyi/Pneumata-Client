@@ -158,65 +158,60 @@ describe('buildSystemPromptWithContext', () => {
 
     expect(rendered).toEqual([{
       role: 'user',
-      content: 'User: 新话题：狼抓羊有过错吗？',
+      content: '开发者: 新话题：狼抓羊有过错吗？',
     }]);
   });
 
-  it('passes AI history as compact state evidence instead of visible wording samples', () => {
+  it('projects direct chat history with the current speaker as assistant', () => {
     const rendered = buildChatMessages([
-      buildMessage({ type: 'ai', senderId: 'char-a', senderName: '心理学家', content: '这句话的重点——不是她说了什么，而是谁让她这么说。' }),
-      buildMessage({ type: 'ai', senderId: 'char-b', senderName: '娱乐记者', content: '那这合照就更微妙了。' }),
-    ], new Map(), 12);
+      buildMessage({ type: 'user', senderId: 'user', senderName: '开发者', content: '能具体讲讲第一章发生了什么吗？', timestamp: 1 }),
+      buildMessage({ type: 'ai', senderId: 'char-a', senderName: '潇潇', content: '第一章从废弃大楼里的命案展开。', timestamp: 2 }),
+      buildMessage({ type: 'user', senderId: 'user', senderName: '开发者', content: '第二章又讲了什么？', timestamp: 3 }),
+    ], new Map(), 12, { currentSpeakerId: 'char-a', chatType: buildDirectChat().type });
 
-    expect(rendered[0]?.role).toBe('user');
-    expect(rendered[0]?.content).toContain('Transcript fact record, not wording/style sample - 心理学家.');
-    expect(rendered[0]?.content).toContain('visible_text=withheld');
-    expect(rendered[0]?.content).not.toContain('心理学家: 这句话的重点');
-    expect(rendered[0]?.content).not.toContain('不是她说了什么');
-    expect(rendered[1]?.content).toContain('latest AI turn');
-    expect(rendered[1]?.content).not.toContain('娱乐记者: 那这合照就更微妙了。');
-    expect(rendered[1]?.content).not.toContain('那这合照');
+    expect(rendered).toEqual([
+      { role: 'user', content: '开发者: 能具体讲讲第一章发生了什么吗？' },
+      { role: 'assistant', content: '第一章从废弃大楼里的命案展开。' },
+      { role: 'user', content: '开发者: 第二章又讲了什么？' },
+    ]);
   });
 
-  it('does not feed repeated AI opening templates back as raw imitation samples', () => {
+  it('projects group chat history with other AI speakers as named user-side context', () => {
     const rendered = buildChatMessages([
       buildMessage({ type: 'user', senderId: 'user', senderName: '开发者', content: '你们换一种接法。', timestamp: 1 }),
       buildMessage({ type: 'ai', senderId: 'char-a', senderName: '甲', content: '收到，那我负责带锅底，八点见。', timestamp: 2 }),
       buildMessage({ type: 'ai', senderId: 'char-b', senderName: '乙', content: '收到，那我负责带蘸料，八点见。', timestamp: 3 }),
-    ], new Map(), 12);
+    ], new Map(), 12, { currentSpeakerId: 'char-b', chatType: buildChat().type });
 
-    expect(rendered[0]?.content).toBe('User: 你们换一种接法。');
-    expect(rendered.map((item) => item.content).join('\n')).not.toContain('甲: 收到，那我负责带锅底');
-    expect(rendered.map((item) => item.content).join('\n')).not.toContain('乙: 收到，那我负责带蘸料');
-    expect(rendered.filter((item) => item.content.includes('Transcript fact record'))).toHaveLength(2);
+    expect(rendered).toEqual([
+      { role: 'user', content: '开发者: 你们换一种接法。' },
+      { role: 'user', content: '甲: 收到，那我负责带锅底，八点见。' },
+      { role: 'assistant', content: '收到，那我负责带蘸料，八点见。' },
+    ]);
   });
 
-  it('withholds AI visible text and attachment descriptions without format-specific filtering', () => {
+  it('projects AI private thread counterpart turns as named user-side context', () => {
     const rendered = buildChatMessages([
       buildMessage({
         type: 'ai',
         senderId: 'char-a',
-        senderName: '甲',
-        content: '这操作也太熟练了😂😂',
-        metadata: {
-          attachments: [{
-            id: 'sticker-1',
-            kind: 'sticker',
-            status: 'ready',
-            altText: '夸张大笑表情',
-            createdAt: 1,
-            updatedAt: 1,
-          }],
-        },
+        senderName: '苏苏',
+        content: '我刚才在群里是不是说重了？',
+        timestamp: 1,
       }),
-    ], new Map(), 12);
+      buildMessage({
+        type: 'ai',
+        senderId: 'char-b',
+        senderName: '阿远',
+        content: '有一点，但我知道你不是故意的。',
+        timestamp: 2,
+      }),
+    ], new Map(), 12, { currentSpeakerId: 'char-a', chatType: buildAiDirectChat().type });
 
-    const content = rendered[0]?.content || '';
-    expect(content).toContain('visible_text=withheld');
-    expect(content).toContain('attachments=sticker');
-    expect(content).not.toContain('😂');
-    expect(content).not.toContain('这操作也太熟练了');
-    expect(content).not.toContain('夸张大笑表情');
+    expect(rendered).toEqual([
+      { role: 'assistant', content: '我刚才在群里是不是说重了？' },
+      { role: 'user', content: '阿远: 有一点，但我知道你不是故意的。' },
+    ]);
   });
 
   it('does not duplicate raw recent dialogue inside the system prompt window summary', () => {
