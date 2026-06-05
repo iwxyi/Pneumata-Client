@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Box, Typography, Button, Divider, IconButton, Chip } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
@@ -240,10 +240,13 @@ export default function HomePage() {
   const needsLogin = authMode === 'local' || !isLoggedIn;
   const needsOwnCharacter = characters.length > 0 && customCharacters.length === 0;
   const hasActiveAvatarTasks = avatarQueueSummary.active > 0;
-  const knownMessages = [
-    ...messages,
-    ...Object.values(messageWindowsByChatId).flatMap((window) => window.messages || []),
-  ];
+  const knownMessages = useMemo(() => {
+    const recentChatIds = new Set(recentChats.map((chat) => chat.id));
+    return [
+      ...messages.filter((message) => recentChatIds.has(message.chatId)).slice(-60),
+      ...recentChats.flatMap((chat) => (messageWindowsByChatId[chat.id]?.messages || []).slice(-20)),
+    ];
+  }, [messageWindowsByChatId, messages, recentChats]);
   const companionshipSnapshot = buildHomeCompanionshipSnapshot({
     chats: recentChats,
     characters,

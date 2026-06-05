@@ -1670,12 +1670,21 @@ export function buildHomeCompanionshipSnapshot(params: {
 }): HomeCompanionshipSnapshot | null {
   const now = params.now || Date.now();
   const byCharacterId = new Map(params.characters.map((character) => [character.id, character]));
+  const messagesByChatId = new Map<string, Message[]>();
+  params.messages.forEach((message) => {
+    const items = messagesByChatId.get(message.chatId);
+    if (items) {
+      items.push(message);
+    } else {
+      messagesByChatId.set(message.chatId, [message]);
+    }
+  });
   const candidates = params.chats
     .filter((chat) => chat.type === 'direct' && chat.memberIds[0])
     .map((chat) => {
       const character = byCharacterId.get(chat.memberIds[0]);
       if (!character) return null;
-      const chatMessages = params.messages.filter((message) => message.chatId === chat.id);
+      const chatMessages = messagesByChatId.get(chat.id) || [];
       const signature = buildCompanionshipStatusSignature({ chat, character, messages: chatMessages, now });
       const text = signature?.onlineReturn || signature?.unsentDraft || signature?.offlineTrace || '';
       if (!signature || !text) return null;
