@@ -136,6 +136,32 @@ describe('projectCurrentChatMessages', () => {
     expect(projected.map((item) => item.isStreaming)).toEqual([false, true]);
   });
 
+  it('keeps repeated committed same-speaker content as separate projected messages', () => {
+    const projected = projectCurrentChatMessages({
+      chatId: 'chat-1',
+      activeMessages: [
+        message({
+          id: 'repeat-2',
+          content: '好',
+          timestamp: 1200,
+          isStreaming: false,
+        }),
+      ],
+      cachedWindow: {
+        messages: [
+          message({
+            id: 'repeat-1',
+            content: '好',
+            timestamp: 1000,
+            isStreaming: false,
+          }),
+        ],
+      },
+    });
+
+    expect(projected.map((item) => item.id)).toEqual(['repeat-1', 'repeat-2']);
+  });
+
   it('ignores messages from other chats', () => {
     const projected = projectCurrentChatMessages({
       chatId: 'chat-1',

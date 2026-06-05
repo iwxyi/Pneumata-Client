@@ -258,6 +258,45 @@ describe('useMessageStore', () => {
     expect(state.messageWindowsByChatId[chatId]?.messages.map((message) => message.id)).toEqual(['previous-message-1', 'streaming-message-2']);
   });
 
+  it('keeps repeated committed same-speaker content as distinct messages', async () => {
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const first = {
+      ...buildMessage(1, chatId),
+      id: 'repeat-1',
+      content: '好',
+      timestamp: 1000,
+    };
+    const second = {
+      ...buildMessage(2, chatId),
+      id: 'repeat-2',
+      content: '好',
+      timestamp: 1200,
+    };
+
+    useMessageStore.setState({
+      messages: [first],
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: [first],
+          lastSyncedAt: 0,
+          updatedAt: first.timestamp,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: true,
+    });
+
+    useMessageStore.getState().upsertMessage(second);
+
+    const state = useMessageStore.getState();
+    expect(state.messages.map((message) => message.id)).toEqual(['repeat-1', 'repeat-2']);
+    expect(state.messageWindowsByChatId[chatId]?.messages.map((message) => message.id)).toEqual(['repeat-1', 'repeat-2']);
+  });
+
   it('merges local streamed messages with server confirmations by shared server id', async () => {
     const { useMessageStore } = await import('./useMessageStore');
     const chatId = 'chat-1';

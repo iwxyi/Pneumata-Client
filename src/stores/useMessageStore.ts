@@ -4358,14 +4358,6 @@ function buildPersistedMessageState(state: PersistedMessageState): PersistedMess
   };
 }
 
-function buildMessageContentKey(message: Message) {
-  return `${message.chatId}::${message.type}::${message.senderId}::${message.content}`;
-}
-
-function isMessageContentDedupeEligible(message: Message) {
-  return !message.isStreaming && Boolean(message.content);
-}
-
 function normalizeMessage(message: Message): Message {
   return {
     id: message.id,
@@ -4424,13 +4416,8 @@ function compareMessagesByTimeline(left: Message, right: Message) {
 function dedupeMessages(messages: Message[]) {
   const result: Message[] = [];
   const identityIndex = new Map<string, number>();
-  const contentIndex = new Map<string, number[]>();
   const remember = (message: Message, index: number) => {
     for (const key of buildMessageIdentityKeys(message)) identityIndex.set(key, index);
-    if (!isMessageContentDedupeEligible(message)) return;
-    const contentKey = buildMessageContentKey(message);
-    if (!contentIndex.has(contentKey)) contentIndex.set(contentKey, []);
-    contentIndex.get(contentKey)?.push(index);
   };
 
   for (const message of messages.map(normalizeMessage)) {
@@ -4440,21 +4427,6 @@ function dedupeMessages(messages: Message[]) {
     if (identityMatch !== undefined) {
       result[identityMatch] = mergeMessagePair(result[identityMatch], message);
       remember(result[identityMatch], identityMatch);
-      continue;
-    }
-
-    const contentMatches = isMessageContentDedupeEligible(message) ? contentIndex.get(buildMessageContentKey(message)) || [] : [];
-    const duplicateIndex = contentMatches.find((index) => {
-      const existing = result[index];
-      if (Math.abs(existing.timestamp - message.timestamp) > 5000) return false;
-      return true;
-    });
-    if (duplicateIndex !== undefined) {
-      const existing = result[duplicateIndex];
-      if ((!existing.serverId && !message.serverId) || (existing.isStreaming && message.isStreaming)) {
-        result[duplicateIndex] = mergeMessagePair(existing, message);
-        remember(result[duplicateIndex], duplicateIndex);
-      }
       continue;
     }
 
@@ -4501,14 +4473,8 @@ function mergeMessagePair(existing: Message, incoming: Message) {
 function mergeMessages(localMessages: Message[], remoteMessages: Message[]) {
   const merged = new Map<string, Message>();
   const identityIndex = new Map<string, string>();
-  const contentIndex = new Map<string, string[]>();
   const indexMessage = (identity: string, message: Message) => {
     for (const key of buildMessageIdentityKeys(message)) identityIndex.set(key, identity);
-    if (!isMessageContentDedupeEligible(message)) return;
-    const contentKey = buildMessageContentKey(message);
-    if (!contentIndex.has(contentKey)) contentIndex.set(contentKey, []);
-    const identities = contentIndex.get(contentKey);
-    if (identities && !identities.includes(identity)) identities.push(identity);
   };
 
   for (const message of localMessages.map(normalizeMessage)) {
@@ -4522,19 +4488,6 @@ function mergeMessages(localMessages: Message[], remoteMessages: Message[]) {
       .map((key) => identityIndex.get(key))
       .find((identity): identity is string => Boolean(identity)) || null;
     let local = localIdentity ? merged.get(localIdentity) || null : null;
-
-    if (!local && isMessageContentDedupeEligible(remote)) {
-      const candidates = contentIndex.get(buildMessageContentKey(remote)) || [];
-      localIdentity = candidates.find((identity) => {
-        const candidate = merged.get(identity);
-        if (!candidate) return false;
-        if (!isMessageContentDedupeEligible(candidate)) return false;
-        if (candidate.serverId) return false;
-        if (candidate.chatId !== remote.chatId || candidate.type !== remote.type || candidate.senderId !== remote.senderId || candidate.content !== remote.content) return false;
-        return Math.abs(candidate.timestamp - remote.timestamp) <= 5000;
-      }) || null;
-      local = localIdentity ? merged.get(localIdentity) || null : null;
-    }
 
     if (!local) {
       const identity = getMessageRenderIdentity(remote);

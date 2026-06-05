@@ -5,14 +5,6 @@ export interface MessageWindowLike {
   messages?: Message[];
 }
 
-function contentIdentity(message: Message) {
-  return `${message.chatId}::${message.type}::${message.senderId}::${message.content}`;
-}
-
-function isContentDedupeEligible(message: Message) {
-  return !message.isStreaming && Boolean(message.content);
-}
-
 function shouldKeepExistingMessage(existing: Message, incoming: Message) {
   return Boolean(incoming.isStreaming && !existing.isStreaming && messagesShareIdentity(existing, incoming));
 }
@@ -44,14 +36,8 @@ export function projectCurrentChatMessages(params: {
 }) {
   const byId = new Map<string, Message>();
   const identityIndex = new Map<string, string>();
-  const contentIndex = new Map<string, string[]>();
   const indexMessage = (identity: string, message: Message) => {
     for (const key of buildMessageIdentityKeys(message)) identityIndex.set(key, identity);
-    if (!isContentDedupeEligible(message)) return;
-    const key = contentIdentity(message);
-    if (!contentIndex.has(key)) contentIndex.set(key, []);
-    const identities = contentIndex.get(key);
-    if (identities && !identities.includes(identity)) identities.push(identity);
   };
   const activeMessages = params.activeMessages.filter((message) => message.chatId === params.chatId);
   const cachedMessages = (params.cachedWindow?.messages || [])
@@ -67,17 +53,6 @@ export function projectCurrentChatMessages(params: {
       .map((key) => identityIndex.get(key))
       .find((candidate): candidate is string => Boolean(candidate)) || null;
     let existing = identity ? byId.get(identity) || null : null;
-
-    if (!existing && isContentDedupeEligible(message)) {
-      identity = (contentIndex.get(contentIdentity(message)) || []).find((candidateIdentity) => {
-        const candidate = byId.get(candidateIdentity);
-        if (!candidate) return false;
-        if (!isContentDedupeEligible(candidate)) return false;
-        if (!messagesShareIdentity(candidate, message) && contentIdentity(candidate) !== contentIdentity(message)) return false;
-        return Math.abs(candidate.timestamp - message.timestamp) <= 5000;
-      }) || null;
-      existing = identity ? byId.get(identity) || null : null;
-    }
 
     if (!existing || !identity) {
       const nextIdentity = getMessageRenderIdentity(message);
