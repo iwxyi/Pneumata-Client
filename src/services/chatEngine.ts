@@ -29,6 +29,7 @@ import { getExpressionFeedbackCategoryLabel, summarizeExpressionFeedbackInfluenc
 import type { UserGuidanceIntent } from './userGuidanceIntent';
 import { evaluateGuidanceGeneratedContent, type GuidanceExecutionReason, type GuidanceRejectionReason } from './guidanceExecution';
 import { projectWorldAttentionStates, projectWorldCalendar, projectWorldMoments } from './worldRuntimeProjection';
+import { buildTurnPlanPrompt, deriveTurnPlan, type TurnPlan } from './turnPlanner';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   extraMessages?: string[] | null;
@@ -260,6 +261,7 @@ function normalizeExtraMessages(params: {
   recentMessages: Message[];
   showRoleActions?: boolean;
   surface?: ResponseSurface;
+  turnPlan?: TurnPlan | null;
 }) {
   if (!Array.isArray(params.extraMessages)) return null;
   const normalizedContent = normalizeForComparison(params.content);
@@ -276,10 +278,13 @@ function normalizeExtraMessages(params: {
       seen.add(normalized);
       return true;
     });
-  const messages = cleaned.length > MAX_EXTRA_MESSAGES
+  const plannedLimit = params.turnPlan?.allowExtraMessages
+    ? Math.max(1, Math.min(MAX_EXTRA_MESSAGES, params.turnPlan.targetBubbleCount - 1))
+    : MAX_EXTRA_MESSAGES;
+  const messages = cleaned.length > plannedLimit
     ? [
-        ...cleaned.slice(0, MAX_EXTRA_MESSAGES - 1),
-        cleaned.slice(MAX_EXTRA_MESSAGES - 1).join('\n'),
+        ...cleaned.slice(0, plannedLimit - 1),
+        cleaned.slice(plannedLimit - 1).join('\n'),
       ]
     : cleaned;
   return messages.length ? messages : null;
@@ -1049,6 +1054,7 @@ function buildRuntimeDecisionMetadata(params: {
   speakerScore?: SpeakerScoreBreakdown | null;
   innerLife?: InnerLifeProjection | null;
   surface?: ResponseSurface | null;
+  turnPlan?: TurnPlan | null;
   intentionalRepeat?: boolean;
   memoryTrace?: PromptMemoryTrace | null;
   companionshipTrace?: NonNullable<MessageMetadata['runtimeDecision']>['companionshipContext'] | null;
@@ -1072,7 +1078,7 @@ function buildRuntimeDecisionMetadata(params: {
       recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
     }
     : undefined;
-  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.intentionalRepeat && !memoryContext && !params.companionshipTrace && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length) return undefined;
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.turnPlan && !params.intentionalRepeat && !memoryContext && !params.companionshipTrace && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length) return undefined;
   return {
     directorIntent: params.directorIntent ? {
       source: params.directorIntent.source,
@@ -1129,6 +1135,14 @@ function buildRuntimeDecisionMetadata(params: {
       preserveParagraphs: params.surface.preserveParagraphs,
       roleFit: params.surface.roleFit,
       basis: params.surface.basis.slice(0, 8),
+    } : undefined,
+    turnPlan: params.turnPlan ? {
+      rhythm: params.turnPlan.rhythm,
+      targetBubbleCount: params.turnPlan.targetBubbleCount,
+      lengthBand: params.turnPlan.lengthBand,
+      allowExtraMessages: params.turnPlan.allowExtraMessages,
+      waitSensitive: params.turnPlan.waitSensitive,
+      reasons: params.turnPlan.reasons.slice(0, 8),
     } : undefined,
     intentionalRepeat: params.intentionalRepeat || undefined,
     memoryContext,
@@ -1203,6 +1217,7 @@ async function generateWithPrompt(params: {
   activeMessages: Message[];
   showRoleActions?: boolean;
   surface?: ResponseSurface;
+  turnPlan?: TurnPlan | null;
   onChunk?: (content: string) => void;
 }) {
   const streamBridge = createStreamingDisplayBridge(params.speaker, params.showRoleActions, params.onChunk);
@@ -1229,6 +1244,7 @@ async function generateWithPrompt(params: {
     recentMessages: params.activeMessages,
     showRoleActions: params.showRoleActions,
     surface: params.surface,
+    turnPlan: params.turnPlan,
   });
   const fullResponse = buildFullTurnResponse(finalResponse, extraMessages);
   streamBridge.flush(finalResponse);
@@ -1245,6 +1261,7 @@ async function generateNonDuplicateResponse(params: {
   activeMessages: Message[];
   showRoleActions?: boolean;
   surface?: ResponseSurface;
+  turnPlan?: TurnPlan | null;
   guidance?: UserGuidanceIntent | null;
   mediaCapabilities?: { image: boolean; audio: boolean };
   onChunk?: (content: string) => void;
@@ -1508,6 +1525,13 @@ export async function generateSpeakerMessage(params: {
   const mediaProfiles = resolveMediaProfiles(params.apiConfig, params.profiles);
   const mediaCapabilities = buildMediaCapabilities(params.speaker, mediaProfiles);
   const responseSurface = resolveResponseSurface(params.chat, enginePromptContext, activeMessages, params.speaker);
+  const turnPlan = deriveTurnPlan({
+    chat: params.chat,
+    speaker: params.speaker,
+    messages: activeMessages,
+    intent,
+    surface: responseSurface,
+  });
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
   const companionshipTrace = buildCompanionshipRuntimeTrace({ chat: params.chat, character: params.speaker, messages: activeMessages });
@@ -1528,7 +1552,7 @@ Current speaking intent:
 - Treat the intent shape as style guidance, not a hard length cap. Do not truncate a useful reply just to fit one sentence or a fragment shape.
 - Decide the visible length yourself from the latest user request, the room context, and this character's actual ability. The local intent labels are not word-count rules.
 - Stay socially situated and in character. A tiny reaction is valid when the moment is tiny; a practical explanation, tradeoff analysis, or step-by-step answer is valid when the user asks for it.
-- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, mediaCapabilities })}${promptSuffix}`;
+- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnPlanPrompt(turnPlan)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities })}${promptSuffix}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT, {
     currentSpeakerId: params.speaker.id,
     chatType: params.chat.type,
@@ -1544,6 +1568,7 @@ Current speaking intent:
     activeMessages,
     showRoleActions: params.chat.showRoleActions,
     surface: responseSurface,
+    turnPlan,
     guidance: userGuidance,
     mediaCapabilities,
     onChunk: params.onChunk,
@@ -1607,6 +1632,7 @@ Current speaking intent:
 	        speakerScore: params.speakerScore,
           innerLife,
           surface: responseSurface,
+          turnPlan,
           intentionalRepeat: Boolean(generated.parsedEnvelope?.intentionalRepeat),
           memoryTrace,
           companionshipTrace,

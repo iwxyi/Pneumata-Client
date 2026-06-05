@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import ChatInput from '../chat/ChatInput';
 import type { SessionInputSurfaceDefinition } from '../../types/chat';
 import type { SessionBoardComposerSubmission, SessionFormComposerSubmission, SessionTextComposerSubmission } from '../../types/sessionEngine';
+import type { UserDraftActivity } from '../../services/userInputBuffer';
 
 interface SessionComposerHostProps {
   surfaces: SessionInputSurfaceDefinition[];
@@ -14,6 +15,7 @@ interface SessionComposerHostProps {
   sendingLabel?: string;
   onSendError?: (message: string) => void;
   onOpenPanel?: () => void;
+  onDraftActivity?: (activity: UserDraftActivity) => void;
 }
 
 function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
@@ -25,7 +27,7 @@ function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
   ) as Record<string, Record<string, string>>;
 }
 
-export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, onSendError, onOpenPanel }: SessionComposerHostProps) {
+export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, onSendError, onOpenPanel, onDraftActivity }: SessionComposerHostProps) {
   const primarySurface = surfaces.find((surface) => surface.type === 'text') || surfaces[0];
   const secondarySurfaces = surfaces.filter((surface) => surface !== primarySurface && surface.type === 'board');
   const [fieldState, setFieldState] = useState<Record<string, Record<string, string>>>(() => buildInitialFieldState(surfaces));
@@ -127,6 +129,7 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
           sendingLabel={sendingLabel}
           onSendError={onSendError}
           onOpenPanel={onOpenPanel}
+          onDraftActivity={onDraftActivity}
         />
       ) : (() => {
         const mode = speakAsCharacterName
@@ -149,6 +152,7 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
             sendingLabel={sendingLabel}
             onSendError={onSendError}
             onOpenPanel={onOpenPanel}
+            onDraftActivity={onDraftActivity}
           />
         );
       })()}

@@ -10,6 +10,7 @@ import { createSessionRuntimeContext } from './sessionEngineKernel';
 import { runSessionActionExecutor } from './sessionActionExecutors/sessionActionExecutorRegistry';
 import { createFamilyTurnPolicy, deriveFamilyLoopDecision, getFamilyActionChance } from './sessionFamilies';
 import { getPreferredAIProfile } from '../types/settings';
+import { resolveUserInputHold, type UserDraftActivity } from './userInputBuffer';
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -141,6 +142,7 @@ export async function runSessionLoop(params: {
   characters: AICharacter[];
   api: APIConfig | AIModelProfile[];
   getCurrentMessages: () => Message[];
+  getUserDraftActivity?: () => UserDraftActivity | null;
   getStreamingMessage?: () => Message | null;
   getCurrentChat?: () => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
@@ -213,6 +215,17 @@ export async function runSessionLoop(params: {
       const currentMessages = getSessionMessages(params.getCurrentMessages);
       const currentChat = params.getCurrentChat?.() || params.chat;
       const currentCharacters = params.getCurrentCharacters?.() || params.characters;
+      const inputHold = resolveUserInputHold({
+        messages: currentMessages,
+        draft: params.getUserDraftActivity?.() || null,
+      });
+      if (inputHold.shouldHold) {
+        turnWorkActive = false;
+        params.onTurnWorkFinished?.();
+        markSessionLoop(params.loopId, { phase: 'sleeping' });
+        await new Promise((resolve) => setTimeout(resolve, inputHold.delayMs));
+        continue;
+      }
       if (currentChat.memberIds.length && currentCharacters.length === 0) {
         turnWorkActive = false;
         params.onTurnWorkFinished?.();

@@ -133,6 +133,14 @@ export interface MessageMetadata {
       roleFit: 'limited' | 'ordinary' | 'capable';
       basis: string[];
     };
+    turnPlan?: {
+      rhythm: 'micro_ack' | 'short_reply' | 'full_reply' | 'multi_bubble' | 'defer_or_wait';
+      targetBubbleCount: number;
+      lengthBand: 'micro' | 'short' | 'medium' | 'long' | 'extended';
+      allowExtraMessages: boolean;
+      waitSensitive: boolean;
+      reasons: string[];
+    };
     intentionalRepeat?: boolean;
     memoryContext?: {
       injectedIds?: string[];

@@ -4,6 +4,7 @@ import SendIcon from '@mui/icons-material/Send';
 import CloseIcon from '@mui/icons-material/Close';
 import { useTranslation } from 'react-i18next';
 import { useUIStore } from '../../stores/useUIStore';
+import type { UserDraftActivity } from '../../services/userInputBuffer';
 
 interface ChatInputProps {
   mode: 'guide' | 'speakAs' | 'memberSpeak';
@@ -14,6 +15,7 @@ interface ChatInputProps {
   sendingLabel?: string;
   onSendError?: (message: string) => void;
   onOpenPanel?: () => void;
+  onDraftActivity?: (activity: UserDraftActivity) => void;
 }
 
 function getMobilePanelTravelDistance() {
@@ -40,7 +42,7 @@ function clearPanelGestureCss() {
   document.documentElement.style.removeProperty(PANEL_BACKDROP_OPACITY_VAR);
 }
 
-export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, sendingLabel, onSendError, onOpenPanel }: ChatInputProps) {
+export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, sendingLabel, onSendError, onOpenPanel, onDraftActivity }: ChatInputProps) {
   const [text, setText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
@@ -52,11 +54,20 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
   const panelGestureRafRef = useRef<number | null>(null);
   const pendingPanelOffsetRef = useRef<number | null>(null);
 
+  const publishDraftActivity = useCallback((nextText: string, focused = inputFocused) => {
+    onDraftActivity?.({
+      hasDraft: Boolean(nextText.trim()),
+      updatedAt: Date.now(),
+      focused,
+    });
+  }, [inputFocused, onDraftActivity]);
+
   const handleSend = async () => {
     const content = text.trim();
     if (!content || isSending) return;
     setIsSending(true);
     setText('');
+    publishDraftActivity('', inputFocused);
     window.requestAnimationFrame(() => {
       textInputRef.current?.focus({ preventScroll: true });
     });
@@ -64,6 +75,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
       await onSend(content);
     } catch (error) {
       setText((current) => current || content);
+      publishDraftActivity(content, inputFocused);
       const message = error instanceof Error ? error.message : String(error);
       onSendError?.(message || '发送失败，请稍后重试');
     } finally {
@@ -284,10 +296,19 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
           size="small"
           placeholder={placeholder}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            publishDraftActivity(e.target.value, inputFocused);
+          }}
           onKeyDown={handleKeyDown}
-          onFocus={() => setInputFocused(true)}
-          onBlur={() => setInputFocused(false)}
+          onFocus={() => {
+            setInputFocused(true);
+            publishDraftActivity(text, true);
+          }}
+          onBlur={() => {
+            setInputFocused(false);
+            publishDraftActivity(text, false);
+          }}
           inputRef={textInputRef}
           sx={{
             '& .MuiOutlinedInput-root': {

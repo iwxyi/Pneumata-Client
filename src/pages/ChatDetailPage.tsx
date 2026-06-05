@@ -43,6 +43,7 @@ import { isReservedNonCharacterActorId } from '../services/actorRefPresentation'
 import SessionInfoCards from '../components/chat/SessionInfoCards';
 import { projectSessionInfoCards } from '../services/sessionInfoProjection';
 import { useResponsive } from '../hooks/useResponsive';
+import type { UserDraftActivity } from '../services/userInputBuffer';
 import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
 import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
@@ -126,6 +127,7 @@ export default function ChatDetailPage() {
   const loadingMoreRef = useRef(false);
   const activeChatIdRef = useRef<string | null>(id ?? null);
   const isManualInputPendingRef = useRef<() => boolean>(() => false);
+  const userDraftActivityRef = useRef<UserDraftActivity | null>(null);
   const {
     streamingMessageRef,
     updateStreamingMessage,
@@ -398,6 +400,7 @@ export default function ChatDetailPage() {
     appendEventMessages: appendEventMessagesStable,
     applyChatRuntimeDelta,
     recordSpeak,
+    getUserDraftActivity: () => userDraftActivityRef.current,
   });
   const { enqueueManualInput, isManualInputPending } = useManualInputQueue({
     isRunningRef,
@@ -794,6 +797,9 @@ export default function ChatDetailPage() {
             onCloseSpeakAs={speakAsChar ? () => setSpeakAsCharacter(null) : undefined}
             sendingLabel="等待角色发言结束"
             onOpenPanel={isMobile ? () => setRightPanelOpen(true) : undefined}
+            onDraftActivity={(activity) => {
+              userDraftActivityRef.current = activity;
+            }}
             onSubmitText={(submission, surface) => {
               const effectiveSurface = speakAsChar ? { ...surface, mode: 'speakAs' as const, actorId: speakAsChar.id } : surface;
               const effectiveSubmission = speakAsChar ? { ...submission, actorId: speakAsChar.id } : submission;

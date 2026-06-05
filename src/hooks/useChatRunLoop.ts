@@ -6,6 +6,7 @@ import type { APIConfig, AIModelProfile } from '../types/settings';
 import { createCommittedLocalMessage } from '../services/chatCommitMessage';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
 import { projectCurrentChatMessages } from '../services/currentChatMessages';
+import type { UserDraftActivity } from '../services/userInputBuffer';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useMessageStore } from '../stores/useMessageStore';
@@ -40,6 +41,7 @@ export function useChatRunLoop(params: {
   appendEventMessages?: (chatId: string, payloads: DriverMessageCommitResult['runtimeEvents'], sourceMessageId?: string) => Promise<void>;
   applyChatRuntimeDelta?: (id: string, delta: NonNullable<DriverMessageCommitResult['chatRuntimeDelta']>, patch?: Partial<GroupChat>) => Promise<void>;
   recordSpeak: (characterId: string) => void;
+  getUserDraftActivity?: () => UserDraftActivity | null;
 }) {
   const [thinkingId, setThinkingId] = useState<string | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -80,6 +82,7 @@ export function useChatRunLoop(params: {
           activeMessages: useMessageStore.getState().messages,
           cachedWindow: useMessageStore.getState().messageWindowsByChatId[current.chatId!],
         }),
+        getUserDraftActivity: current.getUserDraftActivity,
         getStreamingMessage: () => current.streamingMessageRef.current,
         getCurrentChat: () => useChatStore.getState().chats.find((item) => item.id === current.chatId),
         getCurrentCharacters: () => useCharacterStore.getState().characters,
