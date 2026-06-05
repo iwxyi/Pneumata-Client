@@ -141,6 +141,10 @@ export interface MessageMetadata {
       waitSensitive: boolean;
       reasons: string[];
     };
+    personaActivation?: {
+      level: 'low' | 'medium' | 'high' | 'masked';
+      reasons: string[];
+    };
     intentionalRepeat?: boolean;
     memoryContext?: {
       injectedIds?: string[];

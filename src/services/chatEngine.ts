@@ -30,6 +30,7 @@ import type { UserGuidanceIntent } from './userGuidanceIntent';
 import { evaluateGuidanceGeneratedContent, type GuidanceExecutionReason, type GuidanceRejectionReason } from './guidanceExecution';
 import { projectWorldAttentionStates, projectWorldCalendar, projectWorldMoments } from './worldRuntimeProjection';
 import { buildTurnPlanPrompt, deriveTurnPlan, type TurnPlan } from './turnPlanner';
+import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   extraMessages?: string[] | null;
@@ -858,7 +859,7 @@ function buildExpressionFeedbackPrompt(feedback: ExpressionFeedbackTrace) {
     labels.includes('控制长度') ? '- The user has corrected this character for being too long before. Unless the current task clearly needs longform, keep this turn tighter and avoid splitting into extra explanatory beats.' : '',
     labels.includes('降低正式感') ? '- The user has corrected this character for sounding too formal. Avoid report-like structure and let the character voice stay conversational.' : '',
     labels.includes('减少助手腔') ? '- The user has corrected this character for sounding like a generic assistant. Do not use neutral service phrasing, balanced summaries, or standard answer cadence; speak from this character’s situated view.' : '',
-    labels.includes('贴近角色') ? '- The user has corrected this character for going out of character. Prioritize age, background, relationship stance, habits, and limitations over polished usefulness.' : '',
+    labels.includes('贴近角色') ? '- The user has corrected this character for going out of character. Prioritize situated values, relationship stance, habits, limitations, emotional bias, and word choice over polished usefulness; do not turn this into repeated occupation/name-tag signaling.' : '',
   ].filter(Boolean);
   return `\n## Expression Feedback Memory
 These are user corrections from previous messages. Treat them as soft but important style memory, not as something to mention.
@@ -1138,6 +1139,7 @@ function buildRuntimeDecisionMetadata(params: {
   innerLife?: InnerLifeProjection | null;
   surface?: ResponseSurface | null;
   turnPlan?: TurnPlan | null;
+  personaActivation?: PersonaActivation | null;
   intentionalRepeat?: boolean;
   memoryTrace?: PromptMemoryTrace | null;
   companionshipTrace?: NonNullable<MessageMetadata['runtimeDecision']>['companionshipContext'] | null;
@@ -1161,7 +1163,7 @@ function buildRuntimeDecisionMetadata(params: {
       recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
     }
     : undefined;
-  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.turnPlan && !params.intentionalRepeat && !memoryContext && !params.companionshipTrace && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length) return undefined;
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.turnPlan && !params.personaActivation && !params.intentionalRepeat && !memoryContext && !params.companionshipTrace && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length) return undefined;
   return {
     directorIntent: params.directorIntent ? {
       source: params.directorIntent.source,
@@ -1226,6 +1228,10 @@ function buildRuntimeDecisionMetadata(params: {
       allowExtraMessages: params.turnPlan.allowExtraMessages,
       waitSensitive: params.turnPlan.waitSensitive,
       reasons: params.turnPlan.reasons.slice(0, 8),
+    } : undefined,
+    personaActivation: params.personaActivation ? {
+      level: params.personaActivation.level,
+      reasons: params.personaActivation.reasons.slice(0, 8),
     } : undefined,
     intentionalRepeat: params.intentionalRepeat || undefined,
     memoryContext,
@@ -1616,6 +1622,7 @@ export async function generateSpeakerMessage(params: {
     intent,
     surface: responseSurface,
   });
+  const personaActivation = resolvePersonaActivation({ chat: params.chat, speaker: params.speaker, messages: activeMessages });
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
   const companionshipTrace = buildCompanionshipRuntimeTrace({ chat: params.chat, character: params.speaker, messages: activeMessages });
@@ -1717,6 +1724,7 @@ Current speaking intent:
           innerLife,
           surface: responseSurface,
           turnPlan,
+          personaActivation,
           intentionalRepeat: Boolean(generated.parsedEnvelope?.intentionalRepeat),
           memoryTrace,
           companionshipTrace,

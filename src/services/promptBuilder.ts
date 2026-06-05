@@ -11,6 +11,7 @@ import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSan
 import { getGuidanceMemoryTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
 import { buildCompanionshipPromptBlock, buildSharedSecrets } from './companionshipProjection';
 import { projectConversationForModel, type ConversationProjectionOptions } from './conversationProjection';
+import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
 
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
@@ -176,7 +177,8 @@ function buildGroupMemoryPolicyTags() {
 
 function buildGroupCharacterPolicyTags() {
   return {
-    preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', 'core_profile', 'background', 'speaking_style', 'expertise', 'self_expression'],
+    preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', 'self_expression'],
+    allowed: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', 'self_expression', 'core_profile', 'background', 'speaking_style', 'expertise'],
     blocked: ['direct_user_message', 'direct_ai_follow_up'],
   };
 }
@@ -191,19 +193,19 @@ function buildPromptMemoryPolicies(chat: GroupChat) {
   if (chat.type === 'direct') {
     return {
       conversation: { preferred: ['direct_user_message', 'direct_ai_follow_up'], allowed: ['direct_user_message', 'direct_ai_follow_up'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
-      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'direct_user_message', 'direct_ai_follow_up', 'self_expression', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['expression_feedback', 'direct_user_message', 'direct_ai_follow_up', 'self_expression', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
+      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'direct_user_message', 'direct_ai_follow_up', 'self_expression'], allowed: ['expression_feedback', 'direct_user_message', 'direct_ai_follow_up', 'self_expression', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
     };
   }
   if (chat.type === 'ai_direct') {
     return {
       conversation: { preferred: ['ai_direct_starter_message', 'ai_direct_target_message'], allowed: ['ai_direct_starter_message', 'ai_direct_target_message'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
-      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'core_profile', 'background', 'speaking_style', 'expertise'], allowed: ['expression_feedback', 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
+      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift'], allowed: ['expression_feedback', 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
     };
   }
   const group = { conversation: buildGroupMemoryPolicyTags(), character: buildGroupCharacterPolicyTags() };
   return {
     conversation: { preferred: group.conversation.preferred, allowed: undefined, blocked: group.conversation.blocked },
-    character: { preferred: group.character.preferred, allowed: undefined, blocked: group.character.blocked },
+    character: { preferred: group.character.preferred, allowed: group.character.allowed, blocked: group.character.blocked },
   };
 }
 
@@ -544,18 +546,21 @@ function buildTopicSection(chat: GroupChat) {
   return `## Conversation Context\n${lines.join('\n')}`;
 }
 
-function buildCharacterSection(character: AICharacter, emotion: number) {
+function buildCharacterSection(character: AICharacter, emotion: number, personaActivation: PersonaActivation) {
   const expertise = character.expertise?.length ? character.expertise.join(', ') : 'Generalist';
   return [
-    `You are ${character.name}. Stay fully in character.`,
+    `You are ${character.name}. Stay in character through situated judgment, relationships, memory, limits, and voice.`,
     '',
-    '## Character Profile',
+    '## Character Background Reference',
     `- Background: ${character.background || 'No background provided.'}`,
     `- Speaking style: ${character.speakingStyle || 'Natural and conversational.'}`,
     `- Expertise: ${expertise}`,
     `- Current emotion intensity: ${emotion}`,
+    '- Use this profile as private context. Do not make every reply prove the profile, profession, or label.',
+    '- Explicitly mention background, job, expertise, or identity only when the current turn makes it relevant.',
     buildEmotionalStateDescription(character),
     buildCoreProfileDescription(character),
+    personaActivation.prompt,
   ].filter(Boolean).join('\n');
 }
 
@@ -685,9 +690,10 @@ export function buildChatMessages(
 
 export function buildSystemPromptWithContext(character: AICharacter, chat: GroupChat, emotion: number, messages: Message[], characters: Map<string, AICharacter>) {
   const memoryContext = resolvePromptMemoryContext(character, chat, messages, characters);
+  const personaActivation = resolvePersonaActivation({ chat, speaker: character, messages });
 
   return [
-    buildCharacterSection(character, emotion),
+    buildCharacterSection(character, emotion, personaActivation),
     buildTopicSection(chat),
     buildRelationshipSection(character, memoryContext.target),
     buildPromptMemorySection(chat, character, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, memoryContext.target, memoryContext.relationshipSnapshot, characters),

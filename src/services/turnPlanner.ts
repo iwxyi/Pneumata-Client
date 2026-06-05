@@ -199,13 +199,13 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
 
 export function buildTurnPlanPrompt(plan: TurnPlan) {
   const bubbleLine = plan.allowExtraMessages
-    ? `- Target visible bubble count: ${plan.targetBubbleCount}. Use content as bubble 1 and extraMessages for later bubbles.`
-    : '- Target visible bubble count: 1. Set extraMessages to null unless the current request clearly overrides this plan.';
+    ? '- Consecutive bubbles are allowed if this reply would naturally arrive as separate chat messages.'
+    : '- Prefer one visible bubble unless the current moment clearly wants a natural follow-up message.';
   return `\n## Turn Plan
-- Rhythm: ${plan.rhythm}
-- Target length band: ${plan.lengthBand}
+- Rhythm tendency: ${plan.rhythm}
 ${bubbleLine}
+- Do not target a fixed length band. Choose length from the live situation, the user's request, the character's comfort, and the amount of actual substance available.
+- Very short reactions, ordinary one-sentence replies, rambling multi-sentence thoughts, and fuller explanations are all valid when the moment calls for them.
 - This is a planning prior, not a keyword rule. Follow the current request if it genuinely needs a different shape.
-- Do not make consecutive turns converge to the same middle length. Let this turn have a distinct human timing shape.
 - Plan reasons: ${plan.reasons.join(', ')}`;
 }

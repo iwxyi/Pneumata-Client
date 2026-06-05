@@ -3,7 +3,7 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { SpeakIntent } from './intentEngine';
-import { deriveTurnPlan } from './turnPlanner';
+import { buildTurnPlanPrompt, deriveTurnPlan } from './turnPlanner';
 
 function character(patch: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -125,5 +125,19 @@ describe('deriveTurnPlan', () => {
     expect(plan.rhythm).toBe('full_reply');
     expect(plan.allowExtraMessages).toBe(false);
     expect(plan.targetBubbleCount).toBe(1);
+  });
+
+  it('does not turn the internal length band into a fixed prompt target', () => {
+    const prompt = buildTurnPlanPrompt({
+      rhythm: 'short_reply',
+      targetBubbleCount: 1,
+      lengthBand: 'medium',
+      allowExtraMessages: false,
+      waitSensitive: false,
+      reasons: ['test'],
+    });
+
+    expect(prompt).toContain('Do not target a fixed length band');
+    expect(prompt).not.toContain('Target length band');
   });
 });
