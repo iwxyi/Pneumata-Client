@@ -16,9 +16,8 @@ export function applyFieldPatch<T extends { fieldVersions?: Record<string, numbe
 
   for (const [field, value] of Object.entries(patch)) {
     const previous = fieldVersions[field] || 0;
-    if (clientTimestamp < previous) continue;
     next[field] = value;
-    fieldVersions[field] = clientTimestamp;
+    fieldVersions[field] = Math.max(previous, clientTimestamp);
   }
 
   next.fieldVersions = fieldVersions;

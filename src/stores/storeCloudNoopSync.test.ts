@@ -279,6 +279,65 @@ describe('cloud no-op sync', () => {
     expect(apiMocks.getChats).not.toHaveBeenCalled();
   });
 
+  it('keeps pending chat fields projected over newer remote field versions', async () => {
+    apiMocks.getSyncChanges.mockResolvedValueOnce({
+      status: 'modified',
+      cursor: 'chats.summary:rev-2',
+      revision: 'chats.summary:rev-2',
+      changes: [{
+        op: 'upsert',
+        entity: 'chat_summary',
+        id: 'chat-1',
+        revision: 2,
+        patch: chat({
+          id: 'chat-1',
+          name: '云端群聊名',
+          fieldVersions: { name: 200 },
+          updatedAt: 200,
+          lastMessageAt: 200,
+          runtimeDetailLoaded: false,
+        }),
+      }],
+    });
+    const { useChatStore } = await import('./useChatStore');
+    await useChatStore.persist.rehydrate();
+    useChatStore.setState({
+      chats: [chat({
+        id: 'chat-1',
+        name: '本地群聊名',
+        fieldVersions: { name: 1 },
+        updatedAt: 1,
+        lastMessageAt: 1,
+      })],
+      currentChatId: null,
+      lastSyncedAt: 1,
+      pendingOperations: [{
+        id: 'op-chat-name',
+        entityId: 'chat-1',
+        kind: 'patch',
+        targetIds: ['chat-1'],
+        clientTimestamp: 100,
+        patch: { name: '本地待同步群聊名' },
+        status: 'pending',
+        attemptCount: 0,
+      }],
+      pendingEditSyncCount: 1,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: [],
+      remoteDeletedChats: [],
+      isLoading: false,
+    });
+
+    await useChatStore.getState().loadChats();
+
+    const merged = useChatStore.getState().chats[0];
+    expect(merged.name).toBe('本地待同步群聊名');
+    expect(merged.updatedAt).toBe(200);
+    expect(merged.fieldVersions?.name).toBe(200);
+    expect(useChatStore.getState().pendingOperations).toHaveLength(1);
+    expect(apiMocks.getChats).not.toHaveBeenCalled();
+  });
+
   it('does not rewrite characters or fetch character summaries when the remote scope is not modified', async () => {
     const { useCharacterStore } = await import('./useCharacterStore');
     await useCharacterStore.persist.rehydrate();
@@ -384,6 +443,65 @@ describe('cloud no-op sync', () => {
     expect(merged.background).toBe('完整背景不能被摘要覆盖');
     expect(merged.speakingStyle).toBe('完整说话方式');
     expect(merged.layeredMemories?.[0]?.text).toBe('完整记忆');
+    expect(apiMocks.getCharacters).not.toHaveBeenCalled();
+  });
+
+  it('keeps pending character fields projected over newer remote field versions', async () => {
+    apiMocks.getSyncChanges.mockResolvedValueOnce({
+      status: 'modified',
+      cursor: 'characters.summary:rev-2',
+      revision: 'characters.summary:rev-2',
+      changes: [{
+        op: 'upsert',
+        entity: 'character_summary',
+        id: 'character-1',
+        revision: 2,
+        patch: {
+          ...character({
+            id: 'character-1',
+            name: '云端角色名',
+            fieldVersions: { name: 200 },
+            updatedAt: 200,
+            characterDetailLoaded: false,
+          }),
+          bubbleStyleId: null,
+          bubbleStyle: null,
+        },
+      }],
+    });
+    const { useCharacterStore } = await import('./useCharacterStore');
+    await useCharacterStore.persist.rehydrate();
+    useCharacterStore.setState({
+      characters: [character({
+        id: 'character-1',
+        name: '本地角色名',
+        fieldVersions: { name: 1 },
+        updatedAt: 1,
+      })],
+      lastSyncedAt: 1,
+      pendingOperations: [{
+        id: 'op-character-name',
+        entityId: 'character-1',
+        kind: 'patch',
+        targetIds: ['character-1'],
+        clientTimestamp: 100,
+        patch: { name: '本地待同步角色名' },
+        status: 'pending',
+        attemptCount: 0,
+      }],
+      pendingEditSyncCount: 1,
+      pendingEditSyncError: null,
+      remoteDeletedCharacterIds: [],
+      isLoading: false,
+    });
+
+    await useCharacterStore.getState().loadCharacters();
+
+    const merged = useCharacterStore.getState().characters[0];
+    expect(merged.name).toBe('本地待同步角色名');
+    expect(merged.updatedAt).toBe(200);
+    expect(merged.fieldVersions?.name).toBe(200);
+    expect(useCharacterStore.getState().pendingOperations).toHaveLength(1);
     expect(apiMocks.getCharacters).not.toHaveBeenCalled();
   });
 
