@@ -1,0 +1,119 @@
+import type { SyncPatchOperation } from './syncProjector';
+
+export interface FieldConflictRecord {
+  id: string;
+  entityType: 'chat' | 'character';
+  entityId: string;
+  field: string;
+  localValue: unknown;
+  remoteValue: unknown;
+  localOperationIds: string[];
+  localUpdatedAt: number;
+  remoteUpdatedAt: number;
+  detectedAt: number;
+}
+
+const HIDDEN_FIELDS = new Set(['updatedAt', 'lastMessageAt', 'createdAt', 'fieldVersions']);
+const MAX_CONFLICTS = 80;
+
+function isDisplayableField(field: string) {
+  return !HIDDEN_FIELDS.has(field);
+}
+
+function stableValue(value: unknown) {
+  if (value == null) return value;
+  if (typeof value !== 'object') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function valuesDiffer(a: unknown, b: unknown) {
+  return stableValue(a) !== stableValue(b);
+}
+
+function conflictId(entityType: FieldConflictRecord['entityType'], entityId: string, field: string) {
+  return `${entityType}:${entityId}:${field}`;
+}
+
+export function detectPendingFieldConflicts<TEntity extends { id: string; updatedAt?: number; fieldVersions?: Record<string, number> }>(
+  params: {
+    entityType: FieldConflictRecord['entityType'];
+    localEntities: TEntity[];
+    remoteEntities: TEntity[];
+    pendingOperations: Array<SyncPatchOperation<Record<string, unknown>>>;
+    existingConflicts?: FieldConflictRecord[];
+    now?: number;
+  },
+) {
+  const now = params.now ?? Date.now();
+  const localById = new Map(params.localEntities.map((entity) => [entity.id, entity]));
+  const pendingByEntity = new Map<string, Array<SyncPatchOperation<Record<string, unknown>>>>();
+  params.pendingOperations
+    .filter((operation) => operation.status !== 'failed')
+    .forEach((operation) => {
+      const list = pendingByEntity.get(operation.entityId) || [];
+      list.push(operation);
+      pendingByEntity.set(operation.entityId, list);
+    });
+
+  const nextById = new Map((params.existingConflicts || []).map((record) => [record.id, record]));
+  const seen = new Set<string>();
+
+  for (const remote of params.remoteEntities) {
+    const local = localById.get(remote.id);
+    const pending = pendingByEntity.get(remote.id);
+    if (!local || !pending?.length) continue;
+    const remoteRecord = remote as Record<string, unknown>;
+    const localRecord = local as Record<string, unknown>;
+    const remotePatchFields = new Set(Object.keys(remoteRecord).filter(isDisplayableField));
+
+    for (const operation of pending) {
+      for (const field of Object.keys(operation.patch).filter(isDisplayableField)) {
+        if (!remotePatchFields.has(field)) continue;
+        if (!valuesDiffer(localRecord[field], remoteRecord[field])) continue;
+        const id = conflictId(params.entityType, remote.id, field);
+        seen.add(id);
+        const previous = nextById.get(id);
+        nextById.set(id, {
+          id,
+          entityType: params.entityType,
+          entityId: remote.id,
+          field,
+          localValue: localRecord[field],
+          remoteValue: remoteRecord[field],
+          localOperationIds: Array.from(new Set([...(previous?.localOperationIds || []), operation.id])),
+          localUpdatedAt: operation.clientTimestamp,
+          remoteUpdatedAt: remote.updatedAt || previous?.remoteUpdatedAt || now,
+          detectedAt: previous?.detectedAt || now,
+        });
+      }
+    }
+  }
+
+  return Array.from(nextById.values())
+    .filter((record) => record.entityType !== params.entityType || seen.has(record.id) || pendingByEntity.has(record.entityId))
+    .sort((a, b) => b.detectedAt - a.detectedAt)
+    .slice(0, MAX_CONFLICTS);
+}
+
+export function clearResolvedFieldConflicts(
+  records: FieldConflictRecord[],
+  params: {
+    entityType: FieldConflictRecord['entityType'];
+    entityIds?: string[];
+    operationIds?: string[];
+  },
+) {
+  const entityIds = new Set(params.entityIds || []);
+  const operationIds = new Set(params.operationIds || []);
+  if (!entityIds.size && !operationIds.size) return records;
+  return records.filter((record) => {
+    if (record.entityType !== params.entityType) return true;
+    if (entityIds.has(record.entityId)) return false;
+    if (record.localOperationIds.some((id) => operationIds.has(id))) return false;
+    return true;
+  });
+}

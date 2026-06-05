@@ -153,6 +153,56 @@ export default function SyncStatusPage() {
         },
       }));
 
+    const characterFieldConflicts = (characterStore.fieldConflicts || [])
+      .filter((conflict) => conflict.entityType === 'character')
+      .map((conflict) => ({
+        id: `character-field-conflict-${conflict.entityId}-${conflict.field}`,
+        scopeType: 'character' as const,
+        scope: isZh ? '角色' : 'Characters',
+        kind: 'field_update_conflict',
+        status: 'conflict',
+        createdAt: conflict.detectedAt,
+        attemptCount: 0,
+        lastError: null,
+        targetCount: 1,
+        targetLabel: characterStore.characters.find((character) => character.id === conflict.entityId)?.name || conflict.entityId,
+        summary: isZh ? `字段“${conflict.field}”云端也有不同更新；本地待提交值继续显示，等待手动确认。` : `Field "${conflict.field}" also changed remotely. The local pending value remains visible until manually reviewed.`,
+        diffPreview: [{
+          field: conflict.field,
+          value: isZh ? `本地 ${clipText(conflict.localValue, 48)} / 云端 ${clipText(conflict.remoteValue, 48)}` : `Local ${clipText(conflict.localValue, 48)} / Cloud ${clipText(conflict.remoteValue, 48)}`,
+        }],
+        exportPayload: {
+          conflict: 'remote_field_update_with_local_pending',
+          ...conflict,
+          localSnapshot: characterStore.characters.find((character) => character.id === conflict.entityId) || null,
+        },
+      }));
+
+    const chatFieldConflicts = (chatStore.fieldConflicts || [])
+      .filter((conflict) => conflict.entityType === 'chat')
+      .map((conflict) => ({
+        id: `chat-field-conflict-${conflict.entityId}-${conflict.field}`,
+        scopeType: 'chat' as const,
+        scope: isZh ? '聊天' : 'Chats',
+        kind: 'field_update_conflict',
+        status: 'conflict',
+        createdAt: conflict.detectedAt,
+        attemptCount: 0,
+        lastError: null,
+        targetCount: 1,
+        targetLabel: chatStore.chats.find((chat) => chat.id === conflict.entityId)?.name || conflict.entityId,
+        summary: isZh ? `字段“${conflict.field}”云端也有不同更新；本地待提交值继续显示，等待手动确认。` : `Field "${conflict.field}" also changed remotely. The local pending value remains visible until manually reviewed.`,
+        diffPreview: [{
+          field: conflict.field,
+          value: isZh ? `本地 ${clipText(conflict.localValue, 48)} / 云端 ${clipText(conflict.remoteValue, 48)}` : `Local ${clipText(conflict.localValue, 48)} / Cloud ${clipText(conflict.remoteValue, 48)}`,
+        }],
+        exportPayload: {
+          conflict: 'remote_field_update_with_local_pending',
+          ...conflict,
+          localSnapshot: chatStore.chats.find((chat) => chat.id === conflict.entityId) || null,
+        },
+      }));
+
     const messageItems = (messageStore.pendingOperations || []).map((item) => ({
       targetMessage: item.payload
         || Object.values(messageStore.messageWindowsByChatId || {})
@@ -199,8 +249,8 @@ export default function SyncStatusPage() {
         },
       }));
 
-    return [...characterDeleteConflicts, ...chatDeleteConflicts, ...characterItems, ...chatItems, ...messageItems, ...artifactItems].sort((a, b) => b.createdAt - a.createdAt);
-  }, [artifactStore.items, artifactStore.jobs, characterStore.characters, characterStore.pendingOperations, characterStore.remoteDeletedCharacterIds, chatStore.chats, chatStore.pendingOperations, chatStore.remoteDeletedChatIds, chatStore.remoteDeletedChats, isZh, messageStore.messageWindowsByChatId, messageStore.pendingOperations]);
+    return [...characterDeleteConflicts, ...chatDeleteConflicts, ...characterFieldConflicts, ...chatFieldConflicts, ...characterItems, ...chatItems, ...messageItems, ...artifactItems].sort((a, b) => b.createdAt - a.createdAt);
+  }, [artifactStore.items, artifactStore.jobs, characterStore.characters, characterStore.fieldConflicts, characterStore.pendingOperations, characterStore.remoteDeletedCharacterIds, chatStore.chats, chatStore.fieldConflicts, chatStore.pendingOperations, chatStore.remoteDeletedChatIds, chatStore.remoteDeletedChats, isZh, messageStore.messageWindowsByChatId, messageStore.pendingOperations]);
 
   const labelMap: Record<string, string> = {
     delete: isZh ? '删除' : 'Delete',
@@ -210,6 +260,7 @@ export default function SyncStatusPage() {
     create: isZh ? '创建' : 'Create',
     patch: isZh ? '编辑' : 'Edit',
     delete_edit_conflict: isZh ? '远端删除 / 本地编辑冲突' : 'Remote delete / local edit conflict',
+    field_update_conflict: isZh ? '字段更新冲突' : 'Field update conflict',
     birth_letter: isZh ? '诞生信' : 'Birth letter',
     final_letter: isZh ? '信件' : 'Letter',
     diary: isZh ? '日记' : 'Diary',
@@ -455,7 +506,7 @@ export default function SyncStatusPage() {
                         {isZh ? '放弃此同步任务' : 'Discard this sync task'}
                       </Button>
                     ) : null}
-                    {item.status === 'conflict' && (item.scopeType === 'character' || item.scopeType === 'chat') ? (
+                    {item.status === 'conflict' && item.kind === 'delete_edit_conflict' && (item.scopeType === 'character' || item.scopeType === 'chat') ? (
                       <>
                         <Button size="small" color="warning" onClick={() => resolveDeleteEditConflict(item, 'discard_local')}>
                           {isZh ? '放弃本地改动' : 'Discard local edits'}

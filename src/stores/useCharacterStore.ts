@@ -5,6 +5,7 @@ import { normalizeCharacter, normalizeCharacterGroup } from '../types/character'
 import { api, type SyncChangeScope } from '../services/api';
 import { reportRecoverableError } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
+import { clearResolvedFieldConflicts, detectPendingFieldConflicts, type FieldConflictRecord } from '../services/syncConflictRecords';
 import { buildWarmState } from './storeWarmHelpers';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
@@ -410,6 +411,7 @@ interface PersistedCharacterState {
   characters: AICharacter[];
   lastSyncedAt: number;
   pendingOperations: PendingCharacterOperation[];
+  fieldConflicts?: FieldConflictRecord[];
 }
 
 const CHARACTER_RUNTIME_PERSIST_LIMITS = {
@@ -487,6 +489,7 @@ function buildPersistedCharacterState(state: PersistedCharacterState): Persisted
         patch: compactCharacterPatchForCloud(operation.patch),
       }))
       .filter((operation) => Object.keys(operation.patch || {}).length > 0),
+    fieldConflicts: state.fieldConflicts || [],
   };
 }
 
@@ -495,6 +498,7 @@ interface CharacterStore extends PersistedCharacterState {
   pendingEditSyncCount: number;
   pendingEditSyncError: string | null;
   remoteDeletedCharacterIds: string[];
+  fieldConflicts: FieldConflictRecord[];
   loadCharacters: () => Promise<void>;
   loadCharacter: (id: string) => Promise<AICharacter | null>;
   prefetchCharacters: () => Promise<void>;
@@ -791,6 +795,7 @@ export function resetCharacterStoreForAccountBoundary() {
     pendingEditSyncCount: 0,
     pendingEditSyncError: null,
     remoteDeletedCharacterIds: [],
+    fieldConflicts: [],
     isLoading: false,
   });
 }
@@ -833,6 +838,7 @@ export const useCharacterStore = create<CharacterStore>()(
             set((current) => ({
               characters: projectVisibleCharacters(current.characters, nextQueue),
               pendingOperations: nextQueue,
+              fieldConflicts: clearResolvedFieldConflicts(current.fieldConflicts, { entityType: 'character', operationIds: [operation.id] }),
               pendingEditSyncCount: nextQueue.length,
               pendingEditSyncError: latestCharacterError(nextQueue),
               lastSyncedAt: Date.now(),
@@ -860,6 +866,7 @@ export const useCharacterStore = create<CharacterStore>()(
         pendingEditSyncCount: 0,
         pendingEditSyncError: null,
         remoteDeletedCharacterIds: [],
+        fieldConflicts: [],
         isLoading: false,
 
         loadCharacters: async () => {
@@ -899,6 +906,13 @@ export const useCharacterStore = create<CharacterStore>()(
                     || character.isPreset
                     || !hasNonDeletePendingCharacterOperation(state.pendingOperations, character.id)
                   ));
+                  const fieldConflicts = detectPendingFieldConflicts({
+                    entityType: 'character',
+                    localEntities: state.characters,
+                    remoteEntities: applicableSummaries,
+                    pendingOperations: state.pendingOperations,
+                    existingConflicts: state.fieldConflicts,
+                  });
                   const nextCharacters = mergeCharacters(state.characters, applicableSummaries, state.pendingOperations);
                   const nextVisible = nextCharacters.filter((item) => item.deletedAt == null);
                   const changed = buildCharacterListSignature(nextVisible) !== buildCharacterListSignature(state.characters);
@@ -914,6 +928,7 @@ export const useCharacterStore = create<CharacterStore>()(
                       ...state.remoteDeletedCharacterIds,
                       ...changedSummaries.filter((character) => character.deletedAt != null && !character.isPreset).map((character) => character.id),
                     ])).filter((id) => deleteConflictIds.has(id) || !nextVisible.some((character) => character.id === id)),
+                    fieldConflicts,
                     isLoading: false,
                     lastSyncedAt: Date.now(),
                     pendingEditSyncCount: get().pendingOperations.length,
@@ -990,6 +1005,13 @@ export const useCharacterStore = create<CharacterStore>()(
                 return cached || detail;
               }
               set((state) => {
+                const fieldConflicts = detectPendingFieldConflicts({
+                  entityType: 'character',
+                  localEntities: state.characters,
+                  remoteEntities: [detail],
+                  pendingOperations: state.pendingOperations,
+                  existingConflicts: state.fieldConflicts,
+                });
                 const nextCharacters = mergeVisibleCharacters(state.characters, [detail], state.pendingOperations);
                 const changed = buildCharacterListSignature(nextCharacters) !== buildCharacterListSignature(state.characters);
                 characterSyncScopes.markChecked(scope, {
@@ -1000,6 +1022,7 @@ export const useCharacterStore = create<CharacterStore>()(
                 return {
                   ...(changed ? { characters: nextCharacters } : {}),
                   remoteDeletedCharacterIds: state.remoteDeletedCharacterIds.filter((characterId) => characterId !== id),
+                  fieldConflicts,
                   lastSyncedAt: state.lastSyncedAt || Date.now(),
                   pendingEditSyncCount: state.pendingOperations.length,
                   pendingEditSyncError: latestCharacterError(state.pendingOperations),
@@ -1074,7 +1097,7 @@ export const useCharacterStore = create<CharacterStore>()(
         getPendingOperations: () => get().pendingOperations,
         getPendingEditError: () => latestCharacterError(get().pendingOperations),
         getPendingEditCount: () => get().pendingOperations.length,
-        clearPendingOperations: () => set({ pendingOperations: [], pendingEditSyncCount: 0, pendingEditSyncError: null }),
+        clearPendingOperations: () => set({ pendingOperations: [], pendingEditSyncCount: 0, pendingEditSyncError: null, fieldConflicts: [] }),
         confirmCreateOperationsSynced: (entityIds) => set((state) => {
           const normalizedIds = new Set(entityIds.filter(Boolean));
           if (!normalizedIds.size) return {};
@@ -1085,6 +1108,7 @@ export const useCharacterStore = create<CharacterStore>()(
           return {
             characters: projectVisibleCharacters(state.characters, pendingOperations),
             pendingOperations,
+            fieldConflicts: clearResolvedFieldConflicts(state.fieldConflicts, { entityType: 'character', entityIds: Array.from(normalizedIds) }),
             pendingEditSyncCount: pendingOperations.length,
             pendingEditSyncError: latestCharacterError(pendingOperations),
           };
@@ -1096,6 +1120,7 @@ export const useCharacterStore = create<CharacterStore>()(
           return {
             characters: projectVisibleCharacters(state.characters, pendingOperations),
             pendingOperations,
+            fieldConflicts: clearResolvedFieldConflicts(state.fieldConflicts, { entityType: 'character', operationIds: [operationId] }),
             pendingEditSyncCount: pendingOperations.length,
             pendingEditSyncError: latestCharacterError(pendingOperations),
           };
@@ -1105,6 +1130,7 @@ export const useCharacterStore = create<CharacterStore>()(
           if (resolution === 'restore_local') {
             set((state) => ({
               remoteDeletedCharacterIds: state.remoteDeletedCharacterIds.filter((characterId) => characterId !== id),
+              fieldConflicts: clearResolvedFieldConflicts(state.fieldConflicts, { entityType: 'character', entityIds: [id] }),
             }));
             await get().syncPatch(id, { deletedAt: null }, 'patch');
             scheduleCharacterFlush(flushPendingOperations, 100);
@@ -1121,6 +1147,7 @@ export const useCharacterStore = create<CharacterStore>()(
             return {
               characters,
               pendingOperations,
+              fieldConflicts: clearResolvedFieldConflicts(state.fieldConflicts, { entityType: 'character', entityIds: [id] }),
               pendingEditSyncCount: pendingOperations.length,
               pendingEditSyncError: latestCharacterError(pendingOperations),
               remoteDeletedCharacterIds: state.remoteDeletedCharacterIds.filter((characterId) => characterId !== id),
@@ -1395,6 +1422,7 @@ export const useCharacterStore = create<CharacterStore>()(
         return {
           ...migrated,
           pendingOperations: recoverInterruptedOperations(migrated.pendingOperations || []),
+          fieldConflicts: migrated.fieldConflicts || [],
         };
       },
       partialize: (state) => buildPersistedCharacterState({

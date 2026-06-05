@@ -6,6 +6,7 @@ import type { Message } from '../types/message';
 import { api, type SyncChangeScope } from '../services/api';
 import { reportRecoverableError } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
+import { clearResolvedFieldConflicts, detectPendingFieldConflicts, type FieldConflictRecord } from '../services/syncConflictRecords';
 import { buildWarmState } from './storeWarmHelpers';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
@@ -179,6 +180,7 @@ interface PersistedChatState {
   currentChatId: string | null;
   lastSyncedAt: number;
   pendingOperations: PendingChatOperation[];
+  fieldConflicts?: FieldConflictRecord[];
 }
 
 const CHAT_RUNTIME_PERSIST_LIMITS = {
@@ -285,6 +287,7 @@ function buildPersistedChatState(state: PersistedChatState): PersistedChatState 
         patch: compactChatPatchForCloud(operation.patch),
       }))
       .filter((operation) => Object.keys(operation.patch || {}).length > 0),
+    fieldConflicts: state.fieldConflicts || [],
   };
   if (isRuntimeMemoryMonitorEnabled()) {
     recordRuntimeMemory('chat-store:partialize:finish', {
@@ -304,6 +307,7 @@ interface ChatStore extends PersistedChatState {
   pendingEditSyncError: string | null;
   remoteDeletedChatIds: string[];
   remoteDeletedChats: GroupChat[];
+  fieldConflicts: FieldConflictRecord[];
   loadChats: () => Promise<void>;
   loadChat: (id: string) => Promise<GroupChat | null>;
   loadWorldRuntime: () => Promise<void>;
@@ -776,6 +780,7 @@ export function resetChatStoreForAccountBoundary() {
     pendingEditSyncError: null,
     remoteDeletedChatIds: [],
     remoteDeletedChats: [],
+    fieldConflicts: [],
     isLoading: false,
   });
 }
@@ -817,6 +822,7 @@ export const useChatStore = create<ChatStore>()(
             set((current) => ({
               chats: projectEntities(current.chats, nextQueue).filter((chat) => chat.deletedAt == null),
               pendingOperations: nextQueue,
+              fieldConflicts: clearResolvedFieldConflicts(current.fieldConflicts, { entityType: 'chat', operationIds: [operation.id] }),
               pendingEditSyncCount: nextQueue.length,
               pendingEditSyncError: latestChatError(nextQueue),
               lastSyncedAt: Date.now(),
@@ -846,6 +852,7 @@ export const useChatStore = create<ChatStore>()(
         pendingEditSyncError: null,
         remoteDeletedChatIds: [],
         remoteDeletedChats: [],
+        fieldConflicts: [],
         isLoading: false,
 
         loadChats: async () => {
@@ -878,6 +885,13 @@ export const useChatStore = create<ChatStore>()(
                   const deleteConflicts = summaryChanges.deletes.filter((chat) => hasNonDeletePendingChatOperation(state.pendingOperations, chat.id));
                   const applicableDeletes = summaryChanges.deletes.filter((chat) => !hasNonDeletePendingChatOperation(state.pendingOperations, chat.id));
                   const changedChats = [...summaryChanges.upserts, ...applicableDeletes];
+                  const fieldConflicts = detectPendingFieldConflicts({
+                    entityType: 'chat',
+                    localEntities: state.chats,
+                    remoteEntities: changedChats,
+                    pendingOperations: state.pendingOperations,
+                    existingConflicts: state.fieldConflicts,
+                  });
                   const merged = mergeChats(state.chats, changedChats, state.pendingOperations);
                   const nextChats = merged.filter((chat) => chat.deletedAt == null);
                   const deletedIds = new Set(applicableDeletes.map((chat) => chat.id));
@@ -904,6 +918,7 @@ export const useChatStore = create<ChatStore>()(
                         .filter((chat) => !conflictSnapshots.some((conflictChat) => conflictChat.id === chat.id))
                         .filter((chat) => !deletedSnapshots.some((deletedChat) => deletedChat.id === chat.id)),
                     ],
+                    fieldConflicts,
                     isLoading: false,
                     lastSyncedAt: Date.now(),
                     pendingEditSyncCount: state.pendingOperations.length,
@@ -983,6 +998,13 @@ export const useChatStore = create<ChatStore>()(
                 return snapshot;
               }
               set((state) => {
+                const fieldConflicts = detectPendingFieldConflicts({
+                  entityType: 'chat',
+                  localEntities: state.chats,
+                  remoteEntities: [detail],
+                  pendingOperations: state.pendingOperations,
+                  existingConflicts: state.fieldConflicts,
+                });
                 const nextChats = mergeVisibleChats(state.chats, [detail], state.pendingOperations);
                 const changed = buildChatListSignature(nextChats) !== buildChatListSignature(state.chats);
                 chatSyncScopes.markChecked(scope, {
@@ -994,6 +1016,7 @@ export const useChatStore = create<ChatStore>()(
                   ...(changed ? { chats: nextChats } : {}),
                   remoteDeletedChatIds: state.remoteDeletedChatIds.filter((chatId) => chatId !== id),
                   remoteDeletedChats: state.remoteDeletedChats.filter((chat) => chat.id !== id),
+                  fieldConflicts,
                   lastSyncedAt: state.lastSyncedAt || Date.now(),
                   pendingEditSyncCount: state.pendingOperations.length,
                   pendingEditSyncError: latestChatError(state.pendingOperations),
@@ -1141,7 +1164,7 @@ export const useChatStore = create<ChatStore>()(
         getPendingOperations: () => get().pendingOperations,
         getPendingEditError: () => latestChatError(get().pendingOperations),
         getPendingEditCount: () => get().pendingOperations.length,
-        clearPendingOperations: () => set({ pendingOperations: [], pendingEditSyncCount: 0, pendingEditSyncError: null }),
+        clearPendingOperations: () => set({ pendingOperations: [], pendingEditSyncCount: 0, pendingEditSyncError: null, fieldConflicts: [] }),
         confirmCreateOperationsSynced: (entityIds) => set((state) => {
           const normalizedIds = new Set(entityIds.filter(Boolean));
           if (!normalizedIds.size) return {};
@@ -1152,6 +1175,7 @@ export const useChatStore = create<ChatStore>()(
           return {
             chats: projectVisibleChats(state.chats, pendingOperations),
             pendingOperations,
+            fieldConflicts: clearResolvedFieldConflicts(state.fieldConflicts, { entityType: 'chat', entityIds: Array.from(normalizedIds) }),
             pendingEditSyncCount: pendingOperations.length,
             pendingEditSyncError: latestChatError(pendingOperations),
           };
@@ -1163,6 +1187,7 @@ export const useChatStore = create<ChatStore>()(
           return {
             chats: projectVisibleChats(state.chats, pendingOperations),
             pendingOperations,
+            fieldConflicts: clearResolvedFieldConflicts(state.fieldConflicts, { entityType: 'chat', operationIds: [operationId] }),
             pendingEditSyncCount: pendingOperations.length,
             pendingEditSyncError: latestChatError(pendingOperations),
           };
@@ -1173,6 +1198,7 @@ export const useChatStore = create<ChatStore>()(
             set((state) => ({
               remoteDeletedChatIds: state.remoteDeletedChatIds.filter((chatId) => chatId !== id),
               remoteDeletedChats: state.remoteDeletedChats.filter((chat) => chat.id !== id),
+              fieldConflicts: clearResolvedFieldConflicts(state.fieldConflicts, { entityType: 'chat', entityIds: [id] }),
             }));
             await get().syncPatch(id, { deletedAt: null, isActive: true }, 'patch');
             scheduleChatFlush(flushPendingOperations, 100);
@@ -1188,6 +1214,7 @@ export const useChatStore = create<ChatStore>()(
               chats: state.chats.filter((chat) => chat.id !== id),
               currentChatId: state.currentChatId === id ? null : state.currentChatId,
               pendingOperations,
+              fieldConflicts: clearResolvedFieldConflicts(state.fieldConflicts, { entityType: 'chat', entityIds: [id] }),
               pendingEditSyncCount: pendingOperations.length,
               pendingEditSyncError: latestChatError(pendingOperations),
               remoteDeletedChatIds: state.remoteDeletedChatIds.filter((chatId) => chatId !== id),
@@ -1338,6 +1365,7 @@ export const useChatStore = create<ChatStore>()(
         return {
           ...migrated,
           pendingOperations: recoverInterruptedOperations(migrated.pendingOperations || []),
+          fieldConflicts: migrated.fieldConflicts || [],
         };
       },
       partialize: (state) => buildPersistedChatState({
