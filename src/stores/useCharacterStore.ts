@@ -569,11 +569,10 @@ function markCharactersLoadingIdle(state: CharacterStore) {
   return { isLoading: false };
 }
 
-function buildWarmCharacterStoreState(state: CharacterStore) {
+function buildProjectedCharacterStoreState(state: CharacterStore, isLoading: boolean) {
   const visibleCharacters = visibleCharactersFromState(state);
   const pendingEditSyncCount = state.pendingOperations.length;
   const pendingEditSyncError = latestCharacterError(state.pendingOperations);
-  const isLoading = state.characters.length === 0;
   if (
     state.isLoading === isLoading
     && state.pendingEditSyncCount === pendingEditSyncCount
@@ -592,6 +591,14 @@ function buildWarmCharacterStoreState(state: CharacterStore) {
     }),
     characters: visibleCharacters,
   };
+}
+
+function buildWarmCharacterStoreState(state: CharacterStore) {
+  return buildProjectedCharacterStoreState(state, state.characters.length === 0);
+}
+
+function buildMarkedWarmCharacterStoreState(state: CharacterStore) {
+  return buildProjectedCharacterStoreState(state, state.isLoading);
 }
 
 function queueAndProjectCharacters(state: CharacterStore, operations: PendingCharacterOperation[]) {
@@ -1270,16 +1277,7 @@ export const useCharacterStore = create<CharacterStore>()(
         getCharacter: (id) => get().characters.find((c) => c.id === id),
         hasCharacterLoaded: (id) => Boolean(get().characters.find((c) => c.id === id)),
         getCharactersLoadedAt: () => get().lastSyncedAt,
-        markCharactersWarm: () => set((state) => ({
-          ...buildWarmState({
-            items: state.characters,
-            projectVisible: () => visibleCharactersFromState(state),
-            pendingEditSyncCount: state.pendingOperations.length,
-            pendingEditSyncError: latestCharacterError(state.pendingOperations),
-            isLoading: state.isLoading,
-          }),
-          characters: visibleCharactersFromState(state),
-        })),
+        markCharactersWarm: () => set(buildMarkedWarmCharacterStoreState),
         getPresets: () => get().characters.filter((c) => c.isPreset),
         getCustom: () => get().characters.filter((c) => !c.isPreset),
 

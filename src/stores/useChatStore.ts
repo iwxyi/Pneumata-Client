@@ -561,11 +561,10 @@ function markChatsLoadingIdle(state: ChatStore) {
   return { isLoading: false };
 }
 
-function buildWarmChatStoreState(state: ChatStore) {
+function buildProjectedChatStoreState(state: ChatStore, isLoading: boolean) {
   const visibleChats = projectVisibleChats(state.chats, state.pendingOperations);
   const pendingEditSyncCount = state.pendingOperations.length;
   const pendingEditSyncError = latestChatError(state.pendingOperations);
-  const isLoading = state.chats.length === 0;
   if (
     state.isLoading === isLoading
     && state.pendingEditSyncCount === pendingEditSyncCount
@@ -584,6 +583,14 @@ function buildWarmChatStoreState(state: ChatStore) {
     }),
     chats: visibleChats,
   };
+}
+
+function buildWarmChatStoreState(state: ChatStore) {
+  return buildProjectedChatStoreState(state, state.chats.length === 0);
+}
+
+function buildMarkedWarmChatStoreState(state: ChatStore) {
+  return buildProjectedChatStoreState(state, state.isLoading);
 }
 
 const latestChatError = latestSyncError;
@@ -982,18 +989,7 @@ export const useChatStore = create<ChatStore>()(
         getChat: (id) => get().chats.find((chat) => chat.id === id),
         hasChatLoaded: (id) => Boolean(get().chats.find((chat) => chat.id === id)),
         getChatsLoadedAt: () => get().lastSyncedAt,
-        markChatsWarm: () => {
-          set((state) => ({
-            ...buildWarmState({
-              items: state.chats,
-              projectVisible: (items) => projectVisibleChats(items, state.pendingOperations),
-              pendingEditSyncCount: state.pendingOperations.length,
-              pendingEditSyncError: latestChatError(state.pendingOperations),
-              isLoading: state.isLoading,
-            }),
-            chats: projectVisibleChats(state.chats, state.pendingOperations),
-          }));
-        },
+        markChatsWarm: () => set(buildMarkedWarmChatStoreState),
 
         flushPendingOperations,
 

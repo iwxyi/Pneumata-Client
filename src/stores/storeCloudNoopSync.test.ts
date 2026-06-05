@@ -171,6 +171,31 @@ describe('cloud no-op sync', () => {
     expect(apiMocks.getDeletedChats).not.toHaveBeenCalled();
   });
 
+  it('does not rewrite chats when marking an already projected chat list warm', async () => {
+    const { useChatStore } = await import('./useChatStore');
+    await useChatStore.persist.rehydrate();
+    useChatStore.setState({
+      chats: [chat()],
+      currentChatId: null,
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: [],
+      remoteDeletedChats: [],
+      isLoading: false,
+    });
+    let writes = 0;
+    const unsubscribe = useChatStore.subscribe(() => {
+      writes += 1;
+    });
+
+    useChatStore.getState().markChatsWarm();
+
+    unsubscribe();
+    expect(writes).toBe(0);
+  });
+
   it('does not rewrite characters or fetch character summaries when the remote scope is not modified', async () => {
     const { useCharacterStore } = await import('./useCharacterStore');
     await useCharacterStore.persist.rehydrate();
@@ -195,6 +220,29 @@ describe('cloud no-op sync', () => {
     expect(apiMocks.getSyncChanges).toHaveBeenCalledWith({ scope: 'characters.summary', since: null });
     expect(apiMocks.getCharacters).not.toHaveBeenCalled();
     expect(apiMocks.getDeletedCharacters).not.toHaveBeenCalled();
+  });
+
+  it('does not rewrite characters when marking an already projected character list warm', async () => {
+    const { useCharacterStore } = await import('./useCharacterStore');
+    await useCharacterStore.persist.rehydrate();
+    useCharacterStore.setState({
+      characters: [character()],
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedCharacterIds: [],
+      isLoading: false,
+    });
+    let writes = 0;
+    const unsubscribe = useCharacterStore.subscribe(() => {
+      writes += 1;
+    });
+
+    useCharacterStore.getState().markCharactersWarm();
+
+    unsubscribe();
+    expect(writes).toBe(0);
   });
 
   it('does not rewrite artifacts or fetch artifact summaries when the remote scope is not modified', async () => {
