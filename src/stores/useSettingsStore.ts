@@ -98,6 +98,11 @@ function syncToServer(data: Record<string, unknown>, set: SettingsSet) {
   }, 500);
 }
 
+function markSettingsLoadedIdle(state: SettingsStore) {
+  if (state._loaded && state.syncStatus === 'idle' && state.syncError == null) return state;
+  return { ...state, _loaded: true, syncStatus: 'idle' as const, syncError: null };
+}
+
 async function probeSettingsChanges() {
   const scopeState = settingsSyncScopes.getState(SETTINGS_ACCOUNT_SCOPE);
   const since = scopeState.cursor ?? scopeState.revision ?? null;
@@ -229,13 +234,13 @@ export const useSettingsStore = create<SettingsStore>()(
 
       loadSettings: async () => {
         if (useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled()) {
-          set((state) => ({ ...state, _loaded: true, syncStatus: 'idle', syncError: null }));
+          set(markSettingsLoadedIdle);
           return;
         }
         try {
           const hasLocalSettings = get()._loaded || get().lastSyncedAt > 0;
           if (hasLocalSettings && settingsSyncScopes.isFresh(SETTINGS_ACCOUNT_SCOPE)) {
-            set((state) => ({ ...state, _loaded: true, syncStatus: 'idle', syncError: null }));
+            set(markSettingsLoadedIdle);
             return;
           }
           const changeProbe = hasLocalSettings ? await probeSettingsChanges() : null;
@@ -245,7 +250,7 @@ export const useSettingsStore = create<SettingsStore>()(
               revision: changeProbe.revision,
               applied: false,
             });
-            set((state) => ({ ...state, _loaded: true, syncStatus: 'idle', syncError: null }));
+            set(markSettingsLoadedIdle);
             return;
           }
           const settings = (settingsFromChanges(changeProbe?.changes) || await api.getSettings()) as RemoteSettingsPayload;
