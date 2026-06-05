@@ -66,7 +66,7 @@ function countConsumedGuidanceTurnsAfter(messages: Message[], timestamp: number,
 function isExplicitPersistentGuidance(guidance: UserGuidanceIntent) {
   if (guidance.actorIds.length) return true;
   if (guidance.kind === 'media_request') return true;
-  return /(新话题|换个话题|切换话题|聊聊|讨论|围绕|回到|别聊|继续说|请|让|帮|指定|点名|安排)/i.test(guidance.rawText);
+  return guidance.kind === 'direct_reply' && Boolean(guidance.focusText?.trim());
 }
 
 function guidanceIntentToDirectorIntent(guidance: UserGuidanceIntent, targetActorIds: string[]): DirectorIntent {

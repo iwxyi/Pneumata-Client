@@ -261,6 +261,22 @@ describe('buildSystemPromptWithContext', () => {
     expect(trace.targetReason).toBe('来自上一条消息的明确指向');
   });
 
+  it('does not let stale human guidance retarget prompt memory after a newer user turn', () => {
+    const speaker = buildCharacter({ id: 'char-a', name: '潇潇' });
+    const target = buildCharacter({ id: 'char-b', name: '阿强' });
+    const trace = buildPromptMemoryTrace(speaker, { ...buildChat(), memberIds: ['char-a', 'char-b'] }, [
+      buildMessage({ type: 'user', senderId: 'user', senderName: '开发者', content: '阿强刚才怎么看？', timestamp: 1 }),
+      buildMessage({ type: 'ai', senderId: 'char-a', senderName: '潇潇', content: '我先说我的看法。', timestamp: 2 }),
+      buildMessage({ type: 'user', senderId: 'user', senderName: '开发者', content: '第二章又讲了什么？', timestamp: 3 }),
+    ], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]));
+
+    expect(trace.targetActorId).toBeUndefined();
+    expect(trace.targetReason).toBeUndefined();
+  });
+
   it('includes every manual memory seed field in the unified prompt', () => {
     const character = buildCharacter({
       memory: {

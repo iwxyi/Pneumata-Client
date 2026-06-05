@@ -54,9 +54,7 @@ function getLatestTargetText(messages: Message[], recentTargetId?: string | null
 
 function buildCarryLineFromConversation(relevant: Message[], speakerId: string, recentTargetId?: string | null) {
   const localThread = relevant.filter((message) => message.senderId === speakerId || message.senderId === recentTargetId).slice(-4);
-  const recentBundle = localThread.map((message) => message.content).join(' / ');
-  if (/不是|你这|别扯|离谱|笑死|怎么就/i.test(recentBundle)) return '延续这条线里的不耐烦或抬杠，不要突然切回客观模式；但不要复制对方的开头、整句、表情或尾巴。';
-  if (/对|确实|有道理|我也觉得|就这意思/i.test(recentBundle)) return '延续这条线里的站边和顺势附和，不要突然转成总结口吻；但换一个说法，不要复读“就是/对/哈哈”这类表层附和。';
+  if (localThread.length >= 3) return '延续这条线里的关系压力和当前气口，但不要复制对方的开头、整句、表情或尾巴。';
   return '';
 }
 
@@ -220,25 +218,13 @@ export function buildSpeechFingerprint(character: AICharacter): SpeechFingerprin
   const speechProfile = character.speechProfile;
   const openers = speechProfile?.preferredOpeners?.length
     ? speechProfile.preferredOpeners
-    : character.behavior.aggressiveness >= 60
-      ? ['不是', '等下', '你先别', '说真的']
-      : character.behavior.humorIntensity >= 60
-        ? ['笑死', '行吧', '不是我说', '哈哈']
-        : ['我感觉', '说实话', '其实', '行'];
+    : [];
   const fillers = speechProfile?.fillers?.length
     ? speechProfile.fillers
-    : character.behavior.humorIntensity >= 60
-      ? ['啊', '哈', '欸', '行吧']
-      : character.behavior.aggressiveness >= 60
-        ? ['啧', '不是', '你这', '就这']
-        : ['嗯', '其实', '感觉', '还行'];
+    : [];
   const closers = speechProfile?.preferredClosers?.length
     ? speechProfile.preferredClosers
-    : character.behavior.summarizing >= 65
-      ? ['先这样', '反正我是这意思']
-      : character.behavior.offTopic >= 60
-        ? ['算了扯远了', '先不说这个']
-        : ['就这样', '差不多'];
+    : [];
   const explicitQuestionBias = speechProfile?.questionBias ?? 50;
   const asksForInformation = explicitQuestionBias >= 62 || (explicitQuestionBias >= 55 && character.behavior.empathyLevel >= 58);
   const usesQuestionAsPushback = character.behavior.aggressiveness >= 68 || (explicitQuestionBias >= 58 && character.personality.assertiveness >= 60);
@@ -285,12 +271,6 @@ export function buildStanceMemory(messages: Message[], speakerId: string, recent
   }
   const content = latestTarget.content;
   const conversationCarry = buildCarryLineFromConversation(relevant, speakerId, recentTargetId);
-  if (/不是|凭什么|怎么就|你这|扯|离谱|有病|笑死/i.test(content)) {
-    return { targetId: recentTargetId || null, bias: 'lean_against', carryLine: conversationCarry || '延续上一轮的不耐烦或抬杠感，不要忽然变客观；但不要照搬对方的开头、整句、表情或尾巴。', topicLatch: pickTopicLatch(content) };
-  }
-  if (/对|确实|行|就是|我也觉得|有道理/i.test(content)) {
-    return { targetId: recentTargetId || null, bias: 'lean_in', carryLine: conversationCarry || '可以顺着站边、附和半句，别突然换成中立评述；但换一个说法，不要复读“就是/对/哈哈”这类表层附和。', topicLatch: pickTopicLatch(content) };
-  }
   return { targetId: recentTargetId || null, bias: 'watching', carryLine: conversationCarry || '只抓住你在意的一个点回应，不必完整覆盖对方。', topicLatch: pickTopicLatch(content) };
 }
 

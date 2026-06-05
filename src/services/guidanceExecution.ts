@@ -23,27 +23,6 @@ export interface GuidanceProgressSnapshot {
   consumedTurns: number;
 }
 
-const GUIDANCE_STOP_WORDS = new Set([
-  '新话题',
-  '换话题',
-  '换个',
-  '话题',
-  '讨论',
-  '聊聊',
-  '说说',
-  '继续',
-  '回到',
-  '围绕',
-  '一下',
-  '这个',
-  '那个',
-  '什么',
-  '怎么',
-  '应该',
-  '有没有',
-  '是不是',
-]);
-
 function normalizeForComparison(text: string) {
   return text.replace(/\s+/g, '').replace(/[，。！？、,.!?:：；;"“”'‘’（）()[\]{}<>《》]/g, '').toLowerCase();
 }
@@ -52,12 +31,8 @@ export function normalizeGuidanceMatchText(text: string) {
   return normalizeForComparison(text);
 }
 
-function stripGuidancePrefix(text: string) {
-  return text.replace(/^(新话题|换个话题|切换话题|回到|继续说|讨论|聊聊)[:：]*/i, '');
-}
-
 export function extractGuidanceMatchTokens(text: string) {
-  const normalized = normalizeGuidanceMatchText(stripGuidancePrefix(text));
+  const normalized = normalizeGuidanceMatchText(text);
   const tokens: string[] = [];
   const chunks = normalized.match(/[\u4e00-\u9fff]{2,}|[a-z0-9_]{3,}/gi) || [];
   for (const chunk of chunks) {
@@ -75,42 +50,7 @@ export function extractGuidanceMatchTokens(text: string) {
   }
   return tokens
     .map((token) => token.trim())
-    .filter((token, index, array) => token.length >= 2 && !GUIDANCE_STOP_WORDS.has(token) && array.indexOf(token) === index);
-}
-
-function extractGuidanceTopicChars(text: string) {
-  const normalized = normalizeGuidanceMatchText(stripGuidancePrefix(text));
-  const stopChars = new Set(Array.from('新换个话题讨论聊聊说说继续回到围绕一下这个那个什么怎么应该吗呢吧的了吗有无'));
-  return Array.from(new Set(Array.from(normalized).filter((char) => /[\u4e00-\u9fff]/.test(char) && !stopChars.has(char))));
-}
-
-function topicGuidanceMatchesContent(content: string, guidance: UserGuidanceIntent) {
-  const normalizedContent = normalizeGuidanceMatchText(content);
-  const tokens = extractGuidanceMatchTokens(guidance.focusText || guidance.rawText);
-  if (tokens.length) {
-    const matched = tokens.filter((token) => normalizedContent.includes(token.toLowerCase()));
-    if (matched.length >= Math.min(2, tokens.length)) return true;
-    if (matched.some((token) => token.length >= 3)) return true;
-    return false;
-  }
-  const topicChars = extractGuidanceTopicChars(guidance.focusText || guidance.rawText);
-  if (!topicChars.length) return true;
-  return topicChars.filter((char) => normalizedContent.includes(char)).length >= Math.min(2, topicChars.length);
-}
-
-function isQuestionGuidance(guidance: UserGuidanceIntent) {
-  const text = guidance.focusText || guidance.rawText;
-  return /[?？]|吗|是否|是不是|有没有|有无|该不该|应不应该|应该不应该|能不能|要不要|为什么|怎么|如何|哪/.test(text);
-}
-
-function hasFocusedQuestionAnswerMove(content: string, guidance: UserGuidanceIntent) {
-  if (!isQuestionGuidance(guidance)) return true;
-  const guidanceText = guidance.focusText || guidance.rawText;
-  const normativeQuestion = /(过错|应该|该不该|应不应该|应该不应该|对错|对不对|错|道德|责任|权利|合理|不合理|该抓|不该抓)/.test(guidanceText);
-  if (!normativeQuestion) {
-    return /(我觉得|我认为|要看|取决于|关键|问题是|至少|先分清|分情况|因为|所以|不是|可以|不能|能不能|为什么|怎么|如何|[?？])/.test(content);
-  }
-  return /(过错|应该|不应该|该不该|不该|对错|对不对|错|没错|合理|不合理|生存|本能|食物链|自然法则|法则|伤害|责任|权利|道德|立场|我觉得|我认为|不能只说|要看|取决于|先分清|分情况|关键|问题是)/.test(content);
+    .filter((token, index, array) => token.length >= 2 && array.indexOf(token) === index);
 }
 
 function characterNamesByIds(ids: string[] | undefined, characters: AICharacter[] | undefined) {
@@ -244,15 +184,7 @@ export function evaluateGuidanceGeneratedContent(
     const reason = evaluateMediaGuidanceContent(content, guidance, characters, options);
     return { matched: reason === 'matched', reason };
   }
-  const matched = topicGuidanceMatchesContent(content, guidance);
-  if (matched && !hasFocusedQuestionAnswerMove(content, guidance)) {
-    return { matched: false, reason: 'missing_question_answer' };
-  }
-  if (matched) return { matched: true, reason: 'matched' };
-  return {
-    matched: false,
-    reason: guidance.kind === 'direct_reply' ? 'missing_direct_reply_focus' : 'missing_topic_focus',
-  };
+  return { matched: true, reason: 'matched' };
 }
 
 export function evaluateGuidanceMessage(message: Message, guidance: UserGuidanceIntent, characters?: AICharacter[]): GuidanceExecutionEvaluation {

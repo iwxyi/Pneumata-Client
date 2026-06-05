@@ -45,12 +45,12 @@ describe('guidanceExecution', () => {
     character('jiao', '蕉太狼'),
   ];
 
-  it('rejects old-banter keyword overlap for question topic guidance', () => {
+  it('does not use local keyword scoring for plain question topic guidance', () => {
     const guidance = parseUserGuidanceIntent('新话题：狼抓羊有过错吗？狼应该抓羊吗？', members);
 
     expect(evaluateGuidanceGeneratedContent('狼抓羊证件照也挺好玩，灰太狼肯定想把羊画进去吧～', guidance, 'mei', members)).toEqual({
-      matched: false,
-      reason: 'missing_question_answer',
+      matched: true,
+      reason: 'matched',
     });
   });
 

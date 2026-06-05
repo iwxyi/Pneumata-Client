@@ -240,18 +240,18 @@ describe('runtimeDecision', () => {
     });
   });
 
-  it('lets the latest human guidance override stale pending reply pressure', () => {
+  it('lets the latest targeted human guidance override stale pending reply pressure', () => {
     const projection = projectRuntimePressure({
       chat: buildChat(),
-      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼')],
       messages: [
-        buildMessage({ type: 'ai', senderId: 'a', senderName: '甲', content: '乙，你说呢？', timestamp: 30 }),
-        buildMessage({ type: 'god', senderId: 'user', senderName: '开发者', content: '新话题：狼抓羊有过错吗？狼应该抓羊吗？', timestamp: 40 }),
+        buildMessage({ type: 'ai', senderId: 'b', senderName: '灰太狼', content: '美羊羊，你说呢？', timestamp: 30 }),
+        buildMessage({ type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 40 }),
       ],
       pendingReplyContext: {
-        targetIds: ['b'],
-        primaryTargetId: 'b',
-        sourceSpeakerId: 'a',
+        targetIds: ['a'],
+        primaryTargetId: 'a',
+        sourceSpeakerId: 'b',
         unmetTurns: 1,
         strength: 'strong',
       },
@@ -259,13 +259,13 @@ describe('runtimeDecision', () => {
     });
 
     expect(projection.directorIntent?.userGuidance).toMatchObject({
-      kind: 'topic_shift',
-      rawText: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
+      kind: 'media_request',
+      rawText: '美羊羊发个灰太狼证件照的图片',
     });
-    expect(projection.directorIntent?.targetActorIds).toEqual([]);
+    expect(projection.directorIntent?.targetActorIds).toEqual(['a']);
   });
 
-  it('lets newer human guidance replace older active director interventions', () => {
+  it('lets newer targeted human guidance replace older active director interventions', () => {
     const intervention: RuntimeEventV2 = {
       id: 'evt-old-director',
       conversationId: 'chat-1',
@@ -284,19 +284,19 @@ describe('runtimeDecision', () => {
     };
     const projection = projectRuntimePressure({
       chat: buildChat({ runtimeEventsV2: [intervention] }),
-      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼')],
       messages: [
-        buildMessage({ type: 'ai', senderId: 'a', senderName: '甲', content: '旧梗还没完。', timestamp: 35 }),
-        buildMessage({ type: 'god', senderId: 'user', senderName: '开发者', content: '新话题：狼抓羊有过错吗？狼应该抓羊吗？', timestamp: 40 }),
+        buildMessage({ type: 'ai', senderId: 'b', senderName: '灰太狼', content: '旧梗还没完。', timestamp: 35 }),
+        buildMessage({ type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 40 }),
       ],
       now: 50,
     });
 
     expect(projection.directorIntent?.userGuidance).toMatchObject({
-      kind: 'topic_shift',
-      rawText: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
+      kind: 'media_request',
+      rawText: '美羊羊发个灰太狼证件照的图片',
     });
-    expect(projection.directorIntent?.targetActorIds).toEqual([]);
+    expect(projection.directorIntent?.targetActorIds).toEqual(['a']);
   });
 
   it('does not resurrect older guidance after a newer targeted request is completed', () => {
@@ -566,7 +566,7 @@ describe('runtimeDecision', () => {
     expect(projection.directorIntent?.userGuidance?.rawText).not.toBe('美羊羊发个灰太狼证件照的图片');
   });
 
-  it('keeps explicit topic guidance active for its short focus window after one reply', () => {
+  it('does not keep plain topic shifts active as persistent director guidance after a reply', () => {
     const projection = projectRuntimePressure({
       chat: buildChat(),
       characters: [buildCharacter('a', '蕉太狼'), buildCharacter('b', '慢羊羊')],
@@ -577,14 +577,10 @@ describe('runtimeDecision', () => {
       now: 50,
     });
 
-    expect(projection.directorIntent?.userGuidance).toMatchObject({
-      kind: 'topic_shift',
-      rawText: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
-    });
-    expect(projection.directorIntent?.targetActorIds).toEqual([]);
+    expect(projection.directorIntent?.userGuidance).toBeFalsy();
   });
 
-  it('does not consume question guidance with old-banter keyword overlap', () => {
+  it('does not keep plain question guidance active from old-banter overlap alone', () => {
     const projection = projectRuntimePressure({
       chat: buildChat(),
       characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼'), buildCharacter('c', '慢羊羊')],
@@ -596,10 +592,7 @@ describe('runtimeDecision', () => {
       now: 50,
     });
 
-    expect(projection.directorIntent?.userGuidance).toMatchObject({
-      kind: 'topic_shift',
-      rawText: '新话题：狼抓羊有过错吗？狼应该抓羊吗？',
-    });
+    expect(projection.directorIntent?.userGuidance).toBeFalsy();
   });
 
   it('keeps targeted media guidance active when the target actor only jokes about the artifact', () => {

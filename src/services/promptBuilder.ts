@@ -10,6 +10,7 @@ import { getExperienceLensLabel } from './experienceChangePresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import { getGuidanceMemoryTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
 import { buildCompanionshipPromptBlock, buildSharedSecrets } from './companionshipProjection';
+import { projectConversationForModel, type ConversationProjectionOptions } from './conversationProjection';
 
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
@@ -628,16 +629,14 @@ function describeGuidanceMemoryTarget(guidance: UserGuidanceIntent) {
 }
 
 function resolveHumanGuidanceTarget(messages: Message[], characters: Map<string, AICharacter>, speaker: AICharacter) {
-  const recentHumanMessages = messages
+  const latestHumanMessage = messages
     .filter((item) => !item.isDeleted && (item.type === 'user' || item.type === 'god'))
-    .slice(-8)
-    .reverse();
-  for (const message of recentHumanMessages) {
-    const guidance = parsePromptGuidance(message, characters);
-    if (!guidance) continue;
-    const target = pickGuidanceTarget(guidance, speaker, characters);
-    if (target) return { target, reason: describeGuidanceMemoryTarget(guidance) };
-  }
+    .at(-1);
+  if (!latestHumanMessage) return undefined;
+  const guidance = parsePromptGuidance(latestHumanMessage, characters);
+  if (!guidance) return undefined;
+  const target = pickGuidanceTarget(guidance, speaker, characters);
+  if (target) return { target, reason: describeGuidanceMemoryTarget(guidance) };
   return undefined;
 }
 
@@ -673,27 +672,7 @@ function getRelationshipSnapshot(character: AICharacter, target: AICharacter | u
   return character.relationships.find((item) => item.characterId === target.id) || null;
 }
 
-export interface PromptTranscriptOptions {
-  currentSpeakerId?: string;
-  chatType?: GroupChat['type'];
-}
-
-function getTranscriptSpeakerName(message: Message, characters: Map<string, AICharacter>) {
-  if (message.type === 'user' || message.type === 'god') return message.senderName || 'User';
-  if (message.type === 'system') return 'System';
-  if (message.type === 'event') return 'Event';
-  return message.senderName || characters.get(message.senderId)?.name || 'Unknown';
-}
-
-function compactTranscriptContent(content: string, max = 1400) {
-  const trimmed = (content || '').trim();
-  if (Array.from(trimmed).length <= max) return trimmed;
-  return `${Array.from(trimmed).slice(0, max).join('')}...`;
-}
-
-function buildUserSideTranscriptContent(message: Message, characters: Map<string, AICharacter>) {
-  return `${getTranscriptSpeakerName(message, characters)}: ${compactTranscriptContent(message.content)}`;
-}
+export type PromptTranscriptOptions = ConversationProjectionOptions;
 
 export function buildChatMessages(
   messages: Message[],
@@ -701,27 +680,7 @@ export function buildChatMessages(
   limit = 12,
   options: PromptTranscriptOptions = {},
 ) {
-  const visible = messages
-    .filter((message) => {
-      if (message.isDeleted) return false;
-      if (message.type === 'system') return false;
-      if (message.type !== 'event') return true;
-      return false;
-    })
-    .slice(-limit);
-  return visible
-    .map((message) => {
-      if (message.type === 'ai' && options.currentSpeakerId && message.senderId === options.currentSpeakerId) {
-        return {
-          role: 'assistant' as const,
-          content: compactTranscriptContent(message.content),
-        };
-      }
-      return {
-        role: 'user' as const,
-        content: buildUserSideTranscriptContent(message, characters),
-      };
-    });
+  return projectConversationForModel({ messages, characters, limit, options });
 }
 
 export function buildSystemPromptWithContext(character: AICharacter, chat: GroupChat, emotion: number, messages: Message[], characters: Map<string, AICharacter>) {

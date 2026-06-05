@@ -1004,7 +1004,7 @@ describe('chatEngine streaming preview', () => {
     });
   });
 
-  it('retries topic guidance when the first draft ignores the new topic and continues stale banter', async () => {
+  it('does not retry plain topic shifts as persistent guidance tasks', async () => {
     generateResponseMock.mockReset();
     generateResponseMock
       .mockResolvedValueOnce(JSON.stringify({
@@ -1054,22 +1054,13 @@ describe('chatEngine streaming preview', () => {
       apiConfig: buildProfiles(),
     });
 
-    expect(generateResponseMock).toHaveBeenCalledTimes(2);
-    expect(String(generateResponseMock.mock.calls[1]?.[1] || '')).toContain('Guidance retry');
-    expect(message.content).toContain('狼');
-    expect(message.content).toContain('羊');
-    expect(message.content).not.toContain('香蕉');
-    expect(message.metadata?.runtimeDecision?.guidanceExecution).toMatchObject({
-      status: 'accepted_after_retry',
-      validated: true,
-      retryCount: 1,
-      rejectedDraftCount: 1,
-      rejectedReasons: ['missing_topic_focus'],
-      finalReason: 'matched',
-    });
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(message.content).not.toContain('狼抓羊有没有过错得');
+    expect(message.metadata?.runtimeDecision?.directorIntent?.userGuidance).toBeFalsy();
+    expect(message.metadata?.runtimeDecision?.guidanceExecution).toBeUndefined();
   });
 
-  it('retries question topic guidance when the draft only mentions keywords without answering', async () => {
+  it('does not retry plain question topic shifts through keyword validation', async () => {
     generateResponseMock.mockReset();
     generateResponseMock
       .mockResolvedValueOnce(JSON.stringify({
@@ -1107,18 +1098,10 @@ describe('chatEngine streaming preview', () => {
       apiConfig: buildProfiles(),
     });
 
-    expect(generateResponseMock).toHaveBeenCalledTimes(2);
-    expect(String(generateResponseMock.mock.calls[1]?.[1] || '')).toContain('Guidance retry');
-    expect(message.content).toContain('过错');
-    expect(message.content).toContain('生存本能');
-    expect(message.metadata?.runtimeDecision?.guidanceExecution).toMatchObject({
-      status: 'accepted_after_retry',
-      validated: true,
-      retryCount: 1,
-      rejectedDraftCount: 1,
-      rejectedReasons: ['missing_question_answer'],
-      finalReason: 'matched',
-    });
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(message.content).toBe('狼抓羊证件照也挺好玩，灰太狼肯定想把羊画进去吧～');
+    expect(message.metadata?.runtimeDecision?.directorIntent?.userGuidance).toBeFalsy();
+    expect(message.metadata?.runtimeDecision?.guidanceExecution).toBeUndefined();
   });
 
   it('recovers the latest unresolved media guidance from messages even without a passed directorIntent', async () => {
