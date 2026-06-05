@@ -3,7 +3,7 @@ import type { AICharacter } from '../types/character';
 import type { DriverMessageCommitResult, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
-import { createCommittedLocalMessage } from '../services/chatCommitMessage';
+import { createStreamingLocalMessage } from '../services/chatCommitMessage';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
 import { projectCurrentChatMessages } from '../services/currentChatMessages';
 import type { UserDraftActivity } from '../services/userInputBuffer';
@@ -105,7 +105,7 @@ export function useChatRunLoop(params: {
         },
         onSpeakerSelected: (charId) => {
           const speaker = current.activeMembers.find((member) => member.id === charId);
-          const streamingMessage = createCommittedLocalMessage({
+          const streamingMessage = createStreamingLocalMessage({
             chatId: current.chatId!,
             type: 'ai',
             senderId: charId,

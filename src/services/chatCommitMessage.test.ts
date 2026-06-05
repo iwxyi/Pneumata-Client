@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Message } from '../types/message';
-import { createCommittedLocalMessage, persistLocalFirstMessage } from './chatCommitMessage';
+import { createCommittedLocalMessage, createStreamingLocalMessage, persistLocalFirstMessage } from './chatCommitMessage';
 
 const queueMessageSyncMock = vi.fn();
 
@@ -235,5 +235,19 @@ describe('persistLocalFirstMessage', () => {
     const first = createCommittedLocalMessage(payload, { timestamp: 123456 });
     const second = createCommittedLocalMessage(payload, { timestamp: 123456 });
     expect(first.id).toBe(second.id);
+  });
+
+  it('builds unique ids for repeated streaming placeholders with the same speaker and timestamp', () => {
+    const payload = {
+      chatId: 'chat-1',
+      type: 'ai' as const,
+      senderId: 'char-1',
+      senderName: '甲',
+      content: '',
+      emotion: 0,
+    };
+    const first = createStreamingLocalMessage(payload, { timestamp: 123456 });
+    const second = createStreamingLocalMessage(payload, { timestamp: 123456 });
+    expect(first.id).not.toBe(second.id);
   });
 });

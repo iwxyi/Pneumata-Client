@@ -60,6 +60,8 @@ function delayMs(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
+let streamingLocalMessageSequence = 0;
+
 function stableMessageSeed(parts: Array<string | number | undefined>) {
   const joined = parts.filter((item) => item !== undefined && item !== null && String(item).length > 0).join('|');
   let hash = 0;
@@ -87,7 +89,7 @@ function buildPreWithdrawalRevealMessage(message: Message): Message | null {
 
 export function createCommittedLocalMessage(
   message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>,
-  options?: { timestamp?: number },
+  options?: { timestamp?: number; identitySalt?: string },
 ): Message {
   const timestamp = options?.timestamp ?? Date.now();
   const id = `local-message-${timestamp}-${stableMessageSeed([
@@ -98,6 +100,7 @@ export function createCommittedLocalMessage(
     message.content,
     message.emotion,
     message.metadata ? JSON.stringify(message.metadata) : '',
+    options?.identitySalt,
   ])}`;
   return {
     ...message,
@@ -107,6 +110,16 @@ export function createCommittedLocalMessage(
     isDeleted: false,
     isOptimistic: false,
   };
+}
+
+export function createStreamingLocalMessage(
+  message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>,
+  options?: { timestamp?: number; identitySalt?: string },
+): Message {
+  streamingLocalMessageSequence += 1;
+  const identitySalt = options?.identitySalt
+    || `stream:${streamingLocalMessageSequence}:${Math.random().toString(36).slice(2)}`;
+  return createCommittedLocalMessage(message, { ...options, identitySalt });
 }
 
 export async function persistLocalFirstMessage(params: PersistLocalFirstMessageParams) {

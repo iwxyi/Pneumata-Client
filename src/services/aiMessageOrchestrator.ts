@@ -3,7 +3,7 @@ import type { DriverMessageCommitResult, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { SessionGenerationPromptContext } from '../types/sessionEngine';
-import { createCommittedLocalMessage } from './chatCommitMessage';
+import { createStreamingLocalMessage } from './chatCommitMessage';
 import { commitGeneratedMessageTurn } from './generatedMessageTurnCommit';
 import { generateSpeakerMessage, type LocalInterceptionEvent } from './chatEngine';
 
@@ -42,7 +42,7 @@ export async function generateAndCommitAiMessage(params: {
   getCurrentChat?: (id: string) => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
 }) {
-  const placeholder = params.streamingMessage || createCommittedLocalMessage({
+  const placeholder = params.streamingMessage || createStreamingLocalMessage({
     chatId: params.chatId,
     type: 'ai',
     senderId: params.speaker.id,
