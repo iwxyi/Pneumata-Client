@@ -556,6 +556,36 @@ function projectVisibleChats(chats: GroupChat[], pendingOperations: PendingChatO
   return projectEntities(chats, pendingOperations).filter((item) => item.deletedAt == null);
 }
 
+function markChatsLoadingIdle(state: ChatStore) {
+  if (!state.isLoading) return state;
+  return { isLoading: false };
+}
+
+function buildWarmChatStoreState(state: ChatStore) {
+  const visibleChats = projectVisibleChats(state.chats, state.pendingOperations);
+  const pendingEditSyncCount = state.pendingOperations.length;
+  const pendingEditSyncError = latestChatError(state.pendingOperations);
+  const isLoading = state.chats.length === 0;
+  if (
+    state.isLoading === isLoading
+    && state.pendingEditSyncCount === pendingEditSyncCount
+    && state.pendingEditSyncError === pendingEditSyncError
+    && buildChatListSignature(visibleChats) === buildChatListSignature(state.chats)
+  ) {
+    return state;
+  }
+  return {
+    ...buildWarmState({
+      items: state.chats,
+      projectVisible: (items) => projectVisibleChats(items, state.pendingOperations),
+      pendingEditSyncCount,
+      pendingEditSyncError,
+      isLoading,
+    }),
+    chats: visibleChats,
+  };
+}
+
 const latestChatError = latestSyncError;
 const createPendingChatOperation = createPendingOperation<Record<string, unknown>, PendingChatOperation>;
 const removePendingChatOperation = removePendingOperation;
@@ -728,22 +758,13 @@ export const useChatStore = create<ChatStore>()(
 
         loadChats: async () => {
           await ensureChatStoreHydrated();
-          set((state) => ({
-            ...buildWarmState({
-              items: state.chats,
-              projectVisible: (items) => projectVisibleChats(items, state.pendingOperations),
-              pendingEditSyncCount: state.pendingOperations.length,
-              pendingEditSyncError: latestChatError(state.pendingOperations),
-              isLoading: state.chats.length === 0,
-            }),
-            chats: projectVisibleChats(state.chats, state.pendingOperations),
-          }));
+          set(buildWarmChatStoreState);
           if (shouldSkipCloudSync()) {
-            set({ isLoading: false });
+            set(markChatsLoadingIdle);
             return;
           }
           if (get().chats.length > 0 && chatSyncScopes.isFresh(CHAT_SUMMARY_SCOPE)) {
-            set({ isLoading: false });
+            set(markChatsLoadingIdle);
             return;
           }
           return chatSyncScopes.run(CHAT_SUMMARY_SCOPE, async () => {
@@ -756,7 +777,7 @@ export const useChatStore = create<ChatStore>()(
                   revision: changeProbe.revision,
                   applied: false,
                 });
-                set({ isLoading: false });
+                set(markChatsLoadingIdle);
                 return;
               }
               const summaryChanges = changeProbe?.changes?.length ? chatSummariesFromChanges(changeProbe.changes) : null;

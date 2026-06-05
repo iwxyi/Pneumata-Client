@@ -564,6 +564,36 @@ function visibleCharactersFromState(state: CharacterStore) {
   return projectVisibleCharacters(state.characters, state.pendingOperations);
 }
 
+function markCharactersLoadingIdle(state: CharacterStore) {
+  if (!state.isLoading) return state;
+  return { isLoading: false };
+}
+
+function buildWarmCharacterStoreState(state: CharacterStore) {
+  const visibleCharacters = visibleCharactersFromState(state);
+  const pendingEditSyncCount = state.pendingOperations.length;
+  const pendingEditSyncError = latestCharacterError(state.pendingOperations);
+  const isLoading = state.characters.length === 0;
+  if (
+    state.isLoading === isLoading
+    && state.pendingEditSyncCount === pendingEditSyncCount
+    && state.pendingEditSyncError === pendingEditSyncError
+    && buildCharacterListSignature(visibleCharacters) === buildCharacterListSignature(state.characters)
+  ) {
+    return state;
+  }
+  return {
+    ...buildWarmState({
+      items: state.characters,
+      projectVisible: () => visibleCharactersFromState(state),
+      pendingEditSyncCount,
+      pendingEditSyncError,
+      isLoading,
+    }),
+    characters: visibleCharacters,
+  };
+}
+
 function queueAndProjectCharacters(state: CharacterStore, operations: PendingCharacterOperation[]) {
   const pendingOperations = mergeCharacterPatchOperations([...state.pendingOperations, ...operations]);
   return {
@@ -769,22 +799,13 @@ export const useCharacterStore = create<CharacterStore>()(
 
         loadCharacters: async () => {
           await ensureCharacterStoreHydrated();
-          set((state) => ({
-            ...buildWarmState({
-              items: state.characters,
-              projectVisible: () => visibleCharactersFromState(state),
-              pendingEditSyncCount: state.pendingOperations.length,
-              pendingEditSyncError: latestCharacterError(state.pendingOperations),
-              isLoading: state.characters.length === 0,
-            }),
-            characters: visibleCharactersFromState(state),
-          }));
+          set(buildWarmCharacterStoreState);
           if (shouldSkipCloudSync()) {
-            set({ isLoading: false });
+            set(markCharactersLoadingIdle);
             return;
           }
           if (get().characters.length > 0 && characterSyncScopes.isFresh(CHARACTER_SUMMARY_SCOPE)) {
-            set({ isLoading: false });
+            set(markCharactersLoadingIdle);
             return;
           }
           return characterSyncScopes.run(CHARACTER_SUMMARY_SCOPE, async () => {
@@ -797,7 +818,7 @@ export const useCharacterStore = create<CharacterStore>()(
                   revision: changeProbe.revision,
                   applied: false,
                 });
-                set({ isLoading: false });
+                set(markCharactersLoadingIdle);
                 return;
               }
               const changedSummaries = characterSummariesFromChanges(changeProbe?.changes);
