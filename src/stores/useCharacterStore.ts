@@ -73,6 +73,35 @@ function applyLocalCharacterPurge(characters: AICharacter[], ids: string[]) {
   return characters.filter((character) => !normalizedIds.has(character.id));
 }
 
+function createConflictCopyCharacterName(character: AICharacter, characters: AICharacter[]) {
+  const base = `${character.name || '未命名角色'}（本地副本）`;
+  const existing = new Set(characters.map((item) => normalizeCharacterNameKey(item.name)).filter(Boolean));
+  if (!existing.has(normalizeCharacterNameKey(base))) return base;
+  for (let index = 2; index < 100; index += 1) {
+    const candidate = `${base} ${index}`;
+    if (!existing.has(normalizeCharacterNameKey(candidate))) return candidate;
+  }
+  return `${base} ${Date.now()}`;
+}
+
+function createConflictCopyCharacterData(character: AICharacter, characters: AICharacter[]): Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'> {
+  const {
+    id: _id,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    isPreset: _isPreset,
+    deletedAt: _deletedAt,
+    fieldVersions: _fieldVersions,
+    characterDetailLoaded: _characterDetailLoaded,
+    ...data
+  } = character;
+  return {
+    ...data,
+    name: createConflictCopyCharacterName(character, characters),
+    deletedAt: null,
+  };
+}
+
 function applyLocalEmptyDeletedCharacters(characters: AICharacter[]) {
   return characters.filter((character) => character.deletedAt == null);
 }
@@ -481,7 +510,7 @@ interface CharacterStore extends PersistedCharacterState {
   clearPendingOperations: () => void;
   confirmCreateOperationsSynced: (entityIds: string[]) => void;
   discardFailedOperation: (operationId: string) => void;
-  resolveRemoteDeleteConflict: (id: string, resolution: 'restore_local' | 'discard_local') => Promise<void>;
+  resolveRemoteDeleteConflict: (id: string, resolution: 'restore_local' | 'discard_local' | 'save_as_new') => Promise<void>;
   retryFailedOperations: () => void;
   loadPendingSnapshot: () => Promise<AICharacter[]>;
   loadProjectedRecycleBin: () => Promise<AICharacter[]>;
@@ -1080,6 +1109,10 @@ export const useCharacterStore = create<CharacterStore>()(
             await get().syncPatch(id, { deletedAt: null }, 'patch');
             scheduleCharacterFlush(flushPendingOperations, 100);
             return;
+          }
+          if (resolution === 'save_as_new') {
+            const snapshot = get().characters.find((character) => character.id === id);
+            if (snapshot) await get().addCharacter(createConflictCopyCharacterData(snapshot, get().characters));
           }
           set((state) => {
             const pendingOperations = state.pendingOperations.filter((operation) => operation.entityId !== id);

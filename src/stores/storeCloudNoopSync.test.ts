@@ -448,6 +448,36 @@ describe('cloud no-op sync', () => {
     expect(useChatStore.getState().pendingOperations.some((operation) => operation.entityId === 'chat-2')).toBe(false);
     expect(useChatStore.getState().remoteDeletedChatIds).toEqual([]);
     expect(useChatStore.getState().currentChatId).toBeNull();
+
+    useChatStore.setState({
+      chats: [chat({ id: 'chat-3', name: '本地另存群聊', topic: '本地主题' })],
+      currentChatId: 'chat-3',
+      pendingOperations: [{
+        id: 'op-chat-copy',
+        entityId: 'chat-3',
+        kind: 'patch',
+        targetIds: ['chat-3'],
+        clientTimestamp: 130,
+        patch: { topic: '本地另存主题' },
+        status: 'pending',
+        attemptCount: 0,
+      }],
+      pendingEditSyncCount: 1,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: ['chat-3'],
+      remoteDeletedChats: [chat({ id: 'chat-3', deletedAt: 230 })],
+    });
+
+    await useChatStore.getState().resolveRemoteDeleteConflict('chat-3', 'save_as_new');
+
+    const chatState = useChatStore.getState();
+    const copiedChat = chatState.chats.find((item) => item.sourceChatId === 'chat-3');
+    expect(chatState.chats.some((item) => item.id === 'chat-3')).toBe(false);
+    expect(copiedChat?.name).toContain('本地另存群聊');
+    expect(copiedChat?.name).toContain('本地副本');
+    expect(chatState.pendingOperations.some((operation) => operation.entityId === 'chat-3')).toBe(false);
+    expect(chatState.pendingOperations.some((operation) => operation.kind === 'create' && operation.entityId === copiedChat?.id)).toBe(true);
+    expect(chatState.remoteDeletedChatIds).toEqual([]);
   });
 
   it('does not rewrite characters or fetch character summaries when the remote scope is not modified', async () => {
@@ -709,6 +739,34 @@ describe('cloud no-op sync', () => {
     expect(useCharacterStore.getState().characters.some((item) => item.id === 'character-2')).toBe(false);
     expect(useCharacterStore.getState().pendingOperations.some((operation) => operation.entityId === 'character-2')).toBe(false);
     expect(useCharacterStore.getState().remoteDeletedCharacterIds).toEqual([]);
+
+    useCharacterStore.setState({
+      characters: [character({ id: 'character-3', name: '本地另存角色', background: '本地背景' })],
+      pendingOperations: [{
+        id: 'op-character-copy',
+        entityId: 'character-3',
+        kind: 'patch',
+        targetIds: ['character-3'],
+        clientTimestamp: 130,
+        patch: { background: '本地另存背景' },
+        status: 'pending',
+        attemptCount: 0,
+      }],
+      pendingEditSyncCount: 1,
+      pendingEditSyncError: null,
+      remoteDeletedCharacterIds: ['character-3'],
+      isLoading: false,
+    });
+
+    await useCharacterStore.getState().resolveRemoteDeleteConflict('character-3', 'save_as_new');
+
+    const characterState = useCharacterStore.getState();
+    const copiedCharacter = characterState.characters.find((item) => item.id !== 'character-3' && item.name.includes('本地副本'));
+    expect(characterState.characters.some((item) => item.id === 'character-3')).toBe(false);
+    expect(copiedCharacter?.name).toContain('本地另存角色');
+    expect(characterState.pendingOperations.some((operation) => operation.entityId === 'character-3')).toBe(false);
+    expect(characterState.pendingOperations.some((operation) => operation.kind === 'create' && operation.entityId === copiedCharacter?.id)).toBe(true);
+    expect(characterState.remoteDeletedCharacterIds).toEqual([]);
   });
 
   it('does not rewrite artifacts or fetch artifact summaries when the remote scope is not modified', async () => {

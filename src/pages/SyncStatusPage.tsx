@@ -231,7 +231,7 @@ export default function SyncStatusPage() {
     if (item.scopeType === 'artifact') artifactStore.discardFailedJob(item.id);
   };
 
-  const resolveDeleteEditConflict = (item: typeof items[number], resolution: 'restore_local' | 'discard_local') => {
+  const resolveDeleteEditConflict = (item: typeof items[number], resolution: 'restore_local' | 'discard_local' | 'save_as_new') => {
     if (item.status !== 'conflict') return;
     const targetId = 'conflictTargetId' in item && typeof item.conflictTargetId === 'string' ? item.conflictTargetId : null;
     if (!targetId) return;
@@ -434,6 +434,9 @@ export default function SyncStatusPage() {
                       <>
                         <Button size="small" color="warning" onClick={() => resolveDeleteEditConflict(item, 'discard_local')}>
                           {isZh ? '放弃本地改动' : 'Discard local edits'}
+                        </Button>
+                        <Button size="small" variant="outlined" color="warning" onClick={() => resolveDeleteEditConflict(item, 'save_as_new')}>
+                          {isZh ? '另存为新对象' : 'Save as new'}
                         </Button>
                         <Button size="small" variant="contained" color="warning" onClick={() => resolveDeleteEditConflict(item, 'restore_local')}>
                           {isZh ? '恢复本地编辑' : 'Restore local edits'}

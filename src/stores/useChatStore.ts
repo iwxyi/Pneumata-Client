@@ -74,6 +74,28 @@ function applyLocalChatPurge(chats: GroupChat[], ids: string[]) {
   return chats.filter((chat) => !normalizedIds.has(chat.id));
 }
 
+function createConflictCopyChatData(chat: GroupChat): Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'> {
+  const {
+    id: _id,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    lastMessageAt: _lastMessageAt,
+    deletedAt: _deletedAt,
+    fieldVersions: _fieldVersions,
+    latestMessage: _latestMessage,
+    runtimeDetailLoaded: _runtimeDetailLoaded,
+    worldRuntimeLoaded: _worldRuntimeLoaded,
+    ...data
+  } = chat;
+  return {
+    ...data,
+    name: `${chat.name || '未命名聊天'}（本地副本）`,
+    sourceChatId: chat.sourceChatId || chat.id,
+    sourceMemberIds: chat.sourceMemberIds?.length ? chat.sourceMemberIds : chat.memberIds,
+    deletedAt: null,
+  };
+}
+
 function applyLocalEmptyDeletedChats(chats: GroupChat[]) {
   return chats.filter((chat) => chat.deletedAt == null);
 }
@@ -299,7 +321,7 @@ interface ChatStore extends PersistedChatState {
   clearPendingOperations: () => void;
   confirmCreateOperationsSynced: (entityIds: string[]) => void;
   discardFailedOperation: (operationId: string) => void;
-  resolveRemoteDeleteConflict: (id: string, resolution: 'restore_local' | 'discard_local') => Promise<void>;
+  resolveRemoteDeleteConflict: (id: string, resolution: 'restore_local' | 'discard_local' | 'save_as_new') => Promise<void>;
   retryFailedOperations: () => void;
   loadPendingSnapshot: () => Promise<GroupChat[]>;
   loadProjectedRecycleBin: () => Promise<GroupChat[]>;
@@ -1155,6 +1177,10 @@ export const useChatStore = create<ChatStore>()(
             await get().syncPatch(id, { deletedAt: null, isActive: true }, 'patch');
             scheduleChatFlush(flushPendingOperations, 100);
             return;
+          }
+          if (resolution === 'save_as_new') {
+            const snapshot = get().chats.find((chat) => chat.id === id) || get().remoteDeletedChats.find((chat) => chat.id === id);
+            if (snapshot) await get().addChat(createConflictCopyChatData(snapshot));
           }
           set((state) => {
             const pendingOperations = state.pendingOperations.filter((operation) => operation.entityId !== id);
