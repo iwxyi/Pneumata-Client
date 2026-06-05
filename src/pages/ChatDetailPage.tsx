@@ -104,7 +104,7 @@ export default function ChatDetailPage() {
   const isSplitDetailPane = pane.role === 'detail';
   const { setHideMobileBottomNav } = useLayoutHeaderActions();
 
-  const { chats, updateChat, applyChatRuntimeDelta, loadChat, prefetchChats, markChatsWarm, isLoading: chatsLoading, remoteDeletedChatIds, remoteDeletedChats } = useChatStore();
+  const { chats, updateChat, applyChatRuntimeDelta, loadChat, markChatsWarm, isLoading: chatsLoading, remoteDeletedChatIds, remoteDeletedChats } = useChatStore();
   const { characters, updateCharacter, updateCharacters, loadCharacter, markCharactersWarm } = useCharacterStore();
   const { messages, messageWindowsByChatId, hydrateMessagesFromCache, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, upsertMessages, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
@@ -135,6 +135,8 @@ export default function ChatDetailPage() {
 
   useLayoutEffect(() => {
     if (!id) return;
+    if (!useChatStore.persist.hasHydrated()) void useChatStore.persist.rehydrate();
+    if (!useCharacterStore.persist.hasHydrated()) void useCharacterStore.persist.rehydrate();
     void hydrateMessagesFromCache(id);
   }, [hydrateMessagesFromCache, id]);
 
@@ -143,7 +145,6 @@ export default function ChatDetailPage() {
     setDetailBootstrapComplete(false);
     markChatsWarm();
     markCharactersWarm();
-    void prefetchChats();
     void (async () => {
       const loadedChat = id ? await loadChat(id) : null;
       const memberIds = loadedChat?.memberIds || useChatStore.getState().chats.find((item) => item.id === id)?.memberIds || [];
@@ -154,7 +155,7 @@ export default function ChatDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, loadCharacter, loadChat, markCharactersWarm, markChatsWarm, prefetchChats]);
+  }, [id, loadCharacter, loadChat, markCharactersWarm, markChatsWarm]);
 
   const remoteDeletedChat = remoteDeletedChats.find((c) => c.id === id);
   const chat = chats.find((c) => c.id === id) || remoteDeletedChat;
@@ -640,6 +641,37 @@ export default function ChatDetailPage() {
     setHideMobileBottomNav(true);
     return () => setHideMobileBottomNav(false);
   }, [setHideMobileBottomNav]);
+
+  if (!chat && currentChatMessages.length > 0) {
+    return (
+      <Box sx={{ display: 'flex', flex: 1, minHeight: 0, height: '100%', overflow: 'hidden', position: 'relative' }}>
+        <GlassHeader
+          title={detailBootstrapComplete
+            ? (isZh ? '本地聊天记录' : 'Local messages')
+            : (isZh ? '本地聊天记录 · 后台同步中' : 'Local messages · syncing')}
+          leading={(
+            <IconButton onClick={() => navigate('/chats')}>
+              <ArrowBackIcon />
+            </IconButton>
+          )}
+        />
+        <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1 }}>
+          <MessageList
+            key={id}
+            messages={currentChatMessages}
+            characters={characters}
+            currentUser={currentUser ? { nickname: currentUser.nickname, avatar: currentUser.avatar } : undefined}
+            isLoadingOlder={isLoadingOlder}
+            hasMore={hasMore}
+            loadingText={t('common.loading')}
+            topHint="没有更早的消息"
+            topInset={isSplitDetailPane ? { xs: '76px', sm: '76px' } : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
+            bottomInset={{ xs: '24px', sm: '24px' }}
+          />
+        </Box>
+      </Box>
+    );
+  }
 
   if (!chat) {
     return (

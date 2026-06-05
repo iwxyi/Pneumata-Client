@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -39,6 +39,11 @@ export default function CharacterEditorPage() {
       return { editId, name };
     });
   }, [editId]);
+
+  useLayoutEffect(() => {
+    if (!useCharacterStore.persist.hasHydrated()) void useCharacterStore.persist.rehydrate();
+    if (!useChatStore.persist.hasHydrated()) void useChatStore.persist.rehydrate();
+  }, []);
 
   const goBack = useCallback(() => {
     if (returnTo) {
