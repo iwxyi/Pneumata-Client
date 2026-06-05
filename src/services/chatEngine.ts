@@ -228,7 +228,11 @@ function trimSpeakerPrefix(content: string, speakerName: string) {
 function trimHumanChatStyle(content: string, preserveParagraphs = false) {
   const trimmed = content.trim();
   if (!trimmed) return trimmed;
-  return preserveParagraphs ? trimmed.replace(/\n{3,}/g, '\n\n') : trimmed.replace(/\n{2,}/g, '\n');
+  if (preserveParagraphs) return trimmed.replace(/\n{3,}/g, '\n\n');
+  return trimmed
+    .replace(/[ \t]*\n+[ \t]*/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 function salvageEmptyResponse(raw: string, speakerName: string, showRoleActions?: boolean) {
@@ -263,10 +267,16 @@ function normalizeExtraMessages(params: {
   surface?: ResponseSurface;
   turnPlan?: TurnPlan | null;
 }) {
+  if (params.turnPlan && !params.turnPlan.allowExtraMessages) return null;
   if (!Array.isArray(params.extraMessages)) return null;
+  const maxExtraMessages = params.turnPlan?.targetBubbleCount
+    ? Math.max(0, Math.min(4, params.turnPlan.targetBubbleCount - 1))
+    : 4;
+  if (maxExtraMessages <= 0) return null;
   const normalizedContent = normalizeForComparison(params.content);
   const seen = new Set<string>(normalizedContent ? [normalizedContent] : []);
   const cleaned = params.extraMessages
+    .slice(0, maxExtraMessages)
     .map((item) => (typeof item === 'string'
       ? finalizeResponse(item, params.intent, params.speaker, params.recentMessages, params.showRoleActions, false, params.surface)
       : ''))
@@ -379,7 +389,7 @@ function buildStreamingDisplayContent(raw: string, speaker: AICharacter, showRol
 
 function buildRoleActionVisibilityPrompt(showRoleActions: boolean) {
   return showRoleActions
-    ? '\n\nVisible role action policy:\n- Brief physical beats or gesture narration may appear when they naturally carry the line, but dialogue should remain the main visible content.'
+    ? '\n\nVisible role action policy:\n- Brief physical beats may appear only when they naturally change the meaning of the spoken line.\n- Do not format role actions as standalone stage-direction paragraphs. Keep chat bubbles primarily conversational, not script blocks.'
     : '\n\nVisible role action policy:\n- Output only the spoken chat message as visible content.\n- Do not include standalone action narration, stage directions, gesture beats, or parenthesized physical descriptions in the visible reply.\n- If a physical reaction matters, express its emotional effect through the spoken line instead of writing an action aside.';
 }
 
@@ -572,7 +582,7 @@ function buildResponseSurfacePrompt(surface: ResponseSurface) {
       ? '\n- The speaker has enough role/expertise support for structured output when the task asks for it, but structure is not mandatory.'
       : '\n- Match the speaker’s actual background and speech profile; use structure only when it feels natural.';
   if (surface.kind === 'chat') {
-    return `\nResponse surface:\n- Default to live chat presence, not a fixed length. The model must decide whether this exact reply should be tiny, conversational, or fully explanatory from the current request, character, and room context.${roleFitHint}`;
+    return `\nResponse surface:\n- Default to live chat presence, not a fixed length. The model must decide whether this exact reply should be tiny, conversational, or fully explanatory from the current request, character, and room context.\n- A visible chat bubble should read as one sent message, not a screenplay excerpt. Do not use blank-line paragraph choreography inside a normal chat bubble.${roleFitHint}`;
   }
   if (surface.kind === 'creative') {
     return `\nResponse surface:\n- Creative form is available when the model judges that the current request calls for it. It may be a brief idea, a scene, an outline, dialogue, critique, or richer prose.\n- Do not use a fixed template. Choose form from the actual request, character voice, room style, and discussion topic.\n- Do not limit word count artificially, but do not inflate beyond what this speaker would plausibly write.\n- Preserve paragraphs, lists, headings, and quoted excerpts only when they improve readability.${roleFitHint}`;
@@ -625,7 +635,8 @@ function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeP
 - Real chat has uneven turns: sometimes a tiny reaction, sometimes a clipped sentence, sometimes a longer explanation, defense, or practical answer.
 - Avoid making consecutive messages all similar in size, opening pattern, or cadence.
 ${rhythm}
-- If you use extraMessages, keep content as the first visible bubble and put only the later consecutive bubbles in extraMessages. The full turn may contain up to 5 visible bubbles total. Vary lengths naturally. Do not split purely by punctuation.`;
+- If you use extraMessages, keep content as the first visible bubble and put only the later consecutive bubbles in extraMessages. The full turn may contain up to 5 visible bubbles total. Vary lengths naturally. Do not split purely by punctuation.
+- Do not use extraMessages to separate action narration from dialogue. A later bubble needs its own social purpose, not just another stage direction.`;
 }
 
 function getVisibleCharLength(content: string) {

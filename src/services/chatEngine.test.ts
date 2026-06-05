@@ -592,8 +592,33 @@ describe('chatEngine streaming preview', () => {
       apiConfig: buildProfiles(),
     });
 
-    expect(message.content).toBe('等下\n你刚说谁来着？');
+    expect(message.content).toBe('等下 你刚说谁来着？');
     expect(message.extraMessages ?? null).toBeNull();
+  });
+
+  it('normalizes screenplay-like chat paragraphs into one visible chat bubble', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '（轻叹一声，目光落向窗外竹影）\n\n热闹自有热闹的好，冷清也有冷清的趣。\n\n（转回视线，语气淡了几分）你且去别处热闹罢。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const dai = buildCharacter('dai', '林黛玉');
+    const lu = buildCharacter('lu', '鲁智深');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['dai', 'lu'] }),
+      speaker: dai,
+      characters: [dai, lu],
+      messages: [buildAiMessage('lu', '鲁智深', '那俺去菜园子里吼两嗓子。', 1)],
+      apiConfig: buildProfiles(),
+    });
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+
+    expect(prompt).toContain('not a screenplay excerpt');
+    expect(prompt).toContain('Do not format role actions as standalone stage-direction paragraphs');
+    expect(message.content).toBe('（轻叹一声，目光落向窗外竹影） 热闹自有热闹的好，冷清也有冷清的趣。 （转回视线，语气淡了几分）你且去别处热闹罢。');
   });
 
   it('keeps ordinary user turns in transcript instead of elevating them into system-level guidance', async () => {
@@ -626,7 +651,7 @@ describe('chatEngine streaming preview', () => {
     expect((message.metadata?.runtimeDecision as Record<string, unknown> | undefined)?.latestHumanTurn).toBeUndefined();
   });
 
-  it('allows up to five visible bubbles and merges overflow into the final extra bubble', async () => {
+  it('ignores unsolicited extra bubbles when the turn plan calls for one bubble', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
       content: '一',
@@ -647,7 +672,7 @@ describe('chatEngine streaming preview', () => {
     });
 
     expect(message.content).toBe('一');
-    expect(message.extraMessages).toEqual(['二', '三', '四', '五\n六']);
+    expect(message.extraMessages ?? null).toBeNull();
   });
 
   it('retries when a draft exactly repeats a recent room line', async () => {
