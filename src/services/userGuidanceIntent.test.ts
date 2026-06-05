@@ -105,4 +105,19 @@ describe('userGuidanceIntent', () => {
     expect(intent?.actorIds).toEqual(['mei']);
     expect(getGuidanceMemoryTargetActorIds(intent, members, 'mei')).toEqual(['hui']);
   });
+
+  it('matches natural short display names inside longer character names for direct tasks', () => {
+    const intent = parseUserGuidanceIntent('苏苏你写一篇这个话题的800字作文', [
+      character('susu', '穿搭博主苏苏'),
+      character('luxun', '鲁智深'),
+      character('xiao', '潇潇'),
+    ]);
+
+    expect(intent).toMatchObject({
+      kind: 'direct_reply',
+      actorIds: ['susu'],
+      beatType: 'answer',
+      maxTurns: 1,
+    });
+  });
 });

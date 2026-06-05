@@ -35,11 +35,57 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function normalizeActorAlias(value: string) {
+  return value.replace(/\s+/g, '').trim();
+}
+
+function buildActorAliasCandidates(character: AICharacter) {
+  const name = normalizeActorAlias(character.name || '');
+  if (!name) return [];
+  const aliases = new Set<string>([name]);
+  const latinTail = name.match(/[A-Za-z][A-Za-z0-9_-]{1,20}$/)?.[0];
+  if (latinTail) aliases.add(latinTail);
+  const rolePrefixMatch = name.match(/(?:博主|达人|编辑|改造师|买手|主播|记者|律师|医生|老师|教授|工程师|设计师|摄影师|画师|作家|编剧|导演|主持人|师傅|大哥|姐姐|哥哥|妹妹)([\u4e00-\u9fff]{2,4})$/);
+  if (rolePrefixMatch?.[1]) aliases.add(rolePrefixMatch[1]);
+  if (/^[\u4e00-\u9fff]{4,}$/.test(name)) {
+    const suffix = name.slice(-2);
+    if (!/^(老师|教授|医生|律师|编辑|记者|导演|博主|达人|买手|主播|画师|作家|师傅|大哥|姐姐|哥哥|妹妹)$/.test(suffix)) {
+      aliases.add(suffix);
+    }
+  }
+  return Array.from(aliases).filter((alias) => alias.length >= 2);
+}
+
+function buildUniqueActorAliases(characters: AICharacter[]) {
+  const owners = new Map<string, AICharacter[]>();
+  characters.forEach((character) => {
+    buildActorAliasCandidates(character).forEach((alias) => {
+      const list = owners.get(alias) || [];
+      list.push(character);
+      owners.set(alias, list);
+    });
+  });
+  const result = new Map<string, AICharacter>();
+  owners.forEach((list, alias) => {
+    const uniqueIds = new Set(list.map((item) => item.id));
+    if (uniqueIds.size === 1) result.set(alias, list[0]);
+  });
+  return result;
+}
+
 function sortByNamePosition(text: string, characters: AICharacter[]) {
-  return characters
-    .map((character) => ({ character, index: character.name ? text.indexOf(character.name) : -1 }))
-    .filter((item) => item.index >= 0)
-    .sort((a, b) => a.index - b.index);
+  const normalizedText = normalizeActorAlias(text);
+  const aliases = buildUniqueActorAliases(characters);
+  const earliestByActor = new Map<string, { character: AICharacter; index: number; alias: string }>();
+  aliases.forEach((character, alias) => {
+    const index = normalizedText.indexOf(alias);
+    if (index < 0) return;
+    const existing = earliestByActor.get(character.id);
+    if (!existing || index < existing.index || (index === existing.index && alias.length > existing.alias.length)) {
+      earliestByActor.set(character.id, { character, index, alias });
+    }
+  });
+  return Array.from(earliestByActor.values()).sort((a, b) => a.index - b.index || b.alias.length - a.alias.length);
 }
 
 function findMentionedActors(text: string, characters: AICharacter[]) {
@@ -115,10 +161,15 @@ function resolveActionActors(text: string, characters: AICharacter[], imageReque
 
 function stripLeadingActorNames(text: string, characters: AICharacter[], actorIds: string[]) {
   let next = text;
+  const aliases = buildUniqueActorAliases(characters);
   for (const actorId of actorIds) {
-    const name = characters.find((character) => character.id === actorId)?.name;
-    if (!name) continue;
-    next = next.replace(new RegExp(`^\\s*${escapeRegExp(name)}\\s*[,，、和与跟]?\\s*`), '');
+    const names = Array.from(aliases.entries())
+      .filter(([, character]) => character.id === actorId)
+      .map(([alias]) => alias)
+      .sort((left, right) => right.length - left.length);
+    for (const name of names) {
+      next = next.replace(new RegExp(`^\\s*${escapeRegExp(name)}\\s*[,，、和与跟]?\\s*`), '');
+    }
   }
   return normalizeText(next);
 }

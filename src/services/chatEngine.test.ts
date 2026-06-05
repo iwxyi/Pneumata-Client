@@ -1328,6 +1328,52 @@ describe('chatEngine streaming preview', () => {
     expect((completed[0] as { metadata?: { attachments?: unknown[] } }).metadata?.attachments).toHaveLength(1);
   });
 
+  it('locks short-name direct writing guidance to the intended long-named speaker', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '如果让我写，我会先把AI当成一面镜子：它照出的不是人类会不会被替代，而是我们愿不愿意重新分配创造力。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const susu = buildCharacter('susu', '穿搭博主苏苏');
+    const luxun = buildCharacter('luxun', '鲁智深');
+    const xiao = buildCharacter('xiao', '潇潇');
+    const completed: unknown[] = [];
+    const selected: string[] = [];
+    const now = Date.now();
+
+    await runOneRound(
+      buildChat({ memberIds: ['susu', 'luxun', 'xiao'] }),
+      [susu, luxun, xiao],
+      [{
+        id: 'guide',
+        chatId: 'chat-1',
+        type: 'god',
+        senderId: 'user',
+        senderName: '开发者',
+        content: '苏苏你写一篇这个话题的800字作文',
+        emotion: 0,
+        timestamp: now - 1000,
+        isDeleted: false,
+      }],
+      buildProfiles(),
+      {
+        onSpeakerSelected: (characterId) => selected.push(characterId),
+        onMessageChunk: () => undefined,
+        onMessageComplete: (message) => { completed.push(message); },
+        onError: (error) => { throw error; },
+      },
+      undefined,
+      undefined,
+      {},
+    );
+
+    expect(selected[0]).toBe('susu');
+    expect(completed[0]).toMatchObject({ senderId: 'susu' });
+    expect((completed[0] as { metadata?: { runtimeDecision?: { directorIntent?: { userGuidance?: { actorIds?: string[] } } } } }).metadata?.runtimeDecision?.directorIntent?.userGuidance?.actorIds).toEqual(['susu']);
+  });
+
   it('does not rotate explicit targeted guidance to another speaker when the locked actor fails', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
