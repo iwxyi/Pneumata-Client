@@ -74,12 +74,14 @@ function projectLocalMessages(messages: Message[]) {
 }
 
 function mergeLocalWindow(cache: Record<string, CachedMessageWindow>, chatId: string, messages: Message[]) {
+  const currentWindow = cache[chatId];
   return trimCache({
     ...cache,
     [chatId]: {
       messages: trimMessages(messages),
       lastSyncedAt: Date.now(),
       updatedAt: messages.at(-1)?.timestamp || Date.now(),
+      remoteExhausted: currentWindow?.remoteExhausted,
     },
   });
 }
@@ -120,6 +122,13 @@ function activeMessageWindow(messages: Message[], limit = DEFAULT_MESSAGE_WINDOW
   return messages.slice(-limit);
 }
 
+function canLoadMoreFromWindow(window: CachedMessageWindow | undefined, activeMessages: Message[], limit: number) {
+  const cachedMessages = window?.messages || [];
+  if (cachedMessages.length > activeMessages.length) return true;
+  if (shouldSkipCloudSync()) return cachedMessages.length >= limit;
+  return !window?.remoteExhausted;
+}
+
 function localHydratedWindow(state: MessageStore, chatId: string) {
   const cachedWindow = state.messageWindowsByChatId[chatId];
   const cachedMessages = cachedWindow?.messages || [];
@@ -127,7 +136,7 @@ function localHydratedWindow(state: MessageStore, chatId: string) {
   return {
     activeChatId: chatId,
     messages: activeMessages,
-    hasMore: cachedMessages.length > activeMessages.length || cachedMessages.length >= DEFAULT_MESSAGE_WINDOW_LIMIT,
+    hasMore: canLoadMoreFromWindow(cachedWindow, activeMessages, DEFAULT_MESSAGE_WINDOW_LIMIT),
   };
 }
 
@@ -166,7 +175,7 @@ function localLoadMessages(state: MessageStore, chatId: string, options?: { appe
     activeChatId: chatId,
     isLoading: false,
     isLoadingOlder: false,
-    hasMore: current.length > activeMessages.length,
+    hasMore: canLoadMoreFromWindow(currentWindow, activeMessages, limit),
   };
 }
 
@@ -4229,7 +4238,7 @@ function maybeReplayCoreGuestMessages() {
 void maybeReplayCoreGuestMessages;
 
 const DEFAULT_MESSAGE_WINDOW_LIMIT = 40;
-const MAX_CACHED_MESSAGES_PER_CHAT = 100;
+const MAX_CACHED_MESSAGES_PER_CHAT = 1000;
 const MAX_ACTIVE_MESSAGES_PER_CHAT = 1000;
 const MAX_CACHED_CHATS = 12;
 const MAX_PERSISTED_DATA_URL_CHARS = 2048;
@@ -4238,6 +4247,7 @@ interface CachedMessageWindow {
   messages: Message[];
   lastSyncedAt: number;
   updatedAt: number;
+  remoteExhausted?: boolean;
 }
 
 interface PendingMessageOperation {
@@ -4780,7 +4790,7 @@ export const useMessageStore = create<MessageStore>()(
                 : activeMessages,
               isLoading: false,
               isLoadingOlder: false,
-              hasMore: (currentWindowBeforeFetch?.messages?.length || 0) > activeMessages.length || (currentWindowBeforeFetch?.messages?.length || 0) >= limit,
+              hasMore: canLoadMoreFromWindow(currentWindowBeforeFetch, activeMessages, limit),
             }));
             return;
           }
@@ -4799,11 +4809,12 @@ export const useMessageStore = create<MessageStore>()(
                 : activeMessages,
               isLoading: false,
               isLoadingOlder: false,
-              hasMore: (currentWindowBeforeFetch?.messages?.length || 0) > activeMessages.length || (currentWindowBeforeFetch?.messages?.length || 0) >= limit,
+              hasMore: canLoadMoreFromWindow(currentWindowBeforeFetch, activeMessages, limit),
             }));
             return;
           }
-          const fetched = messagesFromWindowChanges(changeProbe?.changes, chatId)
+          const fetchedFromChanges = messagesFromWindowChanges(changeProbe?.changes, chatId);
+          const fetched = fetchedFromChanges
             || await api.getMessages(chatId, { limit, before: options?.before }) as unknown as Message[];
           set((state) => {
             const currentWindow = state.messageWindowsByChatId[chatId];
@@ -4819,15 +4830,21 @@ export const useMessageStore = create<MessageStore>()(
             const currentVisibleCount = countUniqueMessages(activeCurrent);
             const nextVisibleCount = countUniqueMessages(nextActiveMessages);
             const addedOlderMessages = nextVisibleCount > currentVisibleCount;
+            const remoteExhausted = fetchedFromChanges
+              ? Boolean(currentWindow?.remoteExhausted)
+              : isAppend
+                ? fetched.length < limit || !addedOlderMessages
+                : fetched.length < limit;
             const nextHasMore = isAppend
-              ? fetched.length >= limit && addedOlderMessages
-              : fetched.length >= limit;
+              ? !remoteExhausted
+              : canLoadMoreFromWindow({ ...(currentWindow || { messages: [] as Message[], lastSyncedAt: 0, updatedAt: 0 }), messages: trimmed, remoteExhausted }, nextActiveMessages, limit);
             const nextCache = trimCache({
               ...state.messageWindowsByChatId,
               [chatId]: {
                 messages: trimmed,
                 lastSyncedAt: Date.now(),
                 updatedAt: trimmed.at(-1)?.timestamp || currentWindow?.updatedAt || Date.now(),
+                remoteExhausted,
               },
             });
             if (!isAppend && !options?.before) {

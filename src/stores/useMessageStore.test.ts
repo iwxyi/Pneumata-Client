@@ -2,6 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Message } from '../types/message';
 import { storageKey } from '../constants/brand';
 
+const getMessagesMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../services/api', () => ({
+  api: {
+    getMessages: getMessagesMock,
+    createMessage: vi.fn(),
+    deleteMessage: vi.fn(),
+  },
+}));
+
 interface StorageLike {
   getItem: (key: string) => string | null;
   setItem: (key: string, value: string) => void;
@@ -48,6 +58,7 @@ function buildMessage(index: number, chatId = 'chat-1'): Message {
 describe('useMessageStore', () => {
   beforeEach(() => {
     vi.resetModules();
+    getMessagesMock.mockReset();
     vi.stubGlobal('localStorage', createStorageMock());
     localStorage.setItem(storageKey('auth-mode'), 'local');
   });
@@ -61,7 +72,7 @@ describe('useMessageStore', () => {
     const { useMessageStore } = await import('./useMessageStore');
     const chatId = 'chat-1';
     const existingMessages = Array.from({ length: 1000 }, (_, index) => buildMessage(index, chatId));
-    const cachedMessages = existingMessages.slice(-100);
+    const cachedMessages = existingMessages;
 
     useMessageStore.setState({
       messages: existingMessages,
@@ -85,9 +96,71 @@ describe('useMessageStore', () => {
     expect(state.messages).toHaveLength(1000);
     expect(state.messages[0]?.id).toBe('message-1');
     expect(state.messages.at(-1)?.id).toBe('message-1000');
-    expect(state.messageWindowsByChatId[chatId]?.messages).toHaveLength(100);
-    expect(state.messageWindowsByChatId[chatId]?.messages[0]?.id).toBe('message-901');
+    expect(state.messageWindowsByChatId[chatId]?.messages).toHaveLength(1000);
+    expect(state.messageWindowsByChatId[chatId]?.messages[0]?.id).toBe('message-1');
     expect(state.messageWindowsByChatId[chatId]?.messages.at(-1)?.id).toBe('message-1000');
+  });
+
+  it('keeps cloud-backed windows scrollable when local cache is only a partial window', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const cachedMessages = Array.from({ length: 100 }, (_, index) => buildMessage(index + 901, chatId));
+
+    useMessageStore.setState({
+      messages: [],
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: cachedMessages,
+          lastSyncedAt: Date.now(),
+          updatedAt: cachedMessages.at(-1)?.timestamp ?? 0,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: null,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: false,
+    });
+
+    await useMessageStore.getState().hydrateMessagesFromCache(chatId);
+
+    expect(useMessageStore.getState().messages[0]?.id).toBe('message-961');
+    expect(useMessageStore.getState().hasMore).toBe(true);
+  });
+
+  it('loads older cloud messages past the local cache window', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const cachedMessages = Array.from({ length: 100 }, (_, index) => buildMessage(index + 901, chatId));
+    const olderMessages = Array.from({ length: 40 }, (_, index) => buildMessage(index + 861, chatId));
+    getMessagesMock.mockResolvedValueOnce(olderMessages);
+
+    useMessageStore.setState({
+      messages: cachedMessages.slice(-40),
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: cachedMessages,
+          lastSyncedAt: Date.now(),
+          updatedAt: cachedMessages.at(-1)?.timestamp ?? 0,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: true,
+    });
+
+    await useMessageStore.getState().loadMessages(chatId, { append: true, before: 961, limit: 40 });
+
+    const state = useMessageStore.getState();
+    expect(getMessagesMock).toHaveBeenCalledWith(chatId, { limit: 40, before: 961 });
+    expect(state.messages[0]?.id).toBe('message-861');
+    expect(state.messages.at(-1)?.id).toBe('message-1000');
+    expect(state.messages).toHaveLength(80);
+    expect(state.hasMore).toBe(true);
   });
 
   it('strips non-message fields when merging fetched and persisted messages', async () => {
