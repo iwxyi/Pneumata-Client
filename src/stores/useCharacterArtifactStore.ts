@@ -338,8 +338,22 @@ function shouldUploadArtifactItem(local: CharacterArtifactEntry, summary: Charac
   return (local.updatedAt || 0) > (summary.updatedAt || 0);
 }
 
+function shouldDeleteArtifactItem(local: CharacterArtifactEntry, summary: CharacterArtifactSummaryEntry | undefined) {
+  if (local.deletedAt == null) return false;
+  const localDeletedAt = local.deletedAt || local.updatedAt || local.createdAt || 0;
+  if (!summary) return true;
+  const remoteDeletedAt = summary.deletedAt || 0;
+  const remoteUpdatedAt = summary.updatedAt || 0;
+  if (remoteDeletedAt >= localDeletedAt) return false;
+  return localDeletedAt > remoteUpdatedAt;
+}
+
 function buildArtifactUploadOperationId(item: CharacterArtifactEntry) {
   return `artifact-upsert:${item.id}:${item.updatedAt || item.createdAt || 0}`;
+}
+
+function buildArtifactDeleteOperationId(item: CharacterArtifactEntry) {
+  return `artifact-delete:${item.id}:${item.deletedAt || item.updatedAt || item.createdAt || 0}`;
 }
 
 function compactString(value: string | undefined | null, max: number) {
@@ -1016,6 +1030,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
               });
             }
             const uploads = projectedItems.filter((item) => artifactMatchesQuery(item, query) && shouldUploadArtifactItem(item, remoteSummaryById.get(item.id)));
+            const deletes = projectedItems.filter((item) => artifactMatchesQuery(item, query) && shouldDeleteArtifactItem(item, remoteSummaryById.get(item.id)));
             if (uploads.length) {
               for (const item of uploads) {
                 try {
@@ -1039,16 +1054,38 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
                 }
               }
             }
+            if (deletes.length) {
+              for (const item of deletes) {
+                try {
+                  const response = await api.deleteCharacterArtifactItem(item.id, {
+                    operationId: buildArtifactDeleteOperationId(item),
+                    baseRevision: item.revision || 0,
+                    deletedAt: item.deletedAt || item.updatedAt || item.createdAt || Date.now(),
+                  });
+                  if (response.status === 'rejected' || response.accepted === false) {
+                    console.warn('Skipped stale character artifact tombstone:', {
+                      item: buildArtifactUploadDebug(item),
+                      reason: response.reason,
+                      revision: response.revision,
+                      deletedAt: response.deletedAt,
+                    });
+                  }
+                } catch (error) {
+                  console.error('Failed to delete character artifact item:', { item: buildArtifactUploadDebug(item), error });
+                  throw error;
+                }
+              }
+            }
             artifactSyncScopes.markChecked(scope, {
               cursor: changeProbe?.cursor,
               revision: changeProbe?.revision,
-              applied: mergedSignature !== localSignature || uploads.length > 0,
+              applied: mergedSignature !== localSignature || uploads.length > 0 || deletes.length > 0,
             });
             if (scope === ARTIFACT_SUMMARY_SCOPE) {
               artifactSyncScopes.markChecked(ARTIFACT_SUMMARY_SCOPE, {
                 cursor: changeProbe?.cursor,
                 revision: changeProbe?.revision,
-                applied: mergedSignature !== localSignature || uploads.length > 0,
+                applied: mergedSignature !== localSignature || uploads.length > 0 || deletes.length > 0,
               });
             }
           } catch (error) {

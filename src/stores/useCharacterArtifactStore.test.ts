@@ -18,6 +18,7 @@ const apiMocks = vi.hoisted(() => ({
   getCharacterArtifactSummaries: vi.fn(),
   getCharacterArtifactItem: vi.fn(),
   upsertCharacterArtifactItem: vi.fn(),
+  deleteCharacterArtifactItem: vi.fn(),
 }));
 
 vi.mock('../services/api', async () => {
@@ -30,6 +31,7 @@ vi.mock('../services/api', async () => {
       getCharacterArtifactSummaries: apiMocks.getCharacterArtifactSummaries,
       getCharacterArtifactItem: apiMocks.getCharacterArtifactItem,
       upsertCharacterArtifactItem: apiMocks.upsertCharacterArtifactItem,
+      deleteCharacterArtifactItem: apiMocks.deleteCharacterArtifactItem,
     },
   };
 });
@@ -115,9 +117,11 @@ describe('useCharacterArtifactStore', () => {
     apiMocks.getCharacterArtifactSummaries.mockReset();
     apiMocks.getCharacterArtifactItem.mockReset();
     apiMocks.upsertCharacterArtifactItem.mockReset();
+    apiMocks.deleteCharacterArtifactItem.mockReset();
     apiMocks.getSyncChanges.mockRejectedValue(new Error('sync probe unavailable'));
     apiMocks.getCharacterArtifactSummaries.mockResolvedValue({ items: [], updatedAt: Date.now() });
     apiMocks.upsertCharacterArtifactItem.mockResolvedValue({ success: true, updatedAt: Date.now(), revision: 1 });
+    apiMocks.deleteCharacterArtifactItem.mockResolvedValue({ success: true, accepted: true, status: 'accepted', deletedAt: Date.now(), revision: 2 });
     generateDailyDiaryMock.mockClear();
     artifactStore.setState({ items: [], jobs: [], isProcessing: false, unreadLetterCount: 0 });
     settingsStore.setState({
@@ -475,6 +479,59 @@ describe('useCharacterArtifactStore', () => {
     expect(item?.text).toContain('本地刚刚');
     expect(artifactStore.getState().getLetterEntries()).toHaveLength(1);
     expect(artifactStore.getState().unreadLetterCount).toBe(1);
+  });
+
+  it('submits newer local artifact tombstones with a conditional delete operation', async () => {
+    localStore.set('pneumata-token', 'token');
+    localStore.set('pneumata-auth-mode', 'cloud');
+    artifactStore.setState({
+      items: [{
+        id: 'letter-deleted-local',
+        kind: 'final_letter',
+        characterId: 'c1',
+        characterName: '苏苏',
+        dateKey: null,
+        sourceKey: 'final',
+        title: '本地删除',
+        text: '本地保留删除前快照。',
+        source: 'ai',
+        unread: false,
+        createdAt: 100,
+        updatedAt: 600,
+        deletedAt: 600,
+        revision: 3,
+      }],
+      jobs: [],
+      isProcessing: false,
+      unreadLetterCount: 0,
+    });
+    apiMocks.getCharacterArtifactSummaries.mockResolvedValueOnce({
+      updatedAt: 500,
+      items: [{
+        id: 'letter-deleted-local',
+        kind: 'final_letter',
+        characterId: 'c1',
+        characterName: '苏苏',
+        dateKey: null,
+        sourceKey: 'final',
+        title: '云端旧版',
+        source: 'ai',
+        unread: true,
+        createdAt: 100,
+        updatedAt: 500,
+        deletedAt: null,
+        revision: 2,
+      }],
+    });
+
+    await artifactStore.getState().syncCloud({ kind: 'final_letter', characterId: 'c1', includeDeleted: true });
+
+    expect(apiMocks.upsertCharacterArtifactItem).not.toHaveBeenCalled();
+    expect(apiMocks.deleteCharacterArtifactItem).toHaveBeenCalledWith('letter-deleted-local', {
+      operationId: 'artifact-delete:letter-deleted-local:600',
+      baseRevision: 3,
+      deletedAt: 600,
+    });
   });
 
   it('ignores stale sync cursors when the local artifact view is empty', async () => {
