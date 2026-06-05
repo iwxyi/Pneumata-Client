@@ -273,6 +273,25 @@ function assertUniqueCharacterNameBatch(characters: AICharacter[], charsData: Ar
 }
 
 function mergeCharacterRecord(local: AICharacter | undefined, remote: AICharacter) {
+  if (local && remote.characterDetailLoaded !== false && local.updatedAt >= remote.updatedAt) {
+    return {
+      ...remote,
+      id: local.id,
+      name: local.name,
+      avatar: local.avatar,
+      personality: local.personality,
+      expertise: local.expertise,
+      group: local.group,
+      bubbleStyleId: local.bubbleStyleId,
+      bubbleStyle: local.bubbleStyle || remote.bubbleStyle,
+      isPreset: local.isPreset,
+      deletedAt: local.deletedAt,
+      fieldVersions: { ...(remote.fieldVersions || {}), ...(local.fieldVersions || {}) },
+      createdAt: local.createdAt,
+      updatedAt: local.updatedAt,
+      characterDetailLoaded: true,
+    };
+  }
   if (!local || remote.characterDetailLoaded !== false || local.characterDetailLoaded === false) {
     return remote;
   }

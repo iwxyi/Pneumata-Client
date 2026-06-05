@@ -388,6 +388,34 @@ function applyLocalChatRuntimeDelta(
 }
 
 function mergeChatRecord(local: GroupChat | undefined, remote: GroupChat) {
+  if (local && remote.runtimeDetailLoaded !== false && local.updatedAt >= remote.updatedAt) {
+    return {
+      ...remote,
+      id: local.id,
+      type: local.type,
+      mode: local.mode,
+      name: local.name,
+      topic: local.topic,
+      style: local.style,
+      runtimeEvolutionIntensity: local.runtimeEvolutionIntensity,
+      memberIds: local.memberIds,
+      sourceChatId: local.sourceChatId,
+      sourceMemberIds: local.sourceMemberIds,
+      speed: local.speed,
+      isActive: local.isActive,
+      allowIntervention: local.allowIntervention,
+      showRoleActions: local.showRoleActions,
+      topicSeed: local.topicSeed,
+      deletedAt: local.deletedAt,
+      fieldVersions: { ...(remote.fieldVersions || {}), ...(local.fieldVersions || {}) },
+      createdAt: local.createdAt,
+      updatedAt: local.updatedAt,
+      lastMessageAt: local.lastMessageAt,
+      worldState: local.worldState,
+      latestMessage: local.latestMessage,
+      runtimeDetailLoaded: true,
+    };
+  }
   if (!local || remote.runtimeDetailLoaded !== false || local.runtimeDetailLoaded === false) {
     return remote;
   }

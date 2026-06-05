@@ -26,8 +26,10 @@ function createStorageMock() {
 
 const apiMocks = vi.hoisted(() => ({
   getSyncChanges: vi.fn(),
+  getChat: vi.fn(),
   getChats: vi.fn(),
   getDeletedChats: vi.fn(),
+  getCharacter: vi.fn(),
   getCharacters: vi.fn(),
   getDeletedCharacters: vi.fn(),
   getCharacterArtifactSummaries: vi.fn(),
@@ -41,8 +43,10 @@ vi.mock('../services/api', async () => {
     api: {
       ...actual.api,
       getSyncChanges: apiMocks.getSyncChanges,
+      getChat: apiMocks.getChat,
       getChats: apiMocks.getChats,
       getDeletedChats: apiMocks.getDeletedChats,
+      getCharacter: apiMocks.getCharacter,
       getCharacters: apiMocks.getCharacters,
       getDeletedCharacters: apiMocks.getDeletedCharacters,
       getCharacterArtifactSummaries: apiMocks.getCharacterArtifactSummaries,
@@ -338,6 +342,51 @@ describe('cloud no-op sync', () => {
     expect(apiMocks.getChats).not.toHaveBeenCalled();
   });
 
+  it('fills older chat details without rolling back newer local summary fields', async () => {
+    apiMocks.getChat.mockResolvedValueOnce(chat({
+      id: 'chat-1',
+      name: '旧远端群聊名',
+      topic: '旧远端主题',
+      runtimeDetailLoaded: true,
+      runtimeSeed: { notes: ['远端详情前情'], artifacts: [] },
+      fieldVersions: { name: 1, topic: 1 },
+      updatedAt: 1,
+      lastMessageAt: 1,
+    }));
+    const { useChatStore } = await import('./useChatStore');
+    await useChatStore.persist.rehydrate();
+    useChatStore.setState({
+      chats: [chat({
+        id: 'chat-1',
+        name: '本地较新群聊名',
+        topic: '本地较新主题',
+        runtimeDetailLoaded: false,
+        runtimeSeed: { notes: [], artifacts: [] },
+        fieldVersions: { name: 200, topic: 200 },
+        updatedAt: 200,
+        lastMessageAt: 200,
+      })],
+      currentChatId: null,
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: [],
+      remoteDeletedChats: [],
+      isLoading: false,
+    });
+
+    await useChatStore.getState().loadChat('chat-1');
+
+    const merged = useChatStore.getState().chats[0];
+    expect(merged.name).toBe('本地较新群聊名');
+    expect(merged.topic).toBe('本地较新主题');
+    expect(merged.runtimeDetailLoaded).toBe(true);
+    expect(merged.runtimeSeed?.notes).toEqual(['远端详情前情']);
+    expect(merged.updatedAt).toBe(200);
+    expect(merged.fieldVersions?.name).toBe(200);
+  });
+
   it('does not rewrite characters or fetch character summaries when the remote scope is not modified', async () => {
     const { useCharacterStore } = await import('./useCharacterStore');
     await useCharacterStore.persist.rehydrate();
@@ -503,6 +552,47 @@ describe('cloud no-op sync', () => {
     expect(merged.fieldVersions?.name).toBe(200);
     expect(useCharacterStore.getState().pendingOperations).toHaveLength(1);
     expect(apiMocks.getCharacters).not.toHaveBeenCalled();
+  });
+
+  it('fills older character details without rolling back newer local summary fields', async () => {
+    apiMocks.getCharacter.mockResolvedValueOnce(character({
+      id: 'character-1',
+      name: '旧远端角色名',
+      background: '远端详情背景',
+      speakingStyle: '远端详情说话方式',
+      characterDetailLoaded: true,
+      fieldVersions: { name: 1 },
+      updatedAt: 1,
+    }));
+    const { useCharacterStore } = await import('./useCharacterStore');
+    await useCharacterStore.persist.rehydrate();
+    useCharacterStore.setState({
+      characters: [character({
+        id: 'character-1',
+        name: '本地较新角色名',
+        background: '',
+        speakingStyle: '',
+        characterDetailLoaded: false,
+        fieldVersions: { name: 200 },
+        updatedAt: 200,
+      })],
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedCharacterIds: [],
+      isLoading: false,
+    });
+
+    await useCharacterStore.getState().loadCharacter('character-1');
+
+    const merged = useCharacterStore.getState().characters[0];
+    expect(merged.name).toBe('本地较新角色名');
+    expect(merged.background).toBe('远端详情背景');
+    expect(merged.speakingStyle).toBe('远端详情说话方式');
+    expect(merged.characterDetailLoaded).toBe(true);
+    expect(merged.updatedAt).toBe(200);
+    expect(merged.fieldVersions?.name).toBe(200);
   });
 
   it('does not rewrite artifacts or fetch artifact summaries when the remote scope is not modified', async () => {
