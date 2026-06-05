@@ -481,6 +481,7 @@ interface CharacterStore extends PersistedCharacterState {
   clearPendingOperations: () => void;
   confirmCreateOperationsSynced: (entityIds: string[]) => void;
   discardFailedOperation: (operationId: string) => void;
+  resolveRemoteDeleteConflict: (id: string, resolution: 'restore_local' | 'discard_local') => Promise<void>;
   retryFailedOperations: () => void;
   loadPendingSnapshot: () => Promise<AICharacter[]>;
   loadProjectedRecycleBin: () => Promise<AICharacter[]>;
@@ -1070,6 +1071,29 @@ export const useCharacterStore = create<CharacterStore>()(
             pendingEditSyncError: latestCharacterError(pendingOperations),
           };
         }),
+        resolveRemoteDeleteConflict: async (id, resolution) => {
+          if (!id) return;
+          if (resolution === 'restore_local') {
+            set((state) => ({
+              remoteDeletedCharacterIds: state.remoteDeletedCharacterIds.filter((characterId) => characterId !== id),
+            }));
+            await get().syncPatch(id, { deletedAt: null }, 'patch');
+            scheduleCharacterFlush(flushPendingOperations, 100);
+            return;
+          }
+          set((state) => {
+            const pendingOperations = state.pendingOperations.filter((operation) => operation.entityId !== id);
+            const characters = state.characters.filter((character) => character.id !== id);
+            syncCharacterArtifacts(characters);
+            return {
+              characters,
+              pendingOperations,
+              pendingEditSyncCount: pendingOperations.length,
+              pendingEditSyncError: latestCharacterError(pendingOperations),
+              remoteDeletedCharacterIds: state.remoteDeletedCharacterIds.filter((characterId) => characterId !== id),
+            };
+          });
+        },
         retryFailedOperations: () => set((state) => {
           const pendingOperations = retryFailedOperations(state.pendingOperations);
           if (pendingOperations === state.pendingOperations) return {};

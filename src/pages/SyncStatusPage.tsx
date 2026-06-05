@@ -91,6 +91,7 @@ export default function SyncStatusPage() {
         targetCount: item.pending.length,
         targetLabel: item.localSnapshot?.name || item.id,
         summary: isZh ? '云端已删除，本地仍有未同步编辑；本地投影会继续保留，等待手动处理。' : 'Remote deleted this item while local edits are still pending. Local projection is preserved for manual resolution.',
+        conflictTargetId: item.id,
         exportPayload: {
           conflict: 'remote_delete_with_local_pending',
           remoteDeletedId: item.id,
@@ -136,6 +137,7 @@ export default function SyncStatusPage() {
         targetCount: item.pending.length,
         targetLabel: item.localSnapshot?.name || item.id,
         summary: isZh ? '云端已删除，本地仍有未同步编辑；本地投影会继续保留，等待手动处理。' : 'Remote deleted this item while local edits are still pending. Local projection is preserved for manual resolution.',
+        conflictTargetId: item.id,
         exportPayload: {
           conflict: 'remote_delete_with_local_pending',
           remoteDeletedId: item.id,
@@ -227,6 +229,14 @@ export default function SyncStatusPage() {
     if (item.scopeType === 'chat') chatStore.discardFailedOperation(item.id);
     if (item.scopeType === 'message') messageStore.discardFailedOperation(item.id);
     if (item.scopeType === 'artifact') artifactStore.discardFailedJob(item.id);
+  };
+
+  const resolveDeleteEditConflict = (item: typeof items[number], resolution: 'restore_local' | 'discard_local') => {
+    if (item.status !== 'conflict') return;
+    const targetId = 'conflictTargetId' in item && typeof item.conflictTargetId === 'string' ? item.conflictTargetId : null;
+    if (!targetId) return;
+    if (item.scopeType === 'character') void characterStore.resolveRemoteDeleteConflict(targetId, resolution);
+    if (item.scopeType === 'chat') void chatStore.resolveRemoteDeleteConflict(targetId, resolution);
   };
 
   const failedCount = items.filter((item) => item.status === 'failed').length;
@@ -405,7 +415,9 @@ export default function SyncStatusPage() {
                   </Typography>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
-                    {isZh ? '暂无错误，队列中的本地操作通常会很快完成。' : 'No error recorded. Queued local operations usually finish quickly.'}
+                    {item.status === 'conflict'
+                      ? (isZh ? '需要选择恢复本地编辑或放弃本地改动；选择前本地投影会保留。' : 'Choose whether to restore local edits or discard them. Local projection is preserved until then.')
+                      : (isZh ? '暂无错误，队列中的本地操作通常会很快完成。' : 'No error recorded. Queued local operations usually finish quickly.')}
                   </Typography>
                 )}
                 {item.status === 'failed' || item.status === 'conflict' ? (
@@ -417,6 +429,16 @@ export default function SyncStatusPage() {
                       <Button size="small" color="warning" onClick={() => discardFailed(item)}>
                         {isZh ? '放弃此同步任务' : 'Discard this sync task'}
                       </Button>
+                    ) : null}
+                    {item.status === 'conflict' && (item.scopeType === 'character' || item.scopeType === 'chat') ? (
+                      <>
+                        <Button size="small" color="warning" onClick={() => resolveDeleteEditConflict(item, 'discard_local')}>
+                          {isZh ? '放弃本地改动' : 'Discard local edits'}
+                        </Button>
+                        <Button size="small" variant="contained" color="warning" onClick={() => resolveDeleteEditConflict(item, 'restore_local')}>
+                          {isZh ? '恢复本地编辑' : 'Restore local edits'}
+                        </Button>
+                      </>
                     ) : null}
                   </Box>
                 ) : null}

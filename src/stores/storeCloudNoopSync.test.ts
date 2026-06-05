@@ -29,9 +29,11 @@ const apiMocks = vi.hoisted(() => ({
   getChat: vi.fn(),
   getChats: vi.fn(),
   getDeletedChats: vi.fn(),
+  syncChatPatch: vi.fn(),
   getCharacter: vi.fn(),
   getCharacters: vi.fn(),
   getDeletedCharacters: vi.fn(),
+  syncCharacterPatch: vi.fn(),
   getCharacterArtifactSummaries: vi.fn(),
   getCharacterArtifactItem: vi.fn(),
 }));
@@ -46,9 +48,11 @@ vi.mock('../services/api', async () => {
       getChat: apiMocks.getChat,
       getChats: apiMocks.getChats,
       getDeletedChats: apiMocks.getDeletedChats,
+      syncChatPatch: apiMocks.syncChatPatch,
       getCharacter: apiMocks.getCharacter,
       getCharacters: apiMocks.getCharacters,
       getDeletedCharacters: apiMocks.getDeletedCharacters,
+      syncCharacterPatch: apiMocks.syncCharacterPatch,
       getCharacterArtifactSummaries: apiMocks.getCharacterArtifactSummaries,
       getCharacterArtifactItem: apiMocks.getCharacterArtifactItem,
     },
@@ -145,6 +149,8 @@ describe('cloud no-op sync', () => {
       revision: 'rev-1',
       changes: [],
     });
+    apiMocks.syncChatPatch.mockResolvedValue({ success: true, accepted: true, revision: 1 });
+    apiMocks.syncCharacterPatch.mockResolvedValue({ success: true, accepted: true, revision: 1 });
   });
 
   it('does not rewrite chats or fetch chat summaries when the remote scope is not modified', async () => {
@@ -387,6 +393,63 @@ describe('cloud no-op sync', () => {
     expect(merged.fieldVersions?.name).toBe(200);
   });
 
+  it('resolves chat remote-delete conflicts by discarding or restoring local edits', async () => {
+    const { useChatStore } = await import('./useChatStore');
+    await useChatStore.persist.rehydrate();
+    useChatStore.setState({
+      chats: [chat({ id: 'chat-1', name: '本地待保留群聊' })],
+      currentChatId: 'chat-1',
+      lastSyncedAt: 1,
+      pendingOperations: [{
+        id: 'op-chat-topic',
+        entityId: 'chat-1',
+        kind: 'patch',
+        targetIds: ['chat-1'],
+        clientTimestamp: 100,
+        patch: { topic: '本地未同步主题' },
+        status: 'pending',
+        attemptCount: 0,
+      }],
+      pendingEditSyncCount: 1,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: ['chat-1'],
+      remoteDeletedChats: [chat({ id: 'chat-1', deletedAt: 200 })],
+      isLoading: false,
+    });
+
+    await useChatStore.getState().resolveRemoteDeleteConflict('chat-1', 'restore_local');
+
+    expect(useChatStore.getState().remoteDeletedChatIds).toEqual([]);
+    expect(useChatStore.getState().pendingOperations.some((operation) => operation.patch.deletedAt === null)).toBe(true);
+    expect(useChatStore.getState().chats.some((item) => item.id === 'chat-1')).toBe(true);
+
+    useChatStore.setState({
+      chats: [chat({ id: 'chat-2', name: '本地要放弃群聊' })],
+      currentChatId: 'chat-2',
+      pendingOperations: [{
+        id: 'op-chat-name',
+        entityId: 'chat-2',
+        kind: 'patch',
+        targetIds: ['chat-2'],
+        clientTimestamp: 120,
+        patch: { name: '本地未同步名称' },
+        status: 'pending',
+        attemptCount: 0,
+      }],
+      pendingEditSyncCount: 1,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: ['chat-2'],
+      remoteDeletedChats: [chat({ id: 'chat-2', deletedAt: 220 })],
+    });
+
+    await useChatStore.getState().resolveRemoteDeleteConflict('chat-2', 'discard_local');
+
+    expect(useChatStore.getState().chats.some((item) => item.id === 'chat-2')).toBe(false);
+    expect(useChatStore.getState().pendingOperations.some((operation) => operation.entityId === 'chat-2')).toBe(false);
+    expect(useChatStore.getState().remoteDeletedChatIds).toEqual([]);
+    expect(useChatStore.getState().currentChatId).toBeNull();
+  });
+
   it('does not rewrite characters or fetch character summaries when the remote scope is not modified', async () => {
     const { useCharacterStore } = await import('./useCharacterStore');
     await useCharacterStore.persist.rehydrate();
@@ -593,6 +656,59 @@ describe('cloud no-op sync', () => {
     expect(merged.characterDetailLoaded).toBe(true);
     expect(merged.updatedAt).toBe(200);
     expect(merged.fieldVersions?.name).toBe(200);
+  });
+
+  it('resolves character remote-delete conflicts by discarding or restoring local edits', async () => {
+    const { useCharacterStore } = await import('./useCharacterStore');
+    await useCharacterStore.persist.rehydrate();
+    useCharacterStore.setState({
+      characters: [character({ id: 'character-1', name: '本地待保留角色' })],
+      lastSyncedAt: 1,
+      pendingOperations: [{
+        id: 'op-character-background',
+        entityId: 'character-1',
+        kind: 'patch',
+        targetIds: ['character-1'],
+        clientTimestamp: 100,
+        patch: { background: '本地未同步背景' },
+        status: 'pending',
+        attemptCount: 0,
+      }],
+      pendingEditSyncCount: 1,
+      pendingEditSyncError: null,
+      remoteDeletedCharacterIds: ['character-1'],
+      isLoading: false,
+    });
+
+    await useCharacterStore.getState().resolveRemoteDeleteConflict('character-1', 'restore_local');
+
+    expect(useCharacterStore.getState().remoteDeletedCharacterIds).toEqual([]);
+    expect(useCharacterStore.getState().pendingOperations.some((operation) => operation.patch.deletedAt === null)).toBe(true);
+    expect(useCharacterStore.getState().characters.some((item) => item.id === 'character-1')).toBe(true);
+
+    useCharacterStore.setState({
+      characters: [character({ id: 'character-2', name: '本地要放弃角色' })],
+      pendingOperations: [{
+        id: 'op-character-name',
+        entityId: 'character-2',
+        kind: 'patch',
+        targetIds: ['character-2'],
+        clientTimestamp: 120,
+        patch: { name: '本地未同步名称' },
+        status: 'pending',
+        attemptCount: 0,
+      }],
+      pendingEditSyncCount: 1,
+      pendingEditSyncError: null,
+      remoteDeletedCharacterIds: ['character-2'],
+      isLoading: false,
+    });
+
+    await useCharacterStore.getState().resolveRemoteDeleteConflict('character-2', 'discard_local');
+
+    expect(useCharacterStore.getState().characters.some((item) => item.id === 'character-2')).toBe(false);
+    expect(useCharacterStore.getState().pendingOperations.some((operation) => operation.entityId === 'character-2')).toBe(false);
+    expect(useCharacterStore.getState().remoteDeletedCharacterIds).toEqual([]);
   });
 
   it('does not rewrite artifacts or fetch artifact summaries when the remote scope is not modified', async () => {

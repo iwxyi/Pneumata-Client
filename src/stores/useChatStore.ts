@@ -299,6 +299,7 @@ interface ChatStore extends PersistedChatState {
   clearPendingOperations: () => void;
   confirmCreateOperationsSynced: (entityIds: string[]) => void;
   discardFailedOperation: (operationId: string) => void;
+  resolveRemoteDeleteConflict: (id: string, resolution: 'restore_local' | 'discard_local') => Promise<void>;
   retryFailedOperations: () => void;
   loadPendingSnapshot: () => Promise<GroupChat[]>;
   loadProjectedRecycleBin: () => Promise<GroupChat[]>;
@@ -1144,6 +1145,30 @@ export const useChatStore = create<ChatStore>()(
             pendingEditSyncError: latestChatError(pendingOperations),
           };
         }),
+        resolveRemoteDeleteConflict: async (id, resolution) => {
+          if (!id) return;
+          if (resolution === 'restore_local') {
+            set((state) => ({
+              remoteDeletedChatIds: state.remoteDeletedChatIds.filter((chatId) => chatId !== id),
+              remoteDeletedChats: state.remoteDeletedChats.filter((chat) => chat.id !== id),
+            }));
+            await get().syncPatch(id, { deletedAt: null, isActive: true }, 'patch');
+            scheduleChatFlush(flushPendingOperations, 100);
+            return;
+          }
+          set((state) => {
+            const pendingOperations = state.pendingOperations.filter((operation) => operation.entityId !== id);
+            return {
+              chats: state.chats.filter((chat) => chat.id !== id),
+              currentChatId: state.currentChatId === id ? null : state.currentChatId,
+              pendingOperations,
+              pendingEditSyncCount: pendingOperations.length,
+              pendingEditSyncError: latestChatError(pendingOperations),
+              remoteDeletedChatIds: state.remoteDeletedChatIds.filter((chatId) => chatId !== id),
+              remoteDeletedChats: state.remoteDeletedChats.filter((chat) => chat.id !== id),
+            };
+          });
+        },
         retryFailedOperations: () => set((state) => {
           const pendingOperations = retryFailedOperations(state.pendingOperations);
           if (pendingOperations === state.pendingOperations) return {};
