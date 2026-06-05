@@ -656,11 +656,11 @@ describe('chatEngine streaming preview', () => {
     expect((message.metadata?.runtimeDecision as Record<string, unknown> | undefined)?.latestHumanTurn).toBeUndefined();
   });
 
-  it('ignores unsolicited extra bubbles when the turn plan calls for one bubble', async () => {
+  it('preserves natural extra bubbles even when the turn plan leans toward one bubble', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
       content: '一',
-      extraMessages: ['二', '三', '四', '五', '六'],
+      extraMessages: ['二', '三'],
       interactionHints: null,
       socialEventHints: null,
       conflictFocus: null,
@@ -677,7 +677,7 @@ describe('chatEngine streaming preview', () => {
     });
 
     expect(message.content).toBe('一');
-    expect(message.extraMessages ?? null).toBeNull();
+    expect(message.extraMessages).toEqual(['二', '三']);
   });
 
   it('retries when a draft exactly repeats a recent room line', async () => {

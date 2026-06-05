@@ -265,12 +265,8 @@ function normalizeExtraMessages(params: {
   surface?: ResponseSurface;
   turnPlan?: TurnPlan | null;
 }) {
-  if (params.turnPlan && !params.turnPlan.allowExtraMessages) return null;
   if (!Array.isArray(params.extraMessages)) return null;
-  const maxExtraMessages = params.turnPlan?.targetBubbleCount
-    ? Math.max(0, Math.min(4, params.turnPlan.targetBubbleCount - 1))
-    : 4;
-  if (maxExtraMessages <= 0) return null;
+  const maxExtraMessages = MAX_EXTRA_MESSAGES;
   const normalizedContent = normalizeForComparison(params.content);
   const seen = new Set<string>(normalizedContent ? [normalizedContent] : []);
   const cleaned = params.extraMessages
@@ -286,13 +282,10 @@ function normalizeExtraMessages(params: {
       seen.add(normalized);
       return true;
     });
-  const plannedLimit = params.turnPlan?.allowExtraMessages
-    ? Math.max(1, Math.min(MAX_EXTRA_MESSAGES, params.turnPlan.targetBubbleCount - 1))
-    : MAX_EXTRA_MESSAGES;
-  const messages = cleaned.length > plannedLimit
+  const messages = cleaned.length > maxExtraMessages
     ? [
-        ...cleaned.slice(0, plannedLimit - 1),
-        cleaned.slice(plannedLimit - 1).join('\n'),
+        ...cleaned.slice(0, maxExtraMessages - 1),
+        cleaned.slice(maxExtraMessages - 1).join('\n'),
       ]
     : cleaned;
   return messages.length ? messages : null;
