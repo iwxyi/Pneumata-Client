@@ -343,5 +343,5 @@ export function postProcessHumanChat(content: string, _intent: SpeakIntent, char
   void character;
   void messages;
   void intentionalRepeat;
-  return trimmed.replace(/\n{2,}/g, '\n').trim();
+  return trimmed.replace(/\n{3,}/g, '\n\n').trim();
 }

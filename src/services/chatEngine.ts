@@ -228,11 +228,8 @@ function trimSpeakerPrefix(content: string, speakerName: string) {
 function trimHumanChatStyle(content: string, preserveParagraphs = false) {
   const trimmed = content.trim();
   if (!trimmed) return trimmed;
-  if (preserveParagraphs) return trimmed.replace(/\n{3,}/g, '\n\n');
-  return trimmed
-    .replace(/[ \t]*\n+[ \t]*/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+  void preserveParagraphs;
+  return trimmed.replace(/\n{3,}/g, '\n\n');
 }
 
 function salvageEmptyResponse(raw: string, speakerName: string, showRoleActions?: boolean) {
@@ -389,7 +386,7 @@ function buildStreamingDisplayContent(raw: string, speaker: AICharacter, showRol
 
 function buildRoleActionVisibilityPrompt(showRoleActions: boolean) {
   return showRoleActions
-    ? '\n\nVisible role action policy:\n- Brief physical beats may appear only when they naturally change the meaning of the spoken line.\n- Do not format role actions as standalone stage-direction paragraphs. Keep chat bubbles primarily conversational, not script blocks.'
+    ? '\n\nVisible role action policy:\n- Brief physical beats may appear when they naturally change the meaning, pacing, or social temperature of the line.\n- Role actions are available as one expressive tool, not a required wrapper. Do not reuse the same action-dialogue-action layout just because the previous turn used it.'
     : '\n\nVisible role action policy:\n- Output only the spoken chat message as visible content.\n- Do not include standalone action narration, stage directions, gesture beats, or parenthesized physical descriptions in the visible reply.\n- If a physical reaction matters, express its emotional effect through the spoken line instead of writing an action aside.';
 }
 
@@ -582,7 +579,7 @@ function buildResponseSurfacePrompt(surface: ResponseSurface) {
       ? '\n- The speaker has enough role/expertise support for structured output when the task asks for it, but structure is not mandatory.'
       : '\n- Match the speaker’s actual background and speech profile; use structure only when it feels natural.';
   if (surface.kind === 'chat') {
-    return `\nResponse surface:\n- Default to live chat presence, not a fixed length. The model must decide whether this exact reply should be tiny, conversational, or fully explanatory from the current request, character, and room context.\n- A visible chat bubble should read as one sent message, not a screenplay excerpt. Do not use blank-line paragraph choreography inside a normal chat bubble.${roleFitHint}`;
+    return `\nResponse surface:\n- Default to live chat presence, not a fixed length or fixed format. The model must decide whether this exact reply should be tiny, conversational, multiline, media-aware, Markdown-capable, or fully explanatory from the current request, character, and room context.\n- Newlines, Markdown, lists, quoted lines, and richer formatting are allowed when they fit the current content. The issue to avoid is repeated template layout, not formatting itself.${roleFitHint}`;
   }
   if (surface.kind === 'creative') {
     return `\nResponse surface:\n- Creative form is available when the model judges that the current request calls for it. It may be a brief idea, a scene, an outline, dialogue, critique, or richer prose.\n- Do not use a fixed template. Choose form from the actual request, character voice, room style, and discussion topic.\n- Do not limit word count artificially, but do not inflate beyond what this speaker would plausibly write.\n- Preserve paragraphs, lists, headings, and quoted excerpts only when they improve readability.${roleFitHint}`;
@@ -637,6 +634,75 @@ function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeP
 ${rhythm}
 - If you use extraMessages, keep content as the first visible bubble and put only the later consecutive bubbles in extraMessages. The full turn may contain up to 5 visible bubbles total. Vary lengths naturally. Do not split purely by punctuation.
 - Do not use extraMessages to separate action narration from dialogue. A later bubble needs its own social purpose, not just another stage direction.`;
+}
+
+function isBracketedLine(line: string) {
+  const trimmed = line.trim();
+  if (trimmed.length < 2 || trimmed.length > 80) return false;
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  return (first === '（' && last === '）')
+    || (first === '(' && last === ')')
+    || (first === '*' && last === '*')
+    || (first === '[' && last === ']');
+}
+
+function lineKind(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed) return 'blank';
+  if (/^```/.test(trimmed)) return 'code';
+  if (/^#{1,6}\s+/.test(trimmed)) return 'heading';
+  if (/^[-*+]\s+/.test(trimmed) || /^\d+[.)、]\s+/.test(trimmed)) return 'list';
+  if (/^>/.test(trimmed)) return 'quote';
+  if (isBracketedLine(trimmed)) return 'aside';
+  if (trimmed.length <= 18) return 'short';
+  if (trimmed.length >= 90) return 'long';
+  return 'text';
+}
+
+function buildLayoutSignature(content: string) {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const nonEmpty = lines.map((line) => line.trim()).filter(Boolean);
+  const kinds = lines.map(lineKind);
+  const compactKinds = kinds.filter((kind, index) => kind !== 'blank' || kinds[index - 1] !== 'blank');
+  const blankGroups = compactKinds.filter((kind) => kind === 'blank').length;
+  const nonEmptyKinds = compactKinds.filter((kind) => kind !== 'blank');
+  const asideCount = nonEmptyKinds.filter((kind) => kind === 'aside').length;
+  return {
+    key: [
+      `lines:${Math.min(6, nonEmpty.length)}`,
+      `blank:${Math.min(3, blankGroups)}`,
+      `start:${nonEmptyKinds[0] || 'empty'}`,
+      `seq:${nonEmptyKinds.slice(0, 5).join('>')}`,
+      `aside:${Math.min(3, asideCount)}`,
+    ].join('|'),
+    description: [
+      `${nonEmpty.length} non-empty line${nonEmpty.length === 1 ? '' : 's'}`,
+      blankGroups ? `${blankGroups} blank-line break${blankGroups === 1 ? '' : 's'}` : 'no blank-line breaks',
+      nonEmptyKinds.length ? `visible sequence ${nonEmptyKinds.slice(0, 5).join(' -> ')}` : 'empty sequence',
+    ].join(', '),
+  };
+}
+
+function buildTurnFormatVarietyPrompt(messages: Message[], speakerId: string, surface: ResponseSurface) {
+  if (surface.kind !== 'chat') return '';
+  const recentOwn = messages
+    .filter((message) => message.type === 'ai' && !message.isDeleted && message.senderId === speakerId)
+    .slice(-4)
+    .map((message) => buildLayoutSignature(message.content))
+    .filter((signature) => signature.key);
+  if (recentOwn.length < 2) return '';
+  const counts = recentOwn.reduce((map, signature) => {
+    map.set(signature.key, (map.get(signature.key) || 0) + 1);
+    return map;
+  }, new Map<string, number>());
+  const repeated = recentOwn.find((signature) => (counts.get(signature.key) || 0) >= 2);
+  if (!repeated) return '';
+  return `\n## Turn Format Variety
+- Recent turns from this speaker are repeating the same visible layout: ${repeated.description}.
+- Keep any format that the current content genuinely needs, including multiline text, Markdown, media-aware captions, lists, or quoted lines.
+- Do not reuse that same layout by inertia. Choose a different visible structure for this turn: change where the action appears, whether there is an action at all, line count, paragraph breaks, or sentence grouping according to the actual moment.
+- This is a layout-level instruction, not a ban on any specific punctuation, bracket style, Markdown, or multiline formatting.`;
 }
 
 function getVisibleCharLength(content: string) {
@@ -1570,7 +1636,7 @@ Current speaking intent:
 - Treat the intent shape as style guidance, not a hard length cap. Do not truncate a useful reply just to fit one sentence or a fragment shape.
 - Decide the visible length yourself from the latest user request, the room context, and this character's actual ability. The local intent labels are not word-count rules.
 - Stay socially situated and in character. A tiny reaction is valid when the moment is tiny; a practical explanation, tradeoff analysis, or step-by-step answer is valid when the user asks for it.
-- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildRoleActionVisibilityPrompt(showRoleActions)}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnPlanPrompt(turnPlan)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities })}${promptSuffix}`;
+- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildRoleActionVisibilityPrompt(showRoleActions)}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnPlanPrompt(turnPlan)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities })}${promptSuffix}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT, {
     currentSpeakerId: params.speaker.id,
     chatType: params.chat.type,

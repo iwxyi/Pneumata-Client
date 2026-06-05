@@ -592,11 +592,11 @@ describe('chatEngine streaming preview', () => {
       apiConfig: buildProfiles(),
     });
 
-    expect(message.content).toBe('等下 你刚说谁来着？');
+    expect(message.content).toBe('等下\n你刚说谁来着？');
     expect(message.extraMessages ?? null).toBeNull();
   });
 
-  it('normalizes screenplay-like chat paragraphs into one visible chat bubble', async () => {
+  it('allows multiline chat while warning against repeated visible layouts', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
       content: '（轻叹一声，目光落向窗外竹影）\n\n热闹自有热闹的好，冷清也有冷清的趣。\n\n（转回视线，语气淡了几分）你且去别处热闹罢。',
@@ -611,14 +611,19 @@ describe('chatEngine streaming preview', () => {
       chat: buildChat({ memberIds: ['dai', 'lu'] }),
       speaker: dai,
       characters: [dai, lu],
-      messages: [buildAiMessage('lu', '鲁智深', '那俺去菜园子里吼两嗓子。', 1)],
+      messages: [
+        buildAiMessage('dai', '林黛玉', '（轻轻摇头）\n\n你且去菜园子里施展你的威风罢。\n\n（转身欲走）', 1),
+        buildAiMessage('lu', '鲁智深', '那俺去菜园子里吼两嗓子。', 2),
+        buildAiMessage('dai', '林黛玉', '（转身欲走，又停住脚步）\n\n你且去罢。\n\n（回头淡淡一笑）', 3),
+      ],
       apiConfig: buildProfiles(),
     });
     const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
 
-    expect(prompt).toContain('not a screenplay excerpt');
-    expect(prompt).toContain('Do not format role actions as standalone stage-direction paragraphs');
-    expect(message.content).toBe('（轻叹一声，目光落向窗外竹影） 热闹自有热闹的好，冷清也有冷清的趣。 （转回视线，语气淡了几分）你且去别处热闹罢。');
+    expect(prompt).toContain('## Turn Format Variety');
+    expect(prompt).toContain('Keep any format that the current content genuinely needs');
+    expect(prompt).toContain('not a ban on any specific punctuation');
+    expect(message.content).toBe('（轻叹一声，目光落向窗外竹影）\n\n热闹自有热闹的好，冷清也有冷清的趣。\n\n（转回视线，语气淡了几分）你且去别处热闹罢。');
   });
 
   it('keeps ordinary user turns in transcript instead of elevating them into system-level guidance', async () => {
