@@ -1,15 +1,58 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizeConversation } from '../types/chat';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_EMOTIONAL_STATE, type AICharacter } from '../types/character';
 import type { Message } from '../types/message';
+import { DEFAULT_API_CONFIG } from '../types/settings';
 import { generateJsonResponse } from './aiClient';
 import { buildCompanionshipPhaseEventFromDirectUserMessage, resolveCompanionshipPhaseEventFromDirectUserMessage } from './directCompanionshipPhase';
+import { runDirectUserReplyFlow } from './directUserReplyFlow';
 
 vi.mock('./aiClient', () => ({
   generateJsonResponse: vi.fn(),
 }));
 
+const directFlowMocks = vi.hoisted(() => ({
+  generateAndCommitAiMessage: vi.fn(),
+  getSessionEngine: vi.fn(),
+}));
+
+vi.hoisted(() => {
+  const storage = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+      clear: () => storage.clear(),
+    },
+    configurable: true,
+  });
+});
+
+vi.mock('./aiMessageOrchestrator', () => ({
+  generateAndCommitAiMessage: directFlowMocks.generateAndCommitAiMessage,
+}));
+
+vi.mock('./sessionEngineRegistry', () => ({
+  getSessionEngine: directFlowMocks.getSessionEngine,
+}));
+
 const generateJsonResponseMock = vi.mocked(generateJsonResponse);
+
+beforeEach(() => {
+  generateJsonResponseMock.mockReset();
+  directFlowMocks.generateAndCommitAiMessage.mockReset();
+  directFlowMocks.getSessionEngine.mockReset();
+  generateJsonResponseMock.mockResolvedValue(JSON.stringify({
+    phase: { shouldCreate: false },
+    careTopics: [],
+    userProfile: { shouldCreate: false, items: [] },
+  }));
+  directFlowMocks.getSessionEngine.mockReturnValue({
+    buildGenerationPromptContext: vi.fn(() => null),
+    onMessageCommitted: vi.fn(() => ({ chatPatch: {}, characterPatches: [], runtimeEvents: [] })),
+  });
+});
 
 function character(): AICharacter {
   return {
@@ -258,5 +301,55 @@ describe('directUserReplyFlow companionship phase events', () => {
       messagePreview: '我们别冷战了，慢慢说开吧。',
     }));
     warnSpy.mockRestore();
+  });
+});
+
+describe('runDirectUserReplyFlow', () => {
+  it('uses current-turn runtime state for generation without waiting for persistence', async () => {
+    const directChat = chat('direct');
+    const directCharacter = character();
+    let releaseUpdateCharacter!: () => void;
+    const updateCharacter = vi.fn(() => new Promise<void>((resolve) => {
+      releaseUpdateCharacter = resolve;
+    }));
+    directFlowMocks.generateAndCommitAiMessage.mockResolvedValueOnce(undefined);
+
+    await runDirectUserReplyFlow({
+      api: DEFAULT_API_CONFIG,
+      aiProfiles: [],
+      chatId: directChat.id,
+      chat: directChat,
+      userMessage: message('今天真的有点累，想安静待一会儿。'),
+      content: '今天真的有点累，想安静待一会儿。',
+      characters: [directCharacter],
+      updateCharacter,
+      updateCharacters: vi.fn(async () => undefined),
+      upsertMessage: vi.fn(),
+      appendEventMessage: vi.fn(async () => undefined),
+      appendEventMessages: vi.fn(async () => undefined),
+      updateChat: vi.fn(async () => undefined),
+      recordSpeak: vi.fn(),
+    });
+
+    expect(updateCharacter).toHaveBeenCalledTimes(1);
+    expect(directFlowMocks.generateAndCommitAiMessage).toHaveBeenCalledTimes(1);
+    expect(directFlowMocks.generateAndCommitAiMessage).toHaveBeenCalledWith(expect.objectContaining({
+      speaker: expect.objectContaining({
+        id: directCharacter.id,
+        runtimeTimeline: expect.arrayContaining([expect.objectContaining({
+          type: 'memory',
+          text: expect.stringContaining('今天真的有点累'),
+        })]),
+      }),
+      characters: [expect.objectContaining({
+        id: directCharacter.id,
+        runtimeTimeline: expect.arrayContaining([expect.objectContaining({
+          type: 'memory',
+          text: expect.stringContaining('今天真的有点累'),
+        })]),
+      })],
+    }));
+
+    releaseUpdateCharacter();
   });
 });

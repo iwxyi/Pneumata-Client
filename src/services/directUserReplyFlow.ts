@@ -15,6 +15,7 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import type { LocalInterceptionEvent } from './chatEngine';
 import { resolveDirectCompanionshipAssessmentEvents } from './directCompanionshipAssessment';
 import { buildCompanionshipRitualEventsFromDirectUserMessage } from './directCompanionshipRitual';
+import { reportRecoverableError } from './diagnostics';
 
 export async function runDirectUserReplyFlow(params: {
   api: APIConfig | APIConfig[];
@@ -81,7 +82,7 @@ export async function runDirectUserReplyFlow(params: {
   const evolution = resolveRuntimeEvolutionConfig(params.chat.runtimeEvolutionIntensity);
   const drift = derivePersonalityDrift(directCharacter, params.content, evolution.driftMultiplier * 0.5);
   const emotion = deriveEmotionalState(directCharacter, params.content, evolution.emotionMultiplier * 0.85, evolution.emotionDecayBias);
-  await params.updateCharacter(directCharacter.id, {
+  const directRuntimePatch: Partial<AICharacter> = {
     personalityDrift: drift,
     emotionalState: emotion,
     layeredMemories: updateCharacterLayeredMemories({
@@ -96,6 +97,18 @@ export async function runDirectUserReplyFlow(params: {
     }).concat(
       Object.keys(drift).length ? [{ type: 'drift' as const, text: '与用户互动后产生性格漂移', createdAt: Date.now() }] : []
     ).slice(-24),
+  };
+  const directCharacterForGeneration = { ...directCharacter, ...directRuntimePatch };
+  const generationCharactersForTurn = generationCharacters.map((character) =>
+    character.id === directCharacter.id ? { ...character, ...directRuntimePatch } : character
+  );
+  void params.updateCharacter(directCharacter.id, directRuntimePatch).catch((error) => {
+    reportRecoverableError({
+      location: 'direct-user-reply.runtime-persist',
+      error,
+      userMessage: '单聊运行态保存失败，当前回复不受影响。',
+      extra: { chatId: params.chatId, characterId: directCharacter.id },
+    });
   });
 
   const [{ generateAndCommitAiMessage }, { getSessionEngine }] = await Promise.all([
@@ -109,15 +122,15 @@ export async function runDirectUserReplyFlow(params: {
     aiProfiles: params.aiProfiles,
     chatId: params.chatId,
     chat: chatForGeneration,
-    speaker: directCharacter,
-    characters: generationCharacters,
+    speaker: directCharacterForGeneration,
+    characters: generationCharactersForTurn,
     timestamp: params.userMessage.timestamp + 1,
     currentMessages: getProjectedMessages(),
     onLocalInterception: params.onLocalInterception,
     generationContext: {
       buildPromptContext: (speaker) => sessionEngine.buildGenerationPromptContext?.({
         conversation: chatForGeneration,
-        characters: generationCharacters,
+        characters: generationCharactersForTurn,
         messages: getProjectedMessages(),
         speaker,
       }) || null,
@@ -139,7 +152,13 @@ export async function runDirectUserReplyFlow(params: {
     applyChatRuntimeDelta: params.applyChatRuntimeDelta,
     recordSpeak: params.recordSpeak,
     getCurrentChat: (chatId) => useChatStore.getState().chats.find((item) => item.id === chatId),
-    getCurrentCharacters: () => useCharacterStore.getState().characters,
+    getCurrentCharacters: () => {
+      const currentCharacters = useCharacterStore.getState().characters;
+      const source = currentCharacters.length ? currentCharacters : generationCharactersForTurn;
+      return source.map((character) =>
+        character.id === directCharacter.id ? { ...character, ...directRuntimePatch } : character
+      );
+    },
   });
   scheduleDirectRuntimeAssessment();
 }

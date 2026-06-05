@@ -17,6 +17,16 @@ export const __resetDeferredLlmDistillationStateForTests = __resetDeferredMemory
 export const __flushDeferredLlmDistillationForTests = __flushDeferredMemoryAnalysisForTests;
 export const getDeferredLlmDistillationDebugState = getDeferredMemoryAnalysisDebugState;
 
+const deferredCalendarAutoPatchTasks = new Set<Promise<void>>();
+
+export function __resetDeferredCalendarAutoPatchStateForTests() {
+  deferredCalendarAutoPatchTasks.clear();
+}
+
+export async function __flushDeferredCalendarAutoPatchForTests() {
+  await Promise.allSettled(Array.from(deferredCalendarAutoPatchTasks));
+}
+
 export interface SessionCommitPipelineResult {
   persistedMessage: Message;
   transition: DriverMessageCommitResult;
@@ -86,6 +96,48 @@ function applyTransitionToCharacters(characters: AICharacter[], transition: Driv
   });
 }
 
+function scheduleCalendarAutoPatch(params: {
+  api: APIConfig;
+  chatId: string;
+  chat: GroupChat;
+  characters: AICharacter[];
+  sourceMessageId: string;
+  updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
+  appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number], sourceMessageId?: string) => Promise<void>;
+  appendEventMessages?: (chatId: string, payloads: DriverMessageCommitResult['runtimeEvents'], sourceMessageId?: string) => Promise<void>;
+}) {
+  let task!: Promise<void>;
+  task = (async () => {
+    try {
+      const autoPatch = await applyCalendarAutoPatchForChat({
+        chat: params.chat,
+        characters: params.characters,
+        textApiConfig: params.api,
+        updateChat: params.updateChat,
+      });
+      const autoPatchRuntimeEvents = buildCalendarAutoPatchRuntimeEventPayloads(autoPatch.appendedRuntimeEvents);
+      if (!autoPatchRuntimeEvents.length) return;
+      if (params.appendEventMessages) {
+        await params.appendEventMessages(params.chatId, autoPatchRuntimeEvents, params.sourceMessageId);
+        return;
+      }
+      for (const eventPayload of autoPatchRuntimeEvents) {
+        await params.appendEventMessage(params.chatId, eventPayload, params.sourceMessageId);
+      }
+    } catch (error) {
+      reportRecoverableError({
+        location: 'runtime:auto-calendar-patch',
+        error,
+        userMessage: '日历冲突自动修正失败，可在日历页手动应用草案。',
+      });
+    } finally {
+      deferredCalendarAutoPatchTasks.delete(task);
+    }
+  })();
+  deferredCalendarAutoPatchTasks.add(task);
+  void task;
+}
+
 async function finishAppliedSessionTransition(params: {
   api: APIConfig;
   chatId: string;
@@ -127,31 +179,16 @@ async function finishAppliedSessionTransition(params: {
   const nextCharacters = applyTransitionToCharacters(params.characters, transitionWithRecall);
   let nextChat = applyTransitionToChat(params.chat, transitionWithRecall);
   if (shouldRunCalendarAutoPatchForTransition(transitionWithRecall)) {
-    try {
-      const autoPatch = await applyCalendarAutoPatchForChat({
-        chat: nextChat,
-        characters: nextCharacters,
-        textApiConfig: params.api,
-        updateChat: params.updateChat,
-      });
-      const autoPatchRuntimeEvents = buildCalendarAutoPatchRuntimeEventPayloads(autoPatch.appendedRuntimeEvents);
-      if (autoPatchRuntimeEvents.length) {
-        if (params.appendEventMessages) {
-          await params.appendEventMessages(params.chatId, autoPatchRuntimeEvents, params.persistedMessage.id);
-        } else {
-          for (const eventPayload of autoPatchRuntimeEvents) {
-            await params.appendEventMessage(params.chatId, eventPayload, params.persistedMessage.id);
-          }
-        }
-      }
-      nextChat = autoPatch.nextChat;
-    } catch (error) {
-      reportRecoverableError({
-        location: 'runtime:auto-calendar-patch',
-        error,
-        userMessage: '日历冲突自动修正失败，可在日历页手动应用草案。',
-      });
-    }
+    scheduleCalendarAutoPatch({
+      api: params.api,
+      chatId: params.chatId,
+      chat: nextChat,
+      characters: nextCharacters,
+      sourceMessageId: params.persistedMessage.id,
+      updateChat: params.updateChat,
+      appendEventMessage: params.appendEventMessage,
+      appendEventMessages: params.appendEventMessages,
+    });
   }
   const characterIdsToCheck = transitionWithRecall.characterPatches
     .filter((item) => Array.isArray(item.patch.layeredMemories))
