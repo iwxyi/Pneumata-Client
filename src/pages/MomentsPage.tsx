@@ -97,7 +97,6 @@ export default function MomentsPage() {
   const isZh = i18n.language.startsWith('zh');
   const chats = useChatStore((state) => state.chats);
   const markChatsWarm = useChatStore((state) => state.markChatsWarm);
-  const prefetchChats = useChatStore((state) => state.prefetchChats);
   const prefetchWorldRuntime = useChatStore((state) => state.prefetchWorldRuntime);
   const updateChat = useChatStore((state) => state.updateChat);
   const characters = useCharacterStore((state) => state.characters);
@@ -114,10 +113,9 @@ export default function MomentsPage() {
   useEffect(() => {
     markChatsWarm();
     markCharactersWarm();
-    void prefetchChats();
     void prefetchWorldRuntime();
     void prefetchCharacters();
-  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats, prefetchWorldRuntime]);
+  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchWorldRuntime]);
 
   const characterAvatars = useMemo(() => new Map(characters.map((character) => [character.id, character.avatar])), [characters]);
   const textMembers = useMemo(() => characters.map((character) => ({ id: character.id, name: character.name })), [characters]);

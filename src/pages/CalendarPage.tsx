@@ -17,7 +17,6 @@ export default function CalendarPage() {
   const actorId = searchParams.get('actorId');
   const chats = useChatStore((state) => state.chats);
   const markChatsWarm = useChatStore((state) => state.markChatsWarm);
-  const prefetchChats = useChatStore((state) => state.prefetchChats);
   const prefetchWorldRuntime = useChatStore((state) => state.prefetchWorldRuntime);
   const updateChat = useChatStore((state) => state.updateChat);
   const characters = useCharacterStore((state) => state.characters);
@@ -27,10 +26,9 @@ export default function CalendarPage() {
   useEffect(() => {
     markChatsWarm();
     markCharactersWarm();
-    void prefetchChats();
     void prefetchWorldRuntime();
     void prefetchCharacters();
-  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats, prefetchWorldRuntime]);
+  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchWorldRuntime]);
 
   useEffect(() => {
     setHeaderTitle(isZh ? '日历' : 'Calendar');
