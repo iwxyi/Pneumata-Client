@@ -63,4 +63,41 @@ describe('syncConflictRecords', () => {
 
     expect(clearResolvedFieldConflicts(records, { entityType: 'chat', operationIds: ['op-1'] })).toEqual([]);
   });
+
+  it('compacts large conflict values instead of storing full payloads', () => {
+    const conflicts = detectPendingFieldConflicts({
+      entityType: 'chat',
+      localEntities: [{
+        id: 'chat-1',
+        runtimeEventsV2: [{
+          payload: {
+            media: [{ url: `data:image/png;base64,${'a'.repeat(500)}` }],
+            text: '本地'.repeat(200),
+          },
+        }],
+      }],
+      remoteEntities: [{
+        id: 'chat-1',
+        runtimeEventsV2: [{
+          payload: {
+            media: [{ url: `data:image/png;base64,${'b'.repeat(500)}` }],
+            text: '云端'.repeat(200),
+          },
+        }],
+      }],
+      pendingOperations: [{
+        id: 'op-1',
+        entityId: 'chat-1',
+        clientTimestamp: 200,
+        patch: { runtimeEventsV2: [] },
+        status: 'pending',
+        attemptCount: 0,
+      }],
+    });
+
+    const serialized = JSON.stringify(conflicts[0]);
+    expect(serialized.length).toBeLessThan(800);
+    expect(serialized).not.toContain('a'.repeat(100));
+    expect(serialized).not.toContain('b'.repeat(100));
+  });
 });

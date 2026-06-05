@@ -15,6 +15,9 @@ export interface FieldConflictRecord {
 
 const HIDDEN_FIELDS = new Set(['updatedAt', 'lastMessageAt', 'createdAt', 'fieldVersions']);
 const MAX_CONFLICTS = 80;
+const MAX_STRING_LENGTH = 160;
+const MAX_ARRAY_ITEMS = 6;
+const MAX_OBJECT_KEYS = 12;
 
 function isDisplayableField(field: string) {
   return !HIDDEN_FIELDS.has(field);
@@ -32,6 +35,32 @@ function stableValue(value: unknown) {
 
 function valuesDiffer(a: unknown, b: unknown) {
   return stableValue(a) !== stableValue(b);
+}
+
+function compactConflictValue(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
+  if (typeof value === 'string') {
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (/^data:[^;]+;base64,/i.test(normalized)) return `[inline-media:${normalized.length}]`;
+    return normalized.length > MAX_STRING_LENGTH ? `${normalized.slice(0, MAX_STRING_LENGTH - 1)}...` : normalized;
+  }
+  if (value == null || typeof value !== 'object') return value;
+  if (seen.has(value)) return '[circular]';
+  seen.add(value);
+  if (depth >= 2) return `[${Array.isArray(value) ? 'array' : 'object'}]`;
+  if (Array.isArray(value)) {
+    const items = value.slice(0, MAX_ARRAY_ITEMS).map((item) => compactConflictValue(item, depth + 1, seen));
+    return value.length > MAX_ARRAY_ITEMS ? [...items, `... +${value.length - MAX_ARRAY_ITEMS}`] : items;
+  }
+  const source = value as Record<string, unknown>;
+  const entries = Object.entries(source).slice(0, MAX_OBJECT_KEYS);
+  const compacted: Record<string, unknown> = {};
+  entries.forEach(([key, entryValue]) => {
+    compacted[key] = compactConflictValue(entryValue, depth + 1, seen);
+  });
+  if (Object.keys(source).length > MAX_OBJECT_KEYS) {
+    compacted.__truncatedKeys = Object.keys(source).length - MAX_OBJECT_KEYS;
+  }
+  return compacted;
 }
 
 function conflictId(entityType: FieldConflictRecord['entityType'], entityId: string, field: string) {
@@ -82,8 +111,8 @@ export function detectPendingFieldConflicts<TEntity extends { id: string; update
           entityType: params.entityType,
           entityId: remote.id,
           field,
-          localValue: localRecord[field],
-          remoteValue: remoteRecord[field],
+          localValue: compactConflictValue(localRecord[field]),
+          remoteValue: compactConflictValue(remoteRecord[field]),
           localOperationIds: Array.from(new Set([...(previous?.localOperationIds || []), operation.id])),
           localUpdatedAt: operation.clientTimestamp,
           remoteUpdatedAt: remote.updatedAt || previous?.remoteUpdatedAt || now,
