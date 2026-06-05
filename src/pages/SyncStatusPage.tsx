@@ -72,6 +72,33 @@ export default function SyncStatusPage() {
       },
     }));
 
+    const characterDeleteConflicts = (characterStore.remoteDeletedCharacterIds || [])
+      .map((id) => ({
+        id,
+        localSnapshot: characterStore.characters.find((character) => character.id === id) || null,
+        pending: (characterStore.pendingOperations || []).filter((operation) => operation.entityId === id && operation.kind !== 'create'),
+      }))
+      .filter((item) => item.pending.length > 0)
+      .map((item) => ({
+        id: `character-delete-conflict-${item.id}`,
+        scopeType: 'character' as const,
+        scope: isZh ? '角色' : 'Characters',
+        kind: 'delete_edit_conflict',
+        status: 'conflict',
+        createdAt: Math.max(...item.pending.map((operation) => operation.clientTimestamp), 0),
+        attemptCount: item.pending.reduce((sum, operation) => sum + operation.attemptCount, 0),
+        lastError: null,
+        targetCount: item.pending.length,
+        targetLabel: item.localSnapshot?.name || item.id,
+        summary: isZh ? '云端已删除，本地仍有未同步编辑；本地投影会继续保留，等待手动处理。' : 'Remote deleted this item while local edits are still pending. Local projection is preserved for manual resolution.',
+        exportPayload: {
+          conflict: 'remote_delete_with_local_pending',
+          remoteDeletedId: item.id,
+          pendingOperations: item.pending,
+          localSnapshot: item.localSnapshot,
+        },
+      }));
+
     const chatItems = (chatStore.pendingOperations || []).map((item) => ({
       id: item.id,
       scopeType: 'chat' as const,
@@ -89,6 +116,33 @@ export default function SyncStatusPage() {
         localSnapshot: chatStore.chats.find((chat) => chat.id === item.entityId) || null,
       },
     }));
+
+    const chatDeleteConflicts = (chatStore.remoteDeletedChatIds || [])
+      .map((id) => ({
+        id,
+        localSnapshot: chatStore.chats.find((chat) => chat.id === id) || chatStore.remoteDeletedChats.find((chat) => chat.id === id) || null,
+        pending: (chatStore.pendingOperations || []).filter((operation) => operation.entityId === id && operation.kind !== 'create'),
+      }))
+      .filter((item) => item.pending.length > 0)
+      .map((item) => ({
+        id: `chat-delete-conflict-${item.id}`,
+        scopeType: 'chat' as const,
+        scope: isZh ? '聊天' : 'Chats',
+        kind: 'delete_edit_conflict',
+        status: 'conflict',
+        createdAt: Math.max(...item.pending.map((operation) => operation.clientTimestamp), 0),
+        attemptCount: item.pending.reduce((sum, operation) => sum + operation.attemptCount, 0),
+        lastError: null,
+        targetCount: item.pending.length,
+        targetLabel: item.localSnapshot?.name || item.id,
+        summary: isZh ? '云端已删除，本地仍有未同步编辑；本地投影会继续保留，等待手动处理。' : 'Remote deleted this item while local edits are still pending. Local projection is preserved for manual resolution.',
+        exportPayload: {
+          conflict: 'remote_delete_with_local_pending',
+          remoteDeletedId: item.id,
+          pendingOperations: item.pending,
+          localSnapshot: item.localSnapshot,
+        },
+      }));
 
     const messageItems = (messageStore.pendingOperations || []).map((item) => ({
       targetMessage: item.payload
@@ -136,8 +190,8 @@ export default function SyncStatusPage() {
         },
       }));
 
-    return [...characterItems, ...chatItems, ...messageItems, ...artifactItems].sort((a, b) => b.createdAt - a.createdAt);
-  }, [artifactStore.items, artifactStore.jobs, characterStore.characters, characterStore.pendingOperations, chatStore.chats, chatStore.pendingOperations, isZh, messageStore.messageWindowsByChatId, messageStore.pendingOperations]);
+    return [...characterDeleteConflicts, ...chatDeleteConflicts, ...characterItems, ...chatItems, ...messageItems, ...artifactItems].sort((a, b) => b.createdAt - a.createdAt);
+  }, [artifactStore.items, artifactStore.jobs, characterStore.characters, characterStore.pendingOperations, characterStore.remoteDeletedCharacterIds, chatStore.chats, chatStore.pendingOperations, chatStore.remoteDeletedChatIds, chatStore.remoteDeletedChats, isZh, messageStore.messageWindowsByChatId, messageStore.pendingOperations]);
 
   const labelMap: Record<string, string> = {
     delete: isZh ? '删除' : 'Delete',
@@ -146,12 +200,14 @@ export default function SyncStatusPage() {
     empty_deleted: isZh ? '清空回收站' : 'Empty trash',
     create: isZh ? '创建' : 'Create',
     patch: isZh ? '编辑' : 'Edit',
+    delete_edit_conflict: isZh ? '远端删除 / 本地编辑冲突' : 'Remote delete / local edit conflict',
     birth_letter: isZh ? '诞生信' : 'Birth letter',
     final_letter: isZh ? '信件' : 'Letter',
     diary: isZh ? '日记' : 'Diary',
     pending: isZh ? '待同步' : 'Pending',
     syncing: isZh ? '同步中' : 'Syncing',
     failed: isZh ? '同步失败' : 'Failed',
+    conflict: isZh ? '冲突' : 'Conflict',
     succeeded: isZh ? '已完成' : 'Succeeded',
     planned: isZh ? '已生成计划' : 'Planned',
     running: isZh ? '准备同步中' : 'Running',
@@ -176,6 +232,7 @@ export default function SyncStatusPage() {
   const failedCount = items.filter((item) => item.status === 'failed').length;
   const pendingCount = items.filter((item) => item.status === 'pending').length;
   const syncingCount = items.filter((item) => item.status === 'syncing').length;
+  const conflictCount = items.filter((item) => item.status === 'conflict').length;
   const failedItems = items.filter((item) => item.status === 'failed');
   const exportFailed = () => downloadJson(`pneumata-sync-failed-${new Date().toISOString().replace(/[:.]/g, '-')}.json`, {
     exportedAt: Date.now(),
@@ -230,6 +287,7 @@ export default function SyncStatusPage() {
         <Chip size="small" label={isZh ? `待同步 ${pendingCount}` : `Pending ${pendingCount}`} variant="outlined" />
         <Chip size="small" label={isZh ? `同步中 ${syncingCount}` : `Syncing ${syncingCount}`} variant="outlined" color={syncingCount > 0 ? 'primary' : 'default'} />
         <Chip size="small" label={isZh ? `失败 ${failedCount}` : `Failed ${failedCount}`} variant="outlined" color={failedCount > 0 ? 'error' : 'default'} />
+        <Chip size="small" label={isZh ? `冲突 ${conflictCount}` : `Conflicts ${conflictCount}`} variant="outlined" color={conflictCount > 0 ? 'warning' : 'default'} />
       </Stack>
 
       {authMode === 'local' ? (
@@ -326,7 +384,7 @@ export default function SyncStatusPage() {
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                     <Chip size="small" label={item.scope} variant="outlined" />
                     <Chip size="small" label={labelMap[item.kind] || item.kind} color="primary" variant="outlined" />
-                    <Chip size="small" label={labelMap[item.status] || item.status} color={item.status === 'syncing' ? 'primary' : 'default'} />
+                    <Chip size="small" label={labelMap[item.status] || item.status} color={item.status === 'conflict' ? 'warning' : item.status === 'syncing' ? 'primary' : 'default'} />
                   </Box>
                   <Typography variant="caption" color="text.secondary">
                     {new Date(item.createdAt).toLocaleString()}
@@ -350,14 +408,16 @@ export default function SyncStatusPage() {
                     {isZh ? '暂无错误，队列中的本地操作通常会很快完成。' : 'No error recorded. Queued local operations usually finish quickly.'}
                   </Typography>
                 )}
-                {item.status === 'failed' ? (
+                {item.status === 'failed' || item.status === 'conflict' ? (
                   <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap' }}>
                     <Button size="small" variant="outlined" onClick={() => exportItem(item)}>
                       {isZh ? '导出此项' : 'Export item'}
                     </Button>
-                    <Button size="small" color="warning" onClick={() => discardFailed(item)}>
-                      {isZh ? '放弃此同步任务' : 'Discard this sync task'}
-                    </Button>
+                    {item.status === 'failed' ? (
+                      <Button size="small" color="warning" onClick={() => discardFailed(item)}>
+                        {isZh ? '放弃此同步任务' : 'Discard this sync task'}
+                      </Button>
+                    ) : null}
                   </Box>
                 ) : null}
               </CardContent>
