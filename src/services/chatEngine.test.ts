@@ -425,7 +425,7 @@ describe('chatEngine streaming preview', () => {
   it('treats collective essay requests as deliverable tasks instead of ordinary banter', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
-      content: '如果让我认真写，我会先说：AI不会简单地替代人类，它更像一面放大镜，把人的能力差异、制度漏洞和创造力一起放大。',
+      content: '如果让我认真写，我会先说：AI不会简单地替代人类。\n\n它更像一面放大镜，把人的能力差异、制度漏洞和创造力一起放大。\n\n所以我不想只问它会不会抢走工作，而要问人类准备怎样重新安排自己的价值。',
       interactionHints: null,
       socialEventHints: null,
       conflictFocus: null,
@@ -448,7 +448,10 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('Requested actor(s): 穿搭博主苏苏、鲁智深');
     expect(prompt).toContain('Honor explicit output form, quantity, and length requirements');
     expect(prompt).toContain('produce that deliverable');
+    expect(prompt).toContain('escaped newline sequences');
+    expect(prompt).toContain('Do not put a heading marker, separator, and the whole article on one line');
     expect(prompt).toContain('Longform');
+    expect(message.content).toContain('\n\n它更像一面放大镜');
     expect(message.metadata?.runtimeDecision?.directorIntent?.targetActorIds).toEqual(['susu', 'luxun']);
     expect(message.metadata?.runtimeDecision?.responseSurface?.kind).toBe('longform');
     expect(message.metadata?.runtimeDecision?.responseSurface?.basis || []).toContain('topic:longform-writing-task');
