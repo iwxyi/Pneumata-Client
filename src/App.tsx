@@ -4,7 +4,6 @@ import { Box, LinearProgress, ThemeProvider, CssBaseline, useMediaQuery } from '
 import { createAppTheme } from './theme';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useAuthStore } from './stores/useAuthStore';
-import { useChatStore } from './stores/useChatStore';
 import { useCharacterArtifactStore } from './stores/useCharacterArtifactStore';
 import AppLayout from './components/layout/AppLayout';
 import MasterDetailLayout from './components/layout/MasterDetailLayout';
@@ -121,17 +120,13 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const authMode = useAuthStore((s) => s.authMode);
   const loadSettings = useSettingsStore((s) => s.loadSettings);
-  const prefetchChats = useChatStore((s) => s.prefetchChats);
-  const markChatsWarm = useChatStore((s) => s.markChatsWarm);
 
   useEffect(() => {
     if (isLoggedIn || authMode === 'local') {
-      markChatsWarm();
-      void prefetchChats();
       void loadSettings();
       void useCharacterArtifactStore.persist.rehydrate();
     }
-  }, [authMode, isLoggedIn, loadSettings, markChatsWarm, prefetchChats]);
+  }, [authMode, isLoggedIn, loadSettings]);
 
   useEffect(() => {
     if (!isLoggedIn && authMode !== 'local') return;
