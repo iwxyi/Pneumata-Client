@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { ApiError, api } from '../services/api';
-import { clearPersistedChatStore, useChatStore } from './useChatStore';
-import { clearPersistedCharacterStore, useCharacterStore } from './useCharacterStore';
-import { clearPersistedMessageStore } from './useMessageStore';
+import { resetChatStoreForAccountBoundary, useChatStore } from './useChatStore';
+import { resetCharacterStoreForAccountBoundary, useCharacterStore } from './useCharacterStore';
+import { resetMessageStoreForAccountBoundary } from './useMessageStore';
+import { resetCharacterArtifactStoreForAccountBoundary } from './useCharacterArtifactStore';
 import { useSettingsStore } from './useSettingsStore';
 import { storageKey } from '../constants/brand';
 import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot } from '../services/localToCloudBootstrap';
@@ -47,6 +48,13 @@ function refreshStoresAfterCloudAuth() {
   void settingsStore.loadSettings();
   void chatStore.prefetchChats();
   void characterStore.prefetchCharacters();
+}
+
+function resetLocalWorkspaceStoresForAccountBoundary() {
+  resetChatStoreForAccountBoundary();
+  resetCharacterStoreForAccountBoundary();
+  resetMessageStoreForAccountBoundary();
+  resetCharacterArtifactStoreForAccountBoundary();
 }
 
 const AUTH_TOKEN_KEY = storageKey('token');
@@ -126,6 +134,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         try {
           await runWithCloudSyncBootstrapLock(() => bootstrapLocalDataToCloud(localSnapshot));
         } catch (error) {
+          resetLocalWorkspaceStoresForAccountBoundary();
           clearAuthTokenAndUser();
           setAuthMode('local');
           set({
@@ -146,6 +155,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   enterLocalMode: () => {
+    resetLocalWorkspaceStoresForAccountBoundary();
     clearAuthTokenAndUser();
     setAuthMode('local');
     set({
@@ -157,11 +167,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   logout: () => {
+    resetLocalWorkspaceStoresForAccountBoundary();
     clearAuthTokenAndUser();
     setAuthMode('local');
-    clearPersistedChatStore();
-    clearPersistedCharacterStore();
-    clearPersistedMessageStore();
     set({
       token: null,
       user: null,
@@ -183,6 +191,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     } catch (error) {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
         console.warn('[cloud-sync] token rejected; falling back to local mode', { error });
+        resetLocalWorkspaceStoresForAccountBoundary();
         clearAuthTokenAndUser();
         setAuthMode('local');
         set({ token: null, user: null, isLoggedIn: false, authMode: 'local' });

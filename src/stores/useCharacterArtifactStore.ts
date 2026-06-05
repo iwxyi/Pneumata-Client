@@ -140,6 +140,23 @@ const artifactSyncScopes = createSyncScopeMetadata(ARTIFACT_SYNC_TTL_MS, {
   getStorageKey: () => scopedStorageKey(`artifact-sync-scopes-${getLocalDataUserId()}`),
 });
 
+export function clearPersistedCharacterArtifactStore() {
+  void useCharacterArtifactStore.persist.clearStorage();
+  localStorage.removeItem(getArtifactStorageKey());
+  localStorage.removeItem(scopedStorageKey('character-artifacts'));
+  artifactSyncScopes.clear();
+}
+
+export function resetCharacterArtifactStoreForAccountBoundary() {
+  clearPersistedCharacterArtifactStore();
+  useCharacterArtifactStore.setState({
+    items: [],
+    jobs: [],
+    isProcessing: false,
+    unreadLetterCount: 0,
+  });
+}
+
 function artifactSyncScope(query: CharacterArtifactQuery = {}) {
   const parts = [
     query.kind ? `kind:${query.kind}` : '',

@@ -736,8 +736,25 @@ async function maybeUploadGuestChats(get: () => ChatStore) {
 }
 
 export function clearPersistedChatStore() {
+  void useChatStore.persist.clearStorage();
   localStorage.removeItem(getChatStorageKey());
   localStorage.removeItem(getChatStoreStorageName());
+  chatSyncScopes.clear();
+}
+
+export function resetChatStoreForAccountBoundary() {
+  clearPersistedChatStore();
+  useChatStore.setState({
+    chats: [],
+    currentChatId: null,
+    lastSyncedAt: 0,
+    pendingOperations: [],
+    pendingEditSyncCount: 0,
+    pendingEditSyncError: null,
+    remoteDeletedChatIds: [],
+    remoteDeletedChats: [],
+    isLoading: false,
+  });
 }
 
 const chatStorage = createScopedBufferedJsonStorage<PersistedChatState>({

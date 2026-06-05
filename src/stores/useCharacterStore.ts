@@ -746,8 +746,23 @@ async function probeCharacterDetailChanges(scope: SyncChangeScope) {
 }
 
 export function clearPersistedCharacterStore() {
+  void useCharacterStore.persist.clearStorage();
   localStorage.removeItem(getCharacterStorageKey());
   localStorage.removeItem(getCharacterStoreStorageName());
+  characterSyncScopes.clear();
+}
+
+export function resetCharacterStoreForAccountBoundary() {
+  clearPersistedCharacterStore();
+  useCharacterStore.setState({
+    characters: [],
+    lastSyncedAt: 0,
+    pendingOperations: [],
+    pendingEditSyncCount: 0,
+    pendingEditSyncError: null,
+    remoteDeletedCharacterIds: [],
+    isLoading: false,
+  });
 }
 
 const characterStorage = createScopedBufferedJsonStorage<PersistedCharacterState>({

@@ -4285,8 +4285,23 @@ function createMessageStorage() {
 }
 
 export function clearPersistedMessageStore() {
+  void useMessageStore.persist.clearStorage();
   localStorage.removeItem(getMessageStorageKey());
   localStorage.removeItem(getMessageStoreStorageName());
+  messageSyncScopes.clear();
+}
+
+export function resetMessageStoreForAccountBoundary() {
+  clearPersistedMessageStore();
+  useMessageStore.setState({
+    messages: [],
+    messageWindowsByChatId: {},
+    pendingOperations: [],
+    activeChatId: null,
+    isLoading: false,
+    isLoadingOlder: false,
+    hasMore: true,
+  });
 }
 
 function isInlineDataUrl(value: string) {
