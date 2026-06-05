@@ -14,7 +14,7 @@ import { buildCompanionshipRuntimeTrace } from './companionshipProjection';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
 import { calculateWeights, getSpeakerSelectionResult, resolvePendingReplyContext, selectSpeaker } from './scheduler';
-import { deriveSpeakIntentFromContext, describeIntentForPrompt } from './intentEngine';
+import { deriveSpeakIntentFromContext, describeIntentForPrompt, type SpeakIntent } from './intentEngine';
 import { describeDirectorIntent, type DirectorIntent } from './directorIntent';
 import type { NarrativeLineProjection } from './narrativeProjection';
 import { projectRuntimePressure, resolveLatestActiveUserGuidance } from './runtimeDecision';
@@ -703,12 +703,25 @@ function getVisibleCharLength(content: string) {
   return Array.from(content.replace(/\s+/g, '')).length;
 }
 
+function stableSurfaceBucket(input: string) {
+  let hash = 2166136261;
+  for (const char of input) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash >>> 0) % 100;
+}
+
 function formatLengthBand(length: number) {
   if (length <= 12) return 'micro';
   if (length <= 36) return 'short';
   if (length <= 90) return 'medium';
   if (length <= 180) return 'long';
   return 'extended';
+}
+
+function hasDecorativeMarker(content: string) {
+  return /\p{Extended_Pictographic}/u.test(content);
 }
 
 function buildTurnLengthVarietyPrompt(messages: Message[], speakerId: string, surface: ResponseSurface) {
@@ -734,6 +747,63 @@ function buildTurnLengthVarietyPrompt(messages: Message[], speakerId: string, su
 - Recent own turn lengths: ${recentOwnLengths.join(' / ')} chars (${bands}).${clusterLine}
 ${surfaceLine}
 - Choose this turn's length from the current request, role ability, and social pressure. Do not target a fixed middle length, and do not make it longer or shorter merely to be different.`;
+}
+
+function buildExpressionSurfaceChoicePrompt(input: {
+  chat: GroupChat;
+  speaker: AICharacter;
+  messages: Message[];
+  intent: SpeakIntent;
+  surface: ResponseSurface;
+  turnPlan: TurnPlan;
+}) {
+  if (input.surface.kind !== 'chat') return '';
+  const recentAi = input.messages
+    .filter((message) => message.type === 'ai' && !message.isDeleted)
+    .slice(-12);
+  const recentOwn = recentAi.filter((message) => message.senderId === input.speaker.id).slice(-5);
+  const roomLengths = recentAi.map((message) => getVisibleCharLength(message.content)).filter((length) => length > 0);
+  const ownLengths = recentOwn.map((message) => getVisibleCharLength(message.content)).filter((length) => length > 0);
+  const roomDecorativeCount = recentAi.filter((message) => hasDecorativeMarker(message.content)).length;
+  const latest = input.messages.filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event').at(-1);
+  const bucket = stableSurfaceBucket([
+    input.chat.id,
+    input.speaker.id,
+    latest?.id || '',
+    latest?.timestamp || 0,
+    recentAi.length,
+    recentOwn.length,
+    input.turnPlan.rhythm,
+  ].join('|'));
+  const lengthOptions = input.turnPlan.rhythm === 'micro_ack'
+    ? ['tiny fragment', 'short sentence', 'one practical line']
+    : input.turnPlan.rhythm === 'multi_bubble'
+      ? ['first bubble short, later bubble carries detail', 'two uneven chat bubbles', 'brief setup plus separate afterthought']
+      : ['short sentence', 'ordinary chat line', 'longer practical paragraph', 'tiny side comment', 'specific follow-up question'];
+  const moveOptions = input.intent.stance === 'probe'
+    ? ['ask one pointed follow-up', 'test a hidden assumption', 'ask for a concrete detail', 'turn the question back socially']
+    : input.intent.stance === 'challenge' || input.intent.stance === 'pile_on'
+      ? ['push back on one point', 'make a dry side comment', 'give a concrete counterexample', 'refuse the frame briefly']
+      : input.intent.stance === 'support' || input.intent.stance === 'back_up'
+        ? ['back the previous speaker with one concrete reason', 'soften the room with a small practical offer', 'add a detail without restating the joke', 'agree briefly and move the scene forward']
+        : ['move the scene forward', 'answer the practical next step', 'make a small observation', 'ask one socially useful question'];
+  const ornamentOptions = roomDecorativeCount >= Math.max(3, Math.ceil(recentAi.length * 0.45))
+    ? ['plain text', 'plain text', 'one character-specific marker only if it adds new social meaning']
+    : ['plain text', 'light punctuation', 'one character-specific marker if natural'];
+  const selectedLength = lengthOptions[bucket % lengthOptions.length];
+  const selectedMove = moveOptions[Math.floor(bucket / 7) % moveOptions.length];
+  const selectedOrnament = ornamentOptions[Math.floor(bucket / 13) % ornamentOptions.length];
+  const ownLine = ownLengths.length ? `\n- Recent own lengths: ${ownLengths.join(' / ')} chars.` : '';
+  const roomLine = roomLengths.length
+    ? `\n- Recent room lengths: ${roomLengths.slice(-8).join(' / ')} chars; decorative-marker turns ${roomDecorativeCount}/${recentAi.length}.`
+    : '';
+  return `\n## Expression Surface Choice
+- This is a generation prior, not output filtering. Do not remove valid Markdown, multiline content, media phrasing, or expressive markers when they genuinely fit.
+- Current surface move: ${selectedMove}.
+- Current length tendency: ${selectedLength}. This is not a word count; it is permission to avoid the room's default middle length.
+- Current ornamentation tendency: ${selectedOrnament}. Decorative markers are optional social choices, not automatic proof of warmth or humor.
+- Do not balance every turn as setup + joke + explanatory tail + marker. Some believable replies are blunt, unfinished, practical, curious, or quiet.${roomLine}${ownLine}
+- If the recent room has converged on the same marker density, sentence size, or joke rhythm, continue the situation with a different visible surface rather than copying the mold.`;
 }
 
 function buildWorldEventContextPrompt(input: {
@@ -1636,7 +1706,7 @@ Current speaking intent:
 - Treat the intent shape as style guidance, not a hard length cap. Do not truncate a useful reply just to fit one sentence or a fragment shape.
 - Decide the visible length yourself from the latest user request, the room context, and this character's actual ability. The local intent labels are not word-count rules.
 - Stay socially situated and in character. A tiny reaction is valid when the moment is tiny; a practical explanation, tradeoff analysis, or step-by-step answer is valid when the user asks for it.
-- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildRoleActionVisibilityPrompt(showRoleActions)}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnPlanPrompt(turnPlan)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities })}${promptSuffix}`;
+- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildRoleActionVisibilityPrompt(showRoleActions)}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan })}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnPlanPrompt(turnPlan)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities })}${promptSuffix}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT, {
     currentSpeakerId: params.speaker.id,
     chatType: params.chat.type,

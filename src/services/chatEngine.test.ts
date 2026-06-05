@@ -901,8 +901,13 @@ describe('chatEngine streaming preview', () => {
       onLocalInterception,
     });
 
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(onLocalInterception).not.toHaveBeenCalled();
+    expect(prompt).toContain('## Expression Surface Choice');
+    expect(prompt).toContain('decorative-marker turns');
+    expect(prompt).toContain('generation prior, not output filtering');
     expect(message.content).toBe('我也有点想排队了😂');
   });
 
