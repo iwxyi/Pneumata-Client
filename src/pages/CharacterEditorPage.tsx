@@ -25,9 +25,6 @@ export default function CharacterEditorPage() {
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
   const { characters, loadCharacter, addCharacter, updateCharacter, updateCharacters, deleteCharacter, initializePresets, remoteDeletedCharacterIds, markCharactersWarm, prefetchCharacters } = useCharacterStore();
   const chats = useChatStore((state) => state.chats);
-  const markChatsWarm = useChatStore((state) => state.markChatsWarm);
-  const prefetchChats = useChatStore((state) => state.prefetchChats);
-  const prefetchWorldRuntime = useChatStore((state) => state.prefetchWorldRuntime);
   const updateChatSession = useChatStore((state) => state.updateChat);
   const syncArtifactCloud = useCharacterArtifactStore((state) => state.syncCloud);
   const [bootstrapComplete, setBootstrapComplete] = useState(false);
@@ -71,14 +68,6 @@ export default function CharacterEditorPage() {
       cancelled = true;
     };
   }, [editId, initializePresets, loadCharacter, markCharactersWarm, prefetchCharacters]);
-
-  useEffect(() => {
-    markChatsWarm();
-    markCharactersWarm();
-    void prefetchChats();
-    void prefetchCharacters();
-    void prefetchWorldRuntime();
-  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats, prefetchWorldRuntime]);
 
   useEffect(() => {
     if (!editId) return;
