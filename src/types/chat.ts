@@ -457,6 +457,12 @@ export const DEFAULT_OPEN_CHAT_MODE_STATE: OpenChatModeState = {
   lastRelationshipEventAt: null,
 };
 
+export function resolveShowRoleActions(input: Pick<Partial<GroupChat>, 'showRoleActions' | 'modeConfig'>) {
+  if (typeof input.showRoleActions === 'boolean') return input.showRoleActions;
+  if (typeof input.modeConfig?.showRoleActions === 'boolean') return input.modeConfig.showRoleActions;
+  return DEFAULT_OPEN_CHAT_MODE_CONFIG.showRoleActions;
+}
+
 export interface ConversationGovernance {
   ownerCharacterId: string | null;
   adminCharacterIds: string[];
@@ -582,13 +588,20 @@ export const DEFAULT_CONVERSATION_DIRECTOR_CONTROLS: ConversationDirectorControl
 export const DEFAULT_RUNTIME_EVOLUTION_INTENSITY: RuntimeEvolutionIntensity = 'balanced';
 
 export function normalizeConversation(input: (Omit<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls' | 'runtimeEvolutionIntensity'> & Partial<Pick<GroupChat, 'type' | 'governance' | 'dramaRules' | 'worldState' | 'directorControls' | 'runtimeEvolutionIntensity'>>) & { runtimeNotes?: string[]; runtimeArtifacts?: string[] }): GroupChat {
+  const showRoleActions = resolveShowRoleActions(input);
+  const modeConfig = {
+    ...DEFAULT_OPEN_CHAT_MODE_CONFIG,
+    ...(input.modeConfig || {}),
+    showRoleActions,
+  };
   return {
     ...input,
     type: input.type || 'group',
     mode: input.mode || 'open_chat',
     sessionKind: input.sessionKind || createDefaultSessionKind(input.type || 'group', input.mode || 'open_chat'),
-    modeConfig: input.modeConfig || DEFAULT_OPEN_CHAT_MODE_CONFIG,
+    modeConfig,
     modeState: input.modeState || DEFAULT_OPEN_CHAT_MODE_STATE,
+    showRoleActions,
     scenarioState: input.scenarioState || {
       turnOrder: input.memberIds || [],
       currentTurnActorId: null,

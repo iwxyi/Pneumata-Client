@@ -422,6 +422,40 @@ describe('chatEngine streaming preview', () => {
     expect(message.metadata?.runtimeDecision?.responseSurface?.basis || []).not.toContain('topic:professional-task');
   });
 
+  it('honors disabled role actions from mode config and strips visible action asides', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '（轻轻挠头）这个我先记下来，等会儿接着说。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const xiao = buildCharacter('xiao', '潇潇');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['xiao'],
+        showRoleActions: undefined,
+        modeConfig: {
+          freeSpeaking: true,
+          allowInterruptions: true,
+          allowPrivateThreads: true,
+          allowDirectorInterventions: true,
+          showRoleActions: false,
+        },
+      }),
+      speaker: xiao,
+      characters: [xiao],
+      messages: [buildUserMessage('等下', 1)],
+      apiConfig: buildProfiles(),
+    });
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+
+    expect(prompt).toContain('Visible role action policy');
+    expect(prompt).toContain('Do not include standalone action narration');
+    expect(message.content).toBe('这个我先记下来，等会儿接着说。');
+  });
+
   it('preserves parsed image decisions and converts them into queued attachments', () => {
     const parsed = parseInlineInteractionEnvelope(JSON.stringify({
       content: '来啦，你看这杯杨枝甘露。',

@@ -1,5 +1,5 @@
 import { getCharacterModelProfileId, type AICharacter } from '../types/character';
-import type { GroupChat } from '../types/chat';
+import { resolveShowRoleActions, type GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { MediaGenerationDecision, MessageAttachment, MessageMetadata } from '../types/message';
@@ -375,6 +375,12 @@ function buildStreamingDisplayContent(raw: string, speaker: AICharacter, showRol
   const content = extractedContent ?? raw;
   const withoutPrefix = trimSpeakerPrefix(content, speaker.name);
   return showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix;
+}
+
+function buildRoleActionVisibilityPrompt(showRoleActions: boolean) {
+  return showRoleActions
+    ? '\n\nVisible role action policy:\n- Brief physical beats or gesture narration may appear when they naturally carry the line, but dialogue should remain the main visible content.'
+    : '\n\nVisible role action policy:\n- Output only the spoken chat message as visible content.\n- Do not include standalone action narration, stage directions, gesture beats, or parenthesized physical descriptions in the visible reply.\n- If a physical reaction matters, express its emotional effect through the spoken line instead of writing an action aside.';
 }
 
 function createStreamingDisplayBridge(
@@ -1525,6 +1531,7 @@ export async function generateSpeakerMessage(params: {
   const mediaProfiles = resolveMediaProfiles(params.apiConfig, params.profiles);
   const mediaCapabilities = buildMediaCapabilities(params.speaker, mediaProfiles);
   const responseSurface = resolveResponseSurface(params.chat, enginePromptContext, activeMessages, params.speaker);
+  const showRoleActions = resolveShowRoleActions(params.chat);
   const turnPlan = deriveTurnPlan({
     chat: params.chat,
     speaker: params.speaker,
@@ -1552,7 +1559,7 @@ Current speaking intent:
 - Treat the intent shape as style guidance, not a hard length cap. Do not truncate a useful reply just to fit one sentence or a fragment shape.
 - Decide the visible length yourself from the latest user request, the room context, and this character's actual ability. The local intent labels are not word-count rules.
 - Stay socially situated and in character. A tiny reaction is valid when the moment is tiny; a practical explanation, tradeoff analysis, or step-by-step answer is valid when the user asks for it.
-- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnPlanPrompt(turnPlan)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities })}${promptSuffix}`;
+- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildRoleActionVisibilityPrompt(showRoleActions)}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnPlanPrompt(turnPlan)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities })}${promptSuffix}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT, {
     currentSpeakerId: params.speaker.id,
     chatType: params.chat.type,
@@ -1566,7 +1573,7 @@ Current speaking intent:
     characters: effectiveMembers,
     intent,
     activeMessages,
-    showRoleActions: params.chat.showRoleActions,
+    showRoleActions,
     surface: responseSurface,
     turnPlan,
     guidance: userGuidance,
