@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { AICharacter } from '../types/character';
 import { normalizeCharacter, normalizeCharacterGroup } from '../types/character';
 import { api, type SyncChangeScope } from '../services/api';
-import { reportRecoverableError } from '../services/diagnostics';
+import { reportRecoverableError, reportRecoverableWarning } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { clearResolvedFieldConflicts, detectPendingFieldConflicts, type FieldConflictRecord } from '../services/syncConflictRecords';
 import { buildWarmState } from './storeWarmHelpers';
@@ -367,6 +367,18 @@ function mergeVisibleCharacters(localCharacters: AICharacter[], remoteCharacters
 
 function mergeDeletedCharacters(localCharacters: AICharacter[], remoteCharacters: AICharacter[], pendingOperations: PendingCharacterOperation[] = []) {
   return mergeCharacters(localCharacters, remoteCharacters, pendingOperations).filter((item) => item.deletedAt != null);
+}
+
+function getErrorStatus(error: unknown) {
+  return typeof (error as { status?: unknown })?.status === 'number'
+    ? (error as { status: number }).status
+    : null;
+}
+
+function getErrorCode(error: unknown) {
+  return typeof (error as { code?: unknown })?.code === 'string'
+    ? (error as { code: string }).code
+    : null;
 }
 
 function hasNonDeletePendingCharacterOperation(pendingOperations: PendingCharacterOperation[], characterId: string) {
@@ -1031,12 +1043,31 @@ export const useCharacterStore = create<CharacterStore>()(
               return detail;
             } catch (error) {
               characterSyncScopes.markError(scope, error);
+              const fallback = get().characters.find((character) => character.id === id) || null;
+              const diagnostics = {
+                characterId: id,
+                status: getErrorStatus(error),
+                code: getErrorCode(error),
+                hasLocalFallback: Boolean(fallback),
+                cachedDetailLoaded: Boolean(fallback?.characterDetailLoaded),
+                pendingOperationCount: get().pendingOperations.filter((operation) => operation.entityId === id).length,
+              };
+              if (fallback) {
+                reportRecoverableWarning({
+                  location: 'cloud-sync:character-detail-load',
+                  error,
+                  message: '角色云端详情暂时不可用，已继续使用本地角色数据。',
+                  extra: diagnostics,
+                });
+                return fallback;
+              }
               reportRecoverableError({
                 location: 'cloud-sync:character-detail-load',
                 error,
                 userMessage: '角色详情同步失败，请检查网络后重试。',
+                extra: diagnostics,
               });
-              return get().characters.find((character) => character.id === id) || null;
+              return null;
             }
           }, { markCheckedOnSuccess: false });
         },

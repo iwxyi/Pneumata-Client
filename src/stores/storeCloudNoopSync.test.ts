@@ -688,6 +688,50 @@ describe('cloud no-op sync', () => {
     expect(merged.fieldVersions?.name).toBe(200);
   });
 
+  it('keeps local character details when cloud detail fetch fails', async () => {
+    apiMocks.getCharacter.mockRejectedValueOnce(Object.assign(new Error('Not Found'), {
+      name: 'ApiError',
+      status: 404,
+      code: 'NOT_FOUND',
+    }));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { useCharacterStore } = await import('./useCharacterStore');
+    await useCharacterStore.persist.rehydrate();
+    useCharacterStore.setState({
+      characters: [character({
+        id: 'local-character-1',
+        name: '本地角色',
+        background: '本地背景',
+        speakingStyle: '本地说话方式',
+        characterDetailLoaded: false,
+        updatedAt: 200,
+      })],
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedCharacterIds: [],
+      isLoading: false,
+    });
+
+    const loaded = await useCharacterStore.getState().loadCharacter('local-character-1');
+
+    expect(loaded?.name).toBe('本地角色');
+    expect(loaded?.background).toBe('本地背景');
+    expect(useCharacterStore.getState().characters[0]?.name).toBe('本地角色');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[recoverable-warning] cloud-sync:character-detail-load'), expect.objectContaining({
+      message: '角色云端详情暂时不可用，已继续使用本地角色数据。',
+      characterId: 'local-character-1',
+      status: 404,
+      hasLocalFallback: true,
+      cachedDetailLoaded: false,
+    }));
+    expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('[recoverable] cloud-sync:character-detail-load'), expect.anything());
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
   it('resolves character remote-delete conflicts by discarding or restoring local edits', async () => {
     const { useCharacterStore } = await import('./useCharacterStore');
     await useCharacterStore.persist.rehydrate();
