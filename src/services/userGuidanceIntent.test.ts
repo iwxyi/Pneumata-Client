@@ -81,6 +81,18 @@ describe('userGuidanceIntent', () => {
     expect(intent?.maxTurns).toBe(2);
   });
 
+  it('treats collective writing instructions as direct tasks for every member', () => {
+    const intent = parseUserGuidanceIntent('你怎么看待AI在未来对人类的影响？每个人写一篇800字作文', members);
+
+    expect(intent).toMatchObject({
+      kind: 'direct_reply',
+      actorIds: ['mei', 'hui', 'xi'],
+      beatType: 'answer',
+      maxTurns: 3,
+    });
+    expect(intent?.reason).toContain('所有角色');
+  });
+
   it('resolves image subjects as memory recall targets instead of the requested sender', () => {
     const intent = parseUserGuidanceIntent('美羊羊发个灰太狼证件照的图片', members);
 

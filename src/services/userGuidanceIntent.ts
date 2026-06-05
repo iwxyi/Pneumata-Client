@@ -54,6 +54,15 @@ function isDirectSpeakRequest(text: string) {
   return /(说说|说一下|讲讲|回答|回应|回复|解释|评价|吐槽|问问|来一句|你来说|你来|发言|出题|写|分析|总结|展开)/i.test(text);
 }
 
+function isCollectiveActorRequest(text: string) {
+  return /(每个人|每位|每个成员|所有人|全员|大家都|你们都|各自|分别|一人一|每人)/i.test(text)
+    && isDirectSpeakRequest(text);
+}
+
+function allActorIds(characters: AICharacter[]) {
+  return characters.map((character) => character.id).filter(Boolean);
+}
+
 function firstMentionBeforeAction(text: string, mentioned: Array<{ character: AICharacter; index: number }>) {
   const actionMatch = /(帮|替|给|发|画|拍|写|说|讲|回答|回应|回复|解释|评价|吐槽|问|出题|总结|分析|展开)/i.exec(text);
   if (!actionMatch) return [];
@@ -128,7 +137,8 @@ export function parseUserGuidanceIntent(text: string, characters: AICharacter[])
   if (!rawText) return null;
   const mentionedActorIds = findMentionedActors(rawText, characters);
   const imageRequest = isImageRequest(rawText);
-  const actorIds = resolveActionActors(rawText, characters, imageRequest);
+  const collectiveActorIds = !imageRequest && isCollectiveActorRequest(rawText) ? allActorIds(characters) : [];
+  const actorIds = collectiveActorIds.length ? collectiveActorIds : resolveActionActors(rawText, characters, imageRequest);
   const subjectActorIds = imageRequest ? unique(mentionedActorIds.filter((id) => !actorIds.includes(id))) : [];
   const directRequest = Boolean(actorIds.length) || isDirectSpeakRequest(rawText);
   if (!imageRequest && !directRequest && !mentionedActorIds.length) {
@@ -175,9 +185,9 @@ export function parseUserGuidanceIntent(text: string, characters: AICharacter[])
       mentionedActorIds,
       focusText: rawText,
       beatType: actorIds.length ? 'answer' : 'invite',
-      pressure: actorIds.length ? 0.92 : 0.7,
+      pressure: collectiveActorIds.length ? 0.96 : actorIds.length ? 0.92 : 0.7,
       maxTurns: actorIds.length ? Math.max(1, actorIds.length) : 3,
-      reason: actorIds.length ? '用户点名角色回应。' : '用户提到角色并改变当前讨论焦点。',
+      reason: collectiveActorIds.length ? '用户要求所有角色分别执行同一个任务。' : actorIds.length ? '用户点名角色回应。' : '用户提到角色并改变当前讨论焦点。',
     };
   }
 

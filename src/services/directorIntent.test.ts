@@ -224,4 +224,25 @@ describe('resolveDirectorIntent', () => {
     expect(intent.source).toBe('user_message');
     expect(intent.userGuidance?.kind).toBe('topic_shift');
   });
+
+  it('locks collective direct tasks onto every member instead of treating them as a topic seed', () => {
+    const intent = resolveDirectorIntent({
+      chat: buildChat(),
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      messages: [
+        buildMessage({
+          type: 'user',
+          senderId: 'user',
+          senderName: '用户',
+          content: '你怎么看待AI在未来对人类的影响？每个人写一篇800字作文',
+        }),
+      ],
+    });
+
+    expect(intent.source).toBe('user_message');
+    expect(intent.beatType).toBe('answer');
+    expect(intent.targetActorIds).toEqual(['a', 'b']);
+    expect(intent.userGuidance?.kind).toBe('direct_reply');
+    expect(intent.userGuidance?.actorIds).toEqual(['a', 'b']);
+  });
 });

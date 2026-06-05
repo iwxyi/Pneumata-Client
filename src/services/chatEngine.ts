@@ -512,7 +512,14 @@ function collectRecentConstraintLines(messages: Message[], speakerId: string) {
 
 function inferResponseSurfaceFromText(text: string, style: GroupChat['style']): { kind: ResponseSurfaceKind | null; basis: string[] } {
   const basis: string[] = [];
-  void text;
+  if (/(作文|文章|论文|报告|长文|一篇|不少于|不低于|以上|[0-9０-９]{2,4}\s*字|写作)/i.test(text)) {
+    basis.push('topic:longform-writing-task');
+    return { kind: 'longform', basis };
+  }
+  if (/(方案|步骤|计划|教程|说明|评审|分析|总结|对比|利弊|优缺点|实现|架构|设计)/i.test(text)) {
+    basis.push('topic:professional-task');
+    return { kind: 'professional', basis };
+  }
   if (style === 'debate' || style === 'brainstorm') basis.push(`style:${style}-open-ended`);
   return { kind: null, basis };
 }
@@ -577,6 +584,9 @@ function buildResponseSurfacePrompt(surface: ResponseSurface) {
   }
   if (surface.kind === 'creative') {
     return `\nResponse surface:\n- Creative form is available when the model judges that the current request calls for it. It may be a brief idea, a scene, an outline, dialogue, critique, or richer prose.\n- Do not use a fixed template. Choose form from the actual request, character voice, room style, and discussion topic.\n- Do not limit word count artificially, but do not inflate beyond what this speaker would plausibly write.\n- Preserve paragraphs, lists, headings, and quoted excerpts only when they improve readability.${roleFitHint}`;
+  }
+  if (surface.kind === 'longform') {
+    return `\nResponse surface:\n- Longform writing is available because the current request asks for a written deliverable, explicit length, article, essay, report, or comparable artifact.\n- Produce the requested artifact rather than chatting around the topic. Preserve the speaker's own voice, limits, opinions, and examples while honoring the requested form.\n- Do not artificially shrink the answer into a chat quip. If the user requested a length or structure, aim for that shape as far as the character and model context reasonably allow.\n- Paragraphs, headings, lists, and Markdown are allowed when they improve readability.${roleFitHint}`;
   }
   return `\nResponse surface:\n- Professional form is available when the model judges that the current request calls for it. It may be concise, detailed, structured, or conversational.\n- Do not use a fixed template. Choose form from the actual request, character voice, room style, and discussion topic.\n- Do not limit word count artificially, but do not inflate beyond what this speaker would plausibly write.\n- Preserve paragraphs, lists, headings, and tables only when they improve readability.${roleFitHint}`;
 }
@@ -949,7 +959,7 @@ function buildUserGuidancePrompt(guidance: UserGuidanceIntent | null | undefined
     ? '\n- Topic guidance: this replaces the previous tangent. Your first semantic move must directly answer, question, or take a stance on this exact focus. If the user gave a question, answer that question first. Do not continue the old joke unless you tie it back to the new topic in the same sentence.\n- Do not reply to the previous AI line first. Anchor the reply in the user guidance, then you may add characterful banter.'
     : '';
   const directLine = guidance.kind === 'direct_reply'
-    ? '\n- Direct reply guidance: answer the user-requested point first, then optionally react socially. Do not dodge into room banter before answering. If a specific actor was requested, that actor should treat this as a direct task, not a casual mention.'
+    ? '\n- Direct reply guidance: answer the user-requested point first, then optionally react socially. Do not dodge into room banter before answering. If a specific actor was requested, that actor should treat this as a direct task, not a casual mention.\n- Honor explicit output form, quantity, and length requirements in the user guidance. If the user asks for an essay, article, analysis, list, answer, or other deliverable, produce that deliverable in this speaker’s own voice instead of merely discussing the topic.\n- When multiple requested actors are listed, each requested actor must provide their own substantive response for the same task. Do not summarize what the group thinks and do not pass the task to someone else.'
     : '';
   return `\n## User Guidance Override
 - Latest user guidance: ${guidance.rawText}

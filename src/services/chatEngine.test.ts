@@ -422,6 +422,38 @@ describe('chatEngine streaming preview', () => {
     expect(message.metadata?.runtimeDecision?.responseSurface?.basis || []).not.toContain('topic:professional-task');
   });
 
+  it('treats collective essay requests as deliverable tasks instead of ordinary banter', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '如果让我认真写，我会先说：AI不会简单地替代人类，它更像一面放大镜，把人的能力差异、制度漏洞和创造力一起放大。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const susu = buildCharacter('susu', '穿搭博主苏苏');
+    const luxun = buildCharacter('luxun', '鲁智深');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['susu', 'luxun'] }),
+      speaker: susu,
+      characters: [susu, luxun],
+      messages: [
+        buildUserMessage('你怎么看待AI在未来对人类的影响？每个人写一篇800字作文', Date.now()),
+      ],
+      apiConfig: buildProfiles(),
+    });
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+
+    expect(prompt).toContain('## User Guidance Override');
+    expect(prompt).toContain('Requested actor(s): 穿搭博主苏苏、鲁智深');
+    expect(prompt).toContain('Honor explicit output form, quantity, and length requirements');
+    expect(prompt).toContain('produce that deliverable');
+    expect(prompt).toContain('Longform');
+    expect(message.metadata?.runtimeDecision?.directorIntent?.targetActorIds).toEqual(['susu', 'luxun']);
+    expect(message.metadata?.runtimeDecision?.responseSurface?.kind).toBe('longform');
+    expect(message.metadata?.runtimeDecision?.responseSurface?.basis || []).toContain('topic:longform-writing-task');
+  });
+
   it('honors disabled role actions from mode config and strips visible action asides', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
