@@ -262,7 +262,8 @@ export const useSettingsStore = create<SettingsStore>()(
           if (changeProbe?.status === 'not_modified') {
             settingsSyncScopes.markChecked(SETTINGS_ACCOUNT_SCOPE, {
               cursor: changeProbe.cursor,
-              revision: changeProbe.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
               applied: false,
             });
             set(markSettingsLoadedIdle);
@@ -271,7 +272,8 @@ export const useSettingsStore = create<SettingsStore>()(
           const settings = (settingsFromChanges(changeProbe?.changes) || await api.getSettings()) as RemoteSettingsPayload;
           settingsSyncScopes.markChecked(SETTINGS_ACCOUNT_SCOPE, {
             cursor: changeProbe?.cursor,
-            revision: changeProbe?.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
             applied: true,
           });
           set({

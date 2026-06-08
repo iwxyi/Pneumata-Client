@@ -92,6 +92,7 @@ export interface SyncChangesResponse {
   cursor: string;
   revision: string;
   changes: Array<Record<string, unknown>>;
+  hasMore?: boolean;
 }
 
 export class ApiError extends Error {

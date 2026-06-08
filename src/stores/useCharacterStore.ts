@@ -936,7 +936,8 @@ export const useCharacterStore = create<CharacterStore>()(
               if (changeProbe?.status === 'not_modified') {
                 characterSyncScopes.markChecked(CHARACTER_SUMMARY_SCOPE, {
                   cursor: changeProbe.cursor,
-                  revision: changeProbe.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                   applied: false,
                 });
                 set(markCharactersLoadingIdle);
@@ -967,7 +968,8 @@ export const useCharacterStore = create<CharacterStore>()(
                   const changed = buildCharacterListSignature(nextVisible) !== buildCharacterListSignature(state.characters);
                   characterSyncScopes.markChecked(CHARACTER_SUMMARY_SCOPE, {
                     cursor: changeProbe.cursor,
-                    revision: changeProbe.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                     applied: changed || deleteConflicts.length > 0,
                   });
                   const deleteConflictIds = new Set(deleteConflicts.map((character) => character.id));
@@ -993,7 +995,8 @@ export const useCharacterStore = create<CharacterStore>()(
                   const changed = buildCharacterListSignature(nextCharacters) !== buildCharacterListSignature(state.characters);
                   characterSyncScopes.markChecked(CHARACTER_SUMMARY_SCOPE, {
                     cursor: changeProbe?.cursor,
-                    revision: changeProbe?.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                     applied: changed,
                   });
                   return changed ? { characters: nextCharacters } : {};
@@ -1032,7 +1035,8 @@ export const useCharacterStore = create<CharacterStore>()(
               if (changeProbe?.status === 'not_modified') {
                 characterSyncScopes.markChecked(scope, {
                   cursor: changeProbe.cursor,
-                  revision: changeProbe.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                   applied: false,
                 });
                 return cached || null;
@@ -1043,6 +1047,7 @@ export const useCharacterStore = create<CharacterStore>()(
                 characterSyncScopes.markChecked(scope, {
                   cursor: changeProbe?.cursor,
                   revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                   applied: true,
                 });
                 set((state) => ({
@@ -1067,6 +1072,7 @@ export const useCharacterStore = create<CharacterStore>()(
                 characterSyncScopes.markChecked(scope, {
                   cursor: changeProbe?.cursor,
                   revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                   applied: changed,
                 });
                 return {

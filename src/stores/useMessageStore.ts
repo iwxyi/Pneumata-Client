@@ -4742,7 +4742,8 @@ export const useMessageStore = create<MessageStore>()(
             if (changeProbe.status === 'not_modified') {
               messageSyncScopes.markChecked(scope, {
                 cursor: changeProbe.cursor,
-                revision: changeProbe.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                 applied: false,
               });
               continue;
@@ -4765,7 +4766,8 @@ export const useMessageStore = create<MessageStore>()(
               }, state.pendingOperations);
               messageSyncScopes.markChecked(scope, {
                 cursor: changeProbe.cursor,
-                revision: changeProbe.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                 applied: fetched.length > 0,
               });
               return {
@@ -4868,7 +4870,8 @@ export const useMessageStore = create<MessageStore>()(
             const activeMessages = activeMessageWindow(currentWindowBeforeFetch?.messages || [], limit);
             messageSyncScopes.markChecked(messageWindowScope(chatId), {
               cursor: changeProbe.cursor,
-              revision: changeProbe.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
               applied: false,
             });
             set((state) => ({
@@ -4919,7 +4922,8 @@ export const useMessageStore = create<MessageStore>()(
             if (!isAppend && !options?.before) {
               messageSyncScopes.markChecked(messageWindowScope(chatId), {
                 cursor: changeProbe?.cursor,
-                revision: changeProbe?.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                 applied: fetched.length > 0,
               });
             }

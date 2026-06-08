@@ -1020,7 +1020,8 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             if (changeProbe?.status === 'not_modified') {
               artifactSyncScopes.markChecked(scope, {
                 cursor: changeProbe.cursor,
-                revision: changeProbe.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                 applied: false,
               });
               return;
@@ -1111,13 +1112,15 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             }
             artifactSyncScopes.markChecked(scope, {
               cursor: changeProbe?.cursor,
-              revision: changeProbe?.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
               applied: mergedSignature !== localSignature || uploads.length > 0 || deletes.length > 0,
             });
             if (scope === ARTIFACT_SUMMARY_SCOPE) {
               artifactSyncScopes.markChecked(ARTIFACT_SUMMARY_SCOPE, {
                 cursor: changeProbe?.cursor,
-                revision: changeProbe?.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                 applied: mergedSignature !== localSignature || uploads.length > 0 || deletes.length > 0,
               });
             }

@@ -274,10 +274,11 @@ export function createSyncScopeMetadata(defaultTtlMs: number, options: SyncScope
       return state.lastCheckedAt > 0 && Date.now() - state.lastCheckedAt < ttlMs;
     },
 
-    markChecked(scope: string, metadata?: { cursor?: string | null; revision?: string | number | null; applied?: boolean }) {
+    markChecked(scope: string, metadata?: { cursor?: string | null; revision?: string | number | null; applied?: boolean; fresh?: boolean }) {
       const state = getState(scope);
-      state.lastCheckedAt = Date.now();
-      if (metadata?.applied) state.lastAppliedAt = state.lastCheckedAt;
+      const checkedAt = Date.now();
+      state.lastCheckedAt = metadata?.fresh === false ? 0 : checkedAt;
+      if (metadata?.applied) state.lastAppliedAt = checkedAt;
       if ('cursor' in (metadata || {})) state.cursor = metadata?.cursor ?? null;
       if ('revision' in (metadata || {})) state.revision = metadata?.revision ?? null;
       markStateSuccess(state);

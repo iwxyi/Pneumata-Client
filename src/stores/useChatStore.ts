@@ -914,7 +914,8 @@ export const useChatStore = create<ChatStore>()(
               if (changeProbe?.status === 'not_modified') {
                 chatSyncScopes.markChecked(CHAT_SUMMARY_SCOPE, {
                   cursor: changeProbe.cursor,
-                  revision: changeProbe.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                   applied: false,
                 });
                 set(markChatsLoadingIdle);
@@ -941,7 +942,8 @@ export const useChatStore = create<ChatStore>()(
                   const changed = buildChatListSignature(nextChats) !== buildChatListSignature(state.chats);
                   chatSyncScopes.markChecked(CHAT_SUMMARY_SCOPE, {
                     cursor: changeProbe?.cursor,
-                    revision: changeProbe?.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                     applied: changed || deletedSnapshots.length > 0 || conflictSnapshots.length > 0,
                   });
                   return {
@@ -975,7 +977,8 @@ export const useChatStore = create<ChatStore>()(
                   const changed = buildChatListSignature(nextChats) !== buildChatListSignature(state.chats);
                   chatSyncScopes.markChecked(CHAT_SUMMARY_SCOPE, {
                     cursor: changeProbe?.cursor,
-                    revision: changeProbe?.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                     applied: changed,
                   });
                   return changed ? { chats: nextChats } : {};
@@ -1014,7 +1017,8 @@ export const useChatStore = create<ChatStore>()(
               if (changeProbe?.status === 'not_modified') {
                 chatSyncScopes.markChecked(scope, {
                   cursor: changeProbe.cursor,
-                  revision: changeProbe.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                   applied: false,
                 });
                 return cached || null;
@@ -1026,6 +1030,7 @@ export const useChatStore = create<ChatStore>()(
                 chatSyncScopes.markChecked(scope, {
                   cursor: changeProbe?.cursor,
                   revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                   applied: true,
                 });
                 set((state) => ({
@@ -1051,6 +1056,7 @@ export const useChatStore = create<ChatStore>()(
                 chatSyncScopes.markChecked(scope, {
                   cursor: changeProbe?.cursor,
                   revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                   applied: changed,
                 });
                 return {
@@ -1109,7 +1115,8 @@ export const useChatStore = create<ChatStore>()(
               if (changeProbe?.status === 'not_modified') {
                 chatSyncScopes.markChecked(WORLD_RUNTIME_SCOPE, {
                   cursor: changeProbe.cursor,
-                  revision: changeProbe.revision,
+                  revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                   applied: false,
                 });
                 return;
@@ -1123,6 +1130,7 @@ export const useChatStore = create<ChatStore>()(
                 chatSyncScopes.markChecked(WORLD_RUNTIME_SCOPE, {
                   cursor: changeProbe?.cursor,
                   revision: changeProbe?.revision,
+                  fresh: !changeProbe?.hasMore,
                   applied: changed,
                 });
                 return {
