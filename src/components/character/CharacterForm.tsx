@@ -184,6 +184,7 @@ interface CharacterFormProps {
     updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
     actorId: string;
   };
+  onDiaryTabOpen?: () => void;
   onSave: (data: {
     name: string;
     avatar: string;
@@ -294,7 +295,7 @@ function InlineTagEditor({ value, onChange, placeholder, addLabel }: InlineTagEd
   );
 }
 
-export default function CharacterForm({ initial, existingNames = [], saveError = null, onDraftNameChange, onDelete, deleteLabel, calendarContext, onSave }: CharacterFormProps) {
+export default function CharacterForm({ initial, existingNames = [], saveError = null, onDraftNameChange, onDelete, deleteLabel, calendarContext, onDiaryTabOpen, onSave }: CharacterFormProps) {
   const { t, i18n } = useTranslation();
   const settings = useSettingsStore();
   const showSpeechStyle = settings.developerMode && settings.developerUI.showSpeechStyle;
@@ -1600,6 +1601,10 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       setConfigTab(0);
     }
   }, [availableTabs, configTab]);
+
+  useEffect(() => {
+    if (configTab === 6) onDiaryTabOpen?.();
+  }, [configTab, onDiaryTabOpen]);
 
   const handleRegenerateBubble = async () => {
     if (!name.trim() || generating) return null;

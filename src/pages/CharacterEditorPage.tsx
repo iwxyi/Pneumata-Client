@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, Typography } from '@mui/material';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -27,6 +27,7 @@ export default function CharacterEditorPage() {
   const chats = useChatStore((state) => state.chats);
   const updateChatSession = useChatStore((state) => state.updateChat);
   const syncArtifactCloud = useCharacterArtifactStore((state) => state.syncCloud);
+  const syncedDiaryCharacterIdsRef = useRef(new Set<string>());
   const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const characterDataReady = bootstrapComplete || characters.length > 0;
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -74,8 +75,9 @@ export default function CharacterEditorPage() {
     };
   }, [editId, initializePresets, loadCharacter, markCharactersWarm, prefetchCharacters]);
 
-  useEffect(() => {
-    if (!editId) return;
+  const handleDiaryTabOpen = useCallback(() => {
+    if (!editId || syncedDiaryCharacterIdsRef.current.has(editId)) return;
+    syncedDiaryCharacterIdsRef.current.add(editId);
     void syncArtifactCloud({ kind: 'diary', characterId: editId });
   }, [editId, syncArtifactCloud]);
 
@@ -161,6 +163,7 @@ export default function CharacterEditorPage() {
           updateChat: updateChatSession,
           actorId: editId,
         } : undefined}
+        onDiaryTabOpen={handleDiaryTabOpen}
         onSave={async (data) => {
           setSaveError(null);
           try {

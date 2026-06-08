@@ -108,6 +108,7 @@ Pneumata pages do not treat the cloud as the primary read path. Characters, chat
 |---|---|
 | Opening a page | Render local data first; cloud summaries and details only refresh freshness in the background |
 | Character / chat detail | If a local entity exists and the cloud returns 404, keep the local entity and mark that detail scope checked |
+| Character editor | First paint only loads the current character detail and local summaries; diary artifacts sync for that character only after the Diary tab is opened |
 | Preset characters | Provided by local preset definitions and never fetched from cloud detail endpoints |
 | Message history | Keep a bounded local window; `messages.window:<chatId>` is a lightweight freshness probe only. When cloud data changed, message bodies still load through `/messages?limit&before` pagination to keep `/sync/changes` small |
 | First cloud-sync enable | Hydrate local characters, chats, messages, and settings before building the local-to-cloud reconcile plan |
