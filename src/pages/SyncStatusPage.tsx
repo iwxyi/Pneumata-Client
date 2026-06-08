@@ -1,5 +1,6 @@
 import { Alert, Box, Button, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
@@ -14,6 +15,7 @@ import { buildOperationsDiffPreview, buildPatchDiffPreview } from '../services/s
 import type { SyncScopeSnapshot } from '../stores/syncScopeMetadata';
 import { clearPersistenceFailures, PERSISTENCE_HEALTH_EVENT, readPersistenceHealth } from '../services/persistenceHealth';
 import { buildLocalRecoverySnapshot } from '../services/localRecoveryExport';
+import { importLocalRecoverySnapshot, type LocalRecoveryImportResult } from '../services/localRecoveryImport';
 
 function clipText(value: unknown, max = 120) {
   if (value == null) return '';
@@ -64,6 +66,9 @@ export default function SyncStatusPage() {
   const isZh = i18n.language.startsWith('zh');
   const [bootstrapStatus, setBootstrapStatus] = useState<CloudSyncBootstrapStatus | null>(() => readCloudSyncBootstrapStatus());
   const [persistenceHealth, setPersistenceHealth] = useState(() => readPersistenceHealth());
+  const [importResult, setImportResult] = useState<LocalRecoveryImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const recoveryImportInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -384,6 +389,20 @@ export default function SyncStatusPage() {
     const snapshot = await buildLocalRecoverySnapshot({ persistenceFailures: persistenceHealth.failures });
     downloadJson(`pneumata-local-recovery-${new Date().toISOString().replace(/[:.]/g, '-')}.json`, snapshot);
   };
+  const handleRecoveryImport = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      setImportResult(importLocalRecoverySnapshot(parsed));
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : String(error));
+    }
+  };
   const clearPersistenceHealth = () => {
     clearPersistenceFailures();
     setPersistenceHealth(readPersistenceHealth());
@@ -400,6 +419,16 @@ export default function SyncStatusPage() {
         </Button>
         <Button size="small" variant="outlined" onClick={exportFailed} disabled={failedItems.length === 0}>
           {isZh ? '导出失败项' : 'Export failed'}
+        </Button>
+        <input
+          ref={recoveryImportInputRef}
+          type="file"
+          accept="application/json,.json"
+          onChange={handleRecoveryImport}
+          style={{ display: 'none' }}
+        />
+        <Button size="small" variant="outlined" onClick={() => recoveryImportInputRef.current?.click()}>
+          {isZh ? '导入本地恢复快照' : 'Import local recovery snapshot'}
         </Button>
       </Box>
 
@@ -444,6 +473,21 @@ export default function SyncStatusPage() {
               </Button>
             </Stack>
           </Stack>
+        </Alert>
+      ) : null}
+
+      {importResult ? (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          {isZh
+            ? `本地恢复导入完成：角色 ${importResult.counts.characters.imported}，聊天 ${importResult.counts.chats.imported}，消息 ${importResult.counts.messages.imported}，artifact ${importResult.counts.characterArtifacts.imported}；已保留现有较新数据 ${importResult.counts.characters.preserved + importResult.counts.chats.preserved + importResult.counts.messages.preserved + importResult.counts.characterArtifacts.preserved} 项。`
+            : `Local recovery import finished: characters ${importResult.counts.characters.imported}, chats ${importResult.counts.chats.imported}, messages ${importResult.counts.messages.imported}, artifacts ${importResult.counts.characterArtifacts.imported}. Preserved newer local records ${importResult.counts.characters.preserved + importResult.counts.chats.preserved + importResult.counts.messages.preserved + importResult.counts.characterArtifacts.preserved}.`}
+          {importResult.ignored.length ? ` ${isZh ? '未导入字段：' : 'Ignored fields: '}${importResult.ignored.join(', ')}` : ''}
+        </Alert>
+      ) : null}
+
+      {importError ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {isZh ? `本地恢复导入失败：${importError}` : `Local recovery import failed: ${importError}`}
         </Alert>
       ) : null}
 
