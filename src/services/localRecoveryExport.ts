@@ -4,6 +4,7 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
+import { readIndexedDbStorageDiagnostics } from '../stores/storePersistenceScope';
 import type { PersistenceFailureSnapshot } from './persistenceHealth';
 
 type SizedStorageEntry = {
@@ -62,7 +63,7 @@ function summarizeMessageWindows(messageWindowsByChatId: ReturnType<typeof useMe
   ]));
 }
 
-export function buildLocalRecoverySnapshot(params?: {
+export async function buildLocalRecoverySnapshot(params?: {
   persistenceFailures?: PersistenceFailureSnapshot[];
 }) {
   const authStore = useAuthStore.getState();
@@ -73,6 +74,7 @@ export function buildLocalRecoverySnapshot(params?: {
   const settingsStore = useSettingsStore.getState();
   const messageWindowsByChatId = messageStore.messageWindowsByChatId || {};
   const localStorageSizes = listLocalStorageSizes();
+  const indexedDbStorage = await readIndexedDbStorageDiagnostics();
   const snapshot = {
     version: 1,
     exportedAt: Date.now(),
@@ -85,6 +87,7 @@ export function buildLocalRecoverySnapshot(params?: {
       failures: params?.persistenceFailures || [],
       localStorageLargest: localStorageSizes.largest,
       localStorageTotalBytes: localStorageSizes.totalBytes,
+      indexedDbStorage,
     },
     summary: {
       characters: characterStore.characters.length,

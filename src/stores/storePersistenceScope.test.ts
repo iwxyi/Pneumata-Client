@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBufferedJsonStorage, createScopedIndexedDbStorage } from './storePersistenceScope';
+import { createBufferedJsonStorage, createScopedIndexedDbStorage, readIndexedDbStorageDiagnostics } from './storePersistenceScope';
 import { clearPersistenceFailures, readPersistenceHealth } from '../services/persistenceHealth';
 
 function createStorageMock() {
@@ -22,6 +22,7 @@ describe('storePersistenceScope', () => {
 
   afterEach(() => {
     clearPersistenceFailures();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -74,6 +75,17 @@ describe('storePersistenceScope', () => {
     await storage.setItem('scoped-messages', 'next-cache');
 
     expect(rawStorage.getItem('scoped-messages-user-1')).toBe('next-cache');
-    vi.unstubAllGlobals();
+  });
+
+  it('returns explicit IndexedDB diagnostics when storage is unavailable', async () => {
+    vi.stubGlobal('indexedDB', undefined);
+
+    await expect(readIndexedDbStorageDiagnostics()).resolves.toMatchObject({
+      available: false,
+      databaseName: 'pneumata-local-store',
+      objectStoreName: 'kv',
+      totalBytes: 0,
+      largest: [],
+    });
   });
 });

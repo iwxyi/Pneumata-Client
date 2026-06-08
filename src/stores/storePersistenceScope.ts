@@ -19,6 +19,21 @@ interface PendingBufferedWrite<T> {
   handle: BufferedFlushHandle | null;
 }
 
+export interface IndexedDbStorageEntryDiagnostic {
+  key: string;
+  sizeBytes: number;
+}
+
+export interface IndexedDbStorageDiagnostics {
+  available: boolean;
+  databaseName: string;
+  objectStoreName: string;
+  totalBytes: number;
+  entries: IndexedDbStorageEntryDiagnostic[];
+  largest: IndexedDbStorageEntryDiagnostic[];
+  error?: string;
+}
+
 const bufferedFlushers = new Set<() => void>();
 let bufferedLifecycleRegistered = false;
 const INDEXED_DB_NAME = 'pneumata-local-store';
@@ -65,6 +80,12 @@ function ensureBufferedStorageLifecycle() {
 function parsePersistedValue<T>(raw: string | null, reviver?: BufferedJsonStorageOptions['reviver']) {
   if (raw == null) return null;
   return JSON.parse(raw, reviver) as StorageValue<T>;
+}
+
+function textSizeBytes(value: string) {
+  if (typeof Blob !== 'undefined') return new Blob([value]).size;
+  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(value).byteLength;
+  return value.length;
 }
 
 function openIndexedDb() {
@@ -126,6 +147,53 @@ async function removeIndexedDbItem(key: string) {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error || new Error('IndexedDB remove failed'));
   });
+}
+
+export async function readIndexedDbStorageDiagnostics(limit = 20): Promise<IndexedDbStorageDiagnostics> {
+  const unavailable = {
+    available: false,
+    databaseName: INDEXED_DB_NAME,
+    objectStoreName: INDEXED_DB_OBJECT_STORE,
+    totalBytes: 0,
+    entries: [],
+    largest: [],
+  };
+  try {
+    const database = await openIndexedDb();
+    if (!database) return unavailable;
+    const entries = await new Promise<IndexedDbStorageEntryDiagnostic[]>((resolve, reject) => {
+      const transaction = database.transaction(INDEXED_DB_OBJECT_STORE, 'readonly');
+      const store = transaction.objectStore(INDEXED_DB_OBJECT_STORE);
+      const request = store.openCursor();
+      const result: IndexedDbStorageEntryDiagnostic[] = [];
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(result);
+          return;
+        }
+        const key = String(cursor.key);
+        const value = typeof cursor.value === 'string' ? cursor.value : JSON.stringify(cursor.value ?? null);
+        result.push({ key, sizeBytes: textSizeBytes(value) });
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error || new Error('IndexedDB diagnostics failed'));
+    });
+    const sortedEntries = entries.sort((a, b) => b.sizeBytes - a.sizeBytes);
+    return {
+      available: true,
+      databaseName: INDEXED_DB_NAME,
+      objectStoreName: INDEXED_DB_OBJECT_STORE,
+      totalBytes: entries.reduce((sum, entry) => sum + entry.sizeBytes, 0),
+      entries,
+      largest: sortedEntries.slice(0, limit),
+    };
+  } catch (error) {
+    return {
+      ...unavailable,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export function createScopedStorage(params: ScopedStorageParams): StateStorage {

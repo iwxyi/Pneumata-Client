@@ -380,10 +380,10 @@ export default function SyncStatusPage() {
     authMode,
     scopes: syncScopes,
   });
-  const exportPersistenceHealth = () => downloadJson(
-    `pneumata-local-recovery-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
-    buildLocalRecoverySnapshot({ persistenceFailures: persistenceHealth.failures }),
-  );
+  const exportPersistenceHealth = async () => {
+    const snapshot = await buildLocalRecoverySnapshot({ persistenceFailures: persistenceHealth.failures });
+    downloadJson(`pneumata-local-recovery-${new Date().toISOString().replace(/[:.]/g, '-')}.json`, snapshot);
+  };
   const clearPersistenceHealth = () => {
     clearPersistenceFailures();
     setPersistenceHealth(readPersistenceHealth());
