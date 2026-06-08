@@ -393,6 +393,47 @@ describe('cloud no-op sync', () => {
     expect(merged.fieldVersions?.name).toBe(200);
   });
 
+  it('keeps local chat details when cloud detail is missing', async () => {
+    apiMocks.getChat.mockRejectedValueOnce(Object.assign(new Error('Not Found'), {
+      name: 'ApiError',
+      status: 404,
+      code: 'NOT_FOUND',
+    }));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { useChatStore } = await import('./useChatStore');
+    await useChatStore.persist.rehydrate();
+    useChatStore.setState({
+      chats: [chat({
+        id: 'local-chat-1',
+        name: '本地会话',
+        topic: '本地主题',
+        runtimeDetailLoaded: false,
+        updatedAt: 200,
+        lastMessageAt: 200,
+      })],
+      currentChatId: 'local-chat-1',
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: [],
+      remoteDeletedChats: [],
+      isLoading: false,
+    });
+
+    const loaded = await useChatStore.getState().loadChat('local-chat-1');
+    const loadedAgain = await useChatStore.getState().loadChat('local-chat-1');
+
+    expect(loaded?.name).toBe('本地会话');
+    expect(loadedAgain?.name).toBe('本地会话');
+    expect(apiMocks.getChat).toHaveBeenCalledTimes(1);
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('[recoverable-warning] cloud-sync:chat-detail-load'), expect.anything());
+    expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('[recoverable] cloud-sync:chat-detail-load'), expect.anything());
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
   it('resolves chat remote-delete conflicts by discarding or restoring local edits', async () => {
     const { useChatStore } = await import('./useChatStore');
     await useChatStore.persist.rehydrate();
@@ -716,20 +757,42 @@ describe('cloud no-op sync', () => {
     });
 
     const loaded = await useCharacterStore.getState().loadCharacter('local-character-1');
+    const loadedAgain = await useCharacterStore.getState().loadCharacter('local-character-1');
 
     expect(loaded?.name).toBe('本地角色');
+    expect(loadedAgain?.name).toBe('本地角色');
     expect(loaded?.background).toBe('本地背景');
     expect(useCharacterStore.getState().characters[0]?.name).toBe('本地角色');
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[recoverable-warning] cloud-sync:character-detail-load'), expect.objectContaining({
-      message: '角色云端详情暂时不可用，已继续使用本地角色数据。',
-      characterId: 'local-character-1',
-      status: 404,
-      hasLocalFallback: true,
-      cachedDetailLoaded: false,
-    }));
+    expect(apiMocks.getCharacter).toHaveBeenCalledTimes(1);
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('[recoverable-warning] cloud-sync:character-detail-load'), expect.anything());
     expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('[recoverable] cloud-sync:character-detail-load'), expect.anything());
     warnSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+
+  it('does not fetch cloud details for preset characters', async () => {
+    const { useCharacterStore } = await import('./useCharacterStore');
+    await useCharacterStore.persist.rehydrate();
+    useCharacterStore.setState({
+      characters: [character({
+        id: 'preset-critic',
+        name: '预设评论家',
+        isPreset: true,
+        characterDetailLoaded: false,
+      })],
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedCharacterIds: [],
+      isLoading: false,
+    });
+
+    const loaded = await useCharacterStore.getState().loadCharacter('preset-critic');
+
+    expect(loaded?.name).toBe('预设评论家');
+    expect(apiMocks.getCharacter).not.toHaveBeenCalled();
+    expect(apiMocks.getSyncChanges).not.toHaveBeenCalledWith(expect.objectContaining({ scope: 'characters.detail:preset-critic' }));
   });
 
   it('resolves character remote-delete conflicts by discarding or restoring local edits', async () => {

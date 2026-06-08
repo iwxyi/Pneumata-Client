@@ -4,7 +4,7 @@ import type { GroupChat } from '../types/chat';
 import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import { api, type SyncChangeScope } from '../services/api';
-import { reportRecoverableError } from '../services/diagnostics';
+import { reportRecoverableError, reportRecoverableWarning } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { clearResolvedFieldConflicts, detectPendingFieldConflicts, type FieldConflictRecord } from '../services/syncConflictRecords';
 import { buildWarmState } from './storeWarmHelpers';
@@ -367,6 +367,18 @@ function normalizeChats(items: GroupChat[]) {
 
 function sortChats(chats: GroupChat[]) {
   return [...chats].sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+}
+
+function getErrorStatus(error: unknown) {
+  return typeof (error as { status?: unknown })?.status === 'number'
+    ? (error as { status: number }).status
+    : null;
+}
+
+function getErrorCode(error: unknown) {
+  return typeof (error as { code?: unknown })?.code === 'string'
+    ? (error as { code: string }).code
+    : null;
 }
 
 function buildChatListSignature(chats: GroupChat[]) {
@@ -964,7 +976,7 @@ export const useChatStore = create<ChatStore>()(
           const cached = get().chats.find((chat) => chat.id === id);
           if (shouldSkipCloudSync()) return cached || null;
           const scope = chatDetailScope(id);
-          if (cached?.runtimeDetailLoaded && chatSyncScopes.isFresh(scope, CHAT_DETAIL_REFRESH_TTL_MS)) {
+          if (cached && chatSyncScopes.isFresh(scope, CHAT_DETAIL_REFRESH_TTL_MS)) {
             return cached;
           }
           return chatSyncScopes.run(scope, async () => {
@@ -1024,13 +1036,36 @@ export const useChatStore = create<ChatStore>()(
               });
               return detail;
             } catch (error) {
+              const fallback = get().chats.find((chat) => chat.id === id) || null;
+              if (getErrorStatus(error) === 404 && fallback) {
+                chatSyncScopes.markChecked(scope, { applied: false });
+                return fallback;
+              }
               chatSyncScopes.markError(scope, error);
+              const diagnostics = {
+                chatId: id,
+                status: getErrorStatus(error),
+                code: getErrorCode(error),
+                hasLocalFallback: Boolean(fallback),
+                cachedDetailLoaded: Boolean(fallback?.runtimeDetailLoaded),
+                pendingOperationCount: get().pendingOperations.filter((operation) => operation.entityId === id).length,
+              };
+              if (fallback) {
+                reportRecoverableWarning({
+                  location: 'cloud-sync:chat-detail-load',
+                  error,
+                  message: '聊天云端详情暂时不可用，已继续使用本地会话数据。',
+                  extra: diagnostics,
+                });
+                return fallback;
+              }
               reportRecoverableError({
                 location: 'cloud-sync:chat-detail-load',
                 error,
                 userMessage: '聊天详情同步失败，请检查网络后重试。',
+                extra: diagnostics,
               });
-              return get().chats.find((chat) => chat.id === id) || null;
+              return null;
             }
           }, { markCheckedOnSuccess: false });
         },

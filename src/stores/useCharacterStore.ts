@@ -983,9 +983,10 @@ export const useCharacterStore = create<CharacterStore>()(
           if (!id || isReservedNonCharacterActorId(id)) return null;
           await ensureCharacterStoreHydrated();
           const cached = get().characters.find((character) => character.id === id);
+          if (cached?.isPreset) return cached;
           if (shouldSkipCloudSync()) return cached || null;
           const scope = characterDetailScope(id);
-          if (cached?.characterDetailLoaded && characterSyncScopes.isFresh(scope, CHARACTER_DETAIL_REFRESH_TTL_MS)) {
+          if (cached && characterSyncScopes.isFresh(scope, CHARACTER_DETAIL_REFRESH_TTL_MS)) {
             return cached;
           }
           return characterSyncScopes.run(scope, async () => {
@@ -1042,8 +1043,12 @@ export const useCharacterStore = create<CharacterStore>()(
               });
               return detail;
             } catch (error) {
-              characterSyncScopes.markError(scope, error);
               const fallback = get().characters.find((character) => character.id === id) || null;
+              if (getErrorStatus(error) === 404 && fallback) {
+                characterSyncScopes.markChecked(scope, { applied: false });
+                return fallback;
+              }
+              characterSyncScopes.markError(scope, error);
               const diagnostics = {
                 characterId: id,
                 status: getErrorStatus(error),
