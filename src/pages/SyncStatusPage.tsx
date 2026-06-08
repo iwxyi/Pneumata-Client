@@ -130,24 +130,123 @@ export default function SyncStatusPage() {
   }), [artifactStore.jobs, characterStore.pendingOperations, chatStore.pendingOperations, messageStore.pendingOperations]);
 
   const items = useMemo(() => {
-    const characterItems = (characterStore.pendingOperations || []).map((item) => ({
-      id: item.id,
-      scopeType: 'character' as const,
-      scope: isZh ? '角色' : 'Characters',
-      kind: item.kind,
-      status: item.status,
-      createdAt: item.clientTimestamp,
-      attemptCount: item.attemptCount,
-      lastError: item.lastError || null,
-      targetCount: item.targetIds.length,
-      targetLabel: characterStore.characters.find((character) => character.id === item.entityId)?.name || item.entityId,
-      summary: summarizePatch(item.patch, isZh),
-      diffPreview: buildPatchDiffPreview(item.patch),
-      exportPayload: {
-        operation: item,
-        localSnapshot: characterStore.characters.find((character) => character.id === item.entityId) || null,
-      },
-    }));
+    const characterOperationsById = new Map((characterStore.pendingOperations || []).map((operation) => [operation.id, operation]));
+    const chatOperationsById = new Map((chatStore.pendingOperations || []).map((operation) => [operation.id, operation]));
+    const messageOperationsById = new Map((messageStore.pendingOperations || []).map((operation) => [operation.id, operation]));
+    const artifactJobsById = new Map((artifactStore.jobs || []).map((job) => [job.id, job]));
+
+    const queueItems = localOutboxItems.map((outboxItem) => {
+      if (outboxItem.scopeType === 'character') {
+        const operation = characterOperationsById.get(outboxItem.id);
+        const targetId = operation?.entityId || outboxItem.targetId;
+        const localSnapshot = characterStore.characters.find((character) => character.id === targetId) || null;
+        return {
+          id: outboxItem.id,
+          scopeType: 'character' as const,
+          scope: isZh ? '角色' : 'Characters',
+          kind: outboxItem.kind,
+          status: outboxItem.status,
+          createdAt: outboxItem.createdAt,
+          attemptCount: outboxItem.attemptCount,
+          lastError: outboxItem.lastError || null,
+          targetCount: outboxItem.targetIds.length || 1,
+          targetLabel: localSnapshot?.name || targetId,
+          summary: summarizePatch(operation?.patch, isZh),
+          diffPreview: buildPatchDiffPreview(operation?.patch),
+          exportPayload: {
+            operation: operation || outboxItem,
+            outboxItem,
+            localSnapshot,
+          },
+        };
+      }
+
+      if (outboxItem.scopeType === 'chat') {
+        const operation = chatOperationsById.get(outboxItem.id);
+        const targetId = operation?.entityId || outboxItem.targetId;
+        const localSnapshot = chatStore.chats.find((chat) => chat.id === targetId) || null;
+        return {
+          id: outboxItem.id,
+          scopeType: 'chat' as const,
+          scope: isZh ? '聊天' : 'Chats',
+          kind: outboxItem.kind,
+          status: outboxItem.status,
+          createdAt: outboxItem.createdAt,
+          attemptCount: outboxItem.attemptCount,
+          lastError: outboxItem.lastError || null,
+          targetCount: outboxItem.targetIds.length || 1,
+          targetLabel: localSnapshot?.name || targetId,
+          summary: summarizePatch(operation?.patch, isZh),
+          diffPreview: buildPatchDiffPreview(operation?.patch),
+          exportPayload: {
+            operation: operation || outboxItem,
+            outboxItem,
+            localSnapshot,
+          },
+        };
+      }
+
+      if (outboxItem.scopeType === 'message') {
+        const operation = messageOperationsById.get(outboxItem.id);
+        const chatId = operation?.chatId || outboxItem.summaryKey || '';
+        const targetMessage = operation?.payload
+          || Object.values(messageStore.messageWindowsByChatId || {})
+            .flatMap((window) => window.messages || [])
+            .find((message) => (
+              message.id === operation?.localMessageId
+              || message.id === operation?.messageId
+              || message.clientKey === operation?.localMessageId
+              || message.id === outboxItem.targetId
+              || message.clientKey === outboxItem.targetId
+            ));
+        const chat = chatStore.chats.find((item) => item.id === chatId);
+        return {
+          id: outboxItem.id,
+          scopeType: 'message' as const,
+          scope: isZh ? '消息' : 'Messages',
+          kind: outboxItem.kind,
+          status: outboxItem.status,
+          createdAt: outboxItem.createdAt,
+          attemptCount: outboxItem.attemptCount,
+          lastError: outboxItem.lastError || null,
+          targetCount: outboxItem.targetIds.length || 1,
+          targetLabel: chat?.name || chatId || outboxItem.targetId,
+          summary: targetMessage?.content ? clipText(targetMessage.content) : (isZh ? '本地消息快照未在当前缓存窗口中找到' : 'Local message snapshot was not found in cached windows'),
+          exportPayload: {
+            operation: operation || outboxItem,
+            outboxItem,
+            localSnapshot: targetMessage || null,
+            chatSnapshot: chat || null,
+          },
+        };
+      }
+
+      const job = artifactJobsById.get(outboxItem.id);
+      const localSnapshot = job
+        ? artifactStore.items.find((artifact) => (
+          artifact.id === job.id
+          || artifact.characterId === job.characterId && artifact.kind === job.kind && artifact.sourceKey === job.sourceKey && artifact.dateKey === job.dateKey
+        )) || null
+        : null;
+      return {
+        id: outboxItem.id,
+        scopeType: 'artifact' as const,
+        scope: isZh ? '信件 / 日记' : 'Letters / Diary',
+        kind: outboxItem.kind,
+        status: outboxItem.status,
+        createdAt: outboxItem.createdAt,
+        attemptCount: outboxItem.attemptCount,
+        lastError: outboxItem.lastError || null,
+        targetCount: outboxItem.targetIds.length || 1,
+        targetLabel: job?.snapshot?.name || job?.characterId || outboxItem.targetId,
+        summary: [job?.dateKey, job?.sourceKey].filter(Boolean).join(' · ') || outboxItem.summaryKey || (isZh ? '角色经历生成任务' : 'Character artifact generation job'),
+        exportPayload: {
+          job: job || outboxItem,
+          outboxItem,
+          localSnapshot,
+        },
+      };
+    });
 
     const characterDeleteConflicts = (characterStore.remoteDeletedCharacterIds || [])
       .map((id) => ({
@@ -278,54 +377,8 @@ export default function SyncStatusPage() {
         },
       }));
 
-    const messageItems = (messageStore.pendingOperations || []).map((item) => ({
-      targetMessage: item.payload
-        || Object.values(messageStore.messageWindowsByChatId || {})
-          .flatMap((window) => window.messages || [])
-          .find((message) => message.id === item.localMessageId || message.id === item.messageId || message.clientKey === item.localMessageId),
-      chat: chatStore.chats.find((chat) => chat.id === item.chatId),
-      item,
-    })).map(({ item, targetMessage, chat }) => ({
-      id: item.id,
-      scopeType: 'message' as const,
-      scope: isZh ? '消息' : 'Messages',
-      kind: item.kind,
-      status: item.status,
-      createdAt: item.createdAt,
-      attemptCount: item.attemptCount,
-      lastError: item.lastError || null,
-      targetCount: 1,
-      targetLabel: chat?.name || item.chatId,
-      summary: targetMessage?.content ? clipText(targetMessage.content) : (isZh ? '本地消息快照未在当前缓存窗口中找到' : 'Local message snapshot was not found in cached windows'),
-      exportPayload: {
-        operation: item,
-        localSnapshot: targetMessage || null,
-        chatSnapshot: chat || null,
-      },
-    }));
-
-    const artifactItems = (artifactStore.jobs || [])
-      .filter((item) => item.status === 'pending' || item.status === 'running' || item.status === 'failed')
-      .map((item) => ({
-        id: item.id,
-        scopeType: 'artifact' as const,
-        scope: isZh ? '信件 / 日记' : 'Letters / Diary',
-        kind: item.kind,
-        status: item.status === 'running' ? 'syncing' : item.status,
-        createdAt: item.createdAt,
-        attemptCount: item.attempts,
-        lastError: item.error || null,
-        targetCount: 1,
-        targetLabel: item.snapshot?.name || item.characterId,
-        summary: [item.dateKey, item.sourceKey].filter(Boolean).join(' · ') || (isZh ? '角色经历生成任务' : 'Character artifact generation job'),
-        exportPayload: {
-          job: item,
-          localSnapshot: artifactStore.items.find((artifact) => artifact.id === item.id || artifact.characterId === item.characterId && artifact.kind === item.kind && artifact.sourceKey === item.sourceKey && artifact.dateKey === item.dateKey) || null,
-        },
-      }));
-
-    return [...characterDeleteConflicts, ...chatDeleteConflicts, ...characterFieldConflicts, ...chatFieldConflicts, ...characterItems, ...chatItems, ...messageItems, ...artifactItems].sort((a, b) => b.createdAt - a.createdAt);
-  }, [artifactStore.items, artifactStore.jobs, characterStore.characters, characterStore.fieldConflicts, characterStore.pendingOperations, characterStore.remoteDeletedCharacterIds, chatStore.chats, chatStore.fieldConflicts, chatStore.pendingOperations, chatStore.remoteDeletedChatIds, chatStore.remoteDeletedChats, isZh, messageStore.messageWindowsByChatId, messageStore.pendingOperations]);
+    return [...characterDeleteConflicts, ...chatDeleteConflicts, ...characterFieldConflicts, ...chatFieldConflicts, ...queueItems].sort((a, b) => b.createdAt - a.createdAt);
+  }, [artifactStore.items, artifactStore.jobs, characterStore.characters, characterStore.fieldConflicts, characterStore.pendingOperations, characterStore.remoteDeletedCharacterIds, chatStore.chats, chatStore.fieldConflicts, chatStore.pendingOperations, chatStore.remoteDeletedChatIds, chatStore.remoteDeletedChats, isZh, localOutboxItems, messageStore.messageWindowsByChatId, messageStore.pendingOperations]);
 
   const syncScopes = useMemo(() => {
     const entries = [
