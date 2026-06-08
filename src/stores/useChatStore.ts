@@ -8,7 +8,7 @@ import { reportRecoverableError, reportRecoverableWarning } from '../services/di
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { clearResolvedFieldConflicts, detectPendingFieldConflicts, type FieldConflictRecord } from '../services/syncConflictRecords';
 import { buildWarmState } from './storeWarmHelpers';
-import { createScopedBufferedJsonStorage } from './storePersistenceScope';
+import { createScopedIndexedDbBufferedJsonStorage, createScopedIndexedDbStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { createGuestUploadFlag } from './storeGuestUpload';
@@ -360,6 +360,13 @@ function getChatStorageKey() {
 
 function getChatStoreStorageName() {
   return scopedStorageKey('chats');
+}
+
+function createChatStorageForKey(key: string) {
+  return createScopedIndexedDbStorage({
+    getScopedKey: () => key,
+    storageName: getChatStoreStorageName(),
+  });
 }
 
 function normalizeChats(items: GroupChat[]) {
@@ -760,7 +767,8 @@ async function applyEmptyDeletedChats() {
 async function maybeUploadGuestChats(get: () => ChatStore) {
   if (shouldSkipCloudSync()) return;
   const guestKey = scopedStorageKey('chats-guest');
-  const raw = localStorage.getItem(guestKey);
+  const guestStorage = createChatStorageForKey(guestKey);
+  const raw = await guestStorage.getItem(getChatStoreStorageName());
   if (!raw) return;
   try {
     const parsed = JSON.parse(raw) as { state?: { chats?: GroupChat[] } };
@@ -768,7 +776,7 @@ async function maybeUploadGuestChats(get: () => ChatStore) {
     if (!guestChats.length) return;
     migrateGuestChatsToCloud(guestChats);
     await flushGuestChatsToCloud(createChatRemote);
-    localStorage.removeItem(guestKey);
+    await guestStorage.removeItem(getChatStoreStorageName());
     await get().loadChats();
   } catch {
     // ignore malformed guest cache
@@ -798,7 +806,7 @@ export function resetChatStoreForAccountBoundary() {
   });
 }
 
-const chatStorage = createScopedBufferedJsonStorage<PersistedChatState>({
+const chatStorage = createScopedIndexedDbBufferedJsonStorage<PersistedChatState>({
   getScopedKey: getChatStorageKey,
   storageName: getChatStoreStorageName(),
   flushDelayMs: 96,
