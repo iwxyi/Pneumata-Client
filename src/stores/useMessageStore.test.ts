@@ -3,9 +3,11 @@ import type { Message } from '../types/message';
 import { storageKey } from '../constants/brand';
 
 const getMessagesMock = vi.hoisted(() => vi.fn());
+const getSyncChangesMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../services/api', () => ({
   api: {
+    getSyncChanges: getSyncChangesMock,
     getMessages: getMessagesMock,
     createMessage: vi.fn(),
     deleteMessage: vi.fn(),
@@ -59,6 +61,7 @@ describe('useMessageStore', () => {
   beforeEach(() => {
     vi.resetModules();
     getMessagesMock.mockReset();
+    getSyncChangesMock.mockReset();
     vi.stubGlobal('localStorage', createStorageMock());
     localStorage.setItem(storageKey('auth-mode'), 'local');
   });
@@ -161,6 +164,44 @@ describe('useMessageStore', () => {
     expect(state.messages.at(-1)?.id).toBe('message-1000');
     expect(state.messages).toHaveLength(80);
     expect(state.hasMore).toBe(true);
+  });
+
+  it('uses paged message API when cloud window probe is modified without inline changes', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const fetchedMessages = Array.from({ length: 40 }, (_, index) => buildMessage(index + 1, chatId));
+    getSyncChangesMock.mockResolvedValueOnce({
+      status: 'modified',
+      scope: `messages.window:${chatId}`,
+      cursor: 'messages.window:rev-1',
+      revision: 'messages.window:rev-1',
+      changes: [],
+    });
+    getMessagesMock.mockResolvedValueOnce(fetchedMessages);
+
+    useMessageStore.setState({
+      messages: [],
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: Array.from({ length: 40 }, (_, index) => buildMessage(index + 41, chatId)),
+          lastSyncedAt: Date.now() - 60_000,
+          updatedAt: 80,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: null,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: true,
+    });
+
+    await useMessageStore.getState().loadMessages(chatId, { limit: 40 });
+
+    expect(getSyncChangesMock).toHaveBeenCalledWith({ scope: `messages.window:${chatId}`, since: null });
+    expect(getMessagesMock).toHaveBeenCalledWith(chatId, { limit: 40, before: undefined });
+    expect(useMessageStore.getState().messages).toHaveLength(40);
+    expect(useMessageStore.getState().messageWindowsByChatId[chatId]?.messages).toHaveLength(80);
   });
 
   it('strips non-message fields when merging fetched and persisted messages', async () => {
