@@ -15,9 +15,20 @@ import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
+import { useSettingsStore } from './useSettingsStore';
 
 function isLocalOnlyMode() {
   return useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled();
+}
+
+const countedAiMessageKeys = new Set<string>();
+
+function recordAiMessageStats(message: Message) {
+  if (message.type !== 'ai' || message.isDeleted || message.isStreaming) return;
+  const key = message.clientKey || message.serverId || message.id;
+  if (!key || countedAiMessageKeys.has(key)) return;
+  countedAiMessageKeys.add(key);
+  useSettingsStore.getState().recordAiMessageReceived(1);
 }
 
 function createLocalMessage(msgData: Omit<Message, 'id' | 'timestamp' | 'isDeleted'> & { timestamp?: number }): Message {
@@ -4978,6 +4989,7 @@ export const useMessageStore = create<MessageStore>()(
             pendingOperations,
           };
         });
+        if (created) recordAiMessageStats(created);
         if (!shouldSkipCloudSync()) messageSyncScheduler.schedule(flushPendingOperations, 120);
         return created as unknown as Message;
       },
@@ -5043,6 +5055,7 @@ export const useMessageStore = create<MessageStore>()(
           ...localUpsertMessage(state, normalized),
           pendingOperations: upsertPendingCreateOperation(state.pendingOperations, normalized),
         }));
+        recordAiMessageStats(normalized);
         messageSyncScheduler.schedule(flushPendingOperations, 120);
       },
 

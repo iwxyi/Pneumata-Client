@@ -353,6 +353,11 @@ export interface CompanionshipSettings {
   };
 }
 
+export interface UsageStats {
+  aiMessageCount: number;
+  updatedAt: number;
+}
+
 export interface AppSettings {
   api: APIConfig;
   aiProfiles: AIModelProfile[];
@@ -370,6 +375,7 @@ export interface AppSettings {
   userBubbleStyleId: string | null;
   userBubbleStyle: BubbleStyleDefinition | null;
   artifactAppearance: ArtifactAppearanceSettings;
+  usageStats: UsageStats;
 }
 
 export const DEFAULT_DEVELOPER_UI_PREFS: DeveloperUIPrefs = {
@@ -410,6 +416,11 @@ export const DEFAULT_COMPANIONSHIP_SETTINGS: CompanionshipSettings = {
     start: '23:30',
     end: '08:00',
   },
+};
+
+export const DEFAULT_USAGE_STATS: UsageStats = {
+  aiMessageCount: 0,
+  updatedAt: 0,
 };
 
 export type AppSettingsWithMemory = AppSettings & { memoryUI?: { showDeveloperMemory?: boolean } };
@@ -538,5 +549,6 @@ export const DEFAULT_SETTINGS: AppSettingsWithMemory = {
   userBubbleStyleId: null,
   userBubbleStyle: null,
   artifactAppearance: DEFAULT_ARTIFACT_APPEARANCE_SETTINGS,
+  usageStats: DEFAULT_USAGE_STATS,
   memoryUI: { showDeveloperMemory: false },
 };

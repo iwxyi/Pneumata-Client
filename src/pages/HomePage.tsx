@@ -219,6 +219,7 @@ export default function HomePage() {
   const { chats, prefetchChats, markChatsWarm, pendingOperations: chatPendingOperations, getSyncScopeStates: getChatSyncScopeStates } = useChatStore();
   const { characters, prefetchCharacters, markCharactersWarm, pendingOperations: characterPendingOperations, getSyncScopeStates: getCharacterSyncScopeStates } = useCharacterStore();
   const aiProfiles = useSettingsStore((state) => state.aiProfiles);
+  const usageStats = useSettingsStore((state) => state.usageStats);
   const messages = useMessageStore((state) => state.messages);
   const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
   const messagePendingOperations = useMessageStore((state) => state.pendingOperations);
@@ -290,6 +291,19 @@ export default function HomePage() {
       ...recentChats.flatMap((chat) => (messageWindowsByChatId[chat.id]?.messages || []).slice(-20)),
     ];
   }, [messageWindowsByChatId, messages, recentChats]);
+  const localKnownAiMessageCount = useMemo(() => {
+    const keys = new Set<string>();
+    const collect = (message: typeof messages[number]) => {
+      if (message.type !== 'ai' || message.isDeleted) return;
+      keys.add(message.clientKey || message.serverId || message.id);
+    };
+    messages.forEach(collect);
+    Object.values(messageWindowsByChatId).forEach((window) => {
+      (window.messages || []).forEach(collect);
+    });
+    return keys.size;
+  }, [messageWindowsByChatId, messages]);
+  const aiMessageCount = Math.max(usageStats?.aiMessageCount || 0, localKnownAiMessageCount);
   const companionshipSnapshot = buildHomeCompanionshipSnapshot({
     chats: recentChats,
     characters,
@@ -405,6 +419,13 @@ export default function HomePage() {
   const stats: HomeOverviewCard[] = [
     ...attentionStats,
     ...syncStatusStats,
+    {
+      label: 'AI消息总数',
+      value: aiMessageCount,
+      icon: <ChatIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/account/sync-status'),
+    },
     {
       label: t('home.totalChats'),
       value: totalGroupChats,

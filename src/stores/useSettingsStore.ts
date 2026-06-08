@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppSettingsWithMemory, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults, DeveloperUIPrefs, AvatarGenerationSettings, AIGenerationSettings, CompanionshipSettings } from '../types/settings';
+import type { AppSettingsWithMemory, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults, DeveloperUIPrefs, AvatarGenerationSettings, AIGenerationSettings, CompanionshipSettings, UsageStats } from '../types/settings';
 import type { ArtifactAppearanceSettings } from '../types/artifactAppearance';
 
 type AppSettings = AppSettingsWithMemory;
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
-import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_AI_GENERATION_SETTINGS, DEFAULT_COMPANIONSHIP_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
+import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_AI_GENERATION_SETTINGS, DEFAULT_COMPANIONSHIP_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, DEFAULT_USAGE_STATS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
 import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS, PAPER_SURFACE_VARIANTS } from '../types/artifactAppearance';
 import { api, type SyncChangeScope } from '../services/api';
 import { reportRecoverableError } from '../services/diagnostics';
@@ -45,6 +45,7 @@ interface SettingsStore extends AppSettings {
   setCustomBubbleStyles: (styles: BubbleStyleDefinition[]) => void;
   setUserBubbleStyle: (styleId: string | null, style?: BubbleStyleDefinition | null) => void;
   setArtifactAppearance: (appearance: Partial<ArtifactAppearanceSettings>) => void;
+  recordAiMessageReceived: (count?: number) => void;
   syncCurrentSettingsToServer: () => Promise<void>;
   getSyncScopeStates: () => SyncScopeSnapshot[];
   resetSettings: () => void;
@@ -56,10 +57,12 @@ type RemoteSettingsPayload = Partial<AppSettings> & {
   api?: APIConfig;
   aiProfiles?: AIModelProfile[];
   memoryUI?: { showDeveloperMemory?: boolean };
+  usageStats?: UsageStats;
 };
 
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
 let savedStateTimer: ReturnType<typeof setTimeout> | null = null;
+let usageStatsSyncTimer: ReturnType<typeof setTimeout> | null = null;
 const SETTINGS_ACCOUNT_SCOPE: SyncChangeScope = 'settings.account';
 const settingsSyncScopes = createSyncScopeMetadata(30_000, {
   getStorageKey: () => scopedStorageKey(`settings-sync-scopes-${getLocalDataUserId()}`),
@@ -109,6 +112,25 @@ function syncToServer(data: Record<string, unknown>, set: SettingsSet) {
         set((state) => ({ ...state, syncStatus: 'error', syncError: err instanceof Error ? err.message : String(err) }));
       });
   }, 500);
+}
+
+function syncUsageStatsToServer(usageStats: UsageStats, set: SettingsSet) {
+  if (usageStatsSyncTimer) clearTimeout(usageStatsSyncTimer);
+  if (useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled()) return;
+  usageStatsSyncTimer = setTimeout(() => {
+    api.updateSettings({ usageStats })
+      .then(() => {
+        set((state) => ({ ...state, syncError: null, lastSyncedAt: Date.now() }));
+      })
+      .catch((err) => {
+        reportRecoverableError({
+          location: 'cloud-sync:usage-stats-save',
+          error: err,
+          userMessage: '使用统计同步失败，请检查网络后重试。',
+        });
+        set((state) => ({ ...state, syncError: err instanceof Error ? err.message : String(err) }));
+      });
+  }, 30_000);
 }
 
 function markSettingsLoadedIdle(state: SettingsStore) {
@@ -167,6 +189,7 @@ export function buildSettingsPayload(state: AppSettings) {
     developerUI: state.developerUI,
     memoryUI: state.memoryUI,
     artifactAppearance: state.artifactAppearance,
+    usageStats: state.usageStats,
   };
 }
 
@@ -220,6 +243,12 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
       paperVariant: PAPER_SURFACE_VARIANTS.includes(state.artifactAppearance?.paperVariant || 'lined')
         ? state.artifactAppearance?.paperVariant || DEFAULT_ARTIFACT_APPEARANCE_SETTINGS.paperVariant
         : DEFAULT_ARTIFACT_APPEARANCE_SETTINGS.paperVariant,
+    },
+    usageStats: {
+      ...DEFAULT_USAGE_STATS,
+      ...(state.usageStats || {}),
+      aiMessageCount: Math.max(0, Math.floor(Number(state.usageStats?.aiMessageCount || 0))),
+      updatedAt: Math.max(0, Number(state.usageStats?.updatedAt || 0)),
     },
   };
   setAIGenerationRuntimeConfig(normalized.aiGeneration);
@@ -313,6 +342,7 @@ export const useSettingsStore = create<SettingsStore>()(
               userBubbleStyleId: typeof settings.userBubbleStyleId === 'string' ? settings.userBubbleStyleId : null,
               userBubbleStyle: (settings.userBubbleStyle as BubbleStyleDefinition | null | undefined) || null,
               artifactAppearance: (settings as { artifactAppearance?: ArtifactAppearanceSettings }).artifactAppearance,
+              usageStats: (settings as { usageStats?: UsageStats }).usageStats,
             }),
             _loaded: true,
             lastSyncedAt: Date.now(),
@@ -589,6 +619,25 @@ export const useSettingsStore = create<SettingsStore>()(
         });
       },
 
+      recordAiMessageReceived: (count = 1) => {
+        if (!Number.isFinite(count) || count <= 0) return;
+        set((state) => {
+          const usageStats = {
+            ...DEFAULT_USAGE_STATS,
+            ...state.usageStats,
+            aiMessageCount: Math.max(0, Math.floor(Number(state.usageStats?.aiMessageCount || 0))) + Math.floor(count),
+            updatedAt: Date.now(),
+          };
+          const next = {
+            ...state,
+            usageStats,
+            lastSyncedAt: Date.now(),
+          };
+          syncUsageStatsToServer(usageStats, set);
+          return next;
+        });
+      },
+
       syncCurrentSettingsToServer: async () => {
         if (useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled()) {
           set((state) => ({ ...state, syncStatus: 'idle', syncError: null }));
@@ -628,6 +677,7 @@ export const useSettingsStore = create<SettingsStore>()(
         userBubbleStyleId: state.userBubbleStyleId,
         userBubbleStyle: state.userBubbleStyle,
         artifactAppearance: state.artifactAppearance,
+        usageStats: state.usageStats,
       }),
       merge: (persistedState, currentState) => ({
         ...currentState,
