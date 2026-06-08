@@ -28,6 +28,7 @@ const routePreloaders = [
   () => import('./pages/MomentsPage'),
   () => import('./pages/IntroPage'),
   () => import('./pages/LoginPage'),
+  () => import('./pages/PublicSharedChatPage'),
 ];
 
 const [
@@ -44,6 +45,7 @@ const [
   loadMomentsPage,
   loadIntroPage,
   loadLoginPage,
+  loadPublicSharedChatPage,
 ] = routePreloaders;
 
 const CharacterLibraryPage = lazy(loadCharacterLibraryPage);
@@ -59,6 +61,7 @@ const CalendarPage = lazy(loadCalendarPage);
 const MomentsPage = lazy(loadMomentsPage);
 const IntroPage = lazy(loadIntroPage);
 const LoginPage = lazy(loadLoginPage);
+const PublicSharedChatPage = lazy(loadPublicSharedChatPage);
 
 function RouteFallback() {
   return (
@@ -154,6 +157,7 @@ function RoutedApp() {
     <Routes>
       <Route path="/login" element={<RouteElement><LoginPage /></RouteElement>} />
       <Route path="/intro" element={<RouteElement><IntroPage /></RouteElement>} />
+      <Route path="/shared/chats/:token" element={<RouteElement><PublicSharedChatPage /></RouteElement>} />
       <Route element={
         <RequireAuth>
           <AppLayout />

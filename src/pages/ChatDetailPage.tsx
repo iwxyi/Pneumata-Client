@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Box, IconButton, Button, Typography } from '@mui/material';
+import { Box, IconButton, Button, Typography, Switch, Stack, TextField, Chip, Alert } from '@mui/material';
 import PageSection from '../components/common/PageSection';
 import AppSnackbar from '../components/common/AppSnackbar';
 import PeopleIcon from '@mui/icons-material/People';
@@ -47,6 +47,7 @@ import type { UserDraftActivity } from '../services/userInputBuffer';
 import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
 import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
+import { api, type ChatShareState } from '../services/api';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -58,6 +59,88 @@ function PanelFallback() {
 
 function LazyPanel({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PanelFallback />}>{children}</Suspense>;
+}
+
+function ChatSharePanel({ chat }: { chat: GroupChat }) {
+  const [state, setState] = useState<ChatShareState>(() => ({
+    enabled: Boolean(chat.shareEnabled),
+    token: chat.shareToken || null,
+    viewerCount: chat.shareViewerCount || 0,
+  }));
+  const [loading, setLoading] = useState(false);
+  const [copyText, setCopyText] = useState('');
+  const [error, setError] = useState('');
+  const shareUrl = state.token && typeof window !== 'undefined'
+    ? `${window.location.origin}/shared/chats/${state.token}`
+    : '';
+
+  useEffect(() => {
+    let cancelled = false;
+    setError('');
+    void api.getChatShareState(chat.id)
+      .then((next) => {
+        if (!cancelled) setState(next);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [chat.id]);
+
+  const toggle = async (enabled: boolean) => {
+    setLoading(true);
+    setError('');
+    setCopyText('');
+    try {
+      setState(await api.updateChatShareState(chat.id, enabled));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copy = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopyText('已复制');
+    } catch {
+      setCopyText('复制失败，请手动复制');
+    }
+  };
+
+  if (chat.type !== 'group') return null;
+
+  return (
+    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1.25, display: 'grid', gap: 1 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+        <Box>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>分享聊天记录</Typography>
+          <Typography variant="caption" color="text.secondary">匿名只读访问，只显示群聊名称和聊天内容</Typography>
+        </Box>
+        <Switch checked={state.enabled} disabled={loading} onChange={(event) => void toggle(event.target.checked)} />
+      </Stack>
+      {error ? <Alert severity="error" sx={{ py: 0 }}>{error}</Alert> : null}
+      {state.enabled && shareUrl ? (
+        <Stack spacing={1}>
+          <TextField
+            size="small"
+            value={shareUrl}
+            fullWidth
+            slotProps={{ input: { readOnly: true } }}
+          />
+          <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button size="small" variant="outlined" onClick={copy}>复制链接</Button>
+            <Chip size="small" variant="outlined" label={`访问人数 ${state.viewerCount}`} />
+            {copyText ? <Typography variant="caption" color="text.secondary">{copyText}</Typography> : null}
+          </Stack>
+        </Stack>
+      ) : null}
+    </Box>
+  );
 }
 
 function localizeLocalInterceptionReason(reason: string) {
@@ -854,6 +937,7 @@ export default function ChatDetailPage() {
                         showHeader
                       />
                       <SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} hideHeader frameless />
+                      <ChatSharePanel chat={chat} />
                     </Box>
                   </LazyPanel>
                 ) : null}

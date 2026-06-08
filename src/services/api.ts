@@ -2,6 +2,7 @@
 
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
 import type { AICharacter, CharacterVisualIdentity, CharacterVisualReferenceImage } from '../types/character';
+import type { Message } from '../types/message';
 import { storageKey } from '../constants/brand';
 
 const API_BASE = '/api';
@@ -97,6 +98,23 @@ export interface SyncChangesResponse {
   resetReason?: string;
   minAvailableCursor?: string;
   retentionMs?: number;
+}
+
+export interface ChatShareState {
+  enabled: boolean;
+  token: string | null;
+  viewerCount: number;
+}
+
+export interface PublicChatShareResponse {
+  chat: {
+    name: string;
+    updatedAt: number;
+    lastMessageAt: number;
+    viewerCount: number;
+  };
+  messages: Message[];
+  hasMore: boolean;
 }
 
 export class ApiError extends Error {
@@ -292,6 +310,22 @@ class ApiClient {
 
   async getChat(id: string) {
     return this.request<Record<string, unknown>>('GET', `/chats/${id}`);
+  }
+
+  async getChatShareState(id: string) {
+    return this.request<ChatShareState>('GET', `/chats/${id}/share`);
+  }
+
+  async updateChatShareState(id: string, enabled: boolean) {
+    return this.request<ChatShareState>('PATCH', `/chats/${id}/share`, { enabled });
+  }
+
+  async getPublicChatShare(token: string, options?: { limit?: number; before?: number }) {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.before) params.set('before', String(options.before));
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<PublicChatShareResponse>('GET', `/public/chat-shares/${encodeURIComponent(token)}${query}`);
   }
 
   async getWorldRuntimeChats() {

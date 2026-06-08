@@ -366,7 +366,7 @@ export default function HomePage() {
       value: '未登录',
       icon: <CloudOffIcon />,
       color: 'primary.main',
-      onOpen: () => navigate('/account'),
+      onOpen: () => navigate('/login'),
       attention: true,
     }] : []),
     ...(developerMode ? [{

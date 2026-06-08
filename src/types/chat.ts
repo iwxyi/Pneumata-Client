@@ -530,6 +530,9 @@ export interface GroupChat {
   isActive: boolean;
   allowIntervention: boolean;
   showRoleActions?: boolean;
+  shareEnabled?: boolean;
+  shareToken?: string | null;
+  shareViewerCount?: number;
   topicSeed: string;
   sourceChatId?: string | null;
   sourceMemberIds?: string[];
