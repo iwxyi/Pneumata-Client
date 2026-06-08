@@ -20,6 +20,7 @@ import {
   classifySyncError,
   createPendingOperation,
   getPendingQueueWorkerPriority,
+  isTerminalSyncError,
   latestSyncError,
   recoverInterruptedOperations,
   removePendingOperation,
@@ -869,7 +870,7 @@ export const useCharacterStore = create<CharacterStore>()(
           getOperations: () => get().pendingOperations,
           canRun: canAttemptSync,
           retryDelays: CHARACTER_SYNC_DELAYS,
-          isTerminalError: (classified) => classified.startsWith('validation:'),
+          isTerminalError: isTerminalSyncError,
           priority: pendingCharacterOperationPriority,
           batchSize: 3,
           updateOperation: (operationId, operation) => {

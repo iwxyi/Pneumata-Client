@@ -15,6 +15,37 @@ export function canAttemptOnlineSync() {
   return !shouldSkipCloudSync() && (typeof navigator === 'undefined' || navigator.onLine);
 }
 
+export type SyncErrorKind = 'auth' | 'network' | 'server_unavailable' | 'conflict_ignored' | 'validation' | 'unknown';
+
+const SYNC_ERROR_KINDS: SyncErrorKind[] = ['auth', 'network', 'server_unavailable', 'conflict_ignored', 'validation'];
+
+export interface SyncErrorClassification {
+  kind: SyncErrorKind;
+  message: string;
+  retryable: boolean;
+  terminal: boolean;
+}
+
+function syncErrorFlags(kind: SyncErrorKind) {
+  return {
+    retryable: kind === 'network' || kind === 'server_unavailable',
+    terminal: kind === 'validation',
+  };
+}
+
+export function parseSyncErrorClassification(value: unknown): SyncErrorClassification {
+  const text = value instanceof Error ? value.message : String(value ?? '');
+  const prefixMatch = text.match(/^([a-z_]+):\s*(.*)$/i);
+  const parsedKind = prefixMatch?.[1] as SyncErrorKind | undefined;
+  const kind = parsedKind && SYNC_ERROR_KINDS.includes(parsedKind) ? parsedKind : 'unknown';
+  const message = prefixMatch && kind !== 'unknown' ? prefixMatch[2] : text;
+  return {
+    kind,
+    message,
+    ...syncErrorFlags(kind),
+  };
+}
+
 export function classifySyncError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   if (/401|登录已过期|未登录/i.test(message)) return `auth: ${message}`;
@@ -22,6 +53,10 @@ export function classifySyncError(error: unknown) {
   if (/500|502|503|504|服务器错误/i.test(message)) return `server_unavailable: ${message}`;
   if (/404|不存在|未删除/i.test(message)) return `conflict_ignored: ${message}`;
   return `validation: ${message}`;
+}
+
+export function isTerminalSyncError(classified: string) {
+  return parseSyncErrorClassification(classified).terminal;
 }
 
 export function latestSyncError<T extends { lastError?: string }>(queue: T[]) {

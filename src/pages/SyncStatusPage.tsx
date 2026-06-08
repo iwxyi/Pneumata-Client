@@ -17,6 +17,7 @@ import { clearPersistenceFailures, PERSISTENCE_HEALTH_EVENT, readPersistenceHeal
 import { buildLocalRecoverySnapshot } from '../services/localRecoveryExport';
 import { importLocalRecoverySnapshot, type LocalRecoveryImportResult } from '../services/localRecoveryImport';
 import { runLocalPersistenceMaintenance, type LocalPersistenceMaintenanceResult } from '../services/localPersistenceMaintenance';
+import { parseSyncErrorClassification, type SyncErrorKind } from '../stores/storeSyncHelpers';
 
 function clipText(value: unknown, max = 120) {
   if (value == null) return '';
@@ -54,6 +55,25 @@ function summarizeSyncScopeState(state: SyncScopeSnapshot, isZh: boolean) {
   if (state.lastError) return { label: isZh ? '最近失败' : 'Recent failure', color: 'error' as const };
   if (state.lastCheckedAt > 0) return { label: isZh ? '已检查' : 'Checked', color: 'success' as const };
   return { label: isZh ? '未检查' : 'Unchecked', color: 'default' as const };
+}
+
+function syncErrorKindLabel(kind: SyncErrorKind, isZh: boolean) {
+  const labels: Record<SyncErrorKind, string> = {
+    auth: isZh ? '鉴权' : 'Auth',
+    network: isZh ? '网络' : 'Network',
+    server_unavailable: isZh ? '服务端' : 'Server',
+    conflict_ignored: isZh ? '冲突忽略' : 'Conflict ignored',
+    validation: isZh ? '校验' : 'Validation',
+    unknown: isZh ? '未知' : 'Unknown',
+  };
+  return labels[kind];
+}
+
+function syncErrorKindColor(kind: SyncErrorKind) {
+  if (kind === 'network' || kind === 'server_unavailable') return 'warning' as const;
+  if (kind === 'conflict_ignored') return 'info' as const;
+  if (kind === 'unknown') return 'default' as const;
+  return 'error' as const;
 }
 
 export default function SyncStatusPage() {
@@ -357,6 +377,23 @@ export default function SyncStatusPage() {
   const syncingCount = items.filter((item) => item.status === 'syncing').length;
   const conflictCount = items.filter((item) => item.status === 'conflict').length;
   const failedItems = items.filter((item) => item.status === 'failed');
+  const errorKindCounts = useMemo(() => {
+    const counts = new Map<SyncErrorKind, number>();
+    for (const item of items) {
+      if (!item.lastError) continue;
+      const kind = parseSyncErrorClassification(item.lastError).kind;
+      counts.set(kind, (counts.get(kind) || 0) + 1);
+    }
+    for (const item of syncScopes) {
+      if (!item.state.lastError) continue;
+      const kind = parseSyncErrorClassification(item.state.lastError).kind;
+      counts.set(kind, (counts.get(kind) || 0) + 1);
+    }
+    const order: SyncErrorKind[] = ['auth', 'network', 'server_unavailable', 'conflict_ignored', 'validation', 'unknown'];
+    return order
+      .map((kind) => ({ kind, count: counts.get(kind) || 0 }))
+      .filter((item) => item.count > 0);
+  }, [items, syncScopes]);
   const exportFailed = () => downloadJson(`pneumata-sync-failed-${new Date().toISOString().replace(/[:.]/g, '-')}.json`, {
     exportedAt: Date.now(),
     authMode,
@@ -465,6 +502,15 @@ export default function SyncStatusPage() {
         <Chip size="small" label={isZh ? `同步中 ${syncingCount}` : `Syncing ${syncingCount}`} variant="outlined" color={syncingCount > 0 ? 'primary' : 'default'} />
         <Chip size="small" label={isZh ? `失败 ${failedCount}` : `Failed ${failedCount}`} variant="outlined" color={failedCount > 0 ? 'error' : 'default'} />
         <Chip size="small" label={isZh ? `冲突 ${conflictCount}` : `Conflicts ${conflictCount}`} variant="outlined" color={conflictCount > 0 ? 'warning' : 'default'} />
+        {errorKindCounts.map((item) => (
+          <Chip
+            key={item.kind}
+            size="small"
+            label={`${syncErrorKindLabel(item.kind, isZh)} ${item.count}`}
+            variant="outlined"
+            color={syncErrorKindColor(item.kind)}
+          />
+        ))}
       </Stack>
 
       {authMode === 'local' ? (
@@ -660,9 +706,17 @@ export default function SyncStatusPage() {
                       </Typography>
                     ) : null}
                     {item.state.lastError ? (
-                      <Typography variant="body2" color="error.main" sx={{ overflowWrap: 'anywhere' }}>
-                        {item.state.lastError}
-                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                        <Chip
+                          size="small"
+                          label={syncErrorKindLabel(parseSyncErrorClassification(item.state.lastError).kind, isZh)}
+                          color={syncErrorKindColor(parseSyncErrorClassification(item.state.lastError).kind)}
+                          variant="outlined"
+                        />
+                        <Typography variant="body2" color="error.main" sx={{ overflowWrap: 'anywhere', minWidth: 0, flex: 1 }}>
+                          {item.state.lastError}
+                        </Typography>
+                      </Box>
                     ) : null}
                   </Box>
                 );
@@ -722,9 +776,17 @@ export default function SyncStatusPage() {
                   </Box>
                 ) : null}
                 {item.lastError ? (
-                  <Typography variant="body2" color="error.main">
-                    {item.lastError}
-                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <Chip
+                      size="small"
+                      label={syncErrorKindLabel(parseSyncErrorClassification(item.lastError).kind, isZh)}
+                      color={syncErrorKindColor(parseSyncErrorClassification(item.lastError).kind)}
+                      variant="outlined"
+                    />
+                    <Typography variant="body2" color="error.main" sx={{ overflowWrap: 'anywhere', minWidth: 0, flex: 1 }}>
+                      {item.lastError}
+                    </Typography>
+                  </Box>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
                     {item.status === 'conflict'

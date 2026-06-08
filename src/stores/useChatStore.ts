@@ -21,6 +21,7 @@ import {
   classifySyncError,
   createPendingOperation,
   getPendingQueueWorkerPriority,
+  isTerminalSyncError,
   latestSyncError,
   recoverInterruptedOperations,
   removePendingOperation,
@@ -837,7 +838,7 @@ export const useChatStore = create<ChatStore>()(
           getOperations: () => get().pendingOperations,
           canRun: canSyncChats,
           retryDelays: CHAT_SYNC_DELAYS,
-          isTerminalError: (classified) => classified.startsWith('validation:'),
+          isTerminalError: isTerminalSyncError,
           priority: pendingChatOperationPriority,
           batchSize: 3,
           updateOperation: (operationId, operation) => {

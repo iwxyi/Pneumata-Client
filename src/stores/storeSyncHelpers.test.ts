@@ -69,6 +69,29 @@ describe('storeSyncHelpers', () => {
     expect(helpers.retryFailedOperations(noFailed)).toBe(noFailed);
   });
 
+  it('parses persisted sync error classifications without changing the stored string format', () => {
+    expect(helpers.parseSyncErrorClassification('server_unavailable: 502')).toMatchObject({
+      kind: 'server_unavailable',
+      message: '502',
+      retryable: true,
+      terminal: false,
+    });
+    expect(helpers.parseSyncErrorClassification('validation: bad payload')).toMatchObject({
+      kind: 'validation',
+      message: 'bad payload',
+      retryable: false,
+      terminal: true,
+    });
+    expect(helpers.parseSyncErrorClassification('old unclassified error')).toMatchObject({
+      kind: 'unknown',
+      message: 'old unclassified error',
+      retryable: false,
+      terminal: false,
+    });
+    expect(helpers.isTerminalSyncError('validation: bad payload')).toBe(true);
+    expect(helpers.isTerminalSyncError('server_unavailable: 502')).toBe(false);
+  });
+
   it('runs due operations through the shared worker executor', async () => {
     const operations = [{
       id: 'op-1',
