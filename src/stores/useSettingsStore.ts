@@ -16,7 +16,7 @@ import { getLocalDataUserId } from '../services/authStorageScope';
 import { setAIGenerationRuntimeConfig } from '../services/aiGenerationRuntimeConfig';
 import { setCompanionshipRuntimeConfig } from '../services/companionshipRuntimeConfig';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
-import { createSyncScopeMetadata } from './syncScopeMetadata';
+import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 
 interface SettingsStore extends AppSettings {
   _loaded: boolean;
@@ -45,6 +45,7 @@ interface SettingsStore extends AppSettings {
   setUserBubbleStyle: (styleId: string | null, style?: BubbleStyleDefinition | null) => void;
   setArtifactAppearance: (appearance: Partial<ArtifactAppearanceSettings>) => void;
   syncCurrentSettingsToServer: () => Promise<void>;
+  getSyncScopeStates: () => SyncScopeSnapshot[];
   resetSettings: () => void;
 }
 
@@ -581,6 +582,7 @@ export const useSettingsStore = create<SettingsStore>()(
         await api.updateSettings(buildSettingsPayload(current));
         set((state) => ({ ...state, syncStatus: 'saved', syncError: null, lastSyncedAt: Date.now() }));
       },
+      getSyncScopeStates: () => settingsSyncScopes.listStates(),
 
       resetSettings: () => {
         const next = { ...(syncState(DEFAULT_SETTINGS) as SettingsStore), lastSyncedAt: Date.now() };

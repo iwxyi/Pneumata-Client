@@ -9,7 +9,7 @@ import { clearResolvedFieldConflicts, detectPendingFieldConflicts, type FieldCon
 import { buildWarmState } from './storeWarmHelpers';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
-import { createSyncScopeMetadata } from './syncScopeMetadata';
+import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateCharacterStoreState } from './storeMigrations';
 import { useCharacterArtifactStore } from './useCharacterArtifactStore';
@@ -548,6 +548,7 @@ interface CharacterStore extends PersistedCharacterState {
   getCharacter: (id: string) => AICharacter | undefined;
   hasCharacterLoaded: (id: string) => boolean;
   getCharactersLoadedAt: () => number;
+  getSyncScopeStates: () => SyncScopeSnapshot[];
   markCharactersWarm: () => void;
   getPresets: () => AICharacter[];
   getCustom: () => AICharacter[];
@@ -1425,6 +1426,7 @@ export const useCharacterStore = create<CharacterStore>()(
         getCharacter: (id) => get().characters.find((c) => c.id === id),
         hasCharacterLoaded: (id) => Boolean(get().characters.find((c) => c.id === id)),
         getCharactersLoadedAt: () => get().lastSyncedAt,
+        getSyncScopeStates: () => characterSyncScopes.listStates(),
         markCharactersWarm: () => set(buildMarkedWarmCharacterStoreState),
         getPresets: () => get().characters.filter((c) => c.isPreset),
         getCustom: () => get().characters.filter((c) => !c.isPreset),

@@ -4,7 +4,7 @@ import type { AICharacter } from '../types/character';
 import type { AIModelProfile } from '../types/settings';
 import { getUsableDefaultTextAIProfile, hasUsableDefaultTextAI, isAIProfileUsable } from '../types/settings';
 import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
-import { createSyncScopeMetadata } from './syncScopeMetadata';
+import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { CLIENT_STORE_SCHEMA_VERSION } from './storeMigrations';
 import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact, looksLikeRawArtifactContext } from '../services/characterExperienceArtifacts';
 import { useSettingsStore } from './useSettingsStore';
@@ -85,6 +85,7 @@ interface CharacterArtifactStore extends ArtifactSnapshot {
     relatedCharacters?: Array<{ id: string; name: string }>;
   }) => Promise<CharacterArtifactEntry>;
   syncCloud: (query?: CharacterArtifactQuery) => Promise<void>;
+  getSyncScopeStates: () => SyncScopeSnapshot[];
   resumeProcessing: () => Promise<void>;
   discardFailedJob: (jobId: string) => void;
 }
@@ -1119,6 +1120,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             }
           }
         },
+        getSyncScopeStates: () => artifactSyncScopes.listStates(),
         resumeProcessing: async () => {
           set((state) => ({
             jobs: state.jobs.map((job) => {

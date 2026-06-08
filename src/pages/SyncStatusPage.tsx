@@ -6,10 +6,12 @@ import { useChatStore } from '../stores/useChatStore';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import EmptyState from '../components/common/EmptyState';
 import { readCloudSyncBootstrapStatus, type CloudSyncBootstrapStatus } from '../services/cloudSyncBootstrapStatus';
 import { scheduleSyncWorkersByPriority } from '../stores/storeSyncScheduler';
 import { buildOperationsDiffPreview, buildPatchDiffPreview } from '../services/syncDiffPreview';
+import type { SyncScopeSnapshot } from '../stores/syncScopeMetadata';
 
 function clipText(value: unknown, max = 120) {
   if (value == null) return '';
@@ -35,12 +37,27 @@ function downloadJson(filename: string, data: unknown) {
   URL.revokeObjectURL(url);
 }
 
+function formatTime(value: number, isZh: boolean) {
+  if (!value) return isZh ? '未记录' : 'Not recorded';
+  return new Date(value).toLocaleString();
+}
+
+function summarizeSyncScopeState(state: SyncScopeSnapshot, isZh: boolean) {
+  const now = Date.now();
+  if (state.inflight) return { label: isZh ? '检查中' : 'Checking', color: 'primary' as const };
+  if (state.retryAt > now) return { label: isZh ? '退避中' : 'Backoff', color: 'warning' as const };
+  if (state.lastError) return { label: isZh ? '最近失败' : 'Recent failure', color: 'error' as const };
+  if (state.lastCheckedAt > 0) return { label: isZh ? '已检查' : 'Checked', color: 'success' as const };
+  return { label: isZh ? '未检查' : 'Unchecked', color: 'default' as const };
+}
+
 export default function SyncStatusPage() {
   const { i18n } = useTranslation();
   const characterStore = useCharacterStore();
   const chatStore = useChatStore();
   const messageStore = useMessageStore();
   const artifactStore = useCharacterArtifactStore();
+  const settingsStore = useSettingsStore();
   const authMode = useAuthStore((s) => s.authMode);
   const isZh = i18n.language.startsWith('zh');
   const [bootstrapStatus, setBootstrapStatus] = useState<CloudSyncBootstrapStatus | null>(() => readCloudSyncBootstrapStatus());
@@ -252,6 +269,26 @@ export default function SyncStatusPage() {
     return [...characterDeleteConflicts, ...chatDeleteConflicts, ...characterFieldConflicts, ...chatFieldConflicts, ...characterItems, ...chatItems, ...messageItems, ...artifactItems].sort((a, b) => b.createdAt - a.createdAt);
   }, [artifactStore.items, artifactStore.jobs, characterStore.characters, characterStore.fieldConflicts, characterStore.pendingOperations, characterStore.remoteDeletedCharacterIds, chatStore.chats, chatStore.fieldConflicts, chatStore.pendingOperations, chatStore.remoteDeletedChatIds, chatStore.remoteDeletedChats, isZh, messageStore.messageWindowsByChatId, messageStore.pendingOperations]);
 
+  const syncScopes = useMemo(() => {
+    const entries = [
+      ...characterStore.getSyncScopeStates().map((state) => ({ area: isZh ? '角色' : 'Characters', state })),
+      ...chatStore.getSyncScopeStates().map((state) => ({ area: isZh ? '聊天' : 'Chats', state })),
+      ...messageStore.getSyncScopeStates().map((state) => ({ area: isZh ? '消息' : 'Messages', state })),
+      ...artifactStore.getSyncScopeStates().map((state) => ({ area: isZh ? '信件 / 日记' : 'Letters / Diary', state })),
+      ...settingsStore.getSyncScopeStates().map((state) => ({ area: isZh ? '设置' : 'Settings', state })),
+    ];
+    const priority = (item: typeof entries[number]) => {
+      if (item.state.inflight) return 0;
+      if (item.state.retryAt > Date.now()) return 1;
+      if (item.state.lastError) return 2;
+      if (item.state.lastCheckedAt > 0) return 3;
+      return 4;
+    };
+    return entries.sort((a, b) => priority(a) - priority(b) || b.state.lastCheckedAt - a.state.lastCheckedAt || a.state.scope.localeCompare(b.state.scope));
+  }, [artifactStore, characterStore, chatStore, isZh, messageStore, settingsStore]);
+
+  const visibleSyncScopes = syncScopes.slice(0, 30);
+
   const labelMap: Record<string, string> = {
     delete: isZh ? '删除' : 'Delete',
     restore: isZh ? '恢复' : 'Restore',
@@ -328,6 +365,11 @@ export default function SyncStatusPage() {
     exportedAt: Date.now(),
     authMode,
     bootstrapStatus,
+  });
+  const exportSyncScopes = () => downloadJson(`pneumata-sync-scopes-${new Date().toISOString().replace(/[:.]/g, '-')}.json`, {
+    exportedAt: Date.now(),
+    authMode,
+    scopes: syncScopes,
   });
 
   return (
@@ -440,6 +482,77 @@ export default function SyncStatusPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      <Card variant="outlined" sx={{ mb: 2 }}>
+        <CardContent sx={{ display: 'grid', gap: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              {isZh ? '云端检查状态' : 'Cloud check state'}
+            </Typography>
+            <Button size="small" variant="outlined" onClick={exportSyncScopes} disabled={syncScopes.length === 0}>
+              {isZh ? '导出 scope' : 'Export scopes'}
+            </Button>
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            {isZh ? '这里展示各数据域最近一次云端 freshness 检查、cursor/revision、错误和退避状态；页面仍然优先使用本地数据。' : 'This shows the latest cloud freshness checks, cursor/revision, errors, and backoff by data scope. Pages still render local data first.'}
+          </Typography>
+          {syncScopes.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              {isZh ? '还没有记录任何云端检查。' : 'No cloud check has been recorded yet.'}
+            </Typography>
+          ) : (
+            <Stack spacing={1}>
+              {visibleSyncScopes.map((item) => {
+                const health = summarizeSyncScopeState(item.state, isZh);
+                return (
+                  <Box
+                    key={`${item.area}:${item.state.scope}`}
+                    sx={{
+                      p: 1,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      display: 'grid',
+                      gap: 0.75,
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                        <Chip size="small" label={item.area} variant="outlined" />
+                        <Chip size="small" label={health.label} color={health.color} />
+                        {item.state.errorCount > 0 ? <Chip size="small" label={isZh ? `失败 ${item.state.errorCount}` : `Errors ${item.state.errorCount}`} color="error" variant="outlined" /> : null}
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary">
+                        {item.state.scope}
+                      </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                      <Chip size="small" variant="outlined" label={isZh ? `检查 ${formatTime(item.state.lastCheckedAt, isZh)}` : `Checked ${formatTime(item.state.lastCheckedAt, isZh)}`} />
+                      <Chip size="small" variant="outlined" label={isZh ? `应用 ${formatTime(item.state.lastAppliedAt, isZh)}` : `Applied ${formatTime(item.state.lastAppliedAt, isZh)}`} />
+                      {item.state.retryAt > Date.now() ? <Chip size="small" variant="outlined" color="warning" label={isZh ? `下次重试 ${formatTime(item.state.retryAt, isZh)}` : `Retry ${formatTime(item.state.retryAt, isZh)}`} /> : null}
+                    </Stack>
+                    {item.state.cursor || item.state.revision ? (
+                      <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                        {`cursor=${item.state.cursor || '-'} · revision=${item.state.revision || '-'}`}
+                      </Typography>
+                    ) : null}
+                    {item.state.lastError ? (
+                      <Typography variant="body2" color="error.main" sx={{ overflowWrap: 'anywhere' }}>
+                        {item.state.lastError}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                );
+              })}
+              {syncScopes.length > visibleSyncScopes.length ? (
+                <Typography variant="caption" color="text.secondary">
+                  {isZh ? `另有 ${syncScopes.length - visibleSyncScopes.length} 个 scope 未展开，可导出查看。` : `${syncScopes.length - visibleSyncScopes.length} more scopes are not expanded here. Export to inspect them.`}
+                </Typography>
+              ) : null}
+            </Stack>
+          )}
+        </CardContent>
+      </Card>
 
       {items.length === 0 ? (
         <EmptyState variant="plain" message={isZh ? '当前没有待同步项' : 'No queued sync items'} />

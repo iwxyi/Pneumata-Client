@@ -10,7 +10,7 @@ import { clearResolvedFieldConflicts, detectPendingFieldConflicts, type FieldCon
 import { buildWarmState } from './storeWarmHelpers';
 import { createScopedBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
-import { createSyncScopeMetadata } from './syncScopeMetadata';
+import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateChatStoreState } from './storeMigrations';
 import { isRuntimeMemoryMonitorEnabled, recordRuntimeMemory } from '../services/runtimeMemoryMonitor';
@@ -346,6 +346,7 @@ interface ChatStore extends PersistedChatState {
   getChat: (id: string) => GroupChat | undefined;
   hasChatLoaded: (id: string) => boolean;
   getChatsLoadedAt: () => number;
+  getSyncScopeStates: () => SyncScopeSnapshot[];
   markChatsWarm: () => void;
 }
 
@@ -1132,6 +1133,7 @@ export const useChatStore = create<ChatStore>()(
         getChat: (id) => get().chats.find((chat) => chat.id === id),
         hasChatLoaded: (id) => Boolean(get().chats.find((chat) => chat.id === id)),
         getChatsLoadedAt: () => get().lastSyncedAt,
+        getSyncScopeStates: () => chatSyncScopes.listStates(),
         markChatsWarm: () => set(buildMarkedWarmChatStoreState),
 
         flushPendingOperations,

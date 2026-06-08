@@ -9,6 +9,11 @@ export interface SyncScopeState {
   retryAt: number;
 }
 
+export interface SyncScopeSnapshot extends Omit<SyncScopeState, 'inflight'> {
+  scope: string;
+  inflight: boolean;
+}
+
 interface PersistedSyncScopeState extends Omit<SyncScopeState, 'inflight'> {}
 
 interface SyncScopeMetadataOptions {
@@ -154,6 +159,7 @@ export function createSyncScopeMetadata(defaultTtlMs: number, options: SyncScope
     getState(scope: string) {
       const state = getState(scope);
       return {
+        scope,
         lastCheckedAt: state.lastCheckedAt,
         lastAppliedAt: state.lastAppliedAt,
         cursor: state.cursor,
@@ -163,6 +169,24 @@ export function createSyncScopeMetadata(defaultTtlMs: number, options: SyncScope
         retryAt: state.retryAt,
         inflight: Boolean(state.inflight),
       };
+    },
+
+    listStates(): SyncScopeSnapshot[] {
+      ensurePreferenceListener();
+      ensureLoaded();
+      return Array.from(scopes.entries())
+        .map(([scope, state]) => ({
+          scope,
+          lastCheckedAt: state.lastCheckedAt,
+          lastAppliedAt: state.lastAppliedAt,
+          cursor: state.cursor,
+          revision: state.revision,
+          lastError: state.lastError,
+          errorCount: state.errorCount,
+          retryAt: state.retryAt,
+          inflight: Boolean(state.inflight),
+        }))
+        .sort((a, b) => a.scope.localeCompare(b.scope));
     },
 
     run<T>(scope: string, task: () => Promise<T>, options?: { markCheckedOnSuccess?: boolean }) {

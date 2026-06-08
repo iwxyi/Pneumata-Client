@@ -13,7 +13,7 @@ import { canAttemptOnlineSync, getPendingQueueWorkerPriority, recoverInterrupted
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
-import { createSyncScopeMetadata } from './syncScopeMetadata';
+import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 
 function isLocalOnlyMode() {
   return useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled();
@@ -4674,6 +4674,7 @@ interface MessageStore {
   deleteLastNMessages: (chatId: string, n: number) => Promise<void>;
   clearMessages: () => void;
   getRecentMessages: (n: number) => Message[];
+  getSyncScopeStates: () => SyncScopeSnapshot[];
 }
 
 export const useMessageStore = create<MessageStore>()(
@@ -5043,6 +5044,7 @@ export const useMessageStore = create<MessageStore>()(
       getRecentMessages: (n) => {
         return get().messages.filter((m) => !m.isDeleted).slice(-n);
       },
+      getSyncScopeStates: () => messageSyncScopes.listStates(),
       };
     },
     {

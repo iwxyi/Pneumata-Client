@@ -54,4 +54,35 @@ describe('syncScopeMetadata', () => {
     expect(state.retryAt).toBe(0);
     expect(state.revision).toBe('rev-1');
   });
+
+  it('lists persisted scope snapshots for diagnostics', () => {
+    const metadata = createSyncScopeMetadata(30_000, {
+      getStorageKey: () => 'sync-scopes-test',
+    });
+
+    metadata.markChecked('messages.window:chat-1', { cursor: 'cursor-1', revision: 'rev-1', applied: true });
+    metadata.markError('characters.summary', new Error('temporary failure'));
+
+    expect(metadata.listStates()).toEqual([
+      expect.objectContaining({
+        scope: 'characters.summary',
+        lastError: 'temporary failure',
+        errorCount: 1,
+        inflight: false,
+      }),
+      expect.objectContaining({
+        scope: 'messages.window:chat-1',
+        cursor: 'cursor-1',
+        revision: 'rev-1',
+        lastError: null,
+        errorCount: 0,
+        inflight: false,
+      }),
+    ]);
+
+    const reloaded = createSyncScopeMetadata(30_000, {
+      getStorageKey: () => 'sync-scopes-test',
+    });
+    expect(reloaded.listStates().map((state) => state.scope)).toEqual(['characters.summary', 'messages.window:chat-1']);
+  });
 });
