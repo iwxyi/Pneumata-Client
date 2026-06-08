@@ -111,8 +111,20 @@ export interface PublicChatShareResponse {
     name: string;
     updatedAt: number;
     lastMessageAt: number;
-    viewerCount: number;
   };
+  members: Array<{
+    id: string;
+    name: string;
+    avatar: string;
+    personality?: Record<string, number>;
+    expertise?: string[];
+    speakingStyle?: string;
+    background?: string;
+    speechProfile?: Record<string, unknown> | null;
+    bubbleStyle?: BubbleStyleDefinition | null;
+    bubbleStyleId?: string | null;
+    isPreset?: boolean;
+  }>;
   messages: Message[];
   hasMore: boolean;
 }

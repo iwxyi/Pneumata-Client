@@ -48,6 +48,7 @@ import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
 import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
 import { api, type ChatShareState } from '../services/api';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -104,12 +105,8 @@ function ChatSharePanel({ chat }: { chat: GroupChat }) {
 
   const copy = async () => {
     if (!shareUrl) return;
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setCopyText('已复制');
-    } catch {
-      setCopyText('复制失败，请手动复制');
-    }
+    const copied = await copyTextToClipboard(shareUrl);
+    setCopyText(copied ? '已复制' : '复制失败，请手动复制');
   };
 
   if (chat.type !== 'group') return null;
@@ -936,8 +933,8 @@ export default function ChatDetailPage() {
                         subtitle="世界事件驱动的会话活动时间线"
                         showHeader
                       />
-                      <SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} hideHeader frameless />
                       <ChatSharePanel chat={chat} />
+                      <SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} hideHeader frameless />
                     </Box>
                   </LazyPanel>
                 ) : null}

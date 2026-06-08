@@ -1,12 +1,38 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, IconButton, Stack, Typography } from '@mui/material';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import type { SxProps, Theme } from '@mui/material/styles';
+import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
+import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 import { useNavigate, useParams } from 'react-router-dom';
 import MessageList from '../components/chat/MessageList';
+import GlassHeader from '../components/layout/GlassHeader';
 import { api } from '../services/api';
 import type { Message } from '../types/message';
+import type { AICharacter } from '../types/character';
 
 const PUBLIC_CHAT_PAGE_SIZE = 40;
+
+type PublicShareMember = NonNullable<Awaited<ReturnType<typeof api.getPublicChatShare>>['members']>[number];
+
+const publicHeaderButtonSx: SxProps<Theme> = {
+  width: 40,
+  height: 40,
+  borderRadius: 3,
+  flex: '0 0 auto',
+  color: 'text.secondary',
+  bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.44)' : 'rgba(255,255,255,0.055)',
+  border: '1px solid',
+  borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.055)' : 'rgba(226,232,240,0.08)',
+  boxShadow: (theme) => theme.palette.mode === 'light'
+    ? '0 10px 24px rgba(15,23,42,0.035), 0 1px 0 rgba(255,255,255,0.62) inset'
+    : '0 12px 28px rgba(0,0,0,0.18), 0 1px 0 rgba(255,255,255,0.06) inset',
+  backdropFilter: 'blur(18px) saturate(1.08)',
+  WebkitBackdropFilter: 'blur(18px) saturate(1.08)',
+  '&:hover': {
+    color: 'text.primary',
+    bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.70)' : 'rgba(255,255,255,0.09)',
+  },
+};
 
 function mergeMessages(current: Message[], incoming: Message[]) {
   const byId = new Map<string, Message>();
@@ -16,12 +42,70 @@ function mergeMessages(current: Message[], incoming: Message[]) {
   return Array.from(byId.values()).sort((left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id));
 }
 
+function toRenderablePublicMember(member: PublicShareMember): AICharacter {
+  const now = Date.now();
+  return {
+    id: member.id,
+    name: member.name,
+    avatar: member.avatar || '',
+    personality: {
+      openness: Number(member.personality?.openness || 0.5),
+      extroversion: Number(member.personality?.extroversion || 0.5),
+      agreeableness: Number(member.personality?.agreeableness || 0.5),
+      neuroticism: Number(member.personality?.neuroticism || 0.5),
+      humor: Number(member.personality?.humor || 0.5),
+      creativity: Number(member.personality?.creativity || 0.5),
+      assertiveness: Number(member.personality?.assertiveness || 0.5),
+      empathy: Number(member.personality?.empathy || 0.5),
+    },
+    behavior: {
+      proactivity: 0.5,
+      aggressiveness: 0.5,
+      humorIntensity: 0.5,
+      empathyLevel: 0.5,
+      summarizing: 0.5,
+      offTopic: 0.5,
+    },
+    expertise: Array.isArray(member.expertise) ? member.expertise : [],
+    speakingStyle: member.speakingStyle || '',
+    background: member.background || '',
+    speechProfile: member.speechProfile as AICharacter['speechProfile'],
+    relationships: [],
+    memory: {
+      longTerm: [],
+      shortTermSummary: '',
+      secrets: [],
+      obsessions: [],
+      tabooTopics: [],
+      userMemories: [],
+    },
+    intervention: {
+      allowSpeakAs: false,
+      allowDirectorPrompt: false,
+      allowPrivateThread: false,
+    },
+    bubbleStyle: member.bubbleStyle || null,
+    bubbleStyleId: member.bubbleStyleId || null,
+    isPreset: Boolean(member.isPreset),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function mergePublicMembers(current: AICharacter[], incoming: PublicShareMember[]) {
+  const byId = new Map(current.map((member) => [member.id, member]));
+  incoming.forEach((member) => {
+    if (member?.id) byId.set(member.id, toRenderablePublicMember(member));
+  });
+  return Array.from(byId.values());
+}
+
 export default function PublicSharedChatPage() {
   const { token = '' } = useParams();
   const navigate = useNavigate();
   const [chatName, setChatName] = useState('');
-  const [viewerCount, setViewerCount] = useState(0);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [members, setMembers] = useState<AICharacter[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -31,8 +115,8 @@ export default function PublicSharedChatPage() {
     if (!token) return;
     const result = await api.getPublicChatShare(token, { limit: PUBLIC_CHAT_PAGE_SIZE });
     setChatName(result.chat.name);
-    setViewerCount(result.chat.viewerCount);
     setHasMore(result.hasMore);
+    setMembers((current) => mergePublicMembers(current, result.members || []));
     setMessages((current) => mode === 'merge' ? mergeMessages(current, result.messages) : result.messages);
   }, [token]);
 
@@ -67,8 +151,8 @@ export default function PublicSharedChatPage() {
       const before = messages[0]?.timestamp;
       const result = await api.getPublicChatShare(token, { limit: PUBLIC_CHAT_PAGE_SIZE, before });
       setChatName(result.chat.name);
-      setViewerCount(result.chat.viewerCount);
       setHasMore(result.hasMore);
+      setMembers((current) => mergePublicMembers(current, result.members || []));
       setMessages((current) => mergeMessages(result.messages, current));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -80,48 +164,65 @@ export default function PublicSharedChatPage() {
   const title = useMemo(() => chatName || '聊天记录', [chatName]);
 
   return (
-    <Box sx={{ height: '100dvh', display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
-      <Box
-        sx={{
-          px: 1,
-          py: 1,
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          minHeight: 56,
-        }}
-      >
-        <IconButton edge="start" onClick={() => navigate('/')}>
-          <ArrowBackIcon />
-        </IconButton>
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }} noWrap>{title}</Typography>
-          <Typography variant="caption" color="text.secondary">只读聊天记录 · 访问人数 {viewerCount}</Typography>
-        </Box>
-        <Button size="small" variant="outlined" onClick={() => void loadLatest('merge')}>刷新</Button>
-      </Box>
+    <Box
+      sx={{
+        height: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
+        bgcolor: 'background.default',
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      <GlassHeader
+        safeAreaTop
+        title={(
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.25 }} noWrap>{title}</Typography>
+          </Box>
+        )}
+        leading={(
+          <IconButton
+            onClick={() => navigate('/')}
+            sx={publicHeaderButtonSx}
+            aria-label="回到首页"
+          >
+            <HomeOutlinedIcon />
+          </IconButton>
+        )}
+        actions={(
+          <IconButton
+            onClick={() => void loadLatest('merge')}
+            sx={publicHeaderButtonSx}
+            aria-label="刷新"
+          >
+            <RefreshOutlinedIcon />
+          </IconButton>
+        )}
+      />
 
       {loading ? (
-        <Box sx={{ flex: 1, display: 'grid', placeItems: 'center' }}>
-          <CircularProgress size={24} />
+        <Box sx={{ flex: 1, display: 'grid', placeItems: 'center', px: 2, pt: 'calc(88px + env(safe-area-inset-top, 0px))' }}>
+          <Stack spacing={1.5} sx={{ alignItems: 'center' }}>
+            <CircularProgress size={24} />
+            <Typography variant="body2" color="text.secondary">正在打开聊天记录</Typography>
+          </Stack>
         </Box>
       ) : error ? (
-        <Stack sx={{ p: 2 }} spacing={1.5}>
+        <Stack sx={{ p: 2, pt: 'calc(88px + env(safe-area-inset-top, 0px))', maxWidth: 520, width: '100%', mx: 'auto' }} spacing={1.5}>
           <Alert severity="error">{error}</Alert>
           <Button variant="outlined" onClick={() => navigate('/')}>回到首页</Button>
         </Stack>
       ) : (
         <MessageList
           messages={messages}
-          characters={[]}
+          characters={members}
           onReachTop={loadOlder}
           isLoadingOlder={loadingOlder}
           hasMore={hasMore}
           topHint="没有更早的消息"
           loadingText="加载更多聊天记录…"
-          topInset={1.5}
+          topInset={{ xs: 'calc(94px + env(safe-area-inset-top, 0px))', sm: '88px' }}
           bottomInset={2}
         />
       )}

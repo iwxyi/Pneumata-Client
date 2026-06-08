@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, Chip, Dialog, DialogContent, DialogTitle, FormControl, MenuItem, Select, Stack, Typography } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import PlaceIcon from '@mui/icons-material/Place';
@@ -131,6 +131,7 @@ export default function WorldCalendarPanel({
   const [statusFilter, setStatusFilter] = useState<CalendarStatusFilter>('all');
   const [isCalendarExpanded, setIsCalendarExpanded] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const userAdjustedCalendarRef = useRef(false);
   const [detailItemId, setDetailItemId] = useState<string | null>(null);
   const [isApplyingPatchQueue, setIsApplyingPatchQueue] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
@@ -152,6 +153,14 @@ export default function WorldCalendarPanel({
     statusFilter,
     selectedDayStart: null,
   }), [actorId, calendarItems, kindFilter, statusFilter]);
+
+  useEffect(() => {
+    if (!compact || userAdjustedCalendarRef.current) return;
+    const firstItem = baseFilteredItems[0];
+    setIsCalendarExpanded(Boolean(firstItem));
+    if (firstItem) setSelectedDate(new Date(startOfDay(firstItem.startAt ?? firstItem.updatedAt)));
+  }, [baseFilteredItems, compact]);
+
   const filteredItems = useMemo(
     () => baseFilteredItems.filter((item) => startOfDay(item.startAt ?? item.updatedAt) === selectedDayStart),
     [baseFilteredItems, selectedDayStart],
@@ -244,20 +253,26 @@ export default function WorldCalendarPanel({
                 ? '0 1 clamp(420px, 44vw, 560px)'
                 : '0 0 clamp(360px, 34vw, 450px)',
             },
-            alignSelf: 'stretch',
+            alignSelf: compact ? 'flex-start' : 'stretch',
           }}
           contentSx={{ p: { xs: 1, sm: 1.25 }, '&:last-child': { pb: { xs: 1, sm: 1.25 } } }}
         >
           <BaseCalendar
             isZh={isZh}
             selectedDate={selectedDate}
-            onSelectDate={setSelectedDate}
+            onSelectDate={(date) => {
+              userAdjustedCalendarRef.current = true;
+              setSelectedDate(date);
+            }}
             mode="month"
             dayCellMinHeight={isCalendarExpanded ? 72 : 38}
             dayContentMinHeight={isCalendarExpanded ? 62 : 30}
             toggle={{
               expanded: isCalendarExpanded,
-              onToggle: () => setIsCalendarExpanded((prev) => !prev),
+              onToggle: () => {
+                userAdjustedCalendarRef.current = true;
+                setIsCalendarExpanded((prev) => !prev);
+              },
               expandedLabel: isZh ? '收起' : 'Collapse',
               collapsedLabel: isZh ? '展开' : 'Expand',
               expandedAria: isZh ? '收起日期详情' : 'Collapse date details',

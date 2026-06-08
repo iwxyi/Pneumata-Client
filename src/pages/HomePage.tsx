@@ -372,6 +372,14 @@ export default function HomePage() {
   ].slice(0, 3) : [];
 
   const attentionStats: HomeOverviewCard[] = [
+    ...(needsLogin ? [{
+      label: t('nav.signInSync'),
+      value: t('nav.localMode'),
+      icon: <PersonIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/login'),
+      attention: true,
+    }] : []),
     ...(needsAIModelSetup ? [{
       label: '默认文本模型',
       value: '待设置',
@@ -418,7 +426,6 @@ export default function HomePage() {
 
   const stats: HomeOverviewCard[] = [
     ...attentionStats,
-    ...syncStatusStats,
     {
       label: t('home.totalChats'),
       value: totalGroupChats,
@@ -453,6 +460,7 @@ export default function HomePage() {
       color: 'primary.main',
       onOpen: () => navigate('/account/sync-status'),
     },
+    ...syncStatusStats,
   ];
 
   return (

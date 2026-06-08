@@ -6,7 +6,7 @@ import { resetMessageStoreForAccountBoundary } from './useMessageStore';
 import { resetCharacterArtifactStoreForAccountBoundary } from './useCharacterArtifactStore';
 import { useSettingsStore } from './useSettingsStore';
 import { storageKey } from '../constants/brand';
-import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot } from '../services/localToCloudBootstrap';
+import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot, hasBootstrapEntityData } from '../services/localToCloudBootstrap';
 import { reportRecoverableError } from '../services/diagnostics';
 import { rememberCloudUserId } from '../services/authStorageScope';
 import { runWithCloudSyncBootstrapLock } from '../services/cloudSyncBootstrapLock';
@@ -41,12 +41,20 @@ interface AuthStore {
   changePhone: (phone: string, code: string) => Promise<void>;
 }
 
-function refreshStoresAfterCloudAuth() {
+async function refreshStoresAfterCloudAuth(options: { forceRemote?: boolean } = {}) {
   const settingsStore = useSettingsStore.getState();
   const chatStore = useChatStore.getState();
   const characterStore = useCharacterStore.getState();
   chatStore.markChatsWarm();
   characterStore.markCharactersWarm();
+  if (options.forceRemote) {
+    await Promise.allSettled([
+      settingsStore.refreshSettingsFromCloud(),
+      chatStore.refreshChatSummaryFromCloud(),
+      characterStore.refreshCharacterSummaryFromCloud(),
+    ]);
+    return;
+  }
   void settingsStore.loadSettings();
   void chatStore.prefetchChats();
   void characterStore.prefetchCharacters();
@@ -87,6 +95,13 @@ function applyCloudSyncEntitlement(user: User | null) {
   if (user?.cloudSyncEntitled === false) {
     setCloudSyncEnabled(false);
   }
+}
+
+function enableCloudSyncForLogin(user: User | null) {
+  if (user?.cloudSyncEntitled !== false) {
+    setCloudSyncEnabled(true);
+  }
+  applyCloudSyncEntitlement(user);
 }
 
 function clearAuthTokenAndUser() {
@@ -130,7 +145,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const result = await api.login(phone, code);
       setAuthToken(result.token);
       setAuthUser(result.user);
-      applyCloudSyncEntitlement(result.user);
+      enableCloudSyncForLogin(result.user);
       setAuthMode('cloud');
       set({
         token: result.token,
@@ -139,7 +154,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         isLoading: false,
         authMode: 'cloud',
       });
-      if (localSnapshot && result.user.cloudSyncEntitled !== false) {
+      if (localSnapshot && hasBootstrapEntityData(localSnapshot) && result.user.cloudSyncEntitled !== false) {
         try {
           await runWithCloudSyncBootstrapLock(() => bootstrapLocalDataToCloud(localSnapshot));
         } catch (error) {
@@ -156,7 +171,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           throw error;
         }
       }
-      refreshStoresAfterCloudAuth();
+      await refreshStoresAfterCloudAuth({ forceRemote: result.user.cloudSyncEntitled !== false });
     } catch (error) {
       set({ isLoading: false });
       throw error;
@@ -196,7 +211,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       setAuthUser(user);
       applyCloudSyncEntitlement(user);
       set({ user, isLoggedIn: true, authMode: 'cloud' });
-      refreshStoresAfterCloudAuth();
+      void refreshStoresAfterCloudAuth({ forceRemote: user.cloudSyncEntitled !== false });
       return true;
     } catch (error) {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {

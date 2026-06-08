@@ -47,6 +47,7 @@ interface SettingsStore extends AppSettings {
   setArtifactAppearance: (appearance: Partial<ArtifactAppearanceSettings>) => void;
   recordAiMessageReceived: (count?: number) => void;
   syncCurrentSettingsToServer: () => Promise<void>;
+  refreshSettingsFromCloud: () => Promise<void>;
   getSyncScopeStates: () => SyncScopeSnapshot[];
   resetSettings: () => void;
 }
@@ -646,6 +647,10 @@ export const useSettingsStore = create<SettingsStore>()(
         const current = useSettingsStore.getState();
         await api.updateSettings(buildSettingsPayload(current));
         set((state) => ({ ...state, syncStatus: 'saved', syncError: null, lastSyncedAt: Date.now() }));
+      },
+      refreshSettingsFromCloud: async () => {
+        settingsSyncScopes.clear(SETTINGS_ACCOUNT_SCOPE);
+        await get().loadSettings();
       },
       getSyncScopeStates: () => settingsSyncScopes.listStates(),
 

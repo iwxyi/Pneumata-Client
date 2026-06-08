@@ -112,7 +112,7 @@ function hasBootstrapData(snapshot: LocalCloudBootstrapSnapshot) {
   return snapshot.settingsShouldUpload || hasBootstrapEntityData(snapshot);
 }
 
-function hasBootstrapEntityData(snapshot: LocalCloudBootstrapSnapshot) {
+export function hasBootstrapEntityData(snapshot: LocalCloudBootstrapSnapshot) {
   const hasCharacters = snapshot.characters.some((character) => !character.isPreset && character.deletedAt == null);
   const hasChats = snapshot.chats.some((chat) => chat.deletedAt == null);
   const hasMessages = Object.values(snapshot.messageWindowsByChatId).some((window) =>
