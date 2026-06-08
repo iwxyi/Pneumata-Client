@@ -13,6 +13,7 @@ import { scheduleSyncWorkersByPriority } from '../stores/storeSyncScheduler';
 import { buildOperationsDiffPreview, buildPatchDiffPreview } from '../services/syncDiffPreview';
 import type { SyncScopeSnapshot } from '../stores/syncScopeMetadata';
 import { clearPersistenceFailures, PERSISTENCE_HEALTH_EVENT, readPersistenceHealth } from '../services/persistenceHealth';
+import { buildLocalRecoverySnapshot } from '../services/localRecoveryExport';
 
 function clipText(value: unknown, max = 120) {
   if (value == null) return '';
@@ -379,11 +380,10 @@ export default function SyncStatusPage() {
     authMode,
     scopes: syncScopes,
   });
-  const exportPersistenceHealth = () => downloadJson(`pneumata-persistence-health-${new Date().toISOString().replace(/[:.]/g, '-')}.json`, {
-    exportedAt: Date.now(),
-    authMode,
-    persistenceHealth,
-  });
+  const exportPersistenceHealth = () => downloadJson(
+    `pneumata-local-recovery-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
+    buildLocalRecoverySnapshot({ persistenceFailures: persistenceHealth.failures }),
+  );
   const clearPersistenceHealth = () => {
     clearPersistenceFailures();
     setPersistenceHealth(readPersistenceHealth());
@@ -437,7 +437,7 @@ export default function SyncStatusPage() {
             </Typography>
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
               <Button size="small" variant="outlined" color="error" onClick={exportPersistenceHealth}>
-                {isZh ? '导出本地保存诊断' : 'Export persistence diagnostics'}
+                {isZh ? '导出本地恢复快照' : 'Export local recovery snapshot'}
               </Button>
               <Button size="small" color="error" onClick={clearPersistenceHealth}>
                 {isZh ? '清除提示' : 'Clear notice'}
