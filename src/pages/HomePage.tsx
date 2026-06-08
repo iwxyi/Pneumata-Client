@@ -6,10 +6,14 @@ import AddIcon from '@mui/icons-material/Add';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ChatIcon from '@mui/icons-material/Chat';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
+import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
+import CloudSyncIcon from '@mui/icons-material/CloudSync';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DeveloperModeIcon from '@mui/icons-material/DeveloperMode';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import PersonIcon from '@mui/icons-material/Person';
 import SettingsSuggestIcon from '@mui/icons-material/SettingsSuggest';
+import SyncProblemIcon from '@mui/icons-material/SyncProblem';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -26,6 +30,9 @@ import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
 import { avatarGenerationQueue, type AvatarGenerationQueueSummary } from '../services/avatarGenerationQueue';
 import { buildHomeCompanionshipSnapshot } from '../services/companionshipProjection';
+import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
+import { buildHomeSyncOverview } from '../services/homeSyncOverview';
+import { getRegisteredSyncWorkerEntries } from '../stores/storeSyncScheduler';
 import { motion, transition } from '../styles/motion';
 
 interface HomeOverviewCard {
@@ -194,6 +201,21 @@ function buildStatIconSx(color: string) {
   };
 }
 
+function buildSyncMetricSx() {
+  return {
+    minWidth: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 0.75,
+    px: 1,
+    py: 0.85,
+    border: 1,
+    borderColor: 'divider',
+    borderRadius: 1,
+    bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.025)' : 'rgba(255,255,255,0.035)',
+  };
+}
+
 function buildGridSx(columns?: { xs: string; sm: string; lg?: string; xl?: string }) {
   return {
     display: 'grid',
@@ -209,16 +231,23 @@ function buildGridSx(columns?: { xs: string; sm: string; lg?: string; xl?: strin
 export default function HomePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { chats, prefetchChats, markChatsWarm } = useChatStore();
-  const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
+  const { chats, prefetchChats, markChatsWarm, pendingOperations: chatPendingOperations, getSyncScopeStates: getChatSyncScopeStates } = useChatStore();
+  const { characters, prefetchCharacters, markCharactersWarm, pendingOperations: characterPendingOperations, getSyncScopeStates: getCharacterSyncScopeStates } = useCharacterStore();
   const aiProfiles = useSettingsStore((state) => state.aiProfiles);
   const messages = useMessageStore((state) => state.messages);
   const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
+  const messagePendingOperations = useMessageStore((state) => state.pendingOperations);
+  const getMessageSyncScopeStates = useMessageStore((state) => state.getSyncScopeStates);
   const developerMode = useSettingsStore((state) => state.developerMode);
-  const activeDiaryJobs = useCharacterArtifactStore((state) => state.jobs.filter((job) => job.kind === 'diary' && (job.status === 'pending' || job.status === 'running')).length);
+  const artifactJobs = useCharacterArtifactStore((state) => state.jobs);
+  const getArtifactSyncScopeStates = useCharacterArtifactStore((state) => state.getSyncScopeStates);
+  const getSettingsSyncScopeStates = useSettingsStore((state) => state.getSyncScopeStates);
+  const activeDiaryJobs = artifactJobs.filter((job) => job.kind === 'diary' && (job.status === 'pending' || job.status === 'running')).length;
   const authMode = useAuthStore((state) => state.authMode);
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
   const [avatarQueueSummary, setAvatarQueueSummary] = useState<AvatarGenerationQueueSummary>(() => avatarGenerationQueue.getSummary());
+  const [cloudSyncEnabled, setCloudSyncEnabledState] = useState(() => isCloudSyncEnabled());
+  const [workerEntries, setWorkerEntries] = useState(() => getRegisteredSyncWorkerEntries());
 
   useEffect(() => {
     markChatsWarm();
@@ -228,6 +257,24 @@ export default function HomePage() {
   }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats]);
 
   useEffect(() => avatarGenerationQueue.subscribeSummary(setAvatarQueueSummary), []);
+
+  useEffect(() => {
+    const update = () => {
+      setCloudSyncEnabledState(isCloudSyncEnabled());
+      setWorkerEntries(getRegisteredSyncWorkerEntries());
+    };
+    update();
+    const timer = window.setInterval(update, 2500);
+    window.addEventListener('pneumata-cloud-sync-preference-changed', update);
+    window.addEventListener('pneumata-cloud-sync-bootstrap-lock-changed', update);
+    window.addEventListener('online', update);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('pneumata-cloud-sync-preference-changed', update);
+      window.removeEventListener('pneumata-cloud-sync-bootstrap-lock-changed', update);
+      window.removeEventListener('online', update);
+    };
+  }, []);
 
   const recentChats = chats.slice(0, 10);
   const customCharacters = characters.filter((character) => !character.isPreset);
@@ -252,6 +299,44 @@ export default function HomePage() {
     characters,
     messages: knownMessages,
   });
+  const syncOverview = useMemo(() => buildHomeSyncOverview({
+    cloudSyncAvailable: !needsLogin,
+    cloudSyncEnabled,
+    operations: [
+      ...chatPendingOperations,
+      ...characterPendingOperations,
+      ...messagePendingOperations,
+    ],
+    artifactJobs,
+    syncScopes: [
+      ...getCharacterSyncScopeStates(),
+      ...getChatSyncScopeStates(),
+      ...getMessageSyncScopeStates(),
+      ...getArtifactSyncScopeStates(),
+      ...getSettingsSyncScopeStates(),
+    ],
+    workerEntries,
+  }), [
+    artifactJobs,
+    characterPendingOperations,
+    chatPendingOperations,
+    cloudSyncEnabled,
+    getArtifactSyncScopeStates,
+    getCharacterSyncScopeStates,
+    getChatSyncScopeStates,
+    getMessageSyncScopeStates,
+    getSettingsSyncScopeStates,
+    messagePendingOperations,
+    needsLogin,
+    workerEntries,
+  ]);
+  const syncSummaryText = syncOverview.severity === 'off'
+    ? (needsLogin ? '登录后启用云同步' : '云同步已关闭')
+    : syncOverview.severity === 'attention'
+      ? '需要处理同步异常'
+      : syncOverview.severity === 'syncing'
+        ? '同步任务正在后台推进'
+        : '本地与云端保持轻量检查';
 
   const attentionStats: HomeOverviewCard[] = [
     ...(needsAIModelSetup ? [{
@@ -374,6 +459,61 @@ export default function HomePage() {
               </Box>
             ))}
           </Box>
+          <SurfaceCard
+            sx={{
+              mt: 1.25,
+              borderColor: syncOverview.severity === 'attention'
+                ? 'warning.main'
+                : syncOverview.severity === 'syncing'
+                  ? 'primary.main'
+                  : 'divider',
+              bgcolor: (theme: Theme) => syncOverview.severity === 'attention'
+                ? theme.palette.mode === 'light' ? 'rgba(245,158,11,0.06)' : 'rgba(245,158,11,0.10)'
+                : theme.palette.mode === 'light' ? 'rgba(49,90,156,0.035)' : 'rgba(120,156,220,0.06)',
+            }}
+            contentSx={{ p: { xs: 1.25, sm: 1.5 } }}
+          >
+            <Box sx={{ display: 'flex', alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 1, mb: 1, flexDirection: { xs: 'column', sm: 'row' } }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                <CloudSyncIcon color={syncOverview.severity === 'attention' ? 'warning' : syncOverview.severity === 'off' ? 'disabled' : 'primary'} fontSize="small" />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>云同步态势</Typography>
+                  <Typography variant="caption" color="text.secondary">{syncSummaryText}</Typography>
+                </Box>
+              </Box>
+              <Button size="small" variant="outlined" onClick={() => navigate('/account/sync-status')}>同步详情</Button>
+            </Box>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }, gap: 0.75 }}>
+              <Box sx={buildSyncMetricSx()}>
+                <CloudUploadIcon color="primary" fontSize="small" />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2" sx={{ lineHeight: 1 }}>{syncOverview.uploading}</Typography>
+                  <Typography variant="caption" color="text.secondary">上传中 / 待传 {syncOverview.pendingUpload}</Typography>
+                </Box>
+              </Box>
+              <Box sx={buildSyncMetricSx()}>
+                <CloudDownloadIcon color="primary" fontSize="small" />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2" sx={{ lineHeight: 1 }}>{syncOverview.checkingDownloads}</Typography>
+                  <Typography variant="caption" color="text.secondary">下载检查 / 已检查 {syncOverview.checkedScopes}</Typography>
+                </Box>
+              </Box>
+              <Box sx={buildSyncMetricSx()}>
+                <SyncProblemIcon color={syncOverview.failedUpload + syncOverview.failedScopes + syncOverview.backoffScopes > 0 ? 'warning' : 'disabled'} fontSize="small" />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2" sx={{ lineHeight: 1 }}>{syncOverview.failedUpload + syncOverview.failedScopes}</Typography>
+                  <Typography variant="caption" color="text.secondary">异常 / 退避 {syncOverview.backoffScopes}</Typography>
+                </Box>
+              </Box>
+              <Box sx={buildSyncMetricSx()}>
+                <DeveloperModeIcon color="primary" fontSize="small" />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2" sx={{ lineHeight: 1 }}>{syncOverview.activeWorkers.length}</Typography>
+                  <Typography variant="caption" color="text.secondary">活跃工人 / 已注册 {syncOverview.registeredWorkers}</Typography>
+                </Box>
+              </Box>
+            </Box>
+          </SurfaceCard>
         </SurfaceCard>
 
         <Divider />
