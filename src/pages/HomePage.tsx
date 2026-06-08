@@ -5,9 +5,7 @@ import type { Theme } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ChatIcon from '@mui/icons-material/Chat';
-import CloudOffIcon from '@mui/icons-material/CloudOff';
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
-import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DeveloperModeIcon from '@mui/icons-material/DeveloperMode';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
@@ -203,21 +201,6 @@ function buildStatIconSx(color: string) {
   };
 }
 
-function buildSyncMetricSx() {
-  return {
-    minWidth: 0,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 0.75,
-    px: 1,
-    py: 0.85,
-    border: 1,
-    borderColor: 'divider',
-    borderRadius: 1,
-    bgcolor: (theme: Theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.025)' : 'rgba(255,255,255,0.035)',
-  };
-}
-
 function buildGridSx(columns?: { xs: string; sm: string; lg?: string; xl?: string }) {
   return {
     display: 'grid',
@@ -344,13 +327,35 @@ export default function HomePage() {
     needsLogin,
     workerEntries,
   ]);
-  const syncSummaryText = syncOverview.severity === 'off'
-    ? (needsLogin ? '登录后启用云同步' : '云同步已关闭')
-    : syncOverview.severity === 'attention'
-      ? '需要处理同步异常'
-      : syncOverview.severity === 'syncing'
-        ? '同步任务正在后台推进'
-        : '本地与云端保持轻量检查';
+  const syncUploadingCount = syncOverview.uploading + syncOverview.pendingUpload;
+  const syncDownloadingCount = syncOverview.checkingDownloads + syncOverview.pendingDownload;
+  const syncExceptionCount = syncOverview.failedUpload + syncOverview.failedScopes + syncOverview.backoffScopes;
+  const syncStatusStats: HomeOverviewCard[] = (!needsLogin && cloudSyncEnabled) ? [
+    ...(syncUploadingCount > 0 ? [{
+      label: syncOverview.uploading > 0 ? `${syncOverview.uploading} 正在上传` : '等待上传',
+      value: syncUploadingCount,
+      icon: <CloudUploadIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/account/sync-status'),
+      attention: syncOverview.uploading > 0,
+    }] : []),
+    ...(syncDownloadingCount > 0 ? [{
+      label: syncOverview.checkingDownloads > 0 ? `${syncOverview.checkingDownloads} 正在下载` : '等待下载',
+      value: syncDownloadingCount,
+      icon: <CloudDownloadIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/account/sync-status'),
+      attention: syncOverview.checkingDownloads > 0,
+    }] : []),
+    ...(syncExceptionCount > 0 ? [{
+      label: '未读同步异常',
+      value: syncExceptionCount,
+      icon: <SyncProblemIcon />,
+      color: 'warning.main',
+      onOpen: () => navigate('/account/sync-status'),
+      attention: true,
+    }] : []),
+  ].slice(0, 3) : [];
 
   const attentionStats: HomeOverviewCard[] = [
     ...(needsAIModelSetup ? [{
@@ -359,14 +364,6 @@ export default function HomePage() {
       icon: <SettingsSuggestIcon />,
       color: 'primary.main',
       onOpen: () => navigate('/models'),
-      attention: true,
-    }] : []),
-    ...(needsLogin ? [{
-      label: '云同步',
-      value: '未登录',
-      icon: <CloudOffIcon />,
-      color: 'primary.main',
-      onOpen: () => navigate('/login'),
       attention: true,
     }] : []),
     ...(developerMode ? [{
@@ -407,6 +404,7 @@ export default function HomePage() {
 
   const stats: HomeOverviewCard[] = [
     ...attentionStats,
+    ...syncStatusStats,
     {
       label: t('home.totalChats'),
       value: totalGroupChats,
@@ -473,61 +471,6 @@ export default function HomePage() {
               </Box>
             ))}
           </Box>
-          <SurfaceCard
-            sx={{
-              mt: 1.25,
-              borderColor: syncOverview.severity === 'attention'
-                ? 'warning.main'
-                : syncOverview.severity === 'syncing'
-                  ? 'primary.main'
-                  : 'divider',
-              bgcolor: (theme: Theme) => syncOverview.severity === 'attention'
-                ? theme.palette.mode === 'light' ? 'rgba(245,158,11,0.06)' : 'rgba(245,158,11,0.10)'
-                : theme.palette.mode === 'light' ? 'rgba(49,90,156,0.035)' : 'rgba(120,156,220,0.06)',
-            }}
-            contentSx={{ p: { xs: 1.25, sm: 1.5 } }}
-          >
-            <Box sx={{ display: 'flex', alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 1, mb: 1, flexDirection: { xs: 'column', sm: 'row' } }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                <CloudSyncIcon color={syncOverview.severity === 'attention' ? 'warning' : syncOverview.severity === 'off' ? 'disabled' : 'primary'} fontSize="small" />
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>云同步态势</Typography>
-                  <Typography variant="caption" color="text.secondary">{syncSummaryText}</Typography>
-                </Box>
-              </Box>
-              <Button size="small" variant="outlined" onClick={() => navigate('/account/sync-status')}>同步详情</Button>
-            </Box>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }, gap: 0.75 }}>
-              <Box sx={buildSyncMetricSx()}>
-                <CloudUploadIcon color="primary" fontSize="small" />
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="subtitle2" sx={{ lineHeight: 1 }}>{syncOverview.uploading}</Typography>
-                  <Typography variant="caption" color="text.secondary">上传中 / 待传 {syncOverview.pendingUpload}</Typography>
-                </Box>
-              </Box>
-              <Box sx={buildSyncMetricSx()}>
-                <CloudDownloadIcon color="primary" fontSize="small" />
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="subtitle2" sx={{ lineHeight: 1 }}>{syncOverview.checkingDownloads}</Typography>
-                  <Typography variant="caption" color="text.secondary">下载中 / 待下载 {syncOverview.pendingDownload}</Typography>
-                </Box>
-              </Box>
-              <Box sx={buildSyncMetricSx()}>
-                <SyncProblemIcon color={syncOverview.failedUpload + syncOverview.failedScopes + syncOverview.backoffScopes > 0 ? 'warning' : 'disabled'} fontSize="small" />
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="subtitle2" sx={{ lineHeight: 1 }}>{syncOverview.failedUpload + syncOverview.failedScopes}</Typography>
-                  <Typography variant="caption" color="text.secondary">异常 / 退避 {syncOverview.backoffScopes}</Typography>
-                </Box>
-              </Box>
-              <Box sx={buildSyncMetricSx()}>
-                <DeveloperModeIcon color="primary" fontSize="small" />
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="subtitle2" sx={{ lineHeight: 1 }}>{syncOverview.activeWorkers.length}</Typography>
-                  <Typography variant="caption" color="text.secondary">活跃工人 / 已注册 {syncOverview.registeredWorkers}</Typography>
-                </Box>
-              </Box>
-            </Box>
-          </SurfaceCard>
         </SurfaceCard>
 
         <Divider />
