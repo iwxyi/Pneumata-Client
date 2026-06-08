@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { AICharacter } from '../types/character';
 import type { AIModelProfile } from '../types/settings';
 import { getUsableDefaultTextAIProfile, hasUsableDefaultTextAI, isAIProfileUsable } from '../types/settings';
-import { createScopedBufferedJsonStorage, createScopedStorage } from './storePersistenceScope';
+import { createScopedIndexedDbBufferedJsonStorage, createScopedIndexedDbStorage } from './storePersistenceScope';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { CLIENT_STORE_SCHEMA_VERSION } from './storeMigrations';
 import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact, looksLikeRawArtifactContext } from '../services/characterExperienceArtifacts';
@@ -105,10 +105,13 @@ function isCloudMode() {
     && localStorage.getItem(storageKey('auth-mode')) !== 'local';
 }
 
-function readPersistedItemsFromKey(key: string) {
-  if (typeof localStorage === 'undefined') return [] as CharacterArtifactEntry[];
+async function readPersistedItemsFromKey(key: string) {
   try {
-    const raw = localStorage.getItem(key);
+    const storage = createScopedIndexedDbStorage({
+      getScopedKey: () => key,
+      storageName: scopedStorageKey('character-artifacts'),
+    });
+    const raw = await storage.getItem(scopedStorageKey('character-artifacts'));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as { state?: { items?: CharacterArtifactEntry[] } };
     return Array.isArray(parsed.state?.items) ? parsed.state.items : [];
@@ -118,13 +121,13 @@ function readPersistedItemsFromKey(key: string) {
 }
 
 function createArtifactStorage() {
-  return createScopedStorage({
+  return createScopedIndexedDbStorage({
     getScopedKey: getArtifactStorageKey,
     storageName: scopedStorageKey('character-artifacts'),
   });
 }
 
-const artifactStorage = createScopedBufferedJsonStorage<ArtifactSnapshot>({
+const artifactStorage = createScopedIndexedDbBufferedJsonStorage<ArtifactSnapshot>({
   getScopedKey: getArtifactStorageKey,
   storageName: scopedStorageKey('character-artifacts'),
   flushDelayMs: 96,
@@ -1014,8 +1017,8 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
               || await api.getCharacterArtifactSummaries({ ...query, includeDeleted: true });
             const currentKey = getArtifactStorageKey();
             const guestKey = getGuestArtifactStorageKey();
-            const persistedCurrentItems = readPersistedItemsFromKey(currentKey);
-            const guestItems = currentKey === guestKey ? [] : readPersistedItemsFromKey(guestKey);
+            const persistedCurrentItems = await readPersistedItemsFromKey(currentKey);
+            const guestItems = currentKey === guestKey ? [] : await readPersistedItemsFromKey(guestKey);
             const localItems = mergeArtifactItems(persistedCurrentItems, guestItems, get().items);
             const localById = new Map(localItems.map((item) => [item.id, item]));
             const remoteSummaryById = new Map((remote.items || []).map((item) => [item.id, item]));
