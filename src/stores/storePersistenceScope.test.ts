@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBufferedJsonStorage, createScopedIndexedDbStorage, readIndexedDbStorageDiagnostics } from './storePersistenceScope';
+import {
+  createBufferedJsonStorage,
+  createScopedIndexedDbStorage,
+  flushBufferedPersistenceWrites,
+  migrateLocalStorageFallbacksToIndexedDb,
+  readIndexedDbStorageDiagnostics,
+} from './storePersistenceScope';
 import { clearPersistenceFailures, readPersistenceHealth } from '../services/persistenceHealth';
 
 function createStorageMock() {
@@ -39,6 +45,18 @@ describe('storePersistenceScope', () => {
     vi.advanceTimersByTime(20);
 
     expect(rawStorage.getItem('scope-key')).toBe(JSON.stringify({ state: { value: 2 }, version: 2 }));
+  });
+
+  it('flushes buffered persistence immediately for manual retry', () => {
+    const rawStorage = createStorageMock();
+    const storage = createBufferedJsonStorage<{ value: number }>(rawStorage, { flushDelayMs: 10_000 });
+
+    storage.setItem('retry-scope', { state: { value: 7 }, version: 2 });
+    expect(rawStorage.getItem('retry-scope')).toBeNull();
+
+    flushBufferedPersistenceWrites();
+
+    expect(rawStorage.getItem('retry-scope')).toBe(JSON.stringify({ state: { value: 7 }, version: 2 }));
   });
 
   it('records quota failures instead of hiding local persistence loss', () => {
@@ -87,5 +105,20 @@ describe('storePersistenceScope', () => {
       totalBytes: 0,
       largest: [],
     });
+  });
+
+  it('does not remove localStorage fallback when IndexedDB migration cannot run', async () => {
+    const rawStorage = createStorageMock();
+    vi.stubGlobal('localStorage', rawStorage);
+    vi.stubGlobal('indexedDB', undefined);
+    rawStorage.setItem('scoped-chats-user-1', 'legacy-cache');
+
+    await expect(migrateLocalStorageFallbacksToIndexedDb(['scoped-chats-user-1'])).resolves.toMatchObject({
+      migrated: 0,
+      removed: 0,
+      skipped: 1,
+      failed: 0,
+    });
+    expect(rawStorage.getItem('scoped-chats-user-1')).toBe('legacy-cache');
   });
 });

@@ -34,6 +34,14 @@ export interface IndexedDbStorageDiagnostics {
   error?: string;
 }
 
+export interface LocalStorageFallbackMigrationResult {
+  migrated: number;
+  removed: number;
+  skipped: number;
+  failed: number;
+  errors: Array<{ key: string; message: string }>;
+}
+
 const bufferedFlushers = new Set<() => void>();
 let bufferedLifecycleRegistered = false;
 const INDEXED_DB_NAME = 'pneumata-local-store';
@@ -75,6 +83,10 @@ function ensureBufferedStorageLifecycle() {
     });
   }
   bufferedLifecycleRegistered = true;
+}
+
+export function flushBufferedPersistenceWrites() {
+  for (const flush of bufferedFlushers) flush();
 }
 
 function parsePersistedValue<T>(raw: string | null, reviver?: BufferedJsonStorageOptions['reviver']) {
@@ -194,6 +206,44 @@ export async function readIndexedDbStorageDiagnostics(limit = 20): Promise<Index
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export async function migrateLocalStorageFallbacksToIndexedDb(keys: string[]): Promise<LocalStorageFallbackMigrationResult> {
+  const result: LocalStorageFallbackMigrationResult = {
+    migrated: 0,
+    removed: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [],
+  };
+  if (typeof localStorage === 'undefined') return result;
+
+  for (const key of Array.from(new Set(keys.filter(Boolean)))) {
+    const localValue = localStorage.getItem(key);
+    if (localValue == null) {
+      result.skipped += 1;
+      continue;
+    }
+    try {
+      const indexedValue = await readIndexedDbItem(key);
+      if (indexedValue != null) {
+        localStorage.removeItem(key);
+        result.removed += 1;
+        continue;
+      }
+      const storageBackend = await writeIndexedDbItem(key, localValue);
+      if (storageBackend === 'indexedDb') {
+        localStorage.removeItem(key);
+        result.migrated += 1;
+      } else {
+        result.skipped += 1;
+      }
+    } catch (error) {
+      result.failed += 1;
+      result.errors.push({ key, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return result;
 }
 
 export function createScopedStorage(params: ScopedStorageParams): StateStorage {

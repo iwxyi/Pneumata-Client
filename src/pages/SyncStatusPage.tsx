@@ -16,6 +16,7 @@ import type { SyncScopeSnapshot } from '../stores/syncScopeMetadata';
 import { clearPersistenceFailures, PERSISTENCE_HEALTH_EVENT, readPersistenceHealth } from '../services/persistenceHealth';
 import { buildLocalRecoverySnapshot } from '../services/localRecoveryExport';
 import { importLocalRecoverySnapshot, type LocalRecoveryImportResult } from '../services/localRecoveryImport';
+import { runLocalPersistenceMaintenance, type LocalPersistenceMaintenanceResult } from '../services/localPersistenceMaintenance';
 
 function clipText(value: unknown, max = 120) {
   if (value == null) return '';
@@ -68,6 +69,9 @@ export default function SyncStatusPage() {
   const [persistenceHealth, setPersistenceHealth] = useState(() => readPersistenceHealth());
   const [importResult, setImportResult] = useState<LocalRecoveryImportResult | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [maintenanceResult, setMaintenanceResult] = useState<LocalPersistenceMaintenanceResult | null>(null);
+  const [maintenanceError, setMaintenanceError] = useState<string | null>(null);
+  const [isMaintainingPersistence, setIsMaintainingPersistence] = useState(false);
   const recoveryImportInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -403,6 +407,20 @@ export default function SyncStatusPage() {
       setImportError(error instanceof Error ? error.message : String(error));
     }
   };
+  const maintainLocalPersistence = async () => {
+    setIsMaintainingPersistence(true);
+    setMaintenanceError(null);
+    setMaintenanceResult(null);
+    try {
+      const result = await runLocalPersistenceMaintenance();
+      setMaintenanceResult(result);
+      setPersistenceHealth(readPersistenceHealth());
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsMaintainingPersistence(false);
+    }
+  };
   const clearPersistenceHealth = () => {
     clearPersistenceFailures();
     setPersistenceHealth(readPersistenceHealth());
@@ -429,6 +447,9 @@ export default function SyncStatusPage() {
         />
         <Button size="small" variant="outlined" onClick={() => recoveryImportInputRef.current?.click()}>
           {isZh ? '导入本地恢复快照' : 'Import local recovery snapshot'}
+        </Button>
+        <Button size="small" variant="outlined" onClick={maintainLocalPersistence} disabled={isMaintainingPersistence}>
+          {isZh ? '整理并重试本地保存' : 'Clean up and retry local persistence'}
         </Button>
       </Box>
 
@@ -468,11 +489,28 @@ export default function SyncStatusPage() {
               <Button size="small" variant="outlined" color="error" onClick={exportPersistenceHealth}>
                 {isZh ? '导出本地恢复快照' : 'Export local recovery snapshot'}
               </Button>
+              <Button size="small" variant="outlined" color="error" onClick={maintainLocalPersistence} disabled={isMaintainingPersistence}>
+                {isZh ? '整理并重试' : 'Clean up and retry'}
+              </Button>
               <Button size="small" color="error" onClick={clearPersistenceHealth}>
                 {isZh ? '清除提示' : 'Clear notice'}
               </Button>
             </Stack>
           </Stack>
+        </Alert>
+      ) : null}
+
+      {maintenanceResult ? (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          {isZh
+            ? `本地保存维护完成：迁移旧副本 ${maintenanceResult.migratedFallbacks.migrated} 个，清理旧副本 ${maintenanceResult.migratedFallbacks.removed} 个，跳过 ${maintenanceResult.migratedFallbacks.skipped} 个，失败 ${maintenanceResult.migratedFallbacks.failed} 个；已重试 ${maintenanceResult.retriedStores.length} 个本地 store 的保存。IndexedDB 当前约 ${Math.round(maintenanceResult.diagnostics.totalBytes / 1024)} KiB。`
+            : `Local persistence maintenance finished: migrated ${maintenanceResult.migratedFallbacks.migrated}, removed ${maintenanceResult.migratedFallbacks.removed}, skipped ${maintenanceResult.migratedFallbacks.skipped}, failed ${maintenanceResult.migratedFallbacks.failed}. Retried ${maintenanceResult.retriedStores.length} local stores. IndexedDB is about ${Math.round(maintenanceResult.diagnostics.totalBytes / 1024)} KiB.`}
+        </Alert>
+      ) : null}
+
+      {maintenanceError ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {isZh ? `本地保存维护失败：${maintenanceError}` : `Local persistence maintenance failed: ${maintenanceError}`}
         </Alert>
       ) : null}
 
