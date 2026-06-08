@@ -7,7 +7,7 @@ import { reportRecoverableError } from '../services/diagnostics';
 import { hasLocalDataUrlMedia, scrubLocalMediaUrlsForCloud, uploadLocalMessageMediaToCloud } from '../services/richMessageMedia';
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateMessageStoreState } from './storeMigrations';
-import { createScopedBufferedJsonStorage } from './storePersistenceScope';
+import { createScopedIndexedDbBufferedJsonStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
 import { canAttemptOnlineSync, getPendingQueueWorkerPriority, recoverInterruptedOperations, retryFailedOperations, runPendingOperationQueue } from './storeSyncHelpers';
 import { scopedStorageKey, storageKey } from '../constants/brand';
@@ -4287,7 +4287,7 @@ function getMessageStoreStorageName() {
 }
 
 function createMessageStorage() {
-  return createScopedBufferedJsonStorage<PersistedMessageState>({
+  return createScopedIndexedDbBufferedJsonStorage<PersistedMessageState>({
     getScopedKey: getMessageStorageKey,
     storageName: getMessageStoreStorageName(),
     flushDelayMs: 64,

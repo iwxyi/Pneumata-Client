@@ -21,6 +21,10 @@ interface PendingBufferedWrite<T> {
 
 const bufferedFlushers = new Set<() => void>();
 let bufferedLifecycleRegistered = false;
+const INDEXED_DB_NAME = 'pneumata-local-store';
+const INDEXED_DB_VERSION = 1;
+const INDEXED_DB_OBJECT_STORE = 'kv';
+let indexedDbOpenPromise: Promise<IDBDatabase | null> | null = null;
 
 function scheduleBufferedFlush(flush: () => void, delayMs: number) {
   const scheduler = (globalThis as typeof globalThis & {
@@ -63,6 +67,67 @@ function parsePersistedValue<T>(raw: string | null, reviver?: BufferedJsonStorag
   return JSON.parse(raw, reviver) as StorageValue<T>;
 }
 
+function openIndexedDb() {
+  if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+  if (indexedDbOpenPromise) return indexedDbOpenPromise;
+  indexedDbOpenPromise = new Promise((resolve) => {
+    const request = indexedDB.open(INDEXED_DB_NAME, INDEXED_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(INDEXED_DB_OBJECT_STORE)) {
+        database.createObjectStore(INDEXED_DB_OBJECT_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => {
+      console.warn('[storage] indexeddb open failed', request.error);
+      resolve(null);
+    };
+    request.onblocked = () => {
+      console.warn('[storage] indexeddb open blocked');
+    };
+  });
+  return indexedDbOpenPromise;
+}
+
+async function readIndexedDbItem(key: string) {
+  const database = await openIndexedDb();
+  if (!database) return null;
+  return new Promise<string | null>((resolve, reject) => {
+    const transaction = database.transaction(INDEXED_DB_OBJECT_STORE, 'readonly');
+    const request = transaction.objectStore(INDEXED_DB_OBJECT_STORE).get(key);
+    request.onsuccess = () => resolve(typeof request.result === 'string' ? request.result : null);
+    request.onerror = () => reject(request.error || new Error('IndexedDB read failed'));
+  });
+}
+
+async function writeIndexedDbItem(key: string, value: string) {
+  const database = await openIndexedDb();
+  if (!database) {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(key, value);
+    return 'localStorage' as const;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(INDEXED_DB_OBJECT_STORE, 'readwrite');
+    const request = transaction.objectStore(INDEXED_DB_OBJECT_STORE).put(value, key);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error || new Error('IndexedDB write failed'));
+  });
+  return 'indexedDb' as const;
+}
+
+async function removeIndexedDbItem(key: string) {
+  const database = await openIndexedDb();
+  if (!database) return;
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(INDEXED_DB_OBJECT_STORE, 'readwrite');
+    const request = transaction.objectStore(INDEXED_DB_OBJECT_STORE).delete(key);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error || new Error('IndexedDB remove failed'));
+  });
+}
+
 export function createScopedStorage(params: ScopedStorageParams): StateStorage {
   return {
     getItem: (name: string) => {
@@ -95,6 +160,45 @@ export function createScopedStorage(params: ScopedStorageParams): StateStorage {
   };
 }
 
+export function createScopedIndexedDbStorage(params: ScopedStorageParams): StateStorage {
+  return {
+    getItem: async (name: string) => {
+      const scopedName = params.getScopedKey();
+      const storageName = params.storageName;
+      if (name !== storageName) {
+        if (typeof localStorage === 'undefined') return null;
+        return localStorage.getItem(name);
+      }
+      const indexedValue = await readIndexedDbItem(scopedName);
+      if (indexedValue != null) return indexedValue;
+      if (typeof localStorage === 'undefined') return null;
+      return localStorage.getItem(scopedName);
+    },
+    setItem: async (name: string, value: string) => {
+      const scopedName = params.getScopedKey();
+      const storageName = params.storageName;
+      if (name !== storageName) {
+        if (typeof localStorage === 'undefined') return;
+        localStorage.setItem(name, value);
+        return;
+      }
+      const storageBackend = await writeIndexedDbItem(scopedName, value);
+      if (storageBackend === 'indexedDb' && typeof localStorage !== 'undefined') localStorage.removeItem(scopedName);
+    },
+    removeItem: async (name: string) => {
+      const scopedName = params.getScopedKey();
+      const storageName = params.storageName;
+      if (name !== storageName) {
+        if (typeof localStorage === 'undefined') return;
+        localStorage.removeItem(name);
+        return;
+      }
+      await removeIndexedDbItem(scopedName);
+      if (typeof localStorage !== 'undefined') localStorage.removeItem(scopedName);
+    },
+  };
+}
+
 export function createBufferedJsonStorage<T>(
   storage: StateStorage,
   options: BufferedJsonStorageOptions = {},
@@ -108,13 +212,25 @@ export function createBufferedJsonStorage<T>(
     pendingWrites.delete(name);
     cancelBufferedFlush(pending.handle);
     if (pending.value == null) {
-      storage.removeItem(name);
+      const removeResult = storage.removeItem(name);
+      if (removeResult instanceof Promise) {
+        removeResult.catch((error) => {
+          recordPersistenceFailure({ name, reason: 'write_failed', error });
+          console.warn('[storage] persistence remove failed', { name, error });
+        });
+      }
       return;
     }
     let serializedValue = '';
     try {
       serializedValue = JSON.stringify(pending.value, options.replacer);
-      storage.setItem(name, serializedValue);
+      const setResult = storage.setItem(name, serializedValue);
+      if (setResult instanceof Promise) {
+        setResult.catch((error) => {
+          recordPersistenceFailure({ name, reason: 'write_failed', error, serializedValue });
+          console.warn('[storage] persistence async write failed', { name, error });
+        });
+      }
     } catch (error) {
       const errorName = error instanceof DOMException ? error.name : '';
       if (errorName === 'QuotaExceededError' || errorName === 'NS_ERROR_DOM_QUOTA_REACHED') {
@@ -167,6 +283,14 @@ export function createScopedBufferedJsonStorage<T>(
   params: ScopedStorageParams & { flushDelayMs?: number },
 ): PersistStorage<T, void> {
   return createBufferedJsonStorage<T>(createScopedStorage(params), {
+    flushDelayMs: params.flushDelayMs,
+  });
+}
+
+export function createScopedIndexedDbBufferedJsonStorage<T>(
+  params: ScopedStorageParams & { flushDelayMs?: number },
+): PersistStorage<T, void> {
+  return createBufferedJsonStorage<T>(createScopedIndexedDbStorage(params), {
     flushDelayMs: params.flushDelayMs,
   });
 }

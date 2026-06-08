@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBufferedJsonStorage } from './storePersistenceScope';
+import { createBufferedJsonStorage, createScopedIndexedDbStorage } from './storePersistenceScope';
 import { clearPersistenceFailures, readPersistenceHealth } from '../services/persistenceHealth';
 
 function createStorageMock() {
@@ -58,5 +58,22 @@ describe('storePersistenceScope', () => {
     });
     expect(health.latestFailure?.sizeBytes).toBeGreaterThan(0);
     warnSpy.mockRestore();
+  });
+
+  it('keeps localStorage fallback when IndexedDB is unavailable', async () => {
+    const rawStorage = createStorageMock();
+    vi.stubGlobal('localStorage', rawStorage);
+    vi.stubGlobal('indexedDB', undefined);
+    rawStorage.setItem('scoped-messages-user-1', 'legacy-cache');
+    const storage = createScopedIndexedDbStorage({
+      getScopedKey: () => 'scoped-messages-user-1',
+      storageName: 'scoped-messages',
+    });
+
+    await expect(storage.getItem('scoped-messages')).resolves.toBe('legacy-cache');
+    await storage.setItem('scoped-messages', 'next-cache');
+
+    expect(rawStorage.getItem('scoped-messages-user-1')).toBe('next-cache');
+    vi.unstubAllGlobals();
   });
 });
