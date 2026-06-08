@@ -567,19 +567,28 @@ function chatSummariesFromChanges(changes: Array<Record<string, unknown>>) {
 
 function worldRuntimeChatsFromChanges(changes: Array<Record<string, unknown>> | undefined) {
   if (!changes?.length) return null;
-  const chats: GroupChat[] = [];
+  const upserts: GroupChat[] = [];
+  const deletes: GroupChat[] = [];
   for (const change of changes) {
-    if (change.entity !== 'world_runtime_chat' || change.op !== 'upsert' || typeof change.id !== 'string' || !isRecord(change.patch)) {
+    if (change.entity !== 'world_runtime_chat' || typeof change.id !== 'string') {
       return null;
     }
-    chats.push(normalizeConversation({
-      ...change.patch,
+    const patch = isRecord(change.patch) ? change.patch : {};
+    const chat = normalizeConversation({
+      ...patch,
       id: change.id,
       runtimeDetailLoaded: false,
       worldRuntimeLoaded: true,
-    } as unknown as GroupChat));
+    } as unknown as GroupChat);
+    if (change.op === 'delete' || chat.deletedAt != null) {
+      deletes.push(chat);
+    } else if (change.op === 'upsert') {
+      upserts.push(chat);
+    } else {
+      return null;
+    }
   }
-  return chats;
+  return { upserts, deletes };
 }
 
 function chatDetailFromChanges(changes: Array<Record<string, unknown>> | undefined, id: string) {
@@ -1121,11 +1130,17 @@ export const useChatStore = create<ChatStore>()(
                 });
                 return;
               }
-              const snapshot = worldRuntimeChatsFromChanges(changeProbe?.changes) || await fetchWorldRuntimeSnapshot();
+              const snapshot = worldRuntimeChatsFromChanges(changeProbe?.changes);
+              const remoteSnapshot = snapshot || { upserts: await fetchWorldRuntimeSnapshot(), deletes: [] };
               set((state) => {
                 const byId = new Map(state.chats.map((chat) => [chat.id, chat] as const));
-                const mergedRuntime = snapshot.map((remote) => normalizeConversation(mergeWorldRuntimeRecord(byId.get(remote.id), remote)));
-                const nextChats = mergeVisibleChats(state.chats, mergedRuntime, state.pendingOperations);
+                const deletedIds = new Set(remoteSnapshot.deletes.map((chat) => chat.id));
+                const mergedRuntime = remoteSnapshot.upserts.map((remote) => normalizeConversation(mergeWorldRuntimeRecord(byId.get(remote.id), remote)));
+                const nextChats = mergeVisibleChats(
+                  state.chats.filter((chat) => !deletedIds.has(chat.id)),
+                  mergedRuntime,
+                  state.pendingOperations,
+                );
                 const changed = buildChatListSignature(nextChats) !== buildChatListSignature(state.chats);
                 chatSyncScopes.markChecked(WORLD_RUNTIME_SCOPE, {
                   cursor: changeProbe?.cursor,
