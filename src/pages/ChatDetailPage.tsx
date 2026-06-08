@@ -39,7 +39,7 @@ import { useChatSurfaceActions } from '../hooks/useChatSurfaceActions';
 import { useChatAutoSocialFlow } from '../hooks/useChatAutoSocialFlow';
 import { runDirectUserReplyFlow } from '../services/directUserReplyFlow';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
-import { isReservedNonCharacterActorId } from '../services/actorRefPresentation';
+import { getSyncableCharacterMemberIds } from '../services/pageSyncScopeContract';
 import SessionInfoCards from '../components/chat/SessionInfoCards';
 import { projectSessionInfoCards } from '../services/sessionInfoProjection';
 import { useResponsive } from '../hooks/useResponsive';
@@ -150,7 +150,7 @@ export default function ChatDetailPage() {
     void (async () => {
       const loadedChat = id ? await loadChat(id) : null;
       const memberIds = loadedChat?.memberIds || useChatStore.getState().chats.find((item) => item.id === id)?.memberIds || [];
-      void Promise.all(memberIds.filter((memberId) => !isReservedNonCharacterActorId(memberId)).map((memberId) => loadCharacter(memberId)));
+      void Promise.all(getSyncableCharacterMemberIds(memberIds).map((memberId) => loadCharacter(memberId)));
     })().finally(() => {
       if (!cancelled) setDetailBootstrapComplete(true);
     });
