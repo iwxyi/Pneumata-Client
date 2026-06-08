@@ -140,4 +140,22 @@ describe('storeSyncScheduler', () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(flush).toHaveBeenCalledTimes(1);
   });
+
+  it('registers declared scope refresh workers through the shared registry', async () => {
+    const { getRegisteredSyncWorkerIds } = await import('./storeSyncScheduler');
+    const { useChatStore } = await import('./useChatStore');
+    const { useCharacterStore } = await import('./useCharacterStore');
+    const { useSettingsStore } = await import('./useSettingsStore');
+
+    await useChatStore.getState().prefetchChats();
+    await useChatStore.getState().prefetchWorldRuntime();
+    await useCharacterStore.getState().prefetchCharacters();
+    void useSettingsStore;
+
+    expect(getRegisteredSyncWorkerIds()).toEqual(expect.arrayContaining([
+      'chat.scope-refresh',
+      'character.scope-refresh',
+      'settings.scope-refresh',
+    ]));
+  });
 });

@@ -17,6 +17,7 @@ import { setAIGenerationRuntimeConfig } from '../services/aiGenerationRuntimeCon
 import { setCompanionshipRuntimeConfig } from '../services/companionshipRuntimeConfig';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
+import { createSyncScheduler } from './storeSyncScheduler';
 
 interface SettingsStore extends AppSettings {
   _loaded: boolean;
@@ -63,6 +64,17 @@ const SETTINGS_ACCOUNT_SCOPE: SyncChangeScope = 'settings.account';
 const settingsSyncScopes = createSyncScopeMetadata(30_000, {
   getStorageKey: () => scopedStorageKey(`settings-sync-scopes-${getLocalDataUserId()}`),
 });
+const settingsScopeSyncScheduler = createSyncScheduler('settings.scope-refresh', { priority: 10 });
+let settingsScopeRequested = false;
+let settingsScopeLifecycleRegistered = false;
+
+function ensureSettingsScopeLifecycle() {
+  if (settingsScopeLifecycleRegistered) return;
+  settingsScopeSyncScheduler.registerLifecycle(async () => {
+    if (settingsScopeRequested) await useSettingsStore.getState().loadSettings();
+  }, 650);
+  settingsScopeLifecycleRegistered = true;
+}
 
 function clearSavedStateTimer() {
   if (savedStateTimer) {
@@ -234,6 +246,8 @@ export const useSettingsStore = create<SettingsStore>()(
       syncError: null,
 
       loadSettings: async () => {
+        settingsScopeRequested = true;
+        ensureSettingsScopeLifecycle();
         if (useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled()) {
           set(markSettingsLoadedIdle);
           return;
@@ -620,3 +634,5 @@ export const useSettingsStore = create<SettingsStore>()(
     }
   )
 );
+
+ensureSettingsScopeLifecycle();

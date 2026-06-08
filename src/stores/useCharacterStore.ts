@@ -605,12 +605,19 @@ const characterDetailScope = (id: string): SyncChangeScope => `characters.detail
 const characterSyncScheduler = createSyncScheduler('character.pending-operations', {
   priority: () => getPendingQueueWorkerPriority(useCharacterStore.getState().pendingOperations, 70, pendingCharacterOperationPriority),
 });
+const characterScopeSyncScheduler = createSyncScheduler('character.scope-refresh', { priority: 25 });
 const characterSyncScopes = createSyncScopeMetadata(CHARACTER_REFRESH_TTL_MS, {
   getStorageKey: () => scopedStorageKey(`character-sync-scopes-${getLocalDataUserId()}`),
 });
+let characterSummaryScopeRequested = false;
 
 function scheduleCharacterFlush(flush: () => Promise<void>, delay = 0) {
   characterSyncScheduler.schedule(flush, delay);
+}
+
+function scheduleCharacterScopeRefresh(flush: () => Promise<void>, delay = 0) {
+  characterSummaryScopeRequested = true;
+  characterScopeSyncScheduler.schedule(flush, delay);
 }
 
 function mergeCharacterPatchOperations(operations: PendingCharacterOperation[]) {
@@ -893,6 +900,9 @@ export const useCharacterStore = create<CharacterStore>()(
 
       if (!characterSyncLifecycleRegistered) {
         characterSyncScheduler.registerLifecycle(flushPendingOperations, 300);
+        characterScopeSyncScheduler.registerLifecycle(async () => {
+          if (characterSummaryScopeRequested) await get().loadCharacters();
+        }, 625);
         characterSyncLifecycleRegistered = true;
       }
 
@@ -1105,7 +1115,7 @@ export const useCharacterStore = create<CharacterStore>()(
         prefetchCharacters: async () => {
           const state = get();
           if (state.characters.length > 0 && characterSyncScopes.isFresh(CHARACTER_SUMMARY_SCOPE)) return;
-          void get().loadCharacters();
+          scheduleCharacterScopeRefresh(async () => { await get().loadCharacters(); });
         },
 
         refreshCharacterSummaryFromCloud: async () => {

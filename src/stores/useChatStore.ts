@@ -699,12 +699,19 @@ const chatDetailScope = (id: string): SyncChangeScope => `chats.detail:${id}`;
 const chatSyncScheduler = createSyncScheduler('chat.pending-operations', {
   priority: () => getPendingQueueWorkerPriority(useChatStore.getState().pendingOperations, 80, pendingChatOperationPriority),
 });
+const chatScopeSyncScheduler = createSyncScheduler('chat.scope-refresh', { priority: 30 });
 const chatSyncScopes = createSyncScopeMetadata(CHAT_REFRESH_TTL_MS, {
   getStorageKey: () => scopedStorageKey(`chat-sync-scopes-${getLocalDataUserId()}`),
 });
+const requestedChatScopeChecks = new Set<SyncChangeScope>();
 
 function scheduleChatFlush(flush: () => Promise<void>, delay = 0) {
   chatSyncScheduler.schedule(flush, delay);
+}
+
+function scheduleChatScopeRefresh(flush: () => Promise<void>, scope: SyncChangeScope, delay = 0) {
+  requestedChatScopeChecks.add(scope);
+  chatScopeSyncScheduler.schedule(flush, delay);
 }
 
 function mergeChatPatchOperations(operations: PendingChatOperation[]) {
@@ -858,9 +865,20 @@ export const useChatStore = create<ChatStore>()(
           scheduleNext: (delay) => scheduleChatFlush(flushPendingOperations, delay),
         });
       };
+      const flushRequestedChatScopes = async () => {
+        const scopes = Array.from(requestedChatScopeChecks);
+        for (const scope of scopes) {
+          if (scope === CHAT_SUMMARY_SCOPE) {
+            await get().loadChats();
+          } else if (scope === WORLD_RUNTIME_SCOPE) {
+            await get().loadWorldRuntime();
+          }
+        }
+      };
 
       if (!chatSyncLifecycleRegistered) {
         chatSyncScheduler.registerLifecycle(flushPendingOperations, 300);
+        chatScopeSyncScheduler.registerLifecycle(flushRequestedChatScopes, 600);
         chatSyncLifecycleRegistered = true;
       }
 
@@ -1125,7 +1143,7 @@ export const useChatStore = create<ChatStore>()(
         prefetchChats: async () => {
           const state = get();
           if (state.chats.length > 0 && chatSyncScopes.isFresh(CHAT_SUMMARY_SCOPE)) return;
-          void get().loadChats();
+          scheduleChatScopeRefresh(flushRequestedChatScopes, CHAT_SUMMARY_SCOPE);
         },
 
         refreshChatSummaryFromCloud: async () => {
@@ -1135,7 +1153,7 @@ export const useChatStore = create<ChatStore>()(
 
         prefetchWorldRuntime: async () => {
           if (chatSyncScopes.isFresh(WORLD_RUNTIME_SCOPE)) return;
-          void get().loadWorldRuntime();
+          scheduleChatScopeRefresh(flushRequestedChatScopes, WORLD_RUNTIME_SCOPE);
         },
 
         getChat: (id) => get().chats.find((chat) => chat.id === id),
