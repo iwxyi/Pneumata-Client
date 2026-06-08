@@ -6,7 +6,8 @@ import type { Message } from '../types/message';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useMessageStore } from '../stores/useMessageStore';
-import { useSettingsStore } from '../stores/useSettingsStore';
+import { buildSettingsPayload, useSettingsStore } from '../stores/useSettingsStore';
+import { DEFAULT_SETTINGS } from '../types/settings';
 import {
   BOOTSTRAP_STATUS_CONFLICT_DETAIL_LIMIT,
   readCloudSyncBootstrapStatus,
@@ -70,7 +71,16 @@ async function ensureLocalStoresHydrated() {
     useCharacterStore.persist.hasHydrated() ? Promise.resolve() : useCharacterStore.persist.rehydrate(),
     useChatStore.persist.hasHydrated() ? Promise.resolve() : useChatStore.persist.rehydrate(),
     useMessageStore.persist.hasHydrated() ? Promise.resolve() : useMessageStore.persist.rehydrate(),
+    useSettingsStore.persist.hasHydrated() ? Promise.resolve() : useSettingsStore.persist.rehydrate(),
   ]);
+}
+
+function stableJson(value: unknown) {
+  return JSON.stringify(value);
+}
+
+export function shouldUploadSettingsDuringBootstrap(settings: ReturnType<typeof useSettingsStore.getState>) {
+  return stableJson(buildSettingsPayload(settings)) !== stableJson(buildSettingsPayload(DEFAULT_SETTINGS));
 }
 
 export async function captureLocalCloudBootstrapSnapshot(): Promise<LocalCloudBootstrapSnapshot> {
@@ -78,11 +88,12 @@ export async function captureLocalCloudBootstrapSnapshot(): Promise<LocalCloudBo
   const characterState = useCharacterStore.getState();
   const chatState = useChatStore.getState();
   const messageState = useMessageStore.getState();
+  const settingsState = useSettingsStore.getState();
   return {
     characters: cloneJson(characterState.characters || []),
     chats: cloneJson(chatState.chats || []),
     messageWindowsByChatId: cloneJson(messageState.messageWindowsByChatId || {}),
-    settingsShouldUpload: true,
+    settingsShouldUpload: shouldUploadSettingsDuringBootstrap(settingsState),
     pendingCharacterOperations: cloneJson(characterState.getPendingOperations?.() || characterState.pendingOperations || []),
     pendingChatOperations: cloneJson(chatState.getPendingOperations?.() || chatState.pendingOperations || []),
     pendingMessageOperations: cloneJson(messageState.pendingOperations || []),
@@ -98,12 +109,21 @@ function isUserLikeSender(id: string | null | undefined) {
 }
 
 function hasBootstrapData(snapshot: LocalCloudBootstrapSnapshot) {
+  return snapshot.settingsShouldUpload || hasBootstrapEntityData(snapshot);
+}
+
+function hasBootstrapEntityData(snapshot: LocalCloudBootstrapSnapshot) {
   const hasCharacters = snapshot.characters.some((character) => !character.isPreset && character.deletedAt == null);
   const hasChats = snapshot.chats.some((chat) => chat.deletedAt == null);
   const hasMessages = Object.values(snapshot.messageWindowsByChatId).some((window) =>
     (window.messages || []).some((message) => !message.isDeleted && message.type !== 'event'),
   );
-  return snapshot.settingsShouldUpload || hasCharacters || hasChats || hasMessages;
+  const hasPendingCreates = Boolean(
+    snapshot.pendingCharacterOperations?.some((operation) => operation.kind === 'create')
+    || snapshot.pendingChatOperations?.some((operation) => operation.kind === 'create')
+    || snapshot.pendingMessageOperations?.some((operation) => operation.kind === 'create'),
+  );
+  return hasCharacters || hasChats || hasMessages || hasPendingCreates;
 }
 
 function normalizeNameKey(name: string | null | undefined) {
@@ -448,8 +468,9 @@ export async function bootstrapLocalDataToCloud(snapshot: LocalCloudBootstrapSna
     messageWindows: Object.keys(snapshot.messageWindowsByChatId).length,
   });
   try {
-    await uploadSettings();
-    const plan = await buildBootstrapReconcilePlan(snapshot);
+    const plan = hasBootstrapEntityData(snapshot)
+      ? await buildBootstrapReconcilePlan(snapshot)
+      : createBootstrapReconcilePlan(snapshot, { characters: [], chats: [] });
     writeCloudSyncBootstrapStatus(buildBootstrapStatus('planned', plan));
     console.info('[cloud-sync] bootstrap reconcile plan prepared', {
       charactersToCreate: plan.charactersToCreate.length,
@@ -462,6 +483,9 @@ export async function bootstrapLocalDataToCloud(snapshot: LocalCloudBootstrapSna
       pendingMessageCreates: plan.pendingMessageCreates.length,
     });
     writeCloudSyncBootstrapStatus(buildBootstrapStatus('running', plan));
+    if (plan.settingsShouldUpload) {
+      await uploadSettings();
+    }
     const characterIdMap = await uploadCharacters(plan);
     const chatIdMap = await uploadChats(plan, characterIdMap);
     await uploadMessages(snapshot, chatIdMap, characterIdMap, plan);

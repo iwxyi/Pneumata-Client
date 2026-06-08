@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { LocalCloudBootstrapSnapshot } from './localToCloudBootstrap';
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
+import { DEFAULT_SETTINGS } from '../types/settings';
 
 const localStore = new Map<string, string>();
 
@@ -66,6 +67,37 @@ function snapshot(overrides: Partial<LocalCloudBootstrapSnapshot> = {}): LocalCl
 }
 
 describe('localToCloudBootstrap', () => {
+  it('does not upload default settings during local bootstrap', () => {
+    expect(bootstrap.shouldUploadSettingsDuringBootstrap(DEFAULT_SETTINGS as ReturnType<typeof import('../stores/useSettingsStore').useSettingsStore.getState>)).toBe(false);
+    expect(bootstrap.shouldUploadSettingsDuringBootstrap({
+      ...DEFAULT_SETTINGS,
+      theme: 'dark',
+    } as ReturnType<typeof import('../stores/useSettingsStore').useSettingsStore.getState>)).toBe(true);
+  });
+
+  it('uploads settings-only bootstrap without fetching remote entity summaries', async () => {
+    localStore.clear();
+    const originalApi = await import('./api');
+    const getSyncChanges = vi.spyOn(originalApi.api, 'getSyncChanges');
+    const createCharacter = vi.spyOn(originalApi.api, 'createCharacter');
+    const createChat = vi.spyOn(originalApi.api, 'createChat');
+    const syncSettings = vi.spyOn((await import('../stores/useSettingsStore')).useSettingsStore.getState(), 'syncCurrentSettingsToServer').mockResolvedValue(undefined);
+
+    await bootstrap.bootstrapLocalDataToCloud(snapshot({
+      settingsShouldUpload: true,
+    }));
+
+    expect(syncSettings).toHaveBeenCalledTimes(1);
+    expect(getSyncChanges).not.toHaveBeenCalled();
+    expect(createCharacter).not.toHaveBeenCalled();
+    expect(createChat).not.toHaveBeenCalled();
+
+    getSyncChanges.mockRestore();
+    createCharacter.mockRestore();
+    createChat.mockRestore();
+    syncSettings.mockRestore();
+  });
+
   it('builds a summary reconcile plan before uploading local data', () => {
     const plan = bootstrap.createBootstrapReconcilePlan(
       snapshot({

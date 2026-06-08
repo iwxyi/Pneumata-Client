@@ -134,7 +134,7 @@ function buildApiFromProfiles(aiProfiles: AIModelProfile[]): APIConfig {
   };
 }
 
-function buildSettingsPayload(state: AppSettings) {
+export function buildSettingsPayload(state: AppSettings) {
   return {
     api: state.api,
     aiProfiles: state.aiProfiles,
