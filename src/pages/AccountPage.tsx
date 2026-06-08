@@ -104,12 +104,19 @@ export default function AccountPage() {
   });
   const [syncingAll, setSyncingAll] = useState(false);
   const [cloudSyncEnabled, setCloudSyncEnabledState] = useState(isCloudSyncEnabled);
+  const cloudSyncAvailable = authMode !== 'local' && user?.cloudSyncEntitled !== false;
 
   useEffect(() => {
     setNickname(user?.nickname || '');
     setDraftNickname(user?.nickname || '');
     setAvatar(user?.avatar || '🍵');
   }, [user]);
+
+  useEffect(() => {
+    if (cloudSyncAvailable || !cloudSyncEnabled) return;
+    setCloudSyncEnabled(false);
+    setCloudSyncEnabledState(false);
+  }, [cloudSyncAvailable, cloudSyncEnabled]);
 
   useEffect(() => {
     if (phoneCountdown <= 0) return;
@@ -139,6 +146,10 @@ export default function AccountPage() {
       navigate('/login');
       return;
     }
+    if (!cloudSyncAvailable) {
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '当前账号暂未开通云同步。' : 'Cloud sync is not available for this account yet.', severity: 'error' });
+      return;
+    }
     if (!cloudSyncEnabled) {
       setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先开启云同步' : 'Turn on cloud sync first', severity: 'error' });
       return;
@@ -161,6 +172,10 @@ export default function AccountPage() {
   const handleDownloadAll = async () => {
     if (authMode === 'local') {
       navigate('/login');
+      return;
+    }
+    if (!cloudSyncAvailable) {
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '当前账号暂未开通云同步。' : 'Cloud sync is not available for this account yet.', severity: 'error' });
       return;
     }
     if (!cloudSyncEnabled) {
@@ -363,6 +378,12 @@ export default function AccountPage() {
       navigate('/login');
       return;
     }
+    if (!cloudSyncAvailable) {
+      setCloudSyncEnabled(false);
+      setCloudSyncEnabledState(false);
+      setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '当前账号暂未开通云同步。' : 'Cloud sync is not available for this account yet.', severity: 'error' });
+      return;
+    }
     const previousEnabled = cloudSyncEnabled;
     setCloudSyncEnabled(enabled);
     setCloudSyncEnabledState(enabled);
@@ -485,7 +506,7 @@ export default function AccountPage() {
               control={
                 <Switch
                   checked={authMode !== 'local' && cloudSyncEnabled}
-                  disabled={authMode === 'local' || syncingAll}
+                  disabled={authMode === 'local' || !cloudSyncAvailable || syncingAll}
                   onChange={(event) => handleCloudSyncToggle(event.target.checked)}
                 />
               }
@@ -494,8 +515,10 @@ export default function AccountPage() {
             <Typography variant="body2" color="text.secondary">
               {authMode === 'local'
                 ? (i18n.language.startsWith('zh') ? '登录后才可使用云同步。' : 'Sign in to use cloud sync.')
+                : !cloudSyncAvailable
+                  ? (i18n.language.startsWith('zh') ? '当前账号暂未开通云同步；本地数据仍可正常使用。' : 'Cloud sync is not available for this account yet; local data remains usable.')
                 : cloudSyncEnabled
-                  ? (i18n.language.startsWith('zh') ? '当前设备会按需上传和拉取云端数据。后续可接入会员权限，非付费用户禁用此开关。' : 'This device uploads and downloads cloud data as needed. Paid entitlement can disable this for free users later.')
+                  ? (i18n.language.startsWith('zh') ? '当前设备会按需上传和拉取云端数据。' : 'This device uploads and downloads cloud data as needed.')
                   : (i18n.language.startsWith('zh') ? '云同步已关闭，当前设备只读写本地缓存，不会自动访问云端数据接口。' : 'Cloud sync is off. This device uses local cache only and will not automatically call cloud data APIs.')}
             </Typography>
             <Typography variant="body2" color="text.secondary">
@@ -516,10 +539,10 @@ export default function AccountPage() {
               </Typography>
             ) : null}
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <Button variant="outlined" onClick={handleUploadAll} disabled={syncingAll || (authMode !== 'local' && !cloudSyncEnabled)}>
+              <Button variant="outlined" onClick={handleUploadAll} disabled={syncingAll || (authMode !== 'local' && (!cloudSyncAvailable || !cloudSyncEnabled))}>
                 {syncingAll ? (i18n.language.startsWith('zh') ? '同步中' : 'Syncing') : (i18n.language.startsWith('zh') ? '同步待上传' : 'Sync pending uploads')}
               </Button>
-              <Button variant="outlined" onClick={handleDownloadAll} disabled={syncingAll || (authMode !== 'local' && !cloudSyncEnabled)}>
+              <Button variant="outlined" onClick={handleDownloadAll} disabled={syncingAll || (authMode !== 'local' && (!cloudSyncAvailable || !cloudSyncEnabled))}>
                 {syncingAll ? (i18n.language.startsWith('zh') ? '同步中' : 'Syncing') : (i18n.language.startsWith('zh') ? '检查云端更新' : 'Check cloud updates')}
               </Button>
             </Box>

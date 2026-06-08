@@ -153,19 +153,19 @@ class ApiClient {
   }
 
   async login(phone: string, code: string) {
-    return this.request<{ token: string; user: { id: string; phone: string; nickname: string; avatar: string } }>('POST', '/auth/login', { phone, code });
+    return this.request<{ token: string; user: { id: string; phone: string; nickname: string; avatar: string; cloudSyncEntitled?: boolean } }>('POST', '/auth/login', { phone, code });
   }
 
   async getMe() {
-    return this.request<{ id: string; phone: string; nickname: string; avatar: string }>('GET', '/auth/me');
+    return this.request<{ id: string; phone: string; nickname: string; avatar: string; cloudSyncEntitled?: boolean }>('GET', '/auth/me');
   }
 
   async updateMe(data: { nickname?: string; avatar?: string }) {
-    return this.request<{ id: string; phone: string; nickname: string; avatar: string }>('PUT', '/auth/me', data);
+    return this.request<{ id: string; phone: string; nickname: string; avatar: string; cloudSyncEntitled?: boolean }>('PUT', '/auth/me', data);
   }
 
   async changePhone(phone: string, code: string) {
-    return this.request<{ id: string; phone: string; nickname: string; avatar: string }>('PUT', '/auth/change-phone', { phone, code });
+    return this.request<{ id: string; phone: string; nickname: string; avatar: string; cloudSyncEntitled?: boolean }>('PUT', '/auth/change-phone', { phone, code });
   }
 
   async getCharacters() {

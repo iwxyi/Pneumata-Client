@@ -112,6 +112,7 @@ Pneumata pages do not treat the cloud as the primary read path. Characters, chat
 | Preset characters | Provided by local preset definitions and never fetched from cloud detail endpoints |
 | Message history | Keep a bounded local window; `messages.window:<chatId>` is a lightweight freshness probe only. When cloud data changed, message bodies still load through `/messages?limit&before` pagination to keep `/sync/changes` small |
 | First cloud-sync enable | Hydrate local characters, chats, messages, and settings before building the local-to-cloud reconcile plan |
+| Cloud-sync entitlement | Auth responses include `cloudSyncEntitled`; it defaults to enabled today. Future non-entitled accounts disable cloud sync without deleting local data |
 | Settings bootstrap | Upload settings only when they differ from defaults; default local settings must not overwrite cloud settings |
 | Empty bootstrap | If there are no local entities, messages, or pending creates, do not fetch remote character/chat summaries |
 | Conflicts | Preserve pending local operations and surface remote deletes or field-version conflicts explicitly |

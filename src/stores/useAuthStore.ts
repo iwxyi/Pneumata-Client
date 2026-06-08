@@ -10,12 +10,14 @@ import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot } from '.
 import { reportRecoverableError } from '../services/diagnostics';
 import { rememberCloudUserId } from '../services/authStorageScope';
 import { runWithCloudSyncBootstrapLock } from '../services/cloudSyncBootstrapLock';
+import { setCloudSyncEnabled } from '../services/cloudSyncPreference';
 
 interface User {
   id: string;
   phone: string;
   nickname: string;
   avatar: string;
+  cloudSyncEntitled?: boolean;
 }
 
 type AuthMode = 'cloud' | 'local';
@@ -81,6 +83,12 @@ function setAuthUser(user: User) {
   rememberCloudUserId(user);
 }
 
+function applyCloudSyncEntitlement(user: User | null) {
+  if (user?.cloudSyncEntitled === false) {
+    setCloudSyncEnabled(false);
+  }
+}
+
 function clearAuthTokenAndUser() {
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_USER_KEY);
@@ -122,6 +130,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const result = await api.login(phone, code);
       setAuthToken(result.token);
       setAuthUser(result.user);
+      applyCloudSyncEntitlement(result.user);
       setAuthMode('cloud');
       set({
         token: result.token,
@@ -130,7 +139,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         isLoading: false,
         authMode: 'cloud',
       });
-      if (localSnapshot) {
+      if (localSnapshot && result.user.cloudSyncEntitled !== false) {
         try {
           await runWithCloudSyncBootstrapLock(() => bootstrapLocalDataToCloud(localSnapshot));
         } catch (error) {
@@ -185,6 +194,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const user = await api.getMe();
       setAuthUser(user);
+      applyCloudSyncEntitlement(user);
       set({ user, isLoggedIn: true, authMode: 'cloud' });
       refreshStoresAfterCloudAuth();
       return true;
@@ -205,6 +215,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   setUser: (user: User) => {
     setAuthUser(user);
+    applyCloudSyncEntitlement(user);
     set({ user });
   },
 
@@ -212,6 +223,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const result = await api.updateMe({ nickname: updates.nickname, avatar: updates.avatar });
       setAuthUser(result);
+      applyCloudSyncEntitlement(result);
       set({ user: result });
     } catch (error) {
       reportRecoverableError({
@@ -227,6 +239,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const result = await api.changePhone(phone, code);
       setAuthUser(result);
+      applyCloudSyncEntitlement(result);
       set({ user: result });
     } catch (error) {
       reportRecoverableError({

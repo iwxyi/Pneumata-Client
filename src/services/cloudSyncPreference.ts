@@ -10,5 +10,7 @@ export function isCloudSyncEnabled() {
 export function setCloudSyncEnabled(enabled: boolean) {
   if (typeof localStorage === 'undefined') return;
   localStorage.setItem(CLOUD_SYNC_ENABLED_KEY, enabled ? '1' : '0');
-  window.dispatchEvent(new CustomEvent('pneumata-cloud-sync-preference-changed', { detail: { enabled } }));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('pneumata-cloud-sync-preference-changed', { detail: { enabled } }));
+  }
 }
