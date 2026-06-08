@@ -143,11 +143,17 @@ export interface PendingOperationQueueWorker<T extends { id: string; status: 'pe
   isTerminalError?: (classified: string) => boolean;
   priority?: (operation: T) => number;
   now?: () => number;
+  batchSize?: number;
 }
+
+export type DueOperationResult<T, TResult = unknown> =
+  | { ran: false }
+  | { ran: true; status: 'success'; operation: T; result: TResult }
+  | { ran: true; status: 'failure'; operation: T; error: unknown; classified: string; retryAt: number };
 
 export async function runDueOperation<T extends { id: string; status: 'pending' | 'syncing' | 'failed'; attemptCount: number; retryAt?: number; lockedAt?: number }, TResult = unknown>(
   worker: DueOperationWorker<T, TResult>,
-) {
+): Promise<DueOperationResult<T, TResult>> {
   const now = worker.now?.() ?? Date.now();
   const operation = selectDueOperation(worker.getOperations(), now, worker.priority);
   if (!operation || !worker.canRun()) return { ran: false as const };
@@ -172,10 +178,18 @@ export async function runDueOperation<T extends { id: string; status: 'pending' 
   }
 }
 
+export interface PendingOperationQueueResult<T, TResult = unknown> {
+  ran: boolean;
+  results: Array<DueOperationResult<T, TResult>>;
+  processed: number;
+}
+
 export async function runPendingOperationQueue<T extends { id: string; status: 'pending' | 'syncing' | 'failed'; attemptCount: number; retryAt?: number; lockedAt?: number }, TResult = unknown>(
   worker: PendingOperationQueueWorker<T, TResult>,
 ) {
-  return runDueOperation<T, TResult>({
+  const batchSize = Math.max(1, Math.floor(worker.batchSize ?? 1));
+  const results: Array<DueOperationResult<T, TResult>> = [];
+  const runOne = () => runDueOperation<T, TResult>({
     getOperations: worker.getOperations,
     canRun: worker.canRun,
     retryDelays: worker.retryDelays,
@@ -188,7 +202,7 @@ export async function runPendingOperationQueue<T extends { id: string; status: '
     execute: worker.execute,
     onSuccess: (operation, result) => {
       worker.onSuccess(operation, result);
-      worker.scheduleNext?.(50);
+      if (batchSize === 1) worker.scheduleNext?.(50);
     },
     onFailure: (operation, error, retry) => {
       worker.updateOperation(operation.id, retry.retryOperation);
@@ -199,6 +213,26 @@ export async function runPendingOperationQueue<T extends { id: string; status: '
       }
     },
   });
+
+  for (let index = 0; index < batchSize; index += 1) {
+    const result = await runOne();
+    results.push(result);
+    if (!result.ran || result.status === 'failure') break;
+  }
+
+  const stoppedOnFailure = results.some((result) => result.ran && result.status === 'failure');
+  if (batchSize > 1 && !stoppedOnFailure) {
+    const now = worker.now?.() ?? Date.now();
+    if (selectDueOperation(worker.getOperations(), now, worker.priority)) {
+      worker.scheduleNext?.(0);
+    }
+  }
+
+  return {
+    ran: results.some((result) => result.ran),
+    results,
+    processed: results.filter((result) => result.ran).length,
+  } satisfies PendingOperationQueueResult<T, TResult>;
 }
 
 export function recoverInterruptedOperations<T extends { status: 'pending' | 'syncing' | 'failed'; lastError?: string; lockedAt?: number }>(queue: T[] = []) {

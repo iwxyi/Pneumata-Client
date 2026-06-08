@@ -4698,6 +4698,7 @@ export const useMessageStore = create<MessageStore>()(
           canRun: canAttemptOnlineSync,
           retryDelays: MESSAGE_SYNC_DELAYS,
           priority: pendingMessageOperationPriority,
+          batchSize: 3,
           updateOperation: (operationId, operation) => {
             set((current) => ({
               pendingOperations: updatePendingMessageOperation(current.pendingOperations, operationId, operation),

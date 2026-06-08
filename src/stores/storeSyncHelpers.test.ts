@@ -262,4 +262,92 @@ describe('storeSyncHelpers', () => {
 
     expect(events).toEqual(['update:high:syncing', 'execute:high', 'success:high']);
   });
+
+  it('claims multiple due operations in one queue run without per-item timer churn', async () => {
+    let operations = [
+      { id: 'low', status: 'pending' as const, attemptCount: 0, retryAt: 0, lockedAt: 0, priority: 1 },
+      { id: 'high', status: 'pending' as const, attemptCount: 0, retryAt: 0, lockedAt: 0, priority: 10 },
+      { id: 'mid', status: 'pending' as const, attemptCount: 0, retryAt: 0, lockedAt: 0, priority: 5 },
+      { id: 'later', status: 'pending' as const, attemptCount: 0, retryAt: 0, lockedAt: 0, priority: 4 },
+    ];
+    const events: string[] = [];
+    const scheduled: number[] = [];
+
+    const result = await helpers.runPendingOperationQueue({
+      getOperations: () => operations,
+      canRun: () => true,
+      retryDelays: [500],
+      priority: (operation) => operation.priority,
+      batchSize: 3,
+      updateOperation: (operationId, operation) => {
+        operations = operations.map((item) => item.id === operationId ? operation : item);
+        events.push(`update:${operationId}:${operation.status}`);
+      },
+      execute: async (operation) => {
+        events.push(`execute:${operation.id}`);
+      },
+      onSuccess: (operation) => {
+        events.push(`success:${operation.id}`);
+        operations = operations.filter((item) => item.id !== operation.id);
+      },
+      scheduleNext: (delay) => {
+        scheduled.push(delay);
+      },
+    });
+
+    expect(result).toMatchObject({ ran: true, processed: 3 });
+    expect(events).toEqual([
+      'update:high:syncing',
+      'execute:high',
+      'success:high',
+      'update:mid:syncing',
+      'execute:mid',
+      'success:mid',
+      'update:later:syncing',
+      'execute:later',
+      'success:later',
+    ]);
+    expect(operations.map((operation) => operation.id)).toEqual(['low']);
+    expect(scheduled).toEqual([0]);
+  });
+
+  it('stops a batch on first retryable failure', async () => {
+    let operations = [
+      { id: 'first', status: 'pending' as const, attemptCount: 0, retryAt: 0, lockedAt: 0 },
+      { id: 'second', status: 'pending' as const, attemptCount: 0, retryAt: 0, lockedAt: 0 },
+    ];
+    const executed: string[] = [];
+    const scheduled: number[] = [];
+
+    const result = await helpers.runPendingOperationQueue({
+      getOperations: () => operations,
+      canRun: () => true,
+      retryDelays: [500],
+      now: () => 1_000,
+      batchSize: 3,
+      updateOperation: (operationId, operation) => {
+        operations = operations.map((item) => item.id === operationId ? operation : item);
+      },
+      execute: async (operation) => {
+        executed.push(operation.id);
+        throw new Error('502');
+      },
+      onSuccess: () => {},
+      scheduleNext: (delay) => {
+        scheduled.push(delay);
+      },
+    });
+
+    expect(result).toMatchObject({ ran: true, processed: 1 });
+    expect(executed).toEqual(['first']);
+    expect(operations[0]).toMatchObject({
+      id: 'first',
+      status: 'pending',
+      attemptCount: 1,
+      lastError: 'server_unavailable: 502',
+      retryAt: 1_500,
+    });
+    expect(operations[1]).toMatchObject({ id: 'second', status: 'pending', attemptCount: 0 });
+    expect(scheduled).toEqual([500]);
+  });
 });

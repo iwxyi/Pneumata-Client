@@ -839,6 +839,7 @@ export const useChatStore = create<ChatStore>()(
           retryDelays: CHAT_SYNC_DELAYS,
           isTerminalError: (classified) => classified.startsWith('validation:'),
           priority: pendingChatOperationPriority,
+          batchSize: 3,
           updateOperation: (operationId, operation) => {
             set((current) => ({
               pendingOperations: updatePendingChatOperation(current.pendingOperations, operationId, operation),

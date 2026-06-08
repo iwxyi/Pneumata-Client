@@ -871,6 +871,7 @@ export const useCharacterStore = create<CharacterStore>()(
           retryDelays: CHARACTER_SYNC_DELAYS,
           isTerminalError: (classified) => classified.startsWith('validation:'),
           priority: pendingCharacterOperationPriority,
+          batchSize: 3,
           updateOperation: (operationId, operation) => {
             set((current) => ({
               pendingOperations: updatePendingCharacterOperation(current.pendingOperations, operationId, operation),
