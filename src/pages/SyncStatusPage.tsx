@@ -12,6 +12,7 @@ import { readCloudSyncBootstrapStatus, type CloudSyncBootstrapStatus } from '../
 import { scheduleSyncWorkersByPriority } from '../stores/storeSyncScheduler';
 import { buildOperationsDiffPreview, buildPatchDiffPreview } from '../services/syncDiffPreview';
 import type { SyncScopeSnapshot } from '../stores/syncScopeMetadata';
+import { clearPersistenceFailures, PERSISTENCE_HEALTH_EVENT, readPersistenceHealth } from '../services/persistenceHealth';
 
 function clipText(value: unknown, max = 120) {
   if (value == null) return '';
@@ -61,6 +62,7 @@ export default function SyncStatusPage() {
   const authMode = useAuthStore((s) => s.authMode);
   const isZh = i18n.language.startsWith('zh');
   const [bootstrapStatus, setBootstrapStatus] = useState<CloudSyncBootstrapStatus | null>(() => readCloudSyncBootstrapStatus());
+  const [persistenceHealth, setPersistenceHealth] = useState(() => readPersistenceHealth());
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -69,6 +71,12 @@ export default function SyncStatusPage() {
     };
     window.addEventListener('pneumata-cloud-sync-bootstrap-status-changed', handler);
     return () => window.removeEventListener('pneumata-cloud-sync-bootstrap-status-changed', handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setPersistenceHealth(readPersistenceHealth());
+    window.addEventListener(PERSISTENCE_HEALTH_EVENT, handler);
+    return () => window.removeEventListener(PERSISTENCE_HEALTH_EVENT, handler);
   }, []);
 
   const items = useMemo(() => {
@@ -371,6 +379,15 @@ export default function SyncStatusPage() {
     authMode,
     scopes: syncScopes,
   });
+  const exportPersistenceHealth = () => downloadJson(`pneumata-persistence-health-${new Date().toISOString().replace(/[:.]/g, '-')}.json`, {
+    exportedAt: Date.now(),
+    authMode,
+    persistenceHealth,
+  });
+  const clearPersistenceHealth = () => {
+    clearPersistenceFailures();
+    setPersistenceHealth(readPersistenceHealth());
+  };
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 }, maxWidth: 960, mx: 'auto' }}>
@@ -403,6 +420,30 @@ export default function SyncStatusPage() {
       {authMode === 'local' ? (
         <Alert severity="info" sx={{ mb: 2 }}>
           {isZh ? '当前为离线本地模式：云同步已关闭，登录后会自动尝试上传本地数据。' : 'You are in local-only offline mode. Cloud sync is disabled and local data will be uploaded automatically after login.'}
+        </Alert>
+      ) : null}
+
+      {persistenceHealth.latestFailure ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <Stack spacing={0.75}>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+              {isZh ? '本地数据保存失败' : 'Local persistence failed'}
+            </Typography>
+            <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+              {isZh
+                ? `最近失败：${persistenceHealth.latestFailure.name} · ${persistenceHealth.latestFailure.reason === 'quota_exceeded' ? '存储空间不足' : '写入失败'} · ${formatTime(persistenceHealth.latestFailure.at, isZh)}`
+                : `Latest failure: ${persistenceHealth.latestFailure.name} · ${persistenceHealth.latestFailure.reason === 'quota_exceeded' ? 'quota exceeded' : 'write failed'} · ${formatTime(persistenceHealth.latestFailure.at, isZh)}`}
+              {persistenceHealth.latestFailure.sizeBytes ? ` · ${Math.round(persistenceHealth.latestFailure.sizeBytes / 1024)} KiB` : ''}
+            </Typography>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+              <Button size="small" variant="outlined" color="error" onClick={exportPersistenceHealth}>
+                {isZh ? '导出本地保存诊断' : 'Export persistence diagnostics'}
+              </Button>
+              <Button size="small" color="error" onClick={clearPersistenceHealth}>
+                {isZh ? '清除提示' : 'Clear notice'}
+              </Button>
+            </Stack>
+          </Stack>
         </Alert>
       ) : null}
 

@@ -1,4 +1,5 @@
 import type { PersistStorage, StateStorage, StorageValue } from 'zustand/middleware';
+import { recordPersistenceFailure } from '../services/persistenceHealth';
 
 interface ScopedStorageParams {
   getScopedKey: () => string;
@@ -110,14 +111,18 @@ export function createBufferedJsonStorage<T>(
       storage.removeItem(name);
       return;
     }
+    let serializedValue = '';
     try {
-      storage.setItem(name, JSON.stringify(pending.value, options.replacer));
+      serializedValue = JSON.stringify(pending.value, options.replacer);
+      storage.setItem(name, serializedValue);
     } catch (error) {
       const errorName = error instanceof DOMException ? error.name : '';
       if (errorName === 'QuotaExceededError' || errorName === 'NS_ERROR_DOM_QUOTA_REACHED') {
+        recordPersistenceFailure({ name, reason: 'quota_exceeded', error, serializedValue });
         console.warn('[storage] persistence skipped: storage quota exceeded', { name, error });
         return;
       }
+      recordPersistenceFailure({ name, reason: 'write_failed', error, serializedValue });
       throw error;
     }
   };

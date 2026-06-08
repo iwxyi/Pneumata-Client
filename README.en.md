@@ -117,6 +117,7 @@ Pneumata pages do not treat the cloud as the primary read path. Characters, chat
 | Empty bootstrap | If there are no local entities, messages, or pending creates, do not fetch remote character/chat summaries |
 | Conflicts | Preserve pending local operations and surface remote deletes or field-version conflicts explicitly |
 | Observability | The sync details page shows each scope's lastChecked, lastApplied, cursor/revision, error count, backoff time, and inflight state |
+| Local persistence failures | Buffered persistence write failures show an error and can be inspected/exported from the sync details page |
 
 The sync architecture should continue to converge on one scope model: `scope + cursor/revision + changes + tombstone + conflict`. Stores own their merge semantics; shared infrastructure owns freshness, retry backoff, idempotency, bootstrap locking, and observability. Future multi-user or group collaboration should build on this protocol rather than making pages depend directly on live cloud reads.
 
