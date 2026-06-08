@@ -157,6 +157,7 @@ function RoutedApp() {
     <Routes>
       <Route path="/login" element={<RouteElement><LoginPage /></RouteElement>} />
       <Route path="/intro" element={<RouteElement><IntroPage /></RouteElement>} />
+      <Route path="/shared/:token" element={<RouteElement><PublicSharedChatPage /></RouteElement>} />
       <Route path="/shared/chats/:token" element={<RouteElement><PublicSharedChatPage /></RouteElement>} />
       <Route element={
         <RequireAuth>

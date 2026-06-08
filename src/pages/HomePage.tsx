@@ -420,13 +420,6 @@ export default function HomePage() {
     ...attentionStats,
     ...syncStatusStats,
     {
-      label: 'AI消息总数',
-      value: aiMessageCount,
-      icon: <ChatIcon />,
-      color: 'primary.main',
-      onOpen: () => navigate('/account/sync-status'),
-    },
-    {
       label: t('home.totalChats'),
       value: totalGroupChats,
       icon: <ChatIcon />,
@@ -452,6 +445,13 @@ export default function HomePage() {
       onOpen: () => navigate('/characters'),
       onCreate: () => navigate('/characters/create'),
       createLabel: t('character.create'),
+    },
+    {
+      label: '角色消息',
+      value: aiMessageCount,
+      icon: <ChatIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/account/sync-status'),
     },
   ];
 

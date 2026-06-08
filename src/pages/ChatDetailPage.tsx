@@ -71,7 +71,7 @@ function ChatSharePanel({ chat }: { chat: GroupChat }) {
   const [copyText, setCopyText] = useState('');
   const [error, setError] = useState('');
   const shareUrl = state.token && typeof window !== 'undefined'
-    ? `${window.location.origin}/shared/chats/${state.token}`
+    ? `${window.location.origin}/shared/${state.token}`
     : '';
 
   useEffect(() => {
