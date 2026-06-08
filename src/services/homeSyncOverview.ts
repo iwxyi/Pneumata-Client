@@ -26,6 +26,7 @@ export interface HomeSyncOverview {
   pendingUpload: number;
   failedUpload: number;
   checkingDownloads: number;
+  pendingDownload: number;
   backoffScopes: number;
   failedScopes: number;
   checkedScopes: number;
@@ -46,6 +47,12 @@ function isFailedStatus(status: string | null | undefined) {
   return status === 'failed' || status === 'error';
 }
 
+function isPendingDownloadScope(scope: SyncScopeSnapshot, now: number) {
+  if (scope.inflight || scope.lastError || scope.retryAt > now) return false;
+  if (scope.lastCheckedAt > 0) return false;
+  return scope.cursor != null || scope.revision != null;
+}
+
 export function buildHomeSyncOverview(input: HomeSyncOverviewInput): HomeSyncOverview {
   const operations = [...input.operations, ...input.artifactJobs];
   const uploading = operations.filter((item) => isRunningStatus(item.status)).length;
@@ -53,12 +60,13 @@ export function buildHomeSyncOverview(input: HomeSyncOverviewInput): HomeSyncOve
   const failedUpload = operations.filter((item) => isFailedStatus(item.status)).length;
   const now = Date.now();
   const checkingDownloads = input.syncScopes.filter((scope) => scope.inflight).length;
+  const pendingDownload = input.syncScopes.filter((scope) => isPendingDownloadScope(scope, now)).length;
   const backoffScopes = input.syncScopes.filter((scope) => scope.retryAt > now).length;
   const failedScopes = input.syncScopes.filter((scope) => Boolean(scope.lastError)).length;
   const checkedScopes = input.syncScopes.filter((scope) => scope.lastCheckedAt > 0).length;
   const activeWorkers = input.workerEntries.filter((worker) => worker.priority > 0);
   const needsAttention = failedUpload > 0 || failedScopes > 0 || backoffScopes > 0;
-  const hasActivity = uploading > 0 || pendingUpload > 0 || checkingDownloads > 0;
+  const hasActivity = uploading > 0 || pendingUpload > 0 || checkingDownloads > 0 || pendingDownload > 0;
 
   return {
     cloudSyncAvailable: input.cloudSyncAvailable,
@@ -67,6 +75,7 @@ export function buildHomeSyncOverview(input: HomeSyncOverviewInput): HomeSyncOve
     pendingUpload,
     failedUpload,
     checkingDownloads,
+    pendingDownload,
     backoffScopes,
     failedScopes,
     checkedScopes,
@@ -81,4 +90,3 @@ export function buildHomeSyncOverview(input: HomeSyncOverviewInput): HomeSyncOve
           : 'idle',
   };
 }
-

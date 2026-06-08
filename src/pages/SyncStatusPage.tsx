@@ -18,6 +18,8 @@ import { buildLocalRecoverySnapshot } from '../services/localRecoveryExport';
 import { importLocalRecoverySnapshot, type LocalRecoveryImportResult } from '../services/localRecoveryImport';
 import { runLocalPersistenceMaintenance, type LocalPersistenceMaintenanceResult } from '../services/localPersistenceMaintenance';
 import { parseSyncErrorClassification, type SyncErrorKind } from '../stores/storeSyncHelpers';
+import { buildLocalOutboxProjection } from '../services/localOutboxProjection';
+import { mirrorLocalOutboxQueues } from '../services/localOutboxMirror';
 
 function clipText(value: unknown, max = 120) {
   if (value == null) return '';
@@ -108,6 +110,24 @@ export default function SyncStatusPage() {
     window.addEventListener(PERSISTENCE_HEALTH_EVENT, handler);
     return () => window.removeEventListener(PERSISTENCE_HEALTH_EVENT, handler);
   }, []);
+
+  useEffect(() => {
+    void mirrorLocalOutboxQueues({
+      characterOperations: characterStore.pendingOperations || [],
+      chatOperations: chatStore.pendingOperations || [],
+      messageOperations: messageStore.pendingOperations || [],
+      artifactJobs: artifactStore.jobs || [],
+    }).catch((error) => {
+      console.warn('[local-outbox] failed to mirror sync status queues', error);
+    });
+  }, [artifactStore.jobs, characterStore.pendingOperations, chatStore.pendingOperations, messageStore.pendingOperations]);
+
+  const localOutboxItems = useMemo(() => buildLocalOutboxProjection({
+    characterOperations: characterStore.pendingOperations || [],
+    chatOperations: chatStore.pendingOperations || [],
+    messageOperations: messageStore.pendingOperations || [],
+    artifactJobs: artifactStore.jobs || [],
+  }), [artifactStore.jobs, characterStore.pendingOperations, chatStore.pendingOperations, messageStore.pendingOperations]);
 
   const items = useMemo(() => {
     const characterItems = (characterStore.pendingOperations || []).map((item) => ({
@@ -372,14 +392,14 @@ export default function SyncStatusPage() {
     if (item.scopeType === 'chat') void chatStore.resolveRemoteDeleteConflict(targetId, resolution);
   };
 
-  const failedCount = items.filter((item) => item.status === 'failed').length;
-  const pendingCount = items.filter((item) => item.status === 'pending').length;
-  const syncingCount = items.filter((item) => item.status === 'syncing').length;
+  const failedCount = localOutboxItems.filter((item) => item.status === 'failed').length;
+  const pendingCount = localOutboxItems.filter((item) => item.status === 'pending').length;
+  const syncingCount = localOutboxItems.filter((item) => item.status === 'syncing').length;
   const conflictCount = items.filter((item) => item.status === 'conflict').length;
   const failedItems = items.filter((item) => item.status === 'failed');
   const errorKindCounts = useMemo(() => {
     const counts = new Map<SyncErrorKind, number>();
-    for (const item of items) {
+    for (const item of localOutboxItems) {
       if (!item.lastError) continue;
       const kind = parseSyncErrorClassification(item.lastError).kind;
       counts.set(kind, (counts.get(kind) || 0) + 1);
@@ -393,7 +413,7 @@ export default function SyncStatusPage() {
     return order
       .map((kind) => ({ kind, count: counts.get(kind) || 0 }))
       .filter((item) => item.count > 0);
-  }, [items, syncScopes]);
+  }, [localOutboxItems, syncScopes]);
   const exportFailed = () => downloadJson(`pneumata-sync-failed-${new Date().toISOString().replace(/[:.]/g, '-')}.json`, {
     exportedAt: Date.now(),
     authMode,
@@ -469,7 +489,7 @@ export default function SyncStatusPage() {
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           {isZh ? '同步详情' : 'Sync details'}
         </Typography>
-        <Button size="small" variant="outlined" onClick={retryAll} disabled={items.length === 0}>
+        <Button size="small" variant="outlined" onClick={retryAll} disabled={localOutboxItems.length === 0}>
           {isZh ? '重试全部' : 'Retry all'}
         </Button>
         <Button size="small" variant="outlined" onClick={exportFailed} disabled={failedItems.length === 0}>

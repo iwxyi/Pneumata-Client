@@ -15,6 +15,7 @@ import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { isCloudSyncBootstrapLocked } from '../services/cloudSyncBootstrapLock';
 import { createSyncScheduler } from './storeSyncScheduler';
+import { markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
 
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
 export type CharacterArtifactJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
@@ -791,11 +792,13 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             unreadLetterCount: computeUnreadLetterCount(next.items),
           };
         });
+        void mirrorLocalOutboxWorkerQueue('artifact', get().jobs);
         void get().resumeProcessing();
       };
 
       const processNext = async () => {
         if (get().isProcessing) return;
+        await mirrorLocalOutboxWorkerQueue('artifact', get().jobs);
         const nextJob = get().jobs.find((job) => job.status === 'pending');
         if (!nextJob) return;
 
@@ -803,6 +806,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           jobs: state.jobs.map((job) => job.id === nextJob.id ? { ...job, status: 'running', updatedAt: now() } : job),
           isProcessing: true,
         }));
+        markLocalOutboxWorkerOperation({ id: nextJob.id, status: 'syncing', attemptCount: nextJob.attempts });
 
         const modelProfile = getUsableDefaultTextAIProfile(useSettingsStore.getState().aiProfiles);
         if (isLetterKind(nextJob.kind) && !modelProfile) {
@@ -810,6 +814,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             jobs: state.jobs.filter((job) => job.id !== nextJob.id),
             isProcessing: false,
           }));
+          removeLocalOutboxWorkerOperation(nextJob.id);
           void processNext();
           return;
         }
@@ -857,12 +862,19 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
               unreadLetterCount: computeUnreadLetterCount([entry, ...preservedItems]),
             };
           });
+          removeLocalOutboxWorkerOperation(nextJob.id);
           scheduleCloudSync();
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           set((state) => ({
             jobs: state.jobs.map((job) => job.id === nextJob.id ? { ...job, status: 'failed' as const, error: message, attempts: job.attempts + 1, updatedAt: now() } : job),
           }));
+          markLocalOutboxWorkerOperation({
+            id: nextJob.id,
+            status: 'failed',
+            attemptCount: nextJob.attempts + 1,
+            lastError: message,
+          });
         } finally {
           set({ isProcessing: false });
           void processNext();
@@ -1148,12 +1160,14 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             }),
             unreadLetterCount: computeUnreadLetterCount(state.items),
           }));
+          await mirrorLocalOutboxWorkerQueue('artifact', get().jobs);
           void get().syncCloud();
           await processNext();
         },
         discardFailedJob: (jobId) => set((state) => {
           const job = state.jobs.find((item) => item.id === jobId);
           if (job?.status !== 'failed') return {};
+          removeLocalOutboxWorkerOperation(jobId);
           return { jobs: state.jobs.filter((item) => item.id !== jobId) };
         }),
       };

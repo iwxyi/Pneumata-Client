@@ -16,6 +16,7 @@ import { CLIENT_STORE_SCHEMA_VERSION, migrateChatStoreState } from './storeMigra
 import { isRuntimeMemoryMonitorEnabled, recordRuntimeMemory } from '../services/runtimeMemoryMonitor';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
+import { markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -843,6 +844,7 @@ export const useChatStore = create<ChatStore>()(
   persist(
     (set, get) => {
       const flushPendingOperations = async () => {
+        await mirrorLocalOutboxWorkerQueue('chat', get().pendingOperations);
         await runPendingOperationQueue<PendingChatOperation>({
           getOperations: () => get().pendingOperations,
           canRun: canSyncChats,
@@ -854,6 +856,7 @@ export const useChatStore = create<ChatStore>()(
             set((current) => ({
               pendingOperations: updatePendingChatOperation(current.pendingOperations, operationId, operation),
             }));
+            markLocalOutboxWorkerOperation(operation);
           },
           execute: executeChatOperation,
           onSuccess: (operation) => {
@@ -866,12 +869,19 @@ export const useChatStore = create<ChatStore>()(
               pendingEditSyncError: latestChatError(nextQueue),
               lastSyncedAt: Date.now(),
             }));
+            removeLocalOutboxWorkerOperation(operation.id);
           },
-          onFailure: (_operation, _error, retry) => {
+          onFailure: (operation, _error, retry) => {
             set((current) => ({
               pendingEditSyncCount: current.pendingOperations.length,
               pendingEditSyncError: retry.classified,
             }));
+            const stillQueued = get().pendingOperations.some((item) => item.id === operation.id);
+            if (stillQueued) {
+              markLocalOutboxWorkerOperation(retry.retryOperation);
+              return;
+            }
+            removeLocalOutboxWorkerOperation(operation.id);
           },
           scheduleNext: (delay) => scheduleChatFlush(flushPendingOperations, delay),
         });

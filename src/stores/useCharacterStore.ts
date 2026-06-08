@@ -15,6 +15,7 @@ import { useCharacterArtifactStore } from './useCharacterArtifactStore';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isReservedNonCharacterActorId } from '../services/actorRefPresentation';
+import { markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -866,6 +867,7 @@ export const useCharacterStore = create<CharacterStore>()(
   persist(
     (set, get) => {
       const flushPendingOperations = async () => {
+        await mirrorLocalOutboxWorkerQueue('character', get().pendingOperations);
         await runPendingOperationQueue<PendingCharacterOperation>({
           getOperations: () => get().pendingOperations,
           canRun: canAttemptSync,
@@ -877,6 +879,7 @@ export const useCharacterStore = create<CharacterStore>()(
             set((current) => ({
               pendingOperations: updatePendingCharacterOperation(current.pendingOperations, operationId, operation),
             }));
+            markLocalOutboxWorkerOperation(operation);
           },
           execute: executeCharacterOperation,
           onSuccess: (operation) => {
@@ -889,12 +892,19 @@ export const useCharacterStore = create<CharacterStore>()(
               pendingEditSyncError: latestCharacterError(nextQueue),
               lastSyncedAt: Date.now(),
             }));
+            removeLocalOutboxWorkerOperation(operation.id);
           },
-          onFailure: (_operation, _error, retry) => {
+          onFailure: (operation, _error, retry) => {
             set((current) => ({
               pendingEditSyncCount: current.pendingOperations.length,
               pendingEditSyncError: retry.classified,
             }));
+            const stillQueued = get().pendingOperations.some((item) => item.id === operation.id);
+            if (stillQueued) {
+              markLocalOutboxWorkerOperation(retry.retryOperation);
+              return;
+            }
+            removeLocalOutboxWorkerOperation(operation.id);
           },
           scheduleNext: (delay) => scheduleCharacterFlush(flushPendingOperations, delay),
         });

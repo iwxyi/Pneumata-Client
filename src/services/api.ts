@@ -87,12 +87,16 @@ export type SyncChangeScope =
   | 'settings.account';
 
 export interface SyncChangesResponse {
-  status: 'modified' | 'not_modified';
+  status: 'modified' | 'not_modified' | 'reset_required';
   scope: SyncChangeScope;
   cursor: string;
   revision: string;
   changes: Array<Record<string, unknown>>;
   hasMore?: boolean;
+  code?: string;
+  resetReason?: string;
+  minAvailableCursor?: string;
+  retentionMs?: number;
 }
 
 export class ApiError extends Error {
@@ -340,12 +344,14 @@ class ApiClient {
     return this.request<{ success: boolean; deletedIds: string[] }>('DELETE', '/chats/recycle-bin/empty-all');
   }
 
-  async getSyncChanges(params: { scope: SyncChangeScope; since?: string | number | null }) {
+  async getSyncChanges(params: { scope: SyncChangeScope; since?: string | number | null }): Promise<SyncChangesResponse> {
     const query = new URLSearchParams({ scope: params.scope });
     if (params.since !== undefined && params.since !== null && String(params.since).trim()) {
       query.set('since', String(params.since));
     }
-    return this.request<SyncChangesResponse>('GET', `/sync/changes?${query.toString()}`);
+    const result = await this.request<SyncChangesResponse>('GET', `/sync/changes?${query.toString()}`);
+    if (result.status !== 'reset_required' || params.since === undefined || params.since === null || !String(params.since).trim()) return result;
+    return this.getSyncChanges({ scope: params.scope });
   }
 
   async getDeletedChatStats() {

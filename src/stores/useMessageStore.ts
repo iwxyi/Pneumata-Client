@@ -14,6 +14,7 @@ import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
+import { markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
 
 function isLocalOnlyMode() {
   return useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled();
@@ -4693,6 +4694,7 @@ export const useMessageStore = create<MessageStore>()(
   persist(
     (set, get) => {
       const flushPendingOperations = async () => {
+        await mirrorLocalOutboxWorkerQueue('message', get().pendingOperations);
         await runPendingOperationQueue<PendingMessageOperation>({
           getOperations: () => get().pendingOperations,
           canRun: canAttemptOnlineSync,
@@ -4703,6 +4705,7 @@ export const useMessageStore = create<MessageStore>()(
             set((current) => ({
               pendingOperations: updatePendingMessageOperation(current.pendingOperations, operationId, operation),
             }));
+            markLocalOutboxWorkerOperation(operation);
           },
           execute: async (operation) => {
             if (operation.kind === 'create' && operation.payload) {
@@ -4713,6 +4716,7 @@ export const useMessageStore = create<MessageStore>()(
                 ...localUpsertMessage(current, persistedMessage),
                 pendingOperations: removePendingMessageOperation(current.pendingOperations, operation.id),
               }));
+              removeLocalOutboxWorkerOperation(operation.id);
               if (hasLocalDataUrlMedia(localMessage)) {
                 await uploadLocalMessageMediaToCloud({ localMessage, cloudMessage: persistedMessage });
               }
@@ -4722,6 +4726,15 @@ export const useMessageStore = create<MessageStore>()(
             set((current) => ({
               pendingOperations: removePendingMessageOperation(current.pendingOperations, operation.id),
             }));
+            removeLocalOutboxWorkerOperation(operation.id);
+          },
+          onFailure: (operation, _error, retry) => {
+            const stillQueued = get().pendingOperations.some((item) => item.id === operation.id);
+            if (stillQueued) {
+              markLocalOutboxWorkerOperation(retry.retryOperation);
+              return;
+            }
+            removeLocalOutboxWorkerOperation(operation.id);
           },
           scheduleNext: (delay) => messageSyncScheduler.schedule(flushPendingOperations, delay),
         });

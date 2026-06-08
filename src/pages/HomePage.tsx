@@ -32,6 +32,8 @@ import { avatarGenerationQueue, type AvatarGenerationQueueSummary } from '../ser
 import { buildHomeCompanionshipSnapshot } from '../services/companionshipProjection';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { buildHomeSyncOverview } from '../services/homeSyncOverview';
+import { buildLocalOutboxProjection } from '../services/localOutboxProjection';
+import { mirrorLocalOutboxQueues } from '../services/localOutboxMirror';
 import { getRegisteredSyncWorkerEntries } from '../stores/storeSyncScheduler';
 import { motion, transition } from '../styles/motion';
 
@@ -259,6 +261,17 @@ export default function HomePage() {
   useEffect(() => avatarGenerationQueue.subscribeSummary(setAvatarQueueSummary), []);
 
   useEffect(() => {
+    void mirrorLocalOutboxQueues({
+      chatOperations: chatPendingOperations,
+      characterOperations: characterPendingOperations,
+      messageOperations: messagePendingOperations,
+      artifactJobs,
+    }).catch((error) => {
+      console.warn('[local-outbox] failed to mirror home queues', error);
+    });
+  }, [artifactJobs, characterPendingOperations, chatPendingOperations, messagePendingOperations]);
+
+  useEffect(() => {
     const update = () => {
       setCloudSyncEnabledState(isCloudSyncEnabled());
       setWorkerEntries(getRegisteredSyncWorkerEntries());
@@ -302,12 +315,13 @@ export default function HomePage() {
   const syncOverview = useMemo(() => buildHomeSyncOverview({
     cloudSyncAvailable: !needsLogin,
     cloudSyncEnabled,
-    operations: [
-      ...chatPendingOperations,
-      ...characterPendingOperations,
-      ...messagePendingOperations,
-    ],
-    artifactJobs,
+    operations: buildLocalOutboxProjection({
+      chatOperations: chatPendingOperations,
+      characterOperations: characterPendingOperations,
+      messageOperations: messagePendingOperations,
+      artifactJobs,
+    }),
+    artifactJobs: [],
     syncScopes: [
       ...getCharacterSyncScopeStates(),
       ...getChatSyncScopeStates(),
@@ -495,7 +509,7 @@ export default function HomePage() {
                 <CloudDownloadIcon color="primary" fontSize="small" />
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="subtitle2" sx={{ lineHeight: 1 }}>{syncOverview.checkingDownloads}</Typography>
-                  <Typography variant="caption" color="text.secondary">下载检查 / 已检查 {syncOverview.checkedScopes}</Typography>
+                  <Typography variant="caption" color="text.secondary">下载中 / 待下载 {syncOverview.pendingDownload}</Typography>
                 </Box>
               </Box>
               <Box sx={buildSyncMetricSx()}>
