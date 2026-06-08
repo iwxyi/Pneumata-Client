@@ -7,10 +7,9 @@ import { reportRecoverableError, reportRecoverableWarning } from '../services/di
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { clearResolvedFieldConflicts, detectPendingFieldConflicts, type FieldConflictRecord } from '../services/syncConflictRecords';
 import { buildWarmState } from './storeWarmHelpers';
-import { createScopedBufferedJsonStorage } from './storePersistenceScope';
+import { createScopedIndexedDbBufferedJsonStorage, createScopedIndexedDbStorage } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
-import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateCharacterStoreState } from './storeMigrations';
 import { useCharacterArtifactStore } from './useCharacterArtifactStore';
 import { scopedStorageKey, storageKey } from '../constants/brand';
@@ -142,19 +141,44 @@ async function createCharacterRemote(charData: CharacterCreatePayload) {
   return normalizeCharacter(result as unknown as AICharacter);
 }
 
-const guestCharacterUploadFlag = createGuestUploadFlag<AICharacter>(
-  scopedStorageKey('characters-guest'),
-);
+function getGuestCharacterStorageKey() {
+  return scopedStorageKey('characters-guest');
+}
+
+function createCharacterStorageForKey(key: string) {
+  return createScopedIndexedDbStorage({
+    getScopedKey: () => key,
+    storageName: getCharacterStoreStorageName(),
+  });
+}
+
+async function readGuestCharacters() {
+  try {
+    const storage = createCharacterStorageForKey(getGuestCharacterStorageKey());
+    const raw = await storage.getItem(getCharacterStoreStorageName());
+    if (!raw) return [] as AICharacter[];
+    const parsed = JSON.parse(raw) as { state?: { characters?: AICharacter[] } } | AICharacter[];
+    if (Array.isArray(parsed)) return parsed;
+    return Array.isArray(parsed.state?.characters) ? parsed.state.characters : [];
+  } catch {
+    return [];
+  }
+}
+
+async function clearGuestCharacters() {
+  const storage = createCharacterStorageForKey(getGuestCharacterStorageKey());
+  await storage.removeItem(getCharacterStoreStorageName());
+}
 
 async function uploadGuestCharactersToCloud() {
   if (shouldSkipCloudSync()) return;
-  const guestCharacters = guestCharacterUploadFlag.read().filter((character) => !character.deletedAt && !character.isPreset);
+  const guestCharacters = (await readGuestCharacters()).filter((character) => !character.deletedAt && !character.isPreset);
   if (!guestCharacters.length) return;
   try {
     for (const character of guestCharacters) {
       await createCharacterRemote(character);
     }
-    guestCharacterUploadFlag.clear();
+    await clearGuestCharacters();
   } catch {
     // ignore malformed guest cache
   }
@@ -813,7 +837,7 @@ export function resetCharacterStoreForAccountBoundary() {
   });
 }
 
-const characterStorage = createScopedBufferedJsonStorage<PersistedCharacterState>({
+const characterStorage = createScopedIndexedDbBufferedJsonStorage<PersistedCharacterState>({
   getScopedKey: getCharacterStorageKey,
   storageName: getCharacterStoreStorageName(),
   flushDelayMs: 96,
