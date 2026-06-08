@@ -4555,6 +4555,7 @@ const MESSAGE_WINDOW_REFRESH_TTL_MS = 5 * 60_000;
 const messageSyncScheduler = createSyncScheduler('message.pending-operations', {
   priority: () => getPendingQueueWorkerPriority(useMessageStore.getState().pendingOperations, 100, pendingMessageOperationPriority),
 });
+const messageWindowScopeSyncScheduler = createSyncScheduler('message.window-scope-refresh', { priority: 20 });
 const messageSyncScopes = createSyncScopeMetadata(MESSAGE_WINDOW_REFRESH_TTL_MS, {
   getStorageKey: () => scopedStorageKey(`message-sync-scopes-${getLocalDataUserId()}`),
 });
@@ -4724,9 +4725,64 @@ export const useMessageStore = create<MessageStore>()(
           scheduleNext: (delay) => messageSyncScheduler.schedule(flushPendingOperations, delay),
         });
       };
+      const refreshCachedMessageWindows = async () => {
+        await ensureMessageStoreHydrated();
+        if (shouldSkipCloudSync()) return;
+        const cachedWindows = Object.entries(get().messageWindowsByChatId)
+          .filter(([, window]) => window.messages?.length)
+          .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
+          .slice(0, 5);
+        for (const [chatId, cachedWindow] of cachedWindows) {
+          const scope = messageWindowScope(chatId);
+          if (messageSyncScopes.isFresh(scope)) continue;
+          try {
+            const scopeState = messageSyncScopes.getState(scope);
+            const changeProbe = await api.getSyncChanges({ scope, since: scopeState.cursor ?? scopeState.revision ?? null });
+            if (changeProbe.status === 'not_modified') {
+              messageSyncScopes.markChecked(scope, {
+                cursor: changeProbe.cursor,
+                revision: changeProbe.revision,
+                applied: false,
+              });
+              continue;
+            }
+            const fetchedFromChanges = messagesFromWindowChanges(changeProbe.changes, chatId);
+            const fetched = fetchedFromChanges
+              || await api.getMessages(chatId, { limit: DEFAULT_MESSAGE_WINDOW_LIMIT }) as unknown as Message[];
+            set((state) => {
+              const currentWindow = state.messageWindowsByChatId[chatId] || cachedWindow;
+              const merged = mergeMessages(currentWindow.messages || [], fetched);
+              const trimmed = trimMessages(merged);
+              const nextCache = trimCache({
+                ...state.messageWindowsByChatId,
+                [chatId]: {
+                  messages: trimmed,
+                  lastSyncedAt: Date.now(),
+                  updatedAt: trimmed.at(-1)?.timestamp || currentWindow.updatedAt || Date.now(),
+                  remoteExhausted: fetchedFromChanges ? currentWindow.remoteExhausted : fetched.length < DEFAULT_MESSAGE_WINDOW_LIMIT,
+                },
+              }, state.pendingOperations);
+              messageSyncScopes.markChecked(scope, {
+                cursor: changeProbe.cursor,
+                revision: changeProbe.revision,
+                applied: fetched.length > 0,
+              });
+              return {
+                messageWindowsByChatId: nextCache,
+                messages: state.activeChatId === chatId
+                  ? activeMessageWindow(trimmed, DEFAULT_MESSAGE_WINDOW_LIMIT)
+                  : state.messages,
+              };
+            });
+          } catch (error) {
+            messageSyncScopes.markError(scope, error);
+          }
+        }
+      };
 
       if (!messageSyncLifecycleRegistered) {
         messageSyncScheduler.registerLifecycle(flushPendingOperations, 300);
+        messageWindowScopeSyncScheduler.registerLifecycle(refreshCachedMessageWindows, 700);
         messageSyncLifecycleRegistered = true;
       }
 

@@ -145,16 +145,22 @@ describe('storeSyncScheduler', () => {
     const { getRegisteredSyncWorkerIds } = await import('./storeSyncScheduler');
     const { useChatStore } = await import('./useChatStore');
     const { useCharacterStore } = await import('./useCharacterStore');
+    const { useMessageStore } = await import('./useMessageStore');
+    const { useCharacterArtifactStore } = await import('./useCharacterArtifactStore');
     const { useSettingsStore } = await import('./useSettingsStore');
 
     await useChatStore.getState().prefetchChats();
     await useChatStore.getState().prefetchWorldRuntime();
     await useCharacterStore.getState().prefetchCharacters();
+    void useMessageStore;
+    void useCharacterArtifactStore;
     void useSettingsStore;
 
     expect(getRegisteredSyncWorkerIds()).toEqual(expect.arrayContaining([
       'chat.scope-refresh',
       'character.scope-refresh',
+      'message.window-scope-refresh',
+      'artifact.scope-refresh',
       'settings.scope-refresh',
     ]));
   });

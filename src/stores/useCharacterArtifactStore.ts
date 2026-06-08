@@ -14,6 +14,7 @@ import { api, type CharacterArtifactQuery, type CharacterArtifactSummaryEntry, t
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { isCloudSyncBootstrapLocked } from '../services/cloudSyncBootstrapLock';
+import { createSyncScheduler } from './storeSyncScheduler';
 
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
 export type CharacterArtifactJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
@@ -140,9 +141,11 @@ function now() {
 const DIARY_BACKFILL_WINDOW_DAYS = 7;
 const ARTIFACT_SYNC_TTL_MS = 30_000;
 const ARTIFACT_SUMMARY_SCOPE: SyncChangeScope = 'artifacts.summary';
+const artifactScopeSyncScheduler = createSyncScheduler('artifact.scope-refresh', { priority: 15 });
 const artifactSyncScopes = createSyncScopeMetadata(ARTIFACT_SYNC_TTL_MS, {
   getStorageKey: () => scopedStorageKey(`artifact-sync-scopes-${getLocalDataUserId()}`),
 });
+let artifactSyncLifecycleRegistered = false;
 
 export function clearPersistedCharacterArtifactStore() {
   void useCharacterArtifactStore.persist.clearStorage();
@@ -769,6 +772,15 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           void get().syncCloud();
         }, 700);
       };
+      const refreshArtifactSummaryScope = async () => {
+        if (!get().items.length && artifactSyncScopes.listStates().length === 0) return;
+        await get().syncCloud();
+      };
+
+      if (!artifactSyncLifecycleRegistered) {
+        artifactScopeSyncScheduler.registerLifecycle(refreshArtifactSummaryScope, 750);
+        artifactSyncLifecycleRegistered = true;
+      }
 
       const enqueueJobs = (jobs: CharacterArtifactJob[]) => {
         if (!jobs.length) return;
