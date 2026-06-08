@@ -100,6 +100,23 @@ AIChatGroup's frontend is not just a set of pages calling APIs. It is the produc
 | Projection Layer | Turns internal runtime state into user-facing and developer-facing UI views |
 | Persistence & Sync | Local-first caches with account-scoped optional sign-in sync |
 
+### Local-first sync
+
+Pneumata pages do not treat the cloud as the primary read path. Characters, chat lists, chat details, message windows, settings, and character artifacts hydrate from account-scoped local stores first. The cloud is used for background synchronization, cross-device reconciliation, conflict detection, and older-history pagination instead of blocking first paint.
+
+| Case | Current rule |
+|---|---|
+| Opening a page | Render local data first; cloud summaries and details only refresh freshness in the background |
+| Character / chat detail | If a local entity exists and the cloud returns 404, keep the local entity and mark that detail scope checked |
+| Preset characters | Provided by local preset definitions and never fetched from cloud detail endpoints |
+| Message history | Keep a bounded local window; when the user scrolls past it, page older messages online by chat |
+| First cloud-sync enable | Hydrate local characters, chats, messages, and settings before building the local-to-cloud reconcile plan |
+| Settings bootstrap | Upload settings only when they differ from defaults; default local settings must not overwrite cloud settings |
+| Empty bootstrap | If there are no local entities, messages, or pending creates, do not fetch remote character/chat summaries |
+| Conflicts | Preserve pending local operations and surface remote deletes or field-version conflicts explicitly |
+
+The sync architecture should continue to converge on one scope model: `scope + cursor/revision + changes + tombstone + conflict`. Stores own their merge semantics; shared infrastructure owns freshness, retry backoff, idempotency, bootstrap locking, and observability. Future multi-user or group collaboration should build on this protocol rather than making pages depend directly on live cloud reads.
+
 ### Conversation topology
 
 | Type | Meaning | Default runtime semantics |
