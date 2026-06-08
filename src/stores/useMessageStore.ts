@@ -73,7 +73,7 @@ function projectLocalMessages(messages: Message[]) {
   return messages;
 }
 
-function mergeLocalWindow(cache: Record<string, CachedMessageWindow>, chatId: string, messages: Message[]) {
+function mergeLocalWindow(cache: Record<string, CachedMessageWindow>, chatId: string, messages: Message[], pendingOperations: PendingMessageOperation[] = []) {
   const currentWindow = cache[chatId];
   return trimCache({
     ...cache,
@@ -83,7 +83,7 @@ function mergeLocalWindow(cache: Record<string, CachedMessageWindow>, chatId: st
       updatedAt: messages.at(-1)?.timestamp || Date.now(),
       remoteExhausted: currentWindow?.remoteExhausted,
     },
-  });
+  }, pendingOperations);
 }
 
 function locallyMarkDeleted(state: MessageStore, id: string) {
@@ -95,7 +95,7 @@ function locallyMarkDeleted(state: MessageStore, id: string) {
   );
   return {
     messages: state.messages.map((message) => (message.id === id ? localDeleteMessage(message) : message)),
-    messageWindowsByChatId: trimCache(nextWindows),
+    messageWindowsByChatId: trimCache(nextWindows, state.pendingOperations),
   };
 }
 
@@ -114,7 +114,7 @@ function locallyDeleteLastN(state: MessageStore, chatId: string, n: number) {
         lastSyncedAt: Date.now(),
         updatedAt: nextChatMessages.at(-1)?.timestamp || currentWindow?.updatedAt || Date.now(),
       },
-    }),
+    }, state.pendingOperations),
   };
 }
 
@@ -147,7 +147,7 @@ function localUpsertMessage(state: MessageStore, message: Message) {
   const nextActiveMessages = trimActiveMessages(mergeMessages(state.messages, [message]));
   return {
     messages: state.activeChatId === message.chatId ? nextActiveMessages : state.messages,
-    messageWindowsByChatId: mergeLocalWindow(state.messageWindowsByChatId, message.chatId, nextChatMessages),
+    messageWindowsByChatId: mergeLocalWindow(state.messageWindowsByChatId, message.chatId, nextChatMessages, state.pendingOperations),
   };
 }
 
@@ -4358,13 +4358,14 @@ function compactMessageForPersistence(message: Message) {
 }
 
 function buildPersistedMessageState(state: PersistedMessageState): PersistedMessageState {
+  const pendingOperations = recoverInterruptedOperations(state.pendingOperations || []);
   const compactedWindows = Object.fromEntries(Object.entries(state.messageWindowsByChatId || {}).map(([chatId, window]) => [chatId, {
     ...window,
     messages: (window.messages || []).map(compactMessageForPersistence),
   }]));
   return {
-    messageWindowsByChatId: trimCache(compactedWindows),
-    pendingOperations: recoverInterruptedOperations(state.pendingOperations || []),
+    messageWindowsByChatId: trimCache(compactedWindows, pendingOperations),
+    pendingOperations,
   };
 }
 
@@ -4529,8 +4530,18 @@ function trimActiveMessages(messages: Message[]) {
   return dedupeMessages(messages).slice(-MAX_ACTIVE_MESSAGES_PER_CHAT);
 }
 
-function trimCache(cache: Record<string, CachedMessageWindow>) {
-  const entries = Object.entries(cache).sort((a, b) => b[1].updatedAt - a[1].updatedAt);
+function getPendingChatIds(pendingOperations: PendingMessageOperation[] = []) {
+  return new Set(pendingOperations.map((operation) => operation.chatId).filter(Boolean));
+}
+
+function trimCache(cache: Record<string, CachedMessageWindow>, pendingOperations: PendingMessageOperation[] = []) {
+  const pendingChatIds = getPendingChatIds(pendingOperations);
+  const entries = Object.entries(cache).sort((a, b) => {
+    const aPending = pendingChatIds.has(a[0]) ? 1 : 0;
+    const bPending = pendingChatIds.has(b[0]) ? 1 : 0;
+    if (aPending !== bPending) return bPending - aPending;
+    return b[1].updatedAt - a[1].updatedAt;
+  });
   return Object.fromEntries(
     entries
       .slice(0, MAX_CACHED_CHATS)
@@ -4847,7 +4858,7 @@ export const useMessageStore = create<MessageStore>()(
                 updatedAt: trimmed.at(-1)?.timestamp || currentWindow?.updatedAt || Date.now(),
                 remoteExhausted,
               },
-            });
+            }, state.pendingOperations);
             if (!isAppend && !options?.before) {
               messageSyncScopes.markChecked(messageWindowScope(chatId), {
                 cursor: changeProbe?.cursor,
@@ -4912,7 +4923,7 @@ export const useMessageStore = create<MessageStore>()(
                 lastSyncedAt: Date.now(),
                 updatedAt: message.timestamp,
               },
-            }),
+            }, state.pendingOperations),
           };
         });
       },
@@ -4943,7 +4954,7 @@ export const useMessageStore = create<MessageStore>()(
           const activeMessages = messagesByChatId.get(state.activeChatId || '') || [];
           return {
             messages: activeMessages.length ? trimActiveMessages(mergeMessages(state.messages, activeMessages)) : state.messages,
-            messageWindowsByChatId: trimCache(nextCache),
+            messageWindowsByChatId: trimCache(nextCache, state.pendingOperations),
           };
         });
       },
@@ -4980,7 +4991,7 @@ export const useMessageStore = create<MessageStore>()(
           delete nextWindows[chatId];
           return {
             messages: state.activeChatId === chatId ? [] : state.messages,
-            messageWindowsByChatId: trimCache(nextWindows),
+            messageWindowsByChatId: trimCache(nextWindows, state.pendingOperations),
             hasMore: state.activeChatId === chatId ? false : state.hasMore,
           };
         });
@@ -5003,7 +5014,7 @@ export const useMessageStore = create<MessageStore>()(
           );
           return {
             messages: state.messages.map((m) => (m.id === id ? { ...m, isDeleted: true } : m)),
-            messageWindowsByChatId: trimCache(nextWindows),
+            messageWindowsByChatId: trimCache(nextWindows, state.pendingOperations),
           };
         });
       },
@@ -5034,7 +5045,7 @@ export const useMessageStore = create<MessageStore>()(
                 lastSyncedAt: Date.now(),
                 updatedAt: nextChatMessages.at(-1)?.timestamp || currentWindow?.updatedAt || Date.now(),
               },
-            }),
+            }, state.pendingOperations),
           };
         });
       },
@@ -5064,11 +5075,15 @@ export const useMessageStore = create<MessageStore>()(
         messageWindowsByChatId: state.messageWindowsByChatId,
         pendingOperations: state.pendingOperations,
       }),
-      merge: (persistedState, currentState) => ({
-        ...currentState,
-        messageWindowsByChatId: trimCache((persistedState as Partial<PersistedMessageState>)?.messageWindowsByChatId || {}),
-        pendingOperations: (persistedState as Partial<PersistedMessageState>)?.pendingOperations || [],
-      }),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<PersistedMessageState>;
+        const pendingOperations = persisted.pendingOperations || [];
+        return {
+          ...currentState,
+          messageWindowsByChatId: trimCache(persisted.messageWindowsByChatId || {}, pendingOperations),
+          pendingOperations,
+        };
+      },
       skipHydration: true,
     }
   )

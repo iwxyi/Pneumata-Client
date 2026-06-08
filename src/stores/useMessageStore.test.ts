@@ -104,6 +104,60 @@ describe('useMessageStore', () => {
     expect(state.messageWindowsByChatId[chatId]?.messages.at(-1)?.id).toBe('message-1000');
   });
 
+  it('keeps message windows with pending operations during cache eviction', async () => {
+    const { useMessageStore } = await import('./useMessageStore');
+    const pendingChatId = 'chat-pending';
+    const ordinaryChatId = 'chat-ordinary-old';
+    const windows = Object.fromEntries([
+      [pendingChatId, {
+        messages: [buildMessage(1, pendingChatId)],
+        lastSyncedAt: 0,
+        updatedAt: 1,
+      }],
+      [ordinaryChatId, {
+        messages: [buildMessage(2, ordinaryChatId)],
+        lastSyncedAt: 0,
+        updatedAt: 2,
+      }],
+      ...Array.from({ length: 10 }, (_, index) => {
+        const chatId = `chat-recent-${index}`;
+        return [chatId, {
+          messages: [buildMessage(index + 10, chatId)],
+          lastSyncedAt: 0,
+          updatedAt: 100 + index,
+        }];
+      }),
+    ]);
+
+    useMessageStore.setState({
+      messages: [],
+      messageWindowsByChatId: windows,
+      pendingOperations: [{
+        id: 'pending-message-create',
+        kind: 'create',
+        chatId: pendingChatId,
+        localMessageId: 'message-1',
+        messageId: 'message-1',
+        payload: buildMessage(1, pendingChatId),
+        createdAt: Date.now(),
+        attemptCount: 0,
+        status: 'pending',
+      }],
+      activeChatId: null,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: true,
+    });
+
+    useMessageStore.getState().upsertMessage(buildMessage(999, 'chat-new'));
+
+    const cache = useMessageStore.getState().messageWindowsByChatId;
+    expect(Object.keys(cache)).toHaveLength(12);
+    expect(cache[pendingChatId]).toBeDefined();
+    expect(cache[ordinaryChatId]).toBeUndefined();
+    expect(cache['chat-new']).toBeDefined();
+  });
+
   it('keeps cloud-backed windows scrollable when local cache is only a partial window', async () => {
     localStorage.setItem(storageKey('auth-mode'), 'cloud');
     const { useMessageStore } = await import('./useMessageStore');
