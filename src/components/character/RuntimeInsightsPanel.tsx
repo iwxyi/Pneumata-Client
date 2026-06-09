@@ -33,7 +33,7 @@ import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buil
 import { applyCompanionshipLedgerBackflow } from '../../services/companionshipLedgerBackflow';
 import { buildSharedPhraseEventsFromCompanionshipEvent } from '../../services/companionshipSharedPhraseBackflow';
 import type { Message } from '../../types/message';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, PendingCareTopic, PendingPromise, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, PendingCareTopic, PendingPromise, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 type ManualPromiseLifecycleAction = Extract<PendingPromise['status'], 'fulfilled' | 'blocked' | 'stale' | 'revoked'>;
@@ -485,16 +485,29 @@ function buildManualIntimateConflictResolvedEvent(chat: GroupChat, character: AI
   };
 }
 
-function buildManualAttachmentProfileEvent(chat: GroupChat, character: AICharacter, action: 'disabled' | 'enabled'): RuntimeEventV2 {
+function formatAttachmentStyleLabel(style: UserAttachmentProfile['inferredStyle']) {
+  const labels: Record<UserAttachmentProfile['inferredStyle'], string> = {
+    secure: '稳定',
+    anxious: '需要确认',
+    avoidant: '需要空间',
+    disorganized: '忽近忽远',
+  };
+  return labels[style];
+}
+
+function buildManualAttachmentProfileEvent(chat: GroupChat, character: AICharacter, action: 'disabled' | 'enabled' | 'corrected', style?: UserAttachmentProfile['inferredStyle']): RuntimeEventV2 {
   const now = Date.now();
+  const correctedStyle = action === 'corrected' ? style || 'secure' : undefined;
   return {
-    id: buildManualCompanionshipEventId([chat.id, character.id, `attachment-${action}`]),
+    id: buildManualCompanionshipEventId([chat.id, character.id, `attachment-${action}`, correctedStyle || '']),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
     targetIds: [character.id],
-    summary: action === 'disabled'
+    summary: action === 'corrected'
+      ? `${character.name} 记录用户修正了依恋适配`
+      : action === 'disabled'
       ? `${character.name} 记录用户关闭了依恋适配`
       : `${character.name} 记录用户恢复了依恋适配`,
     channelId: 'pair-private',
@@ -506,11 +519,14 @@ function buildManualAttachmentProfileEvent(chat: GroupChat, character: AICharact
       characterId: character.id,
       userId: 'user',
       action,
+      inferredStyle: correctedStyle,
       confidence: 1,
-      reason: action === 'disabled'
-        ? '用户在角色关系页手动关闭依恋适配。'
-        : '用户在角色关系页手动恢复依恋适配。',
-      evidence: ['manual_attachment_update_from_character_relationship_tab'],
+      reason: action === 'corrected'
+        ? `用户在角色关系页手动修正互动模式适配为${correctedStyle ? formatAttachmentStyleLabel(correctedStyle) : '稳定'}。`
+        : action === 'disabled'
+          ? '用户在角色关系页手动关闭依恋适配。'
+          : '用户在角色关系页手动恢复依恋适配。',
+      evidence: [`manual_attachment_${action}_from_character_relationship_tab`],
     },
   };
 }
@@ -990,10 +1006,12 @@ function CompanionshipDeveloperTracePanel({
   trace,
   onDisableAttachment,
   onEnableAttachment,
+  onCorrectAttachment,
 }: {
   trace: CompanionshipRuntimeTrace | null | undefined;
   onDisableAttachment?: () => void;
   onEnableAttachment?: () => void;
+  onCorrectAttachment?: (style: UserAttachmentProfile['inferredStyle']) => void;
 }) {
   if (!trace) return null;
   const intimacyItems = [
@@ -1072,7 +1090,20 @@ function CompanionshipDeveloperTracePanel({
               </Button>
             )}
           </Box>
-          <StatChipRow items={[trace.attachmentProfile.inferredStyle, `置信 ${trace.attachmentProfile.confidence}%`, ...trace.attachmentProfile.adaptations]} />
+          <StatChipRow items={[formatAttachmentStyleLabel(trace.attachmentProfile.inferredStyle), `置信 ${trace.attachmentProfile.confidence}%`, ...trace.attachmentProfile.adaptations]} />
+          <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.65 }}>
+            {(['secure', 'anxious', 'avoidant', 'disorganized'] as UserAttachmentProfile['inferredStyle'][]).map((style) => (
+              <Button
+                key={style}
+                size="small"
+                variant={trace.attachmentProfile?.inferredStyle === style && (trace.attachmentProfile?.confidence || 0) >= 100 ? 'contained' : 'outlined'}
+                onClick={() => onCorrectAttachment?.(style)}
+                sx={{ minHeight: 24, px: 1, py: 0.1, borderRadius: 999, fontSize: 12 }}
+              >
+                {formatAttachmentStyleLabel(style)}
+              </Button>
+            ))}
+          </Stack>
           {trace.attachmentProfile.evidence.length ? (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.65 }}>
               证据：{trace.attachmentProfile.evidence.join(' / ')}
@@ -1202,6 +1233,7 @@ function UserCompanionshipCard({
   onResolveConflict,
   onDisableAttachment,
   onEnableAttachment,
+  onCorrectAttachment,
   onRevokeProfileCue,
   onRevokeSharedSecret,
   onCorrectSharedSecretConsequence,
@@ -1227,6 +1259,7 @@ function UserCompanionshipCard({
   onResolveConflict: (conflict: NonNullable<CompanionshipRuntimeTrace['intimateConflict']>) => void;
   onDisableAttachment: () => void;
   onEnableAttachment: () => void;
+  onCorrectAttachment: (style: UserAttachmentProfile['inferredStyle']) => void;
   onRevokeProfileCue: (item: UserProfileMemoryEventItem) => void;
   onRevokeSharedSecret: (secret: SharedSecret) => void;
   onCorrectSharedSecretConsequence: (secret: SharedSecret, consequenceKind: NonNullable<SharedSecret['consequenceKind']>) => void;
@@ -1716,7 +1749,7 @@ function UserCompanionshipCard({
                 </Stack>
               </Box>
             ) : null}
-            <CompanionshipDeveloperTracePanel trace={trace} onDisableAttachment={onDisableAttachment} onEnableAttachment={onEnableAttachment} />
+            <CompanionshipDeveloperTracePanel trace={trace} onDisableAttachment={onDisableAttachment} onEnableAttachment={onEnableAttachment} onCorrectAttachment={onCorrectAttachment} />
             <Box sx={{ display: 'grid', gap: 0.5 }}>
               {signature.debugLines.map((line) => (
                 <Typography key={line} variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', wordBreak: 'break-word' }}>
@@ -2199,6 +2232,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onEnableAttachment={() => {
                   void appendManualCompanionshipEvent(view.chat, buildManualAttachmentProfileEvent(view.chat, character as AICharacter, 'enabled'));
+                }}
+                onCorrectAttachment={(style) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualAttachmentProfileEvent(view.chat, character as AICharacter, 'corrected', style));
                 }}
                 onRevokeProfileCue={(item) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualUserProfileMemoryRevokeEvent(view.chat, character as AICharacter, item));
