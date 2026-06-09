@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Box, Button, Chip, LinearProgress, Stack, Tooltip, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter } from '../../types/character';
+import type { GroupChat } from '../../types/chat';
 import type { MemoryItem } from '../../services/memoryTypes';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useChatStore } from '../../stores/useChatStore';
@@ -28,9 +29,10 @@ import { summarizeExpressionFeedbackInfluence } from '../../services/expressionF
 import { buildMemberInnerLifeChips } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { formatInnerImpulseLabel } from '../../services/runtimeDecisionLabels';
-import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors } from '../../services/companionshipProjection';
+import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors, buildUserCompanionshipProjection } from '../../services/companionshipProjection';
 import type { Message } from '../../types/message';
-import type { CharacterCompanionshipState, CompanionshipRuntimeTrace, SharedMemoryAnchor } from '../../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipRuntimeTrace, PendingCareTopic, PendingPromise, SharedMemoryAnchor } from '../../types/companionship';
+import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -73,8 +75,8 @@ function buildRelationshipMemoryItems(character: Partial<AICharacter>): MemoryIt
   }));
 }
 
-function latestByTime<T extends { lastMessageAt?: number; updatedAt?: number; createdAt?: number }>(items: T[]) {
-  return items.slice().sort((a, b) => (b.lastMessageAt || b.updatedAt || b.createdAt || 0) - (a.lastMessageAt || a.updatedAt || a.createdAt || 0))[0];
+function recentByTime<T extends { lastMessageAt?: number; updatedAt?: number; createdAt?: number }>(items: T[], limit: number) {
+  return items.slice().sort((a, b) => (b.lastMessageAt || b.updatedAt || b.createdAt || 0) - (a.lastMessageAt || a.updatedAt || a.createdAt || 0)).slice(0, limit);
 }
 
 function getTraitLabel(key: string, language: string) {
@@ -285,6 +287,168 @@ function clipRuntimeText(text: string, max = 72) {
   return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
 }
 
+function buildManualCompanionshipEventId(parts: Array<string | number | undefined>) {
+  const now = Date.now();
+  const source = parts.filter((item) => item !== undefined && item !== null && String(item).length > 0).join('|');
+  let hash = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    hash = (hash * 31 + source.charCodeAt(index)) >>> 0;
+  }
+  return `evt_${now}_${hash.toString(36)}`;
+}
+
+function buildManualCareTopicBlockedEvent(chat: GroupChat, character: AICharacter, topic: PendingCareTopic): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, topic.id, 'care-blocked']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户关闭了一个关心事项提醒`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_care_topic',
+      characterId: character.id,
+      userId: 'user',
+      topicId: topic.id,
+      topicText: topic.text,
+      action: 'blocked',
+      urgency: topic.urgency,
+      reason: '用户在角色关系页手动关闭该关心事项。',
+      evidence: 'manual_close_from_character_relationship_tab',
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualPromiseRevokedEvent(chat: GroupChat, character: AICharacter, promise: PendingPromise): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, promise.id, 'promise-revoked']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户关闭了一个未完成约定`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_promise',
+      characterId: character.id,
+      userId: 'user',
+      promiseId: promise.id,
+      promiseText: promise.text,
+      action: 'revoked',
+      participantIds: promise.participantIds?.length ? promise.participantIds : [character.id, 'user'],
+      reason: '用户在角色关系页手动关闭该约定追踪。',
+      evidence: 'manual_close_from_character_relationship_tab',
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualAddressingEvent(chat: GroupChat, character: AICharacter, action: 'forbid' | 'unforbid', address: string): RuntimeEventV2 {
+  const now = Date.now();
+  const normalized = address.replace(/\s+/g, '').trim();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, normalized, `addressing-${action}`]),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: action === 'forbid'
+      ? `${character.name} 记录用户禁用了一个称呼`
+      : `${character.name} 记录用户恢复了一个称呼`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_addressing',
+      characterId: character.id,
+      userId: 'user',
+      action,
+      currentAddress: normalized,
+      forbiddenAddresses: [normalized],
+      reason: action === 'forbid'
+        ? '用户在角色关系页手动禁用该称呼。'
+        : '用户在角色关系页手动解除禁用该称呼。',
+      evidence: 'manual_addressing_update_from_character_relationship_tab',
+      initiatedBy: 'user',
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualIntimateConflictResolvedEvent(chat: GroupChat, character: AICharacter, conflict: NonNullable<CompanionshipRuntimeTrace['intimateConflict']>): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, conflict.kind, 'intimate-conflict-resolved']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户标记亲密冲突已修复`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_intimate_conflict',
+      characterId: character.id,
+      userId: 'user',
+      action: 'resolved',
+      kind: 'reconciliation',
+      severity: Math.min(24, Math.max(8, Math.round(conflict.severity * 0.25))),
+      repairReadiness: Math.max(82, conflict.repairReadiness),
+      summary: '用户已标记这段冲突或误会完成修复，后续表达应保留温和余波，但不要继续翻旧账。',
+      evidence: ['manual_resolve_from_character_relationship_tab', conflict.summary],
+      participantIds: [character.id, 'user'],
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualAttachmentProfileEvent(chat: GroupChat, character: AICharacter, action: 'disabled' | 'enabled'): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, `attachment-${action}`]),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: action === 'disabled'
+      ? `${character.name} 记录用户关闭了依恋适配`
+      : `${character.name} 记录用户恢复了依恋适配`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_attachment_profile',
+      characterId: character.id,
+      userId: 'user',
+      action,
+      confidence: 1,
+      reason: action === 'disabled'
+        ? '用户在角色关系页手动关闭依恋适配。'
+        : '用户在角色关系页手动恢复依恋适配。',
+      evidence: ['manual_attachment_update_from_character_relationship_tab'],
+    },
+  };
+}
+
 function relationshipLevel(value: number) {
   const abs = Math.abs(value);
   if (abs >= 60) return value < 0 ? '很低' : '很强';
@@ -447,7 +611,15 @@ function CharacterCompanionshipPanel({
   ) : <Typography variant="caption" color="text.secondary">暂无可投影的角色陪伴关系。关系积累到一定强度后，这里会显示护短、默契、搭档感或带刺关心。</Typography>;
 }
 
-function CompanionshipDeveloperTracePanel({ trace }: { trace: CompanionshipRuntimeTrace | null | undefined }) {
+function CompanionshipDeveloperTracePanel({
+  trace,
+  onDisableAttachment,
+  onEnableAttachment,
+}: {
+  trace: CompanionshipRuntimeTrace | null | undefined;
+  onDisableAttachment?: () => void;
+  onEnableAttachment?: () => void;
+}) {
   if (!trace) return null;
   const intimacyItems = [
     ['吸引', trace.intimacy.attraction],
@@ -513,7 +685,18 @@ function CompanionshipDeveloperTracePanel({ trace }: { trace: CompanionshipRunti
       ) : null}
       {trace.attachmentProfile ? (
         <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>依恋适配</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, mb: 0.65 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>依恋适配</Typography>
+            {trace.attachmentProfile.confidence <= 0 ? (
+              <Button size="small" variant="text" onClick={onEnableAttachment} sx={{ p: 0, minWidth: 0 }}>
+                恢复适配
+              </Button>
+            ) : (
+              <Button size="small" variant="text" onClick={onDisableAttachment} sx={{ p: 0, minWidth: 0 }}>
+                关闭适配
+              </Button>
+            )}
+          </Box>
           <StatChipRow items={[trace.attachmentProfile.inferredStyle, `置信 ${trace.attachmentProfile.confidence}%`, ...trace.attachmentProfile.adaptations]} />
           {trace.attachmentProfile.evidence.length ? (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.65 }}>
@@ -542,6 +725,210 @@ function CompanionshipDeveloperTracePanel({ trace }: { trace: CompanionshipRunti
         </Box>
       ) : null}
     </Stack>
+  );
+}
+
+function formatCompanionshipPhaseLabel(phase: CompanionshipRuntimeTrace['phase']) {
+  const labels: Record<CompanionshipRuntimeTrace['phase'], string> = {
+    stranger: '陌生',
+    curious: '好奇',
+    fond: '好感',
+    ambiguous: '暧昧',
+    confessing: '确认前',
+    confirmed: '已确认',
+    passionate: '热恋',
+    deep: '深层陪伴',
+    cooling: '降温',
+    crisis: '危机',
+    reconciling: '修复中',
+  };
+  return labels[phase] || phase;
+}
+
+function formatCompanionshipStyleLabel(style: CompanionshipRuntimeTrace['style']) {
+  const labels: Record<CompanionshipRuntimeTrace['style'], string> = {
+    friend: '朋友',
+    family: '家人式',
+    mentor: '照看/引导',
+    ambiguous: '暧昧',
+    romantic: '亲密',
+    custom: '自定义',
+  };
+  return labels[style] || style;
+}
+
+function UserCompanionshipCard({
+  chatName,
+  signature,
+  trace,
+  pendingCareTopics,
+  pendingPromises,
+  onBlockCareTopic,
+  onRevokePromise,
+  onForbidAddress,
+  onUnforbidAddress,
+  onResolveConflict,
+  onDisableAttachment,
+  onEnableAttachment,
+  developerMode,
+}: {
+  chatName: string;
+  signature: NonNullable<ReturnType<typeof buildCompanionshipStatusSignature>>;
+  trace: CompanionshipRuntimeTrace | null;
+  pendingCareTopics: PendingCareTopic[];
+  pendingPromises: PendingPromise[];
+  onBlockCareTopic: (topic: PendingCareTopic) => void;
+  onRevokePromise: (promise: PendingPromise) => void;
+  onForbidAddress: (address: string) => void;
+  onUnforbidAddress: (address: string) => void;
+  onResolveConflict: (conflict: NonNullable<CompanionshipRuntimeTrace['intimateConflict']>) => void;
+  onDisableAttachment: () => void;
+  onEnableAttachment: () => void;
+  developerMode: boolean;
+}) {
+  const headlineChips = [
+    trace ? formatCompanionshipPhaseLabel(trace.phase) : '',
+    trace ? formatCompanionshipStyleLabel(trace.style) : '',
+    signature.addressing?.currentAddress ? `称呼 ${signature.addressing.currentAddress}` : '',
+    trace?.pendingCareTopics.length ? `关心 ${trace.pendingCareTopics.length}` : '',
+    trace?.pendingPromises.length ? `约定 ${trace.pendingPromises.length}` : '',
+    trace?.boundaries.length || trace?.boundaryReasons.length ? '有边界' : '',
+  ].filter(Boolean);
+  const visibleLines = [
+    trace?.sharedAnchors.length ? `共同锚点：${trace.sharedAnchors.slice(0, 2).join(' / ')}` : '',
+    trace?.sharedSecrets.length ? `小秘密：${trace.sharedSecrets.slice(0, 2).join(' / ')}` : '',
+    trace?.rituals.length ? `仪式：${trace.rituals.slice(0, 2).join(' / ')}` : '',
+    trace?.boundaries.length ? `用户边界：${trace.boundaries.slice(0, 2).join(' / ')}` : '',
+  ].filter(Boolean);
+  return (
+    <Box sx={{ p: { xs: 1.15, sm: 1.35 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.16)' }}>
+      <Stack spacing={1}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, flexWrap: 'wrap' }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>{chatName}</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {trace ? `${formatCompanionshipPhaseLabel(trace.phase)} · ${formatCompanionshipStyleLabel(trace.style)} · 画像置信 ${trace.userProfileConfidence}%` : '最近单聊投影'}
+            </Typography>
+          </Box>
+          {developerMode ? <DebugChip /> : null}
+        </Box>
+        <Typography variant="body2" color="text.primary">
+          {signature.text}
+        </Typography>
+        {headlineChips.length ? <StatChipRow items={headlineChips} /> : null}
+        {signature.addressing ? (
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 0.75 }}>
+            <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'background.paper' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>当前称呼</Typography>
+              <Typography variant="body2" noWrap>{signature.addressing.currentAddress}</Typography>
+              {signature.addressing.currentAddress && signature.addressing.currentAddress !== '你' && !signature.addressing.forbiddenAddresses.includes(signature.addressing.currentAddress) ? (
+                <Button size="small" variant="text" onClick={() => onForbidAddress(signature.addressing?.currentAddress || '')} sx={{ mt: 0.35, p: 0, minWidth: 0 }}>
+                  禁用
+                </Button>
+              ) : null}
+            </Box>
+            <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'background.paper' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>私下称呼</Typography>
+              <Typography variant="body2" noWrap>{signature.addressing.privateAddress || signature.addressing.currentAddress}</Typography>
+              {signature.addressing.privateAddress && signature.addressing.privateAddress !== signature.addressing.currentAddress && !signature.addressing.forbiddenAddresses.includes(signature.addressing.privateAddress) ? (
+                <Button size="small" variant="text" onClick={() => onForbidAddress(signature.addressing?.privateAddress || '')} sx={{ mt: 0.35, p: 0, minWidth: 0 }}>
+                  禁用
+                </Button>
+              ) : null}
+            </Box>
+            <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'background.paper' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>公开称呼</Typography>
+              <Typography variant="body2" noWrap>{signature.addressing.publicAddress || '用户'}</Typography>
+            </Box>
+          </Box>
+        ) : null}
+        {signature.unsentDraft || signature.offlineTrace || signature.onlineReturn ? (
+          <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35 }}>
+              {signature.unsentDraft ? '未发送的话' : signature.onlineReturn ? '上线回归' : '离线痕迹'}
+            </Typography>
+            <Typography variant="body2">
+              {signature.unsentDraft || signature.onlineReturn || signature.offlineTrace}
+            </Typography>
+          </Box>
+        ) : null}
+        {trace?.intimateConflict ? (
+          <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'warning.main', color: 'warning.contrastText' }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="caption" sx={{ display: 'block', opacity: 0.82 }}>亲密冲突/修复</Typography>
+                <Typography variant="body2">{trace.intimateConflict.summary}</Typography>
+              </Box>
+              <Button size="small" variant="outlined" onClick={() => trace.intimateConflict && onResolveConflict(trace.intimateConflict)} sx={{ color: 'inherit', borderColor: 'currentColor', flexShrink: 0 }}>
+                已修复
+              </Button>
+            </Box>
+          </Box>
+        ) : null}
+        {pendingCareTopics.length || pendingPromises.length ? (
+          <Stack spacing={0.75}>
+            {pendingCareTopics.slice(0, 3).map((topic) => (
+              <Box key={topic.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, p: 1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>待关心</Typography>
+                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{topic.text}</Typography>
+                </Box>
+                <Button size="small" variant="text" onClick={() => onBlockCareTopic(topic)} sx={{ flexShrink: 0 }}>
+                  关闭
+                </Button>
+              </Box>
+            ))}
+            {pendingPromises.slice(0, 3).map((promise) => (
+              <Box key={promise.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, p: 1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>未完成约定</Typography>
+                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{promise.text}</Typography>
+                </Box>
+                <Button size="small" variant="text" onClick={() => onRevokePromise(promise)} sx={{ flexShrink: 0 }}>
+                  关闭
+                </Button>
+              </Box>
+            ))}
+          </Stack>
+        ) : null}
+        {visibleLines.length ? (
+          <Stack spacing={0.45}>
+            {visibleLines.map((line) => (
+              <Typography key={line} variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                {line}
+              </Typography>
+            ))}
+          </Stack>
+        ) : null}
+        {signature.addressing?.forbiddenAddresses.length ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+            <Typography variant="caption" color="text.secondary">禁用称呼：</Typography>
+            {signature.addressing.forbiddenAddresses.map((address) => (
+              <Chip
+                key={address}
+                size="small"
+                label={address}
+                variant="outlined"
+                onDelete={() => onUnforbidAddress(address)}
+                sx={{ height: 24, borderRadius: 999 }}
+              />
+            ))}
+          </Box>
+        ) : null}
+        {developerMode ? (
+          <Stack spacing={1}>
+            <CompanionshipDeveloperTracePanel trace={trace} onDisableAttachment={onDisableAttachment} onEnableAttachment={onEnableAttachment} />
+            <Box sx={{ display: 'grid', gap: 0.5 }}>
+              {signature.debugLines.map((line) => (
+                <Typography key={line} variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', wordBreak: 'break-word' }}>
+                  {line}
+                </Typography>
+              ))}
+            </Box>
+          </Stack>
+        ) : null}
+      </Stack>
+    </Box>
   );
 }
 
@@ -841,6 +1228,7 @@ export function CharacterMemoryInspector({ character }: RuntimeInsightsPanelProp
 export function CharacterRelationshipInspector({ character }: RuntimeInsightsPanelProps) {
   const characters = useCharacterStore((state) => state.characters);
   const chats = useChatStore((state) => state.chats);
+  const updateChat = useChatStore((state) => state.updateChat);
   const messages = useMessageStore((state) => state.messages);
   const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
   const developerMode = useSettingsStore((state) => state.developerMode);
@@ -874,29 +1262,54 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
   const companionshipView = useMemo(() => {
     if (!character.id || !character.personality || !character.memory) return null;
     const directChats = chats.filter((chat) => chat.type === 'direct' && chat.memberIds.includes(character.id || ''));
-    const directChat = latestByTime(directChats);
-    if (!directChat) return null;
-    const chatMessages = [
-      ...(directChat.latestMessage ? [directChat.latestMessage] : []),
-      ...messages.filter((message) => message.chatId === directChat.id),
-      ...(messageWindowsByChatId[directChat.id]?.messages || []),
-    ].filter((message, index, source): message is Message => Boolean(message) && source.findIndex((item) => item?.id === message?.id) === index);
-    const signature = buildCompanionshipStatusSignature({
-      chat: directChat,
-      character: character as AICharacter,
-      messages: chatMessages,
-    });
-    const trace = buildCompanionshipRuntimeTrace({
-      chat: directChat,
-      character: character as AICharacter,
-      messages: chatMessages,
-    });
-    return {
-      chatName: directChat.name,
-      signature,
-      trace,
-    };
+    const views = recentByTime(directChats, 3).map((directChat) => {
+      const chatMessages = [
+        ...(directChat.latestMessage ? [directChat.latestMessage] : []),
+        ...messages.filter((message) => message.chatId === directChat.id),
+        ...(messageWindowsByChatId[directChat.id]?.messages || []),
+      ].filter((message, index, source): message is Message => Boolean(message) && source.findIndex((item) => item?.id === message?.id) === index);
+      const projection = buildUserCompanionshipProjection({
+        chat: directChat,
+        character: character as AICharacter,
+        messages: chatMessages,
+      });
+      const signature = buildCompanionshipStatusSignature({
+        chat: directChat,
+        character: character as AICharacter,
+        messages: chatMessages,
+      });
+      if (!signature) return null;
+      const trace = buildCompanionshipRuntimeTrace({
+        chat: directChat,
+        character: character as AICharacter,
+        messages: chatMessages,
+      });
+      return {
+        chatId: directChat.id,
+        chatName: directChat.name,
+        chat: directChat,
+        signature,
+        trace,
+        pendingCareTopics: projection.userBond?.pendingCareTopics || [],
+        pendingPromises: projection.userBond?.pendingPromises || [],
+      };
+    }).filter(Boolean) as Array<{
+      chatId: string;
+      chatName: string;
+      chat: GroupChat;
+      signature: NonNullable<ReturnType<typeof buildCompanionshipStatusSignature>>;
+      trace: CompanionshipRuntimeTrace | null;
+      pendingCareTopics: PendingCareTopic[];
+      pendingPromises: PendingPromise[];
+    }>;
+    return views.length ? views : null;
   }, [character, chats, messageWindowsByChatId, messages]);
+
+  const appendManualCompanionshipEvent = async (chat: GroupChat, event: RuntimeEventV2) => {
+    await updateChat(chat.id, {
+      runtimeEventsV2: [...(chat.runtimeEventsV2 || []).filter((item) => item.id !== event.id), event],
+    });
+  };
 
   return (
     <PageSection spacing={2}>
@@ -914,64 +1327,42 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       </SurfaceCard>
       <SurfaceCard>
         <SectionHeader title="陪伴关系" dense action={isDeveloperView ? <DebugChip /> : undefined} />
-        {companionshipView?.signature ? (
+        {companionshipView?.length ? (
           <Stack spacing={1.25}>
-            <Typography variant="body2" color="text.primary">
-              {companionshipView.signature.text}
-            </Typography>
-            {companionshipView.signature.addressing ? (
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 0.75 }}>
-                <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>当前称呼</Typography>
-                  <Typography variant="body2" noWrap>{companionshipView.signature.addressing.currentAddress}</Typography>
-                </Box>
-                <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>私下称呼</Typography>
-                  <Typography variant="body2" noWrap>{companionshipView.signature.addressing.privateAddress || companionshipView.signature.addressing.currentAddress}</Typography>
-                </Box>
-                <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover' }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>公开称呼</Typography>
-                  <Typography variant="body2" noWrap>{companionshipView.signature.addressing.publicAddress || '用户'}</Typography>
-                </Box>
-              </Box>
-            ) : null}
-            {companionshipView.signature.unsentDraft || companionshipView.signature.offlineTrace ? (
-              <Box sx={{ p: 1.25, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35 }}>
-                  {companionshipView.signature.unsentDraft ? '未发送的话' : '离线痕迹'}
-                </Typography>
-                <Typography variant="body2">
-                  {companionshipView.signature.unsentDraft || companionshipView.signature.offlineTrace}
-                </Typography>
-              </Box>
-            ) : null}
-            {companionshipView.signature.chips.length ? (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-                {companionshipView.signature.chips.map((chip) => (
-                  <Chip key={chip} label={chip} size="small" variant="outlined" />
-                ))}
-              </Box>
-            ) : null}
-            <Typography variant="caption" color="text.secondary">
-              来自最近单聊：{companionshipView.chatName}
-            </Typography>
-            {companionshipView.signature.addressing?.forbiddenAddresses.length ? (
-              <Typography variant="caption" color="text.secondary">
-                禁用称呼：{companionshipView.signature.addressing.forbiddenAddresses.join('、')}
-              </Typography>
-            ) : null}
-            {isDeveloperView ? (
-              <Stack spacing={1}>
-                <CompanionshipDeveloperTracePanel trace={companionshipView.trace} />
-                <Box sx={{ display: 'grid', gap: 0.5 }}>
-                  {companionshipView.signature.debugLines.map((line) => (
-                    <Typography key={line} variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', wordBreak: 'break-word' }}>
-                      {line}
-                    </Typography>
-                  ))}
-                </Box>
-              </Stack>
-            ) : null}
+            {companionshipView.map((view) => (
+              <UserCompanionshipCard
+                key={view.chatId}
+                chatName={view.chatName}
+                signature={view.signature}
+                trace={view.trace}
+                pendingCareTopics={view.pendingCareTopics}
+                pendingPromises={view.pendingPromises}
+                onBlockCareTopic={(topic) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualCareTopicBlockedEvent(view.chat, character as AICharacter, topic));
+                }}
+                onRevokePromise={(promise) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualPromiseRevokedEvent(view.chat, character as AICharacter, promise));
+                }}
+                onForbidAddress={(address) => {
+                  if (!address.trim()) return;
+                  void appendManualCompanionshipEvent(view.chat, buildManualAddressingEvent(view.chat, character as AICharacter, 'forbid', address));
+                }}
+                onUnforbidAddress={(address) => {
+                  if (!address.trim()) return;
+                  void appendManualCompanionshipEvent(view.chat, buildManualAddressingEvent(view.chat, character as AICharacter, 'unforbid', address));
+                }}
+                onResolveConflict={(conflict) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualIntimateConflictResolvedEvent(view.chat, character as AICharacter, conflict));
+                }}
+                onDisableAttachment={() => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualAttachmentProfileEvent(view.chat, character as AICharacter, 'disabled'));
+                }}
+                onEnableAttachment={() => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualAttachmentProfileEvent(view.chat, character as AICharacter, 'enabled'));
+                }}
+                developerMode={isDeveloperView}
+              />
+            ))}
           </Stack>
         ) : (
           <Typography variant="caption" color="text.secondary">

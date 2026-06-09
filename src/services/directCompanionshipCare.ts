@@ -317,6 +317,22 @@ export function readActiveCompanionshipCareTopicsFromEvents(chat: GroupChat, cha
     .slice(0, 4);
 }
 
+export function readSuppressedCompanionshipCareTopicTextsFromEvents(chat: GroupChat, characterId: string): string[] {
+  const byId = new Map<string, { event: RuntimeEventV2; payload: CompanionshipCareTopicEventPayload }>();
+  (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .forEach((event) => {
+      const payload = carePayloadOf(event);
+      if (!payload || payload.characterId !== characterId || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return;
+      const previous = byId.get(payload.topicId);
+      if (!previous || event.createdAt >= previous.event.createdAt) byId.set(payload.topicId, { event, payload });
+    });
+  return Array.from(byId.values())
+    .filter(({ payload }) => payload.action !== 'opened')
+    .map(({ payload }) => compactText(payload.topicText, 140))
+    .filter(Boolean);
+}
+
 export function readDueCompanionshipCareTopicsFromEvents(chat: GroupChat, characterId: string, now = Date.now()): PendingCareTopic[] {
   const byId = new Map<string, { event: RuntimeEventV2; payload: CompanionshipCareTopicEventPayload }>();
   (chat.runtimeEventsV2 || [])

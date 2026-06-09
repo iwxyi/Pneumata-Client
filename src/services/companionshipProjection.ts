@@ -4,7 +4,7 @@ import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, 
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
-import { readActiveCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
+import { readActiveCompanionshipCareTopicsFromEvents, readSuppressedCompanionshipCareTopicTextsFromEvents } from './directCompanionshipCare';
 import { userProfileMemoryPayloadOf } from './directUserProfileMemory';
 import { isMemoryAnchorCandidate } from './memoryLifecycle';
 import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
@@ -858,9 +858,20 @@ function applyCareTopicLifecycle(topics: PendingCareTopic[], profile: UserProfil
 
 function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: UserProfileMemoryProjection, messages: Message[], now: number): PendingCareTopic[] {
   const runtimeTopics = readActiveCompanionshipCareTopicsFromEvents(chat, characterId, now);
+  const suppressedTexts = readSuppressedCompanionshipCareTopicTextsFromEvents(chat, characterId);
+  const isSuppressedByRuntimeEvent = (text: string) => {
+    const normalized = compactText(text, 140).replace(/\s+/g, '');
+    if (!normalized) return false;
+    return suppressedTexts.some((suppressed) => {
+      const key = compactText(suppressed, 140).replace(/\s+/g, '');
+      if (!key) return false;
+      return normalized.includes(key) || key.includes(normalized);
+    });
+  };
   const memoryTopics = profile.sourceTexts
     .filter((text) => /(考试|面试|加班|生病|不舒服|压力|焦虑|计划|明天|周末|生日|纪念日|约定|想试|要去)/.test(text))
     .filter((text) => !isCareClosureText(text))
+    .filter((text) => !isSuppressedByRuntimeEvent(text))
     .filter((text) => !runtimeTopics.some((topic) => topic.text === compactText(text, 140)))
     .slice(0, 3)
     .map((text, index) => ({
@@ -876,6 +887,7 @@ function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: U
     .slice(-6)
     .filter((item) => /(明天|今晚|最近|考试|面试|加班|难受|不舒服|压力|生日|周末|要去|打算)/.test(item.content))
     .filter((item) => !isCareClosureText(item.content))
+    .filter((item) => !isSuppressedByRuntimeEvent(item.content))
     .filter((item) => !runtimeTopics.some((topic) => topic.evidence === compactText(item.content, 120) || topic.text === compactText(item.content, 140)))
     .slice(-2)
     .map((item, index) => ({

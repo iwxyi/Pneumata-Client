@@ -853,6 +853,56 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.addressing.publicAddress).toBe('小夏');
   });
 
+  it('uses unforbid addressing events to restore a previously forbidden address', () => {
+    const forbidden = addressingEvent({
+      id: 'evt-addressing-forbid',
+      createdAt: 1_000,
+      payload: {
+        eventType: 'companionship_addressing',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'forbid',
+        currentAddress: '宝宝',
+        forbiddenAddresses: ['宝宝'],
+        confidence: 1,
+        decisionSource: 'model',
+      },
+    });
+    const unforbidden = addressingEvent({
+      id: 'evt-addressing-unforbid',
+      createdAt: 1_100,
+      payload: {
+        eventType: 'companionship_addressing',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'unforbid',
+        currentAddress: '宝宝',
+        forbiddenAddresses: ['宝宝'],
+        confidence: 1,
+        decisionSource: 'model',
+      },
+    });
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [forbidden, unforbidden]),
+      character: character({
+        memory: {
+          shortTermSummary: '',
+          longTerm: [],
+          secrets: [],
+          obsessions: [],
+          tabooTopics: [],
+          userMemories: ['用户说：叫我宝宝。'],
+        },
+      }),
+      messages: [message({ content: '最近压力有点大。', timestamp: 200 })],
+      now: 1_200,
+    });
+
+    expect(projection.userBond?.addressing.forbiddenAddresses).not.toContain('宝宝');
+    expect(projection.userBond?.addressing.currentAddress).toBe('宝宝');
+    expect(projection.userBond?.addressing.privateAddress).toBe('宝宝');
+  });
+
   it('exposes low-confidence or local addressing events in companionship diagnostics', () => {
     const trace = buildCompanionshipRuntimeTrace({
       chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [
@@ -969,6 +1019,41 @@ describe('companionshipProjection', () => {
 
     expect(closedProjection.userBond?.pendingCareTopics).toEqual([]);
     expect(closedProjection.promptLines.join('\n')).not.toContain('Pending care topics');
+  });
+
+  it('uses blocked care topic runtime events to suppress matching recent-message fallback topics', () => {
+    const blocked: RuntimeEventV2 = {
+      id: 'evt-care-blocked-manual',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: 450,
+      actorIds: ['user'],
+      targetIds: ['char-a'],
+      summary: '用户手动关闭了一个关心事项提醒',
+      visibility: 'pair_private',
+      eventClass: 'artifact',
+      payload: {
+        eventType: 'companionship_care_topic',
+        characterId: 'char-a',
+        userId: 'user',
+        topicId: 'care-char-a-interview-manual',
+        topicText: '明天面试有点紧张。',
+        action: 'blocked',
+        urgency: 'medium',
+        reason: '用户手动关闭该关心事项。',
+        evidence: 'manual_close_from_character_relationship_tab',
+        confidence: 1,
+      },
+    };
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [blocked]),
+      character: character(),
+      messages: [message({ id: 'm-1', content: '明天面试有点紧张。', timestamp: 200 })],
+      now: 500,
+    });
+
+    expect(projection.userBond?.pendingCareTopics).toEqual([]);
+    expect(projection.promptLines.join('\n')).not.toContain('Pending care topics');
   });
 
   it('blocks proactive contact when user memory rejects active disturbance', () => {
@@ -1900,6 +1985,58 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.carePolicy.silenceAnxietyThresholdHours).toBe(24);
     expect(projection.promptLines.join('\n')).not.toContain('User attachment adaptation');
     expect(trace?.attachmentProfile?.evidence.join('\n')).toContain('用户关闭依恋适配');
+  });
+
+  it('uses enabled attachment profile events to resume attachment adaptations after disable', () => {
+    const messages = [
+      message({ content: '你怎么不回我，是不是不想理我了？', timestamp: 800 }),
+      message({ content: '我只是想确认你还在。', timestamp: 900 }),
+    ];
+    const directChat = chat('direct', [relationship({
+      warmth: 62,
+      trust: 58,
+      competence: 10,
+      threat: 4,
+    })], [
+      attachmentProfileEvent({
+        id: 'evt-attachment-disabled',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_attachment_profile',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'disabled',
+          confidence: 1,
+          reason: '用户关闭依恋适配。',
+          evidence: ['不要分析我的依恋类型。'],
+          decisionSource: 'model',
+        },
+      }),
+      attachmentProfileEvent({
+        id: 'evt-attachment-enabled',
+        createdAt: 1_100,
+        payload: {
+          eventType: 'companionship_attachment_profile',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'enabled',
+          confidence: 1,
+          reason: '用户恢复依恋适配。',
+          evidence: ['可以继续做适配。'],
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages,
+      now: 1_200,
+    });
+
+    expect(projection.userBond?.attachmentProfile.inferredStyle).toBe('anxious');
+    expect(projection.userBond?.attachmentProfile.confidence).toBeGreaterThan(0);
+    expect(projection.promptLines.join('\n')).toContain('User attachment adaptation');
   });
 
   it('exposes fallback attachment profile events in companionship diagnostics', () => {

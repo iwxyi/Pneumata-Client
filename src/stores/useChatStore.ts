@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { GroupChat } from '../types/chat';
 import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
+import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { api, type SyncChangeScope } from '../services/api';
 import { reportRecoverableError, reportRecoverableWarning } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
@@ -230,6 +231,72 @@ function takeRecentItems<T>(items: T[] | undefined, limit: number): T[] {
   return items.length > limit ? items.slice(-limit) : items;
 }
 
+function getRecordString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
+function getCompanionshipRuntimeEventStateKey(event: RuntimeEventV2) {
+  const payload = event.payload as Record<string, unknown> | null | undefined;
+  const eventType = typeof payload?.eventType === 'string' ? payload.eventType : '';
+  if (!eventType.startsWith('companionship_')) return '';
+  const payloadRecord = payload as Record<string, unknown>;
+  const characterId = getRecordString(payloadRecord, 'characterId') || event.actorIds?.[0] || 'unknown-character';
+  const userId = getRecordString(payloadRecord, 'userId') || event.targetIds?.[0] || 'default-user';
+  const baseKey = `${eventType}:${characterId}:${userId}`;
+  if (eventType === 'companionship_care_topic') return `${baseKey}:${getRecordString(payloadRecord, 'topicId') || event.id}`;
+  if (eventType === 'companionship_promise') return `${baseKey}:${getRecordString(payloadRecord, 'promiseId') || event.id}`;
+  if (eventType === 'companionship_ritual') return `${baseKey}:${getRecordString(payloadRecord, 'ritualId') || getRecordString(payloadRecord, 'kind') || event.id}`;
+  if (eventType === 'companionship_shared_secret') return `${baseKey}:${getRecordString(payloadRecord, 'secretId') || event.id}`;
+  if (eventType === 'companionship_shared_anchor') return `${baseKey}:${getRecordString(payloadRecord, 'anchorId') || event.id}`;
+  if (eventType === 'companionship_user_profile_memory') {
+    const items = Array.isArray(payloadRecord.items) ? payloadRecord.items as Array<Record<string, unknown>> : [];
+    const signature = items
+      .map((item) => `${getRecordString(item, 'kind')}:${getRecordString(item, 'text').slice(0, 48)}`)
+      .filter(Boolean)
+      .join('|');
+    return `${baseKey}:${signature || event.id}`;
+  }
+  return baseKey;
+}
+
+function compactRuntimeEventsForPersistence(events: RuntimeEventV2[] | undefined, limit: number): RuntimeEventV2[] {
+  if (!Array.isArray(events)) return [];
+  if (events.length <= limit) return stripLargeInlineMediaForPersistence(events);
+  const latestStateEvents = new Map<string, RuntimeEventV2>();
+  for (const event of events) {
+    const key = getCompanionshipRuntimeEventStateKey(event);
+    if (!key) continue;
+    const existing = latestStateEvents.get(key);
+    if (!existing || event.createdAt >= existing.createdAt) {
+      latestStateEvents.set(key, event);
+    }
+  }
+  const selected = new Map<string, RuntimeEventV2>();
+  const addEvent = (event: RuntimeEventV2) => selected.set(event.id, event);
+  [...latestStateEvents.values()]
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .slice(0, limit)
+    .forEach(addEvent);
+  for (let index = events.length - 1; index >= 0 && selected.size < limit; index -= 1) {
+    addEvent(events[index]);
+  }
+  return stripLargeInlineMediaForPersistence(
+    Array.from(selected.values()).sort((left, right) => left.createdAt - right.createdAt),
+  );
+}
+
+function mergeRuntimeEventsForSync(localEvents: RuntimeEventV2[] | undefined, remoteEvents: RuntimeEventV2[] | undefined) {
+  if (!localEvents?.length) return remoteEvents || [];
+  if (!remoteEvents?.length) return localEvents;
+  const byId = new Map<string, RuntimeEventV2>();
+  [...localEvents, ...remoteEvents].forEach((event) => byId.set(event.id, event));
+  return compactRuntimeEventsForPersistence(
+    Array.from(byId.values()).sort((left, right) => left.createdAt - right.createdAt),
+    CHAT_RUNTIME_PERSIST_LIMITS.runtimeEventsV2,
+  );
+}
+
 function compactRuntimeSeedForPersistence(runtimeSeed: GroupChat['runtimeSeed']): GroupChat['runtimeSeed'] {
   return {
     notes: takeRecentItems(runtimeSeed?.notes, CHAT_RUNTIME_PERSIST_LIMITS.runtimeSeedNotes),
@@ -250,7 +317,7 @@ function compactChatRuntimeFieldsForPersistence<T extends Partial<GroupChat>>(ch
       runtimeTimeline: takeRecentItems(chat.runtimeTimeline, CHAT_RUNTIME_PERSIST_LIMITS.runtimeTimeline),
     } : {}),
     ...(chat.runtimeEventsV2 !== undefined ? {
-      runtimeEventsV2: stripLargeInlineMediaForPersistence(takeRecentItems(chat.runtimeEventsV2, CHAT_RUNTIME_PERSIST_LIMITS.runtimeEventsV2)),
+      runtimeEventsV2: compactRuntimeEventsForPersistence(chat.runtimeEventsV2, CHAT_RUNTIME_PERSIST_LIMITS.runtimeEventsV2),
     } : {}),
     ...(chat.relationshipLedger !== undefined ? {
       relationshipLedger: takeRecentItems(chat.relationshipLedger, CHAT_RUNTIME_PERSIST_LIMITS.relationshipLedger),
@@ -464,11 +531,18 @@ function mergeChatRecord(local: GroupChat | undefined, remote: GroupChat) {
       lastMessageAt: local.lastMessageAt,
       worldState: local.worldState,
       latestMessage: local.latestMessage,
+      runtimeEventsV2: mergeRuntimeEventsForSync(local.runtimeEventsV2, remote.runtimeEventsV2),
       runtimeDetailLoaded: true,
     };
   }
-  if (!local || remote.runtimeDetailLoaded !== false || local.runtimeDetailLoaded === false) {
+  if (!local) {
     return remote;
+  }
+  if (remote.runtimeDetailLoaded !== false || local.runtimeDetailLoaded === false) {
+    return {
+      ...remote,
+      runtimeEventsV2: mergeRuntimeEventsForSync(local.runtimeEventsV2, remote.runtimeEventsV2),
+    };
   }
   return {
     ...local,
@@ -494,6 +568,7 @@ function mergeChatRecord(local: GroupChat | undefined, remote: GroupChat) {
     lastMessageAt: remote.lastMessageAt,
     worldState: remote.worldState,
     latestMessage: remote.latestMessage,
+    runtimeEventsV2: mergeRuntimeEventsForSync(local.runtimeEventsV2, remote.runtimeEventsV2),
     runtimeDetailLoaded: true,
   };
 }
@@ -503,7 +578,7 @@ function mergeWorldRuntimeRecord(local: GroupChat | undefined, remote: GroupChat
   return {
     ...local,
     worldRuntimeLoaded: true,
-    runtimeEventsV2: remote.runtimeEventsV2 || local.runtimeEventsV2,
+    runtimeEventsV2: mergeRuntimeEventsForSync(local.runtimeEventsV2, remote.runtimeEventsV2),
     updatedAt: Math.max(local.updatedAt || 0, remote.updatedAt || 0),
     lastMessageAt: Math.max(local.lastMessageAt || 0, remote.lastMessageAt || 0),
   };
@@ -1533,6 +1608,10 @@ export const useChatStore = create<ChatStore>()(
 
 export const __chatRuntimePersistenceForTests = {
   compactChatPatchForCloud,
+  compactRuntimeEventsForPersistence,
+  mergeRuntimeEventsForSync,
+  mergeChatRecord,
+  mergeWorldRuntimeRecord,
   buildPersistedChatState,
   limits: CHAT_RUNTIME_PERSIST_LIMITS,
 };

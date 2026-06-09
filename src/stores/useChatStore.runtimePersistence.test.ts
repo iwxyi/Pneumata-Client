@@ -56,6 +56,18 @@ function runtimeEvent(index: number): RuntimeEventV2 {
   };
 }
 
+function companionshipEvent(id: string, createdAt: number, payload: Record<string, unknown>): RuntimeEventV2 {
+  return {
+    id,
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt,
+    summary: `陪伴事件 ${id}`,
+    visibility: 'pair_private',
+    payload,
+  };
+}
+
 function relationship(index: number): RelationshipLedgerEntry {
   return {
     pairKey: `a-${index}->b-${index}`,
@@ -137,6 +149,57 @@ describe('chat runtime persistence', () => {
     expect(patch.worldState).toMatchObject({ mood: '紧张', focus: '关系变化' });
     expect(patch.updatedAt).toBeUndefined();
     expect(patch.lastMessageAt).toBeUndefined();
+  });
+
+  it('preserves current companionship state events when runtime events are compacted', async () => {
+    const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
+    const { compactChatPatchForCloud, limits } = __chatRuntimePersistenceForTests;
+    const phaseEvent = companionshipEvent('companionship-phase-old', 2, {
+      eventType: 'companionship_phase_event',
+      characterId: 'char-1',
+      userId: 'user-1',
+      phase: 'confirmed',
+      confidence: 0.93,
+      decisionSource: 'model',
+    });
+    const addressingEvent = companionshipEvent('companionship-addressing-old', 3, {
+      eventType: 'companionship_addressing',
+      characterId: 'char-1',
+      userId: 'user-1',
+      action: 'set_private',
+      privateAddress: '小月亮',
+      confidence: 0.9,
+      decisionSource: 'model',
+    });
+    const recentEvents = Array.from({ length: limits.runtimeEventsV2 + 8 }, (_, index) => runtimeEvent(100 + index));
+    const patch = compactChatPatchForCloud({
+      runtimeEventsV2: [phaseEvent, addressingEvent, ...recentEvents],
+    });
+    const eventIds = ((patch.runtimeEventsV2 || []) as RuntimeEventV2[]).map((event) => event.id);
+
+    expect(patch.runtimeEventsV2).toHaveLength(limits.runtimeEventsV2);
+    expect(eventIds).toContain('companionship-phase-old');
+    expect(eventIds).toContain('companionship-addressing-old');
+  });
+
+  it('merges remote runtime windows without dropping local companionship state events', async () => {
+    const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
+    const { mergeChatRecord, mergeWorldRuntimeRecord } = __chatRuntimePersistenceForTests;
+    const localPhase = companionshipEvent('local-phase', 5, {
+      eventType: 'companionship_phase_event',
+      characterId: 'char-1',
+      userId: 'user-1',
+      phase: 'ambiguous',
+      confidence: 0.9,
+    });
+    const remoteRecent = runtimeEvent(20);
+    const local = chat({ updatedAt: 10, runtimeEventsV2: [localPhase], runtimeDetailLoaded: true });
+    const remote = chat({ updatedAt: 20, runtimeEventsV2: [remoteRecent], runtimeDetailLoaded: true });
+    const mergedDetail = mergeChatRecord(local, remote);
+    const mergedWorld = mergeWorldRuntimeRecord(local, { ...remote, runtimeDetailLoaded: false, worldRuntimeLoaded: true });
+
+    expect(mergedDetail.runtimeEventsV2?.map((event) => event.id)).toEqual(['local-phase', 'event-20']);
+    expect(mergedWorld.runtimeEventsV2?.map((event) => event.id)).toEqual(['local-phase', 'event-20']);
   });
 
   it('keeps bounded runtime fields in local persistence', async () => {
