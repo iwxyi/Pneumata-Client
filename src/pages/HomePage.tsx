@@ -28,6 +28,7 @@ import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
 import { avatarGenerationQueue, type AvatarGenerationQueueSummary } from '../services/avatarGenerationQueue';
 import { buildHomeCompanionshipSnapshot } from '../services/companionshipProjection';
+import { shouldShowCompanionshipStatusHints } from '../services/companionshipStatusVisibility';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { buildHomeSyncOverview } from '../services/homeSyncOverview';
 import { buildLocalOutboxProjection } from '../services/localOutboxProjection';
@@ -304,7 +305,8 @@ export default function HomePage() {
     return keys.size;
   }, [messageWindowsByChatId, messages]);
   const aiMessageCount = Math.max(usageStats?.aiMessageCount || 0, localKnownAiMessageCount);
-  const showCompanionshipStatusHints = useSettingsStore((state) => state.companionship.showStatusHints);
+  const companionshipSettings = useSettingsStore((state) => state.companionship);
+  const showCompanionshipStatusHints = shouldShowCompanionshipStatusHints(companionshipSettings);
   const companionshipSnapshot = showCompanionshipStatusHints
     ? buildHomeCompanionshipSnapshot({
       chats: recentChats,

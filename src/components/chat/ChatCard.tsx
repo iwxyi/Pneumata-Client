@@ -9,6 +9,7 @@ import type { Message } from '../../types/message';
 import { formatRelativeTime } from '../../utils/format';
 import { useTranslation } from 'react-i18next';
 import { buildCompanionshipStatusSignature } from '../../services/companionshipProjection';
+import { shouldShowCompanionshipStatusHints } from '../../services/companionshipStatusVisibility';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildInteractiveSurfaceSx, buildSelectionRailSx } from '../../styles/interaction';
 import { buildChatSubtitle } from './chatCardSubtitle';
@@ -33,7 +34,8 @@ function latestByTimestamp(messages: Array<Message | null | undefined>) {
 
 function ChatCard({ chat, characters, onClick, onPrefetch, selected = false }: ChatCardProps) {
   const { t } = useTranslation();
-  const showCompanionshipStatusHints = useSettingsStore((state) => state.companionship.showStatusHints);
+  const companionshipSettings = useSettingsStore((state) => state.companionship);
+  const showCompanionshipStatusHints = shouldShowCompanionshipStatusHints(companionshipSettings);
   const resolvedLatestMessage = latestByTimestamp([chat.latestMessage]) || null;
   const members = characters.filter((c) => chat.memberIds.includes(c.id));
   const isDirect = chat.type === 'direct' || chat.type === 'ai_direct';

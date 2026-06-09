@@ -2371,7 +2371,7 @@ describe('companionshipProjection', () => {
     setCompanionshipRuntimeConfig({
       enableProactiveCare: false,
       careIntensity: 'balanced',
-      quietHours: { enabled: false, start: '23:30', end: '08:00' },
+      quietHours: { enabled: false, start: '23:30', end: '08:00', suppressStatusHints: true },
     });
     const directChat = chat('direct', [relationship({ warmth: 78, trust: 72, competence: 10, threat: 2 })]);
     const actor = character({ generationPreferences: { moments: 'follow_global', diaries: 'follow_global', companionship: 'on' } });
@@ -2402,7 +2402,7 @@ describe('companionshipProjection', () => {
     const directChat = chat('direct', [relationship({ warmth: 78, trust: 72, competence: 10, threat: 2 })]);
 
     setCompanionshipRuntimeConfig({
-      quietHours: { enabled: true, start: '23:30', end: '08:00' },
+      quietHours: { enabled: true, start: '23:30', end: '08:00', suppressStatusHints: true },
     });
     expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
       character: baseCharacter,
@@ -2417,7 +2417,7 @@ describe('companionshipProjection', () => {
     });
 
     setCompanionshipRuntimeConfig({
-      quietHours: { enabled: false, start: '23:30', end: '08:00' },
+      quietHours: { enabled: false, start: '23:30', end: '08:00', suppressStatusHints: true },
     });
     expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
       character: baseCharacter,

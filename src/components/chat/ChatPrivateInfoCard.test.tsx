@@ -9,6 +9,12 @@ const mockSettingsState = {
   developerMode: false,
   companionship: {
     showStatusHints: true,
+    quietHours: {
+      enabled: false,
+      start: '23:30',
+      end: '08:00',
+      suppressStatusHints: true,
+    },
   },
   developerUI: {
     showMemoryDebug: false,

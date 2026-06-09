@@ -4,6 +4,7 @@ import type { GroupChat } from '../../types/chat';
 import type { CompanionshipStatusSignature } from '../../types/companionship';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { shouldShowCompanionshipStatusHints } from '../../services/companionshipStatusVisibility';
 import { compactPillChipSx } from '../../styles/interaction';
 
 interface DirectMemoryContext {
@@ -58,7 +59,8 @@ export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: Chat
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showCompanionshipDebug = useSettingsStore((state) => state.developerUI.showCompanionshipDebug);
-  const showCompanionshipStatusHints = useSettingsStore((state) => state.companionship.showStatusHints);
+  const companionshipSettings = useSettingsStore((state) => state.companionship);
+  const showCompanionshipStatusHints = shouldShowCompanionshipStatusHints(companionshipSettings);
   const showMemoryDetails = developerMode && showMemoryDebug;
   const showCompanionshipDetails = developerMode && (showMemoryDebug || showCompanionshipDebug);
 

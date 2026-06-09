@@ -577,6 +577,7 @@ export default function SettingsPage() {
                 <TextField type="time" size="small" label={i18n.language.startsWith('zh') ? '开始' : 'Start'} value={settings.companionship.quietHours.start} onChange={(e) => settings.setCompanionship({ quietHours: { ...settings.companionship.quietHours, start: e.target.value } })} disabled={!settings.companionship.quietHours.enabled} slotProps={{ inputLabel: { shrink: true } }} />
                 <TextField type="time" size="small" label={i18n.language.startsWith('zh') ? '结束' : 'End'} value={settings.companionship.quietHours.end} onChange={(e) => settings.setCompanionship({ quietHours: { ...settings.companionship.quietHours, end: e.target.value } })} disabled={!settings.companionship.quietHours.enabled} slotProps={{ inputLabel: { shrink: true } }} />
               </Box>
+              <FormControlLabel control={<Switch checked={settings.companionship.quietHours.suppressStatusHints} onChange={(e) => settings.setCompanionship({ quietHours: { ...settings.companionship.quietHours, suppressStatusHints: e.target.checked } })} disabled={!settings.companionship.quietHours.enabled} />} label={i18n.language.startsWith('zh') ? '免打扰时隐藏陪伴状态提示' : 'Hide status hints during quiet hours'} />
               <FormControlLabel control={<Switch checked={settings.developerMode} onChange={(e) => settings.setDeveloperMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '开发者模式' : 'Developer mode'} />
             </Box>
           </Box>
