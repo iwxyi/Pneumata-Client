@@ -439,49 +439,91 @@ type ResolvedAttachmentProfileEvent =
   | { mode: 'profile'; profile: UserAttachmentProfile }
   | { mode: 'enabled' };
 
+const ATTACHMENT_FALLBACK_ADAPTATIONS: Record<UserAttachmentProfile['inferredStyle'], string[]> = {
+  secure: ['keep a steady reciprocal pace'],
+  anxious: ['give concrete reassurance without overpromising', 'respond to silence with warmth before intensity'],
+  avoidant: ['respect space and avoid repeated follow-up', 'keep care low-pressure and easy to ignore'],
+  disorganized: ['stay steady when the user alternates closeness and distance', 'avoid escalating intimacy after mixed signals'],
+};
+
+function attachmentProfileFromPayload(payload: CompanionshipAttachmentProfileEventPayload, event: RuntimeEventV2): UserAttachmentProfile | null {
+  if (!payload.inferredStyle) return null;
+  return {
+    inferredStyle: payload.inferredStyle,
+    confidence: normalizeEventConfidenceScore(payload.confidence),
+    evidence: [payload.reason, ...(payload.evidence || []), `event=${event.id}`].filter(Boolean).slice(0, 5) as string[],
+    adaptations: payload.adaptations?.length ? payload.adaptations : ATTACHMENT_FALLBACK_ADAPTATIONS[payload.inferredStyle],
+  };
+}
+
+function aggregateAttachmentProfileEvents(items: Array<{ event: RuntimeEventV2; payload: CompanionshipAttachmentProfileEventPayload }>, now: number): UserAttachmentProfile | null {
+  const recent = items
+    .filter(({ payload }) => payload.action === 'inferred' && Boolean(payload.inferredStyle))
+    .filter(({ event }) => now <= 0 || (event.createdAt || 0) >= now - 90 * DAY_MS);
+  if (!recent.length) return null;
+  if (recent.length === 1) return attachmentProfileFromPayload(recent[0].payload, recent[0].event);
+  const scores = new Map<UserAttachmentProfile['inferredStyle'], number>();
+  recent.forEach(({ event, payload }) => {
+    if (!payload.inferredStyle) return;
+    const confidence = Math.max(0.35, normalizeEventConfidenceScore(payload.confidence) / 100);
+    const ageDays = now > 0 ? Math.max(0, (now - (event.createdAt || now)) / DAY_MS) : 0;
+    const recencyWeight = Math.max(0.4, 1 - ageDays / 120);
+    scores.set(payload.inferredStyle, (scores.get(payload.inferredStyle) || 0) + confidence * recencyWeight);
+  });
+  const ranked = Array.from(scores.entries()).sort((left, right) => right[1] - left[1]);
+  const dominant = ranked[0]?.[0];
+  if (!dominant) return null;
+  const dominantEvents = recent
+    .filter(({ payload }) => payload.inferredStyle === dominant)
+    .sort((left, right) => (right.event.createdAt || 0) - (left.event.createdAt || 0));
+  const totalWeight = Array.from(scores.values()).reduce((total, item) => total + item, 0);
+  const dominance = totalWeight > 0 ? (scores.get(dominant) || 0) / totalWeight : 0;
+  const averageConfidence = dominantEvents.reduce((total, item) => total + normalizeEventConfidenceScore(item.payload.confidence), 0) / Math.max(1, dominantEvents.length);
+  return {
+    inferredStyle: dominant,
+    confidence: clampScore(42 + averageConfidence * 0.38 + dominance * 24 + Math.min(10, dominantEvents.length * 2)),
+    evidence: [
+      `长期趋势：${dominantEvents.length} 条 ${dominant} 依恋适配事件`,
+      ...dominantEvents.flatMap(({ payload }) => [payload.reason, ...(payload.evidence || [])]).filter(Boolean).slice(0, 4),
+    ] as string[],
+    adaptations: dominantEvents.find(({ payload }) => payload.adaptations?.length)?.payload.adaptations || ATTACHMENT_FALLBACK_ADAPTATIONS[dominant],
+  };
+}
+
 function resolveAttachmentProfileEvent(chat: GroupChat | undefined, characterId: string): ResolvedAttachmentProfileEvent | null {
   const events = (chat?.runtimeEventsV2 || [])
     .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
-    .slice()
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  for (const event of events) {
-    const payload = attachmentProfileEventPayloadOf(event);
-    if (!payload || payload.characterId !== characterId) continue;
+    .map((event) => ({ event, payload: attachmentProfileEventPayloadOf(event) }))
+    .filter((item): item is { event: RuntimeEventV2; payload: CompanionshipAttachmentProfileEventPayload } => {
+      const payload = item.payload;
+      if (!payload || payload.characterId !== characterId) return false;
     const userId = payload.userId || USER_ACTOR_ID;
-    if (userId !== USER_ACTOR_ID) continue;
-    const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
-    const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
-    if (!actorMatches || !targetMatches) continue;
-    if (payload.action === 'enabled') return { mode: 'enabled' };
-    if (payload.action === 'disabled') {
+      if (userId !== USER_ACTOR_ID) return false;
+      const actorMatches = !item.event.actorIds?.length || item.event.actorIds.includes(characterId) || item.event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !item.event.targetIds?.length || item.event.targetIds.includes(characterId) || item.event.targetIds.includes(USER_ACTOR_ID);
+      return actorMatches && targetMatches;
+    })
+    .sort((a, b) => (b.event.createdAt || 0) - (a.event.createdAt || 0));
+  const latestControl = events.find(({ payload }) => payload.action === 'corrected' || payload.action === 'disabled' || payload.action === 'enabled');
+  if (latestControl?.payload.action === 'disabled') {
       return {
         mode: 'profile',
         profile: {
           inferredStyle: 'secure',
           confidence: 0,
-          evidence: [payload.reason, ...(payload.evidence || [])].filter(Boolean).slice(0, 4) as string[],
+          evidence: [latestControl.payload.reason, ...(latestControl.payload.evidence || [])].filter(Boolean).slice(0, 4) as string[],
           adaptations: [],
         },
       };
     }
-    if (!payload.inferredStyle) continue;
-    const fallbackAdaptations: Record<UserAttachmentProfile['inferredStyle'], string[]> = {
-      secure: ['keep a steady reciprocal pace'],
-      anxious: ['give concrete reassurance without overpromising', 'respond to silence with warmth before intensity'],
-      avoidant: ['respect space and avoid repeated follow-up', 'keep care low-pressure and easy to ignore'],
-      disorganized: ['stay steady when the user alternates closeness and distance', 'avoid escalating intimacy after mixed signals'],
-    };
-    return {
-      mode: 'profile',
-      profile: {
-        inferredStyle: payload.inferredStyle,
-        confidence: normalizeEventConfidenceScore(payload.confidence),
-        evidence: [payload.reason, ...(payload.evidence || [])].filter(Boolean).slice(0, 4) as string[],
-        adaptations: payload.adaptations?.length ? payload.adaptations : fallbackAdaptations[payload.inferredStyle],
-      },
-    };
+  if (latestControl?.payload.action === 'corrected') {
+    const profile = attachmentProfileFromPayload(latestControl.payload, latestControl.event);
+    return profile ? { mode: 'profile', profile } : null;
   }
-  return null;
+  const enabledAt = latestControl?.payload.action === 'enabled' ? (latestControl.event.createdAt || 0) : 0;
+  const candidateEvents = enabledAt > 0 ? events.filter(({ event }) => (event.createdAt || 0) > enabledAt) : events;
+  const aggregated = aggregateAttachmentProfileEvents(candidateEvents, chat?.updatedAt || Date.now());
+  return aggregated ? { mode: 'profile', profile: aggregated } : (latestControl?.payload.action === 'enabled' ? { mode: 'enabled' } : null);
 }
 
 function buildUserAttachmentProfile(params: {

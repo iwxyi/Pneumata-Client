@@ -2719,6 +2719,77 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).toContain('keep a steady reciprocal pace');
   });
 
+  it('aggregates inferred attachment profile events into a long-term trend', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 62,
+      trust: 58,
+      competence: 10,
+      threat: 4,
+    })], [
+      attachmentProfileEvent({
+        id: 'evt-attachment-avoidant-old',
+        createdAt: 900,
+        payload: {
+          eventType: 'companionship_attachment_profile',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'inferred',
+          inferredStyle: 'avoidant',
+          confidence: 0.74,
+          evidence: ['用户明确说需要空间。'],
+          adaptations: ['respect explicit space requests'],
+          decisionSource: 'model',
+        },
+      }),
+      attachmentProfileEvent({
+        id: 'evt-attachment-avoidant-new',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_attachment_profile',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'inferred',
+          inferredStyle: 'avoidant',
+          confidence: 0.82,
+          evidence: ['用户再次要求低压相处。'],
+          adaptations: ['keep follow-up lightweight'],
+          decisionSource: 'model',
+        },
+      }),
+      attachmentProfileEvent({
+        id: 'evt-attachment-anxious-minor',
+        createdAt: 980,
+        payload: {
+          eventType: 'companionship_attachment_profile',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'inferred',
+          inferredStyle: 'anxious',
+          confidence: 0.62,
+          evidence: ['用户偶尔确认对方还在。'],
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '普通聊天。', timestamp: 1_020 })],
+      now: 1_100,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '普通聊天。', timestamp: 1_020 })],
+      now: 1_100,
+    });
+
+    expect(projection.userBond?.attachmentProfile.inferredStyle).toBe('avoidant');
+    expect(projection.userBond?.attachmentProfile.evidence.join('\n')).toContain('长期趋势');
+    expect(projection.userBond?.attachmentProfile.confidence).toBeGreaterThan(70);
+    expect(trace?.attachmentProfile?.evidence.join('\n')).toContain('用户再次要求低压相处');
+  });
+
   it('uses disabled attachment profile events to stop attachment adaptations', () => {
     const directChat = chat('direct', [relationship({
       warmth: 62,
@@ -2817,6 +2888,57 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.attachmentProfile.inferredStyle).toBe('anxious');
     expect(projection.userBond?.attachmentProfile.confidence).toBeGreaterThan(0);
     expect(projection.promptLines.join('\n')).toContain('User attachment adaptation');
+  });
+
+  it('does not reuse attachment profile events that happened before a later enable event', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 62,
+      trust: 58,
+      competence: 10,
+      threat: 4,
+    })], [
+      attachmentProfileEvent({
+        id: 'evt-attachment-avoidant-before-enable',
+        createdAt: 900,
+        payload: {
+          eventType: 'companionship_attachment_profile',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'inferred',
+          inferredStyle: 'avoidant',
+          confidence: 0.92,
+          evidence: ['用户之前说需要空间。'],
+          adaptations: ['respect explicit space requests'],
+          decisionSource: 'model',
+        },
+      }),
+      attachmentProfileEvent({
+        id: 'evt-attachment-enabled-later',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_attachment_profile',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'enabled',
+          confidence: 1,
+          reason: '用户恢复依恋适配。',
+          evidence: ['重新按当前对话适配。'],
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [
+        message({ content: '你怎么不回我，是不是不想理我了？', timestamp: 1_050 }),
+        message({ content: '我只是想确认你还在。', timestamp: 1_060 }),
+      ],
+      now: 1_100,
+    });
+
+    expect(projection.userBond?.attachmentProfile.inferredStyle).toBe('anxious');
+    expect(projection.userBond?.attachmentProfile.evidence.join('\n')).not.toContain('之前说需要空间');
   });
 
   it('exposes fallback attachment profile events in companionship diagnostics', () => {
