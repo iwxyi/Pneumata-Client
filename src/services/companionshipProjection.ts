@@ -209,7 +209,37 @@ function adjustIntimacyForCompanionshipRuntime(params: {
   };
 }
 
-function inferPhase(intimacy: IntimacyProjection, entry: RelationshipLedgerEntry | null): CompanionshipPhase {
+function anchorText(anchor: SharedMemoryAnchor) {
+  return [anchor.title, anchor.text, anchor.evidence].filter(Boolean).join(' ');
+}
+
+function inferAnchorPhase(intimacy: IntimacyProjection, sharedAnchors: SharedMemoryAnchor[]): CompanionshipPhase | null {
+  const anchors = sharedAnchors
+    .filter((anchor) => anchor.confidence >= 56 && anchor.salience >= 42)
+    .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+  const latestConflict = anchors.find((anchor) => anchor.kind === 'conflict');
+  const latestRepair = anchors.find((anchor) => anchor.kind === 'repair');
+  if (latestConflict && (!latestRepair || latestConflict.updatedAt >= latestRepair.updatedAt)) {
+    if (intimacy.security <= 26) return 'crisis';
+    if (intimacy.security <= 42) return 'cooling';
+  }
+  if (latestRepair && (!latestConflict || latestRepair.updatedAt >= latestConflict.updatedAt)) return 'reconciling';
+  const confession = anchors.find((anchor) => anchor.kind === 'confession');
+  if (confession) {
+    const text = anchorText(confession);
+    const negatesConfirmation = /(还没有|没有|未|尚未|并未|没).*?(确认关系|在一起|恋人|伴侣|对象|正式交往|确认了关系)/.test(text);
+    if (!negatesConfirmation && /(确认关系|在一起|恋人|伴侣|对象|正式交往|确认了关系)/.test(text)) return 'confirmed';
+    if (/(表白|告白|说喜欢|承认喜欢|心意)/.test(text)) {
+      if (intimacy.attraction >= 58 && intimacy.intimacy >= 48 && intimacy.security >= 38) return 'confessing';
+      return 'ambiguous';
+    }
+  }
+  return null;
+}
+
+function inferPhase(intimacy: IntimacyProjection, entry: RelationshipLedgerEntry | null, sharedAnchors: SharedMemoryAnchor[] = []): CompanionshipPhase {
+  const anchorPhase = inferAnchorPhase(intimacy, sharedAnchors);
+  if (anchorPhase) return anchorPhase;
   const stage = entry?.derived?.semantic?.stage || '';
   const labels = entry?.derived?.semantic?.labels || [];
   if (intimacy.security <= 22 && (entry?.current.threat || 0) >= 36) return 'crisis';
@@ -944,6 +974,22 @@ function buildPhaseEvidence(entry: RelationshipLedgerEntry | null, topics: Pendi
   const topicEvidence = topics.slice(0, 2).map((item) => `care topic: ${item.text}`);
   const phaseEvidence = phaseEvent ? phaseEvent.evidence.map((item) => `phase event: ${item}`) : [];
   return [...phaseEvidence, semantic, ...recent, ...topicEvidence].filter(Boolean).slice(0, 6) as string[];
+}
+
+function buildAnchorPhaseEvidence(sharedAnchors: SharedMemoryAnchor[], phase: CompanionshipPhase) {
+  const relevantKinds: SharedMemoryAnchor['kind'][] = phase === 'confirmed' || phase === 'confessing' || phase === 'ambiguous'
+    ? ['confession']
+    : phase === 'reconciling'
+      ? ['repair']
+      : phase === 'cooling' || phase === 'crisis'
+        ? ['conflict']
+        : [];
+  if (!relevantKinds.length) return [];
+  return sharedAnchors
+    .filter((anchor) => relevantKinds.includes(anchor.kind))
+    .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+    .slice(0, 2)
+    .map((anchor) => `shared anchor: ${formatSharedAnchorForPrompt(anchor)}`);
 }
 
 function buildUserSharedAnchors(character: AICharacter, now: number, chat?: GroupChat) {
@@ -1833,7 +1879,7 @@ export function buildUserCompanionshipProjection(params: {
     entry: ledger,
   });
   const phaseEvent = resolveCompanionshipPhaseEvent(chat, character.id);
-  const inferredPhase = inferPhase(baseIntimacy, ledger);
+  const inferredPhase = inferPhase(baseIntimacy, ledger, sharedAnchors);
   const phase = phaseEvent?.phase || inferredPhase;
   const contacts = getLatestContact(messages, character.id);
   const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now);
@@ -1857,7 +1903,10 @@ export function buildUserCompanionshipProjection(params: {
     intimacy: baseIntimacy,
     now,
   });
-  const evidence = buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent);
+  const evidence = [
+    ...buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent),
+    ...(!phaseEvent ? buildAnchorPhaseEvidence(sharedAnchors, phase) : []),
+  ].slice(0, 6);
   const attachmentProfile = buildUserAttachmentProfile({ chat, characterId: character.id, messages, profile: userProfile, intimacy: baseIntimacy, now });
   const intimacy = adjustIntimacyForCompanionshipRuntime({
     base: baseIntimacy,

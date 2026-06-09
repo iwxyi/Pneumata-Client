@@ -454,6 +454,71 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.style).toBe('ambiguous');
   });
 
+  it('uses explicit shared confession anchors to infer confirmed relationship phase', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 58, trust: 56, competence: 10, threat: 2 })]),
+      character: character({
+        layeredMemories: [{
+          id: 'anchor-confirmed',
+          scope: 'relationship',
+          layer: 'long_term',
+          kind: 'bond',
+          ownerId: 'char-a',
+          subjectIds: ['char-a', 'user'],
+          text: '用户和苏苏明确确认关系，决定正式在一起。',
+          evidenceText: '用户说我们就在一起吧，苏苏答应了。',
+          salience: 0.9,
+          confidence: 0.92,
+          recency: 0.8,
+          reinforcementCount: 1,
+          sourceEventIds: ['evt-anchor-confirmed'],
+          origin: 'distilled',
+          createdAt: 700,
+          updatedAt: 850,
+        }],
+      }),
+      messages: [message({ content: '今天也想和你聊一会。', timestamp: 200 })],
+      now: 900,
+    });
+
+    expect(projection.userBond?.phase).toBe('confirmed');
+    expect(projection.userBond?.style).toBe('romantic');
+    expect(projection.userBond?.phaseEvidence.join('\n')).toContain('shared anchor');
+    expect(projection.promptLines.join('\n')).toContain('confirmed relationship');
+  });
+
+  it('treats confession anchors as confessing without claiming confirmed relationship', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 62, trust: 54, competence: 10, threat: 2 })]),
+      character: character({
+        layeredMemories: [{
+          id: 'anchor-confessing',
+          scope: 'relationship',
+          layer: 'long_term',
+          kind: 'bond',
+          ownerId: 'char-a',
+          subjectIds: ['char-a', 'user'],
+          text: '苏苏向用户表白，说自己喜欢用户，但还没有确认关系。',
+          evidenceText: '苏苏说我喜欢你，用户说想再想一想。',
+          salience: 0.88,
+          confidence: 0.9,
+          recency: 0.8,
+          reinforcementCount: 1,
+          sourceEventIds: ['evt-anchor-confessing'],
+          origin: 'distilled',
+          createdAt: 700,
+          updatedAt: 850,
+        }],
+      }),
+      messages: [message({ content: '今天也想和你聊一会。', timestamp: 200 })],
+      now: 900,
+    });
+
+    expect(projection.userBond?.phase).toBe('confessing');
+    expect(projection.userBond?.style).toBe('ambiguous');
+    expect(projection.promptLines.join('\n')).toContain('Do not claim a confirmed romantic relationship');
+  });
+
   it('uses explicit companionship phase events for confirmed relationship state', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({ warmth: 70, trust: 68, competence: 20, threat: 0 })], [phaseEvent()]),
@@ -1721,6 +1786,44 @@ describe('companionshipProjection', () => {
     });
     expect(projection.userBond?.intimateConflict?.repairReadiness).toBeGreaterThan(50);
     expect(projection.evidence.join('\n')).toContain('慢慢说开');
+  });
+
+  it('uses repair shared anchors to infer reconciling phase when no phase event exists', () => {
+    const repairCharacter = character({
+      layeredMemories: [{
+        id: 'repair-anchor-only',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '那次误会之后，用户和苏苏互相道歉并慢慢说开了。',
+        evidenceText: '用户说我们把误会说开吧，苏苏认真道歉。',
+        salience: 0.88,
+        confidence: 0.9,
+        recency: 0.8,
+        reinforcementCount: 1,
+        sourceEventIds: ['evt-repair-anchor-only'],
+        origin: 'distilled',
+        createdAt: 700,
+        updatedAt: 850,
+      }],
+    });
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({
+        warmth: 42,
+        trust: 34,
+        competence: 10,
+        threat: 18,
+      })]),
+      character: repairCharacter,
+      messages: [message({ content: '我们把误会说开吧。', timestamp: 850 })],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.phase).toBe('reconciling');
+    expect(projection.userBond?.phaseEvidence.join('\n')).toContain('shared anchor');
+    expect(projection.userBond?.intimateConflict?.kind).toBe('reconciliation');
   });
 
   it('prioritizes explicit intimate conflict runtime events over inferred conflict projection', () => {
