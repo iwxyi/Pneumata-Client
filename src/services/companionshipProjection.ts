@@ -1160,12 +1160,45 @@ function extractQuotedSharedPhraseFromMessage(message: Message, characterId: str
   };
 }
 
+function buildDiaryReflectionSharedPhrases(chat: GroupChat | undefined, character: AICharacter, now: number): SharedPhrase[] {
+  return (chat?.runtimeEventsV2 || [])
+    .map((event): SharedPhrase | null => {
+      const payload = diaryReflectionPayloadOf(event);
+      if (!payload || payload.characterId !== character.id || payload.reflectionType !== 'shared_phrase') return null;
+      const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 0.6;
+      if (confidence < 0.55) return null;
+      const textSource = `${payload.text}\n${payload.sourceSeed || ''}`;
+      const quoted = textSource.match(/[“"「『](.{1,36}?)[”"」』]/)?.[1];
+      const text = compactText(quoted || payload.text, 96);
+      if (!text) return null;
+      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id));
+      const kind = classifySharedPhrase(textSource);
+      return {
+        id: `phrase-diary-${payload.reflectionId}`,
+        text,
+        kind,
+        participantIds,
+        visibility: sharedPhraseVisibilityFromParticipants(participantIds, kind),
+        firstSaidBy: character.id,
+        emotionalWeight: clampRelationshipScore(46 + confidence * 34),
+        reuseCount: 1,
+        sourceAnchorId: `diary-reflection-${payload.reflectionId}`,
+        sourceEventIds: [event.id],
+        evidence: compactText(payload.diaryExcerpt || payload.sourceSeed || event.summary, 160),
+        updatedAt: event.createdAt || now,
+      };
+    })
+    .filter((item): item is SharedPhrase => Boolean(item));
+}
+
 export function buildSharedPhrases(character: AICharacter, now = 0, chat?: GroupChat, messages: Message[] = []): SharedPhrase[] {
   const runtimeState = buildRuntimeEventSharedPhraseState(chat, character, now);
   const anchorPhrases = buildSharedMemoryAnchors(character, now, chat)
     .map(sharedPhraseFromAnchor)
     .filter((item): item is SharedPhrase => Boolean(item))
     .filter((phrase) => !runtimeState.closedIds.has(phrase.id) && !runtimeState.closedTextKeys.has(sharedPhraseTextKey(phrase)));
+  const diaryPhrases = buildDiaryReflectionSharedPhrases(chat, character, now)
+    .filter((phrase) => !runtimeState.closedTextKeys.has(sharedPhraseTextKey(phrase)));
   const recentPhrases = messages
     .filter((message) => !message.isDeleted && (message.senderId === USER_ACTOR_ID || message.type === 'user' || message.type === 'god'))
     .slice(-12)
@@ -1173,7 +1206,7 @@ export function buildSharedPhrases(character: AICharacter, now = 0, chat?: Group
     .filter((item): item is SharedPhrase => Boolean(item))
     .filter((phrase) => !runtimeState.closedTextKeys.has(sharedPhraseTextKey(phrase)));
   const seen = new Set<string>();
-  return [...runtimeState.activePhrases, ...anchorPhrases, ...recentPhrases]
+  return [...runtimeState.activePhrases, ...anchorPhrases, ...diaryPhrases, ...recentPhrases]
     .filter((phrase) => {
       const key = sharedPhraseTextKey(phrase);
       if (seen.has(key)) return false;
@@ -2441,7 +2474,8 @@ function diaryReflectionPayloadOf(event: RuntimeEventV2): CompanionshipDiaryRefl
     && reflectionType !== 'promise'
     && reflectionType !== 'shared_secret'
     && reflectionType !== 'ritual'
-    && reflectionType !== 'shared_anchor') return null;
+    && reflectionType !== 'shared_anchor'
+    && reflectionType !== 'shared_phrase') return null;
   const participantIds = Array.isArray(payload.participantIds)
     ? payload.participantIds.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 6)
     : [characterId, typeof payload.userId === 'string' ? payload.userId : USER_ACTOR_ID];
@@ -2540,7 +2574,7 @@ function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: 
   const diaryAnchors = (chat?.runtimeEventsV2 || [])
     .map((event): SharedMemoryAnchor | null => {
       const payload = diaryReflectionPayloadOf(event);
-      if (!payload || payload.characterId !== character.id || payload.reflectionType === 'care') return null;
+      if (!payload || payload.characterId !== character.id || payload.reflectionType === 'care' || payload.reflectionType === 'shared_phrase') return null;
       const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 0.6;
       if (confidence < 0.55) return null;
       const inferredKind = payload.reflectionType === 'promise'

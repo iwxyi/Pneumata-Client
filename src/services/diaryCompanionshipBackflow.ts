@@ -14,6 +14,7 @@ function compactText(text: string | undefined | null, max = 180) {
 }
 
 function classifyDiaryCompanionshipSeed(seed: string): CompanionshipDiaryReflectionEventPayload['reflectionType'] | null {
+  if (/(共同话语|专属称呼|约定话语|安慰话语|心意话语|秘密暗号|“[^”]{1,36}”|「[^」]{1,36}」)/.test(seed)) return 'shared_phrase';
   if (/(未完成约定|约定|承诺|答应|说好|下次一起|以后一起|等你)/.test(seed)) return 'promise';
   if (/(共同秘密|小秘密|保密|只有.*知道|不能告诉)/.test(seed)) return 'shared_secret';
   if (/(共同梗|仪式|暗号|只有.*懂|玩笑)/.test(seed)) return 'ritual';

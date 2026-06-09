@@ -1489,6 +1489,41 @@ describe('companionshipProjection', () => {
     });
   });
 
+  it('reads diary reflection backflow as shared phrases', () => {
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [diaryReflectionEvent({
+      id: 'evt-diary-shared-phrase-1',
+      payload: {
+        eventType: 'companionship_diary_reflection',
+        characterId: 'char-a',
+        userId: 'user',
+        reflectionId: 'diary-entry-phrase-0',
+        diaryEntryId: 'diary-entry-phrase',
+        dateKey: '2026-06-09',
+        reflectionType: 'shared_phrase',
+        participantIds: ['char-a', 'user'],
+        text: '安慰话语可以成为日记里的私下回声：“慢慢来，我在”。',
+        sourceSeed: '安慰话语可以成为日记里的私下回声，避免机械复读：“慢慢来，我在”。',
+        diaryExcerpt: '今天又想起那句慢慢来，我在。',
+        confidence: 0.66,
+        decisionSource: 'local_fallback',
+      },
+    })]);
+    const phrases = buildSharedPhrases(character(), 1_400, directChat, []);
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '今天先聊到这里。', timestamp: 900 })],
+      now: 1_400,
+    });
+
+    expect(phrases[0]).toMatchObject({
+      text: '慢慢来，我在',
+      kind: 'comfort_line',
+      sourceEventIds: ['evt-diary-shared-phrase-1'],
+    });
+    expect(trace?.sharedPhrases.join('\n')).toContain('慢慢来，我在');
+  });
+
   it('drops pending promises outside the configured retention window', () => {
     setCompanionshipRuntimeConfig({
       ...DEFAULT_COMPANIONSHIP_SETTINGS,

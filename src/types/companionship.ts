@@ -386,7 +386,7 @@ export interface CompanionshipDiaryReflectionEventPayload {
   reflectionId: string;
   diaryEntryId: string;
   dateKey?: string | null;
-  reflectionType: 'care' | 'promise' | 'shared_secret' | 'ritual' | 'shared_anchor';
+  reflectionType: 'care' | 'promise' | 'shared_secret' | 'ritual' | 'shared_anchor' | 'shared_phrase';
   participantIds: string[];
   text: string;
   sourceSeed?: string;

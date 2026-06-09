@@ -81,6 +81,26 @@ describe('diaryCompanionshipBackflow', () => {
     expect(events[1]?.payload).toMatchObject({ reflectionType: 'care' });
   });
 
+  it('routes diary companionship phrase seeds to shared phrase reflections', () => {
+    const events = buildDiaryCompanionshipReflectionEvents({
+      entry: entry({ text: '今天又想起那句“慢慢来，我在”。' }),
+      context: context([
+        '安慰话语可以成为日记里的私下回声，避免机械复读：“慢慢来，我在”。',
+      ]),
+      character: { id: 'char-a', name: '苏苏' },
+      relatedCharacters: [],
+      conversationId: 'chat-1',
+      createdAt: 1_000,
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toMatchObject({
+      eventType: 'companionship_diary_reflection',
+      reflectionType: 'shared_phrase',
+      text: expect.stringContaining('慢慢来，我在'),
+    });
+  });
+
   it('picks related direct chats before broader group chats', () => {
     const events = buildDiaryCompanionshipReflectionEvents({
       entry: entry(),
