@@ -31,6 +31,7 @@ import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { formatInnerImpulseLabel } from '../../services/runtimeDecisionLabels';
 import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildRitualRegistry, buildSharedMemoryAnchors, buildSharedPhrases, buildSharedSecrets, buildUserCompanionshipProjection } from '../../services/companionshipProjection';
 import { applyCompanionshipLedgerBackflow } from '../../services/companionshipLedgerBackflow';
+import { buildSharedPhraseEventsFromCompanionshipEvent } from '../../services/companionshipSharedPhraseBackflow';
 import type { Message } from '../../types/message';
 import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, PendingCareTopic, PendingPromise, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
@@ -1832,7 +1833,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
   }, [character, chats, messageWindowsByChatId, messages]);
 
   const appendManualCompanionshipEvent = async (chat: GroupChat, event: RuntimeEventV2) => {
-    const nextRuntimeEvents = [...(chat.runtimeEventsV2 || []).filter((item) => item.id !== event.id), event];
+    const derivedEvents = buildSharedPhraseEventsFromCompanionshipEvent({ chat, character: character as AICharacter, event });
+    const eventIds = new Set([event.id, ...derivedEvents.map((item) => item.id)]);
+    const nextRuntimeEvents = [...(chat.runtimeEventsV2 || []).filter((item) => !eventIds.has(item.id)), event, ...derivedEvents];
     const nextRelationshipLedger = applyCompanionshipLedgerBackflow({ ...chat, runtimeEventsV2: nextRuntimeEvents }, event);
     await updateChat(chat.id, {
       runtimeEventsV2: nextRuntimeEvents,

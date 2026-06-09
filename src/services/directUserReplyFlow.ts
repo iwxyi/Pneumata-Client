@@ -15,6 +15,7 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import type { LocalInterceptionEvent } from './chatEngine';
 import { resolveDirectCompanionshipAssessmentEvents } from './directCompanionshipAssessment';
 import { buildCompanionshipRitualEventsFromDirectUserMessage } from './directCompanionshipRitual';
+import { buildSharedPhraseEventsFromCompanionshipEvents } from './companionshipSharedPhraseBackflow';
 import { reportRecoverableError } from './diagnostics';
 
 export async function runDirectUserReplyFlow(params: {
@@ -68,7 +69,13 @@ export async function runDirectUserReplyFlow(params: {
         message: params.userMessage,
         recentMessages: getProjectedMessages(),
       });
-      const companionshipEvents = [...assessmentEvents, ...ritualEvents].filter((event): event is RuntimeEventV2 => Boolean(event));
+      const baseCompanionshipEvents = [...assessmentEvents, ...ritualEvents].filter((event): event is RuntimeEventV2 => Boolean(event));
+      const sharedPhraseEvents = buildSharedPhraseEventsFromCompanionshipEvents({
+        chat: latestChat,
+        character: latestCharacter,
+        events: baseCompanionshipEvents,
+      });
+      const companionshipEvents = [...baseCompanionshipEvents, ...sharedPhraseEvents];
       if (!companionshipEvents.length) return;
       const currentChat = useChatStore.getState().chats.find((item) => item.id === params.chat.id) || latestChat;
       const runtimeEventsV2 = [
