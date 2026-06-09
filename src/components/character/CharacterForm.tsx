@@ -610,6 +610,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       const generatedBubbleStyleId = createCharacterBubbleStyleId();
       setAvatar(generated.avatar);
       setPersonality(generated.personality);
+      setBehavior(generated.behavior);
       setExpertise(generated.expertise);
       setSpeakingStyle(generated.speakingStyle);
       setBackground(generated.background);

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, TextField, Typography, Chip, LinearProgress, Dialog, DialogContent, IconButton } from '@mui/material';
 import type { AIModelProfile } from '../types/settings';
-import type { AICharacter, PersonalityParams } from '../types/character';
+import type { AICharacter, CharacterBehaviorParams, PersonalityParams } from '../types/character';
 import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
 import { initializeDefaultRelationshipsForCreatedCharacters } from '../services/defaultRelationshipInitializer';
 import AppSnackbar from '../components/common/AppSnackbar';
@@ -60,6 +60,7 @@ function buildGeneratedCharacterPayload(params: {
   generated: {
     avatar: string;
     personality: Record<string, number>;
+    behavior: CharacterBehaviorParams;
     expertise: string[];
     speakingStyle: string;
     background: string;
@@ -82,7 +83,7 @@ function buildGeneratedCharacterPayload(params: {
       generatedGroup: params.generatedGroup,
       customStyleIds: params.customStyleIds,
     }),
-    behavior: DEFAULT_CHARACTER_BEHAVIOR,
+    behavior: params.generated.behavior,
     relationships: [],
     memory: DEFAULT_CHARACTER_MEMORY,
     intervention: DEFAULT_CHARACTER_INTERVENTION,
@@ -139,6 +140,7 @@ async function processCharacterBatch(params: {
           generated: {
             avatar: profile.avatar,
             personality: profile.personality as unknown as Record<string, number>,
+            behavior: profile.behavior,
             expertise: profile.expertise,
             speakingStyle: profile.speakingStyle,
             background: profile.background,
@@ -205,7 +207,7 @@ import { generateCharacterProfilesSafe } from '../services/characterGenerator';
 
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
-import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../types';
+import { DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../types';
 import { getTopicDerivedCharacterGroup } from '../types/character';
 import { getPreferredAIProfile } from '../types/settings';
 import { BUILT_IN_BUBBLE_STYLES } from '../constants/bubbleStyles';

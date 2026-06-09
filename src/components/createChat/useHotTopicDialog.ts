@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api as backendApi, type TopicAdaptationResult, type TopicItem, type TopicSourceSummary } from '../../services/api';
 import { generateCharacterProfile } from '../../services/characterGenerator';
-import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../../types';
+import { DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../../types';
 import type { AICharacter } from '../../types/character';
 import type { ChatStyle } from '../../types/chat';
 import type { APIConfig, AIModelProfile } from '../../types/settings';
@@ -296,7 +296,7 @@ export function useHotTopicDialog(params: {
       name,
       avatar: generated.avatar,
       personality: generated.personality,
-      behavior: DEFAULT_CHARACTER_BEHAVIOR,
+      behavior: generated.behavior,
       expertise: generated.expertise,
       speakingStyle: generated.speakingStyle,
       background: backgroundHint || generated.background,

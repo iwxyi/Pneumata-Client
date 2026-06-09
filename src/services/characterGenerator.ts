@@ -1,7 +1,7 @@
 import { generateResponse } from './aiClient';
 import type { APIConfig } from '../types/settings';
-import type { PersonalityParams, CharacterSpeechProfile, CharacterCoreProfile } from '../types/character';
-import { DEFAULT_PERSONALITY, DEFAULT_SPEECH_PROFILE, DEFAULT_CORE_PROFILE } from '../types/character';
+import type { PersonalityParams, CharacterBehaviorParams, CharacterSpeechProfile, CharacterCoreProfile } from '../types/character';
+import { DEFAULT_PERSONALITY, DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_SPEECH_PROFILE, DEFAULT_CORE_PROFILE } from '../types/character';
 import type { BubbleStyleDefinition, BubbleBorderStyle, BubbleGradientDirection, BubbleShadowLevel } from '../types/bubbleStyle';
 import { DEFAULT_BUBBLE_STYLE_FORM } from '../types/bubbleStyle';
 import { AVATAR_OPTIONS } from '../constants/presets';
@@ -9,6 +9,7 @@ import { AVATAR_OPTIONS } from '../constants/presets';
 export interface GeneratedCharacterProfile {
   avatar?: string;
   personality?: Partial<PersonalityParams>;
+  behavior?: Partial<CharacterBehaviorParams>;
   expertise?: string[];
   speakingStyle?: string;
   background?: string;
@@ -44,6 +45,14 @@ Return strict JSON only, with this shape:
     "creativity": 0-100,
     "assertiveness": 0-100,
     "empathy": 0-100
+  },
+  "behavior": {
+    "proactivity": 0-100,
+    "aggressiveness": 0-100,
+    "humorIntensity": 0-100,
+    "empathyLevel": 0-100,
+    "summarizing": 0-100,
+    "offTopic": 0-100
   },
   "expertise": ["short domain", "short domain", "short domain", "short domain"],
   "speakingStyle": "1-2 concise sentences",
@@ -94,6 +103,8 @@ Return strict JSON only, with this shape:
 }
 Rules:
 - Infer the profile from the provided name and likely public persona/archetype.
+- Make personality and behavior numerically distinctive for the role. Avoid leaving all axes at 50 unless the role is intentionally neutral on that exact axis.
+- behavior controls social expression and discussion style: proactivity = initiates topics, aggressiveness = confronts/pushes back, humorIntensity = jokes/playfulness, empathyLevel = emotional attunement, summarizing = organizes/summarizes, offTopic = tangent-prone.
 - If the name is fictional, meme-like, or ambiguous, still create a vivid but usable role profile.
 - Keep expertise practical for conversation.
 - Make coreProfile psychologically specific to this role, not generic labels. It should describe long-term inner drives, vulnerabilities, relationship style, conflict style, self-image, and likely perception filters.
@@ -167,6 +178,14 @@ export function normalizeGeneratedProfile(raw: GeneratedCharacterProfile) {
     assertiveness: clampScore(raw.personality?.assertiveness, DEFAULT_PERSONALITY.assertiveness),
     empathy: clampScore(raw.personality?.empathy, DEFAULT_PERSONALITY.empathy),
   };
+  const behavior = {
+    proactivity: clampScore(raw.behavior?.proactivity, DEFAULT_CHARACTER_BEHAVIOR.proactivity),
+    aggressiveness: clampScore(raw.behavior?.aggressiveness, DEFAULT_CHARACTER_BEHAVIOR.aggressiveness),
+    humorIntensity: clampScore(raw.behavior?.humorIntensity, DEFAULT_CHARACTER_BEHAVIOR.humorIntensity),
+    empathyLevel: clampScore(raw.behavior?.empathyLevel, DEFAULT_CHARACTER_BEHAVIOR.empathyLevel),
+    summarizing: clampScore(raw.behavior?.summarizing, DEFAULT_CHARACTER_BEHAVIOR.summarizing),
+    offTopic: clampScore(raw.behavior?.offTopic, DEFAULT_CHARACTER_BEHAVIOR.offTopic),
+  };
 
   const expertise = Array.isArray(raw.expertise)
     ? raw.expertise
@@ -213,6 +232,7 @@ export function normalizeGeneratedProfile(raw: GeneratedCharacterProfile) {
   return {
     avatar: AVATAR_OPTIONS.includes(avatar) ? avatar : '🤖',
     personality,
+    behavior,
     expertise,
     speakingStyle: typeof raw.speakingStyle === 'string' ? raw.speakingStyle.trim() : '',
     background: typeof raw.background === 'string' ? raw.background.trim() : '',
@@ -231,9 +251,7 @@ export function normalizeGeneratedProfile(raw: GeneratedCharacterProfile) {
 export function parseGeneratedProfile(content: string) {
   const trimmed = content.trim();
   const json = trimmed.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
-  console.log('[character-generator:raw]', json);
   const parsed = JSON.parse(json) as GeneratedCharacterProfile;
-  console.log('[character-generator:parsed]', parsed);
   return normalizeGeneratedProfile(parsed);
 }
 
@@ -260,6 +278,11 @@ function sanitizeBatchNames(names: string[]) {
 
 function extractJsonBlock(content: string) {
   const trimmed = content.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
+  const firstBracket = trimmed.indexOf('[');
+  const lastBracket = trimmed.lastIndexOf(']');
+  if (firstBracket >= 0 && lastBracket > firstBracket) {
+    return trimmed.slice(firstBracket, lastBracket + 1);
+  }
   const firstBrace = trimmed.indexOf('{');
   const lastBrace = trimmed.lastIndexOf('}');
   if (firstBrace >= 0 && lastBrace > firstBrace) {
@@ -273,17 +296,16 @@ function buildBatchGeneratePrompt(names: string[], language: 'zh' | 'en', theme?
   const normalizedTheme = formatThemeHint(theme);
   if (language === 'zh') {
     return normalizedTheme
-      ? `请基于主题“${normalizedTheme}”为以下角色批量生成档案：${normalizedNames.join('、')}。每个角色都必须按该主题中的身份来理解，避免混淆同名人物。返回严格 JSON 数组，每项都包含 name、avatar、personality、expertise、speakingStyle、background、speechProfile、coreProfile、bubbleStyle、visualIdentity。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`
-      : `请为以下名字批量生成角色档案：${normalizedNames.join('、')}。返回严格 JSON 数组，每项都包含 name、avatar、personality、expertise、speakingStyle、background、speechProfile、coreProfile、bubbleStyle、visualIdentity。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`;
+      ? `请基于主题“${normalizedTheme}”为以下角色批量生成档案：${normalizedNames.join('、')}。每个角色都必须按该主题中的身份来理解，避免混淆同名人物。返回严格 JSON 数组，每项都包含 name、avatar、personality、behavior、expertise、speakingStyle、background、speechProfile、coreProfile、bubbleStyle、visualIdentity。personality 和 behavior 要按角色差异给出有区分度的 0-100 数值，不要全部填 50。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`
+      : `请为以下名字批量生成角色档案：${normalizedNames.join('、')}。返回严格 JSON 数组，每项都包含 name、avatar、personality、behavior、expertise、speakingStyle、background、speechProfile、coreProfile、bubbleStyle、visualIdentity。personality 和 behavior 要按角色差异给出有区分度的 0-100 数值，不要全部填 50。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`;
   }
   return normalizedTheme
-    ? `Generate character profiles for these characters from the theme "${normalizedTheme}": ${normalizedNames.join(', ')}. Use the theme to disambiguate namesakes for every character. Return a strict JSON array. Every item must include name, avatar, personality, expertise, speakingStyle, background, speechProfile, coreProfile, bubbleStyle, and visualIdentity. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`
-    : `Generate character profiles for these names: ${normalizedNames.join(', ')}. Return a strict JSON array. Every item must include name, avatar, personality, expertise, speakingStyle, background, speechProfile, coreProfile, bubbleStyle, and visualIdentity. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`;
+    ? `Generate character profiles for these characters from the theme "${normalizedTheme}": ${normalizedNames.join(', ')}. Use the theme to disambiguate namesakes for every character. Return a strict JSON array. Every item must include name, avatar, personality, behavior, expertise, speakingStyle, background, speechProfile, coreProfile, bubbleStyle, and visualIdentity. personality and behavior must use distinctive 0-100 values for each role; do not set every axis to 50. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`
+    : `Generate character profiles for these names: ${normalizedNames.join(', ')}. Return a strict JSON array. Every item must include name, avatar, personality, behavior, expertise, speakingStyle, background, speechProfile, coreProfile, bubbleStyle, and visualIdentity. personality and behavior must use distinctive 0-100 values for each role; do not set every axis to 50. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`;
 }
 
 export function parseGeneratedProfileMap(content: string, names: string[]) {
   const json = extractJsonBlock(content);
-  console.log('[character-generator:batch:raw]', json);
   const parsed = JSON.parse(json) as Array<GeneratedCharacterProfile & { name?: string }>;
   const items = Array.isArray(parsed) ? parsed : [];
   const nameMap = new Map(items.map((item) => [typeof item.name === 'string' ? item.name.trim() : '', item]));
