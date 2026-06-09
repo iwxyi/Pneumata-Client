@@ -29,9 +29,9 @@ import { summarizeExpressionFeedbackInfluence } from '../../services/expressionF
 import { buildMemberInnerLifeChips } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { formatInnerImpulseLabel } from '../../services/runtimeDecisionLabels';
-import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors, buildUserCompanionshipProjection } from '../../services/companionshipProjection';
+import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors, buildSharedSecrets, buildUserCompanionshipProjection } from '../../services/companionshipProjection';
 import type { Message } from '../../types/message';
-import type { CharacterCompanionshipState, CompanionshipRuntimeTrace, PendingCareTopic, PendingPromise, SharedMemoryAnchor, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipRuntimeTrace, PendingCareTopic, PendingPromise, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
@@ -514,6 +514,37 @@ function buildManualSharedAnchorArchiveEvent(chat: GroupChat, character: AIChara
   };
 }
 
+function buildManualSharedSecretRevokedEvent(chat: GroupChat, character: AICharacter, secret: SharedSecret): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, secret.id, 'shared-secret-revoked']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户撤回了一条小秘密`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_shared_secret',
+      characterId: character.id,
+      userId: secret.participantIds.includes('user') ? 'user' : undefined,
+      secretId: secret.id,
+      action: 'revoked',
+      participantIds: secret.participantIds,
+      privateText: secret.privateText,
+      publicMask: secret.publicMask,
+      reason: '用户在角色关系页手动撤回该小秘密。',
+      evidence: secret.publicMask || 'manual_revoke_from_character_relationship_tab',
+      emotionalWeight: secret.emotionalWeight,
+      confidence: 1,
+    },
+  };
+}
+
 function formatUserProfileMemoryKindLabel(kind: UserProfileMemoryKind) {
   const labels: Record<UserProfileMemoryKind, string> = {
     display_name: '名字',
@@ -855,6 +886,7 @@ function UserCompanionshipCard({
   trace,
   pendingCareTopics,
   pendingPromises,
+  sharedSecrets,
   onBlockCareTopic,
   onRevokePromise,
   onForbidAddress,
@@ -863,6 +895,7 @@ function UserCompanionshipCard({
   onDisableAttachment,
   onEnableAttachment,
   onRevokeProfileCue,
+  onRevokeSharedSecret,
   developerMode,
 }: {
   chatName: string;
@@ -870,6 +903,7 @@ function UserCompanionshipCard({
   trace: CompanionshipRuntimeTrace | null;
   pendingCareTopics: PendingCareTopic[];
   pendingPromises: PendingPromise[];
+  sharedSecrets: SharedSecret[];
   onBlockCareTopic: (topic: PendingCareTopic) => void;
   onRevokePromise: (promise: PendingPromise) => void;
   onForbidAddress: (address: string) => void;
@@ -878,6 +912,7 @@ function UserCompanionshipCard({
   onDisableAttachment: () => void;
   onEnableAttachment: () => void;
   onRevokeProfileCue: (item: UserProfileMemoryEventItem) => void;
+  onRevokeSharedSecret: (secret: SharedSecret) => void;
   developerMode: boolean;
 }) {
   const headlineChips = [
@@ -1033,6 +1068,32 @@ function UserCompanionshipCard({
                         ) : null}
                       </Box>
                       <Button size="small" variant="text" onClick={() => onRevokeProfileCue(item)} sx={{ flexShrink: 0 }}>
+                        撤回
+                      </Button>
+                    </Box>
+                  ))}
+                </Stack>
+              </Box>
+            ) : null}
+            {sharedSecrets.length ? (
+              <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
+                  小秘密边界
+                </Typography>
+                <Stack spacing={0.75}>
+                  {sharedSecrets.slice(0, 4).map((secret) => (
+                    <Box key={secret.id} sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
+                          <Chip size="small" label={secret.leakState === 'sealed' ? '密封' : secret.leakState === 'hinted_publicly' ? '公开暗示' : secret.leakState === 'leaked' ? '已泄露' : '已坦白'} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                          <Typography variant="caption" color="text.secondary">权重 {secret.emotionalWeight}</Typography>
+                        </Stack>
+                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{secret.publicMask}</Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
+                          参与者：{secret.participantIds.join(' × ')}
+                        </Typography>
+                      </Box>
+                      <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(secret)} sx={{ flexShrink: 0 }}>
                         撤回
                       </Button>
                     </Box>
@@ -1412,6 +1473,8 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
         character: character as AICharacter,
         messages: chatMessages,
       });
+      const sharedSecrets = buildSharedSecrets(character as AICharacter, directChat.updatedAt || Date.now(), directChat)
+        .filter((secret) => secret.participantIds.includes('user'));
       return {
         chatId: directChat.id,
         chatName: directChat.name,
@@ -1420,6 +1483,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
         trace,
         pendingCareTopics: projection.userBond?.pendingCareTopics || [],
         pendingPromises: projection.userBond?.pendingPromises || [],
+        sharedSecrets,
       };
     }).filter(Boolean) as Array<{
       chatId: string;
@@ -1429,6 +1493,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       trace: CompanionshipRuntimeTrace | null;
       pendingCareTopics: PendingCareTopic[];
       pendingPromises: PendingPromise[];
+      sharedSecrets: SharedSecret[];
     }>;
     return views.length ? views : null;
   }, [character, chats, messageWindowsByChatId, messages]);
@@ -1473,6 +1538,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 trace={view.trace}
                 pendingCareTopics={view.pendingCareTopics}
                 pendingPromises={view.pendingPromises}
+                sharedSecrets={view.sharedSecrets}
                 onBlockCareTopic={(topic) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualCareTopicBlockedEvent(view.chat, character as AICharacter, topic));
                 }}
@@ -1498,6 +1564,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onRevokeProfileCue={(item) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualUserProfileMemoryRevokeEvent(view.chat, character as AICharacter, item));
+                }}
+                onRevokeSharedSecret={(secret) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretRevokedEvent(view.chat, character as AICharacter, secret));
                 }}
                 developerMode={isDeveloperView}
               />
