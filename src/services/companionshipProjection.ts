@@ -1275,6 +1275,23 @@ function addressingPayloadOf(event: RuntimeEventV2): CompanionshipAddressingEven
   return payload as CompanionshipAddressingEventPayload;
 }
 
+function hasRecentAddressingRepairEvent(chat: GroupChat | undefined, characterId: string | undefined, now: number) {
+  if (!chat || !characterId) return false;
+  const windowStart = now - 14 * DAY_MS;
+  return (chat.runtimeEventsV2 || []).some((event) => {
+    if (event.kind !== 'artifact' || (event.createdAt || 0) < windowStart) return false;
+    const payload = intimateConflictEventPayloadOf(event);
+    if (!payload || payload.characterId !== characterId) return false;
+    const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 1;
+    if (confidence < 0.6) return false;
+    if (payload.userId && payload.userId !== USER_ACTOR_ID) return false;
+    const participantIds = payload.participantIds?.length ? payload.participantIds : [characterId, USER_ACTOR_ID];
+    return participantIds.includes(USER_ACTOR_ID)
+      && (payload.action === 'resolved' || payload.action === 'repair_attempted')
+      && (payload.kind === 'reconciliation' || payload.kind === 'repair_attempt');
+  });
+}
+
 function resolveAddressingFromEvents(chat: GroupChat, characterId: string, base: AddressingState, phase: CompanionshipPhase, now: number): AddressingState {
   const events = (chat.runtimeEventsV2 || [])
     .filter((event) => event.kind === 'artifact')
@@ -1350,13 +1367,15 @@ function resolveAddressingFromEvents(chat: GroupChat, characterId: string, base:
       }).slice(-8);
     }
   });
-  const isRestrained = phase === 'cooling' || phase === 'crisis' || phase === 'reconciling';
+  const recoveredByRepair = phase === 'reconciling' && hasRecentAddressingRepairEvent(chat, characterId, now);
+  const isRestrained = phase === 'cooling' || phase === 'crisis' || (phase === 'reconciling' && !recoveredByRepair);
   const safePrivate = next.privateAddress && !next.forbiddenAddresses.includes(next.privateAddress) ? next.privateAddress : undefined;
   const safePublic = next.publicAddress && !next.forbiddenAddresses.includes(next.publicAddress) ? next.publicAddress : '用户';
   const safeCurrent = next.currentAddress && !next.forbiddenAddresses.includes(next.currentAddress) ? next.currentAddress : undefined;
+  const recoveredCurrent = recoveredByRepair ? (safePrivate || safeCurrent || safePublic || '你') : undefined;
   return {
     ...next,
-    currentAddress: isRestrained ? (safePublic === '用户' ? '你' : safePublic) : (safeCurrent || safePrivate || safePublic || '你'),
+    currentAddress: recoveredCurrent || (isRestrained ? (safePublic === '用户' ? '你' : safePublic) : (safeCurrent || safePrivate || safePublic || '你')),
     privateAddress: safePrivate,
     publicAddress: safePublic,
     forbiddenAddresses: uniqueTexts(next.forbiddenAddresses, 12),
@@ -1368,7 +1387,8 @@ function buildAddressing(profile: UserProfileMemoryProjection, phase: Companions
   const forbiddenAddresses = extractForbiddenAddresses(profile.sourceTexts);
   const safePreferred = preferred && !forbiddenAddresses.includes(preferred) ? preferred : undefined;
   const neutralAddress = profile.displayName && !forbiddenAddresses.includes(profile.displayName) ? profile.displayName : '你';
-  const isRestrained = phase === 'cooling' || phase === 'crisis' || phase === 'reconciling';
+  const recoveredByRepair = phase === 'reconciling' && hasRecentAddressingRepairEvent(chat, characterId, now);
+  const isRestrained = phase === 'cooling' || phase === 'crisis' || (phase === 'reconciling' && !recoveredByRepair);
   const currentAddress = isRestrained ? neutralAddress : (safePreferred || neutralAddress);
   const base = {
     defaultName: '你',
@@ -1379,8 +1399,8 @@ function buildAddressing(profile: UserProfileMemoryProjection, phase: Companions
     addressHistory: safePreferred ? [{
       value: safePreferred,
       adoptedAt: now,
-      reason: isRestrained ? 'user preference kept private while relationship is restrained' : 'user memory preference',
-      initiatedBy: 'user' as const,
+      reason: recoveredByRepair ? 'repair event restored private address gently' : isRestrained ? 'user preference kept private while relationship is restrained' : 'user memory preference',
+      initiatedBy: recoveredByRepair ? 'mutual' as const : 'user' as const,
     }] : [],
   };
   return chat && characterId ? resolveAddressingFromEvents(chat, characterId, base, phase, now) : base;

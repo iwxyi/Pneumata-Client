@@ -1130,6 +1130,88 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.addressing.privateAddress).toBe('小夏');
   });
 
+  it('gently restores private addressing after a repair event during reconciling', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [
+        relationship({ warmth: 30, trust: 18, competence: 0, threat: 28 }),
+      ], [
+        intimateConflictEvent({
+          id: 'evt-addressing-repair',
+          createdAt: 900,
+          payload: {
+            eventType: 'companionship_intimate_conflict',
+            characterId: 'char-a',
+            userId: 'user',
+            action: 'resolved',
+            kind: 'reconciliation',
+            severity: 18,
+            repairReadiness: 82,
+            summary: '两个人刚刚把话说开。',
+            evidence: ['用户说：那我们慢慢来，别再冷战了。'],
+            participantIds: ['char-a', 'user'],
+            confidence: 0.9,
+            decisionSource: 'model',
+          },
+        }),
+      ]),
+      character: character({
+        memory: {
+          shortTermSummary: '',
+          longTerm: [],
+          secrets: [],
+          obsessions: [],
+          tabooTopics: [],
+          userMemories: ['用户说：叫我小夏。'],
+        },
+      }),
+      messages: [message({ content: '那我们慢慢来，别再冷战了。', timestamp: 920 })],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.phase).toBe('reconciling');
+    expect(projection.userBond?.addressing.currentAddress).toBe('小夏');
+    expect(projection.userBond?.addressing.addressHistory.at(-1)?.reason).toContain('repair event restored');
+  });
+
+  it('does not restore forbidden private addressing after repair', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [
+        relationship({ warmth: 30, trust: 18, competence: 0, threat: 28 }),
+      ], [
+        intimateConflictEvent({
+          id: 'evt-addressing-repair-with-forbidden',
+          createdAt: 900,
+          payload: {
+            eventType: 'companionship_intimate_conflict',
+            characterId: 'char-a',
+            userId: 'user',
+            action: 'resolved',
+            kind: 'reconciliation',
+            participantIds: ['char-a', 'user'],
+            confidence: 0.9,
+            decisionSource: 'model',
+          },
+        }),
+      ]),
+      character: character({
+        memory: {
+          shortTermSummary: '',
+          longTerm: [],
+          secrets: [],
+          obsessions: [],
+          tabooTopics: [],
+          userMemories: ['用户说：叫我小夏。', '用户说：别再叫我小夏。'],
+        },
+      }),
+      messages: [message({ content: '那我们慢慢来。', timestamp: 920 })],
+      now: 1_000,
+    });
+
+    expect(projection.userBond?.phase).toBe('reconciling');
+    expect(projection.userBond?.addressing.currentAddress).toBe('你');
+    expect(projection.userBond?.addressing.forbiddenAddresses).toContain('小夏');
+  });
+
   it('drops pending care topics after the user closes the topic', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })]),
