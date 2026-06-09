@@ -1109,6 +1109,19 @@ function dueAtFromPromiseText(text: string, updatedAt: number) {
   return undefined;
 }
 
+function getPendingPromiseRetentionMs() {
+  const rawDays = getCompanionshipRuntimeConfig().pendingPromiseRetentionDays;
+  const days = Number.isFinite(rawDays) ? Math.min(365, Math.max(1, Math.round(rawDays))) : 30;
+  return days * DAY_MS;
+}
+
+function isPromiseWithinRetention(promise: PendingPromise, now: number, retentionMs: number) {
+  const updatedAt = Number.isFinite(promise.updatedAt) ? promise.updatedAt : now;
+  const dueAt = typeof promise.dueAt === 'number' && Number.isFinite(promise.dueAt) ? promise.dueAt : undefined;
+  const relevantAt = Math.max(updatedAt, dueAt || 0);
+  return now - relevantAt <= retentionMs;
+}
+
 function promiseId(parts: Array<string | number | undefined>) {
   const joined = parts.filter((item) => item !== undefined && item !== null && String(item).length > 0).join('|');
   let hash = 0;
@@ -1181,6 +1194,7 @@ function buildPendingPromises(params: {
   sharedAnchors: SharedMemoryAnchor[];
   now: number;
 }): PendingPromise[] {
+  const retentionMs = getPendingPromiseRetentionMs();
   const promiseEventState = buildPromiseEventState(params.chat, params.characterId, params.now);
   const promises: PendingPromise[] = [...promiseEventState.activePromises];
   params.sharedAnchors
@@ -1236,7 +1250,15 @@ function buildPendingPromises(params: {
     });
 
   const seen = new Set<string>();
+  const staleKeys = new Set<string>();
   return promises
+    .filter((promise) => {
+      if (isPromiseSuppressed(promise.text, staleKeys)) return false;
+      if (isPromiseWithinRetention(promise, params.now, retentionMs)) return true;
+      const key = promiseKey(promise.text);
+      if (key) staleKeys.add(key);
+      return false;
+    })
     .filter((promise) => {
       const key = promise.text.replace(/\s+/g, '').slice(0, 48);
       if (!key || seen.has(key)) return false;

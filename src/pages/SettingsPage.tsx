@@ -561,6 +561,18 @@ export default function SettingsPage() {
               <FormControlLabel control={<Switch checked={settings.companionship.showStatusHints} onChange={(e) => settings.setCompanionship({ showStatusHints: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示陪伴状态提示' : 'Show companionship status hints'} />
               <FormControlLabel control={<Switch checked={settings.companionship.enableAttachmentAdaptation} onChange={(e) => settings.setCompanionship({ enableAttachmentAdaptation: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用互动模式适配' : 'Enable interaction-pattern adaptation'} />
               <FormControlLabel control={<Switch checked={settings.companionship.enableRelationshipRituals} onChange={(e) => settings.setCompanionship({ enableRelationshipRituals: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用关系仪式' : 'Enable relationship rituals'} />
+              <TextField
+                type="number"
+                size="small"
+                label={i18n.language.startsWith('zh') ? '未完成约定保留天数' : 'Pending promise retention days'}
+                value={settings.companionship.pendingPromiseRetentionDays}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  settings.setCompanionship({ pendingPromiseRetentionDays: Number.isFinite(value) ? Math.min(365, Math.max(1, Math.round(value))) : 30 });
+                }}
+                slotProps={{ htmlInput: { min: 1, max: 365, step: 1 } }}
+                sx={{ maxWidth: 260 }}
+              />
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '陪伴表达强度' : 'Companionship intensity'}</Typography>
                 <ToggleButtonGroup value={settings.companionship.careIntensity} exclusive onChange={(_, v) => v && settings.setCompanionship({ careIntensity: v })} size="small" sx={buildToggleGroupSx()}>

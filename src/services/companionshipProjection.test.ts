@@ -1310,6 +1310,105 @@ describe('companionshipProjection', () => {
     expect(trace?.pendingPromises.join('\n')).toContain('周末一起看那部电影');
   });
 
+  it('drops pending promises outside the configured retention window', () => {
+    setCompanionshipRuntimeConfig({
+      ...DEFAULT_COMPANIONSHIP_SETTINGS,
+      pendingPromiseRetentionDays: 7,
+    });
+    const now = 40 * 24 * 60 * 60 * 1000;
+    const oldAt = now - 30 * 24 * 60 * 60 * 1000;
+    const promiseCharacter = character({
+      layeredMemories: [{
+        id: 'old-promise-anchor',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '说好下次一起补看那部旧电影。',
+        evidenceText: '用户说：下次一起补看那部旧电影。',
+        salience: 0.86,
+        confidence: 0.9,
+        recency: 0.8,
+        reinforcementCount: 1,
+        sourceEventIds: ['evt-old-promise-anchor'],
+        origin: 'distilled',
+        createdAt: oldAt,
+        updatedAt: oldAt,
+      }],
+    });
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
+      promiseEvent({
+        id: 'evt-old-promise',
+        createdAt: oldAt,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-old-movie',
+          promiseText: '下次一起补看那部旧电影',
+          action: 'opened',
+          participantIds: ['char-a', 'user'],
+          evidence: '下次一起补看那部旧电影。',
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: promiseCharacter,
+      messages: [message({ id: 'msg-old-promise', content: '下次一起补看那部旧电影。', timestamp: oldAt })],
+      now,
+    });
+
+    expect(projection.userBond?.pendingPromises).toEqual([]);
+    expect(projection.promptLines.join('\n')).not.toContain('Pending promises/unfinished shared plans');
+  });
+
+  it('keeps old pending promise events when their due time is still relevant', () => {
+    setCompanionshipRuntimeConfig({
+      ...DEFAULT_COMPANIONSHIP_SETTINGS,
+      pendingPromiseRetentionDays: 7,
+    });
+    const now = 40 * 24 * 60 * 60 * 1000;
+    const oldAt = now - 30 * 24 * 60 * 60 * 1000;
+    const futureDueAt = now + 2 * 24 * 60 * 60 * 1000;
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
+      promiseEvent({
+        id: 'evt-future-promise',
+        createdAt: oldAt,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-future-movie',
+          promiseText: '下周一起补看那部电影',
+          action: 'opened',
+          participantIds: ['char-a', 'user'],
+          evidence: '下周一起补看那部电影。',
+          dueAt: futureDueAt,
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [],
+      now,
+    });
+
+    expect(projection.userBond?.pendingPromises[0]).toMatchObject({
+      id: 'promise-future-movie',
+      text: '下周一起补看那部电影',
+      source: 'runtime_event',
+      dueAt: futureDueAt,
+    });
+    expect(projection.promptLines.join('\n')).toContain('下周一起补看那部电影');
+  });
+
   it('feeds pending care topics and promises into private diary seeds but not public moment seeds', () => {
     const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
       {

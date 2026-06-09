@@ -345,6 +345,7 @@ export interface CompanionshipSettings {
   showStatusHints: boolean;
   enableAttachmentAdaptation: boolean;
   enableRelationshipRituals: boolean;
+  pendingPromiseRetentionDays: number;
   allowGoodMorning: boolean;
   allowGoodNight: boolean;
   allowMissYou: boolean;
@@ -414,6 +415,7 @@ export const DEFAULT_COMPANIONSHIP_SETTINGS: CompanionshipSettings = {
   showStatusHints: true,
   enableAttachmentAdaptation: true,
   enableRelationshipRituals: true,
+  pendingPromiseRetentionDays: 30,
   allowGoodMorning: true,
   allowGoodNight: true,
   allowMissYou: true,
