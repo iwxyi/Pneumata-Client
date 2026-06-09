@@ -334,6 +334,10 @@ export function reduceRelationshipLedger(entries: RelationshipLedgerEntry[], int
   const maybeDelta = inferRelationshipDelta(interaction);
   if (!passesInteractionGate(interaction, maybeDelta) || !maybeDelta) return entries;
   const delta = maybeDelta;
+  return reduceRelationshipLedgerWithDelta(entries, delta, evidenceEvent);
+}
+
+export function reduceRelationshipLedgerWithDelta(entries: RelationshipLedgerEntry[], delta: RelationshipDeltaPayload, evidenceEvent: RuntimeEventV2): RelationshipLedgerEntry[] {
   const key = pairKey(delta.actorId, delta.targetId);
   const existing = entries.find((entry) => entry.pairKey === key);
   if (existing?.recentEvents?.some((event) => event.id === evidenceEvent.id)) return entries;
