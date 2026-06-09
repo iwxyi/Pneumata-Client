@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizeConversation } from '../types/chat';
 import { buildPrivateThreadOpenedEvent, buildStartPrivateThreadExecutionResult, createAiPrivateThread, passesWorldAttentionRestraintPolicy, pickAutoPairPrivateThreadCandidate, runSocialEventAutoFlow } from './directSessionRuntime';
 import type { AICharacter } from '../types/character';
+import type { Message } from '../types/message';
 import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
 import { setAIGenerationRuntimeConfig } from './aiGenerationRuntimeConfig';
 import * as aiClient from './aiClient';
@@ -141,6 +142,21 @@ function buildDirectChatWithEvents(events: RuntimeEventV2[]) {
     memberIds: ['a'],
     runtimeEventsV2: events,
   });
+}
+
+function buildUserMessage(overrides: Partial<Message> = {}): Message {
+  return {
+    id: 'msg-user-1',
+    chatId: 'chat-1',
+    type: 'user',
+    senderId: 'user',
+    senderName: '用户',
+    content: '今天先到这里，回头再聊。',
+    timestamp: Date.now() - 30 * 60 * 60_000,
+    emotion: 0,
+    isDeleted: false,
+    ...overrides,
+  };
 }
 
 function buildOpenedBaseChat() {
@@ -870,6 +886,91 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     });
 
     expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it('creates and consumes check_in candidate from online return projection', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildDirectChatWithEvents([]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 68, competence: 12, trust: 62, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 30 * 60 * 60_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      messages: [buildUserMessage({ timestamp: now - 30 * 60 * 60_000 })],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+
+    expect(updateChat).toHaveBeenCalledTimes(1);
+    const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
+    const candidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_online_return_greeting');
+    const artifact = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { artifactType?: string; dedupeKey?: string }).artifactType === 'check_in_note'
+      && ((event.payload as { dedupeKey?: string }).dedupeKey || '').includes('companionship-online-return'));
+    const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'world_decision_v2'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_online_return_greeting');
+    expect(candidate).toBeTruthy();
+    expect((candidate?.payload as { seedIntent?: string })?.seedIntent || '').toContain('上线问候');
+    expect(artifact).toBeTruthy();
+    expect(decision).toBeTruthy();
+  });
+
+  it('blocks online-return check_in when user rejects proactive contact', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildDirectChatWithEvents([]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 68, competence: 12, trust: 62, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 30 * 60 * 60_000,
+      }],
+    };
+    const actor = {
+      ...buildCharacter('a', '甲'),
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说不要主动打扰，也别提醒或私聊。'],
+      },
+    } as AICharacter;
+    const updateChat = vi.fn(async () => undefined);
+
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [actor],
+      messages: [buildUserMessage({ timestamp: now - 30 * 60 * 60_000 })],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+
+    const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
+    const candidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_online_return_greeting');
+    expect(candidate).toBeUndefined();
   });
 
   it('world-driven fallback maps private_message attention into a private check-in intent', async () => {

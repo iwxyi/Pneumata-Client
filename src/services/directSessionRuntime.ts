@@ -1,5 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { ConversationPhase, GroupChat } from '../types/chat';
+import type { Message } from '../types/message';
 import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
 import type { SessionActionExecutionResult } from '../types/sessionEngine';
 import type { APIConfig } from '../types/settings';
@@ -22,7 +23,7 @@ import { reportUnresolvedDisplayEntity } from './diagnostics';
 import { isCharacterFeatureEnabled } from './characterGenerationPolicy';
 import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
 import { buildMomentPostText } from './momentTextBuilder';
-import { buildCompanionshipArtifactSeeds, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
+import { buildCompanionshipArtifactSeeds, buildCompanionshipStatusSignature, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
 import { readDueCompanionshipCareTopicsFromEvents, readStaleCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
@@ -1373,6 +1374,7 @@ type SocialRuntimeMessageInput = {
 export interface SocialEventRuntimeOps {
   chats: GroupChat[];
   characters: AICharacter[];
+  messages?: Message[];
   imageModelEnabled?: boolean;
   textApiConfig?: APIConfig | null;
   updateChat: (chatId: string, patch: Partial<GroupChat>) => Promise<unknown>;
@@ -1715,6 +1717,54 @@ function buildDueCompanionshipPromiseCandidate(
   });
 }
 
+function buildOnlineReturnCompanionshipGreetingCandidate(
+  chat: GroupChat,
+  characters: AICharacter[],
+  messages: Message[],
+  now: number,
+): RuntimeEventV2 | null {
+  if (chat.type !== 'direct') return null;
+  const actor = characters.find((character) => chat.memberIds.includes(character.id));
+  if (!actor) return null;
+  if (hasRecentWorldArtifact(chat, actor.id, 'check_in', 6 * 60 * 60_000)) return null;
+  const signature = buildCompanionshipStatusSignature({
+    chat,
+    character: actor,
+    messages,
+    now,
+  });
+  const onlineReturn = signature?.onlineReturn?.trim();
+  if (!onlineReturn) return null;
+  const reasonType = 'companionship_online_return_greeting';
+  const attentionScore = signature?.debugLines.some((line) => line.includes('pendingCareTopics=') && !line.endsWith('=0')) ? 0.82 : 0.76;
+  if (!passesWorldAttentionRestraintPolicy(chat, actor.id, 'user', now, 'check_in', reasonType, actor, { attentionScore })) return null;
+  return createRuntimeEventV2({
+    conversationId: chat.id,
+    kind: 'event_candidate',
+    actorIds: [actor.id],
+    targetIds: ['user'],
+    visibility: 'derived_public',
+    summary: `${actor.name} 触发上线回归问候候选`,
+    payload: {
+      eventKind: 'check_in',
+      initiatorId: actor.id,
+      participantIds: [actor.id],
+      targetIds: ['user'],
+      reasonType,
+      confidence: attentionScore,
+      urgency: 'soon',
+      seedIntent: `${onlineReturn} 适合发一条低打扰的上线问候，不要催促，不要质问为什么离开。`,
+      triggerReason: `Online return: ${onlineReturn}`,
+      visibilityPlan: 'user_private',
+      expectedArtifacts: ['check_in_note'],
+      sourceText: onlineReturn,
+      title: '上线问候',
+      activityType: '上线回归问候',
+      dedupeKey: `companionship-online-return-${chat.id}-${actor.id}`,
+    } satisfies SocialEventCandidatePayload,
+  });
+}
+
 function buildStaleCompanionshipCareEvents(
   chat: GroupChat,
   characters: AICharacter[],
@@ -1749,6 +1799,7 @@ function buildStaleCompanionshipCareEvents(
 async function buildWorldDrivenCandidate(
   chat: GroupChat,
   characters: AICharacter[],
+  messages: Message[] = [],
   imageModelEnabled = false,
   textApiConfig?: APIConfig | null,
 ): Promise<{
@@ -1766,6 +1817,8 @@ async function buildWorldDrivenCandidate(
   if (dueCareCandidate) return { candidate: dueCareCandidate, arbitration: null };
   const duePromiseCandidate = buildDueCompanionshipPromiseCandidate(chat, characters, now);
   if (duePromiseCandidate) return { candidate: duePromiseCandidate, arbitration: null };
+  const onlineReturnCandidate = buildOnlineReturnCompanionshipGreetingCandidate(chat, characters, messages, now);
+  if (onlineReturnCandidate) return { candidate: onlineReturnCandidate, arbitration: null };
   const attention = projectWorldAttentionStates([chat], characters).find((item) => item.targetId === 'user' && item.actorId !== 'user');
   if (!attention) return { candidate: null, arbitration: null };
   const actor = characters.find((item) => item.id === attention.actorId) || null;
@@ -2042,6 +2095,7 @@ async function buildWorldDrivenCandidate(
 async function evaluateWorldDrivenDecision(
   chat: GroupChat,
   characters: AICharacter[],
+  messages: Message[] = [],
   imageModelEnabled = false,
   textApiConfig?: APIConfig | null,
 ) {
@@ -2087,6 +2141,25 @@ async function evaluateWorldDrivenDecision(
         decisionType: 'trigger',
         reasonType: 'companionship_pending_promise_due',
         reasonLabel: '未完成约定到期',
+        reasonDetail: payload.triggerReason || payload.seedIntent,
+        toEventKind: 'check_in',
+      })],
+    };
+  }
+  const onlineReturnCandidate = buildOnlineReturnCompanionshipGreetingCandidate(chat, characters, messages, now);
+  if (onlineReturnCandidate) {
+    const payload = onlineReturnCandidate.payload as SocialEventCandidatePayload;
+    const actorName = characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
+    return {
+      candidate: onlineReturnCandidate,
+      suppressionEvents: [] as RuntimeEventV2[],
+      decisionEvents: [buildWorldDecisionEvent({
+        chat,
+        actorId: payload.initiatorId,
+        actorName,
+        decisionType: 'trigger',
+        reasonType: 'companionship_online_return_greeting',
+        reasonLabel: '上线回归问候',
         reasonDetail: payload.triggerReason || payload.seedIntent,
         toEventKind: 'check_in',
       })],
@@ -2284,7 +2357,7 @@ async function evaluateWorldDrivenDecision(
     }));
   }
 
-  const candidateResult = await buildWorldDrivenCandidate(chat, characters, imageModelEnabled, textApiConfig);
+  const candidateResult = await buildWorldDrivenCandidate(chat, characters, messages, imageModelEnabled, textApiConfig);
   const candidate = candidateResult.candidate;
   const candidatePayload = candidate?.payload as SocialEventCandidatePayload | undefined;
   const fallbackIntent = attention.suggestedActions.includes('share_moment')
@@ -2521,6 +2594,7 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
   const worldDrivenDecision = await evaluateWorldDrivenDecision(
     sourceChat,
     ops.characters,
+    ops.messages || [],
     Boolean(ops.imageModelEnabled),
     ops.textApiConfig || null,
   );
