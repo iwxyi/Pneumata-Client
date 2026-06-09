@@ -1,4 +1,5 @@
 import type { AICharacter } from '../types/character';
+import { DEFAULT_PERSONALITY } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
@@ -281,10 +282,11 @@ function resolveBondStyle(phase: CompanionshipPhase, explicitStyle?: Companionsh
 }
 
 function inferPreferredStyle(character: AICharacter, intimacy: IntimacyProjection): PreferredIntimacyStyle {
-  if (character.personality.extroversion >= 68 && character.personality.humor >= 58) return 'playful';
-  if (character.personality.empathy >= 68 && character.personality.agreeableness >= 58) return 'warm';
-  if (intimacy.longing >= 70 && character.personality.neuroticism >= 62) return 'clingy';
-  if (character.personality.assertiveness >= 68) return 'direct';
+  const personality = { ...DEFAULT_PERSONALITY, ...(character.personality || {}) };
+  if (personality.extroversion >= 68 && personality.humor >= 58) return 'playful';
+  if (personality.empathy >= 68 && personality.agreeableness >= 58) return 'warm';
+  if (intimacy.longing >= 70 && personality.neuroticism >= 62) return 'clingy';
+  if (personality.assertiveness >= 68) return 'direct';
   return 'reserved';
 }
 
@@ -2784,6 +2786,8 @@ export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
     }
   }
   const isCalendarReminder = params.eventKind === 'status_update' && reasonType === 'world_attention_calendar_reminder';
+  const isExplicitCompanionshipDueFollowup = params.eventKind === 'check_in'
+    && (reasonType === 'companionship_pending_care_due' || reasonType === 'companionship_pending_promise_due');
   const isImmediateUserPromptedFollowup = reasonType === 'world_attention_private_message'
     || reasonType === 'world_attention_followup'
     || reasonType === 'world_attention_followup_question'
@@ -2804,7 +2808,7 @@ export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
       carePolicy,
     };
   }
-  if (!isCalendarReminder && !isImmediateUserPromptedFollowup && carePolicy.dailyInitiationBudget <= 0) {
+  if (!isCalendarReminder && !isExplicitCompanionshipDueFollowup && !isImmediateUserPromptedFollowup && carePolicy.dailyInitiationBudget <= 0) {
     return {
       blocked: true,
       reason: 'companionship proactive budget is zero for current phase',

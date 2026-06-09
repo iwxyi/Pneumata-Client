@@ -22,7 +22,7 @@ import { reportUnresolvedDisplayEntity } from './diagnostics';
 import { isCharacterFeatureEnabled } from './characterGenerationPolicy';
 import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
 import { buildMomentPostText } from './momentTextBuilder';
-import { buildCompanionshipArtifactSeeds, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
+import { buildCompanionshipArtifactSeeds, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
 import { readDueCompanionshipCareTopicsFromEvents, readStaleCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
@@ -1483,14 +1483,15 @@ export function passesWorldAttentionRestraintPolicy(
 ) {
   if (!actorId || actorId === 'user' || targetId !== 'user') return true;
   if (eventKind === 'check_in' || eventKind === 'react_to_moment' || eventKind === 'social_outing' || eventKind === 'status_update') {
-    if (shouldBlockUserProactiveContactByCompanionshipPolicy({
+    const companionshipBlock = shouldBlockUserProactiveContactByCompanionshipPolicy({
       character: actor,
       chat,
       eventKind,
       reasonType,
       attentionScore: options.attentionScore,
       now: createdAt,
-    }).blocked) return false;
+    });
+    if (companionshipBlock.blocked) return false;
   }
   const relation = getRelationshipLedgerEntry(chat.relationshipLedger || [], actorId, targetId);
   const warmth = relation?.current.warmth || 0;
@@ -1666,6 +1667,54 @@ function buildDueCompanionshipCareCandidate(
   });
 }
 
+function buildDueCompanionshipPromiseCandidate(
+  chat: GroupChat,
+  characters: AICharacter[],
+  now: number,
+): RuntimeEventV2 | null {
+  if (chat.type !== 'direct') return null;
+  const actor = characters.find((character) => chat.memberIds.includes(character.id));
+  if (!actor) return null;
+  const projection = buildUserCompanionshipProjection({
+    chat,
+    character: actor,
+    messages: [],
+    now,
+  });
+  const promise = projection.userBond?.pendingPromises
+    .filter((item) => typeof item.dueAt === 'number' && item.dueAt <= now)
+    .sort((left, right) => (left.dueAt || left.updatedAt) - (right.dueAt || right.updatedAt))[0];
+  if (!promise) return null;
+  const reasonType = 'companionship_pending_promise_due';
+  if (hasRecentWorldArtifact(chat, actor.id, 'check_in', 12 * 60 * 60_000)) return null;
+  if (!passesWorldAttentionRestraintPolicy(chat, actor.id, 'user', now, 'check_in', reasonType, actor, { attentionScore: 0.76 })) return null;
+  return createRuntimeEventV2({
+    conversationId: chat.id,
+    kind: 'event_candidate',
+    actorIds: [actor.id],
+    targetIds: ['user'],
+    visibility: 'derived_public',
+    summary: `${actor.name} 触发到期未完成约定问候候选`,
+    payload: {
+      eventKind: 'check_in',
+      initiatorId: actor.id,
+      participantIds: [actor.id],
+      targetIds: ['user'],
+      reasonType,
+      confidence: 0.8,
+      urgency: 'soon',
+      seedIntent: `用户和${actor.name}之前有个约定“${promise.text}”，现在适合自然提一下，不要催促。`,
+      triggerReason: `PendingPromise due: ${promise.text}`,
+      visibilityPlan: 'user_private',
+      expectedArtifacts: ['check_in_note'],
+      sourceText: promise.evidence || promise.text,
+      title: '约定追问',
+      activityType: '未完成约定追问',
+      dedupeKey: `companionship-promise-due-${chat.id}-${actor.id}-${promise.id}`,
+    } satisfies SocialEventCandidatePayload,
+  });
+}
+
 function buildStaleCompanionshipCareEvents(
   chat: GroupChat,
   characters: AICharacter[],
@@ -1715,6 +1764,8 @@ async function buildWorldDrivenCandidate(
   const now = Date.now();
   const dueCareCandidate = buildDueCompanionshipCareCandidate(chat, characters, now);
   if (dueCareCandidate) return { candidate: dueCareCandidate, arbitration: null };
+  const duePromiseCandidate = buildDueCompanionshipPromiseCandidate(chat, characters, now);
+  if (duePromiseCandidate) return { candidate: duePromiseCandidate, arbitration: null };
   const attention = projectWorldAttentionStates([chat], characters).find((item) => item.targetId === 'user' && item.actorId !== 'user');
   if (!attention) return { candidate: null, arbitration: null };
   const actor = characters.find((item) => item.id === attention.actorId) || null;
@@ -2017,6 +2068,25 @@ async function evaluateWorldDrivenDecision(
         decisionType: 'trigger',
         reasonType: 'companionship_pending_care_due',
         reasonLabel: '关心事项到期',
+        reasonDetail: payload.triggerReason || payload.seedIntent,
+        toEventKind: 'check_in',
+      })],
+    };
+  }
+  const duePromiseCandidate = buildDueCompanionshipPromiseCandidate(chat, characters, now);
+  if (duePromiseCandidate) {
+    const payload = duePromiseCandidate.payload as SocialEventCandidatePayload;
+    const actorName = characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
+    return {
+      candidate: duePromiseCandidate,
+      suppressionEvents: [] as RuntimeEventV2[],
+      decisionEvents: [buildWorldDecisionEvent({
+        chat,
+        actorId: payload.initiatorId,
+        actorName,
+        decisionType: 'trigger',
+        reasonType: 'companionship_pending_promise_due',
+        reasonLabel: '未完成约定到期',
         reasonDetail: payload.triggerReason || payload.seedIntent,
         toEventKind: 'check_in',
       })],

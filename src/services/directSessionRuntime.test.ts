@@ -541,7 +541,8 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
 
   it('creates and consumes check_in candidate when a direct pending care topic is due', async () => {
     const now = Date.now();
-    const chat = buildDirectChatWithEvents([{
+    const chat = {
+      ...buildDirectChatWithEvents([{
       id: 'care-open',
       conversationId: 'chat-1',
       kind: 'artifact',
@@ -561,7 +562,17 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
         evidence: '明天面试有点紧张。',
         dueAt: now - 1_000,
       },
-    } as RuntimeEventV2]);
+    } as RuntimeEventV2]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 8, competence: 4, trust: 6, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
     const updateChat = vi.fn(async () => undefined);
 
     await runSocialEventAutoFlow(chat, {
@@ -728,6 +739,130 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     await runSocialEventAutoFlow(chat, {
       chats: [chat],
       characters: [actor],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
+  it('creates and consumes check_in candidate when a direct pending promise is due', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildDirectChatWithEvents([{
+      id: 'promise-open',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: now - 48 * 60 * 60_000,
+      actorIds: ['user', 'a'],
+      targetIds: ['a', 'user'],
+      summary: '甲记录了一个还没完成的约定',
+      visibility: 'pair_private',
+      payload: {
+        eventType: 'companionship_promise',
+        characterId: 'a',
+        userId: 'user',
+        promiseId: 'promise-weekend-movie',
+        promiseText: '周末一起看那部电影',
+        action: 'opened',
+        participantIds: ['a', 'user'],
+        evidence: '周末一起看那部电影吧。',
+        dueAt: now - 1_000,
+        confidence: 0.9,
+        decisionSource: 'model',
+      },
+    } as RuntimeEventV2]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 8, competence: 4, trust: 6, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+
+    expect(updateChat).toHaveBeenCalledTimes(1);
+    const patch = (updateChat.mock.calls.at(0) as [string, { runtimeEventsV2?: RuntimeEventV2[] }] | undefined)?.[1];
+    const candidate = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'event_candidate'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_pending_promise_due');
+    const artifact = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { artifactType?: string; dedupeKey?: string }).artifactType === 'check_in_note'
+      && ((event.payload as { dedupeKey?: string }).dedupeKey || '').includes('promise-weekend-movie'));
+    const decision = (patch?.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
+      && (event.payload as { eventType?: string; reasonType?: string }).eventType === 'world_decision_v2'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_pending_promise_due');
+    expect(candidate).toBeTruthy();
+    expect(artifact).toBeTruthy();
+    expect(decision).toBeTruthy();
+  });
+
+  it('does not create pending-promise check_in after the promise is revoked', async () => {
+    const now = Date.now();
+    const chat = buildDirectChatWithEvents([
+      {
+        id: 'promise-open',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 48 * 60 * 60_000,
+        actorIds: ['user', 'a'],
+        targetIds: ['a', 'user'],
+        summary: '甲记录了一个还没完成的约定',
+        visibility: 'pair_private',
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'a',
+          userId: 'user',
+          promiseId: 'promise-weekend-movie',
+          promiseText: '周末一起看那部电影',
+          action: 'opened',
+          participantIds: ['a', 'user'],
+          dueAt: now - 1_000,
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      } as RuntimeEventV2,
+      {
+        id: 'promise-revoked',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 10_000,
+        actorIds: ['user', 'a'],
+        targetIds: ['a', 'user'],
+        summary: '用户关闭了一个未完成约定',
+        visibility: 'pair_private',
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'a',
+          userId: 'user',
+          promiseId: 'promise-weekend-movie',
+          promiseText: '周末一起看那部电影',
+          action: 'revoked',
+          participantIds: ['a', 'user'],
+          evidence: '这个不用再问了。',
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      } as RuntimeEventV2,
+    ]);
+    const updateChat = vi.fn(async () => undefined);
+
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
       updateChat,
       addChat: vi.fn(async () => buildBaseChat()),
       addMessage: vi.fn(async () => ({})),
