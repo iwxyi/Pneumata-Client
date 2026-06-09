@@ -36,6 +36,8 @@ import type { Message } from '../../types/message';
 import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, PendingCareTopic, PendingPromise, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
+type ManualPromiseLifecycleAction = Extract<PendingPromise['status'], 'fulfilled' | 'blocked' | 'stale' | 'revoked'>;
+
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
   const now = Date.now();
@@ -328,16 +330,37 @@ function buildManualCareTopicBlockedEvent(chat: GroupChat, character: AICharacte
   };
 }
 
-function buildManualPromiseRevokedEvent(chat: GroupChat, character: AICharacter, promise: PendingPromise): RuntimeEventV2 {
+function formatManualPromiseLifecycleAction(action: ManualPromiseLifecycleAction) {
+  const labels: Record<ManualPromiseLifecycleAction, string> = {
+    fulfilled: '已完成',
+    stale: '已落空',
+    blocked: '不再提醒',
+    revoked: '关闭追踪',
+  };
+  return labels[action];
+}
+
+function getManualPromiseLifecycleReason(action: ManualPromiseLifecycleAction) {
+  const reasons: Record<ManualPromiseLifecycleAction, string> = {
+    fulfilled: '用户在角色关系页标记该约定已经完成。',
+    stale: '用户在角色关系页标记该约定已经落空或过期。',
+    blocked: '用户在角色关系页标记该约定不用再提醒或已阻断。',
+    revoked: '用户在角色关系页手动关闭该约定追踪。',
+  };
+  return reasons[action];
+}
+
+function buildManualPromiseLifecycleEvent(chat: GroupChat, character: AICharacter, promise: PendingPromise, action: ManualPromiseLifecycleAction): RuntimeEventV2 {
   const now = Date.now();
+  const label = formatManualPromiseLifecycleAction(action);
   return {
-    id: buildManualCompanionshipEventId([chat.id, character.id, promise.id, 'promise-revoked']),
+    id: buildManualCompanionshipEventId([chat.id, character.id, promise.id, `promise-${action}`]),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
     targetIds: [character.id],
-    summary: `${character.name} 记录用户关闭了一个未完成约定`,
+    summary: `${character.name} 记录用户将一个约定标记为${label}`,
     channelId: 'pair-private',
     eventClass: 'artifact',
     visibility: 'pair_private',
@@ -348,10 +371,15 @@ function buildManualPromiseRevokedEvent(chat: GroupChat, character: AICharacter,
       userId: 'user',
       promiseId: promise.id,
       promiseText: promise.text,
-      action: 'revoked',
+      action,
       participantIds: promise.participantIds?.length ? promise.participantIds : [character.id, 'user'],
-      reason: '用户在角色关系页手动关闭该约定追踪。',
-      evidence: 'manual_close_from_character_relationship_tab',
+      promiseKind: promise.kind,
+      reminderPolicy: promise.reminderPolicy,
+      relationshipEffects: promise.relationshipEffects,
+      lifecycleEvidence: [...(promise.lifecycleEvidence || []), `manual_${action}_from_character_relationship_tab`],
+      dueAt: promise.dueAt,
+      reason: getManualPromiseLifecycleReason(action),
+      evidence: `manual_${action}_from_character_relationship_tab`,
       confidence: 1,
     },
   };
@@ -1096,7 +1124,7 @@ function UserCompanionshipCard({
   sharedSecrets,
   rituals,
   onBlockCareTopic,
-  onRevokePromise,
+  onUpdatePromiseLifecycle,
   onForbidAddress,
   onUnforbidAddress,
   onResolveConflict,
@@ -1119,7 +1147,7 @@ function UserCompanionshipCard({
   sharedSecrets: SharedSecret[];
   rituals: RitualRegistryEntry[];
   onBlockCareTopic: (topic: PendingCareTopic) => void;
-  onRevokePromise: (promise: PendingPromise) => void;
+  onUpdatePromiseLifecycle: (promise: PendingPromise, action: ManualPromiseLifecycleAction) => void;
   onForbidAddress: (address: string) => void;
   onUnforbidAddress: (address: string) => void;
   onResolveConflict: (conflict: NonNullable<CompanionshipRuntimeTrace['intimateConflict']>) => void;
@@ -1227,16 +1255,29 @@ function UserCompanionshipCard({
               </Box>
             ))}
             {pendingPromises.slice(0, 3).map((promise) => (
-              <Box key={promise.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, p: 1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+              <Box key={promise.id} sx={{ display: 'flex', alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', gap: 1, p: 1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', flexDirection: { xs: 'column', sm: 'row' } }}>
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                     未完成约定 · {formatPendingPromiseKind(promise.kind)} · {promise.reminderPolicy.shouldRemind ? '可轻提醒' : '不主动提醒'}
                   </Typography>
                   <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{promise.text}</Typography>
                 </Box>
-                <Button size="small" variant="text" onClick={() => onRevokePromise(promise)} sx={{ flexShrink: 0 }}>
-                  关闭
-                </Button>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: { xs: 'flex-start', sm: 'flex-end' }, gap: 0.5, flexWrap: 'wrap', flexShrink: 0 }}>
+                  <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'fulfilled')} sx={{ minWidth: 0 }}>
+                    完成
+                  </Button>
+                  <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'stale')} sx={{ minWidth: 0 }}>
+                    落空
+                  </Button>
+                  {promise.reminderPolicy.shouldRemind ? (
+                    <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'blocked')} sx={{ minWidth: 0 }}>
+                      不再提醒
+                    </Button>
+                  ) : null}
+                  <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'revoked')} sx={{ minWidth: 0 }}>
+                    关闭追踪
+                  </Button>
+                </Box>
               </Box>
             ))}
           </Stack>
@@ -1883,8 +1924,8 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 onBlockCareTopic={(topic) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualCareTopicBlockedEvent(view.chat, character as AICharacter, topic));
                 }}
-                onRevokePromise={(promise) => {
-                  void appendManualCompanionshipEvent(view.chat, buildManualPromiseRevokedEvent(view.chat, character as AICharacter, promise));
+                onUpdatePromiseLifecycle={(promise, action) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualPromiseLifecycleEvent(view.chat, character as AICharacter, promise, action));
                 }}
                 onForbidAddress={(address) => {
                   if (!address.trim()) return;
