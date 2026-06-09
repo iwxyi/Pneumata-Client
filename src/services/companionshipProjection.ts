@@ -13,6 +13,8 @@ import { getCompanionshipRuntimeConfig } from './companionshipRuntimeConfig';
 
 const USER_ACTOR_ID = 'user';
 const DAY_MS = 24 * 60 * 60 * 1000;
+type PromiseConsequenceAction = Extract<CompanionshipPromiseEventPayload['action'], 'fulfilled' | 'blocked' | 'stale'>;
+type PromiseIntimacyConsequence = { effect: Partial<IntimacyProjection>; evidence: string; action: PromiseConsequenceAction };
 
 function clampScore(value: number) {
   if (!Number.isFinite(value)) return 0;
@@ -113,6 +115,7 @@ function adjustIntimacyProjection(params: {
   sharedAnchors: SharedMemoryAnchor[];
   profile: UserProfileMemoryProjection;
   entry: RelationshipLedgerEntry | null;
+  promiseConsequences?: PromiseIntimacyConsequence[];
 }): IntimacyProjection {
   const anchorBoost = params.sharedAnchors.reduce((total, anchor) => {
     const weight = anchor.kind === 'repair' || anchor.kind === 'confession' || anchor.kind === 'milestone' ? 1.2 : 1;
@@ -131,13 +134,21 @@ function adjustIntimacyProjection(params: {
     params.entry?.derived?.semantic?.summary || '',
     ...(params.entry?.recentEvents || []).map((event) => event.summary),
   ].filter(Boolean).filter((text) => /(冲突|冷战|失望|受伤|不舒服|争吵|裂痕|防备)/.test(text)).length;
+  const promiseEffect = (params.promiseConsequences || []).reduce((total, consequence) => ({
+    attraction: total.attraction + (consequence.effect.attraction || 0),
+    intimacy: total.intimacy + (consequence.effect.intimacy || 0),
+    attachment: total.attachment + (consequence.effect.attachment || 0),
+    longing: total.longing + (consequence.effect.longing || 0),
+    exclusivity: total.exclusivity + (consequence.effect.exclusivity || 0),
+    security: total.security + (consequence.effect.security || 0),
+  }), { attraction: 0, intimacy: 0, attachment: 0, longing: 0, exclusivity: 0, security: 0 });
   return {
-    attraction: clampScore(params.base.attraction + anchorBoost * 5 - (blocksRomance ? 24 : 0)),
-    intimacy: clampScore(params.base.intimacy + anchorBoost * 7 + repairMentions * 5 - (hasConflictAnchor ? 4 : 0)),
-    attachment: clampScore(params.base.attachment + anchorBoost * 8 + (hasRepairAnchor ? 6 : 0) - (blocksProactive ? 8 : 0)),
-    longing: clampScore(params.base.longing + anchorBoost * 4 - (blocksProactive ? 18 : 0)),
-    exclusivity: clampScore(params.base.exclusivity + (hasConflictAnchor ? 5 : 0) - (blocksRomance ? 22 : 0)),
-    security: clampScore(params.base.security + anchorBoost * 4 + repairMentions * 8 + (hasRepairAnchor ? 8 : 0) - conflictMentions * 8 - (hasConflictAnchor ? 6 : 0)),
+    attraction: clampScore(params.base.attraction + anchorBoost * 5 + promiseEffect.attraction - (blocksRomance ? 24 : 0)),
+    intimacy: clampScore(params.base.intimacy + anchorBoost * 7 + repairMentions * 5 + promiseEffect.intimacy - (hasConflictAnchor ? 4 : 0)),
+    attachment: clampScore(params.base.attachment + anchorBoost * 8 + (hasRepairAnchor ? 6 : 0) + promiseEffect.attachment - (blocksProactive ? 8 : 0)),
+    longing: clampScore(params.base.longing + anchorBoost * 4 + promiseEffect.longing - (blocksProactive ? 18 : 0)),
+    exclusivity: clampScore(params.base.exclusivity + (hasConflictAnchor ? 5 : 0) + promiseEffect.exclusivity - (blocksRomance ? 22 : 0)),
+    security: clampScore(params.base.security + anchorBoost * 4 + repairMentions * 8 + (hasRepairAnchor ? 8 : 0) + promiseEffect.security - conflictMentions * 8 - (hasConflictAnchor ? 6 : 0)),
   };
 }
 
@@ -1342,6 +1353,34 @@ function promisePayloadOf(event: RuntimeEventV2): CompanionshipPromiseEventPaylo
   return payload as CompanionshipPromiseEventPayload;
 }
 
+function buildPromiseIntimacyConsequences(chat: GroupChat, characterId: string, now: number) {
+  return (chat.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .map((event): PromiseIntimacyConsequence | null => {
+      const payload = promisePayloadOf(event);
+      if (!payload || payload.characterId !== characterId || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return null;
+      const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 1;
+      if (confidence < 0.6) return null;
+      if (payload.action === 'opened' || payload.action === 'revoked') return null;
+      const ageDays = Math.max(0, (now - (event.createdAt || now)) / DAY_MS);
+      if (ageDays > 90) return null;
+      const kind = payload.promiseKind || inferPromiseKind(`${payload.promiseText}\n${payload.evidence || payload.reason || ''}`);
+      const effects = buildPromiseRelationshipEffects(kind);
+      const rawEffect = payload.action === 'fulfilled'
+        ? { ...effects.fulfilled, ...(payload.relationshipEffects?.fulfilled || {}) }
+        : { ...effects.missed, ...(payload.relationshipEffects?.missed || {}) };
+      const decay = Math.max(0.25, 1 - ageDays / 120);
+      const effect = Object.fromEntries(Object.entries(rawEffect).map(([key, value]) => [key, typeof value === 'number' ? value * decay : value])) as Partial<IntimacyProjection>;
+      return {
+        action: payload.action,
+        effect,
+        evidence: compactText(payload.evidence || payload.reason || event.summary || payload.promiseText, 120),
+      };
+    })
+    .filter((item): item is PromiseIntimacyConsequence => Boolean(item))
+    .slice(-8);
+}
+
 function buildPromiseEventState(chat: GroupChat, characterId: string, now: number) {
   const activeById = new Map<string, PendingPromise>();
   const closedKeys = new Set<string>();
@@ -2016,11 +2055,13 @@ export function buildUserCompanionshipProjection(params: {
   const ledger = getCharacterToUserLedger(chat, character.id);
   const userProfile = buildUserProfileProjection(chat, character, messages, now);
   const sharedAnchors = buildUserSharedAnchors(character, now, chat);
+  const promiseConsequences = buildPromiseIntimacyConsequences(chat, character.id, now);
   const baseIntimacy = adjustIntimacyProjection({
     base: projectIntimacy(ledger, messages, character.id, now),
     sharedAnchors,
     profile: userProfile,
     entry: ledger,
+    promiseConsequences,
   });
   const phaseEvent = resolveCompanionshipPhaseEvent(chat, character.id);
   const inferredPhase = inferPhase(baseIntimacy, ledger, sharedAnchors);
@@ -3018,6 +3059,7 @@ export function buildCompanionshipCarePolicyForCharacter(params: {
       sharedAnchors: buildUserSharedAnchors(character, now, params.chat),
       profile: userProfile,
       entry: ledger,
+      promiseConsequences: buildPromiseIntimacyConsequences(params.chat, character.id, now),
     })
     : {
       attraction: 0,

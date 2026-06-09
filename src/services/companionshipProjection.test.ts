@@ -1608,6 +1608,57 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).toContain('do not proactively remind');
   });
 
+  it('applies fulfilled and missed promise consequences to intimacy projection', () => {
+    const now = 5_000;
+    const baseChat = chat('direct', [relationship({ warmth: 46, trust: 34, competence: 10, threat: 4 })]);
+    const fulfilledChat = chat('direct', [relationship({ warmth: 46, trust: 34, competence: 10, threat: 4 })], [
+      promiseEvent({
+        id: 'evt-repair-fulfilled',
+        createdAt: now - 100,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-repair-talk',
+          promiseText: '以后吵架我们先冷静一下再说开',
+          action: 'fulfilled',
+          participantIds: ['char-a', 'user'],
+          promiseKind: 'repair_agreement',
+          evidence: '这次他们真的先冷静，然后把话说开了。',
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const blockedChat = chat('direct', [relationship({ warmth: 46, trust: 34, competence: 10, threat: 4 })], [
+      promiseEvent({
+        id: 'evt-boundary-blocked',
+        createdAt: now - 100,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-boundary',
+          promiseText: '说好不要越过这个边界',
+          action: 'blocked',
+          participantIds: ['char-a', 'user'],
+          promiseKind: 'boundary_agreement',
+          evidence: '这次还是越界了。',
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+
+    const base = buildUserCompanionshipProjection({ chat: baseChat, character: character(), messages: [], now }).userBond?.intimacy;
+    const fulfilled = buildUserCompanionshipProjection({ chat: fulfilledChat, character: character(), messages: [], now }).userBond?.intimacy;
+    const blocked = buildUserCompanionshipProjection({ chat: blockedChat, character: character(), messages: [], now }).userBond?.intimacy;
+
+    expect(fulfilled?.security).toBeGreaterThan(base?.security || 0);
+    expect(fulfilled?.intimacy).toBeGreaterThan(base?.intimacy || 0);
+    expect(blocked?.security).toBeLessThan(base?.security || 100);
+  });
+
   it('feeds pending care topics and promises into private diary seeds but not public moment seeds', () => {
     const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
       {
