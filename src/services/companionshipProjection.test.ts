@@ -325,6 +325,36 @@ function promiseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
   };
 }
 
+function diaryReflectionEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-diary-reflection-1',
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt: 1_100,
+    actorIds: ['char-a'],
+    targetIds: ['user'],
+    summary: '苏苏的日记留下了一条陪伴余波',
+    visibility: 'pair_private',
+    eventClass: 'artifact',
+    payload: {
+      eventType: 'companionship_diary_reflection',
+      characterId: 'char-a',
+      userId: 'user',
+      reflectionId: 'diary-entry-1-0',
+      diaryEntryId: 'diary-entry-1',
+      dateKey: '2026-06-09',
+      reflectionType: 'promise',
+      participantIds: ['char-a', 'user'],
+      text: '用户说好周末告诉苏苏面试结果。',
+      sourceSeed: '未完成约定可以在日记里成为轻微期待或担心落空的余波：用户说好周末告诉苏苏面试结果。',
+      diaryExcerpt: '今天写到这里时，还是想起了那个周末的约定。',
+      confidence: 0.66,
+      decisionSource: 'local_fallback',
+    },
+    ...overrides,
+  };
+}
+
 function sharedSecretEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
   return {
     id: 'evt-shared-secret-1',
@@ -1308,6 +1338,57 @@ describe('companionshipProjection', () => {
     });
     expect(projection.promptLines.join('\n')).toContain('周末一起看那部电影');
     expect(trace?.pendingPromises.join('\n')).toContain('周末一起看那部电影');
+  });
+
+  it('reads diary reflection backflow as pending promises and shared anchors', () => {
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [diaryReflectionEvent()]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '今天先聊到这里。', timestamp: 900 })],
+      now: 1_400,
+    });
+    const anchors = buildSharedMemoryAnchors(character(), 1_400, directChat);
+
+    expect(projection.userBond?.pendingPromises[0]).toMatchObject({
+      text: '用户说好周末告诉苏苏面试结果。',
+      source: 'shared_anchor',
+      status: 'open',
+    });
+    expect(anchors.some((anchor) => anchor.kind === 'promise' && anchor.sourceId === 'evt-diary-reflection-1')).toBe(true);
+  });
+
+  it('reads diary reflection backflow as pending care topics', () => {
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [diaryReflectionEvent({
+      id: 'evt-diary-care-1',
+      payload: {
+        eventType: 'companionship_diary_reflection',
+        characterId: 'char-a',
+        userId: 'user',
+        reflectionId: 'diary-entry-care-0',
+        diaryEntryId: 'diary-entry-care',
+        dateKey: '2026-06-09',
+        reflectionType: 'care',
+        participantIds: ['char-a', 'user'],
+        text: '用户最近面试压力很大，苏苏想找个合适的时候问问后来怎么样。',
+        sourceSeed: '待关心事项：用户最近面试压力很大。',
+        diaryExcerpt: '她没急着问，但那件事压在心里。',
+        confidence: 0.66,
+        decisionSource: 'local_fallback',
+      },
+    })]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '今天先聊到这里。', timestamp: 900 })],
+      now: 1_400,
+    });
+
+    expect(projection.userBond?.pendingCareTopics[0]).toMatchObject({
+      text: '用户最近面试压力很大，苏苏想找个合适的时候问问后来怎么样。',
+      source: 'runtime_event',
+      evidence: '她没急着问，但那件事压在心里。',
+    });
   });
 
   it('drops pending promises outside the configured retention window', () => {

@@ -342,6 +342,22 @@ export interface CompanionshipSharedAnchorEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipDiaryReflectionEventPayload {
+  eventType: 'companionship_diary_reflection';
+  characterId: string;
+  userId?: string;
+  reflectionId: string;
+  diaryEntryId: string;
+  dateKey?: string | null;
+  reflectionType: 'care' | 'promise' | 'shared_secret' | 'ritual' | 'shared_anchor';
+  participantIds: string[];
+  text: string;
+  sourceSeed?: string;
+  diaryExcerpt?: string;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;

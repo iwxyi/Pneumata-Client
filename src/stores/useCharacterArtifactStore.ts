@@ -7,6 +7,7 @@ import { createScopedIndexedDbBufferedJsonStorage, createScopedIndexedDbStorage 
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { CLIENT_STORE_SCHEMA_VERSION } from './storeMigrations';
 import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact, looksLikeRawArtifactContext } from '../services/characterExperienceArtifacts';
+import { buildDiaryCompanionshipReflectionEvents, pickChatsForDiaryCompanionshipBackflow } from '../services/diaryCompanionshipBackflow';
 import { useSettingsStore } from './useSettingsStore';
 import { isCharacterFeatureEnabled } from '../services/characterGenerationPolicy';
 import { scopedStorageKey, storageKey } from '../constants/brand';
@@ -755,6 +756,57 @@ async function generateArtifactText(
   });
 }
 
+async function backfillDiaryCompanionshipRuntimeEvents(params: {
+  entry: CharacterArtifactEntry;
+  character: Partial<AICharacter>;
+  relatedCharacters: Array<{ id: string; name: string }>;
+  recentDiaryTexts: string[];
+}) {
+  if (params.entry.kind !== 'diary' || !params.character.id) return;
+  try {
+    const context = buildCharacterDailyDiaryContext(
+      params.character,
+      params.relatedCharacters,
+      params.entry.dateKey || dateKeyOf(now() - 24 * 60 * 60 * 1000),
+      params.recentDiaryTexts,
+    );
+    const { useChatStore } = await import('./useChatStore');
+    const chatStore = useChatStore.getState();
+    const prototypeEvents = buildDiaryCompanionshipReflectionEvents({
+      entry: params.entry,
+      context,
+      character: params.character,
+      relatedCharacters: params.relatedCharacters,
+      conversationId: 'prototype',
+      createdAt: params.entry.updatedAt,
+    });
+    const targetChats = pickChatsForDiaryCompanionshipBackflow(chatStore.chats, params.character.id, prototypeEvents);
+    await Promise.all(targetChats.map(async (chat) => {
+      const events = buildDiaryCompanionshipReflectionEvents({
+        entry: params.entry,
+        context,
+        character: params.character,
+        relatedCharacters: params.relatedCharacters,
+        conversationId: chat.id,
+        createdAt: params.entry.updatedAt,
+      });
+      if (!events.length) return;
+      const existingIds = new Set((chat.runtimeEventsV2 || []).map((event) => event.id));
+      const nextEvents = [
+        ...(chat.runtimeEventsV2 || []),
+        ...events.filter((event) => !existingIds.has(event.id)),
+      ].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).slice(-160);
+      await chatStore.updateChat(chat.id, {
+        runtimeEventsV2: nextEvents,
+        runtimeDetailLoaded: true,
+        updatedAt: Math.max(chat.updatedAt || 0, params.entry.updatedAt || now()),
+      });
+    }));
+  } catch (error) {
+    console.warn('[companionship] diary reflection backflow failed', error);
+  }
+}
+
 export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
   persist(
     (set, get) => {
@@ -861,6 +913,12 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
               jobs: removeCompletedJobs(remainingJobs),
               unreadLetterCount: computeUnreadLetterCount([entry, ...preservedItems]),
             };
+          });
+          await backfillDiaryCompanionshipRuntimeEvents({
+            entry,
+            character: nextJob.snapshot,
+            relatedCharacters: nextJob.relatedCharacters,
+            recentDiaryTexts,
           });
           removeLocalOutboxWorkerOperation(nextJob.id);
           scheduleCloudSync();
@@ -1010,8 +1068,14 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
               unreadLetterCount: computeUnreadLetterCount(items),
             };
           });
-          scheduleCloudSync();
           if (!nextEntry) throw new Error('Artifact regeneration failed');
+          await backfillDiaryCompanionshipRuntimeEvents({
+            entry: nextEntry,
+            character: sourceCharacter,
+            relatedCharacters: sourceRelatedCharacters,
+            recentDiaryTexts,
+          });
+          scheduleCloudSync();
           return nextEntry;
         },
         syncCloud: async (query = {}) => {
