@@ -2219,6 +2219,46 @@ describe('companionshipProjection', () => {
     expect(policy.expressionIntensity).toBeLessThanOrEqual(28);
   });
 
+  it('allows users to disable attachment adaptation globally', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 72,
+      trust: 68,
+      competence: 10,
+      threat: 4,
+    })]);
+    const actor = character();
+    const userMessages = [
+      message({ content: '你怎么不回我，别不理我。', timestamp: 800 }),
+      message({ content: '我就是需要一点安全感，想确认你还在。', timestamp: 900 }),
+    ];
+    const enabled = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: actor,
+      messages: userMessages,
+      now: 1_000,
+    });
+
+    setCompanionshipRuntimeConfig({ enableAttachmentAdaptation: false });
+    const disabled = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: actor,
+      messages: userMessages,
+      now: 1_000,
+    });
+
+    expect(enabled.userBond?.attachmentProfile.inferredStyle).toBe('anxious');
+    expect(enabled.userBond?.attachmentProfile.confidence).toBeGreaterThanOrEqual(58);
+    expect(disabled.userBond?.attachmentProfile).toMatchObject({
+      inferredStyle: 'secure',
+      confidence: 0,
+      adaptations: [],
+    });
+    expect(disabled.userBond?.attachmentProfile.evidence).toContain('global setting disables attachment adaptation');
+    expect(disabled.userBond?.carePolicy.triggerSensitivity).toBeLessThan(enabled.userBond?.carePolicy.triggerSensitivity || 0);
+    expect(disabled.userBond?.carePolicy.silenceAnxietyThresholdHours).toBeGreaterThan(enabled.userBond?.carePolicy.silenceAnxietyThresholdHours || 0);
+    expect(disabled.promptLines.join('\n')).not.toContain('User attachment adaptation');
+  });
+
   it('keeps mixed closeness and distance cues steady as disorganized attachment adaptation', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({

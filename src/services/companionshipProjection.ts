@@ -428,6 +428,14 @@ function buildUserAttachmentProfile(params: {
   intimacy: IntimacyProjection;
   now: number;
 }): UserAttachmentProfile {
+  if (!getCompanionshipRuntimeConfig().enableAttachmentAdaptation) {
+    return {
+      inferredStyle: 'secure',
+      confidence: 0,
+      evidence: ['global setting disables attachment adaptation'],
+      adaptations: [],
+    };
+  }
   const eventProfile = resolveAttachmentProfileEvent(params.chat, params.characterId);
   if (eventProfile?.mode === 'profile') return eventProfile.profile;
   const recentUserTexts = params.messages
