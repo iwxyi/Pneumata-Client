@@ -147,6 +147,37 @@ describe('characterExperienceArtifacts', () => {
     expect(buildLocalCharacterExperienceArtifact('final_letter', context)).toContain('我不想只说再见');
   });
 
+  it('prioritizes shared anchors as final letter material', () => {
+    const character = buildCharacter();
+    character.layeredMemories = [
+      ...(character.layeredMemories || []),
+      {
+        id: 'shared-anchor-promise',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'c1',
+        subjectIds: ['c1', 'user'],
+        text: '第一次深夜聊到天亮后，苏苏和用户说好以后难过时先找对方说。',
+        evidenceText: '用户说：以后难过时先找你说。',
+        salience: 0.95,
+        confidence: 0.92,
+        recency: 0.9,
+        reinforcementCount: 2,
+        sourceEventIds: ['evt-shared-anchor-promise'],
+        origin: 'distilled',
+        createdAt: 300,
+        updatedAt: 300,
+      },
+    ];
+    const context = buildCharacterFinalLetterContext(character, [{ id: 'c2', name: '小雨' } as AICharacter]);
+
+    expect(context.sharedAnchors[0]?.text).toContain('难过时先找对方说');
+    expect(context.farewellAnchors.join('\n')).toContain('放不下的共同经历');
+    expect(context.futureHandoff).toContain('还没完全走完的期待');
+    expect(buildLocalCharacterExperienceArtifact('final_letter', context)).toContain('难过时先找对方说');
+  });
+
   it('builds birth letter context and preview from identity anchors', () => {
     const context = buildCharacterBirthLetterContext(buildCharacter(), [{ id: 'c2', name: '小雨' } as AICharacter]);
     expect(context.creationSignals.length).toBeGreaterThan(0);

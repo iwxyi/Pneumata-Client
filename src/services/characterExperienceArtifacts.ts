@@ -4,7 +4,8 @@ import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSan
 import type { APIConfig } from '../types/settings';
 import type { AICharacter, CharacterRelationshipPreset } from '../types/character';
 import type { MemoryItem } from './memoryTypes';
-import { buildCompanionshipArtifactSeeds } from './companionshipProjection';
+import { buildCompanionshipArtifactSeeds, buildSharedMemoryAnchors } from './companionshipProjection';
+import type { SharedMemoryAnchor } from '../types/companionship';
 
 export type CharacterExperienceArtifactKind = 'birth_letter' | 'diary' | 'growth' | 'final_letter';
 
@@ -21,6 +22,7 @@ export interface CharacterExperienceArtifactContext {
   };
   memories: Array<{ lens: string; text: string; evidence?: string; updatedAt: number }>;
   relationships: Array<{ targetName: string; summary: string; note?: string; updatedAt: number }>;
+  sharedAnchors: Array<{ kind: string; title: string; text: string; participantNames: string[]; evidence?: string; salience: number; updatedAt: number }>;
   emotions: string[];
   innerResidues: string[];
   growthSignals: string[];
@@ -148,6 +150,32 @@ function projectArtifactRelationship(
   };
 }
 
+function projectSharedAnchorForArtifact(
+  anchor: SharedMemoryAnchor,
+  relatedCharacters: Pick<AICharacter, 'id' | 'name'>[],
+  members: DisplayTextMember[],
+) {
+  const kindLabels: Record<SharedMemoryAnchor['kind'], string> = {
+    first_time: '第一次',
+    confession: '心意确认',
+    conflict: '冲突',
+    repair: '修复',
+    inside_joke: '共同梗',
+    shared_secret: '小秘密',
+    promise: '约定',
+    milestone: '里程碑',
+  };
+  return {
+    kind: kindLabels[anchor.kind],
+    title: cleanText(anchor.title, members, 80),
+    text: cleanText(anchor.text, members, 180),
+    participantNames: anchor.participantIds.map((id) => resolveName(id, relatedCharacters)).slice(0, 5),
+    evidence: anchor.evidence ? cleanText(anchor.evidence, members, 140) : undefined,
+    salience: Math.round(anchor.salience),
+    updatedAt: anchor.updatedAt || anchor.createdAt || 0,
+  };
+}
+
 function buildEmotionLines(character: Partial<AICharacter>) {
   const emotional = character.emotionalState;
   if (!emotional) return [];
@@ -199,6 +227,7 @@ function buildCreationSignals(character: Partial<AICharacter>, identityAnchors: 
 
 function buildFarewellAnchors(context: CharacterExperienceArtifactContext) {
   return [
+    ...context.sharedAnchors.slice(0, 3).map((anchor) => `放不下的共同经历：${anchor.kind}，${anchor.title || anchor.text}${anchor.participantNames.length ? `（${anchor.participantNames.join('、')}）` : ''}`),
     context.memories[0] ? `最想被记住的一件事：${context.memories[0].text}` : '',
     context.memories[1] ? `也舍不得的一件事：${context.memories[1].text}` : '',
     context.relationships[0] ? `最放不下的关系：${context.relationships[0].targetName}，${context.relationships[0].summary}${context.relationships[0].note ? `，${context.relationships[0].note}` : ''}` : '',
@@ -216,6 +245,8 @@ function buildUnresolvedTies(context: CharacterExperienceArtifactContext) {
 }
 
 function buildFutureHandoff(context: CharacterExperienceArtifactContext) {
+  const promiseAnchor = context.sharedAnchors.find((anchor) => /约定|里程碑|修复/.test(anchor.kind) || /约定|说好|以后|下次|承诺|没完成/.test(`${anchor.title}\n${anchor.text}\n${anchor.evidence || ''}`));
+  if (promiseAnchor) return `把“${promiseAnchor.title || promiseAnchor.text}”里还没完全走完的期待，留给后来还愿意接住这段关系的人。`;
   const relation = context.relationships[0]?.targetName;
   const desire = context.profile.coreDesire;
   if (relation && desire) return `把没来得及完成的${desire}，轻轻交给${relation}和后来仍会相遇的人。`;
@@ -499,6 +530,11 @@ export function buildCharacterExperienceArtifactContext(
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .slice(0, 8)
     .map((relation) => projectArtifactRelationship(relation, relatedCharacters, members));
+  const sharedAnchors = buildSharedMemoryAnchors(character as AICharacter, Date.now())
+    .filter((anchor) => anchor.participantIds.includes(character.id || '') || anchor.participantIds.includes('user'))
+    .sort((a, b) => (b.salience - a.salience) || ((b.updatedAt || 0) - (a.updatedAt || 0)))
+    .slice(0, 8)
+    .map((anchor) => projectSharedAnchorForArtifact(anchor, relatedCharacters, members));
 
   return {
     profile: {
@@ -513,6 +549,7 @@ export function buildCharacterExperienceArtifactContext(
     },
     memories,
     relationships,
+    sharedAnchors,
     emotions: buildEmotionLines(character),
     innerResidues: buildInnerResidueLines(character, members),
     growthSignals: memories.filter((item) => item.lens === '成长信号').map((item) => item.text).slice(0, 4),
@@ -698,7 +735,7 @@ function buildArtifactPrompt(kind: CharacterExperienceArtifactKind, language: 'z
       ? '\n8. openingStyle、narrativeAngle、formHint 只是入口建议，不是模板；角色当下自然重复口癖或情绪词也可以，但不能机械沿用。\n9. secondReactionSeeds、selfDoubtSeeds、flashbackSeeds、companionshipSeeds、imperfectFormHints、metaphorSeeds 是可选私密材料：自然采用 2-4 个即可，不要逐项打卡，不要写小标题。它们分别指向第二反应、自我怀疑、旧记忆闪回、陪伴关系余波、不完美书写和具象隐喻。\n10. companionshipSeeds 只能写成角色自己的私下感受、牵挂、别扭、感谢、误会或没说出口的话；不要暴露系统字段、分数、阶段名或“陪伴投影”。\n11. recentDiaryOpenings、recentDiaryContentPatterns 和 recentDiaryContinuity 只用来感知近期节奏，不是黑名单，也不是可模仿样例。长期事件、长期情绪或同一段关系可以反复出现，但本篇必须推进一个新的时间切片、具体细节、关系判断、未发送的话、行动念头或情绪变化。\n12. 不要固定写“今日心情”，不要每篇都用同一种开头、解释和结尾。允许无结尾、改口、跳跃、半句话或轻微修改痕迹，但不要故意堆错字。触动感来自具体而克制的细节，不要写成鸡汤或总结报告。'
       : '';
     const finalRules = kind === 'final_letter'
-      ? '\n8. farewellAnchors、unresolvedTies、futureHandoff 是最后一封信的主要材料：优先写具体记得什么、放不下谁、还有什么没完成，而不是泛泛告别。\n9. 允许知道自己会离开，但不要把离开写成唯一重点；结尾应像把一点未完成的期待交给后来的人。'
+      ? '\n8. farewellAnchors、sharedAnchors、unresolvedTies、futureHandoff 是最后一封信的主要材料：优先写具体记得什么、放不下谁、还有什么没完成，而不是泛泛告别。sharedAnchors 是高权重共同经历，只在自然相关时写成角色自己的记忆，不要输出字段名。\n9. 允许知道自己会离开，但不要把离开写成唯一重点；结尾应像把一点未完成的期待交给后来的人。'
       : '';
     return `你是角色经历写作者。根据结构化记忆、关系、情绪和内在余波，为角色写一段${label}。\n要求：\n1. 像真人的内心记录，不要像系统摘要。\n2. 必须使用角色自己的视角、语气、身份和情绪。\n3. 不要编造与输入冲突的大事件，可以合理补足心理活动。\n4. 不要列清单，不要解释你在生成什么。\n5. ${intent}\n6. 避免直接评价用户，不要说“你是个怎样的人”，只写角色自己的感受、记忆和期待。\n7. 可以有惆怅、感伤和有限性的意识，但不要为了煽情而煽情；最后应保留一点继续生活、继续相遇或继续变好的可能。${diaryRules}${finalRules}\n只输出正文。`;
   }
@@ -738,7 +775,7 @@ export function looksLikeRawArtifactContext(text: string) {
   try {
     const parsed = JSON.parse(normalized) as Record<string, unknown>;
     if (!parsed || typeof parsed !== 'object') return false;
-    const rawKeys = ['profile', 'memories', 'relationships', 'emotions', 'innerResidues', 'growthSignals', 'identityAnchors'];
+    const rawKeys = ['profile', 'memories', 'relationships', 'sharedAnchors', 'emotions', 'innerResidues', 'growthSignals', 'identityAnchors'];
     const matchedKeys = rawKeys.filter((key) => key in parsed).length;
     return matchedKeys >= 2 || ('dateKey' in parsed && ('highlights' in parsed || 'privateLenses' in parsed));
   } catch {
