@@ -341,6 +341,25 @@ export interface CompanionshipSharedSecretEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipSharedPhraseEventPayload {
+  eventType: 'companionship_shared_phrase';
+  characterId: string;
+  userId?: string;
+  phraseId: string;
+  action: 'upsert' | 'reused' | 'suppressed' | 'revoked';
+  text: string;
+  kind?: SharedPhrase['kind'];
+  participantIds: string[];
+  visibility?: SharedPhrase['visibility'];
+  firstSaidBy?: string;
+  reason?: string;
+  evidence?: string;
+  emotionalWeight?: number;
+  reuseCount?: number;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface CompanionshipSharedAnchorEventPayload {
   eventType: 'companionship_shared_anchor';
   characterId: string;
@@ -417,6 +436,21 @@ export interface SharedSecret {
   updatedAt: number;
 }
 
+export interface SharedPhrase {
+  id: string;
+  text: string;
+  kind: 'pet_name' | 'inside_joke' | 'promise_line' | 'comfort_line' | 'confession_line' | 'secret_code' | 'other';
+  participantIds: string[];
+  visibility: 'private' | 'between_actors' | 'public_hint';
+  firstSaidBy?: string;
+  emotionalWeight: number;
+  reuseCount: number;
+  sourceAnchorId?: string;
+  sourceEventIds: string[];
+  evidence?: string;
+  updatedAt: number;
+}
+
 export interface RitualRegistryEntry {
   id: string;
   kind: 'daily_greeting' | 'anniversary' | 'inside_joke' | 'pet_name' | 'reconciliation' | 'milestone';
@@ -444,6 +478,7 @@ export interface CompanionshipRuntimeTrace {
   phase: CompanionshipPhase;
   currentAddress: string;
   sharedAnchors: string[];
+  sharedPhrases: string[];
   sharedSecrets: string[];
   rituals: string[];
   intimateConflict?: Pick<IntimateConflictState, 'kind' | 'severity' | 'repairReadiness' | 'summary'>;

@@ -29,9 +29,9 @@ import { summarizeExpressionFeedbackInfluence } from '../../services/expressionF
 import { buildMemberInnerLifeChips } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { formatInnerImpulseLabel } from '../../services/runtimeDecisionLabels';
-import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildRitualRegistry, buildSharedMemoryAnchors, buildSharedSecrets, buildUserCompanionshipProjection } from '../../services/companionshipProjection';
+import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildRitualRegistry, buildSharedMemoryAnchors, buildSharedPhrases, buildSharedSecrets, buildUserCompanionshipProjection } from '../../services/companionshipProjection';
 import type { Message } from '../../types/message';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, PendingCareTopic, PendingPromise, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, PendingCareTopic, PendingPromise, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
@@ -953,6 +953,28 @@ function formatCompanionshipStyleLabel(style: CompanionshipRuntimeTrace['style']
   return labels[style] || style;
 }
 
+function formatSharedPhraseKindLabel(kind: SharedPhrase['kind']) {
+  const labels: Record<SharedPhrase['kind'], string> = {
+    pet_name: '专属称呼',
+    inside_joke: '共同话',
+    promise_line: '约定话语',
+    comfort_line: '安慰话语',
+    confession_line: '心意话语',
+    secret_code: '秘密暗号',
+    other: '共同话语',
+  };
+  return labels[kind] || kind;
+}
+
+function formatSharedPhraseVisibilityLabel(visibility: SharedPhrase['visibility']) {
+  const labels: Record<SharedPhrase['visibility'], string> = {
+    private: '私密',
+    between_actors: '两人可用',
+    public_hint: '公开可暗示',
+  };
+  return labels[visibility] || visibility;
+}
+
 const PHASE_CORRECTION_OPTIONS: Array<{ label: string; phase: CompanionshipPhase; style: CompanionshipStyle }> = [
   { label: '朋友', phase: 'fond', style: 'friend' },
   { label: '暧昧', phase: 'ambiguous', style: 'ambiguous' },
@@ -972,6 +994,7 @@ function UserCompanionshipCard({
   trace,
   pendingCareTopics,
   pendingPromises,
+  sharedPhrases,
   sharedSecrets,
   rituals,
   onBlockCareTopic,
@@ -992,6 +1015,7 @@ function UserCompanionshipCard({
   trace: CompanionshipRuntimeTrace | null;
   pendingCareTopics: PendingCareTopic[];
   pendingPromises: PendingPromise[];
+  sharedPhrases: SharedPhrase[];
   sharedSecrets: SharedSecret[];
   rituals: RitualRegistryEntry[];
   onBlockCareTopic: (topic: PendingCareTopic) => void;
@@ -1017,6 +1041,7 @@ function UserCompanionshipCard({
   ].filter(Boolean);
   const visibleLines = [
     trace?.sharedAnchors.length ? `共同锚点：${trace.sharedAnchors.slice(0, 2).join(' / ')}` : '',
+    trace?.sharedPhrases.length ? `共同话语：${trace.sharedPhrases.slice(0, 2).join(' / ')}` : '',
     trace?.sharedSecrets.length ? `小秘密：${trace.sharedSecrets.slice(0, 2).join(' / ')}` : '',
     trace?.rituals.length ? `仪式：${trace.rituals.slice(0, 2).join(' / ')}` : '',
     trace?.boundaries.length ? `用户边界：${trace.boundaries.slice(0, 2).join(' / ')}` : '',
@@ -1212,6 +1237,33 @@ function UserCompanionshipCard({
                       <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(secret)} sx={{ flexShrink: 0 }}>
                         撤回
                       </Button>
+                    </Box>
+                  ))}
+                </Stack>
+              </Box>
+            ) : null}
+            {sharedPhrases.length ? (
+              <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
+                  共同话语
+                </Typography>
+                <Stack spacing={0.75}>
+                  {sharedPhrases.slice(0, 5).map((phrase) => (
+                    <Box key={phrase.id} sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
+                          <Chip size="small" label={formatSharedPhraseKindLabel(phrase.kind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                          <Typography variant="caption" color="text.secondary">{formatSharedPhraseVisibilityLabel(phrase.visibility)}</Typography>
+                          <Typography variant="caption" color="text.secondary">权重 {phrase.emotionalWeight}</Typography>
+                          {phrase.reuseCount > 1 ? <Typography variant="caption" color="text.secondary">复用 {phrase.reuseCount}</Typography> : null}
+                        </Stack>
+                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>「{phrase.text}」</Typography>
+                        {phrase.evidence ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
+                            证据：{clipRuntimeText(phrase.evidence, 96)}
+                          </Typography>
+                        ) : null}
+                      </Box>
                     </Box>
                   ))}
                 </Stack>
@@ -1624,6 +1676,8 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       });
       const sharedSecrets = buildSharedSecrets(character as AICharacter, directChat.updatedAt || Date.now(), directChat)
         .filter((secret) => secret.participantIds.includes('user'));
+      const sharedPhrases = buildSharedPhrases(character as AICharacter, directChat.updatedAt || Date.now(), directChat, chatMessages)
+        .filter((phrase) => phrase.participantIds.includes('user'));
       const rituals = buildRitualRegistry({
         character: character as AICharacter,
         chat: directChat,
@@ -1638,6 +1692,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
         trace,
         pendingCareTopics: projection.userBond?.pendingCareTopics || [],
         pendingPromises: projection.userBond?.pendingPromises || [],
+        sharedPhrases,
         sharedSecrets,
         rituals,
       };
@@ -1649,6 +1704,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       trace: CompanionshipRuntimeTrace | null;
       pendingCareTopics: PendingCareTopic[];
       pendingPromises: PendingPromise[];
+      sharedPhrases: SharedPhrase[];
       sharedSecrets: SharedSecret[];
       rituals: RitualRegistryEntry[];
     }>;
@@ -1695,6 +1751,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 trace={view.trace}
                 pendingCareTopics={view.pendingCareTopics}
                 pendingPromises={view.pendingPromises}
+                sharedPhrases={view.sharedPhrases}
                 sharedSecrets={view.sharedSecrets}
                 rituals={view.rituals}
                 onBlockCareTopic={(topic) => {

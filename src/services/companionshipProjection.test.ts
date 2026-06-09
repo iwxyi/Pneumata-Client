@@ -9,7 +9,7 @@ import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { DEFAULT_COMPANIONSHIP_SETTINGS } from '../types/settings';
-import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipCarePolicyForCharacter, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildHomeCompanionshipSnapshot, buildRitualRegistry, buildSharedMemoryAnchors, buildSharedSecrets, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
+import { buildCharacterCompanionshipStates, buildCompanionshipArtifactSeeds, buildCompanionshipCarePolicyForCharacter, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildHomeCompanionshipSnapshot, buildRitualRegistry, buildSharedMemoryAnchors, buildSharedPhrases, buildSharedSecrets, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
 import { buildCompanionshipCareTopicEventsFromDirectUserMessage } from './directCompanionshipCare';
 import { setCompanionshipRuntimeConfig } from './companionshipRuntimeConfig';
 
@@ -378,6 +378,39 @@ function sharedSecretEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEven
       reason: '用户明确说这是只告诉苏苏的暗号。',
       evidence: '这是只有我们知道的暗号。',
       emotionalWeight: 82,
+      confidence: 0.9,
+      decisionSource: 'model',
+    },
+    ...overrides,
+  };
+}
+
+function sharedPhraseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
+  return {
+    id: 'evt-shared-phrase-1',
+    conversationId: 'chat-1',
+    kind: 'artifact',
+    createdAt: 1_000,
+    actorIds: ['user', 'char-a'],
+    targetIds: ['char-a', 'user'],
+    summary: '苏苏记录了一句只属于两个人的共同话语。',
+    visibility: 'pair_private',
+    eventClass: 'artifact',
+    payload: {
+      eventType: 'companionship_shared_phrase',
+      characterId: 'char-a',
+      userId: 'user',
+      phraseId: 'phrase-slowly',
+      action: 'upsert',
+      text: '慢慢来，我在',
+      kind: 'comfort_line',
+      participantIds: ['char-a', 'user'],
+      visibility: 'between_actors',
+      firstSaidBy: 'char-a',
+      reason: '这句话在修复时被用户接受。',
+      evidence: '苏苏说慢慢来，我在，用户没有再回避。',
+      emotionalWeight: 78,
+      reuseCount: 2,
       confidence: 0.9,
       decisionSource: 'model',
     },
@@ -2070,6 +2103,68 @@ describe('companionshipProjection', () => {
     });
     expect(projection.promptLines.join('\n')).toContain('第一次深夜聊天后，苏苏记住了用户没有离开');
     expect(trace?.sharedAnchors.join('\n')).toContain('第一次深夜聊天');
+  });
+
+  it('projects shared phrases into prompt, trace, and private artifact seeds', () => {
+    const phraseCharacter = character({
+      layeredMemories: [{
+        id: 'anchor-promise-line',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '两个人说好以后吵架时先说“慢慢来，我在”。',
+        evidenceText: '这是冲突修复后的约定话语。',
+        salience: 0.86,
+        confidence: 0.88,
+        recency: 0.7,
+        reinforcementCount: 2,
+        sourceEventIds: ['evt-anchor-promise-line'],
+        createdAt: 900,
+        updatedAt: 900,
+      }],
+    });
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [sharedPhraseEvent()]);
+    const messages = [message({ id: 'msg-phrase', content: '以后我们之间的暗号就叫“慢慢来，我在”。', timestamp: 1_050 })];
+    const phrases = buildSharedPhrases(phraseCharacter, 1_300, directChat, messages);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: phraseCharacter,
+      messages,
+      now: 1_300,
+    });
+    const status = buildCompanionshipStatusSignature({
+      chat: directChat,
+      character: phraseCharacter,
+      messages,
+      now: 1_300,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: phraseCharacter,
+      messages,
+      now: 1_300,
+    });
+    const seeds = buildCompanionshipArtifactSeeds({
+      character: phraseCharacter,
+      chat: directChat,
+      messages,
+      surface: 'private_diary',
+      now: 1_300,
+    });
+
+    expect(phrases.find((phrase) => phrase.id === 'phrase-slowly')).toMatchObject({
+      kind: 'comfort_line',
+      text: '慢慢来，我在',
+      reuseCount: 2,
+    });
+    expect(phrases.some((phrase) => phrase.kind === 'promise_line' && phrase.text.includes('慢慢来'))).toBe(true);
+    expect(projection.promptLines.join('\n')).toContain('Shared phrases/private lines');
+    expect(status?.debugLines.join('\n')).toContain('sharedPhrases=');
+    expect(trace?.sharedPhrases.join('\n')).toContain('慢慢来，我在');
+    expect(seeds.join('\n')).toContain('安慰话语');
+    expect(seeds.join('\n')).toContain('慢慢来，我在');
   });
 
   it('uses revoked shared anchor runtime events to suppress matching fallback anchors', () => {

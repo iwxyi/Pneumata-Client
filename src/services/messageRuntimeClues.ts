@@ -102,6 +102,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       `阶段：${companionship.phase}`,
       `称呼：${companionship.currentAddress}`,
       companionship.sharedAnchors.length ? `共同锚点：${companionship.sharedAnchors.join(' / ')}` : '',
+      companionship.sharedPhrases.length ? `共同话语：${companionship.sharedPhrases.join(' / ')}` : '',
       companionship.intimateConflict ? `亲密冲突：${companionship.intimateConflict.summary}（强度 ${companionship.intimateConflict.severity}，修复成熟度 ${companionship.intimateConflict.repairReadiness}）` : '',
       companionship.attachmentProfile ? `依恋适配：${companionship.attachmentProfile.inferredStyle} · 置信 ${companionship.attachmentProfile.confidence}% · ${companionship.attachmentProfile.adaptations.join(' / ')}` : '',
       companionship.pendingCareTopics.length ? `关心事项：${companionship.pendingCareTopics.join(' / ')}` : '',
@@ -113,7 +114,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       `画像置信：${companionship.userProfileConfidence}%`,
       companionship.evidence.length ? `证据：${companionship.evidence.join(' / ')}` : '',
     ] : [],
-    maxItems: 10,
+    maxItems: 12,
   }, members);
   pushSection(sections, {
     key: 'inner',

@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import { DEFAULT_PERSONALITY } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -1017,6 +1017,173 @@ function getSharedAnchorLabels(character: AICharacter, now: number, chat?: Group
   return buildUserSharedAnchors(character, now, chat).map(formatSharedAnchorForPrompt);
 }
 
+function classifySharedPhrase(text: string, fallback: SharedPhrase['kind'] = 'other'): SharedPhrase['kind'] {
+  if (/(叫我|称呼|昵称|专属称呼|名字是|喊我)/.test(text)) return 'pet_name';
+  if (/(暗号|口令|密语|只有.*懂|共同梗|梗|玩笑)/.test(text)) return 'inside_joke';
+  if (/(约定|承诺|答应|说好|以后.*一起|下次.*一起|等你)/.test(text)) return 'promise_line';
+  if (/(别怕|没关系|我在|陪着你|不用硬撑|慢慢来|别一个人扛)/.test(text)) return 'comfort_line';
+  if (/(喜欢你|爱你|想你|在一起|确认关系|表白|心意)/.test(text)) return 'confession_line';
+  if (/(秘密|小秘密|不能告诉|保密|只告诉)/.test(text)) return 'secret_code';
+  return fallback;
+}
+
+function sharedPhraseKindLabel(kind: SharedPhrase['kind']) {
+  const labels: Record<SharedPhrase['kind'], string> = {
+    pet_name: '专属称呼',
+    inside_joke: '共同话',
+    promise_line: '约定话语',
+    comfort_line: '安慰话语',
+    confession_line: '心意话语',
+    secret_code: '秘密暗号',
+    other: '共同话语',
+  };
+  return labels[kind] || kind;
+}
+
+function sharedPhraseVisibilityFromParticipants(participantIds: string[], kind: SharedPhrase['kind']): SharedPhrase['visibility'] {
+  if (kind === 'secret_code') return 'private';
+  return participantIds.includes(USER_ACTOR_ID) ? 'between_actors' : 'public_hint';
+}
+
+function sharedPhraseTextKey(phrase: Pick<SharedPhrase, 'kind' | 'participantIds' | 'text'>) {
+  return `${phrase.kind}:${phrase.participantIds.slice().sort().join(',')}:${phrase.text.replace(/\s+/g, '').slice(0, 80)}`;
+}
+
+function formatSharedPhraseForPrompt(phrase: SharedPhrase) {
+  return `${sharedPhraseKindLabel(phrase.kind)}「${compactText(phrase.text, 72)}」`;
+}
+
+function sharedPhraseEventPayloadOf(event: RuntimeEventV2): CompanionshipSharedPhraseEventPayload | null {
+  const payload = event.payload as Partial<CompanionshipSharedPhraseEventPayload> | undefined;
+  if (!payload || payload.eventType !== 'companionship_shared_phrase' || !payload.characterId || !payload.phraseId || !payload.action || !payload.text || !Array.isArray(payload.participantIds)) return null;
+  if (payload.action !== 'upsert' && payload.action !== 'reused' && payload.action !== 'suppressed' && payload.action !== 'revoked') return null;
+  return payload as CompanionshipSharedPhraseEventPayload;
+}
+
+function buildRuntimeEventSharedPhraseState(chat: GroupChat | undefined, character: AICharacter, now: number) {
+  const activeById = new Map<string, SharedPhrase>();
+  const closedIds = new Set<string>();
+  const closedTextKeys = new Set<string>();
+  (chat?.runtimeEventsV2 || [])
+    .filter((event) => event.kind === 'artifact')
+    .slice()
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+    .forEach((event) => {
+      const payload = sharedPhraseEventPayloadOf(event);
+      if (!payload || payload.characterId !== character.id) return;
+      const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 1;
+      if (confidence < 0.6) return;
+      const text = compactText(payload.text, 120);
+      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id));
+      const kind = payload.kind || classifySharedPhrase(`${text}\n${payload.evidence || ''}`);
+      const key = sharedPhraseTextKey({ kind, participantIds, text });
+      if (payload.action === 'revoked' || payload.action === 'suppressed') {
+        activeById.delete(payload.phraseId);
+        closedIds.add(payload.phraseId);
+        closedTextKeys.add(key);
+        return;
+      }
+      closedIds.delete(payload.phraseId);
+      closedTextKeys.delete(key);
+      const previous = activeById.get(payload.phraseId);
+      activeById.set(payload.phraseId, {
+        id: payload.phraseId,
+        text,
+        kind,
+        participantIds,
+        visibility: payload.visibility || sharedPhraseVisibilityFromParticipants(participantIds, kind),
+        firstSaidBy: payload.firstSaidBy || previous?.firstSaidBy,
+        emotionalWeight: clampRelationshipScore(payload.emotionalWeight ?? previous?.emotionalWeight ?? 62),
+        reuseCount: Math.max(payload.reuseCount ?? previous?.reuseCount ?? 1, payload.action === 'reused' ? (previous?.reuseCount || 0) + 1 : 1),
+        sourceEventIds: Array.from(new Set([...(previous?.sourceEventIds || []), event.id])).slice(-6),
+        evidence: compactText(payload.evidence || payload.reason || event.summary, 160),
+        updatedAt: event.createdAt || now,
+      });
+    });
+  return {
+    activePhrases: Array.from(activeById.values()),
+    closedIds,
+    closedTextKeys,
+  };
+}
+
+function sharedPhraseFromAnchor(anchor: SharedMemoryAnchor): SharedPhrase | null {
+  const text = compactText(anchor.text, 120);
+  if (!text) return null;
+  const inferredKind = anchor.kind === 'inside_joke'
+    ? classifySharedPhrase(text, 'inside_joke')
+    : anchor.kind === 'promise'
+      ? 'promise_line'
+      : anchor.kind === 'confession'
+        ? 'confession_line'
+        : anchor.kind === 'repair'
+          ? classifySharedPhrase(`${text}\n${anchor.evidence || ''}`, 'comfort_line')
+          : anchor.kind === 'shared_secret'
+            ? 'secret_code'
+            : classifySharedPhrase(`${text}\n${anchor.evidence || ''}`);
+  if (inferredKind === 'other' && anchor.kind !== 'milestone') return null;
+  return {
+    id: `phrase-${anchor.id}`,
+    text,
+    kind: inferredKind,
+    participantIds: anchor.participantIds,
+    visibility: sharedPhraseVisibilityFromParticipants(anchor.participantIds, inferredKind),
+    emotionalWeight: clampRelationshipScore(anchor.salience * 0.5 + anchor.confidence * 0.35 + (anchor.kind === 'confession' || anchor.kind === 'shared_secret' ? 12 : 0)),
+    reuseCount: Math.max(1, Math.round(anchor.salience / 35)),
+    sourceAnchorId: anchor.id,
+    sourceEventIds: anchor.sourceId ? [anchor.sourceId] : [],
+    evidence: anchor.evidence,
+    updatedAt: anchor.updatedAt,
+  };
+}
+
+function extractQuotedSharedPhraseFromMessage(message: Message, characterId: string, index: number, now: number): SharedPhrase | null {
+  const content = message.content || '';
+  if (!/(记住|这句|暗号|口令|以后|说好|约定|叫我|称呼|只有我们|我们之间)/.test(content)) return null;
+  const quoted = content.match(/[“"「『](.{1,36}?)[”"」』]/)?.[1]
+    || content.match(/(?:暗号|口令|约定|说好|叫我|称呼)[是叫为：:\s]*(.{1,28})/)?.[1];
+  const text = compactText(quoted || content, 72);
+  if (!text) return null;
+  const kind = classifySharedPhrase(content);
+  return {
+    id: `recent-phrase-${message.id || index}`,
+    text,
+    kind,
+    participantIds: [characterId, USER_ACTOR_ID],
+    visibility: sharedPhraseVisibilityFromParticipants([characterId, USER_ACTOR_ID], kind),
+    firstSaidBy: message.senderId || USER_ACTOR_ID,
+    emotionalWeight: clampRelationshipScore(kind === 'other' ? 42 : 58),
+    reuseCount: 1,
+    sourceEventIds: [],
+    evidence: compactText(content, 140),
+    updatedAt: message.timestamp || now,
+  };
+}
+
+export function buildSharedPhrases(character: AICharacter, now = 0, chat?: GroupChat, messages: Message[] = []): SharedPhrase[] {
+  const runtimeState = buildRuntimeEventSharedPhraseState(chat, character, now);
+  const anchorPhrases = buildSharedMemoryAnchors(character, now, chat)
+    .map(sharedPhraseFromAnchor)
+    .filter((item): item is SharedPhrase => Boolean(item))
+    .filter((phrase) => !runtimeState.closedIds.has(phrase.id) && !runtimeState.closedTextKeys.has(sharedPhraseTextKey(phrase)));
+  const recentPhrases = messages
+    .filter((message) => !message.isDeleted && (message.senderId === USER_ACTOR_ID || message.type === 'user' || message.type === 'god'))
+    .slice(-12)
+    .map((message, index) => extractQuotedSharedPhraseFromMessage(message, character.id, index, now))
+    .filter((item): item is SharedPhrase => Boolean(item))
+    .filter((phrase) => !runtimeState.closedTextKeys.has(sharedPhraseTextKey(phrase)));
+  const seen = new Set<string>();
+  return [...runtimeState.activePhrases, ...anchorPhrases, ...recentPhrases]
+    .filter((phrase) => {
+      const key = sharedPhraseTextKey(phrase);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => (b.emotionalWeight + b.reuseCount * 4 + b.updatedAt / DAY_MS) - (a.emotionalWeight + a.reuseCount * 4 + a.updatedAt / DAY_MS))
+    .slice(0, 8);
+}
+
 function buildCompanionshipDiagnostics(chat: GroupChat, characterId: string) {
   return (chat.runtimeEventsV2 || [])
     .slice()
@@ -1912,6 +2079,10 @@ export function buildCompanionshipStatusSignature(params: {
   const bond = projection.userBond;
   if (!bond) return null;
   const sharedAnchorLabels = getSharedAnchorLabels(params.character, now, params.chat);
+  const sharedPhraseLabels = buildSharedPhrases(params.character, now, params.chat, params.messages)
+    .filter((phrase) => phrase.participantIds.includes(USER_ACTOR_ID))
+    .map(formatSharedPhraseForPrompt)
+    .slice(0, 3);
   const carePolicy = bond.carePolicy;
   const offlineTrace = buildOfflineTrace(bond, carePolicy, now);
   const unsentDraftEvent = resolveUnsentDraftEvent(params.chat, params.character.id, now);
@@ -1938,6 +2109,7 @@ export function buildCompanionshipStatusSignature(params: {
       onlineReturn ? `onlineReturn=${onlineReturn}${onlineReturnEvent ? ` source=${onlineReturnEvent.sourceEventId}` : ''}` : '',
       onlineReturnEvent?.blocked ? `onlineReturn=suppressed source=${onlineReturnEvent.sourceEventId}` : '',
       sharedAnchorLabels.length ? `sharedAnchors=${sharedAnchorLabels.join(' / ')}` : '',
+      sharedPhraseLabels.length ? `sharedPhrases=${sharedPhraseLabels.join(' / ')}` : '',
       projection.evidence.length ? `evidence=${projection.evidence.join(' / ')}` : '',
     ].filter(Boolean),
     addressing: bond.addressing,
@@ -2008,7 +2180,7 @@ export function buildHomeCompanionshipSnapshot(params: {
   };
 }
 
-function buildPromptLines(bond: UserBondState, carePolicy: CarePolicy, evidence: string[], sharedAnchors: SharedMemoryAnchor[]) {
+function buildPromptLines(bond: UserBondState, carePolicy: CarePolicy, evidence: string[], sharedAnchors: SharedMemoryAnchor[], sharedPhrases: SharedPhrase[]) {
   const intimacy = bond.intimacy;
   const profile = bond.userProfile;
   const lines = [
@@ -2026,6 +2198,7 @@ function buildPromptLines(bond: UserBondState, carePolicy: CarePolicy, evidence:
     profile.boundaries.length ? `- User boundaries: ${profile.boundaries.join(' / ')}. These override intimacy and proactive care.` : '',
     `- Address the user naturally as "${bond.addressing.currentAddress}" unless the latest message suggests another appropriate address.`,
     sharedAnchors.length ? `- Shared memory anchors with the user: ${sharedAnchors.map(formatSharedAnchorForPrompt).join(' / ')}. Use as relationship texture only when relevant; do not expose internal labels.` : '',
+    sharedPhrases.length ? `- Shared phrases/private lines: ${sharedPhrases.map(formatSharedPhraseForPrompt).join(' / ')}. Reuse only when emotionally earned; do not force catchphrases or explain them.` : '',
     bond.pendingCareTopics.length ? `- Pending care topics: ${bond.pendingCareTopics.map((item) => item.text).join(' / ')}.` : '',
     bond.pendingPromises.length ? `- Pending promises/unfinished shared plans: ${bond.pendingPromises.map((item) => {
       const remind = item.reminderPolicy.shouldRemind ? `reminder tone ${item.reminderPolicy.tone}` : 'do not proactively remind';
@@ -2076,6 +2249,9 @@ export function buildUserCompanionshipProjection(params: {
     sharedAnchors,
     now,
   });
+  const sharedPhrases = buildSharedPhrases(character, now, chat, messages)
+    .filter((phrase) => phrase.participantIds.includes(USER_ACTOR_ID))
+    .slice(0, 4);
   const sharedSecrets = buildSharedSecrets(character, now, chat);
   const intimateConflict = buildIntimateConflictState({
     chat,
@@ -2126,8 +2302,8 @@ export function buildUserCompanionshipProjection(params: {
   };
   return {
     userBond: bond,
-    evidence: [...sharedAnchors.map(formatSharedAnchorForPrompt), ...(intimateConflict?.evidence || []), ...evidence].slice(0, 6),
-    promptLines: buildPromptLines(bond, carePolicy, evidence, sharedAnchors),
+    evidence: [...sharedAnchors.map(formatSharedAnchorForPrompt), ...sharedPhrases.map(formatSharedPhraseForPrompt), ...(intimateConflict?.evidence || []), ...evidence].slice(0, 6),
+    promptLines: buildPromptLines(bond, carePolicy, evidence, sharedAnchors, sharedPhrases),
   };
 }
 
@@ -2847,6 +3023,7 @@ export function buildCompanionshipArtifactSeeds(params: {
   const seeds: string[] = [];
   const isPublic = surface === 'public_moment';
   const sharedSecrets = buildSharedSecrets(companionCharacter, now, chat);
+  const sharedPhrases = buildSharedPhrases(companionCharacter, now, chat, messages || []);
   const rituals = buildRitualRegistry({ character: companionCharacter, chat, messages, now });
 
   buildSharedMemoryAnchors(companionCharacter, now, chat)
@@ -2884,6 +3061,21 @@ export function buildCompanionshipArtifactSeeds(params: {
       return;
     }
     seeds.push(`${participantNames ? `和${participantNames}之间的` : ''}小秘密可以成为私密日记材料：${cleanArtifactSeedText(secret.privateText, members, 140)}。`);
+  });
+
+  sharedPhrases.slice(0, isPublic ? 2 : 3).forEach((phrase) => {
+    if (isPublic && (phrase.participantIds.includes(USER_ACTOR_ID) || phrase.visibility === 'private')) return;
+    const text = cleanArtifactSeedText(phrase.visibility === 'private' ? phrase.text : phrase.text, members, isPublic ? 72 : 120);
+    if (!text) return;
+    if (isPublic) {
+      seeds.push(`公开动态可以把共同话语写成“懂的人自然懂”的轻微生活痕迹，不解释来源：${text}。`);
+      return;
+    }
+    const participantNames = phrase.participantIds
+      .map((id) => resolveCompanionshipActorName(id, relatedCharacters))
+      .filter((name) => name !== (character.name || '这个角色'))
+      .join('和');
+    seeds.push(`${participantNames ? `和${participantNames}之间的` : ''}${sharedPhraseKindLabel(phrase.kind)}可以成为日记里的私下回声，避免机械复读：${text}。`);
   });
 
   rituals.slice(0, isPublic ? 2 : 3).forEach((ritual) => {
@@ -2974,6 +3166,10 @@ export function buildCompanionshipRuntimeTrace(params: {
     .filter((secret) => secret.participantIds.includes(USER_ACTOR_ID))
     .map((secret) => secret.publicMask)
     .slice(0, 3);
+  const sharedPhraseLabels = buildSharedPhrases(params.character, params.now || Date.now(), params.chat, params.messages)
+    .filter((phrase) => phrase.participantIds.includes(USER_ACTOR_ID))
+    .map((phrase) => `${sharedPhraseKindLabel(phrase.kind)}：${phrase.text}${phrase.visibility === 'private' ? ' · 私密' : ''}${phrase.reuseCount > 1 ? ` · 复用${phrase.reuseCount}` : ''}`)
+    .slice(0, 4);
   const ritualLabels = buildRitualRegistry({
     character: params.character,
     chat: params.chat,
@@ -2994,6 +3190,7 @@ export function buildCompanionshipRuntimeTrace(params: {
     phase: bond.phase,
     currentAddress: bond.addressing.currentAddress,
     sharedAnchors: sharedAnchorLabels.slice(0, 4),
+    sharedPhrases: sharedPhraseLabels,
     sharedSecrets: sharedSecretLabels,
     rituals: ritualLabels,
     intimateConflict: bond.intimateConflict ? {
