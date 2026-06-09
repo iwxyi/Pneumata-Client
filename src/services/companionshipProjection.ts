@@ -168,6 +168,15 @@ function adjustIntimacyForCompanionshipRuntime(params: {
   const leakedWeight = userSecrets
     .filter((secret) => secret.leakState === 'leaked')
     .reduce((total, secret) => total + secret.emotionalWeight, 0);
+  const intentionalLeakWeight = userSecrets
+    .filter((secret) => secret.leakState === 'leaked' && secret.consequenceKind === 'intentional_breach')
+    .reduce((total, secret) => total + secret.emotionalWeight, 0);
+  const softLeakWeight = userSecrets
+    .filter((secret) => secret.leakState === 'leaked' && (secret.consequenceKind === 'misunderstanding' || secret.consequenceKind === 'accidental_leak'))
+    .reduce((total, secret) => total + secret.emotionalWeight, 0);
+  const protectiveConfessionWeight = userSecrets
+    .filter((secret) => secret.leakState === 'confessed' && (secret.consequenceKind === 'protective_confession' || secret.consequenceKind === 'voluntary_confession'))
+    .reduce((total, secret) => total + secret.emotionalWeight, 0);
   const conflictSeverity = params.intimateConflict?.severity || 0;
   const repairReadiness = params.intimateConflict?.repairReadiness || 0;
   const isRepairing = params.intimateConflict?.kind === 'repair_attempt' || params.intimateConflict?.kind === 'reconciliation';
@@ -177,7 +186,9 @@ function adjustIntimacyForCompanionshipRuntime(params: {
       params.base.attraction
       + sealedWeight * 0.04
       + confessedWeight * 0.03
-      - leakedWeight * 0.08
+      - leakedWeight * 0.06
+      - intentionalLeakWeight * 0.04
+      + softLeakWeight * 0.02
       - conflictSeverity * 0.16
       + (isRepairing ? repairReadiness * 0.05 : 0),
     ),
@@ -185,7 +196,9 @@ function adjustIntimacyForCompanionshipRuntime(params: {
       params.base.intimacy
       + sealedWeight * 0.08
       + confessedWeight * 0.1
-      - leakedWeight * 0.06
+      + protectiveConfessionWeight * 0.04
+      - leakedWeight * 0.05
+      + softLeakWeight * 0.03
       - conflictSeverity * 0.12
       + (isRepairing ? repairReadiness * 0.14 : 0),
     ),
@@ -193,26 +206,34 @@ function adjustIntimacyForCompanionshipRuntime(params: {
       params.base.attachment
       + sealedWeight * 0.06
       + confessedWeight * 0.08
+      + protectiveConfessionWeight * 0.03
       - leakedWeight * 0.04
+      + softLeakWeight * 0.02
       + (attachment === 'anxious' ? 6 : attachment === 'avoidant' ? -4 : attachment === 'disorganized' ? -2 : 0),
     ),
     longing: clampScore(
       params.base.longing
       + sealedWeight * 0.04
       - leakedWeight * 0.05
+      + softLeakWeight * 0.02
       + (attachment === 'anxious' ? 8 : attachment === 'avoidant' ? -10 : attachment === 'disorganized' ? -4 : 0),
     ),
     exclusivity: clampScore(
       params.base.exclusivity
       + sealedWeight * 0.02
       + leakedWeight * 0.06
+      + intentionalLeakWeight * 0.03
+      - softLeakWeight * 0.02
       - (attachment === 'avoidant' ? 8 : 0),
     ),
     security: clampScore(
       params.base.security
       + sealedWeight * 0.04
       + confessedWeight * 0.12
-      - leakedWeight * 0.16
+      + protectiveConfessionWeight * 0.08
+      - leakedWeight * 0.12
+      - intentionalLeakWeight * 0.08
+      + softLeakWeight * 0.04
       - conflictSeverity * 0.2
       + (isRepairing ? repairReadiness * 0.18 : 0)
       - (attachment === 'anxious' ? 4 : attachment === 'disorganized' ? 6 : 0),
@@ -1836,6 +1857,41 @@ function conflictSummary(kind: IntimateConflictKind, severity: number, repairRea
   return `关系里有试探性的紧张，修复成熟度约${repairReadiness}，不要贸然推进亲密。`;
 }
 
+function sharedSecretConsequenceDescription(secret: SharedSecret) {
+  if (secret.leakState === 'leaked') {
+    if (secret.consequenceKind === 'misunderstanding') return '更像误会或语境错位，需要先澄清真实意图';
+    if (secret.consequenceKind === 'accidental_leak') return '更像无意说漏，需要承认影响并给出边界修复';
+    if (secret.consequenceKind === 'intentional_breach') return '更像主动越界或信任背叛，需要严肃修复安全感';
+    return '需要处理被说漏、被发现或信任受损的余波';
+  }
+  if (secret.leakState === 'confessed') {
+    if (secret.consequenceKind === 'protective_confession') return '更像为了保护关系而主动说开，适合接住修复机会';
+    if (secret.consequenceKind === 'voluntary_confession') return '更像主动坦白，适合承认脆弱并补回安全感';
+    return '需要处理主动说开后的修复和安全感';
+  }
+  return '仍应保留边界，不把私密内容公开摊开';
+}
+
+function secretConsequenceSeverityFactor(secret: SharedSecret) {
+  if (secret.consequenceKind === 'misunderstanding') return 0.52;
+  if (secret.consequenceKind === 'accidental_leak') return 0.72;
+  if (secret.consequenceKind === 'intentional_breach') return 1.16;
+  return 1;
+}
+
+function secretConsequenceRepairBoost(secret: SharedSecret) {
+  if (secret.consequenceKind === 'protective_confession') return 18;
+  if (secret.consequenceKind === 'voluntary_confession') return 12;
+  return 0;
+}
+
+function secretConsequenceRepairPenalty(secret: SharedSecret) {
+  if (secret.consequenceKind === 'intentional_breach') return 18;
+  if (secret.consequenceKind === 'accidental_leak') return 6;
+  if (secret.consequenceKind === 'misunderstanding') return -8;
+  return 0;
+}
+
 function buildIntimateConflictState(params: {
   chat: GroupChat;
   characterId: string;
@@ -1860,8 +1916,8 @@ function buildIntimateConflictState(params: {
   const phaseTexts = params.phaseEvent?.evidence || [];
   const anchorTexts = [...conflictAnchors, ...repairAnchors].map((anchor) => [anchor.title, anchor.text, anchor.evidence].filter(Boolean).join('：'));
   const secretTexts = [
-    ...leakedSecrets.map((secret) => `秘密泄露后果：${secret.publicMask}；需要处理被说漏、被发现或信任受损的余波。`),
-    ...confessedSecrets.map((secret) => `秘密坦白后果：${secret.publicMask}；需要处理主动说开后的修复和安全感。`),
+    ...leakedSecrets.map((secret) => `秘密泄露后果：${secret.publicMask}；${sharedSecretConsequenceDescription(secret)}。`),
+    ...confessedSecrets.map((secret) => `秘密坦白后果：${secret.publicMask}；${sharedSecretConsequenceDescription(secret)}。`),
   ];
   const evidence = [...phaseTexts, ...anchorTexts, ...secretTexts, ...ledgerTexts].map((item) => compactText(item, 120)).filter(Boolean).slice(0, 5);
   const hasSecretLeak = leakedSecrets.length > 0;
@@ -1874,7 +1930,9 @@ function buildIntimateConflictState(params: {
     : conflictKindFromTexts(evidence, params.phase);
   const threat = params.entry?.current.threat || 0;
   const anchorSeverity = conflictAnchors.reduce((max, anchor) => Math.max(max, anchor.salience * anchor.confidence * 100), 0);
-  const secretSeverity = leakedSecrets.reduce((max, secret) => Math.max(max, secret.emotionalWeight), 0);
+  const secretSeverity = leakedSecrets.reduce((max, secret) => Math.max(max, secret.emotionalWeight * secretConsequenceSeverityFactor(secret)), 0);
+  const confessionRepairBoost = confessedSecrets.reduce((total, secret) => total + secretConsequenceRepairBoost(secret), 0);
+  const leakRepairPenalty = leakedSecrets.reduce((total, secret) => total + secretConsequenceRepairPenalty(secret), 0);
   const severity = clampScore(Math.max(
     params.phase === 'crisis' ? 76 : params.phase === 'cooling' ? 48 : 0,
     threat * 1.4,
@@ -1886,8 +1944,10 @@ function buildIntimateConflictState(params: {
     (params.phase === 'reconciling' ? 42 : 0)
     + repairAnchors.length * 22
     + confessedSecrets.length * 24
+    + confessionRepairBoost
     + Math.max(0, params.intimacy.security - 24) * 0.65
     + (kind === 'reconciliation' ? 18 : 0)
+    - leakRepairPenalty
     - (kind === 'silent_treatment' || kind === 'cold_war' ? 12 : 0),
   );
   return {
@@ -2713,6 +2773,29 @@ function inferSecretLeakState(text: string): SharedSecret['leakState'] {
   return 'sealed';
 }
 
+function isSharedSecretConsequenceKind(value: unknown): value is NonNullable<SharedSecret['consequenceKind']> {
+  return value === 'none'
+    || value === 'misunderstanding'
+    || value === 'accidental_leak'
+    || value === 'intentional_breach'
+    || value === 'protective_confession'
+    || value === 'voluntary_confession';
+}
+
+function inferSecretConsequenceKind(text: string, leakState: SharedSecret['leakState']): SharedSecret['consequenceKind'] {
+  const normalized = text || '';
+  if (leakState === 'leaked') {
+    if (/(误会|误解|以为|不是故意|没那个意思|话赶话|语境|被曲解)/.test(normalized)) return 'misunderstanding';
+    if (/(说漏|无意|不小心|顺口|没忍住|被发现|露馅)/.test(normalized)) return 'accidental_leak';
+    if (/(故意|背叛|公开|传开|泄露|出卖|越界|拿.*威胁|当众)/.test(normalized)) return 'intentional_breach';
+  }
+  if (leakState === 'confessed') {
+    if (/(保护|怕.*误会|不想.*误会|为了不让.*误会|怕你受伤|先说清楚|保护性坦白)/.test(normalized)) return 'protective_confession';
+    if (/(坦白|主动说出|主动说开|承认|说开|交代)/.test(normalized)) return 'voluntary_confession';
+  }
+  return 'none';
+}
+
 function buildSecretPublicMask(anchor: SharedMemoryAnchor) {
   if (anchor.participantIds.includes(USER_ACTOR_ID)) return '有一件只适合留在心里的事';
   if (/(暗号|共同梗|玩笑)/.test(anchor.text)) return '一个只有熟人懂的暗号';
@@ -2759,12 +2842,24 @@ function buildRuntimeEventSharedSecrets(chat: GroupChat | undefined, character: 
         return;
       }
       revokedKeys.delete(key);
+      const leakState = secretLeakStateFromAction(payload.action);
+      const consequenceText = [
+        payload.consequenceKind,
+        payload.privateText,
+        payload.publicMask,
+        payload.reason,
+        payload.evidence,
+        payload.action,
+      ].filter(Boolean).join('\n');
       activeById.set(payload.secretId, {
         id: payload.secretId,
         participantIds,
         privateText,
         publicMask: compactText(payload.publicMask || (participantIds.includes(USER_ACTOR_ID) ? '有一件只适合留在心里的事' : '一个没有展开说的秘密'), 80),
-        leakState: secretLeakStateFromAction(payload.action),
+        leakState,
+        consequenceKind: isSharedSecretConsequenceKind(payload.consequenceKind)
+          ? payload.consequenceKind
+          : inferSecretConsequenceKind(consequenceText, leakState),
         emotionalWeight: clampRelationshipScore(payload.emotionalWeight ?? 68),
         sourceAnchorId: `runtime-${event.id}`,
         sourceEventIds: [event.id],
@@ -2788,17 +2883,22 @@ export function buildSharedSecrets(character: AICharacter, now = 0, chat?: Group
   const anchorSecrets = buildSharedMemoryAnchors(character, now, chat)
     .filter((anchor) => anchor.kind === 'shared_secret')
     .filter((anchor) => !isSecretSuppressedByRuntimeEvent(anchor, runtimeState.revokedKeys))
-    .map((anchor): SharedSecret => ({
-      id: `secret-${anchor.id}`,
-      participantIds: anchor.participantIds,
-      privateText: anchor.text,
-      publicMask: buildSecretPublicMask(anchor),
-      leakState: inferSecretLeakState(`${anchor.text}\n${anchor.evidence || ''}`),
-      emotionalWeight: clampRelationshipScore(anchor.salience * 0.58 + anchor.confidence * 0.34 + (anchor.participantIds.includes(USER_ACTOR_ID) ? 8 : 0)),
-      sourceAnchorId: anchor.id,
-      sourceEventIds: anchor.sourceId ? [anchor.sourceId] : [],
-      updatedAt: anchor.updatedAt || now,
-    }));
+    .map((anchor): SharedSecret => {
+      const evidenceText = `${anchor.text}\n${anchor.evidence || ''}`;
+      const leakState = inferSecretLeakState(evidenceText);
+      return {
+        id: `secret-${anchor.id}`,
+        participantIds: anchor.participantIds,
+        privateText: anchor.text,
+        publicMask: buildSecretPublicMask(anchor),
+        leakState,
+        consequenceKind: inferSecretConsequenceKind(evidenceText, leakState),
+        emotionalWeight: clampRelationshipScore(anchor.salience * 0.58 + anchor.confidence * 0.34 + (anchor.participantIds.includes(USER_ACTOR_ID) ? 8 : 0)),
+        sourceAnchorId: anchor.id,
+        sourceEventIds: anchor.sourceId ? [anchor.sourceId] : [],
+        updatedAt: anchor.updatedAt || now,
+      };
+    });
   return [...runtimeState.activeSecrets, ...anchorSecrets]
     .sort((a, b) => (b.emotionalWeight + b.updatedAt / DAY_MS) - (a.emotionalWeight + a.updatedAt / DAY_MS))
     .slice(0, 8);

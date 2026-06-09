@@ -331,6 +331,7 @@ export interface CompanionshipSharedSecretEventPayload {
   userId?: string;
   secretId: string;
   action: 'recorded' | 'hinted_publicly' | 'leaked' | 'confessed' | 'revoked';
+  consequenceKind?: SharedSecret['consequenceKind'];
   participantIds: string[];
   privateText: string;
   publicMask?: string;
@@ -430,6 +431,7 @@ export interface SharedSecret {
   privateText: string;
   publicMask: string;
   leakState: 'sealed' | 'hinted_publicly' | 'leaked' | 'confessed';
+  consequenceKind?: 'none' | 'misunderstanding' | 'accidental_leak' | 'intentional_breach' | 'protective_confession' | 'voluntary_confession';
   emotionalWeight: number;
   sourceAnchorId: string;
   sourceEventIds: string[];

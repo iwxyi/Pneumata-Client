@@ -2478,7 +2478,7 @@ describe('companionshipProjection', () => {
       kind: 'accusation',
       participantIds: ['char-a', 'user'],
     });
-    expect(projection.userBond?.intimateConflict?.severity).toBeGreaterThan(70);
+    expect(projection.userBond?.intimateConflict?.severity).toBeGreaterThan(60);
     expect(projection.userBond?.intimateConflict?.evidence.join('\n')).toContain('秘密泄露后果');
     expect(projection.promptLines.join('\n')).toContain('Current intimate conflict/repair state');
   });
@@ -3614,6 +3614,108 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.intimateConflict?.severity).toBeGreaterThan(0);
     expect(projection.userBond?.intimateConflict?.evidence.join('\n')).toContain('秘密泄露后果');
     expect(projection.promptLines.join('\n')).toContain('Current intimate conflict/repair state');
+  });
+
+  it('classifies shared secret misunderstanding as a softer leak consequence', () => {
+    const baseRelationship = [relationship({ warmth: 64, trust: 60, competence: 10, threat: 6 })];
+    const misunderstandingChat = chat('direct', baseRelationship, [
+      sharedSecretEvent({
+        id: 'evt-shared-secret-misunderstanding',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_shared_secret',
+          characterId: 'char-a',
+          userId: 'user',
+          secretId: 'secret-user-codeword-soft',
+          action: 'leaked',
+          consequenceKind: 'misunderstanding',
+          participantIds: ['char-a', 'user'],
+          privateText: '用户只把那个暗号告诉过苏苏，后来一句话被误会成说漏了。',
+          publicMask: '有一件只适合留在心里的事',
+          evidence: '说漏导致用户误会，不是故意，也不是想公开。',
+          emotionalWeight: 88,
+          confidence: 0.92,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const misunderstandingProjection = buildUserCompanionshipProjection({
+      chat: misunderstandingChat,
+      character: character(),
+      messages: [message({ content: '说漏导致用户误会，不是故意。', timestamp: 1_000 })],
+      now: 1_200,
+    });
+    const breachChat = chat('direct', baseRelationship, [
+      sharedSecretEvent({
+        id: 'evt-shared-secret-intentional-breach',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_shared_secret',
+          characterId: 'char-a',
+          userId: 'user',
+          secretId: 'secret-user-codeword-breach',
+          action: 'leaked',
+          consequenceKind: 'intentional_breach',
+          participantIds: ['char-a', 'user'],
+          privateText: '用户只把那个暗号告诉过苏苏，后来被故意公开说出去。',
+          publicMask: '有一件只适合留在心里的事',
+          evidence: '故意公开导致秘密传开，像一次越界。',
+          emotionalWeight: 88,
+          confidence: 0.92,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const breachProjection = buildUserCompanionshipProjection({
+      chat: breachChat,
+      character: character(),
+      messages: [message({ content: '故意公开导致秘密传开。', timestamp: 1_000 })],
+      now: 1_200,
+    });
+    const misunderstandingSecrets = buildSharedSecrets(character(), 1_200, misunderstandingChat);
+    const breachSecrets = buildSharedSecrets(character(), 1_200, breachChat);
+
+    expect(misunderstandingSecrets[0].consequenceKind).toBe('misunderstanding');
+    expect(breachSecrets[0].consequenceKind).toBe('intentional_breach');
+    expect(misunderstandingProjection.userBond?.intimateConflict?.evidence.join('\n')).toContain('误会');
+    expect(misunderstandingProjection.userBond?.intimateConflict?.severity || 0).toBeLessThan(breachProjection.userBond?.intimateConflict?.severity || 0);
+    expect(misunderstandingProjection.userBond?.intimateConflict?.repairReadiness || 0).toBeGreaterThan(breachProjection.userBond?.intimateConflict?.repairReadiness || 0);
+  });
+
+  it('treats protective shared secret confession as repair evidence', () => {
+    const directChat = chat('direct', [relationship({ warmth: 64, trust: 60, competence: 10, threat: 6 })], [
+      sharedSecretEvent({
+        id: 'evt-shared-secret-protective-confession',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_shared_secret',
+          characterId: 'char-a',
+          userId: 'user',
+          secretId: 'secret-user-codeword-confession',
+          action: 'confessed',
+          participantIds: ['char-a', 'user'],
+          privateText: '苏苏怕用户误会，所以主动坦白了那个暗号的来龙去脉。',
+          publicMask: '有一件只适合留在心里的事',
+          reason: '怕用户误会所以主动坦白，是保护性坦白。',
+          evidence: '为了不让你误会，我先把这件事说清楚。',
+          emotionalWeight: 82,
+          confidence: 0.92,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '为了不让你误会，我先把这件事说清楚。', timestamp: 1_000 })],
+      now: 1_200,
+    });
+    const secrets = buildSharedSecrets(character(), 1_200, directChat);
+
+    expect(secrets[0].consequenceKind).toBe('protective_confession');
+    expect(projection.userBond?.intimateConflict?.kind).toMatch(/repair_attempt|reconciliation/);
+    expect(projection.userBond?.intimateConflict?.evidence.join('\n')).toContain('保护关系');
+    expect(projection.userBond?.intimateConflict?.repairReadiness || 0).toBeGreaterThan(40);
   });
 
   it('adjusts intimacy projection from shared secrets, conflict, and attachment adaptation', () => {
