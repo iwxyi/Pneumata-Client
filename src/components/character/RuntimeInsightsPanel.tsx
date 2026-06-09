@@ -596,6 +596,40 @@ function buildManualSharedAnchorArchiveEvent(chat: GroupChat, character: AIChara
   };
 }
 
+function buildManualSharedAnchorUpsertEvent(chat: GroupChat, character: AICharacter, anchor: SharedMemoryAnchor, patch: { kind: SharedMemoryAnchor['kind']; title: string; text: string }): RuntimeEventV2 {
+  const now = Date.now();
+  const title = patch.title.trim();
+  const text = patch.text.trim();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, anchor.id, title, text, 'shared-anchor-upsert']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户修正了一条共同锚点`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_shared_anchor',
+      characterId: character.id,
+      userId: anchor.participantIds.includes('user') ? 'user' : undefined,
+      anchorId: anchor.id,
+      action: 'upsert',
+      kind: patch.kind,
+      participantIds: anchor.participantIds,
+      title,
+      text,
+      salience: anchor.salience,
+      evidence: `manual_shared_anchor_edit_from_character_relationship_tab: ${anchor.title} / ${anchor.text}`,
+      confidence: 1,
+      reason: '用户在角色关系页手动修正该共同锚点。',
+    },
+  };
+}
+
 function buildManualSharedSecretRevokedEvent(chat: GroupChat, character: AICharacter, secret: SharedSecret): RuntimeEventV2 {
   const now = Date.now();
   return {
@@ -901,18 +935,27 @@ function SharedMemoryAnchorPanel({
   resolveCharacterName,
   developerMode,
   onArchiveAnchor,
+  onUpdateAnchor,
 }: {
   anchors: SharedMemoryAnchor[];
   resolveCharacterName: (id: string, fallback?: string) => string;
   developerMode: boolean;
   onArchiveAnchor?: (anchor: SharedMemoryAnchor) => void;
+  onUpdateAnchor?: (anchor: SharedMemoryAnchor, patch: { kind: SharedMemoryAnchor['kind']; title: string; text: string }) => void;
 }) {
+  const [editingAnchorId, setEditingAnchorId] = useState<string | null>(null);
+  const [editingAnchorKind, setEditingAnchorKind] = useState<SharedMemoryAnchor['kind']>('milestone');
+  const [editingAnchorTitle, setEditingAnchorTitle] = useState('');
+  const [editingAnchorText, setEditingAnchorText] = useState('');
   return anchors.length ? (
     <Stack spacing={1}>
       {anchors.slice(0, developerMode ? 8 : 4).map((anchor) => {
         const participantNames = anchor.participantIds.map((id) => resolveCharacterName(id)).join(' × ');
         const archiveAnchor = onArchiveAnchor;
+        const updateAnchor = onUpdateAnchor;
+        const isEditing = editingAnchorId === anchor.id;
         const canArchive = developerMode && Boolean(archiveAnchor) && anchor.participantIds.includes('user');
+        const canEdit = developerMode && Boolean(updateAnchor) && anchor.participantIds.includes('user');
         const chips = developerMode
           ? [
               formatSharedMemoryAnchorKind(anchor.kind),
@@ -928,6 +971,21 @@ function SharedMemoryAnchorPanel({
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>{anchor.title}</Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
                   <Typography variant="caption" color="text.secondary">{participantNames}</Typography>
+                  {canEdit && updateAnchor ? (
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => {
+                        setEditingAnchorId(anchor.id);
+                        setEditingAnchorKind(anchor.kind);
+                        setEditingAnchorTitle(anchor.title);
+                        setEditingAnchorText(anchor.text);
+                      }}
+                      sx={{ p: 0, minWidth: 0 }}
+                    >
+                      修正
+                    </Button>
+                  ) : null}
                   {canArchive && archiveAnchor ? (
                     <Button size="small" variant="text" onClick={() => archiveAnchor(anchor)} sx={{ p: 0, minWidth: 0 }}>
                       归档
@@ -935,9 +993,76 @@ function SharedMemoryAnchorPanel({
                   ) : null}
                 </Box>
               </Box>
-              <Typography variant="body2" color="text.secondary">
-                {anchor.text}
-              </Typography>
+              {isEditing ? (
+                <Stack spacing={0.75}>
+                  <TextField
+                    select
+                    size="small"
+                    label="类型"
+                    value={editingAnchorKind}
+                    onChange={(event) => setEditingAnchorKind(event.target.value as SharedMemoryAnchor['kind'])}
+                    slotProps={{ select: { native: true } }}
+                  >
+                    {(['first_time', 'confession', 'conflict', 'repair', 'inside_joke', 'shared_secret', 'promise', 'milestone'] as SharedMemoryAnchor['kind'][]).map((kind) => (
+                      <option key={kind} value={kind}>{formatSharedMemoryAnchorKind(kind)}</option>
+                    ))}
+                  </TextField>
+                  <TextField
+                    size="small"
+                    label="标题"
+                    value={editingAnchorTitle}
+                    onChange={(event) => setEditingAnchorTitle(event.target.value)}
+                    fullWidth
+                  />
+                  <TextField
+                    size="small"
+                    label="内容"
+                    value={editingAnchorText}
+                    onChange={(event) => setEditingAnchorText(event.target.value)}
+                    fullWidth
+                    multiline
+                    minRows={2}
+                    maxRows={4}
+                  />
+                  <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+                    <Button
+                      size="small"
+                      variant="text"
+                      disabled={!editingAnchorTitle.trim() || !editingAnchorText.trim()}
+                      onClick={() => {
+                        if (!editingAnchorTitle.trim() || !editingAnchorText.trim() || !updateAnchor) return;
+                        updateAnchor(anchor, {
+                          kind: editingAnchorKind,
+                          title: editingAnchorTitle.trim(),
+                          text: editingAnchorText.trim(),
+                        });
+                        setEditingAnchorId(null);
+                        setEditingAnchorTitle('');
+                        setEditingAnchorText('');
+                      }}
+                      sx={{ minWidth: 0 }}
+                    >
+                      保存
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => {
+                        setEditingAnchorId(null);
+                        setEditingAnchorTitle('');
+                        setEditingAnchorText('');
+                      }}
+                      sx={{ minWidth: 0 }}
+                    >
+                      取消
+                    </Button>
+                  </Box>
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  {anchor.text}
+                </Typography>
+              )}
               {chips.length ? <StatChipRow items={chips} /> : null}
               {developerMode && anchor.evidence ? (
                 <Typography variant="caption" color="text.secondary">
@@ -2188,6 +2313,10 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
           onArchiveAnchor={latestUserDirectChat ? (anchor) => {
             if (!anchor.participantIds.includes('user')) return;
             void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorArchiveEvent(latestUserDirectChat, character as AICharacter, anchor));
+          } : undefined}
+          onUpdateAnchor={latestUserDirectChat ? (anchor, patch) => {
+            if (!anchor.participantIds.includes('user')) return;
+            void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorUpsertEvent(latestUserDirectChat, character as AICharacter, anchor, patch));
           } : undefined}
         />
       </SurfaceCard>
