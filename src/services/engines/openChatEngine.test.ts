@@ -3203,6 +3203,67 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect(payload?.openingMessage).toContain('之前说好的事');
   });
 
+  it('creates character companionship group mediation candidates as public conflict notes', async () => {
+    const chat = buildChat({
+      memberIds: ['a', 'b', 'c'],
+      worldState: {
+        ...buildChat().worldState,
+        structuredRoomState: {
+          heat: 24,
+          cohesion: -4,
+          topicDrift: 3,
+          dominantThread: ['a', 'b'],
+          alliances: [],
+          conflictPairs: [['a', 'b']],
+          pileOnTarget: null,
+          silencedActors: [],
+        },
+      },
+    });
+    const characters = [
+      buildCharacter('a', '甲', {
+        relationships: [{
+          characterId: 'b',
+          warmth: 72,
+          trust: 66,
+          competence: 20,
+          threat: 8,
+          note: '约定每次争执后先递台阶；担心乙最近太累。',
+          updatedAt: Date.now() - 10_000,
+        }],
+      }),
+      buildCharacter('b', '乙'),
+      buildCharacter('c', '丙'),
+    ];
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '算了，这话在群里越说越重。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+
+    const candidate = readRuntimeEvents(result).find((event) => event.kind === 'event_candidate'
+      && (event.payload as { eventKind?: string; reasonType?: string }).eventKind === 'conflict_expression'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_group_mediation');
+    const payload = candidate?.payload as SocialEventCandidatePayload | undefined;
+    expect(payload?.participantIds).toEqual(['a', 'b']);
+    expect(payload?.visibilityPlan).toBe('public');
+    expect(payload?.title).toBe('群聊圆场');
+    expect(payload?.openingMessage).toContain('乙');
+    expect(payload?.openingMessage).toContain('气氛往回带');
+
+    const artifact = readRuntimeEvents(result).find((event) => event.kind === 'artifact'
+      && (event.payload as { artifactType?: string; reasonType?: string }).artifactType === 'conflict_note'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_group_mediation');
+    expect((artifact?.payload as { text?: string } | undefined)?.text).toContain('气氛往回带');
+    expect((artifact?.payload as { text?: string } | undefined)?.text).not.toContain('摊开');
+  });
+
   it('uses warm room state to admit post moment candidates', async () => {
     const chat = normalizeConversation({
       ...buildChat(),

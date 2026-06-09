@@ -497,6 +497,83 @@ function buildCompanionshipPrivateThreadCandidate(params: {
   });
 }
 
+function buildGroupMediationLine(actorName: string, targetName: string, texture: string) {
+  const cleanedTexture = texture.replace(/\s+/g, ' ').trim();
+  if (/担心|放心不下|想帮|护着/.test(cleanedTexture)) {
+    return `${actorName}没有继续把话压重，而是替${targetName}把气氛往回带了一点。`;
+  }
+  if (/约定|说好|修复|台阶|争执/.test(cleanedTexture)) {
+    return `${actorName}想起和${targetName}说过的台阶，于是在群里先把话放软。`;
+  }
+  if (/秘密|只有.*知道|暗号|共同梗/.test(cleanedTexture)) {
+    return `${actorName}避开了那层只属于他们的暗线，只用一句轻话把场面接住。`;
+  }
+  return `${actorName}察觉到${targetName}被晾在气氛里，顺手把话题稳了一下。`;
+}
+
+function buildCompanionshipGroupMediationCandidate(params: {
+  conversation: GroupChat;
+  characters: AICharacter[];
+  interaction: InteractionEventPayload | null;
+  structuredRoomState: GroupChat['worldState']['structuredRoomState'];
+  message: Pick<Message, 'content' | 'senderId'>;
+}): RuntimeEventV2 | null {
+  const actor = params.characters.find((item) => item.id === params.message.senderId);
+  if (!actor || actor.id === 'user') return null;
+  if (params.conversation.type !== 'group') return null;
+  if (hasPendingCandidateSuppression(params.conversation, actor.id, 'conflict_expression', Date.now())) return null;
+  const picked = pickCompanionshipPrivateThreadState({ conversation: params.conversation, actor });
+  if (!picked) return null;
+  const target = params.characters.find((item) => item.id === picked.state.targetId);
+  if (!target) return null;
+  const texture = [
+    picked.state.unresolvedCareTopics[0],
+    picked.state.sharedPromises[0],
+    picked.state.sharedRituals[0],
+    picked.state.sharedSecrets[0],
+  ].filter(Boolean).join('；');
+  const roomHeat = params.structuredRoomState?.heat || 0;
+  const conflictPairs = params.structuredRoomState?.conflictPairs || [];
+  const pairInConflict = conflictPairs.some((pair) => pair.includes(actor.id) && pair.includes(target.id));
+  const targetedTension = Boolean(params.interaction?.targetId && params.interaction.targetId === target.id && ['challenge', 'mock', 'dismiss', 'probe'].includes(params.interaction.kind) && params.interaction.confidence >= 0.72);
+  const mediationTexture = /(担心|放心不下|想帮|护着|约定|说好|修复|台阶|争执|秘密|暗号|共同梗)/.test(texture);
+  if (!pairInConflict && !targetedTension && roomHeat < 18 && !mediationTexture) return null;
+  if (picked.score < 50 && !pairInConflict && !targetedTension) return null;
+  const seedIntent = texture
+    ? `${actor.name} 和 ${target.name} 的陪伴关系适合在群里轻轻圆场：${texture}`
+    : `${actor.name} 需要在群聊里替 ${target.name} 接一下气氛，避免关系张力扩大。`;
+  const text = buildGroupMediationLine(actor.name, target.name, texture);
+  const payload: SocialEventCandidatePayload = {
+    eventKind: 'conflict_expression',
+    initiatorId: actor.id,
+    participantIds: [actor.id, target.id],
+    targetIds: [target.id],
+    reasonType: 'companionship_group_mediation',
+    confidence: Math.max(0.8, Math.min(0.92, picked.score / 100 + (pairInConflict ? 0.08 : targetedTension ? 0.05 : 0))),
+    urgency: pairInConflict || targetedTension ? 'immediate' : 'soon',
+    seedIntent,
+    triggerReason: texture
+      ? `角色-角色陪伴圆场触发：${texture}`
+      : '群聊里出现可由亲近角色公开递台阶的关系张力。',
+    openingMessage: text,
+    visibilityPlan: 'public',
+    expectedArtifacts: ['conflict_note'],
+    sourceText: params.message.content.trim().slice(0, 128),
+    title: '群聊圆场',
+    activityType: '陪伴圆场',
+    dedupeKey: `companionship-group-mediation-${params.conversation.id}-${actor.id}-${target.id}`,
+  };
+  return createRuntimeEventV2({
+    conversationId: params.conversation.id,
+    kind: 'event_candidate',
+    summary: `${actor.name} 因陪伴关系尝试替 ${target.name} 圆场`,
+    actorIds: [actor.id],
+    targetIds: [target.id],
+    visibility: 'derived_public',
+    payload,
+  });
+}
+
 function buildAttentionDrivenCheckInCandidate(params: {
   conversation: GroupChat;
   characters: AICharacter[];
@@ -1281,7 +1358,10 @@ function buildConflictExpressionArtifactEvents(params: {
     .map((event) => {
       const payload = event.payload as SocialEventCandidatePayload;
       const actorName = params.characters.find((item) => item.id === payload.initiatorId)?.name || payload.initiatorId;
-      const text = `${actorName} 把刚才的矛盾直接摊开说了。`;
+      const targetName = params.characters.find((item) => item.id === payload.targetIds?.[0])?.name || payload.targetIds?.[0] || '对方';
+      const text = payload.reasonType === 'companionship_group_mediation'
+        ? (payload.openingMessage || `${actorName} 公开替 ${targetName} 递了一个台阶，让群聊气氛没有继续变重。`)
+        : `${actorName} 把刚才的矛盾直接摊开说了。`;
       return createRuntimeEventV2({
         conversationId: params.conversation.id,
         kind: 'artifact',
@@ -1296,6 +1376,7 @@ function buildConflictExpressionArtifactEvents(params: {
           candidateId: event.id,
           title: payload.title,
           activityType: payload.activityType,
+          reasonType: payload.reasonType,
           expectedArtifacts: payload.expectedArtifacts || [],
           dedupeKey: payload.dedupeKey,
         },
@@ -2486,6 +2567,13 @@ function buildSocialEventCandidates(params: {
     buildCompanionshipPrivateThreadCandidate({
       conversation: params.conversation,
       characters: params.characters,
+      message: params.message,
+    }),
+    buildCompanionshipGroupMediationCandidate({
+      conversation: params.conversation,
+      characters: params.characters,
+      interaction: params.interaction,
+      structuredRoomState: params.structuredRoomState,
       message: params.message,
     }),
     buildPostMomentCandidate(params),
