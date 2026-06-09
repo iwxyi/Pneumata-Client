@@ -37,6 +37,7 @@ import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipRunt
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 type ManualPromiseLifecycleAction = Extract<PendingPromise['status'], 'fulfilled' | 'blocked' | 'stale' | 'revoked'>;
+type ManualAddressingSetAction = 'set_current' | 'set_private' | 'set_public';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -413,6 +414,41 @@ function buildManualAddressingEvent(chat: GroupChat, character: AICharacter, act
         ? '用户在角色关系页手动禁用该称呼。'
         : '用户在角色关系页手动解除禁用该称呼。',
       evidence: 'manual_addressing_update_from_character_relationship_tab',
+      initiatedBy: 'user',
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualAddressingSetEvent(chat: GroupChat, character: AICharacter, action: ManualAddressingSetAction, address: string): RuntimeEventV2 {
+  const now = Date.now();
+  const normalized = address.replace(/\s+/g, '').trim();
+  const field = action === 'set_current'
+    ? { currentAddress: normalized }
+    : action === 'set_private'
+      ? { privateAddress: normalized }
+      : { publicAddress: normalized };
+  const label = action === 'set_current' ? '当前称呼' : action === 'set_private' ? '私下称呼' : '公开称呼';
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, normalized, `addressing-${action}`]),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户设置了${label}`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_addressing',
+      characterId: character.id,
+      userId: 'user',
+      action,
+      ...field,
+      reason: `用户在角色关系页手动设置${label}。`,
+      evidence: 'manual_addressing_set_from_character_relationship_tab',
       initiatedBy: 'user',
       confidence: 1,
     },
@@ -1160,6 +1196,7 @@ function UserCompanionshipCard({
   rituals,
   onBlockCareTopic,
   onUpdatePromiseLifecycle,
+  onSetAddress,
   onForbidAddress,
   onUnforbidAddress,
   onResolveConflict,
@@ -1184,6 +1221,7 @@ function UserCompanionshipCard({
   rituals: RitualRegistryEntry[];
   onBlockCareTopic: (topic: PendingCareTopic) => void;
   onUpdatePromiseLifecycle: (promise: PendingPromise, action: ManualPromiseLifecycleAction) => void;
+  onSetAddress: (action: ManualAddressingSetAction, address: string) => void;
   onForbidAddress: (address: string) => void;
   onUnforbidAddress: (address: string) => void;
   onResolveConflict: (conflict: NonNullable<CompanionshipRuntimeTrace['intimateConflict']>) => void;
@@ -1200,6 +1238,8 @@ function UserCompanionshipCard({
 }) {
   const [editingPhraseId, setEditingPhraseId] = useState<string | null>(null);
   const [editingPhraseText, setEditingPhraseText] = useState('');
+  const [editingAddressAction, setEditingAddressAction] = useState<ManualAddressingSetAction | null>(null);
+  const [editingAddressText, setEditingAddressText] = useState('');
   const headlineChips = [
     trace ? formatCompanionshipPhaseLabel(trace.phase) : '',
     trace ? formatCompanionshipStyleLabel(trace.style) : '',
@@ -1235,7 +1275,44 @@ function UserCompanionshipCard({
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 0.75 }}>
             <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'background.paper' }}>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>当前称呼</Typography>
-              <Typography variant="body2" noWrap>{signature.addressing.currentAddress}</Typography>
+              {editingAddressAction === 'set_current' ? (
+                <TextField
+                  size="small"
+                  value={editingAddressText}
+                  onChange={(event) => setEditingAddressText(event.target.value)}
+                  fullWidth
+                  autoFocus
+                  slotProps={{ htmlInput: { maxLength: 16 } }}
+                />
+              ) : (
+                <Typography variant="body2" noWrap>{signature.addressing.currentAddress}</Typography>
+              )}
+              {editingAddressAction === 'set_current' ? (
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.35 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    disabled={!editingAddressText.trim() || editingAddressText.replace(/\s+/g, '').trim() === signature.addressing.currentAddress}
+                    onClick={() => {
+                      const nextAddress = editingAddressText.replace(/\s+/g, '').trim();
+                      if (!nextAddress || nextAddress === signature.addressing?.currentAddress) return;
+                      onSetAddress('set_current', nextAddress);
+                      setEditingAddressAction(null);
+                      setEditingAddressText('');
+                    }}
+                    sx={{ p: 0, minWidth: 0 }}
+                  >
+                    保存
+                  </Button>
+                  <Button size="small" variant="text" onClick={() => { setEditingAddressAction(null); setEditingAddressText(''); }} sx={{ p: 0, minWidth: 0 }}>
+                    取消
+                  </Button>
+                </Box>
+              ) : (
+                <Button size="small" variant="text" onClick={() => { setEditingAddressAction('set_current'); setEditingAddressText(signature.addressing?.currentAddress || ''); }} sx={{ mt: 0.35, p: 0, minWidth: 0 }}>
+                  修改
+                </Button>
+              )}
               {signature.addressing.currentAddress && signature.addressing.currentAddress !== '你' && !signature.addressing.forbiddenAddresses.includes(signature.addressing.currentAddress) ? (
                 <Button size="small" variant="text" onClick={() => onForbidAddress(signature.addressing?.currentAddress || '')} sx={{ mt: 0.35, p: 0, minWidth: 0 }}>
                   禁用
@@ -1244,7 +1321,44 @@ function UserCompanionshipCard({
             </Box>
             <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'background.paper' }}>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>私下称呼</Typography>
-              <Typography variant="body2" noWrap>{signature.addressing.privateAddress || signature.addressing.currentAddress}</Typography>
+              {editingAddressAction === 'set_private' ? (
+                <TextField
+                  size="small"
+                  value={editingAddressText}
+                  onChange={(event) => setEditingAddressText(event.target.value)}
+                  fullWidth
+                  autoFocus
+                  slotProps={{ htmlInput: { maxLength: 16 } }}
+                />
+              ) : (
+                <Typography variant="body2" noWrap>{signature.addressing.privateAddress || signature.addressing.currentAddress}</Typography>
+              )}
+              {editingAddressAction === 'set_private' ? (
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.35 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    disabled={!editingAddressText.trim() || editingAddressText.replace(/\s+/g, '').trim() === (signature.addressing.privateAddress || '')}
+                    onClick={() => {
+                      const nextAddress = editingAddressText.replace(/\s+/g, '').trim();
+                      if (!nextAddress || nextAddress === signature.addressing?.privateAddress) return;
+                      onSetAddress('set_private', nextAddress);
+                      setEditingAddressAction(null);
+                      setEditingAddressText('');
+                    }}
+                    sx={{ p: 0, minWidth: 0 }}
+                  >
+                    保存
+                  </Button>
+                  <Button size="small" variant="text" onClick={() => { setEditingAddressAction(null); setEditingAddressText(''); }} sx={{ p: 0, minWidth: 0 }}>
+                    取消
+                  </Button>
+                </Box>
+              ) : (
+                <Button size="small" variant="text" onClick={() => { setEditingAddressAction('set_private'); setEditingAddressText(signature.addressing?.privateAddress || signature.addressing?.currentAddress || ''); }} sx={{ mt: 0.35, p: 0, minWidth: 0 }}>
+                  修改
+                </Button>
+              )}
               {signature.addressing.privateAddress && signature.addressing.privateAddress !== signature.addressing.currentAddress && !signature.addressing.forbiddenAddresses.includes(signature.addressing.privateAddress) ? (
                 <Button size="small" variant="text" onClick={() => onForbidAddress(signature.addressing?.privateAddress || '')} sx={{ mt: 0.35, p: 0, minWidth: 0 }}>
                   禁用
@@ -1253,7 +1367,44 @@ function UserCompanionshipCard({
             </Box>
             <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'background.paper' }}>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>公开称呼</Typography>
-              <Typography variant="body2" noWrap>{signature.addressing.publicAddress || '用户'}</Typography>
+              {editingAddressAction === 'set_public' ? (
+                <TextField
+                  size="small"
+                  value={editingAddressText}
+                  onChange={(event) => setEditingAddressText(event.target.value)}
+                  fullWidth
+                  autoFocus
+                  slotProps={{ htmlInput: { maxLength: 16 } }}
+                />
+              ) : (
+                <Typography variant="body2" noWrap>{signature.addressing.publicAddress || '用户'}</Typography>
+              )}
+              {editingAddressAction === 'set_public' ? (
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.35 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    disabled={!editingAddressText.trim() || editingAddressText.replace(/\s+/g, '').trim() === (signature.addressing.publicAddress || '用户')}
+                    onClick={() => {
+                      const nextAddress = editingAddressText.replace(/\s+/g, '').trim();
+                      if (!nextAddress || nextAddress === (signature.addressing?.publicAddress || '用户')) return;
+                      onSetAddress('set_public', nextAddress);
+                      setEditingAddressAction(null);
+                      setEditingAddressText('');
+                    }}
+                    sx={{ p: 0, minWidth: 0 }}
+                  >
+                    保存
+                  </Button>
+                  <Button size="small" variant="text" onClick={() => { setEditingAddressAction(null); setEditingAddressText(''); }} sx={{ p: 0, minWidth: 0 }}>
+                    取消
+                  </Button>
+                </Box>
+              ) : (
+                <Button size="small" variant="text" onClick={() => { setEditingAddressAction('set_public'); setEditingAddressText(signature.addressing?.publicAddress || '用户'); }} sx={{ mt: 0.35, p: 0, minWidth: 0 }}>
+                  修改
+                </Button>
+              )}
             </Box>
           </Box>
         ) : null}
@@ -2027,6 +2178,10 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onUpdatePromiseLifecycle={(promise, action) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualPromiseLifecycleEvent(view.chat, character as AICharacter, promise, action));
+                }}
+                onSetAddress={(action, address) => {
+                  if (!address.trim()) return;
+                  void appendManualCompanionshipEvent(view.chat, buildManualAddressingSetEvent(view.chat, character as AICharacter, action, address));
                 }}
                 onForbidAddress={(address) => {
                   if (!address.trim()) return;
