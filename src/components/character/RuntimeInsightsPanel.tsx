@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Box, Button, Chip, LinearProgress, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Chip, LinearProgress, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
@@ -653,6 +653,41 @@ function buildManualSharedPhraseSuppressedEvent(chat: GroupChat, character: AICh
   };
 }
 
+function buildManualSharedPhraseUpsertEvent(chat: GroupChat, character: AICharacter, phrase: SharedPhrase, text: string): RuntimeEventV2 {
+  const now = Date.now();
+  const normalized = text.trim();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, phrase.id, normalized, 'shared-phrase-upsert']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户修正了一句共同话语`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_shared_phrase',
+      characterId: character.id,
+      userId: phrase.participantIds.includes('user') ? 'user' : undefined,
+      phraseId: phrase.id,
+      action: 'upsert',
+      text: normalized,
+      kind: phrase.kind,
+      participantIds: phrase.participantIds,
+      visibility: phrase.visibility,
+      firstSaidBy: phrase.firstSaidBy,
+      reason: '用户在角色关系页手动修正该共同话语。',
+      evidence: `manual_shared_phrase_edit_from_character_relationship_tab: ${phrase.text} -> ${normalized}`,
+      emotionalWeight: phrase.emotionalWeight,
+      reuseCount: phrase.reuseCount,
+      confidence: 1,
+    },
+  };
+}
+
 function buildManualRitualSuppressedEvent(chat: GroupChat, character: AICharacter, ritual: RitualRegistryEntry): RuntimeEventV2 {
   const now = Date.now();
   return {
@@ -1133,6 +1168,7 @@ function UserCompanionshipCard({
   onRevokeProfileCue,
   onRevokeSharedSecret,
   onCorrectSharedSecretConsequence,
+  onUpdateSharedPhrase,
   onSuppressSharedPhrase,
   onSuppressRitual,
   onCorrectPhase,
@@ -1156,11 +1192,14 @@ function UserCompanionshipCard({
   onRevokeProfileCue: (item: UserProfileMemoryEventItem) => void;
   onRevokeSharedSecret: (secret: SharedSecret) => void;
   onCorrectSharedSecretConsequence: (secret: SharedSecret, consequenceKind: NonNullable<SharedSecret['consequenceKind']>) => void;
+  onUpdateSharedPhrase: (phrase: SharedPhrase, text: string) => void;
   onSuppressSharedPhrase: (phrase: SharedPhrase) => void;
   onSuppressRitual: (ritual: RitualRegistryEntry) => void;
   onCorrectPhase: (phase: CompanionshipPhase, style: CompanionshipStyle) => void;
   developerMode: boolean;
 }) {
+  const [editingPhraseId, setEditingPhraseId] = useState<string | null>(null);
+  const [editingPhraseText, setEditingPhraseText] = useState('');
   const headlineChips = [
     trace ? formatCompanionshipPhaseLabel(trace.phase) : '',
     trace ? formatCompanionshipStyleLabel(trace.style) : '',
@@ -1310,16 +1349,74 @@ function UserCompanionshipCard({
                         </>
                       ) : null}
                     </Stack>
-                    <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>「{phrase.text}」</Typography>
+                    {editingPhraseId === phrase.id ? (
+                      <TextField
+                        size="small"
+                        value={editingPhraseText}
+                        onChange={(event) => setEditingPhraseText(event.target.value)}
+                        fullWidth
+                        multiline
+                        minRows={1}
+                        maxRows={3}
+                        autoFocus
+                        placeholder="改成更合适的话"
+                      />
+                    ) : (
+                      <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>「{phrase.text}」</Typography>
+                    )}
                     {developerMode && phrase.evidence ? (
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
                         证据：{clipRuntimeText(phrase.evidence, 96)}
                       </Typography>
                     ) : null}
                   </Box>
-                  <Button size="small" variant="text" onClick={() => onSuppressSharedPhrase(phrase)} sx={{ flexShrink: 0 }}>
-                    不再使用
-                  </Button>
+                  {editingPhraseId === phrase.id ? (
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                      <Button
+                        size="small"
+                        variant="text"
+                        disabled={!editingPhraseText.trim() || editingPhraseText.trim() === phrase.text}
+                        onClick={() => {
+                          const nextText = editingPhraseText.trim();
+                          if (!nextText || nextText === phrase.text) return;
+                          onUpdateSharedPhrase(phrase, nextText);
+                          setEditingPhraseId(null);
+                          setEditingPhraseText('');
+                        }}
+                        sx={{ minWidth: 0 }}
+                      >
+                        保存
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => {
+                          setEditingPhraseId(null);
+                          setEditingPhraseText('');
+                        }}
+                        sx={{ minWidth: 0 }}
+                      >
+                        取消
+                      </Button>
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => {
+                          setEditingPhraseId(phrase.id);
+                          setEditingPhraseText(phrase.text);
+                        }}
+                        sx={{ minWidth: 0 }}
+                      >
+                        修改
+                      </Button>
+                      <Button size="small" variant="text" onClick={() => onSuppressSharedPhrase(phrase)} sx={{ minWidth: 0 }}>
+                        不再使用
+                      </Button>
+                    </Box>
+                  )}
                 </Box>
               ))}
             </Stack>
@@ -1956,6 +2053,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onCorrectSharedSecretConsequence={(secret, consequenceKind) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretConsequenceEvent(view.chat, character as AICharacter, secret, consequenceKind));
+                }}
+                onUpdateSharedPhrase={(phrase, text) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseUpsertEvent(view.chat, character as AICharacter, phrase, text));
                 }}
                 onSuppressSharedPhrase={(phrase) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseSuppressedEvent(view.chat, character as AICharacter, phrase));
