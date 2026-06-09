@@ -2167,6 +2167,82 @@ describe('companionshipProjection', () => {
     expect(seeds.join('\n')).toContain('慢慢来，我在');
   });
 
+  it('uses suppressed shared phrase events to suppress matching anchor and recent-message fallbacks', () => {
+    const phraseCharacter = character({
+      layeredMemories: [{
+        id: 'anchor-suppressed-phrase',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '两个人说好以后吵架时先说“慢慢来，我在”。',
+        evidenceText: '这是冲突修复后的约定话语。',
+        salience: 0.86,
+        confidence: 0.88,
+        recency: 0.7,
+        reinforcementCount: 2,
+        sourceEventIds: ['evt-anchor-suppressed-phrase'],
+        createdAt: 900,
+        updatedAt: 900,
+      }],
+    });
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-suppressed',
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'manual-suppress-slowly',
+          action: 'suppressed',
+          text: '慢慢来，我在',
+          kind: 'inside_joke',
+          participantIds: ['char-a', 'user'],
+          visibility: 'between_actors',
+          reason: '用户不想让这句话再被复用。',
+          evidence: 'manual_suppress_from_character_relationship_tab',
+          confidence: 1,
+        },
+      }),
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-anchor-suppressed',
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'manual-suppress-anchor-line',
+          action: 'suppressed',
+          text: '两个人说好以后吵架时先说“慢慢来，我在”。',
+          kind: 'promise_line',
+          participantIds: ['char-a', 'user'],
+          visibility: 'between_actors',
+          reason: '用户不想让这句约定话语再进入上下文。',
+          evidence: 'manual_suppress_from_character_relationship_tab',
+          confidence: 1,
+        },
+      }),
+    ]);
+    const messages = [message({ id: 'msg-phrase-suppressed', content: '以后我们之间的暗号就叫“慢慢来，我在”。', timestamp: 1_050 })];
+    const phrases = buildSharedPhrases(phraseCharacter, 1_300, directChat, messages);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: phraseCharacter,
+      messages,
+      now: 1_300,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: phraseCharacter,
+      messages,
+      now: 1_300,
+    });
+
+    expect(phrases.map((phrase) => phrase.text).join('\n')).not.toContain('慢慢来，我在');
+    expect(projection.promptLines.join('\n')).not.toContain('Shared phrases/private lines');
+    expect(trace?.sharedPhrases.join('\n')).not.toContain('慢慢来，我在');
+  });
+
   it('uses revoked shared anchor runtime events to suppress matching fallback anchors', () => {
     const anchorCharacter = character({
       layeredMemories: [{

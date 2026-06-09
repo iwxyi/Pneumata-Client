@@ -545,6 +545,40 @@ function buildManualSharedSecretRevokedEvent(chat: GroupChat, character: AIChara
   };
 }
 
+function buildManualSharedPhraseSuppressedEvent(chat: GroupChat, character: AICharacter, phrase: SharedPhrase): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, phrase.id, 'shared-phrase-suppressed']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户抑制了一句共同话语`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_shared_phrase',
+      characterId: character.id,
+      userId: phrase.participantIds.includes('user') ? 'user' : undefined,
+      phraseId: phrase.id,
+      action: 'suppressed',
+      text: phrase.text,
+      kind: phrase.kind,
+      participantIds: phrase.participantIds,
+      visibility: phrase.visibility,
+      firstSaidBy: phrase.firstSaidBy,
+      reason: '用户在角色关系页手动抑制该共同话语。',
+      evidence: phrase.evidence || phrase.text,
+      emotionalWeight: phrase.emotionalWeight,
+      reuseCount: phrase.reuseCount,
+      confidence: 1,
+    },
+  };
+}
+
 function buildManualRitualSuppressedEvent(chat: GroupChat, character: AICharacter, ritual: RitualRegistryEntry): RuntimeEventV2 {
   const now = Date.now();
   return {
@@ -1006,6 +1040,7 @@ function UserCompanionshipCard({
   onEnableAttachment,
   onRevokeProfileCue,
   onRevokeSharedSecret,
+  onSuppressSharedPhrase,
   onSuppressRitual,
   onCorrectPhase,
   developerMode,
@@ -1027,6 +1062,7 @@ function UserCompanionshipCard({
   onEnableAttachment: () => void;
   onRevokeProfileCue: (item: UserProfileMemoryEventItem) => void;
   onRevokeSharedSecret: (secret: SharedSecret) => void;
+  onSuppressSharedPhrase: (phrase: SharedPhrase) => void;
   onSuppressRitual: (ritual: RitualRegistryEntry) => void;
   onCorrectPhase: (phase: CompanionshipPhase, style: CompanionshipStyle) => void;
   developerMode: boolean;
@@ -1264,6 +1300,9 @@ function UserCompanionshipCard({
                           </Typography>
                         ) : null}
                       </Box>
+                      <Button size="small" variant="text" onClick={() => onSuppressSharedPhrase(phrase)} sx={{ flexShrink: 0 }}>
+                        抑制
+                      </Button>
                     </Box>
                   ))}
                 </Stack>
@@ -1782,6 +1821,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onRevokeSharedSecret={(secret) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretRevokedEvent(view.chat, character as AICharacter, secret));
+                }}
+                onSuppressSharedPhrase={(phrase) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseSuppressedEvent(view.chat, character as AICharacter, phrase));
                 }}
                 onSuppressRitual={(ritual) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualRitualSuppressedEvent(view.chat, character as AICharacter, ritual));
