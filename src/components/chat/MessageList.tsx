@@ -25,6 +25,7 @@ interface MessageListProps {
   onAnalyzeMessage?: (message: Message) => void;
   onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
   onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void>;
+  onCharacterAvatarClick?: (character: AICharacter, anchorEl: HTMLElement) => void;
   onReachTop?: () => void | Promise<void>;
   isLoadingOlder?: boolean;
   hasMore?: boolean;
@@ -42,6 +43,7 @@ export default function MessageList({
   onAnalyzeMessage,
   onExpressionFeedback,
   onRetryMedia,
+  onCharacterAvatarClick,
   onReachTop,
   isLoadingOlder = false,
   hasMore = false,
@@ -297,6 +299,7 @@ export default function MessageList({
             onExpressionFeedback={item.pending || item.message.type !== 'ai' ? undefined : onExpressionFeedback}
             onRetryMedia={item.pending ? undefined : onRetryMedia}
             onOpenImage={item.pending ? undefined : openChatImage}
+            onCharacterAvatarClick={item.pending ? undefined : onCharacterAvatarClick}
             pending={item.pending}
           />
         ))}

@@ -6,6 +6,7 @@ import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 import { useNavigate, useParams } from 'react-router-dom';
 import MessageList from '../components/chat/MessageList';
 import GlassHeader from '../components/layout/GlassHeader';
+import ProfilePreviewOverlay from '../components/chat/ProfilePreviewOverlay';
 import { api } from '../services/api';
 import type { Message } from '../types/message';
 import type { AICharacter } from '../types/character';
@@ -13,6 +14,10 @@ import type { AICharacter } from '../types/character';
 const PUBLIC_CHAT_PAGE_SIZE = 40;
 
 type PublicShareMember = NonNullable<Awaited<ReturnType<typeof api.getPublicChatShare>>['members']>[number];
+
+type PublicProfilePreviewState =
+  | { kind: 'character'; anchorRect: DOMRect; anchorElement: HTMLElement; character: AICharacter }
+  | { kind: 'chat'; anchorRect: DOMRect; anchorElement: HTMLElement };
 
 const publicHeaderButtonSx: SxProps<Theme> = {
   width: 40,
@@ -104,17 +109,20 @@ export default function PublicSharedChatPage() {
   const { token = '' } = useParams();
   const navigate = useNavigate();
   const [chatName, setChatName] = useState('');
+  const [chatMeta, setChatMeta] = useState<{ updatedAt?: number; lastMessageAt?: number }>({});
   const [messages, setMessages] = useState<Message[]>([]);
   const [members, setMembers] = useState<AICharacter[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState('');
+  const [profilePreview, setProfilePreview] = useState<PublicProfilePreviewState | null>(null);
 
   const loadLatest = useCallback(async (mode: 'replace' | 'merge' = 'replace') => {
     if (!token) return;
     const result = await api.getPublicChatShare(token, { limit: PUBLIC_CHAT_PAGE_SIZE });
     setChatName(result.chat.name);
+    setChatMeta({ updatedAt: result.chat.updatedAt, lastMessageAt: result.chat.lastMessageAt });
     setHasMore(result.hasMore);
     setMembers((current) => mergePublicMembers(current, result.members || []));
     setMessages((current) => mode === 'merge' ? mergeMessages(current, result.messages) : result.messages);
@@ -151,6 +159,7 @@ export default function PublicSharedChatPage() {
       const before = messages[0]?.timestamp;
       const result = await api.getPublicChatShare(token, { limit: PUBLIC_CHAT_PAGE_SIZE, before });
       setChatName(result.chat.name);
+      setChatMeta({ updatedAt: result.chat.updatedAt, lastMessageAt: result.chat.lastMessageAt });
       setHasMore(result.hasMore);
       setMembers((current) => mergePublicMembers(current, result.members || []));
       setMessages((current) => mergeMessages(result.messages, current));
@@ -162,6 +171,21 @@ export default function PublicSharedChatPage() {
   }, [hasMore, loadingOlder, messages, token]);
 
   const title = useMemo(() => chatName || '聊天记录', [chatName]);
+  const publicChat = useMemo(() => ({
+    name: title,
+    type: 'group' as const,
+    memberIds: members.map((member) => member.id),
+    updatedAt: chatMeta.updatedAt,
+    lastMessageAt: chatMeta.lastMessageAt,
+  }), [chatMeta.lastMessageAt, chatMeta.updatedAt, members, title]);
+
+  const openCharacterPreview = useCallback((character: AICharacter, anchorEl: HTMLElement) => {
+    setProfilePreview({ kind: 'character', anchorRect: anchorEl.getBoundingClientRect(), anchorElement: anchorEl, character });
+  }, []);
+
+  const openChatPreview = useCallback((anchorEl: HTMLElement) => {
+    setProfilePreview({ kind: 'chat', anchorRect: anchorEl.getBoundingClientRect(), anchorElement: anchorEl });
+  }, []);
 
   return (
     <Box
@@ -177,7 +201,23 @@ export default function PublicSharedChatPage() {
       <GlassHeader
         safeAreaTop
         title={(
-          <Box sx={{ minWidth: 0 }}>
+          <Box
+            component="button"
+            type="button"
+            onClick={(event) => openChatPreview(event.currentTarget)}
+            sx={{
+              minWidth: 0,
+              maxWidth: '100%',
+              p: 0,
+              m: 0,
+              border: 0,
+              bgcolor: 'transparent',
+              color: 'inherit',
+              textAlign: 'left',
+              cursor: 'pointer',
+              font: 'inherit',
+            }}
+          >
             <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.25 }} noWrap>{title}</Typography>
           </Box>
         )}
@@ -222,10 +262,21 @@ export default function PublicSharedChatPage() {
           hasMore={hasMore}
           topHint="没有更早的消息"
           loadingText="加载更多聊天记录…"
+          onCharacterAvatarClick={openCharacterPreview}
           topInset={{ xs: 'calc(94px + env(safe-area-inset-top, 0px))', sm: '88px' }}
           bottomInset={2}
         />
       )}
+      <ProfilePreviewOverlay
+        open={Boolean(profilePreview)}
+        kind={profilePreview?.kind || 'chat'}
+        anchorRect={profilePreview?.anchorRect || null}
+        anchorElement={profilePreview?.anchorElement || null}
+        character={profilePreview?.kind === 'character' ? profilePreview.character : null}
+        chat={publicChat}
+        members={members}
+        onClose={() => setProfilePreview(null)}
+      />
     </Box>
   );
 }

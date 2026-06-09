@@ -160,6 +160,7 @@ interface MessageBubbleProps {
   onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
   onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void>;
   onOpenImage?: (message: Message, attachment: MessageAttachment) => void;
+  onCharacterAvatarClick?: (character: AICharacter, anchorEl: HTMLElement) => void;
   pending?: boolean;
   currentUser?: { nickname?: string; avatar?: string };
   members?: DisplayTextMember[];
@@ -315,7 +316,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, pending = false, currentUser, members = [] }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, members = [] }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
@@ -401,8 +402,16 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
     closeMenus();
   };
 
-  const handleAvatarClick = () => {
+  const handleAvatarClick = (event: React.MouseEvent<HTMLElement>) => {
     if (message.type === 'ai' && !pending) {
+      if (onCharacterAvatarClick) {
+        onCharacterAvatarClick(effectiveCharacter || ({
+          id: message.senderId,
+          name: message.senderName,
+          avatar: '',
+        } as AICharacter), event.currentTarget);
+        return;
+      }
       navigate(`/characters/${message.senderId}/edit?returnTo=${encodeURIComponent(location.pathname + location.search)}`);
     }
   };

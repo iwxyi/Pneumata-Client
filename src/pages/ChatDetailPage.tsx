@@ -7,7 +7,7 @@ import InfoIcon from '@mui/icons-material/Info';
 import PlayIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useChatStore } from '../stores/useChatStore';
@@ -22,11 +22,13 @@ import { MessageAnalysisDialog } from '../components/chat/MessageAnalysisDialog'
 import SessionComposerHost from '../components/session/SessionComposerHost';
 import RightPanel from '../components/layout/RightPanel';
 import GlassHeader from '../components/layout/GlassHeader';
+import ProfilePreviewOverlay from '../components/chat/ProfilePreviewOverlay';
 import { buildRuntimeEventMessageContent, normalizeRuntimeEvent } from '../services/runtimeEventFactory';
 import { persistLocalFirstMessage, persistLocalFirstMessages } from '../services/chatCommitMessage';
 import { buildPrivateSessionEvent } from '../services/directSessionHelpers';
 import { resolveCharacterOrDeleted } from '../utils/deletedEntity';
 import type { Message } from '../types/message';
+import type { AICharacter } from '../types/character';
 import { buildExpressionFeedbackPatch, getExpressionFeedbackLabel, type ExpressionFeedbackKind } from '../services/characterExpressionFeedback';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useCurrentChatMessages } from '../hooks/useCurrentChatMessages';
@@ -53,6 +55,10 @@ import { copyTextToClipboard } from '../utils/clipboard';
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
 const CHAT_MESSAGE_WINDOW_SIZE = 40;
+
+type ProfilePreviewState =
+  | { kind: 'character'; anchorRect: DOMRect; anchorElement: HTMLElement; character: AICharacter }
+  | { kind: 'chat'; anchorRect: DOMRect; anchorElement: HTMLElement };
 
 function PanelFallback() {
   return null;
@@ -178,6 +184,7 @@ const EMPTY_MESSAGES: never[] = [];
 export default function ChatDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t, i18n } = useTranslation();
   const isZh = i18n.language.startsWith('zh');
   const { isMobile, isDesktop } = useResponsive();
@@ -200,6 +207,7 @@ export default function ChatDetailPage() {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' }>({ open: false, message: '', severity: 'error' });
   const [detailBootstrapComplete, setDetailBootstrapComplete] = useState(false);
   const [sidebarMessagesReady, setSidebarMessagesReady] = useState(false);
+  const [profilePreview, setProfilePreview] = useState<ProfilePreviewState | null>(null);
 
   const loopTokenRef = useRef<string | null>(null);
   const isRunningRef = useRef(false);
@@ -274,6 +282,14 @@ export default function ChatDetailPage() {
     () => speakAsCharacterId ? characters.find((c) => c.id === speakAsCharacterId) ?? null : null,
     [characters, speakAsCharacterId]
   );
+
+  const openCharacterPreview = useCallback((character: AICharacter, anchorEl: HTMLElement) => {
+    setProfilePreview({ kind: 'character', anchorRect: anchorEl.getBoundingClientRect(), anchorElement: anchorEl, character });
+  }, []);
+
+  const openChatPreview = useCallback((anchorEl: HTMLElement) => {
+    setProfilePreview({ kind: 'chat', anchorRect: anchorEl.getBoundingClientRect(), anchorElement: anchorEl });
+  }, []);
   const {
     actionSchema,
     actionPanelTitle,
@@ -804,7 +820,29 @@ export default function ChatDetailPage() {
         },
       }}>
         <GlassHeader
-          title={chat.name}
+          title={(
+            <Box
+              component="button"
+              type="button"
+              onClick={(event) => openChatPreview(event.currentTarget)}
+              sx={{
+                minWidth: 0,
+                maxWidth: '100%',
+                p: 0,
+                m: 0,
+                border: 0,
+                bgcolor: 'transparent',
+                color: 'inherit',
+                textAlign: 'left',
+                cursor: 'pointer',
+                font: 'inherit',
+              }}
+            >
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {chat.name}
+              </Typography>
+            </Box>
+          )}
           safeAreaTop={!isSplitDetailPane}
           zIndex={4}
           leading={!isSplitDetailPane ? (
@@ -853,6 +891,7 @@ export default function ChatDetailPage() {
             onAnalyzeMessage={analyzeMessage}
             onExpressionFeedback={handleExpressionFeedback}
             onRetryMedia={handleRetryMedia}
+            onCharacterAvatarClick={openCharacterPreview}
             onReachTop={handleNearTop}
             isLoadingOlder={isLoadingOlder}
             hasMore={hasMore}
@@ -986,6 +1025,27 @@ export default function ChatDetailPage() {
         loading={analysisLoading}
         error={analysisError}
         onClose={closeAnalysisDialog}
+      />
+
+      <ProfilePreviewOverlay
+        open={Boolean(profilePreview)}
+        kind={profilePreview?.kind || 'chat'}
+        anchorRect={profilePreview?.anchorRect || null}
+        anchorElement={profilePreview?.anchorElement || null}
+        character={profilePreview?.kind === 'character' ? profilePreview.character : null}
+        chat={chat}
+        members={members}
+        chatStatusLabel={isRunning && !isPaused ? '运行中' : chat.isActive ? '已暂停' : '未运行'}
+        actionLabel={profilePreview?.kind === 'character' ? '角色详情' : '群聊详情'}
+        actionTiming="immediate"
+        onAction={() => {
+          if (profilePreview?.kind === 'character') {
+            navigate(`/characters/${profilePreview.character.id}/edit?returnTo=${encodeURIComponent(location.pathname + location.search)}`);
+            return;
+          }
+          navigate(`/chats/${chat.id}/edit`);
+        }}
+        onClose={() => setProfilePreview(null)}
       />
 
       <AppSnackbar

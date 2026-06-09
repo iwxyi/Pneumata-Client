@@ -72,7 +72,7 @@ export default function GlassHeader({
     >
       <Box sx={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 0.75, flex: 1 }}>
         {leading}
-        {title != null ? (
+        {typeof title === 'string' || typeof title === 'number' ? (
           <Typography
             variant="subtitle1"
             sx={{
@@ -85,6 +85,8 @@ export default function GlassHeader({
           >
             {title}
           </Typography>
+        ) : title != null ? (
+          <Box sx={{ minWidth: 0, flex: 1 }}>{title}</Box>
         ) : null}
       </Box>
       {actions ? (
