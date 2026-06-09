@@ -545,6 +545,50 @@ function buildManualSharedSecretRevokedEvent(chat: GroupChat, character: AIChara
   };
 }
 
+function buildManualSharedSecretConsequenceEvent(
+  chat: GroupChat,
+  character: AICharacter,
+  secret: SharedSecret,
+  consequenceKind: NonNullable<SharedSecret['consequenceKind']>,
+): RuntimeEventV2 {
+  const now = Date.now();
+  const action = secret.leakState === 'confessed'
+    ? 'confessed'
+    : secret.leakState === 'leaked'
+      ? 'leaked'
+      : secret.leakState === 'hinted_publicly'
+        ? 'hinted_publicly'
+        : 'recorded';
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, secret.id, 'shared-secret-consequence', consequenceKind]),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户修正了一条小秘密后果`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_shared_secret',
+      characterId: character.id,
+      userId: secret.participantIds.includes('user') ? 'user' : undefined,
+      secretId: secret.id,
+      action,
+      consequenceKind,
+      participantIds: secret.participantIds,
+      privateText: secret.privateText,
+      publicMask: secret.publicMask,
+      reason: `用户在角色关系页手动修正小秘密后果为 ${consequenceKind}。`,
+      evidence: secret.publicMask || 'manual_secret_consequence_correction_from_character_relationship_tab',
+      emotionalWeight: secret.emotionalWeight,
+      confidence: 1,
+    },
+  };
+}
+
 function buildManualSharedPhraseSuppressedEvent(chat: GroupChat, character: AICharacter, phrase: SharedPhrase): RuntimeEventV2 {
   const now = Date.now();
   return {
@@ -1022,6 +1066,24 @@ function isSameCompanionshipPhaseCorrection(trace: CompanionshipRuntimeTrace | n
   return Boolean(trace && trace.phase === option.phase && trace.style === option.style);
 }
 
+function formatSharedSecretConsequenceLabel(kind: SharedSecret['consequenceKind']) {
+  const labels: Record<NonNullable<SharedSecret['consequenceKind']>, string> = {
+    none: '未细分',
+    misunderstanding: '误会',
+    accidental_leak: '无意说漏',
+    intentional_breach: '主动越界',
+    protective_confession: '保护性坦白',
+    voluntary_confession: '主动坦白',
+  };
+  return labels[kind || 'none'];
+}
+
+function sharedSecretConsequenceOptions(secret: SharedSecret): NonNullable<SharedSecret['consequenceKind']>[] {
+  if (secret.leakState === 'leaked') return ['misunderstanding', 'accidental_leak', 'intentional_breach'];
+  if (secret.leakState === 'confessed') return ['protective_confession', 'voluntary_confession'];
+  return ['none'];
+}
+
 function UserCompanionshipCard({
   chatName,
   signature,
@@ -1040,6 +1102,7 @@ function UserCompanionshipCard({
   onEnableAttachment,
   onRevokeProfileCue,
   onRevokeSharedSecret,
+  onCorrectSharedSecretConsequence,
   onSuppressSharedPhrase,
   onSuppressRitual,
   onCorrectPhase,
@@ -1062,6 +1125,7 @@ function UserCompanionshipCard({
   onEnableAttachment: () => void;
   onRevokeProfileCue: (item: UserProfileMemoryEventItem) => void;
   onRevokeSharedSecret: (secret: SharedSecret) => void;
+  onCorrectSharedSecretConsequence: (secret: SharedSecret, consequenceKind: NonNullable<SharedSecret['consequenceKind']>) => void;
   onSuppressSharedPhrase: (phrase: SharedPhrase) => void;
   onSuppressRitual: (ritual: RitualRegistryEntry) => void;
   onCorrectPhase: (phase: CompanionshipPhase, style: CompanionshipStyle) => void;
@@ -1263,12 +1327,28 @@ function UserCompanionshipCard({
                       <Box sx={{ minWidth: 0 }}>
                         <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
                           <Chip size="small" label={secret.leakState === 'sealed' ? '密封' : secret.leakState === 'hinted_publicly' ? '公开暗示' : secret.leakState === 'leaked' ? '已泄露' : '已坦白'} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                          <Chip size="small" label={formatSharedSecretConsequenceLabel(secret.consequenceKind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
                           <Typography variant="caption" color="text.secondary">权重 {secret.emotionalWeight}</Typography>
                         </Stack>
                         <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{secret.publicMask}</Typography>
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
                           参与者：{secret.participantIds.join(' × ')}
                         </Typography>
+                        {(secret.leakState === 'leaked' || secret.leakState === 'confessed') ? (
+                          <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.65 }}>
+                            {sharedSecretConsequenceOptions(secret).map((option) => (
+                              <Button
+                                key={option}
+                                size="small"
+                                variant={secret.consequenceKind === option ? 'contained' : 'outlined'}
+                                onClick={() => onCorrectSharedSecretConsequence(secret, option)}
+                                sx={{ minHeight: 24, px: 1, py: 0.1, borderRadius: 999, fontSize: 12 }}
+                              >
+                                {formatSharedSecretConsequenceLabel(option)}
+                              </Button>
+                            ))}
+                          </Stack>
+                        ) : null}
                       </Box>
                       <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(secret)} sx={{ flexShrink: 0 }}>
                         撤回
@@ -1821,6 +1901,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onRevokeSharedSecret={(secret) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretRevokedEvent(view.chat, character as AICharacter, secret));
+                }}
+                onCorrectSharedSecretConsequence={(secret, consequenceKind) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretConsequenceEvent(view.chat, character as AICharacter, secret, consequenceKind));
                 }}
                 onSuppressSharedPhrase={(phrase) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseSuppressedEvent(view.chat, character as AICharacter, phrase));
