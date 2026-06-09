@@ -342,6 +342,7 @@ export type CompanionshipCareIntensity = 'restrained' | 'balanced' | 'expressive
 
 export interface CompanionshipSettings {
   enableProactiveCare: boolean;
+  showStatusHints: boolean;
   allowGoodMorning: boolean;
   allowGoodNight: boolean;
   allowMissYou: boolean;
@@ -407,6 +408,7 @@ export const DEFAULT_AI_GENERATION_SETTINGS: AIGenerationSettings = {
 
 export const DEFAULT_COMPANIONSHIP_SETTINGS: CompanionshipSettings = {
   enableProactiveCare: true,
+  showStatusHints: true,
   allowGoodMorning: true,
   allowGoodNight: true,
   allowMissYou: true,

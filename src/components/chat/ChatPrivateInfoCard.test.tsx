@@ -7,6 +7,9 @@ import { ChatPrivateInfoCard } from './ChatPrivateInfoCard';
 
 const mockSettingsState = {
   developerMode: false,
+  companionship: {
+    showStatusHints: true,
+  },
   developerUI: {
     showMemoryDebug: false,
     showCompanionshipDebug: false,
@@ -183,5 +186,38 @@ describe('ChatPrivateInfoCard', () => {
     expect(html).toContain('开始把你当成需要认真回应的人');
     expect(html).toContain('开始在意');
     expect(html).not.toContain('phase=curious');
+  });
+
+  it('hides ordinary companionship status hints while keeping developer diagnostics available', () => {
+    mockSettingsState.developerMode = true;
+    mockSettingsState.companionship.showStatusHints = false;
+    mockSettingsState.developerUI.showCompanionshipDebug = true;
+
+    const html = renderToStaticMarkup(
+      <ChatPrivateInfoCard
+        chat={buildChat('direct')}
+        members={[buildCharacter('mei', '美羊羊')]}
+        directMemoryContext={{
+          targetSummary: '',
+          memoryVisibility: '仅开发者可见',
+          recentRelationshipChanges: [],
+          companionshipStatus: {
+            text: '悄悄等着你回来接上昨天的话。',
+            tone: 'warm',
+            chips: ['回来以后'],
+            debugLines: ['online_return: source=model confidence=0.82 event=evt-return'],
+            updatedAt: 1,
+          },
+        }}
+      />,
+    );
+
+    expect(html).not.toContain('悄悄等着你回来');
+    expect(html).not.toContain('回来以后');
+    expect(html).toContain('陪伴：online_return: source=model confidence=0.82 event=evt-return');
+
+    mockSettingsState.developerMode = false;
+    mockSettingsState.companionship.showStatusHints = true;
+    mockSettingsState.developerUI.showCompanionshipDebug = false;
   });
 });

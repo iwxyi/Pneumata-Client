@@ -9,6 +9,7 @@ import type { Message } from '../../types/message';
 import { formatRelativeTime } from '../../utils/format';
 import { useTranslation } from 'react-i18next';
 import { buildCompanionshipStatusSignature } from '../../services/companionshipProjection';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildInteractiveSurfaceSx, buildSelectionRailSx } from '../../styles/interaction';
 import { buildChatSubtitle } from './chatCardSubtitle';
 
@@ -32,13 +33,14 @@ function latestByTimestamp(messages: Array<Message | null | undefined>) {
 
 function ChatCard({ chat, characters, onClick, onPrefetch, selected = false }: ChatCardProps) {
   const { t } = useTranslation();
+  const showCompanionshipStatusHints = useSettingsStore((state) => state.companionship.showStatusHints);
   const resolvedLatestMessage = latestByTimestamp([chat.latestMessage]) || null;
   const members = characters.filter((c) => chat.memberIds.includes(c.id));
   const isDirect = chat.type === 'direct' || chat.type === 'ai_direct';
   const directKnownMessages = latestByTimestamp([chat.latestMessage])
     ? [chat.latestMessage as Message]
     : [];
-  const companionshipStatus = chat.type === 'direct' && members[0]
+  const companionshipStatus = showCompanionshipStatusHints && chat.type === 'direct' && members[0]
     ? buildCompanionshipStatusSignature({ chat, character: members[0], messages: directKnownMessages })
     : null;
   const companionshipPreview = companionshipStatus?.unsentDraft || companionshipStatus?.offlineTrace || companionshipStatus?.text || '';

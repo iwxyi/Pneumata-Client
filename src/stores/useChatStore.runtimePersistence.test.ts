@@ -68,6 +68,105 @@ function companionshipEvent(id: string, createdAt: number, payload: Record<strin
   };
 }
 
+function companionshipStateEvents(createdAtOffset = 0) {
+  const at = (value: number) => createdAtOffset + value;
+  return [
+    companionshipEvent('companionship-phase-old', at(2), {
+      eventType: 'companionship_phase_event',
+      characterId: 'char-1',
+      userId: 'user-1',
+      phase: 'confirmed',
+      confidence: 0.93,
+      decisionSource: 'model',
+    }),
+    companionshipEvent('companionship-addressing-old', at(3), {
+      eventType: 'companionship_addressing',
+      characterId: 'char-1',
+      userId: 'user-1',
+      action: 'set_private',
+      privateAddress: '小月亮',
+      confidence: 0.9,
+      decisionSource: 'model',
+    }),
+    companionshipEvent('companionship-care-topic-old', at(4), {
+      eventType: 'companionship_care_topic',
+      characterId: 'char-1',
+      userId: 'user-1',
+      topicId: 'topic-1',
+      topicText: '明天面试',
+      action: 'opened',
+    }),
+    companionshipEvent('companionship-promise-old', at(5), {
+      eventType: 'companionship_promise',
+      characterId: 'char-1',
+      userId: 'user-1',
+      promiseId: 'promise-1',
+      promiseText: '周末一起看电影',
+      action: 'opened',
+    }),
+    companionshipEvent('companionship-ritual-old', at(6), {
+      eventType: 'companionship_ritual',
+      characterId: 'char-1',
+      userId: 'user-1',
+      ritualId: 'ritual-goodnight',
+      action: 'performed',
+      kind: 'daily_greeting',
+    }),
+    companionshipEvent('companionship-secret-old', at(7), {
+      eventType: 'companionship_shared_secret',
+      characterId: 'char-1',
+      userId: 'user-1',
+      secretId: 'secret-1',
+      action: 'recorded',
+      publicMask: '懂的人会懂',
+    }),
+    companionshipEvent('companionship-anchor-old', at(8), {
+      eventType: 'companionship_shared_anchor',
+      characterId: 'char-1',
+      userId: 'user-1',
+      anchorId: 'anchor-1',
+      action: 'upsert',
+      text: '第一次认真说开',
+    }),
+    companionshipEvent('companionship-profile-old', at(9), {
+      eventType: 'companionship_user_profile_memory',
+      characterId: 'char-1',
+      userId: 'user-1',
+      action: 'upsert',
+      items: [{ kind: 'preference', text: '喜欢晚上聊天' }],
+    }),
+    companionshipEvent('companionship-conflict-old', at(10), {
+      eventType: 'companionship_intimate_conflict',
+      characterId: 'char-1',
+      userId: 'user-1',
+      action: 'opened',
+      kind: 'testing',
+      summary: '试探性冷淡',
+    }),
+    companionshipEvent('companionship-attachment-old', at(11), {
+      eventType: 'companionship_attachment_profile',
+      characterId: 'char-1',
+      userId: 'user-1',
+      action: 'inferred',
+      inferredStyle: 'secure',
+    }),
+    companionshipEvent('companionship-online-return-old', at(12), {
+      eventType: 'companionship_online_return',
+      characterId: 'char-1',
+      userId: 'user-1',
+      action: 'shown',
+      text: '终于等到你回来。',
+    }),
+    companionshipEvent('companionship-unsent-draft-old', at(13), {
+      eventType: 'companionship_unsent_draft',
+      characterId: 'char-1',
+      userId: 'user-1',
+      action: 'drafted',
+      text: '本来想问问你后来怎么样。',
+    }),
+  ];
+}
+
 function relationship(index: number): RelationshipLedgerEntry {
   return {
     pairKey: `a-${index}->b-${index}`,
@@ -154,52 +253,29 @@ describe('chat runtime persistence', () => {
   it('preserves current companionship state events when runtime events are compacted', async () => {
     const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
     const { compactChatPatchForCloud, limits } = __chatRuntimePersistenceForTests;
-    const phaseEvent = companionshipEvent('companionship-phase-old', 2, {
-      eventType: 'companionship_phase_event',
-      characterId: 'char-1',
-      userId: 'user-1',
-      phase: 'confirmed',
-      confidence: 0.93,
-      decisionSource: 'model',
-    });
-    const addressingEvent = companionshipEvent('companionship-addressing-old', 3, {
-      eventType: 'companionship_addressing',
-      characterId: 'char-1',
-      userId: 'user-1',
-      action: 'set_private',
-      privateAddress: '小月亮',
-      confidence: 0.9,
-      decisionSource: 'model',
-    });
+    const stateEvents = companionshipStateEvents();
     const recentEvents = Array.from({ length: limits.runtimeEventsV2 + 8 }, (_, index) => runtimeEvent(100 + index));
     const patch = compactChatPatchForCloud({
-      runtimeEventsV2: [phaseEvent, addressingEvent, ...recentEvents],
+      runtimeEventsV2: [...stateEvents, ...recentEvents],
     });
     const eventIds = ((patch.runtimeEventsV2 || []) as RuntimeEventV2[]).map((event) => event.id);
 
     expect(patch.runtimeEventsV2).toHaveLength(limits.runtimeEventsV2);
-    expect(eventIds).toContain('companionship-phase-old');
-    expect(eventIds).toContain('companionship-addressing-old');
+    expect(eventIds).toEqual(expect.arrayContaining(stateEvents.map((event) => event.id)));
   });
 
   it('merges remote runtime windows without dropping local companionship state events', async () => {
     const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
     const { mergeChatRecord, mergeWorldRuntimeRecord } = __chatRuntimePersistenceForTests;
-    const localPhase = companionshipEvent('local-phase', 5, {
-      eventType: 'companionship_phase_event',
-      characterId: 'char-1',
-      userId: 'user-1',
-      phase: 'ambiguous',
-      confidence: 0.9,
-    });
+    const stateEvents = companionshipStateEvents();
     const remoteRecent = runtimeEvent(20);
-    const local = chat({ updatedAt: 10, runtimeEventsV2: [localPhase], runtimeDetailLoaded: true });
+    const local = chat({ updatedAt: 10, runtimeEventsV2: stateEvents, runtimeDetailLoaded: true });
     const remote = chat({ updatedAt: 20, runtimeEventsV2: [remoteRecent], runtimeDetailLoaded: true });
     const mergedDetail = mergeChatRecord(local, remote);
     const mergedWorld = mergeWorldRuntimeRecord(local, { ...remote, runtimeDetailLoaded: false, worldRuntimeLoaded: true });
 
-    expect(mergedDetail.runtimeEventsV2?.map((event) => event.id)).toEqual(['local-phase', 'event-20']);
-    expect(mergedWorld.runtimeEventsV2?.map((event) => event.id)).toEqual(['local-phase', 'event-20']);
+    expect(mergedDetail.runtimeEventsV2?.map((event) => event.id)).toEqual([...stateEvents.map((event) => event.id), 'event-20']);
+    expect(mergedWorld.runtimeEventsV2?.map((event) => event.id)).toEqual([...stateEvents.map((event) => event.id), 'event-20']);
   });
 
   it('keeps bounded runtime fields in local persistence', async () => {

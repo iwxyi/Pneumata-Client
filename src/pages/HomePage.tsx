@@ -304,11 +304,14 @@ export default function HomePage() {
     return keys.size;
   }, [messageWindowsByChatId, messages]);
   const aiMessageCount = Math.max(usageStats?.aiMessageCount || 0, localKnownAiMessageCount);
-  const companionshipSnapshot = buildHomeCompanionshipSnapshot({
-    chats: recentChats,
-    characters,
-    messages: knownMessages,
-  });
+  const showCompanionshipStatusHints = useSettingsStore((state) => state.companionship.showStatusHints);
+  const companionshipSnapshot = showCompanionshipStatusHints
+    ? buildHomeCompanionshipSnapshot({
+      chats: recentChats,
+      characters,
+      messages: knownMessages,
+    })
+    : null;
   const syncOverview = useMemo(() => buildHomeSyncOverview({
     cloudSyncAvailable: !needsLogin,
     cloudSyncEnabled,

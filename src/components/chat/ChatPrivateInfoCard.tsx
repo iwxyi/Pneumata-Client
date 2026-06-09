@@ -58,6 +58,7 @@ export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: Chat
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showCompanionshipDebug = useSettingsStore((state) => state.developerUI.showCompanionshipDebug);
+  const showCompanionshipStatusHints = useSettingsStore((state) => state.companionship.showStatusHints);
   const showMemoryDetails = developerMode && showMemoryDebug;
   const showCompanionshipDetails = developerMode && (showMemoryDebug || showCompanionshipDebug);
 
@@ -82,7 +83,7 @@ export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: Chat
       <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.75 }}>单聊记忆主轴</Typography>
       <Stack spacing={0.75}>
         <Typography variant="caption" color="text.secondary">该角色会优先读取自己的长期记忆、关系记忆与最近变化，而不是优先回溯来源群聊。</Typography>
-        {companionshipStatus ? (
+        {showCompanionshipStatusHints && companionshipStatus ? (
           <Box sx={buildStatusSx(companionshipStatus.tone)}>
             <Typography variant="body2" sx={{ fontWeight: 600, mb: companionshipStatus.chips.length ? 0.75 : 0 }}>
               {sanitizeUserFacingText(companionshipStatus.text, members)}
