@@ -1176,6 +1176,140 @@ function dueAtFromPromiseText(text: string, updatedAt: number) {
   return undefined;
 }
 
+function inferPromiseKind(text: string): PendingPromise['kind'] {
+  if (/(不要|别|不想|界限|边界|只做朋友|别催|别提醒|先别问|别主动)/.test(text)) return 'boundary_agreement';
+  if (/(道歉|和好|说开|台阶|冷静后|吵完|修复|下次争执|以后吵架)/.test(text)) return 'repair_agreement';
+  if (/(早安|晚安|每天|每晚|每早|纪念日|暗号|专属称呼|小秘密|仪式)/.test(text)) return 'ritual';
+  if (/(会陪|不会走|等你|不离开|一直在|相信我|答应你|承诺)/.test(text)) return 'emotional_commitment';
+  if (/(告诉你|回来告诉|讲给你听|发给你|结果|面试|考试|复查|到家|下班)/.test(text)) return 'user_followup';
+  if (/(一起|看电影|吃饭|散步|出去|见面|补看|补给|下次聊|下次见)/.test(text)) return 'shared_activity';
+  return 'other';
+}
+
+function formatPromiseKind(kind: PendingPromise['kind']) {
+  const labels: Record<PendingPromise['kind'], string> = {
+    shared_activity: '一起做的事',
+    user_followup: '等用户回来说',
+    emotional_commitment: '情感承诺',
+    boundary_agreement: '关系边界',
+    repair_agreement: '修复约定',
+    ritual: '关系仪式',
+    other: '普通约定',
+  };
+  return labels[kind];
+}
+
+function buildPromiseReminderPolicy(text: string, kind: PendingPromise['kind'], dueAt?: number): PendingPromise['reminderPolicy'] {
+  const boundaryReasons: string[] = [];
+  if (/(别催|别提醒|不用提醒|别问|先别问|不要主动)/.test(text)) boundaryReasons.push('用户表达不希望被追问或提醒');
+  if (kind === 'boundary_agreement') boundaryReasons.push('边界类约定只作为行为约束，不主动追问');
+  const tone: PendingPromise['reminderPolicy']['tone'] = kind === 'repair_agreement'
+    ? 'apologetic'
+    : kind === 'shared_activity' || kind === 'ritual'
+      ? 'playful'
+      : kind === 'boundary_agreement'
+        ? 'none'
+        : /(面试|考试|复查|生病|不舒服|压力|难受)/.test(text)
+          ? 'gentle'
+          : 'serious';
+  const shouldRemind = Boolean(dueAt) && kind !== 'boundary_agreement' && !boundaryReasons.length;
+  const seedIntent = shouldRemind
+    ? kind === 'user_followup'
+      ? `自然问一句后来怎么样了，重点是关心，不要像任务催办：${text}`
+      : kind === 'shared_activity'
+        ? `轻轻提起之前说好的一起做的事，允许用户改期或忘记：${text}`
+        : kind === 'repair_agreement'
+          ? `以负责和放软的语气记得修复约定，不翻旧账：${text}`
+          : `自然记起这个约定，不施压：${text}`
+    : kind === 'boundary_agreement'
+      ? `把这个边界约定作为行为约束，不主动拿出来追问：${text}`
+      : `把这个约定作为关系纹理记住，除非上下文合适不要主动催促：${text}`;
+  return {
+    shouldRemind,
+    tone,
+    maxFollowUps: kind === 'emotional_commitment' || kind === 'boundary_agreement' ? 0 : 1,
+    seedIntent,
+    boundaryReasons,
+  };
+}
+
+function buildPromiseRelationshipEffects(kind: PendingPromise['kind']): PendingPromise['relationshipEffects'] {
+  if (kind === 'boundary_agreement') {
+    return {
+      fulfilled: { security: 6 },
+      missed: { security: -12, intimacy: -4 },
+      notes: ['守住边界会提升安全感，越界会伤害信任。'],
+    };
+  }
+  if (kind === 'repair_agreement') {
+    return {
+      fulfilled: { security: 8, intimacy: 5 },
+      missed: { security: -10, attachment: -4 },
+      notes: ['修复约定履行后可成为关系重新稳定的证据。'],
+    };
+  }
+  if (kind === 'emotional_commitment') {
+    return {
+      fulfilled: { attachment: 6, security: 5 },
+      missed: { security: -8, longing: -3 },
+      notes: ['情感承诺重在表达一致性，不应该被机械追问。'],
+    };
+  }
+  return {
+    fulfilled: { intimacy: 4, attachment: 3, security: 3 },
+    missed: { security: -4 },
+    notes: ['共同约定完成后可增强共同感；错过时应允许改期。'],
+  };
+}
+
+function buildPendingPromise(params: {
+  id: string;
+  text: string;
+  participantIds: string[];
+  source: PendingPromise['source'];
+  status?: PendingPromise['status'];
+  evidence?: string;
+  dueAt?: number;
+  updatedAt: number;
+  kind?: PendingPromise['kind'];
+  reminderPolicy?: Partial<PendingPromise['reminderPolicy']>;
+  relationshipEffects?: Partial<PendingPromise['relationshipEffects']>;
+  lifecycleEvidence?: string[];
+}): PendingPromise {
+  const text = compactText(params.text, 140);
+  const kind = params.kind || inferPromiseKind(`${text}\n${params.evidence || ''}`);
+  const inferredPolicy = buildPromiseReminderPolicy(`${text}\n${params.evidence || ''}`, kind, params.dueAt);
+  const inferredEffects = buildPromiseRelationshipEffects(kind);
+  return {
+    id: params.id,
+    text,
+    participantIds: params.participantIds.length ? params.participantIds : [USER_ACTOR_ID],
+    source: params.source,
+    kind,
+    status: params.status || 'open',
+    evidence: params.evidence,
+    dueAt: params.dueAt,
+    reminderPolicy: {
+      ...inferredPolicy,
+      ...params.reminderPolicy,
+      boundaryReasons: uniqueTexts([
+        ...inferredPolicy.boundaryReasons,
+        ...(params.reminderPolicy?.boundaryReasons || []),
+      ], 4),
+    },
+    relationshipEffects: {
+      fulfilled: { ...inferredEffects.fulfilled, ...(params.relationshipEffects?.fulfilled || {}) },
+      missed: { ...inferredEffects.missed, ...(params.relationshipEffects?.missed || {}) },
+      notes: uniqueTexts([
+        ...inferredEffects.notes,
+        ...(params.relationshipEffects?.notes || []),
+      ], 4),
+    },
+    lifecycleEvidence: uniqueTexts(params.lifecycleEvidence || [params.evidence || text].filter(Boolean), 5),
+    updatedAt: params.updatedAt,
+  };
+}
+
 function getPendingPromiseRetentionMs() {
   const rawDays = getCompanionshipRuntimeConfig().pendingPromiseRetentionDays;
   const days = Number.isFinite(rawDays) ? Math.min(365, Math.max(1, Math.round(rawDays))) : 30;
@@ -1229,16 +1363,20 @@ function buildPromiseEventState(chat: GroupChat, characterId: string, now: numbe
         return;
       }
       closedKeys.delete(key);
-      activeById.set(payload.promiseId, {
+      activeById.set(payload.promiseId, buildPendingPromise({
         id: payload.promiseId,
         text,
         participantIds: payload.participantIds?.length ? payload.participantIds : [characterId, USER_ACTOR_ID],
         source: 'runtime_event',
         status: 'open',
         evidence: compactText(payload.evidence || payload.reason || event.summary, 120),
+        kind: payload.promiseKind,
         dueAt: payload.dueAt || dueAtFromPromiseText(text, event.createdAt || now),
+        reminderPolicy: payload.reminderPolicy,
+        relationshipEffects: payload.relationshipEffects,
+        lifecycleEvidence: payload.lifecycleEvidence || [payload.evidence || payload.reason || event.summary].filter(Boolean),
         updatedAt: event.createdAt || now,
-      });
+      }));
     });
   return {
     activePromises: Array.from(activeById.values()).sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0)),
@@ -1268,7 +1406,7 @@ function buildPendingPromises(params: {
     .filter((anchor) => anchor.kind === 'promise' && !isPromiseFulfilledText(`${anchor.text}\n${anchor.evidence || ''}`))
     .filter((anchor) => !isPromiseSuppressed(`${anchor.text}\n${anchor.evidence || ''}`, promiseEventState.closedKeys))
     .forEach((anchor) => {
-      promises.push({
+      promises.push(buildPendingPromise({
         id: `anchor-${anchor.id}`,
         text: compactText(anchor.text, 140),
         participantIds: anchor.participantIds,
@@ -1276,8 +1414,9 @@ function buildPendingPromises(params: {
         status: 'open',
         evidence: compactText(anchor.evidence || anchor.text, 120),
         dueAt: dueAtFromPromiseText(`${anchor.text}\n${anchor.evidence || ''}`, anchor.updatedAt || params.now),
+        lifecycleEvidence: [anchor.evidence || anchor.text],
         updatedAt: anchor.updatedAt || params.now,
-      });
+      }));
     });
 
   params.profile.sourceTexts
@@ -1285,7 +1424,7 @@ function buildPendingPromises(params: {
     .filter((text) => !isPromiseSuppressed(text, promiseEventState.closedKeys))
     .slice(-4)
     .forEach((text, index) => {
-      promises.push({
+      promises.push(buildPendingPromise({
         id: `profile-${index}-${promiseId([params.characterId, text])}`,
         text: compactText(text, 140),
         participantIds: [params.characterId, USER_ACTOR_ID],
@@ -1293,8 +1432,9 @@ function buildPendingPromises(params: {
         status: 'open',
         evidence: compactText(text, 120),
         dueAt: dueAtFromPromiseText(text, params.now),
+        lifecycleEvidence: [text],
         updatedAt: params.now,
-      });
+      }));
     });
 
   params.messages
@@ -1304,7 +1444,7 @@ function buildPendingPromises(params: {
     .filter((message) => !isPromiseSuppressed(message.content, promiseEventState.closedKeys))
     .slice(-3)
     .forEach((message, index) => {
-      promises.push({
+      promises.push(buildPendingPromise({
         id: `recent-${index}-${message.id}`,
         text: compactText(message.content, 140),
         participantIds: [params.characterId, USER_ACTOR_ID],
@@ -1312,8 +1452,9 @@ function buildPendingPromises(params: {
         status: 'open',
         evidence: compactText(message.content, 120),
         dueAt: dueAtFromPromiseText(message.content, message.timestamp || params.now),
+        lifecycleEvidence: [message.content],
         updatedAt: message.timestamp || params.now,
-      });
+      }));
     });
 
   const seen = new Set<string>();
@@ -1847,7 +1988,10 @@ function buildPromptLines(bond: UserBondState, carePolicy: CarePolicy, evidence:
     `- Address the user naturally as "${bond.addressing.currentAddress}" unless the latest message suggests another appropriate address.`,
     sharedAnchors.length ? `- Shared memory anchors with the user: ${sharedAnchors.map(formatSharedAnchorForPrompt).join(' / ')}. Use as relationship texture only when relevant; do not expose internal labels.` : '',
     bond.pendingCareTopics.length ? `- Pending care topics: ${bond.pendingCareTopics.map((item) => item.text).join(' / ')}.` : '',
-    bond.pendingPromises.length ? `- Pending promises/unfinished shared plans: ${bond.pendingPromises.map((item) => item.text).join(' / ')}. Treat them as remembered commitments, not pressure.` : '',
+    bond.pendingPromises.length ? `- Pending promises/unfinished shared plans: ${bond.pendingPromises.map((item) => {
+      const remind = item.reminderPolicy.shouldRemind ? `reminder tone ${item.reminderPolicy.tone}` : 'do not proactively remind';
+      return `${item.text} (${formatPromiseKind(item.kind)}; ${remind})`;
+    }).join(' / ')}. Treat them as remembered commitments, not pressure; if a boundary agreement exists, follow it silently.` : '',
     bond.intimateConflict ? `- Current intimate conflict/repair state: ${bond.intimateConflict.summary} Repair readiness ${bond.intimateConflict.repairReadiness}; severity ${bond.intimateConflict.severity}. Use this only to choose restraint, accountability, apology, space, or gentle repair.` : '',
     bond.attachmentProfile.confidence >= 58 ? `- User attachment adaptation: ${bond.attachmentProfile.adaptations.join(' / ')}. Do not label the user or mention attachment style.` : '',
     bond.unresolvedTensions.length ? `- Current restraint: ${bond.unresolvedTensions.join(' / ')}.` : '',
@@ -2818,7 +2962,11 @@ export function buildCompanionshipRuntimeTrace(params: {
       summary: bond.intimateConflict.summary,
     } : undefined,
     pendingCareTopics: bond.pendingCareTopics.map((item) => item.text).slice(0, 4),
-    pendingPromises: bond.pendingPromises.map((item) => item.text).slice(0, 4),
+    pendingPromises: bond.pendingPromises.map((item) => {
+      const remind = item.reminderPolicy.shouldRemind ? `提醒:${item.reminderPolicy.tone}` : '不主动提醒';
+      const reason = item.reminderPolicy.boundaryReasons.length ? ` · ${item.reminderPolicy.boundaryReasons.join('/')}` : '';
+      return `${formatPromiseKind(item.kind)}：${item.text} · ${remind}${reason}`;
+    }).slice(0, 4),
     rememberedUserPlans: bond.rememberedUserPlans.slice(0, 4),
     boundaries: profile.boundaries.slice(0, 4),
     boundaryReasons: carePolicy.boundaryReasons.slice(0, 4),

@@ -1684,7 +1684,8 @@ function buildDueCompanionshipPromiseCandidate(
     now,
   });
   const promise = projection.userBond?.pendingPromises
-    .filter((item) => typeof item.dueAt === 'number' && item.dueAt <= now)
+    .filter((item) => item.reminderPolicy.shouldRemind && typeof item.dueAt === 'number' && item.dueAt <= now)
+    .filter((item) => item.reminderPolicy.maxFollowUps > 0)
     .sort((left, right) => (left.dueAt || left.updatedAt) - (right.dueAt || right.updatedAt))[0];
   if (!promise) return null;
   const reasonType = 'companionship_pending_promise_due';
@@ -1705,13 +1706,13 @@ function buildDueCompanionshipPromiseCandidate(
       reasonType,
       confidence: 0.8,
       urgency: 'soon',
-      seedIntent: `用户和${actor.name}之前有个约定“${promise.text}”，现在适合自然提一下，不要催促。`,
-      triggerReason: `PendingPromise due: ${promise.text}`,
+      seedIntent: promise.reminderPolicy.seedIntent || `用户和${actor.name}之前有个约定“${promise.text}”，现在适合自然提一下，不要催促。`,
+      triggerReason: `PendingPromise due: ${promise.text}; kind=${promise.kind}; tone=${promise.reminderPolicy.tone}`,
       visibilityPlan: 'user_private',
       expectedArtifacts: ['check_in_note'],
       sourceText: promise.evidence || promise.text,
       title: '约定追问',
-      activityType: '未完成约定追问',
+      activityType: promise.kind === 'shared_activity' ? '共同约定追问' : promise.kind === 'user_followup' ? '用户事项回访' : '未完成约定追问',
       dedupeKey: `companionship-promise-due-${chat.id}-${actor.id}-${promise.id}`,
     } satisfies SocialEventCandidatePayload,
   });

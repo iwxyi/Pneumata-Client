@@ -826,6 +826,58 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect(decision).toBeTruthy();
   });
 
+  it('does not create pending-promise check_in for boundary agreements that should not be reminded', async () => {
+    const now = Date.now();
+    const chat = {
+      ...buildDirectChatWithEvents([{
+        id: 'promise-boundary',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: now - 48 * 60 * 60_000,
+        actorIds: ['user', 'a'],
+        targetIds: ['a', 'user'],
+        summary: '甲记录了一个关系边界约定',
+        visibility: 'pair_private',
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'a',
+          userId: 'user',
+          promiseId: 'promise-do-not-remind',
+          promiseText: '说好不要再提醒我这件事',
+          action: 'opened',
+          participantIds: ['a', 'user'],
+          promiseKind: 'boundary_agreement',
+          reminderPolicy: { shouldRemind: false, tone: 'none', maxFollowUps: 0, seedIntent: '只作为边界遵守。' },
+          evidence: '用户说：不要再提醒我这件事。',
+          dueAt: now - 1_000,
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      } as RuntimeEventV2]),
+      relationshipLedger: [{
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 8, competence: 4, trust: 6, threat: 0 },
+        trend: 'up' as const,
+        recentEvents: [],
+        lastUpdatedAt: now - 1_000,
+      }],
+    };
+    const updateChat = vi.fn(async () => undefined);
+
+    await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: vi.fn(async () => ({})),
+      appendEventMessage: vi.fn(async () => undefined),
+    });
+
+    expect(updateChat).not.toHaveBeenCalled();
+  });
+
   it('does not create pending-promise check_in after the promise is revoked', async () => {
     const now = Date.now();
     const chat = buildDirectChatWithEvents([

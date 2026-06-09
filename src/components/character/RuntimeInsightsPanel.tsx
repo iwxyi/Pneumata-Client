@@ -688,6 +688,19 @@ function formatSharedMemoryAnchorKind(kind: SharedMemoryAnchor['kind']) {
   return labels[kind];
 }
 
+function formatPendingPromiseKind(kind: PendingPromise['kind']) {
+  const labels: Record<PendingPromise['kind'], string> = {
+    shared_activity: '一起做的事',
+    user_followup: '等用户回来说',
+    emotional_commitment: '情感承诺',
+    boundary_agreement: '关系边界',
+    repair_agreement: '修复约定',
+    ritual: '关系仪式',
+    other: '普通约定',
+  };
+  return labels[kind];
+}
+
 function SharedMemoryAnchorPanel({
   anchors,
   resolveCharacterName,
@@ -1089,7 +1102,9 @@ function UserCompanionshipCard({
             {pendingPromises.slice(0, 3).map((promise) => (
               <Box key={promise.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, p: 1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
                 <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>未完成约定</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    未完成约定 · {formatPendingPromiseKind(promise.kind)} · {promise.reminderPolicy.shouldRemind ? '可轻提醒' : '不主动提醒'}
+                  </Typography>
                   <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{promise.text}</Typography>
                 </Box>
                 <Button size="small" variant="text" onClick={() => onRevokePromise(promise)} sx={{ flexShrink: 0 }}>

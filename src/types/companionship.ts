@@ -61,9 +61,23 @@ export interface PendingPromise {
   text: string;
   participantIds: string[];
   source: 'shared_anchor' | 'user_profile' | 'recent_message' | 'runtime_event' | 'manual';
+  kind: 'shared_activity' | 'user_followup' | 'emotional_commitment' | 'boundary_agreement' | 'repair_agreement' | 'ritual' | 'other';
   status: 'open' | 'fulfilled' | 'stale' | 'blocked' | 'revoked';
   evidence?: string;
   dueAt?: number;
+  reminderPolicy: {
+    shouldRemind: boolean;
+    tone: 'gentle' | 'playful' | 'serious' | 'apologetic' | 'none';
+    maxFollowUps: number;
+    seedIntent: string;
+    boundaryReasons: string[];
+  };
+  relationshipEffects: {
+    fulfilled: Partial<IntimacyProjection>;
+    missed: Partial<IntimacyProjection>;
+    notes: string[];
+  };
+  lifecycleEvidence: string[];
   updatedAt: number;
 }
 
@@ -210,6 +224,10 @@ export interface CompanionshipPromiseEventPayload {
   promiseText: string;
   action: 'opened' | 'fulfilled' | 'blocked' | 'stale' | 'revoked';
   participantIds?: string[];
+  promiseKind?: PendingPromise['kind'];
+  reminderPolicy?: Partial<PendingPromise['reminderPolicy']>;
+  relationshipEffects?: Partial<PendingPromise['relationshipEffects']>;
+  lifecycleEvidence?: string[];
   reason?: string;
   evidence?: string;
   dueAt?: number;

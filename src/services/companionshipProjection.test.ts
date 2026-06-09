@@ -1555,6 +1555,59 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).toContain('下周一起补看那部电影');
   });
 
+  it('projects promise semantics and reminder policy from model events and boundary text', () => {
+    const now = 5_000;
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
+      promiseEvent({
+        id: 'evt-repair-promise',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-repair-talk',
+          promiseText: '以后吵架我们先冷静一下再说开',
+          action: 'opened',
+          participantIds: ['char-a', 'user'],
+          promiseKind: 'repair_agreement',
+          reminderPolicy: { shouldRemind: true, tone: 'apologetic', maxFollowUps: 1, seedIntent: '记得修复约定，先放软。' },
+          evidence: '用户和苏苏说好以后吵架先冷静再说开。',
+          dueAt: now - 100,
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character({
+        memory: {
+          shortTermSummary: '',
+          longTerm: [],
+          secrets: [],
+          obsessions: [],
+          tabooTopics: [],
+          userMemories: ['用户说不要再提醒之前那个约定。'],
+        },
+      }),
+      messages: [],
+      now,
+    });
+
+    const promises = projection.userBond?.pendingPromises || [];
+    expect(promises.find((promise) => promise.id === 'promise-repair-talk')).toMatchObject({
+      id: 'promise-repair-talk',
+      kind: 'repair_agreement',
+      reminderPolicy: {
+        shouldRemind: true,
+        tone: 'apologetic',
+      },
+    });
+    expect(promises.some((promise) => promise.kind === 'boundary_agreement' && !promise.reminderPolicy.shouldRemind)).toBe(true);
+    expect(projection.promptLines.join('\n')).toContain('修复约定');
+    expect(projection.promptLines.join('\n')).toContain('do not proactively remind');
+  });
+
   it('feeds pending care topics and promises into private diary seeds but not public moment seeds', () => {
     const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
       {
