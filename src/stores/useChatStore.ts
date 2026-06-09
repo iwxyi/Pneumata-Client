@@ -310,11 +310,13 @@ interface ChatStore extends PersistedChatState {
   remoteDeletedChatIds: string[];
   remoteDeletedChats: GroupChat[];
   fieldConflicts: FieldConflictRecord[];
+  chatSummaryLoadedAt: number;
   loadChats: () => Promise<void>;
   loadChat: (id: string) => Promise<GroupChat | null>;
   loadWorldRuntime: () => Promise<void>;
   prefetchChats: () => Promise<void>;
   prefetchWorldRuntime: () => Promise<void>;
+  restoreLocalChats: () => Promise<void>;
   refreshChatSummaryFromCloud: () => Promise<void>;
   flushPendingOperations: () => Promise<void>;
   queuePatch: (entityId: string, patch: Record<string, unknown>, kind?: PendingChatOperation['kind']) => void;
@@ -820,6 +822,7 @@ export function resetChatStoreForAccountBoundary() {
     remoteDeletedChatIds: [],
     remoteDeletedChats: [],
     fieldConflicts: [],
+    chatSummaryLoadedAt: 0,
     isLoading: false,
   });
 }
@@ -838,6 +841,15 @@ function ensureChatStoreHydrated() {
     chatHydrationPromise = null;
   });
   return chatHydrationPromise;
+}
+
+async function readPersistedChatStoreState(): Promise<PersistedChatState | null> {
+  const value = await chatStorage.getItem(getChatStoreStorageName()) as { state?: unknown; version?: number } | null;
+  if (!value?.state || typeof value.state !== 'object') return null;
+  const migrated = value.version === CLIENT_STORE_SCHEMA_VERSION
+    ? value.state
+    : migrateChatStoreState(value.state as PersistedChatState);
+  return migrated as PersistedChatState;
 }
 
 export const useChatStore = create<ChatStore>()(
@@ -913,6 +925,7 @@ export const useChatStore = create<ChatStore>()(
         remoteDeletedChatIds: [],
         remoteDeletedChats: [],
         fieldConflicts: [],
+        chatSummaryLoadedAt: 0,
         isLoading: false,
 
         loadChats: async () => {
@@ -922,14 +935,14 @@ export const useChatStore = create<ChatStore>()(
             set(markChatsLoadingIdle);
             return;
           }
-          if (get().chats.length > 0 && chatSyncScopes.isFresh(CHAT_SUMMARY_SCOPE)) {
+          if (get().chats.length > 0 && get().chatSummaryLoadedAt > 0 && chatSyncScopes.isFresh(CHAT_SUMMARY_SCOPE)) {
             set(markChatsLoadingIdle);
             return;
           }
           return chatSyncScopes.run(CHAT_SUMMARY_SCOPE, async () => {
             try {
               await maybeUploadGuestChats(get);
-              const changeProbe = await probeChatScopeChanges(CHAT_SUMMARY_SCOPE, { forceFull: get().chats.length === 0 });
+              const changeProbe = await probeChatScopeChanges(CHAT_SUMMARY_SCOPE, { forceFull: get().chats.length === 0 || get().chatSummaryLoadedAt === 0 });
               if (changeProbe?.status === 'not_modified') {
                 chatSyncScopes.markChecked(CHAT_SUMMARY_SCOPE, {
                   cursor: changeProbe.cursor,
@@ -937,7 +950,11 @@ export const useChatStore = create<ChatStore>()(
                   fresh: !changeProbe?.hasMore,
                   applied: false,
                 });
-                set(markChatsLoadingIdle);
+                set((state) => (
+                  state.chatSummaryLoadedAt > 0
+                    ? markChatsLoadingIdle(state)
+                    : { ...markChatsLoadingIdle(state), chatSummaryLoadedAt: Date.now() }
+                ));
                 return;
               }
               const summaryChanges = changeProbe?.changes?.length ? chatSummariesFromChanges(changeProbe.changes) : null;
@@ -983,6 +1000,7 @@ export const useChatStore = create<ChatStore>()(
                     fieldConflicts,
                     isLoading: false,
                     lastSyncedAt: Date.now(),
+                    chatSummaryLoadedAt: Date.now(),
                     pendingEditSyncCount: state.pendingOperations.length,
                     pendingEditSyncError: latestChatError(state.pendingOperations),
                   };
@@ -1006,6 +1024,7 @@ export const useChatStore = create<ChatStore>()(
                 remoteDeletedChats: state.remoteDeletedChats.filter((chat) => !visible.some((visibleChat) => visibleChat.id === chat.id)),
                 isLoading: false,
                 lastSyncedAt: Date.now(),
+                chatSummaryLoadedAt: Date.now(),
                 pendingEditSyncCount: get().pendingOperations.length,
                 pendingEditSyncError: latestChatError(get().pendingOperations),
               }));
@@ -1177,8 +1196,43 @@ export const useChatStore = create<ChatStore>()(
 
         prefetchChats: async () => {
           const state = get();
-          if (state.chats.length > 0 && chatSyncScopes.isFresh(CHAT_SUMMARY_SCOPE)) return;
+          if (state.chats.length > 0 && state.chatSummaryLoadedAt > 0 && chatSyncScopes.isFresh(CHAT_SUMMARY_SCOPE)) return;
           scheduleChatScopeRefresh(flushRequestedChatScopes, CHAT_SUMMARY_SCOPE);
+        },
+
+        restoreLocalChats: async () => {
+          await ensureChatStoreHydrated();
+          const persisted = await readPersistedChatStoreState();
+          if (!persisted?.chats?.length) return;
+          set((state) => {
+            const pendingOperations = state.pendingOperations.length
+              ? state.pendingOperations
+              : recoverInterruptedOperations(persisted.pendingOperations || []);
+            const nextChats = mergeVisibleChats(
+              persisted.chats,
+              state.chats,
+              pendingOperations,
+            );
+            const nextSignature = buildChatListSignature(nextChats);
+            const currentSignature = buildChatListSignature(state.chats);
+            if (
+              nextSignature === currentSignature
+              && pendingOperations.length === state.pendingOperations.length
+              && (persisted.currentChatId || null) === (state.currentChatId || null)
+              && (persisted.lastSyncedAt || 0) <= (state.lastSyncedAt || 0)
+            ) {
+              return {};
+            }
+            return {
+              chats: nextChats,
+              currentChatId: state.currentChatId || persisted.currentChatId || null,
+              lastSyncedAt: Math.max(state.lastSyncedAt || 0, persisted.lastSyncedAt || 0),
+              chatSummaryLoadedAt: nextChats.length > state.chats.length ? Date.now() : state.chatSummaryLoadedAt,
+              pendingOperations,
+              pendingEditSyncCount: pendingOperations.length,
+              pendingEditSyncError: latestChatError(pendingOperations),
+            };
+          });
         },
 
         refreshChatSummaryFromCloud: async () => {

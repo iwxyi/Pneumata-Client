@@ -192,7 +192,7 @@ export default function ChatDetailPage() {
   const isSplitDetailPane = pane.role === 'detail';
   const { setHideMobileBottomNav } = useLayoutHeaderActions();
 
-  const { chats, updateChat, applyChatRuntimeDelta, loadChat, markChatsWarm, isLoading: chatsLoading, remoteDeletedChatIds, remoteDeletedChats } = useChatStore();
+  const { chats, updateChat, applyChatRuntimeDelta, loadChat, restoreLocalChats, markChatsWarm, isLoading: chatsLoading, remoteDeletedChatIds, remoteDeletedChats } = useChatStore();
   const { characters, updateCharacter, updateCharacters, loadCharacter, markCharactersWarm } = useCharacterStore();
   const { messages, messageWindowsByChatId, hydrateMessagesFromCache, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, upsertMessages, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
@@ -208,6 +208,8 @@ export default function ChatDetailPage() {
   const [detailBootstrapComplete, setDetailBootstrapComplete] = useState(false);
   const [sidebarMessagesReady, setSidebarMessagesReady] = useState(false);
   const [profilePreview, setProfilePreview] = useState<ProfilePreviewState | null>(null);
+  const [aiDirectPerspectiveMemberId, setAiDirectPerspectiveMemberId] = useState<string | null>(null);
+  const [guideTargetMemberId, setGuideTargetMemberId] = useState<string | null>(null);
 
   const loopTokenRef = useRef<string | null>(null);
   const isRunningRef = useRef(false);
@@ -236,6 +238,7 @@ export default function ChatDetailPage() {
     markChatsWarm();
     markCharactersWarm();
     void (async () => {
+      await restoreLocalChats();
       const loadedChat = id ? await loadChat(id) : null;
       const memberIds = loadedChat?.memberIds || useChatStore.getState().chats.find((item) => item.id === id)?.memberIds || [];
       void Promise.all(getSyncableCharacterMemberIds(memberIds).map((memberId) => loadCharacter(memberId)));
@@ -245,7 +248,7 @@ export default function ChatDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, loadCharacter, loadChat, markCharactersWarm, markChatsWarm]);
+  }, [id, loadCharacter, loadChat, markCharactersWarm, markChatsWarm, restoreLocalChats]);
 
   const remoteDeletedChat = remoteDeletedChats.find((c) => c.id === id);
   const chat = chats.find((c) => c.id === id) || remoteDeletedChat;
@@ -253,6 +256,14 @@ export default function ChatDetailPage() {
     if (!chat) return [];
     return projectSessionInfoCards({ chat, chats, members: characters, isZh: true });
   }, [chat, chats, characters]);
+  const aiDirectSourceInfoCards = useMemo(
+    () => chat?.type === 'ai_direct' ? sessionInfoCards.filter((card) => card.key === 'ai-direct-source-chat') : [],
+    [chat?.type, sessionInfoCards]
+  );
+  const globalSessionInfoCards = useMemo(
+    () => sessionInfoCards.filter((card) => card.key !== 'ai-direct-source-chat'),
+    [sessionInfoCards]
+  );
   const currentChatMessages = useCurrentChatMessages({ chatId: id, activeMessages: messages, cachedWindows: messageWindowsByChatId });
   const sidebarMessages = sidebarMessagesReady ? currentChatMessages : EMPTY_MESSAGES;
   const {
@@ -278,9 +289,42 @@ export default function ChatDetailPage() {
     () => chat ? characters.filter((c) => chat.memberIds.includes(c.id)) : [],
     [characters, chat]
   );
+  const aiDirectMemberIds = useMemo(
+    () => chat?.type === 'ai_direct' ? getSyncableCharacterMemberIds(chat.memberIds) : [],
+    [chat]
+  );
   const speakAsChar = useMemo(
     () => speakAsCharacterId ? characters.find((c) => c.id === speakAsCharacterId) ?? null : null,
     [characters, speakAsCharacterId]
+  );
+  useEffect(() => {
+    if (!chat || chat.type !== 'ai_direct') {
+      setAiDirectPerspectiveMemberId(null);
+      return;
+    }
+    if (aiDirectPerspectiveMemberId && aiDirectMemberIds.includes(aiDirectPerspectiveMemberId)) return;
+    setAiDirectPerspectiveMemberId(aiDirectMemberIds[0] || null);
+  }, [aiDirectMemberIds, aiDirectPerspectiveMemberId, chat]);
+  useEffect(() => {
+    setGuideTargetMemberId(null);
+  }, [id]);
+  const aiDirectPerspectiveChar = useMemo(
+    () => {
+      if (chat?.type !== 'ai_direct') return null;
+      const perspectiveId = aiDirectPerspectiveMemberId && aiDirectMemberIds.includes(aiDirectPerspectiveMemberId)
+        ? aiDirectPerspectiveMemberId
+        : aiDirectMemberIds[0] || null;
+      return perspectiveId ? characters.find((c) => c.id === perspectiveId) ?? members.find((member) => member.id === perspectiveId) ?? null : null;
+    },
+    [aiDirectMemberIds, aiDirectPerspectiveMemberId, characters, chat, members]
+  );
+  const effectiveAiDirectPerspectiveMemberId = chat?.type === 'ai_direct'
+    ? (aiDirectPerspectiveMemberId && aiDirectMemberIds.includes(aiDirectPerspectiveMemberId) ? aiDirectPerspectiveMemberId : aiDirectMemberIds[0] || null)
+    : null;
+  const effectiveSpeakAsChar = chat?.type === 'ai_direct' ? aiDirectPerspectiveChar : speakAsChar;
+  const guideTargetMember = useMemo(
+    () => guideTargetMemberId ? characters.find((c) => c.id === guideTargetMemberId) ?? null : null,
+    [characters, guideTargetMemberId]
   );
 
   const openCharacterPreview = useCallback((character: AICharacter, anchorEl: HTMLElement) => {
@@ -316,9 +360,37 @@ export default function ChatDetailPage() {
     characters,
     currentChatMessages: sidebarMessages,
     rightPanelTab,
-    speakAsChar,
+    speakAsChar: effectiveSpeakAsChar,
   });
   const sidebarTabValue = activeSidebarTab === 'actions' ? 'activities' : activeSidebarTab;
+  const effectiveComposerSurfaces = useMemo(() => {
+    const primaryTextSurface = composerSurfaces.find((surface) => surface.type === 'text') || { key: 'member-guide-text', type: 'text' as const };
+    const nonTextSurfaces = composerSurfaces.filter((surface) => surface.type !== 'text');
+    if (guideTargetMember && !effectiveSpeakAsChar) {
+      const nextSurface = {
+        ...primaryTextSurface,
+        key: 'member-guide-text',
+        type: 'text' as const,
+        mode: 'guide' as const,
+        actorId: guideTargetMember.id,
+        capability: 'guide' as const,
+        placeholder: `引导${guideTargetMember.name}回应、换话题或执行要求`,
+      };
+      return [nextSurface, ...nonTextSurfaces];
+    }
+    if (!effectiveSpeakAsChar && chat?.type === 'group' && chat.memberIds.includes('user')) {
+      return [{
+        ...primaryTextSurface,
+        key: 'member-user-text',
+        type: 'text' as const,
+        mode: 'memberSpeak' as const,
+        actorId: 'user',
+        capability: 'speak' as const,
+        placeholder: '输入消息',
+      }, ...nonTextSurfaces];
+    }
+    return composerSurfaces;
+  }, [chat, composerSurfaces, effectiveSpeakAsChar, guideTargetMember]);
   const handleSidebarTabChange = useCallback((value: SidebarTabValue) => {
     setRightPanelTab(value === 'activities' ? 'actions' : value);
   }, [setRightPanelTab]);
@@ -624,8 +696,8 @@ export default function ChatDetailPage() {
   }, [addMessageStable, chat, commitPersistedManualRuntime, currentChatMessages, enqueueManualInput, id, startConversationLoopIfNeeded, updateChat]);
 
   const handleSpeakAs = useCallback(async (content: string) => {
-    if (!chat || !id || !speakAsCharacterId) return;
-    const char = characters.find((c) => c.id === speakAsCharacterId);
+    if (!chat || !id || !effectiveSpeakAsChar) return;
+    const char = effectiveSpeakAsChar;
     if (!char) return;
     await enqueueManualInput(async () => {
       const recentMessages = currentChatMessages;
@@ -648,10 +720,9 @@ export default function ChatDetailPage() {
       void updateChat(id, { lastMessageAt: spokeMessage.timestamp, latestMessage: spokeMessage });
       const recentMessagesWithSpeaker = [...recentMessages.filter((message) => message.id !== spokeMessage.id), spokeMessage];
       await commitPersistedManualRuntime(spokeMessage, recentMessagesWithSpeaker);
-      setSpeakAsCharacter(null);
       startConversationLoopIfNeeded(chat);
     });
-  }, [addMessageStable, characters, chat, commitPersistedManualRuntime, currentChatMessages, enqueueManualInput, id, setSpeakAsCharacter, speakAsCharacterId, startConversationLoopIfNeeded, updateChat]);
+  }, [addMessageStable, chat, commitPersistedManualRuntime, currentChatMessages, effectiveSpeakAsChar, enqueueManualInput, id, startConversationLoopIfNeeded, updateChat]);
 
   const { runSessionAction, triggerPairPrivateThread, normalizeAndRunSurfaceIntent, runAutoSocialEventFlow } = useChatSurfaceActions({
     chat,
@@ -662,7 +733,7 @@ export default function ChatDetailPage() {
     appendEventMessage: appendEventMessageStable,
     actionSchema,
     aiProfiles,
-    speakAsChar,
+    speakAsChar: effectiveSpeakAsChar,
     handleGuideSend,
     handleMemberSpeakSend,
     handleSpeakAs,
@@ -759,6 +830,7 @@ export default function ChatDetailPage() {
             key={id}
             messages={currentChatMessages}
             characters={characters}
+            selfMemberId={effectiveAiDirectPerspectiveMemberId}
             currentUser={currentUser ? { nickname: currentUser.nickname, avatar: currentUser.avatar } : undefined}
             isLoadingOlder={isLoadingOlder}
             hasMore={hasMore}
@@ -836,9 +908,12 @@ export default function ChatDetailPage() {
                 textAlign: 'left',
                 cursor: 'pointer',
                 font: 'inherit',
+                display: 'flex',
+                alignItems: 'center',
+                minHeight: 40,
               }}
             >
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {chat.name}
               </Typography>
             </Box>
@@ -892,6 +967,7 @@ export default function ChatDetailPage() {
             onExpressionFeedback={handleExpressionFeedback}
             onRetryMedia={handleRetryMedia}
             onCharacterAvatarClick={openCharacterPreview}
+            selfMemberId={effectiveAiDirectPerspectiveMemberId}
             onReachTop={handleNearTop}
             isLoadingOlder={isLoadingOlder}
             hasMore={hasMore}
@@ -911,17 +987,23 @@ export default function ChatDetailPage() {
           }}
         >
           <SessionComposerHost
-            surfaces={composerSurfaces}
-            speakAsCharacterName={speakAsChar?.name}
-            onCloseSpeakAs={speakAsChar ? () => setSpeakAsCharacter(null) : undefined}
+            surfaces={effectiveComposerSurfaces}
+            speakAsCharacterName={effectiveSpeakAsChar?.name}
+            onCloseSpeakAs={effectiveSpeakAsChar && chat.type !== 'ai_direct' ? () => setSpeakAsCharacter(null) : undefined}
             sendingLabel="等待角色发言结束"
+            hideSpeakAsChip={chat.type === 'ai_direct'}
             onOpenPanel={isMobile ? () => setRightPanelOpen(true) : undefined}
             onDraftActivity={(activity) => {
               userDraftActivityRef.current = activity;
             }}
             onSubmitText={(submission, surface) => {
-              const effectiveSurface = speakAsChar ? { ...surface, mode: 'speakAs' as const, actorId: speakAsChar.id } : surface;
-              const effectiveSubmission = speakAsChar ? { ...submission, actorId: speakAsChar.id } : submission;
+              if (!effectiveSpeakAsChar && guideTargetMember && surface.mode === 'guide') {
+                const guidedContent = `${guideTargetMember.name}，${submission.content}`;
+                setGuideTargetMemberId(null);
+                return normalizeAndRunSurfaceIntent(surface, { ...submission, content: guidedContent, actorId: guideTargetMember.id });
+              }
+              const effectiveSurface = effectiveSpeakAsChar ? { ...surface, mode: 'speakAs' as const, actorId: effectiveSpeakAsChar.id } : surface;
+              const effectiveSubmission = effectiveSpeakAsChar ? { ...submission, actorId: effectiveSpeakAsChar.id } : submission;
               return normalizeAndRunSurfaceIntent(effectiveSurface, effectiveSubmission);
             }}
             onSendError={showErrorToast}
@@ -937,7 +1019,7 @@ export default function ChatDetailPage() {
 
       {isRemoteDeletedChat ? null : <RightPanel title={sidebarTitle} hideMobileTitle>
         <PageSection spacing={2} fill animate={false}>
-          <SessionInfoCards cards={sessionInfoCards} onOpenChat={(chatId) => navigate(`/chats/${chatId}`)} />
+          <SessionInfoCards cards={globalSessionInfoCards} onOpenChat={(chatId) => navigate(`/chats/${chatId}`)} />
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <LazyPanel>
               {runtimePanelLoading ? <Box sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">加载中…</Typography></Box> : <ChatSidebarPanel
@@ -951,6 +1033,9 @@ export default function ChatDetailPage() {
                 showRuntimeTab={showRuntimeTab}
                 memberPanelTitle={memberTabTitle}
                 runtimePanelTitle={runtimeTabTitle}
+                memberFooter={aiDirectSourceInfoCards.length ? (
+                  <SessionInfoCards cards={aiDirectSourceInfoCards} onOpenChat={(chatId) => navigate(`/chats/${chatId}`)} />
+                ) : null}
                 privatePayloads={projectedDetailState?.sidebarChat.privatePayloads || privatePayloads}
                 privatePayloadTitle={projectedDetailState?.privatePayloadTitle}
                 directMemoryContext={directMemoryPanelContext}
@@ -977,7 +1062,18 @@ export default function ChatDetailPage() {
                     </Box>
                   </LazyPanel>
                 ) : null}
-                onSpeakAs={(charId) => setSpeakAsCharacter(charId)}
+                onSpeakAs={(charId) => {
+                  setGuideTargetMemberId(null);
+                  setSpeakAsCharacter(charId);
+                }}
+                onGuideMember={chat.type === 'group' ? (charId) => {
+                  setSpeakAsCharacter(null);
+                  setGuideTargetMemberId(charId);
+                } : undefined}
+                onSetPerspectiveMember={chat.type === 'ai_direct' ? (charId) => {
+                  setAiDirectPerspectiveMemberId(charId);
+                } : undefined}
+                perspectiveMemberId={effectiveAiDirectPerspectiveMemberId}
                 onStartDirectChat={chat.type === 'group' ? handleStartDirectChat : undefined}
                 onRemoveMember={chat.type === 'group' ? (charId) => {
                   const newMembers = chat.memberIds.filter((m) => m !== charId);

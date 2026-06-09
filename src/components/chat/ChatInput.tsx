@@ -13,6 +13,7 @@ interface ChatInputProps {
   onClose?: () => void;
   placeholderOverride?: string;
   sendingLabel?: string;
+  hideSpeakAsChip?: boolean;
   onSendError?: (message: string) => void;
   onOpenPanel?: () => void;
   onDraftActivity?: (activity: UserDraftActivity) => void;
@@ -42,7 +43,7 @@ function clearPanelGestureCss() {
   document.documentElement.style.removeProperty(PANEL_BACKDROP_OPACITY_VAR);
 }
 
-export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, sendingLabel, onSendError, onOpenPanel, onDraftActivity }: ChatInputProps) {
+export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, sendingLabel, hideSpeakAsChip, onSendError, onOpenPanel, onDraftActivity }: ChatInputProps) {
   const [text, setText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
@@ -278,11 +279,11 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         }}
         sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, width: '100%', touchAction: 'pan-y' }}
       >
-        {mode === 'speakAs' && onClose ? (
+        {mode === 'speakAs' && characterName && !hideSpeakAsChip ? (
           <Chip
             label={characterName}
-            onDelete={onClose}
-            deleteIcon={<CloseIcon fontSize="small" />}
+            onDelete={onClose || undefined}
+            deleteIcon={onClose ? <CloseIcon fontSize="small" /> : undefined}
             size="small"
             color="primary"
             variant="outlined"

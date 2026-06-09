@@ -13,6 +13,7 @@ interface SessionComposerHostProps {
   speakAsCharacterName?: string;
   onCloseSpeakAs?: () => void;
   sendingLabel?: string;
+  hideSpeakAsChip?: boolean;
   onSendError?: (message: string) => void;
   onOpenPanel?: () => void;
   onDraftActivity?: (activity: UserDraftActivity) => void;
@@ -27,7 +28,7 @@ function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
   ) as Record<string, Record<string, string>>;
 }
 
-export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, onSendError, onOpenPanel, onDraftActivity }: SessionComposerHostProps) {
+export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, hideSpeakAsChip, onSendError, onOpenPanel, onDraftActivity }: SessionComposerHostProps) {
   const primarySurface = surfaces.find((surface) => surface.type === 'text') || surfaces[0];
   const secondarySurfaces = surfaces.filter((surface) => surface !== primarySurface && surface.type === 'board');
   const [fieldState, setFieldState] = useState<Record<string, Record<string, string>>>(() => buildInitialFieldState(surfaces));
@@ -127,6 +128,7 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
           onSend={(content) => onSubmitText({ content }, { key: 'fallback-text', type: 'text', mode: speakAsCharacterName ? 'speakAs' : 'memberSpeak' })}
           onClose={speakAsCharacterName ? onCloseSpeakAs : undefined}
           sendingLabel={sendingLabel}
+          hideSpeakAsChip={hideSpeakAsChip}
           onSendError={onSendError}
           onOpenPanel={onOpenPanel}
           onDraftActivity={onDraftActivity}
@@ -150,6 +152,7 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
             onSend={(content) => onSubmitText({ content, actorId: primarySurface.actorId }, primarySurface)}
             onClose={mode === 'speakAs' ? onCloseSpeakAs : undefined}
             sendingLabel={sendingLabel}
+            hideSpeakAsChip={hideSpeakAsChip}
             onSendError={onSendError}
             onOpenPanel={onOpenPanel}
             onDraftActivity={onDraftActivity}

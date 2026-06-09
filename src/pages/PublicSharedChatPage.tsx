@@ -216,6 +216,9 @@ export default function PublicSharedChatPage() {
               textAlign: 'left',
               cursor: 'pointer',
               font: 'inherit',
+              display: 'flex',
+              alignItems: 'center',
+              minHeight: 40,
             }}
           >
             <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.25 }} noWrap>{title}</Typography>

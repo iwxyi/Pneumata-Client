@@ -165,6 +165,7 @@ describe('cloud no-op sync', () => {
       pendingEditSyncError: null,
       remoteDeletedChatIds: [],
       remoteDeletedChats: [],
+      chatSummaryLoadedAt: 1,
       isLoading: false,
     });
     let writes = 0;

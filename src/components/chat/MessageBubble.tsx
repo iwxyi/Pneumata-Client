@@ -164,6 +164,7 @@ interface MessageBubbleProps {
   pending?: boolean;
   currentUser?: { nickname?: string; avatar?: string };
   members?: DisplayTextMember[];
+  selfMemberId?: string | null;
 }
 
 interface MenuPosition {
@@ -316,7 +317,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, members = [] }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, members = [], selfMemberId = null }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
@@ -459,7 +460,8 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
 
   const manualSpeaker = message.metadata?.manualSpeaker;
   const isManualSpeaker = message.type === 'user' && Boolean(manualSpeaker);
-  const isUser = message.type === 'user' || message.type === 'god';
+  const isPerspectiveSelf = Boolean(selfMemberId && message.type === 'ai' && message.senderId === selfMemberId);
+  const isUser = message.type === 'user' || message.type === 'god' || isPerspectiveSelf;
   const effectiveCharacter = message.type === 'ai' ? character : undefined;
   const resolvedStyle = effectiveCharacter
     ? resolveCharacterBubbleStyle({ bubbleStyle: effectiveCharacter.bubbleStyle, bubbleStyleId: effectiveCharacter.bubbleStyleId, customStyles: customBubbleStyles })
@@ -470,8 +472,8 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const bubblePreview = resolvedStyle ? buildBubblePreview(resolvedStyle, isUser) : (resolvedUserStyle ? buildBubblePreview(resolvedUserStyle, true) : null);
   const avatar = effectiveCharacter?.avatar;
   const wrapperJustify = isUser ? 'flex-end' : 'flex-start';
-  const selfAvatarValue = isManualSpeaker ? manualSpeaker?.avatar?.trim() : currentUser?.avatar?.trim();
-  const selfAvatarText = (isManualSpeaker ? manualSpeaker?.actorName : currentUser?.nickname)?.trim() || message.senderName;
+  const selfAvatarValue = isPerspectiveSelf ? effectiveCharacter?.avatar?.trim() : (isManualSpeaker ? manualSpeaker?.avatar?.trim() : currentUser?.avatar?.trim());
+  const selfAvatarText = (isPerspectiveSelf ? effectiveCharacter?.name : (isManualSpeaker ? manualSpeaker?.actorName : currentUser?.nickname))?.trim() || message.senderName;
   const selfAvatar = selfAvatarValue || selfAvatarText.slice(0, 1);
   const selfAvatarAlt = selfAvatarText || message.senderName;
   const withdrawal = message.metadata?.withdrawal;

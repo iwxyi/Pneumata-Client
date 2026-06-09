@@ -36,7 +36,7 @@ export default function ChatListPage() {
   const isThreeColumn = useMediaQuery('(min-width:1280px)');
   const pane = usePaneLayout();
   const isMasterPane = pane.role === 'master';
-  const { chats, deleteChat, prefetchChats, markChatsWarm, isLoading } = useChatStore();
+  const { chats, deleteChat, prefetchChats, restoreLocalChats, markChatsWarm, isLoading } = useChatStore();
   const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -160,9 +160,10 @@ export default function ChatListPage() {
   useEffect(() => {
     markChatsWarm();
     markCharactersWarm();
+    void restoreLocalChats();
     void prefetchChats();
     void prefetchCharacters();
-  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats]);
+  }, [markCharactersWarm, markChatsWarm, prefetchCharacters, prefetchChats, restoreLocalChats]);
 
   useEffect(() => {
     setTab(initialTab);

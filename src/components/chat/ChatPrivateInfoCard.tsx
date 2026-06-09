@@ -61,26 +61,6 @@ export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: Chat
   const showMemoryDetails = developerMode && showMemoryDebug;
   const showCompanionshipDetails = developerMode && (showMemoryDebug || showCompanionshipDebug);
 
-  if (chat.type === 'ai_direct') {
-    const [actorName, targetName] = members.map((member) => member.name);
-    return (
-      <Box sx={buildCardSx()}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.75 }}>AI 私聊线程</Typography>
-        <Stack spacing={0.75}>
-          <Typography variant="caption" color="text.secondary">
-            当前是双角色私聊线程，可持续自动推进，不会把用户单聊语义混入此线程。
-          </Typography>
-          {actorName && targetName ? (
-            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-              <Chip size="small" label={`发起者 ${actorName}`} sx={compactPillChipSx} />
-              <Chip size="small" label={`对象 ${targetName}`} sx={compactPillChipSx} />
-            </Box>
-          ) : null}
-        </Stack>
-      </Box>
-    );
-  }
-
   if (chat.type !== 'direct' || !members[0]) return null;
   const character = members[0];
   const memoryChips = showMemoryDetails

@@ -3,7 +3,7 @@ import { normalizeConversation } from '../types/chat';
 import { projectSessionInfoCards } from './sessionInfoProjection';
 
 describe('sessionInfoProjection', () => {
-  it('projects direct semantics card', () => {
+  it('does not project direct semantics card', () => {
     const directChat = normalizeConversation({
       id: 'direct-1',
       type: 'direct',
@@ -28,7 +28,7 @@ describe('sessionInfoProjection', () => {
       lastMessageAt: 1,
     });
     const cards = projectSessionInfoCards({ chat: directChat, chats: [directChat], isZh: true });
-    expect(cards[0]?.title).toContain('私聊语义');
+    expect(cards).toEqual([]);
   });
 
   it('projects ai_direct source chat card with action target', () => {
@@ -65,6 +65,7 @@ describe('sessionInfoProjection', () => {
     });
     const cards = projectSessionInfoCards({ chat: aiDirect, chats: [groupChat, aiDirect], isZh: true });
     const sourceCard = cards.find((item) => item.key === 'ai-direct-source-chat');
+    expect(cards.some((item) => item.key === 'ai-direct-semantics')).toBe(false);
     expect(sourceCard?.actionChatId).toBe('group-1');
     expect(sourceCard?.description).toContain('主群');
   });

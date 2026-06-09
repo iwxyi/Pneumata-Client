@@ -21,8 +21,11 @@ interface MemberListProps {
   chat?: GroupChat;
   onRemove?: (id: string) => void;
   onSpeakAs?: (id: string) => void;
+  onGuideMember?: (id: string) => void;
+  onSetPerspectiveMember?: (id: string) => void;
   onStartDirectChat?: (id: string) => void;
   onUpdateSeats?: (memberIds: string[]) => void;
+  perspectiveMemberId?: string | null;
 }
 
 function buildMemberSubtitle(member: AICharacter, thinkingId: string | null, thinkingLabel: string) {
@@ -108,7 +111,7 @@ function buildMemberAvatarFallback(member: AICharacter) {
   return name.slice(0, 1);
 }
 
-export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onStartDirectChat, onUpdateSeats }: MemberListProps) {
+export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onGuideMember, onSetPerspectiveMember, onStartDirectChat, onUpdateSeats, perspectiveMemberId }: MemberListProps) {
   const { i18n } = useTranslation();
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
@@ -167,6 +170,41 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
     setAnchorEl(null);
     setMenuCharId(null);
   };
+  const buildMemberActions = (memberId: string | null) => {
+    const canRun = canRunAiMemberActions(memberId, aiMemberIdSet);
+    if (!canRun || !memberId) return [];
+    if (chat?.type === 'ai_direct') {
+      return onSetPerspectiveMember ? [{
+        key: 'perspective',
+        label: i18n.language.startsWith('zh') ? '以该角色视角' : 'Use this perspective',
+        selected: perspectiveMemberId === memberId,
+        run: () => onSetPerspectiveMember(memberId),
+      }] : [];
+    }
+    return [
+      chat?.type !== 'direct' && onSpeakAs ? {
+        key: 'speak-as',
+        label: i18n.language.startsWith('zh') ? '以此角色发言' : 'Speak as',
+        run: () => onSpeakAs(memberId),
+      } : null,
+      chat?.type !== 'direct' && onGuideMember ? {
+        key: 'guide-member',
+        label: i18n.language.startsWith('zh') ? '话题引导' : 'Topic guide',
+        run: () => onGuideMember(memberId),
+      } : null,
+      canRun && onStartDirectChat ? {
+        key: 'start-direct',
+        label: i18n.language.startsWith('zh') ? '发起单聊' : 'Start direct chat',
+        run: () => onStartDirectChat(memberId),
+      } : null,
+      canRun && onRemove ? {
+        key: 'remove',
+        label: i18n.language.startsWith('zh') ? '移除成员' : 'Remove member',
+        danger: true,
+        run: () => onRemove(memberId),
+      } : null,
+    ].filter(Boolean) as Array<{ key: string; label: string; selected?: boolean; danger?: boolean; run: () => void }>;
+  };
 
   return (
     <Box>
@@ -181,8 +219,8 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
         }}
       >
         {visibleMembers.map((member) => {
-          const hasMemberActions = canRunAiMemberActions(member.id, aiMemberIdSet)
-            && Boolean(onSpeakAs || onStartDirectChat || onRemove);
+          const memberActions = buildMemberActions(member.id);
+          const hasMemberActions = memberActions.length > 0;
           const innerLifeChips = buildMemberInnerLifeChips(member, i18n.language);
           const expressionFeedbackChips = buildMemberExpressionFeedbackChips(member, i18n.language, showDebugDetails);
           const emotionChips = buildMemberEmotionChips(member, i18n.language, showDebugDetails);
@@ -287,10 +325,20 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
         </Box>
       ) : null}
 
-      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu}>
-        {canRunAiMemberActions(menuCharId, aiMemberIdSet) && onSpeakAs ? <MenuItem onClick={() => { closeMenu(); if (menuCharId) onSpeakAs(menuCharId); }}>{i18n.language.startsWith('zh') ? '以此角色发言' : 'Speak as'}</MenuItem> : null}
-        {canRunAiMemberActions(menuCharId, aiMemberIdSet) && onStartDirectChat ? <MenuItem onClick={() => { closeMenu(); if (menuCharId) onStartDirectChat(menuCharId); }}>{i18n.language.startsWith('zh') ? '发起单聊' : 'Start direct chat'}</MenuItem> : null}
-        {canRunAiMemberActions(menuCharId, aiMemberIdSet) && onRemove ? <MenuItem onClick={() => { closeMenu(); if (menuCharId) onRemove(menuCharId); }} sx={{ color: 'error.main' }}>{i18n.language.startsWith('zh') ? '移除成员' : 'Remove member'}</MenuItem> : null}
+      <Menu anchorEl={anchorEl} open={Boolean(anchorEl) && buildMemberActions(menuCharId).length > 0} onClose={closeMenu}>
+        {buildMemberActions(menuCharId).map((action) => (
+          <MenuItem
+            key={action.key}
+            selected={action.selected}
+            onClick={() => {
+              closeMenu();
+              action.run();
+            }}
+            sx={action.danger ? { color: 'error.main' } : undefined}
+          >
+            {action.label}
+          </MenuItem>
+        ))}
       </Menu>
 
       <Dialog open={seatDialogOpen} onClose={() => setSeatDialogOpen(false)} maxWidth="sm" fullWidth>

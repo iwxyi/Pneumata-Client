@@ -44,7 +44,7 @@ export function buildChatSubtitle(
   companionshipPreview = '',
 ) {
   const latestMessagePreview = buildLatestMessagePreview(latestMessage, members);
-  if (chat.type === 'direct' && companionshipPreview && (!latestMessage || latestMessage.type === 'user' || latestMessage.type === 'god')) {
+  if (!latestMessagePreview && chat.type === 'direct' && companionshipPreview) {
     return clipPreview(sanitizeUserFacingText(companionshipPreview, members));
   }
   const relationshipPreview = buildRelationshipPreview(members);

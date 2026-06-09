@@ -353,6 +353,11 @@ export default function ProfilePreviewOverlay({
   const [rendered, setRendered] = useState(open);
   const [closing, setClosing] = useState(false);
   const [motionVars, setMotionVars] = useState<CSSProperties | null>(null);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => (
+    typeof window !== 'undefined'
+      ? window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+      : false
+  ));
   const afterCloseRef = useRef<(() => void) | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -376,6 +381,19 @@ export default function ProfilePreviewOverlay({
     setMotionVars(null);
     setRendered(true);
   }, [open, anchorRect, kind, character?.id, chat?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setPrefersReducedMotion(mediaQuery.matches);
+    update();
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', update);
+      return () => mediaQuery.removeEventListener('change', update);
+    }
+    mediaQuery.addListener(update);
+    return () => mediaQuery.removeListener(update);
+  }, []);
 
   useEffect(() => () => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
@@ -489,7 +507,7 @@ export default function ProfilePreviewOverlay({
   const closeWithAnimation = (afterClose?: () => void) => {
     if (closing) return;
     afterCloseRef.current = afterClose || null;
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    if (prefersReducedMotion) {
       finishClose();
       return;
     }
@@ -630,21 +648,20 @@ export default function ProfilePreviewOverlay({
           pointerEvents: motionVars ? 'auto' : 'none',
           opacity: motionVars ? 1 : 0,
           visibility: 'visible',
-          animation: !motionVars ? 'none' : closing
+          animation: !motionVars || prefersReducedMotion ? 'none' : closing
             ? `${closeDurationMs}ms cubic-bezier(0.34, 0, 0.66, 0.2) both profilePreviewPopOut`
             : `${openDurationMs}ms cubic-bezier(0.2, 0.82, 0.22, 1) both profilePreviewPopIn`,
           '@media (prefers-reduced-motion: reduce)': {
             animation: 'none',
-            opacity: 1,
             transform: 'translate(0, 0) scale(1)',
           },
           '& .profile-preview-hero-avatar': {
-            animation: !motionVars || closing ? 'none' : `${heroDurationMs}ms cubic-bezier(0.2, 0.82, 0.22, 1) both profilePreviewHeroReveal`,
+            animation: !motionVars || closing || prefersReducedMotion ? 'none' : `${heroDurationMs}ms cubic-bezier(0.2, 0.82, 0.22, 1) both profilePreviewHeroReveal`,
             willChange: 'transform, opacity',
           },
           '& .profile-preview-hero-title': {
             transformOrigin: '0 50%',
-            animation: !motionVars || closing ? 'none' : `${titleHeroDurationMs}ms cubic-bezier(0.2, 0.82, 0.22, 1) both profilePreviewHeroReveal`,
+            animation: !motionVars || closing || prefersReducedMotion ? 'none' : `${titleHeroDurationMs}ms cubic-bezier(0.2, 0.82, 0.22, 1) both profilePreviewHeroReveal`,
             willChange: 'transform, opacity',
           },
         }}
@@ -653,7 +670,7 @@ export default function ProfilePreviewOverlay({
           className="profile-preview-content"
           sx={{
             opacity: 1,
-            animation: !motionVars || closing ? 'none' : `${contentDurationMs}ms cubic-bezier(0.2, 0.82, 0.22, 1) 70ms both profilePreviewContentIn`,
+            animation: !motionVars || closing || prefersReducedMotion ? 'none' : `${contentDurationMs}ms cubic-bezier(0.2, 0.82, 0.22, 1) 70ms both profilePreviewContentIn`,
             '@media (prefers-reduced-motion: reduce)': {
               animation: 'none',
               opacity: 1,
@@ -681,7 +698,7 @@ export default function ProfilePreviewOverlay({
           ) : null}
         </Box>
       </Box>
-      {motionVars && canRenderCharacter ? (
+      {motionVars && !prefersReducedMotion && canRenderCharacter ? (
         <Box
           aria-hidden
           style={motionVars}
@@ -708,7 +725,7 @@ export default function ProfilePreviewOverlay({
           )}
         </Box>
       ) : null}
-      {motionVars && canRenderChat ? (
+      {motionVars && !prefersReducedMotion && canRenderChat ? (
         <Typography
           aria-hidden
           className="profile-preview-title-clone"

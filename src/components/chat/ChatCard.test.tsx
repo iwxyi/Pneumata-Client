@@ -90,7 +90,7 @@ function message(overrides: Partial<Message>): Message {
 }
 
 describe('ChatCard subtitle', () => {
-  it('shows companionship projection when a direct chat is waiting on the user latest turn', () => {
+  it('keeps the real latest user message before companionship projection', () => {
     const subtitle = buildChatSubtitle(
       chat('direct'),
       [character()],
@@ -98,7 +98,7 @@ describe('ChatCard subtitle', () => {
       '本来想问问小夏，明天面试后来怎么样了。',
     );
 
-    expect(subtitle).toContain('本来想问问小夏');
+    expect(subtitle).toBe('你：明天面试有点紧张。');
   });
 
   it('keeps the real latest AI message before companionship projection', () => {

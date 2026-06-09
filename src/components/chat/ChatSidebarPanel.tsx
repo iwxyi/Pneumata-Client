@@ -26,6 +26,7 @@ interface ChatSidebarPanelProps {
   showRuntimeTab: boolean;
   showActivityTab?: boolean;
   activityPanel?: React.ReactNode;
+  memberFooter?: React.ReactNode;
   memberPanelTitle?: string;
   runtimePanelTitle?: string;
   privatePayloads: Array<{ key: string; title: string; text: string }>;
@@ -43,9 +44,12 @@ interface ChatSidebarPanelProps {
     targetResolution?: string;
   } | null;
   onSpeakAs: (charId: string) => void;
+  onGuideMember?: (charId: string) => void;
+  onSetPerspectiveMember?: (charId: string) => void;
   onStartDirectChat?: (charId: string) => void;
   onRemoveMember?: (charId: string) => void;
   onUpdateSeats?: (memberIds: string[]) => void;
+  perspectiveMemberId?: string | null;
 }
 
 function memberName(id: string | null | undefined, members: AICharacter[]) {
@@ -114,15 +118,19 @@ export default function ChatSidebarPanel({
   showRuntimeTab,
   showActivityTab,
   activityPanel,
+  memberFooter,
   memberPanelTitle,
   runtimePanelTitle,
   privatePayloads,
   privatePayloadTitle,
   directMemoryContext,
   onSpeakAs,
+  onGuideMember,
+  onSetPerspectiveMember,
   onStartDirectChat,
   onRemoveMember,
   onUpdateSeats,
+  perspectiveMemberId,
 }: ChatSidebarPanelProps) {
   const panelTabs = [
     showMemberTab ? { value: 'members' as const, label: `${memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} ${members.length}` } : null,
@@ -156,13 +164,17 @@ export default function ChatSidebarPanel({
               thinkingId={thinkingId}
               chat={chat}
               onSpeakAs={onSpeakAs}
+              onGuideMember={onGuideMember}
+              onSetPerspectiveMember={onSetPerspectiveMember}
               onStartDirectChat={onStartDirectChat}
               onRemove={onRemoveMember}
               onUpdateSeats={onUpdateSeats}
+              perspectiveMemberId={perspectiveMemberId}
             />
             <Suspense fallback={<PanelFallback />}>
               <RelationshipPanel chat={chat} members={members} />
             </Suspense>
+            {memberFooter || null}
           </Stack>
         ) : null}
 

@@ -33,6 +33,7 @@ interface MessageListProps {
   loadingText?: string;
   topInset?: ResponsiveInset;
   bottomInset?: ResponsiveInset;
+  selfMemberId?: string | null;
 }
 
 export default function MessageList({
@@ -51,6 +52,7 @@ export default function MessageList({
   loadingText,
   topInset,
   bottomInset,
+  selfMemberId = null,
 }: MessageListProps) {
   const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -301,6 +303,7 @@ export default function MessageList({
             onOpenImage={item.pending ? undefined : openChatImage}
             onCharacterAvatarClick={item.pending ? undefined : onCharacterAvatarClick}
             pending={item.pending}
+            selfMemberId={selfMemberId}
           />
         ))}
       </Box>
