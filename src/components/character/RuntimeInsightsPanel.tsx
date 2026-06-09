@@ -565,6 +565,40 @@ function buildManualUserProfileMemoryRevokeEvent(chat: GroupChat, character: AIC
   };
 }
 
+function buildManualUserProfileMemoryUpsertEvent(chat: GroupChat, character: AICharacter, item: UserProfileMemoryEventItem): RuntimeEventV2 {
+  const now = Date.now();
+  const normalized = clipRuntimeText(item.text, 140);
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, item.kind, normalized, 'user-profile-upsert']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户修正了一条画像线索`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_user_profile_memory',
+      characterId: character.id,
+      userId: 'user',
+      action: 'upsert',
+      items: [{
+        kind: item.kind,
+        text: normalized,
+        evidence: item.evidence || 'manual_upsert_from_character_relationship_tab',
+        confidence: 1,
+        sensitive: item.sensitive,
+      }],
+      reason: '用户在角色关系页手动修正该画像线索。',
+      evidence: 'manual_upsert_from_character_relationship_tab',
+      confidence: 1,
+    },
+  };
+}
+
 function buildManualSharedAnchorArchiveEvent(chat: GroupChat, character: AICharacter, anchor: SharedMemoryAnchor): RuntimeEventV2 {
   const now = Date.now();
   return {
@@ -1359,6 +1393,7 @@ function UserCompanionshipCard({
   onDisableAttachment,
   onEnableAttachment,
   onCorrectAttachment,
+  onUpdateProfileCue,
   onRevokeProfileCue,
   onRevokeSharedSecret,
   onCorrectSharedSecretConsequence,
@@ -1385,6 +1420,7 @@ function UserCompanionshipCard({
   onDisableAttachment: () => void;
   onEnableAttachment: () => void;
   onCorrectAttachment: (style: UserAttachmentProfile['inferredStyle']) => void;
+  onUpdateProfileCue: (item: UserProfileMemoryEventItem) => void;
   onRevokeProfileCue: (item: UserProfileMemoryEventItem) => void;
   onRevokeSharedSecret: (secret: SharedSecret) => void;
   onCorrectSharedSecretConsequence: (secret: SharedSecret, consequenceKind: NonNullable<SharedSecret['consequenceKind']>) => void;
@@ -1398,6 +1434,10 @@ function UserCompanionshipCard({
   const [editingPhraseText, setEditingPhraseText] = useState('');
   const [editingAddressAction, setEditingAddressAction] = useState<ManualAddressingSetAction | null>(null);
   const [editingAddressText, setEditingAddressText] = useState('');
+  const [editingProfileCueKey, setEditingProfileCueKey] = useState<string | null>(null);
+  const [editingProfileCueKind, setEditingProfileCueKind] = useState<UserProfileMemoryKind>('preference');
+  const [editingProfileCueText, setEditingProfileCueText] = useState('');
+  const [editingProfileCueSensitive, setEditingProfileCueSensitive] = useState(false);
   const headlineChips = [
     trace ? formatCompanionshipPhaseLabel(trace.phase) : '',
     trace ? formatCompanionshipStyleLabel(trace.style) : '',
@@ -1784,16 +1824,101 @@ function UserCompanionshipCard({
                           <Typography variant="caption" color="text.secondary">置信 {Math.round(item.confidence * 100)}%</Typography>
                           {item.sensitive ? <Typography variant="caption" color="warning.main">敏感</Typography> : null}
                         </Stack>
-                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{item.text}</Typography>
+                        {editingProfileCueKey === `${item.kind}-${item.text}-${index}` ? (
+                          <Stack spacing={0.75}>
+                            <TextField
+                              select
+                              size="small"
+                              label="类型"
+                              value={editingProfileCueKind}
+                              onChange={(event) => setEditingProfileCueKind(event.target.value as UserProfileMemoryKind)}
+                              slotProps={{ select: { native: true } }}
+                            >
+                              {(['display_name', 'address_preference', 'schedule_hint', 'pressure_source', 'preference', 'dislike', 'boundary', 'important_date', 'recent_plan', 'emotional_pattern'] as UserProfileMemoryKind[]).map((kind) => (
+                                <option key={kind} value={kind}>{formatUserProfileMemoryKindLabel(kind)}</option>
+                              ))}
+                            </TextField>
+                            <TextField
+                              size="small"
+                              label="内容"
+                              value={editingProfileCueText}
+                              onChange={(event) => setEditingProfileCueText(event.target.value)}
+                              fullWidth
+                              multiline
+                              minRows={1}
+                              maxRows={3}
+                            />
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                              <Chip
+                                size="small"
+                                label={editingProfileCueSensitive ? '敏感' : '普通'}
+                                color={editingProfileCueSensitive ? 'warning' : 'default'}
+                                variant="outlined"
+                                onClick={() => setEditingProfileCueSensitive((value) => !value)}
+                                sx={{ height: 24, borderRadius: 999 }}
+                              />
+                              <Button
+                                size="small"
+                                variant="text"
+                                disabled={!editingProfileCueText.trim()}
+                                onClick={() => {
+                                  const text = editingProfileCueText.trim();
+                                  if (!text) return;
+                                  onUpdateProfileCue({
+                                    ...item,
+                                    kind: editingProfileCueKind,
+                                    text,
+                                    confidence: 1,
+                                    sensitive: editingProfileCueSensitive,
+                                    evidence: item.evidence || 'manual_profile_cue_edit_from_character_relationship_tab',
+                                  });
+                                  setEditingProfileCueKey(null);
+                                  setEditingProfileCueText('');
+                                }}
+                                sx={{ minWidth: 0 }}
+                              >
+                                保存
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => {
+                                  setEditingProfileCueKey(null);
+                                  setEditingProfileCueText('');
+                                }}
+                                sx={{ minWidth: 0 }}
+                              >
+                                取消
+                              </Button>
+                            </Box>
+                          </Stack>
+                        ) : (
+                          <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{item.text}</Typography>
+                        )}
                         {item.evidence ? (
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
                             证据：{clipRuntimeText(item.evidence, 96)}
                           </Typography>
                         ) : null}
                       </Box>
-                      <Button size="small" variant="text" onClick={() => onRevokeProfileCue(item)} sx={{ flexShrink: 0 }}>
-                        撤回
-                      </Button>
+                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={() => {
+                            setEditingProfileCueKey(`${item.kind}-${item.text}-${index}`);
+                            setEditingProfileCueKind(item.kind);
+                            setEditingProfileCueText(item.text);
+                            setEditingProfileCueSensitive(Boolean(item.sensitive));
+                          }}
+                          sx={{ minWidth: 0 }}
+                        >
+                          修改
+                        </Button>
+                        <Button size="small" variant="text" onClick={() => onRevokeProfileCue(item)} sx={{ minWidth: 0 }}>
+                          撤回
+                        </Button>
+                      </Box>
                     </Box>
                   ))}
                 </Stack>
@@ -2364,6 +2489,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onCorrectAttachment={(style) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualAttachmentProfileEvent(view.chat, character as AICharacter, 'corrected', style));
+                }}
+                onUpdateProfileCue={(item) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualUserProfileMemoryUpsertEvent(view.chat, character as AICharacter, item));
                 }}
                 onRevokeProfileCue={(item) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualUserProfileMemoryRevokeEvent(view.chat, character as AICharacter, item));
