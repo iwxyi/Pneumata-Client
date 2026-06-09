@@ -3192,6 +3192,54 @@ describe('companionshipProjection', () => {
     expect(seeds.join('\n')).not.toContain('早安/晚安');
   });
 
+  it('uses suppressed ritual events to keep rituals out of artifact seeds', () => {
+    const ritualChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [ritualEvent({
+      id: 'evt-ritual-suppressed',
+      createdAt: 1_100,
+      payload: {
+        eventType: 'companionship_ritual',
+        characterId: 'char-a',
+        userId: 'user',
+        ritualId: 'ritual-char-a-daily-greeting',
+        kind: 'daily_greeting',
+        action: 'suppressed',
+        participantIds: ['char-a', 'user'],
+        content: '晚安时会先问小夏今天有没有好好收尾，而不是机械打卡。',
+        reason: '用户在关系页抑制该仪式。',
+        evidence: 'manual_suppression',
+        confidence: 1,
+      },
+    })]);
+    const ritualCharacter = character({
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说：叫我小夏。'],
+      },
+    });
+    const rituals = buildRitualRegistry({
+      character: ritualCharacter,
+      chat: ritualChat,
+      messages: [],
+      now: 2_000,
+    });
+    const greeting = rituals.find((ritual) => ritual.id === 'ritual-char-a-daily-greeting');
+    const seeds = buildCompanionshipArtifactSeeds({
+      character: ritualCharacter,
+      chat: ritualChat,
+      messages: [],
+      surface: 'private_diary',
+      now: 2_000,
+    });
+
+    expect(greeting?.executionState).toBe('suppressed');
+    expect(greeting?.boundaryReasons.join('\n')).toContain('ritual suppressed');
+    expect(seeds.join('\n')).not.toContain('晚安时会先问小夏');
+  });
+
   it('builds private and public artifact seeds with different user-memory boundaries', () => {
     const base = character({
       relationships: [{
