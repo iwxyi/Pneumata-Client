@@ -2897,7 +2897,8 @@ describe('companionshipProjection', () => {
       lastCareAt: 900,
     });
     expect(states[0].sharedSecrets.join('\n')).toContain('共同秘密');
-    expect(states[0].sharedRituals.join('\n')).toContain('约定');
+    expect(states[0].sharedRituals.join('\n')).toContain('暗号');
+    expect(states[0].sharedPromises.join('\n')).toContain('约定');
     expect(states[0].unresolvedCareTopics.join('\n')).toContain('担心');
     expect(states[1]).toMatchObject({
       targetId: 'char-c',

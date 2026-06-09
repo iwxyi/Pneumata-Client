@@ -2488,7 +2488,8 @@ export function buildCharacterCompanionshipStates(character: AICharacter, now = 
         protectiveness,
         reliance,
         sharedSecrets: extractSharedTexture(note, [/共同秘密[^，。；;]*/, /秘密[^，。；;]*/, /只有他们知道[^，。；;]*/]),
-        sharedRituals: extractSharedTexture(note, [/共同梗[^，。；;]*/, /约定[^，。；;]*/, /仪式[^，。；;]*/, /暗号[^，。；;]*/]),
+        sharedRituals: extractSharedTexture(note, [/共同梗[^，。；;]*/, /仪式[^，。；;]*/, /暗号[^，。；;]*/]),
+        sharedPromises: extractSharedTexture(note, [/约定[^，。；;]*/, /承诺[^，。；;]*/, /说好[^，。；;]*/, /下次一起[^，。；;]*/, /以后一起[^，。；;]*/]),
         unresolvedCareTopics: extractSharedTexture(note, [/担心[^，。；;]*/, /放心不下[^，。；;]*/, /想帮[^，。；;]*/, /护着[^，。；;]*/]),
         lastCareAt: relation.updatedAt || now,
       };
@@ -2583,7 +2584,8 @@ export function buildCompanionshipArtifactSeeds(params: {
       const targetName = resolveCompanionshipActorName(state.targetId, relatedCharacters);
       const texture = [
         !isPublic && state.sharedSecrets[0] ? `小秘密：${cleanArtifactSeedText(state.sharedSecrets[0], members, 80)}` : '',
-        state.sharedRituals[0] ? `共同梗/约定：${cleanArtifactSeedText(state.sharedRituals[0], members, 80)}` : '',
+        state.sharedRituals[0] ? `共同梗/仪式：${cleanArtifactSeedText(state.sharedRituals[0], members, 80)}` : '',
+        state.sharedPromises[0] ? `未完成约定：${cleanArtifactSeedText(state.sharedPromises[0], members, 80)}` : '',
         state.unresolvedCareTopics[0] ? `放心不下：${cleanArtifactSeedText(state.unresolvedCareTopics[0], members, 80)}` : '',
       ].filter(Boolean).join('；');
       if (isPublic) {

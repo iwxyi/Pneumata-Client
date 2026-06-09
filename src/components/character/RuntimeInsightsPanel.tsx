@@ -770,6 +770,7 @@ function CharacterCompanionshipPanel({
         const textureLines = [
           state.sharedSecrets.length ? `秘密：${state.sharedSecrets.join('、')}` : '',
           state.sharedRituals.length ? `仪式/共同梗：${state.sharedRituals.join('、')}` : '',
+          state.sharedPromises.length ? `未完成约定：${state.sharedPromises.join('、')}` : '',
           state.unresolvedCareTopics.length ? `未完成关心：${state.unresolvedCareTopics.join('、')}` : '',
         ].filter(Boolean);
         return (

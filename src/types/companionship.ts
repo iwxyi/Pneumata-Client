@@ -351,6 +351,7 @@ export interface CharacterCompanionshipState {
   reliance: number;
   sharedSecrets: string[];
   sharedRituals: string[];
+  sharedPromises: string[];
   unresolvedCareTopics: string[];
   lastCareAt?: number;
 }

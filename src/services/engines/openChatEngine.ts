@@ -402,12 +402,13 @@ function pickCompanionshipPrivateThreadState(params: {
   return buildCharacterCompanionshipStates(params.actor, now)
     .filter((state) => memberIds.has(state.targetId))
     .map((state) => {
-      const textureScore = state.sharedSecrets.length * 9 + state.sharedRituals.length * 7 + state.unresolvedCareTopics.length * 12;
+      const textureScore = state.sharedSecrets.length * 9 + state.sharedRituals.length * 7 + state.sharedPromises.length * 10 + state.unresolvedCareTopics.length * 12;
       const score = state.closeness * 0.36 + state.protectiveness * 0.34 + state.reliance * 0.28 + textureScore;
       return { state, score };
     })
     .filter(({ state, score }) => {
       if (state.unresolvedCareTopics.length) return score >= 44;
+      if (state.sharedPromises.length) return score >= 48;
       if (state.sharedSecrets.length || state.sharedRituals.length) return score >= 52;
       return score >= 68;
     })
@@ -447,12 +448,15 @@ function buildCompanionshipPrivateThreadCandidate(params: {
   if (!target) return null;
   const texture = [
     picked.state.unresolvedCareTopics[0],
+    picked.state.sharedPromises[0],
     picked.state.sharedRituals[0],
     picked.state.sharedSecrets[0],
   ].filter(Boolean).join('；');
   const reasonType = picked.state.unresolvedCareTopics.length
     ? 'companionship_care_followup'
-    : picked.state.sharedRituals.length
+    : picked.state.sharedPromises.length
+      ? 'companionship_promise_followup'
+      : picked.state.sharedRituals.length
       ? 'companionship_ritual_followup'
       : picked.state.sharedSecrets.length
         ? 'companionship_secret_followup'
@@ -2670,6 +2674,7 @@ async function buildStructuredRuntime(params: {
     const guidance = params.message.type === 'god' ? parseUserGuidanceIntent(params.message.content, params.characters) : null;
     const targetActorIds = getGuidanceTargetActorIds(guidance);
     const mentionedActorIds = params.characters.filter((character) => character.name && params.message.content.includes(character.name)).map((character) => character.id);
+    const directorTargetActorIds = targetActorIds.length ? targetActorIds : mentionedActorIds;
     const cueEvent = summary && isUserPersonaMessage ? createRuntimeEventV2({
       conversationId: params.conversation.id,
       kind: 'memory_candidate',
@@ -2725,33 +2730,37 @@ async function buildStructuredRuntime(params: {
     }) : null;
     const userMemoryFromInteraction = userInteractionEvent ? buildMemoryCandidateFromStructuredEvent(userInteractionEvent) : null;
     const userMemoryFromRoomShift = userRoomShiftEvent ? buildMemoryCandidateFromStructuredEvent(userRoomShiftEvent) : null;
-    const directorEvent = summary && guidance && params.message.type === 'god' ? createRuntimeEventV2({
+    const directorEvent = summary && params.message.type === 'god' ? createRuntimeEventV2({
       conversationId: params.conversation.id,
       kind: 'director_intervention',
-      summary: guidance.reason,
+      summary: guidance?.reason || `主持人指令：${summary}`,
       actorIds: [params.message.senderId],
-      targetIds: targetActorIds,
+      targetIds: directorTargetActorIds,
       visibility: 'moderator_only',
       payload: {
-        intent: guidance.beatType === 'summarize'
+        intent: guidance?.beatType === 'summarize'
           ? 'summarize'
-          : guidance.beatType === 'cool_down'
+          : guidance?.beatType === 'cool_down'
             ? 'cool_down'
-          : guidance.beatType === 'reveal'
+          : guidance?.beatType === 'reveal'
             ? 'reveal'
-          : guidance.beatType === 'deflect'
+          : guidance?.beatType === 'deflect'
             ? 'redirect'
-          : guidance.beatType === 'escalate' || guidance.beatType === 'challenge'
+          : guidance?.beatType === 'escalate' || guidance?.beatType === 'challenge'
             ? 'escalate'
-          : guidance.beatType === 'invite'
+          : guidance?.beatType === 'invite'
             ? 'inject_event'
           : 'force_reply',
-        targetActorIds,
-        pressure: guidance.pressure,
-        text: guidance.rawText,
-        maxTurns: guidance.maxTurns,
+        targetActorIds: directorTargetActorIds,
+        pressure: guidance?.pressure || 0.7,
+        text: guidance?.rawText || summary,
+        maxTurns: guidance?.maxTurns || 1,
         expiresAt: Date.now() + 10 * 60_000,
-        userGuidance: guidance as unknown as Record<string, unknown>,
+        userGuidance: guidance ? guidance as unknown as Record<string, unknown> : {
+          rawText: summary,
+          targetActorIds: directorTargetActorIds,
+          decisionSource: 'fallback_director_intervention',
+        },
       } satisfies DirectorInterventionPayload,
     }) : null;
     const attentionTargetIds = Array.from(new Set([
