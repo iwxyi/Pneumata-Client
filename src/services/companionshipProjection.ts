@@ -786,6 +786,13 @@ function buildUserProfileProjection(chat: GroupChat, character: AICharacter, mes
     recentPlans: uniqueTexts([...profileTextsByKind(profileItems, 'recent_plan'), ...collectByPattern(allTexts, [/计划|打算|要去|准备|明天|后天|周末|今晚|最近|下次/])]),
     emotionalPatterns: uniqueTexts([...profileTextsByKind(profileItems, 'emotional_pattern'), ...collectByPattern(allTexts, [/低落|焦虑|压力|紧张|开心|难过|生气|委屈|失眠/])]),
     sourceTexts: allTexts,
+    cues: profileItems.slice(0, 8).map((item) => ({
+      kind: item.kind,
+      text: item.text,
+      evidence: item.evidence,
+      confidence: item.confidence,
+      sensitive: item.sensitive,
+    })),
     confidence: clampScore(Math.min(100, profileItems.length * 18 + memoryTexts.length * 14 + recentUserTexts.length * 6 + boundaries.length * 8)),
     updatedAt: now,
   };
@@ -2644,6 +2651,7 @@ export function buildCompanionshipRuntimeTrace(params: {
     rememberedUserPlans: bond.rememberedUserPlans.slice(0, 4),
     boundaries: profile.boundaries.slice(0, 4),
     boundaryReasons: carePolicy.boundaryReasons.slice(0, 4),
+    userProfileCues: profile.cues.slice(0, 6),
     carePolicy: {
       dailyInitiationBudget: carePolicy.dailyInitiationBudget,
       triggerSensitivity: carePolicy.triggerSensitivity,

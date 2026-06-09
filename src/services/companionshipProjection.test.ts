@@ -652,10 +652,18 @@ describe('companionshipProjection', () => {
 
     expect(projection.userBond?.addressing.currentAddress).toBe('小夏');
     expect(projection.userBond?.userProfile.boundaries).toContain('用户不希望被早安晚安打扰');
+    expect(projection.userBond?.userProfile.cues.map((item) => item.text)).toContain('用户不希望被早安晚安打扰');
     expect(projection.userBond?.userProfile.pressureSources).toEqual([]);
     expect(projection.userBond?.carePolicy.allowGoodMorning).toBe(false);
     expect(projection.userBond?.carePolicy.allowGoodNight).toBe(false);
     expect(projection.promptLines.join('\n')).toContain('High-confidence user profile cues');
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [profileEvent]),
+      character: character(),
+      messages: [message({ content: '这个压力锅最近真的很好用。', timestamp: 200 })],
+      now: 300,
+    });
+    expect(trace?.userProfileCues.map((item) => item.text)).toContain('用户不希望被早安晚安打扰');
   });
 
   it('applies user profile memory revoke events before prompt projection', () => {
@@ -714,6 +722,7 @@ describe('companionshipProjection', () => {
     });
 
     expect(projection.userBond?.userProfile.boundaries).not.toContain('用户不希望被早安晚安打扰');
+    expect(projection.userBond?.userProfile.cues.map((item) => item.text)).not.toContain('用户不希望被早安晚安打扰');
     expect(projection.userBond?.carePolicy.allowGoodMorning).toBe(true);
     expect(projection.userBond?.carePolicy.allowGoodNight).toBe(true);
     expect(projection.promptLines.join('\n')).not.toContain('用户不希望被早安晚安打扰');
@@ -1682,6 +1691,58 @@ describe('companionshipProjection', () => {
 
     expect(anchors.some((anchor) => anchor.text.includes('第一次深夜聊天'))).toBe(false);
     expect(projection.promptLines.join('\n')).not.toContain('第一次深夜聊天');
+  });
+
+  it('uses archived shared anchor runtime events to suppress matching fallback anchors', () => {
+    const anchorCharacter = character({
+      layeredMemories: [{
+        id: 'anchor-promise',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '说好周末一起看那部电影。',
+        evidenceText: '用户和苏苏约好周末一起看电影。',
+        salience: 0.82,
+        confidence: 0.88,
+        recency: 0.7,
+        reinforcementCount: 2,
+        sourceEventIds: ['evt-anchor-promise'],
+        origin: 'distilled',
+        createdAt: 100,
+        updatedAt: 200,
+      }],
+    });
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [
+      sharedAnchorEvent({
+        id: 'evt-shared-anchor-archive',
+        createdAt: 1_200,
+        payload: {
+          eventType: 'companionship_shared_anchor',
+          characterId: 'char-a',
+          userId: 'user',
+          anchorId: 'memory-anchor-promise',
+          action: 'archive',
+          kind: 'promise',
+          participantIds: ['char-a', 'user'],
+          text: '说好周末一起看那部电影。',
+          evidence: '用户在关系页归档该共同锚点。',
+          confidence: 1,
+        },
+      }),
+    ]);
+
+    const anchors = buildSharedMemoryAnchors(anchorCharacter, 1_300, directChat);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: anchorCharacter,
+      messages: [message({ content: '今天有点累。', timestamp: 200 })],
+      now: 1_300,
+    });
+
+    expect(anchors.some((anchor) => anchor.text.includes('周末一起看'))).toBe(false);
+    expect(projection.promptLines.join('\n')).not.toContain('Shared memory anchors with the user');
   });
 
   it('allows companionship artifact seeds from runtime-event anchors even without existing character memories', () => {

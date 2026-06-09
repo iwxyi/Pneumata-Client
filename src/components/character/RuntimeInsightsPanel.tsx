@@ -31,7 +31,7 @@ import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { formatInnerImpulseLabel } from '../../services/runtimeDecisionLabels';
 import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildSharedMemoryAnchors, buildUserCompanionshipProjection } from '../../services/companionshipProjection';
 import type { Message } from '../../types/message';
-import type { CharacterCompanionshipState, CompanionshipRuntimeTrace, PendingCareTopic, PendingPromise, SharedMemoryAnchor } from '../../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipRuntimeTrace, PendingCareTopic, PendingPromise, SharedMemoryAnchor, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
@@ -449,6 +449,87 @@ function buildManualAttachmentProfileEvent(chat: GroupChat, character: AICharact
   };
 }
 
+function buildManualUserProfileMemoryRevokeEvent(chat: GroupChat, character: AICharacter, item: UserProfileMemoryEventItem): RuntimeEventV2 {
+  const now = Date.now();
+  const normalized = clipRuntimeText(item.text, 140);
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, item.kind, normalized, 'user-profile-revoke']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户撤回了一条画像线索`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_user_profile_memory',
+      characterId: character.id,
+      userId: 'user',
+      action: 'revoke',
+      items: [{
+        kind: item.kind,
+        text: normalized,
+        evidence: item.evidence || 'manual_revoke_from_character_relationship_tab',
+        confidence: 1,
+        sensitive: item.sensitive,
+      }],
+      reason: '用户在角色关系页手动撤回该画像线索。',
+      evidence: 'manual_revoke_from_character_relationship_tab',
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualSharedAnchorArchiveEvent(chat: GroupChat, character: AICharacter, anchor: SharedMemoryAnchor): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, anchor.id, 'shared-anchor-archive']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户归档了一条共同锚点`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_shared_anchor',
+      characterId: character.id,
+      userId: anchor.participantIds.includes('user') ? 'user' : undefined,
+      anchorId: anchor.id,
+      action: 'archive',
+      kind: anchor.kind,
+      participantIds: anchor.participantIds,
+      title: anchor.title,
+      text: anchor.text,
+      evidence: anchor.evidence || anchor.text,
+      confidence: 1,
+      reason: '用户在角色关系页手动归档该共同锚点。',
+    },
+  };
+}
+
+function formatUserProfileMemoryKindLabel(kind: UserProfileMemoryKind) {
+  const labels: Record<UserProfileMemoryKind, string> = {
+    display_name: '名字',
+    address_preference: '称呼',
+    schedule_hint: '作息',
+    pressure_source: '压力',
+    preference: '偏好',
+    dislike: '不喜欢',
+    boundary: '边界',
+    important_date: '日期',
+    recent_plan: '计划',
+    emotional_pattern: '情绪',
+  };
+  return labels[kind] || kind;
+}
+
 function relationshipLevel(value: number) {
   const abs = Math.abs(value);
   if (abs >= 60) return value < 0 ? '很低' : '很强';
@@ -521,15 +602,19 @@ function SharedMemoryAnchorPanel({
   anchors,
   resolveCharacterName,
   developerMode,
+  onArchiveAnchor,
 }: {
   anchors: SharedMemoryAnchor[];
   resolveCharacterName: (id: string, fallback?: string) => string;
   developerMode: boolean;
+  onArchiveAnchor?: (anchor: SharedMemoryAnchor) => void;
 }) {
   return anchors.length ? (
     <Stack spacing={1}>
       {anchors.slice(0, developerMode ? 8 : 4).map((anchor) => {
         const participantNames = anchor.participantIds.map((id) => resolveCharacterName(id)).join(' × ');
+        const archiveAnchor = onArchiveAnchor;
+        const canArchive = developerMode && Boolean(archiveAnchor) && anchor.participantIds.includes('user');
         const chips = developerMode
           ? [
               formatSharedMemoryAnchorKind(anchor.kind),
@@ -543,7 +628,14 @@ function SharedMemoryAnchorPanel({
             <Stack spacing={0.65}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, minWidth: 0, flexWrap: 'wrap' }}>
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>{anchor.title}</Typography>
-                <Typography variant="caption" color="text.secondary">{participantNames}</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                  <Typography variant="caption" color="text.secondary">{participantNames}</Typography>
+                  {canArchive && archiveAnchor ? (
+                    <Button size="small" variant="text" onClick={() => archiveAnchor(anchor)} sx={{ p: 0, minWidth: 0 }}>
+                      归档
+                    </Button>
+                  ) : null}
+                </Box>
               </Box>
               <Typography variant="body2" color="text.secondary">
                 {anchor.text}
@@ -770,6 +862,7 @@ function UserCompanionshipCard({
   onResolveConflict,
   onDisableAttachment,
   onEnableAttachment,
+  onRevokeProfileCue,
   developerMode,
 }: {
   chatName: string;
@@ -784,6 +877,7 @@ function UserCompanionshipCard({
   onResolveConflict: (conflict: NonNullable<CompanionshipRuntimeTrace['intimateConflict']>) => void;
   onDisableAttachment: () => void;
   onEnableAttachment: () => void;
+  onRevokeProfileCue: (item: UserProfileMemoryEventItem) => void;
   developerMode: boolean;
 }) {
   const headlineChips = [
@@ -917,6 +1011,35 @@ function UserCompanionshipCard({
         ) : null}
         {developerMode ? (
           <Stack spacing={1}>
+            {trace?.userProfileCues.length ? (
+              <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
+                  用户画像线索
+                </Typography>
+                <Stack spacing={0.75}>
+                  {trace.userProfileCues.slice(0, 6).map((item, index) => (
+                    <Box key={`${item.kind}-${item.text}-${index}`} sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
+                          <Chip size="small" label={formatUserProfileMemoryKindLabel(item.kind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                          <Typography variant="caption" color="text.secondary">置信 {Math.round(item.confidence * 100)}%</Typography>
+                          {item.sensitive ? <Typography variant="caption" color="warning.main">敏感</Typography> : null}
+                        </Stack>
+                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{item.text}</Typography>
+                        {item.evidence ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
+                            证据：{clipRuntimeText(item.evidence, 96)}
+                          </Typography>
+                        ) : null}
+                      </Box>
+                      <Button size="small" variant="text" onClick={() => onRevokeProfileCue(item)} sx={{ flexShrink: 0 }}>
+                        撤回
+                      </Button>
+                    </Box>
+                  ))}
+                </Stack>
+              </Box>
+            ) : null}
             <CompanionshipDeveloperTracePanel trace={trace} onDisableAttachment={onDisableAttachment} onEnableAttachment={onEnableAttachment} />
             <Box sx={{ display: 'grid', gap: 0.5 }}>
               {signature.debugLines.map((line) => (
@@ -1257,8 +1380,13 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
   }, [character]);
   const sharedMemoryAnchors = useMemo(() => {
     if (!character.id || !character.personality || !character.memory) return [];
-    return buildSharedMemoryAnchors(character as AICharacter, character.updatedAt || character.createdAt || 0);
-  }, [character]);
+    const directChat = recentByTime(chats.filter((chat) => chat.type === 'direct' && chat.memberIds.includes(character.id || '')), 1)[0];
+    return buildSharedMemoryAnchors(character as AICharacter, character.updatedAt || character.createdAt || 0, directChat);
+  }, [character, chats]);
+  const latestUserDirectChat = useMemo(() => {
+    if (!character.id) return undefined;
+    return recentByTime(chats.filter((chat) => chat.type === 'direct' && chat.memberIds.includes(character.id || '')), 1)[0];
+  }, [character.id, chats]);
   const companionshipView = useMemo(() => {
     if (!character.id || !character.personality || !character.memory) return null;
     const directChats = chats.filter((chat) => chat.type === 'direct' && chat.memberIds.includes(character.id || ''));
@@ -1323,7 +1451,15 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       </SurfaceCard>
       <SurfaceCard>
         <SectionHeader title="共同锚点" dense action={isDeveloperView ? <DebugChip /> : undefined} />
-        <SharedMemoryAnchorPanel anchors={sharedMemoryAnchors} resolveCharacterName={resolveCharacterName} developerMode={isDeveloperView} />
+        <SharedMemoryAnchorPanel
+          anchors={sharedMemoryAnchors}
+          resolveCharacterName={resolveCharacterName}
+          developerMode={isDeveloperView}
+          onArchiveAnchor={latestUserDirectChat ? (anchor) => {
+            if (!anchor.participantIds.includes('user')) return;
+            void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorArchiveEvent(latestUserDirectChat, character as AICharacter, anchor));
+          } : undefined}
+        />
       </SurfaceCard>
       <SurfaceCard>
         <SectionHeader title="陪伴关系" dense action={isDeveloperView ? <DebugChip /> : undefined} />
@@ -1359,6 +1495,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onEnableAttachment={() => {
                   void appendManualCompanionshipEvent(view.chat, buildManualAttachmentProfileEvent(view.chat, character as AICharacter, 'enabled'));
+                }}
+                onRevokeProfileCue={(item) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualUserProfileMemoryRevokeEvent(view.chat, character as AICharacter, item));
                 }}
                 developerMode={isDeveloperView}
               />

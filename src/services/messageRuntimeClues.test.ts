@@ -142,6 +142,7 @@ describe('messageRuntimeClues', () => {
             rememberedUserPlans: ['用户明天有面试。'],
             boundaries: ['用户不想恋爱暧昧，只想当朋友。'],
             boundaryReasons: ['user does not want romantic framing'],
+            userProfileCues: [],
             carePolicy: {
               dailyInitiationBudget: 2,
               triggerSensitivity: 62,

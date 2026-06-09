@@ -113,6 +113,7 @@ export interface UserProfileMemoryProjection {
   recentPlans: string[];
   emotionalPatterns: string[];
   sourceTexts: string[];
+  cues: UserProfileMemoryEventItem[];
   confidence: number;
   updatedAt: number;
 }
@@ -416,6 +417,7 @@ export interface CompanionshipRuntimeTrace {
   rememberedUserPlans: string[];
   boundaries: string[];
   boundaryReasons: string[];
+  userProfileCues: UserProfileMemoryEventItem[];
   carePolicy: Pick<CarePolicy, 'dailyInitiationBudget' | 'triggerSensitivity' | 'silenceAnxietyThresholdHours' | 'expressionIntensity' | 'allowGoodMorning' | 'allowGoodNight' | 'allowMissYou'>;
   attachmentProfile?: UserAttachmentProfile;
   diagnostics: string[];
