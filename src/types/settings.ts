@@ -344,6 +344,7 @@ export interface CompanionshipSettings {
   enableProactiveCare: boolean;
   showStatusHints: boolean;
   enableAttachmentAdaptation: boolean;
+  enableRelationshipRituals: boolean;
   allowGoodMorning: boolean;
   allowGoodNight: boolean;
   allowMissYou: boolean;
@@ -412,6 +413,7 @@ export const DEFAULT_COMPANIONSHIP_SETTINGS: CompanionshipSettings = {
   enableProactiveCare: true,
   showStatusHints: true,
   enableAttachmentAdaptation: true,
+  enableRelationshipRituals: true,
   allowGoodMorning: true,
   allowGoodNight: true,
   allowMissYou: true,

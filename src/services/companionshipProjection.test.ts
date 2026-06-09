@@ -3182,6 +3182,45 @@ describe('companionshipProjection', () => {
     expect(trace?.rituals.join('\n')).toContain('小夏');
   });
 
+  it('disables relationship rituals globally for registry and artifact seeds', () => {
+    setCompanionshipRuntimeConfig({ enableRelationshipRituals: false });
+    const ritualCharacter = character({
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说：叫我小夏。', '用户的纪念日是六月一日。'],
+      },
+    });
+    const ritualChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [ritualEvent()]);
+
+    const rituals = buildRitualRegistry({
+      character: ritualCharacter,
+      chat: ritualChat,
+      messages: [message({ content: '晚安，今天就先这样。', timestamp: 1_100 })],
+      now: 2_000,
+    });
+    const seeds = buildCompanionshipArtifactSeeds({
+      character: ritualCharacter,
+      chat: ritualChat,
+      messages: [message({ content: '晚安，今天就先这样。', timestamp: 1_100 })],
+      surface: 'private_diary',
+      now: 2_000,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: ritualChat,
+      character: ritualCharacter,
+      messages: [message({ content: '晚安，今天就先这样。', timestamp: 1_100 })],
+      now: 2_000,
+    });
+
+    expect(rituals).toEqual([]);
+    expect(seeds.join('\n')).not.toContain('关系仪式');
+    expect(trace?.rituals).toEqual([]);
+  });
+
   it('restrains greeting rituals when user rejects them', () => {
     const rituals = buildRitualRegistry({
       character: character({

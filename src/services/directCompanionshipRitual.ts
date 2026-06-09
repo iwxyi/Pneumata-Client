@@ -4,6 +4,7 @@ import type { CompanionshipRitualEventPayload, RitualRegistryEntry } from '../ty
 import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { buildRitualRegistry } from './companionshipProjection';
+import { getCompanionshipRuntimeConfig } from './companionshipRuntimeConfig';
 
 const USER_ACTOR_ID = 'user';
 
@@ -81,6 +82,7 @@ export function buildCompanionshipRitualEventsFromDirectUserMessage(params: {
   message: Message;
   recentMessages?: Message[];
 }): RuntimeEventV2[] {
+  if (!getCompanionshipRuntimeConfig().enableRelationshipRituals) return [];
   if (!isDirectUserMessage(params.chat, params.message)) return [];
   const text = compactText(params.message.content, 240);
   if (!isGreetingRitualText(text)) return [];

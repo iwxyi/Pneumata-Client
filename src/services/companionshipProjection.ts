@@ -2370,6 +2370,7 @@ export function buildRitualRegistry(params: {
   messages?: Message[];
   now?: number;
 }): RitualRegistryEntry[] {
+  if (!getCompanionshipRuntimeConfig().enableRelationshipRituals) return [];
   const now = params.now || Date.now();
   const messages = params.messages || [];
   const profileChat = params.chat || ({ runtimeEventsV2: [] } as unknown as GroupChat);

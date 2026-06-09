@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_EMOTIONAL_STATE, type AICharacter } from '../types/character';
 import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
+import { DEFAULT_COMPANIONSHIP_SETTINGS } from '../types/settings';
 import { buildCompanionshipRitualEventsFromDirectUserMessage } from './directCompanionshipRitual';
+import { setCompanionshipRuntimeConfig } from './companionshipRuntimeConfig';
 
 function character(overrides: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -106,6 +108,10 @@ function performedRitualEvent(createdAt = 1_000): RuntimeEventV2 {
 }
 
 describe('directCompanionshipRitual', () => {
+  beforeEach(() => {
+    setCompanionshipRuntimeConfig(DEFAULT_COMPANIONSHIP_SETTINGS);
+  });
+
   it('writes a performed greeting ritual event from explicit direct greeting text', () => {
     const events = buildCompanionshipRitualEventsFromDirectUserMessage({
       chat: chat(),
@@ -156,5 +162,17 @@ describe('directCompanionshipRitual', () => {
       reason: 'greeting ritual is still in cooldown',
       nextAvailableAt: 1_000 + 12 * 60 * 60_000,
     });
+  });
+
+  it('does not write ritual events when relationship rituals are disabled globally', () => {
+    setCompanionshipRuntimeConfig({ enableRelationshipRituals: false });
+
+    const events = buildCompanionshipRitualEventsFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: userMessage('晚安，今天先睡啦。', 1_000),
+    });
+
+    expect(events).toEqual([]);
   });
 });
