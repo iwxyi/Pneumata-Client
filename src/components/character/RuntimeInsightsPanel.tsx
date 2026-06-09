@@ -31,7 +31,7 @@ import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { formatInnerImpulseLabel } from '../../services/runtimeDecisionLabels';
 import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildRitualRegistry, buildSharedMemoryAnchors, buildSharedSecrets, buildUserCompanionshipProjection } from '../../services/companionshipProjection';
 import type { Message } from '../../types/message';
-import type { CharacterCompanionshipState, CompanionshipRuntimeTrace, PendingCareTopic, PendingPromise, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
+import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, PendingCareTopic, PendingPromise, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
@@ -576,6 +576,34 @@ function buildManualRitualSuppressedEvent(chat: GroupChat, character: AICharacte
   };
 }
 
+function buildManualPhaseCorrectionEvent(chat: GroupChat, character: AICharacter, phase: CompanionshipPhase, style: CompanionshipStyle): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, phase, style, 'phase-correction']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户手动修正了陪伴关系阶段`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_phase_event',
+      characterId: character.id,
+      userId: 'user',
+      phase,
+      style,
+      reason: '用户在角色关系页手动修正陪伴关系阶段。',
+      evidence: ['manual_phase_correction_from_character_relationship_tab'],
+      initiatedBy: 'user',
+      confidence: 1,
+    },
+  };
+}
+
 function formatUserProfileMemoryKindLabel(kind: UserProfileMemoryKind) {
   const labels: Record<UserProfileMemoryKind, string> = {
     display_name: '名字',
@@ -911,6 +939,19 @@ function formatCompanionshipStyleLabel(style: CompanionshipRuntimeTrace['style']
   return labels[style] || style;
 }
 
+const PHASE_CORRECTION_OPTIONS: Array<{ label: string; phase: CompanionshipPhase; style: CompanionshipStyle }> = [
+  { label: '朋友', phase: 'fond', style: 'friend' },
+  { label: '暧昧', phase: 'ambiguous', style: 'ambiguous' },
+  { label: '已确认', phase: 'confirmed', style: 'romantic' },
+  { label: '降温', phase: 'cooling', style: 'friend' },
+  { label: '修复中', phase: 'reconciling', style: 'friend' },
+  { label: '危机', phase: 'crisis', style: 'friend' },
+];
+
+function isSameCompanionshipPhaseCorrection(trace: CompanionshipRuntimeTrace | null, option: { phase: CompanionshipPhase; style: CompanionshipStyle }) {
+  return Boolean(trace && trace.phase === option.phase && trace.style === option.style);
+}
+
 function UserCompanionshipCard({
   chatName,
   signature,
@@ -929,6 +970,7 @@ function UserCompanionshipCard({
   onRevokeProfileCue,
   onRevokeSharedSecret,
   onSuppressRitual,
+  onCorrectPhase,
   developerMode,
 }: {
   chatName: string;
@@ -948,6 +990,7 @@ function UserCompanionshipCard({
   onRevokeProfileCue: (item: UserProfileMemoryEventItem) => void;
   onRevokeSharedSecret: (secret: SharedSecret) => void;
   onSuppressRitual: (ritual: RitualRegistryEntry) => void;
+  onCorrectPhase: (phase: CompanionshipPhase, style: CompanionshipStyle) => void;
   developerMode: boolean;
 }) {
   const headlineChips = [
@@ -1081,6 +1124,28 @@ function UserCompanionshipCard({
         ) : null}
         {developerMode ? (
           <Stack spacing={1}>
+            <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
+                阶段修正
+              </Typography>
+              <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                {PHASE_CORRECTION_OPTIONS.map((option) => {
+                  const selected = isSameCompanionshipPhaseCorrection(trace, option);
+                  return (
+                    <Button
+                      key={`${option.phase}-${option.style}`}
+                      size="small"
+                      variant={selected ? 'contained' : 'outlined'}
+                      disabled={selected}
+                      onClick={() => onCorrectPhase(option.phase, option.style)}
+                      sx={{ borderRadius: 999, minWidth: 0, px: 1.1 }}
+                    >
+                      {option.label}
+                    </Button>
+                  );
+                })}
+              </Stack>
+            </Box>
             {trace?.userProfileCues.length ? (
               <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
@@ -1647,6 +1712,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onSuppressRitual={(ritual) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualRitualSuppressedEvent(view.chat, character as AICharacter, ritual));
+                }}
+                onCorrectPhase={(phase, style) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualPhaseCorrectionEvent(view.chat, character as AICharacter, phase, style));
                 }}
                 developerMode={isDeveloperView}
               />

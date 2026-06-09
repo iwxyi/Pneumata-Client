@@ -483,6 +483,50 @@ describe('companionshipProjection', () => {
     expect(projection.evidence.join('\n')).not.toContain('另一个角色');
   });
 
+  it('uses later manual phase corrections to override an older confirmed phase event', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 70, trust: 68, competence: 20, threat: 0 })], [
+        phaseEvent({
+          id: 'evt-confirmed-old',
+          createdAt: 800,
+          payload: {
+            eventType: 'companionship_phase_event',
+            characterId: 'char-a',
+            userId: 'user',
+            phase: 'confirmed',
+            style: 'romantic',
+            reason: '双方确认恋人关系。',
+          },
+        }),
+        phaseEvent({
+          id: 'evt-manual-cooling',
+          createdAt: 1_200,
+          summary: '苏苏记录用户手动修正了陪伴关系阶段。',
+          payload: {
+            eventType: 'companionship_phase_event',
+            characterId: 'char-a',
+            userId: 'user',
+            phase: 'cooling',
+            style: 'friend',
+            reason: '用户在角色关系页手动修正陪伴关系阶段。',
+            evidence: ['manual_phase_correction_from_character_relationship_tab'],
+            initiatedBy: 'user',
+            confidence: 1,
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [message({ content: '我们先冷静一点。', timestamp: 1_100 })],
+      now: 1_300,
+    });
+
+    expect(projection.userBond?.phase).toBe('cooling');
+    expect(projection.userBond?.style).toBe('friend');
+    expect(projection.userBond?.carePolicy.allowMissYou).toBe(false);
+    expect(projection.promptLines.join('\n')).toContain('cooling down');
+    expect(projection.promptLines.join('\n')).not.toContain('confirmed relationship');
+  });
+
   it('reduces security and moves to crisis when threat is high', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({ warmth: 10, trust: -12, competence: 0, threat: 60 })]),
