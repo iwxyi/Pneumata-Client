@@ -1291,6 +1291,40 @@ function UserCompanionshipCard({
             ))}
           </Stack>
         ) : null}
+        {sharedPhrases.length ? (
+          <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
+              我们之间的话
+            </Typography>
+            <Stack spacing={0.75}>
+              {sharedPhrases.slice(0, 5).map((phrase) => (
+                <Box key={phrase.id} sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
+                      <Chip size="small" label={formatSharedPhraseKindLabel(phrase.kind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                      {developerMode ? (
+                        <>
+                          <Typography variant="caption" color="text.secondary">{formatSharedPhraseVisibilityLabel(phrase.visibility)}</Typography>
+                          <Typography variant="caption" color="text.secondary">权重 {phrase.emotionalWeight}</Typography>
+                          {phrase.reuseCount > 1 ? <Typography variant="caption" color="text.secondary">复用 {phrase.reuseCount}</Typography> : null}
+                        </>
+                      ) : null}
+                    </Stack>
+                    <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>「{phrase.text}」</Typography>
+                    {developerMode && phrase.evidence ? (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
+                        证据：{clipRuntimeText(phrase.evidence, 96)}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                  <Button size="small" variant="text" onClick={() => onSuppressSharedPhrase(phrase)} sx={{ flexShrink: 0 }}>
+                    不再使用
+                  </Button>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        ) : null}
         {signature.addressing?.forbiddenAddresses.length ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
             <Typography variant="caption" color="text.secondary">禁用称呼：</Typography>
@@ -1395,36 +1429,6 @@ function UserCompanionshipCard({
                       </Box>
                       <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(secret)} sx={{ flexShrink: 0 }}>
                         撤回
-                      </Button>
-                    </Box>
-                  ))}
-                </Stack>
-              </Box>
-            ) : null}
-            {sharedPhrases.length ? (
-              <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
-                  共同话语
-                </Typography>
-                <Stack spacing={0.75}>
-                  {sharedPhrases.slice(0, 5).map((phrase) => (
-                    <Box key={phrase.id} sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
-                          <Chip size="small" label={formatSharedPhraseKindLabel(phrase.kind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
-                          <Typography variant="caption" color="text.secondary">{formatSharedPhraseVisibilityLabel(phrase.visibility)}</Typography>
-                          <Typography variant="caption" color="text.secondary">权重 {phrase.emotionalWeight}</Typography>
-                          {phrase.reuseCount > 1 ? <Typography variant="caption" color="text.secondary">复用 {phrase.reuseCount}</Typography> : null}
-                        </Stack>
-                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>「{phrase.text}」</Typography>
-                        {phrase.evidence ? (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
-                            证据：{clipRuntimeText(phrase.evidence, 96)}
-                          </Typography>
-                        ) : null}
-                      </Box>
-                      <Button size="small" variant="text" onClick={() => onSuppressSharedPhrase(phrase)} sx={{ flexShrink: 0 }}>
-                        抑制
                       </Button>
                     </Box>
                   ))}
