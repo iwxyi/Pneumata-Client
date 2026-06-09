@@ -248,6 +248,7 @@ function getCompanionshipRuntimeEventStateKey(event: RuntimeEventV2) {
   if (eventType === 'companionship_promise') return `${baseKey}:${getRecordString(payloadRecord, 'promiseId') || event.id}`;
   if (eventType === 'companionship_ritual') return `${baseKey}:${getRecordString(payloadRecord, 'ritualId') || getRecordString(payloadRecord, 'kind') || event.id}`;
   if (eventType === 'companionship_shared_secret') return `${baseKey}:${getRecordString(payloadRecord, 'secretId') || event.id}`;
+  if (eventType === 'companionship_shared_phrase') return `${baseKey}:${getRecordString(payloadRecord, 'phraseId') || event.id}`;
   if (eventType === 'companionship_shared_anchor') return `${baseKey}:${getRecordString(payloadRecord, 'anchorId') || event.id}`;
   if (eventType === 'companionship_diary_reflection') return `${baseKey}:${getRecordString(payloadRecord, 'reflectionId') || event.id}`;
   if (eventType === 'companionship_user_profile_memory') {

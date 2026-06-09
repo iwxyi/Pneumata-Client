@@ -120,6 +120,22 @@ function companionshipStateEvents(createdAtOffset = 0) {
       action: 'recorded',
       publicMask: '懂的人会懂',
     }),
+    companionshipEvent('companionship-phrase-old', at(7.1), {
+      eventType: 'companionship_shared_phrase',
+      characterId: 'char-1',
+      userId: 'user-1',
+      phraseId: 'phrase-1',
+      action: 'upsert',
+      text: '慢慢来，我在',
+    }),
+    companionshipEvent('companionship-phrase-other-old', at(7.2), {
+      eventType: 'companionship_shared_phrase',
+      characterId: 'char-1',
+      userId: 'user-1',
+      phraseId: 'phrase-2',
+      action: 'upsert',
+      text: '晚点回来',
+    }),
     companionshipEvent('companionship-anchor-old', at(8), {
       eventType: 'companionship_shared_anchor',
       characterId: 'char-1',

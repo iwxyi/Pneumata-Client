@@ -110,6 +110,19 @@ describe('directCompanionshipAssessment', () => {
         }],
         reason: '用户给出称呼偏好。',
       },
+      sharedPhrases: [{
+        shouldCreate: true,
+        action: 'upsert',
+        text: '慢慢来，我在',
+        kind: 'comfort_line',
+        visibility: 'between_actors',
+        firstSaidBy: 'char-a',
+        emotionalWeight: 78,
+        reuseCount: 2,
+        confidence: 0.88,
+        reason: '用户明确把这句话当作两人之间的安慰语。',
+        evidence: '以后我们之间这句话就叫“慢慢来，我在”',
+      }],
     }));
 
     const events = await resolveDirectCompanionshipAssessmentEvents({
@@ -124,6 +137,40 @@ describe('directCompanionshipAssessment', () => {
       'companionship_phase_event',
       'companionship_care_topic',
       'companionship_user_profile_memory',
+      'companionship_shared_phrase',
     ]);
+    expect(events.at(-1)?.payload).toMatchObject({
+      eventType: 'companionship_shared_phrase',
+      action: 'upsert',
+      text: '慢慢来，我在',
+      kind: 'comfort_line',
+      decisionSource: 'model',
+    });
+  });
+
+  it('falls back to local shared phrase detection when the model assessment fails', async () => {
+    generateJsonResponseMock.mockRejectedValueOnce(new Error('model unavailable'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const events = await resolveDirectCompanionshipAssessmentEvents({
+      chat: chat(),
+      character: character(),
+      message: message('以后我们之间的暗号就叫“慢慢来，我在”。'),
+      textApiConfig: { provider: 'openai', apiKey: 'key', baseUrl: 'https://example.test', model: 'model' },
+    });
+    const phrase = events.find((event) => (event.payload as { eventType?: string }).eventType === 'companionship_shared_phrase');
+
+    expect(phrase?.payload).toMatchObject({
+      eventType: 'companionship_shared_phrase',
+      action: 'upsert',
+      text: '慢慢来，我在',
+      kind: 'inside_joke',
+      decisionSource: 'local_fallback',
+    });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[recoverable-warning] companionship:direct-assessment-model-fallback'), expect.objectContaining({
+      fallback: 'local_fallback',
+      messagePreview: '以后我们之间的暗号就叫“慢慢来，我在”。',
+    }));
+    warnSpy.mockRestore();
   });
 });
