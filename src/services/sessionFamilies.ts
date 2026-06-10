@@ -33,6 +33,9 @@ export function createFamilyTurnPolicy(chat: GroupChat): SessionTurnPolicy {
   if (family === 'interview') return { runChat: canSpeak, runAction: canAct, interleaveAction: canAct };
   if (family === 'deduction' || family === 'mystery') return { runChat: canSpeak, runAction: canAct, interleaveAction: true };
   if (family === 'board_game') return { runChat: canSpeak, runAction: true, interleaveAction: true };
+  if (family === 'study' || family === 'analysis' || family === 'agent' || family === 'simulation') {
+    return { runChat: canSpeak, runAction: canAct, interleaveAction: canAct };
+  }
   return { runChat: canSpeak, runAction: canAct, interleaveAction: canSpeak && canAct };
 }
 
@@ -50,5 +53,8 @@ export function getFamilyActionChance(chat: Pick<GroupChat, 'sessionKind' | 'typ
   if (family === 'board_game') return 0.22;
   if (family === 'interview') return 1;
   if (family === 'deduction' || family === 'mystery') return 0.16;
+  if (family === 'study') return 0.12;
+  if (family === 'analysis' || family === 'simulation') return 0.1;
+  if (family === 'agent') return 0.2;
   return 0.08;
 }

@@ -8,11 +8,11 @@ import type { APIConfig } from './settings';
 
 export type ChatStyle = 'free' | 'debate' | 'brainstorm' | 'roleplay';
 export type ConversationType = 'group' | 'direct' | 'ai_direct';
-export type ConversationMode = 'open_chat' | 'interview' | 'group_discussion' | 'roundtable' | 'classroom' | 'bargaining' | 'service_roleplay' | 'board_game' | 'scripted_play' | 'werewolf' | 'murder_mystery';
+export type ConversationMode = 'open_chat' | 'interview' | 'group_discussion' | 'roundtable' | 'classroom' | 'agent_workflow' | 'bargaining' | 'service_roleplay' | 'board_game' | 'scripted_play' | 'werewolf' | 'murder_mystery';
 export type ConversationPhase = 'idle' | 'warming' | 'debating' | 'aligned' | 'chaotic';
 export type RuntimeEvolutionIntensity = 'slow' | 'balanced' | 'fast';
-export type SessionFamily = 'conversation' | 'interview' | 'deduction' | 'mystery' | 'study' | 'analysis' | 'board_game';
-export type SessionSurfaceProfile = 'text' | 'form' | 'board' | 'hybrid';
+export type SessionFamily = 'conversation' | 'interview' | 'deduction' | 'mystery' | 'study' | 'analysis' | 'board_game' | 'agent' | 'simulation';
+export type SessionSurfaceProfile = 'text' | 'form' | 'board' | 'hybrid' | 'timeline' | 'dashboard';
 export type SessionTopology = 'group' | 'direct' | 'thread' | 'team' | 'table';
 
 export interface SessionKind {
@@ -70,6 +70,27 @@ export interface SessionBoardState {
   pieces?: SessionBoardPiece[];
 }
 
+export interface ScenarioGoalState {
+  goalId: string;
+  label: string;
+  description?: string;
+  status?: 'not_started' | 'active' | 'blocked' | 'completed';
+  progress?: number;
+}
+
+export interface ScenarioProgressState {
+  key: string;
+  label: string;
+  value: number;
+  target?: number;
+}
+
+export interface ScenarioBranchState {
+  branchId: string;
+  label: string;
+  status?: 'available' | 'locked' | 'chosen' | 'completed';
+}
+
 export interface ScenarioState {
   seats?: ScenarioSeat[];
   roleAssignments?: ScenarioRoleAssignment[];
@@ -77,6 +98,10 @@ export interface ScenarioState {
   currentTurnActorId?: string | null;
   board?: SessionBoardState | null;
   factions?: Array<{ factionId: string; label: string }>;
+  phase?: string;
+  goals?: ScenarioGoalState[];
+  progress?: ScenarioProgressState[];
+  branches?: ScenarioBranchState[];
 }
 
 export interface LayeredGrowthState {
@@ -233,6 +258,12 @@ export function createDefaultSessionKind(type: ConversationType, mode: Conversat
   if (mode === 'interview') {
     return { topology: type === 'group' ? 'group' : 'direct', family: 'interview', scenarioId: 'panel-interview', surfaceProfile: 'form' };
   }
+  if (mode === 'group_discussion' || mode === 'roundtable') {
+    return { topology: type === 'group' ? 'group' : 'team', family: 'analysis', scenarioId: mode === 'roundtable' ? 'roundtable-discussion' : 'group-discussion', surfaceProfile: 'text' };
+  }
+  if (mode === 'classroom') {
+    return { topology: type === 'group' ? 'group' : 'direct', family: 'study', scenarioId: 'ielts-coach', surfaceProfile: 'form' };
+  }
   if (mode === 'werewolf') {
     return { topology: 'table', family: 'deduction', scenarioId: 'werewolf-classic', surfaceProfile: 'hybrid' };
   }
@@ -286,6 +317,18 @@ export function defaultInputSurfacesForConversation(conversation: Pick<GroupChat
   }
   if (definition.kind.surfaceProfile === 'form') {
     return [createDefaultTextInputSurface({ key: 'fallback-text', label: 'Text fallback' })];
+  }
+  if (definition.kind.surfaceProfile === 'timeline') {
+    return [
+      createDefaultTextInputSurface({ key: 'timeline-text', label: 'Narration', placeholder: '输入推进剧情、分支或事件的说明' }),
+      { key: 'timeline-actions', type: 'form', label: 'Timeline actions' },
+    ];
+  }
+  if (definition.kind.surfaceProfile === 'dashboard') {
+    return [
+      createDefaultTextInputSurface({ key: 'dashboard-text', label: 'Notes', placeholder: '输入补充说明、任务要求或协作备注' }),
+      { key: 'dashboard-actions', type: 'form', label: 'Workflow actions' },
+    ];
   }
   return [createDefaultTextInputSurface()];
 }
@@ -612,6 +655,14 @@ export function normalizeConversation(input: (Omit<GroupChat, 'type' | 'governan
         ? { schema: { kind: 'grid', columns: 8, rows: 8 }, pieces: [] }
         : null,
       factions: [],
+      phase: (input.sessionKind?.family || createDefaultSessionKind(input.type || 'group', input.mode || 'open_chat').family) === 'analysis'
+        ? 'discussion'
+        : (input.sessionKind?.family || createDefaultSessionKind(input.type || 'group', input.mode || 'open_chat').family) === 'study'
+          ? 'learning'
+          : undefined,
+      goals: [],
+      progress: [],
+      branches: [],
       seats: (input.memberIds || []).map((memberId, index) => ({ seatId: `seat-${index + 1}`, seatIndex: index, actorId: memberId })),
       roleAssignments: [],
     },

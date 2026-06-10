@@ -12,6 +12,7 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { getPreferredAIProfile } from '../types/settings';
 import type { ChatStyle, RuntimeEvolutionIntensity } from '../types/chat';
+import { ROOM_TEMPLATES, getRoomTemplate, getRoomTemplateKeyBySessionKind, type RoomTemplateKey } from '../services/roomTemplates';
 import {
   DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
   DEFAULT_CONVERSATION_DRAMA_RULES,
@@ -30,6 +31,7 @@ import { MIN_MEMBERS, MAX_MEMBERS } from '../constants/defaults';
 import { storageKey } from '../constants/brand';
 import DirectorControlsSection from '../components/createChat/DirectorControlsSection';
 import ChatConfigSection from '../components/createChat/ChatConfigSection';
+import GameplaySection from '../components/createChat/GameplaySection';
 import ManagementSection from '../components/createChat/ManagementSection';
 import MemberSelectionDialog from '../components/createChat/MemberSelectionDialog';
 import { normalizeRuntimeSeedLines } from '../services/runtimeSeed';
@@ -62,6 +64,7 @@ export default function CreateChatPage() {
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
   const [style, setStyle] = useState<ChatStyle>('free');
+  const [roomTemplate, setRoomTemplate] = useState<RoomTemplateKey>('open_chat');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [ownerCharacterId, setOwnerCharacterId] = useState<string>('');
   const [adminCharacterIds, setAdminCharacterIds] = useState<string[]>([]);
@@ -76,6 +79,14 @@ export default function CreateChatPage() {
   const [includeUserAsMember, setIncludeUserAsMember] = useState(true);
   const [operatorIdsText, setOperatorIdsText] = useState('');
   const [runtimeEvolutionIntensity, setRuntimeEvolutionIntensity] = useState<RuntimeEvolutionIntensity>('balanced');
+  const [discussionRoundsTarget, setDiscussionRoundsTarget] = useState(6);
+  const [storyBranchMode, setStoryBranchMode] = useState<'guided' | 'open'>('guided');
+  const [studyGoalLabel, setStudyGoalLabel] = useState('');
+  const [agentGoalLabel, setAgentGoalLabel] = useState('');
+  const [boardColumns, setBoardColumns] = useState(8);
+  const [boardRows, setBoardRows] = useState(8);
+  const [deductionFactionCount, setDeductionFactionCount] = useState(2);
+  const [mysteryClueCount, setMysteryClueCount] = useState(6);
   const [allowSpeakAs, setAllowSpeakAs] = useState(true);
   const [allowDirectorMode, setAllowDirectorMode] = useState(true);
   const [allowEventInjection, setAllowEventInjection] = useState(true);
@@ -92,12 +103,15 @@ export default function CreateChatPage() {
 
   const showRuntimeTab = Boolean(editingChat);
   const isZh = i18n.language.startsWith('zh');
+  const gameplayTabIndex = 1;
   const conversationKind = editingChat?.type || 'group';
   const isGroupConversation = conversationKind === 'group';
   const showManagementTab = !editingChat || isGroupConversation;
   const showDirectorTab = !editingChat || isGroupConversation;
-  const runtimeTabIndex = showManagementTab ? 2 : 1;
-  const directorTabIndex = showRuntimeTab ? (showManagementTab ? 3 : 2) : 2;
+  const showGameplayTab = !editingChat || isGroupConversation;
+  const managementTabIndex = showGameplayTab ? 2 : 1;
+  const runtimeTabIndex = showRuntimeTab ? (showManagementTab ? managementTabIndex + 1 : managementTabIndex) : managementTabIndex;
+  const directorTabIndex = showDirectorTab ? (showRuntimeTab ? runtimeTabIndex + 1 : managementTabIndex + (showManagementTab ? 1 : 0)) : runtimeTabIndex;
   const conversationNoun = isZh
     ? (conversationKind === 'group' ? '群聊' : conversationKind === 'ai_direct' ? 'AI私聊' : '单聊')
     : (conversationKind === 'group' ? 'group chat' : conversationKind === 'ai_direct' ? 'AI direct chat' : 'direct chat');
@@ -149,6 +163,8 @@ export default function CreateChatPage() {
       setName(editingChat.name || '');
       setTopic(editingChat.topic || '');
       setStyle(editingChat.style);
+      const matchedTemplateKey = editingChat.sessionKind ? getRoomTemplateKeyBySessionKind(editingChat.sessionKind) : null;
+      setRoomTemplate(matchedTemplateKey || 'open_chat');
       setSelectedMembers(stripUserMemberId(editingChat.memberIds || []));
       setOwnerCharacterId(editingChat.governance.ownerCharacterId || '');
       setAdminCharacterIds(editingChat.governance.adminCharacterIds || []);
@@ -163,6 +179,14 @@ export default function CreateChatPage() {
       setIncludeUserAsMember((editingChat.memberIds || []).includes('user'));
       setOperatorIdsText((editingChat.operatorIds || []).join(', '));
       setRuntimeEvolutionIntensity(editingChat.runtimeEvolutionIntensity || 'balanced');
+      setDiscussionRoundsTarget(editingChat.scenarioState?.progress?.find((item) => item.key === 'speeches')?.target || 6);
+      setStoryBranchMode(editingChat.scenarioState?.branches?.[0]?.status === 'chosen' ? 'open' : 'guided');
+      setStudyGoalLabel(editingChat.scenarioState?.goals?.find((item) => item.goalId === 'study-goal')?.label || '');
+      setAgentGoalLabel(editingChat.scenarioState?.goals?.find((item) => item.goalId === 'agent-goal')?.label || '');
+      setBoardColumns(editingChat.scenarioState?.board?.schema?.columns || 8);
+      setBoardRows(editingChat.scenarioState?.board?.schema?.rows || 8);
+      setDeductionFactionCount(editingChat.scenarioState?.factions?.length || 2);
+      setMysteryClueCount(editingChat.scenarioState?.progress?.find((item) => item.key === 'mystery-progress')?.target || 6);
       setAllowSpeakAs(editingChat.directorControls.allowSpeakAs);
       setAllowDirectorMode(editingChat.directorControls.allowDirectorMode);
       setAllowEventInjection(editingChat.directorControls.allowEventInjection);
@@ -174,9 +198,18 @@ export default function CreateChatPage() {
     }
 
     setStyle(chatDraftDefaults.style);
+    setRoomTemplate('open_chat');
     setShowRoleActions(chatDraftDefaults.showRoleActions);
     setIncludeUserAsMember(true);
     setRuntimeEvolutionIntensity(chatDraftDefaults.runtimeEvolutionIntensity);
+    setDiscussionRoundsTarget(6);
+    setStoryBranchMode('guided');
+    setStudyGoalLabel('');
+    setAgentGoalLabel('');
+    setBoardColumns(8);
+    setBoardRows(8);
+    setDeductionFactionCount(2);
+    setMysteryClueCount(6);
     setOwnerCharacterId('');
     setAdminCharacterIds([]);
     setMood('');
@@ -212,6 +245,7 @@ export default function CreateChatPage() {
       name,
       topic,
       style,
+      roomTemplate,
       selectedMembers,
       ownerCharacterId,
       adminCharacterIds,
@@ -226,6 +260,14 @@ export default function CreateChatPage() {
       includeUserAsMember,
       operatorIdsText,
       runtimeEvolutionIntensity,
+      discussionRoundsTarget,
+      storyBranchMode,
+      studyGoalLabel,
+      agentGoalLabel,
+      boardColumns,
+      boardRows,
+      deductionFactionCount,
+      mysteryClueCount,
       allowSpeakAs,
       allowDirectorMode,
       allowEventInjection,
@@ -245,6 +287,7 @@ export default function CreateChatPage() {
       setName(String(draft.name || ''));
       setTopic(String(draft.topic || ''));
       setStyle((draft.style as ChatStyle) || chatDraftDefaults.style);
+      setRoomTemplate((draft.roomTemplate as RoomTemplateKey) || 'open_chat');
       setSelectedMembers(stripUserMemberId(Array.isArray(draft.selectedMembers) ? draft.selectedMembers as string[] : []));
       setOwnerCharacterId(String(draft.ownerCharacterId || ''));
       setAdminCharacterIds(Array.isArray(draft.adminCharacterIds) ? draft.adminCharacterIds as string[] : []);
@@ -263,6 +306,14 @@ export default function CreateChatPage() {
       );
       setOperatorIdsText(String(draft.operatorIdsText || ''));
       setRuntimeEvolutionIntensity((draft.runtimeEvolutionIntensity as RuntimeEvolutionIntensity) || chatDraftDefaults.runtimeEvolutionIntensity);
+      setDiscussionRoundsTarget(Number(draft.discussionRoundsTarget || 6));
+      setStoryBranchMode((draft.storyBranchMode as 'guided' | 'open') || 'guided');
+      setStudyGoalLabel(String(draft.studyGoalLabel || ''));
+      setAgentGoalLabel(String(draft.agentGoalLabel || ''));
+      setBoardColumns(Number(draft.boardColumns || 8));
+      setBoardRows(Number(draft.boardRows || 8));
+      setDeductionFactionCount(Number(draft.deductionFactionCount || 2));
+      setMysteryClueCount(Number(draft.mysteryClueCount || 6));
       setAllowSpeakAs(Boolean(draft.allowSpeakAs));
       setAllowDirectorMode(Boolean(draft.allowDirectorMode));
       setAllowEventInjection(Boolean(draft.allowEventInjection));
@@ -348,7 +399,36 @@ export default function CreateChatPage() {
   const hasCustomCharacters = customCharacters.length > 0;
   const hasPresetCharacters = presetCharacters.length > 0;
   const canAutofill = !editingChat && !aiAutofilling && Boolean(name.trim() || topic.trim() || selectedMembers.length);
+  const selectedRoomTemplate = getRoomTemplate(roomTemplate);
   const getStyleLabel = (styleValue: ChatStyle) => t(`chat.style${styleValue.charAt(0).toUpperCase() + styleValue.slice(1)}`);
+
+  useEffect(() => {
+    const defaults = selectedRoomTemplate.defaults || {};
+    if (selectedRoomTemplate.structure === 'analysis' && defaults.discussionRoundsTarget !== undefined) setDiscussionRoundsTarget((current) => current || defaults.discussionRoundsTarget || 6);
+    if (selectedRoomTemplate.structure === 'study' && defaults.studyGoalLabel !== undefined && !studyGoalLabel) setStudyGoalLabel(defaults.studyGoalLabel);
+    if (selectedRoomTemplate.structure === 'agent' && defaults.agentGoalLabel !== undefined && !agentGoalLabel) setAgentGoalLabel(defaults.agentGoalLabel);
+  }, [selectedRoomTemplate, studyGoalLabel, agentGoalLabel]);
+
+  const applyRoomTemplate = useCallback((templateKey: RoomTemplateKey) => {
+    const template = getRoomTemplate(templateKey);
+    const defaults = template.defaults || {};
+    setRoomTemplate(template.key);
+    setStyle(template.style);
+    setRuntimeEvolutionIntensity(template.runtimeEvolutionIntensity);
+    setAllowPrivateThreads(defaults.allowPrivateThreads ?? (template.sessionKind.family === 'conversation' || template.sessionKind.family === 'analysis'));
+    setAllowCliques(defaults.allowCliques ?? (template.sessionKind.family === 'conversation' || template.sessionKind.family === 'analysis'));
+    setAllowMockery(defaults.allowMockery ?? (template.sessionKind.family === 'conversation'));
+    if (defaults.discussionRoundsTarget !== undefined) setDiscussionRoundsTarget(defaults.discussionRoundsTarget);
+    if (defaults.storyBranchMode !== undefined) setStoryBranchMode(defaults.storyBranchMode);
+    if (defaults.studyGoalLabel !== undefined) setStudyGoalLabel(defaults.studyGoalLabel);
+    if (defaults.agentGoalLabel !== undefined) setAgentGoalLabel(defaults.agentGoalLabel);
+    if (defaults.boardColumns !== undefined) setBoardColumns(defaults.boardColumns);
+    if (defaults.boardRows !== undefined) setBoardRows(defaults.boardRows);
+    if (defaults.deductionFactionCount !== undefined) setDeductionFactionCount(defaults.deductionFactionCount);
+    if (defaults.mysteryClueCount !== undefined) setMysteryClueCount(defaults.mysteryClueCount);
+  }, []);
+
+  const topicPlaceholder = selectedRoomTemplate.topicPlaceholder;
 
   const handleAutofill = useCallback(async () => {
     const profile = getPreferredAIProfile(aiProfiles, 'text') || api;
@@ -560,7 +640,6 @@ export default function CreateChatPage() {
   const clearMemoryLabel = isZh ? '清空聊天记忆' : 'Clear session memory';
   const noOwnerLabel = isZh ? '未设置' : 'None';
   const adminNotesValue = adminCharacterIds.length ? adminCharacterIds.map((memberId) => selectedCharacters.find((char) => char.id === memberId)?.name).filter(Boolean).join(', ') : noOwnerLabel;
-  const topicPlaceholder = i18n.language.startsWith('zh') ? '创建后由用户发送首条消息启动讨论，可先写简介或目标' : 'After creation the user starts discussion with the first message; use this for description or goal';
 
   useEffect(() => {
     setHeaderTitle(headerTitle);
@@ -588,13 +667,14 @@ export default function CreateChatPage() {
 
   useEffect(() => {
     const availableTabs = [0]
-      .concat(showManagementTab ? [1] : [])
+      .concat(showGameplayTab ? [gameplayTabIndex] : [])
+      .concat(showManagementTab ? [managementTabIndex] : [])
       .concat(showRuntimeTab ? [runtimeTabIndex] : [])
       .concat(showDirectorTab ? [directorTabIndex] : []);
     if (!availableTabs.includes(configTab)) {
       setConfigTab(availableTabs[0] || 0);
     }
-  }, [configTab, directorTabIndex, runtimeTabIndex, showDirectorTab, showManagementTab, showRuntimeTab]);
+  }, [configTab, directorTabIndex, gameplayTabIndex, managementTabIndex, runtimeTabIndex, showDirectorTab, showGameplayTab, showManagementTab, showRuntimeTab]);
 
   const desktopHeaderActions = null;
   void desktopHeaderActions;
@@ -638,48 +718,51 @@ export default function CreateChatPage() {
     setSaving(true);
     try {
       if (editingChat) {
-        await updateChat(editingChat.id, {
-          name: name.trim(),
-          topic: topic.trim(),
+        const nextDraft = buildGroupChatDraft({
+          type: 'group',
+          name,
+          topic,
           style,
           runtimeEvolutionIntensity,
+          sessionKind: selectedRoomTemplate.sessionKind,
+          discussionRoundsTarget,
+          storyBranchMode,
+          studyGoalLabel,
+          agentGoalLabel,
+          boardColumns,
+          boardRows,
+          deductionFactionCount,
+          mysteryClueCount,
           memberIds: nextMemberIds,
           operatorIds,
-          speed: 1,
-          allowIntervention: true,
           showRoleActions,
-          topicSeed: '',
-          runtimeSeed: {
-            notes: normalizeRuntimeSeedLines(seedMemoryText, 'note'),
-            artifacts: normalizeRuntimeSeedLines(seedArtifactText, 'artifact'),
-          },
-          runtimeTimeline: editingChat.runtimeTimeline || [],
-          governance: {
-            ...DEFAULT_CONVERSATION_GOVERNANCE,
-            ownerCharacterId: normalizedOwnerCharacterId,
-            adminCharacterIds: normalizedAdminCharacterIds,
-            autoModeration,
-            allowMute,
-            allowPrivateThreads,
-          },
-          dramaRules: {
-            ...DEFAULT_CONVERSATION_DRAMA_RULES,
-            allowCliques,
-            allowMockery,
-          },
+          seedMemoryText,
+          seedArtifactText,
+          ownerCharacterId: normalizedOwnerCharacterId,
+          adminCharacterIds: normalizedAdminCharacterIds,
+          autoModeration,
+          allowMute,
+          allowPrivateThreads,
+          allowCliques,
+          allowMockery,
+          mood,
+          focus,
+          recentEvent,
+          allowSpeakAs,
+          allowDirectorMode,
+          allowEventInjection,
+          allowForcedReply,
+        });
+        await updateChat(editingChat.id, {
+          ...nextDraft,
+          runtimeTimeline: editingChat.runtimeTimeline || nextDraft.runtimeTimeline || [],
+          runtimeEventsV2: editingChat.runtimeEventsV2 || nextDraft.runtimeEventsV2 || [],
+          relationshipLedger: editingChat.relationshipLedger || nextDraft.relationshipLedger || [],
+          layeredMemories: editingChat.layeredMemories || nextDraft.layeredMemories || [],
           worldState: {
             ...DEFAULT_CONVERSATION_WORLD_STATE,
             ...editingChat.worldState,
-            mood,
-            focus,
-            recentEvent,
-          },
-          directorControls: {
-            ...DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
-            allowSpeakAs,
-            allowDirectorMode,
-            allowEventInjection,
-            allowForcedReply,
+            ...nextDraft.worldState,
           },
         });
         setChatDraftDefaults({ style, showRoleActions, runtimeEvolutionIntensity });
@@ -693,6 +776,15 @@ export default function CreateChatPage() {
         topic,
         style,
         runtimeEvolutionIntensity,
+        sessionKind: selectedRoomTemplate.sessionKind,
+        discussionRoundsTarget,
+        storyBranchMode,
+        studyGoalLabel,
+        agentGoalLabel,
+        boardColumns,
+        boardRows,
+        deductionFactionCount,
+        mysteryClueCount,
         memberIds: nextMemberIds,
         operatorIds,
         showRoleActions,
@@ -737,7 +829,8 @@ export default function CreateChatPage() {
             onChange={(value) => handleTabChange(null, value)}
             items={[
               { value: 0, label: i18n.language.startsWith('zh') ? '设定' : 'Config' },
-              ...(showManagementTab ? [{ value: 1, label: i18n.language.startsWith('zh') ? '管理' : 'Management' }] : []),
+              ...(showGameplayTab ? [{ value: gameplayTabIndex, label: i18n.language.startsWith('zh') ? '玩法' : 'Gameplay' }] : []),
+              ...(showManagementTab ? [{ value: managementTabIndex, label: i18n.language.startsWith('zh') ? '管理' : 'Management' }] : []),
               ...(showRuntimeTab ? [{ value: runtimeTabIndex, label: i18n.language.startsWith('zh') ? '记忆' : 'Memory' }] : []),
               ...(showDirectorTab ? [{ value: directorTabIndex, label: i18n.language.startsWith('zh') ? '导演控制' : 'Director' }] : []),
             ]}
@@ -805,7 +898,35 @@ export default function CreateChatPage() {
           </>
         ) : null}
 
-        {showManagementTab && configTab === 1 ? (
+        {showGameplayTab && configTab === gameplayTabIndex ? (
+          <GameplaySection
+            language={i18n.language}
+            roomTemplate={roomTemplate}
+            roomTemplates={ROOM_TEMPLATES}
+            onRoomTemplateChange={applyRoomTemplate}
+            runtimeEvolutionIntensity={runtimeEvolutionIntensity}
+            onRuntimeEvolutionIntensityChange={setRuntimeEvolutionIntensity}
+            topic={topic}
+            discussionRoundsTarget={discussionRoundsTarget}
+            onDiscussionRoundsTargetChange={setDiscussionRoundsTarget}
+            storyBranchMode={storyBranchMode}
+            onStoryBranchModeChange={setStoryBranchMode}
+            studyGoalLabel={studyGoalLabel}
+            onStudyGoalLabelChange={setStudyGoalLabel}
+            agentGoalLabel={agentGoalLabel}
+            onAgentGoalLabelChange={setAgentGoalLabel}
+            boardColumns={boardColumns}
+            boardRows={boardRows}
+            onBoardColumnsChange={setBoardColumns}
+            onBoardRowsChange={setBoardRows}
+            deductionFactionCount={deductionFactionCount}
+            onDeductionFactionCountChange={setDeductionFactionCount}
+            mysteryClueCount={mysteryClueCount}
+            onMysteryClueCountChange={setMysteryClueCount}
+          />
+        ) : null}
+
+        {showManagementTab && configTab === managementTabIndex ? (
           <ManagementSection
             selectedCharacters={selectedCharacters}
             ownerCharacterId={ownerCharacterId}

@@ -126,7 +126,11 @@ export default function AppLayout() {
   }, [location.pathname, resetHeaderHidden]);
 
   const handleMainScroll = (event: React.UIEvent<HTMLDivElement>) => {
-    handleHeaderScrollTop(event.currentTarget.scrollTop);
+    const { currentTarget } = event;
+    handleHeaderScrollTop(currentTarget.scrollTop, {
+      scrollHeight: currentTarget.scrollHeight,
+      clientHeight: currentTarget.clientHeight,
+    });
   };
 
   const mobileHeader = (

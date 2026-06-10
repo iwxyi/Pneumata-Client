@@ -4,8 +4,8 @@ import type { Message } from './message';
 import type { APIConfig } from './settings';
 import { buildDirectorInterventionFields } from './directorInterventionAction';
 
-export type SessionFamily = 'conversation' | 'interview' | 'deduction' | 'mystery' | 'study' | 'analysis' | 'board_game';
-export type SessionSurfaceProfile = 'text' | 'form' | 'board' | 'hybrid';
+export type SessionFamily = 'conversation' | 'interview' | 'deduction' | 'mystery' | 'study' | 'analysis' | 'board_game' | 'agent' | 'simulation';
+export type SessionSurfaceProfile = 'text' | 'form' | 'board' | 'hybrid' | 'timeline' | 'dashboard';
 export type SessionTopology = 'group' | 'direct' | 'thread' | 'team' | 'table';
 export type SessionActorKind = 'ai_agent' | 'human_user' | 'system_agent' | 'moderator_agent' | 'observer';
 export type SessionViewerCapability = 'speak' | 'guide' | 'moderate' | 'judge' | 'observe' | 'speak_as';
@@ -272,11 +272,19 @@ export const DEFAULT_SESSION_FAMILY_REGISTRY: SessionFrameworkRegistry = {
     study: { definition: { key: 'study', label: 'study', defaultActionChance: 0.12 }, defaultSurfaceProfile: 'form' },
     analysis: { definition: { key: 'analysis', label: 'analysis', defaultActionChance: 0.1 }, defaultSurfaceProfile: 'text' },
     board_game: { definition: { key: 'board_game', label: 'board_game', defaultActionChance: 0.22 }, defaultSurfaceProfile: 'board' },
+    agent: { definition: { key: 'agent', label: 'agent', defaultActionChance: 0.2 }, defaultSurfaceProfile: 'dashboard' },
+    simulation: { definition: { key: 'simulation', label: 'simulation', defaultActionChance: 0.1 }, defaultSurfaceProfile: 'timeline' },
   },
   scenarios: {
     'open-chat': { scenarioId: 'open-chat', label: 'open-chat', family: 'conversation', surfaceProfile: 'text' },
     'direct-chat': { scenarioId: 'direct-chat', label: 'direct-chat', family: 'conversation', surfaceProfile: 'text' },
     'ai-private-thread': { scenarioId: 'ai-private-thread', label: 'ai-private-thread', family: 'conversation', surfaceProfile: 'text' },
+    'group-discussion': { scenarioId: 'group-discussion', label: 'group-discussion', family: 'analysis', surfaceProfile: 'text' },
+    'roundtable-discussion': { scenarioId: 'roundtable-discussion', label: 'roundtable-discussion', family: 'analysis', surfaceProfile: 'text' },
+    'story-reader': { scenarioId: 'story-reader', label: 'story-reader', family: 'conversation', surfaceProfile: 'hybrid' },
+    'ielts-coach': { scenarioId: 'ielts-coach', label: 'ielts-coach', family: 'study', surfaceProfile: 'form' },
+    'single-agent-workflow': { scenarioId: 'single-agent-workflow', label: 'single-agent-workflow', family: 'agent', surfaceProfile: 'dashboard' },
+    'multi-agent-workflow': { scenarioId: 'multi-agent-workflow', label: 'multi-agent-workflow', family: 'agent', surfaceProfile: 'dashboard' },
     'panel-interview': { scenarioId: 'panel-interview', label: 'panel-interview', family: 'interview', surfaceProfile: 'form' },
     'werewolf-classic': { scenarioId: 'werewolf-classic', label: 'werewolf-classic', family: 'deduction', surfaceProfile: 'hybrid' },
     'murder-mystery': { scenarioId: 'murder-mystery', label: 'murder-mystery', family: 'mystery', surfaceProfile: 'hybrid' },
@@ -474,6 +482,8 @@ export function deriveSurfaceProfileSurfaces(profile: SessionSurfaceProfile): Se
   if (profile === 'form') return [buildDefaultFormSurface('default', [], 'Form')];
   if (profile === 'board') return [buildDefaultBoardSurface(), createDefaultTextInputSurface({ key: 'board-chat', label: 'Chat' })];
   if (profile === 'hybrid') return [createDefaultTextInputSurface({ key: 'hybrid-text', label: 'Chat' }), buildHybridSurface('Actions')];
+  if (profile === 'timeline') return [createDefaultTextInputSurface({ key: 'timeline-text', label: 'Story' }), buildHybridSurface('Branches')];
+  if (profile === 'dashboard') return [createDefaultTextInputSurface({ key: 'dashboard-text', label: 'Workflow' }), buildDefaultFormSurface('dashboard-action', [], 'Tasks')];
   return [createDefaultTextInputSurface()];
 }
 

@@ -1,4 +1,4 @@
-import { Box, Button, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { useMemo, useState } from 'react';
 import ChatInput from '../chat/ChatInput';
 import type { SessionInputSurfaceDefinition } from '../../types/chat';
@@ -30,9 +30,15 @@ function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
 
 export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, hideSpeakAsChip, onSendError, onOpenPanel, onDraftActivity }: SessionComposerHostProps) {
   const primarySurface = surfaces.find((surface) => surface.type === 'text') || surfaces[0];
-  const secondarySurfaces = surfaces.filter((surface) => surface !== primarySurface && surface.type === 'board');
+  const secondarySurfaces = surfaces.filter((surface) => surface !== primarySurface && (surface.type === 'board' || surface.type === 'form' || surface.type === 'hybrid'));
   const [fieldState, setFieldState] = useState<Record<string, Record<string, string>>>(() => buildInitialFieldState(surfaces));
   const boardSurface = useMemo(() => secondarySurfaces.find((surface) => surface.type === 'board'), [secondarySurfaces]);
+  const buildSubmitButtonLabel = (surface: SessionInputSurfaceDefinition) => {
+    if (surface.type === 'board') return '提交棋盘动作';
+    if ((surface.label || '').toLowerCase().includes('workflow')) return '提交流程动作';
+    if ((surface.label || '').toLowerCase().includes('timeline')) return '提交剧情动作';
+    return '提交表单动作';
+  };
 
   return (
     <Stack spacing={1}>
@@ -94,6 +100,8 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
                   <TextField
                     key={`${surface.key}-${field.key}`}
                     size="small"
+                    select={field.type === 'single_select'}
+                    type={field.type === 'number' ? 'number' : 'text'}
                     multiline={field.type === 'textarea'}
                     minRows={field.type === 'textarea' ? 3 : undefined}
                     label={field.label}
@@ -106,7 +114,13 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
                         [field.key]: e.target.value,
                       },
                     }))}
-                  />
+                  >
+                    {field.type === 'single_select'
+                      ? (field.options || []).map((option) => (
+                        <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                      ))
+                      : null}
+                  </TextField>
                 ))}
                 <Button
                   variant="outlined"

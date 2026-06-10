@@ -39,6 +39,7 @@ function PaneShell({ role, title, children }: { role: 'master' | 'detail'; title
   const resolvedTitle = headerTitle ?? title;
   const showHeader = resolvedTitle != null || headerActions != null;
   const autoHide = useAutoHideHeader(!showHeader);
+  const topInset = showHeader && !autoHide.hidden ? GLASS_HEADER_HEIGHT : 0;
 
   const contextValue = useMemo(() => ({
     setHeaderActions,
@@ -62,20 +63,24 @@ function PaneShell({ role, title, children }: { role: 'master' | 'detail'; title
           }}
         >
           {showHeader ? (
-            <Box
-              sx={{
-                flexShrink: 0,
-                height: autoHide.hidden ? 0 : GLASS_HEADER_HEIGHT,
-                overflow: 'hidden',
-                transition: 'height 260ms cubic-bezier(0.2, 0, 0, 1)',
-              }}
-            >
-              <GlassHeader title={resolvedTitle} actions={headerActions} hidden={autoHide.hidden} overlay={false} zIndex={1} />
-            </Box>
+            <GlassHeader title={resolvedTitle} actions={headerActions} hidden={autoHide.hidden} overlay zIndex={1} />
           ) : null}
           <Box
-            onScroll={(event) => autoHide.handleScrollTop(event.currentTarget.scrollTop)}
-            sx={{ flex: 1, minHeight: 0, overflow: 'auto', scrollbarGutter: 'stable' }}
+            onScroll={(event) => {
+              const { currentTarget } = event;
+              autoHide.handleScrollTop(currentTarget.scrollTop, {
+                scrollHeight: currentTarget.scrollHeight,
+                clientHeight: currentTarget.clientHeight,
+              });
+            }}
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              overflow: 'auto',
+              scrollbarGutter: 'stable',
+              pt: `${topInset}px`,
+              transition: 'padding-top 260ms cubic-bezier(0.2, 0, 0, 1)',
+            }}
           >
             {children}
           </Box>

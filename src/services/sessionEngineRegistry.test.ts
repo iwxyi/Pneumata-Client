@@ -21,6 +21,17 @@ describe('sessionEngineRegistry', () => {
     }))).toBe('werewolf');
   });
 
+  it('resolves new scenario families before legacy family fallback', () => {
+    expect(resolveSessionFamilyKey(chat({
+      mode: 'open_chat',
+      sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'group-discussion', surfaceProfile: 'text' },
+    }))).toBe('analysis');
+    expect(resolveSessionEngineKey(chat({
+      mode: 'open_chat',
+      sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'ielts-coach', surfaceProfile: 'form' },
+    }))).toBe('interview');
+  });
+
   it('keeps legacy mode fallback and family labels', () => {
     expect(resolveSessionEngineKey(chat({ mode: 'werewolf' }))).toBe('werewolf');
     expect(resolveSessionFamilyKey(chat({ mode: 'murder_mystery' }))).toBe('mystery');

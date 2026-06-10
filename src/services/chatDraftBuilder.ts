@@ -1,4 +1,4 @@
-import type { ChatStyle, GroupChat, RuntimeEvolutionIntensity } from '../types/chat';
+import type { ChatStyle, GroupChat, RuntimeEvolutionIntensity, SessionKind } from '../types/chat';
 import {
   DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
   DEFAULT_CONVERSATION_DRAMA_RULES,
@@ -8,6 +8,7 @@ import {
   DEFAULT_OPEN_CHAT_MODE_STATE,
   createDefaultSessionKind,
 } from '../types/chat';
+import { getRoomTemplateDefaultsBySessionKind, hasTemplateDefault } from './roomTemplates';
 import { normalizeRuntimeSeedLines } from './runtimeSeed';
 
 export interface ChatDraftInput {
@@ -16,6 +17,15 @@ export interface ChatDraftInput {
   topic: string;
   style: ChatStyle;
   runtimeEvolutionIntensity: RuntimeEvolutionIntensity;
+  sessionKind?: SessionKind;
+  discussionRoundsTarget?: number;
+  storyBranchMode?: 'guided' | 'open';
+  studyGoalLabel?: string;
+  agentGoalLabel?: string;
+  boardColumns?: number;
+  boardRows?: number;
+  deductionFactionCount?: number;
+  mysteryClueCount?: number;
   memberIds: string[];
   operatorIds?: string[];
   showRoleActions: boolean;
@@ -77,10 +87,28 @@ function buildRuntimeSeed(input: Pick<ChatDraftInput, 'seedMemoryText' | 'seedAr
 }
 
 export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'> {
-  const sessionKind = createDefaultSessionKind('group', 'open_chat');
+  const sessionKind = input.sessionKind || createDefaultSessionKind('group', 'open_chat');
+  const templateDefaults = getRoomTemplateDefaultsBySessionKind(sessionKind);
+  const mode = sessionKind.scenarioId === 'group-discussion'
+    ? 'group_discussion'
+    : sessionKind.scenarioId === 'roundtable-discussion'
+      ? 'roundtable'
+      : sessionKind.scenarioId === 'story-reader'
+        ? 'scripted_play'
+        : sessionKind.scenarioId === 'ielts-coach'
+          ? 'classroom'
+          : sessionKind.scenarioId === 'single-agent-workflow' || sessionKind.scenarioId === 'multi-agent-workflow'
+            ? 'agent_workflow'
+            : sessionKind.scenarioId === 'board-game'
+              ? 'board_game'
+              : sessionKind.scenarioId === 'werewolf-classic'
+                ? 'werewolf'
+                : sessionKind.scenarioId === 'murder-mystery'
+                  ? 'murder_mystery'
+                  : 'open_chat';
   return {
     type: 'group',
-    mode: 'open_chat',
+    mode,
     sessionKind,
     modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG,
     modeState: DEFAULT_OPEN_CHAT_MODE_STATE,
@@ -88,8 +116,49 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
     scenarioState: {
       turnOrder: input.memberIds,
       currentTurnActorId: null,
-      board: null,
-      factions: [],
+      board: sessionKind.scenarioId === 'board-game'
+        ? { schema: { kind: 'grid', columns: input.boardColumns || 8, rows: input.boardRows || 8 }, pieces: [] }
+        : null,
+      factions: sessionKind.scenarioId === 'werewolf-classic'
+        ? Array.from({ length: Math.max(2, input.deductionFactionCount || 2) }, (_, index) => ({ factionId: `faction-${index + 1}`, label: `阵营${index + 1}` }))
+        : [],
+      phase: templateDefaults.initialPhase
+        || (sessionKind.scenarioId === 'roundtable-discussion'
+          ? 'roundtable'
+          : sessionKind.scenarioId === 'board-game'
+            ? 'board'
+            : sessionKind.scenarioId === 'werewolf-classic'
+              ? 'night'
+              : sessionKind.scenarioId === 'murder-mystery'
+                ? 'investigation'
+                : undefined),
+      goals: templateDefaults.goalLabel || sessionKind.scenarioId === 'werewolf-classic' || sessionKind.scenarioId === 'murder-mystery' || sessionKind.scenarioId === 'board-game'
+        ? [{
+            goalId: `${sessionKind.family}-goal`,
+            label: templateDefaults.goalLabel
+              || (sessionKind.scenarioId === 'board-game'
+                ? input.topic.trim() || input.name.trim()
+                : sessionKind.scenarioId === 'werewolf-classic'
+                  ? input.topic.trim() || '找出对手阵营'
+                  : sessionKind.scenarioId === 'murder-mystery'
+                    ? input.topic.trim() || '还原案件真相'
+                    : input.studyGoalLabel?.trim() || input.agentGoalLabel?.trim() || input.topic.trim() || input.name.trim()),
+            status: 'active',
+            progress: 0,
+          }]
+        : [],
+      progress: templateDefaults.progressLabel
+        ? [{ key: `${sessionKind.family}-progress`, label: templateDefaults.progressLabel, value: 0, target: templateDefaults.progressTarget || (input.discussionRoundsTarget || 100) }]
+        : sessionKind.scenarioId === 'werewolf-classic'
+          ? [{ key: 'deduction-progress', label: '推理进度', value: 0, target: 100 }]
+          : sessionKind.scenarioId === 'murder-mystery'
+            ? [{ key: 'mystery-progress', label: '搜证进度', value: 0, target: input.mysteryClueCount || 6 }]
+            : [],
+      branches: hasTemplateDefault(templateDefaults, 'storyBranchMode')
+        ? [{ branchId: 'main', label: input.topic.trim() || input.name.trim(), status: input.storyBranchMode === 'open' ? 'chosen' : 'available' }]
+        : hasTemplateDefault(templateDefaults, 'mysteryClueCount')
+          ? Array.from({ length: Math.max(1, input.mysteryClueCount || templateDefaults.mysteryClueCount || 6) }, (_, index) => ({ branchId: `clue-${index + 1}`, label: `线索${index + 1}`, status: index === 0 ? 'available' : 'locked' }))
+          : [],
       seats: input.memberIds.map((memberId, index) => ({ seatId: `seat-${index + 1}`, seatIndex: index, actorId: memberId })),
       roleAssignments: [],
     },

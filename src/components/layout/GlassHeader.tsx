@@ -40,6 +40,7 @@ export default function GlassHeader({
         justifyContent: 'space-between',
         gap: 1.5,
         transform: hidden ? 'translateY(-100%)' : 'translateY(0)',
+        pointerEvents: hidden ? 'none' : 'auto',
         bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(245,245,247,0.68)' : 'rgba(10,10,15,0.42)',
         backdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(22px) saturate(0.96) brightness(1.015) contrast(0.92)' : 'blur(20px) saturate(0.90) brightness(0.84)',
         WebkitBackdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(22px) saturate(0.96) brightness(1.015) contrast(0.92)' : 'blur(20px) saturate(0.90) brightness(0.84)',
