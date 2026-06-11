@@ -48,7 +48,7 @@ function getActionSchema(conversation: GroupChat) {
         visibility: 'public' as const,
         fields: [
           { key: 'pieceId', label: '棋子ID', type: 'text' as const, required: false, placeholder: '例如：piece-1' },
-          { key: 'position', label: '目标位置', type: 'text' as const, required: true, placeholder: '例如：A3' },
+          { key: 'position', label: '目标位置', type: 'text' as const, required: true, placeholder: `例如：A3（${conversation.scenarioState?.board?.schema?.columns || 8}×${conversation.scenarioState?.board?.schema?.rows || 8}）` },
           { key: 'move', label: '动作说明', type: 'text' as const, required: false, placeholder: '例如：advance' },
         ],
       },

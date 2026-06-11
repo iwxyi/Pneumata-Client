@@ -2,9 +2,10 @@ import { useMemo, useState } from 'react';
 import {
   Box, Typography, Button, Chip, TextField,
   ToggleButtonGroup, ToggleButton,
-  FormControlLabel, Switch,
+  FormControlLabel, Switch, Tooltip,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutlineOutlined';
 import EditIcon from '@mui/icons-material/Edit';
 import BackupIcon from '@mui/icons-material/Download';
 import RestoreIcon from '@mui/icons-material/Upload';
@@ -259,6 +260,8 @@ export default function SettingsPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const settings = useSettingsStore();
+  const compactBubbleMode = settings.compactBubbleMode;
+  const compactPrivateBubbleMode = settings.compactPrivateBubbleMode;
   const user = useAuthStore((s) => s.user);
   const authMode = useAuthStore((s) => s.authMode);
   const [userBubblePickerOpen, setUserBubblePickerOpen] = useState(false);
@@ -545,6 +548,32 @@ export default function SettingsPage() {
                   </ToggleButton>
                 ))}
               </ToggleButtonGroup>
+            </Box>
+            <Box sx={{ display: 'grid', gap: 0.75 }}>
+              <FormControlLabel
+                sx={{ m: 0 }}
+                control={<Switch checked={compactBubbleMode} onChange={(e) => settings.setCompactBubbleMode(e.target.checked)} />}
+                label={
+                  <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                    <span>{i18n.language.startsWith('zh') ? '简洁模式' : 'Compact bubble mode'}</span>
+                    <Tooltip title={i18n.language.startsWith('zh') ? '除自己发送和话题引导外，其余消息统一显示为默认白底黑字。以角色身份发送仍按角色气泡显示。' : 'All bubbles except your own messages and topic guidance use the default white bubble. Speaking as a character still keeps the character bubble.'}>
+                      <HelpOutlineIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                    </Tooltip>
+                  </Box>
+                }
+              />
+              <FormControlLabel
+                sx={{ m: 0 }}
+                control={<Switch checked={compactPrivateBubbleMode} onChange={(e) => settings.setCompactPrivateBubbleMode(e.target.checked)} />}
+                label={
+                  <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                    <span>{i18n.language.startsWith('zh') ? '私聊简洁模式' : 'Compact private bubbles'}</span>
+                    <Tooltip title={i18n.language.startsWith('zh') ? '在单聊和 AI 私聊里不显示彩色角色气泡，统一使用默认白底黑字。' : 'Direct and AI-private chats use default white bubbles instead of colored character bubbles.'}>
+                      <HelpOutlineIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                    </Tooltip>
+                  </Box>
+                }
+              />
             </Box>
           </Box>
         </SurfaceCard>

@@ -87,7 +87,7 @@ export default function ManagementSection(props: ManagementSectionProps) {
             <Box sx={{ display: 'grid', gap: 0.5 }}>
               <FormControlLabel control={<Switch checked={props.autoModeration} onChange={(e) => props.onAutoModerationChange(e.target.checked)} />} label={isZh ? '自动管理' : 'Auto moderation'} />
               <FormControlLabel control={<Switch checked={props.allowMute} onChange={(e) => props.onAllowMuteChange(e.target.checked)} />} label={isZh ? '允许禁言' : 'Allow mute'} />
-              {isGroup ? <FormControlLabel control={<Switch checked={props.allowPrivateThreads} onChange={(e) => props.onAllowPrivateThreadsChange(e.target.checked)} />} label={isZh ? '允许拉私聊' : 'Allow private threads'} /> : null}
+              {isGroup ? <FormControlLabel control={<Switch checked={props.allowPrivateThreads} onChange={(e) => props.onAllowPrivateThreadsChange(e.target.checked)} />} label={isZh ? '允许角色私聊' : 'Allow character private chats'} /> : null}
             </Box>
           </Box>
       </SurfaceCard>

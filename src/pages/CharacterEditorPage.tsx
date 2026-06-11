@@ -212,7 +212,11 @@ export default function CharacterEditorPage() {
             await deleteCharacter(editId);
           }
           setDeleteOpen(false);
-          goBack();
+          if (returnTo) {
+            navigate(decodeURIComponent(returnTo), { replace: true });
+          } else {
+            navigate('/characters', { replace: true });
+          }
         }}
         onCancel={() => setDeleteOpen(false)}
         destructive

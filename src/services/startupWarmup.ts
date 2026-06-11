@@ -1,3 +1,6 @@
+import { useChatStore } from '../stores/useChatStore';
+import { useCharacterStore } from '../stores/useCharacterStore';
+
 let startupDataWarmupStarted = false;
 function runAfterFirstPaint(task: () => void, delay = 600) {
   window.setTimeout(task, delay);
@@ -8,18 +11,14 @@ export function warmupStartupData() {
   startupDataWarmupStarted = true;
 
   runAfterFirstPaint(() => {
-    void import('../stores/useChatStore').then(({ useChatStore }) => {
-      const store = useChatStore;
-      void Promise.resolve(store.persist.rehydrate()).finally(() => {
-        store.getState().markChatsWarm();
-      });
+    const store = useChatStore;
+    void Promise.resolve(store.persist.rehydrate()).finally(() => {
+      store.getState().markChatsWarm();
     });
 
-    void import('../stores/useCharacterStore').then(({ useCharacterStore }) => {
-      const store = useCharacterStore;
-      void Promise.resolve(store.persist.rehydrate()).finally(() => {
-        store.getState().markCharactersWarm();
-      });
+    const characterStore = useCharacterStore;
+    void Promise.resolve(characterStore.persist.rehydrate()).finally(() => {
+      characterStore.getState().markCharactersWarm();
     });
   });
 }

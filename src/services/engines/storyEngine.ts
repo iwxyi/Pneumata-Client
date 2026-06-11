@@ -39,6 +39,10 @@ function getAvailableActions() {
   ];
 }
 
+function paramsPlaceholder(conversation: GroupChat, fallback: string) {
+  return conversation.scenarioState?.storyDirection || fallback;
+}
+
 function getActionSchema(conversation: GroupChat) {
   const branchOptions = (conversation.scenarioState?.branches || [{ branchId: 'main', label: conversation.topic || '主线剧情', status: 'available' }]).map((branch) => ({
     label: branch.label,
@@ -54,7 +58,7 @@ function getActionSchema(conversation: GroupChat) {
         visibility: 'public' as const,
         fields: [
           { key: 'branchId', label: '分支', type: 'single_select' as const, required: true, options: branchOptions },
-          { key: 'prompt', label: '推进方式', type: 'textarea' as const, placeholder: '例如：让角色沿着这条线继续推进' },
+          { key: 'prompt', label: '推进方式', type: 'textarea' as const, placeholder: paramsPlaceholder(conversation, '让角色沿着这条线继续推进') },
         ],
       },
       {
@@ -89,9 +93,9 @@ function onMessageCommitted(params: {
       worldState: {
         ...params.conversation.worldState,
         phase: 'warming' as ConversationPhase,
-        focus: params.conversation.topic || '剧情推进',
+        focus: params.conversation.scenarioState?.storyDirection || params.conversation.topic || '剧情推进',
         recentEvent: `剧情推进：${summary}${params.message.content.trim().length > 72 ? '…' : ''}`,
-        mood: 'immersive',
+        mood: params.conversation.scenarioState?.storyBackground ? 'immersive' : 'warming',
       },
     },
     characterPatches: [],

@@ -9,6 +9,7 @@ import { CLIENT_STORE_SCHEMA_VERSION } from './storeMigrations';
 import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact, looksLikeRawArtifactContext } from '../services/characterExperienceArtifacts';
 import { buildDiaryCompanionshipReflectionEvents, pickChatsForDiaryCompanionshipBackflow } from '../services/diaryCompanionshipBackflow';
 import { useSettingsStore } from './useSettingsStore';
+import { useChatStore } from './useChatStore';
 import { isCharacterFeatureEnabled } from '../services/characterGenerationPolicy';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { api, type CharacterArtifactQuery, type CharacterArtifactSummaryEntry, type CharacterArtifactSyncEntry, type SyncChangeScope } from '../services/api';
@@ -770,7 +771,6 @@ async function backfillDiaryCompanionshipRuntimeEvents(params: {
       params.entry.dateKey || dateKeyOf(now() - 24 * 60 * 60 * 1000),
       params.recentDiaryTexts,
     );
-    const { useChatStore } = await import('./useChatStore');
     const chatStore = useChatStore.getState();
     const prototypeEvents = buildDiaryCompanionshipReflectionEvents({
       entry: params.entry,

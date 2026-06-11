@@ -253,7 +253,7 @@ export default function WorldCalendarPanel({
                 ? '0 1 clamp(420px, 44vw, 560px)'
                 : '0 0 clamp(360px, 34vw, 450px)',
             },
-            alignSelf: compact ? 'flex-start' : 'stretch',
+            alignSelf: 'flex-start',
           }}
           contentSx={{ p: { xs: 1, sm: 1.25 }, '&:last-child': { pb: { xs: 1, sm: 1.25 } } }}
         >

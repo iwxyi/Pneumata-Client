@@ -497,6 +497,19 @@ export default function ChatDetailPage() {
 
   const appendEventMessageStable = appendEventMessage;
   const appendEventMessagesStable = appendEventMessages;
+
+  const appendMembershipNotice = useCallback(async (content: string) => {
+    if (!chat || !id) return;
+    await useMessageStore.getState().addMessage({
+      chatId: id,
+      type: 'system',
+      senderId: 'system',
+      senderName: 'System',
+      content,
+      emotion: 0,
+      timestamp: Date.now(),
+    });
+  }, [chat, id]);
   const addMessageStable = addAnchoredMessage;
 
   const appendLocalInterceptionHint = useCallback(async (event: LocalInterceptionEvent) => {
@@ -1042,7 +1055,7 @@ export default function ChatDetailPage() {
                 showActivityTab={showActionTab}
                 activityPanel={showActionTab ? (
                   <LazyPanel>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'stretch' }}>
                       <Button size="small" variant="outlined" onClick={() => navigate(`/calendar?conversationId=${chat.id}`)}>
                         查看当前会话日历
                       </Button>
@@ -1055,7 +1068,7 @@ export default function ChatDetailPage() {
                         compact
                         title="会话日历"
                         subtitle="世界事件驱动的会话活动时间线"
-                        showHeader
+                        showHeader={false}
                       />
                       <ChatSharePanel chat={chat} />
                       <SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} hideHeader frameless />
@@ -1075,12 +1088,19 @@ export default function ChatDetailPage() {
                 } : undefined}
                 perspectiveMemberId={effectiveAiDirectPerspectiveMemberId}
                 onStartDirectChat={chat.type === 'group' ? handleStartDirectChat : undefined}
-                onRemoveMember={chat.type === 'group' ? (charId) => {
+                onRemoveMember={chat.type === 'group' ? async (charId) => {
                   const newMembers = chat.memberIds.filter((m) => m !== charId);
-                  if (newMembers.length >= 2) updateChat(chat.id, { memberIds: newMembers });
+                  if (newMembers.length < 2) return;
+                  const removedName = members.find((member) => member.id === charId)?.name || charId;
+                  await updateChat(chat.id, { memberIds: newMembers });
+                  await appendMembershipNotice(`${removedName} 离开群聊`);
                 } : undefined}
-                onUpdateSeats={chat.type === 'group' ? (memberIds) => {
-                  updateChat(chat.id, {
+                onUpdateSeats={chat.type === 'group' ? async (memberIds) => {
+                  const previousMembers = new Set(chat.memberIds);
+                  const nextMembers = new Set(memberIds);
+                  const addedMembers = memberIds.filter((memberId) => !previousMembers.has(memberId));
+                  const removedMembers = chat.memberIds.filter((memberId) => !nextMembers.has(memberId));
+                  await updateChat(chat.id, {
                     memberIds,
                     scenarioState: {
                       ...chat.scenarioState,
@@ -1106,6 +1126,14 @@ export default function ChatDetailPage() {
                       })),
                     },
                   });
+                  if (addedMembers.length) {
+                    const names = addedMembers.map((memberId) => members.find((member) => member.id === memberId)?.name || memberId);
+                    await appendMembershipNotice(`${names.join('、')} 加入群聊`);
+                  }
+                  if (removedMembers.length) {
+                    const names = removedMembers.map((memberId) => members.find((member) => member.id === memberId)?.name || memberId);
+                    await appendMembershipNotice(`${names.join('、')} 离开群聊`);
+                  }
                 } : undefined}
               />}
             </LazyPanel>

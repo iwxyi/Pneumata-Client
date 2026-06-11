@@ -87,7 +87,7 @@ function onMessageCommitted(params: {
       worldState: {
         ...params.conversation.worldState,
         phase: (nextPhase === 'review' ? 'aligned' : 'warming') as ConversationPhase,
-        focus: params.conversation.topic || '学习目标',
+        focus: params.conversation.scenarioState?.goals?.[0]?.label || params.conversation.topic || '学习目标',
         recentEvent: `学习推进：${summary}${params.message.content.trim().length > 72 ? '…' : ''}`,
         mood: nextPhase === 'review' ? 'reflective' : 'focused',
       },

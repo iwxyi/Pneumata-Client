@@ -20,9 +20,16 @@ export interface ChatDraftInput {
   sessionKind?: SessionKind;
   discussionRoundsTarget?: number;
   storyBranchMode?: 'guided' | 'open';
+  storyBackground?: string;
+  storyDirection?: string;
+  storyOutline?: string;
   studyGoalLabel?: string;
   agentGoalLabel?: string;
   boardColumns?: number;
+  werewolfRoleConfig?: string;
+  werewolfPostGameMode?: string;
+  mysteryScript?: string;
+  mysteryRoleMappingMode?: string;
   boardRows?: number;
   deductionFactionCount?: number;
   mysteryClueCount?: number;
@@ -112,7 +119,10 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
     sessionKind,
     modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG,
     modeState: DEFAULT_OPEN_CHAT_MODE_STATE,
-    scenarioPackage: { scenarioId: sessionKind.scenarioId, label: sessionKind.scenarioId },
+    scenarioPackage: {
+      scenarioId: sessionKind.scenarioId,
+      label: sessionKind.scenarioId,
+    },
     scenarioState: {
       turnOrder: input.memberIds,
       currentTurnActorId: null,
@@ -161,6 +171,13 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
           : [],
       seats: input.memberIds.map((memberId, index) => ({ seatId: `seat-${index + 1}`, seatIndex: index, actorId: memberId })),
       roleAssignments: [],
+      storyBackground: input.storyBackground || '',
+      storyDirection: input.storyDirection || '',
+      storyOutline: input.storyOutline || '',
+      werewolfRoleConfig: input.werewolfRoleConfig || '',
+      werewolfPostGameMode: input.werewolfPostGameMode || 'free_talk',
+      mysteryScript: input.mysteryScript || '',
+      mysteryRoleMappingMode: input.mysteryRoleMappingMode || 'alias',
     },
     channels: [{ channelId: 'public', visibility: 'public', label: 'Public' }],
     layoutState: { slots: input.memberIds.map((memberId, index) => ({ slotId: `slot-${index + 1}`, x: index, y: 0, actorId: memberId })) },

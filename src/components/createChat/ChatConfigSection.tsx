@@ -1,5 +1,6 @@
 import AddIcon from '@mui/icons-material/Add';
 import HotIcon from '@mui/icons-material/LocalFireDepartment';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutlineOutlined';
 import {
   Avatar,
   Box,
@@ -11,6 +12,7 @@ import {
   Stack,
   Switch,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { CHAT_STYLE_OPTIONS, MAX_MEMBERS } from '../../constants/defaults';
@@ -163,15 +165,18 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
               label={props.showRoleActionsLabel}
             />
             {props.showMembers === false ? null : (
-              <Box>
-                <FormControlLabel
-                  control={<Switch checked={props.includeUserAsMember} onChange={(e) => props.onIncludeUserAsMemberChange(e.target.checked)} />}
-                  label={props.includeUserAsMemberLabel}
-                />
-                <Typography variant="caption" color="text.secondary" sx={{ pl: 4.5 }}>
-                  {props.includeUserAsMemberHint}
-                </Typography>
-              </Box>
+              <FormControlLabel
+                sx={{ m: 0 }}
+                control={<Switch checked={props.includeUserAsMember} onChange={(e) => props.onIncludeUserAsMemberChange(e.target.checked)} />}
+                label={
+                  <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                    <span>{props.includeUserAsMemberLabel}</span>
+                    <Tooltip title={props.includeUserAsMemberHint}>
+                      <HelpOutlineIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                    </Tooltip>
+                  </Box>
+                }
+              />
             )}
             <Box sx={{ pt: 0.5 }}>
               <TextField

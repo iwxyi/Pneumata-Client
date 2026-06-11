@@ -370,6 +370,8 @@ export interface AppSettings {
   themeColor: string;
   language: Language;
   defaultSpeed: number;
+  compactBubbleMode: boolean;
+  compactPrivateBubbleMode: boolean;
   developerMode: boolean;
   avatarGeneration: AvatarGenerationSettings;
   aiGeneration: AIGenerationSettings;
@@ -549,6 +551,8 @@ export const DEFAULT_SETTINGS: AppSettingsWithMemory = {
   themeColor: '#315A9C',
   language: 'zh',
   defaultSpeed: 1.0,
+  compactBubbleMode: false,
+  compactPrivateBubbleMode: true,
   developerMode: false,
   avatarGeneration: DEFAULT_AVATAR_GENERATION_SETTINGS,
   aiGeneration: DEFAULT_AI_GENERATION_SETTINGS,

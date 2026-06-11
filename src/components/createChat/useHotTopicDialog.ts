@@ -131,8 +131,8 @@ export function useHotTopicDialog(params: {
   useEffect(() => {
     const recommended = adaptation?.recommendedCharacters || [];
     if (!recommended.length) {
-      setSelectedCharacterNames([]);
-      setCreatedCharacterNames([]);
+      setSelectedCharacterNames((prev) => (prev.length ? [] : prev));
+      setCreatedCharacterNames((prev) => (prev.length ? [] : prev));
       return;
     }
     const recommendedNames = new Set(recommended.map((item) => item.name));
@@ -143,11 +143,14 @@ export function useHotTopicDialog(params: {
       .filter((itemName) => !existingNames.has(itemName.trim().toLowerCase()) && !createdNames.has(itemName.trim().toLowerCase()));
     setSelectedCharacterNames((prev) => {
       const kept = prev.filter((item) => recommendedNames.has(item));
-      if (kept.length) return kept;
-      return hasManualCharacterSelectionRef.current ? kept : selectableNames;
+      const next = kept.length ? kept : (hasManualCharacterSelectionRef.current ? kept : selectableNames);
+      return next.length === prev.length && next.every((item, index) => item === prev[index]) ? prev : next;
     });
-    setCreatedCharacterNames((prev) => prev.filter((createdName) => recommended.some((item) => item.name === createdName)));
-  }, [params.characters, adaptation, createdCharacterNames]);
+    setCreatedCharacterNames((prev) => {
+      const next = prev.filter((createdName) => recommended.some((item) => item.name === createdName));
+      return next.length === prev.length && next.every((item, index) => item === prev[index]) ? prev : next;
+    });
+  }, [params.characters, adaptation]);
 
   useEffect(() => {
     setSelectedCharacterNames((prev) => {
@@ -159,12 +162,18 @@ export function useHotTopicDialog(params: {
 
   useEffect(() => {
     if (!createdCharacterNames.length) return;
-    setSelectedCharacterNames((prev) => Array.from(new Set([...prev, ...createdCharacterNames])));
+    setSelectedCharacterNames((prev) => {
+      const next = Array.from(new Set([...prev, ...createdCharacterNames]));
+      return next.length === prev.length && next.every((item, index) => item === prev[index]) ? prev : next;
+    });
   }, [createdCharacterNames]);
 
   useEffect(() => {
     if (!params.characters.length) return;
-    setCreatedCharacterNames((prev) => prev.filter((createdName) => params.characters.some((character) => character.name.trim().toLowerCase() === createdName.trim().toLowerCase())));
+    setCreatedCharacterNames((prev) => {
+      const next = prev.filter((createdName) => params.characters.some((character) => character.name.trim().toLowerCase() === createdName.trim().toLowerCase()));
+      return next.length === prev.length && next.every((item, index) => item === prev[index]) ? prev : next;
+    });
   }, [params.characters]);
 
   const loadTopics = useCallback(async (sourceId: string) => {

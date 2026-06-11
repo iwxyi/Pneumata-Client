@@ -9,6 +9,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
+import { useMessageStore } from '../stores/useMessageStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { getPreferredAIProfile } from '../types/settings';
 import type { ChatStyle, RuntimeEvolutionIntensity } from '../types/chat';
@@ -81,12 +82,19 @@ export default function CreateChatPage() {
   const [runtimeEvolutionIntensity, setRuntimeEvolutionIntensity] = useState<RuntimeEvolutionIntensity>('balanced');
   const [discussionRoundsTarget, setDiscussionRoundsTarget] = useState(6);
   const [storyBranchMode, setStoryBranchMode] = useState<'guided' | 'open'>('guided');
+  const [storyBackground, setStoryBackground] = useState('');
+  const [storyDirection, setStoryDirection] = useState('');
+  const [storyOutline, setStoryOutline] = useState('');
   const [studyGoalLabel, setStudyGoalLabel] = useState('');
   const [agentGoalLabel, setAgentGoalLabel] = useState('');
   const [boardColumns, setBoardColumns] = useState(8);
   const [boardRows, setBoardRows] = useState(8);
   const [deductionFactionCount, setDeductionFactionCount] = useState(2);
+  const [werewolfRoleConfig, setWerewolfRoleConfig] = useState('');
+  const [werewolfPostGameMode, setWerewolfPostGameMode] = useState('free_talk');
   const [mysteryClueCount, setMysteryClueCount] = useState(6);
+  const [mysteryScript, setMysteryScript] = useState('');
+  const [mysteryRoleMappingMode, setMysteryRoleMappingMode] = useState('alias');
   const [allowSpeakAs, setAllowSpeakAs] = useState(true);
   const [allowDirectorMode, setAllowDirectorMode] = useState(true);
   const [allowEventInjection, setAllowEventInjection] = useState(true);
@@ -134,7 +142,6 @@ export default function CreateChatPage() {
   const seedOpeningTopicMessage = useCallback(async (chatId: string, topicText?: string | null) => {
     const openingTopic = (topicText || '').trim();
     if (!openingTopic) return;
-    const { useMessageStore } = await import('../stores/useMessageStore');
     await useMessageStore.getState().addMessage({
       chatId,
       type: 'god',
@@ -181,12 +188,19 @@ export default function CreateChatPage() {
       setRuntimeEvolutionIntensity(editingChat.runtimeEvolutionIntensity || 'balanced');
       setDiscussionRoundsTarget(editingChat.scenarioState?.progress?.find((item) => item.key === 'speeches')?.target || 6);
       setStoryBranchMode(editingChat.scenarioState?.branches?.[0]?.status === 'chosen' ? 'open' : 'guided');
+      setStoryBackground(String(editingChat.scenarioState?.storyBackground || ''));
+      setStoryDirection(String(editingChat.scenarioState?.storyDirection || ''));
+      setStoryOutline(String(editingChat.scenarioState?.storyOutline || ''));
       setStudyGoalLabel(editingChat.scenarioState?.goals?.find((item) => item.goalId === 'study-goal')?.label || '');
       setAgentGoalLabel(editingChat.scenarioState?.goals?.find((item) => item.goalId === 'agent-goal')?.label || '');
       setBoardColumns(editingChat.scenarioState?.board?.schema?.columns || 8);
       setBoardRows(editingChat.scenarioState?.board?.schema?.rows || 8);
       setDeductionFactionCount(editingChat.scenarioState?.factions?.length || 2);
+      setWerewolfRoleConfig(String(editingChat.scenarioState?.werewolfRoleConfig || ''));
+      setWerewolfPostGameMode(String(editingChat.scenarioState?.werewolfPostGameMode || 'free_talk'));
       setMysteryClueCount(editingChat.scenarioState?.progress?.find((item) => item.key === 'mystery-progress')?.target || 6);
+      setMysteryScript(String(editingChat.scenarioState?.mysteryScript || ''));
+      setMysteryRoleMappingMode(String(editingChat.scenarioState?.mysteryRoleMappingMode || 'alias'));
       setAllowSpeakAs(editingChat.directorControls.allowSpeakAs);
       setAllowDirectorMode(editingChat.directorControls.allowDirectorMode);
       setAllowEventInjection(editingChat.directorControls.allowEventInjection);
@@ -262,12 +276,19 @@ export default function CreateChatPage() {
       runtimeEvolutionIntensity,
       discussionRoundsTarget,
       storyBranchMode,
+      storyBackground,
+      storyDirection,
+      storyOutline,
       studyGoalLabel,
       agentGoalLabel,
       boardColumns,
       boardRows,
       deductionFactionCount,
+      werewolfRoleConfig,
+      werewolfPostGameMode,
       mysteryClueCount,
+      mysteryScript,
+      mysteryRoleMappingMode,
       allowSpeakAs,
       allowDirectorMode,
       allowEventInjection,
@@ -308,12 +329,19 @@ export default function CreateChatPage() {
       setRuntimeEvolutionIntensity((draft.runtimeEvolutionIntensity as RuntimeEvolutionIntensity) || chatDraftDefaults.runtimeEvolutionIntensity);
       setDiscussionRoundsTarget(Number(draft.discussionRoundsTarget || 6));
       setStoryBranchMode((draft.storyBranchMode as 'guided' | 'open') || 'guided');
+      setStoryBackground(String(draft.storyBackground || ''));
+      setStoryDirection(String(draft.storyDirection || ''));
+      setStoryOutline(String(draft.storyOutline || ''));
       setStudyGoalLabel(String(draft.studyGoalLabel || ''));
       setAgentGoalLabel(String(draft.agentGoalLabel || ''));
       setBoardColumns(Number(draft.boardColumns || 8));
       setBoardRows(Number(draft.boardRows || 8));
       setDeductionFactionCount(Number(draft.deductionFactionCount || 2));
+      setWerewolfRoleConfig(String(draft.werewolfRoleConfig || ''));
+      setWerewolfPostGameMode(String(draft.werewolfPostGameMode || 'free_talk'));
       setMysteryClueCount(Number(draft.mysteryClueCount || 6));
+      setMysteryScript(String(draft.mysteryScript || ''));
+      setMysteryRoleMappingMode(String(draft.mysteryRoleMappingMode || 'alias'));
       setAllowSpeakAs(Boolean(draft.allowSpeakAs));
       setAllowDirectorMode(Boolean(draft.allowDirectorMode));
       setAllowEventInjection(Boolean(draft.allowEventInjection));
@@ -456,11 +484,13 @@ export default function CreateChatPage() {
       const appliedTopic = !topic.trim() && suggestion.suggestedTopic;
       const appliedStyle = style === chatDraftDefaults.style && suggestion.suggestedStyle;
       const appliedRoleActions = showRoleActions === chatDraftDefaults.showRoleActions && suggestion.suggestedShowRoleActions !== undefined;
+      const appliedRoomTemplate = roomTemplate === 'open_chat' && suggestion.suggestedRoomTemplate && suggestion.suggestedRoomTemplate !== roomTemplate;
 
       if (appliedName) setName(suggestion.suggestedName!);
       if (appliedTopic) setTopic(suggestion.suggestedTopic!);
       if (appliedStyle) setStyle(suggestion.suggestedStyle!);
       if (appliedRoleActions) setShowRoleActions(suggestion.suggestedShowRoleActions!);
+      if (appliedRoomTemplate) applyRoomTemplate(suggestion.suggestedRoomTemplate!);
       if (!appliedName && !appliedTopic && !appliedStyle && !appliedRoleActions) {
         throw new Error(i18n.language.startsWith('zh') ? 'AI 没有返回可用建议' : 'AI did not return usable suggestions');
       }
@@ -484,17 +514,22 @@ export default function CreateChatPage() {
     try {
       await deleteChat(editingChat.id);
       setDeleteConfirmOpen(false);
-      navigate(-1);
+      const params = new URLSearchParams(location.search);
+      const returnTo = params.get('returnTo');
+      if (returnTo) {
+        navigate(returnTo, { replace: true });
+        return;
+      }
+      navigate('/chats', { replace: true });
     } catch (error) {
       showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '删除群聊失败' : 'Failed to delete chat'));
     }
-  }, [deleteChat, editingChat, i18n.language, navigate]);
+  }, [deleteChat, editingChat, i18n.language, location.search, navigate]);
 
   const handleClearMessages = useCallback(async () => {
     if (!editingChat) return;
     try {
       await apiClient.clearChatMessages(editingChat.id);
-      const { useMessageStore } = await import('../stores/useMessageStore');
       useMessageStore.getState().clearChatMessagesLocal(editingChat.id);
       await seedOpeningTopicMessage(editingChat.id, editingChat.topic);
       setClearMessagesConfirmOpen(false);
@@ -727,12 +762,19 @@ export default function CreateChatPage() {
           sessionKind: selectedRoomTemplate.sessionKind,
           discussionRoundsTarget,
           storyBranchMode,
+          storyBackground,
+          storyDirection,
+          storyOutline,
           studyGoalLabel,
           agentGoalLabel,
           boardColumns,
           boardRows,
           deductionFactionCount,
+          werewolfRoleConfig,
+          werewolfPostGameMode,
           mysteryClueCount,
+          mysteryScript,
+          mysteryRoleMappingMode,
           memberIds: nextMemberIds,
           operatorIds,
           showRoleActions,
@@ -779,12 +821,19 @@ export default function CreateChatPage() {
         sessionKind: selectedRoomTemplate.sessionKind,
         discussionRoundsTarget,
         storyBranchMode,
+        storyBackground,
+        storyDirection,
+        storyOutline,
         studyGoalLabel,
         agentGoalLabel,
         boardColumns,
         boardRows,
         deductionFactionCount,
+        werewolfRoleConfig,
+        werewolfPostGameMode,
         mysteryClueCount,
+        mysteryScript,
+        mysteryRoleMappingMode,
         memberIds: nextMemberIds,
         operatorIds,
         showRoleActions,
@@ -805,6 +854,18 @@ export default function CreateChatPage() {
         allowEventInjection,
         allowForcedReply,
       }));
+      if (nextMemberIds.length) {
+        const memberNames = nextMemberIds.map((memberId) => characters.find((char) => char.id === memberId)?.name || memberId);
+        await useMessageStore.getState().addMessage({
+          chatId: chat.id,
+          type: 'system',
+          senderId: 'system',
+          senderName: 'System',
+          content: `${memberNames.join('、')} 加入群聊`,
+          emotion: 0,
+          timestamp: Date.now(),
+        });
+      }
       await seedOpeningTopicMessage(chat.id, topic);
       sessionStorage.removeItem(CHAT_DRAFT_KEY);
       setChatDraftDefaults({ style, showRoleActions, runtimeEvolutionIntensity });
@@ -923,6 +984,26 @@ export default function CreateChatPage() {
             onDeductionFactionCountChange={setDeductionFactionCount}
             mysteryClueCount={mysteryClueCount}
             onMysteryClueCountChange={setMysteryClueCount}
+            storyBackground={storyBackground}
+            onStoryBackgroundChange={setStoryBackground}
+            storyDirection={storyDirection}
+            onStoryDirectionChange={setStoryDirection}
+            storyOutline={storyOutline}
+            onStoryOutlineChange={setStoryOutline}
+            werewolfRoleConfig={werewolfRoleConfig}
+            onWerewolfRoleConfigChange={setWerewolfRoleConfig}
+            werewolfPostGameMode={werewolfPostGameMode}
+            onWerewolfPostGameModeChange={setWerewolfPostGameMode}
+            mysteryScript={mysteryScript}
+            onMysteryScriptChange={setMysteryScript}
+            mysteryRoleMappingMode={mysteryRoleMappingMode}
+            onMysteryRoleMappingModeChange={setMysteryRoleMappingMode}
+            allowPrivateThreads={allowPrivateThreads}
+            onAllowPrivateThreadsChange={setAllowPrivateThreads}
+            allowCliques={allowCliques}
+            onAllowCliquesChange={setAllowCliques}
+            allowMockery={allowMockery}
+            onAllowMockeryChange={setAllowMockery}
           />
         ) : null}
 

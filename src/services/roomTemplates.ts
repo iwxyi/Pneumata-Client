@@ -44,6 +44,16 @@ export type RoomTemplateKey =
   | 'courtroom_case'
   | 'social_simulation';
 
+export interface RoomTemplateFieldDefinition {
+  key: string;
+  label: string;
+  kind: 'text' | 'textarea' | 'number' | 'single_select';
+  required?: boolean;
+  advanced?: boolean;
+  placeholder?: string;
+  options?: Array<{ label: string; value: string }>;
+}
+
 export interface RoomTemplateDefaults {
   discussionRoundsTarget?: number;
   storyBranchMode?: 'guided' | 'open';
@@ -60,6 +70,20 @@ export interface RoomTemplateDefaults {
   allowPrivateThreads?: boolean;
   allowCliques?: boolean;
   allowMockery?: boolean;
+  storyBackground?: string;
+  storyDirection?: string;
+  storyOutline?: string;
+  werewolfRoleConfig?: string;
+  werewolfPostGameMode?: string;
+  mysteryScript?: string;
+  mysteryRoleMappingMode?: string;
+}
+
+export interface RoomTemplateConfigGroup {
+  key: string;
+  label: string;
+  description?: string;
+  fields: RoomTemplateFieldDefinition[];
 }
 
 export interface RoomTemplateDefinition {
@@ -74,6 +98,7 @@ export interface RoomTemplateDefinition {
   runtimeEvolutionIntensity: RuntimeEvolutionIntensity;
   topicPlaceholder: string;
   defaults?: RoomTemplateDefaults;
+  configGroups?: RoomTemplateConfigGroup[];
 }
 
 function createTemplateSessionKind(type: GroupChat['type'], mode: GroupChat['mode'], patch: Partial<SessionKind>): SessionKind {
@@ -100,6 +125,17 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入一个话题，让角色开始自由互动',
     defaults: { allowPrivateThreads: true, allowCliques: true, allowMockery: true },
+    configGroups: [
+      {
+        key: 'social-advanced',
+        label: '互动规则',
+        fields: [
+          { key: 'allowPrivateThreads', label: '允许私下线程', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowCliques', label: '允许小圈子', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowMockery', label: '允许冲突和嘲讽', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'companion_hangout',
@@ -113,6 +149,17 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入今天发生的事、心情或想一起聊的话题',
     defaults: { allowPrivateThreads: true, allowCliques: false, allowMockery: false },
+    configGroups: [
+      {
+        key: 'companion-advanced',
+        label: '陪伴互动规则',
+        fields: [
+          { key: 'allowPrivateThreads', label: '允许私下线程', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowCliques', label: '允许小圈子', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowMockery', label: '允许尖锐表达', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'fandom_watch_party',
@@ -126,6 +173,17 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入你们正在追的剧、番或节目',
     defaults: { allowPrivateThreads: true, allowCliques: true, allowMockery: true },
+    configGroups: [
+      {
+        key: 'watch-party-advanced',
+        label: '伴看互动规则',
+        fields: [
+          { key: 'allowPrivateThreads', label: '允许私下吐槽', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowCliques', label: '允许站队小圈子', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowMockery', label: '允许犀利吐槽', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'story_reader',
@@ -138,7 +196,24 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     style: 'roleplay',
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入故事开场或当前剧情节点',
-    defaults: { storyBranchMode: 'guided', initialPhase: 'scene', goalLabel: '主线剧情', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    defaults: { storyBranchMode: 'guided', initialPhase: 'scene', goalLabel: '主线剧情', allowPrivateThreads: false, allowCliques: false, allowMockery: false, storyBackground: '', storyDirection: '', storyOutline: '' },
+    configGroups: [
+      {
+        key: 'story-required',
+        label: '故事主设定',
+        fields: [
+          { key: 'storyBackground', label: '背景设定', kind: 'textarea', required: true, placeholder: '世界背景、时间地点、主要关系' },
+          { key: 'storyDirection', label: '发展方向', kind: 'textarea', required: true, placeholder: '希望更偏恋爱、悬疑、成长、修罗场还是冒险' },
+        ],
+      },
+      {
+        key: 'story-optional',
+        label: '补充设定',
+        fields: [
+          { key: 'storyOutline', label: '剧情提纲', kind: 'textarea', placeholder: '可选：写下你已有的大纲、伏笔或关键转折' },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'campus_story',
@@ -151,7 +226,24 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     style: 'roleplay',
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入校园背景、角色关系和开场事件',
-    defaults: { storyBranchMode: 'guided', allowPrivateThreads: false, allowCliques: true, allowMockery: false },
+    defaults: { storyBranchMode: 'guided', allowPrivateThreads: false, allowCliques: true, allowMockery: false, storyBackground: '', storyDirection: '', storyOutline: '' },
+    configGroups: [
+      {
+        key: 'campus-story-required',
+        label: '校园主设定',
+        fields: [
+          { key: 'storyBackground', label: '校园背景', kind: 'textarea', required: true, placeholder: '学校、宿舍、社团、人物关系' },
+          { key: 'storyDirection', label: '剧情方向', kind: 'textarea', required: true, placeholder: '成长、群像、社团竞争、友情或恋爱' },
+        ],
+      },
+      {
+        key: 'campus-story-optional',
+        label: '可选补充',
+        fields: [
+          { key: 'storyOutline', label: '事件提纲', kind: 'textarea', placeholder: '例如：开学周、社团招新、晚自习冲突' },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'romance_story',
@@ -164,7 +256,24 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     style: 'roleplay',
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入关系设定、情感冲突或剧情节点',
-    defaults: { storyBranchMode: 'guided', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    defaults: { storyBranchMode: 'guided', allowPrivateThreads: false, allowCliques: false, allowMockery: false, storyBackground: '', storyDirection: '', storyOutline: '' },
+    configGroups: [
+      {
+        key: 'romance-story-required',
+        label: '关系主设定',
+        fields: [
+          { key: 'storyBackground', label: '关系背景', kind: 'textarea', required: true, placeholder: '人物关系、相识过程、当前气氛' },
+          { key: 'storyDirection', label: '情感方向', kind: 'textarea', required: true, placeholder: '暧昧、拉扯、修罗场、破镜重圆等' },
+        ],
+      },
+      {
+        key: 'romance-story-optional',
+        label: '可选补充',
+        fields: [
+          { key: 'storyOutline', label: '关键节点', kind: 'textarea', placeholder: '例如：表白、误会、吃醋、和好' },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'group_discussion',
@@ -178,6 +287,24 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入讨论议题，例如：AI 会取代哪些职业？',
     defaults: { discussionRoundsTarget: 6, initialPhase: 'discussion', goalLabel: '小组讨论', progressLabel: '发言轮次', allowPrivateThreads: true, allowCliques: true, allowMockery: false },
+    configGroups: [
+      {
+        key: 'discussion-required',
+        label: '讨论主设定',
+        fields: [
+          { key: 'discussionRoundsTarget', label: '目标发言轮次', kind: 'number', required: true },
+        ],
+      },
+      {
+        key: 'discussion-advanced',
+        label: '讨论风格',
+        fields: [
+          { key: 'allowPrivateThreads', label: '允许私下线程', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowCliques', label: '允许结盟与小圈子', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowMockery', label: '允许尖锐或嘲讽', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'roundtable_discussion',
@@ -191,6 +318,22 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入圆桌议题，例如：未来教育会如何变化？',
     defaults: { discussionRoundsTarget: 4, allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    configGroups: [
+      {
+        key: 'roundtable-required',
+        label: '圆桌主设定',
+        fields: [
+          { key: 'discussionRoundsTarget', label: '目标轮次', kind: 'number', required: true },
+        ],
+      },
+      {
+        key: 'roundtable-advanced',
+        label: '圆桌规则',
+        fields: [
+          { key: 'allowPrivateThreads', label: '允许私下线程', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'debate_arena',
@@ -204,6 +347,23 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入正反命题，例如：AI 应该拥有法律人格吗？',
     defaults: { discussionRoundsTarget: 5, allowPrivateThreads: false, allowCliques: true, allowMockery: true },
+    configGroups: [
+      {
+        key: 'debate-required',
+        label: '辩论主设定',
+        fields: [
+          { key: 'discussionRoundsTarget', label: '目标轮次', kind: 'number', required: true },
+        ],
+      },
+      {
+        key: 'debate-advanced',
+        label: '辩论规则',
+        fields: [
+          { key: 'allowCliques', label: '允许结盟', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowMockery', label: '允许尖锐交锋', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'brainstorm_workshop',
@@ -217,6 +377,22 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入创意主题，例如：设计一个未来校园产品',
     defaults: { discussionRoundsTarget: 8, allowPrivateThreads: true, allowCliques: false, allowMockery: false },
+    configGroups: [
+      {
+        key: 'brainstorm-required',
+        label: '共创主设定',
+        fields: [
+          { key: 'discussionRoundsTarget', label: '目标轮次', kind: 'number', required: true },
+        ],
+      },
+      {
+        key: 'brainstorm-advanced',
+        label: '共创规则',
+        fields: [
+          { key: 'allowPrivateThreads', label: '允许私下小组讨论', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'retrospective_room',
@@ -230,6 +406,15 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入要复盘的项目、活动或结果',
     defaults: { discussionRoundsTarget: 4, allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    configGroups: [
+      {
+        key: 'retrospective-required',
+        label: '复盘主设定',
+        fields: [
+          { key: 'discussionRoundsTarget', label: '目标轮次', kind: 'number', required: true },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'ielts_coach',
@@ -243,6 +428,15 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入学习目标，例如：雅思口语 7.5',
     defaults: { studyGoalLabel: '雅思口语 7.5', initialPhase: 'learning', progressLabel: '学习进度', progressTarget: 100, allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    configGroups: [
+      {
+        key: 'study-required',
+        label: '学习主设定',
+        fields: [
+          { key: 'studyGoalLabel', label: '学习目标', kind: 'text', required: true, placeholder: '例如：雅思口语 7.5' },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'interview_prep',
@@ -256,6 +450,22 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入岗位、方向或训练目标',
     defaults: { studyGoalLabel: '完成一轮结构化面试训练', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    configGroups: [
+      {
+        key: 'interview-required',
+        label: '训练主设定',
+        fields: [
+          { key: 'studyGoalLabel', label: '训练目标', kind: 'text', required: true, placeholder: '例如：前端工程师一面模拟' },
+        ],
+      },
+      {
+        key: 'interview-advanced',
+        label: '训练风格',
+        fields: [
+          { key: 'allowMockery', label: '允许尖锐追问', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'writing_coach',
@@ -269,6 +479,15 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入写作目标，例如：完成一篇申请文书',
     defaults: { studyGoalLabel: '完成一篇高质量写作任务', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    configGroups: [
+      {
+        key: 'writing-required',
+        label: '写作主设定',
+        fields: [
+          { key: 'studyGoalLabel', label: '写作目标', kind: 'text', required: true, placeholder: '例如：申请文书、小说开篇、产品长文' },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'single_agent_workflow',
@@ -282,6 +501,15 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入任务目标，例如：写一份产品分析报告',
     defaults: { agentGoalLabel: '完成任务并输出结果', initialPhase: 'planning', progressLabel: '任务进度', progressTarget: 100, allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    configGroups: [
+      {
+        key: 'agent-required',
+        label: '任务主设定',
+        fields: [
+          { key: 'agentGoalLabel', label: '任务目标', kind: 'textarea', required: true, placeholder: '希望这个房间最终完成什么' },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'research_agent_room',
@@ -295,6 +523,15 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入调研主题，例如：AI 陪伴产品市场格局',
     defaults: { agentGoalLabel: '完成研究并沉淀结论', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    configGroups: [
+      {
+        key: 'research-agent-required',
+        label: '研究主设定',
+        fields: [
+          { key: 'agentGoalLabel', label: '研究目标', kind: 'textarea', required: true, placeholder: '明确要研究什么、沉淀什么' },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'multi_agent_workflow',
@@ -308,6 +545,22 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入协作目标，例如：从0到1设计一款产品',
     defaults: { agentGoalLabel: '多角色协作推进目标', allowPrivateThreads: false, allowCliques: true, allowMockery: false },
+    configGroups: [
+      {
+        key: 'multi-agent-required',
+        label: '协作主设定',
+        fields: [
+          { key: 'agentGoalLabel', label: '协作目标', kind: 'textarea', required: true, placeholder: '最终要一起完成什么' },
+        ],
+      },
+      {
+        key: 'multi-agent-advanced',
+        label: '协作风格',
+        fields: [
+          { key: 'allowCliques', label: '允许形成小组分工', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'startup_war_room',
@@ -321,6 +574,22 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入创业目标、产品阶段或当前问题',
     defaults: { agentGoalLabel: '围绕创业目标完成协作拆解', allowPrivateThreads: false, allowCliques: true, allowMockery: false },
+    configGroups: [
+      {
+        key: 'startup-required',
+        label: '战情主设定',
+        fields: [
+          { key: 'agentGoalLabel', label: '战情目标', kind: 'textarea', required: true, placeholder: '本轮创业协作要达成什么' },
+        ],
+      },
+      {
+        key: 'startup-advanced',
+        label: '协作规则',
+        fields: [
+          { key: 'allowCliques', label: '允许小组分工', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'content_studio',
@@ -334,6 +603,22 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入选题、栏目或需要共创的内容目标',
     defaults: { agentGoalLabel: '完成一次内容共创与交付', allowPrivateThreads: false, allowCliques: true, allowMockery: false },
+    configGroups: [
+      {
+        key: 'content-required',
+        label: '内容主设定',
+        fields: [
+          { key: 'agentGoalLabel', label: '内容目标', kind: 'textarea', required: true, placeholder: '这次内容协作要产出什么' },
+        ],
+      },
+      {
+        key: 'content-advanced',
+        label: '协作规则',
+        fields: [
+          { key: 'allowCliques', label: '允许角色分工', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'board_game',
@@ -347,6 +632,16 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入棋局目标或玩法说明',
     defaults: { boardColumns: 8, boardRows: 8, allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    configGroups: [
+      {
+        key: 'board-required',
+        label: '棋盘主设定',
+        fields: [
+          { key: 'boardColumns', label: '棋盘列数', kind: 'number', required: true },
+          { key: 'boardRows', label: '棋盘行数', kind: 'number', required: true },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'chess_study_board',
@@ -360,6 +655,16 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入棋谱、局势或复盘目标',
     defaults: { boardColumns: 8, boardRows: 8, allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    configGroups: [
+      {
+        key: 'board-review-required',
+        label: '棋局主设定',
+        fields: [
+          { key: 'boardColumns', label: '棋盘列数', kind: 'number', required: true },
+          { key: 'boardRows', label: '棋盘行数', kind: 'number', required: true },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'werewolf',
@@ -372,7 +677,24 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     style: 'roleplay',
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入本局规则说明或背景设定',
-    defaults: { deductionFactionCount: 2, allowPrivateThreads: false, allowCliques: true, allowMockery: true },
+    defaults: { deductionFactionCount: 2, allowPrivateThreads: false, allowCliques: true, allowMockery: true, werewolfRoleConfig: '', werewolfPostGameMode: 'free_talk' },
+    configGroups: [
+      {
+        key: 'werewolf-required',
+        label: '本局规则',
+        fields: [
+          { key: 'deductionFactionCount', label: '阵营数量', kind: 'number', required: true },
+          { key: 'werewolfRoleConfig', label: '角色分配方案', kind: 'textarea', required: true, placeholder: '例如：2狼、1预言家、1女巫、其余平民' },
+        ],
+      },
+      {
+        key: 'werewolf-advanced',
+        label: '进阶流程',
+        fields: [
+          { key: 'werewolfPostGameMode', label: '结束后交流', kind: 'single_select', advanced: true, options: [{ label: '自由交流', value: 'free_talk' }, { label: '复盘总结', value: 'review' }, { label: '直接重开', value: 'restart' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'social_deduction_party',
@@ -385,7 +707,24 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     style: 'roleplay',
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入局内设定、身份规则或背景故事',
-    defaults: { deductionFactionCount: 3, allowPrivateThreads: false, allowCliques: true, allowMockery: true },
+    defaults: { deductionFactionCount: 3, allowPrivateThreads: false, allowCliques: true, allowMockery: true, werewolfRoleConfig: '', werewolfPostGameMode: 'review' },
+    configGroups: [
+      {
+        key: 'social-deduction-required',
+        label: '对抗主设定',
+        fields: [
+          { key: 'deductionFactionCount', label: '阵营数量', kind: 'number', required: true },
+          { key: 'werewolfRoleConfig', label: '身份规则', kind: 'textarea', required: true, placeholder: '写下身份、人数和特殊规则' },
+        ],
+      },
+      {
+        key: 'social-deduction-advanced',
+        label: '对局尾声',
+        fields: [
+          { key: 'werewolfPostGameMode', label: '结束后交流', kind: 'single_select', advanced: true, options: [{ label: '自由交流', value: 'free_talk' }, { label: '复盘总结', value: 'review' }, { label: '直接重开', value: 'restart' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'murder_mystery',
@@ -398,7 +737,24 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     style: 'roleplay',
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入剧本背景或案件设定',
-    defaults: { mysteryClueCount: 6, allowPrivateThreads: false, allowCliques: true, allowMockery: false },
+    defaults: { mysteryClueCount: 6, allowPrivateThreads: false, allowCliques: true, allowMockery: false, mysteryScript: '', mysteryRoleMappingMode: 'alias' },
+    configGroups: [
+      {
+        key: 'mystery-required',
+        label: '剧本主设定',
+        fields: [
+          { key: 'mysteryScript', label: '剧本内容 / 背景', kind: 'textarea', required: true, placeholder: '输入案件背景、人物关系、冲突和关键秘密' },
+          { key: 'mysteryClueCount', label: '线索数量', kind: 'number', required: true },
+        ],
+      },
+      {
+        key: 'mystery-advanced',
+        label: '身份映射与展示',
+        fields: [
+          { key: 'mysteryRoleMappingMode', label: '群内昵称显示', kind: 'single_select', advanced: true, options: [{ label: '原名（身份名）', value: 'alias' }, { label: '只显示身份名', value: 'role_only' }, { label: '保持原名', value: 'original' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'courtroom_case',
@@ -411,7 +767,24 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     style: 'debate',
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入案件、证据方向或法庭议题',
-    defaults: { mysteryClueCount: 8, allowPrivateThreads: false, allowCliques: true, allowMockery: false },
+    defaults: { mysteryClueCount: 8, allowPrivateThreads: false, allowCliques: true, allowMockery: false, mysteryScript: '', mysteryRoleMappingMode: 'alias' },
+    configGroups: [
+      {
+        key: 'courtroom-required',
+        label: '案件主设定',
+        fields: [
+          { key: 'mysteryScript', label: '案件背景 / 证据框架', kind: 'textarea', required: true, placeholder: '案件背景、证据点、争议焦点' },
+          { key: 'mysteryClueCount', label: '证据数量', kind: 'number', required: true },
+        ],
+      },
+      {
+        key: 'courtroom-advanced',
+        label: '身份展示',
+        fields: [
+          { key: 'mysteryRoleMappingMode', label: '群内昵称显示', kind: 'single_select', advanced: true, options: [{ label: '原名（身份名）', value: 'alias' }, { label: '只显示身份名', value: 'role_only' }, { label: '保持原名', value: 'original' }] },
+        ],
+      },
+    ],
   }),
   createTemplate({
     key: 'social_simulation',
@@ -425,6 +798,17 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入世界背景、群体关系和初始事件',
     defaults: { allowPrivateThreads: true, allowCliques: true, allowMockery: true },
+    configGroups: [
+      {
+        key: 'simulation-advanced',
+        label: '世界互动规则',
+        fields: [
+          { key: 'allowPrivateThreads', label: '允许私下线程', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowCliques', label: '允许结盟和派系', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowMockery', label: '允许冲突和嘲讽', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
   }),
 ];
 

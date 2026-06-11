@@ -7,6 +7,7 @@ import type { AIModelProfile, APIConfig } from '../types/settings';
 import { buildActionRuntimeContract, buildRuntimeEventContract } from './sessionRuntimeContract';
 import { canActorRunSessionAction, resolveMemberActorRef } from './memberActionPolicy';
 import { getUsablePreferredAIProfile } from '../types/settings';
+import { useChatStore } from '../stores/useChatStore';
 
 export interface ChatSurfaceActionContext {
   chat: GroupChat | undefined;
@@ -424,7 +425,7 @@ export async function runAutoSocialEventFlowImpl(sourceChat: GroupChat, context:
     imageModelEnabled,
     textApiConfig,
     updateChat: context.updateChat,
-    addChat: async (input) => (await import('../stores/useChatStore')).useChatStore.getState().addChat(input as never),
+    addChat: async (input) => useChatStore.getState().addChat(input as never),
     addMessage: context.addMessage,
     appendEventMessage: context.appendEventMessage,
   });

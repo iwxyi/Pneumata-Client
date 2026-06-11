@@ -321,6 +321,8 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
+  const compactBubbleMode = useSettingsStore((state) => state.compactBubbleMode);
+  const compactPrivateBubbleMode = useSettingsStore((state) => state.compactPrivateBubbleMode);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showRelationshipEvents = useSettingsStore((state) => state.developerUI.showRelationshipEvents);
@@ -469,7 +471,13 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const resolvedUserStyle = isUser && userBubbleStyleId
     ? resolveCharacterBubbleStyle({ bubbleStyle: userBubbleStyle, bubbleStyleId: userBubbleStyleId, customStyles: customBubbleStyles })
     : null;
-  const bubblePreview = resolvedStyle ? buildBubblePreview(resolvedStyle, isUser) : (resolvedUserStyle ? buildBubblePreview(resolvedUserStyle, true) : null);
+  const isGuidanceBubble = message.type === 'god';
+  const isPrivateConversation = selfMemberId !== null;
+  const useCompactBubble = (compactBubbleMode && !isUser && !isGuidanceBubble)
+    || (compactPrivateBubbleMode && isPrivateConversation && !isUser && !isGuidanceBubble);
+  const bubblePreview = useCompactBubble
+    ? { borderRadius: '18px', background: '#ffffff', color: '#111827', border: '1px solid rgba(15, 23, 42, 0.08)', boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' }
+    : (resolvedStyle ? buildBubblePreview(resolvedStyle, isUser) : (resolvedUserStyle ? buildBubblePreview(resolvedUserStyle, true) : null));
   const avatar = effectiveCharacter?.avatar;
   const wrapperJustify = isUser ? 'flex-end' : 'flex-start';
   const selfAvatarValue = isPerspectiveSelf ? effectiveCharacter?.avatar?.trim() : (isManualSpeaker ? manualSpeaker?.avatar?.trim() : currentUser?.avatar?.trim());

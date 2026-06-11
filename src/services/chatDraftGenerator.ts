@@ -3,6 +3,9 @@ import type { APIConfig } from '../types/settings';
 import type { AICharacter } from '../types/character';
 import type { ChatStyle } from '../types/chat';
 import { CHAT_STYLE_OPTIONS, MAX_MEMBERS } from '../constants/defaults';
+import { ROOM_TEMPLATES, type RoomTemplateKey } from './roomTemplates';
+const VALID_TEMPLATE_KEYS = new Set<RoomTemplateKey>(ROOM_TEMPLATES.map((item) => item.key));
+const TEMPLATE_SUMMARY = ROOM_TEMPLATES.map((item) => ({ key: item.key, label: item.label, description: item.description, category: item.categoryLabel }));
 
 const VALID_STYLES = new Set<ChatStyle>(CHAT_STYLE_OPTIONS.map((item) => item.value));
 
@@ -12,6 +15,7 @@ export interface GeneratedChatDraftSuggestion {
   suggestedStyle?: ChatStyle;
   suggestedMemberIds?: string[];
   suggestedShowRoleActions?: boolean;
+  suggestedRoomTemplate?: RoomTemplateKey;
 }
 
 interface RawGeneratedChatDraftSuggestion {
@@ -20,6 +24,7 @@ interface RawGeneratedChatDraftSuggestion {
   suggestedStyle?: unknown;
   suggestedMemberIds?: unknown;
   suggestedShowRoleActions?: unknown;
+  suggestedRoomTemplate?: unknown;
 }
 
 interface GenerateChatDraftParams {
@@ -41,7 +46,8 @@ Return strict JSON only in this shape:
   "suggestedTopic": "string",
   "suggestedStyle": "free|debate|brainstorm|roleplay",
   "suggestedMemberIds": ["character-id-1", "character-id-2"],
-  "suggestedShowRoleActions": true
+  "suggestedShowRoleActions": true,
+  "suggestedRoomTemplate": "open_chat"
 }
 Rules:
 - Use only character ids from the provided roster.
@@ -78,12 +84,14 @@ function normalizeGeneratedSuggestion(raw: RawGeneratedChatDraftSuggestion, char
     ? [...new Set(raw.suggestedMemberIds.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter((item) => validCharacterIds.has(item)))].slice(0, MAX_MEMBERS)
     : [];
 
+  const suggestedRoomTemplate = trimString(raw.suggestedRoomTemplate) as RoomTemplateKey;
   return {
     suggestedName: suggestedName || undefined,
     suggestedTopic: suggestedTopic || undefined,
     suggestedStyle: VALID_STYLES.has(suggestedStyle) ? suggestedStyle : undefined,
     suggestedMemberIds: suggestedMemberIds.length ? suggestedMemberIds : undefined,
     suggestedShowRoleActions: typeof raw.suggestedShowRoleActions === 'boolean' ? raw.suggestedShowRoleActions : undefined,
+    suggestedRoomTemplate: VALID_TEMPLATE_KEYS.has(suggestedRoomTemplate) ? suggestedRoomTemplate : undefined,
   };
 }
 
@@ -105,6 +113,7 @@ function buildUserPrompt(params: GenerateChatDraftParams) {
     constraints: {
       maxMembers: MAX_MEMBERS,
       validStyles: Array.from(VALID_STYLES),
+      validRoomTemplates: TEMPLATE_SUMMARY,
     },
     currentDraft: {
       name: draft.name.trim() || null,

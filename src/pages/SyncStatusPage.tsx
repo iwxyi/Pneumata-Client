@@ -768,29 +768,34 @@ export default function SyncStatusPage() {
                         {item.state.scope}
                       </Typography>
                     </Box>
-                    <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
-                      <Chip size="small" variant="outlined" label={isZh ? `检查 ${formatTime(item.state.lastCheckedAt, isZh)}` : `Checked ${formatTime(item.state.lastCheckedAt, isZh)}`} />
-                      <Chip size="small" variant="outlined" label={isZh ? `应用 ${formatTime(item.state.lastAppliedAt, isZh)}` : `Applied ${formatTime(item.state.lastAppliedAt, isZh)}`} />
-                      {item.state.retryAt > Date.now() ? <Chip size="small" variant="outlined" color="warning" label={isZh ? `下次重试 ${formatTime(item.state.retryAt, isZh)}` : `Retry ${formatTime(item.state.retryAt, isZh)}`} /> : null}
-                    </Stack>
-                    {item.state.cursor || item.state.revision ? (
-                      <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
-                        {`cursor=${item.state.cursor || '-'} · revision=${item.state.revision || '-'}`}
-                      </Typography>
-                    ) : null}
+                    <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                      {isZh
+                        ? `检查：${formatTime(item.state.lastCheckedAt, isZh)} · 应用：${formatTime(item.state.lastAppliedAt, isZh)}`
+                        : `Checked: ${formatTime(item.state.lastCheckedAt, isZh)} · Applied: ${formatTime(item.state.lastAppliedAt, isZh)}`}
+                      {item.state.retryAt > Date.now()
+                        ? (isZh ? ` · 重试：${formatTime(item.state.retryAt, isZh)}` : ` · Retry: ${formatTime(item.state.retryAt, isZh)}`)
+                        : ''}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                      {isZh
+                        ? `cursor：${item.state.cursor || '未记录'} · revision：${item.state.revision || '未记录'}`
+                        : `cursor: ${item.state.cursor || 'none'} · revision: ${item.state.revision || 'none'}`}
+                    </Typography>
                     {item.state.lastError ? (
-                      <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                        <Chip
-                          size="small"
-                          label={syncErrorKindLabel(parseSyncErrorClassification(item.state.lastError).kind, isZh)}
-                          color={syncErrorKindColor(parseSyncErrorClassification(item.state.lastError).kind)}
-                          variant="outlined"
-                        />
-                        <Typography variant="body2" color="error.main" sx={{ overflowWrap: 'anywhere', minWidth: 0, flex: 1 }}>
+                      <Box sx={{ display: 'grid', gap: 0.35 }}>
+                        <Typography variant="caption" color="error.main" sx={{ fontWeight: 700 }}>
+                          {syncErrorKindLabel(parseSyncErrorClassification(item.state.lastError).kind, isZh)}
+                        </Typography>
+                        <Typography variant="body2" color="error.main" sx={{ overflowWrap: 'anywhere', minWidth: 0 }}>
                           {item.state.lastError}
                         </Typography>
                       </Box>
                     ) : null}
+                    {item.state.lastError ? null : (
+                      <Typography variant="caption" color="text.secondary">
+                        {isZh ? '无异常记录' : 'No error recorded'}
+                      </Typography>
+                    )}
                   </Box>
                 );
               })}

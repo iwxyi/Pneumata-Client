@@ -2,6 +2,9 @@ import type { AICharacter } from '../types/character';
 import type { DriverMessageCommitTransition, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import { scopedStorageKey } from '../constants/brand';
+import { useChatStore } from '../stores/useChatStore';
+import { useCharacterStore } from '../stores/useCharacterStore';
+import { useMessageStore } from '../stores/useMessageStore';
 
 type MemoryMeasure = {
   usedJSHeapSize?: number | null;
@@ -408,10 +411,7 @@ function sizePerformanceResourceEntries() {
 }
 
 async function readForensicsStores() {
-  const [{ useChatStore }, { useCharacterStore }, { useMessageStore }, sessionCommitPipeline, sessionRunner] = await Promise.all([
-    import('../stores/useChatStore'),
-    import('../stores/useCharacterStore'),
-    import('../stores/useMessageStore'),
+  const [sessionCommitPipeline, sessionRunner] = await Promise.all([
     import('./sessionCommitPipeline'),
     import('./sessionRunner'),
   ]);

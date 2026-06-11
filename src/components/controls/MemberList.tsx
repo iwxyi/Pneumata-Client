@@ -247,7 +247,11 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                     minWidth: 0,
                   }}
                 >
-                  {member.name}
+                  {chat?.scenarioState?.mysteryRoleMappingMode === 'role_only'
+                    ? (chat.scenarioState?.roleAssignments?.find((item) => item.actorId === member.id)?.summary || member.name)
+                    : chat?.scenarioState?.mysteryRoleMappingMode === 'alias'
+                      ? `${member.name}（${chat.scenarioState?.roleAssignments?.find((item) => item.actorId === member.id)?.summary || '未分配身份'}）`
+                      : member.name}
                 </Typography>
                 <Box sx={{ mt: 0.25 }}>
                   <Stack spacing={0.5}>

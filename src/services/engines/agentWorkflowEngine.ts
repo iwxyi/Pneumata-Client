@@ -40,7 +40,11 @@ function getAvailableActions() {
   ];
 }
 
-function getActionSchema() {
+function paramsGoal(conversation: GroupChat) {
+  return conversation.scenarioState?.goals?.[0]?.label || '例如：先整理需求，再拆分执行步骤';
+}
+
+function getActionSchema(conversation: GroupChat) {
   return {
     title: 'Agent动作',
     actions: [
@@ -50,7 +54,7 @@ function getActionSchema() {
         description: '给当前工作流分配下一步任务。',
         visibility: 'public' as const,
         fields: [
-          { key: 'task', label: '任务内容', type: 'textarea' as const, required: true, placeholder: '例如：先整理需求，再拆分执行步骤' },
+          { key: 'task', label: '任务内容', type: 'textarea' as const, required: true, placeholder: paramsGoal(conversation) },
         ],
       },
       {
@@ -90,7 +94,7 @@ function onMessageCommitted(params: {
       worldState: {
         ...params.conversation.worldState,
         phase: (nextPhase === 'review' ? 'aligned' : nextPhase === 'executing' ? 'debating' : 'warming') as ConversationPhase,
-        focus: params.conversation.topic || '任务目标',
+        focus: params.conversation.scenarioState?.goals?.[0]?.label || params.conversation.topic || '任务目标',
         recentEvent: `任务推进：${summary}${params.message.content.trim().length > 72 ? '…' : ''}`,
         mood: nextPhase === 'review' ? 'reviewing' : nextPhase === 'executing' ? 'active' : 'planning',
       },
@@ -115,6 +119,6 @@ export const AGENT_WORKFLOW_ENGINE: SessionEngineDefinition = {
   getPhaseDefinitions,
   getVisiblePanels,
   getAvailableActions,
-  getActionSchema: () => getActionSchema(),
+  getActionSchema: ({ conversation }) => getActionSchema(conversation),
   onMessageCommitted,
 };

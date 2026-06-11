@@ -595,7 +595,12 @@ export function mergeSessionSurfaces(primary: SessionInputSurfaceDefinition[], s
 }
 
 export function resolveSessionComposerSurfaces(conversation: GroupChat, schema: SessionActionSchema | null): SessionInputSurfaceDefinition[] {
-  return mergeSessionSurfaces(defaultInputSurfacesForConversation(conversation), buildSurfacesFromActionSchema(schema));
+  const base = defaultInputSurfacesForConversation(conversation);
+  const actionSurfaces = buildSurfacesFromActionSchema(schema).filter((surface) => {
+    if (conversation.type !== 'group') return true;
+    return surface.key !== 'start_private_thread-form';
+  });
+  return mergeSessionSurfaces(base, actionSurfaces);
 }
 
 export function buildSurfaceProjectionFromSchema(conversation: GroupChat, schema: SessionActionSchema | null): SessionSurfaceProjection {

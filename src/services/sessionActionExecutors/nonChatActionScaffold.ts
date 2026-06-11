@@ -142,15 +142,7 @@ function buildDirectorInterventionRuntimeEvent(chat: GroupChat, action: SessionA
     maxTurns,
     expiresAt: typeof requestedExpiresAt === 'number' ? requestedExpiresAt : now + 10 * 60_000,
   };
-  const seed = stableEventSeed([
-    chat.id,
-    action.type,
-    now,
-    resolveDirectorInterventionIntent(action.payload?.intent),
-    action.actorId || 'user',
-    targetActorIds.join(','),
-    payload.text,
-  ]);
+  const seed = stableEventSeed([chat.id, action.type, now, payload.intent, action.actorId || 'user', targetActorIds.join(','), payload.text]);
   return {
     id: `evt_${now}_${seed}`,
     conversationId: chat.id,
@@ -168,18 +160,13 @@ function buildDirectorInterventionRuntimeEvent(chat: GroupChat, action: SessionA
 
 function handleAskQuestion(chat: GroupChat, action: SessionActionDefinition) {
   const summary = `提问${getTargetLabel(chat, action)}：${truncate(getPrompt(action), 48)}`;
-  return buildActionResult(chat, action, '面试官发起提问', summary, 'interview_question', {
-    targetIds: action.targetIds || [],
-    round: action.payload?.round,
-  });
+  return buildActionResult(chat, action, '面试官发起提问', summary, 'interview_question', { targetIds: action.targetIds || [], round: action.payload?.round });
 }
 
 function handleDirectorIntervention(chat: GroupChat, action: SessionActionDefinition) {
   const prompt = getPrompt(action);
   const summary = prompt ? `导演推进：${truncate(prompt, 48)}` : '执行了导演推进';
-  const result = buildActionResult(chat, action, '面试阶段推进', summary, 'interview_phase_control', {
-    prompt,
-  });
+  const result = buildActionResult(chat, action, '面试阶段推进', summary, 'interview_phase_control', { prompt });
   const event = buildDirectorInterventionRuntimeEvent(chat, action, summary);
   return {
     ...result,
@@ -198,27 +185,233 @@ function handleStartPrivateThread(chat: GroupChat, action: SessionActionDefiniti
 
 function handleWolfVote(chat: GroupChat, action: SessionActionDefinition) {
   const prompt = getPrompt(action);
+  const targetId = action.targetIds?.[0] || '';
   const summary = `狼人夜晚刀口${getTargetLabel(chat, action)}${prompt ? `：${truncate(prompt, 32)}` : ''}`;
   return {
-    chatPatch: buildPhasePatch(chat, 'debating', summary),
+    chatPatch: {
+      ...buildPhasePatch(chat, 'debating', summary),
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'day_discussion',
+        eliminatedActorId: targetId,
+        lastNightTargetId: targetId,
+      },
+    },
     runtimeEvents: [buildActionRuntimeContract(chat, action.type, action.payload || {}, action.actorId, { eventType: 'werewolf_night_action', title: '狼人夜晚袭击结算', summary, metrics: { targetIds: action.targetIds || [], prompt }, visibilityScope: action.visibility || 'pair_private' })],
   };
 }
 
 function handleInspectPlayer(chat: GroupChat, action: SessionActionDefinition) {
+  const targetId = action.targetIds?.[0] || '';
   const summary = `预言家查验${getTargetLabel(chat, action)}`;
   return {
-    chatPatch: buildPhasePatch(chat, 'debating', summary),
+    chatPatch: {
+      ...buildPhasePatch(chat, 'warming', summary),
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        lastInspectionTargetId: targetId,
+      },
+    },
     runtimeEvents: [buildActionRuntimeContract(chat, action.type, action.payload || {}, action.actorId, { eventType: 'werewolf_inspection', title: '预言家夜晚查验', summary, metrics: { targetIds: action.targetIds || [] }, visibilityScope: action.visibility || 'role_private' })],
   };
 }
 
 function handleVotePlayer(chat: GroupChat, action: SessionActionDefinition) {
   const prompt = getPrompt(action);
+  const targetId = action.targetIds?.[0] || '';
   const summary = `白天投票${getTargetLabel(chat, action)}${prompt ? `：${truncate(prompt, 32)}` : ''}`;
   return {
-    chatPatch: buildPhasePatch(chat, 'aligned', summary),
+    chatPatch: {
+      ...buildPhasePatch(chat, 'aligned', summary),
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'vote_resolution',
+        eliminatedActorId: targetId,
+      },
+    },
     runtimeEvents: [buildActionRuntimeContract(chat, action.type, action.payload || {}, action.actorId, { eventType: 'werewolf_vote', title: '白天投票推进', summary, metrics: { targetIds: action.targetIds || [], prompt }, visibilityScope: action.visibility || 'public' })],
+  };
+}
+
+function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition) {
+  const branchId = typeof action.payload?.branchId === 'string' ? action.payload.branchId : 'main';
+  const prompt = getPrompt(action);
+  const summary = `剧情分支：${branchId}${prompt ? ` · ${truncate(prompt, 36)}` : ''}`;
+  const result = buildActionResult(chat, action, '故事分支推进', summary, 'story_branch', { branchId, prompt });
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'branch',
+        branches: (chat.scenarioState?.branches || []).map((branch) => ({
+          ...branch,
+          status: branch.branchId === branchId ? 'chosen' as const : branch.status,
+        })),
+      },
+    },
+  };
+}
+
+function handleStoryScene(chat: GroupChat, action: SessionActionDefinition) {
+  const prompt = getPrompt(action);
+  const summary = `剧情场景推进${prompt ? `：${truncate(prompt, 40)}` : ''}`;
+  const result = buildActionResult(chat, action, '故事场景推进', summary, 'story_scene', { prompt });
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'scene',
+      },
+    },
+  };
+}
+
+function handleAssignStudyTask(chat: GroupChat, action: SessionActionDefinition) {
+  const task = typeof action.payload?.task === 'string' ? action.payload.task : getPrompt(action);
+  const summary = `学习任务：${truncate(task, 48)}`;
+  const result = buildActionResult(chat, action, '布置学习任务', summary, 'study_task', { task });
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'learning',
+      },
+    },
+  };
+}
+
+function handleReviewProgress(chat: GroupChat, action: SessionActionDefinition) {
+  const focus = typeof action.payload?.focus === 'string' ? action.payload.focus : getPrompt(action);
+  const summary = `学习复盘：${truncate(focus, 48)}`;
+  const result = buildActionResult(chat, action, '复盘学习进度', summary, 'study_review', { focus });
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'review',
+      },
+    },
+  };
+}
+
+function handleAssignAgentTask(chat: GroupChat, action: SessionActionDefinition) {
+  const task = typeof action.payload?.task === 'string' ? action.payload.task : getPrompt(action);
+  const summary = `分配任务：${truncate(task, 48)}`;
+  const result = buildActionResult(chat, action, '分配Agent任务', summary, 'agent_task', { task });
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'executing',
+      },
+    },
+  };
+}
+
+function handleSummarizeWorkflow(chat: GroupChat, action: SessionActionDefinition) {
+  const focus = typeof action.payload?.focus === 'string' ? action.payload.focus : getPrompt(action);
+  const summary = `流程总结：${truncate(focus, 48)}`;
+  const result = buildActionResult(chat, action, '总结工作流', summary, 'agent_summary', { focus });
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'review',
+      },
+    },
+  };
+}
+
+function handleBoardMove(chat: GroupChat, action: SessionActionDefinition) {
+  const position = typeof action.payload?.position === 'string' ? action.payload.position : '';
+  const move = typeof action.payload?.move === 'string' ? action.payload.move : '';
+  const pieceId = typeof action.payload?.pieceId === 'string' ? action.payload.pieceId : '';
+  const summary = `棋盘动作：${[pieceId, move, position].filter(Boolean).join(' / ') || '落子'}`;
+  return buildActionResult(chat, action, '执行棋盘动作', summary, 'board_move', { position, move, pieceId });
+}
+
+function handleSearchClue(chat: GroupChat, action: SessionActionDefinition) {
+  const clueId = typeof action.payload?.clueId === 'string' ? action.payload.clueId : '';
+  const prompt = getPrompt(action);
+  const summary = `搜证：${clueId || '线索'}${prompt ? ` · ${truncate(prompt, 36)}` : ''}`;
+  const result = buildActionResult(chat, action, '推进搜证', summary, 'mystery_clue', { clueId, prompt });
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'investigation',
+        branches: (chat.scenarioState?.branches || []).map((branch) => ({
+          ...branch,
+          status: branch.branchId === clueId ? 'chosen' as const : branch.status,
+        })),
+      },
+    },
+  };
+}
+
+function handleReconstructCase(chat: GroupChat, action: SessionActionDefinition) {
+  const hypothesis = typeof action.payload?.hypothesis === 'string' ? action.payload.hypothesis : getPrompt(action);
+  const summary = `还原案件：${truncate(hypothesis, 48)}`;
+  const result = buildActionResult(chat, action, '案件还原', summary, 'mystery_reconstruct', { hypothesis });
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'reconstruction',
+      },
+    },
+  };
+}
+
+function handleSummarizeDiscussion(chat: GroupChat, action: SessionActionDefinition) {
+  const summaryText = typeof action.payload?.focus === 'string' ? action.payload.focus : getPrompt(action);
+  const summary = `讨论总结：${truncate(summaryText, 48)}`;
+  const result = buildActionResult(chat, action, '总结讨论', summary, 'discussion_summary', { summaryText });
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'synthesis',
+        summaryText,
+      },
+    },
+  };
+}
+
+function handleShiftToSynthesis(chat: GroupChat, action: SessionActionDefinition) {
+  const summary = '手动切换到收束阶段';
+  return {
+    ...buildActionResult(chat, action, '切换讨论阶段', summary, 'discussion_phase_shift', { phase: 'synthesis' }),
+    chatPatch: {
+      ...chat,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        phase: 'synthesis',
+      },
+      worldState: {
+        ...chat.worldState,
+        phase: 'aligned' as const,
+        recentEvent: summary,
+      },
+    },
   };
 }
 
@@ -229,6 +422,17 @@ function getHandler(action: SessionActionDefinition) {
   if (action.type === 'wolf_vote') return handleWolfVote;
   if (action.type === 'inspect_player') return handleInspectPlayer;
   if (action.type === 'vote_player') return handleVotePlayer;
+  if (action.type === 'choose_story_branch') return handleStoryBranch;
+  if (action.type === 'advance_story_scene') return handleStoryScene;
+  if (action.type === 'assign_study_task') return handleAssignStudyTask;
+  if (action.type === 'review_progress') return handleReviewProgress;
+  if (action.type === 'assign_agent_task') return handleAssignAgentTask;
+  if (action.type === 'summarize_workflow') return handleSummarizeWorkflow;
+  if (action.type === 'board_move') return handleBoardMove;
+  if (action.type === 'search_clue') return handleSearchClue;
+  if (action.type === 'reconstruct_case') return handleReconstructCase;
+  if (action.type === 'summarize_discussion') return handleSummarizeDiscussion;
+  if (action.type === 'shift_to_synthesis') return handleShiftToSynthesis;
   return null;
 }
 

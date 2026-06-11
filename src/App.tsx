@@ -1,5 +1,5 @@
-import { lazy, Suspense, useMemo, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { lazy, Suspense, useMemo, useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Box, LinearProgress, ThemeProvider, CssBaseline, useMediaQuery } from '@mui/material';
 import { createAppTheme } from './theme';
 import { useSettingsStore } from './stores/useSettingsStore';
@@ -12,6 +12,18 @@ import ChatListPage from './pages/ChatListPage';
 import CreateChatPage from './pages/CreateChatPage';
 import ChatDetailPage from './pages/ChatDetailPage';
 import CreateDirectChatPage from './pages/CreateDirectChatPage';
+import AdminLayout from './components/admin/AdminLayout';
+import AdminLoginPage from './pages/admin/AdminLoginPage';
+import AdminDashboardPage from './pages/admin/AdminDashboardPage';
+import AdminUsersPage from './pages/admin/AdminUsersPage';
+import AdminAIPage from './pages/admin/AdminAIPage';
+import AdminBillingPage from './pages/admin/AdminBillingPage';
+import AdminModerationPage from './pages/admin/AdminModerationPage';
+import AdminRiskPage from './pages/admin/AdminRiskPage';
+import AdminAuditPage from './pages/admin/AdminAuditPage';
+import AdminNotificationsPage from './pages/admin/AdminNotificationsPage';
+import { useAdminAuthStore } from './stores/useAdminAuthStore';
+import { ADMIN_LOGIN_EVENT } from './services/adminApi';
 import './i18n';
 
 const routePreloaders = [
@@ -119,6 +131,39 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function RequireAdminAuth() {
+  const isLoggedIn = useAdminAuthStore((s) => s.isLoggedIn);
+  const location = useLocation();
+  if (!isLoggedIn) {
+    return <Navigate to="/admin/login" state={{ from: location }} replace />;
+  }
+  return <Outlet />;
+}
+
+function AdminAuthRedirectHandler() {
+  const logout = useAdminAuthStore((s) => s.logout);
+  const navigate = useNavigate();
+  const [redirect, setRedirect] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const from = (event as CustomEvent<{ from?: string }>).detail?.from;
+      logout();
+      setRedirect(from?.startsWith('/admin') ? from : '/admin');
+    };
+    window.addEventListener(ADMIN_LOGIN_EVENT, handler);
+    return () => window.removeEventListener(ADMIN_LOGIN_EVENT, handler);
+  }, [logout]);
+
+  useEffect(() => {
+    if (!redirect) return;
+    navigate('/admin/login', { replace: true, state: { from: { pathname: redirect } } });
+    setRedirect(null);
+  }, [navigate, redirect]);
+
+  return null;
+}
+
 function DataLoader({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const authMode = useAuthStore((s) => s.authMode);
@@ -156,9 +201,22 @@ function RoutedApp() {
   return (
     <Routes>
       <Route path="/login" element={<RouteElement><LoginPage /></RouteElement>} />
+      <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route path="/intro" element={<RouteElement><IntroPage /></RouteElement>} />
       <Route path="/shared/:token" element={<RouteElement><PublicSharedChatPage /></RouteElement>} />
       <Route path="/shared/chats/:token" element={<RouteElement><PublicSharedChatPage /></RouteElement>} />
+      <Route element={<RequireAdminAuth />}>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<AdminDashboardPage />} />
+          <Route path="users" element={<AdminUsersPage />} />
+          <Route path="ai" element={<AdminAIPage />} />
+          <Route path="billing" element={<AdminBillingPage />} />
+          <Route path="moderation" element={<AdminModerationPage />} />
+          <Route path="notifications" element={<AdminNotificationsPage />} />
+          <Route path="risk" element={<AdminRiskPage />} />
+          <Route path="audit" element={<AdminAuditPage />} />
+        </Route>
+      </Route>
       <Route element={
         <RequireAuth>
           <AppLayout />
@@ -191,6 +249,11 @@ export default function App() {
   const themeMode = useSettingsStore((s) => s.theme);
   const themeColor = useSettingsStore((s) => s.themeColor);
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
+  const checkAdminAuth = useAdminAuthStore((s) => s.checkAuth);
+
+  useEffect(() => {
+    void checkAdminAuth();
+  }, [checkAdminAuth]);
 
   const resolvedMode = themeMode === 'system' ? (prefersDark ? 'dark' : 'light') : themeMode;
 
@@ -203,6 +266,7 @@ export default function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <BrowserRouter>
+        <AdminAuthRedirectHandler />
         <DataLoader>
           <RoutedApp />
         </DataLoader>

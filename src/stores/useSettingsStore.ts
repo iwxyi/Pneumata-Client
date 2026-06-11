@@ -41,6 +41,8 @@ interface SettingsStore extends AppSettings {
   setThemeColor: (color: string) => void;
   setLanguage: (lang: Language) => void;
   setDefaultSpeed: (speed: number) => void;
+  setCompactBubbleMode: (enabled: boolean) => void;
+  setCompactPrivateBubbleMode: (enabled: boolean) => void;
   setChatDraftDefaults: (defaults: Partial<ChatDraftDefaults>) => void;
   setCustomBubbleStyles: (styles: BubbleStyleDefinition[]) => void;
   setUserBubbleStyle: (styleId: string | null, style?: BubbleStyleDefinition | null) => void;
@@ -178,6 +180,8 @@ export function buildSettingsPayload(state: AppSettings) {
     themeColor: state.themeColor,
     language: state.language,
     defaultSpeed: state.defaultSpeed,
+    compactBubbleMode: state.compactBubbleMode,
+    compactPrivateBubbleMode: state.compactPrivateBubbleMode,
     chatDraftDefaults: state.chatDraftDefaults,
     customBubbleStyles: state.customBubbleStyles,
     userBubbleStyleId: state.userBubbleStyleId,
@@ -565,6 +569,22 @@ export const useSettingsStore = create<SettingsStore>()(
         });
       },
 
+      setCompactBubbleMode: (compactBubbleMode) => {
+        set((state) => {
+          const next = { ...state, compactBubbleMode, lastSyncedAt: Date.now() };
+          syncToServer(buildSettingsPayload(next), set);
+          return next;
+        });
+      },
+
+      setCompactPrivateBubbleMode: (compactPrivateBubbleMode) => {
+        set((state) => {
+          const next = { ...state, compactPrivateBubbleMode, lastSyncedAt: Date.now() };
+          syncToServer(buildSettingsPayload(next), set);
+          return next;
+        });
+      },
+
       setChatDraftDefaults: (defaults) => {
         set((state) => {
           const next = {
@@ -671,6 +691,8 @@ export const useSettingsStore = create<SettingsStore>()(
         themeColor: state.themeColor,
         language: state.language,
         defaultSpeed: state.defaultSpeed,
+        compactBubbleMode: state.compactBubbleMode,
+        compactPrivateBubbleMode: state.compactPrivateBubbleMode,
         developerMode: state.developerMode,
         avatarGeneration: state.avatarGeneration,
         aiGeneration: state.aiGeneration,

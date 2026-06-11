@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Message } from '../types/message';
 import { buildMessageIdentityKeys, getMessageRenderIdentity, isLocalOnlyMessageId, messagesShareIdentity } from '../services/messageIdentity';
-import { api, type SyncChangeScope } from '../services/api';
+import { api, ApiError, type SyncChangeScope } from '../services/api';
 import { reportRecoverableError } from '../services/diagnostics';
 import { hasLocalDataUrlMedia, scrubLocalMediaUrlsForCloud, uploadLocalMessageMediaToCloud } from '../services/richMessageMedia';
 import { useAuthStore } from './useAuthStore';
@@ -4739,6 +4739,9 @@ export const useMessageStore = create<MessageStore>()(
           execute: async (operation) => {
             if (operation.kind === 'create' && operation.payload) {
               const localMessage = operation.payload;
+              if (localMessage.chatId.startsWith('local-chat-')) {
+                throw new ApiError('本地临时群聊尚未成功创建到云端，消息不会继续重试。', { code: 'LOCAL_CHAT_NOT_REMOTE', status: 409 });
+              }
               const savedMessage = await api.createMessage(localMessage.chatId, messagePayloadForCloud(localMessage, operation.id));
               const persistedMessage = mergeMessageServerConfirmation(localMessage, savedMessage);
               set((current) => ({

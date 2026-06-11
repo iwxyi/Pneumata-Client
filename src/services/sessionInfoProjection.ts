@@ -39,5 +39,48 @@ export function projectSessionInfoCards(params: ProjectSessionInfoCardsParams): 
       });
     }
   }
+
+  if (params.chat.sessionKind?.scenarioId === 'story-reader' && params.chat.scenarioState?.storyDirection) {
+    cards.push({
+      key: 'story-direction',
+      title: isZh ? '剧情方向' : 'Story direction',
+      description: clean(String(params.chat.scenarioState.storyDirection)),
+    });
+  }
+  if (params.chat.sessionKind?.scenarioId === 'werewolf-classic' && params.chat.scenarioState?.werewolfRoleConfig) {
+    cards.push({
+      key: 'werewolf-role-config',
+      title: isZh ? '角色分配' : 'Role setup',
+      description: clean(String(params.chat.scenarioState.werewolfRoleConfig)),
+    });
+  }
+  if (params.chat.sessionKind?.scenarioId === 'murder-mystery' && params.chat.scenarioState?.mysteryScript) {
+    cards.push({
+      key: 'mystery-script',
+      title: isZh ? '剧本设定' : 'Script setup',
+      description: clean(String(params.chat.scenarioState.mysteryScript)),
+    });
+  }
+  if ((params.chat.sessionKind?.family === 'study' || params.chat.sessionKind?.family === 'agent') && params.chat.scenarioState?.goals?.[0]?.label) {
+    cards.push({
+      key: 'room-goal',
+      title: isZh ? '当前目标' : 'Current goal',
+      description: clean(String(params.chat.scenarioState.goals[0].label)),
+    });
+  }
+  if (params.chat.sessionKind?.family === 'analysis' && params.chat.scenarioState?.progress?.[0]?.target) {
+    cards.push({
+      key: 'discussion-rounds',
+      title: isZh ? '目标轮次' : 'Target rounds',
+      description: clean(String(params.chat.scenarioState.progress[0].target)),
+    });
+  }
+  if (params.chat.sessionKind?.family === 'board_game' && params.chat.scenarioState?.board?.schema) {
+    cards.push({
+      key: 'board-size',
+      title: isZh ? '棋盘尺寸' : 'Board size',
+      description: clean(`${params.chat.scenarioState.board.schema.columns || 0} × ${params.chat.scenarioState.board.schema.rows || 0}`),
+    });
+  }
   return cards;
 }

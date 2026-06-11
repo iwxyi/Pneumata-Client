@@ -75,7 +75,7 @@ function onMessageCommitted(params: {
         ...params.conversation.worldState,
         phase: nextPhase,
         mood: params.conversation.worldState.mood || 'suspecting',
-        focus: params.conversation.worldState.focus || '找出狼人',
+        focus: params.conversation.scenarioState?.werewolfRoleConfig || params.conversation.worldState.focus || '找出狼人',
         recentEvent: `${speakerName} 发言：${summary}${params.message.content.trim().length > 56 ? '…' : ''}`,
       },
       runtimeEventsV2,

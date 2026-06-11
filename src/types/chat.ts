@@ -102,6 +102,13 @@ export interface ScenarioState {
   goals?: ScenarioGoalState[];
   progress?: ScenarioProgressState[];
   branches?: ScenarioBranchState[];
+  storyBackground?: string;
+  storyDirection?: string;
+  storyOutline?: string;
+  werewolfRoleConfig?: string;
+  werewolfPostGameMode?: string;
+  mysteryScript?: string;
+  mysteryRoleMappingMode?: string;
 }
 
 export interface LayeredGrowthState {

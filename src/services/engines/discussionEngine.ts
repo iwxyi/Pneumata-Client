@@ -62,7 +62,7 @@ function onMessageCommitted(params: {
       worldState: {
         ...params.conversation.worldState,
         phase: (shouldSynthesize ? 'aligned' : 'debating') as ConversationPhase,
-        focus: params.conversation.topic || '讨论议题',
+        focus: params.conversation.scenarioState?.goals?.[0]?.label || params.conversation.topic || '讨论议题',
         recentEvent: `讨论推进：${summary}${params.message.content.trim().length > 72 ? '…' : ''}`,
         mood: shouldSynthesize ? 'converging' : 'engaged',
       },

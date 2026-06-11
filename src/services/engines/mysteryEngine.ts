@@ -39,6 +39,10 @@ function getAvailableActions() {
   ];
 }
 
+function paramsPlaceholder(conversation: GroupChat, fallback: string) {
+  return conversation.scenarioState?.mysteryScript || fallback;
+}
+
 function getActionSchema(conversation: GroupChat) {
   const clueOptions = (conversation.scenarioState?.branches || []).map((branch) => ({ label: branch.label, value: branch.branchId }));
   return {
@@ -51,7 +55,7 @@ function getActionSchema(conversation: GroupChat) {
         visibility: 'public' as const,
         fields: [
           { key: 'clueId', label: '线索', type: 'single_select' as const, required: clueOptions.length > 0, options: clueOptions },
-          { key: 'prompt', label: '搜证说明', type: 'textarea' as const, placeholder: '例如：重点查看案发现场附近的血迹' },
+          { key: 'prompt', label: '搜证说明', type: 'textarea' as const, placeholder: paramsPlaceholder(conversation, '重点查看案发现场附近的血迹') },
         ],
       },
       {
@@ -90,7 +94,7 @@ function onMessageCommitted(params: {
       worldState: {
         ...params.conversation.worldState,
         phase: (nextPhase === 'reconstruction' ? 'aligned' : 'debating') as ConversationPhase,
-        focus: params.conversation.topic || '案件真相',
+        focus: params.conversation.scenarioState?.mysteryScript || params.conversation.topic || '案件真相',
         recentEvent: `搜证推进：${summary}${params.message.content.trim().length > 72 ? '…' : ''}`,
         mood: nextPhase === 'reconstruction' ? 'revealing' : 'tense',
       },

@@ -1,5 +1,6 @@
 import type { Message } from '../types/message';
 import { resolveCommittedStreamContent } from './streamingMessageLifecycle';
+import { useMessageStore } from '../stores/useMessageStore';
 
 interface PersistLocalFirstMessageParams {
   message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>;
@@ -51,9 +52,7 @@ function writeMessages(upsertMessages: (messages: Message[]) => void, messages: 
 }
 
 function queueMessageSync(message: Message) {
-  void import('../stores/useMessageStore').then(({ useMessageStore }) => {
-    useMessageStore.getState().queueMessageSync(message);
-  });
+  useMessageStore.getState().queueMessageSync(message);
 }
 
 function delayMs(ms: number) {
