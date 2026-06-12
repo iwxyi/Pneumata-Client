@@ -522,6 +522,7 @@ function mergeChatRecord(local: GroupChat | undefined, remote: GroupChat) {
       memberIds: local.memberIds,
       sourceChatId: local.sourceChatId,
       sourceMemberIds: local.sourceMemberIds,
+      memberCharacterSummaries: remote.memberCharacterSummaries?.length ? remote.memberCharacterSummaries : local.memberCharacterSummaries,
       speed: local.speed,
       isActive: local.isActive,
       allowIntervention: local.allowIntervention,
@@ -559,6 +560,7 @@ function mergeChatRecord(local: GroupChat | undefined, remote: GroupChat) {
     memberIds: remote.memberIds,
     sourceChatId: remote.sourceChatId,
     sourceMemberIds: remote.sourceMemberIds,
+    memberCharacterSummaries: remote.memberCharacterSummaries?.length ? remote.memberCharacterSummaries : local.memberCharacterSummaries,
     speed: remote.speed,
     isActive: remote.isActive,
     allowIntervention: remote.allowIntervention,
@@ -1145,6 +1147,9 @@ export const useChatStore = create<ChatStore>()(
                 return cached || null;
               }
               const detail = chatDetailFromChanges(changeProbe?.changes, id) || await fetchChatDetail(id);
+              if (detail.memberCharacterSummaries?.length) {
+                useCharacterStore.getState().hydrateCharacterSummaries(detail.memberCharacterSummaries);
+              }
               if (detail.deletedAt != null) {
                 const snapshot = cached || detail;
                 const hasPendingConflict = hasNonDeletePendingChatOperation(get().pendingOperations, id);

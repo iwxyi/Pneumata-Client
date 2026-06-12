@@ -147,6 +147,7 @@ function canLoadMoreFromWindow(window: CachedMessageWindow | undefined, activeMe
   const cachedMessages = window?.messages || [];
   if (cachedMessages.length > activeMessages.length) return true;
   if (shouldSkipCloudSync()) return cachedMessages.length >= limit;
+  if (cachedMessages.length < limit) return true;
   return !window?.remoteExhausted;
 }
 
@@ -4862,9 +4863,11 @@ export const useMessageStore = create<MessageStore>()(
         if (!shouldSkipCloudSync()) messageSyncScheduler.schedule(flushPendingOperations, 100);
         await get().hydrateMessagesFromCache(chatId);
         const currentWindow = get().messageWindowsByChatId[chatId];
+        const limit = options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT;
         const shouldRevalidate = shouldRevalidateMessageWindow(currentWindow?.lastSyncedAt, options?.revalidate ?? true);
-        if (!get().hasMessageWindow(chatId) || shouldRevalidate) {
-          await get().loadMessages(chatId, { limit: options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT });
+        const shouldPrimePartialCloudWindow = !shouldSkipCloudSync() && (currentWindow?.messages?.length || 0) < limit;
+        if (!get().hasMessageWindow(chatId) || shouldRevalidate || shouldPrimePartialCloudWindow) {
+          await get().loadMessages(chatId, { limit });
         }
       },
 

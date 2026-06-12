@@ -435,6 +435,131 @@ describe('cloud no-op sync', () => {
     errorSpy.mockRestore();
   });
 
+  it('hydrates character summaries from chat detail changes', async () => {
+    apiMocks.getSyncChanges.mockResolvedValueOnce({
+      status: 'modified',
+      cursor: 'chats.detail:chat-1:rev-2',
+      revision: 'chats.detail:chat-1:rev-2',
+      changes: [{
+        op: 'upsert',
+        entity: 'chat_detail',
+        id: 'chat-1',
+        revision: 2,
+        patch: {
+          ...chat({
+            id: 'chat-1',
+            runtimeDetailLoaded: true,
+            updatedAt: 2,
+            lastMessageAt: 2,
+          }),
+          memberCharacterSummaries: [{
+            id: 'character-1',
+            name: '小甲摘要',
+            avatar: '',
+            personality: { openness: 60, extroversion: 50, agreeableness: 50, neuroticism: 50, humor: 50, creativity: 50, assertiveness: 50, empathy: 50 },
+            expertise: ['测试'],
+            speakingStyle: '新摘要说话方式',
+            background: '新摘要背景',
+            bubbleStyleId: 'bubble-1',
+            bubbleStyle: { id: 'bubble-1', name: '测试气泡', palette: { primary: '#fff', secondary: '#000', accent: '#999', text: '#111', mutedText: '#666', border: '#222', userBubble: '#333', aiBubble: '#444', userText: '#fff', aiText: '#111', shadow: 'rgba(0,0,0,0.2)' } },
+            isPreset: false,
+            createdAt: 1,
+            updatedAt: 2,
+          }],
+        },
+      }],
+    });
+    const { useChatStore } = await import('./useChatStore');
+    const { useCharacterStore } = await import('./useCharacterStore');
+    await useChatStore.persist.rehydrate();
+    await useCharacterStore.persist.rehydrate();
+    useChatStore.setState({
+      chats: [chat({ id: 'chat-1', runtimeDetailLoaded: true, updatedAt: 1, lastMessageAt: 1 })],
+      currentChatId: null,
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: [],
+      remoteDeletedChats: [],
+      isLoading: false,
+    });
+    useCharacterStore.setState({
+      characters: [],
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedCharacterIds: [],
+      isLoading: false,
+    });
+
+    await useChatStore.getState().loadChat('chat-1');
+
+    const hydrated = useCharacterStore.getState().characters.find((item) => item.id === 'character-1');
+    expect(hydrated?.name).toBe('小甲摘要');
+    expect(hydrated?.bubbleStyleId).toBe('bubble-1');
+  });
+
+  it('preserves member character summaries when older local summary fields win', async () => {
+    apiMocks.getChat.mockResolvedValueOnce(chat({
+      id: 'chat-1',
+      name: '旧远端群聊名',
+      topic: '旧远端主题',
+      runtimeDetailLoaded: true,
+      memberCharacterSummaries: [{
+        id: 'character-1',
+        name: '小甲摘要',
+        avatar: '',
+        personality: { openness: 60, extroversion: 50, agreeableness: 50, neuroticism: 50, humor: 50, creativity: 50, assertiveness: 50, empathy: 50 },
+        expertise: ['测试'],
+        speakingStyle: '摘要说话方式',
+        background: '摘要背景',
+        bubbleStyleId: 'bubble-1',
+        bubbleStyle: null,
+        isPreset: false,
+        createdAt: 1,
+        updatedAt: 2,
+      }],
+      runtimeSeed: { notes: ['远端详情前情'], artifacts: [] },
+      fieldVersions: { name: 1, topic: 1 },
+      updatedAt: 1,
+      lastMessageAt: 1,
+    }));
+    const { useChatStore } = await import('./useChatStore');
+    await useChatStore.persist.rehydrate();
+    useChatStore.setState({
+      chats: [chat({
+        id: 'chat-1',
+        name: '本地较新群聊名',
+        topic: '本地较新主题',
+        runtimeDetailLoaded: false,
+        memberCharacterSummaries: [],
+        runtimeSeed: { notes: [], artifacts: [] },
+        fieldVersions: { name: 200, topic: 200 },
+        updatedAt: 200,
+        lastMessageAt: 200,
+      })],
+      currentChatId: null,
+      lastSyncedAt: 1,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: [],
+      remoteDeletedChats: [],
+      isLoading: false,
+    });
+
+    await useChatStore.getState().loadChat('chat-1');
+
+    const merged = useChatStore.getState().chats[0];
+    expect(merged.name).toBe('本地较新群聊名');
+    expect(merged.topic).toBe('本地较新主题');
+    expect(merged.runtimeDetailLoaded).toBe(true);
+    expect(merged.memberCharacterSummaries?.[0]?.id).toBe('character-1');
+    expect(merged.memberCharacterSummaries?.[0]?.bubbleStyleId).toBe('bubble-1');
+  });
+
   it('resolves chat remote-delete conflicts by discarding or restoring local edits', async () => {
     const { useChatStore } = await import('./useChatStore');
     await useChatStore.persist.rehydrate();

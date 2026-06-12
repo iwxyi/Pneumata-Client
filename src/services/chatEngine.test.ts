@@ -489,6 +489,10 @@ describe('chatEngine streaming preview', () => {
         buildUserMessage('你怎么看待AI在未来对人类的影响？每个人写一篇800字作文', Date.now()),
       ],
       apiConfig: buildProfiles(),
+      speakerSelection: {
+        speakerId: 'susu',
+        policy: { source: 'user_guidance_lock', lockedActorIds: ['susu', 'luxun'] },
+      },
     });
     const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
 
@@ -501,6 +505,10 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('Longform');
     expect(message.content).toContain('\n\n它更像一面放大镜');
     expect(message.metadata?.runtimeDecision?.directorIntent?.targetActorIds).toEqual(['susu', 'luxun']);
+    expect(message.metadata?.runtimeDecision?.speakerSelection).toMatchObject({
+      speakerId: 'susu',
+      policy: { source: 'user_guidance_lock', lockedActorIds: ['susu', 'luxun'] },
+    });
     expect(message.metadata?.runtimeDecision?.responseSurface?.kind).toBe('longform');
     expect(message.metadata?.runtimeDecision?.responseSurface?.basis || []).toContain('topic:longform-writing-task');
   });

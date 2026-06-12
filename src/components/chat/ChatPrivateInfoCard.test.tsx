@@ -77,14 +77,22 @@ function buildChat(type: GroupChat['type']): GroupChat {
 }
 
 describe('ChatPrivateInfoCard', () => {
-  it('does not render ai direct thread semantics card', () => {
+  it('renders ai direct memory axis without obsolete thread semantics copy', () => {
     const html = renderToStaticMarkup(
       <ChatPrivateInfoCard
         chat={{ ...buildChat('ai_direct'), memberIds: ['mei', 'hui'] }}
         members={[buildCharacter('mei', '美羊羊'), buildCharacter('hui', '灰太狼')]}
-        directMemoryContext={null}
+        directMemoryContext={{
+          targetSummary: '优先检索与灰太狼相关的私聊记忆',
+          memoryVisibility: '',
+          recentRelationshipChanges: [],
+          recentMemoryWrites: [],
+        }}
       />,
     );
+    expect(html).toContain('私聊记忆主轴');
+    expect(html).toContain('优先读取与当前私聊对象相关的长期记忆');
+    expect(html).toContain('优先检索与灰太狼相关的私聊记忆');
     expect(html).not.toContain('AI 私聊线程');
     expect(html).not.toContain('可持续自动推进');
     expect(html).not.toContain('发起者 美羊羊');

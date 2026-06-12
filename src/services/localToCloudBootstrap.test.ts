@@ -136,6 +136,97 @@ describe('localToCloudBootstrap', () => {
     expect(plan.chatsAlreadyRemote.map((item) => item.id)).toEqual(['cloud-chat']);
   });
 
+  it('treats local-id chats with the same name as already remote during bootstrap', () => {
+    const plan = bootstrap.createBootstrapReconcilePlan(
+      snapshot({
+        chats: [
+          chat('local-chat-12345678', '跨设备群聊'),
+          chat('cloud-chat', '已有群聊'),
+        ],
+      }),
+      {
+        characters: [],
+        chats: [
+          { id: 'cloud-group-1', name: '跨设备群聊', deletedAt: null },
+          { id: 'cloud-chat', name: '已有群聊', deletedAt: null },
+        ],
+      },
+    );
+
+    expect(plan.chatsToCreate).toEqual([]);
+    expect(plan.chatsAlreadyRemote.map((item) => item.id)).toEqual(['local-chat-12345678', 'cloud-chat']);
+  });
+
+  it('maps local-id chats skipped by bootstrap to the matching remote chat id for message upload', async () => {
+    localStore.clear();
+    const originalApi = await import('./api');
+    const createMessage = vi.spyOn(originalApi.api, 'createMessage').mockResolvedValue({
+      id: 'message-created',
+      chatId: 'cloud-group-1',
+      type: 'user',
+      senderId: 'user',
+      senderName: '用户',
+      content: '你好',
+      emotion: 0,
+      timestamp: 1,
+      isDeleted: false,
+    } as Awaited<ReturnType<typeof originalApi.api.createMessage>>);
+    const getSyncChanges = vi.spyOn(originalApi.api, 'getSyncChanges').mockImplementation(async ({ scope }) => {
+      if (scope === 'chats.summary') {
+        return {
+          status: 'modified',
+          scope,
+          cursor: 'chats',
+          revision: 'chats',
+          changes: [{
+            entity: 'chat_summary',
+            id: 'cloud-group-1',
+            updatedAt: 1,
+            deletedAt: null,
+            patch: { id: 'cloud-group-1', name: '跨设备群聊', type: 'group', deletedAt: null },
+          }],
+        } as Awaited<ReturnType<typeof originalApi.api.getSyncChanges>>;
+      }
+      return {
+        status: 'modified',
+        scope,
+        cursor: 'characters',
+        revision: 'characters',
+        changes: [],
+      } as Awaited<ReturnType<typeof originalApi.api.getSyncChanges>>;
+    });
+    const syncSettings = vi.spyOn((await import('../stores/useSettingsStore')).useSettingsStore.getState(), 'syncCurrentSettingsToServer').mockResolvedValue(undefined);
+
+    await bootstrap.bootstrapLocalDataToCloud(snapshot({
+      settingsShouldUpload: false,
+      chats: [chat('local-chat-12345678', '跨设备群聊')],
+      messageWindowsByChatId: {
+        'local-chat-12345678': {
+          messages: [{
+            id: 'msg-1',
+            chatId: 'local-chat-12345678',
+            type: 'user',
+            senderId: 'user',
+            senderName: '用户',
+            content: '你好',
+            emotion: 0,
+            timestamp: 1,
+            isDeleted: false,
+          }],
+        },
+      },
+    }));
+
+    expect(createMessage).toHaveBeenCalledWith('cloud-group-1', expect.objectContaining({
+      senderId: 'user',
+      content: '你好',
+    }));
+
+    createMessage.mockRestore();
+    getSyncChanges.mockRestore();
+    syncSettings.mockRestore();
+  });
+
   it('carries pending creates into the bootstrap reconcile plan', () => {
     const plan = bootstrap.createBootstrapReconcilePlan(
       snapshot({

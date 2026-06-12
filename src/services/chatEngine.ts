@@ -65,6 +65,7 @@ export interface LocalInterceptionEvent {
   draft?: string;
   reason: string;
   attempt?: number;
+  generationRuntime?: import('../types/sessionEngine').SessionGenerationRuntimeBundle | null;
 }
 
 type ResponseSurfaceKind = 'chat' | 'professional' | 'creative' | 'longform';
@@ -1599,6 +1600,7 @@ function buildMessageMetadata(params: {
 function buildRuntimeDecisionMetadata(params: {
   directorIntent?: DirectorIntent | null;
   narrativeLines?: NarrativeLineProjection[];
+  speakerSelection?: { speakerId?: string | null; reason?: string | null; bypassNotice?: string | null; policy?: Record<string, unknown> } | null;
   speakerScore?: SpeakerScoreBreakdown | null;
   innerLife?: InnerLifeProjection | null;
   surface?: ResponseSurface | null;
@@ -1628,7 +1630,7 @@ function buildRuntimeDecisionMetadata(params: {
       recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
     }
     : undefined;
-  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.turnPlan && !params.personaActivation && !params.intentionalRepeat && !memoryContext && !params.companionshipTrace && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length && !params.runtimeBundle?.turnPlan && !params.runtimeBundle?.expressionPlan && !params.runtimeBundle?.trace) return undefined;
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerSelection && !params.speakerScore && !params.innerLife && !params.surface && !params.turnPlan && !params.personaActivation && !params.intentionalRepeat && !memoryContext && !params.companionshipTrace && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length && !params.runtimeBundle?.turnPlan && !params.runtimeBundle?.expressionPlan && !params.runtimeBundle?.trace) return undefined;
   return {
     directorIntent: params.directorIntent ? {
       source: params.directorIntent.source,
@@ -1664,6 +1666,12 @@ function buildRuntimeDecisionMetadata(params: {
       status: line.status,
       participantIds: line.participantIds,
     })),
+    speakerSelection: params.speakerSelection ? {
+      speakerId: params.speakerSelection.speakerId,
+      reason: params.speakerSelection.reason,
+      bypassNotice: params.speakerSelection.bypassNotice,
+      policy: params.speakerSelection.policy,
+    } : undefined,
     speakerScore: params.speakerScore ? {
       actorId: params.speakerScore.actorId,
       finalScore: Number(params.speakerScore.finalScore.toFixed(3)),
@@ -2035,11 +2043,12 @@ export async function generateSpeakerMessage(params: {
   messages: Message[];
   apiConfig: APIConfig | AIModelProfile[];
   profiles?: AIModelProfile[];
-	  pendingReplyContext?: ReturnType<typeof resolvePendingReplyContext> | null;
-	  directorIntent?: DirectorIntent | null;
-	  narrativeLines?: NarrativeLineProjection[];
-	  speakerScore?: SpeakerScoreBreakdown | null;
-	  generationContext?: {
+  pendingReplyContext?: ReturnType<typeof resolvePendingReplyContext> | null;
+  directorIntent?: DirectorIntent | null;
+  narrativeLines?: NarrativeLineProjection[];
+  speakerSelection?: { speakerId?: string | null; reason?: string | null; bypassNotice?: string | null; policy?: Record<string, unknown> } | null;
+  speakerScore?: SpeakerScoreBreakdown | null;
+  generationContext?: {
     promptContext?: SessionGenerationPromptContext | null;
     buildPromptContext?: (speaker: AICharacter) => SessionGenerationPromptContext | null | undefined;
   };
@@ -2213,6 +2222,7 @@ Current speaking intent:
 	      runtimeDecision: buildRuntimeDecisionMetadata({
 	        directorIntent: effectiveDirectorIntent,
 	        narrativeLines: params.narrativeLines,
+            speakerSelection: params.speakerSelection,
 	        speakerScore: params.speakerScore,
           innerLife,
           surface: responseSurface,
@@ -2297,7 +2307,15 @@ export const runOneRound = async (
   const candidates = calculateWeights(chatMembers, activeMessages, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, pendingReplyContext, chat, directorIntent);
   const lockedGuidanceSpeaker = resolveUserGuidanceLockedSpeaker(chatMembers, directorIntent);
   const speakerSelection = lockedGuidanceSpeaker
-    ? { speakerId: lockedGuidanceSpeaker.id, reason: null, bypassNotice: null }
+    ? {
+      speakerId: lockedGuidanceSpeaker.id,
+      reason: null,
+      bypassNotice: null,
+      policy: {
+        source: 'user_guidance_lock',
+        lockedActorIds: directorIntent?.targetActorIds || directorIntent?.userGuidance?.actorIds || [lockedGuidanceSpeaker.id],
+      },
+    }
     : getSpeakerSelectionResult(chatMembers, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, candidates);
   if (isSchedulerDebugEnabled() && chat.type === 'group' && !speakerSelection.speakerId) {
     console.info('[group-loop:idle]', {
@@ -2384,6 +2402,7 @@ export const runOneRound = async (
         pendingReplyContext,
         directorIntent,
         narrativeLines,
+        speakerSelection,
         speakerScore: selectedCandidate?.scoreBreakdown || null,
         generationContext,
         onChunk: callbacks.onMessageChunk,
@@ -2419,6 +2438,7 @@ export const runOneRound = async (
         pendingReplyContext,
         directorIntent,
         narrativeLines,
+        speakerSelection,
         speakerScore: rotatedCandidate?.scoreBreakdown || null,
         generationContext,
         onChunk: callbacks.onMessageChunk,

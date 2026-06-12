@@ -100,6 +100,25 @@ AIChatGroup's frontend is not just a set of pages calling APIs. It is the produc
 | Projection Layer | Turns internal runtime state into user-facing and developer-facing UI views |
 | Persistence & Sync | Local-first caches with account-scoped optional sign-in sync |
 
+### Runtime main loop
+
+The current group-chat path is no longer a thin “pick a speaker and ask for text” loop. It carries runtime decisions all the way into committed message metadata so replay, debugging, and downstream reducers can observe the same chain the generator used.
+
+| Step | What happens now |
+|---|---|
+| Director intent | User guidance, beat pressure, and explicit actor targeting are normalized into a runtime intent object |
+| Speaker selection | The scheduler scores candidates, applies cooldown / reply pressure, and can hard-lock a requested speaker for explicit guidance |
+| Generation runtime | Turn plan, expression plan, realization plan, and execution trace are bundled before text generation |
+| Message commit | The final message writes `runtimeDecision` metadata including director intent, speaker selection, score traces, response surface, guidance execution, and runtime bundle traces |
+| Downstream consumers | Memory, relationship, companionship, projection, and debug panels can inspect the same runtime footprint instead of inferring it from plain text only |
+
+| Metadata branch | Current purpose |
+|---|---|
+| `runtimeDecision.speakerSelection` | Records who was selected, why idle happened, and whether explicit guidance locked the actor |
+| `runtimeDecision.speakerScore` | Keeps compact scheduler score evidence for the chosen actor |
+| `runtimeDecision.generationRuntime` | Preserves turn / expression / realization planning traces for later inspection |
+| `runtimeDecision.guidanceExecution` | Shows whether explicit user guidance matched on first try, retried, or failed |
+
 ### Local-first sync
 
 Pneumata pages do not treat the cloud as the primary read path. Characters, chat lists, chat details, message windows, settings, and character artifacts hydrate from account-scoped local stores first. The cloud is used for background synchronization, cross-device reconciliation, conflict detection, and older-history pagination instead of blocking first paint.

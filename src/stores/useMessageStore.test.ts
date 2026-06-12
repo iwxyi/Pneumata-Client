@@ -186,6 +186,40 @@ describe('useMessageStore', () => {
     expect(useMessageStore.getState().hasMore).toBe(true);
   });
 
+  it('reopens cloud chat windows with a partial persisted page even if remoteExhausted was persisted', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const persistedMessages = Array.from({ length: 7 }, (_, index) => buildMessage(index + 994, chatId));
+    const fetchedMessages = Array.from({ length: 40 }, (_, index) => buildMessage(index + 961, chatId));
+    getMessagesMock.mockResolvedValueOnce(fetchedMessages);
+
+    useMessageStore.setState({
+      messages: [],
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: persistedMessages,
+          lastSyncedAt: Date.now(),
+          updatedAt: persistedMessages.at(-1)?.timestamp ?? 0,
+          remoteExhausted: true,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: null,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: false,
+    });
+
+    await useMessageStore.getState().openChatWindow(chatId, { limit: 40, revalidate: true });
+
+    const state = useMessageStore.getState();
+    expect(getMessagesMock).toHaveBeenCalledWith(chatId, { limit: 40, before: undefined });
+    expect(state.messages[0]?.id).toBe('message-961');
+    expect(state.messages).toHaveLength(40);
+    expect(state.hasMore).toBe(true);
+  });
+
   it('loads older cloud messages past the local cache window', async () => {
     localStorage.setItem(storageKey('auth-mode'), 'cloud');
     const { useMessageStore } = await import('./useMessageStore');

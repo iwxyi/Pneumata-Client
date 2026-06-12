@@ -158,6 +158,13 @@ export function createBootstrapReconcilePlan(
   const pendingCharacterCreates = (snapshot.pendingCharacterOperations || []).filter((operation) => operation.kind === 'create');
   const pendingChatCreates = (snapshot.pendingChatOperations || []).filter((operation) => operation.kind === 'create');
   const pendingMessageCreates = (snapshot.pendingMessageOperations || []).filter((operation) => operation.kind === 'create');
+  const remoteChatsByName = activeRemoteNameMap(remote.chats);
+  const chatsAlreadyRemote = localChats.filter((chat) => {
+    if (remoteChatIds.has(chat.id)) return true;
+    if (!isLocalId(chat.id)) return false;
+    const remoteChat = remoteChatsByName.get(normalizeNameKey(chat.name));
+    return Boolean(remoteChat && remoteChat.id !== chat.id);
+  });
 
   return {
     remote,
@@ -176,8 +183,8 @@ export function createBootstrapReconcilePlan(
           : null;
       })
       .filter((item): item is { localId: string; localName: string; remoteId: string; remoteName: string } => Boolean(item)),
-    chatsToCreate: localChats.filter((chat) => !remoteChatIds.has(chat.id)),
-    chatsAlreadyRemote: localChats.filter((chat) => remoteChatIds.has(chat.id)),
+    chatsToCreate: localChats.filter((chat) => !chatsAlreadyRemote.some((item) => item.id === chat.id)),
+    chatsAlreadyRemote,
     pendingCharacterCreates,
     pendingChatCreates,
     pendingMessageCreates,
@@ -351,8 +358,12 @@ function mapJsonReferences<T>(value: T, characterIdMap: Map<string, string>): T 
 
 async function uploadChats(plan: BootstrapReconcilePlan, characterIdMap: Map<string, string>) {
   const chatIdMap = new Map<string, string>();
+  const remoteChatsByName = activeRemoteNameMap(plan.remote.chats);
   for (const chat of plan.chatsAlreadyRemote) {
-    chatIdMap.set(chat.id, chat.id);
+    const remoteId = plan.remote.chats.find((item) => item.deletedAt == null && item.id === chat.id)?.id
+      || (isLocalId(chat.id) ? remoteChatsByName.get(normalizeNameKey(chat.name))?.id : null)
+      || chat.id;
+    chatIdMap.set(chat.id, remoteId);
   }
   const pendingOperationIds = pendingCreateOperationIdByEntity(plan.pendingChatCreates);
 

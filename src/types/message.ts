@@ -101,6 +101,12 @@ export interface MessageMetadata {
       status: string;
       participantIds?: string[];
     }>;
+    speakerSelection?: {
+      speakerId?: string | null;
+      reason?: string | null;
+      bypassNotice?: string | null;
+      policy?: Record<string, unknown>;
+    };
     speakerScore?: Record<string, unknown>;
     innerLife?: {
       impulse: string;
@@ -182,6 +188,7 @@ export interface MessageMetadata {
     generationRuntime?: {
       turnPlan?: unknown;
       expressionPlan?: unknown;
+      realizationPlan?: unknown;
       trace?: unknown;
     };
     expressionFeedback?: Array<{

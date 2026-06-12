@@ -142,7 +142,7 @@ export function useChatSidebarProjection(params: {
   const runtimePanelLoading = !projectionData && Boolean(chat);
 
   const directMemoryPanelContext = useMemo(() => {
-    if (!chat || chat.type !== 'direct' || !activeMembers[0]) return null;
+    if (!chat || (chat.type !== 'direct' && chat.type !== 'ai_direct') || !activeMembers[0]) return null;
     return {
       ...buildDirectMemoryPanelContext(activeMembers[0], currentChatMessages, new Map(characters.map((item) => [item.id, item] as const))),
       companionshipStatus: buildCompanionshipStatusSignature({ chat, character: activeMembers[0], messages: currentChatMessages }),
