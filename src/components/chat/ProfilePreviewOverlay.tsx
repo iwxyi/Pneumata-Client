@@ -13,7 +13,7 @@ interface ProfilePreviewOverlayProps {
   anchorRect: DOMRect | null;
   anchorElement?: HTMLElement | null;
   character?: AICharacter | null;
-  chat?: { name: string } & Partial<Pick<GroupChat, 'id' | 'topic' | 'style' | 'mode' | 'type' | 'memberIds' | 'isActive' | 'createdAt' | 'updatedAt' | 'lastMessageAt'>> | null;
+  chat?: { name: string } & Partial<Pick<GroupChat, 'id' | 'topic' | 'style' | 'mode' | 'type' | 'memberIds' | 'isActive' | 'createdAt' | 'updatedAt' | 'lastMessageAt' | 'sessionKind'>> | null;
   members?: AICharacter[];
   chatStatusLabel?: string;
   actionLabel?: string;
@@ -83,6 +83,19 @@ const chatModeLabels: Record<string, string> = {
   scripted_play: '剧本演绎',
   werewolf: '狼人杀',
   murder_mystery: '剧本杀',
+  'open-chat': '开放聊天',
+  'direct-chat': '单聊',
+  'ai-private-thread': 'AI私聊线程',
+  'group-discussion': '小组讨论',
+  'roundtable-discussion': '圆桌讨论',
+  'story-reader': '故事阅读',
+  'ielts-coach': '雅思教练',
+  'single-agent-workflow': '单智能体工作流',
+  'multi-agent-workflow': '多智能体工作流',
+  'panel-interview': '访谈',
+  'werewolf-classic': '狼人杀',
+  'murder-mystery': '剧本杀',
+  'board-game': '桌面游戏',
 };
 
 function labelFromMap(value: string | undefined, labels: Record<string, string>) {
@@ -329,7 +342,7 @@ function ChatPreview({ chat, members = [], statusLabel }: { chat: NonNullable<Pr
           </Box>
         ) : null}
         <InfoRow label="风格" value={labelFromMap(chat.style, chatStyleLabels)} />
-        <InfoRow label="模式" value={labelFromMap(chat.mode, chatModeLabels)} />
+        <InfoRow label="模式" value={labelFromMap(chat.sessionKind?.scenarioId || chat.mode, chatModeLabels)} />
         <InfoRow label="状态" value={statusLabel} />
       </Stack>
     </Stack>

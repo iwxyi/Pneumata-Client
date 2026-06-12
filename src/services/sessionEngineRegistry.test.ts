@@ -32,8 +32,19 @@ describe('sessionEngineRegistry', () => {
     }))).toBe('interview');
   });
 
-  it('keeps legacy mode fallback and family labels', () => {
+  it('keeps legacy family fallback and mode-derived engine mapping', () => {
     expect(resolveSessionEngineKey(chat({ mode: 'werewolf' }))).toBe('werewolf');
     expect(resolveSessionFamilyKey(chat({ mode: 'murder_mystery' }))).toBe('mystery');
+  });
+
+  it('falls back to open chat engine when neither scenario nor family resolves', () => {
+    expect(resolveSessionEngineKey(chat({ mode: 'scripted_play' }))).toBe('open_chat');
+  });
+
+  it('prefers sessionKind family when scenario is absent', () => {
+    expect(resolveSessionFamilyKey(chat({
+      mode: 'open_chat',
+      sessionKind: { topology: 'group', family: 'board_game', scenarioId: '', surfaceProfile: 'board' },
+    }))).toBe('board_game');
   });
 });

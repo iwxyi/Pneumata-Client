@@ -1,5 +1,5 @@
 import type { ConversationPhase, GroupChat } from '../../types/chat';
-import type { SessionEngineDefinition } from '../../types/sessionEngine';
+import type { SessionEngineDefinition, SessionRuntimeContextBundle } from '../../types/sessionEngine';
 import type { Message } from '../../types/message';
 
 const BOARD_PHASES = [
@@ -35,6 +35,36 @@ function getAvailableActions() {
   return [
     { type: 'board_move' },
   ];
+}
+
+function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: { id: string } }): SessionRuntimeContextBundle {
+  return {
+    turnPlan: {
+      speakerId: params.speaker.id,
+      obligation: 'must',
+      moveClass: 'perform',
+      targetScope: 'scene',
+      depth: 'normal',
+      channelId: 'public',
+      reason: 'board:turn',
+    },
+    expressionPlan: {
+      surface: 'task',
+      texture: 'ordinary',
+      rhythm: 'one_shot',
+      allowMarkdown: false,
+    },
+    realizationPlan: {
+      moveClass: 'perform',
+      targetScope: 'scene',
+      noveltyGoal: 'none',
+      surfaceDepth: 'normal',
+      emotionalPosture: 'cold',
+    },
+    trace: {
+      policyHits: ['board_turn'],
+    },
+  };
 }
 
 function getActionSchema(conversation: GroupChat) {
@@ -102,5 +132,6 @@ export const BOARD_GAME_ENGINE: SessionEngineDefinition = {
   getVisiblePanels,
   getAvailableActions,
   getActionSchema: ({ conversation }) => getActionSchema(conversation),
+  buildRuntimeContextBundle,
   onMessageCommitted,
 };

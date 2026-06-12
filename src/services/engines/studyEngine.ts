@@ -1,5 +1,5 @@
 import type { ConversationPhase, GroupChat } from '../../types/chat';
-import type { SessionEngineDefinition } from '../../types/sessionEngine';
+import type { SessionEngineDefinition, SessionGenerationPromptContext, SessionRuntimeContextBundle } from '../../types/sessionEngine';
 import type { Message } from '../../types/message';
 
 const STUDY_PHASES = [
@@ -37,6 +37,49 @@ function getAvailableActions() {
     { type: 'assign_study_task' },
     { type: 'review_progress' },
   ];
+}
+
+function buildGenerationPromptContext(params: { conversation: GroupChat }): SessionGenerationPromptContext {
+  const phase = params.conversation.scenarioState?.phase || 'learning';
+  return {
+    responseStyle: 'professional',
+    allowMarkdown: true,
+    styleProfile: 'task_room',
+    additionalConstraints: phase === 'review'
+      ? ['Review progress concretely and close the loop on what improved, what still blocks, and what to do next.']
+      : ['Teach or coach directly, with practical next steps before extra chatter.'],
+  };
+}
+
+function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: { id: string } }): SessionRuntimeContextBundle {
+  const phase = params.conversation.scenarioState?.phase || 'learning';
+  return {
+    turnPlan: {
+      speakerId: params.speaker.id,
+      obligation: 'should',
+      moveClass: phase === 'review' ? 'resolve' : 'deepen',
+      targetScope: 'task',
+      depth: 'deep',
+      channelId: 'public',
+      reason: `study:${phase}`,
+    },
+    expressionPlan: {
+      surface: 'task',
+      texture: 'rich',
+      rhythm: 'back_and_forth',
+      allowMarkdown: true,
+    },
+    realizationPlan: {
+      moveClass: phase === 'review' ? 'resolve' : 'deepen',
+      targetScope: 'task',
+      noveltyGoal: phase === 'review' ? 'resolve' : 'new_angle',
+      surfaceDepth: 'deep',
+      emotionalPosture: 'warm',
+    },
+    trace: {
+      policyHits: [`study_phase:${phase}`],
+    },
+  };
 }
 
 function getActionSchema(conversation: GroupChat) {
@@ -113,5 +156,7 @@ export const STUDY_ENGINE: SessionEngineDefinition = {
   getVisiblePanels,
   getAvailableActions,
   getActionSchema: ({ conversation }) => getActionSchema(conversation),
+  buildGenerationPromptContext,
+  buildRuntimeContextBundle,
   onMessageCommitted,
 };

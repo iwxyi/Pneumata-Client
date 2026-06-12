@@ -241,7 +241,11 @@ export default function ChatDetailPage() {
       await restoreLocalChats();
       const loadedChat = id ? await loadChat(id) : null;
       const memberIds = loadedChat?.memberIds || useChatStore.getState().chats.find((item) => item.id === id)?.memberIds || [];
-      void Promise.all(getSyncableCharacterMemberIds(memberIds).map((memberId) => loadCharacter(memberId)));
+      await Promise.all(
+        getSyncableCharacterMemberIds(memberIds)
+          .filter((memberId) => !useCharacterStore.getState().hasCharacterLoaded(memberId))
+          .map((memberId) => loadCharacter(memberId)),
+      );
     })().finally(() => {
       if (!cancelled) setDetailBootstrapComplete(true);
     });
@@ -571,6 +575,7 @@ export default function ChatDetailPage() {
     setCurrentSpeaker,
     resetAllCooldowns,
     start,
+    pause,
     updateChat,
     showErrorToast,
     t,

@@ -1,5 +1,5 @@
 import type { ConversationPhase, GroupChat } from '../../types/chat';
-import type { SessionEngineDefinition } from '../../types/sessionEngine';
+import type { SessionEngineDefinition, SessionGenerationPromptContext, SessionRuntimeContextBundle } from '../../types/sessionEngine';
 import type { Message } from '../../types/message';
 
 const STORY_PHASES = [
@@ -37,6 +37,49 @@ function getAvailableActions() {
     { type: 'choose_story_branch' },
     { type: 'advance_story_scene' },
   ];
+}
+
+function buildGenerationPromptContext(params: { conversation: GroupChat }): SessionGenerationPromptContext {
+  const phase = params.conversation.scenarioState?.phase || 'scene';
+  return {
+    responseStyle: 'creative',
+    allowMarkdown: true,
+    styleProfile: 'dramatic_room',
+    additionalConstraints: phase === 'branch'
+      ? ['Push the current branch to a clear decision or reveal instead of lingering in neutral scene description.']
+      : ['Advance the scene with concrete atmosphere, implication, or character pressure instead of plain exposition.'],
+  };
+}
+
+function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: { id: string } }): SessionRuntimeContextBundle {
+  const phase = params.conversation.scenarioState?.phase || 'scene';
+  return {
+    turnPlan: {
+      speakerId: params.speaker.id,
+      obligation: 'should',
+      moveClass: phase === 'branch' ? 'resolve' : 'perform',
+      targetScope: phase === 'branch' ? 'scene' : 'room',
+      depth: 'normal',
+      channelId: 'public',
+      reason: `story:${phase}`,
+    },
+    expressionPlan: {
+      surface: 'dramatic',
+      texture: 'rich',
+      rhythm: 'scene_beat',
+      allowMarkdown: true,
+    },
+    realizationPlan: {
+      moveClass: phase === 'branch' ? 'resolve' : 'perform',
+      targetScope: phase === 'branch' ? 'scene' : 'room',
+      noveltyGoal: phase === 'branch' ? 'resolve' : 'new_angle',
+      surfaceDepth: 'normal',
+      emotionalPosture: 'tense',
+    },
+    trace: {
+      policyHits: [`story_phase:${phase}`],
+    },
+  };
 }
 
 function paramsPlaceholder(conversation: GroupChat, fallback: string) {
@@ -119,5 +162,7 @@ export const STORY_ENGINE: SessionEngineDefinition = {
   getVisiblePanels,
   getAvailableActions,
   getActionSchema: ({ conversation }) => getActionSchema(conversation),
+  buildGenerationPromptContext,
+  buildRuntimeContextBundle,
   onMessageCommitted,
 };

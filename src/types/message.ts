@@ -179,6 +179,11 @@ export interface MessageMetadata {
       activeRuleIds?: string[];
       activeRuleTexts?: string[];
     };
+    generationRuntime?: {
+      turnPlan?: unknown;
+      expressionPlan?: unknown;
+      trace?: unknown;
+    };
     expressionFeedback?: Array<{
       id: string;
       label: string;

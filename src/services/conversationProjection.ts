@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
+import { getChannelSemantics } from './channelSemanticsRegistry';
 
 export type ProjectedChatMessage = {
   role: 'user' | 'assistant';
@@ -32,30 +33,73 @@ function compactTranscriptContent(content: string, max = 1400) {
   return `${Array.from(trimmed).slice(0, max).join('')}...`;
 }
 
-function buildUserSideTranscriptContent(message: Message, characters: Map<string, AICharacter>) {
-  return `${getTranscriptSpeakerName(message, characters)}: ${compactTranscriptContent(message.content)}`;
+function buildTranscriptHeader(message: Message, characters: Map<string, AICharacter>, currentSpeakerId?: string) {
+  if (message.type === 'user' || message.type === 'god') return '用户';
+  if (message.senderId === currentSpeakerId) return '自己';
+  return getTranscriptSpeakerName(message, characters);
+}
+
+function buildTranscriptLine(message: Message, characters: Map<string, AICharacter>, currentSpeakerId?: string) {
+  return `${buildTranscriptHeader(message, characters, currentSpeakerId)}: ${compactTranscriptContent(message.content)}`;
+}
+
+function buildTranscriptInstruction(chatType: GroupChat['type']) {
+  const semantics = getChannelSemantics({ type: chatType });
+  return [
+    'Conversation transcript for context only:',
+    'The complete recent transcript is provided separately as chat messages and is not repeated here.',
+    semantics.transcriptInstruction,
+  ].join('\n');
+}
+
+function buildUserContextPrompt(transcript: string, chatType: GroupChat['type'] = 'group') {
+  return `${buildTranscriptInstruction(chatType)}\n${transcript}`;
+}
+
+function buildTranscriptContext(messages: Message[], characters: Map<string, AICharacter>, currentSpeakerId?: string) {
+  return messages.map((message) => buildTranscriptLine(message, characters, currentSpeakerId)).join('\n');
+}
+
+function buildCurrentSpeakerHistory(messages: Message[]) {
+  return messages.map((message) => compactTranscriptContent(message.content)).join('\n');
+}
+
+function buildAssistantHistoryPrompt(history: string) {
+  return history;
+}
+
+function isVisibleMessage(message: Message) {
+  if (message.isDeleted) return false;
+  if (message.type === 'system' || message.type === 'event') return false;
+  return true;
 }
 
 export function projectConversationForModel(input: ConversationProjectionInput): ProjectedChatMessage[] {
   const visible = input.messages
-    .filter((message) => {
-      if (message.isDeleted) return false;
-      if (message.type === 'system') return false;
-      if (message.type !== 'event') return true;
-      return false;
-    })
+    .filter(isVisibleMessage)
     .slice(-(input.limit ?? 12));
   const options = input.options || {};
-  return visible.map((message) => {
-    if (message.type === 'ai' && options.currentSpeakerId && message.senderId === options.currentSpeakerId) {
-      return {
-        role: 'assistant' as const,
-        content: compactTranscriptContent(message.content),
-      };
+  const currentSpeakerId = options.currentSpeakerId;
+  const roomTranscript = visible.filter((message) => !(message.type === 'ai' && currentSpeakerId && message.senderId === currentSpeakerId));
+  const projected: ProjectedChatMessage[] = [];
+  if (roomTranscript.length) {
+    projected.push({
+      role: 'user',
+      content: buildTranscriptInstruction(options.chatType || 'group'),
+    });
+  }
+  for (const message of visible) {
+    if (message.type === 'ai' && currentSpeakerId && message.senderId === currentSpeakerId) {
+      projected.push({
+        role: 'assistant',
+        content: buildAssistantHistoryPrompt(compactTranscriptContent(message.content)),
+      });
+      continue;
     }
-    return {
-      role: 'user' as const,
-      content: buildUserSideTranscriptContent(message, input.characters),
-    };
-  });
+    projected.push({
+      role: 'user',
+      content: buildTranscriptLine(message, input.characters, currentSpeakerId),
+    });
+  }
+  return projected;
 }

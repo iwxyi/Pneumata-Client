@@ -353,6 +353,17 @@ export async function runSessionLoop(params: {
         if (turnWorkActive) params.onTurnWorkFinished?.();
       }
       } catch (error) {
+        if (typeof console !== 'undefined' && typeof console.error === 'function') {
+          console.error('[session-runner:loop-error]', {
+            error,
+            chatId: params.chatId,
+            loopId: params.loopId,
+            phase: activeSessionLoops.get(params.loopId)?.phase,
+            running: params.isRunning(),
+            paused: params.isPaused(),
+            streamingMessage: params.getStreamingMessage?.() || null,
+          });
+        }
         params.onLoopError(error);
         if (!isActiveLoop(params)) return;
         markSessionLoop(params.loopId, { phase: 'error_sleeping' });

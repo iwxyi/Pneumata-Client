@@ -310,7 +310,7 @@ class ApiClient {
     return this.request<Array<{
       id: string; type?: string; mode?: string; modeConfig?: object; modeState?: object; sessionKind?: object; scenarioState?: object; channels?: object[]; layoutState?: object; scenarioPackage?: object | null; judgeAgent?: object | null; layeredGrowth?: object; modeStateSummary?: object; memoryLayerSummary?: object; growthSnapshots?: object[]; roleMemorySummaries?: object[]; scenarioMemorySummary?: object | null; topologySummary?: object | null; name: string; topic: string; style: string;
       runtimeEvolutionIntensity?: 'slow' | 'balanced' | 'fast'; memberIds: string[]; speed: number; isActive: boolean;
-      allowIntervention: boolean; showRoleActions?: boolean; topicSeed: string; sourceChatId?: string | null; sourceMemberIds?: string[]; runtimeSeed?: { notes?: string[]; artifacts?: string[] }; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
+      allowIntervention: boolean; showRoleActions?: boolean; topicSeed: string; sourceChatId?: string | null; sourceMemberIds?: string[]; memberCharacterSummaries?: Array<Record<string, unknown>>; runtimeSeed?: { notes?: string[]; artifacts?: string[] }; layeredMemories?: object[]; runtimeTimeline?: Array<{ type: string; text: string; createdAt: number }>;
       runtimeEventsV2?: object[]; relationshipLedger?: object[]; governance?: object; dramaRules?: object; worldState?: object; directorControls?: object;
       deletedAt?: number | null; fieldVersions?: Record<string, number>; latestMessage?: {
         id: string; chatId: string; type: string; senderId: string;

@@ -1,5 +1,5 @@
 import type { GroupChat } from '../../types/chat';
-import type { SessionEngineDefinition } from '../../types/sessionEngine';
+import type { SessionEngineDefinition, SessionRuntimeContextBundle } from '../../types/sessionEngine';
 import type { Message } from '../../types/message';
 import { WEREWOLF_PHASES, buildWerewolfActionSchema, buildWerewolfGenerationPromptContext, buildWerewolfParticipants, buildWerewolfScenarioPatch, buildWerewolfScenarioState, createStructuredWerewolfEvent, getWerewolfAvailableActions, getWerewolfScenarioRole, getWerewolfVisiblePanels, resolveWerewolfTurnPolicy } from '../sessionScenarios/werewolfScenario';
 
@@ -25,6 +25,37 @@ function buildGenerationPromptContext(params: Parameters<typeof buildWerewolfGen
 
 function resolveTurnPolicy(params: { conversation: GroupChat }) {
   return resolveWerewolfTurnPolicy(params);
+}
+
+function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: { id: string } }): SessionRuntimeContextBundle {
+  const role = getWerewolfScenarioRole(params.conversation, params.speaker.id);
+  return {
+    turnPlan: {
+      speakerId: params.speaker.id,
+      obligation: 'must',
+      moveClass: 'perform',
+      targetScope: params.conversation.worldState.phase === 'warming' ? 'scene' : 'person',
+      depth: 'normal',
+      channelId: params.conversation.worldState.phase === 'warming' ? 'role-private' : 'public',
+      reason: `werewolf:${role}`,
+    },
+    expressionPlan: {
+      surface: 'dramatic',
+      texture: 'ordinary',
+      rhythm: 'scene_beat',
+      allowMarkdown: false,
+    },
+    realizationPlan: {
+      moveClass: 'perform',
+      targetScope: params.conversation.worldState.phase === 'warming' ? 'scene' : 'person',
+      noveltyGoal: 'none',
+      surfaceDepth: 'normal',
+      emotionalPosture: 'tense',
+    },
+    trace: {
+      policyHits: [`werewolf_role:${role}`],
+    },
+  };
 }
 
 function buildScenarioPatch(conversation: GroupChat) {
@@ -104,5 +135,6 @@ export const WEREWOLF_ENGINE: SessionEngineDefinition = {
   getActionSchema: ({ conversation }) => buildWerewolfActionSchema(conversation),
   buildGenerationPromptContext,
   resolveTurnPolicy,
+  buildRuntimeContextBundle,
   onMessageCommitted,
 };

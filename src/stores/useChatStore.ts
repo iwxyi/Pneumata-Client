@@ -4,6 +4,7 @@ import type { GroupChat } from '../types/chat';
 import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
+import { useCharacterStore } from './useCharacterStore';
 import { api, type SyncChangeScope } from '../services/api';
 import { reportRecoverableError, reportRecoverableWarning } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
@@ -17,7 +18,7 @@ import { CLIENT_STORE_SCHEMA_VERSION, migrateChatStoreState } from './storeMigra
 import { isRuntimeMemoryMonitorEnabled, recordRuntimeMemory } from '../services/runtimeMemoryMonitor';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
-import { markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
+import { completeLocalOutboxWorkerOperation, markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -698,7 +699,11 @@ async function fetchChatSnapshot() {
 
 async function fetchChatDetail(id: string) {
   const result = await api.getChat(id);
-  return normalizeConversation(result as unknown as GroupChat);
+  const detail = normalizeConversation(result as unknown as GroupChat);
+  if (detail.memberCharacterSummaries?.length) {
+    useCharacterStore.getState().hydrateCharacterSummaries(detail.memberCharacterSummaries);
+  }
+  return detail;
 }
 
 async function fetchWorldRuntimeSnapshot() {
@@ -958,7 +963,8 @@ export const useChatStore = create<ChatStore>()(
               pendingEditSyncError: latestChatError(nextQueue),
               lastSyncedAt: Date.now(),
             }));
-            removeLocalOutboxWorkerOperation(operation.id);
+            completeLocalOutboxWorkerOperation(operation.id);
+            window.setTimeout(() => removeLocalOutboxWorkerOperation(operation.id), 1500);
           },
           onFailure: (operation, _error, retry) => {
             set((current) => ({

@@ -10,6 +10,7 @@ import { formatTimestamp } from '../../utils/format';
 import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
 import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationMeta, buildMemoryReactivationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
 import { getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
+import { buildGenerationRuntimeDebugRows } from '../../services/generationRuntimePresentation';
 import MarkdownText from '../common/MarkdownText';
 import DebugChip from '../common/DebugChip';
 import AppSnackbar from '../common/AppSnackbar';
@@ -325,6 +326,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const compactPrivateBubbleMode = useSettingsStore((state) => state.compactPrivateBubbleMode);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
+  const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
   const showRelationshipEvents = useSettingsStore((state) => state.developerUI.showRelationshipEvents);
   const showAffectEvents = useSettingsStore((state) => state.developerUI.showAffectEvents);
   const showConflictEvents = useSettingsStore((state) => state.developerUI.showConflictEvents);

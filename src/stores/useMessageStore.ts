@@ -14,7 +14,7 @@ import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
-import { markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
+import { completeLocalOutboxWorkerOperation, markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
 import { useSettingsStore } from './useSettingsStore';
 
 function isLocalOnlyMode() {
@@ -4748,7 +4748,8 @@ export const useMessageStore = create<MessageStore>()(
                 ...localUpsertMessage(current, persistedMessage),
                 pendingOperations: removePendingMessageOperation(current.pendingOperations, operation.id),
               }));
-              removeLocalOutboxWorkerOperation(operation.id);
+              completeLocalOutboxWorkerOperation(operation.id);
+              window.setTimeout(() => removeLocalOutboxWorkerOperation(operation.id), 1500);
               if (hasLocalDataUrlMedia(localMessage)) {
                 await uploadLocalMessageMediaToCloud({ localMessage, cloudMessage: persistedMessage });
               }
@@ -4758,7 +4759,8 @@ export const useMessageStore = create<MessageStore>()(
             set((current) => ({
               pendingOperations: removePendingMessageOperation(current.pendingOperations, operation.id),
             }));
-            removeLocalOutboxWorkerOperation(operation.id);
+            completeLocalOutboxWorkerOperation(operation.id);
+            window.setTimeout(() => removeLocalOutboxWorkerOperation(operation.id), 1500);
           },
           onFailure: (operation, _error, retry) => {
             const stillQueued = get().pendingOperations.some((item) => item.id === operation.id);

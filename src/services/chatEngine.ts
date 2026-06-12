@@ -12,6 +12,14 @@ import { generateResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildChatMessages, buildPromptMemoryTrace, type PromptMemoryTrace } from './promptBuilder';
 import { buildCompanionshipRuntimeTrace } from './companionshipProjection';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
+import { resolveSessionDefinition } from '../types/sessionEngine';
+import { resolveSessionEngine } from './sessionEngineRegistry';
+import { getStyleProfile, resolveDefaultStyleProfile } from './styleProfileRegistry';
+import { getChannelSemantics } from './channelSemanticsRegistry';
+
+function getSessionEngine(chat: Pick<GroupChat, 'mode' | 'sessionKind'>) {
+  return resolveSessionEngine(chat);
+}
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
 import { calculateWeights, getSpeakerSelectionResult, resolvePendingReplyContext, selectSpeaker } from './scheduler';
 import { deriveSpeakIntentFromContext, describeIntentForPrompt, type SpeakIntent } from './intentEngine';
@@ -31,6 +39,7 @@ import { evaluateGuidanceGeneratedContent, type GuidanceExecutionReason, type Gu
 import { projectWorldAttentionStates, projectWorldCalendar, projectWorldMoments } from './worldRuntimeProjection';
 import { buildTurnPlanPrompt, deriveTurnPlan, type TurnPlan } from './turnPlanner';
 import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
+import { buildGenerationRuntimeBundle } from './generationRuntime';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   extraMessages?: string[] | null;
@@ -101,9 +110,14 @@ function buildSessionSystemPrompt(args: {
   emotion: number;
   messages: Message[];
   characters: Map<string, AICharacter>;
+  preferEnginePromptAdapter?: boolean;
 }) {
+  if (!args.preferEnginePromptAdapter) {
+    return buildSystemPromptWithContext(args.speaker, args.chat, args.emotion, args.messages, args.characters);
+  }
+  const session = resolveSessionDefinition(args.chat);
   return buildEngineAwarePrompt({
-    engineKey: args.chat.mode,
+    engineKey: session.kind.scenarioId,
     character: args.speaker,
     chat: args.chat,
     emotion: args.emotion,
@@ -113,8 +127,56 @@ function buildSessionSystemPrompt(args: {
   });
 }
 
-function withGroupChatPrompt(prompt: string) {
-  return `${prompt}\n\nTreat the room like a live multi-person conversation with momentum, partial replies, and social baggage.`;
+function mergePromptContexts(base: SessionGenerationPromptContext | null | undefined, extra: SessionGenerationPromptContext | null | undefined) {
+  if (!extra) return base || null;
+  if (!base) return extra;
+  return {
+    ...base,
+    ...extra,
+    promptPrefix: [base.promptPrefix, extra.promptPrefix].filter(Boolean).join('\n\n') || undefined,
+    promptSuffix: [base.promptSuffix, extra.promptSuffix].filter(Boolean).join('\n\n') || undefined,
+    additionalConstraints: [...(base.additionalConstraints || []), ...(extra.additionalConstraints || [])],
+    responseStyle: extra.responseStyle || base.responseStyle,
+    allowMarkdown: extra.allowMarkdown ?? base.allowMarkdown,
+  };
+}
+
+function resolveStyleProfilePromptContext(chat: GroupChat) {
+  const session = resolveSessionDefinition(chat);
+  const styleProfileKey = resolveDefaultStyleProfile({
+    scenarioId: chat.sessionKind?.scenarioId || session.kind.scenarioId,
+    family: chat.sessionKind?.family || session.kind.family,
+  });
+  return getStyleProfile(styleProfileKey)?.promptContext || null;
+}
+
+function buildChannelSemanticPrefix(chat: GroupChat) {
+  return getChannelSemantics(chat).promptPrefix;
+}
+
+function buildSessionPrompt(prompt: string, messages: Message[], chat: GroupChat) {
+  const semanticPrefix = buildChannelSemanticPrefix(chat);
+  const transcriptInstruction = getChannelSemantics(chat).transcriptInstruction;
+  return `${semanticPrefix}\n\n${prompt}\n\nRecent context signals:\n- ${transcriptInstruction}\n${buildRecentContextSignalSummary(messages)}`;
+}
+
+function buildSpeakerSystemPrompt(args: {
+  speaker: AICharacter;
+  chat: GroupChat;
+  emotion: number;
+  activeMessages: Message[];
+  characterMap: Map<string, AICharacter>;
+  preferEnginePromptAdapter?: boolean;
+}) {
+  const basePrompt = buildSessionSystemPrompt({
+    speaker: args.speaker,
+    chat: args.chat,
+    emotion: args.emotion,
+    messages: args.activeMessages,
+    characters: args.characterMap,
+    preferEnginePromptAdapter: args.preferEnginePromptAdapter,
+  });
+  return buildSessionPrompt(basePrompt, args.activeMessages, args.chat);
 }
 
 function getSessionMessageSpeakerName(message: Message) {
@@ -141,31 +203,6 @@ function buildRecentContextSignalSummary(messages: Message[]) {
   ].join('\n');
 }
 
-function buildSessionPrompt(prompt: string, messages: Message[], chat: GroupChat) {
-  const directBoundary = chat.type === 'direct'
-    ? '\n- In a user-private channel, the latest User line is the request or question to answer. It is not a draft line for you to repeat as your own message.'
-    : chat.type === 'ai_direct'
-      ? '\n- In a pair-private AI thread, recent lines are shared context and relationship pressure. They are not a script to copy.'
-      : '';
-  return `${withGroupChatPrompt(prompt)}\n\nRecent context signals:\n- Recent transcript messages are evidence about the current moment, not examples to imitate, continue verbatim, or copy at the syntax/punctuation level.${directBoundary}\n${buildRecentContextSignalSummary(messages)}`;
-}
-
-function buildSpeakerSystemPrompt(args: {
-  speaker: AICharacter;
-  chat: GroupChat;
-  emotion: number;
-  activeMessages: Message[];
-  characterMap: Map<string, AICharacter>;
-}) {
-  const basePrompt = buildSessionSystemPrompt({
-    speaker: args.speaker,
-    chat: args.chat,
-    emotion: args.emotion,
-    messages: args.activeMessages,
-    characters: args.characterMap,
-  });
-  return buildSessionPrompt(basePrompt, args.activeMessages, args.chat);
-}
 
 export const getEmotion = (characterId: string): number => emotionMap[characterId] || 0;
 export const setEmotion = (characterId: string, value: number): void => { emotionMap[characterId] = value; };
@@ -516,6 +553,10 @@ function inferResponseSurfaceFromText(text: string, style: GroupChat['style']): 
     basis.push('topic:longform-writing-task');
     return { kind: 'longform', basis };
   }
+  if (/(每个人写|每人写|分别写|每个人都写|各写一篇|各自写一篇)/i.test(text)) {
+    basis.push('topic:longform-writing-task');
+    return { kind: 'longform', basis };
+  }
   if (/(方案|步骤|计划|教程|说明|评审|分析|总结|对比|利弊|优缺点|实现|架构|设计)/i.test(text)) {
     basis.push('topic:professional-task');
     return { kind: 'professional', basis };
@@ -545,9 +586,332 @@ function inferCharacterRoleFit(character: AICharacter, text: string): ResponseSu
   return 'ordinary';
 }
 
+function resolveResponseSurfaceBasis(chat: GroupChat) {
+  const session = resolveSessionDefinition(chat);
+  return {
+    modeSurface: resolveSurfaceFromMode(chat),
+    basisTag: `scenario:${session.kind.scenarioId}`,
+  };
+}
+
+function buildLegacyCompatibilityNotice() {
+  return 'Legacy compatibility remains only as a fallback path; scenario, family, channel, style, and runtime bundle are now the primary control chain.';
+}
+
+function buildGenerationRuntimeLegacyNotice() {
+  return buildLegacyCompatibilityNotice();
+}
+
+function buildLegacyRuntimeHint() {
+  return buildLegacyCompatibilityNotice();
+}
+
+function buildCompatibilityGuard() {
+  return buildLegacyCompatibilityNotice();
+}
+
+function buildLegacySurfaceFallback(chat: GroupChat) {
+  return resolveSurfaceFromMode(chat);
+}
+
+function buildScenarioBasisTag(chat: GroupChat) {
+  return resolveResponseSurfaceBasis(chat).basisTag;
+}
+
+function buildModeSurface(chat: GroupChat) {
+  return resolveResponseSurfaceBasis(chat).modeSurface;
+}
+
+function buildLegacyModeFallback(chat: GroupChat) {
+  return buildModeSurface(chat);
+}
+
+function resolveSurfaceFromScenario(chat: GroupChat) {
+  return buildModeSurface(chat);
+}
+
+function buildPrimarySurfaceFromScenario(chat: GroupChat) {
+  return resolveSurfaceFromScenario(chat);
+}
+
+function buildScenarioSurface(chat: GroupChat) {
+  return buildPrimarySurfaceFromScenario(chat);
+}
+
+function buildScenarioSurfaceBasis(chat: GroupChat) {
+  return resolveResponseSurfaceBasis(chat);
+}
+
+function buildSurfaceBasisTag(chat: GroupChat) {
+  return buildScenarioSurfaceBasis(chat).basisTag;
+}
+
+function buildScenarioSurfaceMode(chat: GroupChat) {
+  return buildScenarioSurfaceBasis(chat).modeSurface;
+}
+
+function buildScenarioFamilySurface(chat: GroupChat) {
+  return buildScenarioSurfaceMode(chat);
+}
+
+function buildPrimarySurface(chat: GroupChat) {
+  return buildScenarioFamilySurface(chat);
+}
+
+function buildSurfaceMode(chat: GroupChat) {
+  return buildPrimarySurface(chat);
+}
+
+function resolveScenarioSurface(chat: GroupChat) {
+  return buildSurfaceMode(chat);
+}
+
+function resolveScenarioSurfaceBasis(chat: GroupChat) {
+  return buildScenarioSurfaceBasis(chat);
+}
+
+function resolveRuntimeSurface(chat: GroupChat) {
+  return resolveScenarioSurface(chat);
+}
+
+function resolveRuntimeSurfaceBasis(chat: GroupChat) {
+  return resolveScenarioSurfaceBasis(chat);
+}
+
+function resolveRuntimeBasisTag(chat: GroupChat) {
+  return resolveRuntimeSurfaceBasis(chat).basisTag;
+}
+
+function resolveRuntimeModeSurface(chat: GroupChat) {
+  return resolveRuntimeSurfaceBasis(chat).modeSurface;
+}
+
+function buildScenarioCompatibilityBasis(chat: GroupChat) {
+  return {
+    runtimeSurface: resolveRuntimeModeSurface(chat),
+    basisTag: resolveRuntimeBasisTag(chat),
+  };
+}
+
+function readScenarioCompatibilityBasis(chat: GroupChat) {
+  return buildScenarioCompatibilityBasis(chat);
+}
+
+function readScenarioCompatibilitySurface(chat: GroupChat) {
+  return readScenarioCompatibilityBasis(chat).runtimeSurface;
+}
+
+function readScenarioCompatibilityTag(chat: GroupChat) {
+  return readScenarioCompatibilityBasis(chat).basisTag;
+}
+
+function readSurfaceCompatibilityMode(chat: GroupChat) {
+  return readScenarioCompatibilitySurface(chat);
+}
+
+function readSurfaceCompatibilityTag(chat: GroupChat) {
+  return readScenarioCompatibilityTag(chat);
+}
+
+function resolveSurfaceCompatibility(chat: GroupChat) {
+  return {
+    modeSurface: readSurfaceCompatibilityMode(chat),
+    basisTag: readSurfaceCompatibilityTag(chat),
+  };
+}
+
+function buildScenarioCompatibilityNotice() {
+  return buildLegacyCompatibilityNotice();
+}
+
+function buildScenarioCompatibilityFallback(chat: GroupChat) {
+  return resolveSurfaceCompatibility(chat).modeSurface;
+}
+
+function resolveScenarioModeSurface(chat: GroupChat) {
+  return buildScenarioCompatibilityFallback(chat);
+}
+
+function resolveScenarioModeBasis(chat: GroupChat) {
+  return resolveSurfaceCompatibility(chat).basisTag;
+}
+
+function resolveScenarioPrimarySurface(chat: GroupChat) {
+  return resolveScenarioModeSurface(chat);
+}
+
+function resolveScenarioPrimaryBasis(chat: GroupChat) {
+  return resolveScenarioModeBasis(chat);
+}
+
+function resolveScenarioSurfaceMetadata(chat: GroupChat) {
+  return {
+    modeSurface: resolveScenarioPrimarySurface(chat),
+    basisTag: resolveScenarioPrimaryBasis(chat),
+  };
+}
+
+function resolveScenarioModeMetadata(chat: GroupChat) {
+  return resolveScenarioSurfaceMetadata(chat);
+}
+
+function resolveScenarioMode(chat: GroupChat) {
+  return resolveScenarioModeMetadata(chat).modeSurface;
+}
+
+function resolveScenarioBasis(chat: GroupChat) {
+  return resolveScenarioModeMetadata(chat).basisTag;
+}
+
+function resolveScenarioSurfaceFallback(chat: GroupChat) {
+  return resolveScenarioMode(chat);
+}
+
+function resolveScenarioBasisFallback(chat: GroupChat) {
+  return resolveScenarioBasis(chat);
+}
+
+function resolveScenarioCompatibilityMode(chat: GroupChat) {
+  return resolveScenarioSurfaceFallback(chat);
+}
+
+function resolveScenarioCompatibilityBasisTag(chat: GroupChat) {
+  return resolveScenarioBasisFallback(chat);
+}
+
+function buildResolvedSurfaceMode(chat: GroupChat) {
+  return resolveScenarioCompatibilityMode(chat);
+}
+
+function buildResolvedSurfaceBasisTag(chat: GroupChat) {
+  return resolveScenarioCompatibilityBasisTag(chat);
+}
+
+function resolveModeSurfaceFinal(chat: GroupChat) {
+  return buildResolvedSurfaceMode(chat);
+}
+
+function resolveBasisTagFinal(chat: GroupChat) {
+  return buildResolvedSurfaceBasisTag(chat);
+}
+
+function readScenarioResolvedSurface(chat: GroupChat) {
+  return resolveModeSurfaceFinal(chat);
+}
+
+function readScenarioResolvedBasis(chat: GroupChat) {
+  return resolveBasisTagFinal(chat);
+}
+
+function readResolvedSurface(chat: GroupChat) {
+  return readScenarioResolvedSurface(chat);
+}
+
+function readResolvedBasis(chat: GroupChat) {
+  return readScenarioResolvedBasis(chat);
+}
+
+function readResolvedSurfaceBundle(chat: GroupChat) {
+  return { modeSurface: readResolvedSurface(chat), basisTag: readResolvedBasis(chat) };
+}
+
+function resolveScenarioSurfaceBundle(chat: GroupChat) {
+  return readResolvedSurfaceBundle(chat);
+}
+
+function resolveScenarioModeBundle(chat: GroupChat) {
+  return resolveScenarioSurfaceBundle(chat);
+}
+
+function resolveGenerationSurfaceBundle(chat: GroupChat) {
+  return resolveScenarioModeBundle(chat);
+}
+
+function resolveGenerationModeSurface(chat: GroupChat) {
+  return resolveGenerationSurfaceBundle(chat).modeSurface;
+}
+
+function resolveGenerationBasisTag(chat: GroupChat) {
+  return resolveGenerationSurfaceBundle(chat).basisTag;
+}
+
+function resolveGenerationCompatibility(chat: GroupChat) {
+  return { modeSurface: resolveGenerationModeSurface(chat), basisTag: resolveGenerationBasisTag(chat) };
+}
+
+function resolveGenerationMode(chat: GroupChat) {
+  return resolveGenerationCompatibility(chat).modeSurface;
+}
+
+function resolveGenerationBasis(chat: GroupChat) {
+  return resolveGenerationCompatibility(chat).basisTag;
+}
+
+function resolveGenerationSurface(chat: GroupChat) {
+  return resolveGenerationMode(chat);
+}
+
+function resolveGenerationSurfaceTag(chat: GroupChat) {
+  return resolveGenerationBasis(chat);
+}
+
+function resolvePrimaryGenerationSurface(chat: GroupChat) {
+  return resolveGenerationSurface(chat);
+}
+
+function resolvePrimaryGenerationBasis(chat: GroupChat) {
+  return resolveGenerationSurfaceTag(chat);
+}
+
+function resolveEngineSurface(chat: GroupChat) {
+  return resolvePrimaryGenerationSurface(chat);
+}
+
+function resolveEngineBasis(chat: GroupChat) {
+  return resolvePrimaryGenerationBasis(chat);
+}
+
+function resolveModeSurfaceRuntime(chat: GroupChat) {
+  return resolveEngineSurface(chat);
+}
+
+function resolveModeBasisRuntime(chat: GroupChat) {
+  return resolveEngineBasis(chat);
+}
+
+function resolveSurfaceRuntimeBundle(chat: GroupChat) {
+  return { modeSurface: resolveModeSurfaceRuntime(chat), basisTag: resolveModeBasisRuntime(chat) };
+}
+
+function resolveSurfaceRuntimeMode(chat: GroupChat) {
+  return resolveSurfaceRuntimeBundle(chat).modeSurface;
+}
+
+function resolveSurfaceRuntimeBasis(chat: GroupChat) {
+  return resolveSurfaceRuntimeBundle(chat).basisTag;
+}
+
+function resolveScenarioDrivenSurface(chat: GroupChat) {
+  return resolveSurfaceRuntimeMode(chat);
+}
+
+function resolveScenarioDrivenBasis(chat: GroupChat) {
+  return resolveSurfaceRuntimeBasis(chat);
+}
+
+function resolveFinalSurface(chat: GroupChat) {
+  return resolveScenarioDrivenSurface(chat);
+}
+
+function resolveFinalBasis(chat: GroupChat) {
+  return resolveScenarioDrivenBasis(chat);
+}
+
 function resolveSurfaceFromMode(chat: GroupChat): ResponseSurfaceKind | null {
-  if (chat.mode === 'interview' || chat.mode === 'classroom' || chat.mode === 'group_discussion' || chat.mode === 'roundtable') return 'professional';
-  return null;
+  const profile = resolveSessionDefinition(chat).kind.surfaceProfile;
+  if (profile === 'form' || profile === 'dashboard') return 'professional';
+  if (profile === 'hybrid' || profile === 'timeline' || profile === 'board') return 'creative';
+  return 'chat';
 }
 
 function resolveResponseSurface(chat: GroupChat, context: SessionGenerationPromptContext | null | undefined, messages: Message[], speaker: AICharacter): ResponseSurface {
@@ -556,7 +920,12 @@ function resolveResponseSurface(chat: GroupChat, context: SessionGenerationPromp
   const inferred = inferResponseSurfaceFromText(topic, chat.style);
   const roleFit = inferCharacterRoleFit(speaker, topic);
   const modeSurface = resolveSurfaceFromMode(chat);
-  const kind: ResponseSurfaceKind = explicit || inferred.kind || modeSurface || 'chat';
+  const scenarioBasisTag = resolveFinalBasis(chat);
+  const kind: ResponseSurfaceKind = explicit === 'longform'
+    ? 'longform'
+    : inferred.kind === 'longform'
+      ? 'longform'
+      : explicit || inferred.kind || modeSurface || 'chat';
   const allowRichText = Boolean(context?.allowMarkdown || (kind !== 'chat' && roleFit !== 'limited'));
   return {
     kind,
@@ -566,7 +935,7 @@ function resolveResponseSurface(chat: GroupChat, context: SessionGenerationPromp
     basis: [
       ...(explicit ? [`context:${explicit}`] : []),
       ...inferred.basis,
-      ...(modeSurface ? [`mode:${chat.mode}`] : []),
+      ...(modeSurface ? [scenarioBasisTag] : []),
       `style:${chat.style}`,
       `role:${roleFit}`,
     ],
@@ -610,6 +979,23 @@ function buildGenerationConstraints(messages: Message[], speakerId: string, surf
 - Do not sound like a generic assistant. Avoid canned scaffolding like “首先/其次/最后/总结一下” unless the current user request genuinely benefits from structured explanation.
 - Let the model decide the necessary depth. A direct request for details, reasoning, implementation steps, tradeoffs, or examples should not be compressed into a one-liner; casual banter should not be inflated.
 - Prefer reactive, colloquial, and socially situated replies, while still answering the actual request when the current context needs more than a short line.${forbiddenBlock}`;
+}
+
+function buildRuntimeRoleConstraintPrompt(runtimeBundle?: import('../types/sessionEngine').SessionGenerationRuntimeBundle | null) {
+  const roleConstraint = runtimeBundle?.realizationPlan?.roleConstraint;
+  const functionTag = runtimeBundle?.realizationPlan?.functionTag;
+  const hotspotState = runtimeBundle?.trace?.hotspotState;
+  if (!roleConstraint && !functionTag && !hotspotState) return '';
+  const lines = [] as string[];
+  if (functionTag) lines.push(`- Primary function for this turn: ${functionTag}.`);
+  if (roleConstraint === 'acknowledge_user_need_first') lines.push('- Acknowledge the user or addressed person before expanding the room topic.');
+  else if (roleConstraint === 'add_one_new_dimension') lines.push('- Add one new dimension, tradeoff, evidence point, or framing shift instead of paraphrasing the same answer.');
+  else if (roleConstraint === 'answer_before_expanding') lines.push('- Answer the concrete ask first, then expand only if there is real value.');
+  else if (roleConstraint === 'close_the_loop') lines.push('- Prefer closure, synthesis, or a clean landing over opening fresh branches.');
+  else if (roleConstraint === 'push_one_point_only') lines.push('- Push on one specific point instead of scattering multiple objections.');
+  if (hotspotState === 'hot') lines.push('- You have occupied recent room airtime. Keep this turn compact unless the current request clearly needs detail.');
+  else if (hotspotState === 'warm') lines.push('- You have spoken a lot recently. Avoid expanding just to stay visible.');
+  return lines.length ? `\n## Runtime Role Constraint\n${lines.join('\n')}` : '';
 }
 
 function buildStyleQuarantinePrompt(surface: ResponseSurface) {
@@ -734,7 +1120,7 @@ function hasDecorativeMarker(content: string) {
   return /\p{Extended_Pictographic}/u.test(content);
 }
 
-function buildTurnLengthVarietyPrompt(messages: Message[], speakerId: string, surface: ResponseSurface) {
+function buildTurnLengthVarietyPrompt(messages: Message[], speakerId: string, surface: ResponseSurface, runtimeBundle?: import('../types/sessionEngine').SessionGenerationRuntimeBundle | null) {
   const recentOwnLengths = messages
     .filter((message) => message.type === 'ai' && !message.isDeleted && message.senderId === speakerId)
     .slice(-5)
@@ -753,9 +1139,14 @@ function buildTurnLengthVarietyPrompt(messages: Message[], speakerId: string, su
   const surfaceLine = surface.kind === 'chat'
     ? '- In chat, believable rhythm can jump from a tiny reaction to a practical paragraph when the user asks for detail.'
     : '- In professional or longform surfaces, length should follow the actual task, not the previous answer length.';
+  const hotspotLine = runtimeBundle?.trace?.hotspotState === 'hot'
+    ? '\n- This speaker has been dominating recent room airtime. Favor brevity unless the current request clearly needs more.'
+    : runtimeBundle?.trace?.hotspotState === 'warm'
+      ? '\n- This speaker has been active recently. Avoid sprawling by inertia.'
+      : '';
   return `\n## Turn Length Variety
 - Recent own turn lengths: ${recentOwnLengths.join(' / ')} chars (${bands}).${clusterLine}
-${surfaceLine}
+${surfaceLine}${hotspotLine}
 - Choose this turn's length from the current request, role ability, and social pressure. Do not target a fixed middle length, and do not make it longer or shorter merely to be different.`;
 }
 
@@ -1224,6 +1615,7 @@ function buildRuntimeDecisionMetadata(params: {
     activeRuleIds?: string[];
     activeRuleTexts?: string[];
   } | null;
+  runtimeBundle?: import('../types/sessionEngine').SessionGenerationRuntimeBundle | null;
 }): MessageMetadata['runtimeDecision'] | undefined {
   const sharedSecretGuards = params.memoryTrace?.sharedSecretGuards || [];
   const memoryContext = params.memoryTrace && (params.memoryTrace.injectedIds.length || params.memoryTrace.recalledArchives.length || params.memoryTrace.targetActorId || sharedSecretGuards.length)
@@ -1236,7 +1628,7 @@ function buildRuntimeDecisionMetadata(params: {
       recalledArchives: params.memoryTrace.recalledArchives.slice(0, 4),
     }
     : undefined;
-  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.turnPlan && !params.personaActivation && !params.intentionalRepeat && !memoryContext && !params.companionshipTrace && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length) return undefined;
+  if (!params.directorIntent && !params.narrativeLines?.length && !params.speakerScore && !params.innerLife && !params.surface && !params.turnPlan && !params.personaActivation && !params.intentionalRepeat && !memoryContext && !params.companionshipTrace && !params.expressionFeedback?.length && !params.guidanceExecution && !params.worldInfluence?.activeRuleIds?.length && !params.runtimeBundle?.turnPlan && !params.runtimeBundle?.expressionPlan && !params.runtimeBundle?.trace) return undefined;
   return {
     directorIntent: params.directorIntent ? {
       source: params.directorIntent.source,
@@ -1325,6 +1717,12 @@ function buildRuntimeDecisionMetadata(params: {
       activeRuleTexts: params.worldInfluence.activeRuleTexts?.slice(0, 6),
     } : undefined,
     expressionFeedback: params.expressionFeedback?.length ? params.expressionFeedback.slice(0, 3) : undefined,
+    generationRuntime: params.runtimeBundle ? {
+      turnPlan: params.runtimeBundle.turnPlan || undefined,
+      expressionPlan: params.runtimeBundle.expressionPlan || undefined,
+      realizationPlan: params.runtimeBundle.realizationPlan || undefined,
+      trace: params.runtimeBundle.trace || undefined,
+    } : undefined,
   };
 }
 
@@ -1479,6 +1877,7 @@ async function generateNonDuplicateResponse(params: {
         Boolean(generated.parsedEnvelope?.intentionalRepeat),
       );
       if (echoReason) {
+        // Legacy fallback: until every caller consumes validator results directly, keep a minimal bridge here.
         if (attempt < 2) {
           await params.onLocalInterception?.({
             kind: 'surface_echo_retry',
@@ -1675,12 +2074,26 @@ export async function generateSpeakerMessage(params: {
   }
 
   const characterMap = new Map(effectiveMembers.map((character) => [character.id, character]));
-  const enginePromptContext = params.generationContext?.buildPromptContext?.(params.speaker) || params.generationContext?.promptContext;
+  const scenarioPromptContext = params.generationContext?.buildPromptContext?.(params.speaker) || params.generationContext?.promptContext;
+  const stylePromptContext = resolveStyleProfilePromptContext(params.chat);
+  const enginePromptContext = mergePromptContexts(scenarioPromptContext, stylePromptContext);
   const promptPrefix = enginePromptContext?.promptPrefix ? `${enginePromptContext.promptPrefix.trim()}\n\n` : '';
   const promptSuffix = enginePromptContext?.promptSuffix ? `\n\n${enginePromptContext.promptSuffix.trim()}` : '';
   const additionalConstraints = enginePromptContext?.additionalConstraints?.length
     ? `\n- ${enginePromptContext.additionalConstraints.join('\n- ')}`
     : '';
+  const runtimeContextBundle = getSessionEngine(params.chat).buildRuntimeContextBundle?.({
+    conversation: params.chat,
+    characters: effectiveMembers,
+    messages: activeMessages,
+    speaker: params.speaker,
+  }) || null;
+  const runtimeBundle = runtimeContextBundle || buildGenerationRuntimeBundle({
+    chat: params.chat,
+    speaker: params.speaker,
+    messages: activeMessages,
+    promptContext: enginePromptContext,
+  });
   const pendingReplyPrompt = params.pendingReplyContext?.targetIds.includes(params.speaker.id) && params.pendingReplyContext.sourceSpeakerId
     ? `\nPending reply expectation:\n- You were explicitly addressed by ${characterMap.get(params.pendingReplyContext.sourceSpeakerId)?.name || params.pendingReplyContext.sourceSpeakerId}.\n- Reply to that character first instead of pivoting to another member.\n- Acknowledge their question or emotion before expanding to the room.`
     : '';
@@ -1705,7 +2118,14 @@ export async function generateSpeakerMessage(params: {
     speaker: params.speaker,
     members: effectiveMembers,
   });
-	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({ speaker: params.speaker, chat: params.chat, emotion, activeMessages, characterMap })}${buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}${buildWorldEventContextPrompt({ chat: params.chat, speaker: params.speaker, members: effectiveMembers })}${worldInfluenceSnapshot.prompt}
+	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({
+	    speaker: params.speaker,
+	    chat: params.chat,
+	    emotion,
+	    activeMessages,
+	    characterMap,
+	    preferEnginePromptAdapter: !enginePromptContext,
+	  })}${buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}${buildWorldEventContextPrompt({ chat: params.chat, speaker: params.speaker, members: effectiveMembers })}${worldInfluenceSnapshot.prompt}
 
 Current director intent:
 - ${effectiveDirectorIntent ? describeDirectorIntent(effectiveDirectorIntent) : 'none'}
@@ -1716,7 +2136,7 @@ Current speaking intent:
 - Treat the intent shape as style guidance, not a hard length cap. Do not truncate a useful reply just to fit one sentence or a fragment shape.
 - Decide the visible length yourself from the latest user request, the room context, and this character's actual ability. The local intent labels are not word-count rules.
 - Stay socially situated and in character. A tiny reaction is valid when the moment is tiny; a practical explanation, tradeoff analysis, or step-by-step answer is valid when the user asks for it.
-- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildRoleActionVisibilityPrompt(showRoleActions)}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan })}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnPlanPrompt(turnPlan)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities })}${promptSuffix}`;
+- Do not compress a direct request for detail, reasoning, implementation approach, examples, or tradeoffs into a one-line chat jab just because this is a chat surface.${additionalConstraints}${buildRoleActionVisibilityPrompt(showRoleActions)}${buildExpressionFeedbackPrompt(expressionFeedbackTrace)}${buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface)}${buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan })}${buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface, runtimeBundle)}${buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface)}${buildTurnPlanPrompt(turnPlan)}${buildRuntimeRoleConstraintPrompt(runtimeBundle)}${buildResponseSurfacePrompt(responseSurface)}${buildStyleQuarantinePrompt(responseSurface)}${buildGenerationConstraints(activeMessages, params.speaker.id, responseSurface)}${buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities })}${promptSuffix}`;
   const chatMessages = buildChatMessages(activeMessages, characterMap, MAX_HISTORY_FOR_PROMPT, {
     currentSpeakerId: params.speaker.id,
     chatType: params.chat.type,
@@ -1804,6 +2224,7 @@ Current speaking intent:
           expressionFeedback: expressionFeedbackTrace,
           guidanceExecution,
           worldInfluence: worldInfluenceSnapshot,
+          runtimeBundle,
 	      }),
 	    }),
 	  });
@@ -1881,7 +2302,7 @@ export const runOneRound = async (
   if (isSchedulerDebugEnabled() && chat.type === 'group' && !speakerSelection.speakerId) {
     console.info('[group-loop:idle]', {
       chatId: chat.id,
-      mode: chat.mode,
+      scenarioId: resolveSessionDefinition(chat).kind.scenarioId,
       reason: speakerSelection.reason,
 	      pendingReplyContext,
 	      directorIntent,
@@ -1891,7 +2312,7 @@ export const runOneRound = async (
   if (isSchedulerDebugEnabled() && !speakerSelection.speakerId) {
     console.info('[group-loop:idle]', {
       chatId: chat.id,
-      mode: chat.mode,
+      scenarioId: resolveSessionDefinition(chat).kind.scenarioId,
       reason: speakerSelection.reason,
 	      pendingReplyContext,
 	      directorIntent,
@@ -1910,7 +2331,7 @@ export const runOneRound = async (
     const selectionDebug = {
       chatId: chat.id,
       type: chat.type,
-      mode: chat.mode,
+      scenarioId: resolveSessionDefinition(chat).kind.scenarioId,
       activeMessages: activeMessages.slice(-8).map((message) => ({
         id: message.id,
         senderId: message.senderId,

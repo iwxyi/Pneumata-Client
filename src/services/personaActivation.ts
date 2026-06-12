@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
+import { resolveSessionDefinition } from '../types/sessionEngine';
 
 export type PersonaActivationLevel = 'low' | 'medium' | 'high' | 'masked';
 
@@ -41,8 +42,9 @@ function hasPersonaTermHit(text: string, character: AICharacter) {
 }
 
 function isGameLikeMode(chat: GroupChat) {
-  const mode = `${chat.mode || ''} ${chat.style || ''} ${chat.topic || ''} ${chat.name || ''}`.toLowerCase();
-  return /(werewolf|script|murder|狼人|剧本|推理|阵营|身份|卧底|欺骗|伪装)/i.test(mode);
+  const session = resolveSessionDefinition(chat);
+  const context = `${session.kind.family} ${session.kind.scenarioId} ${chat.style || ''} ${chat.topic || ''} ${chat.name || ''}`.toLowerCase();
+  return /(werewolf|script|murder|狼人|剧本|推理|阵营|身份|卧底|欺骗|伪装)/i.test(context);
 }
 
 export function resolvePersonaActivation(params: {

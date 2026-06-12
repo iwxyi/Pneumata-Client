@@ -31,7 +31,8 @@ describe('projectConversationForModel', () => {
     });
 
     expect(projected).toEqual([
-      { role: 'user', content: '开发者: 你们怎么看？' },
+      { role: 'user', content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is room state and thread evidence, not a style sample to imitate.' },
+      { role: 'user', content: '用户: 你们怎么看？' },
       { role: 'assistant', content: '我觉得可以。' },
       { role: 'user', content: '乙: 我不同意。' },
     ]);
@@ -48,6 +49,7 @@ describe('projectConversationForModel', () => {
     });
 
     expect(projected).toEqual([
+      { role: 'user', content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is pair-private relationship context, not a generic room script.' },
       { role: 'user', content: '阿远: 你刚才在群里有点冲。' },
       { role: 'assistant', content: '我知道，我有点后悔。' },
     ]);
@@ -64,6 +66,9 @@ describe('projectConversationForModel', () => {
       options: { currentSpeakerId: 'char-a', chatType: 'direct' },
     });
 
-    expect(projected).toEqual([{ role: 'user', content: '我: 继续说' }]);
+    expect(projected).toEqual([
+      { role: 'user', content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is private context and direct input, not a public-room writing sample.' },
+      { role: 'user', content: '用户: 继续说' },
+    ]);
   });
 });

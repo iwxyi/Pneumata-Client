@@ -1,5 +1,5 @@
 import type { ConversationPhase, GroupChat } from '../../types/chat';
-import type { SessionEngineDefinition } from '../../types/sessionEngine';
+import type { SessionEngineDefinition, SessionGenerationPromptContext, SessionRuntimeContextBundle } from '../../types/sessionEngine';
 import type { Message } from '../../types/message';
 
 const DISCUSSION_PHASES = [
@@ -37,6 +37,48 @@ function getAvailableActions() {
     { type: 'summarize_discussion' },
     { type: 'shift_to_synthesis' },
   ];
+}
+
+function buildGenerationPromptContext(params: { conversation: GroupChat }): SessionGenerationPromptContext {
+  const phase = params.conversation.scenarioState?.phase || 'discussion';
+  return {
+    responseStyle: 'professional',
+    allowMarkdown: true,
+    styleProfile: 'analytical_room',
+    additionalConstraints: phase === 'synthesis'
+      ? ['Synthesize the strongest points and move toward a clear takeaway instead of reopening the full debate.']
+      : ['Add one materially new distinction, tradeoff, counterpoint, or synthesis step instead of restating agreement.'],
+  };
+}
+
+function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: { id: string } }): SessionRuntimeContextBundle {
+  const phase = params.conversation.scenarioState?.phase || 'discussion';
+  return {
+    turnPlan: {
+      speakerId: params.speaker.id,
+      obligation: 'should',
+      moveClass: phase === 'synthesis' ? 'resolve' : 'deepen',
+      targetScope: 'topic',
+      depth: 'deep',
+      channelId: 'public',
+      reason: `discussion:${phase}`,
+    },
+    expressionPlan: {
+      surface: 'analytical',
+      texture: 'rich',
+      rhythm: 'back_and_forth',
+      allowMarkdown: true,
+    },
+    realizationPlan: {
+      moveClass: phase === 'synthesis' ? 'resolve' : 'deepen',
+      targetScope: 'topic',
+      noveltyGoal: phase === 'synthesis' ? 'resolve' : 'new_angle',
+      surfaceDepth: 'deep',
+    },
+    trace: {
+      policyHits: [`discussion_phase:${phase}`],
+    },
+  };
 }
 
 function onMessageCommitted(params: {
@@ -87,5 +129,7 @@ export const DISCUSSION_ENGINE: SessionEngineDefinition = {
   getPhaseDefinitions,
   getVisiblePanels,
   getAvailableActions,
+  buildGenerationPromptContext,
+  buildRuntimeContextBundle,
   onMessageCommitted,
 };

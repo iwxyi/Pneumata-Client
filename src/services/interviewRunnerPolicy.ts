@@ -1,7 +1,8 @@
 import type { GroupChat } from '../types/chat';
+import { resolveSessionDefinition } from '../types/sessionEngine';
 
 export function getInterviewRunnerPolicy(chat: GroupChat) {
-  if (chat.mode !== 'interview') return null;
+  if (resolveSessionDefinition(chat).kind.family !== 'interview') return null;
   const phase = chat.worldState.phase || 'idle';
   return {
     actionChance: phase === 'warming' ? 0.4 : phase === 'debating' ? 0.18 : phase === 'aligned' ? 0.25 : 0.08,

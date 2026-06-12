@@ -27,6 +27,8 @@ export async function copyTextToClipboard(text: string) {
   } catch {
     return false;
   } finally {
-    document.body.removeChild(textarea);
+    if (textarea.parentNode) {
+      textarea.parentNode.removeChild(textarea);
+    }
   }
 }

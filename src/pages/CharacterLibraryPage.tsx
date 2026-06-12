@@ -35,8 +35,14 @@ type CharacterSortField = 'name' | 'createdAt';
 type CharacterSortDirection = 'asc' | 'desc';
 const CHARACTER_LIBRARY_TAB_KEY = 'character-library-tab';
 const CHARACTER_LIBRARY_GROUP_KEY = 'character-library-group';
+const CHARACTER_LIBRARY_SORT_FIELD_KEY = 'character-library-sort-field';
+const CHARACTER_LIBRARY_SORT_DIRECTION_KEY = 'character-library-sort-direction';
+const CHARACTER_LIBRARY_SORT_GROUP_FIRST_KEY = 'character-library-sort-group-first';
 const isCharacterLibraryTab = (value: unknown): value is number => Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 1;
 const isCharacterLibraryGroup = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
+const isCharacterSortField = (value: unknown): value is CharacterSortField => value === 'name' || value === 'createdAt';
+const isCharacterSortDirection = (value: unknown): value is CharacterSortDirection => value === 'asc' || value === 'desc';
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
 
 function getActiveCharacterId(pathname: string) {
   return pathname.match(/^\/characters\/([^/]+)\/edit$/)?.[1] || null;
@@ -93,9 +99,9 @@ export default function CharacterLibraryPage() {
   const [groupActionDialogOpen, setGroupActionDialogOpen] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [sortMenuAnchorEl, setSortMenuAnchorEl] = useState<null | HTMLElement>(null);
-  const [sortField, setSortField] = useState<CharacterSortField>('name');
-  const [sortDirection, setSortDirection] = useState<CharacterSortDirection>('asc');
-  const [sortGroupFirst, setSortGroupFirst] = useState(false);
+  const [sortField, setSortField] = useState<CharacterSortField>(() => readPersistentUiValue(CHARACTER_LIBRARY_SORT_FIELD_KEY, 'name', isCharacterSortField));
+  const [sortDirection, setSortDirection] = useState<CharacterSortDirection>(() => readPersistentUiValue(CHARACTER_LIBRARY_SORT_DIRECTION_KEY, 'asc', isCharacterSortDirection));
+  const [sortGroupFirst, setSortGroupFirst] = useState(() => readPersistentUiValue(CHARACTER_LIBRARY_SORT_GROUP_FIRST_KEY, false, isBoolean));
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectionMenuAnchorEl, setSelectionMenuAnchorEl] = useState<null | HTMLElement>(null);
   const groupPressTimerRef = useRef<number | null>(null);
@@ -130,6 +136,17 @@ export default function CharacterLibraryPage() {
     writePersistentUiValue(CHARACTER_LIBRARY_GROUP_KEY, selectedGroup);
   }, [selectedGroup]);
 
+  useEffect(() => {
+    writePersistentUiValue(CHARACTER_LIBRARY_SORT_FIELD_KEY, sortField);
+  }, [sortField]);
+
+  useEffect(() => {
+    writePersistentUiValue(CHARACTER_LIBRARY_SORT_DIRECTION_KEY, sortDirection);
+  }, [sortDirection]);
+
+  useEffect(() => {
+    writePersistentUiValue(CHARACTER_LIBRARY_SORT_GROUP_FIRST_KEY, sortGroupFirst);
+  }, [sortGroupFirst]);
 
   const presets = characters.filter((c) => c.isPreset);
   const custom = characters.filter((c) => !c.isPreset);

@@ -31,6 +31,7 @@ export function useChatRunLoop(params: {
   setCurrentSpeaker: (characterId: string | null) => void;
   resetAllCooldowns: () => void;
   start: (loopToken: string) => void;
+  pause: () => void;
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
   showErrorToast: (message: string) => void;
   t: (key: string) => string;
@@ -65,11 +66,11 @@ export function useChatRunLoop(params: {
     if (!current.chat || !current.chatId) return;
     if (activeRunLoopTokenRef.current === loopId) return;
     activeRunLoopTokenRef.current = loopId;
-    const [{ runChatLoop }, { getSessionEngine }] = await Promise.all([
+    const [{ runChatLoop }, { resolveSessionEngine }] = await Promise.all([
       import('../services/chatLoopRunner'),
       import('../services/sessionEngineRegistry'),
     ]);
-    const sessionEngine = getSessionEngine(current.chat.mode);
+    const sessionEngine = resolveSessionEngine(current.chat);
     try {
       await runChatLoop({
         loopId,
@@ -136,16 +137,43 @@ export function useChatRunLoop(params: {
           setThinkingId(null);
           current.setCurrentSpeaker(null);
         },
-        onEngineError: (error) => {
+        onEngineError: async (error) => {
+          if (typeof console !== 'undefined' && typeof console.error === 'function') {
+            console.error('[chat-run-loop:engine-error]', {
+              error,
+              chatId: current.chatId,
+              loopId,
+              activeChatId: current.activeChatIdRef.current,
+              activeLoopToken: current.loopTokenRef.current,
+              paused: current.isPausedRef.current,
+              running: current.isRunningRef.current,
+              streamingMessage: current.streamingMessageRef.current,
+            });
+          }
           current.discardStreamingMessage();
           setThinkingId(null);
           current.setCurrentSpeaker(null);
+          current.isPausedRef.current = true;
+          current.pause();
           const message = error.message || current.t('common.error');
           setChatError(message);
           setRunLoopError(message);
           current.showErrorToast(message);
+          await current.updateChat(current.chatId!, { isActive: false });
         },
         onLoopError: (error) => {
+          if (typeof console !== 'undefined' && typeof console.error === 'function') {
+            console.error('[chat-run-loop:loop-error]', {
+              error,
+              chatId: current.chatId,
+              loopId,
+              activeChatId: current.activeChatIdRef.current,
+              activeLoopToken: current.loopTokenRef.current,
+              paused: current.isPausedRef.current,
+              running: current.isRunningRef.current,
+              streamingMessage: current.streamingMessageRef.current,
+            });
+          }
           const message = error instanceof Error ? error.message : String(error);
           const safeMessage = message || current.t('common.error');
           setRunLoopError(safeMessage);

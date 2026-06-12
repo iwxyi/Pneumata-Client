@@ -1,4 +1,4 @@
-import type { AICharacter } from './character';
+import type { AICharacter, CharacterVisualIdentity } from './character';
 import type { Message } from './message';
 import type { MemoryItem } from '../services/memoryTypes';
 import type { ConflictRuntimeState } from './runtimeEvent';
@@ -551,6 +551,23 @@ export interface ConversationDirectorControls {
   allowForcedReply: boolean;
 }
 
+export interface ChatMemberCharacterSummary {
+  id: string;
+  name: string;
+  avatar: string;
+  personality: AICharacter['personality'];
+  expertise: string[];
+  speakingStyle: string;
+  background: string;
+  visualIdentity?: CharacterVisualIdentity | null;
+  speechProfile?: AICharacter['speechProfile'];
+  bubbleStyle?: AICharacter['bubbleStyle'];
+  bubbleStyleId?: string | null;
+  isPreset: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface GroupChat {
   id: string;
   type: ConversationType;
@@ -586,6 +603,7 @@ export interface GroupChat {
   topicSeed: string;
   sourceChatId?: string | null;
   sourceMemberIds?: string[];
+  memberCharacterSummaries?: ChatMemberCharacterSummary[];
   layeredMemories?: MemoryItem[];
   runtimeSeed?: {
     notes?: string[];

@@ -13,7 +13,7 @@ vi.mock('./aiClient', () => ({
 
 const directFlowMocks = vi.hoisted(() => ({
   generateAndCommitAiMessage: vi.fn(),
-  getSessionEngine: vi.fn(),
+  resolveSessionEngine: vi.fn(),
 }));
 
 vi.hoisted(() => {
@@ -34,7 +34,7 @@ vi.mock('./aiMessageOrchestrator', () => ({
 }));
 
 vi.mock('./sessionEngineRegistry', () => ({
-  getSessionEngine: directFlowMocks.getSessionEngine,
+  resolveSessionEngine: directFlowMocks.resolveSessionEngine,
 }));
 
 const generateJsonResponseMock = vi.mocked(generateJsonResponse);
@@ -42,13 +42,13 @@ const generateJsonResponseMock = vi.mocked(generateJsonResponse);
 beforeEach(() => {
   generateJsonResponseMock.mockReset();
   directFlowMocks.generateAndCommitAiMessage.mockReset();
-  directFlowMocks.getSessionEngine.mockReset();
+  directFlowMocks.resolveSessionEngine.mockReset();
   generateJsonResponseMock.mockResolvedValue(JSON.stringify({
     phase: { shouldCreate: false },
     careTopics: [],
     userProfile: { shouldCreate: false, items: [] },
   }));
-  directFlowMocks.getSessionEngine.mockReturnValue({
+  directFlowMocks.resolveSessionEngine.mockReturnValue({
     buildGenerationPromptContext: vi.fn(() => null),
     onMessageCommitted: vi.fn(() => ({ chatPatch: {}, characterPatches: [], runtimeEvents: [] })),
   });

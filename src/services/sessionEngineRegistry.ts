@@ -92,7 +92,7 @@ function resolveSessionScenarioKey(chat: Pick<GroupChat, 'mode' | 'sessionKind'>
 export function resolveSessionEngineKey(chat: Pick<GroupChat, 'mode' | 'sessionKind'>): GroupChat['mode'] {
   return resolveEngineKeyFromScenario(resolveSessionScenarioKey(chat))
     || resolveEngineKeyFromFamily(resolveSessionFamilyKey(chat))
-    || chat.mode;
+    || 'open_chat';
 }
 
 export function getSessionEngine(mode: GroupChat['mode']) {

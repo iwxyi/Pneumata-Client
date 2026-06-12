@@ -7,7 +7,7 @@ import { classifyActorKindLabel } from './actorRefPresentation';
 import { formatFeedbackStatusLabel, formatGuidanceInputStatusLabel, resolveGuidanceExecutionStatus } from './runtimeStatusPresentation';
 
 export interface MessageRuntimeClueSection {
-  key: 'memory' | 'companionship' | 'inner' | 'surface' | 'director' | 'guidance' | 'guidance_execution' | 'world_influence' | 'narrative' | 'feedback';
+  key: 'memory' | 'companionship' | 'inner' | 'surface' | 'director' | 'guidance' | 'guidance_execution' | 'world_influence' | 'narrative' | 'feedback' | 'generation_runtime';
   label: string;
   promptLabel: string;
   statusKind: 'prompt_context' | 'debug_explanation' | 'soft_signal' | 'applied_signal';
@@ -143,6 +143,31 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       decision.intentionalRepeat ? '有意复沓/引用' : '',
       ...(decision.responseSurface.basis || []).map((reason) => formatSurfaceBasisLabel(reason)),
     ] : [],
+  }, members);
+  const generationRuntime = decision.generationRuntime as {
+    turnPlan?: { moveClass?: string; targetScope?: string; depth?: string; reason?: string };
+    expressionPlan?: { surface?: string; texture?: string; rhythm?: string };
+    trace?: { policyHits?: string[]; scenarioChecks?: string[]; duplicateDecision?: string | null };
+  } | undefined;
+  pushSection(sections, {
+    key: 'generation_runtime',
+    label: '生成运行时',
+    promptLabel: '运行时计划',
+    statusKind: 'debug_explanation',
+    statusLabel: '调试解释',
+    statusHint: '用于解释 room kernel、scenario、style 和 validator 如何共同决定这一条消息。',
+    items: generationRuntime ? [
+      generationRuntime.turnPlan?.moveClass ? `动作：${generationRuntime.turnPlan.moveClass}` : '',
+      generationRuntime.turnPlan?.targetScope ? `目标：${generationRuntime.turnPlan.targetScope}` : '',
+      generationRuntime.turnPlan?.depth ? `深度：${generationRuntime.turnPlan.depth}` : '',
+      generationRuntime.expressionPlan?.surface ? `表面：${generationRuntime.expressionPlan.surface}` : '',
+      generationRuntime.expressionPlan?.texture ? `质地：${generationRuntime.expressionPlan.texture}` : '',
+      generationRuntime.expressionPlan?.rhythm ? `节奏：${generationRuntime.expressionPlan.rhythm}` : '',
+      generationRuntime.trace?.policyHits?.length ? `策略：${generationRuntime.trace.policyHits.join(' / ')}` : '',
+      generationRuntime.trace?.scenarioChecks?.length ? `场景：${generationRuntime.trace.scenarioChecks.join(' / ')}` : '',
+      generationRuntime.trace?.duplicateDecision ? `校验：${generationRuntime.trace.duplicateDecision}` : '',
+    ] : [],
+    maxItems: 10,
   }, members);
   pushSection(sections, {
     key: 'director',

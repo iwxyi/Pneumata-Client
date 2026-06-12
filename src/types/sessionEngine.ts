@@ -502,7 +502,7 @@ export function inferIntentChannelId(conversation: GroupChat, intent: SessionInt
   if (intent.channelId) return intent.channelId;
   if (conversation.type === 'ai_direct') return 'pair-private';
   if (conversation.type === 'direct') return 'user-private';
-  if (conversation.mode === 'interview' && intent.type !== 'message_intent') return 'moderator';
+  if (resolveSessionDefinition(conversation).kind.family === 'interview' && intent.type !== 'message_intent') return 'moderator';
   return 'public';
 }
 
@@ -1400,24 +1400,94 @@ export interface SessionGenerationContext {
   messages: Message[];
 }
 
+export type SessionMoveClass = 'respond' | 'advance' | 'expand' | 'deepen' | 'challenge' | 'repair' | 'stabilize' | 'resolve' | 'perform';
+export type SessionTargetScope = 'person' | 'topic' | 'room' | 'scene' | 'task';
+export type SessionDepth = 'brief' | 'normal' | 'deep';
+export type SessionSurface = 'casual' | 'analytical' | 'companion' | 'dramatic' | 'task';
+
+export interface SessionTurnPlan {
+  speakerId: string;
+  obligation: 'must' | 'should' | 'can' | 'skip';
+  moveClass: SessionMoveClass;
+  targetScope: SessionTargetScope;
+  targetIds?: string[];
+  depth: SessionDepth;
+  channelId?: string | null;
+  reason: string;
+}
+
+export interface SessionExpressionPlan {
+  surface: SessionSurface;
+  emotionalPosture?: 'warm' | 'defensive' | 'cold' | 'playful' | 'tense';
+  texture?: 'terse' | 'ordinary' | 'rich';
+  rhythm?: 'one_shot' | 'back_and_forth' | 'branching' | 'scene_beat';
+  allowMarkdown?: boolean;
+}
+
+export interface SessionExecutionTrace {
+  policyHits?: string[];
+  memoryInfluence?: string[];
+  scenarioChecks?: string[];
+  duplicateDecision?: string | null;
+  guidanceValidation?: string | null;
+  mediaDecisionReason?: string | null;
+  functionTag?: string | null;
+  roleConstraint?: string | null;
+  hotspotState?: 'clear' | 'warm' | 'hot' | null;
+}
+
 export interface SessionGenerationPromptContext {
   promptPrefix?: string;
   promptSuffix?: string;
   additionalConstraints?: string[];
   responseStyle?: 'chat' | 'professional' | 'creative' | 'longform';
   allowMarkdown?: boolean;
+  styleProfile?: string;
 }
 
-export interface SessionTurnPolicy {
-  runChat: boolean;
-  runAction: boolean;
-  interleaveAction?: boolean;
+export interface SessionRealizationPlan {
+  moveClass: SessionMoveClass;
+  targetScope: SessionTargetScope;
+  targetIds?: string[];
+  noveltyGoal?: 'none' | 'new_example' | 'new_angle' | 'new_evidence' | 'repair' | 'resolve';
+  emotionalPosture?: 'warm' | 'defensive' | 'cold' | 'playful' | 'tense';
+  surfaceDepth?: SessionDepth;
+  functionTag?: 'answer' | 'add_angle' | 'comfort' | 'challenge' | 'summarize' | 'advance';
+  roleConstraint?: string;
 }
 
-export interface SessionEngineActionContext {
-  conversation: GroupChat;
-  participants: ParticipantInstance[];
-  characters?: AICharacter[];
+export interface SessionValidationDecision {
+  allowed: boolean;
+  reason?: string | null;
+}
+
+export interface SessionGenerationRuntimeBundle {
+  turnPlan?: SessionTurnPlan;
+  expressionPlan?: SessionExpressionPlan;
+  realizationPlan?: SessionRealizationPlan;
+  validationDecision?: SessionValidationDecision;
+  trace?: SessionExecutionTrace;
+}
+
+export interface SessionDuplicateValidationContext {
+  content: string;
+  speakerId: string;
+  recentMessages: Message[];
+  styleProfile?: string | null;
+  scenarioId?: string | null;
+  channelType?: GroupChat['type'];
+}
+
+export interface SessionDuplicateValidator {
+  key: string;
+  validate: (context: SessionDuplicateValidationContext) => SessionValidationDecision;
+}
+
+export interface SessionRuntimeContextBundle {
+  turnPlan?: SessionTurnPlan;
+  expressionPlan?: SessionExpressionPlan;
+  realizationPlan?: SessionRealizationPlan;
+  trace?: SessionExecutionTrace;
 }
 
 export interface SessionEngineDefinition {
@@ -1432,6 +1502,7 @@ export interface SessionEngineDefinition {
   getActionSchema?: (context: SessionEngineActionContext) => SessionActionSchema | null;
   buildGenerationPromptContext?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionGenerationPromptContext;
   resolveTurnPolicy?: (context: SessionGenerationContext) => SessionTurnPolicy;
+  buildRuntimeContextBundle?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionRuntimeContextBundle | null;
   onMessageCommitted: (context: SessionCommitContext) => Promise<{
   chatPatch: Partial<GroupChat>;
   characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;
@@ -1698,6 +1769,9 @@ export interface SessionGenerationPromptContext {
   promptPrefix?: string;
   promptSuffix?: string;
   additionalConstraints?: string[];
+  responseStyle?: 'chat' | 'professional' | 'creative' | 'longform';
+  allowMarkdown?: boolean;
+  styleProfile?: string;
 }
 
 export interface SessionTurnPolicy {

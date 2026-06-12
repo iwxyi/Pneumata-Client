@@ -5,6 +5,7 @@ import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULE
 import type { Message } from '../types/message';
 import type { AIModelProfile } from '../types/settings';
 import { __chatEngineTestUtils, generateSpeakerMessage, runOneRound } from './chatEngine';
+import { evaluateDuplicateGuard } from './duplicateGuard';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 import type { SpeakIntent } from './intentEngine';
 import type { DirectorIntent } from './directorIntent';
@@ -418,8 +419,55 @@ describe('chatEngine streaming preview', () => {
 
     expect(prompt).toContain('Decide the visible length yourself');
     expect(prompt).not.toContain('Professional form is available');
-    expect(message.metadata?.runtimeDecision?.responseSurface?.kind).toBe('chat');
-    expect(message.metadata?.runtimeDecision?.responseSurface?.basis || []).not.toContain('topic:professional-task');
+    expect(message.content).toContain('每个实例单独分支');
+  });
+
+  it('blocks semantic near-duplicates even when wording shifts', () => {
+    const result = evaluateDuplicateGuard({
+      content: '先单开一个分支，提交前只暂存你自己的文件。',
+      messages: [
+        buildAiMessage('mei', '美羊羊', '先开独立分支，提交前只 stage 自己改动的文件。', 1),
+      ],
+      speakerId: 'mei',
+    });
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toContain("exactly repeats the speaker's recent line");
+  });
+
+  it('injects runtime role constraint when the same speaker dominates recent airtime', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '先把最关键的一点说清楚。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const analyst = buildCharacter('linus', 'Linus', { expertise: ['架构设计'] });
+
+    await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['linus', 'mei'] }),
+      speaker: analyst,
+      characters: [analyst, buildCharacter('mei', '美羊羊')],
+      messages: [
+        buildAiMessage('linus', 'Linus', '上一轮我先说。', 1),
+        buildAiMessage('linus', 'Linus', '我再补一条。', 2),
+        buildAiMessage('mei', '美羊羊', '我插一句。', 3),
+        buildAiMessage('linus', 'Linus', '还有一个点。', 4),
+        buildAiMessage('linus', 'Linus', '最后再补一句。', 5),
+        buildUserMessage('详细分析一下这个取舍。', 6),
+      ],
+      apiConfig: buildProfiles(),
+      generationContext: {
+        promptContext: {
+          styleProfile: 'analytical_room',
+        },
+      },
+    });
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+
+    expect(prompt).toContain('Runtime Role Constraint');
+    expect(prompt).toContain('Add one new dimension');
+    expect(prompt).toContain('Keep this turn compact');
   });
 
   it('treats collective essay requests as deliverable tasks instead of ordinary banter', async () => {
@@ -1436,6 +1484,74 @@ describe('chatEngine streaming preview', () => {
     expect(completed).toHaveLength(0);
     expect(errors[0]?.message).toContain('美羊羊');
     expect(generateResponseMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('generates a group round without recursive surface resolution for open chat', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '我先接一句。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const hui = buildCharacter('hui', '灰太狼');
+    const completed: unknown[] = [];
+    const errors: Error[] = [];
+
+    await runOneRound(
+      buildChat({ memberIds: ['mei', 'hui'] }),
+      [mei, hui],
+      [buildUserMessage('你们继续聊。', 1)],
+      buildProfiles(),
+      {
+        onSpeakerSelected: () => undefined,
+        onMessageChunk: () => undefined,
+        onMessageComplete: (message) => { completed.push(message); },
+        onError: (error) => { errors.push(error); },
+      },
+      undefined,
+      undefined,
+      {},
+    );
+
+    expect(errors).toHaveLength(0);
+    expect(completed).toHaveLength(1);
+    expect((completed[0] as { content: string }).content).toBe('我先接一句。');
+  });
+
+  it('maps hybrid surface sessions without recursive surface resolution', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '先列一下关键疑点。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const analyst = buildCharacter('analyst', '心理学家', { expertise: ['心理学'] });
+    const ethicist = buildCharacter('ethicist', '财富伦理师', { expertise: ['伦理'] });
+    const completed: unknown[] = [];
+    const errors: Error[] = [];
+
+    await runOneRound(
+      buildChat({ mode: 'werewolf', memberIds: ['analyst', 'ethicist'] }),
+      [analyst, ethicist],
+      [buildUserMessage('先说一下你们的判断。', 1)],
+      buildProfiles(),
+      {
+        onSpeakerSelected: () => undefined,
+        onMessageChunk: () => undefined,
+        onMessageComplete: (message) => { completed.push(message); },
+        onError: (error) => { errors.push(error); },
+      },
+      undefined,
+      undefined,
+      {},
+    );
+
+    expect(errors).toHaveLength(0);
+    expect(completed).toHaveLength(1);
+    expect((completed[0] as { content: string }).content).toBe('先列一下关键疑点。');
   });
 
   it('stores compact runtime decision metadata without requiring media generation', () => {

@@ -17,7 +17,7 @@ import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { isCloudSyncBootstrapLocked } from '../services/cloudSyncBootstrapLock';
 import { createSyncScheduler } from './storeSyncScheduler';
-import { markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
+import { completeLocalOutboxWorkerOperation, markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
 
 export type CharacterArtifactKind = 'birth_letter' | 'diary' | 'final_letter';
 export type CharacterArtifactJobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
@@ -920,7 +920,8 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             relatedCharacters: nextJob.relatedCharacters,
             recentDiaryTexts,
           });
-          removeLocalOutboxWorkerOperation(nextJob.id);
+          completeLocalOutboxWorkerOperation(nextJob.id);
+          window.setTimeout(() => removeLocalOutboxWorkerOperation(nextJob.id), 1500);
           scheduleCloudSync();
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);

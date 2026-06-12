@@ -16,6 +16,7 @@ export interface LocalOutboxPersistenceAdapter {
   list: (storageKey: string) => Promise<PersistedLocalOutboxRecord[]>;
   upsertMany: (storageKey: string, records: LocalOutboxRecord[]) => Promise<void>;
   remove: (storageKey: string, ids: string[]) => Promise<void>;
+  clear: (storageKey: string) => Promise<void>;
   replaceSource: (storageKey: string, sourceType: LocalOutboxScopeType, records: LocalOutboxRecord[]) => Promise<void>;
 }
 
@@ -42,7 +43,7 @@ function localOutboxRowKey(storageKey: string, id: string) {
 }
 
 function normalizeStatus(value: unknown): LocalOutboxStatus | null {
-  return value === 'pending' || value === 'syncing' || value === 'failed' ? value : null;
+  return value === 'pending' || value === 'syncing' || value === 'failed' || value === 'succeeded' ? value : null;
 }
 
 function normalizeScopeType(value: unknown): LocalOutboxScopeType | null {
@@ -172,6 +173,24 @@ function createIndexedDbLocalOutboxAdapter(): LocalOutboxPersistenceAdapter {
         transaction.onerror = () => reject(transaction.error || new Error('Local outbox remove failed'));
       });
     },
+    async clear(storageKey) {
+      const database = await openLocalOutboxDb();
+      if (!database) return;
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction(LOCAL_OUTBOX_STORE, 'readwrite');
+        const store = transaction.objectStore(LOCAL_OUTBOX_STORE);
+        const request = store.index(LOCAL_OUTBOX_STORAGE_INDEX).openCursor(IDBKeyRange.only(storageKey));
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          cursor.delete();
+          cursor.continue();
+        };
+        request.onerror = () => reject(request.error || new Error('Local outbox clear failed'));
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error || new Error('Local outbox clear failed'));
+      });
+    },
     async replaceSource(storageKey, sourceType, records) {
       const database = await openLocalOutboxDb();
       if (!database) return;
@@ -221,6 +240,9 @@ export function createLocalOutboxRepository(adapter: LocalOutboxPersistenceAdapt
     },
     remove(storageKey: string, ids: string[]) {
       return adapter.remove(storageKey, ids);
+    },
+    clear(storageKey: string) {
+      return adapter.clear(storageKey);
     },
     async replaceSource(storageKey: string, sourceType: LocalOutboxScopeType, records: LocalOutboxRecord[]) {
       const sanitized = records

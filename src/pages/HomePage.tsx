@@ -463,7 +463,7 @@ export default function HomePage() {
       value: aiMessageCount,
       icon: <ChatIcon />,
       color: 'primary.main',
-      onOpen: () => navigate('/account/sync-status'),
+      onOpen: () => navigate('/chats?tab=0'),
     },
     ...syncStatusStats,
   ];

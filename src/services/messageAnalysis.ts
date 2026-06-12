@@ -2,6 +2,7 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig } from '../types/settings';
+import { resolveSessionDefinition } from '../types/sessionEngine';
 import { generateResponse } from './aiClient';
 import { formatMessageRuntimeCluesForPrompt } from './messageRuntimeClues';
 
@@ -86,10 +87,12 @@ function buildSystemPrompt() {
 
 function buildUserPrompt({ chat, message, messages, characters }: AnalysisContext) {
   const runtimeDecisionContext = formatMessageRuntimeCluesForPrompt(message, characters);
+  const session = resolveSessionDefinition(chat);
   return [
     `聊天名称：${chat.name}`,
     `聊天类型：${chat.type}`,
-    `聊天模式：${chat.mode}`,
+    `会话场景：${session.scenario.label}`,
+    `会话族类：${session.family.label}`,
     `聊天主题：${chat.topic || '无'}`,
     chat.topicSeed ? `开场话题：${chat.topicSeed}` : '',
     '',

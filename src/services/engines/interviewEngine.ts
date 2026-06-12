@@ -1,5 +1,5 @@
 import type { GroupChat } from '../../types/chat';
-import type { SessionEngineDefinition } from '../../types/sessionEngine';
+import type { SessionEngineDefinition, SessionRuntimeContextBundle } from '../../types/sessionEngine';
 import type { Message } from '../../types/message';
 import { INTERVIEW_PHASES, buildInterviewActionSchema, buildInterviewGenerationPromptContext, buildInterviewParticipants, buildInterviewRoomShiftPayload, buildInterviewScenarioPatch, buildInterviewScenarioState, createStructuredInterviewEvent, getCandidateIds, getInterviewAvailableActions, getInterviewScenarioRole, getInterviewVisiblePanels, getInterviewerId, inferInterviewTurnMetadata, resolveInterviewTurnPolicy } from '../sessionScenarios/interviewScenario';
 
@@ -13,6 +13,36 @@ function buildGenerationPromptContext(params: Parameters<typeof buildInterviewGe
 
 function resolveTurnPolicy(params: { conversation: GroupChat }) {
   return resolveInterviewTurnPolicy(params);
+}
+
+function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: { id: string } }): SessionRuntimeContextBundle {
+  const role = getInterviewScenarioRole(params.conversation, params.speaker.id);
+  return {
+    turnPlan: {
+      speakerId: params.speaker.id,
+      obligation: role === 'interviewer' ? 'should' : 'must',
+      moveClass: role === 'interviewer' ? 'respond' : 'deepen',
+      targetScope: role === 'interviewer' ? 'task' : 'person',
+      depth: 'deep',
+      channelId: role === 'interviewer' ? 'moderator' : 'public',
+      reason: `interview:${role}`,
+    },
+    expressionPlan: {
+      surface: 'task',
+      texture: 'rich',
+      rhythm: 'back_and_forth',
+      allowMarkdown: true,
+    },
+    realizationPlan: {
+      moveClass: role === 'interviewer' ? 'respond' : 'deepen',
+      targetScope: role === 'interviewer' ? 'task' : 'person',
+      noveltyGoal: role === 'interviewer' ? 'new_angle' : 'new_evidence',
+      surfaceDepth: 'deep',
+    },
+    trace: {
+      policyHits: [`interview_role:${role}`],
+    },
+  };
 }
 
 function buildParticipants(conversation: GroupChat) {
@@ -93,5 +123,6 @@ export const INTERVIEW_ENGINE: SessionEngineDefinition = {
   getActionSchema: ({ conversation }) => buildInterviewActionSchema(conversation),
   buildGenerationPromptContext,
   resolveTurnPolicy,
+  buildRuntimeContextBundle,
   onMessageCommitted,
 };

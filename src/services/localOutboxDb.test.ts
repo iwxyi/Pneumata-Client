@@ -22,6 +22,11 @@ function createMemoryAdapter(): LocalOutboxPersistenceAdapter {
     async remove(storageKey, ids) {
       ids.forEach((id) => rows.delete(keyOf(storageKey, id)));
     },
+    async clear(storageKey) {
+      for (const row of Array.from(rows.values())) {
+        if (row.storageKey === storageKey) rows.delete(row.key);
+      }
+    },
     async replaceSource(storageKey, sourceType, records) {
       for (const row of Array.from(rows.values())) {
         if (row.storageKey === storageKey && row.sourceType === sourceType) rows.delete(row.key);
@@ -98,6 +103,22 @@ describe('localOutboxDb', () => {
     await repository.remove('user-1', ['chat-1']);
 
     expect((await repository.list('user-1')).map((item) => item.id)).toEqual(['chat-2']);
+    expect((await repository.list('user-2')).map((item) => item.id)).toEqual(['chat-1']);
+  });
+
+  it('clears all records for one storage key only', async () => {
+    const repository = createLocalOutboxRepository(createMemoryAdapter());
+    await repository.upsertMany('user-1', [
+      outboxRecord({ id: 'chat-1', sourceType: 'chat' }),
+      outboxRecord({ id: 'message-1', sourceType: 'message' }),
+    ]);
+    await repository.upsertMany('user-2', [
+      outboxRecord({ id: 'chat-1', sourceType: 'chat' }),
+    ]);
+
+    await repository.clear('user-1');
+
+    expect(await repository.list('user-1')).toEqual([]);
     expect((await repository.list('user-2')).map((item) => item.id)).toEqual(['chat-1']);
   });
 

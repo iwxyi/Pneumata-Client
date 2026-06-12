@@ -1,5 +1,5 @@
 export type LocalOutboxScopeType = 'character' | 'chat' | 'message' | 'artifact';
-export type LocalOutboxStatus = 'pending' | 'syncing' | 'failed';
+export type LocalOutboxStatus = 'pending' | 'syncing' | 'failed' | 'succeeded';
 
 export interface LocalOutboxPatchOperationLike {
   id: string;
@@ -70,7 +70,7 @@ function sortLocalOutboxItems(items: LocalOutboxItem[]) {
 }
 
 function normalizeStatus(status: string | null | undefined): LocalOutboxStatus | null {
-  if (status === 'pending' || status === 'syncing' || status === 'failed') return status;
+  if (status === 'pending' || status === 'syncing' || status === 'failed' || status === 'succeeded') return status;
   if (status === 'running') return 'syncing';
   return null;
 }

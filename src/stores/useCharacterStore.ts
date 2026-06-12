@@ -15,7 +15,7 @@ import { useCharacterArtifactStore } from './useCharacterArtifactStore';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isReservedNonCharacterActorId } from '../services/actorRefPresentation';
-import { markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
+import { completeLocalOutboxWorkerOperation, markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
 import {
   canAttemptOnlineSync,
   classifySyncError,
@@ -576,6 +576,7 @@ interface CharacterStore extends PersistedCharacterState {
   getCharactersLoadedAt: () => number;
   getSyncScopeStates: () => SyncScopeSnapshot[];
   markCharactersWarm: () => void;
+  hydrateCharacterSummaries: (characters: Array<Partial<AICharacter> & Pick<AICharacter, 'id' | 'name' | 'avatar' | 'personality' | 'expertise' | 'speakingStyle' | 'background' | 'isPreset' | 'createdAt' | 'updatedAt'>>) => void;
   getPresets: () => AICharacter[];
   getCustom: () => AICharacter[];
   importCharacters: (chars: AICharacter[]) => Promise<void>;
@@ -892,7 +893,8 @@ export const useCharacterStore = create<CharacterStore>()(
               pendingEditSyncError: latestCharacterError(nextQueue),
               lastSyncedAt: Date.now(),
             }));
-            removeLocalOutboxWorkerOperation(operation.id);
+            completeLocalOutboxWorkerOperation(operation.id);
+            window.setTimeout(() => removeLocalOutboxWorkerOperation(operation.id), 1500);
           },
           onFailure: (operation, _error, retry) => {
             set((current) => ({
@@ -1480,6 +1482,36 @@ export const useCharacterStore = create<CharacterStore>()(
         getCharactersLoadedAt: () => get().lastSyncedAt,
         getSyncScopeStates: () => characterSyncScopes.listStates(),
         markCharactersWarm: () => set(buildMarkedWarmCharacterStoreState),
+        hydrateCharacterSummaries: (summaries) => {
+          if (!summaries.length) return;
+          set((state) => {
+            const nextCharacters = mergeVisibleCharacters(
+              state.characters,
+              summaries.map((summary) => normalizeCharacter({
+                id: summary.id,
+                name: summary.name,
+                avatar: summary.avatar,
+                personality: summary.personality,
+                expertise: summary.expertise,
+                speakingStyle: summary.speakingStyle,
+                background: summary.background,
+                isPreset: summary.isPreset,
+                createdAt: summary.createdAt,
+                updatedAt: summary.updatedAt,
+                visualIdentity: summary.visualIdentity,
+                speechProfile: summary.speechProfile,
+                bubbleStyleId: summary.bubbleStyleId,
+                bubbleStyle: summary.bubbleStyle,
+                characterDetailLoaded: false,
+              } as AICharacter)),
+              state.pendingOperations,
+            );
+            if (buildCharacterListSignature(nextCharacters) === buildCharacterListSignature(state.characters)) {
+              return {};
+            }
+            return { characters: nextCharacters };
+          });
+        },
         getPresets: () => get().characters.filter((c) => c.isPreset),
         getCustom: () => get().characters.filter((c) => !c.isPreset),
 

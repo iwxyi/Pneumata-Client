@@ -22,17 +22,23 @@ vi.mock('./sessionEngineKernel', () => ({
   createSessionRuntimeContext: () => ({ participants: [] }),
 }));
 
+vi.mock('../stores/useAuthStore', () => ({
+  useAuthStore: {
+    getState: () => ({ token: null, user: null }),
+  },
+}));
+
 vi.mock('./sessionActionBus', () => ({
   getAllowedSessionActions: (_engine: unknown, context: { conversation: GroupChat }) => {
-    if (context.conversation.mode === 'open_chat') return [{ type: 'speak' }];
-    if (context.conversation.mode === 'werewolf') return [{ type: 'wolf_vote' }];
+    if (context.conversation.sessionKind?.scenarioId === 'open-chat') return [{ type: 'speak' }];
+    if (context.conversation.sessionKind?.scenarioId === 'werewolf-classic') return [{ type: 'wolf_vote' }];
     return [{ type: 'ask_question', payload: { prompt: '问题', targetId: 'b' }, targetIds: ['b'] }, { type: 'speak' }];
   },
 }));
 
 vi.mock('./sessionStateMachine', () => ({
   getCurrentSessionPhase: (_engine: unknown, chat: GroupChat) => ({
-    allowedActions: chat.mode === 'open_chat' && chat.worldState.phase === 'aligned'
+    allowedActions: chat.sessionKind?.scenarioId === 'open-chat' && chat.worldState.phase === 'aligned'
       ? ['director_intervention']
       : ['ask_question', 'speak'],
   }),
@@ -101,6 +107,21 @@ vi.mock('./engines/werewolfEngine', () => ({
 const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
 const realMathRandom = Math.random;
+const realLocalStorage = globalThis.localStorage;
+
+const localStorageStub = {
+  getItem: vi.fn(() => null),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+  clear: vi.fn(),
+  key: vi.fn(() => null),
+  length: 0,
+} as Storage;
+
+Object.defineProperty(globalThis, 'localStorage', {
+  value: localStorageStub,
+  configurable: true,
+});
 
 globalThis.setTimeout = ((fn: (...args: unknown[]) => void) => {
   fn();
@@ -114,6 +135,10 @@ afterAll(() => {
   globalThis.setTimeout = realSetTimeout;
   globalThis.clearTimeout = realClearTimeout;
   Math.random = realMathRandom;
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: realLocalStorage,
+    configurable: true,
+  });
 });
 
 beforeEach(() => {
@@ -147,6 +172,7 @@ function buildChat(overrides: Partial<GroupChat> = {}): GroupChat {
     id: 'chat-1',
     type: 'group',
     mode: 'interview',
+    sessionKind: { topology: 'group', family: 'interview', scenarioId: 'panel-interview', surfaceProfile: 'form' },
     modeConfig: {},
     modeState: { phase: 'free', currentSpeakerId: null, currentTopicFocus: '', lastRelationshipEventAt: null },
     name: '测试',
@@ -184,6 +210,7 @@ function buildLoopParams(chat: GroupChat) {
     onSpeakerSelected: vi.fn(),
     getStreamingMessage: undefined as (() => unknown) | undefined,
     onCommitStarted: undefined as (() => void) | undefined,
+    pauseLoop: () => { running = false; },
     onCommitFinished: undefined as (() => void) | undefined,
     onTurnWorkStarted: undefined as (() => void) | undefined,
     onTurnWorkFinished: undefined as (() => void) | undefined,
@@ -211,7 +238,7 @@ describe('runSessionLoop', () => {
       hooks.onMessageChunk('真正流式');
       await hooks.onMessageComplete({ id: 'msg-stream', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '真正流式', emotion: 0 });
     });
-    const params = buildLoopParams(buildChat({ mode: 'open_chat', worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' }, worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
     params.getCurrentMessages = () => [{ id: 'm1', chatId: 'chat-1', type: 'ai', senderId: 'b', senderName: '乙', content: '上一句', emotion: 0 }] as never[];
     params.onClearStreamingState = vi.fn(() => {
       params.onLoopError();
@@ -233,7 +260,7 @@ describe('runSessionLoop', () => {
   });
 
   it('skips chat ticks when engine policy disallows werewolf speaking', async () => {
-    const params = buildLoopParams(buildChat({ mode: 'werewolf', worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+    const params = buildLoopParams(buildChat({ mode: 'werewolf', sessionKind: { topology: 'table', family: 'deduction', scenarioId: 'werewolf-classic', surfaceProfile: 'hybrid' }, worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
     await runSessionLoop(params as never);
     expect(runOneRoundMock).not.toHaveBeenCalled();
     expect(params.onLoopError).toHaveBeenCalled();
@@ -245,7 +272,7 @@ describe('runSessionLoop', () => {
       hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
       await hooks.onMessageComplete({ id: 'msg-1', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '完整回复', emotion: 0 });
     });
-    const params = buildLoopParams(buildChat({ mode: 'open_chat', worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' }, worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
     params.getCurrentMessages = () => [{ id: 'm1', chatId: 'chat-1', type: 'ai', senderId: 'b', senderName: '乙', content: '上一句', emotion: 0 }] as never[];
     params.onClearStreamingState = vi.fn(() => {
       params.onLoopError();
@@ -266,7 +293,7 @@ describe('runSessionLoop', () => {
       hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
       await hooks.onMessageComplete({ id: 'msg-1', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '完整回复', emotion: 0 });
     });
-    const params = buildLoopParams(buildChat({ mode: 'open_chat', worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' }, worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
     params.onTurnWorkStarted = started;
     params.onTurnWorkFinished = finished;
     params.onClearStreamingState = vi.fn(() => {
@@ -280,8 +307,8 @@ describe('runSessionLoop', () => {
   });
 
   it('uses the latest chat snapshot when running a chat round', async () => {
-    const staleChat = buildChat({ mode: 'open_chat', worldState: { phase: 'aligned', mood: '', focus: '旧焦点', recentEvent: '', conflictAxes: [] } as never });
-    const latestChat = buildChat({ mode: 'open_chat', worldState: { phase: 'warming', mood: '', focus: '最新用户引导', recentEvent: '', conflictAxes: [] } as never });
+    const staleChat = buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' }, worldState: { phase: 'aligned', mood: '', focus: '旧焦点', recentEvent: '', conflictAxes: [] } as never });
+    const latestChat = buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' }, worldState: { phase: 'warming', mood: '', focus: '最新用户引导', recentEvent: '', conflictAxes: [] } as never });
     const params = buildLoopParams(staleChat);
     params.getCurrentChat = () => latestChat;
     runOneRoundMock.mockImplementation(async () => {
@@ -314,7 +341,7 @@ describe('runSessionLoop', () => {
       hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
       await hooks.onMessageComplete({ id: 'msg-1', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '完整回复', emotion: 0 });
     });
-    const params = buildLoopParams(buildChat({ mode: 'open_chat', worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' }, worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
     params.getStreamingMessage = () => streamingMessage as never;
     params.onCommitStarted = commitStarted;
     params.onCommitFinished = commitFinished;
@@ -337,7 +364,7 @@ describe('runSessionLoop', () => {
       hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
       await hooks.onMessageComplete({ id: 'msg-2', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '另一条回复', emotion: 0 });
     });
-    const params = buildLoopParams(buildChat({ mode: 'open_chat', worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' }, worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
     params.getCurrentMessages = () => [{ id: 'm1', chatId: 'chat-1', type: 'ai', senderId: 'b', senderName: '乙', content: '上一句', emotion: 0 }] as never[];
     params.onClearStreamingState = vi.fn(() => {
       params.onLoopError();
@@ -351,6 +378,22 @@ describe('runSessionLoop', () => {
     await runSessionLoop(params as never);
     expect(runOneRoundMock).not.toHaveBeenCalled();
     expect(params.onLoopError).toHaveBeenCalled();
+  });
+
+  it('stops retrying after an engine error is paused by the UI layer', async () => {
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' }, worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+    params.onEngineError = vi.fn(() => {
+      params.pauseLoop();
+    });
+    runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
+      hooks.onError(new Error('Maximum call stack size exceeded'));
+    });
+
+    await runSessionLoop(params as never);
+
+    expect(runOneRoundMock).toHaveBeenCalledTimes(1);
+    expect(params.onEngineError).toHaveBeenCalledTimes(1);
+    expect(params.onLoopError).not.toHaveBeenCalled();
   });
 });
 

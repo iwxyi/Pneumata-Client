@@ -78,7 +78,7 @@ export function useChatSidebarProjection(params: {
       import('../services/sessionProjection'),
     ]).then(([registry, kernel, projection]) => {
       if (cancelled) return;
-      const engine = registry.getSessionEngine(chat.mode);
+      const engine = registry.resolveSessionEngine(chat);
       const runtimeContext = kernel.createSessionRuntimeContext(engine, chat);
       const nextProjectionData = kernel.resolveSessionProjectionData(engine, runtimeContext);
       setProjectionData(nextProjectionData);

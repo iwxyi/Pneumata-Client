@@ -1,5 +1,6 @@
 import type { GroupChat, ParticipantInstance } from '../types/chat';
 import type { ParticipantRoleCard } from '../types/participantRole';
+import { resolveSessionDefinition } from '../types/sessionEngine';
 import { getModeratorChannelId, getRoleChannelId } from './sessionTopology';
 
 export interface RolePrivateRuntimePayload {
@@ -23,7 +24,7 @@ function buildWerewolfRoleCard(roleTitle: string, summary: string, details: stri
 }
 
 function buildWerewolfParticipantState(chat: GroupChat, participant: ParticipantInstance): ParticipantInstance {
-  if (chat.mode !== 'werewolf') return participant;
+  if (resolveSessionDefinition(chat).kind.scenarioId !== 'werewolf-classic') return participant;
   const role = typeof participant.flags.role === 'string' ? participant.flags.role : 'villager';
   const alive = participant.flags.alive !== false;
   const publicTitle = alive ? '存活玩家' : '已出局';
@@ -84,7 +85,7 @@ function buildWerewolfParticipantState(chat: GroupChat, participant: Participant
 }
 
 function buildWerewolfModeratorPayload(chat: GroupChat): RolePrivateRuntimePayload | null {
-  if (chat.mode !== 'werewolf') return null;
+  if (resolveSessionDefinition(chat).kind.scenarioId !== 'werewolf-classic') return null;
   return {
     key: 'werewolf-moderator-brief',
     title: '裁判视角',
@@ -96,7 +97,7 @@ function buildWerewolfModeratorPayload(chat: GroupChat): RolePrivateRuntimePaylo
 }
 
 function buildWerewolfRolePayload(chat: GroupChat): RolePrivateRuntimePayload | null {
-  if (chat.mode !== 'werewolf') return null;
+  if (resolveSessionDefinition(chat).kind.scenarioId !== 'werewolf-classic') return null;
   return {
     key: 'werewolf-role-brief',
     title: '狼人杀私有信息',
@@ -107,7 +108,7 @@ function buildWerewolfRolePayload(chat: GroupChat): RolePrivateRuntimePayload | 
 }
 
 function buildWerewolfPackPayload(chat: GroupChat): RolePrivateRuntimePayload | null {
-  if (chat.mode !== 'werewolf') return null;
+  if (resolveSessionDefinition(chat).kind.scenarioId !== 'werewolf-classic') return null;
   return {
     key: 'werewolf-pack-brief',
     title: '狼人同伴视角',
@@ -119,7 +120,7 @@ function buildWerewolfPackPayload(chat: GroupChat): RolePrivateRuntimePayload | 
 }
 
 export function buildInterviewPrivatePayload(chat: GroupChat): RolePrivateRuntimePayload | null {
-  if (chat.mode !== 'interview') return null;
+  if (resolveSessionDefinition(chat).kind.family !== 'interview') return null;
   return {
     key: 'interview-private-brief',
     title: '面试官私有提示',
@@ -147,7 +148,7 @@ export function buildRolePrivateParticipantState(chat: GroupChat, participant: P
   const werewolfState = buildWerewolfParticipantState(chat, participant);
   if (werewolfState !== participant) return werewolfState;
 
-  if (chat.mode === 'interview' && participant.flags.role === 'interviewer') {
+  if (resolveSessionDefinition(chat).kind.family === 'interview' && participant.flags.role === 'interviewer') {
     return {
       ...participant,
       roleKey: 'interviewer',

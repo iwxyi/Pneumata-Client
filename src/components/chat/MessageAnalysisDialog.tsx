@@ -5,6 +5,7 @@ import type { Message } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { projectMessageRuntimeClues } from '../../services/messageRuntimeClues';
+import { buildGenerationRuntimeDebugRows } from '../../services/generationRuntimePresentation';
 import DebugChip from '../common/DebugChip';
 
 type AnalysisSection = { index: number; title: string; content: string };

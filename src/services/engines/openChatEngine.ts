@@ -1,6 +1,6 @@
 import type { DriverMessageCommitResult, GroupChat } from '../../types/chat';
 import { createDefaultConversationEngineDefinition } from '../../types/sessionEngine';
-import type { SessionEngineDefinition } from '../../types/sessionEngine';
+import type { SessionEngineDefinition, SessionRuntimeContextBundle } from '../../types/sessionEngine';
 import type { AICharacter } from '../../types/character';
 import type { Message } from '../../types/message';
 import type {
@@ -30,6 +30,36 @@ import { buildMomentPostText } from '../momentTextBuilder';
 import { buildCharacterCompanionshipStates, shouldBlockUserProactiveContactByCompanionshipPolicy } from '../companionshipProjection';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
+
+function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: { id: string } }): SessionRuntimeContextBundle {
+  return {
+    turnPlan: {
+      speakerId: params.speaker.id,
+      obligation: params.conversation.type === 'group' ? 'can' : 'should',
+      moveClass: params.conversation.type === 'group' ? 'advance' : 'respond',
+      targetScope: params.conversation.type === 'group' ? 'room' : 'person',
+      depth: 'normal',
+      channelId: 'public',
+      reason: `open_chat:${params.conversation.type}`,
+    },
+    expressionPlan: {
+      surface: params.conversation.type === 'direct' || params.conversation.type === 'ai_direct' ? 'companion' : 'casual',
+      texture: 'ordinary',
+      rhythm: params.conversation.type === 'group' ? 'back_and_forth' : 'one_shot',
+      allowMarkdown: true,
+    },
+    realizationPlan: {
+      moveClass: params.conversation.type === 'group' ? 'advance' : 'respond',
+      targetScope: params.conversation.type === 'group' ? 'room' : 'person',
+      noveltyGoal: params.conversation.type === 'group' ? 'new_angle' : 'none',
+      surfaceDepth: 'normal',
+      emotionalPosture: params.conversation.type === 'group' ? 'playful' : 'warm',
+    },
+    trace: {
+      policyHits: [`open_chat:${params.conversation.type}`],
+    },
+  };
+}
 
 type AttentionStateSnapshot = ReturnType<typeof projectWorldAttentionStates>[number];
 

@@ -995,8 +995,9 @@ export function projectActionSchema(engine: SessionEngineDefinition, context: Se
 
 export function createViewerRoleForConversation(conversation: GroupChat, viewerId?: string | null) {
   if (!viewerId) return null;
-  if (conversation.mode === 'interview' && conversation.memberIds[0] === viewerId) return 'interviewer';
-  if (conversation.mode === 'werewolf') {
+  const definition = resolveSessionDefinitionForConversation(conversation);
+  if (definition.kind.family === 'interview' && conversation.memberIds[0] === viewerId) return 'interviewer';
+  if (definition.kind.scenarioId === 'werewolf-classic' || definition.kind.family === 'deduction') {
     const seatIndex = conversation.memberIds.indexOf(viewerId);
     if (seatIndex === 0 && conversation.memberIds.length >= 4) return 'seer';
     if (seatIndex >= 0 && seatIndex >= conversation.memberIds.length - Math.max(1, Math.floor(conversation.memberIds.length / 4))) return 'werewolf';

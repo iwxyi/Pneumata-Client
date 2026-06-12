@@ -3,6 +3,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
 import type { MemoryItem } from './memoryTypes';
+import { resolveSessionDefinition } from '../types/sessionEngine';
 import { projectFactionClusters } from './factionProjection';
 import { formatScenarioBoardKind, formatScenarioRoleLabel } from './scenarioPresentation';
 
@@ -441,7 +442,8 @@ function buildMysteryLines(chat: GroupChat, now: number): NarrativeLineProjectio
     .filter((event) => event.visibility === 'role_private' || event.visibility === 'moderator_only' || event.visibility === 'pair_private')
     .slice(-8);
   const hiddenRoles = (chat.scenarioState?.roleAssignments || []).filter((assignment) => assignment.summary || assignment.factionId || assignment.roleId);
-  if (!privateEvents.length && chat.mode !== 'murder_mystery' && chat.mode !== 'werewolf') return [];
+  const scenario = resolveSessionDefinition(chat).kind;
+  if (!privateEvents.length && scenario.family !== 'mystery' && scenario.family !== 'deduction') return [];
   const newest = privateEvents.at(-1);
   const ageMinutes = newest ? Math.max(0, now - newest.createdAt) / 60_000 : 0;
   const recency = newest ? clamp01(1 - ageMinutes / 90) : 0.36;
@@ -480,7 +482,7 @@ function buildScenarioLine(chat: GroupChat, characters: AICharacter[], now: numb
   const factionCount = (scenario.factions || []).length;
   const seatCount = (scenario.seats || []).filter((item) => item.actorId || item.roleId || item.teamId).length;
   const hasBoard = Boolean(scenario.board?.schema?.kind);
-  if (chat.mode === 'open_chat' && !roleCount && !factionCount && !hasBoard && !scenario.currentTurnActorId) return null;
+  if (resolveSessionDefinition(chat).kind.family === 'conversation' && !roleCount && !factionCount && !hasBoard && !scenario.currentTurnActorId) return null;
   if (!roleCount && !factionCount && !seatCount && !hasBoard && !scenario.currentTurnActorId) return null;
   const salience = clamp01(0.26 + Math.min(0.22, roleCount * 0.05) + Math.min(0.18, factionCount * 0.05) + Math.min(0.14, seatCount * 0.03) + (hasBoard ? 0.12 : 0) + (scenario.currentTurnActorId ? 0.08 : 0));
   const actorNameFromId = (id?: string | null) => {

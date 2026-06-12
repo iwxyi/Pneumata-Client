@@ -250,10 +250,22 @@ export default function App() {
   const themeColor = useSettingsStore((s) => s.themeColor);
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
   const checkAdminAuth = useAdminAuthStore((s) => s.checkAuth);
+  const [settingsHydrated, setSettingsHydrated] = useState(() => useSettingsStore.persist.hasHydrated());
 
   useEffect(() => {
     void checkAdminAuth();
   }, [checkAdminAuth]);
+
+  useEffect(() => {
+    if (settingsHydrated) return;
+    let cancelled = false;
+    Promise.resolve(useSettingsStore.persist.rehydrate()).finally(() => {
+      if (!cancelled) setSettingsHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsHydrated]);
 
   const resolvedMode = themeMode === 'system' ? (prefersDark ? 'dark' : 'light') : themeMode;
 
@@ -265,12 +277,16 @@ export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <BrowserRouter>
-        <AdminAuthRedirectHandler />
-        <DataLoader>
-          <RoutedApp />
-        </DataLoader>
-      </BrowserRouter>
+      {settingsHydrated ? (
+        <BrowserRouter>
+          <AdminAuthRedirectHandler />
+          <DataLoader>
+            <RoutedApp />
+          </DataLoader>
+        </BrowserRouter>
+      ) : (
+        <RouteFallback />
+      )}
     </ThemeProvider>
   );
 }

@@ -44,6 +44,13 @@ export function useStreamingMessageState(upsertMessage: (message: Message) => vo
         || state.messages.find((message) => message.id === current.id)
         || null;
       if (shouldDiscardStreamingDraft(current, persisted)) {
+        if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+          console.warn('[streaming-message:discard-draft]', {
+            current,
+            persisted,
+            chatId: current.chatId,
+          });
+        }
         upsertMessage({ ...current, isDeleted: true, isStreaming: false });
       }
     }

@@ -118,11 +118,11 @@ export async function runDirectUserReplyFlow(params: {
     });
   });
 
-  const [{ generateAndCommitAiMessage }, { getSessionEngine }] = await Promise.all([
+  const [{ generateAndCommitAiMessage }, { resolveSessionEngine }] = await Promise.all([
     import('./aiMessageOrchestrator'),
     import('./sessionEngineRegistry'),
   ]);
-  const sessionEngine = getSessionEngine(params.chat.mode);
+  const sessionEngine = resolveSessionEngine(params.chat);
 
   await generateAndCommitAiMessage({
     api: textApiConfig,

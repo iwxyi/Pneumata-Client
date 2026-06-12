@@ -18,8 +18,14 @@ export interface EnginePromptAdapter {
 
 const adapters = new Map<string, EnginePromptAdapter>([
   [openChatPromptAdapter.key, openChatPromptAdapter],
+  ['open-chat', openChatPromptAdapter],
+  ['direct-chat', openChatPromptAdapter],
+  ['ai-private-thread', openChatPromptAdapter],
   [interviewPromptAdapter.key, interviewPromptAdapter],
+  ['panel-interview', interviewPromptAdapter],
+  ['ielts-coach', interviewPromptAdapter],
   [werewolfPromptAdapter.key, werewolfPromptAdapter],
+  ['werewolf-classic', werewolfPromptAdapter],
 ]);
 
 export function registerPromptAdapter(adapter: EnginePromptAdapter) {
