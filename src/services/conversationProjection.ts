@@ -6,6 +6,10 @@ import { getChannelSemantics } from './channelSemanticsRegistry';
 export type ProjectedChatMessage = {
   role: 'user' | 'assistant';
   content: string;
+  attachments?: Array<{
+    url: string;
+    mimeType?: string;
+  }>;
 };
 
 export interface ConversationProjectionOptions {
@@ -74,6 +78,14 @@ function isVisibleMessage(message: Message) {
   return true;
 }
 
+function buildProjectedImageAttachments(message: Message) {
+  const attachments = (message.metadata?.attachments || [])
+    .filter((attachment) => attachment.kind === 'image' && attachment.url && attachment.status !== 'deleted' && attachment.status !== 'failed')
+    .map((attachment) => ({ url: attachment.url as string, mimeType: attachment.mimeType }))
+    .slice(0, 8);
+  return attachments.length ? attachments : undefined;
+}
+
 export function projectConversationForModel(input: ConversationProjectionInput): ProjectedChatMessage[] {
   const visible = input.messages
     .filter(isVisibleMessage)
@@ -89,16 +101,19 @@ export function projectConversationForModel(input: ConversationProjectionInput):
     });
   }
   for (const message of visible) {
+    const attachments = buildProjectedImageAttachments(message);
     if (message.type === 'ai' && currentSpeakerId && message.senderId === currentSpeakerId) {
       projected.push({
         role: 'assistant',
         content: buildAssistantHistoryPrompt(compactTranscriptContent(message.content)),
+        attachments,
       });
       continue;
     }
     projected.push({
       role: 'user',
       content: buildTranscriptLine(message, input.characters, currentSpeakerId),
+      attachments,
     });
   }
   return projected;

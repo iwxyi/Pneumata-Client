@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { Message } from '../types/message';
+import type { Message, MessageAttachment } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { SessionActionSchema, SessionNormalizedIntentResult } from '../types/sessionEngine';
 import type { AIModelProfile, APIConfig } from '../types/settings';
@@ -366,9 +366,9 @@ export async function runSurfaceIntentImpl(
   surfaceResult: SessionNormalizedIntentResult,
   handlers: {
     runSessionAction: (action: { type: string; actorId?: string }, payload: Record<string, unknown>) => Promise<void>;
-    handleGuideSend: (content: string) => Promise<void>;
-    handleMemberSpeakSend: (content: string) => Promise<void>;
-    handleSpeakAs: (content: string) => Promise<void>;
+    handleGuideSend: (content: string, attachments?: MessageAttachment[]) => Promise<void>;
+    handleMemberSpeakSend: (content: string, attachments?: MessageAttachment[]) => Promise<void>;
+    handleSpeakAs: (content: string, attachments?: MessageAttachment[]) => Promise<void>;
   },
 ) {
   const chat = context.chat;
@@ -378,16 +378,17 @@ export async function runSurfaceIntentImpl(
 
   if (intent.type === 'message_intent') {
     const content = typeof intent.payload.content === 'string' ? intent.payload.content : '';
-    if (!content) return;
+    const attachments = Array.isArray(intent.payload.attachments) ? intent.payload.attachments as MessageAttachment[] : [];
+    if (!content && attachments.length === 0) return;
     if ((intent.payload.mode === 'speakAs' || context.speakAsChar) && context.speakAsChar) {
-      await handlers.handleSpeakAs(content);
+      await handlers.handleSpeakAs(content, attachments);
       return;
     }
     if (intent.payload.mode === 'memberSpeak' || chat.type === 'direct') {
-      await handlers.handleMemberSpeakSend(content);
+      await handlers.handleMemberSpeakSend(content, attachments);
       return;
     }
-    await handlers.handleGuideSend(content);
+    await handlers.handleGuideSend(content, attachments);
     return;
   }
 

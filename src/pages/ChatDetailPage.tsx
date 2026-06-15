@@ -27,7 +27,7 @@ import { buildRuntimeEventMessageContent, normalizeRuntimeEvent } from '../servi
 import { persistLocalFirstMessage, persistLocalFirstMessages } from '../services/chatCommitMessage';
 import { buildPrivateSessionEvent } from '../services/directSessionHelpers';
 import { resolveCharacterOrDeleted } from '../utils/deletedEntity';
-import type { Message } from '../types/message';
+import type { Message, MessageAttachment } from '../types/message';
 import type { AICharacter } from '../types/character';
 import { buildExpressionFeedbackPatch, getExpressionFeedbackLabel, type ExpressionFeedbackKind } from '../services/characterExpressionFeedback';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -51,6 +51,7 @@ import type { LocalInterceptionEvent } from '../services/chatEngine';
 import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
 import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
+import { getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -198,6 +199,7 @@ export default function ChatDetailPage() {
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
   const api = useSettingsStore((s) => s.api);
   const aiProfiles = useSettingsStore((s) => s.aiProfiles);
+  const textInputCapabilities = resolveAIModelInputCapabilities(getUsablePreferredAIProfile(aiProfiles, 'text'));
   const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, toggleRightPanel, setRightPanelOpen, rightPanelTab, setRightPanelTab } = useUIStore();
   const dramaBoost = useSettingsStore((s) => s.developerUI.dramaBoost);
   const showLocalInterceptionHints = useSettingsStore((s) => s.developerMode && s.developerUI.showLocalInterceptionHints);
@@ -646,7 +648,7 @@ export default function ChatDetailPage() {
     }
   }, [closeChatWindow, discardStreamingMessage, id, openChatWindow, resetRunLoopUiState, stop]);
 
-  const handleMemberSpeakSend = useCallback(async (content: string) => {
+  const handleMemberSpeakSend = useCallback(async (content: string, attachments: MessageAttachment[] = []) => {
     if (!chat || !id) return;
     await enqueueManualInput(async () => {
       const recentMessages = currentChatMessages;
@@ -658,6 +660,7 @@ export default function ChatDetailPage() {
         content,
         emotion: 0,
         timestamp: Date.now(),
+        metadata: attachments.length ? { attachments } : undefined,
       });
       void updateChat(id, { lastMessageAt: userMessage.timestamp, latestMessage: userMessage });
       const recentMessagesWithUser = [...recentMessages.filter((message) => message.id !== userMessage.id), userMessage];
@@ -693,7 +696,7 @@ export default function ChatDetailPage() {
     });
   }, [addMessageStable, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, appendLocalInterceptionHint, applyChatRuntimeDelta, characters, chat, chats, commitPersistedManualRuntime, currentChatMessages, currentUser?.nickname, enqueueManualInput, id, recordSpeak, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
 
-  const handleGuideSend = useCallback(async (content: string) => {
+  const handleGuideSend = useCallback(async (content: string, attachments: MessageAttachment[] = []) => {
     if (!chat || !id) return;
     await enqueueManualInput(async () => {
       const recentMessages = currentChatMessages;
@@ -705,6 +708,7 @@ export default function ChatDetailPage() {
         content,
         emotion: 0,
         timestamp: Date.now(),
+        metadata: attachments.length ? { attachments } : undefined,
       });
       void updateChat(id, { lastMessageAt: guidedMessage.timestamp, latestMessage: guidedMessage });
       const recentMessagesWithGuide = [...recentMessages.filter((message) => message.id !== guidedMessage.id), guidedMessage];
@@ -713,7 +717,7 @@ export default function ChatDetailPage() {
     });
   }, [addMessageStable, chat, commitPersistedManualRuntime, currentChatMessages, enqueueManualInput, id, startConversationLoopIfNeeded, updateChat]);
 
-  const handleSpeakAs = useCallback(async (content: string) => {
+  const handleSpeakAs = useCallback(async (content: string, attachments: MessageAttachment[] = []) => {
     if (!chat || !id || !effectiveSpeakAsChar) return;
     const char = effectiveSpeakAsChar;
     if (!char) return;
@@ -733,6 +737,7 @@ export default function ChatDetailPage() {
             actorName: char.name,
             avatar: char.avatar,
           },
+          ...(attachments.length ? { attachments } : {}),
         },
       });
       void updateChat(id, { lastMessageAt: spokeMessage.timestamp, latestMessage: spokeMessage });
@@ -1010,6 +1015,7 @@ export default function ChatDetailPage() {
             onCloseSpeakAs={effectiveSpeakAsChar && chat.type !== 'ai_direct' ? () => setSpeakAsCharacter(null) : undefined}
             sendingLabel="等待角色发言结束"
             hideSpeakAsChip={chat.type === 'ai_direct'}
+            inputCapabilities={textInputCapabilities}
             onOpenPanel={isMobile ? () => setRightPanelOpen(true) : undefined}
             onDraftActivity={(activity) => {
               userDraftActivityRef.current = activity;
