@@ -20,6 +20,7 @@ interface SessionComposerHostProps {
   onOpenPanel?: () => void;
   onDraftActivity?: (activity: UserDraftActivity) => void;
   inputCapabilities?: Partial<AIModelInputCapabilities> | null;
+  inputCapabilityWarning?: string;
 }
 
 function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
@@ -31,7 +32,7 @@ function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
   ) as Record<string, Record<string, string>>;
 }
 
-export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, hideSpeakAsChip, onSendError, onOpenPanel, onDraftActivity, inputCapabilities }: SessionComposerHostProps) {
+export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, hideSpeakAsChip, onSendError, onOpenPanel, onDraftActivity, inputCapabilities, inputCapabilityWarning }: SessionComposerHostProps) {
   const primarySurface = surfaces.find((surface) => surface.type === 'text') || surfaces[0];
   const secondarySurfaces = surfaces.filter((surface) => surface !== primarySurface && (surface.type === 'board' || surface.type === 'form' || surface.type === 'hybrid'));
   const [fieldState, setFieldState] = useState<Record<string, Record<string, string>>>(() => buildInitialFieldState(surfaces));
@@ -150,6 +151,7 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
           onOpenPanel={onOpenPanel}
           onDraftActivity={onDraftActivity}
           inputCapabilities={inputCapabilities}
+          inputCapabilityWarning={inputCapabilityWarning}
         />
       ) : (() => {
         const mode = speakAsCharacterName
@@ -175,6 +177,7 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
             onOpenPanel={onOpenPanel}
             onDraftActivity={onDraftActivity}
             inputCapabilities={inputCapabilities}
+            inputCapabilityWarning={inputCapabilityWarning}
           />
         );
       })()}

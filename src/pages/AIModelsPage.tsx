@@ -16,7 +16,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { isLikelyBrowserCorsError, listAvailableModels, testConnection } from '../services/aiClient';
 import type { AIModelImageCapabilities, AIModelInputCapabilities, AIModelType } from '../types/settings';
-import { normalizeImageCapabilities, normalizeInputCapabilities, inferTextInputCapabilities, buildTextInputCapabilityPatch, getInputCapabilityLockState, getAttachmentUiCapabilitySummary } from '../types/settings';
+import { normalizeImageCapabilities, normalizeInputCapabilities, inferTextInputCapabilities, buildTextInputCapabilityPatch, getInputCapabilityLockState, getAttachmentUiCapabilitySummary, getInputCapabilityBadge, getInputCapabilityWarning, shouldShowInputCapabilityWarning } from '../types/settings';
 import { normalizeCharacterModelProfileIds } from '../types/character';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import PageSection from '../components/common/PageSection';
@@ -644,9 +644,19 @@ export default function AIModelsPage() {
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
                         {i18n.language.startsWith('zh') ? '输入能力' : 'Input capabilities'}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {getAttachmentUiCapabilitySummary(profile, i18n.language.startsWith('zh') ? 'zh' : 'en')}
-                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Typography variant="caption" color="text.secondary">
+                          {getAttachmentUiCapabilitySummary(profile, i18n.language.startsWith('zh') ? 'zh' : 'en')}
+                        </Typography>
+                        <Typography variant="caption" color={getInputCapabilityBadge(profile, i18n.language.startsWith('zh') ? 'zh' : 'en') === (i18n.language.startsWith('zh') ? '第三方推断' : '3rd-party inferred') ? 'warning.main' : 'text.secondary'}>
+                          {getInputCapabilityBadge(profile, i18n.language.startsWith('zh') ? 'zh' : 'en')}
+                        </Typography>
+                      </Box>
+                      {shouldShowInputCapabilityWarning(profile) ? (
+                        <Alert severity="warning" sx={{ py: 0 }}>
+                          {getInputCapabilityWarning(profile, i18n.language.startsWith('zh') ? 'zh' : 'en')}
+                        </Alert>
+                      ) : null}
                       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                         {inputCapabilityLabels.map((item) => {
                           const capabilities = normalizeInputCapabilities(profile.inputCapabilities);

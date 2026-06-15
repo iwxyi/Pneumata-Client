@@ -51,7 +51,7 @@ import type { LocalInterceptionEvent } from '../services/chatEngine';
 import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
 import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
-import { getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
+import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -199,7 +199,9 @@ export default function ChatDetailPage() {
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
   const api = useSettingsStore((s) => s.api);
   const aiProfiles = useSettingsStore((s) => s.aiProfiles);
-  const textInputCapabilities = resolveAIModelInputCapabilities(getUsablePreferredAIProfile(aiProfiles, 'text'));
+  const textProfile = getUsablePreferredAIProfile(aiProfiles, 'text');
+  const textInputCapabilities = resolveAIModelInputCapabilities(textProfile);
+  const textInputCapabilityWarning = getInputCapabilityWarning(textProfile, isZh ? 'zh' : 'en');
   const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, toggleRightPanel, setRightPanelOpen, rightPanelTab, setRightPanelTab } = useUIStore();
   const dramaBoost = useSettingsStore((s) => s.developerUI.dramaBoost);
   const showLocalInterceptionHints = useSettingsStore((s) => s.developerMode && s.developerUI.showLocalInterceptionHints);
@@ -422,8 +424,23 @@ export default function ChatDetailPage() {
   }, [id, isDesktop, setRightPanelOpen]);
 
   const showErrorToast = useCallback((message: string) => {
+    const normalized = message.trim();
+    const imageInputCompatibilityHint = isZh
+      ? '当前服务商不兼容图片输入格式。可关闭该模型的图片输入能力，或改用官方支持多模态的模型。'
+      : 'Current provider is not compatible with the image input format. Disable image input for this model or switch to an officially supported multimodal model.';
+    const corsHint = isZh
+      ? '浏览器直连被目标服务的跨域策略拦截。可继续保存配置，正式使用建议走服务端代理。'
+      : 'The target service blocked browser-direct requests via CORS. You can still save the config, but production use should go through your server proxy.';
+    if (/unknown variant `image_url`|expected `text`/i.test(normalized)) {
+      setSnackbar({ open: true, message: imageInputCompatibilityHint, severity: 'error' });
+      return;
+    }
+    if (/failed to fetch|cors/i.test(normalized)) {
+      setSnackbar({ open: true, message: corsHint, severity: 'error' });
+      return;
+    }
     setSnackbar({ open: true, message, severity: 'error' });
-  }, []);
+  }, [isZh]);
 
   const closeSnackbar = useCallback(() => {
     setSnackbar((prev) => ({ ...prev, open: false }));
@@ -1016,6 +1033,7 @@ export default function ChatDetailPage() {
             sendingLabel="等待角色发言结束"
             hideSpeakAsChip={chat.type === 'ai_direct'}
             inputCapabilities={textInputCapabilities}
+            inputCapabilityWarning={textInputCapabilityWarning}
             onOpenPanel={isMobile ? () => setRightPanelOpen(true) : undefined}
             onDraftActivity={(activity) => {
               userDraftActivityRef.current = activity;

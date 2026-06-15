@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Box, TextField, IconButton, Chip, CircularProgress, Tooltip } from '@mui/material';
+import { Box, TextField, IconButton, Chip, CircularProgress, Tooltip, Alert } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import CloseIcon from '@mui/icons-material/Close';
 import ImageIcon from '@mui/icons-material/ImageOutlined';
@@ -22,6 +22,7 @@ interface ChatInputProps {
   onOpenPanel?: () => void;
   onDraftActivity?: (activity: UserDraftActivity) => void;
   inputCapabilities?: Partial<AIModelInputCapabilities> | null;
+  inputCapabilityWarning?: string;
 }
 
 function getMobilePanelTravelDistance() {
@@ -61,7 +62,7 @@ function buildAttachmentId() {
   return `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, sendingLabel, hideSpeakAsChip, onSendError, onOpenPanel, onDraftActivity, inputCapabilities }: ChatInputProps) {
+export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, sendingLabel, hideSpeakAsChip, onSendError, onOpenPanel, onDraftActivity, inputCapabilities, inputCapabilityWarning }: ChatInputProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [isSending, setIsSending] = useState(false);
@@ -324,6 +325,11 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
             />
           ))}
         </Box>
+      ) : null}
+      {attachments.length > 0 && inputCapabilityWarning ? (
+        <Alert severity="warning" sx={{ mb: 1, py: 0 }}>
+          {inputCapabilityWarning}
+        </Alert>
       ) : null}
       <Box
         onTouchStart={(event) => {

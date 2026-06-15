@@ -6,6 +6,7 @@ import type { AICharacter } from '../../types/character';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import { isImageAvatar } from '../../utils/avatar';
+import { rememberFailedAvatarUrl, resolveSafeAvatarSrc } from '../../utils/avatarFallback';
 import { formatTimestamp } from '../../utils/format';
 import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
 import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationMeta, buildMemoryReactivationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
@@ -506,7 +507,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
         {!isUser ? (
           <Box onClick={handleAvatarClick} sx={{ cursor: message.type === 'ai' && !pending ? 'pointer' : 'default', flexShrink: 0 }}>
             {avatar && isImageAvatar(avatar) ? (
-              <Avatar src={avatar} alt={message.senderName} sx={{ width: 38, height: 38 }} />
+              <Avatar src={resolveSafeAvatarSrc(avatar)} alt={message.senderName} slotProps={{ img: { onError: () => rememberFailedAvatarUrl(avatar) } }} sx={{ width: 38, height: 38 }} />
             ) : (
               <Avatar sx={{ width: 38, height: 38, bgcolor: resolvedStyle?.backgroundColor || 'primary.main' }}>{message.senderName.slice(0, 1)}</Avatar>
             )}
@@ -547,7 +548,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
         {isUser ? (
           <Box sx={{ flexShrink: 0 }}>
             {selfAvatarValue && isImageAvatar(selfAvatarValue) ? (
-              <Avatar src={selfAvatarValue} alt={selfAvatarAlt} sx={{ width: 38, height: 38 }} />
+              <Avatar src={resolveSafeAvatarSrc(selfAvatarValue)} alt={selfAvatarAlt} slotProps={{ img: { onError: () => rememberFailedAvatarUrl(selfAvatarValue) } }} sx={{ width: 38, height: 38 }} />
             ) : (
               <Avatar sx={{ width: 38, height: 38, bgcolor: 'primary.dark' }}>{selfAvatar}</Avatar>
             )}
