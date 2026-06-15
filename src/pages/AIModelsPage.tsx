@@ -14,9 +14,9 @@ import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
-import { listAvailableModels, testConnection } from '../services/aiClient';
-import type { AIModelImageCapabilities, AIModelType } from '../types/settings';
-import { normalizeImageCapabilities } from '../types/settings';
+import { isLikelyBrowserCorsError, listAvailableModels, testConnection } from '../services/aiClient';
+import type { AIModelImageCapabilities, AIModelInputCapabilities, AIModelType } from '../types/settings';
+import { normalizeImageCapabilities, normalizeInputCapabilities, inferTextInputCapabilities, buildTextInputCapabilityPatch, getInputCapabilityLockState, getAttachmentUiCapabilitySummary } from '../types/settings';
 import { normalizeCharacterModelProfileIds } from '../types/character';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import PageSection from '../components/common/PageSection';
@@ -170,6 +170,15 @@ export default function AIModelsPage() {
         { key: 'seed', label: 'Seed', tooltip: 'The image API accepts a seed or equivalent randomness control parameter.' },
         { key: 'negativePrompt', label: 'Negative prompt', tooltip: 'The image API supports a separate negative prompt parameter.' },
       ];
+  const inputCapabilityLabels: Array<{ key: keyof Pick<AIModelInputCapabilities, 'imageInput' | 'multiImageInput'>; label: string; tooltip: string }> = i18n.language.startsWith('zh')
+    ? [
+        { key: 'imageInput', label: '图片输入', tooltip: '允许在聊天输入框选择图片并发送给文本模型。' },
+        { key: 'multiImageInput', label: '多图输入', tooltip: '允许一次选择并发送多张图片。' },
+      ]
+    : [
+        { key: 'imageInput', label: 'Image input', tooltip: 'Allow selecting images in chat and sending them to the text model.' },
+        { key: 'multiImageInput', label: 'Multi-image input', tooltip: 'Allow selecting and sending multiple images at once.' },
+      ];
   const groupedModelLabels = {
     popular: i18n.language.startsWith('zh') ? '推荐模型' : 'Recommended models',
     remote: i18n.language.startsWith('zh') ? '远程可用模型' : 'Available from provider',
@@ -193,6 +202,7 @@ export default function AIModelsPage() {
     settings.updateAIProfile(profileId, {
       model: value,
       ...(profile?.type === 'image' ? { imageCapabilities: inferImageCapabilities(profile.provider, value) } : {}),
+      ...(profile?.type === 'text' ? { inputCapabilities: inferTextInputCapabilities(profile.provider, value) } : {}),
     });
   }, [settings]);
 
@@ -209,9 +219,12 @@ export default function AIModelsPage() {
     setTestingId(profileId);
     const success = await testConnection(profile);
     setTestingId(null);
+    const corsHint = i18n.language.startsWith('zh')
+      ? '浏览器直连被目标站跨域策略拦截，可继续保存配置，实际使用建议走服务端代理。'
+      : 'Browser-direct request was blocked by the target CORS policy. You can still save the config; production use should go through your server proxy.';
     setSnackbar({
       open: true,
-      message: success ? t('settings.connectionSuccess') : t('settings.connectionFailed'),
+      message: success ? t('settings.connectionSuccess') : corsHint,
       severity: success ? 'success' : 'error',
     });
   };
@@ -335,12 +348,8 @@ export default function AIModelsPage() {
   };
 
   useEffect(() => {
-    settings.aiProfiles.forEach((profile) => {
-      const fetchKey = `${profile.provider}__${profile.type || 'text'}__${profile.baseUrl}__${profile.apiKey}`;
-      if (!profile.apiKey || fetchedModelKeys[profile.id] === fetchKey) return;
-      void fetchAvailableModels(profile.id, true);
-    });
-  }, [settings.aiProfiles, fetchedModelKeys]);
+    // Keep model discovery manual to avoid browser-side CORS noise on third-party endpoints.
+  }, []);
 
   return (
     <Box sx={{ flex: 1, overflow: 'auto', p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 15, sm: 12 }, width: '100%', maxWidth: 1180, mx: 'auto' }}>
@@ -421,6 +430,7 @@ export default function AIModelsPage() {
                               baseUrl: nextDefaults.baseUrl,
                               model: nextDefaults.model,
                               imageCapabilities: type === 'image' ? inferImageCapabilities(nextProvider, nextDefaults.model) : undefined,
+                              inputCapabilities: type === 'text' ? inferTextInputCapabilities(nextProvider, nextDefaults.model) : undefined,
                             });
                           }}
                         >
@@ -481,6 +491,7 @@ export default function AIModelsPage() {
                           baseUrl: nextDefaults.baseUrl,
                           model: nextDefaults.model,
                           imageCapabilities: activeType === 'image' ? inferImageCapabilities(provider, nextDefaults.model) : profile.imageCapabilities,
+                          inputCapabilities: activeType === 'text' ? inferTextInputCapabilities(provider, nextDefaults.model) : profile.inputCapabilities,
                         });
                       }}
                     >
@@ -571,6 +582,7 @@ export default function AIModelsPage() {
                         settings.updateAIProfile(profile.id, {
                           model: nextModel,
                           ...(activeType === 'image' ? { imageCapabilities: inferImageCapabilities(profile.provider, nextModel) } : {}),
+                          ...(activeType === 'text' ? { inputCapabilities: inferTextInputCapabilities(profile.provider, nextModel) } : {}),
                         });
                       }}
                       onInputChange={(_event, value, reason) => {
@@ -618,6 +630,56 @@ export default function AIModelsPage() {
                           : (i18n.language.startsWith('zh') ? '获取' : 'Fetch')}
                     </Button>
                   </Box>
+
+                  {activeType === 'text' ? (
+                    <Box sx={{
+                      display: 'grid',
+                      gap: 1,
+                      p: 1.25,
+                      borderRadius: 1,
+                      border: '1px solid',
+                      borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+                      bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(248,250,252,0.58)' : 'rgba(255,255,255,0.045)',
+                    }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {i18n.language.startsWith('zh') ? '输入能力' : 'Input capabilities'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {getAttachmentUiCapabilitySummary(profile, i18n.language.startsWith('zh') ? 'zh' : 'en')}
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        {inputCapabilityLabels.map((item) => {
+                          const capabilities = normalizeInputCapabilities(profile.inputCapabilities);
+                          const locks = getInputCapabilityLockState(profile);
+                          const disabled = item.key === 'imageInput'
+                            ? locks.imageInput
+                            : item.key === 'multiImageInput'
+                              ? locks.multiImageInput || !capabilities.imageInput
+                              : false;
+                          return (
+                            <Tooltip key={item.key} title={disabled ? (i18n.language.startsWith('zh') ? '当前模型未识别到该输入能力，不能手动开启。' : 'This model was not identified as supporting this input capability, so it cannot be enabled manually.') : item.tooltip}>
+                              <FormControlLabel
+                                sx={{ mr: 1, ml: 0, opacity: disabled ? 0.58 : 1 }}
+                                control={(
+                                  <Checkbox
+                                    checked={Boolean(capabilities[item.key])}
+                                    disabled={disabled}
+                                    onChange={(e) => {
+                                      const nextCapabilities = buildTextInputCapabilityPatch(profile.provider, profile.model, capabilities, {
+                                        [item.key]: e.target.checked,
+                                      });
+                                      settings.updateAIProfile(profile.id, { inputCapabilities: nextCapabilities });
+                                    }}
+                                  />
+                                )}
+                                label={item.label}
+                              />
+                            </Tooltip>
+                          );
+                        })}
+                      </Box>
+                    </Box>
+                  ) : null}
 
                   {activeType === 'image' ? (
                     <Box sx={{

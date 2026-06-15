@@ -1,7 +1,12 @@
 import type { APIConfig, AIModelProfile } from '../types/settings';
 
 type ChatRole = 'user' | 'assistant' | 'system';
-type ChatMessage = { role: ChatRole; content: string };
+export interface ChatMessageImageAttachment {
+  url: string;
+  mimeType?: string;
+}
+
+type ChatMessage = { role: ChatRole; content: string; attachments?: ChatMessageImageAttachment[] };
 type MaybeTypedConfig = APIConfig & Partial<Pick<AIModelProfile, 'type'>>;
 type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
 type GenerateResponseOptions = {
@@ -170,8 +175,87 @@ function buildOpenAICompatibleChatUrl(baseUrl: string) {
   return `${normalized}/chat/completions`;
 }
 
+function splitDataUrl(dataUrl: string) {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  return { mimeType: match[1], base64: match[2] };
+}
+
+function buildOpenAICompatibleContent(message: ChatMessage) {
+  const attachments = (message.attachments || []).filter((attachment) => attachment.url);
+  if (!attachments.length) return message.content;
+  return [
+    ...(message.content ? [{ type: 'text', text: message.content }] : []),
+    ...attachments.map((attachment) => ({
+      type: 'image_url',
+      image_url: { url: attachment.url },
+    })),
+  ];
+}
+
+function buildAnthropicContent(message: ChatMessage) {
+  const textParts = message.content ? [{ type: 'text', text: message.content }] : [];
+  const imageParts = (message.attachments || []).flatMap((attachment) => {
+    const data = splitDataUrl(attachment.url);
+    if (!data) return [];
+    return [{
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: attachment.mimeType || data.mimeType,
+        data: data.base64,
+      },
+    }];
+  });
+  const content = [...textParts, ...imageParts];
+  return content.length ? content : [{ type: 'text', text: '' }];
+}
+
+function buildGeminiParts(message: ChatMessage) {
+  const textParts = message.content ? [{ text: message.content }] : [];
+  const imageParts = (message.attachments || []).flatMap((attachment) => {
+    const data = splitDataUrl(attachment.url);
+    if (!data) return [];
+    return [{
+      inlineData: {
+        mimeType: attachment.mimeType || data.mimeType,
+        data: data.base64,
+      },
+    }];
+  });
+  const parts = [...textParts, ...imageParts];
+  return parts.length ? parts : [{ text: '' }];
+}
+
+function buildQwenContent(message: ChatMessage) {
+  const imageParts = (message.attachments || [])
+    .filter((attachment) => attachment.url)
+    .map((attachment) => ({ image: attachment.url }));
+  if (!imageParts.length) return message.content;
+  return [
+    ...(message.content ? [{ text: message.content }] : []),
+    ...imageParts,
+  ];
+}
+
+function buildQwenMessages(messages: ChatMessage[], systemPrompt: string) {
+  return [
+    { role: 'system' as const, content: systemPrompt },
+    ...messages.map((message) => ({
+      role: message.role,
+      content: buildQwenContent(message),
+    })),
+  ];
+}
+
 function buildOpenAICompatibleMessages(messages: ChatMessage[], systemPrompt: string) {
-  return [{ role: 'system' as const, content: systemPrompt }, ...messages];
+  return [
+    { role: 'system' as const, content: systemPrompt },
+    ...messages.map((message) => ({
+      role: message.role,
+      content: buildOpenAICompatibleContent(message),
+    })),
+  ];
 }
 
 function isOpenAICompatibleEndpoint(config: APIConfig) {
@@ -283,7 +367,7 @@ async function generateAnthropicResponse(
         system: payload.systemPrompt || undefined,
         messages: payload.conversation.map((message) => ({
           role: message.role,
-          content: [{ type: 'text', text: message.content }],
+          content: buildAnthropicContent(message),
         })),
         ...maxTokensConfig,
         temperature: 0.8,
@@ -313,7 +397,7 @@ async function generateAnthropicResponse(
         system: payload.systemPrompt || undefined,
         messages: payload.conversation.map((message) => ({
           role: message.role,
-          content: [{ type: 'text', text: message.content }],
+          content: buildAnthropicContent(message),
         })),
         ...maxTokensConfig,
         temperature: 0.8,
@@ -346,7 +430,7 @@ async function generateGeminiResponse(
       : undefined,
     contents: payload.conversation.map((message) => ({
       role: message.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: message.content }],
+      parts: buildGeminiParts(message),
     })),
     generationConfig: {
       temperature: 0.8,
@@ -461,7 +545,7 @@ async function generateQwenResponse(
   const requestBody = {
     model: config.model,
     input: {
-      messages: buildOpenAICompatibleMessages(messages, systemPrompt),
+      messages: buildQwenMessages(messages, systemPrompt),
     },
     parameters: {
       temperature: 0.8,
@@ -592,7 +676,13 @@ const providerHandlers: Partial<Record<APIConfig['provider'], typeof generateOpe
 };
 
 async function listOpenAICompatibleModels(config: APIConfig) {
-  const response = await fetch(joinUrl(config.baseUrl, '/models'), {
+  const normalizedBase = trimTrailingSlashes(config.baseUrl);
+  const modelUrl = normalizedBase.endsWith('/models')
+    ? normalizedBase
+    : normalizedBase.endsWith('/chat/completions')
+      ? normalizedBase.replace(/\/chat\/completions$/, '/models')
+      : joinUrl(normalizedBase, '/models');
+  const response = await fetch(modelUrl, {
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
     },
@@ -1025,3 +1115,8 @@ export const testConnection = async (config: MaybeTypedConfig): Promise<boolean>
     return false;
   }
 };
+
+export function isLikelyBrowserCorsError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /failed to fetch/i.test(message) || /cors/i.test(message);
+}

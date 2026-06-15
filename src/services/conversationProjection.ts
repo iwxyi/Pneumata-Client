@@ -5,6 +5,10 @@ import type { Message } from '../types/message';
 export type ProjectedChatMessage = {
   role: 'user' | 'assistant';
   content: string;
+  attachments?: Array<{
+    url: string;
+    mimeType?: string;
+  }>;
 };
 
 export interface ConversationProjectionOptions {
@@ -36,6 +40,14 @@ function buildUserSideTranscriptContent(message: Message, characters: Map<string
   return `${getTranscriptSpeakerName(message, characters)}: ${compactTranscriptContent(message.content)}`;
 }
 
+function buildProjectedImageAttachments(message: Message) {
+  const attachments = (message.metadata?.attachments || [])
+    .filter((attachment) => attachment.kind === 'image' && attachment.url && attachment.status !== 'deleted' && attachment.status !== 'failed')
+    .map((attachment) => ({ url: attachment.url as string, mimeType: attachment.mimeType }))
+    .slice(0, 8);
+  return attachments.length ? attachments : undefined;
+}
+
 export function projectConversationForModel(input: ConversationProjectionInput): ProjectedChatMessage[] {
   const visible = input.messages
     .filter((message) => {
@@ -47,15 +59,18 @@ export function projectConversationForModel(input: ConversationProjectionInput):
     .slice(-(input.limit ?? 12));
   const options = input.options || {};
   return visible.map((message) => {
+    const attachments = buildProjectedImageAttachments(message);
     if (message.type === 'ai' && options.currentSpeakerId && message.senderId === options.currentSpeakerId) {
       return {
         role: 'assistant' as const,
         content: compactTranscriptContent(message.content),
+        attachments,
       };
     }
     return {
       role: 'user' as const,
       content: buildUserSideTranscriptContent(message, input.characters),
+      attachments,
     };
   });
 }

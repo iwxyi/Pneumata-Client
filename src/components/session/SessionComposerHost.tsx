@@ -4,6 +4,8 @@ import ChatInput from '../chat/ChatInput';
 import type { SessionInputSurfaceDefinition } from '../../types/chat';
 import type { SessionBoardComposerSubmission, SessionFormComposerSubmission, SessionTextComposerSubmission } from '../../types/sessionEngine';
 import type { UserDraftActivity } from '../../services/userInputBuffer';
+import type { MessageAttachment } from '../../types/message';
+import type { AIModelInputCapabilities } from '../../types/settings';
 
 interface SessionComposerHostProps {
   surfaces: SessionInputSurfaceDefinition[];
@@ -16,6 +18,7 @@ interface SessionComposerHostProps {
   onSendError?: (message: string) => void;
   onOpenPanel?: () => void;
   onDraftActivity?: (activity: UserDraftActivity) => void;
+  inputCapabilities?: Partial<AIModelInputCapabilities> | null;
 }
 
 function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
@@ -27,7 +30,7 @@ function buildInitialFieldState(surfaces: SessionInputSurfaceDefinition[]) {
   ) as Record<string, Record<string, string>>;
 }
 
-export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, onSendError, onOpenPanel, onDraftActivity }: SessionComposerHostProps) {
+export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitForm, onSubmitBoard, speakAsCharacterName, onCloseSpeakAs, sendingLabel, onSendError, onOpenPanel, onDraftActivity, inputCapabilities }: SessionComposerHostProps) {
   const primarySurface = surfaces.find((surface) => surface.type === 'text') || surfaces[0];
   const secondarySurfaces = surfaces.filter((surface) => surface !== primarySurface && surface.type === 'board');
   const [fieldState, setFieldState] = useState<Record<string, Record<string, string>>>(() => buildInitialFieldState(surfaces));
@@ -124,12 +127,13 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
         <ChatInput
           mode={speakAsCharacterName ? 'speakAs' : 'memberSpeak'}
           characterName={speakAsCharacterName || undefined}
-          onSend={(content) => onSubmitText({ content }, { key: 'fallback-text', type: 'text', mode: speakAsCharacterName ? 'speakAs' : 'memberSpeak' })}
+          onSend={(content, attachments?: MessageAttachment[]) => onSubmitText({ content, attachments }, { key: 'fallback-text', type: 'text', mode: speakAsCharacterName ? 'speakAs' : 'memberSpeak' })}
           onClose={speakAsCharacterName ? onCloseSpeakAs : undefined}
           sendingLabel={sendingLabel}
           onSendError={onSendError}
           onOpenPanel={onOpenPanel}
           onDraftActivity={onDraftActivity}
+          inputCapabilities={inputCapabilities}
         />
       ) : (() => {
         const mode = speakAsCharacterName
@@ -147,12 +151,13 @@ export default function SessionComposerHost({ surfaces, onSubmitText, onSubmitFo
             mode={mode}
             characterName={mode === 'speakAs' ? speakAsCharacterName : undefined}
             placeholderOverride={placeholderOverride}
-            onSend={(content) => onSubmitText({ content, actorId: primarySurface.actorId }, primarySurface)}
+            onSend={(content, attachments?: MessageAttachment[]) => onSubmitText({ content, actorId: primarySurface.actorId, attachments }, primarySurface)}
             onClose={mode === 'speakAs' ? onCloseSpeakAs : undefined}
             sendingLabel={sendingLabel}
             onSendError={onSendError}
             onOpenPanel={onOpenPanel}
             onDraftActivity={onDraftActivity}
+            inputCapabilities={inputCapabilities}
           />
         );
       })()}

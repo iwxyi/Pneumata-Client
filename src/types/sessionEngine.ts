@@ -1,6 +1,6 @@
 import type { AICharacter } from './character';
 import type { GroupChat, ParticipantInstance, RuntimeAction, RuntimePanelDefinition } from './chat';
-import type { Message } from './message';
+import type { Message, MessageAttachment } from './message';
 import type { APIConfig } from './settings';
 import { buildDirectorInterventionFields } from './directorInterventionAction';
 
@@ -245,6 +245,7 @@ export interface SessionFormIntentPayload {
 export interface SessionTextComposerSubmission {
   content: string;
   actorId?: string;
+  attachments?: MessageAttachment[];
 }
 
 export interface SessionFormComposerSubmission {
@@ -358,6 +359,7 @@ export function normalizeTextSurfaceSubmission(surface: SessionInputSurfaceDefin
       actorId: submission.actorId || surface.actorId,
       payload: {
         content: submission.content,
+        attachments: submission.attachments || [],
         surfaceKey: surface.key,
         mode: surface.mode || 'guide',
       },

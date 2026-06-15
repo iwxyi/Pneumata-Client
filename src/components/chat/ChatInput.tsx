@@ -1,21 +1,26 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Box, TextField, IconButton, Chip, CircularProgress, Tooltip } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import CloseIcon from '@mui/icons-material/Close';
+import ImageIcon from '@mui/icons-material/ImageOutlined';
 import { useTranslation } from 'react-i18next';
 import { useUIStore } from '../../stores/useUIStore';
 import type { UserDraftActivity } from '../../services/userInputBuffer';
+import type { MessageAttachment } from '../../types/message';
+import type { AIModelInputCapabilities } from '../../types/settings';
+import { normalizeInputCapabilities } from '../../types/settings';
 
 interface ChatInputProps {
   mode: 'guide' | 'speakAs' | 'memberSpeak';
   characterName?: string;
-  onSend: (content: string) => void | Promise<void>;
+  onSend: (content: string, attachments?: MessageAttachment[]) => void | Promise<void>;
   onClose?: () => void;
   placeholderOverride?: string;
   sendingLabel?: string;
   onSendError?: (message: string) => void;
   onOpenPanel?: () => void;
   onDraftActivity?: (activity: UserDraftActivity) => void;
+  inputCapabilities?: Partial<AIModelInputCapabilities> | null;
 }
 
 function getMobilePanelTravelDistance() {
@@ -42,14 +47,33 @@ function clearPanelGestureCss() {
   document.documentElement.style.removeProperty(PANEL_BACKDROP_OPACITY_VAR);
 }
 
-export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, sendingLabel, onSendError, onOpenPanel, onDraftActivity }: ChatInputProps) {
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('读取图片失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildAttachmentId() {
+  return `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, sendingLabel, onSendError, onOpenPanel, onDraftActivity, inputCapabilities }: ChatInputProps) {
   const [text, setText] = useState('');
+  const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
   const { t } = useTranslation();
   const { setRightPanelGestureOffset, setRightPanelGestureDragging } = useUIStore();
+  const capabilities = normalizeInputCapabilities(inputCapabilities);
+  const canAttachImages = capabilities.imageInput;
+  const maxAttachments = capabilities.multiImageInput ? capabilities.maxAttachments : 1;
+  const acceptMimeTypes = capabilities.supportedMimeTypes.join(',');
   const panelHandleDragRef = useRef<{ startY: number; latestY: number; moved: boolean; lastDirection: 'up' | 'down' | null } | null>(null);
   const textInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const panelGestureTimerRef = useRef<number | null>(null);
   const panelGestureRafRef = useRef<number | null>(null);
   const pendingPanelOffsetRef = useRef<number | null>(null);
@@ -64,17 +88,20 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
 
   const handleSend = async () => {
     const content = text.trim();
-    if (!content || isSending) return;
+    const outgoingAttachments = attachments;
+    if ((!content && outgoingAttachments.length === 0) || isSending) return;
     setIsSending(true);
     setText('');
+    setAttachments([]);
     publishDraftActivity('', inputFocused);
     window.requestAnimationFrame(() => {
       textInputRef.current?.focus({ preventScroll: true });
     });
     try {
-      await onSend(content);
+      await onSend(content, outgoingAttachments.length ? outgoingAttachments : undefined);
     } catch (error) {
       setText((current) => current || content);
+      setAttachments((current) => current.length ? current : outgoingAttachments);
       publishDraftActivity(content, inputFocused);
       const message = error instanceof Error ? error.message : String(error);
       onSendError?.(message || '发送失败，请稍后重试');
@@ -90,6 +117,40 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
+    }
+  };
+
+  const handlePickImages = async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!selectedFiles.length) return;
+    const remainingSlots = Math.max(0, maxAttachments - attachments.length);
+    if (remainingSlots <= 0) return;
+    const allowed = new Set(capabilities.supportedMimeTypes);
+    const files = selectedFiles
+      .filter((file) => file.type.startsWith('image/') && (allowed.size === 0 || allowed.has(file.type)))
+      .slice(0, remainingSlots);
+    if (!files.length) {
+      onSendError?.(t('common.unsupportedFileType', { defaultValue: '不支持的文件类型' }));
+      return;
+    }
+    try {
+      const now = Date.now();
+      const nextAttachments = await Promise.all(files.map(async (file, index) => ({
+        id: buildAttachmentId(),
+        kind: 'image' as const,
+        status: 'ready' as const,
+        altText: file.name || `image-${index + 1}`,
+        url: await fileToDataUrl(file),
+        mimeType: file.type,
+        sizeBytes: file.size,
+        createdAt: now,
+        updatedAt: now,
+      })));
+      setAttachments((current) => [...current, ...nextAttachments].slice(0, maxAttachments));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      onSendError?.(message || '读取图片失败');
     }
   };
 
@@ -249,6 +310,20 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         },
       }}
     >
+      {attachments.length ? (
+        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mb: 0.75 }}>
+          {attachments.map((attachment) => (
+            <Chip
+              key={attachment.id}
+              size="small"
+              label={attachment.altText || 'Image'}
+              onDelete={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+              avatar={attachment.url ? <Box component="img" src={attachment.url} alt="" sx={{ width: 24, height: 24, objectFit: 'cover' }} /> : undefined}
+              variant="outlined"
+            />
+          ))}
+        </Box>
+      ) : null}
       <Box
         onTouchStart={(event) => {
           const touch = event.touches[0];
@@ -289,6 +364,29 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
             sx={{ flexShrink: 0 }}
           />
         ) : null}
+        {canAttachImages ? (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={acceptMimeTypes}
+              multiple={capabilities.multiImageInput}
+              hidden
+              onChange={handlePickImages}
+            />
+            <Tooltip title={capabilities.multiImageInput ? '添加图片' : '添加图片'}>
+              <span>
+                <IconButton
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isSending || attachments.length >= maxAttachments}
+                  sx={{ flexShrink: 0, width: 42, height: 42 }}
+                >
+                  <ImageIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </>
+        ) : null}
         <TextField
           fullWidth
           multiline
@@ -328,16 +426,16 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
               color="primary"
               onClick={() => void handleSend()}
               onMouseDown={(event) => event.preventDefault()}
-              disabled={!text.trim() || isSending}
+              disabled={(!text.trim() && attachments.length === 0) || isSending}
               sx={{
                 flexShrink: 0,
                 width: 42,
                 height: 42,
-                bgcolor: text.trim() && !isSending ? 'primary.main' : 'action.hover',
-                color: text.trim() && !isSending ? 'primary.contrastText' : 'text.disabled',
-                boxShadow: text.trim() && !isSending ? '0 10px 24px rgba(15,23,42,0.18)' : 'none',
+                bgcolor: (text.trim() || attachments.length > 0) && !isSending ? 'primary.main' : 'action.hover',
+                color: (text.trim() || attachments.length > 0) && !isSending ? 'primary.contrastText' : 'text.disabled',
+                boxShadow: (text.trim() || attachments.length > 0) && !isSending ? '0 10px 24px rgba(15,23,42,0.18)' : 'none',
                 '&:hover': {
-                  bgcolor: text.trim() && !isSending ? 'primary.dark' : 'action.hover',
+                  bgcolor: (text.trim() || attachments.length > 0) && !isSending ? 'primary.dark' : 'action.hover',
                 },
               }}
             >
