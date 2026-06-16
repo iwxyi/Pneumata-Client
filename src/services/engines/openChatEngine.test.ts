@@ -3254,9 +3254,12 @@ describe('openChatEngine.onMessageCommitted', () => {
       recentMessages: [],
     });
 
-    expect(readRuntimeEvents(result).some((event) => event.kind === 'event_candidate'
+    const events = readRuntimeEvents(result);
+    expect(events.some((event) => event.kind === 'event_candidate'
       && (event.payload as { eventKind?: string; reasonType?: string }).eventKind === 'pair_private_thread'
       && (event.payload as { reasonType?: string }).reasonType === 'companionship_promise_followup')).toBe(false);
+    expect(events.some((event) => (event.payload as { eventType?: string; action?: string }).eventType === 'companionship_private_thread_schedule'
+      && (event.payload as { action?: string }).action === 'skipped')).toBe(true);
   });
 
   it('creates character companionship group mediation candidates as public conflict notes', async () => {

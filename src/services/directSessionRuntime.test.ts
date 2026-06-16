@@ -2565,6 +2565,56 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect(pickAutoPairPrivateThreadCandidate(chat)).toBeNull();
   });
 
+  it('records skipped schedule when auto flow sees a cooling companionship pair candidate', async () => {
+    const chat = buildChatWithEvents([
+      buildCandidateEvent(buildCandidatePayload({ reasonType: 'companionship_promise_followup', dedupeKey: 'companionship-private-thread-chat-1-a-b' }), 1000),
+      {
+        id: 'evt-schedule-1',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: Date.now() - 10 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '角色陪伴私聊已进入冷却',
+        visibility: 'role_private',
+        visibleToIds: ['a', 'b'],
+        payload: {
+          eventType: 'companionship_private_thread_schedule',
+          actorId: 'a',
+          targetId: 'b',
+          participantIds: ['a', 'b'],
+          action: 'opened',
+          reasonType: 'companionship_promise_followup',
+          dedupeKey: 'companionship-private-thread-chat-1-a-b',
+          nextAvailableAt: Date.now() + 60 * 60_000,
+        },
+      } as RuntimeEventV2,
+    ]);
+    const updateChat = vi.fn(async (_chatId: string, _patch: Partial<ReturnType<typeof normalizeConversation>>) => undefined);
+    const result = await runSocialEventAutoFlow(chat, {
+      chats: [chat],
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      updateChat,
+      addChat: vi.fn(async () => buildBaseChat()),
+      addMessage: buildAddMessageMock(),
+      appendEventMessage: buildAppendEventMessageMock(),
+    });
+    const updatedPatch = updateChat.mock.calls[0]?.[1] as { runtimeEventsV2?: RuntimeEventV2[] } | undefined;
+    const skipped = (updatedPatch?.runtimeEventsV2 || []).find((event) => (event.payload as { eventType?: string; action?: string }).eventType === 'companionship_private_thread_schedule'
+      && (event.payload as { action?: string }).action === 'skipped');
+
+    expect(result).toMatchObject({ privateChatId: null, handledEventId: 'evt-candidate-1000' });
+    expect(skipped).toMatchObject({
+      visibility: 'role_private',
+      visibleToIds: ['a', 'b'],
+      payload: expect.objectContaining({
+        action: 'skipped',
+        candidateId: 'evt-candidate-1000',
+        dedupeKey: 'companionship-private-thread-chat-1-a-b',
+      }),
+    });
+  });
+
   it('creates a public opened-thread artifact event', () => {
     const chat = buildOpenedEventPairThreadChat();
     const opened = buildPrivateThreadOpenedEvent(chat, buildOpenedEventPairThreadCandidate());

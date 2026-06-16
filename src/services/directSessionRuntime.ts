@@ -26,7 +26,7 @@ import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
 import { buildMomentPostText } from './momentTextBuilder';
 import { buildCompanionshipArtifactSeeds, buildCompanionshipStatusSignature, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
 import { readDueCompanionshipCareTopicsFromEvents, readStaleCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
-import { COMPANIONSHIP_PRIVATE_THREAD_COOLDOWN_MS, buildCompanionshipPrivateThreadScheduleEvent, isCompanionshipPrivateThreadPairCoolingDown } from './companionshipPrivateThreadSchedule';
+import { COMPANIONSHIP_PRIVATE_THREAD_COOLDOWN_MS, buildCompanionshipPrivateThreadScheduleEvent, getRecentCompanionshipPrivateThreadSchedule } from './companionshipPrivateThreadSchedule';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
@@ -841,7 +841,7 @@ function shouldCandidateAutoOpen(chat: GroupChat, payload: SocialEventCandidateP
   if (payload.participantIds.length !== 2) return false;
   if (payload.confidence < 0.8) return false;
   if (hasOpenedThreadForCandidate(chat, payload) && withinPrivateThreadCooldown(createdAt, getLatestPrivateThreadOpenedAt(chat, payload))) return false;
-  if (isCompanionshipPrivateThreadPayload(payload) && isCompanionshipPrivateThreadPairCoolingDown({
+  if (isCompanionshipPrivateThreadPayload(payload) && getRecentCompanionshipPrivateThreadSchedule({
     chat,
     participantIds: payload.participantIds,
     now: Date.now(),
@@ -1432,6 +1432,21 @@ export async function applyAiDirectFeedback(params: {
 
 export function pickAutoPairPrivateThreadCandidate(chat: GroupChat) {
   return findLatestAutoOpenCandidate(chat);
+}
+
+function findLatestCoolingCompanionshipPairCandidate(chat: GroupChat) {
+  return (chat.runtimeEventsV2 || []).slice().reverse().find((event) => {
+    if (event.kind !== 'event_candidate') return false;
+    const payload = event.payload as SocialEventCandidatePayload;
+    return isCompanionshipPrivateThreadPayload(payload)
+      && payload.participantIds.length === 2
+      && payload.confidence >= 0.8
+      && Boolean(getRecentCompanionshipPrivateThreadSchedule({
+        chat,
+        participantIds: payload.participantIds,
+        now: Date.now(),
+      }));
+  }) || null;
 }
 
 export function buildPrivateThreadOpenedEvent(chat: GroupChat, candidateEvent: RuntimeEventV2): RuntimeEventV2 {
@@ -2567,6 +2582,28 @@ async function evaluateWorldDrivenDecision(
 }
 
 export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialEventRuntimeOps): Promise<{ privateChatId?: string | null; handledEventId?: string | null }> {
+  const coolingPairCandidate = findLatestCoolingCompanionshipPairCandidate(sourceChat);
+  if (coolingPairCandidate && !hasHandledSocialEvent(sourceChat, coolingPairCandidate.id)) {
+    const payload = coolingPairCandidate.payload as SocialEventCandidatePayload;
+    const latestSchedule = getRecentCompanionshipPrivateThreadSchedule({
+      chat: sourceChat,
+      participantIds: payload.participantIds,
+      now: Date.now(),
+    });
+    const nextAvailableAt = (latestSchedule?.payload as { nextAvailableAt?: number } | undefined)?.nextAvailableAt;
+    const skippedEvent = buildCompanionshipPrivateThreadScheduleEvent({
+      chat: sourceChat,
+      candidateEvent: coolingPairCandidate,
+      payload,
+      action: 'skipped',
+      nextAvailableAt,
+    });
+    await ops.updateChat(sourceChat.id, appendHandledSocialEvent(sourceChat, withFrameworkPatch(sourceChat, {
+      runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [skippedEvent]),
+    }), coolingPairCandidate.id, payload.initiatorId));
+    return { privateChatId: null, handledEventId: coolingPairCandidate.id };
+  }
+
   const pairCandidate = pickAutoPairPrivateThreadCandidate(sourceChat);
   if (pairCandidate && hasHandledSocialEvent(sourceChat, pairCandidate.id)) return { privateChatId: null, handledEventId: pairCandidate.id };
   if (pairCandidate) {

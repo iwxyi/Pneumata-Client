@@ -28,7 +28,7 @@ import { isCharacterFeatureEnabled } from '../characterGenerationPolicy';
 import { orchestrateWorldDecision } from '../worldDecisionOrchestrator';
 import { buildMomentPostText } from '../momentTextBuilder';
 import { buildCharacterCompanionshipStates, shouldBlockUserProactiveContactByCompanionshipPolicy } from '../companionshipProjection';
-import { isCompanionshipPrivateThreadPairCoolingDown } from '../companionshipPrivateThreadSchedule';
+import { buildCompanionshipPrivateThreadScheduleEvent, getRecentCompanionshipPrivateThreadSchedule } from '../companionshipPrivateThreadSchedule';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
@@ -430,17 +430,17 @@ function pickCompanionshipPrivateThreadState(params: {
 }) {
   const memberIds = new Set(params.conversation.memberIds.filter((id) => id !== 'user'));
   const now = Date.now();
-  return buildCharacterCompanionshipStates(params.actor, now, params.conversation)
+  const candidates = buildCharacterCompanionshipStates(params.actor, now, params.conversation)
     .filter((state) => memberIds.has(state.targetId))
-    .filter((state) => !isCompanionshipPrivateThreadPairCoolingDown({
-      chat: params.conversation,
-      participantIds: [params.actor.id, state.targetId],
-      now,
-    }))
     .map((state) => {
       const textureScore = state.sharedSecrets.length * 9 + state.sharedRituals.length * 7 + state.sharedPromises.length * 10 + state.unresolvedCareTopics.length * 12;
       const score = state.closeness * 0.36 + state.protectiveness * 0.34 + state.reliance * 0.28 + textureScore;
-      return { state, score };
+      const coolingSchedule = getRecentCompanionshipPrivateThreadSchedule({
+        chat: params.conversation,
+        participantIds: [params.actor.id, state.targetId],
+        now,
+      });
+      return { state, score, coolingSchedule };
     })
     .filter(({ state, score }) => {
       if (state.unresolvedCareTopics.length) return score >= 44;
@@ -448,7 +448,11 @@ function pickCompanionshipPrivateThreadState(params: {
       if (state.sharedSecrets.length || state.sharedRituals.length) return score >= 52;
       return score >= 68;
     })
-    .sort((left, right) => right.score - left.score)[0] || null;
+    .sort((left, right) => right.score - left.score);
+  const available = candidates.find((item) => !item.coolingSchedule);
+  if (available) return { ...available, skippedBySchedule: null };
+  const skipped = candidates.find((item) => item.coolingSchedule) || null;
+  return skipped ? { ...skipped, skippedBySchedule: skipped.coolingSchedule } : null;
 }
 
 function buildCompanionshipPrivateThreadOpening(actorName: string, targetName: string, texture: string, sourceText: string) {
@@ -473,15 +477,15 @@ function buildCompanionshipPrivateThreadCandidate(params: {
   conversation: GroupChat;
   characters: AICharacter[];
   message: Pick<Message, 'content' | 'senderId'>;
-}): RuntimeEventV2 | null {
+}): { candidate: RuntimeEventV2 | null; skippedEvent: RuntimeEventV2 | null } {
   const actor = params.characters.find((item) => item.id === params.message.senderId);
-  if (!actor || actor.id === 'user') return null;
-  if (params.conversation.type !== 'group') return null;
-  if (!params.conversation.memberIds.includes(actor.id)) return null;
+  if (!actor || actor.id === 'user') return { candidate: null, skippedEvent: null };
+  if (params.conversation.type !== 'group') return { candidate: null, skippedEvent: null };
+  if (!params.conversation.memberIds.includes(actor.id)) return { candidate: null, skippedEvent: null };
   const picked = pickCompanionshipPrivateThreadState({ conversation: params.conversation, actor });
-  if (!picked) return null;
+  if (!picked) return { candidate: null, skippedEvent: null };
   const target = params.characters.find((item) => item.id === picked.state.targetId);
-  if (!target) return null;
+  if (!target) return { candidate: null, skippedEvent: null };
   const texture = [
     picked.state.unresolvedCareTopics[0],
     picked.state.sharedPromises[0],
@@ -522,7 +526,21 @@ function buildCompanionshipPrivateThreadCandidate(params: {
     activityType: '角色陪伴跟进',
     dedupeKey: `companionship-private-thread-${params.conversation.id}-${actor.id}-${target.id}`,
   };
-  return createRuntimeEventV2({
+  if (picked.skippedBySchedule) {
+    const nextAvailableAt = (picked.skippedBySchedule.payload as { nextAvailableAt?: number }).nextAvailableAt;
+    return {
+      candidate: null,
+      skippedEvent: buildCompanionshipPrivateThreadScheduleEvent({
+        chat: params.conversation,
+        payload,
+        action: 'skipped',
+        nextAvailableAt,
+      }),
+    };
+  }
+  return {
+    skippedEvent: null,
+    candidate: createRuntimeEventV2({
     conversationId: params.conversation.id,
     kind: 'event_candidate',
     summary: `${actor.name} 因陪伴关系想和 ${target.name} 私下接一句`,
@@ -530,7 +548,8 @@ function buildCompanionshipPrivateThreadCandidate(params: {
     targetIds: [target.id],
     visibility: 'derived_public',
     payload,
-  });
+    }),
+  };
 }
 
 function buildGroupMediationLine(actorName: string, targetName: string, texture: string) {
@@ -2557,7 +2576,12 @@ function buildSocialEventCandidates(params: {
   structuredRoomState: GroupChat['worldState']['structuredRoomState'];
   message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
 }) {
-  return dedupeAgainstRecentRuntime(params.conversation, [
+  const companionshipPrivateThreadResult = buildCompanionshipPrivateThreadCandidate({
+    conversation: params.conversation,
+    characters: params.characters,
+    message: params.message,
+  });
+  const selection = dedupeAgainstRecentRuntime(params.conversation, [
     buildAttentionDrivenCheckInCandidate({
       conversation: params.conversation,
       characters: params.characters,
@@ -2600,11 +2624,7 @@ function buildSocialEventCandidates(params: {
       structuredRoomState: params.structuredRoomState,
       message: params.message,
     }),
-    buildCompanionshipPrivateThreadCandidate({
-      conversation: params.conversation,
-      characters: params.characters,
-      message: params.message,
-    }),
+    companionshipPrivateThreadResult.candidate,
     buildCompanionshipGroupMediationCandidate({
       conversation: params.conversation,
       characters: params.characters,
@@ -2618,6 +2638,12 @@ function buildSocialEventCandidates(params: {
     buildGiftExchangeCandidate(params),
     buildConflictExpressionCandidate(params),
   ].filter(Boolean) as RuntimeEventV2[]);
+  return {
+    candidates: selection.candidates,
+    suppressedEvents: companionshipPrivateThreadResult.skippedEvent
+      ? [...selection.suppressedEvents, companionshipPrivateThreadResult.skippedEvent]
+      : selection.suppressedEvents,
+  };
 }
 
 function inferUserInteractionFromMessage(params: {
