@@ -1406,6 +1406,24 @@ function sharedSecretConsequenceOptions(secret: SharedSecret): NonNullable<Share
   return ['none'];
 }
 
+function formatRitualKindLabel(kind: RitualRegistryEntry['kind']) {
+  const labels: Record<RitualRegistryEntry['kind'], string> = {
+    daily_greeting: '日常问候',
+    anniversary: '纪念日',
+    inside_joke: '共同梗',
+    pet_name: '专属称呼',
+    reconciliation: '和好仪式',
+    milestone: '关系里程碑',
+  };
+  return labels[kind];
+}
+
+function formatRitualExecutionLabel(state: RitualRegistryEntry['executionState'] | undefined) {
+  if (state === 'cooldown') return '冷却中';
+  if (state === 'suppressed') return '已抑制';
+  return '可用';
+}
+
 function UserCompanionshipCard({
   chatName,
   signature,
@@ -2037,6 +2055,39 @@ function UserCompanionshipCard({
             </Stack>
           </Box>
         ) : null}
+        {rituals.length ? (
+          <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
+              关系仪式
+            </Typography>
+            <Stack spacing={0.75}>
+              {rituals.slice(0, 5).map((ritual) => (
+                <Box key={ritual.id} sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
+                      <Chip size="small" label={formatRitualKindLabel(ritual.kind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                      <Typography variant="caption" color={ritual.executionState === 'suppressed' ? 'warning.main' : 'text.secondary'}>
+                        {formatRitualExecutionLabel(ritual.executionState)}
+                      </Typography>
+                      {developerMode && ritual.nextAvailableAt ? <Typography variant="caption" color="text.secondary">下次 {new Date(ritual.nextAvailableAt).toLocaleString()}</Typography> : null}
+                    </Stack>
+                    <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{ritual.content}</Typography>
+                    {developerMode && ritual.boundaryReasons.length ? (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
+                        边界：{ritual.boundaryReasons.slice(0, 2).join(' / ')}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                  {ritual.executionState !== 'suppressed' ? (
+                    <Button size="small" variant="text" onClick={() => onSuppressRitual(ritual)} sx={{ flexShrink: 0 }}>
+                      不再使用
+                    </Button>
+                  ) : null}
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        ) : null}
         {developerMode ? (
           <Stack spacing={1}>
             <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
@@ -2061,39 +2112,6 @@ function UserCompanionshipCard({
                 })}
               </Stack>
             </Box>
-            {rituals.length ? (
-              <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
-                  关系仪式
-                </Typography>
-                <Stack spacing={0.75}>
-                  {rituals.slice(0, 5).map((ritual) => (
-                    <Box key={ritual.id} sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
-                          <Chip size="small" label={ritual.kind} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
-                          <Typography variant="caption" color={ritual.executionState === 'suppressed' ? 'warning.main' : 'text.secondary'}>
-                            {ritual.executionState || 'available'}
-                          </Typography>
-                          {ritual.nextAvailableAt ? <Typography variant="caption" color="text.secondary">下次 {new Date(ritual.nextAvailableAt).toLocaleString()}</Typography> : null}
-                        </Stack>
-                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{ritual.content}</Typography>
-                        {ritual.boundaryReasons.length ? (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
-                            边界：{ritual.boundaryReasons.slice(0, 2).join(' / ')}
-                          </Typography>
-                        ) : null}
-                      </Box>
-                      {ritual.executionState !== 'suppressed' ? (
-                        <Button size="small" variant="text" onClick={() => onSuppressRitual(ritual)} sx={{ flexShrink: 0 }}>
-                          抑制
-                        </Button>
-                      ) : null}
-                    </Box>
-                  ))}
-                </Stack>
-              </Box>
-            ) : null}
             <CompanionshipDeveloperTracePanel trace={trace} onDisableAttachment={onDisableAttachment} onEnableAttachment={onEnableAttachment} onCorrectAttachment={onCorrectAttachment} />
             <Box sx={{ display: 'grid', gap: 0.5 }}>
               {signature.debugLines.map((line) => (
