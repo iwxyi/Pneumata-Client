@@ -39,6 +39,7 @@ import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 type ManualPromiseLifecycleAction = Extract<PendingPromise['status'], 'fulfilled' | 'blocked' | 'stale' | 'revoked'>;
 type ManualAddressingSetAction = 'set_current' | 'set_private' | 'set_public';
 type PromiseMergeTarget = 'previous' | 'next';
+type ParticipantOption = { id: string; name: string };
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -1403,9 +1404,107 @@ function formatPendingPromiseKind(kind: PendingPromise['kind']) {
   return labels[kind];
 }
 
+function normalizeParticipantSelection(ids: string[], requiredIds: string[]) {
+  const required = requiredIds.filter(Boolean);
+  return Array.from(new Set([...required, ...ids.filter(Boolean)])).slice(0, 6);
+}
+
+function ParticipantEditor({
+  selectedIds,
+  options,
+  resolveCharacterName,
+  requiredIds,
+  onSave,
+}: {
+  selectedIds: string[];
+  options: ParticipantOption[];
+  resolveCharacterName: (id: string, fallback?: string) => string;
+  requiredIds: string[];
+  onSave: (participantIds: string[]) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftIds, setDraftIds] = useState<string[]>(selectedIds);
+  const normalizedCurrent = normalizeParticipantSelection(selectedIds, requiredIds);
+  const normalizedDraft = normalizeParticipantSelection(draftIds, requiredIds);
+  const selectableOptions = options.filter((option) => !requiredIds.includes(option.id));
+  const changed = normalizedCurrent.slice().sort().join(',') !== normalizedDraft.slice().sort().join(',');
+  if (!editing) {
+    return (
+      <Button
+        size="small"
+        variant="text"
+        onClick={() => {
+          setDraftIds(normalizedCurrent);
+          setEditing(true);
+        }}
+        sx={{ minWidth: 0 }}
+      >
+        编辑参与者
+      </Button>
+    );
+  }
+  return (
+    <Box sx={{ width: '100%', p: 0.75, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+        参与者
+      </Typography>
+      <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+        {requiredIds.filter(Boolean).map((id) => (
+          <Chip key={id} size="small" label={`${resolveCharacterName(id)} · 必选`} variant="outlined" sx={{ height: 24, borderRadius: 999 }} />
+        ))}
+        {selectableOptions.map((option) => {
+          const selected = normalizedDraft.includes(option.id);
+          return (
+            <Chip
+              key={option.id}
+              size="small"
+              label={option.name}
+              color={selected ? 'primary' : 'default'}
+              variant={selected ? 'filled' : 'outlined'}
+              onClick={() => {
+                setDraftIds((prev) => {
+                  const next = selected ? prev.filter((id) => id !== option.id) : [...prev, option.id];
+                  return normalizeParticipantSelection(next, requiredIds);
+                });
+              }}
+              sx={{ height: 24, borderRadius: 999 }}
+            />
+          );
+        })}
+      </Stack>
+      <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', mt: 0.75 }}>
+        <Button
+          size="small"
+          variant="text"
+          disabled={!changed || normalizedDraft.length < 2}
+          onClick={() => {
+            onSave(normalizedDraft);
+            setEditing(false);
+          }}
+          sx={{ minWidth: 0 }}
+        >
+          保存
+        </Button>
+        <Button
+          size="small"
+          variant="text"
+          onClick={() => {
+            setDraftIds(normalizedCurrent);
+            setEditing(false);
+          }}
+          sx={{ minWidth: 0 }}
+        >
+          取消
+        </Button>
+      </Box>
+    </Box>
+  );
+}
+
 function SharedMemoryAnchorPanel({
   characterId,
   anchors,
+  participantOptions,
   resolveCharacterName,
   developerMode,
   allowNonUserAnchors = false,
@@ -1413,9 +1512,11 @@ function SharedMemoryAnchorPanel({
   onUpdateAnchor,
   onKeepPairPrivate,
   onKeepCharacterPair,
+  onUpdateParticipants,
 }: {
   characterId: string;
   anchors: SharedMemoryAnchor[];
+  participantOptions: ParticipantOption[];
   resolveCharacterName: (id: string, fallback?: string) => string;
   developerMode: boolean;
   allowNonUserAnchors?: boolean;
@@ -1423,6 +1524,7 @@ function SharedMemoryAnchorPanel({
   onUpdateAnchor?: (anchor: SharedMemoryAnchor, patch: { kind: SharedMemoryAnchor['kind']; title: string; text: string }) => void;
   onKeepPairPrivate?: (anchor: SharedMemoryAnchor) => void;
   onKeepCharacterPair?: (anchor: SharedMemoryAnchor, targetId: string) => void;
+  onUpdateParticipants?: (anchor: SharedMemoryAnchor, participantIds: string[]) => void;
 }) {
   const [editingAnchorId, setEditingAnchorId] = useState<string | null>(null);
   const [editingAnchorKind, setEditingAnchorKind] = useState<SharedMemoryAnchor['kind']>('milestone');
@@ -1440,6 +1542,7 @@ function SharedMemoryAnchorPanel({
         const isUserAnchor = anchor.participantIds.includes('user');
         const canArchive = Boolean(archiveAnchor) && (isUserAnchor || allowNonUserAnchors);
         const canEdit = Boolean(updateAnchor) && (isUserAnchor || allowNonUserAnchors);
+        const canEditParticipants = Boolean(onUpdateParticipants) && (isUserAnchor || allowNonUserAnchors);
         const canNarrowParticipants = Boolean(keepPairPrivate) && anchor.participantIds.includes('user') && anchor.participantIds.some((id) => id !== 'user' && id !== characterId);
         const rolePairTargets = !isUserAnchor && keepCharacterPair && anchor.participantIds.length > 2
           ? anchor.participantIds.filter((id) => id !== characterId)
@@ -1491,6 +1594,15 @@ function SharedMemoryAnchorPanel({
                   ))}
                 </Box>
               </Box>
+              {canEditParticipants && onUpdateParticipants ? (
+                <ParticipantEditor
+                  selectedIds={anchor.participantIds}
+                  options={participantOptions}
+                  resolveCharacterName={resolveCharacterName}
+                  requiredIds={isUserAnchor ? [characterId, 'user'] : [characterId]}
+                  onSave={(participantIds) => onUpdateParticipants(anchor, participantIds)}
+                />
+              ) : null}
               {isEditing ? (
                 <Stack spacing={0.75}>
                   <TextField
@@ -1628,19 +1740,23 @@ function CharacterCompanionshipPanel({
 function RoleSharedPhrasePanel({
   items,
   characterId,
+  participantOptions,
   resolveCharacterName,
   developerMode,
   onUpdateSharedPhrase,
   onSuppressSharedPhrase,
   onKeepCharacterPair,
+  onUpdateParticipants,
 }: {
   items: Array<{ chat: GroupChat; chatName: string; phrase: SharedPhrase }>;
   characterId: string;
+  participantOptions: ParticipantOption[];
   resolveCharacterName: (id: string, fallback?: string) => string;
   developerMode: boolean;
   onUpdateSharedPhrase: (chat: GroupChat, phrase: SharedPhrase, patch: { text: string; kind: SharedPhrase['kind']; visibility: SharedPhrase['visibility'] }) => void;
   onSuppressSharedPhrase: (chat: GroupChat, phrase: SharedPhrase) => void;
   onKeepCharacterPair?: (chat: GroupChat, phrase: SharedPhrase, targetId: string) => void;
+  onUpdateParticipants?: (chat: GroupChat, phrase: SharedPhrase, participantIds: string[]) => void;
 }) {
   const [editingPhraseId, setEditingPhraseId] = useState<string | null>(null);
   const [editingPhraseText, setEditingPhraseText] = useState('');
@@ -1784,6 +1900,17 @@ function RoleSharedPhrasePanel({
                 </Box>
               )}
             </Box>
+            {onUpdateParticipants ? (
+              <Box sx={{ mt: 0.75 }}>
+                <ParticipantEditor
+                  selectedIds={phrase.participantIds}
+                  options={participantOptions}
+                  resolveCharacterName={resolveCharacterName}
+                  requiredIds={[characterId]}
+                  onSave={(participantIds) => onUpdateParticipants(chat, phrase, participantIds)}
+                />
+              </Box>
+            ) : null}
           </Box>
         );
       })}
@@ -1794,19 +1921,23 @@ function RoleSharedPhrasePanel({
 function RoleSharedSecretPanel({
   items,
   characterId,
+  participantOptions,
   resolveCharacterName,
   developerMode,
   onUpdateSharedSecretMask,
   onRevokeSharedSecret,
   onKeepCharacterPair,
+  onUpdateParticipants,
 }: {
   items: Array<{ chat: GroupChat; chatName: string; secret: SharedSecret }>;
   characterId: string;
+  participantOptions: ParticipantOption[];
   resolveCharacterName: (id: string, fallback?: string) => string;
   developerMode: boolean;
   onUpdateSharedSecretMask: (chat: GroupChat, secret: SharedSecret, publicMask: string) => void;
   onRevokeSharedSecret: (chat: GroupChat, secret: SharedSecret) => void;
   onKeepCharacterPair?: (chat: GroupChat, secret: SharedSecret, targetId: string) => void;
+  onUpdateParticipants?: (chat: GroupChat, secret: SharedSecret, participantIds: string[]) => void;
 }) {
   const [editingSecretId, setEditingSecretId] = useState<string | null>(null);
   const [editingSecretMask, setEditingSecretMask] = useState('');
@@ -1914,6 +2045,17 @@ function RoleSharedSecretPanel({
                 </Box>
               )}
             </Box>
+            {onUpdateParticipants ? (
+              <Box sx={{ mt: 0.75 }}>
+                <ParticipantEditor
+                  selectedIds={secret.participantIds}
+                  options={participantOptions}
+                  resolveCharacterName={resolveCharacterName}
+                  requiredIds={[characterId]}
+                  onSave={(participantIds) => onUpdateParticipants(chat, secret, participantIds)}
+                />
+              </Box>
+            ) : null}
           </Box>
         );
       })}
@@ -2343,6 +2485,8 @@ function UserCompanionshipCard({
   chatName,
   signature,
   trace,
+  participantOptions,
+  resolveCharacterName,
   pendingCareTopics,
   pendingPromises,
   sharedPhrases,
@@ -2366,9 +2510,11 @@ function UserCompanionshipCard({
   onUpdateSharedSecretMask,
   onCorrectSharedSecretConsequence,
   onKeepSharedSecretPairPrivate,
+  onUpdateSharedSecretParticipants,
   onUpdateSharedPhrase,
   onSuppressSharedPhrase,
   onKeepSharedPhrasePairPrivate,
+  onUpdateSharedPhraseParticipants,
   onUpdateRitual,
   onSuppressRitual,
   onRestoreRitual,
@@ -2380,6 +2526,8 @@ function UserCompanionshipCard({
   chatName: string;
   signature: NonNullable<ReturnType<typeof buildCompanionshipStatusSignature>>;
   trace: CompanionshipRuntimeTrace | null;
+  participantOptions: ParticipantOption[];
+  resolveCharacterName: (id: string, fallback?: string) => string;
   pendingCareTopics: PendingCareTopic[];
   pendingPromises: PendingPromise[];
   sharedPhrases: SharedPhrase[];
@@ -2403,9 +2551,11 @@ function UserCompanionshipCard({
   onUpdateSharedSecretMask: (secret: SharedSecret, publicMask: string) => void;
   onCorrectSharedSecretConsequence: (secret: SharedSecret, consequenceKind: NonNullable<SharedSecret['consequenceKind']>) => void;
   onKeepSharedSecretPairPrivate: (secret: SharedSecret) => void;
+  onUpdateSharedSecretParticipants: (secret: SharedSecret, participantIds: string[]) => void;
   onUpdateSharedPhrase: (phrase: SharedPhrase, patch: { text: string; kind: SharedPhrase['kind']; visibility: SharedPhrase['visibility'] }) => void;
   onSuppressSharedPhrase: (phrase: SharedPhrase) => void;
   onKeepSharedPhrasePairPrivate: (phrase: SharedPhrase) => void;
+  onUpdateSharedPhraseParticipants: (phrase: SharedPhrase, participantIds: string[]) => void;
   onUpdateRitual: (ritual: RitualRegistryEntry, content: string) => void;
   onSuppressRitual: (ritual: RitualRegistryEntry) => void;
   onRestoreRitual: (ritual: RitualRegistryEntry) => void;
@@ -2803,14 +2953,14 @@ function UserCompanionshipCard({
                     <Box sx={{ minWidth: 0 }}>
                       <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
                         <Chip size="small" label={formatSharedPhraseKindLabel(phrase.kind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
-                        {developerMode ? (
-                          <>
-                            <Typography variant="caption" color="text.secondary">{formatSharedPhraseVisibilityLabel(phrase.visibility)}</Typography>
-                            <Typography variant="caption" color="text.secondary">权重 {phrase.emotionalWeight}</Typography>
-                            {phrase.reuseCount > 1 ? <Typography variant="caption" color="text.secondary">复用 {phrase.reuseCount}</Typography> : null}
-                          </>
-                        ) : null}
-                      </Stack>
+                      {developerMode ? (
+                        <>
+                          <Typography variant="caption" color="text.secondary">{formatSharedPhraseVisibilityLabel(phrase.visibility)}</Typography>
+                          <Typography variant="caption" color="text.secondary">权重 {phrase.emotionalWeight}</Typography>
+                          {phrase.reuseCount > 1 ? <Typography variant="caption" color="text.secondary">复用 {phrase.reuseCount}</Typography> : null}
+                        </>
+                      ) : null}
+                    </Stack>
                       {editingPhraseId === phrase.id ? (
                         <Stack spacing={0.75}>
                           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
@@ -2861,6 +3011,15 @@ function UserCompanionshipCard({
                           证据：{clipRuntimeText(phrase.evidence, 96)}
                         </Typography>
                       ) : null}
+                      <Box sx={{ mt: 0.5 }}>
+                        <ParticipantEditor
+                          selectedIds={phrase.participantIds}
+                          options={participantOptions}
+                          resolveCharacterName={resolveCharacterName}
+                          requiredIds={[characterId, 'user']}
+                          onSave={(participantIds) => onUpdateSharedPhraseParticipants(phrase, participantIds)}
+                        />
+                      </Box>
                     </Box>
                     {editingPhraseId === phrase.id ? (
                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
@@ -3151,6 +3310,15 @@ function UserCompanionshipCard({
                         参与者：{secret.participantIds.join(' × ')}
                       </Typography>
                     ) : null}
+                    <Box sx={{ mt: 0.5 }}>
+                      <ParticipantEditor
+                        selectedIds={secret.participantIds}
+                        options={participantOptions}
+                        resolveCharacterName={resolveCharacterName}
+                        requiredIds={[characterId, 'user']}
+                        onSave={(participantIds) => onUpdateSharedSecretParticipants(secret, participantIds)}
+                      />
+                    </Box>
                     {(secret.leakState === 'leaked' || secret.leakState === 'confessed') ? (
                       <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.65 }}>
                         {sharedSecretConsequenceOptions(secret).map((option) => (
@@ -3679,6 +3847,22 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       return resolveFallbackCharacterName(id, fallback);
     };
   }, [characters]);
+  const participantOptions = useMemo<ParticipantOption[]>(() => {
+    const options = new Map<string, string>();
+    options.set('user', '我');
+    if (character.id) options.set(character.id, character.name || '当前角色');
+    characters.forEach((item) => {
+      if (item.id) options.set(item.id, item.name || item.id);
+    });
+    chats
+      .filter((chat) => character.id && chat.memberIds.includes(character.id))
+      .flatMap((chat) => chat.memberIds)
+      .forEach((id) => {
+        if (!id) return;
+        options.set(id, resolveCharacterName(id));
+      });
+    return Array.from(options, ([id, name]) => ({ id, name })).slice(0, 80);
+  }, [character.id, character.name, characters, chats, resolveCharacterName]);
   const relationshipMemories = useMemo(() => {
     const items = buildRelationshipMemoryItems(character).map((item) => ({
       ...item,
@@ -3884,6 +4068,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 <SharedMemoryAnchorPanel
                   characterId={character.id || ''}
                   anchors={[anchor]}
+                  participantOptions={participantOptions}
                   resolveCharacterName={resolveCharacterName}
                   developerMode={isDeveloperView}
                   allowNonUserAnchors
@@ -3895,6 +4080,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                   }}
                   onKeepCharacterPair={(item, targetId) => {
                     void appendManualCompanionshipEvent(chat, buildManualSharedAnchorParticipantsEvent(chat, character as AICharacter, item, [character.id || '', targetId]));
+                  }}
+                  onUpdateParticipants={(item, participantIds) => {
+                    void appendManualCompanionshipEvent(chat, buildManualSharedAnchorParticipantsEvent(chat, character as AICharacter, item, participantIds));
                   }}
                 />
               </Box>
@@ -3909,6 +4097,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
         <RoleSharedPhrasePanel
           items={roleSharedPhraseItems}
           characterId={character.id || ''}
+          participantOptions={participantOptions}
           resolveCharacterName={resolveCharacterName}
           developerMode={isDeveloperView}
           onUpdateSharedPhrase={(chat, phrase, patch) => {
@@ -3920,6 +4109,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
           onKeepCharacterPair={(chat, phrase, targetId) => {
             void appendManualCompanionshipEvent(chat, buildManualSharedPhraseParticipantsEvent(chat, character as AICharacter, phrase, [character.id || '', targetId]));
           }}
+          onUpdateParticipants={(chat, phrase, participantIds) => {
+            void appendManualCompanionshipEvent(chat, buildManualSharedPhraseParticipantsEvent(chat, character as AICharacter, phrase, participantIds));
+          }}
         />
       </SurfaceCard>
       <SurfaceCard>
@@ -3927,6 +4119,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
         <RoleSharedSecretPanel
           items={roleSharedSecretItems}
           characterId={character.id || ''}
+          participantOptions={participantOptions}
           resolveCharacterName={resolveCharacterName}
           developerMode={isDeveloperView}
           onUpdateSharedSecretMask={(chat, secret, publicMask) => {
@@ -3937,6 +4130,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
           }}
           onKeepCharacterPair={(chat, secret, targetId) => {
             void appendManualCompanionshipEvent(chat, buildManualSharedSecretParticipantsEvent(chat, character as AICharacter, secret, [character.id || '', targetId]));
+          }}
+          onUpdateParticipants={(chat, secret, participantIds) => {
+            void appendManualCompanionshipEvent(chat, buildManualSharedSecretParticipantsEvent(chat, character as AICharacter, secret, participantIds));
           }}
         />
       </SurfaceCard>
@@ -3963,6 +4159,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
         <SharedMemoryAnchorPanel
           characterId={character.id || ''}
           anchors={sharedMemoryAnchors}
+          participantOptions={participantOptions}
           resolveCharacterName={resolveCharacterName}
           developerMode={isDeveloperView}
           onArchiveAnchor={latestUserDirectChat ? (anchor) => {
@@ -3977,6 +4174,10 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
             if (!anchor.participantIds.includes('user')) return;
             void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorPairPrivateEvent(latestUserDirectChat, character as AICharacter, anchor));
           } : undefined}
+          onUpdateParticipants={latestUserDirectChat ? (anchor, participantIds) => {
+            if (!anchor.participantIds.includes('user')) return;
+            void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorParticipantsEvent(latestUserDirectChat, character as AICharacter, anchor, participantIds));
+          } : undefined}
         />
       </SurfaceCard>
       <SurfaceCard>
@@ -3990,6 +4191,8 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 chatName={view.chatName}
                 signature={view.signature}
                 trace={view.trace}
+                participantOptions={participantOptions}
+                resolveCharacterName={resolveCharacterName}
                 pendingCareTopics={view.pendingCareTopics}
                 pendingPromises={view.pendingPromises}
                 sharedPhrases={view.sharedPhrases}
@@ -4055,6 +4258,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 onKeepSharedSecretPairPrivate={(secret) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretPairPrivateEvent(view.chat, character as AICharacter, secret));
                 }}
+                onUpdateSharedSecretParticipants={(secret, participantIds) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretParticipantsEvent(view.chat, character as AICharacter, secret, participantIds));
+                }}
                 onUpdateSharedPhrase={(phrase, patch) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseUpsertEvent(view.chat, character as AICharacter, phrase, patch));
                 }}
@@ -4063,6 +4269,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onKeepSharedPhrasePairPrivate={(phrase) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedPhrasePairPrivateEvent(view.chat, character as AICharacter, phrase));
+                }}
+                onUpdateSharedPhraseParticipants={(phrase, participantIds) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseParticipantsEvent(view.chat, character as AICharacter, phrase, participantIds));
                 }}
                 onUpdateRitual={(ritual, content) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualRitualUpdateEvent(view.chat, character as AICharacter, ritual, content));

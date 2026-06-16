@@ -4347,6 +4347,38 @@ describe('companionshipProjection', () => {
     expect(secrets[0].participantIds).not.toContain('char-b');
   });
 
+  it('uses later shared secret events to edit participants into a trusted small group', () => {
+    const directChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [
+      sharedSecretEvent(),
+      sharedSecretEvent({
+        id: 'evt-shared-secret-participants-group',
+        createdAt: 1_100,
+        payload: {
+          eventType: 'companionship_shared_secret',
+          characterId: 'char-a',
+          userId: 'user',
+          secretId: 'secret-user-codeword',
+          action: 'recorded',
+          participantIds: ['char-a', 'user', 'char-b'],
+          privateText: '用户只把那个暗号告诉过苏苏和另一个可信角色。',
+          publicMask: '一个只适合小范围知道的暗号',
+          reason: '用户把小秘密参与者修正为可信小团体。',
+          evidence: 'manual_secret_participants_edit_from_character_relationship_tab',
+          emotionalWeight: 82,
+          confidence: 1,
+        },
+      }),
+    ]);
+
+    const secrets = buildSharedSecrets(character(), 1_200, directChat);
+
+    expect(secrets[0]).toMatchObject({
+      id: 'secret-user-codeword',
+      participantIds: ['char-a', 'user', 'char-b'],
+      publicMask: '一个只适合小范围知道的暗号',
+    });
+  });
+
   it('uses revoked shared secret runtime events to suppress active runtime secrets', () => {
     const directChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [
       sharedSecretEvent(),
