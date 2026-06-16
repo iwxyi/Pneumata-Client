@@ -429,7 +429,7 @@ function pickCompanionshipPrivateThreadState(params: {
 }) {
   const memberIds = new Set(params.conversation.memberIds.filter((id) => id !== 'user'));
   const now = Date.now();
-  return buildCharacterCompanionshipStates(params.actor, now)
+  return buildCharacterCompanionshipStates(params.actor, now, params.conversation)
     .filter((state) => memberIds.has(state.targetId))
     .map((state) => {
       const textureScore = state.sharedSecrets.length * 9 + state.sharedRituals.length * 7 + state.sharedPromises.length * 10 + state.unresolvedCareTopics.length * 12;

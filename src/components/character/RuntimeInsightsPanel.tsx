@@ -2845,8 +2845,10 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
   }, [character, resolveCharacterName]);
   const characterCompanionshipStates = useMemo(() => {
     if (!character.id || !character.personality || !character.memory) return [];
-    return buildCharacterCompanionshipStates(character as AICharacter, character.updatedAt || character.createdAt || 0);
-  }, [character]);
+    const relatedChat = recentByTime(chats.filter((chat) => chat.memberIds.includes(character.id || '') && chat.type !== 'direct'), 1)[0]
+      || recentByTime(chats.filter((chat) => chat.memberIds.includes(character.id || '')), 1)[0];
+    return buildCharacterCompanionshipStates(character as AICharacter, character.updatedAt || character.createdAt || 0, relatedChat);
+  }, [character, chats]);
   const sharedMemoryAnchors = useMemo(() => {
     if (!character.id || !character.personality || !character.memory) return [];
     const directChat = recentByTime(chats.filter((chat) => chat.type === 'direct' && chat.memberIds.includes(character.id || '')), 1)[0];

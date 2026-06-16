@@ -2540,6 +2540,20 @@ function extractSharedTexture(note: string, patterns: RegExp[], max = 2) {
     .slice(0, max) as string[];
 }
 
+function uniqueTextureLines(lines: string[], max = 3) {
+  const seen = new Set<string>();
+  return lines
+    .map((line) => compactText(line, 96))
+    .filter(Boolean)
+    .filter((line) => {
+      const key = line.replace(/\s+/g, '');
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, max);
+}
+
 function classifySharedMemoryAnchor(text: string): SharedMemoryAnchor['kind'] | null {
   if (/(第一次|初次|第一次说|第一次见|第一次聊|第一次吵|第一次和好)/.test(text)) return 'first_time';
   if (/(表白|告白|说喜欢|确认关系|承认喜欢)/.test(text)) return 'confession';
@@ -3205,32 +3219,92 @@ export function buildRitualRegistry(params: {
     .slice(0, 10);
 }
 
-export function buildCharacterCompanionshipStates(character: AICharacter, now = 0): CharacterCompanionshipState[] {
-  return (character.relationships || [])
+export function buildCharacterCompanionshipStates(character: AICharacter, now = 0, chat?: GroupChat): CharacterCompanionshipState[] {
+  const byTarget = new Map<string, CharacterCompanionshipState>();
+  const upsert = (targetId: string, patch: Partial<CharacterCompanionshipState>) => {
+    if (!targetId || targetId === USER_ACTOR_ID || targetId.startsWith('draft-')) return;
+    const previous = byTarget.get(targetId);
+    byTarget.set(targetId, {
+      actorId: character.id,
+      targetId,
+      style: patch.style || previous?.style || 'close_friend',
+      closeness: clampRelationshipScore(Math.max(previous?.closeness || 0, patch.closeness || 0)),
+      protectiveness: clampRelationshipScore(Math.max(previous?.protectiveness || 0, patch.protectiveness || 0)),
+      reliance: clampRelationshipScore(Math.max(previous?.reliance || 0, patch.reliance || 0)),
+      sharedSecrets: uniqueTextureLines([...(previous?.sharedSecrets || []), ...(patch.sharedSecrets || [])]),
+      sharedRituals: uniqueTextureLines([...(previous?.sharedRituals || []), ...(patch.sharedRituals || [])]),
+      sharedPromises: uniqueTextureLines([...(previous?.sharedPromises || []), ...(patch.sharedPromises || [])]),
+      unresolvedCareTopics: uniqueTextureLines([...(previous?.unresolvedCareTopics || []), ...(patch.unresolvedCareTopics || [])]),
+      lastCareAt: Math.max(previous?.lastCareAt || 0, patch.lastCareAt || now),
+    });
+  };
+
+  (character.relationships || [])
     .filter((relation) => relation.characterId && relation.characterId !== USER_ACTOR_ID && !relation.characterId.startsWith('draft-'))
-    .map((relation) => {
+    .forEach((relation) => {
       const warmth = relation.warmth || 0;
       const trust = relation.trust || 0;
       const competence = relation.competence || 0;
       const threat = relation.threat || 0;
       const note = relation.note || '';
-      const closeness = clampRelationshipScore(warmth * 0.58 + trust * 0.38 - threat * 0.24);
-      const protectiveness = clampRelationshipScore(warmth * 0.36 + trust * 0.34 + threat * 0.26);
-      const reliance = clampRelationshipScore(trust * 0.46 + competence * 0.42 + warmth * 0.12 - threat * 0.18);
-      return {
-        actorId: character.id,
-        targetId: relation.characterId,
+      upsert(relation.characterId, {
         style: inferCharacterCompanionshipStyle(relation),
-        closeness,
-        protectiveness,
-        reliance,
+        closeness: warmth * 0.58 + trust * 0.38 - threat * 0.24,
+        protectiveness: warmth * 0.36 + trust * 0.34 + threat * 0.26,
+        reliance: trust * 0.46 + competence * 0.42 + warmth * 0.12 - threat * 0.18,
         sharedSecrets: extractSharedTexture(note, [/共同秘密[^，。；;]*/, /秘密[^，。；;]*/, /只有他们知道[^，。；;]*/]),
         sharedRituals: extractSharedTexture(note, [/共同梗[^，。；;]*/, /仪式[^，。；;]*/, /暗号[^，。；;]*/]),
         sharedPromises: extractSharedTexture(note, [/约定[^，。；;]*/, /承诺[^，。；;]*/, /说好[^，。；;]*/, /下次一起[^，。；;]*/, /以后一起[^，。；;]*/]),
         unresolvedCareTopics: extractSharedTexture(note, [/担心[^，。；;]*/, /放心不下[^，。；;]*/, /想帮[^，。；;]*/, /护着[^，。；;]*/]),
         lastCareAt: relation.updatedAt || now,
-      };
-    })
+      });
+    });
+
+  (chat?.relationshipLedger || [])
+    .filter((entry) => entry.actorId === character.id && entry.targetId !== USER_ACTOR_ID && !entry.targetId.startsWith('draft-'))
+    .forEach((entry) => {
+      const normalized = normalizeRelationshipLedgerEntry(entry);
+      const relationLike = {
+        characterId: normalized.targetId,
+        warmth: normalized.current.warmth,
+        trust: normalized.current.trust,
+        competence: normalized.current.competence,
+        threat: normalized.current.threat,
+        note: [normalized.derived?.semantic?.summary, ...(normalized.derived?.semantic?.labels || [])].filter(Boolean).join('；'),
+      } as AICharacter['relationships'][number];
+      const note = [
+        normalized.derived?.semantic?.summary,
+        ...(normalized.recentEvents || []).slice(-3).map((event) => event.summary),
+      ].filter(Boolean).join('；');
+      upsert(normalized.targetId, {
+        style: inferCharacterCompanionshipStyle(relationLike),
+        closeness: normalized.current.warmth * 0.58 + normalized.current.trust * 0.38 - normalized.current.threat * 0.24,
+        protectiveness: normalized.current.warmth * 0.36 + normalized.current.trust * 0.34 + normalized.current.threat * 0.26,
+        reliance: normalized.current.trust * 0.46 + normalized.current.competence * 0.42 + normalized.current.warmth * 0.12 - normalized.current.threat * 0.18,
+        sharedPromises: extractSharedTexture(note, [/约定[^，。；;]*/, /承诺[^，。；;]*/, /说好[^，。；;]*/, /下次一起[^，。；;]*/, /以后一起[^，。；;]*/]),
+        unresolvedCareTopics: extractSharedTexture(note, [/担心[^，。；;]*/, /放心不下[^，。；;]*/, /想帮[^，。；;]*/, /护着[^，。；;]*/]),
+        lastCareAt: normalized.lastUpdatedAt || now,
+      });
+    });
+
+  buildSharedMemoryAnchors(character, now, chat)
+    .filter((anchor) => anchor.participantIds.includes(character.id) && !anchor.participantIds.includes(USER_ACTOR_ID))
+    .forEach((anchor) => {
+      const targetId = anchor.participantIds.find((id) => id !== character.id && id !== USER_ACTOR_ID);
+      if (!targetId) return;
+      upsert(targetId, {
+        closeness: anchor.kind === 'conflict' ? 28 : 36 + anchor.salience * 0.2,
+        protectiveness: anchor.kind === 'conflict' ? 44 : 32 + anchor.salience * 0.18,
+        reliance: anchor.kind === 'promise' || anchor.kind === 'repair' ? 36 + anchor.confidence * 0.2 : 24 + anchor.confidence * 0.12,
+        sharedSecrets: anchor.kind === 'shared_secret' ? [anchor.text] : [],
+        sharedRituals: anchor.kind === 'inside_joke' || anchor.kind === 'milestone' || anchor.kind === 'first_time' ? [anchor.text] : [],
+        sharedPromises: anchor.kind === 'promise' ? [anchor.text] : [],
+        unresolvedCareTopics: anchor.kind === 'repair' || anchor.kind === 'conflict' ? [anchor.text] : [],
+        lastCareAt: anchor.updatedAt || now,
+      });
+    });
+
+  return Array.from(byTarget.values())
     .filter((state) => state.closeness >= 24 || state.protectiveness >= 30 || state.reliance >= 28)
     .sort((a, b) => (b.closeness + b.protectiveness + b.reliance) - (a.closeness + a.protectiveness + a.reliance))
     .slice(0, 8);
@@ -3331,7 +3405,7 @@ export function buildCompanionshipArtifactSeeds(params: {
     seeds.push(`关系仪式可以作为日记里的生活感材料：${text}。`);
   });
 
-  buildCharacterCompanionshipStates(companionCharacter, now)
+  buildCharacterCompanionshipStates(companionCharacter, now, chat)
     .slice(0, isPublic ? 2 : 3)
     .forEach((state) => {
       const targetName = resolveCompanionshipActorName(state.targetId, relatedCharacters);

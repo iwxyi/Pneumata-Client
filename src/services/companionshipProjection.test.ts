@@ -3873,6 +3873,61 @@ describe('companionshipProjection', () => {
     expect(states.map((item) => item.targetId)).not.toContain('draft-new');
   });
 
+  it('projects character companionship from relationship ledger and runtime shared anchors', () => {
+    const runtimeChat = chat('group', [{
+      pairKey: 'char-a->char-b',
+      actorId: 'char-a',
+      targetId: 'char-b',
+      current: { warmth: 62, trust: 58, competence: 44, threat: 8 },
+      derived: {
+        semantic: {
+          stage: '搭档',
+          labels: ['互相照应'],
+          summary: '说好下次行动时互相兜底，也担心对方最近太累。',
+          intensity: 66,
+        },
+      },
+      trend: 'up',
+      recentEvents: [{
+        id: 'rel-event-1',
+        kind: 'relationship_delta',
+        createdAt: 900,
+        summary: '说好下次行动时互相兜底。',
+      }],
+      lastUpdatedAt: 900,
+    }], [
+      sharedAnchorEvent({
+        id: 'evt-char-pair-secret',
+        createdAt: 1_100,
+        payload: {
+          eventType: 'companionship_shared_anchor',
+          characterId: 'char-a',
+          anchorId: 'anchor-char-pair-secret',
+          action: 'upsert',
+          kind: 'shared_secret',
+          participantIds: ['char-a', 'char-b'],
+          title: '小秘密',
+          text: '他们有一个只有彼此知道的备用暗号。',
+          evidence: '群聊里只用眼神和暗号完成了配合。',
+          confidence: 0.92,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+
+    const states = buildCharacterCompanionshipStates(character({ relationships: [] }), 1_200, runtimeChat);
+    const state = states.find((item) => item.targetId === 'char-b');
+
+    expect(state).toMatchObject({
+      targetId: 'char-b',
+      style: 'partner',
+      lastCareAt: 1_100,
+    });
+    expect(state?.sharedSecrets.join('\n')).toContain('备用暗号');
+    expect(state?.sharedPromises.join('\n')).toContain('说好下次行动');
+    expect(state?.unresolvedCareTopics.join('\n')).toContain('担心');
+  });
+
   it('projects shared memory anchors from layered memories and relationship notes', () => {
     const anchors = buildSharedMemoryAnchors(
       character({
