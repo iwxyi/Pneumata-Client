@@ -1993,6 +1993,50 @@ function UserCompanionshipCard({
             ))}
           </Box>
         ) : null}
+        {sharedSecrets.length ? (
+          <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
+              小秘密边界
+            </Typography>
+            <Stack spacing={0.75}>
+              {sharedSecrets.slice(0, 4).map((secret) => (
+                <Box key={secret.id} sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
+                      <Chip size="small" label={secret.leakState === 'sealed' ? '密封' : secret.leakState === 'hinted_publicly' ? '公开暗示' : secret.leakState === 'leaked' ? '已泄露' : '已坦白'} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                      <Chip size="small" label={formatSharedSecretConsequenceLabel(secret.consequenceKind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                      {developerMode ? <Typography variant="caption" color="text.secondary">权重 {secret.emotionalWeight}</Typography> : null}
+                    </Stack>
+                    <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{secret.publicMask}</Typography>
+                    {developerMode ? (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
+                        参与者：{secret.participantIds.join(' × ')}
+                      </Typography>
+                    ) : null}
+                    {(secret.leakState === 'leaked' || secret.leakState === 'confessed') ? (
+                      <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.65 }}>
+                        {sharedSecretConsequenceOptions(secret).map((option) => (
+                          <Button
+                            key={option}
+                            size="small"
+                            variant={secret.consequenceKind === option ? 'contained' : 'outlined'}
+                            onClick={() => onCorrectSharedSecretConsequence(secret, option)}
+                            sx={{ minHeight: 24, px: 1, py: 0.1, borderRadius: 999, fontSize: 12 }}
+                          >
+                            {formatSharedSecretConsequenceLabel(option)}
+                          </Button>
+                        ))}
+                      </Stack>
+                    ) : null}
+                  </Box>
+                  <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(secret)} sx={{ flexShrink: 0 }}>
+                    撤回
+                  </Button>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        ) : null}
         {developerMode ? (
           <Stack spacing={1}>
             <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
@@ -2017,48 +2061,6 @@ function UserCompanionshipCard({
                 })}
               </Stack>
             </Box>
-            {sharedSecrets.length ? (
-              <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
-                  小秘密边界
-                </Typography>
-                <Stack spacing={0.75}>
-                  {sharedSecrets.slice(0, 4).map((secret) => (
-                    <Box key={secret.id} sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
-                          <Chip size="small" label={secret.leakState === 'sealed' ? '密封' : secret.leakState === 'hinted_publicly' ? '公开暗示' : secret.leakState === 'leaked' ? '已泄露' : '已坦白'} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
-                          <Chip size="small" label={formatSharedSecretConsequenceLabel(secret.consequenceKind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
-                          <Typography variant="caption" color="text.secondary">权重 {secret.emotionalWeight}</Typography>
-                        </Stack>
-                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{secret.publicMask}</Typography>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
-                          参与者：{secret.participantIds.join(' × ')}
-                        </Typography>
-                        {(secret.leakState === 'leaked' || secret.leakState === 'confessed') ? (
-                          <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.65 }}>
-                            {sharedSecretConsequenceOptions(secret).map((option) => (
-                              <Button
-                                key={option}
-                                size="small"
-                                variant={secret.consequenceKind === option ? 'contained' : 'outlined'}
-                                onClick={() => onCorrectSharedSecretConsequence(secret, option)}
-                                sx={{ minHeight: 24, px: 1, py: 0.1, borderRadius: 999, fontSize: 12 }}
-                              >
-                                {formatSharedSecretConsequenceLabel(option)}
-                              </Button>
-                            ))}
-                          </Stack>
-                        ) : null}
-                      </Box>
-                      <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(secret)} sx={{ flexShrink: 0 }}>
-                        撤回
-                      </Button>
-                    </Box>
-                  ))}
-                </Stack>
-              </Box>
-            ) : null}
             {rituals.length ? (
               <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
