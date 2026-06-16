@@ -23,6 +23,7 @@ import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { evolveCharacterCoreProfile } from './coreProfileEvolution';
 import { projectInnerLife } from './innerLifeEngine';
+import { buildSharedAnchorEventsFromCompanionshipEvents } from './companionshipSharedAnchorBackflow';
 import { buildSharedPhraseEventsFromCompanionshipEvents } from './companionshipSharedPhraseBackflow';
 
 const { chatGap: CHAT_DISTILLATION_TURN_COUNT, characterGap: CHARACTER_DISTILLATION_TURN_COUNT } = getLocalDistillationPolicy();
@@ -808,11 +809,18 @@ export function buildChatPatch(
   );
   const runtimeEventsV2WithCompanionshipBackflow = [
     ...runtimeEventsV2WithCandidates,
-    ...participants.flatMap((participant) => buildSharedPhraseEventsFromCompanionshipEvents({
-      chat: conversation,
-      character: participant,
-      events: runtimeEventsV2WithCandidates,
-    })),
+    ...participants.flatMap((participant) => [
+      ...buildSharedAnchorEventsFromCompanionshipEvents({
+        chat: conversation,
+        character: participant,
+        events: runtimeEventsV2WithCandidates,
+      }),
+      ...buildSharedPhraseEventsFromCompanionshipEvents({
+        chat: conversation,
+        character: participant,
+        events: runtimeEventsV2WithCandidates,
+      }),
+    ]),
   ];
   chatPatch.runtimeEventsV2 = appendAttentionCandidateEvent(
     runtimeEventsV2WithCompanionshipBackflow,
