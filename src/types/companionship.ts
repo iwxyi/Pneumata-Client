@@ -45,6 +45,20 @@ export interface IntimateConflictState {
   updatedAt: number;
 }
 
+export interface IntimateConflictHistoryEntry {
+  id: string;
+  action: CompanionshipIntimateConflictEventPayload['action'];
+  kind: IntimateConflictKind;
+  severity: number;
+  repairReadiness: number;
+  summary: string;
+  evidence: string[];
+  sourceEventIds: string[];
+  decisionSource?: 'model' | 'local_fallback';
+  confidence?: number;
+  occurredAt: number;
+}
+
 export interface PendingCareTopic {
   id: string;
   text: string;
@@ -112,6 +126,18 @@ export interface UserAttachmentProfile {
   confidence: number;
   evidence: string[];
   adaptations: string[];
+}
+
+export interface AttachmentProfileHistoryEntry {
+  id: string;
+  action: NonNullable<CompanionshipAttachmentProfileEventPayload['action']>;
+  inferredStyle?: UserAttachmentProfile['inferredStyle'];
+  confidence: number;
+  evidence: string[];
+  adaptations: string[];
+  reason?: string;
+  decisionSource?: 'model' | 'local_fallback';
+  occurredAt: number;
 }
 
 export interface UserProfileMemoryProjection {
@@ -494,6 +520,8 @@ export interface CompanionshipRuntimeTrace {
   userProfileCues: UserProfileMemoryEventItem[];
   carePolicy: Pick<CarePolicy, 'dailyInitiationBudget' | 'triggerSensitivity' | 'silenceAnxietyThresholdHours' | 'expressionIntensity' | 'allowGoodMorning' | 'allowGoodNight' | 'allowMissYou'>;
   attachmentProfile?: UserAttachmentProfile;
+  conflictHistory: IntimateConflictHistoryEntry[];
+  attachmentHistory: AttachmentProfileHistoryEntry[];
   diagnostics: string[];
   evidence: string[];
   intimacy: IntimacyProjection;

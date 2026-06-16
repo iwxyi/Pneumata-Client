@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import { DEFAULT_PERSONALITY } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, UserAttachmentProfile, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -455,6 +455,38 @@ function attachmentProfileFromPayload(payload: CompanionshipAttachmentProfileEve
     evidence: [payload.reason, ...(payload.evidence || []), `event=${event.id}`].filter(Boolean).slice(0, 5) as string[],
     adaptations: payload.adaptations?.length ? payload.adaptations : ATTACHMENT_FALLBACK_ADAPTATIONS[payload.inferredStyle],
   };
+}
+
+function buildAttachmentProfileHistory(chat: GroupChat, characterId: string): AttachmentProfileHistoryEntry[] {
+  const history: AttachmentProfileHistoryEntry[] = [];
+  (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .forEach((event) => {
+      const payload = attachmentProfileEventPayloadOf(event);
+      if (!payload || payload.characterId !== characterId) return;
+      const userId = payload.userId || USER_ACTOR_ID;
+      if (userId !== USER_ACTOR_ID) return;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return;
+      const action = payload.action || 'inferred';
+      history.push({
+        id: event.id,
+        action,
+        inferredStyle: payload.inferredStyle,
+        confidence: normalizeEventConfidenceScore(payload.confidence),
+        evidence: [payload.reason, ...(payload.evidence || [])].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 4) as string[],
+        adaptations: payload.adaptations?.length
+          ? payload.adaptations.slice(0, 4)
+          : payload.inferredStyle
+            ? ATTACHMENT_FALLBACK_ADAPTATIONS[payload.inferredStyle]
+            : [],
+        reason: payload.reason,
+        decisionSource: payload.decisionSource,
+        occurredAt: event.createdAt || 0,
+      });
+    });
+  return history.sort((a, b) => b.occurredAt - a.occurredAt).slice(0, 8);
 }
 
 function aggregateAttachmentProfileEvents(items: Array<{ event: RuntimeEventV2; payload: CompanionshipAttachmentProfileEventPayload }>, now: number): UserAttachmentProfile | null {
@@ -1911,6 +1943,44 @@ function resolveIntimateConflictEvent(chat: GroupChat, characterId: string, now:
     };
   }
   return null;
+}
+
+function buildIntimateConflictHistory(chat: GroupChat, characterId: string): IntimateConflictHistoryEntry[] {
+  const history: IntimateConflictHistoryEntry[] = [];
+  (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .forEach((event) => {
+      const payload = intimateConflictEventPayloadOf(event);
+      if (!payload || payload.characterId !== characterId) return;
+      const userId = payload.userId || USER_ACTOR_ID;
+      if (userId !== USER_ACTOR_ID) return;
+      const participantIds = payload.participantIds?.length ? payload.participantIds : [characterId, USER_ACTOR_ID];
+      if (!participantIds.includes(characterId) || !participantIds.includes(USER_ACTOR_ID)) return;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return;
+      const severity = clampScore(payload.severity ?? (
+        payload.action === 'resolved' || payload.action === 'dismissed' ? 18 : payload.action === 'repair_attempted' ? 36 : 50
+      ));
+      const repairReadiness = clampScore(payload.repairReadiness ?? (
+        payload.action === 'resolved' ? 82 : payload.action === 'repair_attempted' ? 58 : payload.kind === 'reconciliation' ? 72 : 24
+      ));
+      const kind = payload.action === 'resolved' && payload.kind !== 'reconciliation' ? 'reconciliation' : payload.kind;
+      history.push({
+        id: event.id,
+        action: payload.action,
+        kind,
+        severity,
+        repairReadiness,
+        summary: payload.summary || event.summary || conflictSummary(kind, severity, repairReadiness),
+        evidence: [event.summary, ...(payload.evidence || [])].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 4),
+        sourceEventIds: Array.from(new Set([event.id, ...(payload.sourceEventIds || [])])).slice(0, 8),
+        decisionSource: payload.decisionSource,
+        confidence: payload.confidence,
+        occurredAt: event.createdAt || 0,
+      });
+    });
+  return history.sort((a, b) => b.occurredAt - a.occurredAt).slice(0, 8);
 }
 
 function hasRecentDismissedIntimateConflictEvent(chat: GroupChat, characterId: string, now: number) {
@@ -3499,6 +3569,8 @@ export function buildCompanionshipRuntimeTrace(params: {
     return `${ritual.content} · ${state}${suffix}`;
   }).slice(0, 4);
   const diagnostics = buildCompanionshipDiagnostics(params.chat, params.character.id);
+  const conflictHistory = buildIntimateConflictHistory(params.chat, params.character.id);
+  const attachmentHistory = buildAttachmentProfileHistory(params.chat, params.character.id);
   return {
     style: bond.style,
     phase: bond.phase,
@@ -3533,6 +3605,8 @@ export function buildCompanionshipRuntimeTrace(params: {
       allowMissYou: carePolicy.allowMissYou,
     },
     attachmentProfile: bond.attachmentProfile,
+    conflictHistory,
+    attachmentHistory,
     diagnostics,
     evidence: projection.evidence.slice(0, 5),
     intimacy: bond.intimacy,

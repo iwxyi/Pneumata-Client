@@ -2283,6 +2283,15 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.intimateConflict?.sourceEventIds).toEqual(expect.arrayContaining(['evt-intimate-conflict-1', 'evt-source-conflict']));
     expect(projection.promptLines.join('\n')).toContain('Current intimate conflict/repair state');
     expect(trace?.intimateConflict?.repairReadiness).toBe(68);
+    expect(trace?.conflictHistory[0]).toMatchObject({
+      id: 'evt-intimate-conflict-1',
+      action: 'repair_attempted',
+      kind: 'repair_attempt',
+      severity: 44,
+      repairReadiness: 68,
+      decisionSource: 'model',
+    });
+    expect(trace?.conflictHistory[0]?.evidence.join('\n')).toContain('慢慢说开');
   });
 
   it('uses resolved intimate conflict events to keep recent repair from being overwritten by old ledger tension', () => {
@@ -3112,6 +3121,14 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).toContain('User attachment adaptation');
     expect(projection.promptLines.join('\n')).not.toContain('avoidant');
     expect(trace?.attachmentProfile?.evidence.join('\n')).toContain('需要空间');
+    expect(trace?.attachmentHistory[0]).toMatchObject({
+      id: 'evt-attachment-1',
+      action: 'inferred',
+      inferredStyle: 'avoidant',
+      confidence: 88,
+      decisionSource: 'model',
+    });
+    expect(trace?.attachmentHistory[0]?.adaptations).toEqual(expect.arrayContaining(['respect explicit space requests']));
   });
 
   it('uses corrected attachment profile events as explicit user/model correction', () => {

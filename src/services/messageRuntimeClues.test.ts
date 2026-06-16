@@ -153,6 +153,8 @@ describe('messageRuntimeClues', () => {
               allowGoodNight: true,
               allowMissYou: true,
             },
+            conflictHistory: [],
+            attachmentHistory: [],
             diagnostics: ['care_topic: source=local_fallback confidence=62% event=evt-care-1'],
             evidence: ['深度绑定：喜欢、深度牵挂'],
             intimacy: { attraction: 72, intimacy: 68, attachment: 66, longing: 50, exclusivity: 18, security: 76 },

@@ -33,7 +33,7 @@ import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buil
 import { applyCompanionshipLedgerBackflow } from '../../services/companionshipLedgerBackflow';
 import { buildSharedPhraseEventsFromCompanionshipEvent } from '../../services/companionshipSharedPhraseBackflow';
 import type { Message } from '../../types/message';
-import type { CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, PendingCareTopic, PendingPromise, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
+import type { AttachmentProfileHistoryEntry, CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, IntimateConflictHistoryEntry, PendingCareTopic, PendingPromise, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 type ManualPromiseLifecycleAction = Extract<PendingPromise['status'], 'fulfilled' | 'blocked' | 'stale' | 'revoked'>;
@@ -573,6 +573,28 @@ function formatAttachmentStyleLabel(style: UserAttachmentProfile['inferredStyle'
     disorganized: '忽近忽远',
   };
   return labels[style];
+}
+
+function formatAttachmentActionLabel(action: 'inferred' | 'corrected' | 'disabled' | 'enabled') {
+  const labels: Record<typeof action, string> = {
+    inferred: '模型/系统推断',
+    corrected: '手动修正',
+    disabled: '关闭适配',
+    enabled: '恢复适配',
+  };
+  return labels[action] || action;
+}
+
+function formatIntimateConflictActionLabel(action: 'opened' | 'updated' | 'repair_attempted' | 'resolved' | 'reopened' | 'dismissed') {
+  const labels: Record<typeof action, string> = {
+    opened: '开启',
+    updated: '更新',
+    repair_attempted: '尝试修复',
+    resolved: '已修复',
+    reopened: '重新打开',
+    dismissed: '误判撤回',
+  };
+  return labels[action] || action;
 }
 
 const INTERACTION_PACE_OPTIONS: Array<{
@@ -2055,6 +2077,8 @@ function CompanionshipDeveloperTracePanel({
     `表达强度 ${trace.carePolicy.expressionIntensity}`,
     trace.carePolicy.allowMissYou ? '允许想念表达' : '禁用想念表达',
   ];
+  const conflictHistory = trace.conflictHistory.slice(0, 6);
+  const attachmentHistory = trace.attachmentHistory.slice(0, 6);
   return (
     <Stack spacing={1}>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 0.75 }}>
@@ -2145,6 +2169,59 @@ function CompanionshipDeveloperTracePanel({
           <Typography variant="caption" sx={{ display: 'block', opacity: 0.78 }}>
             {trace.intimateConflict.kind} · 强度 {trace.intimateConflict.severity} · 修复成熟度 {trace.intimateConflict.repairReadiness}
           </Typography>
+        </Box>
+      ) : null}
+      {conflictHistory.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>冲突历史</Typography>
+          <Stack spacing={0.5}>
+            {conflictHistory.map((item) => (
+              <Box key={item.id} sx={{ p: 0.75, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatIntimateConflictActionLabel(item.action)} · {item.kind} · {new Date(item.occurredAt).toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {item.severity}/{item.repairReadiness}
+                  </Typography>
+                </Box>
+                <Typography variant="body2" sx={{ mt: 0.25 }}>{item.summary}</Typography>
+                {item.evidence.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                    证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      ) : null}
+      {attachmentHistory.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>互动节奏历史</Typography>
+          <Stack spacing={0.5}>
+            {attachmentHistory.map((item) => (
+              <Box key={item.id} sx={{ p: 0.75, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatAttachmentActionLabel(item.action)} · {new Date(item.occurredAt).toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {item.inferredStyle ? formatAttachmentStyleLabel(item.inferredStyle) : '无类型'}
+                  </Typography>
+                </Box>
+                {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{item.reason}</Typography> : null}
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                  置信 {item.confidence}%
+                </Typography>
+                {item.evidence.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                    证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+              </Box>
+            ))}
+          </Stack>
         </Box>
       ) : null}
       {trace.diagnostics.length ? (
