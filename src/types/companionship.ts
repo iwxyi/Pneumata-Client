@@ -192,7 +192,8 @@ export interface CompanionshipPhaseEventPayload {
   eventType: 'companionship_phase_event';
   characterId: string;
   userId?: string;
-  phase: CompanionshipPhase;
+  action?: 'set' | 'revoked';
+  phase?: CompanionshipPhase;
   style?: CompanionshipStyle;
   evidence?: string[];
   reason?: string;

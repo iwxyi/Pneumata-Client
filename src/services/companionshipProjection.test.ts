@@ -655,6 +655,48 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).not.toContain('confirmed relationship');
   });
 
+  it('uses later phase revoke events to restore automatic phase inference', () => {
+    const projection = buildUserCompanionshipProjection({
+      chat: chat('direct', [relationship({ warmth: 42, trust: 38, competence: 20, threat: 0 })], [
+        phaseEvent({
+          id: 'evt-confirmed-old',
+          createdAt: 800,
+          payload: {
+            eventType: 'companionship_phase_event',
+            characterId: 'char-a',
+            userId: 'user',
+            action: 'set',
+            phase: 'confirmed',
+            style: 'romantic',
+            reason: '双方确认恋人关系。',
+          },
+        }),
+        phaseEvent({
+          id: 'evt-phase-revoked',
+          createdAt: 1_200,
+          summary: '苏苏记录用户恢复了陪伴阶段自动判断。',
+          payload: {
+            eventType: 'companionship_phase_event',
+            characterId: 'char-a',
+            userId: 'user',
+            action: 'revoked',
+            reason: '用户在角色关系页恢复陪伴阶段自动判断。',
+            evidence: ['manual_phase_revoke_from_character_relationship_tab'],
+            initiatedBy: 'user',
+            confidence: 1,
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [message({ content: '今天只是普通聊聊。', timestamp: 1_100 })],
+      now: 1_300,
+    });
+
+    expect(projection.userBond?.phase).not.toBe('confirmed');
+    expect(projection.userBond?.style).not.toBe('romantic');
+    expect(projection.promptLines.join('\n')).not.toContain('confirmed relationship');
+  });
+
   it('reduces security and moves to crisis when threat is high', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({ warmth: 10, trust: -12, competence: 0, threat: 60 })]),

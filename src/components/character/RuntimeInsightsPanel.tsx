@@ -925,11 +925,38 @@ function buildManualPhaseCorrectionEvent(chat: GroupChat, character: AICharacter
       eventType: 'companionship_phase_event',
       characterId: character.id,
       userId: 'user',
+      action: 'set',
       phase,
       style,
       reason: '用户在角色关系页手动修正陪伴关系阶段。',
       evidence: ['manual_phase_correction_from_character_relationship_tab'],
       initiatedBy: 'user',
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualPhaseRevokeEvent(chat: GroupChat, character: AICharacter): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, 'phase-revoked']),
+    conversationId: chat.id,
+    kind: 'phase_transition',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id, 'user'],
+    summary: `${character.name} 记录用户恢复了陪伴阶段自动判断`,
+    channelId: 'pair-private',
+    eventClass: 'phase',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_phase_event',
+      characterId: character.id,
+      userId: 'user',
+      action: 'revoked',
+      reason: '用户在角色关系页恢复陪伴阶段自动判断。',
+      evidence: ['manual_phase_revoke_from_character_relationship_tab'],
       confidence: 1,
     },
   };
@@ -1489,6 +1516,7 @@ function UserCompanionshipCard({
   onSuppressRitual,
   onRestoreRitual,
   onCorrectPhase,
+  onRevokePhase,
   developerMode,
 }: {
   chatName: string;
@@ -1518,6 +1546,7 @@ function UserCompanionshipCard({
   onSuppressRitual: (ritual: RitualRegistryEntry) => void;
   onRestoreRitual: (ritual: RitualRegistryEntry) => void;
   onCorrectPhase: (phase: CompanionshipPhase, style: CompanionshipStyle) => void;
+  onRevokePhase: () => void;
   developerMode: boolean;
 }) {
   const [editingPhraseId, setEditingPhraseId] = useState<string | null>(null);
@@ -2230,6 +2259,14 @@ function UserCompanionshipCard({
                     </Button>
                   );
                 })}
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={onRevokePhase}
+                  sx={{ borderRadius: 999, minWidth: 0, px: 1.1 }}
+                >
+                  恢复自动判断
+                </Button>
               </Stack>
             </Box>
             <CompanionshipDeveloperTracePanel trace={trace} onDisableAttachment={onDisableAttachment} onEnableAttachment={onEnableAttachment} onCorrectAttachment={onCorrectAttachment} />
@@ -2752,6 +2789,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onCorrectPhase={(phase, style) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualPhaseCorrectionEvent(view.chat, character as AICharacter, phase, style));
+                }}
+                onRevokePhase={() => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualPhaseRevokeEvent(view.chat, character as AICharacter));
                 }}
                 developerMode={isDeveloperView}
               />

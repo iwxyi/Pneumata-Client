@@ -320,6 +320,7 @@ function resolveCompanionshipPhaseEvent(chat: GroupChat, characterId: string): R
     const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
     const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
     if (!actorMatches || !targetMatches) continue;
+    if (payload.action === 'revoked') return null;
     if (!isCompanionshipPhase(payload.phase)) continue;
     const evidence = Array.isArray(payload.evidence)
       ? payload.evidence.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => compactText(item, 120))
