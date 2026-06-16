@@ -23,7 +23,7 @@ import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { evolveCharacterCoreProfile } from './coreProfileEvolution';
 import { projectInnerLife } from './innerLifeEngine';
-import { buildRitualEventsFromSharedAnchorEvents, buildSharedAnchorEventsFromCompanionshipEvents } from './companionshipSharedAnchorBackflow';
+import { buildRitualEventsFromRelationshipRuntimeEvents, buildRitualEventsFromSharedAnchorEvents, buildSharedAnchorEventsFromCompanionshipEvents } from './companionshipSharedAnchorBackflow';
 import { buildSharedPhraseEventsFromCompanionshipEvents } from './companionshipSharedPhraseBackflow';
 
 const { chatGap: CHAT_DISTILLATION_TURN_COUNT, characterGap: CHARACTER_DISTILLATION_TURN_COUNT } = getLocalDistillationPolicy();
@@ -823,6 +823,11 @@ export function buildChatPatch(
     ...runtimeEventsV2WithCandidates,
     ...companionshipBackflowEvents,
     ...participants.flatMap((participant) => buildRitualEventsFromSharedAnchorEvents({
+        chat: conversation,
+        character: participant,
+        events: [...runtimeEventsV2WithCandidates, ...companionshipBackflowEvents],
+      })),
+    ...participants.flatMap((participant) => buildRitualEventsFromRelationshipRuntimeEvents({
         chat: conversation,
         character: participant,
         events: [...runtimeEventsV2WithCandidates, ...companionshipBackflowEvents],

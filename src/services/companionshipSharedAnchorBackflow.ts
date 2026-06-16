@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CompanionshipRitualEventPayload, CompanionshipSharedAnchorEventPayload, SharedMemoryAnchor } from '../types/companionship';
+import type { CompanionshipIntimateConflictEventPayload, CompanionshipPhaseEventPayload, CompanionshipRitualEventPayload, CompanionshipSharedAnchorEventPayload, SharedMemoryAnchor } from '../types/companionship';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 
 const USER_ACTOR_ID = 'user';
@@ -29,6 +29,18 @@ function ritualPayloadOf(event: RuntimeEventV2): CompanionshipRitualEventPayload
   const payload = event.payload as Partial<CompanionshipRitualEventPayload> | undefined;
   if (!payload || payload.eventType !== 'companionship_ritual') return null;
   return payload as CompanionshipRitualEventPayload;
+}
+
+function phasePayloadOf(event: RuntimeEventV2): CompanionshipPhaseEventPayload | null {
+  const payload = event.payload as Partial<CompanionshipPhaseEventPayload> | undefined;
+  if (!payload || payload.eventType !== 'companionship_phase_event') return null;
+  return payload as CompanionshipPhaseEventPayload;
+}
+
+function intimateConflictPayloadOf(event: RuntimeEventV2): CompanionshipIntimateConflictEventPayload | null {
+  const payload = event.payload as Partial<CompanionshipIntimateConflictEventPayload> | undefined;
+  if (!payload || payload.eventType !== 'companionship_intimate_conflict') return null;
+  return payload as CompanionshipIntimateConflictEventPayload;
 }
 
 function formatSharedAnchorTitle(kind: SharedMemoryAnchor['kind']) {
@@ -166,6 +178,129 @@ function createRitualEvolutionEvent(params: {
   };
 }
 
+function createRuntimeRitualEvolutionEvent(params: {
+  chat: GroupChat;
+  character: Pick<AICharacter, 'id' | 'name'>;
+  sourceEvent: RuntimeEventV2;
+  ritualId: string;
+  kind: CompanionshipRitualEventPayload['kind'];
+  content: string;
+  evolution: string[];
+  reason: string;
+  evidence: string;
+  confidence?: number;
+  decisionSource?: CompanionshipRitualEventPayload['decisionSource'];
+}): RuntimeEventV2 | null {
+  const content = compactText(params.content, 180);
+  if (!content) return null;
+  const participantIds = [params.character.id, USER_ACTOR_ID];
+  const payload: CompanionshipRitualEventPayload = {
+    eventType: 'companionship_ritual',
+    characterId: params.character.id,
+    userId: USER_ACTOR_ID,
+    ritualId: params.ritualId,
+    kind: params.kind,
+    action: 'updated',
+    participantIds,
+    content,
+    evolution: params.evolution.map((item) => compactText(item, 120)).filter(Boolean).slice(0, 6),
+    reason: params.reason,
+    evidence: compactText(params.evidence, 160),
+    confidence: params.confidence,
+    decisionSource: params.decisionSource || 'local_fallback',
+  };
+  const seed = stableEventSeed([params.chat.id, params.character.id, params.ritualId, params.sourceEvent.id, content]);
+  return {
+    id: `evt-ritual-runtime-evolution-${seed}`,
+    conversationId: params.chat.id,
+    kind: 'artifact',
+    createdAt: params.sourceEvent.createdAt || Date.now(),
+    actorIds: participantIds,
+    targetIds: participantIds,
+    summary: `${params.character.name} 根据关系变化更新了一个关系仪式`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: participantIds,
+    evidenceMessageIds: params.sourceEvent.evidenceMessageIds,
+    payload,
+  };
+}
+
+function ritualEventFromPhaseEvent(params: {
+  chat: GroupChat;
+  character: Pick<AICharacter, 'id' | 'name'>;
+  event: RuntimeEventV2;
+}): RuntimeEventV2 | null {
+  const payload = phasePayloadOf(params.event);
+  if (!payload || payload.characterId !== params.character.id || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return null;
+  if (payload.action === 'revoked') return null;
+  const confidence = typeof payload.confidence === 'number' ? payload.confidence : 0.72;
+  if (confidence < 0.72) return null;
+  const evidence = [...(payload.evidence || []), payload.reason || params.event.summary].filter(Boolean).join(' / ');
+  if (payload.phase === 'confirmed' || payload.phase === 'passionate' || payload.phase === 'deep') {
+    return createRuntimeRitualEvolutionEvent({
+      chat: params.chat,
+      character: params.character,
+      sourceEvent: params.event,
+      ritualId: `ritual-runtime-phase-${params.character.id}-${payload.phase}`,
+      kind: 'milestone',
+      content: payload.phase === 'deep'
+        ? '长期稳定陪伴后，重要日常可以被温和记住，但不需要夸张重复确认。'
+        : '关系确认后，可以把重要表达沉淀成只在合适时轻轻带过的里程碑。',
+      evolution: [payload.phase || '', payload.style || '', evidence],
+      reason: '关系阶段变化触发关系仪式演化。',
+      evidence,
+      confidence,
+      decisionSource: payload.decisionSource,
+    });
+  }
+  if (payload.phase === 'reconciling') {
+    return createRuntimeRitualEvolutionEvent({
+      chat: params.chat,
+      character: params.character,
+      sourceEvent: params.event,
+      ritualId: `ritual-runtime-phase-${params.character.id}-reconciling`,
+      kind: 'reconciliation',
+      content: '修复期优先用低压、给台阶的方式确认彼此还愿意好好说话。',
+      evolution: [payload.phase || '', evidence],
+      reason: '关系进入修复期后同步演化和好仪式。',
+      evidence,
+      confidence,
+      decisionSource: payload.decisionSource,
+    });
+  }
+  return null;
+}
+
+function ritualEventFromIntimateConflictEvent(params: {
+  chat: GroupChat;
+  character: Pick<AICharacter, 'id' | 'name'>;
+  event: RuntimeEventV2;
+}): RuntimeEventV2 | null {
+  const payload = intimateConflictPayloadOf(params.event);
+  if (!payload || payload.characterId !== params.character.id || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return null;
+  if (payload.action !== 'repair_attempted' && payload.action !== 'resolved') return null;
+  const confidence = typeof payload.confidence === 'number' ? payload.confidence : 0.74;
+  if (confidence < 0.68) return null;
+  const evidence = [...(payload.evidence || []), payload.summary || params.event.summary].filter(Boolean).join(' / ');
+  return createRuntimeRitualEvolutionEvent({
+    chat: params.chat,
+    character: params.character,
+    sourceEvent: params.event,
+    ritualId: `ritual-runtime-conflict-${params.character.id}-${payload.action}`,
+    kind: 'reconciliation',
+    content: payload.action === 'resolved'
+      ? '冲突说开后，可以把“以后不靠沉默试探”作为温和的和好提醒。'
+      : '修复尝试出现时，先递台阶、少追问，用一句轻的话把关系接回来。',
+    evolution: [payload.kind, payload.summary || '', evidence],
+    reason: '亲密冲突修复事件触发和好仪式演化。',
+    evidence,
+    confidence,
+    decisionSource: payload.decisionSource,
+  });
+}
+
 function buildSharedAnchorEventFromDistilledMemory(params: {
   chat: GroupChat;
   character: Pick<AICharacter, 'id' | 'name'>;
@@ -255,6 +390,42 @@ export function buildRitualEventsFromSharedAnchorEvents(params: {
       });
       return ritualEvent ? [ritualEvent] : [];
     })
+    .filter((event) => {
+      const payload = ritualPayloadOf(event);
+      if (!payload) return false;
+      const key = [
+        payload.characterId,
+        payload.ritualId,
+        payload.action,
+        (payload.content || '').replace(/\s+/g, '').slice(0, 64),
+      ].join(':');
+      if (existingRitualKeys.has(key)) return false;
+      existingRitualKeys.add(key);
+      return true;
+    });
+}
+
+export function buildRitualEventsFromRelationshipRuntimeEvents(params: {
+  chat: GroupChat;
+  character: Pick<AICharacter, 'id' | 'name'>;
+  events: RuntimeEventV2[];
+}): RuntimeEventV2[] {
+  const existingRitualKeys = new Set(params.events
+    .map((event) => ritualPayloadOf(event))
+    .filter((payload): payload is CompanionshipRitualEventPayload => Boolean(payload))
+    .map((payload) => [
+      payload.characterId,
+      payload.ritualId,
+      payload.action,
+      (payload.content || '').replace(/\s+/g, '').slice(0, 64),
+    ].join(':')));
+
+  return params.events
+    .flatMap((event) => [
+      ritualEventFromPhaseEvent({ chat: params.chat, character: params.character, event }),
+      ritualEventFromIntimateConflictEvent({ chat: params.chat, character: params.character, event }),
+    ])
+    .filter((event): event is RuntimeEventV2 => Boolean(event))
     .filter((event) => {
       const payload = ritualPayloadOf(event);
       if (!payload) return false;
