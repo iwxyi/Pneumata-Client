@@ -2906,9 +2906,23 @@ export function buildHomeCompanionshipSnapshot(params: {
         priority,
       };
     })
-    .filter((item): item is NonNullable<typeof item> => Boolean(item))
-    .sort((left, right) => right.priority - left.priority || (right.chat.lastMessageAt || 0) - (left.chat.lastMessageAt || 0));
-  const selected = candidates[0];
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const candidatesByCharacter = new Map<string, { selected: (typeof candidates)[number]; count: number }>();
+  candidates.forEach((candidate) => {
+    const previous = candidatesByCharacter.get(candidate.character.id);
+    const previousSelected = previous?.selected;
+    const shouldReplace = !previousSelected
+      || candidate.priority > previousSelected.priority
+      || (candidate.priority === previousSelected.priority && (candidate.chat.lastMessageAt || 0) > (previousSelected.chat.lastMessageAt || 0));
+    candidatesByCharacter.set(candidate.character.id, {
+      selected: shouldReplace ? candidate : previousSelected,
+      count: (previous?.count || 0) + 1,
+    });
+  });
+  const aggregated = Array.from(candidatesByCharacter.values())
+    .sort((left, right) => right.selected.priority - left.selected.priority || (right.selected.chat.lastMessageAt || 0) - (left.selected.chat.lastMessageAt || 0));
+  const selectedGroup = aggregated[0];
+  const selected = selectedGroup?.selected;
   if (!selected) return null;
   return {
     chatId: selected.chat.id,
@@ -2916,7 +2930,10 @@ export function buildHomeCompanionshipSnapshot(params: {
     characterName: selected.character.name,
     text: selected.text,
     tone: selected.signature.tone,
-    debugLines: selected.signature.debugLines,
+    debugLines: [
+      ...selected.signature.debugLines,
+      selectedGroup.count > 1 ? `homeAggregation=character:${selected.character.id} candidates=${selectedGroup.count}` : '',
+    ].filter(Boolean),
     updatedAt: now,
   };
 }

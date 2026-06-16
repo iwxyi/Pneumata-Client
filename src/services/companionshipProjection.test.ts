@@ -4425,6 +4425,46 @@ describe('companionshipProjection', () => {
     expect(snapshot?.characterName).toBe('苏苏');
   });
 
+  it('aggregates home companionship status across direct chats for the same character', () => {
+    const latestUserAt = 200;
+    const olderChat = {
+      ...chat('direct', [relationship({ warmth: 72, trust: 70, competence: 10, threat: 2 })]),
+      id: 'chat-old',
+      lastMessageAt: 1_000,
+    };
+    const newerChat = {
+      ...chat('direct', [relationship({ warmth: 72, trust: 70, competence: 10, threat: 2 })], [onlineReturnEvent({
+        id: 'evt-online-return-new',
+        conversationId: 'chat-new',
+        payload: {
+          eventType: 'companionship_online_return',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'projected',
+          text: '小夏回来了。苏苏把新开的那间房也留着一盏灯。',
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      })]),
+      id: 'chat-new',
+      lastMessageAt: 2_000,
+    };
+    const companion = character({ memory: { shortTermSummary: '', longTerm: [], secrets: [], obsessions: [], tabooTopics: [], userMemories: ['用户说：叫我小夏。'] } });
+    const snapshot = buildHomeCompanionshipSnapshot({
+      chats: [olderChat, newerChat],
+      characters: [companion],
+      messages: [
+        message({ id: 'msg-old', chatId: olderChat.id, content: '我先去忙了，晚点回来。', timestamp: latestUserAt }),
+        message({ id: 'msg-new', chatId: newerChat.id, content: '我换个房间继续聊。', timestamp: latestUserAt + 10 }),
+      ],
+      now: latestUserAt + 30 * 60 * 60 * 1000,
+    });
+
+    expect(snapshot?.chatId).toBe('chat-new');
+    expect(snapshot?.text).toContain('新开的那间房');
+    expect(snapshot?.debugLines.join('\n')).toContain('homeAggregation=character:char-a candidates=2');
+  });
+
   it('prioritizes online return runtime events over local status projection', () => {
     const latestUserAt = 200;
     const directChat = chat('direct', [relationship({ warmth: 72, trust: 70, competence: 10, threat: 2 })], [onlineReturnEvent()]);
