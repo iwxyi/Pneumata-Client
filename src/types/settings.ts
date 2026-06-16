@@ -727,6 +727,13 @@ export interface CompanionshipSettings {
   enableAttachmentAdaptation: boolean;
   enableRelationshipRituals: boolean;
   pendingPromiseRetentionDays: number;
+  proactiveCooldownMinutes: {
+    checkIn: number;
+    reactToMoment: number;
+    socialOuting: number;
+    statusUpdate: number;
+  };
+  sensitiveBoundaryMode: 'normal' | 'restrained' | 'off';
   allowGoodMorning: boolean;
   allowGoodNight: boolean;
   allowMissYou: boolean;
@@ -799,6 +806,13 @@ export const DEFAULT_COMPANIONSHIP_SETTINGS: CompanionshipSettings = {
   enableAttachmentAdaptation: true,
   enableRelationshipRituals: true,
   pendingPromiseRetentionDays: 30,
+  proactiveCooldownMinutes: {
+    checkIn: 120,
+    reactToMoment: 120,
+    socialOuting: 360,
+    statusUpdate: 90,
+  },
+  sensitiveBoundaryMode: 'restrained',
   allowGoodMorning: true,
   allowGoodNight: true,
   allowMissYou: true,

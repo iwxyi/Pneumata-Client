@@ -4070,6 +4070,110 @@ describe('companionshipProjection', () => {
     }).blocked).toBe(false);
   });
 
+  it('applies configurable proactive cooldowns without blocking immediate user-prompted follow-up', () => {
+    const now = new Date('2026-06-01T14:00:00+08:00').getTime();
+    setCompanionshipRuntimeConfig({
+      proactiveCooldownMinutes: {
+        checkIn: 180,
+        reactToMoment: 120,
+        socialOuting: 360,
+        statusUpdate: 90,
+      },
+      quietHours: { enabled: false, start: '23:30', end: '08:00', suppressStatusHints: true },
+    });
+    const directChat = chat('direct', [relationship({ warmth: 78, trust: 72, competence: 10, threat: 2 })], [{
+      id: 'evt-recent-check-in-artifact',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: now - 30 * 60_000,
+      actorIds: ['char-a'],
+      targetIds: ['user'],
+      summary: '苏苏刚刚发过一次主动关心。',
+      visibility: 'pair_private',
+      eventClass: 'artifact',
+      payload: {
+        artifactType: 'check_in_note',
+        eventKind: 'check_in',
+      },
+    }]);
+
+    expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: character(),
+      chat: directChat,
+      eventKind: 'check_in',
+      reasonType: 'world_attention_status_idle',
+      attentionScore: 1,
+      now,
+    })).toMatchObject({
+      blocked: true,
+      reason: 'companionship check_in cooldown',
+    });
+    expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: character(),
+      chat: directChat,
+      eventKind: 'check_in',
+      reasonType: 'world_attention_private_message',
+      attentionScore: 1,
+      now,
+    }).blocked).toBe(false);
+  });
+
+  it('restrains proactive care from sensitive user profile cues by configurable boundary mode', () => {
+    const directChat = chat('direct', [relationship({ warmth: 78, trust: 72, competence: 10, threat: 2 })], [{
+      id: 'evt-sensitive-profile',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: 1_000,
+      actorIds: ['user', 'char-a'],
+      targetIds: ['char-a', 'user'],
+      summary: '模型记录了用户的敏感压力线索。',
+      visibility: 'pair_private',
+      eventClass: 'artifact',
+      payload: {
+        eventType: 'companionship_user_profile_memory',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'upsert',
+        items: [{
+          kind: 'pressure_source',
+          text: '用户最近因为复诊有压力',
+          evidence: '下周复诊有点紧张。',
+          sensitive: true,
+          confidence: 0.92,
+        }],
+        decisionSource: 'model',
+      },
+    }]);
+
+    setCompanionshipRuntimeConfig({ sensitiveBoundaryMode: 'restrained' });
+    const restrained = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '下周复诊有点紧张。', timestamp: 900 })],
+      now: 1_200,
+    });
+    setCompanionshipRuntimeConfig({ sensitiveBoundaryMode: 'off' });
+    const blocked = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '下周复诊有点紧张。', timestamp: 900 })],
+      now: 1_200,
+    });
+    setCompanionshipRuntimeConfig({ sensitiveBoundaryMode: 'normal' });
+    const normal = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '下周复诊有点紧张。', timestamp: 900 })],
+      now: 1_200,
+    });
+
+    expect(restrained.userBond?.carePolicy.boundaryReasons).toContain('sensitive companionship boundary mode is restrained');
+    expect(restrained.userBond?.carePolicy.allowMissYou).toBe(false);
+    expect(blocked.userBond?.carePolicy.dailyInitiationBudget).toBe(0);
+    expect(blocked.userBond?.carePolicy.boundaryReasons).toContain('sensitive companionship boundary mode is off');
+    expect(normal.userBond?.carePolicy.boundaryReasons).not.toContain('sensitive companionship boundary mode is restrained');
+  });
+
   it('builds a low-noise companionship status signature for direct side panels', () => {
     const signature = buildCompanionshipStatusSignature({
       chat: chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })]),

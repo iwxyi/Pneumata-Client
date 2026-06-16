@@ -221,6 +221,10 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
     companionship: {
       ...DEFAULT_COMPANIONSHIP_SETTINGS,
       ...(state.companionship || {}),
+      proactiveCooldownMinutes: {
+        ...DEFAULT_COMPANIONSHIP_SETTINGS.proactiveCooldownMinutes,
+        ...(state.companionship?.proactiveCooldownMinutes || {}),
+      },
       quietHours: {
         ...DEFAULT_COMPANIONSHIP_SETTINGS.quietHours,
         ...(state.companionship?.quietHours || {}),
@@ -332,6 +336,10 @@ export const useSettingsStore = create<SettingsStore>()(
               companionship: {
                 ...DEFAULT_COMPANIONSHIP_SETTINGS,
                 ...((settings as { companionship?: CompanionshipSettings }).companionship || {}),
+                proactiveCooldownMinutes: {
+                  ...DEFAULT_COMPANIONSHIP_SETTINGS.proactiveCooldownMinutes,
+                  ...((settings as { companionship?: CompanionshipSettings }).companionship?.proactiveCooldownMinutes || {}),
+                },
                 quietHours: {
                   ...DEFAULT_COMPANIONSHIP_SETTINGS.quietHours,
                   ...((settings as { companionship?: CompanionshipSettings }).companionship?.quietHours || {}),
@@ -477,6 +485,10 @@ export const useSettingsStore = create<SettingsStore>()(
           const nextCompanionship = {
             ...state.companionship,
             ...prefs,
+            proactiveCooldownMinutes: {
+              ...state.companionship.proactiveCooldownMinutes,
+              ...(prefs.proactiveCooldownMinutes || {}),
+            },
             quietHours: {
               ...state.companionship.quietHours,
               ...(prefs.quietHours || {}),

@@ -1944,6 +1944,25 @@ export default function SettingsPage() {
               <FormControlLabel control={<Switch checked={settings.companionship.showStatusHints} onChange={(e) => settings.setCompanionship({ showStatusHints: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示陪伴状态提示' : 'Show companionship status hints'} />
               <FormControlLabel control={<Switch checked={settings.companionship.enableAttachmentAdaptation} onChange={(e) => settings.setCompanionship({ enableAttachmentAdaptation: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用互动模式适配' : 'Enable interaction-pattern adaptation'} />
               <FormControlLabel control={<Switch checked={settings.companionship.enableRelationshipRituals} onChange={(e) => settings.setCompanionship({ enableRelationshipRituals: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用关系仪式' : 'Enable relationship rituals'} />
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
+                <Box>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '陪伴敏感边界' : 'Companionship sensitivity boundary'}</Typography>
+                  <ToggleButtonGroup value={settings.companionship.sensitiveBoundaryMode} exclusive onChange={(_, v) => v && settings.setCompanionship({ sensitiveBoundaryMode: v })} size="small" sx={buildToggleGroupSx()}>
+                    <ToggleButton value="normal">{i18n.language.startsWith('zh') ? '正常' : 'Normal'}</ToggleButton>
+                    <ToggleButton value="restrained">{i18n.language.startsWith('zh') ? '克制' : 'Restrained'}</ToggleButton>
+                    <ToggleButton value="off">{i18n.language.startsWith('zh') ? '关闭' : 'Off'}</ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+                <Box>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '主动冷却（分钟）' : 'Proactive cooldown (min)'}</Typography>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: 0.75 }}>
+                    <TextField type="number" size="small" label={i18n.language.startsWith('zh') ? '私聊' : 'Check-in'} value={settings.companionship.proactiveCooldownMinutes.checkIn} onChange={(e) => settings.setCompanionship({ proactiveCooldownMinutes: { ...settings.companionship.proactiveCooldownMinutes, checkIn: Math.max(0, Math.round(Number(e.target.value) || 0)) } })} slotProps={{ htmlInput: { min: 0, max: 1440, step: 1 } }} />
+                    <TextField type="number" size="small" label={i18n.language.startsWith('zh') ? '动态' : 'React'} value={settings.companionship.proactiveCooldownMinutes.reactToMoment} onChange={(e) => settings.setCompanionship({ proactiveCooldownMinutes: { ...settings.companionship.proactiveCooldownMinutes, reactToMoment: Math.max(0, Math.round(Number(e.target.value) || 0)) } })} slotProps={{ htmlInput: { min: 0, max: 1440, step: 1 } }} />
+                    <TextField type="number" size="small" label={i18n.language.startsWith('zh') ? '邀约' : 'Outing'} value={settings.companionship.proactiveCooldownMinutes.socialOuting} onChange={(e) => settings.setCompanionship({ proactiveCooldownMinutes: { ...settings.companionship.proactiveCooldownMinutes, socialOuting: Math.max(0, Math.round(Number(e.target.value) || 0)) } })} slotProps={{ htmlInput: { min: 0, max: 1440, step: 1 } }} />
+                    <TextField type="number" size="small" label={i18n.language.startsWith('zh') ? '状态' : 'Status'} value={settings.companionship.proactiveCooldownMinutes.statusUpdate} onChange={(e) => settings.setCompanionship({ proactiveCooldownMinutes: { ...settings.companionship.proactiveCooldownMinutes, statusUpdate: Math.max(0, Math.round(Number(e.target.value) || 0)) } })} slotProps={{ htmlInput: { min: 0, max: 1440, step: 1 } }} />
+                  </Box>
+                </Box>
+              </Box>
               <TextField
                 type="number"
                 size="small"

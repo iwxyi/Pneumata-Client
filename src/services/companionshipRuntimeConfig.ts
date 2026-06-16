@@ -11,6 +11,10 @@ export function setCompanionshipRuntimeConfig(next: Partial<CompanionshipSetting
   runtimeConfig = {
     ...runtimeConfig,
     ...(next || {}),
+    proactiveCooldownMinutes: {
+      ...runtimeConfig.proactiveCooldownMinutes,
+      ...(next?.proactiveCooldownMinutes || {}),
+    },
     quietHours: {
       ...runtimeConfig.quietHours,
       ...(next?.quietHours || {}),

@@ -974,6 +974,67 @@ function isWithinCarePolicyQuietHours(timestamp: number, quietHours: CarePolicy[
   return minuteOfDay >= start || minuteOfDay < end;
 }
 
+function getCompanionshipCooldownMinutes(eventKind: 'check_in' | 'react_to_moment' | 'social_outing' | 'status_update') {
+  const settings = getCompanionshipRuntimeConfig().proactiveCooldownMinutes;
+  const value = eventKind === 'check_in'
+    ? settings.checkIn
+    : eventKind === 'react_to_moment'
+      ? settings.reactToMoment
+      : eventKind === 'social_outing'
+        ? settings.socialOuting
+        : settings.statusUpdate;
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(24 * 60, Math.round(value)));
+}
+
+function latestCompanionshipActionAt(chat: GroupChat | undefined, characterId: string, eventKind: 'check_in' | 'react_to_moment' | 'social_outing' | 'status_update') {
+  if (!chat?.runtimeEventsV2?.length) return 0;
+  const artifactByKind: Record<typeof eventKind, string> = {
+    check_in: 'check_in_note',
+    react_to_moment: 'moment_reaction_note',
+    social_outing: 'outing_summary',
+    status_update: 'status_note',
+  };
+  return (chat.runtimeEventsV2 || []).reduce((latest, event) => {
+    const payload = event.payload as { eventKind?: string; artifactType?: string; initiatorId?: string } | undefined;
+    if (!payload || payload.eventKind !== eventKind) return latest;
+    const actorId = event.actorIds?.[0] || payload.initiatorId || '';
+    if (actorId && actorId !== characterId) return latest;
+    const isMatchingArtifact = event.kind === 'artifact' && (!payload.artifactType || payload.artifactType === artifactByKind[eventKind]);
+    const isCandidate = event.kind === 'event_candidate';
+    if (!isMatchingArtifact && !isCandidate) return latest;
+    return Math.max(latest, event.createdAt || 0);
+  }, 0);
+}
+
+function applySensitiveBoundaryModeToCarePolicy(policy: CarePolicy, profile: UserProfileMemoryProjection): CarePolicy {
+  const mode = getCompanionshipRuntimeConfig().sensitiveBoundaryMode || 'restrained';
+  if (mode === 'normal') return policy;
+  const hasSensitiveProfile = (profile.cues || []).some((item) => item.sensitive && ['pressure_source', 'emotional_pattern', 'boundary', 'important_date', 'recent_plan'].includes(item.kind));
+  if (!hasSensitiveProfile) return policy;
+  const boundaryReasons = [...policy.boundaryReasons, `sensitive companionship boundary mode is ${mode}`];
+  if (mode === 'off') {
+    return {
+      ...policy,
+      dailyInitiationBudget: 0,
+      triggerSensitivity: Math.min(policy.triggerSensitivity, 18),
+      expressionIntensity: Math.min(policy.expressionIntensity, 24),
+      allowGoodMorning: false,
+      allowGoodNight: false,
+      allowMissYou: false,
+      boundaryReasons: Array.from(new Set(boundaryReasons)),
+    };
+  }
+  return {
+    ...policy,
+    dailyInitiationBudget: Math.min(policy.dailyInitiationBudget, 1),
+    triggerSensitivity: Math.min(policy.triggerSensitivity, 48),
+    expressionIntensity: Math.min(policy.expressionIntensity, 42),
+    allowMissYou: false,
+    boundaryReasons: Array.from(new Set(boundaryReasons)),
+  };
+}
+
 function buildCarePolicy(phase: CompanionshipPhase, style: PreferredIntimacyStyle, profile: UserProfileMemoryProjection): CarePolicy {
   const byPhase: Record<CompanionshipPhase, Omit<CarePolicy, 'quietHours'>> = {
     stranger: { dailyInitiationBudget: 0, triggerSensitivity: 18, silenceAnxietyThresholdHours: 96, expressionIntensity: 18, allowGoodMorning: false, allowGoodNight: false, allowMissYou: false, boundaryReasons: [] },
@@ -990,12 +1051,12 @@ function buildCarePolicy(phase: CompanionshipPhase, style: PreferredIntimacyStyl
   };
   const base = byPhase[phase];
   const styleBoost = style === 'clingy' ? 10 : style === 'direct' ? 6 : style === 'reserved' ? -8 : 0;
-  return applyUserBoundariesToCarePolicy({
+  return applySensitiveBoundaryModeToCarePolicy(applyUserBoundariesToCarePolicy({
     ...base,
     triggerSensitivity: clampScore(base.triggerSensitivity + styleBoost),
     expressionIntensity: clampScore(base.expressionIntensity + styleBoost),
     quietHours: { start: '23:30', end: '08:00' },
-  }, profile);
+  }, profile), profile);
 }
 
 function getUserMemoryTexts(character: AICharacter) {
@@ -4129,6 +4190,17 @@ export function shouldBlockUserProactiveContactByCompanionshipPolicy(params: {
     || reasonType === 'world_attention_invite_activity'
     || reasonType === 'attention_check_in'
     || reasonType === 'attention_followup';
+  if (!isImmediateUserPromptedFollowup && !isCalendarReminder) {
+    const cooldownMs = getCompanionshipCooldownMinutes(params.eventKind) * 60_000;
+    const lastActionAt = latestCompanionshipActionAt(params.chat, params.character.id, params.eventKind);
+    if (cooldownMs > 0 && lastActionAt > 0 && now - lastActionAt < cooldownMs) {
+      return {
+        blocked: true,
+        reason: `companionship ${params.eventKind} cooldown`,
+        carePolicy,
+      };
+    }
+  }
   if (!isCalendarReminder && !isImmediateUserPromptedFollowup && carePolicy.boundaryReasons.includes('global setting disables proactive companionship')) {
     return {
       blocked: true,
