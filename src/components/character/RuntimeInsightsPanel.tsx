@@ -1019,8 +1019,8 @@ function SharedMemoryAnchorPanel({
         const archiveAnchor = onArchiveAnchor;
         const updateAnchor = onUpdateAnchor;
         const isEditing = editingAnchorId === anchor.id;
-        const canArchive = developerMode && Boolean(archiveAnchor) && anchor.participantIds.includes('user');
-        const canEdit = developerMode && Boolean(updateAnchor) && anchor.participantIds.includes('user');
+        const canArchive = Boolean(archiveAnchor) && anchor.participantIds.includes('user');
+        const canEdit = Boolean(updateAnchor) && anchor.participantIds.includes('user');
         const chips = developerMode
           ? [
               formatSharedMemoryAnchorKind(anchor.kind),
@@ -1048,7 +1048,7 @@ function SharedMemoryAnchorPanel({
                       }}
                       sx={{ p: 0, minWidth: 0 }}
                     >
-                      修正
+                      修改
                     </Button>
                   ) : null}
                   {canArchive && archiveAnchor ? (
@@ -1124,7 +1124,7 @@ function SharedMemoryAnchorPanel({
                   </Box>
                 </Stack>
               ) : (
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
                   {anchor.text}
                 </Typography>
               )}
