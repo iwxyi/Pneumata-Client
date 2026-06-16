@@ -174,6 +174,7 @@ export interface UserProfileMemoryEventItem {
   kind: UserProfileMemoryKind;
   text: string;
   evidence: string;
+  sourceMessageIds?: string[];
   confidence: number;
   sensitive?: boolean;
 }
@@ -186,6 +187,7 @@ export interface UserProfileMemoryEventPayload {
   items: UserProfileMemoryEventItem[];
   reason?: string;
   evidence?: string;
+  sourceMessageIds?: string[];
   confidence?: number;
   decisionSource?: 'model' | 'local_fallback';
 }
@@ -196,6 +198,7 @@ export interface UserProfileMemoryHistoryEntry {
   items: UserProfileMemoryEventItem[];
   reason?: string;
   evidence: string[];
+  sourceMessageIds: string[];
   decisionSource?: UserProfileMemoryEventPayload['decisionSource'];
   confidence?: number;
   occurredAt: number;

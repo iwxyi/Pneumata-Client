@@ -119,7 +119,9 @@ describe('directUserProfileMemory', () => {
         decisionSource: 'model',
       },
     });
-    expect((event?.payload as { items: unknown[] }).items).toHaveLength(2);
+    expect((event?.payload as { items: unknown[]; sourceMessageIds?: string[] }).items).toHaveLength(2);
+    expect((event?.payload as { sourceMessageIds?: string[] }).sourceMessageIds).toEqual(['msg-1']);
+    expect(event?.evidenceMessageIds).toEqual(['msg-1']);
   });
 
   it('trusts conservative model rejection instead of local keyword false positives', async () => {

@@ -738,11 +738,13 @@ function buildManualUserProfileMemoryRevokeEvent(chat: GroupChat, character: AIC
         kind: item.kind,
         text: normalized,
         evidence: item.evidence || 'manual_revoke_from_character_relationship_tab',
+        sourceMessageIds: item.sourceMessageIds,
         confidence: 1,
         sensitive: item.sensitive,
       }],
       reason: '用户在角色关系页手动撤回该画像线索。',
       evidence: 'manual_revoke_from_character_relationship_tab',
+      sourceMessageIds: item.sourceMessageIds,
       confidence: 1,
     },
   };
@@ -772,11 +774,13 @@ function buildManualUserProfileMemoryUpsertEvent(chat: GroupChat, character: AIC
         kind: item.kind,
         text: normalized,
         evidence: item.evidence || 'manual_upsert_from_character_relationship_tab',
+        sourceMessageIds: item.sourceMessageIds,
         confidence: 1,
         sensitive: item.sensitive,
       }],
       reason: '用户在角色关系页手动修正该画像线索。',
       evidence: 'manual_upsert_from_character_relationship_tab',
+      sourceMessageIds: item.sourceMessageIds,
       confidence: 1,
     },
   };
@@ -2347,6 +2351,11 @@ function CompanionshipDeveloperTracePanel({
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
                     证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+                {item.sourceMessageIds.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.15, wordBreak: 'break-all' }}>
+                    来源消息：{item.sourceMessageIds.join(' / ')}
                   </Typography>
                 ) : null}
               </Box>

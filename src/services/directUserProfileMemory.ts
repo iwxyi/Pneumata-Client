@@ -161,6 +161,7 @@ export function createUserProfileMemoryEvent(params: {
     items,
     reason: params.reason,
     evidence: compactText(params.message.content, 180),
+    sourceMessageIds: params.message.id ? [params.message.id] : [],
     confidence: Math.max(...items.map((item) => item.confidence)),
     decisionSource: params.decisionSource,
   };

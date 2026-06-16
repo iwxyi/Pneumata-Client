@@ -1083,6 +1083,15 @@ function collectByPattern(texts: string[], patterns: RegExp[], max = 5) {
 
 type ResolvedUserProfileMemoryItem = UserProfileMemoryEventItem & { updatedAt: number };
 
+function normalizeSourceMessageIds(...sources: Array<unknown>) {
+  return sources
+    .flatMap((source) => Array.isArray(source) ? source : [])
+    .filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))
+    .map((id) => id.trim())
+    .filter((id, index, list) => list.indexOf(id) === index)
+    .slice(0, 8);
+}
+
 function profileEventItemKey(item: Pick<UserProfileMemoryEventItem, 'kind' | 'text'>) {
   return `${item.kind}:${compactText(item.text, 140)}`;
 }
@@ -1142,7 +1151,13 @@ function collectProfileEventState(chat: GroupChat, characterId: string) {
       if (!payload || payload.characterId !== characterId || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return;
       payload.items.forEach((item) => {
         if (!item.text || item.confidence < 0.6) return;
-        const resolved = { ...item, text: compactText(item.text, 140), evidence: compactText(item.evidence || event.summary, 140), updatedAt: event.createdAt };
+        const resolved = {
+          ...item,
+          text: compactText(item.text, 140),
+          evidence: compactText(item.evidence || event.summary, 140),
+          sourceMessageIds: normalizeSourceMessageIds(item.sourceMessageIds, payload.sourceMessageIds, event.evidenceMessageIds),
+          updatedAt: event.createdAt,
+        };
         if (payload.action === 'revoke') {
           revokedItems.push(resolved);
           Array.from(byKey.entries()).forEach(([key, active]) => {
@@ -1177,18 +1192,21 @@ function buildUserProfileMemoryHistory(chat: GroupChat, characterId: string): Us
           ...item,
           text: compactText(item.text, 140),
           evidence: compactText(item.evidence || event.summary, 140),
+          sourceMessageIds: normalizeSourceMessageIds(item.sourceMessageIds, payload.sourceMessageIds, event.evidenceMessageIds),
           confidence: Number.isFinite(item.confidence) ? item.confidence : 0,
         }))
         .slice(0, 6);
       if (!items.length) return;
       const payloadEvidence = typeof payload.evidence === 'string' ? compactText(payload.evidence, 140) : '';
       const reason = typeof payload.reason === 'string' ? compactText(payload.reason, 140) : undefined;
+      const sourceMessageIds = normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds, ...items.map((item) => item.sourceMessageIds));
       history.push({
         id: event.id,
         action: payload.action,
         items,
         reason,
         evidence: [event.summary, reason, payloadEvidence, ...items.map((item) => item.evidence)].filter(Boolean).slice(0, 6) as string[],
+        sourceMessageIds,
         decisionSource: payload.decisionSource,
         confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
         occurredAt: event.createdAt || 0,

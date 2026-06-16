@@ -1186,8 +1186,10 @@ describe('companionshipProjection', () => {
       id: 'evt-profile-1',
       action: 'upsert',
       decisionSource: 'model',
+      sourceMessageIds: ['m-1'],
     });
     expect(trace?.userProfileHistory[0].items.map((item) => item.text)).toContain('用户不希望被早安晚安打扰');
+    expect(trace?.userProfileHistory[0].items[0]?.sourceMessageIds).toEqual(['m-1']);
   });
 
   it('applies user profile memory revoke events before prompt projection', () => {
