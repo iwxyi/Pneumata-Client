@@ -38,6 +38,7 @@ import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 type ManualPromiseLifecycleAction = Extract<PendingPromise['status'], 'fulfilled' | 'blocked' | 'stale' | 'revoked'>;
 type ManualAddressingSetAction = 'set_current' | 'set_private' | 'set_public';
+type PromiseMergeTarget = 'previous' | 'next';
 
 function buildCharacterLayeredMemories(character: Partial<AICharacter>): MemoryItem[] {
   if (character.layeredMemories?.length) return character.layeredMemories;
@@ -420,6 +421,19 @@ function buildManualPromiseUpsertEvent(chat: GroupChat, character: AICharacter, 
       confidence: 1,
     },
   };
+}
+
+function buildManualPromiseMergeEvents(chat: GroupChat, character: AICharacter, kept: PendingPromise, merged: PendingPromise): RuntimeEventV2[] {
+  const mergedText = kept.text.includes(merged.text)
+    ? kept.text
+    : `${kept.text}；${merged.text}`;
+  return [
+    buildManualPromiseUpsertEvent(chat, character, kept, {
+      text: mergedText,
+      kind: kept.kind === 'other' ? merged.kind : kept.kind,
+    }),
+    buildManualPromiseLifecycleEvent(chat, character, merged, 'revoked'),
+  ];
 }
 
 function buildManualAddressingEvent(chat: GroupChat, character: AICharacter, action: 'forbid' | 'unforbid', address: string): RuntimeEventV2 {
@@ -1575,6 +1589,7 @@ function UserCompanionshipCard({
   onBlockCareTopic,
   onUpdatePromiseLifecycle,
   onUpdatePromise,
+  onMergePromise,
   onSetAddress,
   onForbidAddress,
   onUnforbidAddress,
@@ -1607,6 +1622,7 @@ function UserCompanionshipCard({
   onBlockCareTopic: (topic: PendingCareTopic) => void;
   onUpdatePromiseLifecycle: (promise: PendingPromise, action: ManualPromiseLifecycleAction) => void;
   onUpdatePromise: (promise: PendingPromise, patch: { text: string; kind: PendingPromise['kind'] }) => void;
+  onMergePromise: (promise: PendingPromise, target: PromiseMergeTarget) => void;
   onSetAddress: (action: ManualAddressingSetAction, address: string) => void;
   onForbidAddress: (address: string) => void;
   onUnforbidAddress: (address: string) => void;
@@ -1884,7 +1900,7 @@ function UserCompanionshipCard({
                 </Button>
               </Box>
             ))}
-            {pendingPromises.slice(0, 3).map((promise) => (
+            {pendingPromises.slice(0, 5).map((promise, index, visiblePromises) => (
               <Box key={promise.id} sx={{ display: 'flex', alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between', gap: 1, p: 1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', flexDirection: { xs: 'column', sm: 'row' } }}>
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
@@ -1963,6 +1979,16 @@ function UserCompanionshipCard({
                       >
                         修改
                       </Button>
+                      {index > 0 ? (
+                        <Button size="small" variant="text" onClick={() => onMergePromise(promise, 'previous')} sx={{ minWidth: 0 }}>
+                          合并到上一条
+                        </Button>
+                      ) : null}
+                      {index < visiblePromises.length - 1 ? (
+                        <Button size="small" variant="text" onClick={() => onMergePromise(promise, 'next')} sx={{ minWidth: 0 }}>
+                          合并到下一条
+                        </Button>
+                      ) : null}
                       <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'fulfilled')} sx={{ minWidth: 0 }}>
                         完成
                       </Button>
@@ -2892,16 +2918,23 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
     return views.length ? views : null;
   }, [character, chats, messageWindowsByChatId, messages]);
 
-  const appendManualCompanionshipEvent = async (chat: GroupChat, event: RuntimeEventV2) => {
-    const derivedEvents = buildSharedPhraseEventsFromCompanionshipEvent({ chat, character: character as AICharacter, event });
-    const eventIds = new Set([event.id, ...derivedEvents.map((item) => item.id)]);
-    const nextRuntimeEvents = [...(chat.runtimeEventsV2 || []).filter((item) => !eventIds.has(item.id)), event, ...derivedEvents];
-    const nextRelationshipLedger = applyCompanionshipLedgerBackflow({ ...chat, runtimeEventsV2: nextRuntimeEvents }, event);
+  const appendManualCompanionshipEvents = async (chat: GroupChat, events: RuntimeEventV2[]) => {
+    if (!events.length) return;
+    const derivedEvents = events.flatMap((event) => buildSharedPhraseEventsFromCompanionshipEvent({ chat, character: character as AICharacter, event }));
+    const allEvents = [...events, ...derivedEvents];
+    const eventIds = new Set(allEvents.map((item) => item.id));
+    const nextRuntimeEvents = [...(chat.runtimeEventsV2 || []).filter((item) => !eventIds.has(item.id)), ...allEvents];
+    const nextRelationshipLedger = events.reduce(
+      (ledger, event) => applyCompanionshipLedgerBackflow({ ...chat, relationshipLedger: ledger, runtimeEventsV2: nextRuntimeEvents }, event),
+      chat.relationshipLedger || [],
+    );
     await updateChat(chat.id, {
       runtimeEventsV2: nextRuntimeEvents,
       relationshipLedger: nextRelationshipLedger,
     });
   };
+
+  const appendManualCompanionshipEvent = async (chat: GroupChat, event: RuntimeEventV2) => appendManualCompanionshipEvents(chat, [event]);
 
   return (
     <PageSection spacing={2}>
@@ -2952,6 +2985,12 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onUpdatePromise={(promise, patch) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualPromiseUpsertEvent(view.chat, character as AICharacter, promise, patch));
+                }}
+                onMergePromise={(promise, target) => {
+                  const index = view.pendingPromises.findIndex((item) => item.id === promise.id);
+                  const kept = target === 'previous' ? view.pendingPromises[index - 1] : view.pendingPromises[index + 1];
+                  if (!kept) return;
+                  void appendManualCompanionshipEvents(view.chat, buildManualPromiseMergeEvents(view.chat, character as AICharacter, kept, promise));
                 }}
                 onSetAddress={(action, address) => {
                   if (!address.trim()) return;

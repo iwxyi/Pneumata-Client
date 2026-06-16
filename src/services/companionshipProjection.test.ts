@@ -1804,6 +1804,80 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).not.toContain('周末一起看那部旧电影');
   });
 
+  it('keeps the merged promise and suppresses the duplicate promise after manual merge events', () => {
+    const now = 2_000;
+    const promiseCharacter = character({
+      layeredMemories: [{
+        id: 'duplicate-promise-anchor',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '说好周末一起看电影。',
+        evidenceText: '用户说周末一起看电影。',
+        salience: 0.86,
+        confidence: 0.9,
+        recency: 0.8,
+        reinforcementCount: 1,
+        sourceEventIds: ['evt-duplicate-promise-anchor'],
+        origin: 'distilled',
+        createdAt: 900,
+        updatedAt: 900,
+      }],
+    });
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
+      promiseEvent({
+        id: 'evt-merged-main-promise',
+        createdAt: now,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-weekend-movie',
+          promiseText: '周末一起看电影；看完再聊感想',
+          supersedesText: '周末一起看电影',
+          action: 'opened',
+          participantIds: ['char-a', 'user'],
+          promiseKind: 'shared_activity',
+          evidence: 'manual_merge_from_character_relationship_tab',
+          confidence: 1,
+          decisionSource: 'user_override',
+        },
+      }),
+      promiseEvent({
+        id: 'evt-merged-duplicate-revoked',
+        createdAt: now + 1,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-movie-aftertalk',
+          promiseText: '看完再聊感想',
+          action: 'revoked',
+          participantIds: ['char-a', 'user'],
+          promiseKind: 'user_followup',
+          evidence: 'manual_merge_from_character_relationship_tab',
+          confidence: 1,
+          decisionSource: 'user_override',
+        },
+      }),
+    ]);
+    const messages = [message({ id: 'msg-duplicate-promise', content: '看完再聊感想', timestamp: 1_100 })];
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: promiseCharacter,
+      messages,
+      now: now + 10,
+    });
+
+    const promiseTexts = projection.userBond?.pendingPromises.map((promise) => promise.text) || [];
+    expect(promiseTexts).toContain('周末一起看电影；看完再聊感想');
+    expect(promiseTexts).not.toContain('看完再聊感想');
+    expect(promiseTexts.join('\n')).not.toContain('说好周末一起看电影');
+    expect(projection.promptLines.join('\n')).toContain('周末一起看电影；看完再聊感想');
+  });
+
   it('projects promise semantics and reminder policy from model events and boundary text', () => {
     const now = 5_000;
     const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
