@@ -775,6 +775,38 @@ function buildManualSharedAnchorUpsertEvent(chat: GroupChat, character: AICharac
   };
 }
 
+function buildManualSharedAnchorPairPrivateEvent(chat: GroupChat, character: AICharacter, anchor: SharedMemoryAnchor): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, anchor.id, 'shared-anchor-pair-private']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户收窄了一条共同锚点参与者`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_shared_anchor',
+      characterId: character.id,
+      userId: 'user',
+      anchorId: anchor.id,
+      action: 'upsert',
+      kind: anchor.kind,
+      participantIds: [character.id, 'user'],
+      title: anchor.title,
+      text: anchor.text,
+      salience: anchor.salience,
+      evidence: `manual_shared_anchor_participants_pair_private_from_character_relationship_tab: ${anchor.participantIds.join(',')}`,
+      confidence: 1,
+      reason: '用户在角色关系页手动把共同锚点参与者收窄为自己和该角色。',
+    },
+  };
+}
+
 function buildManualSharedSecretRevokedEvent(chat: GroupChat, character: AICharacter, secret: SharedSecret): RuntimeEventV2 {
   const now = Date.now();
   return {
@@ -1220,17 +1252,21 @@ function formatPendingPromiseKind(kind: PendingPromise['kind']) {
 }
 
 function SharedMemoryAnchorPanel({
+  characterId,
   anchors,
   resolveCharacterName,
   developerMode,
   onArchiveAnchor,
   onUpdateAnchor,
+  onKeepPairPrivate,
 }: {
+  characterId: string;
   anchors: SharedMemoryAnchor[];
   resolveCharacterName: (id: string, fallback?: string) => string;
   developerMode: boolean;
   onArchiveAnchor?: (anchor: SharedMemoryAnchor) => void;
   onUpdateAnchor?: (anchor: SharedMemoryAnchor, patch: { kind: SharedMemoryAnchor['kind']; title: string; text: string }) => void;
+  onKeepPairPrivate?: (anchor: SharedMemoryAnchor) => void;
 }) {
   const [editingAnchorId, setEditingAnchorId] = useState<string | null>(null);
   const [editingAnchorKind, setEditingAnchorKind] = useState<SharedMemoryAnchor['kind']>('milestone');
@@ -1242,9 +1278,11 @@ function SharedMemoryAnchorPanel({
         const participantNames = anchor.participantIds.map((id) => resolveCharacterName(id)).join(' × ');
         const archiveAnchor = onArchiveAnchor;
         const updateAnchor = onUpdateAnchor;
+        const keepPairPrivate = onKeepPairPrivate;
         const isEditing = editingAnchorId === anchor.id;
         const canArchive = Boolean(archiveAnchor) && anchor.participantIds.includes('user');
         const canEdit = Boolean(updateAnchor) && anchor.participantIds.includes('user');
+        const canNarrowParticipants = Boolean(keepPairPrivate) && anchor.participantIds.includes('user') && anchor.participantIds.some((id) => id !== 'user' && id !== characterId);
         const chips = developerMode
           ? [
               formatSharedMemoryAnchorKind(anchor.kind),
@@ -1278,6 +1316,11 @@ function SharedMemoryAnchorPanel({
                   {canArchive && archiveAnchor ? (
                     <Button size="small" variant="text" onClick={() => archiveAnchor(anchor)} sx={{ p: 0, minWidth: 0 }}>
                       归档
+                    </Button>
+                  ) : null}
+                  {canNarrowParticipants && keepPairPrivate ? (
+                    <Button size="small" variant="text" onClick={() => keepPairPrivate(anchor)} sx={{ p: 0, minWidth: 0 }}>
+                      只保留我和角色
                     </Button>
                   ) : null}
                 </Box>
@@ -3094,6 +3137,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       <SurfaceCard>
         <SectionHeader title="共同锚点" dense action={isDeveloperView ? <DebugChip /> : undefined} />
         <SharedMemoryAnchorPanel
+          characterId={character.id || ''}
           anchors={sharedMemoryAnchors}
           resolveCharacterName={resolveCharacterName}
           developerMode={isDeveloperView}
@@ -3104,6 +3148,10 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
           onUpdateAnchor={latestUserDirectChat ? (anchor, patch) => {
             if (!anchor.participantIds.includes('user')) return;
             void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorUpsertEvent(latestUserDirectChat, character as AICharacter, anchor, patch));
+          } : undefined}
+          onKeepPairPrivate={latestUserDirectChat ? (anchor) => {
+            if (!anchor.participantIds.includes('user')) return;
+            void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorPairPrivateEvent(latestUserDirectChat, character as AICharacter, anchor));
           } : undefined}
         />
       </SurfaceCard>

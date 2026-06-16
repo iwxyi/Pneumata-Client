@@ -2430,6 +2430,55 @@ describe('companionshipProjection', () => {
     expect(trace?.sharedAnchors.join('\n')).toContain('第一次深夜聊天');
   });
 
+  it('uses later shared anchor upserts to narrow participants to the user pair', () => {
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [
+      sharedAnchorEvent({
+        id: 'evt-shared-anchor-extra-participant',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_shared_anchor',
+          characterId: 'char-a',
+          userId: 'user',
+          anchorId: 'late-night-anchor',
+          action: 'upsert',
+          kind: 'first_time',
+          participantIds: ['char-a', 'user', 'char-b'],
+          title: '第一次深夜聊天',
+          text: '第一次深夜聊天后，苏苏记住了用户没有离开。',
+          evidence: '旧事件误把另一个角色放进共同锚点。',
+          salience: 82,
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+      sharedAnchorEvent({
+        id: 'evt-shared-anchor-pair-private',
+        createdAt: 1_100,
+        payload: {
+          eventType: 'companionship_shared_anchor',
+          characterId: 'char-a',
+          userId: 'user',
+          anchorId: 'late-night-anchor',
+          action: 'upsert',
+          kind: 'first_time',
+          participantIds: ['char-a', 'user'],
+          title: '第一次深夜聊天',
+          text: '第一次深夜聊天后，苏苏记住了用户没有离开。',
+          evidence: 'manual_shared_anchor_participants_pair_private_from_character_relationship_tab',
+          salience: 82,
+          confidence: 1,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+
+    const anchors = buildSharedMemoryAnchors(character(), 1_300, directChat);
+    const anchor = anchors.find((item) => item.id === 'runtime-anchor-late-night-anchor');
+
+    expect(anchor?.participantIds).toEqual(['char-a', 'user']);
+    expect(anchor?.participantIds).not.toContain('char-b');
+  });
+
   it('projects shared phrases into prompt, trace, and private artifact seeds', () => {
     const phraseCharacter = character({
       layeredMemories: [{
