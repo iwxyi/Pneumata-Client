@@ -1802,6 +1802,123 @@ function UserCompanionshipCard({
             </Stack>
           </Box>
         ) : null}
+        {trace?.userProfileCues.length ? (
+          <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
+              关于我的线索
+            </Typography>
+            <Stack spacing={0.75}>
+              {trace.userProfileCues.slice(0, 6).map((item, index) => {
+                const cueKey = `${item.kind}-${item.text}-${index}`;
+                return (
+                  <Box key={cueKey} sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
+                        <Chip size="small" label={formatUserProfileMemoryKindLabel(item.kind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                        {item.sensitive ? <Typography variant="caption" color="warning.main">敏感</Typography> : null}
+                        {developerMode ? <Typography variant="caption" color="text.secondary">置信 {Math.round(item.confidence * 100)}%</Typography> : null}
+                      </Stack>
+                      {editingProfileCueKey === cueKey ? (
+                        <Stack spacing={0.75}>
+                          <TextField
+                            select
+                            size="small"
+                            label="类型"
+                            value={editingProfileCueKind}
+                            onChange={(event) => setEditingProfileCueKind(event.target.value as UserProfileMemoryKind)}
+                            slotProps={{ select: { native: true } }}
+                          >
+                            {(['display_name', 'address_preference', 'schedule_hint', 'pressure_source', 'preference', 'dislike', 'boundary', 'important_date', 'recent_plan', 'emotional_pattern'] as UserProfileMemoryKind[]).map((kind) => (
+                              <option key={kind} value={kind}>{formatUserProfileMemoryKindLabel(kind)}</option>
+                            ))}
+                          </TextField>
+                          <TextField
+                            size="small"
+                            label="内容"
+                            value={editingProfileCueText}
+                            onChange={(event) => setEditingProfileCueText(event.target.value)}
+                            fullWidth
+                            multiline
+                            minRows={1}
+                            maxRows={3}
+                          />
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                            <Chip
+                              size="small"
+                              label={editingProfileCueSensitive ? '敏感' : '普通'}
+                              color={editingProfileCueSensitive ? 'warning' : 'default'}
+                              variant="outlined"
+                              onClick={() => setEditingProfileCueSensitive((value) => !value)}
+                              sx={{ height: 24, borderRadius: 999 }}
+                            />
+                            <Button
+                              size="small"
+                              variant="text"
+                              disabled={!editingProfileCueText.trim()}
+                              onClick={() => {
+                                const text = editingProfileCueText.trim();
+                                if (!text) return;
+                                onUpdateProfileCue({
+                                  ...item,
+                                  kind: editingProfileCueKind,
+                                  text,
+                                  confidence: 1,
+                                  sensitive: editingProfileCueSensitive,
+                                  evidence: item.evidence || 'manual_profile_cue_edit_from_character_relationship_tab',
+                                });
+                                setEditingProfileCueKey(null);
+                                setEditingProfileCueText('');
+                              }}
+                              sx={{ minWidth: 0 }}
+                            >
+                              保存
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="text"
+                              onClick={() => {
+                                setEditingProfileCueKey(null);
+                                setEditingProfileCueText('');
+                              }}
+                              sx={{ minWidth: 0 }}
+                            >
+                              取消
+                            </Button>
+                          </Box>
+                        </Stack>
+                      ) : (
+                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{item.text}</Typography>
+                      )}
+                      {developerMode && item.evidence ? (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
+                          证据：{clipRuntimeText(item.evidence, 96)}
+                        </Typography>
+                      ) : null}
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => {
+                          setEditingProfileCueKey(cueKey);
+                          setEditingProfileCueKind(item.kind);
+                          setEditingProfileCueText(item.text);
+                          setEditingProfileCueSensitive(Boolean(item.sensitive));
+                        }}
+                        sx={{ minWidth: 0 }}
+                      >
+                        修改
+                      </Button>
+                      <Button size="small" variant="text" onClick={() => onRevokeProfileCue(item)} sx={{ minWidth: 0 }}>
+                        撤回
+                      </Button>
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Stack>
+          </Box>
+        ) : null}
         {trace?.attachmentProfile ? (
           <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, mb: 0.65, flexWrap: 'wrap' }}>
@@ -1900,120 +2017,6 @@ function UserCompanionshipCard({
                 })}
               </Stack>
             </Box>
-            {trace?.userProfileCues.length ? (
-              <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
-                  用户画像线索
-                </Typography>
-                <Stack spacing={0.75}>
-                  {trace.userProfileCues.slice(0, 6).map((item, index) => (
-                    <Box key={`${item.kind}-${item.text}-${index}`} sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
-                          <Chip size="small" label={formatUserProfileMemoryKindLabel(item.kind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
-                          <Typography variant="caption" color="text.secondary">置信 {Math.round(item.confidence * 100)}%</Typography>
-                          {item.sensitive ? <Typography variant="caption" color="warning.main">敏感</Typography> : null}
-                        </Stack>
-                        {editingProfileCueKey === `${item.kind}-${item.text}-${index}` ? (
-                          <Stack spacing={0.75}>
-                            <TextField
-                              select
-                              size="small"
-                              label="类型"
-                              value={editingProfileCueKind}
-                              onChange={(event) => setEditingProfileCueKind(event.target.value as UserProfileMemoryKind)}
-                              slotProps={{ select: { native: true } }}
-                            >
-                              {(['display_name', 'address_preference', 'schedule_hint', 'pressure_source', 'preference', 'dislike', 'boundary', 'important_date', 'recent_plan', 'emotional_pattern'] as UserProfileMemoryKind[]).map((kind) => (
-                                <option key={kind} value={kind}>{formatUserProfileMemoryKindLabel(kind)}</option>
-                              ))}
-                            </TextField>
-                            <TextField
-                              size="small"
-                              label="内容"
-                              value={editingProfileCueText}
-                              onChange={(event) => setEditingProfileCueText(event.target.value)}
-                              fullWidth
-                              multiline
-                              minRows={1}
-                              maxRows={3}
-                            />
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
-                              <Chip
-                                size="small"
-                                label={editingProfileCueSensitive ? '敏感' : '普通'}
-                                color={editingProfileCueSensitive ? 'warning' : 'default'}
-                                variant="outlined"
-                                onClick={() => setEditingProfileCueSensitive((value) => !value)}
-                                sx={{ height: 24, borderRadius: 999 }}
-                              />
-                              <Button
-                                size="small"
-                                variant="text"
-                                disabled={!editingProfileCueText.trim()}
-                                onClick={() => {
-                                  const text = editingProfileCueText.trim();
-                                  if (!text) return;
-                                  onUpdateProfileCue({
-                                    ...item,
-                                    kind: editingProfileCueKind,
-                                    text,
-                                    confidence: 1,
-                                    sensitive: editingProfileCueSensitive,
-                                    evidence: item.evidence || 'manual_profile_cue_edit_from_character_relationship_tab',
-                                  });
-                                  setEditingProfileCueKey(null);
-                                  setEditingProfileCueText('');
-                                }}
-                                sx={{ minWidth: 0 }}
-                              >
-                                保存
-                              </Button>
-                              <Button
-                                size="small"
-                                variant="text"
-                                onClick={() => {
-                                  setEditingProfileCueKey(null);
-                                  setEditingProfileCueText('');
-                                }}
-                                sx={{ minWidth: 0 }}
-                              >
-                                取消
-                              </Button>
-                            </Box>
-                          </Stack>
-                        ) : (
-                          <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{item.text}</Typography>
-                        )}
-                        {item.evidence ? (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
-                            证据：{clipRuntimeText(item.evidence, 96)}
-                          </Typography>
-                        ) : null}
-                      </Box>
-                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
-                        <Button
-                          size="small"
-                          variant="text"
-                          onClick={() => {
-                            setEditingProfileCueKey(`${item.kind}-${item.text}-${index}`);
-                            setEditingProfileCueKind(item.kind);
-                            setEditingProfileCueText(item.text);
-                            setEditingProfileCueSensitive(Boolean(item.sensitive));
-                          }}
-                          sx={{ minWidth: 0 }}
-                        >
-                          修改
-                        </Button>
-                        <Button size="small" variant="text" onClick={() => onRevokeProfileCue(item)} sx={{ minWidth: 0 }}>
-                          撤回
-                        </Button>
-                      </Box>
-                    </Box>
-                  ))}
-                </Stack>
-              </Box>
-            ) : null}
             {sharedSecrets.length ? (
               <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
