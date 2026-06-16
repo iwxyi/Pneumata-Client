@@ -495,6 +495,37 @@ function formatAttachmentStyleLabel(style: UserAttachmentProfile['inferredStyle'
   return labels[style];
 }
 
+const INTERACTION_PACE_OPTIONS: Array<{
+  label: string;
+  description: string;
+  style: UserAttachmentProfile['inferredStyle'];
+}> = [
+  {
+    label: '保持稳定',
+    description: '正常来回，不额外追问，也不刻意疏远。',
+    style: 'secure',
+  },
+  {
+    label: '多给确认',
+    description: '表达更明确，少让重要的话悬着。',
+    style: 'anxious',
+  },
+  {
+    label: '给我空间',
+    description: '降低主动和想念表达，关心也更轻。',
+    style: 'avoidant',
+  },
+  {
+    label: '忽近忽远也稳住',
+    description: '靠近和退开都接住，不跟着情绪升级。',
+    style: 'disorganized',
+  },
+];
+
+function formatInteractionPacePreferenceLabel(style: UserAttachmentProfile['inferredStyle']) {
+  return INTERACTION_PACE_OPTIONS.find((option) => option.style === style)?.label || formatAttachmentStyleLabel(style);
+}
+
 function buildManualAttachmentProfileEvent(chat: GroupChat, character: AICharacter, action: 'disabled' | 'enabled' | 'corrected', style?: UserAttachmentProfile['inferredStyle']): RuntimeEventV2 {
   const now = Date.now();
   const correctedStyle = action === 'corrected' ? style || 'secure' : undefined;
@@ -522,10 +553,10 @@ function buildManualAttachmentProfileEvent(chat: GroupChat, character: AICharact
       inferredStyle: correctedStyle,
       confidence: 1,
       reason: action === 'corrected'
-        ? `用户在角色关系页手动修正互动模式适配为${correctedStyle ? formatAttachmentStyleLabel(correctedStyle) : '稳定'}。`
+        ? `用户在角色关系页手动设置互动节奏偏好为${correctedStyle ? formatInteractionPacePreferenceLabel(correctedStyle) : '保持稳定'}。`
         : action === 'disabled'
-          ? '用户在角色关系页手动关闭依恋适配。'
-          : '用户在角色关系页手动恢复依恋适配。',
+          ? '用户在角色关系页手动关闭互动节奏适配。'
+          : '用户在角色关系页手动恢复自动互动节奏适配。',
       evidence: [`manual_attachment_${action}_from_character_relationship_tab`],
     },
   };
@@ -1769,6 +1800,65 @@ function UserCompanionshipCard({
                 </Box>
               ))}
             </Stack>
+          </Box>
+        ) : null}
+        {trace?.attachmentProfile ? (
+          <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, mb: 0.65, flexWrap: 'wrap' }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  互动节奏
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {trace.attachmentProfile.confidence <= 0 ? '已关闭自动适配' : formatInteractionPacePreferenceLabel(trace.attachmentProfile.inferredStyle)}
+                </Typography>
+              </Box>
+              {trace.attachmentProfile.confidence <= 0 ? (
+                <Button size="small" variant="outlined" onClick={onEnableAttachment} sx={{ borderRadius: 999, flexShrink: 0 }}>
+                  恢复自动
+                </Button>
+              ) : (
+                <Button size="small" variant="text" onClick={onDisableAttachment} sx={{ flexShrink: 0 }}>
+                  暂停适配
+                </Button>
+              )}
+            </Box>
+            <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+              {INTERACTION_PACE_OPTIONS.map((option) => {
+                const selected = Boolean(trace.attachmentProfile && trace.attachmentProfile.confidence > 0 && trace.attachmentProfile.inferredStyle === option.style);
+                return (
+                  <Tooltip key={option.style} title={option.description} arrow>
+                    <span>
+                      <Button
+                        size="small"
+                        variant={selected ? 'contained' : 'outlined'}
+                        disabled={selected}
+                        onClick={() => onCorrectAttachment(option.style)}
+                        sx={{ borderRadius: 999, minWidth: 0, px: 1.1 }}
+                      >
+                        {option.label}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                );
+              })}
+              <Tooltip title="交给系统根据长期互动继续判断。" arrow>
+                <span>
+                  <Button
+                    size="small"
+                    variant={trace.attachmentProfile.confidence > 0 ? 'outlined' : 'contained'}
+                    disabled={trace.attachmentProfile.confidence <= 0}
+                    onClick={onEnableAttachment}
+                    sx={{ borderRadius: 999, minWidth: 0, px: 1.1 }}
+                  >
+                    自动适配
+                  </Button>
+                </span>
+              </Tooltip>
+            </Stack>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.65 }}>
+              只影响这个角色对你的主动频率、确认感和表达浓度，不会公开显示内部判断。
+            </Typography>
           </Box>
         ) : null}
         {signature.addressing?.forbiddenAddresses.length ? (
