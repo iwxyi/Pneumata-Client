@@ -525,6 +525,23 @@ export interface CompanionshipMomentReflectionEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipPrivateThreadScheduleEventPayload {
+  eventType: 'companionship_private_thread_schedule';
+  actorId: string;
+  targetId: string;
+  participantIds: string[];
+  action: 'candidate_created' | 'opened' | 'suppressed' | 'skipped';
+  reasonType?: string;
+  triggerReason?: string;
+  openingMessage?: string;
+  dedupeKey?: string | null;
+  candidateId?: string;
+  privateChatId?: string;
+  nextAvailableAt?: number;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;

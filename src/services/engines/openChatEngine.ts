@@ -28,6 +28,7 @@ import { isCharacterFeatureEnabled } from '../characterGenerationPolicy';
 import { orchestrateWorldDecision } from '../worldDecisionOrchestrator';
 import { buildMomentPostText } from '../momentTextBuilder';
 import { buildCharacterCompanionshipStates, shouldBlockUserProactiveContactByCompanionshipPolicy } from '../companionshipProjection';
+import { isCompanionshipPrivateThreadPairCoolingDown } from '../companionshipPrivateThreadSchedule';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
@@ -431,6 +432,11 @@ function pickCompanionshipPrivateThreadState(params: {
   const now = Date.now();
   return buildCharacterCompanionshipStates(params.actor, now, params.conversation)
     .filter((state) => memberIds.has(state.targetId))
+    .filter((state) => !isCompanionshipPrivateThreadPairCoolingDown({
+      chat: params.conversation,
+      participantIds: [params.actor.id, state.targetId],
+      now,
+    }))
     .map((state) => {
       const textureScore = state.sharedSecrets.length * 9 + state.sharedRituals.length * 7 + state.sharedPromises.length * 10 + state.unresolvedCareTopics.length * 12;
       const score = state.closeness * 0.36 + state.protectiveness * 0.34 + state.reliance * 0.28 + textureScore;

@@ -315,10 +315,11 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     }))]);
     const addMessage = buildAddMessageMock();
     const appendEventMessage = buildAppendEventMessageMock();
+    const updateChat = vi.fn(async (_chatId: string, _patch: Partial<ReturnType<typeof normalizeConversation>>) => undefined);
     const result = await runSocialEventAutoFlow(chat, {
       chats: [chat],
       characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
-      updateChat: vi.fn(async () => undefined),
+      updateChat,
       addChat: vi.fn(async () => buildBaseChat()),
       addMessage,
       appendEventMessage,
@@ -333,6 +334,22 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
     expect(appendEventMessage.mock.calls[0]?.[1]).toMatchObject({
       eventType: 'private_chat_started',
       summary: '角色-角色陪伴关系触发：担心乙最近太累。',
+    });
+    const updatedPatch = updateChat.mock.calls[0]?.[1] as { runtimeEventsV2?: RuntimeEventV2[] } | undefined;
+    const updatedEvents = updatedPatch?.runtimeEventsV2 || [];
+    const schedule = updatedEvents.find((event) => (event.payload as { eventType?: string }).eventType === 'companionship_private_thread_schedule');
+    expect(schedule).toMatchObject({
+      kind: 'artifact',
+      visibility: 'role_private',
+      visibleToIds: ['a', 'b'],
+      payload: expect.objectContaining({
+        action: 'opened',
+        actorId: 'a',
+        targetId: 'b',
+        candidateId: 'evt-candidate-1',
+        privateChatId: 'chat-1',
+        dedupeKey: 'companionship-private-thread-chat-1-a-b',
+      }),
     });
   });
 
@@ -2518,6 +2535,34 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
 
   it('skips candidates still within cooldown after opened thread', () => {
     expect(pickAutoPairPrivateThreadCandidate(buildOpenedEventCooldownWindowChat())).toBe(buildOpenedEventCooldownExpectedNull());
+  });
+
+  it('skips companionship pair candidates during schedule cooldown', () => {
+    const chat = buildChatWithEvents([
+      buildCandidateEvent(buildCandidatePayload({ reasonType: 'companionship_promise_followup', dedupeKey: 'companionship-private-thread-chat-1-a-b' }), 1000),
+      {
+        id: 'evt-schedule-1',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: Date.now() - 10 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '角色陪伴私聊已进入冷却',
+        visibility: 'role_private',
+        visibleToIds: ['a', 'b'],
+        payload: {
+          eventType: 'companionship_private_thread_schedule',
+          actorId: 'a',
+          targetId: 'b',
+          participantIds: ['a', 'b'],
+          action: 'opened',
+          reasonType: 'companionship_promise_followup',
+          dedupeKey: 'companionship-private-thread-chat-1-a-b',
+          nextAvailableAt: Date.now() + 60 * 60_000,
+        },
+      } as RuntimeEventV2,
+    ]);
+    expect(pickAutoPairPrivateThreadCandidate(chat)).toBeNull();
   });
 
   it('creates a public opened-thread artifact event', () => {

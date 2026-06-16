@@ -26,6 +26,7 @@ import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
 import { buildMomentPostText } from './momentTextBuilder';
 import { buildCompanionshipArtifactSeeds, buildCompanionshipStatusSignature, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
 import { readDueCompanionshipCareTopicsFromEvents, readStaleCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
+import { COMPANIONSHIP_PRIVATE_THREAD_COOLDOWN_MS, buildCompanionshipPrivateThreadScheduleEvent, isCompanionshipPrivateThreadPairCoolingDown } from './companionshipPrivateThreadSchedule';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
@@ -840,6 +841,11 @@ function shouldCandidateAutoOpen(chat: GroupChat, payload: SocialEventCandidateP
   if (payload.participantIds.length !== 2) return false;
   if (payload.confidence < 0.8) return false;
   if (hasOpenedThreadForCandidate(chat, payload) && withinPrivateThreadCooldown(createdAt, getLatestPrivateThreadOpenedAt(chat, payload))) return false;
+  if (isCompanionshipPrivateThreadPayload(payload) && isCompanionshipPrivateThreadPairCoolingDown({
+    chat,
+    participantIds: payload.participantIds,
+    now: Date.now(),
+  })) return false;
   return true;
 }
 
@@ -1446,6 +1452,25 @@ export function buildPrivateThreadOpenedEvent(chat: GroupChat, candidateEvent: R
       triggerReason: payload.triggerReason,
       openingMessage: payload.openingMessage,
     },
+  });
+}
+
+function isCompanionshipPrivateThreadPayload(payload: SocialEventCandidatePayload) {
+  return payload.eventKind === 'pair_private_thread' && payload.reasonType?.startsWith('companionship_');
+}
+
+function buildCompanionshipPrivateThreadOpenedScheduleEvent(chat: GroupChat, candidateEvent: RuntimeEventV2, privateChatId?: string | null): RuntimeEventV2 | null {
+  const payload = candidateEvent.payload as SocialEventCandidatePayload;
+  if (!isCompanionshipPrivateThreadPayload(payload)) return null;
+  const createdAt = Date.now();
+  return buildCompanionshipPrivateThreadScheduleEvent({
+    chat,
+    candidateEvent,
+    payload,
+    action: 'opened',
+    privateChatId: privateChatId || undefined,
+    nextAvailableAt: createdAt + COMPANIONSHIP_PRIVATE_THREAD_COOLDOWN_MS,
+    createdAt,
   });
 }
 
@@ -2561,8 +2586,10 @@ export async function runSocialEventAutoFlow(sourceChat: GroupChat, ops: SocialE
       appendEventMessage: ops.appendEventMessage,
     });
     if (privateChat) {
+      const openedEvent = buildPrivateThreadOpenedEvent(sourceChat, pairCandidate);
+      const scheduleEvent = buildCompanionshipPrivateThreadOpenedScheduleEvent(sourceChat, pairCandidate, privateChat.id);
       await ops.updateChat(sourceChat.id, appendHandledSocialEvent(sourceChat, withFrameworkPatch(sourceChat, {
-        runtimeEventsV2: [...(sourceChat.runtimeEventsV2 || []), buildPrivateThreadOpenedEvent(sourceChat, pairCandidate)].slice(-160),
+        runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [openedEvent, ...(scheduleEvent ? [scheduleEvent] : [])]),
       }), pairCandidate.id, payload.initiatorId));
       return { privateChatId: privateChat.id, handledEventId: pairCandidate.id };
     }
