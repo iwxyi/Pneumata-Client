@@ -742,23 +742,24 @@ function buildManualSharedAnchorArchiveEvent(chat: GroupChat, character: AIChara
   };
 }
 
-function buildManualSharedAnchorUpsertEvent(chat: GroupChat, character: AICharacter, anchor: SharedMemoryAnchor, patch: { kind: SharedMemoryAnchor['kind']; title: string; text: string }): RuntimeEventV2 {
+function buildManualSharedAnchorUpsertEvent(chat: GroupChat, character: AICharacter, anchor: SharedMemoryAnchor, patch: { kind: SharedMemoryAnchor['kind']; title: string; text: string; participantIds?: string[] }): RuntimeEventV2 {
   const now = Date.now();
   const title = patch.title.trim();
   const text = patch.text.trim();
-  const includesUser = anchor.participantIds.includes('user');
+  const participantIds = patch.participantIds?.length ? patch.participantIds : anchor.participantIds;
+  const includesUser = participantIds.includes('user');
   return {
-    id: buildManualCompanionshipEventId([chat.id, character.id, anchor.id, title, text, 'shared-anchor-upsert']),
+    id: buildManualCompanionshipEventId([chat.id, character.id, anchor.id, title, text, participantIds.join(','), 'shared-anchor-upsert']),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
-    targetIds: anchor.participantIds,
+    targetIds: participantIds,
     summary: `${character.name} 记录用户修正了一条共同锚点`,
     channelId: includesUser ? 'pair-private' : 'relationship-runtime',
     eventClass: 'artifact',
     visibility: includesUser ? 'pair_private' : 'role_private',
-    visibleToIds: anchor.participantIds,
+    visibleToIds: participantIds,
     payload: {
       eventType: 'companionship_shared_anchor',
       characterId: character.id,
@@ -766,7 +767,7 @@ function buildManualSharedAnchorUpsertEvent(chat: GroupChat, character: AICharac
       anchorId: anchor.id,
       action: 'upsert',
       kind: patch.kind,
-      participantIds: anchor.participantIds,
+      participantIds,
       title,
       text,
       salience: anchor.salience,
@@ -807,6 +808,15 @@ function buildManualSharedAnchorPairPrivateEvent(chat: GroupChat, character: AIC
       reason: '用户在角色关系页手动把共同锚点参与者收窄为自己和该角色。',
     },
   };
+}
+
+function buildManualSharedAnchorParticipantsEvent(chat: GroupChat, character: AICharacter, anchor: SharedMemoryAnchor, participantIds: string[]): RuntimeEventV2 {
+  return buildManualSharedAnchorUpsertEvent(chat, character, anchor, {
+    kind: anchor.kind,
+    title: anchor.title,
+    text: anchor.text,
+    participantIds: Array.from(new Set(participantIds.filter(Boolean))).slice(0, 6),
+  });
 }
 
 function buildManualSharedSecretRevokedEvent(chat: GroupChat, character: AICharacter, secret: SharedSecret): RuntimeEventV2 {
@@ -966,6 +976,47 @@ function buildManualSharedSecretPairPrivateEvent(chat: GroupChat, character: AIC
   };
 }
 
+function buildManualSharedSecretParticipantsEvent(chat: GroupChat, character: AICharacter, secret: SharedSecret, participantIds: string[]): RuntimeEventV2 {
+  const now = Date.now();
+  const nextParticipantIds = Array.from(new Set(participantIds.filter(Boolean))).slice(0, 6);
+  const includesUser = nextParticipantIds.includes('user');
+  const action = secret.leakState === 'confessed'
+    ? 'confessed'
+    : secret.leakState === 'leaked'
+      ? 'leaked'
+      : secret.leakState === 'hinted_publicly'
+        ? 'hinted_publicly'
+        : 'recorded';
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, secret.id, nextParticipantIds.join(','), 'shared-secret-participants']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: nextParticipantIds,
+    summary: `${character.name} 记录用户修正了一条小秘密参与者`,
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
+    eventClass: 'artifact',
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: nextParticipantIds,
+    payload: {
+      eventType: 'companionship_shared_secret',
+      characterId: character.id,
+      userId: includesUser ? 'user' : undefined,
+      secretId: secret.id,
+      action,
+      consequenceKind: secret.consequenceKind,
+      participantIds: nextParticipantIds,
+      privateText: secret.privateText,
+      publicMask: secret.publicMask,
+      reason: '用户在角色关系页手动修正小秘密参与者。',
+      evidence: `manual_secret_participants_edit_from_character_relationship_tab: ${secret.participantIds.join(',')} -> ${nextParticipantIds.join(',')}`,
+      emotionalWeight: secret.emotionalWeight,
+      confidence: 1,
+    },
+  };
+}
+
 function buildManualSharedPhraseSuppressedEvent(chat: GroupChat, character: AICharacter, phrase: SharedPhrase): RuntimeEventV2 {
   const now = Date.now();
   const includesUser = phrase.participantIds.includes('user');
@@ -1069,6 +1120,42 @@ function buildManualSharedPhrasePairPrivateEvent(chat: GroupChat, character: AIC
       firstSaidBy: phrase.firstSaidBy,
       reason: '用户在角色关系页手动把共同话语参与者收窄为自己和该角色。',
       evidence: `manual_shared_phrase_participants_pair_private_from_character_relationship_tab: ${phrase.participantIds.join(',')}`,
+      emotionalWeight: phrase.emotionalWeight,
+      reuseCount: phrase.reuseCount,
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualSharedPhraseParticipantsEvent(chat: GroupChat, character: AICharacter, phrase: SharedPhrase, participantIds: string[]): RuntimeEventV2 {
+  const now = Date.now();
+  const nextParticipantIds = Array.from(new Set(participantIds.filter(Boolean))).slice(0, 6);
+  const includesUser = nextParticipantIds.includes('user');
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, phrase.id, nextParticipantIds.join(','), 'shared-phrase-participants']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: nextParticipantIds,
+    summary: `${character.name} 记录用户修正了一句共同话语参与者`,
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
+    eventClass: 'artifact',
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: nextParticipantIds,
+    payload: {
+      eventType: 'companionship_shared_phrase',
+      characterId: character.id,
+      userId: includesUser ? 'user' : undefined,
+      phraseId: phrase.id,
+      action: 'upsert',
+      text: phrase.text,
+      kind: phrase.kind,
+      participantIds: nextParticipantIds,
+      visibility: phrase.visibility,
+      firstSaidBy: phrase.firstSaidBy,
+      reason: '用户在角色关系页手动修正共同话语参与者。',
+      evidence: `manual_shared_phrase_participants_edit_from_character_relationship_tab: ${phrase.participantIds.join(',')} -> ${nextParticipantIds.join(',')}`,
       emotionalWeight: phrase.emotionalWeight,
       reuseCount: phrase.reuseCount,
       confidence: 1,
@@ -1303,6 +1390,7 @@ function SharedMemoryAnchorPanel({
   onArchiveAnchor,
   onUpdateAnchor,
   onKeepPairPrivate,
+  onKeepCharacterPair,
 }: {
   characterId: string;
   anchors: SharedMemoryAnchor[];
@@ -1312,6 +1400,7 @@ function SharedMemoryAnchorPanel({
   onArchiveAnchor?: (anchor: SharedMemoryAnchor) => void;
   onUpdateAnchor?: (anchor: SharedMemoryAnchor, patch: { kind: SharedMemoryAnchor['kind']; title: string; text: string }) => void;
   onKeepPairPrivate?: (anchor: SharedMemoryAnchor) => void;
+  onKeepCharacterPair?: (anchor: SharedMemoryAnchor, targetId: string) => void;
 }) {
   const [editingAnchorId, setEditingAnchorId] = useState<string | null>(null);
   const [editingAnchorKind, setEditingAnchorKind] = useState<SharedMemoryAnchor['kind']>('milestone');
@@ -1324,11 +1413,15 @@ function SharedMemoryAnchorPanel({
         const archiveAnchor = onArchiveAnchor;
         const updateAnchor = onUpdateAnchor;
         const keepPairPrivate = onKeepPairPrivate;
+        const keepCharacterPair = onKeepCharacterPair;
         const isEditing = editingAnchorId === anchor.id;
         const isUserAnchor = anchor.participantIds.includes('user');
         const canArchive = Boolean(archiveAnchor) && (isUserAnchor || allowNonUserAnchors);
         const canEdit = Boolean(updateAnchor) && (isUserAnchor || allowNonUserAnchors);
         const canNarrowParticipants = Boolean(keepPairPrivate) && anchor.participantIds.includes('user') && anchor.participantIds.some((id) => id !== 'user' && id !== characterId);
+        const rolePairTargets = !isUserAnchor && keepCharacterPair && anchor.participantIds.length > 2
+          ? anchor.participantIds.filter((id) => id !== characterId)
+          : [];
         const chips = developerMode
           ? [
               formatSharedMemoryAnchorKind(anchor.kind),
@@ -1369,6 +1462,11 @@ function SharedMemoryAnchorPanel({
                       只保留我和角色
                     </Button>
                   ) : null}
+                  {rolePairTargets.map((targetId) => (
+                    <Button key={targetId} size="small" variant="text" onClick={() => keepCharacterPair?.(anchor, targetId)} sx={{ p: 0, minWidth: 0 }}>
+                      只保留{resolveCharacterName(targetId)}
+                    </Button>
+                  ))}
                 </Box>
               </Box>
               {isEditing ? (
@@ -1512,6 +1610,7 @@ function RoleSharedPhrasePanel({
   developerMode,
   onUpdateSharedPhrase,
   onSuppressSharedPhrase,
+  onKeepCharacterPair,
 }: {
   items: Array<{ chat: GroupChat; chatName: string; phrase: SharedPhrase }>;
   characterId: string;
@@ -1519,6 +1618,7 @@ function RoleSharedPhrasePanel({
   developerMode: boolean;
   onUpdateSharedPhrase: (chat: GroupChat, phrase: SharedPhrase, patch: { text: string; kind: SharedPhrase['kind']; visibility: SharedPhrase['visibility'] }) => void;
   onSuppressSharedPhrase: (chat: GroupChat, phrase: SharedPhrase) => void;
+  onKeepCharacterPair?: (chat: GroupChat, phrase: SharedPhrase, targetId: string) => void;
 }) {
   const [editingPhraseId, setEditingPhraseId] = useState<string | null>(null);
   const [editingPhraseText, setEditingPhraseText] = useState('');
@@ -1536,6 +1636,9 @@ function RoleSharedPhrasePanel({
           .map((id) => resolveCharacterName(id))
           .join(' × ');
         const isEditing = editingPhraseId === phraseKey;
+        const rolePairTargets = !phrase.participantIds.includes('user') && phrase.participantIds.length > 2
+          ? phrase.participantIds.filter((id) => id !== characterId)
+          : [];
         return (
           <Box key={phraseKey} sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
@@ -1651,6 +1754,11 @@ function RoleSharedPhrasePanel({
                   <Button size="small" variant="text" onClick={() => onSuppressSharedPhrase(chat, phrase)} sx={{ minWidth: 0 }}>
                     不再使用
                   </Button>
+                  {rolePairTargets.map((targetId) => (
+                    <Button key={targetId} size="small" variant="text" onClick={() => onKeepCharacterPair?.(chat, phrase, targetId)} sx={{ minWidth: 0 }}>
+                      只保留{resolveCharacterName(targetId)}
+                    </Button>
+                  ))}
                 </Box>
               )}
             </Box>
@@ -1668,6 +1776,7 @@ function RoleSharedSecretPanel({
   developerMode,
   onUpdateSharedSecretMask,
   onRevokeSharedSecret,
+  onKeepCharacterPair,
 }: {
   items: Array<{ chat: GroupChat; chatName: string; secret: SharedSecret }>;
   characterId: string;
@@ -1675,6 +1784,7 @@ function RoleSharedSecretPanel({
   developerMode: boolean;
   onUpdateSharedSecretMask: (chat: GroupChat, secret: SharedSecret, publicMask: string) => void;
   onRevokeSharedSecret: (chat: GroupChat, secret: SharedSecret) => void;
+  onKeepCharacterPair?: (chat: GroupChat, secret: SharedSecret, targetId: string) => void;
 }) {
   const [editingSecretId, setEditingSecretId] = useState<string | null>(null);
   const [editingSecretMask, setEditingSecretMask] = useState('');
@@ -1690,6 +1800,9 @@ function RoleSharedSecretPanel({
           .map((id) => resolveCharacterName(id))
           .join(' × ');
         const isEditing = editingSecretId === secretKey;
+        const rolePairTargets = !secret.participantIds.includes('user') && secret.participantIds.length > 2
+          ? secret.participantIds.filter((id) => id !== characterId)
+          : [];
         return (
           <Box key={secretKey} sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
@@ -1771,6 +1884,11 @@ function RoleSharedSecretPanel({
                   <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(chat, secret)} sx={{ minWidth: 0 }}>
                     撤回
                   </Button>
+                  {rolePairTargets.map((targetId) => (
+                    <Button key={targetId} size="small" variant="text" onClick={() => onKeepCharacterPair?.(chat, secret, targetId)} sx={{ minWidth: 0 }}>
+                      只保留{resolveCharacterName(targetId)}
+                    </Button>
+                  ))}
                 </Box>
               )}
             </Box>
@@ -3698,6 +3816,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                   onUpdateAnchor={(item, patch) => {
                     void appendManualCompanionshipEvent(chat, buildManualSharedAnchorUpsertEvent(chat, character as AICharacter, item, patch));
                   }}
+                  onKeepCharacterPair={(item, targetId) => {
+                    void appendManualCompanionshipEvent(chat, buildManualSharedAnchorParticipantsEvent(chat, character as AICharacter, item, [character.id || '', targetId]));
+                  }}
                 />
               </Box>
             ))}
@@ -3719,6 +3840,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
           onSuppressSharedPhrase={(chat, phrase) => {
             void appendManualCompanionshipEvent(chat, buildManualSharedPhraseSuppressedEvent(chat, character as AICharacter, phrase));
           }}
+          onKeepCharacterPair={(chat, phrase, targetId) => {
+            void appendManualCompanionshipEvent(chat, buildManualSharedPhraseParticipantsEvent(chat, character as AICharacter, phrase, [character.id || '', targetId]));
+          }}
         />
       </SurfaceCard>
       <SurfaceCard>
@@ -3733,6 +3857,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
           }}
           onRevokeSharedSecret={(chat, secret) => {
             void appendManualCompanionshipEvent(chat, buildManualSharedSecretRevokedEvent(chat, character as AICharacter, secret));
+          }}
+          onKeepCharacterPair={(chat, secret, targetId) => {
+            void appendManualCompanionshipEvent(chat, buildManualSharedSecretParticipantsEvent(chat, character as AICharacter, secret, [character.id || '', targetId]));
           }}
         />
       </SurfaceCard>
