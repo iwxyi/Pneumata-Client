@@ -4857,6 +4857,37 @@ describe('companionshipProjection', () => {
     const greeting = rituals.find((ritual) => ritual.id === 'ritual-char-a-daily-greeting');
     expect(greeting?.content).toBe('晚安时会先问小夏今天有没有好好收尾，而不是机械打卡。');
     expect(greeting?.evolution).toContain('从普通晚安变成睡前轻轻确认状态。');
+    const trace = buildCompanionshipRuntimeTrace({
+      character: character(),
+      chat: chat('direct', [], [ritualEvent({
+        id: 'evt-ritual-evolved',
+        createdAt: 1_200,
+        payload: {
+          eventType: 'companionship_ritual',
+          characterId: 'char-a',
+          userId: 'user',
+          ritualId: 'ritual-char-a-daily-greeting',
+          kind: 'daily_greeting',
+          action: 'performed',
+          participantIds: ['char-a', 'user'],
+          content: '晚安时会先问小夏今天有没有好好收尾，而不是机械打卡。',
+          evolution: ['从普通晚安变成睡前轻轻确认状态。'],
+          confidence: 0.88,
+          decisionSource: 'model',
+        },
+      })]),
+      messages: [message({ content: '晚安，今天就先这样。', timestamp: 1_100 })],
+      now: 1_300,
+    });
+    expect(trace?.ritualHistory[0]).toMatchObject({
+      id: 'evt-ritual-evolved',
+      ritualId: 'ritual-char-a-daily-greeting',
+      action: 'performed',
+      kind: 'daily_greeting',
+      content: '晚安时会先问小夏今天有没有好好收尾，而不是机械打卡。',
+      decisionSource: 'model',
+      confidence: 0.88,
+    });
   });
 
   it('uses updated ritual events to edit content without marking the ritual performed', () => {

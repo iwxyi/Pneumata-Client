@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import { DEFAULT_PERSONALITY } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, UserProfileMemoryHistoryEntry, AddressingHistoryEntry, CareTopicHistoryEntry, PromiseHistoryEntry, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipCareTopicEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, RitualHistoryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, UserProfileMemoryHistoryEntry, AddressingHistoryEntry, CareTopicHistoryEntry, PromiseHistoryEntry, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipCareTopicEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -3360,6 +3360,39 @@ function buildRitualEventState(chat: GroupChat | undefined, characterId: string)
   return state;
 }
 
+function buildRitualHistory(chat: GroupChat, characterId: string): RitualHistoryEntry[] {
+  return (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .map((event): RitualHistoryEntry | null => {
+      const payload = ritualEventPayloadOf(event);
+      if (!payload || payload.characterId !== characterId) return null;
+      const userId = payload.userId || (payload.participantIds.includes(USER_ACTOR_ID) ? USER_ACTOR_ID : undefined);
+      if (userId && userId !== USER_ACTOR_ID) return null;
+      if (payload.userId === undefined && payload.participantIds.length && !payload.participantIds.includes(USER_ACTOR_ID)) return null;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return null;
+      return {
+        id: event.id,
+        ritualId: payload.ritualId,
+        kind: payload.kind,
+        action: payload.action,
+        participantIds: payload.participantIds.length ? payload.participantIds : [characterId, USER_ACTOR_ID],
+        content: payload.content,
+        evolution: payload.evolution || [],
+        reason: compactText(payload.reason || event.summary, 140),
+        evidence: [payload.evidence, payload.reason, event.summary, ...(payload.evolution || [])].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 5) as string[],
+        nextAvailableAt: payload.nextAvailableAt,
+        decisionSource: payload.decisionSource,
+        confidence: payload.confidence,
+        occurredAt: event.createdAt || 0,
+      };
+    })
+    .filter((item): item is RitualHistoryEntry => Boolean(item))
+    .sort((a, b) => b.occurredAt - a.occurredAt)
+    .slice(0, 10);
+}
+
 function applyRitualExecutionState(ritual: RitualRegistryEntry, eventState: ReturnType<typeof buildRitualEventState>, now: number): RitualRegistryEntry {
   const state = eventState.get(ritual.id);
   const lastPerformedAt = state?.lastPerformedAt;
@@ -3753,6 +3786,7 @@ export function buildCompanionshipRuntimeTrace(params: {
   const addressingHistory = buildAddressingHistory(params.chat, params.character.id);
   const careTopicHistory = buildCareTopicHistory(params.chat, params.character.id);
   const promiseHistory = buildPromiseHistory(params.chat, params.character.id);
+  const ritualHistory = buildRitualHistory(params.chat, params.character.id);
   const conflictHistory = buildIntimateConflictHistory(params.chat, params.character.id);
   const attachmentHistory = buildAttachmentProfileHistory(params.chat, params.character.id);
   return {
@@ -3782,6 +3816,7 @@ export function buildCompanionshipRuntimeTrace(params: {
     addressingHistory,
     careTopicHistory,
     promiseHistory,
+    ritualHistory,
     carePolicy: {
       dailyInitiationBudget: carePolicy.dailyInitiationBudget,
       triggerSensitivity: carePolicy.triggerSensitivity,

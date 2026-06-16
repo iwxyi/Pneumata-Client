@@ -350,6 +350,22 @@ export interface CompanionshipRitualEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface RitualHistoryEntry {
+  id: string;
+  ritualId: string;
+  kind: RitualRegistryEntry['kind'];
+  action: CompanionshipRitualEventPayload['action'];
+  participantIds: string[];
+  content?: string;
+  evolution: string[];
+  reason?: string;
+  evidence: string[];
+  nextAvailableAt?: number;
+  decisionSource?: 'model' | 'local_fallback';
+  confidence?: number;
+  occurredAt: number;
+}
+
 export interface CompanionshipIntimateConflictEventPayload {
   eventType: 'companionship_intimate_conflict';
   characterId: string;
@@ -591,6 +607,7 @@ export interface CompanionshipRuntimeTrace {
   addressingHistory: AddressingHistoryEntry[];
   careTopicHistory: CareTopicHistoryEntry[];
   promiseHistory: PromiseHistoryEntry[];
+  ritualHistory: RitualHistoryEntry[];
   carePolicy: Pick<CarePolicy, 'dailyInitiationBudget' | 'triggerSensitivity' | 'silenceAnxietyThresholdHours' | 'expressionIntensity' | 'allowGoodMorning' | 'allowGoodNight' | 'allowMissYou'>;
   attachmentProfile?: UserAttachmentProfile;
   phaseHistory: PhaseHistoryEntry[];

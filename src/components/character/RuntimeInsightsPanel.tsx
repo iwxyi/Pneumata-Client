@@ -636,6 +636,17 @@ function formatPromiseActionLabel(action: 'opened' | 'fulfilled' | 'blocked' | '
   return labels[action] || action;
 }
 
+function formatRitualActionLabel(action: 'performed' | 'suppressed' | 'skipped' | 'restored' | 'updated') {
+  const labels: Record<typeof action, string> = {
+    performed: '已执行',
+    suppressed: '已停用',
+    skipped: '已跳过',
+    restored: '已恢复',
+    updated: '已更新',
+  };
+  return labels[action] || action;
+}
+
 const INTERACTION_PACE_OPTIONS: Array<{
   label: string;
   description: string;
@@ -2262,6 +2273,7 @@ function CompanionshipDeveloperTracePanel({
   const addressingHistory = trace.addressingHistory.slice(0, 6);
   const careTopicHistory = trace.careTopicHistory.slice(0, 6);
   const promiseHistory = trace.promiseHistory.slice(0, 6);
+  const ritualHistory = trace.ritualHistory.slice(0, 6);
   const conflictHistory = trace.conflictHistory.slice(0, 6);
   const attachmentHistory = trace.attachmentHistory.slice(0, 6);
   return (
@@ -2465,6 +2477,37 @@ function CompanionshipDeveloperTracePanel({
                   </Typography>
                 ) : null}
                 {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.evidence.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
+                    证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      ) : null}
+      {ritualHistory.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>仪式历史</Typography>
+          <Stack spacing={0.5}>
+            {ritualHistory.map((item) => (
+              <Box key={item.id} sx={{ p: 0.75, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatRitualActionLabel(item.action)} · {formatRitualKindLabel(item.kind)} · {new Date(item.occurredAt).toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {[item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : '', item.nextAvailableAt ? `下次 ${new Date(item.nextAvailableAt).toLocaleString()}` : ''].filter(Boolean).join(' · ')}
+                  </Typography>
+                </Box>
+                {item.content ? <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{item.content}</Typography> : null}
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.evolution.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
+                    演化：{item.evolution.join(' / ')}
+                  </Typography>
+                ) : null}
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
                     证据：{item.evidence.join(' / ')}
