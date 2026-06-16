@@ -762,6 +762,84 @@ describe('companionshipProjection', () => {
     expect(repairProjection.userBond?.intimacy.intimacy || 0).toBeGreaterThan(baseProjection.userBond?.intimacy.intimacy || 0);
   });
 
+  it('adjusts intimacy projection from long-term companionship event trends', () => {
+    const now = 20_000;
+    const baseLedger = [relationship({ warmth: 48, trust: 44, competence: 10, threat: 8 })];
+    const baseProjection = buildUserCompanionshipProjection({
+      chat: chat('direct', baseLedger),
+      character: character(),
+      messages: [],
+      now,
+    });
+    const positiveProjection = buildUserCompanionshipProjection({
+      chat: chat('direct', baseLedger, [
+        phaseEvent({
+          id: 'evt-trend-deep',
+          createdAt: now - 1_000,
+          payload: {
+            eventType: 'companionship_phase_event',
+            characterId: 'char-a',
+            userId: 'user',
+            action: 'set',
+            phase: 'deep',
+            style: 'romantic',
+            evidence: ['长期稳定陪伴后进入更深阶段。'],
+            confidence: 0.9,
+            decisionSource: 'model',
+          },
+        }),
+        promiseEvent({
+          id: 'evt-trend-promise-fulfilled',
+          createdAt: now - 800,
+          payload: {
+            eventType: 'companionship_promise',
+            characterId: 'char-a',
+            userId: 'user',
+            promiseId: 'promise-trend',
+            promiseText: '说好忙完回来继续聊',
+            action: 'fulfilled',
+            participantIds: ['char-a', 'user'],
+            promiseKind: 'emotional_commitment',
+            evidence: '用户按约定回来继续聊。',
+            confidence: 0.9,
+            decisionSource: 'model',
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [],
+      now,
+    });
+    const coolingProjection = buildUserCompanionshipProjection({
+      chat: chat('direct', baseLedger, [
+        phaseEvent({
+          id: 'evt-trend-cooling',
+          createdAt: now - 700,
+          payload: {
+            eventType: 'companionship_phase_event',
+            characterId: 'char-a',
+            userId: 'user',
+            action: 'set',
+            phase: 'cooling',
+            style: 'friend',
+            reason: '用户明确希望这段关系先降温。',
+            evidence: ['先冷静一下，最近不要太靠近。'],
+            confidence: 0.9,
+            decisionSource: 'model',
+          },
+        }),
+      ]),
+      character: character(),
+      messages: [],
+      now,
+    });
+
+    expect(positiveProjection.userBond?.intimacy.security || 0).toBeGreaterThan(baseProjection.userBond?.intimacy.security || 0);
+    expect(positiveProjection.userBond?.intimacy.intimacy || 0).toBeGreaterThan(baseProjection.userBond?.intimacy.intimacy || 0);
+    expect(positiveProjection.evidence.join('\n')).toContain('long_term_intimacy_trend=');
+    expect(coolingProjection.userBond?.intimacy.security || 0).toBeLessThan(baseProjection.userBond?.intimacy.security || 100);
+  });
+
   it('uses user boundaries to restrain romantic and exclusive intimacy projection', () => {
     const warmLedger = [relationship({ warmth: 86, trust: 82, competence: 10, threat: 4 })];
     const unrestricted = buildUserCompanionshipProjection({

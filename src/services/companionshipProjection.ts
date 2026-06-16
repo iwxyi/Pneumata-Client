@@ -152,6 +152,117 @@ function adjustIntimacyProjection(params: {
   };
 }
 
+function buildLongTermIntimacyTrend(chat: GroupChat, characterId: string, now: number): Partial<IntimacyProjection> {
+  const windowStart = now - 180 * DAY_MS;
+  const trend = {
+    attraction: 0,
+    intimacy: 0,
+    attachment: 0,
+    longing: 0,
+    exclusivity: 0,
+    security: 0,
+  };
+  (chat.runtimeEventsV2 || []).forEach((event) => {
+    const createdAt = event.createdAt || 0;
+    if (createdAt && createdAt < windowStart) return;
+    const payload = event.payload as Record<string, unknown> | undefined;
+    if (!payload || typeof payload.eventType !== 'string') return;
+    if (typeof payload.characterId === 'string' && payload.characterId !== characterId) return;
+    const userId = typeof payload.userId === 'string' ? payload.userId : undefined;
+    const participantIds = Array.isArray(payload.participantIds) ? payload.participantIds.filter((item): item is string => typeof item === 'string') : [];
+    if (userId && userId !== USER_ACTOR_ID) return;
+    if (!userId && participantIds.length && !participantIds.includes(USER_ACTOR_ID)) return;
+    const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 0.75;
+    const weight = Math.max(0.25, Math.min(1, confidence <= 1 ? confidence : confidence / 100));
+    if (payload.eventType === 'companionship_phase_event') {
+      if (payload.action === 'revoked') return;
+      if (payload.phase === 'confirmed' || payload.phase === 'passionate') {
+        trend.attraction += 3 * weight;
+        trend.intimacy += 4 * weight;
+        trend.attachment += 3 * weight;
+        trend.security += 2 * weight;
+      } else if (payload.phase === 'deep') {
+        trend.intimacy += 5 * weight;
+        trend.attachment += 4 * weight;
+        trend.security += 5 * weight;
+      } else if (payload.phase === 'cooling' || payload.phase === 'crisis') {
+        trend.security -= 5 * weight;
+        trend.intimacy -= 3 * weight;
+        trend.longing -= 2 * weight;
+      } else if (payload.phase === 'reconciling') {
+        trend.security += 2 * weight;
+        trend.intimacy += 2 * weight;
+      }
+      return;
+    }
+    if (payload.eventType === 'companionship_intimate_conflict') {
+      const severity = typeof payload.severity === 'number' && Number.isFinite(payload.severity) ? payload.severity : 40;
+      const repair = typeof payload.repairReadiness === 'number' && Number.isFinite(payload.repairReadiness) ? payload.repairReadiness : 0;
+      if (payload.action === 'resolved') {
+        trend.security += Math.min(6, repair / 16) * weight;
+        trend.intimacy += 2 * weight;
+      } else if (payload.action === 'repair_attempted') {
+        trend.security += Math.min(3, repair / 28) * weight;
+      } else if (payload.action === 'opened' || payload.action === 'reopened' || payload.action === 'updated') {
+        trend.security -= Math.min(8, severity / 10) * weight;
+        trend.intimacy -= Math.min(4, severity / 22) * weight;
+      }
+      return;
+    }
+    if (payload.eventType === 'companionship_shared_secret') {
+      if (payload.action === 'recorded' || payload.action === 'hinted_publicly') {
+        trend.intimacy += 2 * weight;
+        trend.security += 1 * weight;
+      } else if (payload.action === 'confessed') {
+        trend.intimacy += 3 * weight;
+        trend.security += 3 * weight;
+      } else if (payload.action === 'leaked') {
+        trend.security -= 5 * weight;
+        trend.intimacy -= 2 * weight;
+      }
+      return;
+    }
+    if (payload.eventType === 'companionship_promise') {
+      if (payload.action === 'fulfilled') {
+        trend.security += 3 * weight;
+        trend.attachment += 2 * weight;
+      } else if (payload.action === 'blocked' || payload.action === 'stale') {
+        trend.security -= 3 * weight;
+      } else if (payload.action === 'opened') {
+        trend.attachment += 1 * weight;
+      }
+      return;
+    }
+    if (payload.eventType === 'companionship_ritual') {
+      if (payload.action === 'performed' || payload.action === 'restored') {
+        trend.attachment += 1.5 * weight;
+        trend.intimacy += 1 * weight;
+      } else if (payload.action === 'suppressed') {
+        trend.longing -= 1.5 * weight;
+      }
+    }
+  });
+  return {
+    attraction: Math.round(Math.max(-12, Math.min(12, trend.attraction))),
+    intimacy: Math.round(Math.max(-14, Math.min(14, trend.intimacy))),
+    attachment: Math.round(Math.max(-14, Math.min(14, trend.attachment))),
+    longing: Math.round(Math.max(-12, Math.min(12, trend.longing))),
+    exclusivity: Math.round(Math.max(-8, Math.min(8, trend.exclusivity))),
+    security: Math.round(Math.max(-16, Math.min(16, trend.security))),
+  };
+}
+
+function applyLongTermIntimacyTrend(base: IntimacyProjection, trend: Partial<IntimacyProjection>): IntimacyProjection {
+  return {
+    attraction: clampScore(base.attraction + (trend.attraction || 0)),
+    intimacy: clampScore(base.intimacy + (trend.intimacy || 0)),
+    attachment: clampScore(base.attachment + (trend.attachment || 0)),
+    longing: clampScore(base.longing + (trend.longing || 0)),
+    exclusivity: clampScore(base.exclusivity + (trend.exclusivity || 0)),
+    security: clampScore(base.security + (trend.security || 0)),
+  };
+}
+
 function adjustIntimacyForCompanionshipRuntime(params: {
   base: IntimacyProjection;
   sharedSecrets: SharedSecret[];
@@ -2676,13 +2787,15 @@ export function buildUserCompanionshipProjection(params: {
   const sharedAnchors = buildUserSharedAnchors(character, now, chat)
     .filter((anchor) => !textMatchesSuppressedPromise(`${anchor.text}\n${anchor.evidence || ''}`, suppressedPromiseKeys));
   const promiseConsequences = buildPromiseIntimacyConsequences(chat, character.id, now);
-  const baseIntimacy = adjustIntimacyProjection({
+  const anchoredIntimacy = adjustIntimacyProjection({
     base: projectIntimacy(ledger, messages, character.id, now),
     sharedAnchors,
     profile: userProfile,
     entry: ledger,
     promiseConsequences,
   });
+  const longTermTrend = buildLongTermIntimacyTrend(chat, character.id, now);
+  const baseIntimacy = applyLongTermIntimacyTrend(anchoredIntimacy, longTermTrend);
   const phaseEvent = resolveCompanionshipPhaseEvent(chat, character.id);
   const inferredPhase = inferPhase(baseIntimacy, ledger, sharedAnchors);
   const phase = phaseEvent?.phase || inferredPhase;
@@ -2715,7 +2828,8 @@ export function buildUserCompanionshipProjection(params: {
   const evidence = [
     ...buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent),
     ...(!phaseEvent ? buildAnchorPhaseEvidence(sharedAnchors, phase) : []),
-  ].slice(0, 6);
+    Object.values(longTermTrend).some((value) => value) ? `long_term_intimacy_trend=${Object.entries(longTermTrend).filter(([, value]) => value).map(([key, value]) => `${key}:${value}`).join(',')}` : '',
+  ].filter(Boolean).slice(0, 6);
   const attachmentProfile = buildUserAttachmentProfile({ chat, characterId: character.id, messages, profile: userProfile, intimacy: baseIntimacy, now });
   const intimacy = adjustIntimacyForCompanionshipRuntime({
     base: baseIntimacy,
