@@ -29,6 +29,7 @@ import { orchestrateWorldDecision } from '../worldDecisionOrchestrator';
 import { buildMomentPostText } from '../momentTextBuilder';
 import { buildCharacterCompanionshipStates, shouldBlockUserProactiveContactByCompanionshipPolicy } from '../companionshipProjection';
 import { buildCompanionshipPrivateThreadScheduleEvent, getRecentCompanionshipPrivateThreadSchedule } from '../companionshipPrivateThreadSchedule';
+import { getCompanionshipRuntimeConfig } from '../companionshipRuntimeConfig';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
@@ -526,6 +527,16 @@ function buildCompanionshipPrivateThreadCandidate(params: {
     activityType: '角色陪伴跟进',
     dedupeKey: `companionship-private-thread-${params.conversation.id}-${actor.id}-${target.id}`,
   };
+  if (!getCompanionshipRuntimeConfig().enableCharacterPrivateThreads) {
+    return {
+      candidate: null,
+      skippedEvent: buildCompanionshipPrivateThreadScheduleEvent({
+        chat: params.conversation,
+        payload,
+        action: 'suppressed',
+      }),
+    };
+  }
   if (picked.skippedBySchedule) {
     const nextAvailableAt = (picked.skippedBySchedule.payload as { nextAvailableAt?: number }).nextAvailableAt;
     return {

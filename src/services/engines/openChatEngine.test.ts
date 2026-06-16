@@ -3324,6 +3324,105 @@ describe('openChatEngine.onMessageCommitted', () => {
       && (event.payload as { reasonType?: string }).reasonType === 'companionship_promise_followup')).toBe(true);
   });
 
+  it('records suppressed diagnostics when character companionship private threads are disabled', async () => {
+    setCompanionshipRuntimeConfig({
+      ...DEFAULT_COMPANIONSHIP_SETTINGS,
+      enableCharacterPrivateThreads: false,
+    });
+    const chat = buildChat({ memberIds: ['a', 'b'] });
+    const characters = [
+      buildCharacter('a', '甲', {
+        relationships: [{
+          characterId: 'b',
+          warmth: 70,
+          trust: 68,
+          competence: 30,
+          threat: 2,
+          note: '约定下次争执后先把话说完。',
+          updatedAt: Date.now() - 10_000,
+        }],
+      }),
+      buildCharacter('b', '乙'),
+    ];
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '这件事我先不在这里展开。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+
+    const events = readRuntimeEvents(result);
+    expect(events.some((event) => event.kind === 'event_candidate'
+      && (event.payload as { eventKind?: string; reasonType?: string }).eventKind === 'pair_private_thread'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_promise_followup')).toBe(false);
+    const suppressed = events.find((event) => (event.payload as { eventType?: string; action?: string }).eventType === 'companionship_private_thread_schedule'
+      && (event.payload as { action?: string }).action === 'suppressed');
+    expect(suppressed).toBeTruthy();
+    expect((suppressed?.payload as { reason?: string; reasonType?: string } | undefined)?.reason).toContain('disabled by settings');
+    expect((suppressed?.payload as { reasonType?: string } | undefined)?.reasonType).toBe('companionship_promise_followup');
+  });
+
+  it('does not treat suppressed private thread diagnostics as schedule cooldown', async () => {
+    const chat = buildChat({
+      memberIds: ['a', 'b'],
+      runtimeEventsV2: [{
+        id: 'evt-suppressed-1',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: Date.now() - 10 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '角色陪伴私聊已被设置抑制',
+        visibility: 'role_private',
+        visibleToIds: ['a', 'b'],
+        payload: {
+          eventType: 'companionship_private_thread_schedule',
+          actorId: 'a',
+          targetId: 'b',
+          participantIds: ['a', 'b'],
+          action: 'suppressed',
+          reason: 'character companionship AI private threads disabled by settings',
+          reasonType: 'companionship_promise_followup',
+          dedupeKey: 'companionship-private-thread-chat-1-a-b',
+        },
+      }],
+    });
+    const characters = [
+      buildCharacter('a', '甲', {
+        relationships: [{
+          characterId: 'b',
+          warmth: 70,
+          trust: 68,
+          competence: 30,
+          threat: 2,
+          note: '约定下次争执后先把话说完。',
+          updatedAt: Date.now() - 10_000,
+        }],
+      }),
+      buildCharacter('b', '乙'),
+    ];
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '这件事我先不在这里展开。',
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+
+    expect(readRuntimeEvents(result).some((event) => event.kind === 'event_candidate'
+      && (event.payload as { eventKind?: string; reasonType?: string }).eventKind === 'pair_private_thread'
+      && (event.payload as { reasonType?: string }).reasonType === 'companionship_promise_followup')).toBe(true);
+  });
+
   it('creates character companionship group mediation candidates as public conflict notes', async () => {
     const chat = buildChat({
       memberIds: ['a', 'b', 'c'],

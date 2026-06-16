@@ -726,6 +726,7 @@ export interface CompanionshipSettings {
   showStatusHints: boolean;
   enableAttachmentAdaptation: boolean;
   enableRelationshipRituals: boolean;
+  enableCharacterPrivateThreads: boolean;
   pendingPromiseRetentionDays: number;
   privateThreadCooldownHours: number;
   proactiveCooldownMinutes: {
@@ -806,6 +807,7 @@ export const DEFAULT_COMPANIONSHIP_SETTINGS: CompanionshipSettings = {
   showStatusHints: true,
   enableAttachmentAdaptation: true,
   enableRelationshipRituals: true,
+  enableCharacterPrivateThreads: true,
   pendingPromiseRetentionDays: 30,
   privateThreadCooldownHours: 6,
   proactiveCooldownMinutes: {

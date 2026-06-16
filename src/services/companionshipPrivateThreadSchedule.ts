@@ -43,6 +43,11 @@ export function buildCompanionshipPrivateThreadScheduleEvent(params: {
     triggerReason: params.payload.triggerReason,
     openingMessage: params.payload.openingMessage,
     dedupeKey: params.payload.dedupeKey,
+    reason: params.action === 'suppressed'
+      ? 'character companionship AI private threads disabled by settings'
+      : params.action === 'skipped'
+      ? 'character companionship AI private thread schedule cooling down'
+      : undefined,
     candidateId: params.candidateEvent?.id,
     privateChatId: params.privateChatId,
     nextAvailableAt: params.nextAvailableAt,
@@ -80,9 +85,10 @@ export function getRecentCompanionshipPrivateThreadSchedule(params: {
     .find(({ event, payload }) => {
       if (!payload) return false;
       if (pairKeyOf(payload.participantIds) !== pairKey) return false;
-      if (payload.action === 'suppressed' || payload.action === 'skipped') {
+      if (payload.action === 'skipped') {
         return typeof payload.nextAvailableAt === 'number' && payload.nextAvailableAt > now;
       }
+      if (payload.action === 'suppressed') return false;
       if (payload.action !== 'opened' && payload.action !== 'candidate_created') return false;
       return now - event.createdAt < windowMs;
     }) || null;

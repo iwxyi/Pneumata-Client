@@ -1944,6 +1944,7 @@ export default function SettingsPage() {
               <FormControlLabel control={<Switch checked={settings.companionship.showStatusHints} onChange={(e) => settings.setCompanionship({ showStatusHints: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示陪伴状态提示' : 'Show companionship status hints'} />
               <FormControlLabel control={<Switch checked={settings.companionship.enableAttachmentAdaptation} onChange={(e) => settings.setCompanionship({ enableAttachmentAdaptation: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用互动模式适配' : 'Enable interaction-pattern adaptation'} />
               <FormControlLabel control={<Switch checked={settings.companionship.enableRelationshipRituals} onChange={(e) => settings.setCompanionship({ enableRelationshipRituals: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用关系仪式' : 'Enable relationship rituals'} />
+              <FormControlLabel control={<Switch checked={settings.companionship.enableCharacterPrivateThreads} onChange={(e) => settings.setCompanionship({ enableCharacterPrivateThreads: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用角色陪伴 AI 私聊' : 'Enable character companionship AI private threads'} />
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
                 <Box>
                   <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '陪伴敏感边界' : 'Companionship sensitivity boundary'}</Typography>

@@ -535,6 +535,7 @@ export interface CompanionshipPrivateThreadScheduleEventPayload {
   triggerReason?: string;
   openingMessage?: string;
   dedupeKey?: string | null;
+  reason?: string;
   candidateId?: string;
   privateChatId?: string;
   nextAvailableAt?: number;
