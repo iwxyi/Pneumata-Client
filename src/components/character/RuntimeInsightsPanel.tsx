@@ -809,22 +809,23 @@ function buildManualSharedAnchorPairPrivateEvent(chat: GroupChat, character: AIC
 
 function buildManualSharedSecretRevokedEvent(chat: GroupChat, character: AICharacter, secret: SharedSecret): RuntimeEventV2 {
   const now = Date.now();
+  const includesUser = secret.participantIds.includes('user');
   return {
     id: buildManualCompanionshipEventId([chat.id, character.id, secret.id, 'shared-secret-revoked']),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
-    targetIds: [character.id],
+    targetIds: secret.participantIds,
     summary: `${character.name} 记录用户撤回了一条小秘密`,
-    channelId: 'pair-private',
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
     eventClass: 'artifact',
-    visibility: 'pair_private',
-    visibleToIds: ['user', character.id],
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: secret.participantIds,
     payload: {
       eventType: 'companionship_shared_secret',
       characterId: character.id,
-      userId: secret.participantIds.includes('user') ? 'user' : undefined,
+      userId: includesUser ? 'user' : undefined,
       secretId: secret.id,
       action: 'revoked',
       participantIds: secret.participantIds,
@@ -845,6 +846,7 @@ function buildManualSharedSecretConsequenceEvent(
   consequenceKind: NonNullable<SharedSecret['consequenceKind']>,
 ): RuntimeEventV2 {
   const now = Date.now();
+  const includesUser = secret.participantIds.includes('user');
   const action = secret.leakState === 'confessed'
     ? 'confessed'
     : secret.leakState === 'leaked'
@@ -858,16 +860,16 @@ function buildManualSharedSecretConsequenceEvent(
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
-    targetIds: [character.id],
+    targetIds: secret.participantIds,
     summary: `${character.name} 记录用户修正了一条小秘密后果`,
-    channelId: 'pair-private',
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
     eventClass: 'artifact',
-    visibility: 'pair_private',
-    visibleToIds: ['user', character.id],
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: secret.participantIds,
     payload: {
       eventType: 'companionship_shared_secret',
       characterId: character.id,
-      userId: secret.participantIds.includes('user') ? 'user' : undefined,
+      userId: includesUser ? 'user' : undefined,
       secretId: secret.id,
       action,
       consequenceKind,
@@ -884,6 +886,7 @@ function buildManualSharedSecretConsequenceEvent(
 
 function buildManualSharedSecretMaskEvent(chat: GroupChat, character: AICharacter, secret: SharedSecret, publicMask: string): RuntimeEventV2 {
   const now = Date.now();
+  const includesUser = secret.participantIds.includes('user');
   const action = secret.leakState === 'confessed'
     ? 'confessed'
     : secret.leakState === 'leaked'
@@ -898,16 +901,16 @@ function buildManualSharedSecretMaskEvent(chat: GroupChat, character: AICharacte
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
-    targetIds: [character.id],
+    targetIds: secret.participantIds,
     summary: `${character.name} 记录用户修正了一条小秘密公开描述`,
-    channelId: 'pair-private',
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
     eventClass: 'artifact',
-    visibility: 'pair_private',
-    visibleToIds: ['user', character.id],
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: secret.participantIds,
     payload: {
       eventType: 'companionship_shared_secret',
       characterId: character.id,
-      userId: secret.participantIds.includes('user') ? 'user' : undefined,
+      userId: includesUser ? 'user' : undefined,
       secretId: secret.id,
       action,
       consequenceKind: secret.consequenceKind,
@@ -1640,6 +1643,126 @@ function RoleSharedPhrasePanel({
                   </Button>
                   <Button size="small" variant="text" onClick={() => onSuppressSharedPhrase(chat, phrase)} sx={{ minWidth: 0 }}>
                     不再使用
+                  </Button>
+                </Box>
+              )}
+            </Box>
+          </Box>
+        );
+      })}
+    </Stack>
+  );
+}
+
+function RoleSharedSecretPanel({
+  items,
+  characterId,
+  resolveCharacterName,
+  developerMode,
+  onUpdateSharedSecretMask,
+  onRevokeSharedSecret,
+}: {
+  items: Array<{ chat: GroupChat; chatName: string; secret: SharedSecret }>;
+  characterId: string;
+  resolveCharacterName: (id: string, fallback?: string) => string;
+  developerMode: boolean;
+  onUpdateSharedSecretMask: (chat: GroupChat, secret: SharedSecret, publicMask: string) => void;
+  onRevokeSharedSecret: (chat: GroupChat, secret: SharedSecret) => void;
+}) {
+  const [editingSecretId, setEditingSecretId] = useState<string | null>(null);
+  const [editingSecretMask, setEditingSecretMask] = useState('');
+  if (!items.length) {
+    return <Typography variant="caption" color="text.secondary">暂无角色之间的小秘密。秘密、暗号或只适合私下保存的共同经历会显示在这里。</Typography>;
+  }
+  return (
+    <Stack spacing={0.85}>
+      {items.slice(0, developerMode ? 10 : 6).map(({ chat, chatName, secret }) => {
+        const secretKey = `${chat.id}-${secret.id}`;
+        const participantNames = secret.participantIds
+          .filter((id) => id !== characterId)
+          .map((id) => resolveCharacterName(id))
+          .join(' × ');
+        const isEditing = editingSecretId === secretKey;
+        return (
+          <Box key={secretKey} sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.35 }}>
+                  <Chip size="small" label={secret.leakState === 'sealed' ? '保密中' : secret.leakState === 'hinted_publicly' ? '已暗示' : secret.leakState === 'confessed' ? '已坦白' : '已泄露'} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                  {secret.consequenceKind && secret.consequenceKind !== 'none' ? <Chip size="small" label={formatSharedSecretConsequenceLabel(secret.consequenceKind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} /> : null}
+                  {participantNames ? <Typography variant="caption" color="text.secondary">{participantNames}</Typography> : null}
+                  {developerMode ? (
+                    <>
+                      <Typography variant="caption" color="text.secondary">{chatName}</Typography>
+                      <Typography variant="caption" color="text.secondary">权重 {secret.emotionalWeight}</Typography>
+                    </>
+                  ) : null}
+                </Stack>
+                {isEditing ? (
+                  <TextField
+                    size="small"
+                    value={editingSecretMask}
+                    onChange={(event) => setEditingSecretMask(event.target.value)}
+                    fullWidth
+                    multiline
+                    minRows={1}
+                    maxRows={3}
+                    autoFocus
+                    placeholder="公开场合能看到的模糊说法"
+                  />
+                ) : (
+                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{secret.publicMask}</Typography>
+                )}
+                {developerMode ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                    参与者：{secret.participantIds.map((id) => resolveCharacterName(id)).join(' × ')}
+                  </Typography>
+                ) : null}
+              </Box>
+              {isEditing ? (
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    disabled={!editingSecretMask.trim() || editingSecretMask.trim() === secret.publicMask}
+                    onClick={() => {
+                      const nextMask = editingSecretMask.trim();
+                      if (!nextMask || nextMask === secret.publicMask) return;
+                      onUpdateSharedSecretMask(chat, secret, nextMask);
+                      setEditingSecretId(null);
+                      setEditingSecretMask('');
+                    }}
+                    sx={{ minWidth: 0 }}
+                  >
+                    保存
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => {
+                      setEditingSecretId(null);
+                      setEditingSecretMask('');
+                    }}
+                    sx={{ minWidth: 0 }}
+                  >
+                    取消
+                  </Button>
+                </Box>
+              ) : (
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => {
+                      setEditingSecretId(secretKey);
+                      setEditingSecretMask(secret.publicMask);
+                    }}
+                    sx={{ minWidth: 0 }}
+                  >
+                    修改描述
+                  </Button>
+                  <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(chat, secret)} sx={{ minWidth: 0 }}>
+                    撤回
                   </Button>
                 </Box>
               )}
@@ -3259,6 +3382,21 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       })
       .slice(0, 10);
   }, [character, chats, messageWindowsByChatId, messages]);
+  const roleSharedSecretItems = useMemo(() => {
+    if (!character.id || !character.personality || !character.memory) return [];
+    const seen = new Set<string>();
+    return recentByTime(chats.filter((chat) => chat.type !== 'direct' && chat.memberIds.includes(character.id || '')), 5)
+      .flatMap((chat) => buildSharedSecrets(character as AICharacter, chat.updatedAt || Date.now(), chat)
+        .filter((secret) => secret.participantIds.includes(character.id || '') && !secret.participantIds.includes('user'))
+        .map((secret) => ({ chat, chatName: chat.name || '群聊', secret })))
+      .filter((item) => {
+        const key = `${item.chat.id}:${item.secret.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 10);
+  }, [character, chats]);
   const sharedMemoryAnchors = useMemo(() => {
     if (!character.id || !character.personality || !character.memory) return [];
     const directChat = recentByTime(chats.filter((chat) => chat.type === 'direct' && chat.memberIds.includes(character.id || '')), 1)[0];
@@ -3370,6 +3508,21 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
           }}
           onSuppressSharedPhrase={(chat, phrase) => {
             void appendManualCompanionshipEvent(chat, buildManualSharedPhraseSuppressedEvent(chat, character as AICharacter, phrase));
+          }}
+        />
+      </SurfaceCard>
+      <SurfaceCard>
+        <SectionHeader title="角色小秘密" dense action={isDeveloperView ? <DebugChip /> : undefined} />
+        <RoleSharedSecretPanel
+          items={roleSharedSecretItems}
+          characterId={character.id || ''}
+          resolveCharacterName={resolveCharacterName}
+          developerMode={isDeveloperView}
+          onUpdateSharedSecretMask={(chat, secret, publicMask) => {
+            void appendManualCompanionshipEvent(chat, buildManualSharedSecretMaskEvent(chat, character as AICharacter, secret, publicMask));
+          }}
+          onRevokeSharedSecret={(chat, secret) => {
+            void appendManualCompanionshipEvent(chat, buildManualSharedSecretRevokedEvent(chat, character as AICharacter, secret));
           }}
         />
       </SurfaceCard>
