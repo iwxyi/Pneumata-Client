@@ -2494,6 +2494,64 @@ describe('companionshipProjection', () => {
     expect(trace?.sharedPhrases.join('\n')).not.toContain('慢慢来，我在');
   });
 
+  it('uses later shared phrase upserts to correct kind and visibility', () => {
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-original',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'phrase-slowly',
+          action: 'upsert',
+          text: '慢慢来，我在',
+          kind: 'inside_joke',
+          participantIds: ['char-a', 'user'],
+          visibility: 'public_hint',
+          firstSaidBy: 'char-a',
+          reason: '旧分类把这句话当成公开共同梗。',
+          evidence: '旧分类证据',
+          emotionalWeight: 72,
+          reuseCount: 1,
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-corrected',
+        createdAt: 1_200,
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'phrase-slowly',
+          action: 'upsert',
+          text: '慢慢来，我在',
+          kind: 'comfort_line',
+          participantIds: ['char-a', 'user'],
+          visibility: 'private',
+          firstSaidBy: 'char-a',
+          reason: '用户把这句话修正为私密安慰语。',
+          evidence: 'manual_shared_phrase_edit_from_character_relationship_tab',
+          emotionalWeight: 72,
+          reuseCount: 1,
+          confidence: 1,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+
+    const phrases = buildSharedPhrases(character(), 1_300, directChat, []);
+    const phrase = phrases.find((item) => item.id === 'phrase-slowly');
+
+    expect(phrase).toMatchObject({
+      text: '慢慢来，我在',
+      kind: 'comfort_line',
+      visibility: 'private',
+    });
+  });
+
   it('uses revoked shared anchor runtime events to suppress matching fallback anchors', () => {
     const anchorCharacter = character({
       layeredMemories: [{

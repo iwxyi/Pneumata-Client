@@ -910,11 +910,16 @@ function buildManualSharedPhraseSuppressedEvent(chat: GroupChat, character: AICh
   };
 }
 
-function buildManualSharedPhraseUpsertEvent(chat: GroupChat, character: AICharacter, phrase: SharedPhrase, text: string): RuntimeEventV2 {
+function buildManualSharedPhraseUpsertEvent(
+  chat: GroupChat,
+  character: AICharacter,
+  phrase: SharedPhrase,
+  patch: { text: string; kind: SharedPhrase['kind']; visibility: SharedPhrase['visibility'] },
+): RuntimeEventV2 {
   const now = Date.now();
-  const normalized = text.trim();
+  const normalized = patch.text.trim();
   return {
-    id: buildManualCompanionshipEventId([chat.id, character.id, phrase.id, normalized, 'shared-phrase-upsert']),
+    id: buildManualCompanionshipEventId([chat.id, character.id, phrase.id, normalized, patch.kind, patch.visibility, 'shared-phrase-upsert']),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
@@ -932,12 +937,12 @@ function buildManualSharedPhraseUpsertEvent(chat: GroupChat, character: AICharac
       phraseId: phrase.id,
       action: 'upsert',
       text: normalized,
-      kind: phrase.kind,
+      kind: patch.kind,
       participantIds: phrase.participantIds,
-      visibility: phrase.visibility,
+      visibility: patch.visibility,
       firstSaidBy: phrase.firstSaidBy,
       reason: '用户在角色关系页手动修正该共同话语。',
-      evidence: `manual_shared_phrase_edit_from_character_relationship_tab: ${phrase.text} -> ${normalized}`,
+      evidence: `manual_shared_phrase_edit_from_character_relationship_tab: ${phrase.text}/${phrase.kind}/${phrase.visibility} -> ${normalized}/${patch.kind}/${patch.visibility}`,
       emotionalWeight: phrase.emotionalWeight,
       reuseCount: phrase.reuseCount,
       confidence: 1,
@@ -1615,7 +1620,7 @@ function UserCompanionshipCard({
   onRevokeSharedSecret: (secret: SharedSecret) => void;
   onUpdateSharedSecretMask: (secret: SharedSecret, publicMask: string) => void;
   onCorrectSharedSecretConsequence: (secret: SharedSecret, consequenceKind: NonNullable<SharedSecret['consequenceKind']>) => void;
-  onUpdateSharedPhrase: (phrase: SharedPhrase, text: string) => void;
+  onUpdateSharedPhrase: (phrase: SharedPhrase, patch: { text: string; kind: SharedPhrase['kind']; visibility: SharedPhrase['visibility'] }) => void;
   onSuppressSharedPhrase: (phrase: SharedPhrase) => void;
   onSuppressRitual: (ritual: RitualRegistryEntry) => void;
   onRestoreRitual: (ritual: RitualRegistryEntry) => void;
@@ -1625,6 +1630,8 @@ function UserCompanionshipCard({
 }) {
   const [editingPhraseId, setEditingPhraseId] = useState<string | null>(null);
   const [editingPhraseText, setEditingPhraseText] = useState('');
+  const [editingPhraseKind, setEditingPhraseKind] = useState<SharedPhrase['kind']>('other');
+  const [editingPhraseVisibility, setEditingPhraseVisibility] = useState<SharedPhrase['visibility']>('between_actors');
   const [editingAddressAction, setEditingAddressAction] = useState<ManualAddressingSetAction | null>(null);
   const [editingAddressText, setEditingAddressText] = useState('');
   const [editingProfileCueKey, setEditingProfileCueKey] = useState<string | null>(null);
@@ -2006,17 +2013,47 @@ function UserCompanionshipCard({
                       ) : null}
                     </Stack>
                     {editingPhraseId === phrase.id ? (
-                      <TextField
-                        size="small"
-                        value={editingPhraseText}
-                        onChange={(event) => setEditingPhraseText(event.target.value)}
-                        fullWidth
-                        multiline
-                        minRows={1}
-                        maxRows={3}
-                        autoFocus
-                        placeholder="改成更合适的话"
-                      />
+                      <Stack spacing={0.75}>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                          <TextField
+                            select
+                            size="small"
+                            label="类型"
+                            value={editingPhraseKind}
+                            onChange={(event) => setEditingPhraseKind(event.target.value as SharedPhrase['kind'])}
+                            slotProps={{ select: { native: true } }}
+                            sx={{ minWidth: { sm: 116 } }}
+                          >
+                            {(['pet_name', 'inside_joke', 'promise_line', 'comfort_line', 'confession_line', 'secret_code', 'other'] as SharedPhrase['kind'][]).map((kind) => (
+                              <option key={kind} value={kind}>{formatSharedPhraseKindLabel(kind)}</option>
+                            ))}
+                          </TextField>
+                          <TextField
+                            select
+                            size="small"
+                            label="可见性"
+                            value={editingPhraseVisibility}
+                            onChange={(event) => setEditingPhraseVisibility(event.target.value as SharedPhrase['visibility'])}
+                            slotProps={{ select: { native: true } }}
+                            sx={{ minWidth: { sm: 124 } }}
+                          >
+                            {(['private', 'between_actors', 'public_hint'] as SharedPhrase['visibility'][]).map((visibility) => (
+                              <option key={visibility} value={visibility}>{formatSharedPhraseVisibilityLabel(visibility)}</option>
+                            ))}
+                          </TextField>
+                        </Stack>
+                        <TextField
+                          size="small"
+                          value={editingPhraseText}
+                          onChange={(event) => setEditingPhraseText(event.target.value)}
+                          fullWidth
+                          multiline
+                          minRows={1}
+                          maxRows={3}
+                          autoFocus
+                          placeholder="改成更合适的话"
+                        />
+                      </Stack>
                     ) : (
                       <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>「{phrase.text}」</Typography>
                     )}
@@ -2031,11 +2068,12 @@ function UserCompanionshipCard({
                       <Button
                         size="small"
                         variant="text"
-                        disabled={!editingPhraseText.trim() || editingPhraseText.trim() === phrase.text}
+                        disabled={!editingPhraseText.trim() || (editingPhraseText.trim() === phrase.text && editingPhraseKind === phrase.kind && editingPhraseVisibility === phrase.visibility)}
                         onClick={() => {
                           const nextText = editingPhraseText.trim();
-                          if (!nextText || nextText === phrase.text) return;
-                          onUpdateSharedPhrase(phrase, nextText);
+                          if (!nextText) return;
+                          if (nextText === phrase.text && editingPhraseKind === phrase.kind && editingPhraseVisibility === phrase.visibility) return;
+                          onUpdateSharedPhrase(phrase, { text: nextText, kind: editingPhraseKind, visibility: editingPhraseVisibility });
                           setEditingPhraseId(null);
                           setEditingPhraseText('');
                         }}
@@ -2049,6 +2087,8 @@ function UserCompanionshipCard({
                         onClick={() => {
                           setEditingPhraseId(null);
                           setEditingPhraseText('');
+                          setEditingPhraseKind('other');
+                          setEditingPhraseVisibility('between_actors');
                         }}
                         sx={{ minWidth: 0 }}
                       >
@@ -2063,6 +2103,8 @@ function UserCompanionshipCard({
                         onClick={() => {
                           setEditingPhraseId(phrase.id);
                           setEditingPhraseText(phrase.text);
+                          setEditingPhraseKind(phrase.kind);
+                          setEditingPhraseVisibility(phrase.visibility);
                         }}
                         sx={{ minWidth: 0 }}
                       >
@@ -2953,8 +2995,8 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 onCorrectSharedSecretConsequence={(secret, consequenceKind) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretConsequenceEvent(view.chat, character as AICharacter, secret, consequenceKind));
                 }}
-                onUpdateSharedPhrase={(phrase, text) => {
-                  void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseUpsertEvent(view.chat, character as AICharacter, phrase, text));
+                onUpdateSharedPhrase={(phrase, patch) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseUpsertEvent(view.chat, character as AICharacter, phrase, patch));
                 }}
                 onSuppressSharedPhrase={(phrase) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseSuppressedEvent(view.chat, character as AICharacter, phrase));
