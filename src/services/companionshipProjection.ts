@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import { DEFAULT_PERSONALITY } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, UserProfileMemoryHistoryEntry, AddressingHistoryEntry, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, UserProfileMemoryHistoryEntry, AddressingHistoryEntry, CareTopicHistoryEntry, PromiseHistoryEntry, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipCareTopicEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -1093,6 +1093,41 @@ function applyCareTopicLifecycle(topics: PendingCareTopic[], profile: UserProfil
     .slice(0, 4);
 }
 
+function careTopicPayloadOf(event: RuntimeEventV2): CompanionshipCareTopicEventPayload | null {
+  const payload = event.payload as Partial<CompanionshipCareTopicEventPayload> | undefined;
+  if (!payload || payload.eventType !== 'companionship_care_topic' || !payload.characterId || !payload.topicId || !payload.topicText || !payload.action) return null;
+  return payload as CompanionshipCareTopicEventPayload;
+}
+
+function buildCareTopicHistory(chat: GroupChat, characterId: string): CareTopicHistoryEntry[] {
+  return (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .map((event): CareTopicHistoryEntry | null => {
+      const payload = careTopicPayloadOf(event);
+      if (!payload || payload.characterId !== characterId) return null;
+      if ((payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return null;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return null;
+      return {
+        id: event.id,
+        topicId: payload.topicId,
+        topicText: compactText(payload.topicText, 140),
+        action: payload.action,
+        urgency: payload.urgency || 'medium',
+        reason: compactText(payload.reason || event.summary, 140),
+        evidence: [payload.evidence, payload.reason, event.summary].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 4) as string[],
+        dueAt: payload.dueAt,
+        decisionSource: payload.decisionSource,
+        confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
+        occurredAt: event.createdAt || 0,
+      };
+    })
+    .filter((item): item is CareTopicHistoryEntry => Boolean(item))
+    .sort((a, b) => b.occurredAt - a.occurredAt)
+    .slice(0, 10);
+}
+
 function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: UserProfileMemoryProjection, messages: Message[], now: number, suppressedPromiseKeys?: Set<string>): PendingCareTopic[] {
   const runtimeTopics = readActiveCompanionshipCareTopicsFromEvents(chat, characterId, now);
   const diaryReflectionTopics = (chat.runtimeEventsV2 || [])
@@ -1791,6 +1826,39 @@ function promisePayloadOf(event: RuntimeEventV2): CompanionshipPromiseEventPaylo
   const payload = event.payload as Partial<CompanionshipPromiseEventPayload> | undefined;
   if (!payload || payload.eventType !== 'companionship_promise' || !payload.characterId || !payload.promiseId || !payload.promiseText || !payload.action) return null;
   return payload as CompanionshipPromiseEventPayload;
+}
+
+function buildPromiseHistory(chat: GroupChat, characterId: string): PromiseHistoryEntry[] {
+  return (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .map((event): PromiseHistoryEntry | null => {
+      const payload = promisePayloadOf(event);
+      if (!payload || payload.characterId !== characterId) return null;
+      if ((payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return null;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return null;
+      const text = compactText(payload.promiseText, 140);
+      return {
+        id: event.id,
+        promiseId: payload.promiseId,
+        promiseText: text,
+        action: payload.action,
+        promiseKind: payload.promiseKind || inferPromiseKind(`${text}\n${payload.evidence || payload.reason || ''}`),
+        participantIds: payload.participantIds?.length ? payload.participantIds : [characterId, USER_ACTOR_ID],
+        supersedesText: payload.supersedesText ? compactText(payload.supersedesText, 140) : undefined,
+        lifecycleEvidence: (payload.lifecycleEvidence || []).map((item) => compactText(item, 120)).slice(0, 4),
+        reason: compactText(payload.reason || event.summary, 140),
+        evidence: [payload.evidence, payload.reason, event.summary, ...(payload.lifecycleEvidence || [])].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 5) as string[],
+        dueAt: payload.dueAt,
+        decisionSource: payload.decisionSource,
+        confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
+        occurredAt: event.createdAt || 0,
+      };
+    })
+    .filter((item): item is PromiseHistoryEntry => Boolean(item))
+    .sort((a, b) => b.occurredAt - a.occurredAt)
+    .slice(0, 10);
 }
 
 function buildPromiseIntimacyConsequences(chat: GroupChat, characterId: string, now: number) {
@@ -3683,6 +3751,8 @@ export function buildCompanionshipRuntimeTrace(params: {
   const phaseHistory = buildPhaseHistory(params.chat, params.character.id);
   const userProfileHistory = buildUserProfileMemoryHistory(params.chat, params.character.id);
   const addressingHistory = buildAddressingHistory(params.chat, params.character.id);
+  const careTopicHistory = buildCareTopicHistory(params.chat, params.character.id);
+  const promiseHistory = buildPromiseHistory(params.chat, params.character.id);
   const conflictHistory = buildIntimateConflictHistory(params.chat, params.character.id);
   const attachmentHistory = buildAttachmentProfileHistory(params.chat, params.character.id);
   return {
@@ -3710,6 +3780,8 @@ export function buildCompanionshipRuntimeTrace(params: {
     boundaryReasons: carePolicy.boundaryReasons.slice(0, 4),
     userProfileCues: profile.cues.slice(0, 6),
     addressingHistory,
+    careTopicHistory,
+    promiseHistory,
     carePolicy: {
       dailyInitiationBudget: carePolicy.dailyInitiationBudget,
       triggerSensitivity: carePolicy.triggerSensitivity,

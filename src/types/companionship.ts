@@ -302,6 +302,37 @@ export interface CompanionshipPromiseEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CareTopicHistoryEntry {
+  id: string;
+  topicId: string;
+  topicText: string;
+  action: CompanionshipCareTopicEventPayload['action'];
+  urgency: PendingCareTopic['urgency'];
+  reason?: string;
+  evidence: string[];
+  dueAt?: number;
+  decisionSource?: 'model' | 'local_fallback';
+  confidence?: number;
+  occurredAt: number;
+}
+
+export interface PromiseHistoryEntry {
+  id: string;
+  promiseId: string;
+  promiseText: string;
+  action: CompanionshipPromiseEventPayload['action'];
+  promiseKind?: PendingPromise['kind'];
+  participantIds: string[];
+  supersedesText?: string;
+  lifecycleEvidence: string[];
+  reason?: string;
+  evidence: string[];
+  dueAt?: number;
+  decisionSource?: 'model' | 'local_fallback';
+  confidence?: number;
+  occurredAt: number;
+}
+
 export interface CompanionshipRitualEventPayload {
   eventType: 'companionship_ritual';
   characterId: string;
@@ -558,6 +589,8 @@ export interface CompanionshipRuntimeTrace {
   boundaryReasons: string[];
   userProfileCues: UserProfileMemoryEventItem[];
   addressingHistory: AddressingHistoryEntry[];
+  careTopicHistory: CareTopicHistoryEntry[];
+  promiseHistory: PromiseHistoryEntry[];
   carePolicy: Pick<CarePolicy, 'dailyInitiationBudget' | 'triggerSensitivity' | 'silenceAnxietyThresholdHours' | 'expressionIntensity' | 'allowGoodMorning' | 'allowGoodNight' | 'allowMissYou'>;
   attachmentProfile?: UserAttachmentProfile;
   phaseHistory: PhaseHistoryEntry[];

@@ -615,6 +615,27 @@ function formatAddressingActionLabel(action: 'update' | 'set_current' | 'set_pri
   return labels[action] || action;
 }
 
+function formatCareTopicActionLabel(action: 'opened' | 'closed' | 'blocked' | 'stale') {
+  const labels: Record<typeof action, string> = {
+    opened: '打开',
+    closed: '已结束',
+    blocked: '关闭追踪',
+    stale: '过期',
+  };
+  return labels[action] || action;
+}
+
+function formatPromiseActionLabel(action: 'opened' | 'fulfilled' | 'blocked' | 'stale' | 'revoked') {
+  const labels: Record<typeof action, string> = {
+    opened: '打开/修正',
+    fulfilled: '已完成',
+    blocked: '落空/不提醒',
+    stale: '过期',
+    revoked: '关闭追踪',
+  };
+  return labels[action] || action;
+}
+
 const INTERACTION_PACE_OPTIONS: Array<{
   label: string;
   description: string;
@@ -2239,6 +2260,8 @@ function CompanionshipDeveloperTracePanel({
   const phaseHistory = trace.phaseHistory.slice(0, 6);
   const userProfileHistory = trace.userProfileHistory.slice(0, 6);
   const addressingHistory = trace.addressingHistory.slice(0, 6);
+  const careTopicHistory = trace.careTopicHistory.slice(0, 6);
+  const promiseHistory = trace.promiseHistory.slice(0, 6);
   const conflictHistory = trace.conflictHistory.slice(0, 6);
   const attachmentHistory = trace.attachmentHistory.slice(0, 6);
   return (
@@ -2393,6 +2416,63 @@ function CompanionshipDeveloperTracePanel({
               约定：{trace.pendingPromises.join(' / ')}
             </Typography>
           ) : null}
+        </Box>
+      ) : null}
+      {careTopicHistory.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>关心历史</Typography>
+          <Stack spacing={0.5}>
+            {careTopicHistory.map((item) => (
+              <Box key={item.id} sx={{ p: 0.75, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatCareTopicActionLabel(item.action)} · {item.urgency} · {new Date(item.occurredAt).toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {[item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : '', item.dueAt ? `到期 ${new Date(item.dueAt).toLocaleString()}` : ''].filter(Boolean).join(' · ')}
+                  </Typography>
+                </Box>
+                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{item.topicText}</Typography>
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.evidence.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
+                    证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      ) : null}
+      {promiseHistory.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>约定历史</Typography>
+          <Stack spacing={0.5}>
+            {promiseHistory.map((item) => (
+              <Box key={item.id} sx={{ p: 0.75, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatPromiseActionLabel(item.action)} · {item.promiseKind ? formatPendingPromiseKind(item.promiseKind) : '约定'} · {new Date(item.occurredAt).toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {[item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : '', item.dueAt ? `到期 ${new Date(item.dueAt).toLocaleString()}` : ''].filter(Boolean).join(' · ')}
+                  </Typography>
+                </Box>
+                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{item.promiseText}</Typography>
+                {item.supersedesText ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                    替换旧约定：{item.supersedesText}
+                  </Typography>
+                ) : null}
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.evidence.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
+                    证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+              </Box>
+            ))}
+          </Stack>
         </Box>
       ) : null}
       {trace.attachmentProfile ? (

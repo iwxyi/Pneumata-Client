@@ -1350,6 +1350,16 @@ describe('companionshipProjection', () => {
       status: 'active',
     });
     expect(openProjection.promptLines.join('\n')).toContain('Pending care topics');
+    const openTrace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], opened),
+      character: character(),
+      messages: [],
+      now: 300,
+    });
+    expect(openTrace?.careTopicHistory[0]).toMatchObject({
+      action: 'opened',
+      topicText: '明天面试有点紧张。',
+    });
 
     const closed = buildCompanionshipCareTopicEventsFromDirectUserMessage({
       chat: chat('direct', [], opened),
@@ -1365,6 +1375,13 @@ describe('companionshipProjection', () => {
 
     expect(closedProjection.userBond?.pendingCareTopics).toEqual([]);
     expect(closedProjection.promptLines.join('\n')).not.toContain('Pending care topics');
+    const closedTrace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [...opened, ...closed]),
+      character: character(),
+      messages: [],
+      now: 500,
+    });
+    expect(closedTrace?.careTopicHistory.map((item) => item.action)).toEqual(['closed', 'opened']);
   });
 
   it('uses blocked care topic runtime events to suppress matching recent-message fallback topics', () => {
@@ -1601,6 +1618,12 @@ describe('companionshipProjection', () => {
     });
     expect(projection.promptLines.join('\n')).toContain('周末一起看那部电影');
     expect(trace?.pendingPromises.join('\n')).toContain('周末一起看那部电影');
+    expect(trace?.promiseHistory[0]).toMatchObject({
+      id: 'evt-promise-1',
+      action: 'opened',
+      promiseText: '周末一起看那部电影',
+      promiseKind: 'shared_activity',
+    });
   });
 
   it('reads diary reflection backflow as pending promises and shared anchors', () => {

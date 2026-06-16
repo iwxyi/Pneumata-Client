@@ -154,6 +154,8 @@ describe('messageRuntimeClues', () => {
               allowMissYou: true,
             },
             addressingHistory: [],
+            careTopicHistory: [],
+            promiseHistory: [],
             phaseHistory: [],
             userProfileHistory: [],
             conflictHistory: [],
