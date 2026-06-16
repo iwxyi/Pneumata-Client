@@ -1728,6 +1728,38 @@ function UserCompanionshipCard({
             </Box>
           </Box>
         ) : null}
+        {trace ? (
+          <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>
+              关系状态
+            </Typography>
+            <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={onRevokePhase}
+                sx={{ borderRadius: 999, minWidth: 0, px: 1.1 }}
+              >
+                自动判断
+              </Button>
+              {PHASE_CORRECTION_OPTIONS.map((option) => {
+                const selected = isSameCompanionshipPhaseCorrection(trace, option);
+                return (
+                  <Button
+                    key={`public-${option.phase}-${option.style}`}
+                    size="small"
+                    variant={selected ? 'contained' : 'outlined'}
+                    disabled={selected}
+                    onClick={() => onCorrectPhase(option.phase, option.style)}
+                    sx={{ borderRadius: 999, minWidth: 0, px: 1.1 }}
+                  >
+                    {option.label}
+                  </Button>
+                );
+              })}
+            </Stack>
+          </Box>
+        ) : null}
         {signature.unsentDraft || signature.offlineTrace || signature.onlineReturn ? (
           <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35 }}>
