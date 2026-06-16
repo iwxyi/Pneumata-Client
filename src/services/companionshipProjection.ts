@@ -3053,7 +3053,7 @@ function ritualEventPayloadOf(event: RuntimeEventV2): CompanionshipRitualEventPa
   const payload = event.payload as Record<string, unknown> | undefined;
   if (!payload || payload.eventType !== 'companionship_ritual') return null;
   const action = payload.action;
-  if (action !== 'performed' && action !== 'suppressed' && action !== 'skipped' && action !== 'restored') return null;
+  if (action !== 'performed' && action !== 'suppressed' && action !== 'skipped' && action !== 'restored' && action !== 'updated') return null;
   const kind = payload.kind;
   if (
     kind !== 'daily_greeting'
@@ -3102,7 +3102,7 @@ function buildRitualEventState(chat: GroupChat | undefined, characterId: string)
     state.set(payload.ritualId, {
       lastPerformedAt: payload.action === 'performed' ? createdAt : previous?.lastPerformedAt,
       suppressedReason: payload.action === 'suppressed' ? compactText(payload.reason || payload.evidence || 'ritual suppressed', 120) : undefined,
-      nextAvailableAt: payload.nextAvailableAt,
+      nextAvailableAt: payload.action === 'updated' ? previous?.nextAvailableAt : payload.nextAvailableAt,
       content: payload.content || previous?.content,
       evolution: payload.evolution?.length ? payload.evolution : previous?.evolution,
       updatedAt: createdAt,

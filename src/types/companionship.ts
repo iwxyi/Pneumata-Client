@@ -243,7 +243,7 @@ export interface CompanionshipRitualEventPayload {
   userId?: string;
   ritualId: string;
   kind: RitualRegistryEntry['kind'];
-  action: 'performed' | 'suppressed' | 'skipped' | 'restored';
+  action: 'performed' | 'suppressed' | 'skipped' | 'restored' | 'updated';
   participantIds: string[];
   content?: string;
   evolution?: string[];

@@ -4578,6 +4578,39 @@ describe('companionshipProjection', () => {
     expect(greeting?.evolution).toContain('从普通晚安变成睡前轻轻确认状态。');
   });
 
+  it('uses updated ritual events to edit content without marking the ritual performed', () => {
+    const rituals = buildRitualRegistry({
+      character: character(),
+      chat: chat('direct', [], [ritualEvent({
+        id: 'evt-ritual-updated',
+        createdAt: 1_200,
+        payload: {
+          eventType: 'companionship_ritual',
+          characterId: 'char-a',
+          userId: 'user',
+          ritualId: 'ritual-char-a-daily-greeting',
+          kind: 'daily_greeting',
+          action: 'updated',
+          participantIds: ['char-a', 'user'],
+          content: '晚安时只轻轻问一句今天要不要早点休息，不要机械打卡。',
+          evolution: ['用户手动修正了问候方式。'],
+          confidence: 1,
+        },
+      })]),
+      messages: [],
+      now: 1_300,
+    });
+
+    const greeting = rituals.find((ritual) => ritual.id === 'ritual-char-a-daily-greeting');
+    expect(greeting).toMatchObject({
+      content: '晚安时只轻轻问一句今天要不要早点休息，不要机械打卡。',
+      executionState: 'available',
+    });
+    expect(greeting?.lastPerformedAt).toBeUndefined();
+    expect(greeting?.nextAvailableAt).toBeUndefined();
+    expect(greeting?.evolution).toContain('用户手动修正了问候方式。');
+  });
+
   it('reads ritual execution events into cooldown state and debug trace', () => {
     const ritualChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [ritualEvent()]);
     const ritualCharacter = character({

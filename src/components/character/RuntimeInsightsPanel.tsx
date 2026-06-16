@@ -1035,6 +1035,38 @@ function buildManualRitualActionEvent(chat: GroupChat, character: AICharacter, r
   };
 }
 
+function buildManualRitualUpdateEvent(chat: GroupChat, character: AICharacter, ritual: RitualRegistryEntry, content: string): RuntimeEventV2 {
+  const now = Date.now();
+  const normalized = clipRuntimeText(content, 180);
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, ritual.id, normalized, 'ritual-updated']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户修正了一个关系仪式`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_ritual',
+      characterId: character.id,
+      userId: ritual.participantIds.includes('user') ? 'user' : undefined,
+      ritualId: ritual.id,
+      kind: ritual.kind,
+      action: 'updated',
+      participantIds: ritual.participantIds,
+      content: normalized,
+      evolution: [...(ritual.evolution || []), `用户修正：${normalized}`].slice(-6),
+      reason: '用户在角色关系页手动修正关系仪式内容。',
+      evidence: `manual_ritual_update_from_character_relationship_tab: ${ritual.content} -> ${normalized}`,
+      confidence: 1,
+    },
+  };
+}
+
 function buildManualPhaseCorrectionEvent(chat: GroupChat, character: AICharacter, phase: CompanionshipPhase, style: CompanionshipStyle): RuntimeEventV2 {
   const now = Date.now();
   return {
@@ -1646,6 +1678,7 @@ function UserCompanionshipCard({
   onKeepSharedSecretPairPrivate,
   onUpdateSharedPhrase,
   onSuppressSharedPhrase,
+  onUpdateRitual,
   onSuppressRitual,
   onRestoreRitual,
   onCorrectPhase,
@@ -1681,6 +1714,7 @@ function UserCompanionshipCard({
   onKeepSharedSecretPairPrivate: (secret: SharedSecret) => void;
   onUpdateSharedPhrase: (phrase: SharedPhrase, patch: { text: string; kind: SharedPhrase['kind']; visibility: SharedPhrase['visibility'] }) => void;
   onSuppressSharedPhrase: (phrase: SharedPhrase) => void;
+  onUpdateRitual: (ritual: RitualRegistryEntry, content: string) => void;
   onSuppressRitual: (ritual: RitualRegistryEntry) => void;
   onRestoreRitual: (ritual: RitualRegistryEntry) => void;
   onCorrectPhase: (phase: CompanionshipPhase, style: CompanionshipStyle) => void;
@@ -1702,6 +1736,8 @@ function UserCompanionshipCard({
   const [editingPromiseKind, setEditingPromiseKind] = useState<PendingPromise['kind']>('other');
   const [editingSecretId, setEditingSecretId] = useState<string | null>(null);
   const [editingSecretMask, setEditingSecretMask] = useState('');
+  const [editingRitualId, setEditingRitualId] = useState<string | null>(null);
+  const [editingRitualContent, setEditingRitualContent] = useState('');
   const headlineChips = [
     trace ? formatCompanionshipPhaseLabel(trace.phase) : '',
     trace ? formatCompanionshipStyleLabel(trace.style) : '',
@@ -2504,21 +2540,80 @@ function UserCompanionshipCard({
                       </Typography>
                       {developerMode && ritual.nextAvailableAt ? <Typography variant="caption" color="text.secondary">下次 {new Date(ritual.nextAvailableAt).toLocaleString()}</Typography> : null}
                     </Stack>
-                    <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{ritual.content}</Typography>
+                    {editingRitualId === ritual.id ? (
+                      <TextField
+                        size="small"
+                        value={editingRitualContent}
+                        onChange={(event) => setEditingRitualContent(event.target.value)}
+                        fullWidth
+                        multiline
+                        minRows={1}
+                        maxRows={3}
+                        autoFocus
+                        slotProps={{ htmlInput: { maxLength: 180 } }}
+                        sx={{ mt: 0.5 }}
+                      />
+                    ) : (
+                      <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{ritual.content}</Typography>
+                    )}
                     {developerMode && ritual.boundaryReasons.length ? (
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
                         边界：{ritual.boundaryReasons.slice(0, 2).join(' / ')}
                       </Typography>
                     ) : null}
                   </Box>
-                  {ritual.executionState === 'suppressed' ? (
-                    <Button size="small" variant="text" onClick={() => onRestoreRitual(ritual)} sx={{ flexShrink: 0 }}>
-                      恢复使用
-                    </Button>
+                  {editingRitualId === ritual.id ? (
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                      <Button
+                        size="small"
+                        variant="text"
+                        disabled={!editingRitualContent.trim() || editingRitualContent.trim() === ritual.content}
+                        onClick={() => {
+                          const nextContent = editingRitualContent.trim();
+                          if (!nextContent || nextContent === ritual.content) return;
+                          onUpdateRitual(ritual, nextContent);
+                          setEditingRitualId(null);
+                          setEditingRitualContent('');
+                        }}
+                        sx={{ minWidth: 0 }}
+                      >
+                        保存
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => {
+                          setEditingRitualId(null);
+                          setEditingRitualContent('');
+                        }}
+                        sx={{ minWidth: 0 }}
+                      >
+                        取消
+                      </Button>
+                    </Box>
                   ) : (
-                    <Button size="small" variant="text" onClick={() => onSuppressRitual(ritual)} sx={{ flexShrink: 0 }}>
-                      不再使用
-                    </Button>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => {
+                          setEditingRitualId(ritual.id);
+                          setEditingRitualContent(ritual.content);
+                        }}
+                        sx={{ minWidth: 0 }}
+                      >
+                        修改
+                      </Button>
+                      {ritual.executionState === 'suppressed' ? (
+                        <Button size="small" variant="text" onClick={() => onRestoreRitual(ritual)} sx={{ minWidth: 0 }}>
+                          恢复使用
+                        </Button>
+                      ) : (
+                        <Button size="small" variant="text" onClick={() => onSuppressRitual(ritual)} sx={{ minWidth: 0 }}>
+                          不再使用
+                        </Button>
+                      )}
+                    </Box>
                   )}
                 </Box>
               ))}
@@ -3093,6 +3188,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onSuppressSharedPhrase={(phrase) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseSuppressedEvent(view.chat, character as AICharacter, phrase));
+                }}
+                onUpdateRitual={(ritual, content) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualRitualUpdateEvent(view.chat, character as AICharacter, ritual, content));
                 }}
                 onSuppressRitual={(ritual) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualRitualActionEvent(view.chat, character as AICharacter, ritual, 'suppressed'));
