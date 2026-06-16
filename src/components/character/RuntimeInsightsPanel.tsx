@@ -963,22 +963,23 @@ function buildManualSharedSecretPairPrivateEvent(chat: GroupChat, character: AIC
 
 function buildManualSharedPhraseSuppressedEvent(chat: GroupChat, character: AICharacter, phrase: SharedPhrase): RuntimeEventV2 {
   const now = Date.now();
+  const includesUser = phrase.participantIds.includes('user');
   return {
     id: buildManualCompanionshipEventId([chat.id, character.id, phrase.id, 'shared-phrase-suppressed']),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
-    targetIds: [character.id],
+    targetIds: phrase.participantIds,
     summary: `${character.name} 记录用户抑制了一句共同话语`,
-    channelId: 'pair-private',
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
     eventClass: 'artifact',
-    visibility: 'pair_private',
-    visibleToIds: ['user', character.id],
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: phrase.participantIds,
     payload: {
       eventType: 'companionship_shared_phrase',
       characterId: character.id,
-      userId: phrase.participantIds.includes('user') ? 'user' : undefined,
+      userId: includesUser ? 'user' : undefined,
       phraseId: phrase.id,
       action: 'suppressed',
       text: phrase.text,
@@ -1003,22 +1004,23 @@ function buildManualSharedPhraseUpsertEvent(
 ): RuntimeEventV2 {
   const now = Date.now();
   const normalized = patch.text.trim();
+  const includesUser = phrase.participantIds.includes('user');
   return {
     id: buildManualCompanionshipEventId([chat.id, character.id, phrase.id, normalized, patch.kind, patch.visibility, 'shared-phrase-upsert']),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
-    targetIds: [character.id],
+    targetIds: phrase.participantIds,
     summary: `${character.name} 记录用户修正了一句共同话语`,
-    channelId: 'pair-private',
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
     eventClass: 'artifact',
-    visibility: 'pair_private',
-    visibleToIds: ['user', character.id],
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: phrase.participantIds,
     payload: {
       eventType: 'companionship_shared_phrase',
       characterId: character.id,
-      userId: phrase.participantIds.includes('user') ? 'user' : undefined,
+      userId: includesUser ? 'user' : undefined,
       phraseId: phrase.id,
       action: 'upsert',
       text: normalized,
@@ -1491,6 +1493,162 @@ function CharacterCompanionshipPanel({
       })}
     </Stack>
   ) : <Typography variant="caption" color="text.secondary">暂无可投影的角色陪伴关系。关系积累到一定强度后，这里会显示护短、默契、搭档感或带刺关心。</Typography>;
+}
+
+function RoleSharedPhrasePanel({
+  items,
+  characterId,
+  resolveCharacterName,
+  developerMode,
+  onUpdateSharedPhrase,
+  onSuppressSharedPhrase,
+}: {
+  items: Array<{ chat: GroupChat; chatName: string; phrase: SharedPhrase }>;
+  characterId: string;
+  resolveCharacterName: (id: string, fallback?: string) => string;
+  developerMode: boolean;
+  onUpdateSharedPhrase: (chat: GroupChat, phrase: SharedPhrase, patch: { text: string; kind: SharedPhrase['kind']; visibility: SharedPhrase['visibility'] }) => void;
+  onSuppressSharedPhrase: (chat: GroupChat, phrase: SharedPhrase) => void;
+}) {
+  const [editingPhraseId, setEditingPhraseId] = useState<string | null>(null);
+  const [editingPhraseText, setEditingPhraseText] = useState('');
+  const [editingPhraseKind, setEditingPhraseKind] = useState<SharedPhrase['kind']>('other');
+  const [editingPhraseVisibility, setEditingPhraseVisibility] = useState<SharedPhrase['visibility']>('between_actors');
+  if (!items.length) {
+    return <Typography variant="caption" color="text.secondary">暂无角色之间的共同话语。群聊记忆沉淀出共同梗、暗号或约定原话后会显示在这里。</Typography>;
+  }
+  return (
+    <Stack spacing={0.85}>
+      {items.slice(0, developerMode ? 10 : 6).map(({ chat, chatName, phrase }) => {
+        const phraseKey = `${chat.id}-${phrase.id}`;
+        const participantNames = phrase.participantIds
+          .filter((id) => id !== characterId)
+          .map((id) => resolveCharacterName(id))
+          .join(' × ');
+        const isEditing = editingPhraseId === phraseKey;
+        return (
+          <Box key={phraseKey} sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.35 }}>
+                  <Chip size="small" label={formatSharedPhraseKindLabel(phrase.kind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                  {participantNames ? <Typography variant="caption" color="text.secondary">{participantNames}</Typography> : null}
+                  {developerMode ? (
+                    <>
+                      <Typography variant="caption" color="text.secondary">{chatName}</Typography>
+                      <Typography variant="caption" color="text.secondary">{formatSharedPhraseVisibilityLabel(phrase.visibility)}</Typography>
+                      {phrase.reuseCount > 1 ? <Typography variant="caption" color="text.secondary">复用 {phrase.reuseCount}</Typography> : null}
+                    </>
+                  ) : null}
+                </Stack>
+                {isEditing ? (
+                  <Stack spacing={0.75}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                      <TextField
+                        select
+                        size="small"
+                        label="类型"
+                        value={editingPhraseKind}
+                        onChange={(event) => setEditingPhraseKind(event.target.value as SharedPhrase['kind'])}
+                        slotProps={{ select: { native: true } }}
+                        sx={{ minWidth: { sm: 116 } }}
+                      >
+                        {(['pet_name', 'inside_joke', 'promise_line', 'comfort_line', 'confession_line', 'secret_code', 'other'] as SharedPhrase['kind'][]).map((kind) => (
+                          <option key={kind} value={kind}>{formatSharedPhraseKindLabel(kind)}</option>
+                        ))}
+                      </TextField>
+                      <TextField
+                        select
+                        size="small"
+                        label="可见性"
+                        value={editingPhraseVisibility}
+                        onChange={(event) => setEditingPhraseVisibility(event.target.value as SharedPhrase['visibility'])}
+                        slotProps={{ select: { native: true } }}
+                        sx={{ minWidth: { sm: 124 } }}
+                      >
+                        {(['private', 'between_actors', 'public_hint'] as SharedPhrase['visibility'][]).map((visibility) => (
+                          <option key={visibility} value={visibility}>{formatSharedPhraseVisibilityLabel(visibility)}</option>
+                        ))}
+                      </TextField>
+                    </Stack>
+                    <TextField
+                      size="small"
+                      value={editingPhraseText}
+                      onChange={(event) => setEditingPhraseText(event.target.value)}
+                      fullWidth
+                      multiline
+                      minRows={1}
+                      maxRows={3}
+                      autoFocus
+                      placeholder="改成更合适的话"
+                    />
+                  </Stack>
+                ) : (
+                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>「{phrase.text}」</Typography>
+                )}
+                {developerMode && phrase.evidence ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word', mt: 0.25 }}>
+                    证据：{clipRuntimeText(phrase.evidence, 96)}
+                  </Typography>
+                ) : null}
+              </Box>
+              {isEditing ? (
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    disabled={!editingPhraseText.trim() || (editingPhraseText.trim() === phrase.text && editingPhraseKind === phrase.kind && editingPhraseVisibility === phrase.visibility)}
+                    onClick={() => {
+                      const nextText = editingPhraseText.trim();
+                      if (!nextText) return;
+                      onUpdateSharedPhrase(chat, phrase, { text: nextText, kind: editingPhraseKind, visibility: editingPhraseVisibility });
+                      setEditingPhraseId(null);
+                      setEditingPhraseText('');
+                    }}
+                    sx={{ minWidth: 0 }}
+                  >
+                    保存
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => {
+                      setEditingPhraseId(null);
+                      setEditingPhraseText('');
+                      setEditingPhraseKind('other');
+                      setEditingPhraseVisibility('between_actors');
+                    }}
+                    sx={{ minWidth: 0 }}
+                  >
+                    取消
+                  </Button>
+                </Box>
+              ) : (
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => {
+                      setEditingPhraseId(phraseKey);
+                      setEditingPhraseText(phrase.text);
+                      setEditingPhraseKind(phrase.kind);
+                      setEditingPhraseVisibility(phrase.visibility);
+                    }}
+                    sx={{ minWidth: 0 }}
+                  >
+                    修改
+                  </Button>
+                  <Button size="small" variant="text" onClick={() => onSuppressSharedPhrase(chat, phrase)} sx={{ minWidth: 0 }}>
+                    不再使用
+                  </Button>
+                </Box>
+              )}
+            </Box>
+          </Box>
+        );
+      })}
+    </Stack>
+  );
 }
 
 function CompanionshipDeveloperTracePanel({
@@ -3079,6 +3237,28 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       || recentByTime(chats.filter((chat) => chat.memberIds.includes(character.id || '')), 1)[0];
     return buildCharacterCompanionshipStates(character as AICharacter, character.updatedAt || character.createdAt || 0, relatedChat);
   }, [character, chats]);
+  const roleSharedPhraseItems = useMemo(() => {
+    if (!character.id || !character.personality || !character.memory) return [];
+    const seen = new Set<string>();
+    return recentByTime(chats.filter((chat) => chat.type !== 'direct' && chat.memberIds.includes(character.id || '')), 5)
+      .flatMap((chat) => {
+        const chatMessages = [
+          ...(chat.latestMessage ? [chat.latestMessage] : []),
+          ...messages.filter((message) => message.chatId === chat.id),
+          ...(messageWindowsByChatId[chat.id]?.messages || []),
+        ].filter((message, index, source): message is Message => Boolean(message) && source.findIndex((item) => item?.id === message?.id) === index);
+        return buildSharedPhrases(character as AICharacter, chat.updatedAt || Date.now(), chat, chatMessages)
+          .filter((phrase) => phrase.participantIds.includes(character.id || '') && !phrase.participantIds.includes('user'))
+          .map((phrase) => ({ chat, chatName: chat.name || '群聊', phrase }));
+      })
+      .filter((item) => {
+        const key = `${item.chat.id}:${item.phrase.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 10);
+  }, [character, chats, messageWindowsByChatId, messages]);
   const sharedMemoryAnchors = useMemo(() => {
     if (!character.id || !character.personality || !character.memory) return [];
     const directChat = recentByTime(chats.filter((chat) => chat.type === 'direct' && chat.memberIds.includes(character.id || '')), 1)[0];
@@ -3177,6 +3357,21 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       <SurfaceCard>
         <SectionHeader title="角色陪伴" dense action={isDeveloperView ? <DebugChip /> : undefined} />
         <CharacterCompanionshipPanel states={characterCompanionshipStates} resolveCharacterName={resolveCharacterName} developerMode={isDeveloperView} />
+      </SurfaceCard>
+      <SurfaceCard>
+        <SectionHeader title="角色共同话语" dense action={isDeveloperView ? <DebugChip /> : undefined} />
+        <RoleSharedPhrasePanel
+          items={roleSharedPhraseItems}
+          characterId={character.id || ''}
+          resolveCharacterName={resolveCharacterName}
+          developerMode={isDeveloperView}
+          onUpdateSharedPhrase={(chat, phrase, patch) => {
+            void appendManualCompanionshipEvent(chat, buildManualSharedPhraseUpsertEvent(chat, character as AICharacter, phrase, patch));
+          }}
+          onSuppressSharedPhrase={(chat, phrase) => {
+            void appendManualCompanionshipEvent(chat, buildManualSharedPhraseSuppressedEvent(chat, character as AICharacter, phrase));
+          }}
+        />
       </SurfaceCard>
       <SurfaceCard>
         <SectionHeader title="共同锚点" dense action={isDeveloperView ? <DebugChip /> : undefined} />
