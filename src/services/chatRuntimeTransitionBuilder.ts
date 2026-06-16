@@ -23,6 +23,7 @@ import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { evolveCharacterCoreProfile } from './coreProfileEvolution';
 import { projectInnerLife } from './innerLifeEngine';
+import { buildSharedPhraseEventsFromCompanionshipEvents } from './companionshipSharedPhraseBackflow';
 
 const { chatGap: CHAT_DISTILLATION_TURN_COUNT, characterGap: CHARACTER_DISTILLATION_TURN_COUNT } = getLocalDistillationPolicy();
 const PRIMARY_CONFLICT_DECAY_STEP = 0.06;
@@ -805,8 +806,16 @@ export function buildChatPatch(
     appendMemoryCandidateEvents(conversation.runtimeEventsV2 || [], memoryCandidateEvents),
     nextLayeredMemories,
   );
+  const runtimeEventsV2WithCompanionshipBackflow = [
+    ...runtimeEventsV2WithCandidates,
+    ...participants.flatMap((participant) => buildSharedPhraseEventsFromCompanionshipEvents({
+      chat: conversation,
+      character: participant,
+      events: runtimeEventsV2WithCandidates,
+    })),
+  ];
   chatPatch.runtimeEventsV2 = appendAttentionCandidateEvent(
-    runtimeEventsV2WithCandidates,
+    runtimeEventsV2WithCompanionshipBackflow,
     buildAttentionCandidateEvent({ conversation, message, participants }),
   );
 

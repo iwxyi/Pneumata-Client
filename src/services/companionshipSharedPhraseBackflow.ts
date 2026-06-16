@@ -43,7 +43,7 @@ function sharedPhrasePayloadOf(event: RuntimeEventV2): CompanionshipSharedPhrase
 
 function createSharedPhraseEvent(params: {
   chat: GroupChat;
-  character: AICharacter;
+  character: Pick<AICharacter, 'id' | 'name'>;
   sourceEvent: RuntimeEventV2;
   text: string;
   kind: SharedPhrase['kind'];
@@ -88,12 +88,54 @@ function createSharedPhraseEvent(params: {
   };
 }
 
+function classifySharedPhraseFromDistilledMemory(text: string): Pick<SharedPhrase, 'kind' | 'visibility'> | null {
+  const normalized = compactText(text, 220);
+  if (!normalized) return null;
+  if (/(称呼|叫.*[“"「『].{1,16}[”"」』]|昵称|专属称呼)/.test(normalized)) return { kind: 'pet_name', visibility: 'between_actors' };
+  if (/(暗号|秘密口令|小秘密|只有.*知道|不能告诉|保密)/.test(normalized)) return { kind: 'secret_code', visibility: 'private' };
+  if (/(说好|约定|答应|下次一起|以后一起|等.*回来|一起.*补)/.test(normalized)) return { kind: 'promise_line', visibility: 'between_actors' };
+  if (/(慢慢来|我在|别怕|陪着你|不用硬撑|可以难过|先抱一下|安慰)/.test(normalized)) return { kind: 'comfort_line', visibility: 'private' };
+  if (/(喜欢你|想你|在一起|确认.*心意|表白|心意)/.test(normalized)) return { kind: 'confession_line', visibility: 'private' };
+  if (/(共同梗|只有.*懂|玩笑|梗|口头禅)/.test(normalized)) return { kind: 'inside_joke', visibility: 'public_hint' };
+  return null;
+}
+
+function buildSharedPhraseEventFromDistilledMemory(params: {
+  chat: GroupChat;
+  character: Pick<AICharacter, 'id' | 'name'>;
+  event: RuntimeEventV2;
+}): RuntimeEventV2[] {
+  if (params.event.kind !== 'memory_candidate') return [];
+  const payload = params.event.payload as Record<string, unknown> | undefined;
+  if (!payload || payload.origin !== 'distilled') return [];
+  if (!params.event.targetIds?.includes(params.character.id)) return [];
+  if (params.chat.type !== 'direct' && !params.event.targetIds.includes(USER_ACTOR_ID)) return [];
+  const text = String(payload.text || params.event.summary || '');
+  const classification = classifySharedPhraseFromDistilledMemory(text);
+  if (!classification) return [];
+  const phraseText = quoteOrMeaningfulText(text);
+  if (!phraseText) return [];
+  return [createSharedPhraseEvent({
+    ...params,
+    sourceEvent: params.event,
+    text: phraseText,
+    kind: classification.kind,
+    visibility: classification.visibility,
+    firstSaidBy: 'mutual',
+    reason: '记忆蒸馏沉淀出稳定共同话语后反写为陪伴运行时事件。',
+    evidence: text,
+    emotionalWeight: classification.kind === 'secret_code' || classification.kind === 'confession_line' ? 76 : 68,
+  })];
+}
+
 export function buildSharedPhraseEventsFromCompanionshipEvent(params: {
   chat: GroupChat;
-  character: AICharacter;
+  character: Pick<AICharacter, 'id' | 'name'>;
   event: RuntimeEventV2;
 }): RuntimeEventV2[] {
   if (sharedPhrasePayloadOf(params.event)) return [];
+  const memoryBackflowEvents = buildSharedPhraseEventFromDistilledMemory(params);
+  if (memoryBackflowEvents.length) return memoryBackflowEvents;
   const payload = params.event.payload as Record<string, unknown> | undefined;
   if (!payload || typeof payload.eventType !== 'string' || !payload.eventType.startsWith('companionship_')) return [];
   if (payload.characterId !== params.character.id) return [];
@@ -168,7 +210,7 @@ export function buildSharedPhraseEventsFromCompanionshipEvent(params: {
 
 export function buildSharedPhraseEventsFromCompanionshipEvents(params: {
   chat: GroupChat;
-  character: AICharacter;
+  character: Pick<AICharacter, 'id' | 'name'>;
   events: RuntimeEventV2[];
 }): RuntimeEventV2[] {
   const existingIds = new Set(params.events.map((event) => event.id));

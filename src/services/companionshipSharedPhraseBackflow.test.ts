@@ -146,4 +146,53 @@ describe('companionshipSharedPhraseBackflow', () => {
     expect(buildSharedPhraseEventsFromCompanionshipEvents({ chat: chat(), character: character(), events: [promise, existing] })).toEqual([]);
     expect(buildSharedPhraseEventsFromCompanionshipEvent({ chat: chat(), character: character(), event: existing })).toEqual([]);
   });
+
+  it('derives shared phrases from distilled memory candidates with clear companionship wording', () => {
+    const distilled = event({
+      id: 'distilled-memory-secret-code',
+      kind: 'memory_candidate',
+      targetIds: ['char-a', 'user'],
+      summary: '用户和苏苏把“月亮今天也站岗”当作只属于两个人的秘密暗号。',
+      visibility: 'public',
+      payload: {
+        kind: 'bond',
+        text: '用户和苏苏把“月亮今天也站岗”当作只属于两个人的秘密暗号。',
+        origin: 'distilled',
+        confidence: 0.86,
+        salience: 0.82,
+      },
+    });
+
+    const events = buildSharedPhraseEventsFromCompanionshipEvents({ chat: chat(), character: character(), events: [distilled] });
+    const payload = events[0]?.payload as Record<string, unknown> | undefined;
+
+    expect(payload).toMatchObject({
+      eventType: 'companionship_shared_phrase',
+      text: '月亮今天也站岗',
+      kind: 'secret_code',
+      visibility: 'private',
+      participantIds: ['char-a', 'user'],
+    });
+    expect(payload?.reason).toContain('记忆蒸馏');
+  });
+
+  it('does not derive user shared phrases from group distilled memories that do not involve the user', () => {
+    const groupChat = { ...chat(), type: 'group', memberIds: ['char-a', 'char-b'] } as GroupChat;
+    const distilled = event({
+      id: 'distilled-memory-role-joke',
+      kind: 'memory_candidate',
+      targetIds: ['char-a', 'char-b'],
+      summary: '苏苏和小林把“雨天加班券”当作共同梗。',
+      visibility: 'public',
+      payload: {
+        kind: 'bond',
+        text: '苏苏和小林把“雨天加班券”当作共同梗。',
+        origin: 'distilled',
+        confidence: 0.8,
+        salience: 0.76,
+      },
+    });
+
+    expect(buildSharedPhraseEventsFromCompanionshipEvents({ chat: groupChat, character: character(), events: [distilled] })).toEqual([]);
+  });
 });
