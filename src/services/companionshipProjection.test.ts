@@ -2001,6 +2001,65 @@ describe('companionshipProjection', () => {
     expect(trace?.sharedPhrases.join('\n')).toContain('慢慢来，我在');
   });
 
+  it('reads moment reflection backflow as shared anchors and shared phrases', () => {
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
+      {
+        id: 'evt-moment-reflection-1',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 1_120,
+        actorIds: ['char-a'],
+        targetIds: ['user'],
+        summary: '朋友圈发布留下了一条陪伴余波',
+        visibility: 'pair_private',
+        eventClass: 'artifact',
+        payload: {
+          eventType: 'companionship_moment_reflection',
+          characterId: 'char-a',
+          userId: 'user',
+          reflectionId: 'moment-entry-1-0',
+          momentDedupeKey: 'moment-entry-1',
+          reflectionType: 'shared_phrase',
+          participantIds: ['char-a', 'user'],
+          text: '把那句“慢慢来，我在”留进了朋友圈的余味里。',
+          sourceSeed: '公开动态可以只留下“有人懂”的余味，不点名用户，也不写成私密记忆：用户说下次一起把话说完。',
+          momentText: '今天晒了点近况，也留了点没说完的话。',
+          confidence: 0.58,
+          decisionSource: 'local_fallback',
+        },
+      },
+      {
+        id: 'evt-moment-reflection-2',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: 1_121,
+        actorIds: ['char-a'],
+        targetIds: ['b'],
+        summary: '朋友圈发布留下了一条陪伴余波',
+        visibility: 'role_private',
+        eventClass: 'artifact',
+        payload: {
+          eventType: 'companionship_moment_reflection',
+          characterId: 'char-a',
+          reflectionId: 'moment-entry-1-1',
+          momentDedupeKey: 'moment-entry-1',
+          reflectionType: 'promise',
+          participantIds: ['char-a', 'b'],
+          text: '约定争执后先递台阶。',
+          sourceSeed: '公开动态可以把和乙之间的关系余波写成一句含蓄状态，不要暴露秘密细节：共同梗/约定：约定争执后先递台阶。',
+          momentText: '今天发了条动态，像是把一件事先轻轻放下。',
+          confidence: 0.58,
+          decisionSource: 'local_fallback',
+        },
+      },
+    ] as RuntimeEventV2[]);
+    const anchors = buildSharedMemoryAnchors(character(), 1_400, directChat);
+    const phrases = buildSharedPhrases(character(), 1_400, directChat, []);
+
+    expect(anchors.some((anchor) => anchor.kind === 'promise' && anchor.sourceId === 'evt-moment-reflection-2')).toBe(true);
+    expect(phrases.some((phrase) => phrase.sourceEventIds?.includes('evt-moment-reflection-1'))).toBe(true);
+  });
+
   it('drops pending promises outside the configured retention window', () => {
     setCompanionshipRuntimeConfig({
       ...DEFAULT_COMPANIONSHIP_SETTINGS,

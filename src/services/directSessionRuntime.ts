@@ -4,6 +4,7 @@ import type { Message } from '../types/message';
 import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
 import type { SessionActionExecutionResult } from '../types/sessionEngine';
 import type { APIConfig } from '../types/settings';
+import type { CompanionshipMomentReflectionEventPayload } from '../types/companionship';
 import { createDefaultConversationFrameworkPatch, mergeSessionChatPatch } from '../types/sessionEngine';
 import { DEFAULT_CONVERSATION_WORLD_STATE } from '../types/chat';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
@@ -193,6 +194,90 @@ function appendStructuredRuntimeEvent(chat: GroupChat, event: RuntimeEventV2) {
 
 function appendStructuredRuntimeEvents(chat: GroupChat, events: RuntimeEventV2[]) {
   return events.reduce((acc, event) => appendStructuredRuntimeEvent({ ...chat, runtimeEventsV2: acc }, event), chat.runtimeEventsV2 || []);
+}
+
+function compactCompanionshipMomentText(text: string | undefined | null, max = 180) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
+}
+
+function classifyMomentCompanionshipSeed(seed: string): CompanionshipMomentReflectionEventPayload['reflectionType'] | null {
+  if (/(共同话语|专属称呼|约定话语|安慰话语|心意话语|秘密暗号|“[^”]{1,36}”|「[^」]{1,36}」)/.test(seed)) return 'shared_phrase';
+  if (/(未完成约定|约定|承诺|答应|说好|下次一起|以后一起|等你)/.test(seed)) return 'promise';
+  if (/(共同秘密|小秘密|保密|只有.*知道|不能告诉|公开遮罩)/.test(seed)) return 'shared_secret';
+  if (/(共同梗|仪式|暗号|只有.*懂|玩笑)/.test(seed)) return 'ritual';
+  if (/(第一次|心意确认|冲突|修复|和好|里程碑|纪念日)/.test(seed)) return 'shared_anchor';
+  return null;
+}
+
+function cleanMomentCompanionshipSeed(seed: string) {
+  return compactCompanionshipMomentText(seed
+    .replace(/^(公开动态|关系余味线索|关系余波|共同梗\/约定|未完成约定|小秘密|共同秘密)\s*[:：]/, '')
+    .replace(/^(可以|只能|不要|把|写成|公开动态可以|公开动态只能使用)/, '')
+    .replace(/不点名用户/g, '不点名')
+    .replace(/用户/g, '对方')
+    .trim(), 180);
+}
+
+function inferMomentCompanionshipParticipants(seed: string, payload: SocialEventCandidatePayload) {
+  const ids = [payload.initiatorId];
+  if (/(用户|对方|某个人|有人懂)/.test(seed) || (payload.targetIds || []).includes('user')) ids.push('user');
+  (payload.participantIds || []).forEach((id) => {
+    if (id && id !== payload.initiatorId) ids.push(id);
+  });
+  (payload.targetIds || []).forEach((id) => {
+    if (id && id !== payload.initiatorId) ids.push(id);
+  });
+  if (ids.length === 1) ids.push(...(payload.targetIds || []).filter(Boolean));
+  return Array.from(new Set(ids.filter(Boolean))).slice(0, 6);
+}
+
+function buildPostMomentCompanionshipReflectionEvents(
+  sourceChat: GroupChat,
+  payload: SocialEventCandidatePayload,
+  momentText: string,
+): RuntimeEventV2[] {
+  const seen = new Set<string>();
+  return (payload.companionshipSeeds || [])
+    .map((seed) => ({ seed, reflectionType: classifyMomentCompanionshipSeed(seed) }))
+    .filter((item): item is { seed: string; reflectionType: CompanionshipMomentReflectionEventPayload['reflectionType'] } => Boolean(item.reflectionType))
+    .filter((item) => {
+      const key = `${item.reflectionType}:${compactCompanionshipMomentText(item.seed, 80).replace(/\s+/g, '')}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 2)
+    .map((item, index) => {
+      const participantIds = inferMomentCompanionshipParticipants(item.seed, payload);
+      const userId = participantIds.includes('user') ? 'user' : undefined;
+      const reflectionId = `moment-${payload.dedupeKey || stableEventSeed([sourceChat.id, payload.initiatorId, momentText])}-${index}`;
+      const cleanText = cleanMomentCompanionshipSeed(item.seed) || compactCompanionshipMomentText(item.seed, 180);
+      const reflectionPayload: CompanionshipMomentReflectionEventPayload = {
+        eventType: 'companionship_moment_reflection',
+        characterId: payload.initiatorId,
+        userId,
+        reflectionId,
+        momentDedupeKey: payload.dedupeKey || undefined,
+        reflectionType: item.reflectionType,
+        participantIds,
+        text: cleanText,
+        sourceSeed: compactCompanionshipMomentText(item.seed, 220),
+        momentText: compactCompanionshipMomentText(momentText, 180),
+        confidence: 0.58,
+        decisionSource: 'local_fallback',
+      };
+      return createRuntimeEventV2({
+        conversationId: sourceChat.id,
+        kind: 'artifact',
+        summary: '朋友圈发布留下了一条陪伴余波',
+        actorIds: [payload.initiatorId],
+        targetIds: participantIds.filter((id) => id !== payload.initiatorId),
+        visibility: userId ? 'pair_private' : 'role_private',
+        payload: reflectionPayload as unknown as Record<string, unknown>,
+        createdAt: Date.now() + index + 1,
+      });
+    });
 }
 
 function hasRecentWorldSuppressionEvent(chat: GroupChat, actorId: string | null, reasonType: string, windowMs: number, now = Date.now()) {
@@ -536,6 +621,7 @@ function buildPostMomentSummary(actorName: string, payload: SocialEventCandidate
 function buildPostMomentEffectEvents(sourceChat: GroupChat, payload: SocialEventCandidatePayload, actorName: string) {
   const summary = buildPostMomentSummary(actorName, payload);
   const momentText = buildMomentPostText(actorName, payload);
+  const companionshipReflectionEvents = buildPostMomentCompanionshipReflectionEvents(sourceChat, payload, momentText);
   const shiftedRoom = calculateRoomShift(sourceChat.worldState.structuredRoomState || null, {
     kind: payload.reasonType === 'celebration' ? 'support' : 'side_comment',
     actorId: payload.initiatorId,
@@ -602,16 +688,17 @@ function buildPostMomentEffectEvents(sourceChat: GroupChat, payload: SocialEvent
       visibility: 'derived_public',
       payload: shiftedRoom.shift,
     }),
+    companionshipReflectionEvents,
     nextStructuredRoomState: shiftedRoom.nextState,
     publicSummary: summary,
   };
 }
 
 export function updateSourceChatAfterPostMoment(sourceChat: GroupChat, payload: SocialEventCandidatePayload, actorName: string) {
-  const { effectEvent, memoryEvent, artifactEvent, roomShiftEvent, nextStructuredRoomState, publicSummary } = buildPostMomentEffectEvents(sourceChat, payload, actorName);
+  const { effectEvent, memoryEvent, artifactEvent, roomShiftEvent, companionshipReflectionEvents, nextStructuredRoomState, publicSummary } = buildPostMomentEffectEvents(sourceChat, payload, actorName);
   return withFrameworkPatch(sourceChat, {
     lastMessageAt: Date.now(),
-    runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [effectEvent, memoryEvent, artifactEvent, roomShiftEvent]),
+    runtimeEventsV2: appendStructuredRuntimeEvents(sourceChat, [effectEvent, memoryEvent, artifactEvent, roomShiftEvent, ...companionshipReflectionEvents]),
     worldState: {
       ...DEFAULT_CONVERSATION_WORLD_STATE,
       ...(sourceChat.worldState || {}),

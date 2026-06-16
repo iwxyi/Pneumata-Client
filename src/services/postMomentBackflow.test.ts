@@ -141,4 +141,42 @@ describe('post moment backflow', () => {
     expect(text).not.toContain('共同梗/约定：');
     expect(text).not.toContain('发了一条动态');
   });
+
+  it('backflows companionship residue into structured moment reflection events', () => {
+    const chat = buildChat();
+    const patch = updateSourceChatAfterPostMoment(chat, buildPayload({
+      dedupeKey: 'moment-companion-1',
+      reasonType: 'world_attention_share_moment_inner',
+      participantIds: ['a', 'b'],
+      targetIds: ['b'],
+      companionshipSeeds: [
+        '公开动态可以只留下“有人懂”的余味，不点名用户，也不写成私密记忆：用户说下次一起把话说完。',
+        '公开动态可以把和乙之间的关系余波写成一句含蓄状态，不要暴露秘密细节：共同梗/约定：约定争执后先递台阶。',
+      ],
+    }), '甲');
+    const reflections = (patch.runtimeEventsV2 || []).filter((event) => {
+      const payload = event.payload as { eventType?: string };
+      return payload.eventType === 'companionship_moment_reflection';
+    });
+
+    expect(reflections).toHaveLength(2);
+    expect(reflections[0]).toMatchObject({
+      kind: 'artifact',
+      actorIds: ['a'],
+      visibility: 'pair_private',
+      payload: expect.objectContaining({
+        eventType: 'companionship_moment_reflection',
+        characterId: 'a',
+        userId: 'user',
+        momentDedupeKey: 'moment-companion-1',
+        reflectionType: 'shared_phrase',
+        participantIds: expect.arrayContaining(['a', 'user']),
+      }),
+    });
+    expect(reflections[1]?.payload).toMatchObject({
+      eventType: 'companionship_moment_reflection',
+      reflectionType: 'promise',
+      participantIds: expect.arrayContaining(['a', 'b']),
+    });
+  });
 });

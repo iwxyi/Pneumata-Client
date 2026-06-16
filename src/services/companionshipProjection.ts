@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import { DEFAULT_PERSONALITY } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, RitualHistoryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, UserProfileMemoryHistoryEntry, AddressingHistoryEntry, CareTopicHistoryEntry, PromiseHistoryEntry, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipCareTopicEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, RitualHistoryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, UserProfileMemoryHistoryEntry, AddressingHistoryEntry, CareTopicHistoryEntry, PromiseHistoryEntry, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipCareTopicEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload, CompanionshipMomentReflectionEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -1662,6 +1662,33 @@ function buildDiaryReflectionSharedPhrases(chat: GroupChat | undefined, characte
     .filter((item): item is SharedPhrase => Boolean(item));
 }
 
+function buildMomentReflectionSharedPhrases(chat: GroupChat | undefined, character: AICharacter, now: number): SharedPhrase[] {
+  return (chat?.runtimeEventsV2 || [])
+    .map((event): SharedPhrase | null => {
+      const payload = momentReflectionPayloadOf(event);
+      if (!payload || payload.characterId !== character.id || payload.reflectionType !== 'shared_phrase') return null;
+      const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 0.55;
+      if (confidence < 0.5) return null;
+      const textSource = `${payload.text}\n${payload.sourceSeed || ''}`;
+      const kind = classifySharedPhrase(textSource);
+      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id));
+      return {
+        id: `moment-reflection-phrase-${payload.reflectionId}`,
+        text: compactText(payload.text, 80),
+        kind,
+        participantIds,
+        visibility: sharedPhraseVisibilityFromParticipants(participantIds, kind),
+        firstSaidBy: character.id,
+        emotionalWeight: clampRelationshipScore(38 + confidence * 28),
+        reuseCount: 0,
+        sourceEventIds: [event.id],
+        evidence: compactText(payload.momentText || payload.sourceSeed || event.summary, 160),
+        updatedAt: event.createdAt || now,
+      };
+    })
+    .filter((item): item is SharedPhrase => Boolean(item));
+}
+
 export function buildSharedPhrases(character: AICharacter, now = 0, chat?: GroupChat, messages: Message[] = []): SharedPhrase[] {
   const runtimeState = buildRuntimeEventSharedPhraseState(chat, character, now);
   const anchorPhrases = buildSharedMemoryAnchors(character, now, chat)
@@ -1670,6 +1697,8 @@ export function buildSharedPhrases(character: AICharacter, now = 0, chat?: Group
     .filter((phrase) => !runtimeState.closedIds.has(phrase.id) && !runtimeState.closedTextKeys.has(sharedPhraseTextKey(phrase)));
   const diaryPhrases = buildDiaryReflectionSharedPhrases(chat, character, now)
     .filter((phrase) => !runtimeState.closedTextKeys.has(sharedPhraseTextKey(phrase)));
+  const momentPhrases = buildMomentReflectionSharedPhrases(chat, character, now)
+    .filter((phrase) => !runtimeState.closedTextKeys.has(sharedPhraseTextKey(phrase)));
   const recentPhrases = messages
     .filter((message) => !message.isDeleted && (message.senderId === USER_ACTOR_ID || message.type === 'user' || message.type === 'god'))
     .slice(-12)
@@ -1677,7 +1706,7 @@ export function buildSharedPhrases(character: AICharacter, now = 0, chat?: Group
     .filter((item): item is SharedPhrase => Boolean(item))
     .filter((phrase) => !runtimeState.closedTextKeys.has(sharedPhraseTextKey(phrase)));
   const seen = new Set<string>();
-  return [...runtimeState.activePhrases, ...anchorPhrases, ...diaryPhrases, ...recentPhrases]
+  return [...runtimeState.activePhrases, ...anchorPhrases, ...diaryPhrases, ...momentPhrases, ...recentPhrases]
     .filter((phrase) => {
       const key = sharedPhraseTextKey(phrase);
       if (seen.has(key)) return false;
@@ -3184,6 +3213,38 @@ function diaryReflectionPayloadOf(event: RuntimeEventV2): CompanionshipDiaryRefl
   };
 }
 
+function momentReflectionPayloadOf(event: RuntimeEventV2): CompanionshipMomentReflectionEventPayload | null {
+  const payload = event.payload as Record<string, unknown> | undefined;
+  if (!payload || payload.eventType !== 'companionship_moment_reflection') return null;
+  const characterId = typeof payload.characterId === 'string' ? payload.characterId : '';
+  const reflectionId = typeof payload.reflectionId === 'string' ? payload.reflectionId : '';
+  const text = typeof payload.text === 'string' ? compactText(payload.text, 180) : '';
+  const reflectionType = payload.reflectionType;
+  if (!characterId || !reflectionId || !text) return null;
+  if (reflectionType !== 'promise'
+    && reflectionType !== 'shared_secret'
+    && reflectionType !== 'ritual'
+    && reflectionType !== 'shared_anchor'
+    && reflectionType !== 'shared_phrase') return null;
+  const participantIds = Array.isArray(payload.participantIds)
+    ? payload.participantIds.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 6)
+    : [characterId, typeof payload.userId === 'string' ? payload.userId : USER_ACTOR_ID];
+  return {
+    eventType: 'companionship_moment_reflection',
+    characterId,
+    userId: typeof payload.userId === 'string' ? payload.userId : undefined,
+    reflectionId,
+    momentDedupeKey: typeof payload.momentDedupeKey === 'string' ? payload.momentDedupeKey : undefined,
+    reflectionType,
+    participantIds,
+    text,
+    sourceSeed: typeof payload.sourceSeed === 'string' ? compactText(payload.sourceSeed, 220) : undefined,
+    momentText: typeof payload.momentText === 'string' ? compactText(payload.momentText, 180) : undefined,
+    confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
+    decisionSource: payload.decisionSource === 'model' || payload.decisionSource === 'local_fallback' ? payload.decisionSource : undefined,
+  };
+}
+
 function sharedAnchorTextKey(anchor: Pick<SharedMemoryAnchor, 'kind' | 'participantIds' | 'text'>) {
   return `${anchor.kind}:${anchor.participantIds.slice().sort().join(',')}:${anchor.text.replace(/\s+/g, '').slice(0, 48)}`;
 }
@@ -3289,6 +3350,36 @@ function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: 
       };
     })
     .filter((item): item is SharedMemoryAnchor => Boolean(item));
+  const momentAnchors = (chat?.runtimeEventsV2 || [])
+    .map((event): SharedMemoryAnchor | null => {
+      const payload = momentReflectionPayloadOf(event);
+      if (!payload || payload.characterId !== character.id || payload.reflectionType === 'shared_phrase') return null;
+      const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 0.55;
+      if (confidence < 0.5) return null;
+      const inferredKind = payload.reflectionType === 'promise'
+        ? 'promise'
+        : payload.reflectionType === 'shared_secret'
+          ? 'shared_secret'
+          : payload.reflectionType === 'ritual'
+            ? 'inside_joke'
+            : classifySharedMemoryAnchor(`${payload.text}\n${payload.sourceSeed || ''}`) || 'milestone';
+      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id));
+      return {
+        id: `moment-reflection-${payload.reflectionId}`,
+        kind: inferredKind,
+        participantIds,
+        title: formatSharedAnchorTitle(inferredKind),
+        text: payload.text,
+        salience: clampRelationshipScore(40 + confidence * 24),
+        confidence: clampRelationshipScore(confidence * 100),
+        source: 'runtime_event',
+        sourceId: event.id,
+        evidence: compactText(payload.momentText || payload.sourceSeed || event.summary, 180),
+        createdAt: event.createdAt || now,
+        updatedAt: event.createdAt || now,
+      };
+    })
+    .filter((item): item is SharedMemoryAnchor => Boolean(item));
   const conflictAnchors = (chat?.runtimeEventsV2 || [])
     .map((event): SharedMemoryAnchor | null => {
       const payload = intimateConflictEventPayloadOf(event);
@@ -3324,6 +3415,7 @@ function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: 
   return [
     ...explicitState.activeAnchors,
     ...diaryAnchors.filter((anchor) => !isSharedAnchorSuppressed(anchor, explicitState)),
+    ...momentAnchors.filter((anchor) => !isSharedAnchorSuppressed(anchor, explicitState)),
     ...conflictAnchors.filter((anchor) => !isSharedAnchorSuppressed(anchor, explicitState)),
   ];
 }

@@ -510,6 +510,21 @@ export interface CompanionshipDiaryReflectionEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipMomentReflectionEventPayload {
+  eventType: 'companionship_moment_reflection';
+  characterId: string;
+  userId?: string;
+  reflectionId: string;
+  momentDedupeKey?: string;
+  reflectionType: 'promise' | 'shared_secret' | 'ritual' | 'shared_anchor' | 'shared_phrase';
+  participantIds: string[];
+  text: string;
+  sourceSeed?: string;
+  momentText?: string;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;
