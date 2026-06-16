@@ -521,6 +521,36 @@ function buildManualIntimateConflictResolvedEvent(chat: GroupChat, character: AI
   };
 }
 
+function buildManualIntimateConflictDismissedEvent(chat: GroupChat, character: AICharacter, conflict: NonNullable<CompanionshipRuntimeTrace['intimateConflict']>): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, conflict.kind, 'intimate-conflict-dismissed']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户撤回了一次亲密冲突判断`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_intimate_conflict',
+      characterId: character.id,
+      userId: 'user',
+      action: 'dismissed',
+      kind: conflict.kind,
+      severity: 0,
+      repairReadiness: 0,
+      summary: '用户标记这不是一次亲密冲突，后续不要因为这条误判继续克制或翻旧账。',
+      evidence: ['manual_dismiss_from_character_relationship_tab', conflict.summary],
+      participantIds: [character.id, 'user'],
+      confidence: 1,
+    },
+  };
+}
+
 function formatAttachmentStyleLabel(style: UserAttachmentProfile['inferredStyle']) {
   const labels: Record<UserAttachmentProfile['inferredStyle'], string> = {
     secure: '稳定',
@@ -1544,6 +1574,7 @@ function UserCompanionshipCard({
   onForbidAddress,
   onUnforbidAddress,
   onResolveConflict,
+  onDismissConflict,
   onDisableAttachment,
   onEnableAttachment,
   onCorrectAttachment,
@@ -1575,6 +1606,7 @@ function UserCompanionshipCard({
   onForbidAddress: (address: string) => void;
   onUnforbidAddress: (address: string) => void;
   onResolveConflict: (conflict: NonNullable<CompanionshipRuntimeTrace['intimateConflict']>) => void;
+  onDismissConflict: (conflict: NonNullable<CompanionshipRuntimeTrace['intimateConflict']>) => void;
   onDisableAttachment: () => void;
   onEnableAttachment: () => void;
   onCorrectAttachment: (style: UserAttachmentProfile['inferredStyle']) => void;
@@ -1821,9 +1853,14 @@ function UserCompanionshipCard({
                 <Typography variant="caption" sx={{ display: 'block', opacity: 0.82 }}>亲密冲突/修复</Typography>
                 <Typography variant="body2">{trace.intimateConflict.summary}</Typography>
               </Box>
-              <Button size="small" variant="outlined" onClick={() => trace.intimateConflict && onResolveConflict(trace.intimateConflict)} sx={{ color: 'inherit', borderColor: 'currentColor', flexShrink: 0 }}>
-                已修复
-              </Button>
+              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                <Button size="small" variant="outlined" onClick={() => trace.intimateConflict && onResolveConflict(trace.intimateConflict)} sx={{ color: 'inherit', borderColor: 'currentColor' }}>
+                  已修复
+                </Button>
+                <Button size="small" variant="outlined" onClick={() => trace.intimateConflict && onDismissConflict(trace.intimateConflict)} sx={{ color: 'inherit', borderColor: 'currentColor' }}>
+                  不是冲突
+                </Button>
+              </Box>
             </Box>
           </Box>
         ) : null}
@@ -2888,6 +2925,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onResolveConflict={(conflict) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualIntimateConflictResolvedEvent(view.chat, character as AICharacter, conflict));
+                }}
+                onDismissConflict={(conflict) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualIntimateConflictDismissedEvent(view.chat, character as AICharacter, conflict));
                 }}
                 onDisableAttachment={() => {
                   void appendManualCompanionshipEvent(view.chat, buildManualAttachmentProfileEvent(view.chat, character as AICharacter, 'disabled'));

@@ -2251,6 +2251,41 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.intimateConflict?.summary).toContain('误会已经说开');
   });
 
+  it('uses dismissed intimate conflict events to suppress mistaken conflict inference', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 32,
+      trust: 24,
+      competence: 10,
+      threat: 58,
+    })], [intimateConflictEvent({
+      id: 'evt-intimate-dismissed',
+      createdAt: 1_200,
+      summary: '用户标记这不是一次亲密冲突。',
+      payload: {
+        eventType: 'companionship_intimate_conflict',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'dismissed',
+        kind: 'testing',
+        severity: 0,
+        repairReadiness: 0,
+        summary: '这不是一次亲密冲突。',
+        evidence: ['用户在关系页点了不是冲突。'],
+        participantIds: ['char-a', 'user'],
+        confidence: 1,
+      },
+    })]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '刚才不是吵架。', timestamp: 1_190 })],
+      now: 1_300,
+    });
+
+    expect(projection.userBond?.intimateConflict).toBeUndefined();
+    expect(projection.promptLines.join('\n')).not.toContain('Current intimate conflict/repair state');
+  });
+
   it('derives shared memory anchors from intimate conflict runtime events', () => {
     const directChat = chat('direct', [relationship({
       warmth: 34,

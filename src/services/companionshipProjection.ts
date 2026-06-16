@@ -1844,7 +1844,7 @@ function intimateConflictEventPayloadOf(event: RuntimeEventV2): CompanionshipInt
   const payload = event.payload as Record<string, unknown> | undefined;
   if (!payload || payload.eventType !== 'companionship_intimate_conflict') return null;
   const action = payload.action;
-  if (action !== 'opened' && action !== 'updated' && action !== 'repair_attempted' && action !== 'resolved' && action !== 'reopened') return null;
+  if (action !== 'opened' && action !== 'updated' && action !== 'repair_attempted' && action !== 'resolved' && action !== 'reopened' && action !== 'dismissed') return null;
   if (!isIntimateConflictKind(payload.kind)) return null;
   const characterId = typeof payload.characterId === 'string' ? payload.characterId : '';
   if (!characterId) return null;
@@ -1889,6 +1889,7 @@ function resolveIntimateConflictEvent(chat: GroupChat, characterId: string, now:
     const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
     const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
     if (!actorMatches || !targetMatches) continue;
+    if (payload.action === 'dismissed') return null;
     const severity = clampScore(payload.severity ?? (payload.action === 'resolved' ? 18 : payload.action === 'repair_attempted' ? 36 : 50));
     const repairReadiness = clampScore(payload.repairReadiness ?? (
       payload.action === 'resolved' ? 82 : payload.action === 'repair_attempted' ? 58 : payload.kind === 'reconciliation' ? 72 : 24
@@ -1910,6 +1911,26 @@ function resolveIntimateConflictEvent(chat: GroupChat, characterId: string, now:
     };
   }
   return null;
+}
+
+function hasRecentDismissedIntimateConflictEvent(chat: GroupChat, characterId: string, now: number) {
+  const events = (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .slice()
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  for (const event of events) {
+    const payload = intimateConflictEventPayloadOf(event);
+    if (!payload || payload.characterId !== characterId) continue;
+    const userId = payload.userId || USER_ACTOR_ID;
+    if (userId !== USER_ACTOR_ID) continue;
+    const participantIds = payload.participantIds?.length ? payload.participantIds : [characterId, USER_ACTOR_ID];
+    if (!participantIds.includes(characterId) || !participantIds.includes(USER_ACTOR_ID)) continue;
+    const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+    const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+    if (!actorMatches || !targetMatches) continue;
+    return payload.action === 'dismissed' && now - (event.createdAt || now) <= 30 * DAY_MS;
+  }
+  return false;
 }
 
 function conflictKindFromTexts(texts: string[], phase: CompanionshipPhase): IntimateConflictKind {
@@ -1985,6 +2006,7 @@ function buildIntimateConflictState(params: {
 }): IntimateConflictState | undefined {
   const explicitConflict = resolveIntimateConflictEvent(params.chat, params.characterId, params.now);
   if (explicitConflict) return explicitConflict;
+  if (hasRecentDismissedIntimateConflictEvent(params.chat, params.characterId, params.now)) return undefined;
   const conflictAnchors = params.sharedAnchors.filter((anchor) => anchor.kind === 'conflict');
   const repairAnchors = params.sharedAnchors.filter((anchor) => anchor.kind === 'repair');
   const leakedSecrets = params.sharedSecrets.filter((secret) => secret.participantIds.includes(USER_ACTOR_ID) && secret.leakState === 'leaked');

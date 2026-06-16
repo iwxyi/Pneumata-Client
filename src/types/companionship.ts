@@ -258,7 +258,7 @@ export interface CompanionshipIntimateConflictEventPayload {
   eventType: 'companionship_intimate_conflict';
   characterId: string;
   userId?: string;
-  action: 'opened' | 'updated' | 'repair_attempted' | 'resolved' | 'reopened';
+  action: 'opened' | 'updated' | 'repair_attempted' | 'resolved' | 'reopened' | 'dismissed';
   kind: IntimateConflictKind;
   severity?: number;
   repairReadiness?: number;
