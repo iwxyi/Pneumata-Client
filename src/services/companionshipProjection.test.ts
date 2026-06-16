@@ -2675,6 +2675,66 @@ describe('companionshipProjection', () => {
     });
   });
 
+  it('uses later shared phrase upserts to narrow mistaken third-party participants', () => {
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-group',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'phrase-secret-code',
+          action: 'upsert',
+          text: '月亮今天也站岗',
+          kind: 'secret_code',
+          participantIds: ['char-a', 'user', 'char-b'],
+          visibility: 'private',
+          firstSaidBy: 'user',
+          reason: '旧事件误把第三个角色也放进了小暗号参与者。',
+          evidence: '旧参与者证据',
+          emotionalWeight: 86,
+          reuseCount: 2,
+          confidence: 0.86,
+          decisionSource: 'model',
+        },
+      }),
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-pair-private',
+        createdAt: 1_200,
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'phrase-secret-code',
+          action: 'upsert',
+          text: '月亮今天也站岗',
+          kind: 'secret_code',
+          participantIds: ['char-a', 'user'],
+          visibility: 'private',
+          firstSaidBy: 'user',
+          reason: '用户把共同话语参与者收窄为自己和苏苏。',
+          evidence: 'manual_shared_phrase_participants_pair_private_from_character_relationship_tab',
+          emotionalWeight: 86,
+          reuseCount: 2,
+          confidence: 1,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+
+    const phrases = buildSharedPhrases(character(), 1_300, directChat, []);
+    const phrase = phrases.find((item) => item.id === 'phrase-secret-code');
+
+    expect(phrase).toMatchObject({
+      text: '月亮今天也站岗',
+      kind: 'secret_code',
+      participantIds: ['char-a', 'user'],
+      visibility: 'private',
+    });
+    expect(phrase?.participantIds).not.toContain('char-b');
+  });
+
   it('uses revoked shared anchor runtime events to suppress matching fallback anchors', () => {
     const anchorCharacter = character({
       layeredMemories: [{
