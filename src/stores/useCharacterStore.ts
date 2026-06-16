@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { AICharacter } from '../types/character';
 import { normalizeCharacter, normalizeCharacterGroup } from '../types/character';
 import { api, type SyncChangeScope } from '../services/api';
+import { buildApiErrorUserMessage } from '../services/apiErrorMessage';
 import { reportRecoverableError, reportRecoverableWarning } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { clearResolvedFieldConflicts, detectPendingFieldConflicts, type FieldConflictRecord } from '../services/syncConflictRecords';
@@ -1024,7 +1025,7 @@ export const useCharacterStore = create<CharacterStore>()(
               reportRecoverableError({
                 location: 'cloud-sync:characters-load',
                 error,
-                userMessage: '角色云同步失败，请检查网络后重试。',
+                userMessage: buildApiErrorUserMessage(error, '角色云同步'),
               });
               set({ isLoading: false, pendingEditSyncError: classifySyncError(error) });
             }
@@ -1124,7 +1125,7 @@ export const useCharacterStore = create<CharacterStore>()(
               reportRecoverableError({
                 location: 'cloud-sync:character-detail-load',
                 error,
-                userMessage: '角色详情同步失败，请检查网络后重试。',
+                userMessage: buildApiErrorUserMessage(error, '角色详情同步'),
                 extra: diagnostics,
               });
               return null;

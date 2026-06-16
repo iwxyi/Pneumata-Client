@@ -1,4 +1,5 @@
 import { api } from './api';
+import { buildApiErrorUserMessage } from './apiErrorMessage';
 import { reportRecoverableError } from './diagnostics';
 import { normalizeCharacter, type AICharacter } from '../types/character';
 import { normalizeConversation, type GroupChat } from '../types/chat';
@@ -511,7 +512,7 @@ export async function bootstrapLocalDataToCloud(snapshot: LocalCloudBootstrapSna
     reportRecoverableError({
       location: 'cloud-sync:bootstrap-local-data',
       error,
-      userMessage: '本地数据同步到云端失败，请稍后重试。',
+      userMessage: buildApiErrorUserMessage(error, '本地数据同步到云端'),
       extra: {
         characters: snapshot.characters.length,
         chats: snapshot.chats.length,

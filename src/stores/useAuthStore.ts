@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { ApiError, api } from '../services/api';
+import { buildApiErrorUserMessage } from '../services/apiErrorMessage';
 import { resetChatStoreForAccountBoundary, useChatStore } from './useChatStore';
 import { resetCharacterStoreForAccountBoundary, useCharacterStore } from './useCharacterStore';
 import { resetMessageStoreForAccountBoundary } from './useMessageStore';
@@ -244,7 +245,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       reportRecoverableError({
         location: 'auth:update-profile',
         error,
-        userMessage: '账号资料更新失败，请稍后重试。',
+        userMessage: buildApiErrorUserMessage(error, '账号资料更新'),
       });
       throw error;
     }
@@ -260,7 +261,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       reportRecoverableError({
         location: 'auth:change-phone',
         error,
-        userMessage: '手机号修改失败，请稍后重试。',
+        userMessage: buildApiErrorUserMessage(error, '手机号修改'),
       });
       throw error;
     }

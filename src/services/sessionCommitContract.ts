@@ -4,6 +4,7 @@ import type { DriverCharacterPatch, DriverEventPayload, DriverMessageCommitTrans
 import type { Message } from '../types/message';
 import type { APIConfig } from '../types/settings';
 import { createRuntimeMemoryTimer } from './runtimeMemoryMonitor';
+import { buildApiErrorUserMessage } from './apiErrorMessage';
 import { reportRecoverableError } from './diagnostics';
 
 export interface CommitRuntimeServices {
@@ -97,7 +98,7 @@ function deferCommitSideEffect(task: () => Promise<void>) {
       reportRecoverableError({
         location: 'commit-apply.deferred-side-effect',
         error,
-        userMessage: '后台同步更新失败，请稍后重试。',
+        userMessage: buildApiErrorUserMessage(error, '后台同步更新'),
       });
     });
   };

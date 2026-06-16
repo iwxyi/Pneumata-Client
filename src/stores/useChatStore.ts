@@ -6,6 +6,7 @@ import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { useCharacterStore } from './useCharacterStore';
 import { api, type SyncChangeScope } from '../services/api';
+import { buildApiErrorUserMessage } from '../services/apiErrorMessage';
 import { reportRecoverableError, reportRecoverableWarning } from '../services/diagnostics';
 import { projectEntities, type SyncPatchOperation } from '../services/syncProjector';
 import { clearResolvedFieldConflicts, detectPendingFieldConflicts, type FieldConflictRecord } from '../services/syncConflictRecords';
@@ -1118,7 +1119,7 @@ export const useChatStore = create<ChatStore>()(
               reportRecoverableError({
                 location: 'cloud-sync:chats-load',
                 error,
-                userMessage: '聊天云同步失败，请检查网络后重试。',
+                userMessage: buildApiErrorUserMessage(error, '聊天云同步'),
               });
               set({ isLoading: false, pendingEditSyncError: classifySyncError(error) });
             }
@@ -1223,7 +1224,7 @@ export const useChatStore = create<ChatStore>()(
               reportRecoverableError({
                 location: 'cloud-sync:chat-detail-load',
                 error,
-                userMessage: '聊天详情同步失败，请检查网络后重试。',
+                userMessage: buildApiErrorUserMessage(error, '聊天详情同步'),
                 extra: diagnostics,
               });
               return null;
@@ -1276,7 +1277,7 @@ export const useChatStore = create<ChatStore>()(
               reportRecoverableError({
                 location: 'cloud-sync:world-runtime-load',
                 error,
-                userMessage: '世界运行摘要同步失败，请检查网络后重试。',
+                userMessage: buildApiErrorUserMessage(error, '世界运行摘要同步'),
               });
             }
           }, { markCheckedOnSuccess: false });

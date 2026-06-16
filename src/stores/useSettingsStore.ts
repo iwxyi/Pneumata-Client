@@ -8,6 +8,7 @@ import type { BubbleStyleDefinition } from '../types/bubbleStyle';
 import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_AI_GENERATION_SETTINGS, DEFAULT_COMPANIONSHIP_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, DEFAULT_USAGE_STATS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
 import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS, PAPER_SURFACE_VARIANTS } from '../types/artifactAppearance';
 import { api, type SyncChangeScope } from '../services/api';
+import { buildApiErrorUserMessage } from '../services/apiErrorMessage';
 import { reportRecoverableError } from '../services/diagnostics';
 import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateSettingsStoreState } from './storeMigrations';
@@ -110,7 +111,7 @@ function syncToServer(data: Record<string, unknown>, set: SettingsSet) {
         reportRecoverableError({
           location: 'cloud-sync:settings-save',
           error: err,
-          userMessage: '设置同步失败，请检查网络后重试。',
+          userMessage: buildApiErrorUserMessage(err, '设置同步'),
         });
         set((state) => ({ ...state, syncStatus: 'error', syncError: err instanceof Error ? err.message : String(err) }));
       });
@@ -129,7 +130,7 @@ function syncUsageStatsToServer(usageStats: UsageStats, set: SettingsSet) {
         reportRecoverableError({
           location: 'cloud-sync:usage-stats-save',
           error: err,
-          userMessage: '使用统计同步失败，请检查网络后重试。',
+          userMessage: buildApiErrorUserMessage(err, '使用统计同步'),
         });
         set((state) => ({ ...state, syncError: err instanceof Error ? err.message : String(err) }));
       });
@@ -371,7 +372,7 @@ export const useSettingsStore = create<SettingsStore>()(
           reportRecoverableError({
             location: 'cloud-sync:settings-load',
             error,
-            userMessage: '设置加载失败，请检查网络后重试。',
+            userMessage: buildApiErrorUserMessage(error, '设置加载'),
           });
           set({ _loaded: true, syncStatus: 'error', syncError: error instanceof Error ? error.message : String(error) });
         }

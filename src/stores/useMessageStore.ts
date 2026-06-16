@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { Message } from '../types/message';
 import { buildMessageIdentityKeys, getMessageRenderIdentity, isLocalOnlyMessageId, messagesShareIdentity } from '../services/messageIdentity';
 import { api, ApiError, type SyncChangeScope } from '../services/api';
+import { buildApiErrorUserMessage } from '../services/apiErrorMessage';
 import { reportRecoverableError } from '../services/diagnostics';
 import { hasLocalDataUrlMedia, scrubLocalMediaUrlsForCloud, uploadLocalMessageMediaToCloud } from '../services/richMessageMedia';
 import { useAuthStore } from './useAuthStore';
@@ -4995,7 +4996,7 @@ export const useMessageStore = create<MessageStore>()(
           reportRecoverableError({
             location: 'cloud-sync:messages-load',
             error,
-            userMessage: '消息云同步失败，请检查网络后重试。',
+            userMessage: buildApiErrorUserMessage(error, '消息云同步'),
             extra: { chatId },
           });
           set((state) => ({
