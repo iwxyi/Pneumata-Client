@@ -3852,6 +3852,45 @@ describe('companionshipProjection', () => {
     expect(trace?.sharedSecrets.join('\n')).not.toContain('暗号告诉过苏苏');
   });
 
+  it('uses later shared secret events to update the public mask without exposing private text', () => {
+    const directChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [
+      sharedSecretEvent(),
+      sharedSecretEvent({
+        id: 'evt-shared-secret-mask-edit',
+        createdAt: 1_100,
+        payload: {
+          eventType: 'companionship_shared_secret',
+          characterId: 'char-a',
+          userId: 'user',
+          secretId: 'secret-user-codeword',
+          action: 'recorded',
+          participantIds: ['char-a', 'user'],
+          privateText: '用户只把那个暗号告诉过苏苏，不能告诉别人。',
+          publicMask: '一个只适合两个人记住的暗号',
+          reason: '用户在角色关系页修正公开描述。',
+          evidence: 'manual_secret_mask_edit_from_character_relationship_tab',
+          emotionalWeight: 82,
+          confidence: 1,
+        },
+      }),
+    ]);
+    const secrets = buildSharedSecrets(character(), 1_200, directChat);
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [],
+      now: 1_200,
+    });
+
+    expect(secrets[0]).toMatchObject({
+      id: 'secret-user-codeword',
+      publicMask: '一个只适合两个人记住的暗号',
+      privateText: '用户只把那个暗号告诉过苏苏，不能告诉别人。',
+    });
+    expect(trace?.sharedSecrets.join('\n')).toContain('一个只适合两个人记住的暗号');
+    expect(trace?.sharedSecrets.join('\n')).not.toContain('暗号告诉过苏苏');
+  });
+
   it('uses revoked shared secret runtime events to suppress active runtime secrets', () => {
     const directChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [
       sharedSecretEvent(),

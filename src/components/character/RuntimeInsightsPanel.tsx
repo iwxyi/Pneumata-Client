@@ -806,6 +806,46 @@ function buildManualSharedSecretConsequenceEvent(
   };
 }
 
+function buildManualSharedSecretMaskEvent(chat: GroupChat, character: AICharacter, secret: SharedSecret, publicMask: string): RuntimeEventV2 {
+  const now = Date.now();
+  const action = secret.leakState === 'confessed'
+    ? 'confessed'
+    : secret.leakState === 'leaked'
+      ? 'leaked'
+      : secret.leakState === 'hinted_publicly'
+        ? 'hinted_publicly'
+        : 'recorded';
+  const normalizedMask = clipRuntimeText(publicMask, 80);
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, secret.id, normalizedMask, 'shared-secret-mask']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户修正了一条小秘密公开描述`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_shared_secret',
+      characterId: character.id,
+      userId: secret.participantIds.includes('user') ? 'user' : undefined,
+      secretId: secret.id,
+      action,
+      consequenceKind: secret.consequenceKind,
+      participantIds: secret.participantIds,
+      privateText: secret.privateText,
+      publicMask: normalizedMask,
+      reason: '用户在角色关系页手动修正小秘密公开描述。',
+      evidence: `manual_secret_mask_edit_from_character_relationship_tab: ${secret.publicMask} -> ${normalizedMask}`,
+      emotionalWeight: secret.emotionalWeight,
+      confidence: 1,
+    },
+  };
+}
+
 function buildManualSharedPhraseSuppressedEvent(chat: GroupChat, character: AICharacter, phrase: SharedPhrase): RuntimeEventV2 {
   const now = Date.now();
   return {
@@ -1510,6 +1550,7 @@ function UserCompanionshipCard({
   onUpdateProfileCue,
   onRevokeProfileCue,
   onRevokeSharedSecret,
+  onUpdateSharedSecretMask,
   onCorrectSharedSecretConsequence,
   onUpdateSharedPhrase,
   onSuppressSharedPhrase,
@@ -1540,6 +1581,7 @@ function UserCompanionshipCard({
   onUpdateProfileCue: (item: UserProfileMemoryEventItem) => void;
   onRevokeProfileCue: (item: UserProfileMemoryEventItem) => void;
   onRevokeSharedSecret: (secret: SharedSecret) => void;
+  onUpdateSharedSecretMask: (secret: SharedSecret, publicMask: string) => void;
   onCorrectSharedSecretConsequence: (secret: SharedSecret, consequenceKind: NonNullable<SharedSecret['consequenceKind']>) => void;
   onUpdateSharedPhrase: (phrase: SharedPhrase, text: string) => void;
   onSuppressSharedPhrase: (phrase: SharedPhrase) => void;
@@ -1560,6 +1602,8 @@ function UserCompanionshipCard({
   const [editingPromiseId, setEditingPromiseId] = useState<string | null>(null);
   const [editingPromiseText, setEditingPromiseText] = useState('');
   const [editingPromiseKind, setEditingPromiseKind] = useState<PendingPromise['kind']>('other');
+  const [editingSecretId, setEditingSecretId] = useState<string | null>(null);
+  const [editingSecretMask, setEditingSecretMask] = useState('');
   const headlineChips = [
     trace ? formatCompanionshipPhaseLabel(trace.phase) : '',
     trace ? formatCompanionshipStyleLabel(trace.style) : '',
@@ -2202,7 +2246,22 @@ function UserCompanionshipCard({
                       <Chip size="small" label={formatSharedSecretConsequenceLabel(secret.consequenceKind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
                       {developerMode ? <Typography variant="caption" color="text.secondary">权重 {secret.emotionalWeight}</Typography> : null}
                     </Stack>
-                    <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{secret.publicMask}</Typography>
+                    {editingSecretId === secret.id ? (
+                      <TextField
+                        size="small"
+                        value={editingSecretMask}
+                        onChange={(event) => setEditingSecretMask(event.target.value)}
+                        fullWidth
+                        autoFocus
+                        multiline
+                        minRows={1}
+                        maxRows={2}
+                        slotProps={{ htmlInput: { maxLength: 80 } }}
+                        sx={{ mt: 0.5 }}
+                      />
+                    ) : (
+                      <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{secret.publicMask}</Typography>
+                    )}
                     {developerMode ? (
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
                         参与者：{secret.participantIds.join(' × ')}
@@ -2224,9 +2283,53 @@ function UserCompanionshipCard({
                       </Stack>
                     ) : null}
                   </Box>
-                  <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(secret)} sx={{ flexShrink: 0 }}>
-                    撤回
-                  </Button>
+                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                    {editingSecretId === secret.id ? (
+                      <>
+                        <Button
+                          size="small"
+                          variant="text"
+                          disabled={!editingSecretMask.trim() || editingSecretMask.trim() === secret.publicMask}
+                          onClick={() => {
+                            const nextMask = editingSecretMask.trim();
+                            if (!nextMask || nextMask === secret.publicMask) return;
+                            onUpdateSharedSecretMask(secret, nextMask);
+                            setEditingSecretId(null);
+                            setEditingSecretMask('');
+                          }}
+                          sx={{ minWidth: 0 }}
+                        >
+                          保存
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={() => {
+                            setEditingSecretId(null);
+                            setEditingSecretMask('');
+                          }}
+                          sx={{ minWidth: 0 }}
+                        >
+                          取消
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => {
+                          setEditingSecretId(secret.id);
+                          setEditingSecretMask(secret.publicMask);
+                        }}
+                        sx={{ minWidth: 0 }}
+                      >
+                        修改
+                      </Button>
+                    )}
+                    <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(secret)} sx={{ minWidth: 0 }}>
+                      撤回
+                    </Button>
+                  </Box>
                 </Box>
               ))}
             </Stack>
@@ -2803,6 +2906,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onRevokeSharedSecret={(secret) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretRevokedEvent(view.chat, character as AICharacter, secret));
+                }}
+                onUpdateSharedSecretMask={(secret, publicMask) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretMaskEvent(view.chat, character as AICharacter, secret, publicMask));
                 }}
                 onCorrectSharedSecretConsequence={(secret, consequenceKind) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretConsequenceEvent(view.chat, character as AICharacter, secret, consequenceKind));
