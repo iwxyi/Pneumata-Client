@@ -712,22 +712,23 @@ function buildManualUserProfileMemoryUpsertEvent(chat: GroupChat, character: AIC
 
 function buildManualSharedAnchorArchiveEvent(chat: GroupChat, character: AICharacter, anchor: SharedMemoryAnchor): RuntimeEventV2 {
   const now = Date.now();
+  const includesUser = anchor.participantIds.includes('user');
   return {
     id: buildManualCompanionshipEventId([chat.id, character.id, anchor.id, 'shared-anchor-archive']),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
-    targetIds: [character.id],
+    targetIds: anchor.participantIds,
     summary: `${character.name} 记录用户归档了一条共同锚点`,
-    channelId: 'pair-private',
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
     eventClass: 'artifact',
-    visibility: 'pair_private',
-    visibleToIds: ['user', character.id],
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: anchor.participantIds,
     payload: {
       eventType: 'companionship_shared_anchor',
       characterId: character.id,
-      userId: anchor.participantIds.includes('user') ? 'user' : undefined,
+      userId: includesUser ? 'user' : undefined,
       anchorId: anchor.id,
       action: 'archive',
       kind: anchor.kind,
@@ -745,22 +746,23 @@ function buildManualSharedAnchorUpsertEvent(chat: GroupChat, character: AICharac
   const now = Date.now();
   const title = patch.title.trim();
   const text = patch.text.trim();
+  const includesUser = anchor.participantIds.includes('user');
   return {
     id: buildManualCompanionshipEventId([chat.id, character.id, anchor.id, title, text, 'shared-anchor-upsert']),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
-    targetIds: [character.id],
+    targetIds: anchor.participantIds,
     summary: `${character.name} 记录用户修正了一条共同锚点`,
-    channelId: 'pair-private',
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
     eventClass: 'artifact',
-    visibility: 'pair_private',
-    visibleToIds: ['user', character.id],
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: anchor.participantIds,
     payload: {
       eventType: 'companionship_shared_anchor',
       characterId: character.id,
-      userId: anchor.participantIds.includes('user') ? 'user' : undefined,
+      userId: includesUser ? 'user' : undefined,
       anchorId: anchor.id,
       action: 'upsert',
       kind: patch.kind,
@@ -1297,6 +1299,7 @@ function SharedMemoryAnchorPanel({
   anchors,
   resolveCharacterName,
   developerMode,
+  allowNonUserAnchors = false,
   onArchiveAnchor,
   onUpdateAnchor,
   onKeepPairPrivate,
@@ -1305,6 +1308,7 @@ function SharedMemoryAnchorPanel({
   anchors: SharedMemoryAnchor[];
   resolveCharacterName: (id: string, fallback?: string) => string;
   developerMode: boolean;
+  allowNonUserAnchors?: boolean;
   onArchiveAnchor?: (anchor: SharedMemoryAnchor) => void;
   onUpdateAnchor?: (anchor: SharedMemoryAnchor, patch: { kind: SharedMemoryAnchor['kind']; title: string; text: string }) => void;
   onKeepPairPrivate?: (anchor: SharedMemoryAnchor) => void;
@@ -1321,8 +1325,9 @@ function SharedMemoryAnchorPanel({
         const updateAnchor = onUpdateAnchor;
         const keepPairPrivate = onKeepPairPrivate;
         const isEditing = editingAnchorId === anchor.id;
-        const canArchive = Boolean(archiveAnchor) && anchor.participantIds.includes('user');
-        const canEdit = Boolean(updateAnchor) && anchor.participantIds.includes('user');
+        const isUserAnchor = anchor.participantIds.includes('user');
+        const canArchive = Boolean(archiveAnchor) && (isUserAnchor || allowNonUserAnchors);
+        const canEdit = Boolean(updateAnchor) && (isUserAnchor || allowNonUserAnchors);
         const canNarrowParticipants = Boolean(keepPairPrivate) && anchor.participantIds.includes('user') && anchor.participantIds.some((id) => id !== 'user' && id !== characterId);
         const chips = developerMode
           ? [
@@ -3492,6 +3497,21 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       || recentByTime(chats.filter((chat) => chat.memberIds.includes(character.id || '')), 1)[0];
     return buildCharacterCompanionshipStates(character as AICharacter, character.updatedAt || character.createdAt || 0, relatedChat);
   }, [character, chats]);
+  const roleSharedAnchorItems = useMemo(() => {
+    if (!character.id || !character.personality || !character.memory) return [];
+    const seen = new Set<string>();
+    return recentByTime(chats.filter((chat) => chat.type !== 'direct' && chat.memberIds.includes(character.id || '')), 5)
+      .flatMap((chat) => buildSharedMemoryAnchors(character as AICharacter, chat.updatedAt || Date.now(), chat)
+        .filter((anchor) => anchor.participantIds.includes(character.id || '') && !anchor.participantIds.includes('user'))
+        .map((anchor) => ({ chat, chatName: chat.name || '群聊', anchor })))
+      .filter((item) => {
+        const key = `${item.chat.id}:${item.anchor.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 10);
+  }, [character, chats]);
   const roleSharedPhraseItems = useMemo(() => {
     if (!character.id || !character.personality || !character.memory) return [];
     const seen = new Set<string>();
@@ -3654,6 +3674,37 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       <SurfaceCard>
         <SectionHeader title="角色陪伴" dense action={isDeveloperView ? <DebugChip /> : undefined} />
         <CharacterCompanionshipPanel states={characterCompanionshipStates} resolveCharacterName={resolveCharacterName} developerMode={isDeveloperView} />
+      </SurfaceCard>
+      <SurfaceCard>
+        <SectionHeader title="角色共同锚点" dense action={isDeveloperView ? <DebugChip /> : undefined} />
+        {roleSharedAnchorItems.length ? (
+          <Stack spacing={0.65}>
+            {roleSharedAnchorItems.slice(0, isDeveloperView ? 10 : 6).map(({ chat, chatName, anchor }) => (
+              <Box key={`${chat.id}-${anchor.id}`}>
+                {isDeveloperView ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35 }}>
+                    {chatName}
+                  </Typography>
+                ) : null}
+                <SharedMemoryAnchorPanel
+                  characterId={character.id || ''}
+                  anchors={[anchor]}
+                  resolveCharacterName={resolveCharacterName}
+                  developerMode={isDeveloperView}
+                  allowNonUserAnchors
+                  onArchiveAnchor={(item) => {
+                    void appendManualCompanionshipEvent(chat, buildManualSharedAnchorArchiveEvent(chat, character as AICharacter, item));
+                  }}
+                  onUpdateAnchor={(item, patch) => {
+                    void appendManualCompanionshipEvent(chat, buildManualSharedAnchorUpsertEvent(chat, character as AICharacter, item, patch));
+                  }}
+                />
+              </Box>
+            ))}
+          </Stack>
+        ) : (
+          <Typography variant="caption" color="text.secondary">暂无角色之间的共同锚点。群聊里的第一次、冲突、修复、约定、小秘密或里程碑沉淀后会显示在这里。</Typography>
+        )}
       </SurfaceCard>
       <SurfaceCard>
         <SectionHeader title="角色共同话语" dense action={isDeveloperView ? <DebugChip /> : undefined} />
