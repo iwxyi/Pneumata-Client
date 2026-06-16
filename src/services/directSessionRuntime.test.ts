@@ -5,12 +5,15 @@ import type { AICharacter } from '../types/character';
 import type { Message } from '../types/message';
 import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
 import { setAIGenerationRuntimeConfig } from './aiGenerationRuntimeConfig';
+import { DEFAULT_COMPANIONSHIP_SETTINGS } from '../types/settings';
+import { setCompanionshipRuntimeConfig } from './companionshipRuntimeConfig';
 import * as aiClient from './aiClient';
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
   setAIGenerationRuntimeConfig({ enableMoments: true, enableDiaries: true });
+  setCompanionshipRuntimeConfig(DEFAULT_COMPANIONSHIP_SETTINGS);
 });
 
 afterEach(() => {
@@ -2563,6 +2566,38 @@ describe('directSessionRuntime pair-thread adjudication helpers', () => {
       } as RuntimeEventV2,
     ]);
     expect(pickAutoPairPrivateThreadCandidate(chat)).toBeNull();
+  });
+
+  it('allows companionship pair candidates when private thread cooldown is disabled', () => {
+    setCompanionshipRuntimeConfig({
+      ...DEFAULT_COMPANIONSHIP_SETTINGS,
+      privateThreadCooldownHours: 0,
+    });
+    const chat = buildChatWithEvents([
+      buildCandidateEvent(buildCandidatePayload({ reasonType: 'companionship_promise_followup', dedupeKey: 'companionship-private-thread-chat-1-a-b' }), 1000),
+      {
+        id: 'evt-schedule-1',
+        conversationId: 'chat-1',
+        kind: 'artifact',
+        createdAt: Date.now() - 10 * 60_000,
+        actorIds: ['a'],
+        targetIds: ['b'],
+        summary: '角色陪伴私聊已进入冷却',
+        visibility: 'role_private',
+        visibleToIds: ['a', 'b'],
+        payload: {
+          eventType: 'companionship_private_thread_schedule',
+          actorId: 'a',
+          targetId: 'b',
+          participantIds: ['a', 'b'],
+          action: 'opened',
+          reasonType: 'companionship_promise_followup',
+          dedupeKey: 'companionship-private-thread-chat-1-a-b',
+          nextAvailableAt: Date.now() + 60 * 60_000,
+        },
+      } as RuntimeEventV2,
+    ]);
+    expect(pickAutoPairPrivateThreadCandidate(chat)?.id).toBe('evt-candidate-1000');
   });
 
   it('records skipped schedule when auto flow sees a cooling companionship pair candidate', async () => {

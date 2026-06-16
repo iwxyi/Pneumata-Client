@@ -727,6 +727,7 @@ export interface CompanionshipSettings {
   enableAttachmentAdaptation: boolean;
   enableRelationshipRituals: boolean;
   pendingPromiseRetentionDays: number;
+  privateThreadCooldownHours: number;
   proactiveCooldownMinutes: {
     checkIn: number;
     reactToMoment: number;
@@ -806,6 +807,7 @@ export const DEFAULT_COMPANIONSHIP_SETTINGS: CompanionshipSettings = {
   enableAttachmentAdaptation: true,
   enableRelationshipRituals: true,
   pendingPromiseRetentionDays: 30,
+  privateThreadCooldownHours: 6,
   proactiveCooldownMinutes: {
     checkIn: 120,
     reactToMoment: 120,

@@ -1,8 +1,15 @@
 import type { GroupChat } from '../types/chat';
 import type { CompanionshipPrivateThreadScheduleEventPayload } from '../types/companionship';
 import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
+import { getCompanionshipRuntimeConfig } from './companionshipRuntimeConfig';
 
 export const COMPANIONSHIP_PRIVATE_THREAD_COOLDOWN_MS = 6 * 60 * 60_000;
+
+export function getCompanionshipPrivateThreadCooldownMs() {
+  const hours = getCompanionshipRuntimeConfig().privateThreadCooldownHours;
+  if (!Number.isFinite(hours)) return COMPANIONSHIP_PRIVATE_THREAD_COOLDOWN_MS;
+  return Math.max(0, Math.min(168, Math.round(hours * 100) / 100)) * 60 * 60_000;
+}
 
 function pairKeyOf(ids: string[]) {
   return ids.filter(Boolean).slice().sort().join('::');
@@ -63,7 +70,8 @@ export function getRecentCompanionshipPrivateThreadSchedule(params: {
   windowMs?: number;
 }) {
   const now = params.now || Date.now();
-  const windowMs = params.windowMs || COMPANIONSHIP_PRIVATE_THREAD_COOLDOWN_MS;
+  const windowMs = params.windowMs ?? getCompanionshipPrivateThreadCooldownMs();
+  if (windowMs <= 0) return null;
   const pairKey = pairKeyOf(params.participantIds);
   return (params.chat.runtimeEventsV2 || [])
     .slice()

@@ -1975,6 +1975,18 @@ export default function SettingsPage() {
                 slotProps={{ htmlInput: { min: 1, max: 365, step: 1 } }}
                 sx={{ maxWidth: 260 }}
               />
+              <TextField
+                type="number"
+                size="small"
+                label={i18n.language.startsWith('zh') ? 'AI 私聊冷却（小时）' : 'AI private thread cooldown (h)'}
+                value={settings.companionship.privateThreadCooldownHours}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  settings.setCompanionship({ privateThreadCooldownHours: Number.isFinite(value) ? Math.min(168, Math.max(0, Math.round(value * 100) / 100)) : 6 });
+                }}
+                slotProps={{ htmlInput: { min: 0, max: 168, step: 0.5 } }}
+                sx={{ maxWidth: 260 }}
+              />
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '陪伴表达强度' : 'Companionship intensity'}</Typography>
                 <ToggleButtonGroup value={settings.companionship.careIntensity} exclusive onChange={(_, v) => v && settings.setCompanionship({ careIntensity: v })} size="small" sx={buildToggleGroupSx()}>

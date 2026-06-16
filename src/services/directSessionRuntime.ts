@@ -26,7 +26,7 @@ import { orchestrateWorldDecision } from './worldDecisionOrchestrator';
 import { buildMomentPostText } from './momentTextBuilder';
 import { buildCompanionshipArtifactSeeds, buildCompanionshipStatusSignature, buildUserCompanionshipProjection, shouldBlockUserProactiveContactByCompanionshipPolicy } from './companionshipProjection';
 import { readDueCompanionshipCareTopicsFromEvents, readStaleCompanionshipCareTopicsFromEvents } from './directCompanionshipCare';
-import { COMPANIONSHIP_PRIVATE_THREAD_COOLDOWN_MS, buildCompanionshipPrivateThreadScheduleEvent, getRecentCompanionshipPrivateThreadSchedule } from './companionshipPrivateThreadSchedule';
+import { buildCompanionshipPrivateThreadScheduleEvent, getCompanionshipPrivateThreadCooldownMs, getRecentCompanionshipPrivateThreadSchedule } from './companionshipPrivateThreadSchedule';
 
 function withFrameworkPatch(chat: GroupChat, patch: Partial<GroupChat>) {
   const engine = resolveSessionEngine(chat);
@@ -1484,7 +1484,7 @@ function buildCompanionshipPrivateThreadOpenedScheduleEvent(chat: GroupChat, can
     payload,
     action: 'opened',
     privateChatId: privateChatId || undefined,
-    nextAvailableAt: createdAt + COMPANIONSHIP_PRIVATE_THREAD_COOLDOWN_MS,
+    nextAvailableAt: createdAt + getCompanionshipPrivateThreadCooldownMs(),
     createdAt,
   });
 }
