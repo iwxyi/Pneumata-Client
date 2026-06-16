@@ -263,6 +263,84 @@ function applyLongTermIntimacyTrend(base: IntimacyProjection, trend: Partial<Int
   };
 }
 
+function countCompanionshipTrendEvents(chat: GroupChat, characterId: string, now: number) {
+  const windowStart = now - 180 * DAY_MS;
+  const counts = {
+    stableBond: 0,
+    repair: 0,
+    conflict: 0,
+    cooled: 0,
+  };
+  (chat.runtimeEventsV2 || []).forEach((event) => {
+    const createdAt = event.createdAt || 0;
+    if (createdAt && createdAt < windowStart) return;
+    const payload = event.payload as Record<string, unknown> | undefined;
+    if (!payload || typeof payload.eventType !== 'string') return;
+    if (typeof payload.characterId === 'string' && payload.characterId !== characterId) return;
+    const userId = typeof payload.userId === 'string' ? payload.userId : undefined;
+    const participantIds = Array.isArray(payload.participantIds) ? payload.participantIds.filter((item): item is string => typeof item === 'string') : [];
+    if (userId && userId !== USER_ACTOR_ID) return;
+    if (!userId && participantIds.length && !participantIds.includes(USER_ACTOR_ID)) return;
+    if (payload.eventType === 'companionship_phase_event') {
+      if (payload.phase === 'deep' || payload.phase === 'passionate') counts.stableBond += 1;
+      if (payload.phase === 'reconciling') counts.repair += 1;
+      if (payload.phase === 'cooling') counts.cooled += 1;
+      if (payload.phase === 'crisis') counts.conflict += 1;
+    }
+    if (payload.eventType === 'companionship_intimate_conflict') {
+      if (payload.action === 'resolved' || payload.action === 'repair_attempted') counts.repair += 1;
+      if (payload.action === 'opened' || payload.action === 'reopened' || payload.action === 'updated') counts.conflict += 1;
+    }
+    if (payload.eventType === 'companionship_promise') {
+      if (payload.action === 'fulfilled') counts.stableBond += 1;
+      if (payload.action === 'blocked' || payload.action === 'stale') counts.cooled += 1;
+    }
+    if (payload.eventType === 'companionship_ritual' && (payload.action === 'performed' || payload.action === 'restored')) {
+      counts.stableBond += 1;
+    }
+  });
+  return counts;
+}
+
+function inferTrendPhase(params: {
+  intimacy: IntimacyProjection;
+  trend: Partial<IntimacyProjection>;
+  counts: ReturnType<typeof countCompanionshipTrendEvents>;
+  entry: RelationshipLedgerEntry | null;
+}): CompanionshipPhase | null {
+  const threat = params.entry?.current.threat || 0;
+  if (params.counts.conflict >= 2 && params.intimacy.security <= 30) return 'crisis';
+  if (params.counts.conflict >= 2 && params.counts.cooled >= 1 && threat >= 12 && (params.trend.security || 0) < 0) return 'cooling';
+  if ((params.counts.cooled >= 1 || params.counts.conflict >= 1) && params.intimacy.security <= 48 && threat >= 12) return 'cooling';
+  if (params.counts.repair >= 1 && (params.trend.security || 0) > 0 && params.intimacy.security >= 36) return 'reconciling';
+  if (params.counts.stableBond >= 3 && params.intimacy.intimacy >= 62 && params.intimacy.security >= 58) return 'deep';
+  return null;
+}
+
+function isTrendPhaseEligible(basePhase: CompanionshipPhase, trendPhase: CompanionshipPhase | null) {
+  if (!trendPhase) return false;
+  if (trendPhase === 'deep' || trendPhase === 'reconciling') {
+    return basePhase === 'stranger' || basePhase === 'curious' || basePhase === 'fond';
+  }
+  if (trendPhase === 'cooling' || trendPhase === 'crisis') {
+    return basePhase === 'stranger' || basePhase === 'curious' || basePhase === 'fond' || basePhase === 'ambiguous';
+  }
+  return false;
+}
+
+function buildTrendPhaseEvidence(phase: CompanionshipPhase | null, trend: Partial<IntimacyProjection>, counts: ReturnType<typeof countCompanionshipTrendEvents>) {
+  if (!phase) return [];
+  const trendText = Object.entries(trend)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${key}:${value}`)
+    .join(',');
+  const countText = Object.entries(counts)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${key}:${value}`)
+    .join(',');
+  return [`long-term phase candidate ${phase}${trendText ? ` trend=${trendText}` : ''}${countText ? ` events=${countText}` : ''}`];
+}
+
 function adjustIntimacyForCompanionshipRuntime(params: {
   base: IntimacyProjection;
   sharedSecrets: SharedSecret[];
@@ -2797,7 +2875,12 @@ export function buildUserCompanionshipProjection(params: {
   const longTermTrend = buildLongTermIntimacyTrend(chat, character.id, now);
   const baseIntimacy = applyLongTermIntimacyTrend(anchoredIntimacy, longTermTrend);
   const phaseEvent = resolveCompanionshipPhaseEvent(chat, character.id);
-  const inferredPhase = inferPhase(baseIntimacy, ledger, sharedAnchors);
+  const baseInferredPhase = inferPhase(baseIntimacy, ledger, sharedAnchors);
+  const trendPhaseCounts = countCompanionshipTrendEvents(chat, character.id, now);
+  const trendPhase = inferTrendPhase({ intimacy: baseIntimacy, trend: longTermTrend, counts: trendPhaseCounts, entry: ledger });
+  const inferredPhase = isTrendPhaseEligible(baseInferredPhase, trendPhase)
+    ? trendPhase || baseInferredPhase
+    : baseInferredPhase;
   const phase = phaseEvent?.phase || inferredPhase;
   const contacts = getLatestContact(messages, character.id);
   const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now, suppressedPromiseKeys);
@@ -2828,6 +2911,7 @@ export function buildUserCompanionshipProjection(params: {
   const evidence = [
     ...buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent),
     ...(!phaseEvent ? buildAnchorPhaseEvidence(sharedAnchors, phase) : []),
+    ...(!phaseEvent && trendPhase === phase ? buildTrendPhaseEvidence(trendPhase, longTermTrend, trendPhaseCounts) : []),
     Object.values(longTermTrend).some((value) => value) ? `long_term_intimacy_trend=${Object.entries(longTermTrend).filter(([, value]) => value).map(([key, value]) => `${key}:${value}`).join(',')}` : '',
   ].filter(Boolean).slice(0, 6);
   const attachmentProfile = buildUserAttachmentProfile({ chat, characterId: character.id, messages, profile: userProfile, intimacy: baseIntimacy, now });

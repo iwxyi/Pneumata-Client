@@ -711,6 +711,217 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).not.toContain('confirmed relationship');
   });
 
+  it('uses long-term positive companionship events as a conservative deep phase candidate', () => {
+    const baseLedger = relationship({ warmth: 88, trust: 84, competence: 20, threat: 2 });
+    baseLedger.derived = {
+      semantic: {
+        stage: '稳定陪伴',
+        labels: ['稳定', '信任'],
+        summary: '稳定陪伴：长期信任',
+        intensity: 72,
+      },
+    };
+    const directChat = chat('direct', [baseLedger], [
+      promiseEvent({
+        id: 'evt-promise-fulfilled-a',
+        createdAt: 900,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-a',
+          promiseText: '周末一起复盘面试',
+          action: 'fulfilled',
+          participantIds: ['char-a', 'user'],
+          confidence: 0.9,
+        },
+      }),
+      promiseEvent({
+        id: 'evt-promise-fulfilled-b',
+        createdAt: 950,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-b',
+          promiseText: '下次焦虑时先告诉苏苏',
+          action: 'fulfilled',
+          participantIds: ['char-a', 'user'],
+          confidence: 0.9,
+        },
+      }),
+      ritualEvent({ id: 'evt-ritual-performed-for-phase', createdAt: 1_000 }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '这段时间一直都挺稳定的。', timestamp: 1_100 })],
+      now: 1_200,
+    });
+
+    expect(projection.userBond?.phase).toBe('deep');
+    expect(projection.userBond?.style).toBe('romantic');
+    expect(projection.userBond?.phaseEvidence.join('\n')).toContain('long-term phase candidate deep');
+    expect(projection.promptLines.join('\n')).not.toContain('confirmed relationship');
+  });
+
+  it('uses long-term conflict and broken promises as conservative cooling/crisis phase candidates', () => {
+    const baseLedger = relationship({ warmth: 38, trust: 28, competence: 10, threat: 24 });
+    baseLedger.derived = {
+      semantic: {
+        stage: '普通陪伴',
+        labels: ['熟悉'],
+        summary: '普通陪伴：熟悉但有距离',
+        intensity: 38,
+      },
+    };
+    const directChat = chat('direct', [baseLedger], [
+      promiseEvent({
+        id: 'evt-promise-blocked-for-cooling',
+        createdAt: 900,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-boundary',
+          promiseText: '说好不要追问这件事',
+          action: 'blocked',
+          participantIds: ['char-a', 'user'],
+          confidence: 0.9,
+        },
+      }),
+      intimateConflictEvent({
+        id: 'evt-conflict-opened-for-cooling',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_intimate_conflict',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'opened',
+          kind: 'withdrawal',
+          severity: 72,
+          repairReadiness: 18,
+          summary: '用户明显退开，苏苏需要克制。',
+          evidence: ['用户说先别聊这件事。'],
+          participantIds: ['char-a', 'user'],
+          confidence: 0.88,
+        },
+      }),
+      intimateConflictEvent({
+        id: 'evt-conflict-updated-for-cooling',
+        createdAt: 1_050,
+        payload: {
+          eventType: 'companionship_intimate_conflict',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'updated',
+          kind: 'silent_treatment',
+          severity: 64,
+          repairReadiness: 14,
+          summary: '用户继续保持距离。',
+          evidence: ['用户没有接住后续关心。'],
+          participantIds: ['char-a', 'user'],
+          confidence: 0.88,
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '先别聊这件事了。', timestamp: 1_100 })],
+      now: 1_200,
+    });
+
+    expect(['cooling', 'crisis']).toContain(projection.userBond?.phase);
+    expect(projection.userBond?.phaseEvidence.join('\n')).toContain('long-term phase candidate');
+    expect(projection.userBond?.carePolicy.allowMissYou).toBe(false);
+  });
+
+  it('keeps explicit phase events above long-term trend phase candidates', () => {
+    const directChat = chat('direct', [relationship({ warmth: 70, trust: 66, competence: 20, threat: 0 })], [
+      phaseEvent({
+        id: 'evt-explicit-confirmed',
+        createdAt: 1_050,
+        payload: {
+          eventType: 'companionship_phase_event',
+          characterId: 'char-a',
+          userId: 'user',
+          phase: 'confirmed',
+          style: 'romantic',
+          reason: '用户明确确认关系。',
+          evidence: ['我们就按恋人关系相处。'],
+        },
+      }),
+      intimateConflictEvent({
+        id: 'evt-older-conflict-for-trend',
+        createdAt: 900,
+        payload: {
+          eventType: 'companionship_intimate_conflict',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'opened',
+          kind: 'withdrawal',
+          severity: 80,
+          repairReadiness: 10,
+          evidence: ['之前有过一次明显退开。'],
+          participantIds: ['char-a', 'user'],
+          confidence: 0.9,
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '我们就按恋人关系相处。', timestamp: 1_100 })],
+      now: 1_200,
+    });
+
+    expect(projection.userBond?.phase).toBe('confirmed');
+    expect(projection.userBond?.phaseEvidence.join('\n')).toContain('用户明确确认关系');
+    expect(projection.userBond?.phaseEvidence.join('\n')).not.toContain('long-term phase candidate');
+  });
+
+  it('does not produce confirmed relationship phase from long-term trend alone', () => {
+    const directChat = chat('direct', [relationship({ warmth: 92, trust: 88, competence: 20, threat: 0 })], [
+      phaseEvent({
+        id: 'evt-old-confirmed-before-revoke',
+        createdAt: 800,
+        payload: {
+          eventType: 'companionship_phase_event',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'set',
+          phase: 'confirmed',
+          style: 'romantic',
+          reason: '旧的确认关系事件。',
+          confidence: 0.9,
+        },
+      }),
+      phaseEvent({
+        id: 'evt-revoke-confirmed-before-trend',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_phase_event',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'revoked',
+          reason: '恢复自动判断。',
+          confidence: 1,
+        },
+      }),
+      ritualEvent({ id: 'evt-ritual-after-revoke', createdAt: 1_050 }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '今天也想和你聊一会。', timestamp: 1_100 })],
+      now: 1_200,
+    });
+
+    expect(projection.userBond?.phase).not.toBe('confirmed');
+    expect(projection.promptLines.join('\n')).not.toContain('confirmed relationship');
+  });
+
   it('reduces security and moves to crisis when threat is high', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({ warmth: 10, trust: -12, competence: 0, threat: 60 })]),
