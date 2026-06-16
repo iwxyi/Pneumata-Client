@@ -602,6 +602,19 @@ function formatUserProfileMemoryActionLabel(action: 'upsert' | 'revoke') {
   return action === 'revoke' ? '撤回' : '写入/修正';
 }
 
+function formatAddressingActionLabel(action: 'update' | 'set_current' | 'set_private' | 'set_public' | 'forbid' | 'unforbid' | 'revoke') {
+  const labels: Record<typeof action, string> = {
+    update: '更新称呼',
+    set_current: '设置当前称呼',
+    set_private: '设置私下称呼',
+    set_public: '设置公开称呼',
+    forbid: '禁用称呼',
+    unforbid: '解除禁用',
+    revoke: '撤回称呼',
+  };
+  return labels[action] || action;
+}
+
 const INTERACTION_PACE_OPTIONS: Array<{
   label: string;
   description: string;
@@ -2225,6 +2238,7 @@ function CompanionshipDeveloperTracePanel({
   ];
   const phaseHistory = trace.phaseHistory.slice(0, 6);
   const userProfileHistory = trace.userProfileHistory.slice(0, 6);
+  const addressingHistory = trace.addressingHistory.slice(0, 6);
   const conflictHistory = trace.conflictHistory.slice(0, 6);
   const attachmentHistory = trace.attachmentHistory.slice(0, 6);
   return (
@@ -2302,6 +2316,46 @@ function CompanionshipDeveloperTracePanel({
                 ) : null}
               </Box>
             ))}
+          </Stack>
+        </Box>
+      ) : null}
+      {addressingHistory.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>称呼历史</Typography>
+          <Stack spacing={0.5}>
+            {addressingHistory.map((item) => {
+              const labels = [
+                item.currentAddress ? `当前：${item.currentAddress}` : '',
+                item.privateAddress ? `私下：${item.privateAddress}` : '',
+                item.publicAddress ? `公开：${item.publicAddress}` : '',
+                item.forbiddenAddresses.length ? `禁用：${item.forbiddenAddresses.join('、')}` : '',
+              ].filter(Boolean);
+              return (
+                <Box key={item.id} sx={{ p: 0.75, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {formatAddressingActionLabel(item.action)} · {new Date(item.occurredAt).toLocaleString()}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {[item.initiatedBy ? `发起 ${item.initiatedBy}` : '', item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : ''].filter(Boolean).join(' · ')}
+                    </Typography>
+                  </Box>
+                  {labels.length ? (
+                    <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.45 }}>
+                      {labels.map((label) => (
+                        <Chip key={label} size="small" variant="outlined" label={label} sx={{ height: 22, borderRadius: 999 }} />
+                      ))}
+                    </Stack>
+                  ) : null}
+                  {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{item.reason}</Typography> : null}
+                  {item.evidence.length ? (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
+                      证据：{item.evidence.join(' / ')}
+                    </Typography>
+                  ) : null}
+                </Box>
+              );
+            })}
           </Stack>
         </Box>
       ) : null}

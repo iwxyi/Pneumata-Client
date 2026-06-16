@@ -153,6 +153,7 @@ describe('messageRuntimeClues', () => {
               allowGoodNight: true,
               allowMissYou: true,
             },
+            addressingHistory: [],
             phaseHistory: [],
             userProfileHistory: [],
             conflictHistory: [],

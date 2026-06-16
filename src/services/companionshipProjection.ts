@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import { DEFAULT_PERSONALITY } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, UserProfileMemoryHistoryEntry, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, UserProfileMemoryHistoryEntry, AddressingHistoryEntry, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -1438,6 +1438,40 @@ function addressingPayloadOf(event: RuntimeEventV2): CompanionshipAddressingEven
   const payload = event.payload as Partial<CompanionshipAddressingEventPayload> | undefined;
   if (!payload || payload.eventType !== 'companionship_addressing' || !payload.characterId || !payload.action) return null;
   return payload as CompanionshipAddressingEventPayload;
+}
+
+function buildAddressingHistory(chat: GroupChat, characterId: string): AddressingHistoryEntry[] {
+  const history: AddressingHistoryEntry[] = [];
+  (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .forEach((event) => {
+      const payload = addressingPayloadOf(event);
+      if (!payload || payload.characterId !== characterId) return;
+      if ((payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return;
+      const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return;
+      const currentAddress = cleanAddressValue(payload.currentAddress);
+      const privateAddress = cleanAddressValue(payload.privateAddress);
+      const publicAddress = cleanAddressValue(payload.publicAddress);
+      const forbiddenAddresses = cleanAddressList(payload.forbiddenAddresses);
+      history.push({
+        id: event.id,
+        action: payload.action,
+        currentAddress,
+        privateAddress,
+        publicAddress,
+        forbiddenAddresses,
+        reason: compactText(payload.reason || payload.evidence || event.summary || 'addressing runtime event', 120),
+        evidence: [payload.reason, payload.evidence, event.summary].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 4) as string[],
+        initiatedBy: payload.initiatedBy,
+        decisionSource: payload.decisionSource,
+        confidence,
+        occurredAt: event.createdAt || 0,
+      });
+    });
+  return history.sort((a, b) => b.occurredAt - a.occurredAt).slice(0, 10);
 }
 
 function hasRecentAddressingRepairEvent(chat: GroupChat | undefined, characterId: string | undefined, now: number) {
@@ -3648,6 +3682,7 @@ export function buildCompanionshipRuntimeTrace(params: {
   const diagnostics = buildCompanionshipDiagnostics(params.chat, params.character.id);
   const phaseHistory = buildPhaseHistory(params.chat, params.character.id);
   const userProfileHistory = buildUserProfileMemoryHistory(params.chat, params.character.id);
+  const addressingHistory = buildAddressingHistory(params.chat, params.character.id);
   const conflictHistory = buildIntimateConflictHistory(params.chat, params.character.id);
   const attachmentHistory = buildAttachmentProfileHistory(params.chat, params.character.id);
   return {
@@ -3674,6 +3709,7 @@ export function buildCompanionshipRuntimeTrace(params: {
     boundaries: profile.boundaries.slice(0, 4),
     boundaryReasons: carePolicy.boundaryReasons.slice(0, 4),
     userProfileCues: profile.cues.slice(0, 6),
+    addressingHistory,
     carePolicy: {
       dailyInitiationBudget: carePolicy.dailyInitiationBudget,
       triggerSensitivity: carePolicy.triggerSensitivity,

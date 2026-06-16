@@ -201,6 +201,21 @@ export interface UserProfileMemoryHistoryEntry {
   occurredAt: number;
 }
 
+export interface AddressingHistoryEntry {
+  id: string;
+  action: 'update' | 'set_current' | 'set_private' | 'set_public' | 'forbid' | 'unforbid' | 'revoke';
+  currentAddress?: string;
+  privateAddress?: string;
+  publicAddress?: string;
+  forbiddenAddresses: string[];
+  reason?: string;
+  evidence: string[];
+  initiatedBy?: AddressingState['addressHistory'][number]['initiatedBy'];
+  decisionSource?: 'model' | 'local_fallback';
+  confidence?: number;
+  occurredAt: number;
+}
+
 export interface UserBondState {
   userId: string;
   characterId: string;
@@ -542,6 +557,7 @@ export interface CompanionshipRuntimeTrace {
   boundaries: string[];
   boundaryReasons: string[];
   userProfileCues: UserProfileMemoryEventItem[];
+  addressingHistory: AddressingHistoryEntry[];
   carePolicy: Pick<CarePolicy, 'dailyInitiationBudget' | 'triggerSensitivity' | 'silenceAnxietyThresholdHours' | 'expressionIntensity' | 'allowGoodMorning' | 'allowGoodNight' | 'allowMissYou'>;
   attachmentProfile?: UserAttachmentProfile;
   phaseHistory: PhaseHistoryEntry[];

@@ -1181,6 +1181,14 @@ describe('companionshipProjection', () => {
     });
 
     expect(trace?.diagnostics.join('\n')).toContain('addressing: source=local_fallback confidence=62% event=evt-addressing-local');
+    expect(trace?.addressingHistory).toHaveLength(1);
+    expect(trace?.addressingHistory[0]).toMatchObject({
+      id: 'evt-addressing-local',
+      action: 'set_private',
+      privateAddress: '小夏',
+      decisionSource: 'local_fallback',
+      confidence: 0.62,
+    });
   });
 
   it('falls back to neutral addressing during crisis while preserving private preference', () => {
