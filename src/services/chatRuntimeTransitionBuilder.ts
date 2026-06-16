@@ -23,7 +23,7 @@ import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { evolveCharacterCoreProfile } from './coreProfileEvolution';
 import { projectInnerLife } from './innerLifeEngine';
-import { buildSharedAnchorEventsFromCompanionshipEvents } from './companionshipSharedAnchorBackflow';
+import { buildRitualEventsFromSharedAnchorEvents, buildSharedAnchorEventsFromCompanionshipEvents } from './companionshipSharedAnchorBackflow';
 import { buildSharedPhraseEventsFromCompanionshipEvents } from './companionshipSharedPhraseBackflow';
 
 const { chatGap: CHAT_DISTILLATION_TURN_COUNT, characterGap: CHARACTER_DISTILLATION_TURN_COUNT } = getLocalDistillationPolicy();
@@ -807,20 +807,26 @@ export function buildChatPatch(
     appendMemoryCandidateEvents(conversation.runtimeEventsV2 || [], memoryCandidateEvents),
     nextLayeredMemories,
   );
+  const companionshipBackflowEvents = participants.flatMap((participant) => [
+    ...buildSharedAnchorEventsFromCompanionshipEvents({
+      chat: conversation,
+      character: participant,
+      events: runtimeEventsV2WithCandidates,
+    }),
+    ...buildSharedPhraseEventsFromCompanionshipEvents({
+      chat: conversation,
+      character: participant,
+      events: runtimeEventsV2WithCandidates,
+    }),
+  ]);
   const runtimeEventsV2WithCompanionshipBackflow = [
     ...runtimeEventsV2WithCandidates,
-    ...participants.flatMap((participant) => [
-      ...buildSharedAnchorEventsFromCompanionshipEvents({
+    ...companionshipBackflowEvents,
+    ...participants.flatMap((participant) => buildRitualEventsFromSharedAnchorEvents({
         chat: conversation,
         character: participant,
-        events: runtimeEventsV2WithCandidates,
-      }),
-      ...buildSharedPhraseEventsFromCompanionshipEvents({
-        chat: conversation,
-        character: participant,
-        events: runtimeEventsV2WithCandidates,
-      }),
-    ]),
+        events: [...runtimeEventsV2WithCandidates, ...companionshipBackflowEvents],
+      })),
   ];
   chatPatch.runtimeEventsV2 = appendAttentionCandidateEvent(
     runtimeEventsV2WithCompanionshipBackflow,

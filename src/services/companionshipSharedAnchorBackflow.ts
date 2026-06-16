@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CompanionshipSharedAnchorEventPayload, SharedMemoryAnchor } from '../types/companionship';
+import type { CompanionshipRitualEventPayload, CompanionshipSharedAnchorEventPayload, SharedMemoryAnchor } from '../types/companionship';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 
 const USER_ACTOR_ID = 'user';
@@ -23,6 +23,12 @@ function sharedAnchorPayloadOf(event: RuntimeEventV2): CompanionshipSharedAnchor
   const payload = event.payload as Partial<CompanionshipSharedAnchorEventPayload> | undefined;
   if (!payload || payload.eventType !== 'companionship_shared_anchor') return null;
   return payload as CompanionshipSharedAnchorEventPayload;
+}
+
+function ritualPayloadOf(event: RuntimeEventV2): CompanionshipRitualEventPayload | null {
+  const payload = event.payload as Partial<CompanionshipRitualEventPayload> | undefined;
+  if (!payload || payload.eventType !== 'companionship_ritual') return null;
+  return payload as CompanionshipRitualEventPayload;
 }
 
 function formatSharedAnchorTitle(kind: SharedMemoryAnchor['kind']) {
@@ -102,6 +108,64 @@ function createSharedAnchorEvent(params: {
   };
 }
 
+function ritualKindFromAnchorKind(kind: SharedMemoryAnchor['kind']): CompanionshipRitualEventPayload['kind'] | null {
+  if (kind === 'inside_joke') return 'inside_joke';
+  if (kind === 'repair') return 'reconciliation';
+  if (kind === 'milestone' || kind === 'confession' || kind === 'first_time') return 'milestone';
+  if (kind === 'promise') return 'anniversary';
+  return null;
+}
+
+function createRitualEvolutionEvent(params: {
+  chat: GroupChat;
+  character: Pick<AICharacter, 'id' | 'name'>;
+  sourceEvent: RuntimeEventV2;
+  anchorPayload: CompanionshipSharedAnchorEventPayload;
+}): RuntimeEventV2 | null {
+  const kind = params.anchorPayload.kind ? ritualKindFromAnchorKind(params.anchorPayload.kind) : null;
+  if (!kind) return null;
+  const participantIds = Array.from(new Set((params.anchorPayload.participantIds || [params.character.id, params.anchorPayload.userId || USER_ACTOR_ID]).filter(Boolean))).slice(0, 6);
+  if (!participantIds.includes(params.character.id)) return null;
+  const includesUser = participantIds.includes(USER_ACTOR_ID);
+  const ritualId = `ritual-runtime-anchor-${params.anchorPayload.anchorId}`;
+  const content = compactText(params.anchorPayload.text || params.anchorPayload.evidence || params.anchorPayload.title, 180);
+  if (!content) return null;
+  const payload: CompanionshipRitualEventPayload = {
+    eventType: 'companionship_ritual',
+    characterId: params.character.id,
+    userId: includesUser ? USER_ACTOR_ID : undefined,
+    ritualId,
+    kind,
+    action: 'updated',
+    participantIds,
+    content,
+    evolution: [params.anchorPayload.title, params.anchorPayload.evidence, params.anchorPayload.reason]
+      .filter((item): item is string => Boolean(item))
+      .map((item) => compactText(item, 120))
+      .slice(0, 6),
+    reason: '共同锚点沉淀后同步演化关系仪式内容。',
+    evidence: params.anchorPayload.evidence || content,
+    confidence: params.anchorPayload.confidence,
+    decisionSource: params.anchorPayload.decisionSource || 'local_fallback',
+  };
+  const seed = stableEventSeed([params.chat.id, params.character.id, ritualId, params.sourceEvent.id, content]);
+  return {
+    id: `evt-ritual-evolution-${seed}`,
+    conversationId: params.chat.id,
+    kind: 'artifact',
+    createdAt: params.sourceEvent.createdAt || Date.now(),
+    actorIds: participantIds,
+    targetIds: participantIds,
+    summary: `${params.character.name} 更新了一个关系仪式`,
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
+    eventClass: 'artifact',
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: participantIds,
+    evidenceMessageIds: params.sourceEvent.evidenceMessageIds,
+    payload,
+  };
+}
+
 function buildSharedAnchorEventFromDistilledMemory(params: {
   chat: GroupChat;
   character: Pick<AICharacter, 'id' | 'name'>;
@@ -160,6 +224,48 @@ export function buildSharedAnchorEventsFromCompanionshipEvents(params: {
       ].join(':');
       if (existingAnchorKeys.has(key)) return false;
       existingAnchorKeys.add(key);
+      return true;
+    });
+}
+
+export function buildRitualEventsFromSharedAnchorEvents(params: {
+  chat: GroupChat;
+  character: Pick<AICharacter, 'id' | 'name'>;
+  events: RuntimeEventV2[];
+}): RuntimeEventV2[] {
+  const existingRitualKeys = new Set(params.events
+    .map((event) => ritualPayloadOf(event))
+    .filter((payload): payload is CompanionshipRitualEventPayload => Boolean(payload))
+    .map((payload) => [
+      payload.characterId,
+      payload.ritualId,
+      payload.action,
+      (payload.content || '').replace(/\s+/g, '').slice(0, 64),
+    ].join(':')));
+
+  return params.events
+    .flatMap((event) => {
+      const payload = sharedAnchorPayloadOf(event);
+      if (!payload || payload.characterId !== params.character.id || payload.action !== 'upsert') return [];
+      const ritualEvent = createRitualEvolutionEvent({
+        chat: params.chat,
+        character: params.character,
+        sourceEvent: event,
+        anchorPayload: payload,
+      });
+      return ritualEvent ? [ritualEvent] : [];
+    })
+    .filter((event) => {
+      const payload = ritualPayloadOf(event);
+      if (!payload) return false;
+      const key = [
+        payload.characterId,
+        payload.ritualId,
+        payload.action,
+        (payload.content || '').replace(/\s+/g, '').slice(0, 64),
+      ].join(':');
+      if (existingRitualKeys.has(key)) return false;
+      existingRitualKeys.add(key);
       return true;
     });
 }

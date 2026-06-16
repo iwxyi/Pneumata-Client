@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
-import { buildSharedAnchorEventsFromCompanionshipEvents } from './companionshipSharedAnchorBackflow';
+import { buildRitualEventsFromSharedAnchorEvents, buildSharedAnchorEventsFromCompanionshipEvents } from './companionshipSharedAnchorBackflow';
 
 function character(overrides: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -136,5 +136,95 @@ describe('companionshipSharedAnchorBackflow', () => {
     });
 
     expect(events).toEqual([]);
+  });
+
+  it('derives ritual evolution events from upserted shared anchors', () => {
+    const anchorEvents = buildSharedAnchorEventsFromCompanionshipEvents({
+      chat: chat(),
+      character: character(),
+      events: [event({})],
+    });
+
+    const ritualEvents = buildRitualEventsFromSharedAnchorEvents({
+      chat: chat(),
+      character: character(),
+      events: anchorEvents,
+    });
+    const payload = ritualEvents[0]?.payload as Record<string, unknown> | undefined;
+
+    expect(ritualEvents[0]).toMatchObject({
+      visibility: 'pair_private',
+      visibleToIds: ['char-a', 'user'],
+    });
+    expect(payload).toMatchObject({
+      eventType: 'companionship_ritual',
+      characterId: 'char-a',
+      userId: 'user',
+      action: 'updated',
+      kind: 'anniversary',
+      participantIds: ['char-a', 'user'],
+    });
+    expect(String(payload?.ritualId)).toContain('anchor-backflow');
+  });
+
+  it('keeps role-role ritual evolution role-private', () => {
+    const groupChat = chat({ type: 'group', memberIds: ['char-a', 'char-b'] });
+    const distilled = event({
+      targetIds: ['char-a', 'char-b'],
+      payload: {
+        kind: 'bond',
+        text: '苏苏和小林把“雨天加班券”当作共同梗。',
+        origin: 'distilled',
+        confidence: 0.9,
+        salience: 0.88,
+      },
+    });
+    const anchorEvents = buildSharedAnchorEventsFromCompanionshipEvents({
+      chat: groupChat,
+      character: character(),
+      events: [distilled],
+    });
+
+    const ritualEvents = buildRitualEventsFromSharedAnchorEvents({
+      chat: groupChat,
+      character: character(),
+      events: anchorEvents,
+    });
+    const payload = ritualEvents[0]?.payload as Record<string, unknown> | undefined;
+
+    expect(ritualEvents[0]).toMatchObject({
+      visibility: 'role_private',
+      visibleToIds: ['char-a', 'char-b'],
+    });
+    expect(payload).toMatchObject({
+      eventType: 'companionship_ritual',
+      characterId: 'char-a',
+      action: 'updated',
+      kind: 'inside_joke',
+      participantIds: ['char-a', 'char-b'],
+    });
+    expect(payload?.userId).toBeUndefined();
+  });
+
+  it('does not duplicate ritual evolution events with the same ritual content key', () => {
+    const anchorEvents = buildSharedAnchorEventsFromCompanionshipEvents({
+      chat: chat(),
+      character: character(),
+      events: [event({})],
+    });
+    const first = buildRitualEventsFromSharedAnchorEvents({
+      chat: chat(),
+      character: character(),
+      events: anchorEvents,
+    });
+
+    const second = buildRitualEventsFromSharedAnchorEvents({
+      chat: chat(),
+      character: character(),
+      events: [...anchorEvents, ...first],
+    });
+
+    expect(first).toHaveLength(1);
+    expect(second).toEqual([]);
   });
 });
