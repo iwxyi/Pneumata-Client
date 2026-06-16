@@ -4113,6 +4113,55 @@ describe('companionshipProjection', () => {
     expect(trace?.sharedSecrets.join('\n')).not.toContain('暗号告诉过苏苏');
   });
 
+  it('uses later shared secret events to narrow participants to the user pair', () => {
+    const directChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [
+      sharedSecretEvent({
+        id: 'evt-shared-secret-with-extra-participant',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_shared_secret',
+          characterId: 'char-a',
+          userId: 'user',
+          secretId: 'secret-user-codeword',
+          action: 'recorded',
+          participantIds: ['char-a', 'user', 'char-b'],
+          privateText: '用户只把那个暗号告诉过苏苏，不能告诉别人。',
+          publicMask: '有一件只适合留在心里的事',
+          reason: '旧事件误把另一个角色放进参与者。',
+          evidence: '旧参与者误判',
+          emotionalWeight: 82,
+          confidence: 0.9,
+        },
+      }),
+      sharedSecretEvent({
+        id: 'evt-shared-secret-pair-private',
+        createdAt: 1_100,
+        payload: {
+          eventType: 'companionship_shared_secret',
+          characterId: 'char-a',
+          userId: 'user',
+          secretId: 'secret-user-codeword',
+          action: 'recorded',
+          participantIds: ['char-a', 'user'],
+          privateText: '用户只把那个暗号告诉过苏苏，不能告诉别人。',
+          publicMask: '有一件只适合留在心里的事',
+          reason: '用户把小秘密参与者收窄为自己和该角色。',
+          evidence: 'manual_secret_participants_pair_private_from_character_relationship_tab',
+          emotionalWeight: 82,
+          confidence: 1,
+        },
+      }),
+    ]);
+
+    const secrets = buildSharedSecrets(character(), 1_200, directChat);
+
+    expect(secrets[0]).toMatchObject({
+      id: 'secret-user-codeword',
+      participantIds: ['char-a', 'user'],
+    });
+    expect(secrets[0].participantIds).not.toContain('char-b');
+  });
+
   it('uses revoked shared secret runtime events to suppress active runtime secrets', () => {
     const directChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], [
       sharedSecretEvent(),

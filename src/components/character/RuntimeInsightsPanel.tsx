@@ -890,6 +890,45 @@ function buildManualSharedSecretMaskEvent(chat: GroupChat, character: AICharacte
   };
 }
 
+function buildManualSharedSecretPairPrivateEvent(chat: GroupChat, character: AICharacter, secret: SharedSecret): RuntimeEventV2 {
+  const now = Date.now();
+  const action = secret.leakState === 'confessed'
+    ? 'confessed'
+    : secret.leakState === 'leaked'
+      ? 'leaked'
+      : secret.leakState === 'hinted_publicly'
+        ? 'hinted_publicly'
+        : 'recorded';
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, secret.id, 'shared-secret-pair-private']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户收窄了一条小秘密参与者`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_shared_secret',
+      characterId: character.id,
+      userId: 'user',
+      secretId: secret.id,
+      action,
+      consequenceKind: secret.consequenceKind,
+      participantIds: [character.id, 'user'],
+      privateText: secret.privateText,
+      publicMask: secret.publicMask,
+      reason: '用户在角色关系页手动把小秘密参与者收窄为自己和该角色。',
+      evidence: `manual_secret_participants_pair_private_from_character_relationship_tab: ${secret.participantIds.join(',')}`,
+      emotionalWeight: secret.emotionalWeight,
+      confidence: 1,
+    },
+  };
+}
+
 function buildManualSharedPhraseSuppressedEvent(chat: GroupChat, character: AICharacter, phrase: SharedPhrase): RuntimeEventV2 {
   const now = Date.now();
   return {
@@ -1578,6 +1617,7 @@ function formatRitualExecutionLabel(state: RitualRegistryEntry['executionState']
 }
 
 function UserCompanionshipCard({
+  characterId,
   chatName,
   signature,
   trace,
@@ -1603,6 +1643,7 @@ function UserCompanionshipCard({
   onRevokeSharedSecret,
   onUpdateSharedSecretMask,
   onCorrectSharedSecretConsequence,
+  onKeepSharedSecretPairPrivate,
   onUpdateSharedPhrase,
   onSuppressSharedPhrase,
   onSuppressRitual,
@@ -1611,6 +1652,7 @@ function UserCompanionshipCard({
   onRevokePhase,
   developerMode,
 }: {
+  characterId: string;
   chatName: string;
   signature: NonNullable<ReturnType<typeof buildCompanionshipStatusSignature>>;
   trace: CompanionshipRuntimeTrace | null;
@@ -1636,6 +1678,7 @@ function UserCompanionshipCard({
   onRevokeSharedSecret: (secret: SharedSecret) => void;
   onUpdateSharedSecretMask: (secret: SharedSecret, publicMask: string) => void;
   onCorrectSharedSecretConsequence: (secret: SharedSecret, consequenceKind: NonNullable<SharedSecret['consequenceKind']>) => void;
+  onKeepSharedSecretPairPrivate: (secret: SharedSecret) => void;
   onUpdateSharedPhrase: (phrase: SharedPhrase, patch: { text: string; kind: SharedPhrase['kind']; visibility: SharedPhrase['visibility'] }) => void;
   onSuppressSharedPhrase: (phrase: SharedPhrase) => void;
   onSuppressRitual: (ritual: RitualRegistryEntry) => void;
@@ -2431,6 +2474,11 @@ function UserCompanionshipCard({
                         修改
                       </Button>
                     )}
+                    {secret.participantIds.includes('user') && secret.participantIds.some((id) => id !== 'user' && id !== characterId) ? (
+                      <Button size="small" variant="text" onClick={() => onKeepSharedSecretPairPrivate(secret)} sx={{ minWidth: 0 }}>
+                        只保留我和角色
+                      </Button>
+                    ) : null}
                     <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(secret)} sx={{ minWidth: 0 }}>
                       撤回
                     </Button>
@@ -2971,6 +3019,7 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
             {companionshipView.map((view) => (
               <UserCompanionshipCard
                 key={view.chatId}
+                characterId={character.id || ''}
                 chatName={view.chatName}
                 signature={view.signature}
                 trace={view.trace}
@@ -3035,6 +3084,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onCorrectSharedSecretConsequence={(secret, consequenceKind) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretConsequenceEvent(view.chat, character as AICharacter, secret, consequenceKind));
+                }}
+                onKeepSharedSecretPairPrivate={(secret) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretPairPrivateEvent(view.chat, character as AICharacter, secret));
                 }}
                 onUpdateSharedPhrase={(phrase, patch) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseUpsertEvent(view.chat, character as AICharacter, phrase, patch));
