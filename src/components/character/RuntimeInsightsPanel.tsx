@@ -1077,22 +1077,23 @@ function buildManualSharedPhrasePairPrivateEvent(chat: GroupChat, character: AIC
 function buildManualRitualActionEvent(chat: GroupChat, character: AICharacter, ritual: RitualRegistryEntry, action: 'suppressed' | 'restored'): RuntimeEventV2 {
   const now = Date.now();
   const isRestored = action === 'restored';
+  const includesUser = ritual.participantIds.includes('user');
   return {
     id: buildManualCompanionshipEventId([chat.id, character.id, ritual.id, `ritual-${action}`]),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
-    targetIds: [character.id],
+    targetIds: ritual.participantIds,
     summary: `${character.name} 记录用户${isRestored ? '恢复' : '抑制'}了一个关系仪式`,
-    channelId: 'pair-private',
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
     eventClass: 'artifact',
-    visibility: 'pair_private',
-    visibleToIds: ['user', character.id],
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: ritual.participantIds,
     payload: {
       eventType: 'companionship_ritual',
       characterId: character.id,
-      userId: ritual.participantIds.includes('user') ? 'user' : undefined,
+      userId: includesUser ? 'user' : undefined,
       ritualId: ritual.id,
       kind: ritual.kind,
       action,
@@ -1109,22 +1110,23 @@ function buildManualRitualActionEvent(chat: GroupChat, character: AICharacter, r
 function buildManualRitualUpdateEvent(chat: GroupChat, character: AICharacter, ritual: RitualRegistryEntry, content: string): RuntimeEventV2 {
   const now = Date.now();
   const normalized = clipRuntimeText(content, 180);
+  const includesUser = ritual.participantIds.includes('user');
   return {
     id: buildManualCompanionshipEventId([chat.id, character.id, ritual.id, normalized, 'ritual-updated']),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
-    targetIds: [character.id],
+    targetIds: ritual.participantIds,
     summary: `${character.name} 记录用户修正了一个关系仪式`,
-    channelId: 'pair-private',
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
     eventClass: 'artifact',
-    visibility: 'pair_private',
-    visibleToIds: ['user', character.id],
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: ritual.participantIds,
     payload: {
       eventType: 'companionship_ritual',
       characterId: character.id,
-      userId: ritual.participantIds.includes('user') ? 'user' : undefined,
+      userId: includesUser ? 'user' : undefined,
       ritualId: ritual.id,
       kind: ritual.kind,
       action: 'updated',
@@ -1764,6 +1766,136 @@ function RoleSharedSecretPanel({
                   <Button size="small" variant="text" onClick={() => onRevokeSharedSecret(chat, secret)} sx={{ minWidth: 0 }}>
                     撤回
                   </Button>
+                </Box>
+              )}
+            </Box>
+          </Box>
+        );
+      })}
+    </Stack>
+  );
+}
+
+function RoleRitualPanel({
+  items,
+  characterId,
+  resolveCharacterName,
+  developerMode,
+  onUpdateRitual,
+  onSuppressRitual,
+  onRestoreRitual,
+}: {
+  items: Array<{ chat: GroupChat; chatName: string; ritual: RitualRegistryEntry }>;
+  characterId: string;
+  resolveCharacterName: (id: string, fallback?: string) => string;
+  developerMode: boolean;
+  onUpdateRitual: (chat: GroupChat, ritual: RitualRegistryEntry, content: string) => void;
+  onSuppressRitual: (chat: GroupChat, ritual: RitualRegistryEntry) => void;
+  onRestoreRitual: (chat: GroupChat, ritual: RitualRegistryEntry) => void;
+}) {
+  const [editingRitualId, setEditingRitualId] = useState<string | null>(null);
+  const [editingRitualContent, setEditingRitualContent] = useState('');
+  if (!items.length) {
+    return <Typography variant="caption" color="text.secondary">暂无角色之间的共同仪式。共同梗、和好仪式、里程碑等关系节律沉淀后会显示在这里。</Typography>;
+  }
+  return (
+    <Stack spacing={0.85}>
+      {items.slice(0, developerMode ? 10 : 6).map(({ chat, chatName, ritual }) => {
+        const ritualKey = `${chat.id}-${ritual.id}`;
+        const participantNames = ritual.participantIds
+          .filter((id) => id !== characterId)
+          .map((id) => resolveCharacterName(id))
+          .join(' × ');
+        const isEditing = editingRitualId === ritualKey;
+        return (
+          <Box key={ritualKey} sx={{ p: { xs: 1, sm: 1.15 }, borderRadius: 2.25, bgcolor: 'action.hover', border: '1px solid', borderColor: 'rgba(148, 163, 184, 0.12)' }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.35 }}>
+                  <Chip size="small" label={formatRitualKindLabel(ritual.kind)} variant="outlined" sx={{ height: 22, borderRadius: 999 }} />
+                  <Typography variant="caption" color={ritual.executionState === 'suppressed' ? 'warning.main' : 'text.secondary'}>
+                    {formatRitualExecutionLabel(ritual.executionState)}
+                  </Typography>
+                  {participantNames ? <Typography variant="caption" color="text.secondary">{participantNames}</Typography> : null}
+                  {developerMode ? (
+                    <>
+                      <Typography variant="caption" color="text.secondary">{chatName}</Typography>
+                      {ritual.nextAvailableAt ? <Typography variant="caption" color="text.secondary">下次 {new Date(ritual.nextAvailableAt).toLocaleString()}</Typography> : null}
+                    </>
+                  ) : null}
+                </Stack>
+                {isEditing ? (
+                  <TextField
+                    size="small"
+                    value={editingRitualContent}
+                    onChange={(event) => setEditingRitualContent(event.target.value)}
+                    fullWidth
+                    multiline
+                    minRows={1}
+                    maxRows={3}
+                    autoFocus
+                    placeholder="改成更合适的仪式内容"
+                  />
+                ) : (
+                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{ritual.content}</Typography>
+                )}
+                {developerMode && ritual.boundaryReasons.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word', mt: 0.25 }}>
+                    边界：{ritual.boundaryReasons.slice(0, 2).join(' / ')}
+                  </Typography>
+                ) : null}
+              </Box>
+              {isEditing ? (
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    disabled={!editingRitualContent.trim() || editingRitualContent.trim() === ritual.content}
+                    onClick={() => {
+                      const nextContent = editingRitualContent.trim();
+                      if (!nextContent || nextContent === ritual.content) return;
+                      onUpdateRitual(chat, ritual, nextContent);
+                      setEditingRitualId(null);
+                      setEditingRitualContent('');
+                    }}
+                    sx={{ minWidth: 0 }}
+                  >
+                    保存
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => {
+                      setEditingRitualId(null);
+                      setEditingRitualContent('');
+                    }}
+                    sx={{ minWidth: 0 }}
+                  >
+                    取消
+                  </Button>
+                </Box>
+              ) : (
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => {
+                      setEditingRitualId(ritualKey);
+                      setEditingRitualContent(ritual.content);
+                    }}
+                    sx={{ minWidth: 0 }}
+                  >
+                    修改
+                  </Button>
+                  {ritual.executionState === 'suppressed' ? (
+                    <Button size="small" variant="text" onClick={() => onRestoreRitual(chat, ritual)} sx={{ minWidth: 0 }}>
+                      恢复
+                    </Button>
+                  ) : (
+                    <Button size="small" variant="text" onClick={() => onSuppressRitual(chat, ritual)} sx={{ minWidth: 0 }}>
+                      不再使用
+                    </Button>
+                  )}
                 </Box>
               )}
             </Box>
@@ -3397,6 +3529,33 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       })
       .slice(0, 10);
   }, [character, chats]);
+  const roleRitualItems = useMemo(() => {
+    if (!character.id || !character.personality || !character.memory) return [];
+    const seen = new Set<string>();
+    return recentByTime(chats.filter((chat) => chat.type !== 'direct' && chat.memberIds.includes(character.id || '')), 5)
+      .flatMap((chat) => {
+        const chatMessages = [
+          ...(chat.latestMessage ? [chat.latestMessage] : []),
+          ...messages.filter((message) => message.chatId === chat.id),
+          ...(messageWindowsByChatId[chat.id]?.messages || []),
+        ].filter((message, index, source): message is Message => Boolean(message) && source.findIndex((item) => item?.id === message?.id) === index);
+        return buildRitualRegistry({
+          character: character as AICharacter,
+          chat,
+          messages: chatMessages,
+          now: chat.updatedAt || Date.now(),
+        })
+          .filter((ritual) => ritual.participantIds.includes(character.id || '') && !ritual.participantIds.includes('user'))
+          .map((ritual) => ({ chat, chatName: chat.name || '群聊', ritual }));
+      })
+      .filter((item) => {
+        const key = `${item.chat.id}:${item.ritual.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 10);
+  }, [character, chats, messageWindowsByChatId, messages]);
   const sharedMemoryAnchors = useMemo(() => {
     if (!character.id || !character.personality || !character.memory) return [];
     const directChat = recentByTime(chats.filter((chat) => chat.type === 'direct' && chat.memberIds.includes(character.id || '')), 1)[0];
@@ -3523,6 +3682,24 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
           }}
           onRevokeSharedSecret={(chat, secret) => {
             void appendManualCompanionshipEvent(chat, buildManualSharedSecretRevokedEvent(chat, character as AICharacter, secret));
+          }}
+        />
+      </SurfaceCard>
+      <SurfaceCard>
+        <SectionHeader title="角色共同仪式" dense action={isDeveloperView ? <DebugChip /> : undefined} />
+        <RoleRitualPanel
+          items={roleRitualItems}
+          characterId={character.id || ''}
+          resolveCharacterName={resolveCharacterName}
+          developerMode={isDeveloperView}
+          onUpdateRitual={(chat, ritual, content) => {
+            void appendManualCompanionshipEvent(chat, buildManualRitualUpdateEvent(chat, character as AICharacter, ritual, content));
+          }}
+          onSuppressRitual={(chat, ritual) => {
+            void appendManualCompanionshipEvent(chat, buildManualRitualActionEvent(chat, character as AICharacter, ritual, 'suppressed'));
+          }}
+          onRestoreRitual={(chat, ritual) => {
+            void appendManualCompanionshipEvent(chat, buildManualRitualActionEvent(chat, character as AICharacter, ritual, 'restored'));
           }}
         />
       </SurfaceCard>
