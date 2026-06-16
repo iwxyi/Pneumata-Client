@@ -386,6 +386,42 @@ function buildManualPromiseLifecycleEvent(chat: GroupChat, character: AICharacte
   };
 }
 
+function buildManualPromiseUpsertEvent(chat: GroupChat, character: AICharacter, promise: PendingPromise, patch: { text: string; kind: PendingPromise['kind'] }): RuntimeEventV2 {
+  const now = Date.now();
+  const normalizedText = clipRuntimeText(patch.text, 140);
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, promise.id, normalizedText, patch.kind, 'promise-opened']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户修正了一个未完成约定`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_promise',
+      characterId: character.id,
+      userId: 'user',
+      promiseId: promise.id,
+      promiseText: normalizedText,
+      supersedesText: promise.text,
+      action: 'opened',
+      participantIds: promise.participantIds?.length ? promise.participantIds : [character.id, 'user'],
+      promiseKind: patch.kind,
+      reminderPolicy: promise.reminderPolicy,
+      relationshipEffects: promise.relationshipEffects,
+      lifecycleEvidence: [...(promise.lifecycleEvidence || []), 'manual_upsert_from_character_relationship_tab'],
+      dueAt: promise.dueAt,
+      reason: '用户在角色关系页手动修正该未完成约定。',
+      evidence: 'manual_upsert_from_character_relationship_tab',
+      confidence: 1,
+    },
+  };
+}
+
 function buildManualAddressingEvent(chat: GroupChat, character: AICharacter, action: 'forbid' | 'unforbid', address: string): RuntimeEventV2 {
   const now = Date.now();
   const normalized = address.replace(/\s+/g, '').trim();
@@ -1435,6 +1471,7 @@ function UserCompanionshipCard({
   rituals,
   onBlockCareTopic,
   onUpdatePromiseLifecycle,
+  onUpdatePromise,
   onSetAddress,
   onForbidAddress,
   onUnforbidAddress,
@@ -1462,6 +1499,7 @@ function UserCompanionshipCard({
   rituals: RitualRegistryEntry[];
   onBlockCareTopic: (topic: PendingCareTopic) => void;
   onUpdatePromiseLifecycle: (promise: PendingPromise, action: ManualPromiseLifecycleAction) => void;
+  onUpdatePromise: (promise: PendingPromise, patch: { text: string; kind: PendingPromise['kind'] }) => void;
   onSetAddress: (action: ManualAddressingSetAction, address: string) => void;
   onForbidAddress: (address: string) => void;
   onUnforbidAddress: (address: string) => void;
@@ -1487,6 +1525,9 @@ function UserCompanionshipCard({
   const [editingProfileCueKind, setEditingProfileCueKind] = useState<UserProfileMemoryKind>('preference');
   const [editingProfileCueText, setEditingProfileCueText] = useState('');
   const [editingProfileCueSensitive, setEditingProfileCueSensitive] = useState(false);
+  const [editingPromiseId, setEditingPromiseId] = useState<string | null>(null);
+  const [editingPromiseText, setEditingPromiseText] = useState('');
+  const [editingPromiseKind, setEditingPromiseKind] = useState<PendingPromise['kind']>('other');
   const headlineChips = [
     trace ? formatCompanionshipPhaseLabel(trace.phase) : '',
     trace ? formatCompanionshipStyleLabel(trace.style) : '',
@@ -1697,23 +1738,95 @@ function UserCompanionshipCard({
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                     未完成约定 · {formatPendingPromiseKind(promise.kind)} · {promise.reminderPolicy.shouldRemind ? '可轻提醒' : '不主动提醒'}
                   </Typography>
-                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{promise.text}</Typography>
+                  {editingPromiseId === promise.id ? (
+                    <Stack spacing={0.75} sx={{ mt: 0.5 }}>
+                      <TextField
+                        select
+                        size="small"
+                        label="类型"
+                        value={editingPromiseKind}
+                        onChange={(event) => setEditingPromiseKind(event.target.value as PendingPromise['kind'])}
+                        slotProps={{ select: { native: true } }}
+                      >
+                        {(['shared_activity', 'user_followup', 'emotional_commitment', 'boundary_agreement', 'repair_agreement', 'ritual', 'other'] as PendingPromise['kind'][]).map((kind) => (
+                          <option key={kind} value={kind}>{formatPendingPromiseKind(kind)}</option>
+                        ))}
+                      </TextField>
+                      <TextField
+                        size="small"
+                        label="内容"
+                        value={editingPromiseText}
+                        onChange={(event) => setEditingPromiseText(event.target.value)}
+                        fullWidth
+                        multiline
+                        minRows={1}
+                        maxRows={3}
+                      />
+                    </Stack>
+                  ) : (
+                    <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{promise.text}</Typography>
+                  )}
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: { xs: 'flex-start', sm: 'flex-end' }, gap: 0.5, flexWrap: 'wrap', flexShrink: 0 }}>
-                  <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'fulfilled')} sx={{ minWidth: 0 }}>
-                    完成
-                  </Button>
-                  <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'stale')} sx={{ minWidth: 0 }}>
-                    落空
-                  </Button>
-                  {promise.reminderPolicy.shouldRemind ? (
-                    <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'blocked')} sx={{ minWidth: 0 }}>
-                      不再提醒
-                    </Button>
-                  ) : null}
-                  <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'revoked')} sx={{ minWidth: 0 }}>
-                    关闭追踪
-                  </Button>
+                  {editingPromiseId === promise.id ? (
+                    <>
+                      <Button
+                        size="small"
+                        variant="text"
+                        disabled={!editingPromiseText.trim() || (editingPromiseText.trim() === promise.text && editingPromiseKind === promise.kind)}
+                        onClick={() => {
+                          const text = editingPromiseText.trim();
+                          if (!text) return;
+                          onUpdatePromise(promise, { text, kind: editingPromiseKind });
+                          setEditingPromiseId(null);
+                          setEditingPromiseText('');
+                        }}
+                        sx={{ minWidth: 0 }}
+                      >
+                        保存
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => {
+                          setEditingPromiseId(null);
+                          setEditingPromiseText('');
+                        }}
+                        sx={{ minWidth: 0 }}
+                      >
+                        取消
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => {
+                          setEditingPromiseId(promise.id);
+                          setEditingPromiseText(promise.text);
+                          setEditingPromiseKind(promise.kind);
+                        }}
+                        sx={{ minWidth: 0 }}
+                      >
+                        修改
+                      </Button>
+                      <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'fulfilled')} sx={{ minWidth: 0 }}>
+                        完成
+                      </Button>
+                      <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'stale')} sx={{ minWidth: 0 }}>
+                        落空
+                      </Button>
+                      {promise.reminderPolicy.shouldRemind ? (
+                        <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'blocked')} sx={{ minWidth: 0 }}>
+                          不再提醒
+                        </Button>
+                      ) : null}
+                      <Button size="small" variant="text" onClick={() => onUpdatePromiseLifecycle(promise, 'revoked')} sx={{ minWidth: 0 }}>
+                        关闭追踪
+                      </Button>
+                    </>
+                  )}
                 </Box>
               </Box>
             ))}
@@ -2578,6 +2691,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onUpdatePromiseLifecycle={(promise, action) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualPromiseLifecycleEvent(view.chat, character as AICharacter, promise, action));
+                }}
+                onUpdatePromise={(promise, patch) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualPromiseUpsertEvent(view.chat, character as AICharacter, promise, patch));
                 }}
                 onSetAddress={(action, address) => {
                   if (!address.trim()) return;

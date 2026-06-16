@@ -1705,6 +1705,63 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).toContain('下周一起补看那部电影');
   });
 
+  it('suppresses old fallback promise text after a manual promise correction', () => {
+    const oldAt = 1_000;
+    const now = 2_000;
+    const promiseCharacter = character({
+      layeredMemories: [{
+        id: 'old-promise-anchor',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '说好周末一起看那部旧电影。',
+        evidenceText: '用户说：周末一起看那部旧电影。',
+        salience: 0.86,
+        confidence: 0.9,
+        recency: 0.8,
+        reinforcementCount: 1,
+        sourceEventIds: ['evt-old-promise-anchor'],
+        origin: 'distilled',
+        createdAt: oldAt,
+        updatedAt: oldAt,
+      }],
+    });
+    const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [
+      promiseEvent({
+        id: 'evt-corrected-promise',
+        createdAt: now,
+        payload: {
+          eventType: 'companionship_promise',
+          characterId: 'char-a',
+          userId: 'user',
+          promiseId: 'promise-weekend-movie',
+          promiseText: '周六晚上一起看那部新电影',
+          supersedesText: '周末一起看那部旧电影',
+          action: 'opened',
+          participantIds: ['char-a', 'user'],
+          promiseKind: 'shared_activity',
+          evidence: '用户在角色关系页手动修正该未完成约定。',
+          confidence: 1,
+          decisionSource: 'user_override',
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: promiseCharacter,
+      messages: [],
+      now,
+    });
+
+    const promiseTexts = projection.userBond?.pendingPromises.map((promise) => promise.text) || [];
+    expect(promiseTexts).toContain('周六晚上一起看那部新电影');
+    expect(promiseTexts.join('\n')).not.toContain('周末一起看那部旧电影');
+    expect(projection.promptLines.join('\n')).toContain('周六晚上一起看那部新电影');
+    expect(projection.promptLines.join('\n')).not.toContain('周末一起看那部旧电影');
+  });
+
   it('projects promise semantics and reminder policy from model events and boundary text', () => {
     const now = 5_000;
     const directChat = chat('direct', [relationship({ warmth: 62, trust: 58, competence: 10, threat: 4 })], [

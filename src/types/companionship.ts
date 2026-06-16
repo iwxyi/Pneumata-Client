@@ -223,6 +223,7 @@ export interface CompanionshipPromiseEventPayload {
   promiseId: string;
   promiseText: string;
   action: 'opened' | 'fulfilled' | 'blocked' | 'stale' | 'revoked';
+  supersedesText?: string;
   participantIds?: string[];
   promiseKind?: PendingPromise['kind'];
   reminderPolicy?: Partial<PendingPromise['reminderPolicy']>;

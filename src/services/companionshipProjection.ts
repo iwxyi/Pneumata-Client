@@ -802,6 +802,11 @@ function filterRevokedFallbackTexts(texts: string[], revokedItems: ResolvedUserP
   return texts.filter((text) => !revokedItems.some((item) => fallbackTextMatchesRevokedProfileItem(text, item)));
 }
 
+function textMatchesSuppressedPromise(text: string, suppressedPromiseKeys?: Set<string>) {
+  if (!suppressedPromiseKeys?.size) return false;
+  return isPromiseSuppressed(text, suppressedPromiseKeys);
+}
+
 function collectProfileEventState(chat: GroupChat, characterId: string) {
   const byKey = new Map<string, ResolvedUserProfileMemoryItem>();
   const revokedItems: ResolvedUserProfileMemoryItem[] = [];
@@ -861,16 +866,17 @@ function extractDisplayName(messages: Message[], texts: string[]) {
     .find(Boolean);
 }
 
-function buildUserProfileProjection(chat: GroupChat, character: AICharacter, messages: Message[], now: number): UserProfileMemoryProjection {
+function buildUserProfileProjection(chat: GroupChat, character: AICharacter, messages: Message[], now: number, suppressedPromiseKeys?: Set<string>): UserProfileMemoryProjection {
   const { activeItems: profileItems, revokedItems } = collectProfileEventState(chat, character.id);
   const memoryTexts = getUserMemoryTexts(character);
   const recentUserTexts = messages
     .filter((item) => !item.isDeleted && (item.senderId === USER_ACTOR_ID || item.type === 'user' || item.type === 'god'))
     .slice(-10)
     .map((item) => compactText(item.content, 160));
-  const eventTexts = profileItems.map((item) => item.text);
+  const eventTexts = profileItems.map((item) => item.text).filter((text) => !textMatchesSuppressedPromise(text, suppressedPromiseKeys));
   const rawFallbackTexts = profileItems.length ? memoryTexts : [...memoryTexts, ...recentUserTexts];
-  const fallbackTexts = filterRevokedFallbackTexts(rawFallbackTexts, revokedItems);
+  const fallbackTexts = filterRevokedFallbackTexts(rawFallbackTexts, revokedItems)
+    .filter((text) => !textMatchesSuppressedPromise(text, suppressedPromiseKeys));
   const allTexts = uniqueTexts([...eventTexts, ...fallbackTexts], 16);
   const eventBoundaries = profileTextsByKind(profileItems, 'boundary');
   const boundaries = uniqueTexts([...eventBoundaries, ...collectByPattern(allTexts, [
@@ -977,7 +983,7 @@ function applyCareTopicLifecycle(topics: PendingCareTopic[], profile: UserProfil
     .slice(0, 4);
 }
 
-function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: UserProfileMemoryProjection, messages: Message[], now: number): PendingCareTopic[] {
+function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: UserProfileMemoryProjection, messages: Message[], now: number, suppressedPromiseKeys?: Set<string>): PendingCareTopic[] {
   const runtimeTopics = readActiveCompanionshipCareTopicsFromEvents(chat, characterId, now);
   const diaryReflectionTopics = (chat.runtimeEventsV2 || [])
     .map((event): PendingCareTopic | null => {
@@ -997,7 +1003,8 @@ function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: U
         updatedAt: event.createdAt || now,
       };
     })
-    .filter((item): item is PendingCareTopic => Boolean(item));
+    .filter((item): item is PendingCareTopic => Boolean(item))
+    .filter((topic) => !textMatchesSuppressedPromise(`${topic.text}\n${topic.evidence || ''}`, suppressedPromiseKeys));
   const suppressedTexts = readSuppressedCompanionshipCareTopicTextsFromEvents(chat, characterId);
   const isSuppressedByRuntimeEvent = (text: string) => {
     const normalized = compactText(text, 140).replace(/\s+/g, '');
@@ -1010,6 +1017,7 @@ function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: U
   };
   const memoryTopics = profile.sourceTexts
     .filter((text) => /(考试|面试|加班|生病|不舒服|压力|焦虑|计划|明天|周末|生日|纪念日|约定|想试|要去)/.test(text))
+    .filter((text) => !textMatchesSuppressedPromise(text, suppressedPromiseKeys))
     .filter((text) => !isCareClosureText(text))
     .filter((text) => !isSuppressedByRuntimeEvent(text))
     .filter((text) => !runtimeTopics.some((topic) => topic.text === compactText(text, 140)))
@@ -1026,6 +1034,7 @@ function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: U
     .filter(isUserMessage)
     .slice(-6)
     .filter((item) => /(明天|今晚|最近|考试|面试|加班|难受|不舒服|压力|生日|周末|要去|打算)/.test(item.content))
+    .filter((item) => !textMatchesSuppressedPromise(item.content, suppressedPromiseKeys))
     .filter((item) => !isCareClosureText(item.content))
     .filter((item) => !isSuppressedByRuntimeEvent(item.content))
     .filter((item) => !runtimeTopics.some((topic) => topic.evidence === compactText(item.content, 120) || topic.text === compactText(item.content, 140)))
@@ -1039,7 +1048,8 @@ function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: U
       evidence: compactText(item.content, 120),
       updatedAt: item.timestamp || now,
     }));
-  return applyCareTopicLifecycle([...runtimeTopics, ...diaryReflectionTopics, ...recentUser, ...memoryTopics], profile, messages, now);
+  return applyCareTopicLifecycle([...runtimeTopics, ...diaryReflectionTopics, ...recentUser, ...memoryTopics]
+    .filter((topic) => !textMatchesSuppressedPromise(`${topic.text}\n${topic.evidence || ''}`, suppressedPromiseKeys)), profile, messages, now);
 }
 
 function buildPhaseEvidence(entry: RelationshipLedgerEntry | null, topics: PendingCareTopic[], phaseEvent: ResolvedPhaseEvent | null = null) {
@@ -1679,6 +1689,10 @@ function buildPromiseEventState(chat: GroupChat, characterId: string, now: numbe
       const text = compactText(payload.promiseText, 140);
       const key = promiseKey(text);
       if (!text || !key) return;
+      const supersedesKey = payload.supersedesText ? promiseKey(payload.supersedesText) : '';
+      if (supersedesKey && supersedesKey !== key) {
+        closedKeys.add(supersedesKey);
+      }
       if (payload.action !== 'opened') {
         activeById.delete(payload.promiseId);
         closedKeys.add(key);
@@ -2381,8 +2395,11 @@ export function buildUserCompanionshipProjection(params: {
   if (chat.type !== 'direct') return { userBond: null, evidence: [], promptLines: [] };
   const now = params.now || Date.now();
   const ledger = getCharacterToUserLedger(chat, character.id);
-  const userProfile = buildUserProfileProjection(chat, character, messages, now);
-  const sharedAnchors = buildUserSharedAnchors(character, now, chat);
+  const promiseEventState = buildPromiseEventState(chat, character.id, now);
+  const suppressedPromiseKeys = promiseEventState.closedKeys;
+  const userProfile = buildUserProfileProjection(chat, character, messages, now, suppressedPromiseKeys);
+  const sharedAnchors = buildUserSharedAnchors(character, now, chat)
+    .filter((anchor) => !textMatchesSuppressedPromise(`${anchor.text}\n${anchor.evidence || ''}`, suppressedPromiseKeys));
   const promiseConsequences = buildPromiseIntimacyConsequences(chat, character.id, now);
   const baseIntimacy = adjustIntimacyProjection({
     base: projectIntimacy(ledger, messages, character.id, now),
@@ -2395,7 +2412,7 @@ export function buildUserCompanionshipProjection(params: {
   const inferredPhase = inferPhase(baseIntimacy, ledger, sharedAnchors);
   const phase = phaseEvent?.phase || inferredPhase;
   const contacts = getLatestContact(messages, character.id);
-  const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now);
+  const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now, suppressedPromiseKeys);
   const pendingPromises = buildPendingPromises({
     chat,
     characterId: character.id,
@@ -2406,6 +2423,7 @@ export function buildUserCompanionshipProjection(params: {
   });
   const sharedPhrases = buildSharedPhrases(character, now, chat, messages)
     .filter((phrase) => phrase.participantIds.includes(USER_ACTOR_ID))
+    .filter((phrase) => !textMatchesSuppressedPromise(`${phrase.text}\n${phrase.evidence || ''}`, suppressedPromiseKeys))
     .slice(0, 4);
   const sharedSecrets = buildSharedSecrets(character, now, chat);
   const intimateConflict = buildIntimateConflictState({
