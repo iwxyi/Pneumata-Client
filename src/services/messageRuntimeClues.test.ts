@@ -153,6 +153,7 @@ describe('messageRuntimeClues', () => {
               allowGoodNight: true,
               allowMissYou: true,
             },
+            phaseHistory: [],
             conflictHistory: [],
             attachmentHistory: [],
             diagnostics: ['care_topic: source=local_fallback confidence=62% event=evt-care-1'],

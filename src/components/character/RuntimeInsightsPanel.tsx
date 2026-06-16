@@ -33,7 +33,7 @@ import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buil
 import { applyCompanionshipLedgerBackflow } from '../../services/companionshipLedgerBackflow';
 import { buildSharedPhraseEventsFromCompanionshipEvent } from '../../services/companionshipSharedPhraseBackflow';
 import type { Message } from '../../types/message';
-import type { AttachmentProfileHistoryEntry, CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, IntimateConflictHistoryEntry, PendingCareTopic, PendingPromise, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
+import type { AttachmentProfileHistoryEntry, CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, IntimateConflictHistoryEntry, PendingCareTopic, PendingPromise, PhaseHistoryEntry, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 type ManualPromiseLifecycleAction = Extract<PendingPromise['status'], 'fulfilled' | 'blocked' | 'stale' | 'revoked'>;
@@ -2219,6 +2219,7 @@ function CompanionshipDeveloperTracePanel({
     `表达强度 ${trace.carePolicy.expressionIntensity}`,
     trace.carePolicy.allowMissYou ? '允许想念表达' : '禁用想念表达',
   ];
+  const phaseHistory = trace.phaseHistory.slice(0, 6);
   const conflictHistory = trace.conflictHistory.slice(0, 6);
   const attachmentHistory = trace.attachmentHistory.slice(0, 6);
   return (
@@ -2233,6 +2234,36 @@ function CompanionshipDeveloperTracePanel({
           <Typography variant="body2">{trace.userProfileConfidence}%</Typography>
         </Box>
       </Box>
+      {phaseHistory.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>阶段历史</Typography>
+          <Stack spacing={0.5}>
+            {phaseHistory.map((item) => (
+              <Box key={item.id} sx={{ p: 0.75, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatPhaseHistoryActionLabel(item.action)} · {new Date(item.occurredAt).toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {item.phase ? `${formatCompanionshipPhaseLabel(item.phase)} · ${item.style ? formatCompanionshipStyleLabel(item.style) : '自动风格'}` : '自动判断'}
+                  </Typography>
+                </Box>
+                {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{item.reason}</Typography> : null}
+                {typeof item.confidence === 'number' || item.decisionSource ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                    {[item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : ''].filter(Boolean).join(' · ')}
+                  </Typography>
+                ) : null}
+                {item.evidence.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                    证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      ) : null}
       <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>亲密投影</Typography>
         <Stack spacing={0.65}>
@@ -2407,6 +2438,12 @@ function formatCompanionshipStyleLabel(style: CompanionshipRuntimeTrace['style']
     custom: '自定义',
   };
   return labels[style] || style;
+}
+
+function formatPhaseHistoryActionLabel(action: PhaseHistoryEntry['action']) {
+  if (action === 'revoked') return '恢复自动判断';
+  if (action === 'inferred') return '自动推断';
+  return '阶段修正';
 }
 
 function formatSharedPhraseKindLabel(kind: SharedPhrase['kind']) {

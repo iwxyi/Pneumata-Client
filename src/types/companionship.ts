@@ -214,6 +214,19 @@ export interface UserBondState {
   carePolicy: CarePolicy;
 }
 
+export interface PhaseHistoryEntry {
+  id: string;
+  action: 'set' | 'revoked' | 'inferred';
+  phase?: CompanionshipPhase;
+  style?: CompanionshipStyle;
+  evidence: string[];
+  reason?: string;
+  initiatedBy?: 'user' | 'character' | 'mutual' | 'system';
+  decisionSource?: 'model' | 'local_fallback';
+  confidence?: number;
+  occurredAt: number;
+}
+
 export interface CompanionshipPhaseEventPayload {
   eventType: 'companionship_phase_event';
   characterId: string;
@@ -520,6 +533,7 @@ export interface CompanionshipRuntimeTrace {
   userProfileCues: UserProfileMemoryEventItem[];
   carePolicy: Pick<CarePolicy, 'dailyInitiationBudget' | 'triggerSensitivity' | 'silenceAnxietyThresholdHours' | 'expressionIntensity' | 'allowGoodMorning' | 'allowGoodNight' | 'allowMissYou'>;
   attachmentProfile?: UserAttachmentProfile;
+  phaseHistory: PhaseHistoryEntry[];
   conflictHistory: IntimateConflictHistoryEntry[];
   attachmentHistory: AttachmentProfileHistoryEntry[];
   diagnostics: string[];

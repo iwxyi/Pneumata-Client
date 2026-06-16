@@ -553,8 +553,15 @@ describe('companionshipProjection', () => {
   });
 
   it('uses explicit companionship phase events for confirmed relationship state', () => {
+    const directChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 20, threat: 0 })], [phaseEvent()]);
     const projection = buildUserCompanionshipProjection({
-      chat: chat('direct', [relationship({ warmth: 70, trust: 68, competence: 20, threat: 0 })], [phaseEvent()]),
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '今天也想和你聊一会。', timestamp: 200 })],
+      now: 900,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
       character: character(),
       messages: [message({ content: '今天也想和你聊一会。', timestamp: 200 })],
       now: 900,
@@ -566,6 +573,13 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.phaseEvidence.join('\n')).toContain('明确确认了关系');
     expect(projection.userBond?.phaseEvidence.join('\n')).toContain('恋人关系');
     expect(projection.promptLines.join('\n')).toContain('confirmed relationship');
+    expect(trace?.phaseHistory[0]).toMatchObject({
+      id: 'evt-phase-1',
+      action: 'set',
+      phase: 'confirmed',
+      style: 'romantic',
+    });
+    expect(trace?.phaseHistory[0]?.evidence.join('\n')).toContain('确认关系');
   });
 
   it('uses the latest valid companionship phase event and ignores unrelated actors', () => {

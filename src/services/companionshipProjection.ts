@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import { DEFAULT_PERSONALITY } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -335,6 +335,46 @@ function resolveCompanionshipPhaseEvent(chat: GroupChat, characterId: string): R
     };
   }
   return null;
+}
+
+function buildPhaseHistory(chat: GroupChat, characterId: string): PhaseHistoryEntry[] {
+  const history: PhaseHistoryEntry[] = [];
+  (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .forEach((event) => {
+      const payload = event.payload as Record<string, unknown>;
+      const eventType = typeof payload.eventType === 'string' ? payload.eventType : '';
+      if (eventType !== 'companionship_phase_event') return;
+      const payloadCharacterId = typeof payload.characterId === 'string' ? payload.characterId : '';
+      const payloadUserId = typeof payload.userId === 'string' ? payload.userId : USER_ACTOR_ID;
+      if (payloadCharacterId && payloadCharacterId !== characterId) return;
+      if (payloadUserId && payloadUserId !== USER_ACTOR_ID) return;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return;
+      const action: PhaseHistoryEntry['action'] = payload.action === 'revoked' ? 'revoked' : 'set';
+      if (action === 'set' && !isCompanionshipPhase(payload.phase)) return;
+      const evidence = Array.isArray(payload.evidence)
+        ? payload.evidence.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => compactText(item, 120))
+        : [];
+      const reason = typeof payload.reason === 'string' ? compactText(payload.reason, 120) : undefined;
+      const initiatedBy = payload.initiatedBy === 'user' || payload.initiatedBy === 'character' || payload.initiatedBy === 'mutual' || payload.initiatedBy === 'system'
+        ? payload.initiatedBy
+        : undefined;
+      history.push({
+        id: event.id,
+        action,
+        phase: isCompanionshipPhase(payload.phase) ? payload.phase : undefined,
+        style: isCompanionshipStyle(payload.style) ? payload.style : undefined,
+        evidence: [event.summary, reason, ...evidence].filter(Boolean).slice(0, 5) as string[],
+        reason,
+        initiatedBy,
+        decisionSource: payload.decisionSource === 'model' || payload.decisionSource === 'local_fallback' ? payload.decisionSource : undefined,
+        confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
+        occurredAt: event.createdAt || 0,
+      });
+    });
+  return history.sort((a, b) => b.occurredAt - a.occurredAt).slice(0, 8);
 }
 
 function resolveBondStyle(phase: CompanionshipPhase, explicitStyle?: CompanionshipStyle): CompanionshipStyle {
@@ -3569,6 +3609,7 @@ export function buildCompanionshipRuntimeTrace(params: {
     return `${ritual.content} · ${state}${suffix}`;
   }).slice(0, 4);
   const diagnostics = buildCompanionshipDiagnostics(params.chat, params.character.id);
+  const phaseHistory = buildPhaseHistory(params.chat, params.character.id);
   const conflictHistory = buildIntimateConflictHistory(params.chat, params.character.id);
   const attachmentHistory = buildAttachmentProfileHistory(params.chat, params.character.id);
   return {
@@ -3605,6 +3646,7 @@ export function buildCompanionshipRuntimeTrace(params: {
       allowMissYou: carePolicy.allowMissYou,
     },
     attachmentProfile: bond.attachmentProfile,
+    phaseHistory,
     conflictHistory,
     attachmentHistory,
     diagnostics,
