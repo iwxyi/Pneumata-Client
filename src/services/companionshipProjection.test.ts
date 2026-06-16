@@ -2735,6 +2735,65 @@ describe('companionshipProjection', () => {
     expect(phrase?.participantIds).not.toContain('char-b');
   });
 
+  it('uses reused shared phrase events to strengthen reuse count without changing text', () => {
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-original',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'phrase-slowly',
+          action: 'upsert',
+          text: '慢慢来，我在',
+          kind: 'comfort_line',
+          participantIds: ['char-a', 'user'],
+          visibility: 'private',
+          firstSaidBy: 'char-a',
+          reason: '第一次形成安慰话语。',
+          evidence: '苏苏说慢慢来，我在。',
+          emotionalWeight: 70,
+          reuseCount: 1,
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-reused',
+        createdAt: 1_200,
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'phrase-slowly',
+          action: 'reused',
+          text: '慢慢来，我在',
+          kind: 'comfort_line',
+          participantIds: ['char-a', 'user'],
+          visibility: 'private',
+          firstSaidBy: 'char-a',
+          reason: '同一句话再次被长期记忆确认。',
+          evidence: '记忆蒸馏再次沉淀这句安慰话。',
+          emotionalWeight: 74,
+          reuseCount: 2,
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+
+    const phrase = buildSharedPhrases(character(), 1_300, directChat, []).find((item) => item.id === 'phrase-slowly');
+
+    expect(phrase).toMatchObject({
+      text: '慢慢来，我在',
+      kind: 'comfort_line',
+      visibility: 'private',
+      reuseCount: 2,
+      emotionalWeight: 74,
+    });
+  });
+
   it('uses revoked shared anchor runtime events to suppress matching fallback anchors', () => {
     const anchorCharacter = character({
       layeredMemories: [{

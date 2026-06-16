@@ -53,16 +53,20 @@ function createSharedPhraseEvent(params: {
   reason: string;
   evidence?: string;
   emotionalWeight?: number;
+  phraseId?: string;
+  action?: CompanionshipSharedPhraseEventPayload['action'];
+  reuseCount?: number;
 }): RuntimeEventV2 {
   const participantIds = Array.from(new Set((params.participantIds?.length ? params.participantIds : [params.character.id, USER_ACTOR_ID]).filter(Boolean))).slice(0, 6);
   const includesUser = participantIds.includes(USER_ACTOR_ID);
-  const phraseId = `phrase-backflow-${stableEventSeed([params.chat.id, params.character.id, params.kind, params.text, participantIds.join(',')])}`;
+  const phraseId = params.phraseId || `phrase-backflow-${stableEventSeed([params.chat.id, params.character.id, params.kind, params.text, participantIds.join(',')])}`;
+  const action = params.action || 'upsert';
   const payload: CompanionshipSharedPhraseEventPayload = {
     eventType: 'companionship_shared_phrase',
     characterId: params.character.id,
     userId: includesUser ? USER_ACTOR_ID : undefined,
     phraseId,
-    action: 'upsert',
+    action,
     text: params.text,
     kind: params.kind,
     participantIds,
@@ -71,11 +75,11 @@ function createSharedPhraseEvent(params: {
     reason: params.reason,
     evidence: params.evidence || params.sourceEvent.summary,
     emotionalWeight: params.emotionalWeight || 64,
-    reuseCount: 1,
+    reuseCount: params.reuseCount || 1,
     confidence: 0.86,
   };
   return {
-    id: `evt-${phraseId}-${stableEventSeed([params.sourceEvent.id])}`,
+    id: `evt-${phraseId}-${stableEventSeed([params.sourceEvent.id, action, params.reuseCount])}`,
     conversationId: params.chat.id,
     kind: 'artifact',
     createdAt: params.sourceEvent.createdAt || Date.now(),
@@ -223,18 +227,48 @@ export function buildSharedPhraseEventsFromCompanionshipEvents(params: {
   events: RuntimeEventV2[];
 }): RuntimeEventV2[] {
   const existingIds = new Set(params.events.map((event) => event.id));
-  const existingPhraseKeys = new Set(params.events
+  const phraseKeyOf = (payload: CompanionshipSharedPhraseEventPayload) => [
+    payload.characterId,
+    payload.kind || 'other',
+    payload.text.replace(/\s+/g, ''),
+    (payload.participantIds || []).slice().sort().join(','),
+  ].join(':');
+  const existingPhraseByKey = new Map(params.events
     .map((event) => sharedPhrasePayloadOf(event))
     .filter((item): item is CompanionshipSharedPhraseEventPayload => Boolean(item))
-    .map((payload) => `${payload.characterId}:${payload.kind || 'other'}:${payload.text.replace(/\s+/g, '')}`));
+    .map((payload) => [phraseKeyOf(payload), payload]));
   return params.events
     .flatMap((event) => buildSharedPhraseEventsFromCompanionshipEvent({ chat: params.chat, character: params.character, event }))
+    .map((event) => {
+      const payload = sharedPhrasePayloadOf(event);
+      if (!payload) return event;
+      const key = phraseKeyOf(payload);
+      const existing = existingPhraseByKey.get(key);
+      if (!existing || existing.phraseId === payload.phraseId) return event;
+      return createSharedPhraseEvent({
+        chat: params.chat,
+        character: params.character,
+        sourceEvent: event,
+        text: payload.text,
+        kind: payload.kind || 'other',
+        participantIds: payload.participantIds,
+        visibility: payload.visibility,
+        firstSaidBy: payload.firstSaidBy,
+        reason: '共同话语再次被长期记忆或运行时证据确认，记录为复用强化。',
+        evidence: payload.evidence,
+        emotionalWeight: Math.max(payload.emotionalWeight || 64, existing.emotionalWeight || 64),
+        phraseId: existing.phraseId,
+        action: 'reused',
+        reuseCount: (existing.reuseCount || 1) + 1,
+      });
+    })
     .filter((event) => {
       if (existingIds.has(event.id)) return false;
       const payload = sharedPhrasePayloadOf(event);
-      const key = payload ? `${payload.characterId}:${payload.kind || 'other'}:${payload.text.replace(/\s+/g, '')}` : event.id;
-      if (existingPhraseKeys.has(key)) return false;
-      existingPhraseKeys.add(key);
+      const key = payload ? phraseKeyOf(payload) : event.id;
+      const existing = payload ? existingPhraseByKey.get(key) : null;
+      if (existing && payload?.action !== 'reused') return false;
+      existingPhraseByKey.set(key, payload || existing || ({} as CompanionshipSharedPhraseEventPayload));
       existingIds.add(event.id);
       return true;
     });

@@ -117,7 +117,7 @@ describe('companionshipSharedPhraseBackflow', () => {
     ]));
   });
 
-  it('does not derive duplicate shared phrase events when one already exists', () => {
+  it('records reused shared phrase events when a phrase already exists', () => {
     const promise = event({
       id: 'evt-promise',
       payload: {
@@ -143,7 +143,15 @@ describe('companionshipSharedPhraseBackflow', () => {
       },
     });
 
-    expect(buildSharedPhraseEventsFromCompanionshipEvents({ chat: chat(), character: character(), events: [promise, existing] })).toEqual([]);
+    const events = buildSharedPhraseEventsFromCompanionshipEvents({ chat: chat(), character: character(), events: [promise, existing] });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toMatchObject({
+      eventType: 'companionship_shared_phrase',
+      phraseId: 'phrase-existing',
+      action: 'reused',
+      text: '说好下次一起补看那部电影',
+      reuseCount: 2,
+    });
     expect(buildSharedPhraseEventsFromCompanionshipEvent({ chat: chat(), character: character(), event: existing })).toEqual([]);
   });
 
