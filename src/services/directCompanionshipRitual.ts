@@ -87,6 +87,20 @@ export function buildCompanionshipRitualEventsFromDirectUserMessage(params: {
   const text = compactText(params.message.content, 240);
   if (!isGreetingRitualText(text)) return [];
   const now = params.message.timestamp || Date.now();
+  if (getCompanionshipRuntimeConfig().ritualKindToggles.daily_greeting === false) {
+    return [createRitualRuntimeEvent({
+      chat: params.chat,
+      character: params.character,
+      message: params.message,
+      ritual: {
+        id: `ritual-${params.character.id}-daily-greeting`,
+        kind: 'daily_greeting',
+        participantIds: [params.character.id, USER_ACTOR_ID],
+      },
+      action: 'suppressed',
+      reason: 'daily greeting rituals disabled by settings',
+    })];
+  }
   const rituals = buildRitualRegistry({
     character: params.character,
     chat: params.chat,

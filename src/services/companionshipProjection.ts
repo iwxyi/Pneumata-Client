@@ -3807,6 +3807,11 @@ function applyRitualExecutionState(ritual: RitualRegistryEntry, eventState: Retu
   };
 }
 
+function isRitualKindEnabled(kind: RitualRegistryEntry['kind']) {
+  const toggles = getCompanionshipRuntimeConfig().ritualKindToggles;
+  return toggles?.[kind] !== false;
+}
+
 export function buildRitualRegistry(params: {
   character: AICharacter;
   chat?: GroupChat;
@@ -3882,6 +3887,7 @@ export function buildRitualRegistry(params: {
       seen.add(key);
       return true;
     })
+    .filter((ritual) => isRitualKindEnabled(ritual.kind))
     .map((ritual) => applyRitualExecutionState(ritual, eventState, now))
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .slice(0, 10);

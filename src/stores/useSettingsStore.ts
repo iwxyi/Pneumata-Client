@@ -225,6 +225,10 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
         ...DEFAULT_COMPANIONSHIP_SETTINGS.proactiveCooldownMinutes,
         ...(state.companionship?.proactiveCooldownMinutes || {}),
       },
+      ritualKindToggles: {
+        ...DEFAULT_COMPANIONSHIP_SETTINGS.ritualKindToggles,
+        ...(state.companionship?.ritualKindToggles || {}),
+      },
       quietHours: {
         ...DEFAULT_COMPANIONSHIP_SETTINGS.quietHours,
         ...(state.companionship?.quietHours || {}),
@@ -488,6 +492,10 @@ export const useSettingsStore = create<SettingsStore>()(
             proactiveCooldownMinutes: {
               ...state.companionship.proactiveCooldownMinutes,
               ...(prefs.proactiveCooldownMinutes || {}),
+            },
+            ritualKindToggles: {
+              ...state.companionship.ritualKindToggles,
+              ...(prefs.ritualKindToggles || {}),
             },
             quietHours: {
               ...state.companionship.quietHours,

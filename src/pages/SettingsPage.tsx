@@ -44,6 +44,7 @@ import StatChipRow from '../components/common/StatChipRow';
 import AppSnackbar from '../components/common/AppSnackbar';
 import { PAPER_SURFACE_VARIANTS, type PaperSurfaceVariant } from '../types/artifactAppearance';
 import type { AppSettingsWithMemory } from '../types/settings';
+import type { CompanionshipRitualKind } from '../types/settings';
 import { migrateLegacyBrandStorageKeys } from '../constants/brand';
 import BubbleStylePickerDialog from '../components/bubble/BubbleStylePickerDialog';
 import { DEFAULT_AI_BUBBLE_STYLE_ID } from '../constants/bubbleStyles';
@@ -65,6 +66,15 @@ const THEME_TONES = [
   { value: '#B45309', zh: '琥珀', en: 'Amber' },
   { value: '#334155', zh: '石墨灰', en: 'Graphite' },
 ] as const;
+
+const RITUAL_KIND_OPTIONS: Array<{ kind: CompanionshipRitualKind; zh: string; en: string }> = [
+  { kind: 'daily_greeting', zh: '日常问候', en: 'Greetings' },
+  { kind: 'pet_name', zh: '专属称呼', en: 'Pet names' },
+  { kind: 'anniversary', zh: '纪念日', en: 'Anniversaries' },
+  { kind: 'inside_joke', zh: '共同梗', en: 'Inside jokes' },
+  { kind: 'reconciliation', zh: '和好', en: 'Reconciliation' },
+  { kind: 'milestone', zh: '里程碑', en: 'Milestones' },
+];
 
 function buildToneGridSx() {
   return {
@@ -1944,6 +1954,29 @@ export default function SettingsPage() {
               <FormControlLabel control={<Switch checked={settings.companionship.showStatusHints} onChange={(e) => settings.setCompanionship({ showStatusHints: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示陪伴状态提示' : 'Show companionship status hints'} />
               <FormControlLabel control={<Switch checked={settings.companionship.enableAttachmentAdaptation} onChange={(e) => settings.setCompanionship({ enableAttachmentAdaptation: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用互动模式适配' : 'Enable interaction-pattern adaptation'} />
               <FormControlLabel control={<Switch checked={settings.companionship.enableRelationshipRituals} onChange={(e) => settings.setCompanionship({ enableRelationshipRituals: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用关系仪式' : 'Enable relationship rituals'} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', opacity: settings.companionship.enableRelationshipRituals ? 1 : 0.55 }}>
+                <Typography variant="body2" sx={{ fontWeight: 500, mr: 0.25 }}>{i18n.language.startsWith('zh') ? '仪式类型' : 'Ritual types'}</Typography>
+                {RITUAL_KIND_OPTIONS.map((option) => {
+                  const enabled = settings.companionship.ritualKindToggles[option.kind] !== false;
+                  return (
+                    <Chip
+                      key={option.kind}
+                      size="small"
+                      label={i18n.language.startsWith('zh') ? option.zh : option.en}
+                      color={enabled ? 'primary' : 'default'}
+                      variant={enabled ? 'filled' : 'outlined'}
+                      disabled={!settings.companionship.enableRelationshipRituals}
+                      onClick={() => settings.setCompanionship({
+                        ritualKindToggles: {
+                          ...settings.companionship.ritualKindToggles,
+                          [option.kind]: !enabled,
+                        },
+                      })}
+                      sx={{ height: 26, borderRadius: 999 }}
+                    />
+                  );
+                })}
+              </Box>
               <FormControlLabel control={<Switch checked={settings.companionship.enableCharacterPrivateThreads} onChange={(e) => settings.setCompanionship({ enableCharacterPrivateThreads: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用角色陪伴 AI 私聊' : 'Enable character companionship AI private threads'} />
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
                 <Box>

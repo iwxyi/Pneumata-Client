@@ -5305,6 +5305,55 @@ describe('companionshipProjection', () => {
     expect(trace?.rituals).toEqual([]);
   });
 
+  it('filters relationship rituals by user-configured ritual kind toggles', () => {
+    setCompanionshipRuntimeConfig({
+      ritualKindToggles: {
+        ...DEFAULT_COMPANIONSHIP_SETTINGS.ritualKindToggles,
+        daily_greeting: false,
+        inside_joke: false,
+      },
+    });
+    const ritualCharacter = character({
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说：叫我小夏。', '用户的纪念日是六月一日。'],
+      },
+      layeredMemories: [{
+        id: 'memory-joke-anchor',
+        scope: 'relationship',
+        layer: 'long_term',
+        kind: 'bond',
+        ownerId: 'char-a',
+        subjectIds: ['char-a', 'user'],
+        text: '共同梗是只有他们懂的“晚点回来”。',
+        evidenceText: '用户和苏苏反复用这个暗号接话。',
+        salience: 0.86,
+        confidence: 0.88,
+        recency: 0.7,
+        reinforcementCount: 2,
+        sourceEventIds: ['evt-joke'],
+        origin: 'distilled',
+        createdAt: 100,
+        updatedAt: 300,
+      }],
+    });
+
+    const rituals = buildRitualRegistry({
+      character: ritualCharacter,
+      chat: chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })]),
+      messages: [message({ content: '晚点回来。', timestamp: 200 })],
+      now: 500,
+    });
+
+    expect(rituals.some((ritual) => ritual.kind === 'daily_greeting')).toBe(false);
+    expect(rituals.some((ritual) => ritual.kind === 'inside_joke')).toBe(false);
+    expect(rituals.map((ritual) => ritual.kind)).toEqual(expect.arrayContaining(['pet_name', 'anniversary']));
+  });
+
   it('restrains greeting rituals when user rejects them', () => {
     const rituals = buildRitualRegistry({
       character: character({

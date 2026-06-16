@@ -148,6 +148,28 @@ describe('directCompanionshipRitual', () => {
     });
   });
 
+  it('writes a suppressed greeting ritual event when daily greeting rituals are disabled by settings', () => {
+    setCompanionshipRuntimeConfig({
+      ritualKindToggles: {
+        ...DEFAULT_COMPANIONSHIP_SETTINGS.ritualKindToggles,
+        daily_greeting: false,
+      },
+    });
+
+    const events = buildCompanionshipRitualEventsFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: userMessage('早安。', 1_000),
+    });
+
+    expect(events[0].payload).toMatchObject({
+      eventType: 'companionship_ritual',
+      ritualId: 'ritual-char-a-daily-greeting',
+      action: 'suppressed',
+      reason: 'daily greeting rituals disabled by settings',
+    });
+  });
+
   it('writes a skipped greeting ritual event while greeting ritual is cooling down', () => {
     const events = buildCompanionshipRitualEventsFromDirectUserMessage({
       chat: chat([performedRitualEvent(1_000)]),

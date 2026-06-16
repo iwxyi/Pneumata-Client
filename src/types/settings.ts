@@ -720,12 +720,14 @@ export interface AIGenerationSettings {
 }
 
 export type CompanionshipCareIntensity = 'restrained' | 'balanced' | 'expressive';
+export type CompanionshipRitualKind = 'daily_greeting' | 'anniversary' | 'inside_joke' | 'pet_name' | 'reconciliation' | 'milestone';
 
 export interface CompanionshipSettings {
   enableProactiveCare: boolean;
   showStatusHints: boolean;
   enableAttachmentAdaptation: boolean;
   enableRelationshipRituals: boolean;
+  ritualKindToggles: Record<CompanionshipRitualKind, boolean>;
   enableCharacterPrivateThreads: boolean;
   pendingPromiseRetentionDays: number;
   privateThreadCooldownHours: number;
@@ -807,6 +809,14 @@ export const DEFAULT_COMPANIONSHIP_SETTINGS: CompanionshipSettings = {
   showStatusHints: true,
   enableAttachmentAdaptation: true,
   enableRelationshipRituals: true,
+  ritualKindToggles: {
+    daily_greeting: true,
+    anniversary: true,
+    inside_joke: true,
+    pet_name: true,
+    reconciliation: true,
+    milestone: true,
+  },
   enableCharacterPrivateThreads: true,
   pendingPromiseRetentionDays: 30,
   privateThreadCooldownHours: 6,
