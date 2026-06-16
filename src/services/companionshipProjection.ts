@@ -1049,7 +1049,10 @@ function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: U
       updatedAt: item.timestamp || now,
     }));
   return applyCareTopicLifecycle([...runtimeTopics, ...diaryReflectionTopics, ...recentUser, ...memoryTopics]
-    .filter((topic) => !textMatchesSuppressedPromise(`${topic.text}\n${topic.evidence || ''}`, suppressedPromiseKeys)), profile, messages, now);
+    .filter((topic) => {
+      const evidence = 'evidence' in topic ? topic.evidence : '';
+      return !textMatchesSuppressedPromise(`${topic.text}\n${evidence || ''}`, suppressedPromiseKeys);
+    }), profile, messages, now);
 }
 
 function buildPhaseEvidence(entry: RelationshipLedgerEntry | null, topics: PendingCareTopic[], phaseEvent: ResolvedPhaseEvent | null = null) {
@@ -3013,7 +3016,7 @@ function ritualEventPayloadOf(event: RuntimeEventV2): CompanionshipRitualEventPa
   const payload = event.payload as Record<string, unknown> | undefined;
   if (!payload || payload.eventType !== 'companionship_ritual') return null;
   const action = payload.action;
-  if (action !== 'performed' && action !== 'suppressed' && action !== 'skipped') return null;
+  if (action !== 'performed' && action !== 'suppressed' && action !== 'skipped' && action !== 'restored') return null;
   const kind = payload.kind;
   if (
     kind !== 'daily_greeting'
@@ -3061,7 +3064,7 @@ function buildRitualEventState(chat: GroupChat | undefined, characterId: string)
     if (previous && previous.updatedAt > createdAt) return;
     state.set(payload.ritualId, {
       lastPerformedAt: payload.action === 'performed' ? createdAt : previous?.lastPerformedAt,
-      suppressedReason: payload.action !== 'performed' ? compactText(payload.reason || payload.evidence || 'ritual suppressed', 120) : undefined,
+      suppressedReason: payload.action === 'suppressed' ? compactText(payload.reason || payload.evidence || 'ritual suppressed', 120) : undefined,
       nextAvailableAt: payload.nextAvailableAt,
       content: payload.content || previous?.content,
       evolution: payload.evolution?.length ? payload.evolution : previous?.evolution,

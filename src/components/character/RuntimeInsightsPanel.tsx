@@ -875,16 +875,17 @@ function buildManualSharedPhraseUpsertEvent(chat: GroupChat, character: AICharac
   };
 }
 
-function buildManualRitualSuppressedEvent(chat: GroupChat, character: AICharacter, ritual: RitualRegistryEntry): RuntimeEventV2 {
+function buildManualRitualActionEvent(chat: GroupChat, character: AICharacter, ritual: RitualRegistryEntry, action: 'suppressed' | 'restored'): RuntimeEventV2 {
   const now = Date.now();
+  const isRestored = action === 'restored';
   return {
-    id: buildManualCompanionshipEventId([chat.id, character.id, ritual.id, 'ritual-suppressed']),
+    id: buildManualCompanionshipEventId([chat.id, character.id, ritual.id, `ritual-${action}`]),
     conversationId: chat.id,
     kind: 'artifact',
     createdAt: now,
     actorIds: ['user'],
     targetIds: [character.id],
-    summary: `${character.name} 记录用户抑制了一个关系仪式`,
+    summary: `${character.name} 记录用户${isRestored ? '恢复' : '抑制'}了一个关系仪式`,
     channelId: 'pair-private',
     eventClass: 'artifact',
     visibility: 'pair_private',
@@ -895,11 +896,11 @@ function buildManualRitualSuppressedEvent(chat: GroupChat, character: AICharacte
       userId: ritual.participantIds.includes('user') ? 'user' : undefined,
       ritualId: ritual.id,
       kind: ritual.kind,
-      action: 'suppressed',
+      action,
       participantIds: ritual.participantIds,
       content: ritual.content,
       evolution: ritual.evolution,
-      reason: '用户在角色关系页手动抑制该关系仪式。',
+      reason: isRestored ? '用户在角色关系页手动恢复该关系仪式。' : '用户在角色关系页手动抑制该关系仪式。',
       evidence: ritual.content,
       confidence: 1,
     },
@@ -1486,6 +1487,7 @@ function UserCompanionshipCard({
   onUpdateSharedPhrase,
   onSuppressSharedPhrase,
   onSuppressRitual,
+  onRestoreRitual,
   onCorrectPhase,
   developerMode,
 }: {
@@ -1514,6 +1516,7 @@ function UserCompanionshipCard({
   onUpdateSharedPhrase: (phrase: SharedPhrase, text: string) => void;
   onSuppressSharedPhrase: (phrase: SharedPhrase) => void;
   onSuppressRitual: (ritual: RitualRegistryEntry) => void;
+  onRestoreRitual: (ritual: RitualRegistryEntry) => void;
   onCorrectPhase: (phase: CompanionshipPhase, style: CompanionshipStyle) => void;
   developerMode: boolean;
 }) {
@@ -2191,11 +2194,15 @@ function UserCompanionshipCard({
                       </Typography>
                     ) : null}
                   </Box>
-                  {ritual.executionState !== 'suppressed' ? (
+                  {ritual.executionState === 'suppressed' ? (
+                    <Button size="small" variant="text" onClick={() => onRestoreRitual(ritual)} sx={{ flexShrink: 0 }}>
+                      恢复使用
+                    </Button>
+                  ) : (
                     <Button size="small" variant="text" onClick={() => onSuppressRitual(ritual)} sx={{ flexShrink: 0 }}>
                       不再使用
                     </Button>
-                  ) : null}
+                  )}
                 </Box>
               ))}
             </Stack>
@@ -2738,7 +2745,10 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseSuppressedEvent(view.chat, character as AICharacter, phrase));
                 }}
                 onSuppressRitual={(ritual) => {
-                  void appendManualCompanionshipEvent(view.chat, buildManualRitualSuppressedEvent(view.chat, character as AICharacter, ritual));
+                  void appendManualCompanionshipEvent(view.chat, buildManualRitualActionEvent(view.chat, character as AICharacter, ritual, 'suppressed'));
+                }}
+                onRestoreRitual={(ritual) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualRitualActionEvent(view.chat, character as AICharacter, ritual, 'restored'));
                 }}
                 onCorrectPhase={(phase, style) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualPhaseCorrectionEvent(view.chat, character as AICharacter, phase, style));
