@@ -47,22 +47,25 @@ function createSharedPhraseEvent(params: {
   sourceEvent: RuntimeEventV2;
   text: string;
   kind: SharedPhrase['kind'];
+  participantIds?: string[];
   visibility?: SharedPhrase['visibility'];
   firstSaidBy?: string;
   reason: string;
   evidence?: string;
   emotionalWeight?: number;
 }): RuntimeEventV2 {
-  const phraseId = `phrase-backflow-${stableEventSeed([params.chat.id, params.character.id, params.kind, params.text])}`;
+  const participantIds = Array.from(new Set((params.participantIds?.length ? params.participantIds : [params.character.id, USER_ACTOR_ID]).filter(Boolean))).slice(0, 6);
+  const includesUser = participantIds.includes(USER_ACTOR_ID);
+  const phraseId = `phrase-backflow-${stableEventSeed([params.chat.id, params.character.id, params.kind, params.text, participantIds.join(',')])}`;
   const payload: CompanionshipSharedPhraseEventPayload = {
     eventType: 'companionship_shared_phrase',
     characterId: params.character.id,
-    userId: USER_ACTOR_ID,
+    userId: includesUser ? USER_ACTOR_ID : undefined,
     phraseId,
     action: 'upsert',
     text: params.text,
     kind: params.kind,
-    participantIds: [params.character.id, USER_ACTOR_ID],
+    participantIds,
     visibility: params.visibility || 'between_actors',
     firstSaidBy: params.firstSaidBy,
     reason: params.reason,
@@ -76,13 +79,13 @@ function createSharedPhraseEvent(params: {
     conversationId: params.chat.id,
     kind: 'artifact',
     createdAt: params.sourceEvent.createdAt || Date.now(),
-    actorIds: [params.character.id, USER_ACTOR_ID],
-    targetIds: [params.character.id, USER_ACTOR_ID],
+    actorIds: participantIds,
+    targetIds: participantIds,
     summary: `${params.character.name} 记录了一句关系里的共同话语`,
-    channelId: 'pair-private',
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
     eventClass: 'artifact',
-    visibility: 'pair_private',
-    visibleToIds: [USER_ACTOR_ID, params.character.id],
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: participantIds,
     evidenceMessageIds: params.sourceEvent.evidenceMessageIds,
     payload,
   };
@@ -109,7 +112,12 @@ function buildSharedPhraseEventFromDistilledMemory(params: {
   const payload = params.event.payload as Record<string, unknown> | undefined;
   if (!payload || payload.origin !== 'distilled') return [];
   if (!params.event.targetIds?.includes(params.character.id)) return [];
-  if (params.chat.type !== 'direct' && !params.event.targetIds.includes(USER_ACTOR_ID)) return [];
+  const participantIds = Array.from(new Set(params.event.targetIds.filter((id) => id === USER_ACTOR_ID || params.chat.memberIds.includes(id)))).slice(0, 6);
+  if (participantIds.includes(USER_ACTOR_ID)) {
+    if (!participantIds.includes(params.character.id)) participantIds.unshift(params.character.id);
+  } else if (participantIds.length < 2) {
+    return [];
+  }
   const text = String(payload.text || params.event.summary || '');
   const classification = classifySharedPhraseFromDistilledMemory(text);
   if (!classification) return [];
@@ -120,6 +128,7 @@ function buildSharedPhraseEventFromDistilledMemory(params: {
     sourceEvent: params.event,
     text: phraseText,
     kind: classification.kind,
+    participantIds,
     visibility: classification.visibility,
     firstSaidBy: 'mutual',
     reason: '记忆蒸馏沉淀出稳定共同话语后反写为陪伴运行时事件。',
@@ -217,13 +226,13 @@ export function buildSharedPhraseEventsFromCompanionshipEvents(params: {
   const existingPhraseKeys = new Set(params.events
     .map((event) => sharedPhrasePayloadOf(event))
     .filter((item): item is CompanionshipSharedPhraseEventPayload => Boolean(item))
-    .map((payload) => `${payload.kind || 'other'}:${payload.text.replace(/\s+/g, '')}`));
+    .map((payload) => `${payload.characterId}:${payload.kind || 'other'}:${payload.text.replace(/\s+/g, '')}`));
   return params.events
     .flatMap((event) => buildSharedPhraseEventsFromCompanionshipEvent({ chat: params.chat, character: params.character, event }))
     .filter((event) => {
       if (existingIds.has(event.id)) return false;
       const payload = sharedPhrasePayloadOf(event);
-      const key = payload ? `${payload.kind || 'other'}:${payload.text.replace(/\s+/g, '')}` : event.id;
+      const key = payload ? `${payload.characterId}:${payload.kind || 'other'}:${payload.text.replace(/\s+/g, '')}` : event.id;
       if (existingPhraseKeys.has(key)) return false;
       existingPhraseKeys.add(key);
       existingIds.add(event.id);

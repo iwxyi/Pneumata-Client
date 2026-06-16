@@ -392,6 +392,48 @@ describe('buildWorldRuntimeEvents', () => {
     expect(candidateA?.id).toBe(candidateB?.id);
   });
 
+  it('backfills role-role shared phrase events from distilled group memories for each participant', () => {
+    const distilled: MemoryItem = {
+      id: 'distilled-role-joke',
+      ownerId: 'chat-1',
+      scope: 'relationship',
+      layer: 'long_term',
+      kind: 'bond',
+      subjectIds: ['char-a', 'char-b'],
+      text: '甲和乙把“雨天加班券”当作共同梗。',
+      salience: 0.82,
+      confidence: 0.86,
+      recency: 0.7,
+      reinforcementCount: 2,
+      sourceEventIds: ['e1', 'e2'],
+      sourceTag: 'memory_distillation',
+      origin: 'distilled',
+      distilledFromIds: ['m1', 'm2'],
+      distilledAt: 1_000,
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    };
+    const chat = buildChat({ layeredMemories: [distilled], runtimeEventsV2: [] });
+
+    const patch = buildChatPatch(
+      chat,
+      { type: 'ai', senderId: 'char-a', content: '今天又下雨了，懂吧。', timestamp: 1_500 },
+      chat.worldState,
+      [],
+      resolveRuntimeEvolutionConfig('balanced'),
+      [{ id: 'char-a', name: '甲' }, { id: 'char-b', name: '乙' }],
+    );
+    const phrasePayloads = (patch.runtimeEventsV2 || [])
+      .map((event) => event.payload as Record<string, unknown>)
+      .filter((payload) => payload.eventType === 'companionship_shared_phrase');
+
+    expect(phrasePayloads).toHaveLength(2);
+    expect(phrasePayloads).toEqual(expect.arrayContaining([
+      expect.objectContaining({ characterId: 'char-a', text: '雨天加班券', participantIds: ['char-a', 'char-b'], userId: undefined }),
+      expect.objectContaining({ characterId: 'char-b', text: '雨天加班券', participantIds: ['char-a', 'char-b'], userId: undefined }),
+    ]));
+  });
+
   it('does not emit duplicate conflict axis and world-state events when summaries stay the same', () => {
     const previousWorldState = {
       phase: 'idle' as const,

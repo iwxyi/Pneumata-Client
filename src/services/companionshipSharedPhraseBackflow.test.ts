@@ -176,7 +176,7 @@ describe('companionshipSharedPhraseBackflow', () => {
     expect(payload?.reason).toContain('记忆蒸馏');
   });
 
-  it('does not derive user shared phrases from group distilled memories that do not involve the user', () => {
+  it('derives role-role shared phrases from group distilled memories without marking them as user-private', () => {
     const groupChat = { ...chat(), type: 'group', memberIds: ['char-a', 'char-b'] } as GroupChat;
     const distilled = event({
       id: 'distilled-memory-role-joke',
@@ -193,6 +193,20 @@ describe('companionshipSharedPhraseBackflow', () => {
       },
     });
 
-    expect(buildSharedPhraseEventsFromCompanionshipEvents({ chat: groupChat, character: character(), events: [distilled] })).toEqual([]);
+    const events = buildSharedPhraseEventsFromCompanionshipEvents({ chat: groupChat, character: character(), events: [distilled] });
+    const payload = events[0]?.payload as Record<string, unknown> | undefined;
+
+    expect(events[0]).toMatchObject({
+      visibility: 'role_private',
+      visibleToIds: ['char-a', 'char-b'],
+    });
+    expect(payload).toMatchObject({
+      eventType: 'companionship_shared_phrase',
+      text: '雨天加班券',
+      kind: 'inside_joke',
+      visibility: 'public_hint',
+      participantIds: ['char-a', 'char-b'],
+    });
+    expect(payload?.userId).toBeUndefined();
   });
 });
