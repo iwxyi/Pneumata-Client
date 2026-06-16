@@ -154,6 +154,7 @@ describe('messageRuntimeClues', () => {
               allowMissYou: true,
             },
             phaseHistory: [],
+            userProfileHistory: [],
             conflictHistory: [],
             attachmentHistory: [],
             diagnostics: ['care_topic: source=local_fallback confidence=62% event=evt-care-1'],

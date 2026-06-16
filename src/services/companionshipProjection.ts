@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import { DEFAULT_PERSONALITY } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, UserProfileMemoryHistoryEntry, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -908,6 +908,43 @@ function collectProfileEventState(chat: GroupChat, characterId: string) {
     activeItems: Array.from(byKey.values()).sort((left, right) => right.updatedAt - left.updatedAt),
     revokedItems: revokedItems.sort((left, right) => right.updatedAt - left.updatedAt),
   };
+}
+
+function buildUserProfileMemoryHistory(chat: GroupChat, characterId: string): UserProfileMemoryHistoryEntry[] {
+  const history: UserProfileMemoryHistoryEntry[] = [];
+  (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .forEach((event) => {
+      const payload = userProfileMemoryPayloadOf(event);
+      if (!payload || payload.characterId !== characterId) return;
+      if ((payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return;
+      const items = payload.items
+        .filter((item) => item.text)
+        .map((item) => ({
+          ...item,
+          text: compactText(item.text, 140),
+          evidence: compactText(item.evidence || event.summary, 140),
+          confidence: Number.isFinite(item.confidence) ? item.confidence : 0,
+        }))
+        .slice(0, 6);
+      if (!items.length) return;
+      const payloadEvidence = typeof payload.evidence === 'string' ? compactText(payload.evidence, 140) : '';
+      const reason = typeof payload.reason === 'string' ? compactText(payload.reason, 140) : undefined;
+      history.push({
+        id: event.id,
+        action: payload.action,
+        items,
+        reason,
+        evidence: [event.summary, reason, payloadEvidence, ...items.map((item) => item.evidence)].filter(Boolean).slice(0, 6) as string[],
+        decisionSource: payload.decisionSource,
+        confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
+        occurredAt: event.createdAt || 0,
+      });
+    });
+  return history.sort((a, b) => b.occurredAt - a.occurredAt).slice(0, 10);
 }
 
 function profileTextsByKind(items: ResolvedUserProfileMemoryItem[], kind: UserProfileMemoryKind, max = 5) {
@@ -3610,6 +3647,7 @@ export function buildCompanionshipRuntimeTrace(params: {
   }).slice(0, 4);
   const diagnostics = buildCompanionshipDiagnostics(params.chat, params.character.id);
   const phaseHistory = buildPhaseHistory(params.chat, params.character.id);
+  const userProfileHistory = buildUserProfileMemoryHistory(params.chat, params.character.id);
   const conflictHistory = buildIntimateConflictHistory(params.chat, params.character.id);
   const attachmentHistory = buildAttachmentProfileHistory(params.chat, params.character.id);
   return {
@@ -3647,6 +3685,7 @@ export function buildCompanionshipRuntimeTrace(params: {
     },
     attachmentProfile: bond.attachmentProfile,
     phaseHistory,
+    userProfileHistory,
     conflictHistory,
     attachmentHistory,
     diagnostics,

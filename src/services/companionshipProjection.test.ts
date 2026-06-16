@@ -892,6 +892,13 @@ describe('companionshipProjection', () => {
       now: 300,
     });
     expect(trace?.userProfileCues.map((item) => item.text)).toContain('用户不希望被早安晚安打扰');
+    expect(trace?.userProfileHistory).toHaveLength(1);
+    expect(trace?.userProfileHistory[0]).toMatchObject({
+      id: 'evt-profile-1',
+      action: 'upsert',
+      decisionSource: 'model',
+    });
+    expect(trace?.userProfileHistory[0].items.map((item) => item.text)).toContain('用户不希望被早安晚安打扰');
   });
 
   it('applies user profile memory revoke events before prompt projection', () => {
@@ -954,6 +961,18 @@ describe('companionshipProjection', () => {
     expect(projection.userBond?.carePolicy.allowGoodMorning).toBe(true);
     expect(projection.userBond?.carePolicy.allowGoodNight).toBe(true);
     expect(projection.promptLines.join('\n')).not.toContain('用户不希望被早安晚安打扰');
+
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [upsertEvent, revokeEvent]),
+      character: character(),
+      messages: [message({ content: '今天也想聊。', timestamp: 400 })],
+      now: 500,
+    });
+    expect(trace?.userProfileHistory.map((item) => item.action)).toEqual(['revoke', 'upsert']);
+    expect(trace?.userProfileHistory[0]).toMatchObject({
+      id: 'evt-profile-boundary-revoke',
+      decisionSource: 'model',
+    });
   });
 
   it('uses user profile revoke events to suppress compatible fallback memories', () => {

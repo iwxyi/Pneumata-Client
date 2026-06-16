@@ -190,6 +190,17 @@ export interface UserProfileMemoryEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface UserProfileMemoryHistoryEntry {
+  id: string;
+  action: UserProfileMemoryEventPayload['action'];
+  items: UserProfileMemoryEventItem[];
+  reason?: string;
+  evidence: string[];
+  decisionSource?: UserProfileMemoryEventPayload['decisionSource'];
+  confidence?: number;
+  occurredAt: number;
+}
+
 export interface UserBondState {
   userId: string;
   characterId: string;
@@ -534,6 +545,7 @@ export interface CompanionshipRuntimeTrace {
   carePolicy: Pick<CarePolicy, 'dailyInitiationBudget' | 'triggerSensitivity' | 'silenceAnxietyThresholdHours' | 'expressionIntensity' | 'allowGoodMorning' | 'allowGoodNight' | 'allowMissYou'>;
   attachmentProfile?: UserAttachmentProfile;
   phaseHistory: PhaseHistoryEntry[];
+  userProfileHistory: UserProfileMemoryHistoryEntry[];
   conflictHistory: IntimateConflictHistoryEntry[];
   attachmentHistory: AttachmentProfileHistoryEntry[];
   diagnostics: string[];
