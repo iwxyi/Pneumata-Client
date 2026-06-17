@@ -194,6 +194,36 @@ describe('relationshipPanelProjection', () => {
     expect(forward.ledgerSections.find((section) => section.member.id === 'user')?.member.name).toBe('我');
   });
 
+  it('ignores non-user ledger entries in direct chat member panel', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      type: 'direct',
+      memberIds: ['a'],
+      relationshipLedger: [{
+        pairKey: 'a->b',
+        actorId: 'a',
+        targetId: 'b',
+        current: { warmth: 20, trust: 10, competence: 10, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: 12,
+      }, {
+        pairKey: 'a->user',
+        actorId: 'a',
+        targetId: 'user',
+        current: { warmth: 8, trust: 6, competence: 2, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: 13,
+      }],
+    });
+    const members = [member('a', '甲'), member('b', '乙')];
+    const projection = projectRelationshipPanelData(chat, members, false);
+
+    expect(projection.ledgerSections).toHaveLength(1);
+    expect(projection.ledgerSections[0]?.items.map((item) => item.pairKey)).toEqual(['a->user']);
+  });
+
   it('exposes unexpected user relationship entries in ai direct chats', () => {
     const chat = normalizeConversation({
       ...buildChat(),
@@ -303,7 +333,7 @@ describe('relationshipPanelProjection', () => {
     });
   });
 
-  it('reports character preset relationships to unrelated roles in direct chats as diagnostics', () => {
+  it('does not project character preset relationships as direct chat relationship data', () => {
     const chat = normalizeConversation({
       ...buildChat(),
       type: 'direct',
@@ -320,6 +350,7 @@ describe('relationshipPanelProjection', () => {
     expect(projection.ledgerSections).toHaveLength(0);
     expect(projection.fallbackSections).toHaveLength(0);
     expect(projection.diagnostics.map((item) => item.targetId)).toEqual(['unrelated-role-1', 'unrelated-role-2']);
+    expect(projection.diagnostics.every((item) => item.kind === 'direct-preset-relationship')).toBe(true);
   });
 
   it('deduplicates fallback pairs already covered by ledger without hiding other fallback data', () => {

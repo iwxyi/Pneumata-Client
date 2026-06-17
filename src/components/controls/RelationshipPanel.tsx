@@ -13,6 +13,7 @@ import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, normal
 import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
 import { projectRelationshipPanelData, type RelationshipPanelDiagnosticItem } from '../../services/relationshipPanelProjection';
 import { compactPillChipSx } from '../../styles/interaction';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 
 interface RelationshipPanelProps {
   chat: GroupChat;
@@ -363,15 +364,21 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
 
 function RelationshipDiagnostics({ items }: { items: RelationshipPanelDiagnosticItem[] }) {
   if (!items.length) return null;
+  const directPresetItems = items.filter((item) => item.kind === 'direct-preset-relationship');
+  const unresolvedItems = items.filter((item) => item.kind !== 'direct-preset-relationship');
+  const title = directPresetItems.length && !unresolvedItems.length ? '单聊外预设关系' : '未解析关系目标';
+  const description = directPresetItems.length && !unresolvedItems.length
+    ? '以下关系来自角色库的角色-角色预设，不属于当前单聊的角色-用户关系；它们不会作为当前会话关系展示。'
+    : '以下关系来自角色预设，但目标不在当前可解析角色列表中；它们不会作为当前会话关系展示。';
   return (
     <RelationshipCardFrame>
       <Stack spacing={0.85} sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
           <Chip size="small" color="warning" variant="outlined" label="数据异常" sx={compactPillChipSx} />
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>未解析关系目标</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{title}</Typography>
         </Box>
         <Typography variant="caption" color="text.secondary">
-          以下关系来自角色预设，但目标不在当前可解析角色列表中；它们不会作为当前会话关系展示。
+          {description}
         </Typography>
         <Stack spacing={0.75}>
           {items.map((item, index) => (
@@ -397,6 +404,9 @@ function RelationshipDiagnostics({ items }: { items: RelationshipPanelDiagnostic
 
 export default function RelationshipPanel({ chat, members }: RelationshipPanelProps) {
   const isGroupChat = chat.type === 'group';
+  const developerMode = useSettingsStore((state) => state.developerMode);
+  const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
+  const showDiagnostics = developerMode && showAdvancedRuntimePanels;
   const collapseStorageKey = `relationship-panel-collapse:${chat.id}`;
   const [reverseLedger, setReverseLedger] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
@@ -461,7 +471,7 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
           </Stack>
         ) : null}
       </Box>
-      {diagnostics.length ? (
+      {showDiagnostics && diagnostics.length ? (
         <Box sx={{ mb: groupedLedgerSections.length || fallbackSections.length ? 1.25 : 0 }}>
           <RelationshipDiagnostics items={diagnostics} />
         </Box>
@@ -491,7 +501,7 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
           })}
         </Stack>
       ) : fallbackSections.length === 0 ? (
-        diagnostics.length ? null : <Typography variant="caption" color="text.secondary">暂无结构化关系数据</Typography>
+        <Typography variant="caption" color="text.secondary">暂无结构化关系数据</Typography>
       ) : (
         <Stack spacing={1.25}>
           {fallbackSections.map(({ member, items, sectionKey }) => {

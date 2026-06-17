@@ -30,7 +30,7 @@ export interface RelationshipPanelFallbackSection {
 }
 
 export interface RelationshipPanelDiagnosticItem {
-  kind: 'unresolved-fallback-target';
+  kind: 'unresolved-fallback-target' | 'direct-preset-relationship';
   member: RelationshipDisplayMember;
   targetId: string;
   note?: string;
@@ -51,6 +51,12 @@ export interface RelationshipPanelProjection {
 
 function shouldIncludeUserInRelationshipPanel(chat: GroupChat) {
   return chat.type === 'direct' || chat.memberIds.includes('user');
+}
+
+function isDirectUserRelationshipEntry(chat: GroupChat, entry: RelationshipLedgerEntry) {
+  if (chat.type !== 'direct') return true;
+  const memberIds = new Set(chat.memberIds || []);
+  return ((memberIds.has(entry.actorId) && entry.targetId === 'user') || (entry.actorId === 'user' && memberIds.has(entry.targetId)));
 }
 
 function isDraftRelationshipId(id: string) {
@@ -104,6 +110,7 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
   const memberById = new Map(relationshipMembers.map((member) => [member.id, member] as const));
   const ledgerEntries = (chat.relationshipLedger || [])
     .filter((entry) => !isDraftRelationshipId(entry.actorId) && !isDraftRelationshipId(entry.targetId))
+    .filter((entry) => isDirectUserRelationshipEntry(chat, entry))
     .filter(isMeaningfulRelationshipLedgerEntry)
     .slice()
     .sort((a, b) => {
@@ -121,6 +128,44 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
     .filter((section) => section.items.length > 0);
   const coveredFallbackPairs = new Set(ledgerEntries.map((entry) => `${entry.actorId}->${entry.targetId}`));
   const diagnostics: RelationshipPanelDiagnosticItem[] = [];
+
+  if (chat.type === 'direct') {
+    members.forEach((member) => {
+      const displayMember = memberById.get(member.id) || { id: member.id, name: member.name };
+      member.relationships
+        .filter((relation) => !isDraftRelationshipId(relation.characterId))
+        .filter((relation) => relation.characterId !== 'user')
+        .filter((relation) => relation.warmth !== 0 || relation.competence !== 0 || relation.trust !== 0 || relation.threat !== 0 || Boolean(relation.note?.trim()))
+        .slice(0, 3)
+        .forEach((relation) => {
+          reportUnresolvedDisplayEntity({
+            id: relation.characterId,
+            kind: 'relationship-target',
+            location: 'relationshipPanelProjection.directPresetRelationship',
+            fallback: buildUnresolvedMemberName(relation.characterId),
+            extra: { memberId: member.id },
+          });
+          diagnostics.push({
+            kind: 'direct-preset-relationship',
+            member: displayMember,
+            targetId: relation.characterId,
+            note: relation.note,
+            relation: {
+              warmth: relation.warmth,
+              competence: relation.competence,
+              trust: relation.trust,
+              threat: relation.threat,
+            },
+          });
+        });
+    });
+    return {
+      ledgerSections,
+      fallbackSections: [],
+      diagnostics,
+      sectionKeys: ledgerSections.map((section) => section.sectionKey),
+    };
+  }
 
   const fallbackSections = members
     .map((member) => {
