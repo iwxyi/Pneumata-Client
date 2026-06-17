@@ -224,7 +224,7 @@ describe('relationshipPanelProjection', () => {
     expect(projection.ledgerSections[0]?.items.map((item) => item.pairKey)).toEqual(['a->user']);
   });
 
-  it('exposes unexpected user relationship entries in ai direct chats', () => {
+  it('only projects current pair relationship entries in ai direct chats', () => {
     const chat = normalizeConversation({
       ...buildChat(),
       type: 'ai_direct',
@@ -238,6 +238,14 @@ describe('relationshipPanelProjection', () => {
         recentEvents: [],
         lastUpdatedAt: 12,
       }, {
+        pairKey: 'b->a',
+        actorId: 'b',
+        targetId: 'a',
+        current: { warmth: 8, trust: 5, competence: 4, threat: 0 },
+        trend: 'flat',
+        recentEvents: [],
+        lastUpdatedAt: 14,
+      }, {
         pairKey: 'a->user',
         actorId: 'a',
         targetId: 'user',
@@ -245,13 +253,48 @@ describe('relationshipPanelProjection', () => {
         trend: 'up',
         recentEvents: [],
         lastUpdatedAt: 13,
+      }, {
+        pairKey: 'a->c',
+        actorId: 'a',
+        targetId: 'c',
+        current: { warmth: 88, trust: 88, competence: 88, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: 15,
       }],
     });
-    const members = [member('a', '甲'), member('b', '乙')];
+    const members = [member('a', '甲'), member('b', '乙'), member('c', '丙')];
     const projection = projectRelationshipPanelData(chat, members, false);
 
-    expect(projection.ledgerSections.map((section) => section.member.id)).toEqual(['a']);
-    expect(projection.ledgerSections.find((section) => section.member.id === 'a')?.items.map((item) => item.pairKey)).toEqual(['a->user', 'a->b']);
+    expect(projection.ledgerSections.map((section) => section.member.id)).toEqual(['a', 'b']);
+    expect(projection.ledgerSections.find((section) => section.member.id === 'a')?.items.map((item) => item.pairKey)).toEqual(['a->b']);
+    expect(projection.ledgerSections.find((section) => section.member.id === 'b')?.items.map((item) => item.pairKey)).toEqual(['b->a']);
+    expect(projection.diagnostics).toHaveLength(0);
+  });
+
+  it('only falls back to current pair preset relationships in ai direct chats', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      type: 'ai_direct',
+      memberIds: ['a', 'b'],
+      relationshipLedger: [],
+    });
+    const members = [
+      member('a', '甲', [
+        { characterId: 'b', warmth: 10, trust: 2, competence: 6, threat: 0, note: '当前私聊对象关系应展示' },
+        { characterId: 'user', warmth: 99, trust: 99, competence: 99, threat: 0, note: '用户关系不属于 AI 私聊面板' },
+        { characterId: 'c', warmth: 88, trust: 88, competence: 88, threat: 0, note: '外部角色关系不属于当前 AI 私聊面板' },
+      ]),
+      member('b', '乙'),
+      member('c', '丙'),
+    ];
+    const projection = projectRelationshipPanelData(chat, members, false);
+
+    expect(projection.ledgerSections).toHaveLength(0);
+    expect(projection.fallbackSections).toHaveLength(1);
+    expect(projection.fallbackSections[0]?.member.id).toBe('a');
+    expect(projection.fallbackSections[0]?.items.map((item) => item.characterId)).toEqual(['b']);
+    expect(projection.diagnostics).toHaveLength(0);
   });
 
   it('sorts ledger entries by relationship score then recency and caps each section to 8', () => {
@@ -349,8 +392,7 @@ describe('relationshipPanelProjection', () => {
     const projection = projectRelationshipPanelData(chat, members, false);
     expect(projection.ledgerSections).toHaveLength(0);
     expect(projection.fallbackSections).toHaveLength(0);
-    expect(projection.diagnostics.map((item) => item.targetId)).toEqual(['unrelated-role-1', 'unrelated-role-2']);
-    expect(projection.diagnostics.every((item) => item.kind === 'direct-preset-relationship')).toBe(true);
+    expect(projection.diagnostics).toHaveLength(0);
   });
 
   it('deduplicates fallback pairs already covered by ledger without hiding other fallback data', () => {

@@ -104,6 +104,21 @@ function companionshipStyleLabel(style: UserBondState['style']) {
   return labels[style];
 }
 
+function careInitiationLabel(value: number) {
+  if (value <= 0) return '暂时不会主动打扰你';
+  if (value === 1) return '会偶尔主动找你';
+  if (value === 2) return '会比较自然地想起你';
+  if (value === 3) return '会经常主动联系你';
+  return '会很频繁地惦记你';
+}
+
+function expressionIntensityLabel(value: number) {
+  if (value < 30) return '表达比较克制';
+  if (value < 55) return '表达温和';
+  if (value < 75) return '表达直接';
+  return '表达很热烈';
+}
+
 function buildRelationshipStateChips(delta: ReturnType<typeof toRelationshipDisplayDelta>) {
   const chips: Array<{ label: string; color?: 'success' | 'warning' | 'info' | 'default'; hint: string }> = [];
   const warmth = delta.warmth || 0;
@@ -397,21 +412,15 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
 
 function RelationshipDiagnostics({ items }: { items: RelationshipPanelDiagnosticItem[] }) {
   if (!items.length) return null;
-  const directPresetItems = items.filter((item) => item.kind === 'direct-preset-relationship');
-  const unresolvedItems = items.filter((item) => item.kind !== 'direct-preset-relationship');
-  const title = directPresetItems.length && !unresolvedItems.length ? '单聊外预设关系' : '未解析关系目标';
-  const description = directPresetItems.length && !unresolvedItems.length
-    ? '以下关系来自角色库的角色-角色预设，不属于当前单聊的角色-用户关系；它们不会作为当前会话关系展示。'
-    : '以下关系来自角色预设，但目标不在当前可解析角色列表中；它们不会作为当前会话关系展示。';
   return (
     <RelationshipCardFrame>
       <Stack spacing={0.85} sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
           <Chip size="small" color="warning" variant="outlined" label="数据异常" sx={compactPillChipSx} />
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{title}</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>未解析关系目标</Typography>
         </Box>
         <Typography variant="caption" color="text.secondary">
-          {description}
+          以下关系来自当前会话关系数据，但目标不在当前可解析角色列表中；它们不会作为当前会话关系展示。
         </Typography>
         <Stack spacing={0.75}>
           {items.map((item, index) => (
@@ -435,8 +444,9 @@ function RelationshipDiagnostics({ items }: { items: RelationshipPanelDiagnostic
   );
 }
 
-function DirectUserRelationshipCard({ character, bond, evidence }: { character: AICharacter; bond: UserBondState; evidence: string[] }) {
+function DirectUserRelationshipCard({ character, bond, evidence, debug = false }: { character: AICharacter; bond: UserBondState; evidence: string[]; debug?: boolean }) {
   const intimacy = bond.intimacy;
+  const carePolicy = bond.carePolicy;
   const rows = [
     { label: '心动', value: intimacy.attraction },
     { label: '亲密', value: intimacy.intimacy },
@@ -454,13 +464,21 @@ function DirectUserRelationshipCard({ character, bond, evidence }: { character: 
     <RelationshipCardFrame>
       <Stack spacing={0.9} sx={{ minWidth: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{character.name} → 用户</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{character.name} → 你</Typography>
           <Chip size="small" color="primary" variant="outlined" label={companionshipPhaseLabel(bond.phase)} sx={compactPillChipSx} />
           <Chip size="small" variant="outlined" label={companionshipStyleLabel(bond.style)} sx={compactPillChipSx} />
         </Box>
         <Typography variant="caption" color="text.secondary">
-          称呼：{bond.addressing.currentAddress || '用户'} · 主动预算 {bond.carePolicy.dailyInitiationBudget}/天 · 表达强度 {bond.carePolicy.expressionIntensity}
+          称呼：{bond.addressing.currentAddress || '你'} · {careInitiationLabel(carePolicy.dailyInitiationBudget)} · {expressionIntensityLabel(carePolicy.expressionIntensity)}
         </Typography>
+        {debug ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+            <Chip size="small" color="info" variant="outlined" label="调试" sx={compactPillChipSx} />
+            <Typography variant="caption" color="text.secondary">
+              主动预算 {carePolicy.dailyInitiationBudget}/天 · 触发敏感度 {carePolicy.triggerSensitivity} · 沉默阈值 {carePolicy.silenceAnxietyThresholdHours}h · 表达强度 {carePolicy.expressionIntensity}
+            </Typography>
+          </Box>
+        ) : null}
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 0.6 }}>
           {rows.map((row) => (
             <Box key={row.label} sx={{ display: 'grid', gap: 0.2, p: 0.7, borderRadius: 1, bgcolor: 'action.hover', textAlign: 'center', minWidth: 0 }}>
@@ -528,6 +546,7 @@ export default function RelationshipPanel({ chat, members, messages = [] }: Rela
   const fallbackSections = chat.type === 'direct' ? [] : projected.fallbackSections;
   const diagnostics = projected.diagnostics;
   const sectionKeys = projected.sectionKeys;
+  const hasDirectUserRelationshipCard = Boolean(chat.type === 'direct' && directCharacter && directUserBond);
 
   const collapsedCount = sectionKeys.filter((key) => collapsedSections[key]).length;
   const shouldCollapseAll = collapsedCount < sectionKeys.length;
@@ -563,9 +582,9 @@ export default function RelationshipPanel({ chat, members, messages = [] }: Rela
           </Stack>
         ) : null}
       </Box>
-      {chat.type === 'direct' && directCharacter && directUserBond ? (
+      {hasDirectUserRelationshipCard && directCharacter && directUserBond ? (
         <Box sx={{ mb: groupedLedgerSections.length ? 1.25 : 0 }}>
-          <DirectUserRelationshipCard character={directCharacter} bond={directUserBond} evidence={directCompanionship?.evidence || []} />
+          <DirectUserRelationshipCard character={directCharacter} bond={directUserBond} evidence={directCompanionship?.evidence || []} debug={developerMode} />
         </Box>
       ) : null}
       {showDiagnostics && diagnostics.length ? (
@@ -597,7 +616,7 @@ export default function RelationshipPanel({ chat, members, messages = [] }: Rela
             );
           })}
         </Stack>
-      ) : fallbackSections.length === 0 ? (
+      ) : fallbackSections.length === 0 && !hasDirectUserRelationshipCard ? (
         <Typography variant="caption" color="text.secondary">暂无结构化关系数据</Typography>
       ) : (
         <Stack spacing={1.25}>

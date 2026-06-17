@@ -30,7 +30,7 @@ export interface RelationshipPanelFallbackSection {
 }
 
 export interface RelationshipPanelDiagnosticItem {
-  kind: 'unresolved-fallback-target' | 'direct-preset-relationship';
+  kind: 'unresolved-fallback-target';
   member: RelationshipDisplayMember;
   targetId: string;
   note?: string;
@@ -59,6 +59,25 @@ function isDirectUserRelationshipEntry(chat: GroupChat, entry: RelationshipLedge
   return ((memberIds.has(entry.actorId) && entry.targetId === 'user') || (entry.actorId === 'user' && memberIds.has(entry.targetId)));
 }
 
+function isAiDirectPairRelationshipEntry(chat: GroupChat, entry: RelationshipLedgerEntry) {
+  if (chat.type !== 'ai_direct') return true;
+  const memberIds = new Set(chat.memberIds || []);
+  return memberIds.has(entry.actorId) && memberIds.has(entry.targetId) && entry.actorId !== entry.targetId;
+}
+
+function isRelationshipEntryRelevantToPanel(chat: GroupChat, entry: RelationshipLedgerEntry) {
+  return isDirectUserRelationshipEntry(chat, entry) && isAiDirectPairRelationshipEntry(chat, entry);
+}
+
+function isFallbackRelationRelevantToPanel(chat: GroupChat, memberId: string, targetId: string) {
+  if (chat.type === 'direct') return targetId === 'user';
+  if (chat.type === 'ai_direct') {
+    const memberIds = new Set(chat.memberIds || []);
+    return memberIds.has(memberId) && memberIds.has(targetId) && memberId !== targetId;
+  }
+  return true;
+}
+
 function isDraftRelationshipId(id: string) {
   return /^draft-\d+$/i.test(id);
 }
@@ -74,7 +93,9 @@ function buildRelationshipMembers(chat: GroupChat, members: AICharacter[]) {
     list.push({ id: 'user', name: '我' });
   }
   const extraIds = new Set<string>();
-  (chat.relationshipLedger || []).forEach((entry) => {
+  (chat.relationshipLedger || [])
+    .filter((entry) => isRelationshipEntryRelevantToPanel(chat, entry))
+    .forEach((entry) => {
     if (!isDraftRelationshipId(entry.actorId)) extraIds.add(entry.actorId);
     if (!isDraftRelationshipId(entry.targetId)) extraIds.add(entry.targetId);
   });
@@ -110,7 +131,7 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
   const memberById = new Map(relationshipMembers.map((member) => [member.id, member] as const));
   const ledgerEntries = (chat.relationshipLedger || [])
     .filter((entry) => !isDraftRelationshipId(entry.actorId) && !isDraftRelationshipId(entry.targetId))
-    .filter((entry) => isDirectUserRelationshipEntry(chat, entry))
+    .filter((entry) => isRelationshipEntryRelevantToPanel(chat, entry))
     .filter(isMeaningfulRelationshipLedgerEntry)
     .slice()
     .sort((a, b) => {
@@ -130,39 +151,10 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
   const diagnostics: RelationshipPanelDiagnosticItem[] = [];
 
   if (chat.type === 'direct') {
-    members.forEach((member) => {
-      const displayMember = memberById.get(member.id) || { id: member.id, name: member.name };
-      member.relationships
-        .filter((relation) => !isDraftRelationshipId(relation.characterId))
-        .filter((relation) => relation.characterId !== 'user')
-        .filter((relation) => relation.warmth !== 0 || relation.competence !== 0 || relation.trust !== 0 || relation.threat !== 0 || Boolean(relation.note?.trim()))
-        .slice(0, 3)
-        .forEach((relation) => {
-          reportUnresolvedDisplayEntity({
-            id: relation.characterId,
-            kind: 'relationship-target',
-            location: 'relationshipPanelProjection.directPresetRelationship',
-            fallback: buildUnresolvedMemberName(relation.characterId),
-            extra: { memberId: member.id },
-          });
-          diagnostics.push({
-            kind: 'direct-preset-relationship',
-            member: displayMember,
-            targetId: relation.characterId,
-            note: relation.note,
-            relation: {
-              warmth: relation.warmth,
-              competence: relation.competence,
-              trust: relation.trust,
-              threat: relation.threat,
-            },
-          });
-        });
-    });
     return {
       ledgerSections,
       fallbackSections: [],
-      diagnostics,
+      diagnostics: [],
       sectionKeys: ledgerSections.map((section) => section.sectionKey),
     };
   }
@@ -172,6 +164,7 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
       const displayMember = memberById.get(member.id) || { id: member.id, name: member.name };
       const items = member.relationships
         .filter((relation) => !isDraftRelationshipId(relation.characterId))
+        .filter((relation) => isFallbackRelationRelevantToPanel(chat, member.id, relation.characterId))
         .filter((relation) => !coveredFallbackPairs.has(`${member.id}->${relation.characterId}`))
         .filter((relation) => relation.warmth !== 0 || relation.competence !== 0 || relation.trust !== 0 || relation.threat !== 0 || Boolean(relation.note?.trim()))
         .slice(0, 3)
