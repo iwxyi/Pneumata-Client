@@ -272,7 +272,7 @@ describe('relationshipPanelProjection', () => {
     }
   });
 
-  it('filters draft fallback relations and exposes unresolved fallback targets', () => {
+  it('filters draft fallback relations and reports unresolved fallback targets as diagnostics', () => {
     const chat = normalizeConversation({
       ...buildChat(),
       relationshipLedger: [{
@@ -294,16 +294,16 @@ describe('relationshipPanelProjection', () => {
     ];
     const projection = projectRelationshipPanelData(chat, members, false);
     expect(projection.ledgerSections).toHaveLength(0);
-    expect(projection.fallbackSections).toHaveLength(1);
-    expect(projection.fallbackSections[0]?.items).toHaveLength(1);
-    expect(projection.fallbackSections[0]?.items[0]).toMatchObject({
-      characterId: 'x',
-      targetName: '未解析成员(x)',
+    expect(projection.fallbackSections).toHaveLength(0);
+    expect(projection.diagnostics).toHaveLength(1);
+    expect(projection.diagnostics[0]).toMatchObject({
+      kind: 'unresolved-fallback-target',
+      targetId: 'x',
       note: '未知对象应降级命名',
     });
   });
 
-  it('exposes character preset relationships to unrelated roles in direct chats instead of hiding them', () => {
+  it('reports character preset relationships to unrelated roles in direct chats as diagnostics', () => {
     const chat = normalizeConversation({
       ...buildChat(),
       type: 'direct',
@@ -318,11 +318,8 @@ describe('relationshipPanelProjection', () => {
     ];
     const projection = projectRelationshipPanelData(chat, members, false);
     expect(projection.ledgerSections).toHaveLength(0);
-    expect(projection.fallbackSections).toHaveLength(1);
-    expect(projection.fallbackSections[0]?.items.map((item) => item.targetName)).toEqual([
-      '未解析成员(unrelated-role-1)',
-      '未解析成员(unrelated-role-2)',
-    ]);
+    expect(projection.fallbackSections).toHaveLength(0);
+    expect(projection.diagnostics.map((item) => item.targetId)).toEqual(['unrelated-role-1', 'unrelated-role-2']);
   });
 
   it('deduplicates fallback pairs already covered by ledger without hiding other fallback data', () => {
@@ -347,6 +344,7 @@ describe('relationshipPanelProjection', () => {
     ];
     const projection = projectRelationshipPanelData(chat, members, false);
     expect(projection.ledgerSections.some((section) => section.member.id === 'a')).toBe(true);
-    expect(projection.fallbackSections.find((section) => section.member.id === 'a')?.items.map((item) => item.characterId)).toEqual(['x']);
+    expect(projection.fallbackSections.find((section) => section.member.id === 'a')).toBeUndefined();
+    expect(projection.diagnostics.map((item) => item.targetId)).toEqual(['x']);
   });
 });

@@ -11,7 +11,7 @@ import type { GroupChat } from '../../types/chat';
 import type { RelationshipAxisReason, RelationshipLedgerEntry } from '../../types/runtimeEvent';
 import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
 import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
-import { projectRelationshipPanelData } from '../../services/relationshipPanelProjection';
+import { projectRelationshipPanelData, type RelationshipPanelDiagnosticItem } from '../../services/relationshipPanelProjection';
 import { compactPillChipSx } from '../../styles/interaction';
 
 interface RelationshipPanelProps {
@@ -361,6 +361,40 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
   );
 }
 
+function RelationshipDiagnostics({ items }: { items: RelationshipPanelDiagnosticItem[] }) {
+  if (!items.length) return null;
+  return (
+    <RelationshipCardFrame>
+      <Stack spacing={0.85} sx={{ minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+          <Chip size="small" color="warning" variant="outlined" label="数据异常" sx={compactPillChipSx} />
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>未解析关系目标</Typography>
+        </Box>
+        <Typography variant="caption" color="text.secondary">
+          以下关系来自角色预设，但目标不在当前可解析角色列表中；它们不会作为当前会话关系展示。
+        </Typography>
+        <Stack spacing={0.75}>
+          {items.map((item, index) => (
+            <Box key={`${item.member.id}-${item.targetId}-${index}`} sx={{ display: 'grid', gap: 0.35, p: 0.85, borderRadius: 1, bgcolor: 'action.hover' }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>
+                {item.member.name} → 未解析成员({item.targetId})
+              </Typography>
+              {item.note?.trim() ? (
+                <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                  {item.note.trim()}
+                </Typography>
+              ) : null}
+              <Typography variant="caption" color="text.secondary">
+                亲和 {formatSignedRelationshipNumber(item.relation.warmth)} · 能力 {formatSignedRelationshipNumber(item.relation.competence)} · 信任 {formatSignedRelationshipNumber(item.relation.trust)} · 威胁 {formatSignedRelationshipNumber(item.relation.threat)}
+              </Typography>
+            </Box>
+          ))}
+        </Stack>
+      </Stack>
+    </RelationshipCardFrame>
+  );
+}
+
 export default function RelationshipPanel({ chat, members }: RelationshipPanelProps) {
   const isGroupChat = chat.type === 'group';
   const collapseStorageKey = `relationship-panel-collapse:${chat.id}`;
@@ -390,6 +424,7 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
   );
   const groupedLedgerSections = projected.ledgerSections;
   const fallbackSections = projected.fallbackSections;
+  const diagnostics = projected.diagnostics;
   const sectionKeys = projected.sectionKeys;
 
   const collapsedCount = sectionKeys.filter((key) => collapsedSections[key]).length;
@@ -426,6 +461,11 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
           </Stack>
         ) : null}
       </Box>
+      {diagnostics.length ? (
+        <Box sx={{ mb: groupedLedgerSections.length || fallbackSections.length ? 1.25 : 0 }}>
+          <RelationshipDiagnostics items={diagnostics} />
+        </Box>
+      ) : null}
       {groupedLedgerSections.length ? (
         <Stack spacing={1.25}>
           {groupedLedgerSections.map(({ member, items, sectionKey }) => {
@@ -450,7 +490,9 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
             );
           })}
         </Stack>
-      ) : fallbackSections.length === 0 ? <Typography variant="caption" color="text.secondary">暂无结构化关系数据</Typography> : (
+      ) : fallbackSections.length === 0 ? (
+        diagnostics.length ? null : <Typography variant="caption" color="text.secondary">暂无结构化关系数据</Typography>
+      ) : (
         <Stack spacing={1.25}>
           {fallbackSections.map(({ member, items, sectionKey }) => {
             const collapsed = Boolean(collapsedSections[sectionKey]);

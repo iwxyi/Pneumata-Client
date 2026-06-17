@@ -29,9 +29,23 @@ export interface RelationshipPanelFallbackSection {
   items: RelationshipPanelFallbackItem[];
 }
 
+export interface RelationshipPanelDiagnosticItem {
+  kind: 'unresolved-fallback-target';
+  member: RelationshipDisplayMember;
+  targetId: string;
+  note?: string;
+  relation: {
+    warmth: number;
+    competence: number;
+    trust: number;
+    threat: number;
+  };
+}
+
 export interface RelationshipPanelProjection {
   ledgerSections: RelationshipPanelLedgerSection[];
   fallbackSections: RelationshipPanelFallbackSection[];
+  diagnostics: RelationshipPanelDiagnosticItem[];
   sectionKeys: string[];
 }
 
@@ -57,11 +71,6 @@ function buildRelationshipMembers(chat: GroupChat, members: AICharacter[]) {
   (chat.relationshipLedger || []).forEach((entry) => {
     if (!isDraftRelationshipId(entry.actorId)) extraIds.add(entry.actorId);
     if (!isDraftRelationshipId(entry.targetId)) extraIds.add(entry.targetId);
-  });
-  members.forEach((member) => {
-    (member.relationships || []).forEach((relation) => {
-      if (!isDraftRelationshipId(relation.characterId)) extraIds.add(relation.characterId);
-    });
   });
   extraIds.forEach((id) => {
     if (list.some((member) => member.id === id)) return;
@@ -111,15 +120,17 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
     }))
     .filter((section) => section.items.length > 0);
   const coveredFallbackPairs = new Set(ledgerEntries.map((entry) => `${entry.actorId}->${entry.targetId}`));
+  const diagnostics: RelationshipPanelDiagnosticItem[] = [];
 
   const fallbackSections = members
     .map((member) => {
+      const displayMember = memberById.get(member.id) || { id: member.id, name: member.name };
       const items = member.relationships
         .filter((relation) => !isDraftRelationshipId(relation.characterId))
         .filter((relation) => !coveredFallbackPairs.has(`${member.id}->${relation.characterId}`))
         .filter((relation) => relation.warmth !== 0 || relation.competence !== 0 || relation.trust !== 0 || relation.threat !== 0 || Boolean(relation.note?.trim()))
         .slice(0, 3)
-        .map((relation) => {
+        .map((relation): RelationshipPanelFallbackItem | null => {
           const target = memberById.get(relation.characterId);
           if (!target) {
             reportUnresolvedDisplayEntity({
@@ -129,10 +140,23 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
               fallback: buildUnresolvedMemberName(relation.characterId),
               extra: { memberId: member.id },
             });
+            diagnostics.push({
+              kind: 'unresolved-fallback-target',
+              member: displayMember,
+              targetId: relation.characterId,
+              note: relation.note,
+              relation: {
+                warmth: relation.warmth,
+                competence: relation.competence,
+                trust: relation.trust,
+                threat: relation.threat,
+              },
+            });
+            return null;
           }
           return {
             characterId: relation.characterId,
-            targetName: target?.name || `未解析目标(${relation.characterId})`,
+            targetName: target.name,
             note: relation.note,
             relation: {
               warmth: relation.warmth,
@@ -141,7 +165,8 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
               threat: relation.threat,
             },
           };
-        });
+        })
+        .filter((item): item is RelationshipPanelFallbackItem => Boolean(item));
       return {
         member,
         sectionKey: buildFallbackSectionKey(prefix, member.id),
@@ -158,6 +183,7 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
   return {
     ledgerSections,
     fallbackSections,
+    diagnostics,
     sectionKeys,
   };
 }
