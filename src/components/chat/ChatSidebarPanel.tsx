@@ -172,7 +172,7 @@ export default function ChatSidebarPanel({
               perspectiveMemberId={perspectiveMemberId}
             />
             <Suspense fallback={<PanelFallback />}>
-              <RelationshipPanel chat={chat} members={members} />
+              <RelationshipPanel chat={chat} members={members} messages={messages || []} />
             </Suspense>
             {memberFooter || null}
           </Stack>

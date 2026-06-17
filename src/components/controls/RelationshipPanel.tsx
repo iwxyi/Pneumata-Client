@@ -8,16 +8,20 @@ import SectionHeader from '../common/SectionHeader';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
+import type { Message } from '../../types/message';
+import type { UserBondState } from '../../types/companionship';
 import type { RelationshipAxisReason, RelationshipLedgerEntry } from '../../types/runtimeEvent';
 import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
 import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
 import { projectRelationshipPanelData, type RelationshipPanelDiagnosticItem } from '../../services/relationshipPanelProjection';
+import { buildUserCompanionshipProjection } from '../../services/companionshipProjection';
 import { compactPillChipSx } from '../../styles/interaction';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 interface RelationshipPanelProps {
   chat: GroupChat;
   members: AICharacter[];
+  messages?: Message[];
 }
 
 const METRIC_META = [
@@ -69,6 +73,35 @@ function trendHint(trend: RelationshipLedgerEntry['trend']) {
 function summaryHint(summary: string) {
   if (summary === '中性') return '当前没有哪个关系轴足够突出。';
   return `当前最突出的关系轴：${summary}。`;
+}
+
+function companionshipPhaseLabel(phase: UserBondState['phase']) {
+  const labels: Record<UserBondState['phase'], string> = {
+    stranger: '陌生',
+    curious: '开始在意',
+    fond: '关系升温',
+    ambiguous: '暧昧未确认',
+    confessing: '确认边缘',
+    confirmed: '已确认',
+    passionate: '热络',
+    deep: '稳定深入',
+    cooling: '冷淡克制',
+    crisis: '关系危机',
+    reconciling: '修复中',
+  };
+  return labels[phase];
+}
+
+function companionshipStyleLabel(style: UserBondState['style']) {
+  const labels: Record<UserBondState['style'], string> = {
+    romantic: '亲密',
+    ambiguous: '暧昧',
+    friend: '朋友',
+    family: '家人',
+    mentor: '引导',
+    custom: '自定义',
+  };
+  return labels[style];
 }
 
 function buildRelationshipStateChips(delta: ReturnType<typeof toRelationshipDisplayDelta>) {
@@ -402,7 +435,60 @@ function RelationshipDiagnostics({ items }: { items: RelationshipPanelDiagnostic
   );
 }
 
-export default function RelationshipPanel({ chat, members }: RelationshipPanelProps) {
+function DirectUserRelationshipCard({ character, bond, evidence }: { character: AICharacter; bond: UserBondState; evidence: string[] }) {
+  const intimacy = bond.intimacy;
+  const rows = [
+    { label: '心动', value: intimacy.attraction },
+    { label: '亲密', value: intimacy.intimacy },
+    { label: '牵挂', value: intimacy.attachment },
+    { label: '想念', value: intimacy.longing },
+    { label: '安全感', value: intimacy.security },
+  ];
+  const visibleEvidence = [
+    ...bond.phaseEvidence,
+    ...evidence,
+    ...bond.pendingCareTopics.map((item) => `关心：${item.text}`),
+    ...bond.pendingPromises.map((item) => `约定：${item.text}`),
+  ].filter(Boolean).slice(0, 4);
+  return (
+    <RelationshipCardFrame>
+      <Stack spacing={0.9} sx={{ minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{character.name} → 用户</Typography>
+          <Chip size="small" color="primary" variant="outlined" label={companionshipPhaseLabel(bond.phase)} sx={compactPillChipSx} />
+          <Chip size="small" variant="outlined" label={companionshipStyleLabel(bond.style)} sx={compactPillChipSx} />
+        </Box>
+        <Typography variant="caption" color="text.secondary">
+          称呼：{bond.addressing.currentAddress || '用户'} · 主动预算 {bond.carePolicy.dailyInitiationBudget}/天 · 表达强度 {bond.carePolicy.expressionIntensity}
+        </Typography>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 0.6 }}>
+          {rows.map((row) => (
+            <Box key={row.label} sx={{ display: 'grid', gap: 0.2, p: 0.7, borderRadius: 1, bgcolor: 'action.hover', textAlign: 'center', minWidth: 0 }}>
+              <Typography variant="caption" color="text.secondary">{row.label}</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.value}</Typography>
+            </Box>
+          ))}
+        </Box>
+        {bond.intimateConflict ? (
+          <Typography variant="caption" color="warning.main" sx={{ overflowWrap: 'anywhere' }}>
+            当前张力：{bond.intimateConflict.summary}
+          </Typography>
+        ) : null}
+        {visibleEvidence.length ? (
+          <Box sx={{ display: 'grid', gap: 0.4 }}>
+            {visibleEvidence.map((item, index) => (
+              <Typography key={`${item}-${index}`} variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                {item}
+              </Typography>
+            ))}
+          </Box>
+        ) : null}
+      </Stack>
+    </RelationshipCardFrame>
+  );
+}
+
+export default function RelationshipPanel({ chat, members, messages = [] }: RelationshipPanelProps) {
   const isGroupChat = chat.type === 'group';
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
@@ -432,8 +518,14 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
     () => projectRelationshipPanelData(chat, members, reverseLedger),
     [chat, members, reverseLedger],
   );
-  const groupedLedgerSections = projected.ledgerSections;
-  const fallbackSections = projected.fallbackSections;
+  const directCharacter = chat.type === 'direct' ? members.find((member) => chat.memberIds.includes(member.id)) || members[0] || null : null;
+  const directCompanionship = useMemo(
+    () => directCharacter ? buildUserCompanionshipProjection({ chat, character: directCharacter, messages }) : null,
+    [chat, directCharacter, messages],
+  );
+  const directUserBond = directCompanionship?.userBond || null;
+  const groupedLedgerSections = chat.type === 'direct' ? [] : projected.ledgerSections;
+  const fallbackSections = chat.type === 'direct' ? [] : projected.fallbackSections;
   const diagnostics = projected.diagnostics;
   const sectionKeys = projected.sectionKeys;
 
@@ -471,6 +563,11 @@ export default function RelationshipPanel({ chat, members }: RelationshipPanelPr
           </Stack>
         ) : null}
       </Box>
+      {chat.type === 'direct' && directCharacter && directUserBond ? (
+        <Box sx={{ mb: groupedLedgerSections.length ? 1.25 : 0 }}>
+          <DirectUserRelationshipCard character={directCharacter} bond={directUserBond} evidence={directCompanionship?.evidence || []} />
+        </Box>
+      ) : null}
       {showDiagnostics && diagnostics.length ? (
         <Box sx={{ mb: groupedLedgerSections.length || fallbackSections.length ? 1.25 : 0 }}>
           <RelationshipDiagnostics items={diagnostics} />
