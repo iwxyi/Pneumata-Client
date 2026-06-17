@@ -409,7 +409,10 @@ export function buildRelationshipTransition(params: {
   const distillationParticipants = params.characters.map((item) => ({ id: item.id, name: item.name }));
   const speaker = params.characters.find((item) => item.id === params.message.senderId);
   const isCharacterAuthoredMessage = Boolean(speaker && (params.message.type === 'ai' || params.message.type === 'user'));
-  const explicitHints = params.message.interactionHints || (params.message.interactionHint ? [params.message.interactionHint] : []);
+  const providedHints = params.message.interactionHints?.length
+    ? params.message.interactionHints
+    : (params.message.interactionHint ? [params.message.interactionHint] : []);
+  const explicitHints = providedHints;
   const uniqueHints = explicitHints.filter((hint, index, array) => {
     if (!hint?.targetId) return false;
     return array.findIndex((candidate) => candidate.targetId === hint.targetId && candidate.kind === hint.kind) === index;

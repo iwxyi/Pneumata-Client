@@ -29,6 +29,7 @@ export async function buildChatCommitTransition(params: {
   });
   return {
     chatPatch: result.chatPatch,
+    chatRuntimeDelta: result.chatRuntimeDelta,
     characterPatches: result.characterPatches,
     runtimeEvents: result.runtimeEvents,
   };

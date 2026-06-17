@@ -396,6 +396,21 @@ describe('chatEngine streaming preview', () => {
     expect(contract).not.toContain('一句自然的群聊回复');
   });
 
+  it('asks the model to judge counterpart interaction hints in AI private chats', () => {
+    const contract = buildInlineInteractionContract({
+      chat: { id: 'chat-1', type: 'ai_direct', memberIds: ['char-1', 'char-2'], runtimeEventsV2: [] } as never,
+      speaker: { id: 'char-1', name: '甲' } as AICharacter,
+      characters: [{ id: 'char-1', name: '甲' } as AICharacter, { id: 'char-2', name: '乙' } as AICharacter],
+      recentMessages: [
+        buildAiMessage('char-2', '乙', '我刚才那句话可能有点重。', 1),
+      ],
+    });
+
+    expect(contract).toContain('This is an AI private thread with exactly one counterpart');
+    expect(contract).toContain('return interactionHints.primary with that counterpart');
+    expect(contract).toContain('id=char-2; name=乙');
+  });
+
   it('does not locally force detailed chat requests into a professional longform surface', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({

@@ -347,6 +347,31 @@ describe('buildRelationshipTransition', () => {
 
     expect(result.runtimeEvents.some((event) => event.eventType === 'group_relationship_shift')).toBe(false);
   });
+
+  it('does not create pair relationship ledger for AI private thread messages without model hints', () => {
+    const chat = buildChat({
+      type: 'ai_direct',
+      memberIds: ['char-a', 'char-b'],
+      sourceMemberIds: ['char-a', 'char-b'],
+      relationshipLedger: [],
+    });
+    const speaker = buildCharacter('char-a', '甲');
+    const target = buildCharacter('char-b', '乙');
+
+    const result = buildRelationshipTransition({
+      conversation: chat,
+      characters: [speaker, target],
+      message: {
+        type: 'ai',
+        senderId: 'char-a',
+        content: '乙，我觉得这件事可以一起慢慢想，你不用一个人扛着。',
+      },
+      previousAiMessage: null,
+    });
+
+    expect(result.relationshipLedger).toHaveLength(0);
+    expect(result.runtimeEvents.some((event) => event.eventType === 'group_relationship_shift')).toBe(false);
+  });
 });
 
 describe('buildWorldRuntimeEvents', () => {

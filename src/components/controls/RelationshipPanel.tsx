@@ -11,7 +11,7 @@ import type { GroupChat } from '../../types/chat';
 import type { Message } from '../../types/message';
 import type { UserBondState } from '../../types/companionship';
 import type { RelationshipAxisReason, RelationshipLedgerEntry } from '../../types/runtimeEvent';
-import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
+import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
 import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
 import { projectRelationshipPanelData, type RelationshipPanelDiagnosticItem } from '../../services/relationshipPanelProjection';
 import { buildUserCompanionshipProjection } from '../../services/companionshipProjection';
@@ -379,7 +379,7 @@ function RelationshipFallbackCard({ memberName, targetName, note, relation, upda
   const stateChips = buildRelationshipStateChips(toRelationshipDisplayDelta(normalizedFallbackEntry.current));
   const evidenceLabel = buildRelationshipEvidenceLabel(normalizedFallbackEntry);
 
-  if (!hasMeaningfulFallback) return null;
+  if (!hasMeaningfulFallback && !isMeaningfulRelationshipLedgerEntry(normalizedFallbackEntry)) return null;
 
   return (
     <RelationshipCardFrame>
@@ -507,7 +507,7 @@ function DirectUserRelationshipCard({ character, bond, evidence, debug = false }
 }
 
 export default function RelationshipPanel({ chat, members, messages = [] }: RelationshipPanelProps) {
-  const isGroupChat = chat.type === 'group';
+  const usesMemberRelationshipSections = chat.type !== 'direct';
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
   const showDiagnostics = developerMode && showAdvancedRuntimePanels;
@@ -567,7 +567,7 @@ export default function RelationshipPanel({ chat, members, messages = [] }: Rela
     <SurfaceCard sx={{ overflow: 'visible' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         <SectionHeader title={chat.type === 'group' ? '关系脉络' : '成员信息'} dense />
-        {isGroupChat && sectionKeys.length ? (
+        {usesMemberRelationshipSections && sectionKeys.length ? (
           <Stack direction="row" spacing={0.5}>
             <Tooltip title={reverseLedger ? '切换为“该成员对其他人”' : '切换为“其他人对该成员”'} arrow>
               <IconButton size="small" onClick={() => setReverseLedger((value) => !value)}>

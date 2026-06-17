@@ -204,6 +204,16 @@ export function projectParticipantRoleCards(participants: ParticipantInstance[],
     .filter(Boolean) as ParticipantRoleCard[];
 }
 
+function uniquePrivatePayloads<T extends { title: string; text: string }>(items: T[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.title.trim()}\n${item.text.trim()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function projectPrivateParticipantPayloads(participants: ParticipantInstance[], viewerRole?: string | null) {
   const visibleParticipants = !viewerRole
     ? participants
@@ -218,5 +228,5 @@ export function projectPrivateParticipantPayloads(participants: ParticipantInsta
     title: '私有备注',
     text: note,
   }));
-  return [...roleCards, ...notes];
+  return uniquePrivatePayloads([...roleCards, ...notes]);
 }
