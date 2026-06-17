@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getAttachmentErrorText, getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
+import { shouldUseCompactMessageBubble } from './messageBubblePresentation';
 import { buildEventDisplayText, buildMemoryDistillationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
 
 describe('MessageBubble event rendering', () => {
@@ -114,5 +115,36 @@ describe('MessageBubble event rendering', () => {
     expect(getAttachmentStatusDetail({ kind: 'image', status: 'queued' })).toBe('图片已加入生成队列，等待开始。');
     expect(getAttachmentStatusLabel({ kind: 'audio', status: 'generating' })).toBe('语音生成中');
     expect(getAttachmentStatusDetail({ kind: 'audio', status: 'failed', error: '语音模型未配置' })).toBe('语音模型未配置');
+  });
+
+  it('applies compact private bubble mode to direct chats without a self member id', () => {
+    expect(shouldUseCompactMessageBubble({
+      compactBubbleMode: false,
+      compactPrivateBubbleMode: true,
+      privateConversation: true,
+      selfMemberId: null,
+      isUser: false,
+      isGuidanceBubble: false,
+    })).toBe(true);
+  });
+
+  it('does not compact user or guidance bubbles in compact private bubble mode', () => {
+    const base = {
+      compactBubbleMode: false,
+      compactPrivateBubbleMode: true,
+      privateConversation: true,
+      selfMemberId: null,
+    };
+
+    expect(shouldUseCompactMessageBubble({
+      ...base,
+      isUser: true,
+      isGuidanceBubble: false,
+    })).toBe(false);
+    expect(shouldUseCompactMessageBubble({
+      ...base,
+      isUser: false,
+      isGuidanceBubble: true,
+    })).toBe(false);
   });
 });

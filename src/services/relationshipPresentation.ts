@@ -1,5 +1,6 @@
 import type { GroupChat } from '../types/chat';
 import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
+import { reportUnresolvedDisplayEntity } from './diagnostics';
 import { buildRelationshipDisplaySummary, buildRelationshipEvidenceText, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from './relationshipLedger';
 import { sanitizeUserFacingText } from './displayTextSanitizer';
 
@@ -49,7 +50,17 @@ function resolveRelationshipName(id: string, members: RelationshipDisplayMember[
   if (id === 'user') return '我';
   const member = members.find((item) => item.id === id);
   if (member?.name) return member.name;
-  if (!id || isLikelyInternalId(id)) return '未知成员';
+  if (!id) return '未解析成员(空)';
+  if (isLikelyInternalId(id)) {
+    const fallback = `未解析成员(${id})`;
+    reportUnresolvedDisplayEntity({
+      id,
+      kind: 'relationship-target',
+      location: 'relationshipPresentation.resolveRelationshipName',
+      fallback,
+    });
+    return fallback;
+  }
   return id;
 }
 

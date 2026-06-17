@@ -83,6 +83,22 @@ describe('default conversation action schema', () => {
     expect(surfaces[0]?.mode).toBe('memberSpeak');
   });
 
+  it('keeps direct conversation text surface in speak mode even without user member', () => {
+    const directConversation = buildChat({ type: 'direct', memberIds: ['a'] });
+    const surfaces = defaultInputSurfacesForConversation(directConversation);
+    expect(surfaces[0]?.type).toBe('text');
+    expect(surfaces[0]?.capability).toBe('speak');
+    expect(surfaces[0]?.mode).toBe('memberSpeak');
+  });
+
+  it('keeps AI private thread text surface out of guide mode', () => {
+    const privateThread = buildChat({ type: 'ai_direct', memberIds: ['a', 'b'] });
+    const surfaces = defaultInputSurfacesForConversation(privateThread);
+    expect(surfaces[0]?.type).toBe('text');
+    expect(surfaces[0]?.capability).toBe('speak');
+    expect(surfaces[0]?.mode).toBe('memberSpeak');
+  });
+
   it('uses member-speak mode for group chats when user is a member', () => {
     const conversation = buildChat({ type: 'group', memberIds: ['user', 'a', 'b'] });
     const surfaces = defaultInputSurfacesForConversation(conversation);

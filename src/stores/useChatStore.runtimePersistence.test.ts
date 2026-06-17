@@ -294,6 +294,35 @@ describe('chat runtime persistence', () => {
     expect(mergedWorld.runtimeEventsV2?.map((event) => event.id)).toEqual([...stateEvents.map((event) => event.id), 'event-20']);
   });
 
+  it('keeps direct chats direct when summary patches omit type and member shape', async () => {
+    const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
+    const { mergeChatRecord } = __chatRuntimePersistenceForTests;
+    const local = chat({
+      type: 'direct',
+      memberIds: ['user', 'char-1'],
+      sourceChatId: 'chat-source',
+      sourceMemberIds: ['char-1'],
+      updatedAt: 10,
+      lastMessageAt: 10,
+    });
+    const remote = chat({
+      id: 'chat-1',
+      updatedAt: 20,
+      lastMessageAt: 20,
+      topic: '新话题',
+      memberIds: [],
+      type: 'group',
+    });
+
+    const merged = mergeChatRecord(local, remote);
+
+    expect(merged.type).toBe('direct');
+    expect(merged.memberIds).toEqual(['user', 'char-1']);
+    expect(merged.sourceChatId).toBe('chat-source');
+    expect(merged.sourceMemberIds).toEqual(['char-1']);
+    expect(merged.topic).toBe('新话题');
+  });
+
   it('keeps bounded runtime fields in local persistence', async () => {
     const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
     const { buildPersistedChatState, limits } = __chatRuntimePersistenceForTests;

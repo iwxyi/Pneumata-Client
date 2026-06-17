@@ -191,6 +191,33 @@ describe('messageRuntimeClues', () => {
     ]));
   });
 
+  it('tolerates partial companionship context from older message metadata', () => {
+    const sections = projectMessageRuntimeClues({
+      metadata: {
+        runtimeDecision: {
+          companionshipContext: {
+            style: 'fond',
+            phase: 'fond',
+            currentAddress: '小夏',
+            userProfileConfidence: 42,
+            attachmentProfile: {
+              inferredStyle: 'secure',
+              confidence: 55,
+            },
+          },
+        },
+      },
+    } as unknown as Pick<Message, 'metadata'>);
+
+    const companionship = sections.find((section) => section.key === 'companionship');
+    expect(companionship?.items).toEqual(expect.arrayContaining([
+      '阶段：fond',
+      '称呼：小夏',
+      '依恋适配：secure · 置信 55%',
+      '画像置信：42%',
+    ]));
+  });
+
   it('localizes runtime enum values before display or prompt use', () => {
     const message: Pick<Message, 'metadata'> = {
       metadata: {

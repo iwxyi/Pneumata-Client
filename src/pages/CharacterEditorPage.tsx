@@ -9,6 +9,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import CharacterForm from '../components/character/CharacterForm';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import LoadingState from '../components/common/LoadingState';
 import { enqueueAvatarGenerationForCharacter } from '../services/avatarGeneration';
 import { initializeDefaultRelationshipsForCreatedCharacters } from '../services/defaultRelationshipInitializer';
 import { getPreferredAIProfile } from '../types/settings';
@@ -128,21 +129,25 @@ export default function CharacterEditorPage() {
   if (editId && !editChar && !shouldWaitForCharacter) {
     return (
       <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
-        <Typography variant="body2" color="text.secondary">
-          {characterDataReady
-            ? (i18n.language.startsWith('zh') ? '未找到这个角色' : 'Character not found')
-            : (i18n.language.startsWith('zh') ? '正在打开角色...' : 'Opening character...')}
-        </Typography>
+        {characterDataReady ? (
+          <Typography variant="body2" color="text.secondary">
+            {i18n.language.startsWith('zh') ? '未找到这个角色' : 'Character not found'}
+          </Typography>
+        ) : (
+          <LoadingState
+            title={i18n.language.startsWith('zh') ? '正在打开角色' : 'Opening character'}
+          />
+        )}
       </Box>
     );
   }
 
   if (shouldWaitForCharacter) {
     return (
-      <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 600, mx: 'auto' }}>
-        <Typography variant="body2" color="text.secondary">
-          {i18n.language.startsWith('zh') ? '正在打开角色...' : 'Opening character...'}
-        </Typography>
+      <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 760, mx: 'auto' }}>
+        <LoadingState
+          title={i18n.language.startsWith('zh') ? '正在打开角色' : 'Opening character'}
+        />
       </Box>
     );
   }

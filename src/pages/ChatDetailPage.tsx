@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useState, useCallback, useR
 import { Box, IconButton, Button, Typography, Switch, Stack, TextField, Chip, Alert } from '@mui/material';
 import PageSection from '../components/common/PageSection';
 import AppSnackbar from '../components/common/AppSnackbar';
+import LoadingState from '../components/common/LoadingState';
 import PeopleIcon from '@mui/icons-material/People';
 import InfoIcon from '@mui/icons-material/Info';
 import PlayIcon from '@mui/icons-material/PlayArrow';
@@ -390,6 +391,28 @@ export default function ChatDetailPage() {
       return [{
         ...primaryTextSurface,
         key: 'member-user-text',
+        type: 'text' as const,
+        mode: 'memberSpeak' as const,
+        actorId: 'user',
+        capability: 'speak' as const,
+        placeholder: '输入消息',
+      }, ...nonTextSurfaces];
+    }
+    if (!effectiveSpeakAsChar && chat?.type === 'direct') {
+      return [{
+        ...primaryTextSurface,
+        key: 'direct-user-text',
+        type: 'text' as const,
+        mode: 'memberSpeak' as const,
+        actorId: 'user',
+        capability: 'speak' as const,
+        placeholder: '输入消息',
+      }, ...nonTextSurfaces];
+    }
+    if (!effectiveSpeakAsChar && chat?.type === 'ai_direct') {
+      return [{
+        ...primaryTextSurface,
+        key: 'ai-direct-text',
         type: 'text' as const,
         mode: 'memberSpeak' as const,
         actorId: 'user',
@@ -886,19 +909,21 @@ export default function ChatDetailPage() {
 
   if (!chat) {
     return (
-      <Box sx={{ display: 'grid', placeItems: 'center', height: '100%', p: 3 }}>
-        <Box sx={{ display: 'grid', gap: 1.5, justifyItems: 'center', textAlign: 'center' }}>
-          <Typography variant="body2" color="text.secondary">
-            {isRemoteDeletedChat
-              ? '这个会话已在其他设备删除'
-              : (chatsLoading || !detailBootstrapComplete ? '正在打开会话...' : '未找到这个会话')}
-          </Typography>
-          {isRemoteDeletedChat ? (
-            <Button size="small" variant="outlined" onClick={() => navigate('/settings/recycle-bin')}>
-              查看回收站
-            </Button>
-          ) : null}
-        </Box>
+      <Box sx={{ display: 'grid', justifyItems: 'center', alignContent: 'start', height: '100%', p: 3, pt: { xs: 4, sm: 6 } }}>
+        {!isRemoteDeletedChat && (chatsLoading || !detailBootstrapComplete) ? (
+          <LoadingState title="正在打开会话" compact />
+        ) : (
+          <Box sx={{ display: 'grid', gap: 1.5, justifyItems: 'center', textAlign: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              {isRemoteDeletedChat ? '这个会话已在其他设备删除' : '未找到这个会话'}
+            </Typography>
+            {isRemoteDeletedChat ? (
+              <Button size="small" variant="outlined" onClick={() => navigate('/settings/recycle-bin')}>
+                查看回收站
+              </Button>
+            ) : null}
+          </Box>
+        )}
       </Box>
     );
   }
@@ -1015,6 +1040,7 @@ export default function ChatDetailPage() {
             topHint="没有更早的消息"
             topInset={isSplitDetailPane ? { xs: '76px', sm: '76px' } : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
             bottomInset={isRemoteDeletedChat ? { xs: '24px', sm: '24px' } : { xs: 'calc(82px + env(safe-area-inset-bottom, 0px))', sm: '82px' }}
+            privateConversation={chat.type === 'direct' || chat.type === 'ai_direct'}
           />
         </Box>
         {isRemoteDeletedChat ? null : <Box
@@ -1064,7 +1090,7 @@ export default function ChatDetailPage() {
           <SessionInfoCards cards={globalSessionInfoCards} onOpenChat={(chatId) => navigate(`/chats/${chatId}`)} />
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <LazyPanel>
-              {runtimePanelLoading ? <Box sx={{ p: 2 }}><Typography variant="body2" color="text.secondary">加载中…</Typography></Box> : <ChatSidebarPanel
+              {runtimePanelLoading ? <LoadingState title="正在加载" compact /> : <ChatSidebarPanel
                 chat={projectedSidebarChat || { ...chat, primaryRecentEvent: projectedRuntimeState?.primaryRecentEvent }}
                 members={members}
                 messages={sidebarMessages}

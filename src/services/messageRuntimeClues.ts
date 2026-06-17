@@ -61,6 +61,10 @@ function formatMemoryTargetName(memoryContext: NonNullable<NonNullable<Message['
   return matched?.name || '成员';
 }
 
+function asStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
 export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | null | undefined, members: DisplayTextMember[] = []): MessageRuntimeClueSection[] {
   const decision = message?.metadata?.runtimeDecision;
   if (!decision) return [];
@@ -91,6 +95,16 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     maxItems: 10,
   }, members);
   const companionship = decision.companionshipContext;
+  const sharedAnchors = asStringArray(companionship?.sharedAnchors);
+  const sharedPhrases = asStringArray(companionship?.sharedPhrases);
+  const pendingCareTopics = asStringArray(companionship?.pendingCareTopics);
+  const pendingPromises = asStringArray(companionship?.pendingPromises);
+  const rememberedUserPlans = asStringArray(companionship?.rememberedUserPlans);
+  const boundaries = asStringArray(companionship?.boundaries);
+  const boundaryReasons = asStringArray(companionship?.boundaryReasons);
+  const diagnostics = asStringArray(companionship?.diagnostics);
+  const evidence = asStringArray(companionship?.evidence);
+  const attachmentAdaptations = asStringArray(companionship?.attachmentProfile?.adaptations);
   pushSection(sections, {
     key: 'companionship',
     label: '陪伴',
@@ -101,18 +115,18 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     items: companionship ? [
       `阶段：${companionship.phase}`,
       `称呼：${companionship.currentAddress}`,
-      companionship.sharedAnchors.length ? `共同锚点：${companionship.sharedAnchors.join(' / ')}` : '',
-      companionship.sharedPhrases.length ? `共同话语：${companionship.sharedPhrases.join(' / ')}` : '',
+      sharedAnchors.length ? `共同锚点：${sharedAnchors.join(' / ')}` : '',
+      sharedPhrases.length ? `共同话语：${sharedPhrases.join(' / ')}` : '',
       companionship.intimateConflict ? `亲密冲突：${companionship.intimateConflict.summary}（强度 ${companionship.intimateConflict.severity}，修复成熟度 ${companionship.intimateConflict.repairReadiness}）` : '',
-      companionship.attachmentProfile ? `依恋适配：${companionship.attachmentProfile.inferredStyle} · 置信 ${companionship.attachmentProfile.confidence}% · ${companionship.attachmentProfile.adaptations.join(' / ')}` : '',
-      companionship.pendingCareTopics.length ? `关心事项：${companionship.pendingCareTopics.join(' / ')}` : '',
-      companionship.pendingPromises.length ? `未完成约定：${companionship.pendingPromises.join(' / ')}` : '',
-      companionship.rememberedUserPlans.length ? `记得计划：${companionship.rememberedUserPlans.join(' / ')}` : '',
-      companionship.boundaries.length ? `用户边界：${companionship.boundaries.join(' / ')}` : '',
-      companionship.boundaryReasons.length ? `克制原因：${companionship.boundaryReasons.join(' / ')}` : '',
-      companionship.diagnostics.length ? `运行诊断：${companionship.diagnostics.join(' / ')}` : '',
+      companionship.attachmentProfile ? `依恋适配：${companionship.attachmentProfile.inferredStyle} · 置信 ${companionship.attachmentProfile.confidence}%${attachmentAdaptations.length ? ` · ${attachmentAdaptations.join(' / ')}` : ''}` : '',
+      pendingCareTopics.length ? `关心事项：${pendingCareTopics.join(' / ')}` : '',
+      pendingPromises.length ? `未完成约定：${pendingPromises.join(' / ')}` : '',
+      rememberedUserPlans.length ? `记得计划：${rememberedUserPlans.join(' / ')}` : '',
+      boundaries.length ? `用户边界：${boundaries.join(' / ')}` : '',
+      boundaryReasons.length ? `克制原因：${boundaryReasons.join(' / ')}` : '',
+      diagnostics.length ? `运行诊断：${diagnostics.join(' / ')}` : '',
       `画像置信：${companionship.userProfileConfidence}%`,
-      companionship.evidence.length ? `证据：${companionship.evidence.join(' / ')}` : '',
+      evidence.length ? `证据：${evidence.join(' / ')}` : '',
     ] : [],
     maxItems: 12,
   }, members);

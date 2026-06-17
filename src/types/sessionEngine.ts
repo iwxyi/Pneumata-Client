@@ -1219,7 +1219,7 @@ export function buildResolvedProjectionRuntimeCardDisplayTitle() {
 export function defaultInputSurfacesForConversation(conversation: GroupChat): SessionInputSurfaceDefinition[] {
   const definition = resolveSessionDefinition(conversation);
   const userIsMember = conversation.memberIds.includes('user');
-  const textCapability: SessionViewerCapability = conversation.type === 'direct' || userIsMember ? 'speak' : 'guide';
+  const textCapability: SessionViewerCapability = conversation.type === 'direct' || conversation.type === 'ai_direct' || userIsMember ? 'speak' : 'guide';
   const textMode: SessionInputSurfaceDefinition['mode'] = textCapability === 'speak' ? 'memberSpeak' : 'guide';
   if (definition.kind.surfaceProfile === 'form') {
     return [createDefaultTextInputSurface({ key: 'fallback-text', label: 'Text fallback', capability: textCapability, mode: textMode })];

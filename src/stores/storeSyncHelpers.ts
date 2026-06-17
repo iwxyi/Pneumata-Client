@@ -48,6 +48,7 @@ export function parseSyncErrorClassification(value: unknown): SyncErrorClassific
 
 export function classifySyncError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
+  if (/chat:create pending|会话尚未完成云端创建|对应会话尚未完成云端创建/i.test(message)) return `network: ${message}`;
   if (/401|登录已过期|未登录/i.test(message)) return `auth: ${message}`;
   if (/Failed to fetch|NetworkError|fetch/i.test(message)) return `network: ${message}`;
   if (/500|502|503|504|服务器错误/i.test(message)) return `server_unavailable: ${message}`;

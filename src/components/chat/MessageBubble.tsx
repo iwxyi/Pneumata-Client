@@ -18,6 +18,7 @@ import AppSnackbar from '../common/AppSnackbar';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import type { DisplayTextMember } from '../../services/displayTextSanitizer';
 import { copyTextToClipboard } from '../../utils/clipboard';
+import { shouldUseCompactMessageBubble } from './messageBubblePresentation';
 
 function isConflictDeveloperEvent(eventType: string | undefined) {
   return ['conflict_focus_shift', 'conflict_axis_shift'].includes(String(eventType || ''));
@@ -167,6 +168,7 @@ interface MessageBubbleProps {
   currentUser?: { nickname?: string; avatar?: string };
   members?: DisplayTextMember[];
   selfMemberId?: string | null;
+  privateConversation?: boolean;
 }
 
 interface MenuPosition {
@@ -319,7 +321,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, members = [], selfMemberId = null }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, members = [], selfMemberId = null, privateConversation = false }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
@@ -475,9 +477,14 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
     ? resolveCharacterBubbleStyle({ bubbleStyle: userBubbleStyle, bubbleStyleId: userBubbleStyleId, customStyles: customBubbleStyles })
     : null;
   const isGuidanceBubble = message.type === 'god';
-  const isPrivateConversation = selfMemberId !== null;
-  const useCompactBubble = (compactBubbleMode && !isUser && !isGuidanceBubble)
-    || (compactPrivateBubbleMode && isPrivateConversation && !isUser && !isGuidanceBubble);
+  const useCompactBubble = shouldUseCompactMessageBubble({
+    compactBubbleMode,
+    compactPrivateBubbleMode,
+    privateConversation,
+    selfMemberId,
+    isUser,
+    isGuidanceBubble,
+  });
   const bubblePreview = useCompactBubble
     ? { borderRadius: '18px', background: '#ffffff', color: '#111827', border: '1px solid rgba(15, 23, 42, 0.08)', boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' }
     : (resolvedStyle ? buildBubblePreview(resolvedStyle, isUser) : (resolvedUserStyle ? buildBubblePreview(resolvedUserStyle, true) : null));

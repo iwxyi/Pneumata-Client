@@ -14,6 +14,7 @@ import { canAttemptOnlineSync, getPendingQueueWorkerPriority, recoverInterrupted
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
+import { useChatStore } from './useChatStore';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { completeLocalOutboxWorkerOperation, markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
 import { useSettingsStore } from './useSettingsStore';
@@ -4683,6 +4684,14 @@ function upsertPendingCreateOperation(queue: PendingMessageOperation[], message:
   return [...queue, createPendingMessageOperation(message)];
 }
 
+function hasPendingChatCreate(chatId: string) {
+  return useChatStore.getState().pendingOperations.some((operation) => operation.kind === 'create' && operation.entityId === chatId);
+}
+
+function scheduleChatSyncFirst() {
+  void useChatStore.getState().resumeSync();
+}
+
 function removePendingMessageOperation(queue: PendingMessageOperation[], operationId: string) {
   return queue.filter((operation) => operation.id !== operationId);
 }
@@ -4741,8 +4750,9 @@ export const useMessageStore = create<MessageStore>()(
           execute: async (operation) => {
             if (operation.kind === 'create' && operation.payload) {
               const localMessage = operation.payload;
-              if (localMessage.chatId.startsWith('local-chat-')) {
-                throw new ApiError('本地临时群聊尚未成功创建到云端，消息不会继续重试。', { code: 'LOCAL_CHAT_NOT_REMOTE', status: 409 });
+              if (hasPendingChatCreate(localMessage.chatId)) {
+                scheduleChatSyncFirst();
+                throw new ApiError('chat:create pending: 对应会话尚未完成云端创建，消息稍后重试。', { code: 'CHAT_CREATE_PENDING', status: 409 });
               }
               const savedMessage = await api.createMessage(localMessage.chatId, messagePayloadForCloud(localMessage, operation.id));
               const persistedMessage = mergeMessageServerConfirmation(localMessage, savedMessage);
@@ -5009,6 +5019,7 @@ export const useMessageStore = create<MessageStore>()(
 
       addMessage: async (msgData) => {
         let created: Message | null = null;
+        const pendingChatCreate = !shouldSkipCloudSync() && hasPendingChatCreate(msgData.chatId);
         set((state) => {
           const next = localMessageInsertResult(state, msgData);
           created = next.message;
@@ -5021,7 +5032,10 @@ export const useMessageStore = create<MessageStore>()(
           };
         });
         if (created) recordAiMessageStats(created);
-        if (!shouldSkipCloudSync()) messageSyncScheduler.schedule(flushPendingOperations, 120);
+        if (!shouldSkipCloudSync()) {
+          if (pendingChatCreate) scheduleChatSyncFirst();
+          messageSyncScheduler.schedule(flushPendingOperations, pendingChatCreate ? 220 : 120);
+        }
         return created as unknown as Message;
       },
 

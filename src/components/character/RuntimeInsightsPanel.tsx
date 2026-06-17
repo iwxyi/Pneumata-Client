@@ -1737,7 +1737,7 @@ function SharedMemoryAnchorPanel({
         );
       })}
     </Stack>
-  ) : <Typography variant="caption" color="text.secondary">暂无共同锚点。高显著的第一次、约定、小秘密、冲突或修复记忆会在这里出现。</Typography>;
+  ) : null;
 }
 
 function CharacterCompanionshipPanel({
@@ -1816,7 +1816,7 @@ function RoleSharedPhrasePanel({
   const [editingPhraseKind, setEditingPhraseKind] = useState<SharedPhrase['kind']>('other');
   const [editingPhraseVisibility, setEditingPhraseVisibility] = useState<SharedPhrase['visibility']>('between_actors');
   if (!items.length) {
-    return <Typography variant="caption" color="text.secondary">暂无角色之间的共同话语。群聊记忆沉淀出共同梗、暗号或约定原话后会显示在这里。</Typography>;
+    return null;
   }
   return (
     <Stack spacing={0.85}>
@@ -1995,7 +1995,7 @@ function RoleSharedSecretPanel({
   const [editingSecretId, setEditingSecretId] = useState<string | null>(null);
   const [editingSecretMask, setEditingSecretMask] = useState('');
   if (!items.length) {
-    return <Typography variant="caption" color="text.secondary">暂无角色之间的小秘密。秘密、暗号或只适合私下保存的共同经历会显示在这里。</Typography>;
+    return null;
   }
   return (
     <Stack spacing={0.85}>
@@ -2136,7 +2136,7 @@ function RoleRitualPanel({
   const [editingRitualId, setEditingRitualId] = useState<string | null>(null);
   const [editingRitualContent, setEditingRitualContent] = useState('');
   if (!items.length) {
-    return <Typography variant="caption" color="text.secondary">暂无角色之间的共同仪式。共同梗、和好仪式、里程碑等关系节律沉淀后会显示在这里。</Typography>;
+    return null;
   }
   return (
     <Stack spacing={0.85}>
@@ -4318,9 +4318,9 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
         <SectionHeader title="角色陪伴" dense action={isDeveloperView ? <DebugChip /> : undefined} />
         <CharacterCompanionshipPanel states={characterCompanionshipStates} resolveCharacterName={resolveCharacterName} developerMode={isDeveloperView} />
       </SurfaceCard>
-      <SurfaceCard>
-        <SectionHeader title="角色共同锚点" dense action={isDeveloperView ? <DebugChip /> : undefined} />
-        {roleSharedAnchorItems.length ? (
+      {roleSharedAnchorItems.length ? (
+        <SurfaceCard>
+          <SectionHeader title="角色共同锚点" dense action={isDeveloperView ? <DebugChip /> : undefined} />
           <Stack spacing={0.65}>
             {roleSharedAnchorItems.slice(0, isDeveloperView ? 10 : 6).map(({ chat, chatName, anchor }) => (
               <Box key={`${chat.id}-${anchor.id}`}>
@@ -4352,98 +4352,104 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
               </Box>
             ))}
           </Stack>
-        ) : (
-          <Typography variant="caption" color="text.secondary">暂无角色之间的共同锚点。群聊里的第一次、冲突、修复、约定、小秘密或里程碑沉淀后会显示在这里。</Typography>
-        )}
-      </SurfaceCard>
-      <SurfaceCard>
-        <SectionHeader title="角色共同话语" dense action={isDeveloperView ? <DebugChip /> : undefined} />
-        <RoleSharedPhrasePanel
-          items={roleSharedPhraseItems}
-          characterId={character.id || ''}
-          participantOptions={participantOptions}
-          resolveCharacterName={resolveCharacterName}
-          developerMode={isDeveloperView}
-          onUpdateSharedPhrase={(chat, phrase, patch) => {
-            void appendManualCompanionshipEvent(chat, buildManualSharedPhraseUpsertEvent(chat, character as AICharacter, phrase, patch));
-          }}
-          onSuppressSharedPhrase={(chat, phrase) => {
-            void appendManualCompanionshipEvent(chat, buildManualSharedPhraseSuppressedEvent(chat, character as AICharacter, phrase));
-          }}
-          onKeepCharacterPair={(chat, phrase, targetId) => {
-            void appendManualCompanionshipEvent(chat, buildManualSharedPhraseParticipantsEvent(chat, character as AICharacter, phrase, [character.id || '', targetId]));
-          }}
-          onUpdateParticipants={(chat, phrase, participantIds) => {
-            void appendManualCompanionshipEvent(chat, buildManualSharedPhraseParticipantsEvent(chat, character as AICharacter, phrase, participantIds));
-          }}
-        />
-      </SurfaceCard>
-      <SurfaceCard>
-        <SectionHeader title="角色小秘密" dense action={isDeveloperView ? <DebugChip /> : undefined} />
-        <RoleSharedSecretPanel
-          items={roleSharedSecretItems}
-          characterId={character.id || ''}
-          participantOptions={participantOptions}
-          resolveCharacterName={resolveCharacterName}
-          developerMode={isDeveloperView}
-          onUpdateSharedSecretMask={(chat, secret, publicMask) => {
-            void appendManualCompanionshipEvent(chat, buildManualSharedSecretMaskEvent(chat, character as AICharacter, secret, publicMask));
-          }}
-          onRevokeSharedSecret={(chat, secret) => {
-            void appendManualCompanionshipEvent(chat, buildManualSharedSecretRevokedEvent(chat, character as AICharacter, secret));
-          }}
-          onKeepCharacterPair={(chat, secret, targetId) => {
-            void appendManualCompanionshipEvent(chat, buildManualSharedSecretParticipantsEvent(chat, character as AICharacter, secret, [character.id || '', targetId]));
-          }}
-          onUpdateParticipants={(chat, secret, participantIds) => {
-            void appendManualCompanionshipEvent(chat, buildManualSharedSecretParticipantsEvent(chat, character as AICharacter, secret, participantIds));
-          }}
-        />
-      </SurfaceCard>
-      <SurfaceCard>
-        <SectionHeader title="角色共同仪式" dense action={isDeveloperView ? <DebugChip /> : undefined} />
-        <RoleRitualPanel
-          items={roleRitualItems}
-          characterId={character.id || ''}
-          resolveCharacterName={resolveCharacterName}
-          developerMode={isDeveloperView}
-          onUpdateRitual={(chat, ritual, content) => {
-            void appendManualCompanionshipEvent(chat, buildManualRitualUpdateEvent(chat, character as AICharacter, ritual, content));
-          }}
-          onSuppressRitual={(chat, ritual) => {
-            void appendManualCompanionshipEvent(chat, buildManualRitualActionEvent(chat, character as AICharacter, ritual, 'suppressed'));
-          }}
-          onRestoreRitual={(chat, ritual) => {
-            void appendManualCompanionshipEvent(chat, buildManualRitualActionEvent(chat, character as AICharacter, ritual, 'restored'));
-          }}
-        />
-      </SurfaceCard>
-      <SurfaceCard>
-        <SectionHeader title="共同锚点" dense action={isDeveloperView ? <DebugChip /> : undefined} />
-        <SharedMemoryAnchorPanel
-          characterId={character.id || ''}
-          anchors={sharedMemoryAnchors}
-          participantOptions={participantOptions}
-          resolveCharacterName={resolveCharacterName}
-          developerMode={isDeveloperView}
-          onArchiveAnchor={latestUserDirectChat ? (anchor) => {
-            if (!anchor.participantIds.includes('user')) return;
-            void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorArchiveEvent(latestUserDirectChat, character as AICharacter, anchor));
-          } : undefined}
-          onUpdateAnchor={latestUserDirectChat ? (anchor, patch) => {
-            if (!anchor.participantIds.includes('user')) return;
-            void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorUpsertEvent(latestUserDirectChat, character as AICharacter, anchor, patch));
-          } : undefined}
-          onKeepPairPrivate={latestUserDirectChat ? (anchor) => {
-            if (!anchor.participantIds.includes('user')) return;
-            void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorPairPrivateEvent(latestUserDirectChat, character as AICharacter, anchor));
-          } : undefined}
-          onUpdateParticipants={latestUserDirectChat ? (anchor, participantIds) => {
-            if (!anchor.participantIds.includes('user')) return;
-            void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorParticipantsEvent(latestUserDirectChat, character as AICharacter, anchor, participantIds));
-          } : undefined}
-        />
-      </SurfaceCard>
+        </SurfaceCard>
+      ) : null}
+      {roleSharedPhraseItems.length ? (
+        <SurfaceCard>
+          <SectionHeader title="角色共同话语" dense action={isDeveloperView ? <DebugChip /> : undefined} />
+          <RoleSharedPhrasePanel
+            items={roleSharedPhraseItems}
+            characterId={character.id || ''}
+            participantOptions={participantOptions}
+            resolveCharacterName={resolveCharacterName}
+            developerMode={isDeveloperView}
+            onUpdateSharedPhrase={(chat, phrase, patch) => {
+              void appendManualCompanionshipEvent(chat, buildManualSharedPhraseUpsertEvent(chat, character as AICharacter, phrase, patch));
+            }}
+            onSuppressSharedPhrase={(chat, phrase) => {
+              void appendManualCompanionshipEvent(chat, buildManualSharedPhraseSuppressedEvent(chat, character as AICharacter, phrase));
+            }}
+            onKeepCharacterPair={(chat, phrase, targetId) => {
+              void appendManualCompanionshipEvent(chat, buildManualSharedPhraseParticipantsEvent(chat, character as AICharacter, phrase, [character.id || '', targetId]));
+            }}
+            onUpdateParticipants={(chat, phrase, participantIds) => {
+              void appendManualCompanionshipEvent(chat, buildManualSharedPhraseParticipantsEvent(chat, character as AICharacter, phrase, participantIds));
+            }}
+          />
+        </SurfaceCard>
+      ) : null}
+      {roleSharedSecretItems.length ? (
+        <SurfaceCard>
+          <SectionHeader title="角色小秘密" dense action={isDeveloperView ? <DebugChip /> : undefined} />
+          <RoleSharedSecretPanel
+            items={roleSharedSecretItems}
+            characterId={character.id || ''}
+            participantOptions={participantOptions}
+            resolveCharacterName={resolveCharacterName}
+            developerMode={isDeveloperView}
+            onUpdateSharedSecretMask={(chat, secret, publicMask) => {
+              void appendManualCompanionshipEvent(chat, buildManualSharedSecretMaskEvent(chat, character as AICharacter, secret, publicMask));
+            }}
+            onRevokeSharedSecret={(chat, secret) => {
+              void appendManualCompanionshipEvent(chat, buildManualSharedSecretRevokedEvent(chat, character as AICharacter, secret));
+            }}
+            onKeepCharacterPair={(chat, secret, targetId) => {
+              void appendManualCompanionshipEvent(chat, buildManualSharedSecretParticipantsEvent(chat, character as AICharacter, secret, [character.id || '', targetId]));
+            }}
+            onUpdateParticipants={(chat, secret, participantIds) => {
+              void appendManualCompanionshipEvent(chat, buildManualSharedSecretParticipantsEvent(chat, character as AICharacter, secret, participantIds));
+            }}
+          />
+        </SurfaceCard>
+      ) : null}
+      {roleRitualItems.length ? (
+        <SurfaceCard>
+          <SectionHeader title="角色共同仪式" dense action={isDeveloperView ? <DebugChip /> : undefined} />
+          <RoleRitualPanel
+            items={roleRitualItems}
+            characterId={character.id || ''}
+            resolveCharacterName={resolveCharacterName}
+            developerMode={isDeveloperView}
+            onUpdateRitual={(chat, ritual, content) => {
+              void appendManualCompanionshipEvent(chat, buildManualRitualUpdateEvent(chat, character as AICharacter, ritual, content));
+            }}
+            onSuppressRitual={(chat, ritual) => {
+              void appendManualCompanionshipEvent(chat, buildManualRitualActionEvent(chat, character as AICharacter, ritual, 'suppressed'));
+            }}
+            onRestoreRitual={(chat, ritual) => {
+              void appendManualCompanionshipEvent(chat, buildManualRitualActionEvent(chat, character as AICharacter, ritual, 'restored'));
+            }}
+          />
+        </SurfaceCard>
+      ) : null}
+      {sharedMemoryAnchors.length ? (
+        <SurfaceCard>
+          <SectionHeader title="共同锚点" dense action={isDeveloperView ? <DebugChip /> : undefined} />
+          <SharedMemoryAnchorPanel
+            characterId={character.id || ''}
+            anchors={sharedMemoryAnchors}
+            participantOptions={participantOptions}
+            resolveCharacterName={resolveCharacterName}
+            developerMode={isDeveloperView}
+            onArchiveAnchor={latestUserDirectChat ? (anchor) => {
+              if (!anchor.participantIds.includes('user')) return;
+              void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorArchiveEvent(latestUserDirectChat, character as AICharacter, anchor));
+            } : undefined}
+            onUpdateAnchor={latestUserDirectChat ? (anchor, patch) => {
+              if (!anchor.participantIds.includes('user')) return;
+              void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorUpsertEvent(latestUserDirectChat, character as AICharacter, anchor, patch));
+            } : undefined}
+            onKeepPairPrivate={latestUserDirectChat ? (anchor) => {
+              if (!anchor.participantIds.includes('user')) return;
+              void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorPairPrivateEvent(latestUserDirectChat, character as AICharacter, anchor));
+            } : undefined}
+            onUpdateParticipants={latestUserDirectChat ? (anchor, participantIds) => {
+              if (!anchor.participantIds.includes('user')) return;
+              void appendManualCompanionshipEvent(latestUserDirectChat, buildManualSharedAnchorParticipantsEvent(latestUserDirectChat, character as AICharacter, anchor, participantIds));
+            } : undefined}
+          />
+        </SurfaceCard>
+      ) : null}
       <SurfaceCard>
         <SectionHeader title="陪伴关系" dense action={isDeveloperView ? <DebugChip /> : undefined} />
         {companionshipView?.length ? (

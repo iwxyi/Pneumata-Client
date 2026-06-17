@@ -1950,6 +1950,17 @@ export default function SettingsPage() {
               <FormControlLabel control={<Switch checked={settings.avatarGeneration.preferNonPhotorealAvatar} onChange={(e) => settings.setAvatarGeneration({ preferNonPhotorealAvatar: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '非写实头像' : 'Non-photoreal avatars'} />
               <FormControlLabel control={<Switch checked={settings.aiGeneration.enableMoments} onChange={(e) => settings.setAIGeneration({ enableMoments: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用朋友圈自动生成' : 'Enable moments auto-generation'} />
               <FormControlLabel control={<Switch checked={settings.aiGeneration.enableDiaries} onChange={(e) => settings.setAIGeneration({ enableDiaries: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用日记自动生成' : 'Enable diary auto-generation'} />
+              <FormControlLabel control={<Switch checked={settings.developerMode} onChange={(e) => settings.setDeveloperMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '开发者模式' : 'Developer mode'} />
+            </Box>
+          </Box>
+        </SurfaceCard>
+
+        {developerToolsSection}
+
+        <SurfaceCard contentSx={buildCardBodySx()}>
+          <Box sx={buildSectionBodySx()}>
+            <SectionHeader title={i18n.language.startsWith('zh') ? '陪伴' : 'Companionship'} subtitle={i18n.language.startsWith('zh') ? '控制主动陪伴、关系仪式、互动适配和免打扰' : 'Control proactive care, rituals, adaptation, and quiet hours'} />
+            <Box sx={{ display: 'grid', gap: 1 }}>
               <FormControlLabel control={<Switch checked={settings.companionship.enableProactiveCare} onChange={(e) => settings.setCompanionship({ enableProactiveCare: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用主动陪伴' : 'Enable proactive companionship'} />
               <FormControlLabel control={<Switch checked={settings.companionship.showStatusHints} onChange={(e) => settings.setCompanionship({ showStatusHints: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '显示陪伴状态提示' : 'Show companionship status hints'} />
               <FormControlLabel control={<Switch checked={settings.companionship.enableAttachmentAdaptation} onChange={(e) => settings.setCompanionship({ enableAttachmentAdaptation: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用互动模式适配' : 'Enable interaction-pattern adaptation'} />
@@ -2040,12 +2051,9 @@ export default function SettingsPage() {
                 <TextField type="time" size="small" label={i18n.language.startsWith('zh') ? '结束' : 'End'} value={settings.companionship.quietHours.end} onChange={(e) => settings.setCompanionship({ quietHours: { ...settings.companionship.quietHours, end: e.target.value } })} disabled={!settings.companionship.quietHours.enabled} slotProps={{ inputLabel: { shrink: true } }} />
               </Box>
               <FormControlLabel control={<Switch checked={settings.companionship.quietHours.suppressStatusHints} onChange={(e) => settings.setCompanionship({ quietHours: { ...settings.companionship.quietHours, suppressStatusHints: e.target.checked } })} disabled={!settings.companionship.quietHours.enabled} />} label={i18n.language.startsWith('zh') ? '免打扰时隐藏陪伴状态提示' : 'Hide status hints during quiet hours'} />
-              <FormControlLabel control={<Switch checked={settings.developerMode} onChange={(e) => settings.setDeveloperMode(e.target.checked)} />} label={i18n.language.startsWith('zh') ? '开发者模式' : 'Developer mode'} />
             </Box>
           </Box>
         </SurfaceCard>
-
-        {developerToolsSection}
 
         <SurfaceCard contentSx={buildCardBodySx()}>
           <Box sx={buildSectionBodySx()}>

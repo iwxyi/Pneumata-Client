@@ -34,6 +34,7 @@ interface MessageListProps {
   topInset?: ResponsiveInset;
   bottomInset?: ResponsiveInset;
   selfMemberId?: string | null;
+  privateConversation?: boolean;
 }
 
 export default function MessageList({
@@ -53,6 +54,7 @@ export default function MessageList({
   topInset,
   bottomInset,
   selfMemberId = null,
+  privateConversation = false,
 }: MessageListProps) {
   const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -304,6 +306,7 @@ export default function MessageList({
             onCharacterAvatarClick={item.pending ? undefined : onCharacterAvatarClick}
             pending={item.pending}
             selfMemberId={selfMemberId}
+            privateConversation={privateConversation}
           />
         ))}
       </Box>

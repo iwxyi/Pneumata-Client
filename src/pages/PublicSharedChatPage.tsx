@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Box, Button, CircularProgress, IconButton, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, IconButton, Stack, Typography } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material/styles';
 import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 import { useNavigate, useParams } from 'react-router-dom';
 import MessageList from '../components/chat/MessageList';
+import LoadingState from '../components/common/LoadingState';
 import GlassHeader from '../components/layout/GlassHeader';
 import ProfilePreviewOverlay from '../components/chat/ProfilePreviewOverlay';
 import { api } from '../services/api';
@@ -246,10 +247,7 @@ export default function PublicSharedChatPage() {
 
       {loading ? (
         <Box sx={{ flex: 1, display: 'grid', placeItems: 'center', px: 2, pt: 'calc(88px + env(safe-area-inset-top, 0px))' }}>
-          <Stack spacing={1.5} sx={{ alignItems: 'center' }}>
-            <CircularProgress size={24} />
-            <Typography variant="body2" color="text.secondary">正在打开聊天记录</Typography>
-          </Stack>
+          <LoadingState title="正在打开聊天记录" />
         </Box>
       ) : error ? (
         <Stack sx={{ p: 2, pt: 'calc(88px + env(safe-area-inset-top, 0px))', maxWidth: 520, width: '100%', mx: 'auto' }} spacing={1.5}>

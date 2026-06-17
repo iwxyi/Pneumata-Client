@@ -549,4 +549,66 @@ describe('useMessageStore', () => {
     expect(state.messageWindowsByChatId[chatId]?.messages).toHaveLength(1);
   });
 
+  it('keeps first message pending until a newly created local chat is synced', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const { useChatStore } = await import('./useChatStore');
+    useChatStore.setState({
+      chats: [{
+        id: 'local-chat-12345678',
+        type: 'direct',
+        mode: 'open_chat',
+        modeConfig: { freeSpeaking: true, allowInterruptions: true, allowPrivateThreads: true, allowDirectorInterventions: true, showRoleActions: true },
+        modeState: { phase: 'free' },
+        name: '新单聊',
+        topic: '',
+        style: 'free',
+        runtimeEvolutionIntensity: 'balanced',
+        memberIds: ['char-1'],
+        speed: 1,
+        isActive: false,
+        allowIntervention: true,
+        showRoleActions: true,
+        topicSeed: '',
+        runtimeSeed: { notes: [], artifacts: [] },
+        createdAt: 1,
+        updatedAt: 1,
+        lastMessageAt: 1,
+      } as never],
+      currentChatId: 'local-chat-12345678',
+      lastSyncedAt: 1,
+      pendingOperations: [{
+        id: 'chat-create-op',
+        kind: 'create',
+        entityId: 'local-chat-12345678',
+        patch: { id: 'local-chat-12345678' },
+        targetIds: ['local-chat-12345678'],
+        clientTimestamp: Date.now(),
+        attemptCount: 0,
+        status: 'pending',
+      } as never],
+      pendingEditSyncCount: 1,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: [],
+      remoteDeletedChats: [],
+      fieldConflicts: [],
+      chatSummaryLoadedAt: 1,
+      isLoading: false,
+    });
+
+    await useMessageStore.getState().addMessage({
+      chatId: 'local-chat-12345678',
+      type: 'ai',
+      senderId: 'char-1',
+      senderName: '角色',
+      content: '第一句',
+      emotion: 0,
+    });
+
+    expect(useMessageStore.getState().pendingOperations).toHaveLength(1);
+    expect(useMessageStore.getState().pendingOperations[0]?.chatId).toBe('local-chat-12345678');
+    expect(useMessageStore.getState().messageWindowsByChatId['local-chat-12345678']?.messages[0]?.chatId).toBe('local-chat-12345678');
+    expect(useChatStore.getState().pendingOperations[0]?.kind).toBe('create');
+  });
+
 });

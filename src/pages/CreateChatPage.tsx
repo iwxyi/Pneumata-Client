@@ -5,6 +5,8 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import SaveIcon from '@mui/icons-material/Save';
+import ForumIcon from '@mui/icons-material/Forum';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useChatStore } from '../stores/useChatStore';
@@ -1099,7 +1101,7 @@ export default function CreateChatPage() {
         ) : null}
 
         <ExpandableFab
-          icon={<AutoAwesomeIcon />}
+          icon={editingChat ? <SaveIcon /> : <ForumIcon />}
           label={saving ? t('common.loading') : startChatLabel}
           ariaLabel={saving ? t('common.loading') : startChatLabel}
           onClick={handleCreateAction}

@@ -11,16 +11,7 @@ import {
   Badge,
   Avatar,
 } from '@mui/material';
-import HomeIcon from '@mui/icons-material/Home';
-import ChatIcon from '@mui/icons-material/Chat';
-import PersonIcon from '@mui/icons-material/Person';
-import SettingsIcon from '@mui/icons-material/Settings';
-import ModelsIcon from '@mui/icons-material/SmartToy';
 import AccountIcon from '@mui/icons-material/AccountCircle';
-import MailIcon from '@mui/icons-material/Mail';
-import CalendarIcon from '@mui/icons-material/CalendarMonth';
-import MomentsIcon from '@mui/icons-material/DynamicFeed';
-import IntroIcon from '@mui/icons-material/AutoAwesome';
 import CollapseIcon from '@mui/icons-material/ChevronLeft';
 import ExpandIcon from '@mui/icons-material/ChevronRight';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -31,23 +22,26 @@ import { useCharacterArtifactStore } from '../../stores/useCharacterArtifactStor
 import { useAuthStore } from '../../stores/useAuthStore';
 import { motion, transition } from '../../styles/motion';
 import { isImageAvatar } from '../../utils/avatar';
+import AnimatedNavIcon, { type AnimatedNavIconKind } from './AnimatedNavIcon';
 
 interface SidebarProps {
   collapsed: boolean;
 }
 
-const navItems = [
-  { path: '/', icon: <HomeIcon />, labelKey: 'nav.home' },
-  { path: '/chats', icon: <ChatIcon />, labelKey: 'nav.chats' },
-  { path: '/characters', icon: <PersonIcon />, labelKey: 'nav.characters' },
-  { path: '/moments', icon: <MomentsIcon />, labelKey: 'nav.moments' },
-  { path: '/calendar', icon: <CalendarIcon />, labelKey: 'nav.calendar' },
-  { path: '/letters', icon: <MailIcon />, labelKey: 'nav.letters' },
-  { path: '/models', icon: <ModelsIcon />, labelKey: 'nav.models' },
+type NavItem = { path: string; iconKind: AnimatedNavIconKind; labelKey: string };
+
+const navItems: NavItem[] = [
+  { path: '/', iconKind: 'home', labelKey: 'nav.home' },
+  { path: '/chats', iconKind: 'chats', labelKey: 'nav.chats' },
+  { path: '/characters', iconKind: 'characters', labelKey: 'nav.characters' },
+  { path: '/moments', iconKind: 'moments', labelKey: 'nav.moments' },
+  { path: '/calendar', iconKind: 'calendar', labelKey: 'nav.calendar' },
+  { path: '/letters', iconKind: 'letters', labelKey: 'nav.letters' },
+  { path: '/models', iconKind: 'models', labelKey: 'nav.models' },
 ];
 
-const introNavItem = { path: '/intro', icon: <IntroIcon />, labelKey: 'nav.intro' };
-const settingsNavItem = { path: '/settings', icon: <SettingsIcon />, labelKey: 'nav.settings' };
+const introNavItem: NavItem = { path: '/intro', iconKind: 'intro', labelKey: 'nav.intro' };
+const settingsNavItem: NavItem = { path: '/settings', iconKind: 'settings', labelKey: 'nav.settings' };
 
 export default function Sidebar({ collapsed }: SidebarProps) {
   const navigate = useNavigate();
@@ -70,7 +64,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
     }
   };
 
-  const renderNavItem = (item: typeof navItems[number] | typeof introNavItem) => {
+  const renderNavItem = (item: NavItem) => {
     const isActive =
       item.path === '/'
         ? location.pathname === '/'
@@ -78,6 +72,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
 
     const button = (
       <ListItemButton
+        className="PneumataNavButton"
         key={item.path}
         onClick={() => handleNav(item.path)}
         selected={isActive}
@@ -93,7 +88,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
           border: '1px solid',
           borderColor: isActive ? 'primary.main' : 'transparent',
           bgcolor: isActive ? (theme) => `${theme.palette.primary.main}1A` : 'transparent',
-          transition: transition(['transform', 'background-color', 'border-color', 'color'], 220, motion.softOut),
+          transition: transition(['background-color', 'border-color', 'color'], 220, motion.softOut),
           '&::before': collapsed ? undefined : {
             content: '""',
             position: 'absolute',
@@ -106,7 +101,6 @@ export default function Sidebar({ collapsed }: SidebarProps) {
             transition: transition(['background-color'], 220, motion.softOut),
           },
           '&:hover': {
-            transform: 'translateX(3px)',
             bgcolor: isActive ? (theme) => `${theme.palette.primary.main}1F` : 'rgba(148,163,184,0.08)',
             borderColor: isActive ? 'primary.main' : 'rgba(148,163,184,0.10)',
           },
@@ -120,13 +114,19 @@ export default function Sidebar({ collapsed }: SidebarProps) {
       >
         <ListItemIcon
           sx={{
-            minWidth: collapsed ? 0 : 38,
+            minWidth: collapsed ? 0 : 42,
             color: isActive ? 'primary.main' : 'text.secondary',
             transition: transition(['color', 'transform'], 220, motion.spring),
-            transform: isActive ? 'scale(1.06)' : 'none',
+            transform: isActive ? 'scale(1.04)' : 'none',
           }}
         >
-          {item.path === '/letters' ? <Badge badgeContent={unreadLetterCount} color="error" max={99}>{item.icon}</Badge> : item.icon}
+          {item.path === '/letters' ? (
+            <Badge badgeContent={unreadLetterCount} color="error" max={99}>
+              <AnimatedNavIcon kind={item.iconKind} active={isActive} />
+            </Badge>
+          ) : (
+            <AnimatedNavIcon kind={item.iconKind} active={isActive} />
+          )}
         </ListItemIcon>
         {!collapsed && (
           <ListItemText
@@ -149,10 +149,11 @@ export default function Sidebar({ collapsed }: SidebarProps) {
     );
   };
 
-  const renderUtilityItem = (item: typeof introNavItem | typeof settingsNavItem) => {
+  const renderUtilityItem = (item: NavItem) => {
     const isActive = location.pathname.startsWith(item.path);
     const button = (
       <ListItemButton
+        className="PneumataNavButton"
         key={item.path}
         onClick={() => handleNav(item.path)}
         sx={{
@@ -179,7 +180,7 @@ export default function Sidebar({ collapsed }: SidebarProps) {
           },
         }}
       >
-        {item.icon}
+        <AnimatedNavIcon kind={item.iconKind} active={isActive} />
         {!collapsed ? (
           <Typography variant="caption" noWrap sx={{ fontSize: 11, fontWeight: isActive ? 760 : 650, lineHeight: 1.1, letterSpacing: 0 }}>
             {t(item.labelKey)}

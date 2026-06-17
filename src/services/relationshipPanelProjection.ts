@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
+import { reportUnresolvedDisplayEntity } from './diagnostics';
 import { isMeaningfulRelationshipLedgerEntry, toRelationshipDisplayDelta } from './relationshipLedger';
 import type { RelationshipDisplayMember } from './relationshipPresentation';
 
@@ -34,11 +35,44 @@ export interface RelationshipPanelProjection {
   sectionKeys: string[];
 }
 
+function shouldIncludeUserInRelationshipPanel(chat: GroupChat) {
+  return chat.type === 'direct' || chat.memberIds.includes('user');
+}
+
+function isDraftRelationshipId(id: string) {
+  return /^draft-\d+$/i.test(id);
+}
+
+function buildUnresolvedMemberName(id: string) {
+  return `未解析成员(${id})`;
+}
+
 function buildRelationshipMembers(chat: GroupChat, members: AICharacter[]) {
   const list: RelationshipDisplayMember[] = members.map((member) => ({ id: member.id, name: member.name }));
-  if (chat.memberIds.includes('user') && !list.some((member) => member.id === 'user')) {
+  const shouldIncludeUser = shouldIncludeUserInRelationshipPanel(chat);
+  if (shouldIncludeUser && !list.some((member) => member.id === 'user')) {
     list.push({ id: 'user', name: '我' });
   }
+  const extraIds = new Set<string>();
+  (chat.relationshipLedger || []).forEach((entry) => {
+    if (!isDraftRelationshipId(entry.actorId)) extraIds.add(entry.actorId);
+    if (!isDraftRelationshipId(entry.targetId)) extraIds.add(entry.targetId);
+  });
+  members.forEach((member) => {
+    (member.relationships || []).forEach((relation) => {
+      if (!isDraftRelationshipId(relation.characterId)) extraIds.add(relation.characterId);
+    });
+  });
+  extraIds.forEach((id) => {
+    if (list.some((member) => member.id === id)) return;
+    list.push({ id, name: buildUnresolvedMemberName(id) });
+    reportUnresolvedDisplayEntity({
+      id,
+      kind: 'relationship-target',
+      location: 'relationshipPanelProjection.buildRelationshipMembers',
+      fallback: buildUnresolvedMemberName(id),
+    });
+  });
   return list;
 }
 
@@ -60,7 +94,7 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
   const relationshipMembers = buildRelationshipMembers(chat, members);
   const memberById = new Map(relationshipMembers.map((member) => [member.id, member] as const));
   const ledgerEntries = (chat.relationshipLedger || [])
-    .filter((entry) => !/^draft-\d+$/i.test(entry.actorId) && !/^draft-\d+$/i.test(entry.targetId))
+    .filter((entry) => !isDraftRelationshipId(entry.actorId) && !isDraftRelationshipId(entry.targetId))
     .filter(isMeaningfulRelationshipLedgerEntry)
     .slice()
     .sort((a, b) => {
@@ -76,19 +110,29 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
       items: ledgerEntries.filter((entry) => (reverseLedger ? entry.targetId === member.id : entry.actorId === member.id)).slice(0, 8),
     }))
     .filter((section) => section.items.length > 0);
+  const coveredFallbackPairs = new Set(ledgerEntries.map((entry) => `${entry.actorId}->${entry.targetId}`));
 
   const fallbackSections = members
-    .filter((member) => !ledgerSections.some((section) => section.member.id === member.id))
     .map((member) => {
       const items = member.relationships
-        .filter((relation) => !/^draft-\d+$/i.test(relation.characterId))
+        .filter((relation) => !isDraftRelationshipId(relation.characterId))
+        .filter((relation) => !coveredFallbackPairs.has(`${member.id}->${relation.characterId}`))
         .filter((relation) => relation.warmth !== 0 || relation.competence !== 0 || relation.trust !== 0 || relation.threat !== 0 || Boolean(relation.note?.trim()))
         .slice(0, 3)
         .map((relation) => {
           const target = memberById.get(relation.characterId);
+          if (!target) {
+            reportUnresolvedDisplayEntity({
+              id: relation.characterId,
+              kind: 'relationship-target',
+              location: 'relationshipPanelProjection.fallbackTarget',
+              fallback: buildUnresolvedMemberName(relation.characterId),
+              extra: { memberId: member.id },
+            });
+          }
           return {
             characterId: relation.characterId,
-            targetName: target?.name || '未知角色',
+            targetName: target?.name || `未解析目标(${relation.characterId})`,
             note: relation.note,
             relation: {
               warmth: relation.warmth,

@@ -92,6 +92,15 @@ describe('storeSyncHelpers', () => {
     expect(helpers.isTerminalSyncError('server_unavailable: 502')).toBe(false);
   });
 
+  it('treats chat create dependency waits as retryable sync work', () => {
+    const classified = helpers.classifySyncError(new Error('chat:create pending: 对应会话尚未完成云端创建，消息稍后重试。'));
+    expect(classified).toMatch(/^network:/);
+    expect(helpers.parseSyncErrorClassification(classified)).toMatchObject({
+      retryable: true,
+      terminal: false,
+    });
+  });
+
   it('runs due operations through the shared worker executor', async () => {
     const operations = [{
       id: 'op-1',

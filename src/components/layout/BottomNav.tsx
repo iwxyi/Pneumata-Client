@@ -1,10 +1,7 @@
 import { BottomNavigation, BottomNavigationAction, Paper } from '@mui/material';
-import HomeIcon from '@mui/icons-material/Home';
-import ChatIcon from '@mui/icons-material/Chat';
-import PersonIcon from '@mui/icons-material/Person';
-import SettingsIcon from '@mui/icons-material/Settings';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import AnimatedNavIcon, { type AnimatedNavIconKind } from './AnimatedNavIcon';
 
 const pathToIndex: Record<string, number> = {
   '/': 0,
@@ -12,6 +9,13 @@ const pathToIndex: Record<string, number> = {
   '/characters': 2,
   '/settings': 3,
 };
+
+const mobileItems: Array<{ path: string; labelKey: string; iconKind: AnimatedNavIconKind }> = [
+  { path: '/', labelKey: 'nav.home', iconKind: 'home' },
+  { path: '/chats', labelKey: 'nav.chats', iconKind: 'chats' },
+  { path: '/characters', labelKey: 'nav.characters', iconKind: 'characters' },
+  { path: '/settings', labelKey: 'nav.settings', iconKind: 'settings' },
+];
 
 export default function BottomNav() {
   const navigate = useNavigate();
@@ -24,8 +28,6 @@ export default function BottomNav() {
     }
     return location.pathname.startsWith(path) ? idx : acc;
   }, 0);
-
-  const paths = ['/', '/chats', '/characters', '/settings'];
 
   return (
     <Paper
@@ -70,12 +72,12 @@ export default function BottomNav() {
       <BottomNavigation
         value={currentIndex}
         onChange={(_, newValue) => {
-          const nextPath = paths[newValue];
+          const nextPath = mobileItems[newValue]?.path;
           if (nextPath !== location.pathname) navigate(nextPath);
         }}
         showLabels
         sx={{
-          height: 58,
+          height: 62,
           bgcolor: 'transparent',
           borderRadius: 1.5,
           '& .MuiBottomNavigationAction-root': {
@@ -84,6 +86,10 @@ export default function BottomNav() {
             borderRadius: 1,
             mx: 0.35,
             my: 0.55,
+            transition: 'color 220ms ease, background-color 220ms ease',
+            '&:hover': {
+              bgcolor: 'rgba(148,163,184,0.08)',
+            },
           },
           '& .Mui-selected': {
             color: 'primary.main',
@@ -94,10 +100,14 @@ export default function BottomNav() {
           },
         }}
       >
-        <BottomNavigationAction label={t('nav.home')} icon={<HomeIcon />} />
-        <BottomNavigationAction label={t('nav.chats')} icon={<ChatIcon />} />
-        <BottomNavigationAction label={t('nav.characters')} icon={<PersonIcon />} />
-        <BottomNavigationAction label={t('nav.settings')} icon={<SettingsIcon />} />
+        {mobileItems.map((item, index) => (
+          <BottomNavigationAction
+            key={item.path}
+            className="PneumataNavButton"
+            label={t(item.labelKey)}
+            icon={<AnimatedNavIcon kind={item.iconKind} active={currentIndex === index} />}
+          />
+        ))}
       </BottomNavigation>
     </Paper>
   );
