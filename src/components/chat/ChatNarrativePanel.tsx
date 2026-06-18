@@ -223,6 +223,61 @@ function renderUnchosenBranches(chat: GroupChat, members: AICharacter[]) {
   );
 }
 
+function renderChoiceReview(chat: GroupChat, members: AICharacter[]) {
+  const choices = chat.scenarioState?.choiceHistory || [];
+  const branches = chat.scenarioState?.branches || [];
+  const groups = choices.slice(-4).map((choice, index) => {
+    const epoch = Number(choice.choiceEpoch || 0);
+    const alternatives = epoch > 0
+      ? branches.filter((branch) => Number(branch.choiceEpoch || 0) === epoch && branch.status === 'completed')
+      : [];
+    return { choice, epoch, alternatives, index };
+  });
+  if (!groups.length) return null;
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.45 }}>抉择回看</Typography>
+      <Stack spacing={0.7}>
+        {groups.map(({ choice, epoch, alternatives, index }) => (
+          <Box
+            key={`${choice.branchId || choice.label}:${epoch || index}:review`}
+            sx={(theme) => ({
+              px: 0.9,
+              py: 0.75,
+              borderRadius: 1.5,
+              border: '1px solid',
+              borderColor: theme.palette.mode === 'light' ? 'rgba(99,102,241,0.16)' : 'rgba(129,140,248,0.18)',
+              bgcolor: theme.palette.mode === 'light' ? 'rgba(238,242,255,0.42)' : 'rgba(49,46,129,0.18)',
+            })}
+          >
+            <Stack direction="row" spacing={0.6} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.35 }}>
+              <Chip size="small" label={`节点 ${epoch || index + 1}`} variant="outlined" sx={compactPillChipSx} />
+              <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                {formatNarrativeLineText(choice.label, members)}
+              </Typography>
+            </Stack>
+            {choice.outcome ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.6 }}>
+                结果：{formatNarrativeLineText(choice.outcome, members)}
+              </Typography>
+            ) : null}
+            {choice.risk || choice.reward ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.2, lineHeight: 1.6 }}>
+                {[choice.risk ? `代价：${choice.risk}` : '', choice.reward ? `获得：${choice.reward}` : ''].filter(Boolean).map((item) => formatNarrativeLineText(item, members)).join(' · ')}
+              </Typography>
+            ) : null}
+            {alternatives.length ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35, lineHeight: 1.6 }}>
+                未走：{alternatives.slice(0, 3).map((branch) => formatNarrativeLineText(branch.label, members)).join(' / ')}
+              </Typography>
+            ) : null}
+          </Box>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
 function formatStoryBeatKind(kind: string | undefined) {
   const labels: Record<string, string> = {
     establish: '开场',
@@ -270,6 +325,7 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
         {renderAssetChips('代价', state.stakes, members)}
         {renderAssetChips('关系压力', state.relationshipShifts, members)}
         {renderAssetChips('最近选择', recentChoices, members)}
+        {renderChoiceReview(chat, members)}
         {renderChoiceHistory(chat, members)}
         {renderUnchosenBranches(chat, members)}
       </Stack>
