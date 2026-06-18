@@ -173,6 +173,11 @@ function renderChoiceHistory(chat: GroupChat, members: AICharacter[]) {
                 {[choice.risk ? `风险：${choice.risk}` : '', choice.reward ? `收益：${choice.reward}` : ''].filter(Boolean).map((item) => formatNarrativeLineText(item, members)).join(' · ')}
               </Typography>
             ) : null}
+            {choice.outcome ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                后果：{formatNarrativeLineText(choice.outcome, members)}
+              </Typography>
+            ) : null}
           </Box>
         ))}
       </Stack>
@@ -235,7 +240,7 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
   const recap = state.chapterRecap || null;
   const recentChoices = (state.choiceHistory || [])
     .slice(-3)
-    .map((choice) => [choice.label, choice.risk ? `风险：${choice.risk}` : '', choice.reward ? `收益：${choice.reward}` : ''].filter(Boolean).join(' · '));
+    .map((choice) => [choice.label, choice.risk ? `风险：${choice.risk}` : '', choice.reward ? `收益：${choice.reward}` : '', choice.outcome ? `后果：${choice.outcome}` : ''].filter(Boolean).join(' · '));
   return (
     <Box sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'rgba(123,31,162,0.06)' }}>
       <Stack spacing={0.85}>

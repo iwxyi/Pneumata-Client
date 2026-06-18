@@ -174,7 +174,7 @@ describe('ChatNarrativePanel', () => {
           { branchId: 'chosen', label: `${uuidA} 追问护士`, status: 'chosen' as const, choiceEpoch: 2, risk: '激怒护士', reward: '得到线索' },
           { branchId: 'alt', label: `${uuidB} 去地下档案室`, status: 'completed' as const, choiceEpoch: 2, intent: '探索', risk: '暴露位置', reward: '找到病历' },
         ],
-        choiceHistory: [{ branchId: 'chosen', label: `${uuidA} 追问护士`, risk: '激怒护士', reward: '得到线索', choiceEpoch: 2 }],
+        choiceHistory: [{ branchId: 'chosen', label: `${uuidA} 追问护士`, risk: '激怒护士', reward: '得到线索', outcome: '护士承认停电时有人进入档案室', choiceEpoch: 2 }],
         chapterRecap: {
           title: '新的抉择点',
           summary: `${uuidA} 在旧医院发现血迹`,
@@ -211,6 +211,7 @@ describe('ChatNarrativePanel', () => {
     expect(html).toContain('风险：暴露位置');
     expect(html).toContain('收益：得到线索');
     expect(html).toContain('收益：找到病历');
+    expect(html).toContain('后果：护士承认停电时有人进入档案室');
     expect(html).toContain('灰太狼 为什么隐瞒停电记录？');
     expect(html).toContain('地下档案室的病历被撕掉一页');
     expect(html).toContain('暴露位置');

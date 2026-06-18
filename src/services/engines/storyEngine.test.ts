@@ -330,10 +330,27 @@ describe('STORY_ENGINE', () => {
       storyChoicePolicy: 'forbid',
     }));
     expect(consequenceResult.chatPatch.scenarioState?.choiceHistory).toHaveLength(1);
+    expect(consequenceResult.chatPatch.scenarioState?.choiceHistory?.[0]).toEqual(expect.objectContaining({
+      label: '让林医生追问护士昨晚去向',
+      outcome: expect.stringContaining('护士承认停电时有人进入档案室'),
+    }));
     expect(consequenceResult.chatPatch.scenarioState?.branches).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: '让主角检查墙上的血迹', status: 'completed', choiceEpoch: 2 }),
     ]));
     expect(consequenceResult.chatPatch.scenarioState?.chapterMemory).toContain('护士承认停电时有人进入档案室');
+
+    const followupPrompt = STORY_ENGINE.buildGenerationPromptContext?.({
+      conversation: normalizeConversation({
+        ...branchChat,
+        scenarioState: { ...(branchChat.scenarioState || {}), ...(consequenceResult.chatPatch.scenarioState || {}) },
+      }),
+      characters: [],
+      messages: [],
+      speaker: { id: 'narrator', name: '旁白' } as never,
+    });
+    expect(followupPrompt?.additionalConstraints).toEqual(expect.arrayContaining([
+      expect.stringContaining('outcome=林医生逼问护士后'),
+    ]));
   });
 
   it('marks choice phase as branch-only', () => {

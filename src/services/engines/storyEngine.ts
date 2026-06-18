@@ -210,7 +210,7 @@ function buildStoryAssetPrompt(conversation: GroupChat) {
     state.clues?.length ? `Known clues to reuse or reframe: ${state.clues.slice(-4).join(' / ')}` : '',
     state.stakes?.length ? `Current stakes: ${state.stakes.slice(-4).join(' / ')}` : '',
     state.relationshipShifts?.length ? `Relationship pressure: ${state.relationshipShifts.slice(-4).join(' / ')}` : '',
-    state.choiceHistory?.length ? `Recent user choices: ${state.choiceHistory.slice(-3).map((choice) => [choice.label, choice.risk ? `risk=${choice.risk}` : '', choice.reward ? `reward=${choice.reward}` : ''].filter(Boolean).join(' · ')).join(' / ')}` : '',
+    state.choiceHistory?.length ? `Recent user choices: ${state.choiceHistory.slice(-3).map((choice) => [choice.label, choice.risk ? `risk=${choice.risk}` : '', choice.reward ? `reward=${choice.reward}` : '', choice.outcome ? `outcome=${choice.outcome}` : ''].filter(Boolean).join(' · ')).join(' / ')}` : '',
   ].filter(Boolean);
   if (!lines.length) return [];
   return [
@@ -243,6 +243,23 @@ function buildChapterRecap(params: {
     updatedAt: Date.now(),
     beatCount: params.nextSceneBeatCount,
   };
+}
+
+function updateChoiceHistoryOutcome(conversation: GroupChat, outcome: string) {
+  const history = conversation.scenarioState?.choiceHistory || [];
+  const compactOutcome = compactStoryAssetText(outcome, 96);
+  if (!history.length || !compactOutcome || conversation.scenarioState?.phase !== 'branch') return history;
+  const selectedEpoch = Number(conversation.scenarioState?.selectedChoiceEpoch || 0);
+  let targetIndex = -1;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const choiceEpoch = Number(history[index].choiceEpoch || 0);
+    if ((!selectedEpoch || choiceEpoch === selectedEpoch) && !history[index].outcome) {
+      targetIndex = index;
+      break;
+    }
+  }
+  if (targetIndex === -1) return history;
+  return history.map((choice, index) => (index === targetIndex ? { ...choice, outcome: compactOutcome } : choice));
 }
 
 function normalizeStoryBranches(conversation: GroupChat, choices: StoryChoiceSuggestion[]) {
@@ -430,6 +447,7 @@ function onMessageCommitted(params: {
     ...(params.conversation.scenarioState || {}),
     ...storyAssets,
     chapterRecap,
+    choiceHistory: updateChoiceHistoryOutcome(params.conversation, summary),
     phase: normalized.hasOpenChoice ? 'choice' : 'scene',
     sceneBeatCount: nextSceneBeatCount,
     choiceEpoch: nextEpoch,
