@@ -4,6 +4,7 @@ import type { Message, NarrativeTurnMetadata } from '../../types/message';
 import {
   buildChapterRecap,
   buildChoicePolicyPrompt,
+  buildSelectedChoiceConsequencePrompt,
   buildStoryAssetPrompt,
   extractStoryAssets,
   getCurrentChoiceEpoch,
@@ -96,6 +97,7 @@ function buildGenerationPromptContext(params: { conversation: GroupChat }): Sess
     additionalConstraints: [
       ...buildChoicePolicyPrompt(beatPlan),
       ...buildStoryAssetPrompt(params.conversation),
+      ...buildSelectedChoiceConsequencePrompt(params.conversation),
       ...(phase === 'branch'
         ? [
         'Use storyEvents. At minimum output one narration event. Add speech events only for spoken lines that change the scene.',
@@ -232,6 +234,7 @@ function onMessageCommitted(params: {
     sceneBeatCount: nextSceneBeatCount,
     choiceEpoch: nextEpoch,
     selectedChoiceEpoch: normalized.openedChoice ? undefined : params.conversation.scenarioState?.selectedChoiceEpoch,
+    selectedChoice: params.conversation.scenarioState?.phase === 'branch' ? null : params.conversation.scenarioState?.selectedChoice,
     branches: normalized.branches,
   };
   const nextBeatPlan = resolveStoryBeatPlan({ ...params.conversation, scenarioState: nextScenarioState });

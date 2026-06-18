@@ -296,6 +296,12 @@ describe('STORY_ENGINE', () => {
       storyBeatKind: 'consequence',
       storyChoicePolicy: 'forbid',
       selectedChoiceEpoch: 2,
+      selectedChoice: expect.objectContaining({
+        label: '让林医生追问护士昨晚去向',
+        prompt: '林医生逼问护士',
+        risk: '激怒护士',
+        reward: '得到停电线索',
+      }),
       choiceHistory: [expect.objectContaining({
         label: '让林医生追问护士昨晚去向',
         risk: '激怒护士',
@@ -312,6 +318,13 @@ describe('STORY_ENGINE', () => {
       scenarioState: { ...(choiceChat.scenarioState || {}), ...(branchPatch.scenarioState || {}) },
       worldState: { ...choiceChat.worldState, ...(branchPatch.worldState || {}) },
     });
+    const consequencePrompt = STORY_ENGINE.buildGenerationPromptContext?.({ conversation: branchChat, characters: [], messages: [], speaker: { id: 'narrator', name: '旁白' } as never });
+    expect(consequencePrompt?.additionalConstraints).toEqual(expect.arrayContaining([
+      expect.stringContaining('This turn is the immediate consequence of the user choice'),
+      expect.stringContaining('Selected choice: 让林医生追问护士昨晚去向'),
+      expect.stringContaining('Risk that should become visible or start to cost something: 激怒护士'),
+      expect.stringContaining('Reward/opportunity that should become visible or be partially earned: 得到停电线索'),
+    ]));
     const consequenceResult = await STORY_ENGINE.onMessageCommitted({
       conversation: branchChat,
       characters: [],
@@ -325,6 +338,7 @@ describe('STORY_ENGINE', () => {
       phase: 'scene',
       choiceEpoch: 2,
       selectedChoiceEpoch: 2,
+      selectedChoice: null,
       sceneBeatCount: 1,
       storyBeatKind: 'pressure',
       storyChoicePolicy: 'forbid',

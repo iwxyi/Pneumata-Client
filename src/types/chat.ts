@@ -148,6 +148,16 @@ export interface ScenarioState {
     choiceEpoch?: number;
     chosenAt?: number;
   }>;
+  selectedChoice?: {
+    branchId?: string;
+    label: string;
+    prompt?: string;
+    intent?: string;
+    risk?: string;
+    reward?: string;
+    choiceEpoch?: number;
+    chosenAt?: number;
+  } | null;
   chapterMemory?: string;
   chapterRecap?: StoryChapterRecapState | null;
   sceneBeatCount?: number;

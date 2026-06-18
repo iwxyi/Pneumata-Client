@@ -212,6 +212,16 @@ describe('chatSurfaceActions', () => {
         storyChoicePolicy: 'forbid',
         storyBeatReason: 'resolve selected branch before opening another choice',
         selectedChoiceEpoch: 1,
+        selectedChoice: expect.objectContaining({
+          branchId: 'hidden',
+          label: '暗线',
+          prompt: '追查暗线',
+          intent: '追踪',
+          risk: '暴露行踪',
+          reward: '找到线索',
+          choiceEpoch: 1,
+          chosenAt: expect.any(Number),
+        }),
         choiceHistory: [expect.objectContaining({
           branchId: 'hidden',
           label: '暗线',

@@ -252,18 +252,19 @@ function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition): Se
   const branchPrompt = prompt || selectedBranch?.prompt || selectedBranch?.description || selectedBranch?.label || '';
   const summary = `剧情分支：${isCustom ? '自定义走向' : branchId}${branchPrompt ? ` · ${truncate(branchPrompt, 36)}` : ''}`;
   const currentEpoch = Math.max(Number(chat.scenarioState?.choiceEpoch || 0), Number(selectedBranch?.choiceEpoch || 0), 1);
+  const selectedChoice = {
+    branchId,
+    label: selectedBranch?.label || branchPrompt || '自定义走向',
+    prompt: branchPrompt,
+    ...(selectedBranch?.intent ? { intent: selectedBranch.intent } : {}),
+    ...(selectedBranch?.risk ? { risk: selectedBranch.risk } : {}),
+    ...(selectedBranch?.reward ? { reward: selectedBranch.reward } : {}),
+    choiceEpoch: currentEpoch,
+    chosenAt: Date.now(),
+  };
   const choiceHistory = [
     ...(chat.scenarioState?.choiceHistory || []),
-    {
-      branchId,
-      label: selectedBranch?.label || branchPrompt || '自定义走向',
-      prompt: branchPrompt,
-      ...(selectedBranch?.intent ? { intent: selectedBranch.intent } : {}),
-      ...(selectedBranch?.risk ? { risk: selectedBranch.risk } : {}),
-      ...(selectedBranch?.reward ? { reward: selectedBranch.reward } : {}),
-      choiceEpoch: currentEpoch,
-      chosenAt: Date.now(),
-    },
+    selectedChoice,
   ].slice(-12);
   const nextBranches = isCustom
     ? [
@@ -292,6 +293,7 @@ function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition): Se
         sceneBeatCount: 0,
         choiceEpoch: currentEpoch,
         selectedChoiceEpoch: currentEpoch,
+        selectedChoice,
         choiceHistory,
         branches: nextBranches.length
           ? nextBranches

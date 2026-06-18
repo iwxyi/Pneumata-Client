@@ -384,6 +384,30 @@ export function buildStoryAssetPrompt(conversation: GroupChat) {
   ];
 }
 
+export function buildSelectedChoiceConsequencePrompt(conversation: GroupChat) {
+  const state = conversation.scenarioState;
+  if (!state || state.phase !== 'branch') return [];
+  const selected = state.selectedChoice || state.choiceHistory?.slice().reverse().find((choice) => {
+    const selectedEpoch = Number(state.selectedChoiceEpoch || 0);
+    const choiceEpoch = Number(choice.choiceEpoch || 0);
+    return !choice.outcome && (!selectedEpoch || choiceEpoch === selectedEpoch);
+  });
+  if (!selected?.label) return [];
+  const rows = [
+    `Selected choice: ${selected.label}`,
+    selected.prompt ? `Choice promise to resolve: ${selected.prompt}` : '',
+    selected.intent ? `Dramatic intent: ${selected.intent}` : '',
+    selected.risk ? `Risk that should become visible or start to cost something: ${selected.risk}` : '',
+    selected.reward ? `Reward/opportunity that should become visible or be partially earned: ${selected.reward}` : '',
+  ].filter(Boolean);
+  return [
+    'This turn is the immediate consequence of the user choice. Do not drift to a generic next scene.',
+    ...rows,
+    'Show at least one concrete consequence of the selected choice before any new pressure or future option.',
+    'If the full risk/reward cannot resolve yet, show a visible first sign, complication, clue, relationship shift, or cost.',
+  ];
+}
+
 export function buildChapterRecap(params: {
   conversation: GroupChat;
   storyAssets: StoryAssetPatch;

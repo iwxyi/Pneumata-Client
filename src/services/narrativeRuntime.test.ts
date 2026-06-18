@@ -4,6 +4,7 @@ import type { AICharacter } from '../types/character';
 import {
   buildChapterRecap,
   buildNarrativeTurnFromStoryEvents,
+  buildSelectedChoiceConsequencePrompt,
   buildStoryAssetPrompt,
   buildStoryEventsVisibleText,
   appendStoryReadingPanelBlock,
@@ -224,6 +225,32 @@ describe('narrativeRuntime', () => {
     expect(prompt).toEqual(expect.arrayContaining([
       expect.stringContaining('Use these story assets as continuity anchors'),
       expect.stringContaining('outcome=护士承认停电时有人进入档案室。'),
+    ]));
+  });
+
+  it('builds a concrete consequence prompt for the selected story choice', () => {
+    const prompt = buildSelectedChoiceConsequencePrompt(normalizeConversation({
+      ...chat,
+      scenarioState: {
+        phase: 'branch',
+        selectedChoice: {
+          branchId: 'ask',
+          label: '让林医生追问护士昨晚去向',
+          prompt: '林医生逼问护士说出停电时的真相',
+          intent: '逼问',
+          risk: '激怒护士',
+          reward: '得到停电线索',
+          choiceEpoch: 2,
+        },
+      },
+    }));
+
+    expect(prompt).toEqual(expect.arrayContaining([
+      expect.stringContaining('immediate consequence of the user choice'),
+      expect.stringContaining('Selected choice: 让林医生追问护士昨晚去向'),
+      expect.stringContaining('Choice promise to resolve: 林医生逼问护士说出停电时的真相'),
+      expect.stringContaining('Risk that should become visible or start to cost something: 激怒护士'),
+      expect.stringContaining('Reward/opportunity that should become visible or be partially earned: 得到停电线索'),
     ]));
   });
 });
