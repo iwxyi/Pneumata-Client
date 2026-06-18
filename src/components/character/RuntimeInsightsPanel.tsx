@@ -34,7 +34,7 @@ import { buildCompanionshipPrivateThreadScheduleDiagnostics } from '../../servic
 import { applyCompanionshipLedgerBackflow } from '../../services/companionshipLedgerBackflow';
 import { buildSharedPhraseEventsFromCompanionshipEvent } from '../../services/companionshipSharedPhraseBackflow';
 import type { Message } from '../../types/message';
-import type { AttachmentProfileHistoryEntry, CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, IntimateConflictHistoryEntry, PendingCareTopic, PendingPromise, PhaseHistoryEntry, PrivateThreadScheduleDiagnostic, RitualHistoryEntry, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedPhraseHistoryEntry, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
+import type { AttachmentProfileHistoryEntry, CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, IntimateConflictHistoryEntry, PendingCareTopic, PendingPromise, PhaseHistoryEntry, PrivateThreadScheduleDiagnostic, RitualHistoryEntry, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedPhraseHistoryEntry, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryHistoryEntry, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 type ManualPromiseLifecycleAction = Extract<PendingPromise['status'], 'fulfilled' | 'blocked' | 'stale' | 'revoked'>;
@@ -831,6 +831,44 @@ function buildManualUserProfileMemoryUpsertEvent(chat: GroupChat, character: AIC
   };
 }
 
+function buildManualUserProfileMemoryRestoreEvent(chat: GroupChat, character: AICharacter, item: UserProfileMemoryHistoryEntry): RuntimeEventV2 {
+  const now = Date.now();
+  const items = item.items
+    .map((profileItem) => ({
+      kind: profileItem.kind,
+      text: clipRuntimeText(profileItem.text, 140),
+      evidence: profileItem.evidence || item.evidence[0] || 'manual_restore_from_user_profile_history',
+      sourceMessageIds: profileItem.sourceMessageIds?.length ? profileItem.sourceMessageIds : item.sourceMessageIds,
+      confidence: 1,
+      sensitive: profileItem.sensitive,
+    }))
+    .filter((profileItem) => profileItem.text);
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, item.id, 'user-profile-history-restore']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户从画像历史中恢复了线索`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_user_profile_memory',
+      characterId: character.id,
+      userId: 'user',
+      action: 'upsert',
+      items,
+      reason: `用户在开发者诊断中从画像历史 ${item.id} 恢复线索。`,
+      evidence: ['manual_restore_from_user_profile_history', ...item.evidence].filter(Boolean).join(' / '),
+      sourceMessageIds: item.sourceMessageIds,
+      confidence: 1,
+    },
+  };
+}
+
 function buildManualSharedAnchorArchiveEvent(chat: GroupChat, character: AICharacter, anchor: SharedMemoryAnchor): RuntimeEventV2 {
   const now = Date.now();
   const includesUser = anchor.participantIds.includes('user');
@@ -1457,6 +1495,38 @@ function buildManualPhaseCorrectionEvent(chat: GroupChat, character: AICharacter
       style,
       reason: '用户在角色关系页手动修正陪伴关系阶段。',
       evidence: ['manual_phase_correction_from_character_relationship_tab'],
+      initiatedBy: 'user',
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualPhaseRestoreFromHistoryEvent(chat: GroupChat, character: AICharacter, item: PhaseHistoryEntry): RuntimeEventV2 {
+  const now = Date.now();
+  const phase = item.phase || 'curious';
+  const style = item.style || 'friend';
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, item.id, phase, style, 'phase-history-restore']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户从历史中恢复了陪伴关系阶段`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_phase_event',
+      characterId: character.id,
+      userId: 'user',
+      action: 'set',
+      phase,
+      style,
+      reason: `用户在开发者诊断中从阶段历史 ${item.id} 恢复为${formatCompanionshipPhaseLabel(phase)}。`,
+      evidence: ['manual_restore_from_phase_history', ...item.evidence],
+      sourceMessageIds: item.sourceMessageIds,
       initiatedBy: 'user',
       confidence: 1,
     },
@@ -2481,6 +2551,8 @@ function CompanionshipDeveloperTracePanel({
   onRestoreAttachment,
   onRestoreAddress,
   onRestoreConflict,
+  onRestorePhase,
+  onRestoreUserProfile,
   onRestoreSharedPhrase,
   onRestoreRitualFromHistory,
 }: {
@@ -2491,6 +2563,8 @@ function CompanionshipDeveloperTracePanel({
   onRestoreAttachment?: (item: AttachmentProfileHistoryEntry) => void;
   onRestoreAddress?: (action: ManualAddressingSetAction, address: string) => void;
   onRestoreConflict?: (item: IntimateConflictHistoryEntry) => void;
+  onRestorePhase?: (item: PhaseHistoryEntry) => void;
+  onRestoreUserProfile?: (item: UserProfileMemoryHistoryEntry) => void;
   onRestoreSharedPhrase?: (item: SharedPhraseHistoryEntry) => void;
   onRestoreRitualFromHistory?: (item: RitualHistoryEntry) => void;
 }) {
@@ -2562,6 +2636,11 @@ function CompanionshipDeveloperTracePanel({
                     来源消息：{item.sourceMessageIds.join(' / ')}
                   </Typography>
                 ) : null}
+                {onRestorePhase && item.phase ? (
+                  <Button size="small" variant="text" onClick={() => onRestorePhase(item)} sx={{ mt: 0.4, p: 0, minWidth: 0 }}>
+                    恢复此阶段
+                  </Button>
+                ) : null}
               </Box>
             ))}
           </Stack>
@@ -2602,6 +2681,11 @@ function CompanionshipDeveloperTracePanel({
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.15, wordBreak: 'break-all' }}>
                     来源消息：{item.sourceMessageIds.join(' / ')}
                   </Typography>
+                ) : null}
+                {onRestoreUserProfile && item.items.length ? (
+                  <Button size="small" variant="text" onClick={() => onRestoreUserProfile(item)} sx={{ mt: 0.4, p: 0, minWidth: 0 }}>
+                    恢复这些线索
+                  </Button>
                 ) : null}
               </Box>
             ))}
@@ -3224,6 +3308,8 @@ function UserCompanionshipCard({
   onCorrectAttachment,
   onRestoreAttachment,
   onRestoreConflict,
+  onRestorePhase,
+  onRestoreUserProfile,
   onRestoreSharedPhrase,
   onRestoreRitualFromHistory,
   onUpdateProfileCue,
@@ -3269,6 +3355,8 @@ function UserCompanionshipCard({
   onCorrectAttachment: (style: UserAttachmentProfile['inferredStyle']) => void;
   onRestoreAttachment: (item: AttachmentProfileHistoryEntry) => void;
   onRestoreConflict: (item: IntimateConflictHistoryEntry) => void;
+  onRestorePhase: (item: PhaseHistoryEntry) => void;
+  onRestoreUserProfile: (item: UserProfileMemoryHistoryEntry) => void;
   onRestoreSharedPhrase: (item: SharedPhraseHistoryEntry) => void;
   onRestoreRitualFromHistory: (item: RitualHistoryEntry) => void;
   onUpdateProfileCue: (item: UserProfileMemoryEventItem) => void;
@@ -4269,6 +4357,8 @@ function UserCompanionshipCard({
               onRestoreAttachment={onRestoreAttachment}
               onRestoreAddress={onSetAddress}
               onRestoreConflict={onRestoreConflict}
+              onRestorePhase={onRestorePhase}
+              onRestoreUserProfile={onRestoreUserProfile}
               onRestoreSharedPhrase={onRestoreSharedPhrase}
               onRestoreRitualFromHistory={onRestoreRitualFromHistory}
             />
@@ -5036,6 +5126,14 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onRestoreConflict={(item) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualIntimateConflictRestoreEvent(view.chat, character as AICharacter, item));
+                }}
+                onRestorePhase={(item) => {
+                  if (!item.phase) return;
+                  void appendManualCompanionshipEvent(view.chat, buildManualPhaseRestoreFromHistoryEvent(view.chat, character as AICharacter, item));
+                }}
+                onRestoreUserProfile={(item) => {
+                  if (!item.items.length) return;
+                  void appendManualCompanionshipEvent(view.chat, buildManualUserProfileMemoryRestoreEvent(view.chat, character as AICharacter, item));
                 }}
                 onRestoreSharedPhrase={(item) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseRestoreEvent(view.chat, character as AICharacter, item));
