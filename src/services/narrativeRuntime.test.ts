@@ -77,4 +77,22 @@ describe('narrativeRuntime', () => {
       '去地下档案室查那份被撕掉的病历',
     ]);
   });
+
+  it('keeps speech visible when the model returns an unknown character id', () => {
+    const events = normalizeStoryEvents([
+      { type: 'narration', text: '走廊尽头的灯忽然灭了。' },
+      { type: 'speech', characterId: 'unknown-actor', text: '别往前走。' },
+    ]);
+
+    const turn = buildNarrativeTurnFromStoryEvents({ conversation: chat, events, characters });
+    expect(turn?.blocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actorKind: 'character',
+        displayMode: 'bubble',
+        actorName: 'unknown-actor',
+        characterId: 'unknown-actor',
+        text: '别往前走。',
+      }),
+    ]));
+  });
 });

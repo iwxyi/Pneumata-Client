@@ -134,7 +134,7 @@ function storyEventToBlocks(event: StoryEvent, index: number, characters: AIChar
       kind: 'dialogue',
       displayMode: 'bubble',
       text: event.text.trim(),
-      actorName: character?.name || event.speakerName,
+      actorName: character?.name || event.speakerName || characterId || '角色',
       characterId: character?.id || characterId || undefined,
     }];
   }
