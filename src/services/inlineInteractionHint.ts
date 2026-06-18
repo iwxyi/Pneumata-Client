@@ -165,6 +165,9 @@ export function buildInlineInteractionContract(params: {
   const turnPlanRules = params.turnPlan
     ? `\nTurn plan for this response:\n- rhythm tendency=${params.turnPlan.rhythm}.\n- Do not target a fixed length. Let the current request, character comfort, and actual substance decide the size.\n- extraMessages is available on every chat turn. Use it when the reply naturally arrives as consecutive sends; keep it null when one bubble feels right.`
     : '';
+  const aiDirectInteractionRules = params.chat.type === 'ai_direct'
+    ? '\n8. In AI direct chats, target the other participant when the turn clearly supports, challenges, probes, defends, mocks, or dismisses them; do not target the speaker or the user unless the user is an actual participant.'
+    : '';
   const storyChoiceField = params.chat.sessionKind?.scenarioId === 'story-reader' ? ',\n  "storyChoices": null' : '';
   const storyChoiceRules = params.chat.sessionKind?.scenarioId === 'story-reader'
     ? `\n\nRules for storyChoices:\n1. Default storyChoices=null; keep the story moving normally most turns.\n2. Set storyChoices to 2-4 options only when this turn has reached a genuine decision point where user participation would improve the story.\n3. Do not ask for choices just because a fixed number of turns passed. There is no fixed cadence.\n4. It is allowed to ask again soon if the scene truly demands it, but the room must not remain in a constant choose-operate loop.\n5. Each option must read like a concrete character action: name who does what to whom or what object/place. Avoid abstract plot directions such as investigate clues, deepen emotion, advance plot, face the key person, continue the branch.\n6. Put the narrative setup in content. Put only option objects in storyChoices, each shaped as {"label":"让某人做具体动作","prompt":"选择后要推进的具体后果"}.\n7. Do not render the choices inside content or extraMessages; storyChoices drives the UI.`

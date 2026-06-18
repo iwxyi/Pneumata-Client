@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../types/message';
 import { getAttachmentErrorText, getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
-import { getNarrativeParagraphBlocks, shouldUseCompactMessageBubble } from './messageBubblePresentation';
+import { getNarrativeParagraphBlocks, isNarrativeParagraphMessage, shouldUseCompactMessageBubble } from './messageBubblePresentation';
 import { buildEventDisplayText, buildMemoryDistillationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
 
 describe('MessageBubble event rendering', () => {
@@ -186,5 +186,23 @@ describe('MessageBubble event rendering', () => {
 
     expect(getNarrativeParagraphBlocks(characterMessage)).toEqual([]);
     expect(getNarrativeParagraphBlocks(narratorMessage)).toHaveLength(1);
+  });
+
+  it('treats streaming narrator messages as narrative paragraphs before metadata is committed', () => {
+    const message: Message = {
+      id: 'm-stream',
+      chatId: 'c1',
+      senderId: 'narrator',
+      senderName: '旁白',
+      type: 'ai',
+      content: '雨声沿着屋檐落下。',
+      timestamp: 1,
+      emotion: 0,
+      isDeleted: false,
+      isStreaming: true,
+    };
+
+    expect(isNarrativeParagraphMessage(message)).toBe(true);
+    expect(getNarrativeParagraphBlocks(message)).toEqual([expect.objectContaining({ actorKind: 'narrator', text: '雨声沿着屋檐落下。' })]);
   });
 });

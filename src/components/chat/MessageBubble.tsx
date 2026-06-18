@@ -18,7 +18,7 @@ import AppSnackbar from '../common/AppSnackbar';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import type { DisplayTextMember } from '../../services/displayTextSanitizer';
 import { copyTextToClipboard } from '../../utils/clipboard';
-import { getNarrativeParagraphBlocks, shouldUseCompactMessageBubble } from './messageBubblePresentation';
+import { getNarrativeParagraphBlocks, isNarrativeParagraphMessage, shouldUseCompactMessageBubble } from './messageBubblePresentation';
 
 function isConflictDeveloperEvent(eventType: string | undefined) {
   return ['conflict_focus_shift', 'conflict_axis_shift'].includes(String(eventType || ''));
@@ -519,14 +519,15 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
       {showWithdrawalDebug ? <DebugChip sx={{ height: 20, flexShrink: 0 }} /> : null}
     </Box>
   );
-  const narrativeParagraphBlocks = !pending && !isFinalWithdrawn ? getNarrativeParagraphBlocks(message) : [];
+  const useNarrativeParagraph = !isFinalWithdrawn && (!pending || isNarrativeParagraphMessage(message));
+  const narrativeParagraphBlocks = useNarrativeParagraph ? getNarrativeParagraphBlocks(message) : [];
 
-  if (narrativeParagraphBlocks.length) {
+  if (narrativeParagraphBlocks.length || (pending && useNarrativeParagraph)) {
     return (
       <>
         <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, py: 1.1, width: '100%' }}>
           <Box {...bubbleHandlers} sx={{ width: '100%', maxWidth: 760, px: { xs: 0.5, sm: 1 }, py: 0.5 }}>
-            {renderNarrativeParagraphContent(narrativeParagraphBlocks)}
+            {narrativeParagraphBlocks.length ? renderNarrativeParagraphContent(narrativeParagraphBlocks) : renderPendingTypingDots()}
           </Box>
         </Box>
         <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
