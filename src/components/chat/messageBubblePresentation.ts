@@ -1,6 +1,15 @@
 import type { Message, NarrativeBlock } from '../../types/message';
 import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
 
+export interface NarrativeStoryChoiceOption {
+  label: string;
+  value: string;
+  prompt?: string | null;
+  intent?: string | null;
+  risk?: string | null;
+  reward?: string | null;
+}
+
 function getStoryEventText(message: Message) {
   if (message.type !== 'event') return '';
   const event = parseRuntimeEvent(message.content);

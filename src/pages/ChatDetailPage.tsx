@@ -560,6 +560,10 @@ export default function ChatDetailPage() {
     });
   }, [chat, id]);
   const addMessageStable = addAnchoredMessage;
+  const getNextMessageTimestamp = useCallback(() => {
+    const latestTimestamp = currentChatMessages.reduce((latest, message) => Math.max(latest, Number(message.timestamp || 0)), 0);
+    return Math.max(Date.now(), latestTimestamp + 1);
+  }, [currentChatMessages]);
 
   const appendLocalInterceptionHint = useCallback(async (event: LocalInterceptionEvent) => {
     if (!chat?.id || !showLocalInterceptionHints) return;
@@ -700,7 +704,7 @@ export default function ChatDetailPage() {
         senderName: currentUser?.nickname?.trim() || '我',
         content,
         emotion: 0,
-        timestamp: Date.now(),
+        timestamp: getNextMessageTimestamp(),
         metadata: attachments.length ? { attachments } : undefined,
       });
       void updateChat(id, { lastMessageAt: userMessage.timestamp, latestMessage: userMessage });
@@ -735,7 +739,7 @@ export default function ChatDetailPage() {
       }
       startConversationLoopIfNeeded(chat);
     });
-  }, [addMessageStable, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, appendLocalInterceptionHint, applyChatRuntimeDelta, characters, chat, chats, commitPersistedManualRuntime, currentChatMessages, currentUser?.nickname, enqueueManualInput, id, recordSpeak, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
+  }, [addMessageStable, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, appendLocalInterceptionHint, applyChatRuntimeDelta, characters, chat, chats, commitPersistedManualRuntime, currentChatMessages, currentUser?.nickname, enqueueManualInput, getNextMessageTimestamp, id, recordSpeak, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
 
   const handleGuideSend = useCallback(async (content: string, attachments: MessageAttachment[] = []) => {
     if (!chat || !id) return;
@@ -748,7 +752,7 @@ export default function ChatDetailPage() {
         senderName: '导演安排',
         content,
         emotion: 0,
-        timestamp: Date.now(),
+        timestamp: getNextMessageTimestamp(),
         metadata: attachments.length ? { attachments } : undefined,
       });
       void updateChat(id, { lastMessageAt: guidedMessage.timestamp, latestMessage: guidedMessage });
@@ -756,7 +760,7 @@ export default function ChatDetailPage() {
       await commitPersistedManualRuntime(guidedMessage, recentMessagesWithGuide);
       startConversationLoopIfNeeded(chat);
     });
-  }, [addMessageStable, chat, commitPersistedManualRuntime, currentChatMessages, enqueueManualInput, id, startConversationLoopIfNeeded, updateChat]);
+  }, [addMessageStable, chat, commitPersistedManualRuntime, currentChatMessages, enqueueManualInput, getNextMessageTimestamp, id, startConversationLoopIfNeeded, updateChat]);
 
   const handleSpeakAs = useCallback(async (content: string, attachments: MessageAttachment[] = []) => {
     if (!chat || !id || !effectiveSpeakAsChar) return;
@@ -771,7 +775,7 @@ export default function ChatDetailPage() {
         senderName: char.name,
         content,
         emotion: 0,
-        timestamp: Date.now(),
+        timestamp: getNextMessageTimestamp(),
         metadata: {
           manualSpeaker: {
             actorId: char.id,
@@ -786,7 +790,7 @@ export default function ChatDetailPage() {
       await commitPersistedManualRuntime(spokeMessage, recentMessagesWithSpeaker);
       startConversationLoopIfNeeded(chat);
     });
-  }, [addMessageStable, chat, commitPersistedManualRuntime, currentChatMessages, effectiveSpeakAsChar, enqueueManualInput, id, startConversationLoopIfNeeded, updateChat]);
+  }, [addMessageStable, chat, commitPersistedManualRuntime, currentChatMessages, effectiveSpeakAsChar, enqueueManualInput, getNextMessageTimestamp, id, startConversationLoopIfNeeded, updateChat]);
 
   const { runSessionAction, triggerPairPrivateThread, normalizeAndRunSurfaceIntent, runAutoSocialEventFlow } = useChatSurfaceActions({
     chat,
@@ -807,14 +811,15 @@ export default function ChatDetailPage() {
   const storyChoiceSourceMessage = useMemo(
     () => {
       if (!isStoryRoom) return null;
+      if (chat?.scenarioState?.phase !== 'choice') return null;
       for (let index = currentChatMessages.length - 1; index >= 0; index -= 1) {
         const message = currentChatMessages[index];
         if (!normalizeStoryChoiceSuggestions(message.metadata?.storyChoices).length) continue;
-        return index === currentChatMessages.length - 1 ? message : null;
+        return message;
       }
       return null;
     },
-    [currentChatMessages, isStoryRoom],
+    [chat?.scenarioState?.phase, currentChatMessages, isStoryRoom],
   );
   const storyBranchOptions = useMemo(
     () => {
@@ -856,7 +861,7 @@ export default function ChatDetailPage() {
       senderName: currentUser?.nickname?.trim() || '我',
       content: `我选择：${choiceLabel}`,
       emotion: 0,
-      timestamp: Date.now(),
+      timestamp: getNextMessageTimestamp(),
       metadata: {
         storyChoiceSelection: {
           branchId,
@@ -885,7 +890,7 @@ export default function ChatDetailPage() {
     } : chat;
     await updateChat(id, actionResult?.chatPatch || {});
     startConversationLoopIfNeeded(nextChat);
-  }, [addMessageStable, chat, currentUser?.nickname, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, updateChat]);
+  }, [addMessageStable, chat, currentUser?.nickname, getNextMessageTimestamp, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, updateChat]);
   const storyBranchSuggestionContent = runLoopStatusContent;
 
   const handleExpressionFeedback = useCallback(async (message: Message, kind: ExpressionFeedbackKind) => {

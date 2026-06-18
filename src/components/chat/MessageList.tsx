@@ -1,15 +1,16 @@
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Message, MessageAttachment } from '../../types/message';
+import type { Message, MessageAttachment, NarrativeBlock, NarrativeTurnMetadata } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import MessageBubble from './MessageBubble';
 import EventMessageItem from './EventMessageItem';
-import NarrativeMessageItem, { type NarrativeStoryChoiceOption } from './NarrativeMessageItem';
+import { getNarrativeDisplayBlocks, type NarrativeStoryChoiceOption } from './messageBubblePresentation';
 import SystemMessageItem from './SystemMessageItem';
 import { resolveCharacterOrDeleted } from '../../utils/deletedEntity';
 import { buildChatRenderItems, type ChatRenderItem } from './chatRenderModel';
 import type { ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import ImageLightbox from '../common/ImageLightbox';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 
 const TOP_PREFETCH_THRESHOLD = 520;
 const BOTTOM_STICKY_THRESHOLD = 96;
@@ -45,6 +46,133 @@ interface MessageListProps {
   onChooseStoryChoice?: (value: string) => void;
 }
 
+function ChoiceMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <Box
+      component="span"
+      sx={(theme) => ({
+        display: 'inline-flex',
+        alignItems: 'center',
+        minWidth: 0,
+        maxWidth: '100%',
+        px: 0.75,
+        py: 0.25,
+        borderRadius: 1,
+        bgcolor: theme.palette.mode === 'light' ? 'rgba(15,23,42,0.06)' : 'rgba(226,232,240,0.08)',
+        color: 'text.secondary',
+        fontSize: 12,
+        lineHeight: 1.5,
+      })}
+    >
+      <Box component="span" sx={{ flex: '0 0 auto', fontWeight: 700, mr: 0.5 }}>{label}</Box>
+      <Box component="span" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{value}</Box>
+    </Box>
+  );
+}
+
+function StoryChoicePanel({ options, onChoose, showDeveloperDetails = false }: { options: NarrativeStoryChoiceOption[]; onChoose: (value: string) => void; showDeveloperDetails?: boolean }) {
+  if (!options.length) return null;
+  return (
+    <Box data-message-id="story-choice-panel" data-message-type="story-choice" sx={{ px: { xs: 2, sm: 3 }, py: 0.75, width: '100%' }}>
+      <Stack spacing={0.75} sx={{ width: '100%', maxWidth: 760, mx: 'auto', px: { xs: 0.5, sm: 1 } }}>
+        <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, fontWeight: 700 }}>
+          选择接下来的剧情走向
+        </Typography>
+        {options.map((option) => (
+          <Box
+            key={option.value}
+            component="button"
+            type="button"
+            onClick={() => onChoose(option.value)}
+            sx={(theme) => ({
+              width: '100%',
+              border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(148,163,184,0.32)' : 'rgba(226,232,240,0.16)'}`,
+              borderRadius: 2,
+              px: { xs: 1.5, sm: 1.75 },
+              py: { xs: 1, sm: 1.1 },
+              bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.9)' : 'rgba(15,23,42,0.82)',
+              color: 'text.primary',
+              textAlign: 'left',
+              font: 'inherit',
+              cursor: 'pointer',
+              boxShadow: theme.palette.mode === 'light' ? '0 10px 28px rgba(15,23,42,0.10)' : '0 14px 34px rgba(0,0,0,0.28)',
+              transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background-color 140ms ease',
+              '&:hover': {
+                transform: 'translateY(-1px)',
+                borderColor: theme.palette.mode === 'light' ? 'rgba(99,102,241,0.38)' : 'rgba(129,140,248,0.44)',
+                bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.98)' : 'rgba(30,41,59,0.9)',
+              },
+              '&:active': { transform: 'translateY(0) scale(0.992)' },
+              '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+            })}
+          >
+            <Typography variant="body2" sx={{ fontSize: { xs: 14, sm: 14.5 }, fontWeight: 400, lineHeight: 1.7 }}>{option.label}</Typography>
+            {showDeveloperDetails && (option.intent || option.risk || option.reward) ? (
+              <Stack direction="row" spacing={0.75} useFlexGap sx={{ mt: 0.75, flexWrap: 'wrap' }}>
+                {option.intent ? <ChoiceMeta label="意图" value={option.intent} /> : null}
+                {option.risk ? <ChoiceMeta label="风险" value={option.risk} /> : null}
+                {option.reward ? <ChoiceMeta label="收益" value={option.reward} /> : null}
+              </Stack>
+            ) : null}
+          </Box>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
+function resolveNarrativeBlockCharacter(block: NarrativeBlock, characters: AICharacter[]) {
+  if (block.characterId) {
+    const byId = characters.find((character) => character.id === block.characterId);
+    if (byId) return byId;
+  }
+  const actorName = (block.actorName || '').trim();
+  return actorName ? characters.find((character) => character.name === actorName) || null : null;
+}
+
+function buildNarrativeBlockMessage(parent: Message, block: NarrativeBlock, turn: NarrativeTurnMetadata | undefined, index: number, character?: AICharacter | null): Message {
+  const blockKey = `${parent.id}:narrative-block:${block.id || index}`;
+  if (block.displayMode === 'bubble') {
+    const senderId = character?.id || block.characterId || block.actorId || parent.senderId;
+    const senderName = character?.name || block.actorName || parent.senderName || '角色';
+    return {
+      id: blockKey,
+      clientKey: blockKey,
+      chatId: parent.chatId,
+      type: 'ai',
+      senderId,
+      senderName,
+      content: block.text,
+      emotion: parent.emotion,
+      timestamp: parent.timestamp,
+      isDeleted: false,
+    };
+  }
+  return {
+    id: blockKey,
+    clientKey: blockKey,
+    chatId: parent.chatId,
+    type: parent.type,
+    senderId: parent.senderId,
+    senderName: parent.senderName,
+    content: block.text,
+    emotion: parent.emotion,
+    timestamp: parent.timestamp,
+    isDeleted: false,
+    metadata: {
+      narrativeTurn: {
+        turnId: `${turn?.turnId || parent.id}:${block.id || index}`,
+        turnKind: turn?.turnKind || 'narrative_beat',
+        sceneId: turn?.sceneId,
+        phase: turn?.phase,
+        povActorId: turn?.povActorId || parent.senderId,
+        blocks: [block],
+      },
+      storyChoiceSelection: block.displayMode === 'choice_card' ? parent.metadata?.storyChoiceSelection : undefined,
+    },
+  };
+}
+
 export default function MessageList({
   messages,
   characters,
@@ -69,7 +197,9 @@ export default function MessageList({
   onChooseStoryChoice,
 }: MessageListProps) {
   const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
+  const developerMode = useSettingsStore((state) => state.developerMode);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [completedRevealKeys, setCompletedRevealKeys] = useState<Set<string>>(() => new Set());
   const [viewerKey, setViewerKey] = useState<string | null>(null);
   const topLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
@@ -115,40 +245,70 @@ export default function MessageList({
     void onReachTop();
   }, [hasMore, isLoadingOlder, onReachTop]);
 
+  const renderBubble = useCallback((item: ChatRenderItem, options?: { key?: string; message?: Message; character?: AICharacter; revealText?: boolean; onRevealComplete?: () => void }) => (
+    <MessageBubble
+      key={options?.key || item.key}
+      message={options?.message || item.message}
+      characters={characters}
+      character={options?.character || (item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined)}
+      currentUser={currentUser}
+      onDelete={item.pending || item.message.type === 'system' || (options?.message && options.message.id !== item.message.id) ? undefined : onDeleteMessage}
+      onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
+      onExpressionFeedback={item.pending || (options?.message || item.message).type !== 'ai' ? undefined : onExpressionFeedback}
+      onRetryMedia={item.pending ? undefined : onRetryMedia}
+      onOpenImage={item.pending ? undefined : openChatImage}
+      onCharacterAvatarClick={item.pending ? undefined : onCharacterAvatarClick}
+      pending={item.pending}
+      selfMemberId={selfMemberId}
+      privateConversation={privateConversation}
+      revealText={options?.revealText}
+      onRevealComplete={options?.onRevealComplete}
+    />
+  ), [characters, currentUser, onAnalyzeMessage, onCharacterAvatarClick, onDeleteMessage, onExpressionFeedback, onRetryMedia, openChatImage, privateConversation, selfMemberId]);
+
   const renderMessageItem = useCallback((item: ChatRenderItem) => {
     if (item.renderKind === 'system') return <SystemMessageItem key={item.key} message={item.message} />;
     if (item.renderKind === 'event') return <EventMessageItem key={item.key} message={item.message} members={characters} />;
-    if (item.renderKind === 'narrative') {
-      const showStoryChoices = item.message.id === storyChoiceMessageId && Boolean(onChooseStoryChoice);
-      return (
-        <NarrativeMessageItem
-          key={item.key}
-          message={item.message}
-          characters={characters}
-          pending={item.pending}
-          storyChoiceOptions={showStoryChoices ? storyChoiceOptions : []}
-          onChooseStoryChoice={showStoryChoices ? onChooseStoryChoice : undefined}
-        />
-      );
-    }
+    const showStoryChoices = item.renderKind === 'narrative' && item.message.id === storyChoiceMessageId && Boolean(onChooseStoryChoice);
+    const blocks = item.renderKind === 'narrative'
+      ? getNarrativeDisplayBlocks(item.message).filter((block) => block.displayMode !== 'system_panel' || developerMode)
+      : [];
+    if (!blocks.length) return renderBubble(item);
+    const recentNarrative = !item.pending && item.message.type === 'ai' && Date.now() - item.message.timestamp < 15000;
+    const activeRevealIndex = recentNarrative
+      ? blocks.findIndex((candidate, candidateIndex) => {
+        const candidateKey = `${item.key}:block:${candidate.id || candidateIndex}`;
+        return !completedRevealKeys.has(candidateKey);
+      })
+      : -1;
+    const visibleBlocks = recentNarrative && activeRevealIndex >= 0 ? blocks.slice(0, activeRevealIndex + 1) : blocks;
+    const renderedBlocks = visibleBlocks.map((block, index) => {
+      const character = block.displayMode === 'bubble' ? resolveNarrativeBlockCharacter(block, characters) : undefined;
+      const blockMessage = buildNarrativeBlockMessage(item.message, block, item.message.metadata?.narrativeTurn, index, character);
+      const blockKey = `${item.key}:block:${block.id || index}`;
+      const revealText = recentNarrative && activeRevealIndex === index && !completedRevealKeys.has(blockKey);
+      return renderBubble(item, {
+        key: blockKey,
+        message: blockMessage,
+        character: character || (blockMessage.type === 'ai' ? resolveCharacterOrDeleted(characters, blockMessage.senderId, blockMessage.senderName) : undefined),
+        revealText,
+        onRevealComplete: revealText ? () => setCompletedRevealKeys((current) => {
+          if (current.has(blockKey)) return current;
+          const next = new Set(current);
+          next.add(blockKey);
+          return next;
+        }) : undefined,
+      });
+    });
     return (
-      <MessageBubble
-        key={item.key}
-        message={item.message}
-        character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
-        currentUser={currentUser}
-        onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
-        onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
-        onExpressionFeedback={item.pending || item.message.type !== 'ai' ? undefined : onExpressionFeedback}
-        onRetryMedia={item.pending ? undefined : onRetryMedia}
-        onOpenImage={item.pending ? undefined : openChatImage}
-        onCharacterAvatarClick={item.pending ? undefined : onCharacterAvatarClick}
-        pending={item.pending}
-        selfMemberId={selfMemberId}
-        privateConversation={privateConversation}
-      />
+      <Box key={item.key} sx={{ display: 'grid' }}>
+        {renderedBlocks}
+        {showStoryChoices && onChooseStoryChoice && (!recentNarrative || activeRevealIndex < 0) ? (
+          <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} />
+        ) : null}
+      </Box>
     );
-  }, [characters, currentUser, onAnalyzeMessage, onCharacterAvatarClick, onChooseStoryChoice, onDeleteMessage, onExpressionFeedback, onRetryMedia, openChatImage, privateConversation, selfMemberId, storyChoiceMessageId, storyChoiceOptions]);
+  }, [characters, completedRevealKeys, developerMode, onChooseStoryChoice, renderBubble, storyChoiceMessageId, storyChoiceOptions]);
 
   const topStatusText = useMemo(() => {
     if (messages.length === 0) return null;

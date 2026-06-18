@@ -47,6 +47,23 @@ describe('storyChoices', () => {
     ]);
   });
 
+  it('falls back to latest available branch epoch when chat choiceEpoch is stale', () => {
+    const options = buildStoryBranchOptions({
+      storyChoices: [
+        { label: '让林医生追问昨晚的停电记录', prompt: '追问停电记录' },
+        { label: '让护士检查墙上的血迹', prompt: '检查血迹' },
+      ],
+      choiceEpoch: 1,
+      branches: [
+        { branchId: 'choice-2-a', label: '让林医生追问昨晚的停电记录', prompt: '追问停电记录', status: 'available', choiceEpoch: 2 },
+        { branchId: 'choice-2-b', label: '让护士检查墙上的血迹', prompt: '检查血迹', status: 'available', choiceEpoch: 2 },
+      ],
+      sourceId: 'msg-4',
+    });
+
+    expect(options.map((option) => option.value)).toEqual(['choice-2-a', 'choice-2-b']);
+  });
+
   it('does not expose a single legacy choice as a waiting choice point', () => {
     const choices = [{ label: '让护士长打开封存柜', prompt: '柜里露出缺失的值班表' }];
     expect(hasVisibleStoryChoices(choices)).toBe(false);

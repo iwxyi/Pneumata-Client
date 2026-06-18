@@ -1,11 +1,8 @@
-import { Avatar, Box, Button, Chip, LinearProgress, Typography, keyframes } from '@mui/material';
+import { Box, Button, Chip, LinearProgress, Typography, keyframes } from '@mui/material';
+import { useEffect, useState } from 'react';
 import type { Message, MessageAttachment, NarrativeBlock } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import { getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
-import { isImageAvatar } from '../../utils/avatar';
-import { rememberFailedAvatarUrl, resolveSafeAvatarSrc } from '../../utils/avatarFallback';
 import MarkdownText from '../common/MarkdownText';
 import { formatNarrativeLineText } from '../../services/narrativeLinePresentation';
 
@@ -34,75 +31,38 @@ export function PendingTypingDots() {
   );
 }
 
-function findNarrativeBlockCharacter(block: NarrativeBlock, characters: AICharacter[]) {
-  if (block.characterId) {
-    const byId = characters.find((character) => character.id === block.characterId);
-    if (byId) return byId;
-  }
-  const actorName = (block.actorName || '').trim();
-  return actorName ? characters.find((character) => character.name === actorName) || null : null;
+export function RevealedMarkdownText({ text, reveal = false, onComplete }: { text: string; reveal?: boolean; onComplete?: () => void }) {
+  const [visibleLength, setVisibleLength] = useState(reveal ? 0 : text.length);
+  useEffect(() => {
+    if (!reveal) {
+      setVisibleLength(text.length);
+      onComplete?.();
+      return undefined;
+    }
+    setVisibleLength(0);
+    const step = Math.max(1, Math.ceil(text.length / 90));
+    const timer = window.setInterval(() => {
+      setVisibleLength((current) => {
+        const next = Math.min(text.length, current + step);
+        if (next >= text.length) {
+          window.clearInterval(timer);
+          window.setTimeout(() => onComplete?.(), 0);
+        }
+        return next;
+      });
+    }, 28);
+    return () => window.clearInterval(timer);
+  }, [onComplete, reveal, text]);
+  return <MarkdownText text={text.slice(0, visibleLength)} />;
 }
 
-function NarrativeSpeechBubble({ block, character }: { block: NarrativeBlock; character?: AICharacter | null }) {
-  const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
-  const resolvedStyle = character
-    ? resolveCharacterBubbleStyle({ bubbleStyle: character.bubbleStyle, bubbleStyleId: character.bubbleStyleId, customStyles: customBubbleStyles })
-    : null;
-  const bubblePreview = resolvedStyle ? buildBubblePreview(resolvedStyle, false) : null;
-  const displayName = character?.name || block.actorName || block.actorId;
-  const avatar = character?.avatar?.trim();
-  return (
-    <Box sx={{ display: 'flex', justifyContent: 'flex-start', gap: 1.1, alignItems: 'flex-start', minWidth: 0 }}>
-      <Box sx={{ flexShrink: 0 }}>
-        {avatar && isImageAvatar(avatar) ? (
-          <Avatar
-            src={resolveSafeAvatarSrc(avatar)}
-            alt={displayName}
-            slotProps={{ img: { onError: () => rememberFailedAvatarUrl(avatar) } }}
-            sx={{ width: 34, height: 34 }}
-          />
-        ) : (
-          <Avatar sx={{ width: 34, height: 34, bgcolor: resolvedStyle?.backgroundColor || 'primary.main', fontSize: 15 }}>
-            {displayName.slice(0, 1)}
-          </Avatar>
-        )}
-      </Box>
-      <Box sx={{ maxWidth: 'min(78%, 720px)', minWidth: 0, display: 'grid', gap: 0.35, justifyItems: 'start' }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', px: 0.5, width: 'fit-content' }}>
-          {displayName}
-        </Typography>
-        <Box
-          sx={{
-            px: 1.4,
-            py: 1,
-            borderRadius: bubblePreview?.borderRadius || '18px',
-            background: bubblePreview?.background || '#ffffff',
-            color: bubblePreview?.color || (resolvedStyle?.textColor || '#1f2937'),
-            border: bubblePreview?.border || '1px solid rgba(15, 23, 42, 0.08)',
-            boxShadow: bubblePreview?.boxShadow || '0 8px 24px rgba(15, 23, 42, 0.08)',
-            wordBreak: 'break-word',
-            userSelect: 'text',
-            WebkitUserSelect: 'text',
-            '& table': { width: '100%', borderCollapse: 'collapse' },
-            '& th, & td': { border: '1px solid', borderColor: 'divider', px: 0.75, py: 0.4 },
-          }}
-        >
-          <Box sx={{ typography: 'body2', lineHeight: 1.75 }}>
-            <MarkdownText text={block.text} />
-          </Box>
-        </Box>
-      </Box>
-    </Box>
-  );
-}
-
-function NarrativeChoiceCard({ block }: { block: NarrativeBlock }) {
+function NarrativeChoiceCard({ block, showDeveloperDetails = false }: { block: NarrativeBlock; showDeveloperDetails?: boolean }) {
   const choice = block.choices?.[0];
-  const meta = [
+  const meta = showDeveloperDetails ? [
     choice?.intent ? `意图：${choice.intent}` : '',
     choice?.risk ? `风险：${choice.risk}` : '',
     choice?.reward ? `收益：${choice.reward}` : '',
-  ].filter(Boolean);
+  ].filter(Boolean) : [];
   return (
     <Box sx={{ display: 'flex', justifyContent: 'center' }}>
       <Box
@@ -133,7 +93,7 @@ function NarrativeChoiceCard({ block }: { block: NarrativeBlock }) {
   );
 }
 
-function NarrativeSystemPanel({ block, characters }: { block: NarrativeBlock; characters: AICharacter[] }) {
+function NarrativeSystemPanel({ block, characters, reveal = false, onRevealComplete }: { block: NarrativeBlock; characters: AICharacter[]; reveal?: boolean; onRevealComplete?: () => void }) {
   const lines = block.text.split('\n').map((line) => line.trim()).filter(Boolean);
   const title = lines[0] || '章节回顾';
   const bodyLines = lines.slice(1);
@@ -155,38 +115,52 @@ function NarrativeSystemPanel({ block, characters }: { block: NarrativeBlock; ch
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 700, mb: 0.45 }}>
           {formatNarrativeLineText(title, characters)}
         </Typography>
-        {bodyLines.map((line) => (
+        {bodyLines.map((line, index) => (
           <Typography key={line} variant="body2" sx={{ lineHeight: 1.75, wordBreak: 'break-word', mt: 0.35 }}>
-            {formatNarrativeLineText(line, characters)}
+            <RevealedMarkdownText text={formatNarrativeLineText(line, characters)} reveal={reveal} onComplete={index === bodyLines.length - 1 ? onRevealComplete : undefined} />
           </Typography>
         ))}
+        {bodyLines.length === 0 && reveal ? <RevealCompletion text={title} onComplete={onRevealComplete} /> : null}
       </Box>
     </Box>
   );
 }
 
-export function NarrativeParagraphContent({ blocks, characters = [] }: { blocks: NarrativeBlock[]; characters?: AICharacter[] }) {
+function RevealCompletion({ text, onComplete }: { text: string; onComplete?: () => void }) {
+  useEffect(() => {
+    if (!onComplete) return undefined;
+    const timer = window.setTimeout(onComplete, Math.max(120, Math.min(900, text.length * 18)));
+    return () => window.clearTimeout(timer);
+  }, [onComplete, text]);
+  return null;
+}
+
+export function NarrativeParagraphContent({ blocks, characters = [], reveal = false, showDeveloperDetails = false, activeBlockId = null, onRevealComplete }: { blocks: NarrativeBlock[]; characters?: AICharacter[]; reveal?: boolean; showDeveloperDetails?: boolean; activeBlockId?: string | null; onRevealComplete?: (blockId: string) => void }) {
   return (
     <Box sx={{ display: 'grid', gap: 1.75 }}>
-      {blocks.map((block) => block.displayMode === 'bubble' ? (
-        <NarrativeSpeechBubble key={block.id} block={block} character={findNarrativeBlockCharacter(block, characters)} />
-      ) : block.displayMode === 'choice_card' ? (
-        <NarrativeChoiceCard key={block.id} block={block} />
+      {blocks.filter((block) => block.displayMode !== 'bubble').map((block) => {
+        const shouldReveal = reveal && activeBlockId === block.id;
+        const handleComplete = () => onRevealComplete?.(block.id);
+        return block.displayMode === 'choice_card' ? (
+        <NarrativeChoiceCard key={block.id} block={block} showDeveloperDetails={showDeveloperDetails} />
       ) : block.displayMode === 'system_panel' ? (
-        <NarrativeSystemPanel key={block.id} block={block} characters={characters} />
+        showDeveloperDetails ? <NarrativeSystemPanel key={block.id} block={block} characters={characters} reveal={shouldReveal} onRevealComplete={handleComplete} /> : null
       ) : (
         <Box key={block.id} sx={{ typography: 'body1', lineHeight: 2.05, color: 'text.primary', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
-          <MarkdownText text={block.text} />
+          <RevealedMarkdownText text={block.text} reveal={shouldReveal} onComplete={handleComplete} />
         </Box>
-      ))}
+      );
+      })}
     </Box>
   );
 }
 
-export function MessageContent({ message, onRetryMedia, onOpenImage }: {
+export function MessageContent({ message, onRetryMedia, onOpenImage, revealText = false, onRevealComplete }: {
   message: Message;
   onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void>;
   onOpenImage?: (message: Message, attachment: MessageAttachment) => void;
+  revealText?: boolean;
+  onRevealComplete?: () => void;
 }) {
   const attachments = message.metadata?.attachments || [];
   const statusChipColor = (status: string | undefined): 'error' | 'success' | 'primary' => {
@@ -213,7 +187,7 @@ export function MessageContent({ message, onRetryMedia, onOpenImage }: {
   return (
     <Box sx={{ display: 'grid', gap: 0.9 }}>
       <Box sx={{ typography: 'body2', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text', '& table': { width: '100%', borderCollapse: 'collapse' }, '& th, & td': { border: '1px solid', borderColor: 'divider', px: 0.75, py: 0.4 } }}>
-        <MarkdownText text={message.content} />
+        <RevealedMarkdownText text={message.content} reveal={revealText} onComplete={onRevealComplete} />
       </Box>
       {attachments.map((attachment) => {
         if (attachment.kind === 'image') {

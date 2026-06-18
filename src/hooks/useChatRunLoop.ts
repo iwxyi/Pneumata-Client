@@ -15,9 +15,13 @@ import { useSchedulerStore } from '../stores/useSchedulerStore';
 
 function getOpenStoryChoiceState(chat: GroupChat | undefined, messages: Message[]) {
   if (chat?.sessionKind?.scenarioId !== 'story-reader') return null;
-  const lastMessage = messages[messages.length - 1];
-  const choices = normalizeStoryChoiceSuggestions(lastMessage?.metadata?.storyChoices);
-  return choices.length ? { messageId: lastMessage.id, count: choices.length } : null;
+  if (chat.scenarioState?.phase !== 'choice') return null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const choices = normalizeStoryChoiceSuggestions(message.metadata?.storyChoices);
+    if (choices.length) return { messageId: message.id, count: choices.length };
+  }
+  return null;
 }
 
 export function useChatRunLoop(params: {

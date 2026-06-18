@@ -68,12 +68,16 @@ export function buildStoryBranchOptions(params: {
   const choices = normalizeStoryChoiceSuggestions(params.storyChoices);
   if (choices.length < 2) return [];
   const currentEpoch = Math.max(Number(params.choiceEpoch || 0), 1);
-  const activeBranches = (params.branches || []).filter((branch) => (
+  const availableBranches = (params.branches || []).filter((branch) => (
     branch.status !== 'locked'
     && branch.status !== 'completed'
     && branch.status !== 'chosen'
-    && Number(branch.choiceEpoch || currentEpoch) === currentEpoch
   ));
+  const branchesForCurrentEpoch = availableBranches.filter((branch) => Number(branch.choiceEpoch || currentEpoch) === currentEpoch);
+  const latestAvailableEpoch = Math.max(currentEpoch, ...availableBranches.map((branch) => Number(branch.choiceEpoch || 0)).filter((epoch) => epoch > 0));
+  const activeBranches = branchesForCurrentEpoch.length
+    ? branchesForCurrentEpoch
+    : availableBranches.filter((branch) => Number(branch.choiceEpoch || latestAvailableEpoch) === latestAvailableEpoch);
   const usedBranchIds = new Set<string>();
   return choices.map((choice, index) => {
     const prompt = choice.prompt || choice.label;

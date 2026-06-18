@@ -19,6 +19,7 @@ import { getNarrativeDisplayBlocks, isNarrativeParagraphMessage, shouldUseCompac
 interface MessageBubbleProps {
   message: Message;
   character?: AICharacter;
+  characters?: AICharacter[];
   onDelete?: (id: string) => void;
   onAnalyze?: (message: Message) => void;
   onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
@@ -29,6 +30,8 @@ interface MessageBubbleProps {
   currentUser?: { nickname?: string; avatar?: string };
   selfMemberId?: string | null;
   privateConversation?: boolean;
+  revealText?: boolean;
+  onRevealComplete?: () => void;
 }
 
 interface MenuPosition {
@@ -55,7 +58,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-export default function MessageBubble({ message, character, onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, characters = [], onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false, revealText = false, onRevealComplete }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
@@ -218,14 +221,13 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   );
   const useNarrativeParagraph = !isFinalWithdrawn && (!pending || isNarrativeParagraphMessage(message));
   const narrativeParagraphBlocks = useNarrativeParagraph ? getNarrativeDisplayBlocks(message) : [];
-
   if (narrativeParagraphBlocks.length || (pending && useNarrativeParagraph)) {
-    const narrativeCharacters = effectiveCharacter ? [effectiveCharacter] : [];
+    const narrativeCharacters = characters.length ? characters : effectiveCharacter ? [effectiveCharacter] : [];
     return (
       <>
         <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, py: 1.1, width: '100%' }}>
           <Box {...bubbleHandlers} sx={{ width: '100%', maxWidth: 760, px: { xs: 0.5, sm: 1 }, py: 0.5 }}>
-            {narrativeParagraphBlocks.length ? <NarrativeParagraphContent blocks={narrativeParagraphBlocks} characters={narrativeCharacters} /> : <PendingTypingDots />}
+            {narrativeParagraphBlocks.length ? <NarrativeParagraphContent blocks={narrativeParagraphBlocks} characters={narrativeCharacters} reveal={revealText} showDeveloperDetails={developerMode} activeBlockId={revealText ? narrativeParagraphBlocks[0]?.id || null : null} onRevealComplete={() => onRevealComplete?.()} /> : <PendingTypingDots />}
           </Box>
         </Box>
         <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
@@ -276,7 +278,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
                   </Box>
                 </Tooltip>
               ) : withdrawalNoticeNode
-            ) : <MessageContent message={message} onRetryMedia={onRetryMedia} onOpenImage={onOpenImage} />}
+            ) : <MessageContent message={message} onRetryMedia={onRetryMedia} onOpenImage={onOpenImage} revealText={revealText} onRevealComplete={onRevealComplete} />}
           </Box>
         </Box>
 
