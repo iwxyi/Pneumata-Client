@@ -65,8 +65,8 @@ function normalizeStoryBranches(conversation: GroupChat, choices: StoryChoiceSug
   const currentEpoch = getCurrentChoiceEpoch(conversation);
   const selectedEpoch = Number(conversation.scenarioState?.selectedChoiceEpoch || 0);
   const active = existing.filter((branch) => branch.status !== 'locked' && branch.status !== 'completed' && branch.status !== 'chosen' && Number(branch.choiceEpoch || currentEpoch) === currentEpoch);
-  if (active.length >= 2 && selectedEpoch !== currentEpoch) return { branches: existing, hasOpenChoice: true, openedChoice: false };
   if (choices.length < 2) return { branches: existing, hasOpenChoice: false, openedChoice: false };
+  if (active.length >= 2 && selectedEpoch !== currentEpoch) return { branches: existing, hasOpenChoice: true, openedChoice: false };
   const nextEpoch = currentEpoch + 1;
   const prefix = `${conversation.id}:choice:${nextEpoch}`;
   return {

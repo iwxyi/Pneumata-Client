@@ -93,6 +93,25 @@ describe('STORY_ENGINE', () => {
     expect(scenarioState?.branches).toEqual([]);
   });
 
+  it('does not reopen legacy branches when the committed message has no story choices', async () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = {
+      phase: 'scene',
+      choiceEpoch: 1,
+      branches: [
+        { branchId: 'legacy-1', label: '旧分支一', status: 'available', choiceEpoch: 1 },
+        { branchId: 'legacy-2', label: '旧分支二', status: 'available', choiceEpoch: 1 },
+      ],
+    };
+    const result = await STORY_ENGINE.onMessageCommitted({
+      conversation: chat,
+      characters: [],
+      message: { content: '旁白继续推进，没有新选择。', type: 'ai', senderId: 'narrator' },
+    });
+
+    expect(result.chatPatch.scenarioState).toEqual(expect.objectContaining({ phase: 'scene', choiceEpoch: 1 }));
+  });
+
   it('normalizes concrete character action and dialogue choices from message metadata', async () => {
     const chat = buildStoryChat();
     chat.scenarioState = { ...(chat.scenarioState || {}), phase: 'scene', sceneBeatCount: 3 };
@@ -133,7 +152,7 @@ describe('STORY_ENGINE', () => {
     expect(STORY_ENGINE.resolveTurnPolicy?.({
       conversation: chat,
       characters: [],
-      messages: [{ id: 'm1', chatId: 'story-1', type: 'ai', senderId: 'narrator', senderName: '旁白', content: '选择', timestamp: 1, isDeleted: false, emotion: 0, metadata: { storyChoices: [{ label: '进入旧楼', prompt: '进入旧楼' }] } }],
+      messages: [{ id: 'm1', chatId: 'story-1', type: 'ai', senderId: 'narrator', senderName: '旁白', content: '选择', timestamp: 1, isDeleted: false, emotion: 0, metadata: { storyChoices: [{ label: '进入旧楼', prompt: '进入旧楼' }, { label: '留在门口追问护士', prompt: '留在门口追问护士' }] } }],
     })).toEqual({ runChat: false, runAction: false, interleaveAction: false });
   });
 

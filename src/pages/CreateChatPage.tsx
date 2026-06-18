@@ -445,6 +445,7 @@ export default function CreateChatPage() {
     setRoomTemplate(template.key);
     setStyle(template.style);
     setRuntimeEvolutionIntensity(template.runtimeEvolutionIntensity);
+    setShowRoleActions(template.sessionKind.scenarioId === 'story-reader' ? false : chatDraftDefaults.showRoleActions);
     setAllowPrivateThreads(defaults.allowPrivateThreads ?? (template.sessionKind.family === 'conversation' || template.sessionKind.family === 'analysis'));
     setAllowCliques(defaults.allowCliques ?? (template.sessionKind.family === 'conversation' || template.sessionKind.family === 'analysis'));
     setAllowMockery(defaults.allowMockery ?? (template.sessionKind.family === 'conversation'));
@@ -456,7 +457,7 @@ export default function CreateChatPage() {
     if (defaults.boardRows !== undefined) setBoardRows(defaults.boardRows);
     if (defaults.deductionFactionCount !== undefined) setDeductionFactionCount(defaults.deductionFactionCount);
     if (defaults.mysteryClueCount !== undefined) setMysteryClueCount(defaults.mysteryClueCount);
-  }, []);
+  }, [chatDraftDefaults.showRoleActions]);
 
   const topicPlaceholder = selectedRoomTemplate.topicPlaceholder;
 

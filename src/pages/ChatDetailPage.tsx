@@ -53,7 +53,7 @@ import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
 import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
-import { normalizeStoryChoiceSuggestions } from '../services/storyChoices';
+import { buildStoryBranchOptions, normalizeStoryChoiceSuggestions } from '../services/storyChoices';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -820,14 +820,14 @@ export default function ChatDetailPage() {
   const storyBranchOptions = useMemo(
     () => {
       const sourceId = storyChoiceSourceMessage?.id || '';
-      return normalizeStoryChoiceSuggestions(storyChoiceSourceMessage?.metadata?.storyChoices)
-        .map((choice, index) => ({
-          label: choice.label,
-          value: `${sourceId}:${index}`,
-          prompt: choice.prompt || choice.label,
-        }));
+      return buildStoryBranchOptions({
+        storyChoices: storyChoiceSourceMessage?.metadata?.storyChoices,
+        branches: chat?.scenarioState?.branches,
+        choiceEpoch: chat?.scenarioState?.choiceEpoch,
+        sourceId,
+      });
     },
-    [storyChoiceSourceMessage],
+    [chat?.scenarioState?.branches, chat?.scenarioState?.choiceEpoch, storyChoiceSourceMessage],
   );
   const visibleActionPanelActions = useMemo(
     () => (projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions)
@@ -847,9 +847,9 @@ export default function ChatDetailPage() {
     setDismissedStoryBranchChatId(storyBranchSuggestionKey);
     const option = storyBranchOptions.find((item) => item.value === optionValue);
     const branches = chat.scenarioState?.branches || [];
-    const selectedBranch = branches.find((branch) => branch.label === option?.label && branch.prompt === option?.prompt)
-      || branches.find((branch) => branch.label === option?.label)
-      || branches.find((branch) => branch.branchId === optionValue);
+    const selectedBranch = branches.find((branch) => branch.branchId === optionValue)
+      || branches.find((branch) => branch.label === option?.label && branch.prompt === option?.prompt)
+      || branches.find((branch) => branch.label === option?.label);
     const branchId = selectedBranch?.branchId || optionValue;
     const storyDirection = selectedBranch?.prompt || selectedBranch?.description || option?.prompt || option?.label || chat.scenarioState?.storyDirection;
     const choiceMessage = await addMessageStable({
@@ -862,7 +862,7 @@ export default function ChatDetailPage() {
       timestamp: Date.now(),
     });
     void updateChat(id, { lastMessageAt: choiceMessage.timestamp, latestMessage: choiceMessage });
-    const actionResult = await runSessionAction({ type: 'choose_story_branch', actorId: 'user' }, { branchId });
+    const actionResult = await runSessionAction({ type: 'choose_story_branch', actorId: 'user' }, { branchId, prompt: storyDirection });
     const nextChat = actionResult?.chatPatch ? {
       ...chat,
       ...actionResult.chatPatch,

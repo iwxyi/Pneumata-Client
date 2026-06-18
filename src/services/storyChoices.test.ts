@@ -1,0 +1,55 @@
+import { describe, expect, it } from 'vitest';
+import { buildStoryBranchOptions, hasVisibleStoryChoices, normalizeStoryChoiceSuggestions } from './storyChoices';
+
+describe('storyChoices', () => {
+  it('filters abstract template choices', () => {
+    expect(normalizeStoryChoiceSuggestions([
+      { label: '追查线索', prompt: '泛化模板' },
+      { label: '去地下档案室查被撕掉的病历', prompt: '地下档案室出现新证据' },
+    ])).toEqual([
+      { label: '去地下档案室查被撕掉的病历', prompt: '地下档案室出现新证据' },
+    ]);
+  });
+
+  it('binds visible choices to active branches from the current epoch', () => {
+    const options = buildStoryBranchOptions({
+      storyChoices: [
+        { label: '追问林医生昨晚的停电记录', prompt: '林医生说出停电时有人进入档案室' },
+        { label: '去地下档案室查被撕掉的病历', prompt: '地下档案室出现新证据' },
+      ],
+      choiceEpoch: 3,
+      branches: [
+        { branchId: 'old-same-label', label: '追问林医生昨晚的停电记录', prompt: '旧分支', status: 'available', choiceEpoch: 2 },
+        { branchId: 'current-a', label: '追问林医生昨晚的停电记录', prompt: '林医生说出停电时有人进入档案室', status: 'available', choiceEpoch: 3 },
+        { branchId: 'current-b', label: '去地下档案室查被撕掉的病历', prompt: '地下档案室出现新证据', status: 'available', choiceEpoch: 3 },
+      ],
+      sourceId: 'msg-1',
+    });
+
+    expect(options).toEqual([
+      { label: '追问林医生昨晚的停电记录', prompt: '林医生说出停电时有人进入档案室', value: 'current-a' },
+      { label: '去地下档案室查被撕掉的病历', prompt: '地下档案室出现新证据', value: 'current-b' },
+    ]);
+  });
+
+  it('falls back to stable source values before branches are persisted', () => {
+    expect(buildStoryBranchOptions({
+      storyChoices: [
+        { label: '让护士长打开封存柜', prompt: '柜里露出缺失的值班表' },
+        { label: '追问林医生昨晚的停电记录', prompt: '林医生说出停电时有人进入档案室' },
+      ],
+      branches: [],
+      choiceEpoch: 4,
+      sourceId: 'msg-2',
+    })).toEqual([
+      { label: '让护士长打开封存柜', prompt: '柜里露出缺失的值班表', value: 'msg-2:0' },
+      { label: '追问林医生昨晚的停电记录', prompt: '林医生说出停电时有人进入档案室', value: 'msg-2:1' },
+    ]);
+  });
+
+  it('does not expose a single legacy choice as a waiting choice point', () => {
+    const choices = [{ label: '让护士长打开封存柜', prompt: '柜里露出缺失的值班表' }];
+    expect(hasVisibleStoryChoices(choices)).toBe(false);
+    expect(buildStoryBranchOptions({ storyChoices: choices, sourceId: 'msg-3' })).toEqual([]);
+  });
+});

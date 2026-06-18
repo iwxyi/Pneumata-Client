@@ -86,18 +86,6 @@ export function normalizeOperatorIdsInput(rawValue: string, memberIds: string[])
   };
 }
 
-function buildInitialStoryBranches(input: ChatDraftInput) {
-  const topic = input.topic.trim() || input.name.trim() || '主线剧情';
-  const direction = input.storyDirection?.trim() || topic;
-  const epoch = 1;
-  return [
-    { branchId: 'choice-approach', label: '让角色直接面对最紧迫的冲突', description: `围绕“${direction}”直接制造第一场选择压力。`, prompt: `从“${topic}”最紧迫的冲突切入，围绕“${direction}”让主角立刻面对一个具体后果。`, status: 'available' as const, source: 'suggested' as const, choiceEpoch: epoch },
-    { branchId: 'choice-clue', label: '让角色发现一个反常线索', description: `让异常细节指向新的地点、人物或危险。`, prompt: `追查“${topic}”里最反常的线索，让角色发现能改变当前判断的具体信息。`, status: 'available' as const, source: 'suggested' as const, choiceEpoch: epoch },
-    { branchId: 'choice-person', label: '让角色逼问关键人物', description: `把隐藏关系和动机推到台前。`, prompt: `安排角色逼问和“${topic}”有关的关键人物，让对方暴露一个足以改变信任关系的事实。`, status: 'available' as const, source: 'suggested' as const, choiceEpoch: epoch },
-    { branchId: 'choice-place', label: '让角色前往危险地点', description: `通过场景转移触发新的主线事件。`, prompt: `让角色前往“${topic}”指向的危险地点，并在那里遭遇和“${direction}”直接相关的事件。`, status: 'available' as const, source: 'suggested' as const, choiceEpoch: epoch },
-  ];
-}
-
 function buildRuntimeSeed(input: Pick<ChatDraftInput, 'seedMemoryText' | 'seedArtifactText'>) {
   return {
     notes: normalizeRuntimeSeedLines(input.seedMemoryText, 'note'),
@@ -108,6 +96,7 @@ function buildRuntimeSeed(input: Pick<ChatDraftInput, 'seedMemoryText' | 'seedAr
 export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'> {
   const sessionKind = input.sessionKind || createDefaultSessionKind('group', 'open_chat');
   const templateDefaults = getRoomTemplateDefaultsBySessionKind(sessionKind);
+  const isStoryReader = sessionKind.scenarioId === 'story-reader';
   const mode = sessionKind.scenarioId === 'group-discussion'
     ? 'group_discussion'
     : sessionKind.scenarioId === 'roundtable-discussion'
@@ -129,7 +118,10 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
     type: 'group',
     mode,
     sessionKind,
-    modeConfig: DEFAULT_OPEN_CHAT_MODE_CONFIG,
+    modeConfig: {
+      ...DEFAULT_OPEN_CHAT_MODE_CONFIG,
+      showRoleActions: isStoryReader ? false : input.showRoleActions,
+    },
     modeState: DEFAULT_OPEN_CHAT_MODE_STATE,
     scenarioPackage: {
       scenarioId: sessionKind.scenarioId,
@@ -176,8 +168,8 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
           : sessionKind.scenarioId === 'murder-mystery'
             ? [{ key: 'mystery-progress', label: '搜证进度', value: 0, target: input.mysteryClueCount || 6 }]
             : [],
-      branches: hasTemplateDefault(templateDefaults, 'storyBranchMode')
-        ? buildInitialStoryBranches(input)
+      branches: isStoryReader
+        ? []
         : hasTemplateDefault(templateDefaults, 'mysteryClueCount')
           ? Array.from({ length: Math.max(1, input.mysteryClueCount || templateDefaults.mysteryClueCount || 6) }, (_, index) => ({ branchId: `clue-${index + 1}`, label: `线索${index + 1}`, status: index === 0 ? 'available' : 'locked' }))
           : [],
@@ -203,7 +195,7 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
     speed: 1,
     isActive: false,
     allowIntervention: true,
-    showRoleActions: input.showRoleActions,
+    showRoleActions: isStoryReader ? false : input.showRoleActions,
     topicSeed: '',
     runtimeSeed: buildRuntimeSeed(input),
     governance: {

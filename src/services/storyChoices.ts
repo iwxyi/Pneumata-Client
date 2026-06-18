@@ -1,4 +1,11 @@
+import type { ScenarioBranchState } from '../types/chat';
 import type { StoryChoiceSuggestion } from '../types/message';
+
+export interface StoryBranchOption {
+  label: string;
+  value: string;
+  prompt: string;
+}
 
 const abstractStoryChoicePatterns = [
   /^深入(?:角色)?内心$/,
@@ -37,5 +44,39 @@ export function normalizeStoryChoiceSuggestions(value: unknown): StoryChoiceSugg
 }
 
 export function hasVisibleStoryChoices(value: unknown) {
-  return normalizeStoryChoiceSuggestions(value).length > 0;
+  return normalizeStoryChoiceSuggestions(value).length >= 2;
+}
+
+export function buildStoryBranchOptions(params: {
+  storyChoices: unknown;
+  branches?: ScenarioBranchState[] | null;
+  choiceEpoch?: number | null;
+  sourceId?: string;
+}): StoryBranchOption[] {
+  const choices = normalizeStoryChoiceSuggestions(params.storyChoices);
+  if (choices.length < 2) return [];
+  const currentEpoch = Math.max(Number(params.choiceEpoch || 0), 1);
+  const activeBranches = (params.branches || []).filter((branch) => (
+    branch.status !== 'locked'
+    && branch.status !== 'completed'
+    && branch.status !== 'chosen'
+    && Number(branch.choiceEpoch || currentEpoch) === currentEpoch
+  ));
+  const usedBranchIds = new Set<string>();
+  return choices.map((choice, index) => {
+    const prompt = choice.prompt || choice.label;
+    const branch = activeBranches.find((item) => {
+      if (usedBranchIds.has(item.branchId)) return false;
+      return item.label === choice.label && (item.prompt || item.description || item.label) === prompt;
+    }) || activeBranches.find((item) => {
+      if (usedBranchIds.has(item.branchId)) return false;
+      return item.label === choice.label;
+    });
+    if (branch) usedBranchIds.add(branch.branchId);
+    return {
+      label: choice.label,
+      value: branch?.branchId || `${params.sourceId || 'story-choice'}:${index}`,
+      prompt,
+    };
+  });
 }

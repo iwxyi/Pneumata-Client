@@ -53,6 +53,48 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     expect(draft.operatorIds).toEqual(['host_moderator', 'topic_guide_bot']);
   });
 
+  it('starts story reader rooms without legacy branches or visible role actions', () => {
+    const draft = buildGroupChatDraft({
+      type: 'group',
+      name: '旧医院故事',
+      topic: '雨夜旧医院',
+      style: 'roleplay',
+      runtimeEvolutionIntensity: 'slow',
+      sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+      storyBranchMode: 'guided',
+      storyBackground: '旧医院连续有人失踪。',
+      storyDirection: '悬疑探索',
+      storyOutline: '',
+      memberIds: ['lin', 'nurse'],
+      operatorIds: [],
+      showRoleActions: true,
+      seedMemoryText: '',
+      seedArtifactText: '',
+      ownerCharacterId: null,
+      adminCharacterIds: [],
+      autoModeration: false,
+      allowMute: true,
+      allowPrivateThreads: false,
+      allowCliques: false,
+      allowMockery: false,
+      mood: '',
+      focus: '',
+      recentEvent: '',
+      allowSpeakAs: true,
+      allowDirectorMode: true,
+      allowEventInjection: true,
+      allowForcedReply: true,
+    });
+
+    expect(draft.mode).toBe('scripted_play');
+    expect(draft.scenarioState?.phase).toBe('scene');
+    expect(draft.scenarioState?.branches).toEqual([]);
+    expect(draft.showRoleActions).toBe(false);
+    expect(draft.modeConfig.showRoleActions).toBe(false);
+    expect(draft.scenarioState?.storyBackground).toBe('旧医院连续有人失踪。');
+    expect(draft.scenarioState?.storyDirection).toBe('悬疑探索');
+  });
+
   it('normalizes operator ids and filters user/member duplicates', () => {
     const result = normalizeOperatorIdsInput('host_moderator, user, a,\n topic_guide_bot，a', ['a', 'b']);
     expect(result.normalizedIds).toEqual(['host_moderator', 'user', 'a', 'topic_guide_bot']);

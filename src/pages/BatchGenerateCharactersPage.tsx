@@ -815,7 +815,7 @@ export default function BatchGenerateCharactersPage() {
               position: 'fixed',
               right: { xs: 24, sm: 32, md: 36 },
               bottom: { xs: MOBILE_BOTTOM_NAV_FAB_OFFSET, sm: 32, md: 36 },
-              zIndex: 1200,
+              zIndex: (theme) => theme.zIndex.drawer + 1,
               minHeight: 56,
               px: 2.25,
               borderRadius: 18,
