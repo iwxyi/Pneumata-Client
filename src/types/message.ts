@@ -85,6 +85,7 @@ export interface StoryEvent {
 
 export interface StoryChoiceSelection {
   branchId?: string;
+  sourceMessageId?: string;
   label: string;
   prompt?: string | null;
   intent?: string | null;

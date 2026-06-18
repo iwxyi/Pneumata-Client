@@ -199,6 +199,7 @@ export default function MessageList({
   const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const [completedRevealKeys, setCompletedRevealKeys] = useState<Set<string>>(() => new Set());
   const [viewerKey, setViewerKey] = useState<string | null>(null);
   const topLoadTriggeredRef = useRef(false);
@@ -422,6 +423,25 @@ export default function MessageList({
 
   useEffect(() => stopFollowScrollAnimation, [stopFollowScrollAnimation]);
 
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === 'undefined') return undefined;
+    let frame: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (!hasJumpedToBottomRef.current || !shouldStickToBottomRef.current) return;
+      if (frame != null) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        if (shouldStickToBottomRef.current) followScrollToBottom();
+      });
+    });
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+      if (frame != null) window.cancelAnimationFrame(frame);
+    };
+  }, [followScrollToBottom]);
+
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || renderItems.length === 0 || hasJumpedToBottomRef.current) return;
@@ -548,7 +568,7 @@ export default function MessageList({
         </Box>
       ) : null}
 
-      <Box>
+      <Box ref={contentRef}>
         {renderItems.map(renderMessageItem)}
         {tailContent}
       </Box>

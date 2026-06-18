@@ -134,6 +134,11 @@ export function useChatRunLoop(params: {
         onCommitFinished: () => {
           pendingCommitCountRef.current = Math.max(0, pendingCommitCountRef.current - 1);
         },
+        pauseLoop: () => {
+          current.isPausedRef.current = true;
+          current.pause();
+          void current.updateChat(current.chatId!, { isActive: false });
+        },
         onTurnWorkStarted: () => {
           pendingTurnWorkCountRef.current += 1;
         },

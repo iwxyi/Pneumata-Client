@@ -154,6 +154,10 @@ function shouldWaitAfterSessionTick() {
   return true;
 }
 
+function shouldStopAfterCommittedRound(chat: GroupChat) {
+  return chat.sessionKind?.scenarioId === 'story-reader';
+}
+
 function resolveCommitApiConfig(api: APIConfig | AIModelProfile[]): APIConfig {
   if (!Array.isArray(api)) return api;
   const profile = getPreferredAIProfile(api, 'text') || api.find((item) => (item.type || 'text') === 'text') || api[0];
@@ -184,6 +188,7 @@ export async function runSessionLoop(params: {
   onCommitSettled?: () => boolean;
   onCommitStarted?: () => void;
   onCommitFinished?: () => void;
+  pauseLoop?: () => void;
   onTurnWorkStarted?: () => void;
   onTurnWorkFinished?: () => void;
   onIdle?: (reason: string) => void;
@@ -364,6 +369,9 @@ export async function runSessionLoop(params: {
               params.onCommitFinished?.();
               if (isActiveLoop(params)) {
                 params.onClearStreamingState();
+                if (shouldStopAfterCommittedRound(currentChat)) {
+                  params.pauseLoop?.();
+                }
               }
             }
           },

@@ -25,6 +25,16 @@ function getEventSourceMessageId(message: Message) {
   return event?.sourceMessageId || null;
 }
 
+function getAnchoredSourceMessageId(message: Message) {
+  return message.metadata?.storyChoiceSelection?.sourceMessageId || getEventSourceMessageId(message);
+}
+
+function getTiePriority(message: Message) {
+  if (message.metadata?.storyChoiceSelection?.sourceMessageId) return 1;
+  if (message.type === 'event') return 2;
+  return 0;
+}
+
 export function buildChatRenderItems(messages: Message[]): ChatRenderItem[] {
   const items: Array<ChatRenderItem & { order: number }> = [];
 
@@ -52,13 +62,13 @@ export function buildChatRenderItems(messages: Message[]): ChatRenderItem[] {
 
   return items
     .sort((a, b) => {
-      const aSourceOrder = getEventSourceMessageId(a.message);
-      const bSourceOrder = getEventSourceMessageId(b.message);
+      const aSourceOrder = getAnchoredSourceMessageId(a.message);
+      const bSourceOrder = getAnchoredSourceMessageId(b.message);
       const aSortTime = aSourceOrder ? (timestampByMessageId.get(aSourceOrder) ?? a.message.timestamp) : a.message.timestamp;
       const bSortTime = bSourceOrder ? (timestampByMessageId.get(bSourceOrder) ?? b.message.timestamp) : b.message.timestamp;
       if (aSortTime !== bSortTime) return aSortTime - bSortTime;
-      if (a.message.type === 'event' && b.message.type !== 'event') return 1;
-      if (a.message.type !== 'event' && b.message.type === 'event') return -1;
+      const priorityDelta = getTiePriority(a.message) - getTiePriority(b.message);
+      if (priorityDelta !== 0) return priorityDelta;
       return a.order - b.order;
     })
     .map((item) => ({

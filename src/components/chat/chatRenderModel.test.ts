@@ -81,6 +81,46 @@ describe('buildChatRenderItems', () => {
     expect(items[0]?.renderKind).toBe('narrative');
   });
 
+  it('keeps a story choice selection anchored before the generated consequence', () => {
+    const items = buildChatRenderItems([
+      message({
+        id: 'choice-source',
+        senderId: 'narrator',
+        senderName: '旁白',
+        content: '门后传来脚步声。',
+        timestamp: 10,
+        metadata: {
+          storyChoices: [{ label: '推门进去', prompt: '推门进去' }, { label: '退到楼梯间', prompt: '退到楼梯间' }],
+        },
+      }),
+      message({
+        id: 'consequence-1',
+        senderId: 'narrator',
+        senderName: '旁白',
+        content: '门轴发出尖响。',
+        timestamp: 20,
+      }),
+      message({
+        id: 'choice-selection',
+        type: 'user',
+        senderId: 'user',
+        senderName: '我',
+        content: '我选择：推门进去',
+        timestamp: 30,
+        metadata: {
+          storyChoiceSelection: {
+            branchId: 'enter',
+            sourceMessageId: 'choice-source',
+            label: '推门进去',
+            prompt: '推门进去',
+          },
+        },
+      }),
+    ]);
+
+    expect(items.map((item) => item.message.id)).toEqual(['choice-source', 'choice-selection', 'consequence-1']);
+  });
+
   it('renders public story events as narrative items', () => {
     for (const visibilityScope of ['public', 'derived_public']) {
       const items = buildChatRenderItems([

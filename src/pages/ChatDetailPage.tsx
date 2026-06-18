@@ -865,6 +865,7 @@ export default function ChatDetailPage() {
       metadata: {
         storyChoiceSelection: {
           branchId,
+          sourceMessageId: storyChoiceSourceMessage?.id,
           label: choiceLabel,
           prompt: storyDirection || null,
           intent: option?.intent || selectedBranch?.intent || null,
@@ -890,7 +891,7 @@ export default function ChatDetailPage() {
     } : chat;
     await updateChat(id, actionResult?.chatPatch || {});
     startConversationLoopIfNeeded(nextChat);
-  }, [addMessageStable, chat, currentUser?.nickname, getNextMessageTimestamp, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, updateChat]);
+  }, [addMessageStable, chat, currentUser?.nickname, getNextMessageTimestamp, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, storyChoiceSourceMessage?.id, updateChat]);
   const storyBranchSuggestionContent = runLoopStatusContent;
 
   const handleExpressionFeedback = useCallback(async (message: Message, kind: ExpressionFeedbackKind) => {
