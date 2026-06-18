@@ -196,6 +196,7 @@ export interface SocialEventCandidatePayload {
   openingMessage?: string;
   momentText?: string;
   companionshipSeeds?: string[];
+  decisionSource?: 'model' | 'local_fallback';
   title?: string;
   activityType?: string;
   timeHint?: string | null;

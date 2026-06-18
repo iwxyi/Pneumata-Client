@@ -152,6 +152,7 @@ export function buildCompanionshipPhaseEventFromDecision(params: {
     reason: params.decision.reason,
     initiatedBy: 'user',
     evidence: params.decision.evidence,
+    sourceMessageIds: [params.message.id],
     confidence: params.decision.confidence,
     decisionSource: params.decision.decisionSource,
   };

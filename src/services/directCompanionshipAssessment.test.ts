@@ -110,6 +110,44 @@ describe('directCompanionshipAssessment', () => {
         }],
         reason: '用户给出称呼偏好。',
       },
+      addressing: {
+        shouldCreate: true,
+        action: 'set_current',
+        currentAddress: '小夏',
+        confidence: 0.9,
+        reason: '用户明确要求当前称呼。',
+        evidence: '以后叫我小夏',
+      },
+      promises: [{
+        shouldCreate: true,
+        action: 'opened',
+        promiseText: '面试结束后告诉苏苏结果',
+        promiseKind: 'user_followup',
+        dueInHours: 48,
+        confidence: 0.86,
+        reason: '用户和角色形成了等用户回来说结果的约定。',
+        evidence: '明天面试完我回来告诉你结果',
+      }],
+      sharedAnchors: [{
+        shouldCreate: true,
+        kind: 'milestone',
+        title: '第一次约定面试后报平安',
+        text: '用户和苏苏约好面试后回来告诉结果，这是两人关系里的一个小里程碑。',
+        salience: 78,
+        confidence: 0.87,
+        reason: '用户明确把面试后的回来说结果交给当前角色记住。',
+        evidence: '明天面试完我回来告诉你结果',
+      }],
+      sharedSecrets: [{
+        shouldCreate: true,
+        privateText: '用户只告诉苏苏自己其实很害怕这次面试失败。',
+        publicMask: '有一件只适合私下记着的面试心事',
+        consequenceKind: 'none',
+        emotionalWeight: 76,
+        confidence: 0.89,
+        reason: '用户明确说这件事只告诉苏苏。',
+        evidence: '我只告诉你，我其实很害怕这次面试失败',
+      }],
       sharedPhrases: [{
         shouldCreate: true,
         action: 'upsert',
@@ -123,6 +161,24 @@ describe('directCompanionshipAssessment', () => {
         reason: '用户明确把这句话当作两人之间的安慰语。',
         evidence: '以后我们之间这句话就叫“慢慢来，我在”',
       }],
+      intimateConflict: {
+        shouldCreate: true,
+        action: 'repair_attempted',
+        kind: 'repair_attempt',
+        severity: 32,
+        repairReadiness: 68,
+        summary: '用户愿意把刚才的不舒服说开。',
+        confidence: 0.84,
+        evidence: ['刚才那句话让我不舒服，但我们慢慢说开吧'],
+      },
+      attachmentProfile: {
+        shouldCreate: true,
+        inferredStyle: 'anxious',
+        confidence: 0.82,
+        reason: '用户明确希望重要情绪能得到确认。',
+        evidence: ['我紧张的时候希望你明确回应我一下'],
+        adaptations: ['多给具体确认', '不要把沉默理解成不需要回应'],
+      },
     }));
 
     const events = await resolveDirectCompanionshipAssessmentEvents({
@@ -137,39 +193,114 @@ describe('directCompanionshipAssessment', () => {
       'companionship_phase_event',
       'companionship_care_topic',
       'companionship_user_profile_memory',
+      'companionship_addressing',
+      'companionship_promise',
+      'companionship_shared_anchor',
+      'companionship_shared_secret',
       'companionship_shared_phrase',
+      'companionship_intimate_conflict',
+      'companionship_attachment_profile',
     ]);
+    expect(events[0]?.payload).toMatchObject({
+      eventType: 'companionship_phase_event',
+      sourceMessageIds: ['msg-1'],
+      decisionSource: 'model',
+    });
+    expect(events[0]?.evidenceMessageIds).toEqual(['msg-1']);
+    expect(events[3]?.payload).toMatchObject({
+      eventType: 'companionship_addressing',
+      action: 'set_current',
+      currentAddress: '小夏',
+      sourceMessageIds: ['msg-1'],
+      decisionSource: 'model',
+    });
+    expect(events[3]?.evidenceMessageIds).toEqual(['msg-1']);
+    expect(events[4]?.payload).toMatchObject({
+      eventType: 'companionship_promise',
+      action: 'opened',
+      promiseText: '面试结束后告诉苏苏结果',
+      promiseKind: 'user_followup',
+      sourceMessageIds: ['msg-1'],
+      decisionSource: 'model',
+    });
+    expect((events[4]?.payload as { dueAt?: number }).dueAt).toBe(1000 + 48 * 60 * 60_000);
+    expect(events[4]?.evidenceMessageIds).toEqual(['msg-1']);
+    expect(events[5]?.payload).toMatchObject({
+      eventType: 'companionship_shared_anchor',
+      action: 'upsert',
+      kind: 'milestone',
+      title: '第一次约定面试后报平安',
+      sourceMessageIds: ['msg-1'],
+      decisionSource: 'model',
+    });
+    expect(events[5]?.evidenceMessageIds).toEqual(['msg-1']);
+    expect(events[6]?.payload).toMatchObject({
+      eventType: 'companionship_shared_secret',
+      action: 'recorded',
+      privateText: '用户只告诉苏苏自己其实很害怕这次面试失败。',
+      publicMask: '有一件只适合私下记着的面试心事',
+      sourceMessageIds: ['msg-1'],
+      decisionSource: 'model',
+    });
+    expect(events[6]?.evidenceMessageIds).toEqual(['msg-1']);
     expect(events.at(-1)?.payload).toMatchObject({
+      eventType: 'companionship_attachment_profile',
+      action: 'inferred',
+      inferredStyle: 'anxious',
+      sourceMessageIds: ['msg-1'],
+      decisionSource: 'model',
+    });
+    expect(events.at(-1)?.evidenceMessageIds).toEqual(['msg-1']);
+    expect(events.at(-2)?.payload).toMatchObject({
+      eventType: 'companionship_intimate_conflict',
+      action: 'repair_attempted',
+      kind: 'repair_attempt',
+      sourceMessageIds: ['msg-1'],
+      decisionSource: 'model',
+    });
+    expect(events.at(-2)?.evidenceMessageIds).toEqual(['msg-1']);
+    expect(events.at(-3)?.payload).toMatchObject({
       eventType: 'companionship_shared_phrase',
       action: 'upsert',
       text: '慢慢来，我在',
       kind: 'comfort_line',
+      sourceMessageIds: ['msg-1'],
       decisionSource: 'model',
     });
+    expect(events.at(-3)?.evidenceMessageIds).toEqual(['msg-1']);
   });
 
-  it('falls back to local shared phrase detection when the model assessment fails', async () => {
+  it('falls back to local shared phrase and intimate conflict detection when the model assessment fails', async () => {
     generateJsonResponseMock.mockRejectedValueOnce(new Error('model unavailable'));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const events = await resolveDirectCompanionshipAssessmentEvents({
       chat: chat(),
       character: character(),
-      message: message('以后我们之间的暗号就叫“慢慢来，我在”。'),
+      message: message('以后我们之间的暗号就叫“慢慢来，我在”。刚才那句话让我很受伤，我们先别聊了。'),
       textApiConfig: { provider: 'openai', apiKey: 'key', baseUrl: 'https://example.test', model: 'model' },
     });
     const phrase = events.find((event) => (event.payload as { eventType?: string }).eventType === 'companionship_shared_phrase');
+    const conflict = events.find((event) => (event.payload as { eventType?: string }).eventType === 'companionship_intimate_conflict');
 
     expect(phrase?.payload).toMatchObject({
       eventType: 'companionship_shared_phrase',
       action: 'upsert',
       text: '慢慢来，我在',
       kind: 'inside_joke',
+      sourceMessageIds: ['msg-1'],
+      decisionSource: 'local_fallback',
+    });
+    expect(conflict?.payload).toMatchObject({
+      eventType: 'companionship_intimate_conflict',
+      action: 'opened',
+      kind: 'vulnerability_burst',
+      sourceMessageIds: ['msg-1'],
       decisionSource: 'local_fallback',
     });
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[recoverable-warning] companionship:direct-assessment-model-fallback'), expect.objectContaining({
       fallback: 'local_fallback',
-      messagePreview: '以后我们之间的暗号就叫“慢慢来，我在”。',
+      messagePreview: '以后我们之间的暗号就叫“慢慢来，我在”。刚才那句话让我很受伤，我们先别聊了。',
     }));
     warnSpy.mockRestore();
   });

@@ -1,11 +1,17 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_EMOTIONAL_STATE, type AICharacter } from '../types/character';
 import { normalizeConversation } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { DEFAULT_COMPANIONSHIP_SETTINGS } from '../types/settings';
-import { buildCompanionshipRitualEventsFromDirectUserMessage } from './directCompanionshipRitual';
+import { buildCompanionshipRitualEventsFromDirectUserMessage, resolveCompanionshipRitualEventsFromDirectUserMessage } from './directCompanionshipRitual';
 import { setCompanionshipRuntimeConfig } from './companionshipRuntimeConfig';
+
+vi.mock('./aiClient', () => ({
+  generateJsonResponse: vi.fn(),
+}));
+
+const { generateJsonResponse } = await import('./aiClient');
 
 function character(overrides: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -110,6 +116,7 @@ function performedRitualEvent(createdAt = 1_000): RuntimeEventV2 {
 describe('directCompanionshipRitual', () => {
   beforeEach(() => {
     setCompanionshipRuntimeConfig(DEFAULT_COMPANIONSHIP_SETTINGS);
+    vi.mocked(generateJsonResponse).mockReset();
   });
 
   it('writes a performed greeting ritual event from explicit direct greeting text', () => {
@@ -196,5 +203,58 @@ describe('directCompanionshipRitual', () => {
     });
 
     expect(events).toEqual([]);
+  });
+
+  it('uses model judgment for greeting ritual triggers when api config is available', async () => {
+    vi.mocked(generateJsonResponse).mockResolvedValue(JSON.stringify({
+      shouldCreate: true,
+      kind: 'daily_greeting',
+      confidence: 0.91,
+      reason: '用户直接对当前角色说晚安，形成睡前问候仪式。',
+      evidence: '晚安，今天先睡啦。',
+    }));
+
+    const events = await resolveCompanionshipRitualEventsFromDirectUserMessage({
+      chat: chat(),
+      character: character(),
+      message: userMessage('晚安，今天先睡啦。', 1_000),
+      textApiConfig: { provider: 'openai', baseUrl: '', apiKey: 'k', model: 'm' },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0].payload).toMatchObject({
+      eventType: 'companionship_ritual',
+      ritualId: 'ritual-char-a-daily-greeting',
+      action: 'performed',
+      reason: '用户直接对当前角色说晚安，形成睡前问候仪式。',
+      evidence: '晚安，今天先睡啦。',
+      confidence: 0.91,
+      decisionSource: 'model',
+    });
+  });
+
+  it('warns and falls back to local judgment when model judgment fails', async () => {
+    vi.mocked(generateJsonResponse).mockRejectedValue(new Error('model down'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const events = await resolveCompanionshipRitualEventsFromDirectUserMessage({
+        chat: chat(),
+        character: character(),
+        message: userMessage('晚安，今天先睡啦。', 1_000),
+        textApiConfig: { provider: 'openai', baseUrl: '', apiKey: 'k', model: 'm' },
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0].payload).toMatchObject({
+        eventType: 'companionship_ritual',
+        action: 'performed',
+        decisionSource: 'local_fallback',
+      });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[recoverable-warning] companionship:ritual-model-fallback'), expect.objectContaining({
+        fallback: 'local_fallback',
+      }));
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

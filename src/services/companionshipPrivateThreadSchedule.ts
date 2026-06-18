@@ -1,5 +1,5 @@
 import type { GroupChat } from '../types/chat';
-import type { CompanionshipPrivateThreadScheduleEventPayload } from '../types/companionship';
+import type { CompanionshipPrivateThreadScheduleEventPayload, PrivateThreadScheduleDiagnostic } from '../types/companionship';
 import type { RuntimeEventV2, SocialEventCandidatePayload } from '../types/runtimeEvent';
 import { getCompanionshipRuntimeConfig } from './companionshipRuntimeConfig';
 
@@ -52,7 +52,7 @@ export function buildCompanionshipPrivateThreadScheduleEvent(params: {
     privateChatId: params.privateChatId,
     nextAvailableAt: params.nextAvailableAt,
     confidence: params.payload.confidence,
-    decisionSource: params.payload.reasonType?.startsWith('companionship_') ? 'local_fallback' : undefined,
+    decisionSource: params.payload.decisionSource,
   };
   return {
     id: `evt-companionship-private-thread-${createdAt}-${pairKeyOf(params.payload.participantIds)}`,
@@ -101,4 +101,48 @@ export function isCompanionshipPrivateThreadPairCoolingDown(params: {
   windowMs?: number;
 }) {
   return Boolean(getRecentCompanionshipPrivateThreadSchedule(params));
+}
+
+export function buildCompanionshipPrivateThreadScheduleDiagnostics(params: {
+  chat: GroupChat;
+  characterId?: string;
+  now?: number;
+  limit?: number;
+}): PrivateThreadScheduleDiagnostic[] {
+  const now = params.now || Date.now();
+  const cooldownMs = getCompanionshipPrivateThreadCooldownMs();
+  return (params.chat.runtimeEventsV2 || [])
+    .map((event): PrivateThreadScheduleDiagnostic | null => {
+      const payload = payloadOf(event);
+      if (!payload) return null;
+      if (params.characterId && !payload.participantIds.includes(params.characterId)) return null;
+      const nextAvailableAt = typeof payload.nextAvailableAt === 'number' ? payload.nextAvailableAt : undefined;
+      const isCoolingDown = payload.action === 'skipped'
+        ? Boolean(nextAvailableAt && nextAvailableAt > now)
+        : (payload.action === 'opened' || payload.action === 'candidate_created')
+          && cooldownMs > 0
+          && now - event.createdAt < cooldownMs;
+      return {
+        id: event.id,
+        actorId: payload.actorId,
+        targetId: payload.targetId,
+        participantIds: payload.participantIds,
+        action: payload.action,
+        reasonType: payload.reasonType,
+        triggerReason: payload.triggerReason,
+        openingMessage: payload.openingMessage,
+        reason: payload.reason,
+        candidateId: payload.candidateId,
+        privateChatId: payload.privateChatId,
+        dedupeKey: payload.dedupeKey,
+        nextAvailableAt,
+        isCoolingDown,
+        confidence: payload.confidence,
+        decisionSource: payload.decisionSource,
+        occurredAt: event.createdAt,
+      };
+    })
+    .filter((item): item is PrivateThreadScheduleDiagnostic => Boolean(item))
+    .sort((a, b) => b.occurredAt - a.occurredAt)
+    .slice(0, Math.max(1, params.limit || 8));
 }

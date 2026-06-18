@@ -40,6 +40,7 @@ function event(overrides: Partial<RuntimeEventV2>): RuntimeEventV2 {
     summary: '陪伴事件',
     eventClass: 'artifact',
     visibility: 'pair_private',
+    evidenceMessageIds: ['msg-source'],
     payload: {},
     ...overrides,
   };
@@ -91,7 +92,9 @@ describe('companionshipSharedPhraseBackflow', () => {
         phase: 'confirmed',
         style: 'romantic',
         evidence: ['用户说：“我们就在一起吧。”'],
+        sourceMessageIds: ['msg-phase-source'],
         confidence: 0.9,
+        decisionSource: 'model',
       },
     });
     const repair = event({
@@ -112,7 +115,7 @@ describe('companionshipSharedPhraseBackflow', () => {
     const payloads = events.map((item) => item.payload as Record<string, unknown>);
 
     expect(payloads).toEqual(expect.arrayContaining([
-      expect.objectContaining({ text: '我们就在一起吧。', kind: 'confession_line' }),
+      expect.objectContaining({ text: '我们就在一起吧。', kind: 'confession_line', sourceMessageIds: ['msg-phase-source', 'msg-source'], decisionSource: 'model' }),
       expect.objectContaining({ text: '慢慢来，我们说开。', kind: 'comfort_line' }),
     ]));
   });
@@ -180,6 +183,8 @@ describe('companionshipSharedPhraseBackflow', () => {
       kind: 'secret_code',
       visibility: 'private',
       participantIds: ['char-a', 'user'],
+      sourceMessageIds: ['msg-source'],
+      decisionSource: 'local_fallback',
     });
     expect(payload?.reason).toContain('记忆蒸馏');
   });
@@ -216,5 +221,26 @@ describe('companionshipSharedPhraseBackflow', () => {
       participantIds: ['char-a', 'char-b'],
     });
     expect(payload?.userId).toBeUndefined();
+  });
+
+  it('does not derive shared phrases from low-confidence distilled memories', () => {
+    const distilled = event({
+      id: 'distilled-memory-low-confidence',
+      kind: 'memory_candidate',
+      targetIds: ['char-a', 'user'],
+      summary: '用户和苏苏把“月亮今天也站岗”当作只属于两个人的秘密暗号。',
+      visibility: 'public',
+      payload: {
+        kind: 'bond',
+        text: '用户和苏苏把“月亮今天也站岗”当作只属于两个人的秘密暗号。',
+        origin: 'distilled',
+        confidence: 0.5,
+        salience: 0.82,
+      },
+    });
+
+    const events = buildSharedPhraseEventsFromCompanionshipEvents({ chat: chat(), character: character(), events: [distilled] });
+
+    expect(events).toEqual([]);
   });
 });

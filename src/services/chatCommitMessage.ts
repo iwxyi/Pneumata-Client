@@ -1,6 +1,7 @@
 import type { Message } from '../types/message';
 import { resolveCommittedStreamContent } from './streamingMessageLifecycle';
 import { useMessageStore } from '../stores/useMessageStore';
+import { compactMessageMetadata } from './messageMetadataCompaction';
 
 interface PersistLocalFirstMessageParams {
   message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>;
@@ -91,6 +92,7 @@ export function createCommittedLocalMessage(
   options?: { timestamp?: number; identitySalt?: string },
 ): Message {
   const timestamp = options?.timestamp ?? Date.now();
+  const metadata = compactMessageMetadata(message.metadata, { dropContextText: true });
   const id = `local-message-${timestamp}-${stableMessageSeed([
     message.chatId,
     message.type,
@@ -98,11 +100,12 @@ export function createCommittedLocalMessage(
     message.senderName,
     message.content,
     message.emotion,
-    message.metadata ? JSON.stringify(message.metadata) : '',
+    metadata ? JSON.stringify(metadata) : '',
     options?.identitySalt,
   ])}`;
   return {
     ...message,
+    metadata,
     id,
     clientKey: id,
     timestamp,
@@ -128,6 +131,7 @@ export async function persistLocalFirstMessage(params: PersistLocalFirstMessageP
   const messagePayload = {
     ...params.message,
     content: messageContent,
+    metadata: compactMessageMetadata(params.message.metadata, { dropContextText: true }),
   };
   const localMessage = params.existingLocalMessage
     ? {

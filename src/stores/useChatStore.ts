@@ -194,6 +194,7 @@ const CHAT_RUNTIME_PERSIST_LIMITS = {
   runtimeSeedArtifacts: 40,
   runtimeTimeline: 80,
   runtimeEventsV2: 120,
+  companionshipStateHistoryPerKey: 4,
   relationshipLedger: 120,
 };
 const MAX_PERSISTED_DATA_URL_CHARS = 2048;
@@ -238,11 +239,22 @@ function getRecordString(record: Record<string, unknown>, key: string) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
 
+function getRecordStringArray(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+    : [];
+}
+
 function getCompanionshipRuntimeEventStateKey(event: RuntimeEventV2) {
   const payload = event.payload as Record<string, unknown> | null | undefined;
   const eventType = typeof payload?.eventType === 'string' ? payload.eventType : '';
   if (!eventType.startsWith('companionship_')) return '';
   const payloadRecord = payload as Record<string, unknown>;
+  if (eventType === 'companionship_private_thread_schedule') {
+    const participantKey = getRecordStringArray(payloadRecord, 'participantIds').sort().join('::');
+    return `${eventType}:${participantKey || getRecordString(payloadRecord, 'dedupeKey') || event.id}`;
+  }
   const characterId = getRecordString(payloadRecord, 'characterId') || event.actorIds?.[0] || 'unknown-character';
   const userId = getRecordString(payloadRecord, 'userId') || event.targetIds?.[0] || 'default-user';
   const baseKey = `${eventType}:${characterId}:${userId}`;
@@ -267,18 +279,23 @@ function getCompanionshipRuntimeEventStateKey(event: RuntimeEventV2) {
 function compactRuntimeEventsForPersistence(events: RuntimeEventV2[] | undefined, limit: number): RuntimeEventV2[] {
   if (!Array.isArray(events)) return [];
   if (events.length <= limit) return stripLargeInlineMediaForPersistence(events);
-  const latestStateEvents = new Map<string, RuntimeEventV2>();
+  const stateHistoryEvents = new Map<string, RuntimeEventV2[]>();
   for (const event of events) {
     const key = getCompanionshipRuntimeEventStateKey(event);
     if (!key) continue;
-    const existing = latestStateEvents.get(key);
-    if (!existing || event.createdAt >= existing.createdAt) {
-      latestStateEvents.set(key, event);
-    }
+    const history = stateHistoryEvents.get(key) || [];
+    history.push(event);
+    stateHistoryEvents.set(
+      key,
+      history
+        .sort((left, right) => right.createdAt - left.createdAt)
+        .slice(0, CHAT_RUNTIME_PERSIST_LIMITS.companionshipStateHistoryPerKey),
+    );
   }
   const selected = new Map<string, RuntimeEventV2>();
   const addEvent = (event: RuntimeEventV2) => selected.set(event.id, event);
-  [...latestStateEvents.values()]
+  [...stateHistoryEvents.values()]
+    .flat()
     .sort((left, right) => right.createdAt - left.createdAt)
     .slice(0, limit)
     .forEach(addEvent);
