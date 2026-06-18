@@ -612,6 +612,10 @@ export default function CreateChatPage() {
     setHotTopicDialogEnabled(true);
     setHotTopicOpenSignal((value) => value + 1);
   };
+  const openBatchGenerate = () => {
+    persistDraft();
+    navigate(`/characters/batch-generate?returnTo=${encodeURIComponent(location.pathname + location.search)}`);
+  };
   const closeSnackbar = () => {
     setSnackbar((prev) => ({ ...prev, open: false }));
   };
@@ -929,6 +933,7 @@ export default function CreateChatPage() {
               onIncludeUserAsMemberChange={setIncludeUserAsMember}
               onOperatorIdsTextChange={setOperatorIdsText}
               onOpenMemberDialog={() => setMemberDialogOpen(true)}
+              onOpenBatchGenerate={openBatchGenerate}
               onOpenHotDialog={openHotDialog}
               onToggleMember={toggleMember}
               nameLabel={t('chat.name')}
@@ -943,6 +948,7 @@ export default function CreateChatPage() {
               operatorIdsLabel={i18n.language.startsWith('zh') ? '操作者（可选）' : 'Operators (optional)'}
               operatorIdsHint={i18n.language.startsWith('zh') ? '逗号分隔，比如 host_moderator、topic_guide_bot。操作者可不在群成员里。' : 'Comma-separated, e.g. host_moderator, topic_guide_bot. Operators can exist outside member seats.'}
               openTopicInspirationLabel={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}
+              batchGenerateMembersLabel={i18n.language.startsWith('zh') ? '生成' : 'Generate'}
             />
             {editingChat ? (
               <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>

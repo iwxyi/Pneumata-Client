@@ -23,15 +23,16 @@ describe('copyTextToClipboard', () => {
       configurable: true,
       value: { writeText },
     });
+    const removeChild = vi.fn();
     const textarea = {
       value: '',
       style: {},
       setAttribute: vi.fn(),
       focus: vi.fn(),
       select: vi.fn(),
+      parentNode: { removeChild },
     };
     const appendChild = vi.fn();
-    const removeChild = vi.fn();
     const execCommand = vi.fn().mockReturnValue(true);
     vi.stubGlobal('document', {
       createElement: vi.fn().mockReturnValue(textarea),

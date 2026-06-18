@@ -592,6 +592,28 @@ describe('chatEngine streaming preview', () => {
     });
   });
 
+  it('preserves narrative turn metadata without media decisions', () => {
+    const metadata = __chatEngineTestUtils.buildMessageMetadata({
+      decision: null,
+      capabilities: { image: false, audio: false },
+      content: '雨落在旧宅门前。',
+      narrativeTurn: {
+        turnId: 'turn-1',
+        turnKind: 'narrative_beat',
+        sceneId: 'main',
+        povActorId: 'narrator',
+        blocks: [{ id: 'block-1', actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '雨落在旧宅门前。' }],
+      },
+    });
+
+    expect(metadata?.narrativeTurn?.blocks[0]).toMatchObject({
+      actorKind: 'narrator',
+      kind: 'prose',
+      displayMode: 'paragraph',
+      text: '雨落在旧宅门前。',
+    });
+  });
+
   it('builds deterministic attachment ids when metadata now is fixed', () => {
     const decision = {
       image: {

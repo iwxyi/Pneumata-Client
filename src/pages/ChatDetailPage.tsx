@@ -53,6 +53,7 @@ import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
 import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
+import { normalizeStoryChoiceSuggestions } from '../services/storyChoices';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -370,11 +371,13 @@ export default function ChatDetailPage() {
     currentChatMessages: sidebarMessages,
     rightPanelTab,
     speakAsChar: effectiveSpeakAsChar,
+    language: i18n.language,
   });
   const sidebarTabValue = activeSidebarTab === 'actions' ? 'activities' : activeSidebarTab;
+  const isStoryRoom = chat?.sessionKind?.scenarioId === 'story-reader';
   const effectiveComposerSurfaces = useMemo(() => {
     const primaryTextSurface = composerSurfaces.find((surface) => surface.type === 'text') || { key: 'member-guide-text', type: 'text' as const };
-    const nonTextSurfaces = composerSurfaces.filter((surface) => surface.type !== 'text');
+    const nonTextSurfaces = isStoryRoom ? [] : composerSurfaces.filter((surface) => surface.type !== 'text');
     if (guideTargetMember && !effectiveSpeakAsChar) {
       const nextSurface = {
         ...primaryTextSurface,
@@ -383,7 +386,7 @@ export default function ChatDetailPage() {
         mode: 'guide' as const,
         actorId: guideTargetMember.id,
         capability: 'guide' as const,
-        placeholder: `引导${guideTargetMember.name}回应、换话题或执行要求`,
+        placeholder: `安排${guideTargetMember.name}回应、说话或行动`,
       };
       return [nextSurface, ...nonTextSurfaces];
     }
@@ -421,7 +424,7 @@ export default function ChatDetailPage() {
       }, ...nonTextSurfaces];
     }
     return composerSurfaces;
-  }, [chat, composerSurfaces, effectiveSpeakAsChar, guideTargetMember]);
+  }, [chat, composerSurfaces, effectiveSpeakAsChar, guideTargetMember, isStoryRoom]);
   const handleSidebarTabChange = useCallback((value: SidebarTabValue) => {
     setRightPanelTab(value === 'activities' ? 'actions' : value);
   }, [setRightPanelTab]);
@@ -637,8 +640,6 @@ export default function ChatDetailPage() {
     pause,
   });
   isManualInputPendingRef.current = isManualInputPending;
-  void runLoopError;
-  void chatError;
 
   const commitPersistedManualRuntime = useCallback(async (message: Message, recentMessages: Message[]) => {
     if (!chat || !id) return;
@@ -744,7 +745,7 @@ export default function ChatDetailPage() {
         chatId: id,
         type: 'god',
         senderId: 'user',
-        senderName: '话题引导',
+        senderName: '导演安排',
         content,
         emotion: 0,
         timestamp: Date.now(),
@@ -802,6 +803,126 @@ export default function ChatDetailPage() {
     handleSpeakAs,
     setSnackbar,
   });
+
+  const [dismissedStoryBranchChatId, setDismissedStoryBranchChatId] = useState<string | null>(null);
+  const storyChoiceSourceMessage = useMemo(
+    () => {
+      if (!isStoryRoom) return null;
+      for (let index = currentChatMessages.length - 1; index >= 0; index -= 1) {
+        const message = currentChatMessages[index];
+        if (!normalizeStoryChoiceSuggestions(message.metadata?.storyChoices).length) continue;
+        return index === currentChatMessages.length - 1 ? message : null;
+      }
+      return null;
+    },
+    [currentChatMessages, isStoryRoom],
+  );
+  const storyBranchOptions = useMemo(
+    () => {
+      const sourceId = storyChoiceSourceMessage?.id || '';
+      return normalizeStoryChoiceSuggestions(storyChoiceSourceMessage?.metadata?.storyChoices)
+        .map((choice, index) => ({
+          label: choice.label,
+          value: `${sourceId}:${index}`,
+          prompt: choice.prompt || choice.label,
+        }));
+    },
+    [storyChoiceSourceMessage],
+  );
+  const visibleActionPanelActions = useMemo(
+    () => (projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions)
+      .filter((action) => action.type !== 'choose_story_branch'),
+    [projectedActionPanelActions, sessionActions],
+  );
+  const storyBranchSuggestionKey = `${chat?.id || ''}:${storyBranchOptions.map((option) => option.value).join('|')}`;
+  const isStoryWaitingForChoice = chat?.sessionKind?.scenarioId === 'story-reader' && storyBranchOptions.length > 0;
+  const showStoryBranchSuggestions = isStoryWaitingForChoice;
+  const runLoopStatusContent = (chatError || runLoopError) ? (
+    <Alert severity="error" variant="outlined" sx={{ mx: { xs: 1.25, sm: 2 }, mt: 1, borderRadius: 3 }}>
+      {chatError || runLoopError}
+    </Alert>
+  ) : null;
+  const handleChooseStoryBranch = useCallback(async (optionValue: string) => {
+    if (!chat || !id) return;
+    setDismissedStoryBranchChatId(storyBranchSuggestionKey);
+    const option = storyBranchOptions.find((item) => item.value === optionValue);
+    const branches = chat.scenarioState?.branches || [];
+    const selectedBranch = branches.find((branch) => branch.label === option?.label && branch.prompt === option?.prompt)
+      || branches.find((branch) => branch.label === option?.label)
+      || branches.find((branch) => branch.branchId === optionValue);
+    const branchId = selectedBranch?.branchId || optionValue;
+    const storyDirection = selectedBranch?.prompt || selectedBranch?.description || option?.prompt || option?.label || chat.scenarioState?.storyDirection;
+    const choiceMessage = await addMessageStable({
+      chatId: id,
+      type: 'user',
+      senderId: 'user',
+      senderName: currentUser?.nickname?.trim() || '我',
+      content: option?.label || selectedBranch?.label || storyDirection || branchId,
+      emotion: 0,
+      timestamp: Date.now(),
+    });
+    void updateChat(id, { lastMessageAt: choiceMessage.timestamp, latestMessage: choiceMessage });
+    const actionResult = await runSessionAction({ type: 'choose_story_branch', actorId: 'user' }, { branchId });
+    const nextChat = actionResult?.chatPatch ? {
+      ...chat,
+      ...actionResult.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        ...(actionResult.chatPatch.scenarioState || {}),
+      },
+      worldState: {
+        ...chat.worldState,
+        ...(actionResult.chatPatch.worldState || {}),
+      },
+    } : chat;
+    await updateChat(id, actionResult?.chatPatch || {});
+    startConversationLoopIfNeeded(nextChat);
+  }, [addMessageStable, chat, currentUser?.nickname, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, storyBranchSuggestionKey, updateChat]);
+  const storyBranchSuggestionContent = showStoryBranchSuggestions ? (
+    <Stack data-message-id="story-branch-options" spacing={0.75} sx={{ px: { xs: 1.25, sm: 2 }, py: 1.25 }}>
+      {runLoopStatusContent}
+      <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, fontWeight: 700 }}>
+        选择接下来的剧情走向
+      </Typography>
+      {storyBranchOptions.map((option) => (
+        <Box
+          key={option.value}
+          component="button"
+          type="button"
+          onClick={() => handleChooseStoryBranch(option.value)}
+          sx={(theme) => ({
+            width: '100%',
+            border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(148,163,184,0.32)' : 'rgba(226,232,240,0.16)'}`,
+            borderRadius: 3,
+            px: { xs: 1.5, sm: 1.75 },
+            py: { xs: 1, sm: 1.1 },
+            bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.88)' : 'rgba(15,23,42,0.82)',
+            color: 'text.primary',
+            textAlign: 'left',
+            font: 'inherit',
+            cursor: 'pointer',
+            boxShadow: theme.palette.mode === 'light'
+              ? '0 12px 34px rgba(15,23,42,0.10), inset 0 1px 0 rgba(255,255,255,0.88)'
+              : '0 14px 36px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08)',
+            backdropFilter: 'blur(18px) saturate(1.25)',
+            transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background-color 140ms ease',
+            '&:hover': {
+              transform: 'translateY(-1px)',
+              borderColor: theme.palette.mode === 'light' ? 'rgba(99,102,241,0.38)' : 'rgba(129,140,248,0.44)',
+              bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.96)' : 'rgba(30,41,59,0.9)',
+              boxShadow: theme.palette.mode === 'light'
+                ? '0 16px 42px rgba(79,70,229,0.14), inset 0 1px 0 rgba(255,255,255,0.96)'
+                : '0 18px 44px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.10)',
+            },
+            '&:active': { transform: 'translateY(0) scale(0.992)' },
+            '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+          })}
+        >
+          <Typography variant="body2" sx={{ fontSize: { xs: 14, sm: 14.5 }, fontWeight: 400, lineHeight: 1.7, letterSpacing: 0 }}>{option.label}</Typography>
+        </Box>
+      ))}
+    </Stack>
+  ) : runLoopStatusContent;
 
   const handleExpressionFeedback = useCallback(async (message: Message, kind: ExpressionFeedbackKind) => {
     if (message.type !== 'ai') return;
@@ -1041,6 +1162,7 @@ export default function ChatDetailPage() {
             topInset={isSplitDetailPane ? { xs: '76px', sm: '76px' } : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
             bottomInset={isRemoteDeletedChat ? { xs: '24px', sm: '24px' } : { xs: 'calc(82px + env(safe-area-inset-bottom, 0px))', sm: '82px' }}
             privateConversation={chat.type === 'direct' || chat.type === 'ai_direct'}
+            tailContent={storyBranchSuggestionContent}
           />
         </Box>
         {isRemoteDeletedChat ? null : <Box
@@ -1126,7 +1248,7 @@ export default function ChatDetailPage() {
                         showHeader={false}
                       />
                       <ChatSharePanel chat={chat} />
-                      <SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions} onRunAction={runSessionAction} hideHeader frameless />
+                      <SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={visibleActionPanelActions} onRunAction={runSessionAction} hideHeader frameless />
                     </Box>
                   </LazyPanel>
                 ) : null}

@@ -40,6 +40,7 @@ import { projectWorldAttentionStates, projectWorldCalendar, projectWorldMoments 
 import { buildTurnPlanPrompt, deriveTurnPlan, type TurnPlan } from './turnPlanner';
 import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
 import { buildGenerationRuntimeBundle } from './generationRuntime';
+import { normalizeStoryChoiceSuggestions } from './storyChoices';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   extraMessages?: string[] | null;
@@ -1548,11 +1549,14 @@ function buildMessageMetadata(params: {
   capabilities: { image: boolean; audio: boolean };
   content: string;
   runtimeDecision?: MessageMetadata['runtimeDecision'];
+  narrativeTurn?: MessageMetadata['narrativeTurn'] | null;
+  storyChoices?: MessageMetadata['storyChoices'] | null;
   surface?: ResponseSurface;
   now?: number;
 }): MessageMetadata | undefined {
   const decision = normalizeMediaDecision(params.decision, params.capabilities, params.content);
-  if (!decision && !params.runtimeDecision) return undefined;
+  const storyChoices = normalizeStoryChoiceSuggestions(params.storyChoices);
+  if (!decision && !params.runtimeDecision && !params.narrativeTurn && !storyChoices?.length) return undefined;
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const attachments: MessageAttachment[] = [];
   if (decision?.image?.shouldGenerate && decision.image.prompt && decision.image.altText) {
@@ -1588,6 +1592,8 @@ function buildMessageMetadata(params: {
   return {
     format: params.surface?.allowMarkdown ? 'markdown' : 'plain',
     contextText: params.content,
+    narrativeTurn: params.narrativeTurn || undefined,
+    storyChoices: storyChoices || undefined,
     attachments,
     ...(decision ? {
       generationDecision: decision,
@@ -2005,6 +2011,34 @@ function updateAllEmotions(chatMembers: AICharacter[], speakerId: string, msgEmo
   }
 }
 
+function createNarratorCharacter(chat: GroupChat): AICharacter {
+  const now = chat.updatedAt || Date.now();
+  return {
+    id: 'narrator',
+    name: '旁白',
+    avatar: '',
+    personality: { openness: 85, extroversion: 25, agreeableness: 60, neuroticism: 35, humor: 20, creativity: 90, assertiveness: 65, empathy: 70 },
+    behavior: { proactivity: 90, aggressiveness: 10, humorIntensity: 5, empathyLevel: 70, summarizing: 25, offTopic: 0 },
+    expertise: ['叙事推进', '场景描写', '氛围营造'],
+    speakingStyle: '沉浸式第三人称旁白，重视动作、环境、后果和选择压力。',
+    background: '故事房的系统旁白，负责推动场景、呈现后果并制造新的抉择压力。',
+    relationships: [],
+    memory: { longTerm: [], shortTermSummary: '', secrets: [], obsessions: [], tabooTopics: [], userMemories: [] },
+    intervention: { allowSpeakAs: false, allowDirectorPrompt: false, allowPrivateThread: false },
+    isPreset: true,
+    characterDetailLoaded: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function resolveEffectiveChatMembers(chat: GroupChat, characters: AICharacter[]) {
+  const chatMembers = characters.filter((c) => chat.memberIds.includes(c.id));
+  if (chat.sessionKind?.scenarioId !== 'story-reader') return chatMembers;
+  if (chatMembers.some((member) => member.id === 'narrator')) return chatMembers;
+  return [createNarratorCharacter(chat), ...chatMembers];
+}
+
 function resolveSpeakerFromCandidates(chatMembers: AICharacter[], candidates: ReturnType<typeof calculateWeights>) {
   const speakerId = selectSpeaker(candidates);
   return chatMembers.find((member) => member.id === speakerId) || null;
@@ -2056,7 +2090,7 @@ export async function generateSpeakerMessage(params: {
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   delay?: (ms: number) => Promise<void>;
 }): Promise<GeneratedRoundMessage> {
-  const chatMembers = params.characters.filter((character) => params.chat.memberIds.includes(character.id));
+  const chatMembers = resolveEffectiveChatMembers(params.chat, params.characters);
   const effectiveMembers = chatMembers.length ? chatMembers : params.characters;
   const activeMessages = params.messages.filter((message) => message.chatId === params.chat.id && !message.isDeleted);
   const latestActiveUserGuidance = resolveLatestActiveUserGuidance(effectiveMembers, activeMessages).intent;
@@ -2091,7 +2125,8 @@ export async function generateSpeakerMessage(params: {
   const additionalConstraints = enginePromptContext?.additionalConstraints?.length
     ? `\n- ${enginePromptContext.additionalConstraints.join('\n- ')}`
     : '';
-  const runtimeContextBundle = getSessionEngine(params.chat).buildRuntimeContextBundle?.({
+  const sessionEngine = getSessionEngine(params.chat);
+  const runtimeContextBundle = sessionEngine.buildRuntimeContextBundle?.({
     conversation: params.chat,
     characters: effectiveMembers,
     messages: activeMessages,
@@ -2205,6 +2240,13 @@ Current speaking intent:
       forcedMediaQueued,
     } satisfies GuidanceExecutionTrace
     : undefined;
+  const narrativeTurn = sessionEngine.buildNarrativeTurnMetadata?.({
+    conversation: params.chat,
+    characters: effectiveMembers,
+    messages: activeMessages,
+    speaker: params.speaker,
+    content: generated.fullResponse,
+  }) || null;
   const completedMessage = buildCompletedMessage({
     chat: params.chat,
     speakerId: params.speaker.id,
@@ -2219,6 +2261,8 @@ Current speaking intent:
 	      capabilities: mediaCapabilities,
 	      content: generated.fullResponse,
         surface: responseSurface,
+        narrativeTurn,
+        storyChoices: generated.parsedEnvelope?.storyChoices || null,
 	      runtimeDecision: buildRuntimeDecisionMetadata({
 	        directorIntent: effectiveDirectorIntent,
 	        narrativeLines: params.narrativeLines,
@@ -2284,7 +2328,7 @@ export const runOneRound = async (
   },
   cooldownMap?: Record<string, number>
 ): Promise<void> => {
-  const chatMembers = characters.filter((c) => chat.memberIds.includes(c.id));
+  const chatMembers = resolveEffectiveChatMembers(chat, characters);
   if (chatMembers.length === 0) {
     callbacks.onError(new Error('No AI members in this chat'));
     return;
@@ -2391,7 +2435,12 @@ export const runOneRound = async (
     let activeSpeaker = hydratedSpeaker || speaker;
     let completedMessage: GeneratedRoundMessage;
     try {
-      const generationCharacters = activeSpeaker === speaker ? characters : characters.map((item) => item.id === activeSpeaker.id ? activeSpeaker : item);
+      const hasActiveSpeakerInCharacters = characters.some((item) => item.id === activeSpeaker.id);
+      const generationCharacters = activeSpeaker === speaker && hasActiveSpeakerInCharacters
+        ? characters
+        : hasActiveSpeakerInCharacters
+          ? characters.map((item) => item.id === activeSpeaker.id ? activeSpeaker : item)
+          : [activeSpeaker, ...characters];
       completedMessage = await generateSpeakerMessage({
         chat,
         speaker: activeSpeaker,

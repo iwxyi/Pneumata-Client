@@ -70,7 +70,7 @@ export function useChatSurfaceActions(params: UseChatSurfaceActionsParams) {
   }, [navigate, params.addMessage, params.appendEventMessage, params.characters, params.chats]);
 
   const runSessionAction = useCallback(async (action: { type: string; actorId?: string }, payload: Record<string, unknown>) => {
-    await runSessionActionImpl(context, action, payload, triggerPairPrivateThread);
+    return runSessionActionImpl(context, action, payload, triggerPairPrivateThread);
   }, [context, triggerPairPrivateThread]);
 
   const runSurfaceIntent = useCallback(async (surfaceResult: SessionNormalizedIntentResult) => {

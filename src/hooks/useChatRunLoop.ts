@@ -6,11 +6,19 @@ import type { APIConfig, AIModelProfile } from '../types/settings';
 import { createStreamingLocalMessage } from '../services/chatCommitMessage';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
 import { projectCurrentChatMessages } from '../services/currentChatMessages';
+import { normalizeStoryChoiceSuggestions } from '../services/storyChoices';
 import type { UserDraftActivity } from '../services/userInputBuffer';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useSchedulerStore } from '../stores/useSchedulerStore';
+
+function getOpenStoryChoiceState(chat: GroupChat | undefined, messages: Message[]) {
+  if (chat?.sessionKind?.scenarioId !== 'story-reader') return null;
+  const lastMessage = messages[messages.length - 1];
+  const choices = normalizeStoryChoiceSuggestions(lastMessage?.metadata?.storyChoices);
+  return choices.length ? { messageId: lastMessage.id, count: choices.length } : null;
+}
 
 export function useChatRunLoop(params: {
   chat: GroupChat | undefined;
@@ -89,7 +97,31 @@ export function useChatRunLoop(params: {
         getCurrentCharacters: () => useCharacterStore.getState().characters,
         ensureCharacterDetail: (characterId) => useCharacterStore.getState().loadCharacter(characterId),
         isRunning: () => current.isRunningRef.current,
-        isPaused: () => current.isPausedRef.current || (current.isManualInputPending() && !current.streamingMessageRef.current && pendingCommitCountRef.current === 0),
+        isPaused: () => {
+          const latestChat = useChatStore.getState().chats.find((item) => item.id === current.chatId);
+          const latestMessages = projectCurrentChatMessages({
+            chatId: current.chatId!,
+            activeMessages: useMessageStore.getState().messages,
+            cachedWindow: useMessageStore.getState().messageWindowsByChatId[current.chatId!],
+          });
+          const storyChoice = getOpenStoryChoiceState(latestChat, latestMessages);
+          const manualInputPending = current.isManualInputPending() && !current.streamingMessageRef.current && pendingCommitCountRef.current === 0;
+          const paused = current.isPausedRef.current || Boolean(storyChoice) || manualInputPending;
+          if (paused && typeof console !== 'undefined' && typeof console.debug === 'function') {
+            console.debug('[chat-run-loop:paused]', {
+              chatId: current.chatId,
+              loopId,
+              manualPaused: current.isPausedRef.current,
+              storyChoice,
+              manualInputPending,
+              pendingCommitCount: pendingCommitCountRef.current,
+              pendingTurnWorkCount: pendingTurnWorkCountRef.current,
+              streamingMessageId: current.streamingMessageRef.current?.id || null,
+              phase: latestChat?.scenarioState?.phase || null,
+            });
+          }
+          return paused;
+        },
         isActiveLoop: (currentLoopId) => current.activeChatIdRef.current === current.chatId && current.loopTokenRef.current === currentLoopId,
         onCommitSettled: isCommitSettled,
         onCommitStarted: () => {
@@ -104,13 +136,13 @@ export function useChatRunLoop(params: {
         onTurnWorkFinished: () => {
           pendingTurnWorkCountRef.current = Math.max(0, pendingTurnWorkCountRef.current - 1);
         },
-        onSpeakerSelected: (charId) => {
-          const speaker = current.activeMembers.find((member) => member.id === charId);
+        onSpeakerSelected: (charId: string, speaker?: AICharacter) => {
+          const activeSpeaker = speaker || current.activeMembers.find((member) => member.id === charId);
           const streamingMessage = createStreamingLocalMessage({
             chatId: current.chatId!,
             type: 'ai',
             senderId: charId,
-            senderName: speaker?.name || '',
+            senderName: activeSpeaker?.name || '',
             content: '',
             emotion: 0,
           });
@@ -182,7 +214,7 @@ export function useChatRunLoop(params: {
           return await (sessionEngine.onMessageCommitted as (commitArgs: {
             conversation: GroupChat;
             characters: AICharacter[];
-            message: Pick<Message, 'content' | 'type' | 'senderId'>;
+            message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'>;
             previousAiMessage: Pick<Message, 'senderId'> | null;
             recentMessages?: Message[];
             apiConfig?: APIConfig;
@@ -207,7 +239,21 @@ export function useChatRunLoop(params: {
   const startConversationLoopIfNeeded = useCallback((conversationChat: GroupChat) => {
     const current = paramsRef.current;
     if (conversationChat.type === 'direct') return;
-    if (current.isRunningRef.current && !current.isPausedRef.current) return;
+    const latestMessages = projectCurrentChatMessages({
+      chatId: conversationChat.id,
+      activeMessages: useMessageStore.getState().messages,
+      cachedWindow: useMessageStore.getState().messageWindowsByChatId[conversationChat.id],
+    });
+    const storyChoice = getOpenStoryChoiceState(conversationChat, latestMessages);
+    const isStoryChoiceBlocked = Boolean(storyChoice);
+    if (isStoryChoiceBlocked && typeof console !== 'undefined' && typeof console.debug === 'function') {
+      console.debug('[chat-run-loop:waiting-story-choice]', {
+        chatId: conversationChat.id,
+        storyChoice,
+        phase: conversationChat.scenarioState?.phase || null,
+      });
+    }
+    if (current.isRunningRef.current && !current.isPausedRef.current && !isStoryChoiceBlocked) return;
     const run = runLoopRef.current;
     if (!run) return;
     current.resetAllCooldowns();

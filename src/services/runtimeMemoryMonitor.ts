@@ -282,7 +282,7 @@ function getGlobalFlag() {
 }
 
 export function isRuntimeMemoryMonitorEnabled() {
-  if (getGlobalFlag()) return true;
+  if (getGlobalFlag() || typeof localStorage === 'undefined') return getGlobalFlag();
   try {
     return localStorage.getItem(STORAGE_KEY) === '1';
   } catch {
@@ -292,6 +292,7 @@ export function isRuntimeMemoryMonitorEnabled() {
 
 function setRuntimeMemoryMonitorEnabled(enabled: boolean) {
   (globalThis as { __MIRAGETEA_MEMORY_MONITOR_ENABLED__?: boolean }).__MIRAGETEA_MEMORY_MONITOR_ENABLED__ = enabled;
+  if (typeof localStorage === 'undefined') return;
   try {
     if (enabled) localStorage.setItem(STORAGE_KEY, '1');
     else localStorage.removeItem(STORAGE_KEY);
@@ -301,6 +302,7 @@ function setRuntimeMemoryMonitorEnabled(enabled: boolean) {
 }
 
 function isRuntimeMemoryMonitorVerbose() {
+  if (typeof localStorage === 'undefined') return false;
   try {
     return localStorage.getItem(VERBOSE_STORAGE_KEY) === '1';
   } catch {
@@ -309,6 +311,7 @@ function isRuntimeMemoryMonitorVerbose() {
 }
 
 function setRuntimeMemoryMonitorVerbose(enabled: boolean) {
+  if (typeof localStorage === 'undefined') return enabled;
   try {
     if (enabled) localStorage.setItem(VERBOSE_STORAGE_KEY, '1');
     else localStorage.removeItem(VERBOSE_STORAGE_KEY);

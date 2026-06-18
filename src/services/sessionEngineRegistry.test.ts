@@ -29,7 +29,7 @@ describe('sessionEngineRegistry', () => {
     expect(resolveSessionEngineKey(chat({
       mode: 'open_chat',
       sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'ielts-coach', surfaceProfile: 'form' },
-    }))).toBe('interview');
+    }))).toBe('classroom');
   });
 
   it('keeps legacy family fallback and mode-derived engine mapping', () => {

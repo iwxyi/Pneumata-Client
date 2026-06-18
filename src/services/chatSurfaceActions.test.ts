@@ -187,6 +187,66 @@ describe('chatSurfaceActions', () => {
     expect(context.appendEventMessage).toHaveBeenCalledTimes(1);
   });
 
+  it('applies story branch action through session executor', async () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      mode: 'scripted_play',
+      sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+      scenarioState: {
+        ...(buildChat().scenarioState || {}),
+        phase: 'scene',
+        choiceEpoch: 1,
+        branches: [
+          { branchId: 'main', label: '主线', status: 'available' as const, choiceEpoch: 1 },
+          { branchId: 'hidden', label: '暗线', status: 'available' as const, choiceEpoch: 1 },
+        ],
+      },
+    });
+    const context = { ...buildContext(), chat, chats: [chat] } satisfies ChatSurfaceActionContext;
+    const trigger = vi.fn(async () => null);
+    await runSessionActionImpl(context, { type: 'choose_story_branch' }, { branchId: 'hidden', prompt: '追查暗线' }, trigger);
+    expect(context.updateChat).toHaveBeenCalledWith(chat.id, expect.objectContaining({
+      scenarioState: expect.objectContaining({
+        phase: 'branch',
+        selectedChoiceEpoch: 1,
+        branches: expect.arrayContaining([
+          expect.objectContaining({ branchId: 'hidden', status: 'chosen', choiceEpoch: 1 }),
+          expect.objectContaining({ branchId: 'main', status: 'completed', choiceEpoch: 1 }),
+        ]),
+      }),
+    }));
+    expect(context.appendEventMessage).toHaveBeenCalledWith(chat.id, expect.objectContaining({ eventType: 'story_branch' }));
+  });
+
+
+  it('records custom story branch direction from free input', async () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      mode: 'scripted_play',
+      sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+      scenarioState: {
+        phase: 'scene',
+        choiceEpoch: 1,
+        branches: [{ branchId: 'main', label: '主线', status: 'available' as const, choiceEpoch: 1 }],
+      },
+    });
+    const context = { ...buildContext(), chat, chats: [chat] } satisfies ChatSurfaceActionContext;
+    const trigger = vi.fn(async () => null);
+    await runSessionActionImpl(context, { type: 'choose_story_branch' }, { branchId: '__custom_story_branch', prompt: '主角决定独自进入旧宅地下室' }, trigger);
+    expect(context.updateChat).toHaveBeenCalledWith(chat.id, expect.objectContaining({
+      scenarioState: expect.objectContaining({
+        phase: 'branch',
+        storyDirection: '主角决定独自进入旧宅地下室',
+        selectedChoiceEpoch: 1,
+        branches: expect.arrayContaining([
+          expect.objectContaining({ branchId: 'main', status: 'completed', choiceEpoch: 1 }),
+          expect.objectContaining({ source: 'custom', status: 'chosen', choiceEpoch: 1 }),
+        ]),
+      }),
+    }));
+  });
+
+
   it('marks non-member operator origin in action audit metrics', async () => {
     const chat = normalizeConversation({
       ...buildChat(),
@@ -208,7 +268,7 @@ describe('chatSurfaceActions', () => {
     expect(context.appendEventMessage).toHaveBeenCalledWith(
       chat.id,
       expect.objectContaining({
-        eventType: 'session_action_intent',
+        eventType: 'interview_phase_control',
         metrics: expect.objectContaining({
           _actorAudit: expect.objectContaining({
             actorId: 'host_moderator',
@@ -396,7 +456,7 @@ describe('chatSurfaceActions', () => {
       },
     } as SessionNormalizedIntentResult;
     await runSurfaceIntentImpl(context, intent, { runSessionAction, handleGuideSend, handleMemberSpeakSend, handleSpeakAs });
-    expect(handleGuideSend).toHaveBeenCalledWith('你好');
+    expect(handleGuideSend).toHaveBeenCalledWith('你好', []);
     expect(handleMemberSpeakSend).not.toHaveBeenCalled();
     expect(handleSpeakAs).not.toHaveBeenCalled();
     expect(runSessionAction).not.toHaveBeenCalled();
@@ -416,7 +476,7 @@ describe('chatSurfaceActions', () => {
       },
     } as SessionNormalizedIntentResult;
     await runSurfaceIntentImpl(context, intent, { runSessionAction, handleGuideSend, handleMemberSpeakSend, handleSpeakAs });
-    expect(handleMemberSpeakSend).toHaveBeenCalledWith('你在吗');
+    expect(handleMemberSpeakSend).toHaveBeenCalledWith('你在吗', []);
     expect(handleGuideSend).not.toHaveBeenCalled();
     expect(handleSpeakAs).not.toHaveBeenCalled();
     expect(runSessionAction).not.toHaveBeenCalled();
@@ -435,7 +495,7 @@ describe('chatSurfaceActions', () => {
       },
     } as SessionNormalizedIntentResult;
     await runSurfaceIntentImpl(context, intent, { runSessionAction, handleGuideSend, handleMemberSpeakSend, handleSpeakAs });
-    expect(handleMemberSpeakSend).toHaveBeenCalledWith('我是成员');
+    expect(handleMemberSpeakSend).toHaveBeenCalledWith('我是成员', []);
     expect(handleGuideSend).not.toHaveBeenCalled();
     expect(handleSpeakAs).not.toHaveBeenCalled();
     expect(runSessionAction).not.toHaveBeenCalled();
@@ -454,7 +514,7 @@ describe('chatSurfaceActions', () => {
       },
     } as SessionNormalizedIntentResult;
     await runSurfaceIntentImpl(context, intent, { runSessionAction, handleGuideSend, handleMemberSpeakSend, handleSpeakAs });
-    expect(handleSpeakAs).toHaveBeenCalledWith('我来讲');
+    expect(handleSpeakAs).toHaveBeenCalledWith('我来讲', []);
     expect(handleGuideSend).not.toHaveBeenCalled();
     expect(handleMemberSpeakSend).not.toHaveBeenCalled();
   });

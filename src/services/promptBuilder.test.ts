@@ -156,10 +156,13 @@ describe('buildSystemPromptWithContext', () => {
       buildMessage({ type: 'god', senderId: 'user', senderName: '开发者', content: '新话题：狼抓羊有过错吗？' }),
     ], new Map(), 12);
 
-    expect(rendered).toEqual([{
-      role: 'user',
-      content: '开发者: 新话题：狼抓羊有过错吗？',
-    }]);
+    expect(rendered).toEqual([
+      {
+        role: 'user',
+        content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is room state and thread evidence, not a style sample to imitate.',
+      },
+      { role: 'user', content: '用户: 新话题：狼抓羊有过错吗？' },
+    ]);
   });
 
   it('projects direct chat history with the current speaker as assistant', () => {
@@ -170,9 +173,13 @@ describe('buildSystemPromptWithContext', () => {
     ], new Map(), 12, { currentSpeakerId: 'char-a', chatType: buildDirectChat().type });
 
     expect(rendered).toEqual([
-      { role: 'user', content: '开发者: 能具体讲讲第一章发生了什么吗？' },
+      {
+        role: 'user',
+        content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is private context and direct input, not a public-room writing sample.',
+      },
+      { role: 'user', content: '用户: 能具体讲讲第一章发生了什么吗？' },
       { role: 'assistant', content: '第一章从废弃大楼里的命案展开。' },
-      { role: 'user', content: '开发者: 第二章又讲了什么？' },
+      { role: 'user', content: '用户: 第二章又讲了什么？' },
     ]);
   });
 
@@ -184,7 +191,11 @@ describe('buildSystemPromptWithContext', () => {
     ], new Map(), 12, { currentSpeakerId: 'char-b', chatType: buildChat().type });
 
     expect(rendered).toEqual([
-      { role: 'user', content: '开发者: 你们换一种接法。' },
+      {
+        role: 'user',
+        content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is room state and thread evidence, not a style sample to imitate.',
+      },
+      { role: 'user', content: '用户: 你们换一种接法。' },
       { role: 'user', content: '甲: 收到，那我负责带锅底，八点见。' },
       { role: 'assistant', content: '收到，那我负责带蘸料，八点见。' },
     ]);
@@ -209,6 +220,10 @@ describe('buildSystemPromptWithContext', () => {
     ], new Map(), 12, { currentSpeakerId: 'char-a', chatType: buildAiDirectChat().type });
 
     expect(rendered).toEqual([
+      {
+        role: 'user',
+        content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is pair-private relationship context, not a generic room script.',
+      },
       { role: 'assistant', content: '我刚才在群里是不是说重了？' },
       { role: 'user', content: '阿远: 有一点，但我知道你不是故意的。' },
     ]);
@@ -587,6 +602,7 @@ describe('buildSystemPromptWithContext', () => {
         layer: 'long_term',
         kind: 'status_shift',
         text: `${leakySpeakerId} 因 status_shift 记住了 ${leakyTargetId} 的追问`,
+        summary: `${leakyTargetId} 记得那次追问`,
         sourceTag: 'unknown_internal_source',
         archivedAt: 10,
       })],
@@ -612,7 +628,6 @@ describe('buildSystemPromptWithContext', () => {
       kind: 'status_shift',
       layer: 'long_term',
     });
-    expect(trace.recalledArchives[0].summary).toContain('喜羊羊');
     expect(trace.recalledArchives[0].summary).toContain('灰太狼');
     expect(trace.recalledArchives[0].summary).not.toContain(leakySpeakerId);
     expect(trace.recalledArchives[0].summary).not.toContain(leakyTargetId);

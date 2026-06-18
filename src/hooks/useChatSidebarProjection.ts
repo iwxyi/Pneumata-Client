@@ -59,8 +59,10 @@ export function useChatSidebarProjection(params: {
   currentChatMessages: Message[];
   rightPanelTab: string;
   speakAsChar: AICharacter | null;
+  language: string;
 }) {
-  const { chat, members, activeMembers, characters, currentChatMessages, rightPanelTab, speakAsChar } = params;
+  const { chat, members, activeMembers, characters, currentChatMessages, rightPanelTab, speakAsChar, language } = params;
+  const isZh = language.startsWith('zh');
   const [projectionData, setProjectionData] = useState<SessionProjectionData | null>(null);
   const [projectedDetailState, setProjectedDetailState] = useState<ProjectedChatDetailState | null>(null);
 
@@ -116,7 +118,9 @@ export function useChatSidebarProjection(params: {
 
   const showMemberTab = projectedDetailState?.showMemberTab ?? true;
   const showRuntimeTab = projectedDetailState?.showRuntimeTab ?? true;
-  const showActionTab = projectedDetailState?.showActionTab ?? (chat?.type === 'group');
+  const showActionTab = chat?.sessionKind?.scenarioId === 'story-reader'
+    ? false
+    : projectedDetailState?.showActionTab ?? (chat?.type === 'group');
   const projectedActiveTab = projectedDetailState?.activeSidebarTab === 'actions'
     ? 'activities'
     : projectedDetailState?.activeSidebarTab;
@@ -126,18 +130,24 @@ export function useChatSidebarProjection(params: {
       : showRuntimeTab && rightPanelTab === 'world' ? 'world'
       : showActionTab && rightPanelTab === 'activities' ? 'activities'
         : showMemberTab ? 'members' : 'world');
-  const memberTabTitle = projectedDetailState?.memberTabTitle || (chat?.type === 'group' ? '成员' : '角色');
-  const runtimeTabTitle = projectedDetailState?.runtimeTabTitle || '运行态';
-  const projectedSidebarTitle = projectedDetailState?.sidebarTitle === '动作'
-    ? '活动'
-    : projectedDetailState?.sidebarTitle;
+  const localizePanelTitle = (title: string | undefined, fallback: string) => {
+    if (!title) return fallback;
+    const zhTitles: Record<string, string> = { Members: '成员', Story: '故事', Branches: '分支', Actions: '动作', Tasks: '任务', Workflow: '工作流', Players: '玩家', Board: '棋盘', Moves: '行动', Mystery: '谜题', Clues: '线索', Study: '学习', Discussion: '讨论' };
+    const enTitles: Record<string, string> = { '成员': 'Members', '角色': 'Characters', '运行态': 'Runtime', '故事': 'Story', '分支': 'Branches', '动作': 'Actions', '活动': 'Activities', '叙事流': 'Narrative', '会话动作': 'Session actions' };
+    return isZh ? zhTitles[title] || title : enTitles[title] || title;
+  };
+  const memberTabTitle = localizePanelTitle(projectedDetailState?.memberTabTitle, chat?.type === 'group' ? (isZh ? '成员' : 'Members') : (isZh ? '角色' : 'Characters'));
+  const runtimeTabTitle = localizePanelTitle(projectedDetailState?.runtimeTabTitle, isZh ? '运行态' : 'Runtime');
+  const projectedSidebarTitle = projectedDetailState?.sidebarTitle === '动作' || projectedDetailState?.sidebarTitle === 'Actions'
+    ? (isZh ? '活动' : 'Activities')
+    : localizePanelTitle(projectedDetailState?.sidebarTitle, '');
   const sidebarTitle = projectedSidebarTitle
     || (activeSidebarTab === 'members'
       ? memberTabTitle
       : activeSidebarTab === 'activities'
-        ? '活动'
+        ? (isZh ? '活动' : 'Activities')
         : activeSidebarTab === 'narrative'
-          ? '叙事线'
+          ? (isZh ? '叙事流' : 'Narrative')
           : runtimeTabTitle);
   const runtimePanelLoading = !projectionData && Boolean(chat);
 

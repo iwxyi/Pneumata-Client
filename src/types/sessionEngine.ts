@@ -1505,6 +1505,7 @@ export interface SessionEngineDefinition {
   buildGenerationPromptContext?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionGenerationPromptContext;
   resolveTurnPolicy?: (context: SessionGenerationContext) => SessionTurnPolicy;
   buildRuntimeContextBundle?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionRuntimeContextBundle | null;
+  buildNarrativeTurnMetadata?: (context: SessionGenerationContext & { speaker: AICharacter; content: string }) => NonNullable<Message['metadata']>['narrativeTurn'] | null;
   onMessageCommitted: (context: SessionCommitContext) => Promise<{
   chatPatch: Partial<GroupChat>;
   characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;
@@ -1800,6 +1801,8 @@ export interface SessionEngineDefinition {
   getActionSchema?: (context: SessionEngineActionContext) => SessionActionSchema | null;
   buildGenerationPromptContext?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionGenerationPromptContext;
   resolveTurnPolicy?: (context: SessionGenerationContext) => SessionTurnPolicy;
+  buildRuntimeContextBundle?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionRuntimeContextBundle | null;
+  buildNarrativeTurnMetadata?: (context: SessionGenerationContext & { speaker: AICharacter; content: string }) => NonNullable<Message['metadata']>['narrativeTurn'] | null;
   onMessageCommitted: (context: SessionCommitContext) => Promise<{
   chatPatch: Partial<GroupChat>;
   characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;

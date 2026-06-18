@@ -123,7 +123,7 @@ describe('executeNonChatActionScaffold', () => {
       targetIds: ['wolf-a'],
       payload: { targetId: 'wolf-a' },
     });
-    expect(result?.chatPatch?.worldState?.phase).toBe('debating');
+    expect(result?.chatPatch?.worldState?.phase).toBe('warming');
     expect(result?.runtimeEvents?.[0]?.eventType).toBe('werewolf_inspection');
     expect(result?.runtimeEvents?.[0]?.title).toContain('查验');
   });

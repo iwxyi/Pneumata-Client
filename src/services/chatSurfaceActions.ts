@@ -8,6 +8,7 @@ import { buildActionRuntimeContract, buildRuntimeEventContract } from './session
 import { canActorRunSessionAction, resolveMemberActorRef } from './memberActionPolicy';
 import { getUsablePreferredAIProfile } from '../types/settings';
 import { useChatStore } from '../stores/useChatStore';
+import { runSessionActionExecutor } from './sessionActionExecutors/sessionActionExecutorRegistry';
 
 export interface ChatSurfaceActionContext {
   chat: GroupChat | undefined;
@@ -336,6 +337,16 @@ export async function runSessionActionImpl(
     return;
   }
 
+  const executionResult = runSessionActionExecutor(chat, { ...action, payload });
+  if (executionResult) {
+    await context.updateChat(chat.id, executionResult.chatPatch || {});
+    for (const runtimeEvent of executionResult.runtimeEvents || []) {
+      await context.appendEventMessage(chat.id, runtimeEvent);
+    }
+    context.setSnackbar({ open: true, severity: 'success', message: '动作已执行' });
+    return executionResult;
+  }
+
   const { buildDefaultActionIntent, buildSessionIntentSummary } = await import('../types/sessionEngine');
   const intent = buildDefaultActionIntent(action.type, payload, action.actorId);
   const summary = `${action.type}：${buildSessionIntentSummary(intent)}`;
@@ -365,7 +376,7 @@ export async function runSurfaceIntentImpl(
   context: ChatSurfaceActionContext,
   surfaceResult: SessionNormalizedIntentResult,
   handlers: {
-    runSessionAction: (action: { type: string; actorId?: string }, payload: Record<string, unknown>) => Promise<void>;
+    runSessionAction: (action: { type: string; actorId?: string }, payload: Record<string, unknown>) => Promise<unknown>;
     handleGuideSend: (content: string, attachments?: MessageAttachment[]) => Promise<void>;
     handleMemberSpeakSend: (content: string, attachments?: MessageAttachment[]) => Promise<void>;
     handleSpeakAs: (content: string, attachments?: MessageAttachment[]) => Promise<void>;

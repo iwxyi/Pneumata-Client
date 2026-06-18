@@ -25,7 +25,7 @@ export async function commitGeneratedMessageTurn(params: {
   onCommit: (args: {
     conversation: GroupChat;
     characters: AICharacter[];
-    message: Pick<Message, 'content' | 'type' | 'senderId'>;
+    message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'>;
     previousAiMessage: Pick<Message, 'senderId'> | null;
     recentMessages?: Message[];
     apiConfig?: APIConfig;

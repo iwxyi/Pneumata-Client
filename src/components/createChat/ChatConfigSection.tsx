@@ -1,4 +1,5 @@
 import AddIcon from '@mui/icons-material/Add';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import HotIcon from '@mui/icons-material/LocalFireDepartment';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlineOutlined';
 import {
@@ -44,6 +45,7 @@ interface ChatConfigSectionProps {
   onIncludeUserAsMemberChange: (value: boolean) => void;
   onOperatorIdsTextChange: (value: string) => void;
   onOpenMemberDialog: () => void;
+  onOpenBatchGenerate: () => void;
   onOpenHotDialog: () => void;
   onToggleMember: (memberId: string) => void;
   nameLabel: string;
@@ -60,6 +62,7 @@ interface ChatConfigSectionProps {
   operatorValidationHint?: string;
   operatorNormalizedIds?: string[];
   openTopicInspirationLabel: string;
+  batchGenerateMembersLabel: string;
 }
 
 export default function ChatConfigSection(props: ChatConfigSectionProps) {
@@ -114,9 +117,16 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
                 {props.membersHintLabel} ({props.selectedMembers.length}/{props.maxMembers || MAX_MEMBERS})
               </Typography>
             </Box>
-            {props.lockMembers ? null : <IconButton color="primary" onClick={props.onOpenMemberDialog}>
-              <AddIcon />
-            </IconButton>}
+            {props.lockMembers ? null : (
+              <Box sx={{ display: 'flex', gap: 0.75, flexShrink: 0 }}>
+                <IconButton color="primary" onClick={props.onOpenMemberDialog} aria-label={props.selectMembersLabel}>
+                  <AddIcon />
+                </IconButton>
+                <IconButton color="primary" onClick={props.onOpenBatchGenerate} aria-label={props.batchGenerateMembersLabel}>
+                  <AutoAwesomeIcon />
+                </IconButton>
+              </Box>
+            )}
           </Box>
           {props.selectedCharacters.length > 0 ? (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>

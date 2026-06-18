@@ -3,7 +3,19 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE } from '../../types/chat';
-import { ChatPrivateInfoCard } from './ChatPrivateInfoCard';
+
+vi.mock('@mui/material', async () => {
+  const React = await import('react');
+  const passthrough = (tag: keyof React.JSX.IntrinsicElements) => ({ children, label }: { children?: React.ReactNode; label?: React.ReactNode }) => React.createElement(tag, null, children ?? label);
+  return {
+    Box: passthrough('div'),
+    Chip: passthrough('span'),
+    Stack: passthrough('div'),
+    Typography: passthrough('span'),
+  };
+});
+
+const { ChatPrivateInfoCard } = await import('./ChatPrivateInfoCard');
 
 const mockSettingsState = {
   developerMode: false,

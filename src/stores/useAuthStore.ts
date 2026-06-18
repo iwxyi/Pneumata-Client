@@ -72,23 +72,24 @@ const AUTH_TOKEN_KEY = storageKey('token');
 const AUTH_USER_KEY = storageKey('user');
 const AUTH_MODE_KEY = storageKey('auth-mode');
 function getAuthToken() {
-  return localStorage.getItem(AUTH_TOKEN_KEY);
+  return typeof localStorage === 'undefined' ? null : localStorage.getItem(AUTH_TOKEN_KEY);
 }
 
 function getAuthUserRaw() {
-  return localStorage.getItem(AUTH_USER_KEY);
+  return typeof localStorage === 'undefined' ? null : localStorage.getItem(AUTH_USER_KEY);
 }
 
 function getAuthModeRaw() {
-  return localStorage.getItem(AUTH_MODE_KEY);
+  return typeof localStorage === 'undefined' ? null : localStorage.getItem(AUTH_MODE_KEY);
 }
 
 function setAuthToken(token: string) {
+  if (typeof localStorage === 'undefined') return;
   localStorage.setItem(AUTH_TOKEN_KEY, token);
 }
 
 function setAuthUser(user: User) {
-  localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  if (typeof localStorage !== 'undefined') localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
   rememberCloudUserId(user);
 }
 
@@ -106,11 +107,13 @@ function enableCloudSyncForLogin(user: User | null) {
 }
 
 function clearAuthTokenAndUser() {
+  if (typeof localStorage === 'undefined') return;
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_USER_KEY);
 }
 
 function setAuthMode(mode: AuthMode) {
+  if (typeof localStorage === 'undefined') return;
   localStorage.setItem(AUTH_MODE_KEY, mode);
 }
 

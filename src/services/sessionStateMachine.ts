@@ -7,6 +7,7 @@ export function getSessionPhases(engine: SessionEngineDefinition, conversation: 
 
 export function getCurrentSessionPhase(engine: SessionEngineDefinition, conversation: GroupChat): SessionPhaseDefinition {
   const phases = getSessionPhases(engine, conversation);
-  const currentKey = conversation.worldState.phase || phases[0]?.key || 'default';
+  const scenarioPhase = typeof conversation.scenarioState?.phase === 'string' ? conversation.scenarioState.phase : '';
+  const currentKey = scenarioPhase || conversation.worldState.phase || phases[0]?.key || 'default';
   return phases.find((phase) => phase.key === currentKey) || phases[0];
 }

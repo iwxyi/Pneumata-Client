@@ -66,9 +66,9 @@ describe('runtimeTimelinePresentation', () => {
       },
     };
 
-    expect(buildRuntimeTimelineBody(item)).toContain('甲 跟进我指令 待响应');
+    expect(buildRuntimeTimelineBody(item)).toContain('甲 跟进成员指令 待响应');
     expect(buildRuntimeTimelineBody(item)).toContain('先回应再追问');
-    expect(buildRuntimeTimelineMeta(item)).toBe('用户跟进动作 · 甲 · 待响应');
+    expect(buildRuntimeTimelineMeta(item)).toBe('成员跟进动作 · 甲 → 成员 · 待响应');
   });
 
   it('builds member attention followup timeline body and meta', () => {

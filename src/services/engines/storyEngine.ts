@@ -1,27 +1,43 @@
 import type { ConversationPhase, GroupChat } from '../../types/chat';
 import type { SessionEngineDefinition, SessionGenerationPromptContext, SessionRuntimeContextBundle } from '../../types/sessionEngine';
-import type { Message } from '../../types/message';
+import type { Message, NarrativeTurnMetadata, StoryChoiceSuggestion } from '../../types/message';
+import { hasVisibleStoryChoices, normalizeStoryChoiceSuggestions } from '../storyChoices';
 
 const STORY_PHASES = [
-  { key: 'scene', label: 'Scene', allowedActions: ['speak', 'send_message', 'branch_choose'] as string[] },
-  { key: 'branch', label: 'Branch', allowedActions: ['speak', 'send_message', 'branch_choose'] as string[] },
+  { key: 'scene', label: 'Scene', allowedActions: ['speak', 'send_message'] as string[] },
+  { key: 'branch', label: 'Branch', allowedActions: ['speak', 'send_message'] as string[] },
+  { key: 'choice', label: 'Choice', allowedActions: ['branch_choose'] as string[] },
 ];
+
 function getPhaseDefinitions() {
   return [...STORY_PHASES];
 }
 
 function buildParticipants(conversation: GroupChat) {
-  return conversation.memberIds.map((memberId, index) => ({
-    participantId: `${conversation.id}:${memberId}`,
-    conversationId: conversation.id,
-    entityType: memberId === 'user' ? 'user' as const : 'ai' as const,
-    entityRefId: memberId,
-    seatIndex: index,
-    displayName: memberId === 'user' ? '我' : undefined,
-    canSpeak: true,
-    canAct: true,
-    flags: { actorRefKind: memberId === 'user' ? 'user_persona' : 'ai_character' },
-  }));
+  return [
+    {
+      participantId: `${conversation.id}:narrator`,
+      conversationId: conversation.id,
+      entityType: 'system_agent' as const,
+      entityRefId: 'narrator',
+      seatIndex: 0,
+      displayName: '旁白',
+      canSpeak: true,
+      canAct: true,
+      flags: { actorRefKind: 'system_agent', systemAgentSubtype: 'narrator', actorCapabilities: 'observe,guide' },
+    },
+    ...conversation.memberIds.map((memberId, index) => ({
+      participantId: `${conversation.id}:${memberId}`,
+      conversationId: conversation.id,
+      entityType: memberId === 'user' ? 'user' as const : 'ai' as const,
+      entityRefId: memberId,
+      seatIndex: index + 1,
+      displayName: memberId === 'user' ? '我' : undefined,
+      canSpeak: true,
+      canAct: true,
+      flags: { actorRefKind: memberId === 'user' ? 'user_persona' : 'ai_character' },
+    })),
+  ];
 }
 
 function getVisiblePanels() {
@@ -35,8 +51,50 @@ function getVisiblePanels() {
 function getAvailableActions() {
   return [
     { type: 'choose_story_branch' },
-    { type: 'advance_story_scene' },
   ];
+}
+
+function getCurrentChoiceEpoch(conversation: GroupChat) {
+  const explicit = Number(conversation.scenarioState?.choiceEpoch || 0);
+  const branchEpochs = (conversation.scenarioState?.branches || []).map((branch) => Number(branch.choiceEpoch || 0));
+  return Math.max(explicit, 1, ...branchEpochs);
+}
+
+function normalizeStoryBranches(conversation: GroupChat, choices: StoryChoiceSuggestion[]) {
+  const existing = conversation.scenarioState?.branches || [];
+  const currentEpoch = getCurrentChoiceEpoch(conversation);
+  const selectedEpoch = Number(conversation.scenarioState?.selectedChoiceEpoch || 0);
+  const active = existing.filter((branch) => branch.status !== 'locked' && branch.status !== 'completed' && branch.status !== 'chosen' && Number(branch.choiceEpoch || currentEpoch) === currentEpoch);
+  if (active.length >= 2 && selectedEpoch !== currentEpoch) return { branches: existing, hasOpenChoice: true, openedChoice: false };
+  if (choices.length < 2) return { branches: existing, hasOpenChoice: false, openedChoice: false };
+  const nextEpoch = currentEpoch + 1;
+  const prefix = `${conversation.id}:choice:${nextEpoch}`;
+  return {
+    branches: [
+      ...existing,
+      ...choices.map((choice, index) => ({
+        branchId: `${prefix}:${index + 1}`,
+        label: choice.label,
+        description: '',
+        prompt: choice.prompt || choice.label,
+        status: 'available' as const,
+        source: 'suggested' as const,
+        choiceEpoch: nextEpoch,
+      })),
+    ],
+    hasOpenChoice: true,
+    openedChoice: true,
+  };
+}
+
+function resolveTurnPolicy(params: { conversation: GroupChat; messages: Message[] }) {
+  const lastMessage = params.messages[params.messages.length - 1];
+  const waitingForChoice = params.conversation.scenarioState?.phase === 'choice' && hasVisibleStoryChoices(lastMessage?.metadata?.storyChoices);
+  return {
+    runChat: !waitingForChoice,
+    runAction: false,
+    interleaveAction: false,
+  };
 }
 
 function buildGenerationPromptContext(params: { conversation: GroupChat }): SessionGenerationPromptContext {
@@ -45,9 +103,19 @@ function buildGenerationPromptContext(params: { conversation: GroupChat }): Sess
     responseStyle: 'creative',
     allowMarkdown: true,
     styleProfile: 'dramatic_room',
+    promptPrefix: 'You are producing a narrative-runtime story beat. Treat the narrator as the default speaker: prose paragraphs should carry setting, action, consequences, inner pressure, and sensory detail. Character dialogue is optional and should be brief; use chat bubbles only for spoken lines that change the scene. Do not turn the beat into alternating dialogue.',
     additionalConstraints: phase === 'branch'
-      ? ['Push the current branch to a clear decision or reveal instead of lingering in neutral scene description.']
-      : ['Advance the scene with concrete atmosphere, implication, or character pressure instead of plain exposition.'],
+      ? [
+        'Resolve the chosen storyDirection with a concrete consequence: new evidence, danger, location, relationship shift, or goal pressure.',
+        'End at a new decision point only after the consequence is visible. Any next choices must be specific to the current people, place, clue, threat, or goal.',
+        'Avoid abstract option language such as investigate clues, deepen emotion, advance plot, or face the key person without naming what is at stake.',
+        'Write mostly in narrator prose: show the environment changing, bodies moving, costs landing, and new pressure becoming visible. Dialogue should be sparse and consequential.',
+      ]
+      : [
+        'Advance the scene with concrete atmosphere, implication, or character pressure instead of plain exposition.',
+        'Make the next pressure point specific enough that choices can name the person, place, clue, threat, or goal involved.',
+        'Prefer narrator-led prose with concrete sensory detail and visible consequences. It is valid for the whole response to be narration with no character speech.',
+      ],
   };
 }
 
@@ -82,56 +150,53 @@ function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: {
   };
 }
 
-function paramsPlaceholder(conversation: GroupChat, fallback: string) {
-  return conversation.scenarioState?.storyDirection || fallback;
+function buildNarrativeTurnMetadata(params: { conversation: GroupChat; speaker: { id: string }; content: string }): NarrativeTurnMetadata | null {
+  const text = params.content.trim();
+  if (!text || params.speaker.id !== 'narrator') return null;
+  const phase = params.conversation.scenarioState?.phase || 'scene';
+  const paragraphs = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  return {
+    turnId: `${params.conversation.id}:${Date.now().toString(36)}`,
+    turnKind: phase === 'branch' ? 'choice_prompt' : 'narrative_beat',
+    sceneId: String(params.conversation.scenarioState?.sceneId || 'main'),
+    phase,
+    povActorId: 'narrator',
+    blocks: (paragraphs.length ? paragraphs : [text]).map((paragraph, index) => ({
+      id: `block-${index + 1}`,
+      actorId: 'narrator',
+      actorKind: 'narrator',
+      kind: 'prose',
+      displayMode: 'paragraph',
+      text: paragraph,
+    })),
+  };
 }
 
-function getActionSchema(conversation: GroupChat) {
-  const branchOptions = (conversation.scenarioState?.branches || [{ branchId: 'main', label: conversation.topic || '主线剧情', status: 'available' }]).map((branch) => ({
-    label: branch.label,
-    value: branch.branchId,
-  }));
+function getActionSchema(_conversation: GroupChat) {
   return {
     title: '故事动作',
-    actions: [
-      {
-        type: 'choose_story_branch',
-        label: '选择分支',
-        description: '推进当前故事分支。',
-        visibility: 'public' as const,
-        fields: [
-          { key: 'branchId', label: '分支', type: 'single_select' as const, required: true, options: branchOptions },
-          { key: 'prompt', label: '推进方式', type: 'textarea' as const, placeholder: paramsPlaceholder(conversation, '让角色沿着这条线继续推进') },
-        ],
-      },
-      {
-        type: 'advance_story_scene',
-        label: '推进场景',
-        description: '推动剧情进入下一段。',
-        visibility: 'public' as const,
-        fields: [
-          { key: 'prompt', label: '场景变化', type: 'textarea' as const, required: true, placeholder: '例如：夜幕降临，所有人来到旧宅门前' },
-        ],
-      },
-    ],
+    actions: [],
   };
 }
 
 function onMessageCommitted(params: {
   conversation: GroupChat;
   characters: Parameters<SessionEngineDefinition['onMessageCommitted']>[0]['characters'];
-  message: Pick<Message, 'content' | 'type' | 'senderId'>;
+  message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'>;
 }) {
   const summary = params.message.content.trim().slice(0, 72);
-  const currentBranch = params.conversation.scenarioState?.branches?.[0];
+  const choices = normalizeStoryChoiceSuggestions(params.message.metadata?.storyChoices);
+  const normalized = normalizeStoryBranches(params.conversation, choices);
+  const nextEpoch = getCurrentChoiceEpoch({ ...params.conversation, scenarioState: { ...(params.conversation.scenarioState || {}), branches: normalized.branches } });
   return {
     chatPatch: {
       scenarioState: {
         ...(params.conversation.scenarioState || {}),
-        phase: currentBranch?.status === 'chosen' ? 'branch' : 'scene',
-        branches: params.conversation.scenarioState?.branches?.length
-          ? params.conversation.scenarioState.branches
-          : [{ branchId: 'main', label: params.conversation.topic || '主线剧情', status: 'available' as const }],
+        phase: normalized.hasOpenChoice ? 'choice' : 'scene',
+        sceneBeatCount: normalized.openedChoice ? 0 : Number(params.conversation.scenarioState?.sceneBeatCount || 0) + 1,
+        choiceEpoch: nextEpoch,
+        selectedChoiceEpoch: normalized.openedChoice ? undefined : params.conversation.scenarioState?.selectedChoiceEpoch,
+        branches: normalized.branches,
       },
       worldState: {
         ...params.conversation.worldState,
@@ -159,10 +224,12 @@ export const STORY_ENGINE: SessionEngineDefinition = {
   createInitialState: () => ({ phase: 'scene', round: 0 }),
   buildParticipants,
   getPhaseDefinitions,
+  resolveTurnPolicy,
   getVisiblePanels,
   getAvailableActions,
   getActionSchema: ({ conversation }) => getActionSchema(conversation),
   buildGenerationPromptContext,
   buildRuntimeContextBundle,
+  buildNarrativeTurnMetadata,
   onMessageCommitted,
 };

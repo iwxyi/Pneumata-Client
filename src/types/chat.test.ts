@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeConversation, resolveShowRoleActions } from './chat';
+import { defaultInputSurfacesForConversation, normalizeConversation, resolveShowRoleActions } from './chat';
 
 function baseChat() {
   return {
@@ -58,5 +58,15 @@ describe('normalizeConversation role action visibility', () => {
     expect(chat.showRoleActions).toBe(false);
     expect(chat.modeConfig.showRoleActions).toBe(false);
     expect(resolveShowRoleActions(chat)).toBe(false);
+  });
+});
+
+describe('defaultInputSurfacesForConversation', () => {
+  it('keeps story rooms text-only even when stored as hybrid profile', () => {
+    expect(defaultInputSurfacesForConversation({
+      type: 'group',
+      mode: 'scripted_play',
+      sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+    })).toEqual([{ key: 'main-text', type: 'text', mode: 'guide', capability: 'guide' }]);
   });
 });

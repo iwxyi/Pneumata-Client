@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Button, TextField, Typography, Chip, LinearProgress, Dialog, DialogContent, IconButton } from '@mui/material';
+import { Box, Button, TextField, Typography, Chip, LinearProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, IconButton, InputLabel, MenuItem, Select } from '@mui/material';
 import type { AIModelProfile } from '../types/settings';
 import type { AICharacter, CharacterBehaviorParams, PersonalityParams } from '../types/character';
 import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
 import { initializeDefaultRelationshipsForCreatedCharacters } from '../services/defaultRelationshipInitializer';
 import AppSnackbar from '../components/common/AppSnackbar';
+import { BATCH_GENERATE_EXAMPLES } from '../constants/batchGenerateExamples';
 
 const BATCH_GENERATE_GROUP_SIZE = 10;
 
@@ -19,6 +20,51 @@ interface ProgressState {
   total: number;
   currentName?: string;
   items: ProgressItem[];
+}
+
+type NameFormat = 'roleName' | 'roleDotName' | 'nameDotRole' | 'nameDashRole' | 'roleDashName' | 'nameParenRole' | 'nameOnly' | 'roleOnly';
+
+interface CandidateCharacter {
+  id: string;
+  name: string;
+  role: string;
+  summary: string;
+}
+
+const NAME_FORMAT_OPTIONS: Array<{ value: NameFormat; label: string }> = [
+  { value: 'roleName', label: '身份名字' },
+  { value: 'roleDotName', label: '身份·名字' },
+  { value: 'nameDotRole', label: '名字·身份' },
+  { value: 'nameDashRole', label: '名字-身份' },
+  { value: 'roleDashName', label: '身份-名字' },
+  { value: 'nameParenRole', label: '名字（身份）' },
+  { value: 'nameOnly', label: '名字' },
+  { value: 'roleOnly', label: '身份' },
+];
+
+function formatCandidateName(candidate: CandidateCharacter, format: NameFormat) {
+  const name = candidate.name.trim();
+  const role = candidate.role.trim();
+  if (!role) return name;
+  switch (format) {
+    case 'roleName':
+      return `${role}${name}`;
+    case 'roleDotName':
+      return `${role}·${name}`;
+    case 'nameDotRole':
+      return `${name}·${role}`;
+    case 'nameDashRole':
+      return `${name}-${role}`;
+    case 'roleDashName':
+      return `${role}-${name}`;
+    case 'nameOnly':
+      return name;
+    case 'roleOnly':
+      return role;
+    case 'nameParenRole':
+    default:
+      return `${name}（${role}）`;
+  }
 }
 
 async function runInBatches<T>(items: T[], batchSize: number, worker: (batch: T[], batchStartIndex: number) => Promise<void>) {
@@ -93,13 +139,15 @@ function buildGeneratedCharacterPayload(params: {
 }
 
 async function processCharacterBatch(params: {
-  selectedNames: string[];
+  selectedCandidates: CandidateCharacter[];
+  nameFormat: NameFormat;
   characters: Array<Pick<AICharacter, 'name' | 'group' | 'bubbleStyleId'>>;
   generatedGroup: string | null;
   customStyleIds: string[];
   profile: AIModelProfile;
   language: 'zh' | 'en';
   theme?: string | null;
+  description?: string | null;
   cancelGenerationRef: React.MutableRefObject<boolean>;
   setProgress: React.Dispatch<React.SetStateAction<ProgressState>>;
   duplicateMessage: string;
@@ -110,25 +158,35 @@ async function processCharacterBatch(params: {
   const reservedNames = new Set<string>();
   const allCreatedCharacters: AICharacter[] = [];
 
-  await runInBatches(params.selectedNames, BATCH_GENERATE_GROUP_SIZE, async (batch) => {
+  await runInBatches(params.selectedCandidates, BATCH_GENERATE_GROUP_SIZE, async (batch) => {
     if (params.cancelGenerationRef.current) return;
 
-    markCurrentName(params.setProgress, buildBatchProgressLabel(batch));
-    const creatableNames = batch.filter((name) => {
-      const normalizedName = name.trim().toLowerCase();
+    const displayItems = batch.map((candidate) => ({ candidate, displayName: formatCandidateName(candidate, params.nameFormat) }));
+    markCurrentName(params.setProgress, buildBatchProgressLabel(displayItems.map((item) => item.displayName)));
+    const creatableItems = displayItems.filter(({ displayName }) => {
+      const normalizedName = displayName.trim().toLowerCase();
       const duplicated = existingNames.has(normalizedName) || reservedNames.has(normalizedName);
       if (duplicated) {
-        appendProgressItem(params.setProgress, { name, status: 'skipped', reason: params.duplicateMessage });
+        appendProgressItem(params.setProgress, { name: displayName, status: 'skipped', reason: params.duplicateMessage });
         return false;
       }
       reservedNames.add(normalizedName);
       return true;
     });
+    const creatableNames = creatableItems.map((item) => item.displayName);
 
     if (params.cancelGenerationRef.current || !creatableNames.length) return;
 
     try {
-      const { success, failed } = await generateCharacterProfilesSafe(params.profile, creatableNames, params.language, params.theme);
+      const { success, failed } = await generateCharacterProfilesSafe(params.profile, creatableNames, params.language, {
+        theme: params.theme,
+        description: [
+          params.description?.trim() || '',
+          params.language === 'zh'
+            ? `隐藏角色摘要：${creatableItems.map(({ candidate, displayName }) => `${displayName} => 本名：${candidate.name}；主要身份：${candidate.role}；摘要：${candidate.summary}`).join('；')}`
+            : `Hidden character summaries: ${creatableItems.map(({ candidate, displayName }) => `${displayName} => name: ${candidate.name}; primary role: ${candidate.role}; summary: ${candidate.summary}`).join('; ')}`,
+        ].filter(Boolean).join('\n'),
+      });
       failed.forEach(({ name, reason }) => {
         appendProgressItem(params.setProgress, { name, status: 'failed', reason });
       });
@@ -198,8 +256,9 @@ async function processCharacterBatch(params: {
   return allCreatedCharacters;
 }
 
-import SearchIcon from '@mui/icons-material/Search';
-import { useNavigate } from 'react-router-dom';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import SettingsIcon from '@mui/icons-material/Settings';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useTranslation } from 'react-i18next';
 import { generateResponse } from '../services/aiClient';
@@ -327,20 +386,25 @@ function getVisibleGeneratedNameText(text: string) {
   return getReadableGeneratedNamePreview(text);
 }
 
-const NAMES_SYSTEM_PROMPT = `You help generate candidate character names for a theme.
-Return strict JSON only in this shape: {"names":["name1","name2",...],"defaultSelectedNames":["name1","name2"]}
+const NAMES_SYSTEM_PROMPT = `You help generate candidate characters for a theme.
+Return strict JSON only in this shape: {"characters":[{"name":"Name","role":"primary role","summary":"hidden identity summary"}],"defaultSelectedNames":["Name"]}
 Rules:
 - Build a usable cast, not just a protagonist list.
+- Each character must include name, role, and summary.
+- name must be an actual person/character name, not only an identity, job title, archetype, or role.
+- role should be the most useful primary identity for group chat context; characters may have multiple identities, but include only the main one.
+- summary is hidden from users and later used to generate the full character; include enough context to disambiguate identity, status, relationship, era/genre fit, and why this character belongs in the requested cast.
+- Use the user's language for names, roles, and summaries.
 - Include a mix of: core characters, major supporting characters, recurring side characters, rivals, mentors, family members, allies, comic relief, or strongly associated peripheral figures.
 - Aim for breadth around the theme: roughly 30-40% core names, 40-50% important supporting names, and 20-30% peripheral-but-recognizable related names.
 - Do not stop at only the most famous names if the world clearly has a broader cast.
 - For broad themes, return more names. For narrow themes, return fewer names.
 - Put the most central or iconic names first, but keep expanding outward to a richer cast.
-- defaultSelectedNames should contain only the characters that should be selected by default for an initial chat cast. Usually this means the core cast, not everyone.
-- defaultSelectedNames must be a subset of names.
+- defaultSelectedNames should contain only the character names that should be selected by default for an initial chat cast. Usually this means the core cast, not everyone.
+- defaultSelectedNames must be a subset of characters[].name and must use the exact same name strings.
 - Prefer well-known, distinctive characters or figures strongly associated with the theme.
 - Do not include placeholders, headings, field names, or questions like "names?".
-- Every item in names must be an actual character/person/figure name.
+- Every item in characters must be an actual character/person/figure with a primary role and hidden summary.
 - No explanations, no markdown.`;
 
 const INVALID_NAME_PATTERNS = [
@@ -366,6 +430,28 @@ function sanitizeNames(names: string[]) {
   return [...new Set(names.map((item) => item.trim()).filter(isValidCandidateName))];
 }
 
+function buildCandidate(name: string, role = '', summary = ''): CandidateCharacter | null {
+  const normalizedName = name.trim();
+  if (!isValidCandidateName(normalizedName)) return null;
+  const normalizedRole = role.trim();
+  return {
+    id: `${normalizedName}::${normalizedRole}`,
+    name: normalizedName,
+    role: normalizedRole,
+    summary: summary.trim() || [normalizedName, normalizedRole].filter(Boolean).join('：'),
+  };
+}
+
+function sanitizeCandidates(candidates: CandidateCharacter[]) {
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    const key = candidate.id.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function extractJsonObject(content: string) {
   const cleaned = content.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
   const firstBrace = cleaned.indexOf('{');
@@ -388,13 +474,40 @@ function extractJsonArray(content: string) {
 
 function tryParseNamesJson(content: string) {
   try {
-    const parsed = JSON.parse(extractJsonObject(content)) as { names?: unknown; defaultSelectedNames?: unknown };
-    if (Array.isArray(parsed.names)) {
-      const names = sanitizeNames(parsed.names.filter((item): item is string => typeof item === 'string'));
-      const defaultSelectedNames = Array.isArray(parsed.defaultSelectedNames)
-        ? sanitizeNames(parsed.defaultSelectedNames.filter((item): item is string => typeof item === 'string')).filter((name) => names.includes(name))
+    const parsed = JSON.parse(extractJsonObject(content)) as { characters?: unknown; names?: unknown; defaultSelectedNames?: unknown };
+    if (Array.isArray(parsed.characters)) {
+      const candidates = sanitizeCandidates(parsed.characters.flatMap((item) => {
+        if (!item || typeof item !== 'object') return [];
+        const record = item as { name?: unknown; role?: unknown; summary?: unknown };
+        const candidate = typeof record.name === 'string'
+          ? buildCandidate(
+              record.name,
+              typeof record.role === 'string' ? record.role : '',
+              typeof record.summary === 'string' ? record.summary : ''
+            )
+          : null;
+        return candidate ? [candidate] : [];
+      }));
+      const defaultSelectedIds = Array.isArray(parsed.defaultSelectedNames)
+        ? parsed.defaultSelectedNames
+            .filter((item): item is string => typeof item === 'string')
+            .map((name) => candidates.find((candidate) => candidate.name === name)?.id)
+            .filter((id): id is string => Boolean(id))
         : [];
-      return { names, defaultSelectedNames };
+      return { candidates, defaultSelectedIds };
+    }
+    if (Array.isArray(parsed.names)) {
+      const candidates = sanitizeCandidates(parsed.names.flatMap((item) => {
+        const candidate = typeof item === 'string' ? buildCandidate(item) : null;
+        return candidate ? [candidate] : [];
+      }));
+      const defaultSelectedIds = Array.isArray(parsed.defaultSelectedNames)
+        ? parsed.defaultSelectedNames
+            .filter((item): item is string => typeof item === 'string')
+            .map((name) => candidates.find((candidate) => candidate.name === name || formatCandidateName(candidate, 'nameParenRole') === name)?.id)
+            .filter((id): id is string => Boolean(id))
+        : [];
+      return { candidates, defaultSelectedIds };
     }
   } catch {
     // ignore
@@ -403,7 +516,11 @@ function tryParseNamesJson(content: string) {
   try {
     const parsed = JSON.parse(extractJsonArray(content)) as unknown;
     if (Array.isArray(parsed)) {
-      return { names: sanitizeNames(parsed.filter((item): item is string => typeof item === 'string')), defaultSelectedNames: [] };
+      const candidates = sanitizeCandidates(parsed.flatMap((item) => {
+        const candidate = typeof item === 'string' ? buildCandidate(item) : null;
+        return candidate ? [candidate] : [];
+      }));
+      return { candidates, defaultSelectedIds: [] };
     }
   } catch {
     // ignore
@@ -418,7 +535,7 @@ function stripLinePrefix(line: string) {
 
 function parseNames(content: string) {
   const parsedJson = tryParseNamesJson(content);
-  if (parsedJson && parsedJson.names.length > 0) {
+  if (parsedJson && parsedJson.candidates.length > 0) {
     return parsedJson;
   }
 
@@ -440,11 +557,14 @@ function parseNames(content: string) {
       .filter((line) => !/^[A-Za-z_]+\s*:/.test(line) && !/^[\u4e00-\u9fa5]+\s*[：:]/.test(line))
   );
 
-  const names = sanitizeNames([...quoted, ...lines]);
-  if (names.length === 0) {
+  const candidates = sanitizeCandidates([...quoted, ...lines].flatMap((name) => {
+    const candidate = buildCandidate(name);
+    return candidate ? [candidate] : [];
+  }));
+  if (candidates.length === 0) {
     throw new Error('AI 返回的名字列表格式无法解析');
   }
-  return { names, defaultSelectedNames: [] };
+  return { candidates, defaultSelectedIds: [] };
 }
 
 function getErrorMessage(error: unknown) {
@@ -455,12 +575,17 @@ function getErrorMessage(error: unknown) {
 export default function BatchGenerateCharactersPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
   const settings = useSettingsStore();
   const { characters, markCharactersWarm, prefetchCharacters, addCharacters, updateCharacters } = useCharacterStore();
   const [topic, setTopic] = useState('');
-  const [candidateNames, setCandidateNames] = useState<string[]>([]);
-  const [selectedNames, setSelectedNames] = useState<string[]>([]);
+  const [description, setDescription] = useState('');
+  const [candidateCharacters, setCandidateCharacters] = useState<CandidateCharacter[]>([]);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
+  const [nameFormat, setNameFormat] = useState<NameFormat>('nameParenRole');
+  const [pendingNameFormat, setPendingNameFormat] = useState<NameFormat>('nameParenRole');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [loadingNames, setLoadingNames] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number; currentName?: string; items: ProgressItem[] }>({ current: 0, total: 0, currentName: '', items: [] });
@@ -470,27 +595,35 @@ export default function BatchGenerateCharactersPage() {
     message: '',
     severity: 'success',
   });
+  const returnTo = new URLSearchParams(location.search).get('returnTo');
 
   useEffect(() => {
     setHeaderTitle(i18n.language.startsWith('zh') ? '批量生成角色' : 'Batch Generate');
     setHeaderBackAction(() => () => navigate(-1));
-    setHeaderActions(null);
+    setHeaderActions(
+      <IconButton color="primary" onClick={() => { setPendingNameFormat(nameFormat); setSettingsOpen(true); }} aria-label={i18n.language.startsWith('zh') ? '设置' : 'Settings'}>
+        <SettingsIcon />
+      </IconButton>
+    );
     return () => {
       setHeaderTitle(null);
       setHeaderBackAction(null);
       setHeaderActions(null);
     };
-  }, [i18n.language, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, t]);
+  }, [i18n.language, nameFormat, navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle]);
 
-  const selectedSet = useMemo(() => new Set(selectedNames), [selectedNames]);
-  const canGenerateNames = topic.trim().length > 0 && !loadingNames;
-  const canGenerateCharacters = selectedNames.length > 0 && !generating;
+  const selectedSet = useMemo(() => new Set(selectedCandidateIds), [selectedCandidateIds]);
+  const selectedCandidates = useMemo(() => candidateCharacters.filter((candidate) => selectedSet.has(candidate.id)), [candidateCharacters, selectedSet]);
+  const example = useMemo(() => BATCH_GENERATE_EXAMPLES[Math.floor(Math.random() * BATCH_GENERATE_EXAMPLES.length)], []);
+  const localizedExample = i18n.language.startsWith('zh') ? example.zh : example.en;
+  const canGenerateNames = Boolean(topic.trim() || description.trim()) && !loadingNames;
+  const canGenerateCharacters = selectedCandidateIds.length > 0 && !generating;
 
-  const toggleName = (name: string) => {
-    setSelectedNames((prev) =>
-      prev.includes(name)
-        ? prev.filter((item) => item !== name)
-        : [...prev, name]
+  const toggleCandidate = (candidateId: string) => {
+    setSelectedCandidateIds((prev) =>
+      prev.includes(candidateId)
+        ? prev.filter((item) => item !== candidateId)
+        : [...prev, candidateId]
     );
   };
 
@@ -503,14 +636,18 @@ export default function BatchGenerateCharactersPage() {
 
     setLoadingNames(true);
     try {
+      const promptInput = [
+        topic.trim() ? (i18n.language.startsWith('zh') ? `主题/分组：${topic.trim()}` : `Theme/group: ${topic.trim()}`) : '',
+        description.trim() ? (i18n.language.startsWith('zh') ? `描述：${description.trim()}` : `Description: ${description.trim()}`) : '',
+      ].filter(Boolean).join('\n');
       const response = await generateResponse(
         profile,
         `${NAMES_SYSTEM_PROMPT}\nOutput exactly one valid JSON object. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
-        [{ role: 'user', content: i18n.language.startsWith('zh') ? `主题：${topic}\n请列出一个适合放进同一群聊的角色阵容，不要只给主角。需要同时包含主角、重要配角、反派/对手、老师/家人/同伴，以及少量但强相关的边缘角色。并请额外判断哪些角色应该默认选中作为初始群聊阵容。只返回合法JSON，格式必须是 {"names":["名字1","名字2"],"defaultSelectedNames":["名字1"]}` : `Theme: ${topic}\nReturn a cast suitable for the same group chat, not just protagonists. Include main characters, important supporting characters, rivals/antagonists, mentors/family/allies, and a few strongly related peripheral figures. Also decide which characters should be selected by default as the initial cast. Return only valid JSON in the format {"names":["name1","name2"],"defaultSelectedNames":["name1"]}.` }]
+        [{ role: 'user', content: i18n.language.startsWith('zh') ? `${promptInput}\n请根据主题/分组和描述列出一个适合放进同一群聊的角色阵容；如果描述里指定数量或身份结构（例如“皇帝和10个妃子”），必须按描述生成对应数量与构成。每个角色必须有真实名字、主要身份和隐藏摘要。主要身份只写最有助于群聊理解的一个身份；隐藏摘要要说明角色在该主题/描述中的具体身份、地位、关系和设定约束，后续生成具体角色会依赖它避免跑偏。不要只给主角，需要同时包含核心角色、重要配角、反派/对手、老师/家人/同伴，以及少量但强相关的边缘角色。并请额外判断哪些角色应该默认选中作为初始群聊阵容。只返回合法JSON，格式必须是 {"characters":[{"name":"名字","role":"主要身份","summary":"隐藏摘要"}],"defaultSelectedNames":["名字"]}` : `${promptInput}\nReturn a cast suitable for the same group chat based on the theme/group and description. If the description specifies a count or role composition, follow it exactly. Each character must have a real name, primary role, and hidden summary. The role should be the single most useful identity for group chat context; the hidden summary must explain the character's concrete identity, status, relationships, and setting constraints within this exact theme/description, because full profile generation will rely on it to avoid drifting. Do not return only protagonists. Include core characters, important supporting characters, rivals/antagonists, mentors/family/allies, and a few strongly related peripheral figures. Also decide which characters should be selected by default as the initial cast. Return only valid JSON in the format {"characters":[{"name":"Name","role":"primary role","summary":"hidden summary"}],"defaultSelectedNames":["Name"]}.` }]
       );
       const parsed = parseNames(response);
-      setCandidateNames(parsed.names);
-      setSelectedNames(parsed.defaultSelectedNames.length ? parsed.defaultSelectedNames : parsed.names.slice(0, Math.min(4, parsed.names.length)));
+      setCandidateCharacters(parsed.candidates);
+      setSelectedCandidateIds(parsed.defaultSelectedIds.length ? parsed.defaultSelectedIds : parsed.candidates.slice(0, Math.min(4, parsed.candidates.length)).map((candidate) => candidate.id));
     } catch (error) {
       setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
     } finally {
@@ -527,18 +664,20 @@ export default function BatchGenerateCharactersPage() {
 
     cancelGenerationRef.current = false;
     setGenerating(true);
-    setProgress({ current: 0, total: selectedNames.length, currentName: '', items: [] });
+    setProgress({ current: 0, total: selectedCandidateIds.length, currentName: '', items: [] });
 
     try {
       const generatedGroup = getTopicDerivedCharacterGroup(topic);
       const createdCharacters = await processCharacterBatch({
-        selectedNames,
+        selectedCandidates,
+        nameFormat,
         characters,
         generatedGroup,
         customStyleIds: (settings.customBubbleStyles || []).map((style) => style.id),
         profile,
         language: i18n.language.startsWith('zh') ? 'zh' : 'en',
-        theme: topic,
+        theme: topic.trim(),
+        description: description.trim(),
         cancelGenerationRef,
         setProgress,
         duplicateMessage: i18n.language.startsWith('zh') ? '同名已存在' : 'Duplicate name exists',
@@ -568,6 +707,9 @@ export default function BatchGenerateCharactersPage() {
           : (i18n.language.startsWith('zh') ? '批量生成完成' : 'Batch generation completed'),
         severity: cancelGenerationRef.current ? 'error' : 'success',
       });
+      if (!cancelGenerationRef.current && returnTo) {
+        navigate(`${returnTo}${returnTo.includes('?') ? '&' : '?'}restoreDraft=1`, { replace: true });
+      }
     } catch (error) {
       setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
     } finally {
@@ -578,48 +720,51 @@ export default function BatchGenerateCharactersPage() {
 
   return (
     <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 960, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+      <Box sx={{ p: 2.5, border: 1, borderColor: 'divider', borderRadius: 4, bgcolor: 'background.paper', display: 'flex', flexDirection: 'column', gap: 2 }}>
         <TextField
-          label={i18n.language.startsWith('zh') ? '主题' : 'Theme'}
-          placeholder={i18n.language.startsWith('zh') ? '例如：喜羊羊与灰太狼' : 'e.g. Pleasant Goat and Big Big Wolf'}
+          label={i18n.language.startsWith('zh') ? '主题/分组' : 'Theme/group'}
+          placeholder={i18n.language.startsWith('zh') ? `例如：${localizedExample.topic}` : `e.g. ${localizedExample.topic}`}
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
+          fullWidth
+        />
+        <TextField
+          label={i18n.language.startsWith('zh') ? '描述' : 'Description'}
+          placeholder={i18n.language.startsWith('zh') ? `例如：${localizedExample.description}` : `e.g. ${localizedExample.description}`}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && canGenerateNames) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canGenerateNames) {
               e.preventDefault();
               void handleFetchNames();
             }
           }}
           fullWidth
+          multiline
+          minRows={4}
         />
-        <IconButton
-          color="primary"
+        <Button
+          variant="contained"
+          startIcon={<AutoAwesomeIcon />}
           onClick={handleFetchNames}
           disabled={!canGenerateNames}
-          sx={{
-            width: 56,
-            height: 56,
-            border: '1px solid',
-            borderColor: 'divider',
-            bgcolor: 'background.paper',
-            flexShrink: 0,
-          }}
+          sx={{ alignSelf: 'flex-end', borderRadius: 999, minHeight: 44, px: 2.5 }}
         >
-          <SearchIcon />
-        </IconButton>
+          {i18n.language.startsWith('zh') ? '生成名单' : 'Generate names'}
+        </Button>
       </Box>
 
-      {candidateNames.length > 0 ? (
+      {candidateCharacters.length > 0 ? (
         <>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Button size="small" variant="outlined" onClick={() => setSelectedNames(candidateNames)}>
+            <Button size="small" variant="outlined" onClick={() => setSelectedCandidateIds(candidateCharacters.map((candidate) => candidate.id))}>
               {i18n.language.startsWith('zh') ? '全选' : 'Select all'}
             </Button>
-            <Button size="small" variant="outlined" onClick={() => setSelectedNames(candidateNames.filter((name) => !selectedSet.has(name)))}>
+            <Button size="small" variant="outlined" onClick={() => setSelectedCandidateIds(candidateCharacters.filter((candidate) => !selectedSet.has(candidate.id)).map((candidate) => candidate.id))}>
               {i18n.language.startsWith('zh') ? '反选' : 'Invert'}
             </Button>
             <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
-              {selectedNames.length} · {candidateNames.length}
+              {selectedCandidateIds.length} · {candidateCharacters.length}
             </Typography>
           </Box>
 
@@ -634,16 +779,16 @@ export default function BatchGenerateCharactersPage() {
               gap: 1,
             }}
           >
-            {candidateNames.map((name) => {
-              const selected = selectedSet.has(name);
+            {candidateCharacters.map((candidate) => {
+              const selected = selectedSet.has(candidate.id);
               return (
                 <Chip
-                  key={name}
-                  label={name}
+                  key={candidate.id}
+                  label={formatCandidateName(candidate, nameFormat)}
                   clickable
                   color={selected ? 'primary' : 'default'}
                   variant={selected ? 'filled' : 'outlined'}
-                  onClick={() => toggleName(name)}
+                  onClick={() => toggleCandidate(candidate.id)}
                   sx={{ justifyContent: 'flex-start' }}
                 />
               );
@@ -652,6 +797,7 @@ export default function BatchGenerateCharactersPage() {
 
           <Button
             variant="contained"
+            startIcon={<AutoAwesomeIcon />}
             onClick={handleGenerateCharacters}
             disabled={!canGenerateCharacters}
             sx={{
@@ -669,6 +815,30 @@ export default function BatchGenerateCharactersPage() {
           </Button>
         </>
       ) : null}
+
+      <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>{i18n.language.startsWith('zh') ? '设置' : 'Settings'}</DialogTitle>
+        <DialogContent>
+          <FormControl fullWidth sx={{ mt: 1 }}>
+            <InputLabel>{i18n.language.startsWith('zh') ? '名字格式' : 'Name format'}</InputLabel>
+            <Select
+              label={i18n.language.startsWith('zh') ? '名字格式' : 'Name format'}
+              value={pendingNameFormat}
+              onChange={(event) => setPendingNameFormat(event.target.value as NameFormat)}
+            >
+              {NAME_FORMAT_OPTIONS.map((option) => (
+                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSettingsOpen(false)}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={() => { setNameFormat(pendingNameFormat); setSettingsOpen(false); }}>
+            {i18n.language.startsWith('zh') ? '确定' : 'OK'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={generating || loadingNames} fullWidth maxWidth="sm">
         <DialogContent>

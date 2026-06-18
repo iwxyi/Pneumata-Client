@@ -1,3 +1,11 @@
+import type { Message, NarrativeBlock } from '../../types/message';
+
+export function getNarrativeParagraphBlocks(message: Message): NarrativeBlock[] {
+  const turn = message.metadata?.narrativeTurn;
+  if (!turn || turn.povActorId !== 'narrator') return [];
+  return turn.blocks.filter((block) => block.actorKind === 'narrator' && block.displayMode === 'paragraph' && block.text.trim());
+}
+
 export function shouldUseCompactMessageBubble(options: {
   compactBubbleMode: boolean;
   compactPrivateBubbleMode: boolean;

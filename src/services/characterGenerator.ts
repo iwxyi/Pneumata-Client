@@ -255,20 +255,30 @@ export function parseGeneratedProfile(content: string) {
   return normalizeGeneratedProfile(parsed);
 }
 
+type CharacterGenerationContext = string | { theme?: string | null; description?: string | null } | null | undefined;
+
 function formatThemeHint(theme?: string | null) {
   const normalizedTheme = theme?.trim();
   return normalizedTheme ? normalizedTheme : '';
 }
 
-export function buildGeneratePrompt(name: string, language: 'zh' | 'en', theme?: string | null) {
-  const normalizedTheme = formatThemeHint(theme);
+function normalizeGenerationContext(context?: CharacterGenerationContext) {
+  if (typeof context === 'string') return { theme: formatThemeHint(context), description: '' };
+  return {
+    theme: formatThemeHint(context?.theme),
+    description: context?.description?.trim() || '',
+  };
+}
+
+export function buildGeneratePrompt(name: string, language: 'zh' | 'en', context?: CharacterGenerationContext) {
+  const { theme, description } = normalizeGenerationContext(context);
   if (language === 'zh') {
-    return normalizedTheme
-    ? `请基于主题“${normalizedTheme}”中的角色“${name}”生成一个适合多人群聊讨论的 AI 角色档案。务必按该主题理解角色身份，避免混淆同名人物。输出字段必须完整，语气自然，专业领域用简洁短语。请额外生成适合后续图片参考的 visualIdentity 文本锚点，以及适合长期演化的 coreProfile 心理画像。`
+    return theme || description
+      ? `请基于以下用户需求生成一个适合多人群聊讨论的 AI 角色档案。\n主题/分组：${theme || '未指定'}\n描述：${description || '未指定'}\n目标角色：${name}\n必须同时遵守主题和描述，描述里的数量、身份结构、时代、题材和关系约束优先；不要因为角色名或括号内身份而偏离用户需求。输出字段必须完整，语气自然，专业领域用简洁短语。请额外生成适合后续图片参考的 visualIdentity 文本锚点，以及适合长期演化的 coreProfile 心理画像。`
       : `请基于名字“${name}”生成一个适合多人群聊讨论的 AI 角色档案。输出字段必须完整，语气自然，专业领域用简洁短语。请额外生成适合后续图片参考的 visualIdentity 文本锚点，以及适合长期演化的 coreProfile 心理画像。`;
   }
-  return normalizedTheme
-    ? `Generate a complete AI character profile for the character "${name}" from the theme "${normalizedTheme}" for a multi-person group chat app. Use the theme to disambiguate namesakes and keep the fields concise and usable. Also generate a visualIdentity text anchor for later image reference and a coreProfile psychological profile for long-term evolution.`
+  return theme || description
+    ? `Generate a complete AI character profile for a multi-person group chat app from this user request.\nTheme/group: ${theme || 'not specified'}\nDescription: ${description || 'not specified'}\nTarget character: ${name}\nFollow both the theme and description; counts, role composition, era, genre, and relationship constraints in the description take priority. Do not let the name or parenthesized role drift away from the user's requested context. Keep fields concise and usable. Also generate a visualIdentity text anchor for later image reference and a coreProfile psychological profile for long-term evolution.`
     : `Generate a complete AI character profile for the name "${name}" for a multi-person group chat app. Keep the fields concise and usable. Also generate a visualIdentity text anchor for later image reference and a coreProfile psychological profile for long-term evolution.`;
 }
 
@@ -291,16 +301,16 @@ function extractJsonBlock(content: string) {
   return trimmed;
 }
 
-function buildBatchGeneratePrompt(names: string[], language: 'zh' | 'en', theme?: string | null) {
+function buildBatchGeneratePrompt(names: string[], language: 'zh' | 'en', context?: CharacterGenerationContext) {
   const normalizedNames = sanitizeBatchNames(names);
-  const normalizedTheme = formatThemeHint(theme);
+  const { theme, description } = normalizeGenerationContext(context);
   if (language === 'zh') {
-    return normalizedTheme
-      ? `请基于主题“${normalizedTheme}”为以下角色批量生成档案：${normalizedNames.join('、')}。每个角色都必须按该主题中的身份来理解，避免混淆同名人物。返回严格 JSON 数组，每项都包含 name、avatar、personality、behavior、expertise、speakingStyle、background、speechProfile、coreProfile、bubbleStyle、visualIdentity。personality 和 behavior 要按角色差异给出有区分度的 0-100 数值，不要全部填 50。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`
+    return theme || description
+      ? `请基于以下用户需求为角色批量生成档案。\n主题/分组：${theme || '未指定'}\n描述：${description || '未指定'}\n角色名单：${normalizedNames.join('、')}\n每个角色都必须同时贴合主题和描述，描述里的数量、身份结构、时代、题材和关系约束优先；不要因为角色名或括号内身份而带偏整体设定。返回严格 JSON 数组，每项都包含 name、avatar、personality、behavior、expertise、speakingStyle、background、speechProfile、coreProfile、bubbleStyle、visualIdentity。personality 和 behavior 要按角色差异给出有区分度的 0-100 数值，不要全部填 50。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`
       : `请为以下名字批量生成角色档案：${normalizedNames.join('、')}。返回严格 JSON 数组，每项都包含 name、avatar、personality、behavior、expertise、speakingStyle、background、speechProfile、coreProfile、bubbleStyle、visualIdentity。personality 和 behavior 要按角色差异给出有区分度的 0-100 数值，不要全部填 50。每个名字都必须返回一项，name 必须与输入完全一致，只返回合法 JSON。字符串里的换行请写成 \n，不要输出原始换行。`;
   }
-  return normalizedTheme
-    ? `Generate character profiles for these characters from the theme "${normalizedTheme}": ${normalizedNames.join(', ')}. Use the theme to disambiguate namesakes for every character. Return a strict JSON array. Every item must include name, avatar, personality, behavior, expertise, speakingStyle, background, speechProfile, coreProfile, bubbleStyle, and visualIdentity. personality and behavior must use distinctive 0-100 values for each role; do not set every axis to 50. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`
+  return theme || description
+    ? `Generate character profiles from this user request.\nTheme/group: ${theme || 'not specified'}\nDescription: ${description || 'not specified'}\nCharacter list: ${normalizedNames.join(', ')}\nEvery character must fit both the theme and description; counts, role composition, era, genre, and relationship constraints in the description take priority. Do not let names or parenthesized roles drift the overall setting away from the user's request. Return a strict JSON array. Every item must include name, avatar, personality, behavior, expertise, speakingStyle, background, speechProfile, coreProfile, bubbleStyle, and visualIdentity. personality and behavior must use distinctive 0-100 values for each role; do not set every axis to 50. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`
     : `Generate character profiles for these names: ${normalizedNames.join(', ')}. Return a strict JSON array. Every item must include name, avatar, personality, behavior, expertise, speakingStyle, background, speechProfile, coreProfile, bubbleStyle, and visualIdentity. personality and behavior must use distinctive 0-100 values for each role; do not set every axis to 50. Every provided name must have one item, and each name must exactly match the input. Escape newlines inside strings as \n. Return only valid JSON.`;
 }
 
@@ -319,24 +329,24 @@ export function parseGeneratedProfileMap(content: string, names: string[]) {
   });
 }
 
-export async function generateCharacterProfilesIndividually(config: APIConfig, names: string[], language: 'zh' | 'en', theme?: string | null) {
+export async function generateCharacterProfilesIndividually(config: APIConfig, names: string[], language: 'zh' | 'en', context?: CharacterGenerationContext) {
   const normalizedNames = sanitizeBatchNames(names);
   const results = await Promise.allSettled(normalizedNames.map(async (name) => ({
     name,
-    profile: await generateCharacterProfile(config, name, language, theme),
+    profile: await generateCharacterProfile(config, name, language, context),
   })));
   return results.map((result, index) => ({ result, name: normalizedNames[index] }));
 }
 
-export async function generateCharacterProfilesSafe(config: APIConfig, names: string[], language: 'zh' | 'en', theme?: string | null) {
+export async function generateCharacterProfilesSafe(config: APIConfig, names: string[], language: 'zh' | 'en', context?: CharacterGenerationContext) {
   const normalizedNames = sanitizeBatchNames(names);
   if (!normalizedNames.length) return { success: [] as Array<{ name: string; profile: ReturnType<typeof normalizeGeneratedProfile> }>, failed: [] as Array<{ name: string; reason: string }> };
   try {
-    const success = await generateCharacterProfiles(config, normalizedNames, language, theme);
+    const success = await generateCharacterProfiles(config, normalizedNames, language, context);
     return { success, failed: [] as Array<{ name: string; reason: string }> };
   } catch (error) {
     console.warn('[character-generator:batch:fallback]', error);
-    const results = await generateCharacterProfilesIndividually(config, normalizedNames, language, theme);
+    const results = await generateCharacterProfilesIndividually(config, normalizedNames, language, context);
     const success: Array<{ name: string; profile: ReturnType<typeof normalizeGeneratedProfile> }> = [];
     const failed: Array<{ name: string; reason: string }> = [];
     results.forEach(({ result, name }) => {
@@ -353,22 +363,22 @@ export async function generateCharacterProfilesSafe(config: APIConfig, names: st
   }
 }
 
-export async function generateCharacterProfiles(config: APIConfig, names: string[], language: 'zh' | 'en', theme?: string | null) {
+export async function generateCharacterProfiles(config: APIConfig, names: string[], language: 'zh' | 'en', context?: CharacterGenerationContext) {
   const normalizedNames = sanitizeBatchNames(names);
   if (!normalizedNames.length) return [];
   const response = await generateResponse(
     config,
     `${CHARACTER_GENERATOR_SYSTEM_PROMPT}\nWhen generating multiple characters, return exactly one valid JSON array. Each item must include the requested name plus the same profile fields as a single-character result. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
-    [{ role: 'user', content: buildBatchGeneratePrompt(normalizedNames, language, theme) }]
+    [{ role: 'user', content: buildBatchGeneratePrompt(normalizedNames, language, context) }]
   );
   return parseGeneratedProfileMap(response, normalizedNames);
 }
 
-export async function generateCharacterProfile(config: APIConfig, name: string, language: 'zh' | 'en', theme?: string | null) {
+export async function generateCharacterProfile(config: APIConfig, name: string, language: 'zh' | 'en', context?: CharacterGenerationContext) {
   const response = await generateResponse(
     config,
     `${CHARACTER_GENERATOR_SYSTEM_PROMPT}\nOutput exactly one valid JSON object. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
-    [{ role: 'user', content: `${buildGeneratePrompt(name.trim(), language, theme)} ${language === 'zh' ? '只返回合法JSON。' : 'Return only valid JSON.'}` }],
+    [{ role: 'user', content: `${buildGeneratePrompt(name.trim(), language, context)} ${language === 'zh' ? '只返回合法JSON。' : 'Return only valid JSON.'}` }],
     undefined,
     { maxTokens: 2400 }
   );

@@ -279,7 +279,7 @@ describe('runSessionLoop', () => {
     });
     await runSessionLoop(params as never);
     expect(runOneRoundMock).toHaveBeenCalledTimes(1);
-    expect(params.onSpeakerSelected).toHaveBeenCalledWith('a');
+    expect(params.onSpeakerSelected).toHaveBeenCalledWith('a', expect.objectContaining({ id: 'a' }));
     expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(1);
   });
 
@@ -356,6 +356,26 @@ describe('runSessionLoop', () => {
     expect(runSessionCommitPipelineMock).toHaveBeenCalledWith(expect.objectContaining({
       streamingMessage,
     }));
+  });
+
+  it('records commit failures as visible runtime events', async () => {
+    runSessionCommitPipelineMock.mockRejectedValueOnce(new Error('commit exploded'));
+    runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
+      hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
+      await hooks.onMessageComplete({ id: 'msg-1', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '完整回复', emotion: 0 });
+    });
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' }, worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+
+    await runSessionLoop(params as never);
+
+    expect(params.onLoopError).toHaveBeenCalledWith(expect.objectContaining({ message: 'commit exploded' }));
+    expect(params.appendEventMessage).toHaveBeenCalledWith('chat-1', expect.objectContaining({
+      eventType: 'runtime_error',
+      title: '提交失败',
+      summary: 'commit exploded',
+      visibilityScope: 'public',
+    }), undefined);
+    expect(params.onClearStreamingState).toHaveBeenCalledTimes(1);
   });
 
   it('passes engine prompt context through to chat rounds', async () => {

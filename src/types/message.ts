@@ -43,10 +43,48 @@ export interface MediaGenerationDecision {
   } | null;
 }
 
+export type NarrativeActorKind = 'narrator' | 'character' | 'director' | 'system';
+export type NarrativeBlockKind = 'prose' | 'dialogue' | 'action' | 'inner_thought' | 'choice' | 'system_note';
+export type NarrativeDisplayMode = 'paragraph' | 'bubble' | 'choice_card' | 'system_panel' | 'hidden';
+export type NarrativeTurnKind = 'narrative_beat' | 'character_reaction' | 'choice_prompt' | 'reveal';
+
+export interface NarrativeChoice {
+  id: string;
+  label: string;
+  prompt?: string;
+}
+
+export interface StoryChoiceSuggestion {
+  label: string;
+  prompt?: string | null;
+}
+
+export interface NarrativeBlock {
+  id: string;
+  actorId: string;
+  actorKind: NarrativeActorKind;
+  kind: NarrativeBlockKind;
+  displayMode: NarrativeDisplayMode;
+  text: string;
+  characterId?: string;
+  choices?: NarrativeChoice[];
+}
+
+export interface NarrativeTurnMetadata {
+  turnId: string;
+  turnKind: NarrativeTurnKind;
+  sceneId?: string;
+  phase?: string;
+  povActorId?: string;
+  blocks: NarrativeBlock[];
+}
+
 export interface MessageMetadata {
   format?: 'plain' | 'markdown';
   contextText?: string;
   renderText?: string;
+  narrativeTurn?: NarrativeTurnMetadata;
+  storyChoices?: StoryChoiceSuggestion[];
   manualSpeaker?: {
     actorId: string;
     actorName: string;

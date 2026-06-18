@@ -7,6 +7,33 @@ import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULE
 const uuidA = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
 const uuidB = '3c78729f-e52d-4dde-b27f-01a949960bb8';
 
+vi.mock('@mui/material', async () => {
+  const React = await import('react');
+  const passthrough = (tag: keyof React.JSX.IntrinsicElements) => ({ children, label }: { children?: React.ReactNode; label?: React.ReactNode }) => React.createElement(tag, null, children ?? label);
+  return {
+    Box: passthrough('div'),
+    Chip: passthrough('span'),
+    Stack: passthrough('div'),
+    Tooltip: ({ children }: { children?: React.ReactNode }) => React.createElement(React.Fragment, null, children),
+    Typography: passthrough('span'),
+  };
+});
+
+vi.mock('../common/SurfaceCard', async () => {
+  const React = await import('react');
+  return { default: ({ children }: { children?: React.ReactNode }) => React.createElement('div', null, children) };
+});
+
+vi.mock('../common/SectionHeader', async () => {
+  const React = await import('react');
+  return { default: ({ title, action }: { title?: React.ReactNode; action?: React.ReactNode }) => React.createElement('div', null, title, action) };
+});
+
+vi.mock('../common/StatChipRow', async () => {
+  const React = await import('react');
+  return { default: ({ chips }: { chips?: Array<{ label?: React.ReactNode; value?: React.ReactNode }> }) => React.createElement('div', null, chips?.map((chip, index) => React.createElement('span', { key: index }, chip.label, chip.value))) };
+});
+
 vi.mock('../../services/narrativeProjection', () => ({
   projectNarrativeLines: vi.fn(() => [{
     id: 'line-1',

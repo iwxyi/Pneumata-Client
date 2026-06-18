@@ -540,58 +540,31 @@ function mergeChatRecord(local: GroupChat | undefined, remote: GroupChat) {
       runtimeDetailLoaded: true,
     };
   }
-  if (local && remote.runtimeDetailLoaded !== true) {
-    return {
-      ...remote,
-      id: local.id || remote.id,
-      type: local.type || remote.type,
-      mode: local.mode || remote.mode,
-      name: remote.name || local.name,
-      topic: remote.topic || local.topic,
-      style: local.style || remote.style,
-      runtimeEvolutionIntensity: local.runtimeEvolutionIntensity || remote.runtimeEvolutionIntensity,
-      memberIds: local.memberIds?.length ? local.memberIds : remote.memberIds,
-      sourceChatId: local.sourceChatId ?? remote.sourceChatId,
-      sourceMemberIds: local.sourceMemberIds?.length ? local.sourceMemberIds : remote.sourceMemberIds,
-      memberCharacterSummaries: remote.memberCharacterSummaries?.length ? remote.memberCharacterSummaries : local.memberCharacterSummaries,
-      speed: local.speed ?? remote.speed,
-      isActive: local.isActive ?? remote.isActive,
-      allowIntervention: local.allowIntervention ?? remote.allowIntervention,
-      showRoleActions: local.showRoleActions ?? remote.showRoleActions,
-      topicSeed: local.topicSeed || remote.topicSeed,
-      deletedAt: local.deletedAt ?? remote.deletedAt,
-      fieldVersions: { ...(remote.fieldVersions || {}), ...(local.fieldVersions || {}) },
-      createdAt: local.createdAt || remote.createdAt,
-      updatedAt: Math.max(local.updatedAt || 0, remote.updatedAt || 0),
-      lastMessageAt: Math.max(local.lastMessageAt || 0, remote.lastMessageAt || 0),
-      worldState: remote.worldState || local.worldState,
-      latestMessage: remote.latestMessage || local.latestMessage,
-      runtimeEventsV2: mergeRuntimeEventsForSync(local.runtimeEventsV2, remote.runtimeEventsV2),
-      runtimeDetailLoaded: Boolean(remote.runtimeDetailLoaded),
-      worldRuntimeLoaded: remote.worldRuntimeLoaded || local.worldRuntimeLoaded,
-    };
-  }
   if (!local) {
     return remote;
   }
   if (remote.runtimeDetailLoaded !== false || local.runtimeDetailLoaded === false) {
     return {
       ...remote,
+      type: remote.memberIds?.length ? remote.type : local.type,
+      memberIds: remote.memberIds?.length ? remote.memberIds : local.memberIds,
+      sourceChatId: remote.sourceChatId ?? local.sourceChatId,
+      sourceMemberIds: remote.sourceMemberIds?.length ? remote.sourceMemberIds : local.sourceMemberIds,
       runtimeEventsV2: mergeRuntimeEventsForSync(local.runtimeEventsV2, remote.runtimeEventsV2),
     };
   }
   return {
     ...local,
     id: remote.id,
-    type: remote.type,
+    type: remote.memberIds?.length ? remote.type : local.type,
     mode: remote.mode,
     name: remote.name,
     topic: remote.topic,
     style: remote.style,
     runtimeEvolutionIntensity: remote.runtimeEvolutionIntensity,
-    memberIds: remote.memberIds,
-    sourceChatId: remote.sourceChatId,
-    sourceMemberIds: remote.sourceMemberIds,
+    memberIds: remote.memberIds?.length ? remote.memberIds : local.memberIds,
+    sourceChatId: remote.sourceChatId ?? local.sourceChatId,
+    sourceMemberIds: remote.sourceMemberIds?.length ? remote.sourceMemberIds : local.sourceMemberIds,
     memberCharacterSummaries: remote.memberCharacterSummaries?.length ? remote.memberCharacterSummaries : local.memberCharacterSummaries,
     speed: remote.speed,
     isActive: remote.isActive,

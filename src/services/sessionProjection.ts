@@ -11,7 +11,7 @@ import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSan
 import { reportUnresolvedDisplayEntity } from './diagnostics';
 import { formatRuntimeEventKindLabel } from './runtimeEventPresentation';
 import { formatActorRefKindLabel, formatSystemAgentSubtypeLabel, inferSystemAgentSubtypeFromId, toActorRef, type ActorRefKind } from './actorRefPresentation';
-import { evaluateGuidanceGeneratedContent } from './guidanceExecution';
+import { evaluateGuidanceGeneratedContent, extractGuidanceMatchTokens, normalizeGuidanceMatchText } from './guidanceExecution';
 import { projectWorldAttentionStates } from './worldRuntimeProjection';
 
 export interface ProjectedRuntimeTimelineItem {
@@ -421,6 +421,7 @@ function projectAttentionFollowupMeta(
   const actorMessages = events
     .slice(eventIndex + 1)
     .filter((candidate) => candidate.kind === 'message_generated' && candidate.actorIds?.[0] === actorId);
+  const focusTokens = extractGuidanceMatchTokens(focus || '').filter((token) => !['用户', '成员', actorName, targetName].includes(token));
   if (!actorMessages.length) {
     return {
       kind: eventType === 'attention_followup_member' ? 'member' as const : 'user' as const,
@@ -453,7 +454,10 @@ function projectAttentionFollowupMeta(
       typeof candidatePayload?.text === 'string' ? candidatePayload.text : (candidate.summary || ''),
       participantNameMap,
     );
-    return evaluateGuidanceGeneratedContent(text, guidance, actorId).matched;
+    if (!evaluateGuidanceGeneratedContent(text, guidance, actorId).matched) return false;
+    if (!focusTokens.length) return true;
+    const normalizedText = normalizeGuidanceMatchText(text);
+    return focusTokens.some((token) => normalizedText.includes(token));
   });
   if (!completionEvent) {
     return {
@@ -915,7 +919,7 @@ export function projectSessionFrameworkState(chat: GroupChat, actionSchema: Sess
   const definition = resolveSessionDefinitionForConversation(chat);
   return {
     definition,
-    surfaces: actionSchema ? buildSessionSurfaceProjectionFromSchema(chat, actionSchema) : buildDefaultSessionSurfaceProjection(chat),
+    surfaces: actionSchema?.actions.length ? buildSessionSurfaceProjectionFromSchema(chat, actionSchema) : buildDefaultSessionSurfaceProjection(chat),
     familyLabel: definition.kind.family,
     scenarioLabel: definition.scenario.label,
     topologyLabel: definition.kind.topology,

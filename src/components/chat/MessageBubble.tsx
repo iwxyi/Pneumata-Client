@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Box, Typography, Avatar, Button, Dialog, DialogContent, DialogTitle, Menu, MenuItem, Chip, Tooltip, keyframes, LinearProgress, Divider } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
-import type { Message, MessageAttachment } from '../../types/message';
+import type { Message, MessageAttachment, NarrativeBlock } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
@@ -18,7 +18,7 @@ import AppSnackbar from '../common/AppSnackbar';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import type { DisplayTextMember } from '../../services/displayTextSanitizer';
 import { copyTextToClipboard } from '../../utils/clipboard';
-import { shouldUseCompactMessageBubble } from './messageBubblePresentation';
+import { getNarrativeParagraphBlocks, shouldUseCompactMessageBubble } from './messageBubblePresentation';
 
 function isConflictDeveloperEvent(eventType: string | undefined) {
   return ['conflict_focus_shift', 'conflict_axis_shift'].includes(String(eventType || ''));
@@ -181,6 +181,18 @@ const typingBounce = keyframes`
   0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
   30% { transform: translateY(-4px); opacity: 1; }
 `;
+
+function renderNarrativeParagraphContent(blocks: NarrativeBlock[]) {
+  return (
+    <Box sx={{ display: 'grid', gap: 1.75 }}>
+      {blocks.map((block) => (
+        <Box key={block.id} sx={{ typography: 'body1', lineHeight: 2.05, color: 'text.primary', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
+          <MarkdownText text={block.text} />
+        </Box>
+      ))}
+    </Box>
+  );
+}
 
 function renderMessageContent(message: Message, options: {
   onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void>;
@@ -507,6 +519,23 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
       {showWithdrawalDebug ? <DebugChip sx={{ height: 20, flexShrink: 0 }} /> : null}
     </Box>
   );
+  const narrativeParagraphBlocks = !pending && !isFinalWithdrawn ? getNarrativeParagraphBlocks(message) : [];
+
+  if (narrativeParagraphBlocks.length) {
+    return (
+      <>
+        <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, py: 1.1, width: '100%' }}>
+          <Box {...bubbleHandlers} sx={{ width: '100%', maxWidth: 760, px: { xs: 0.5, sm: 1 }, py: 0.5 }}>
+            {renderNarrativeParagraphContent(narrativeParagraphBlocks)}
+          </Box>
+        </Box>
+        <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>{message.senderName}</DialogTitle>
+          <DialogContent>{renderNarrativeParagraphContent(narrativeParagraphBlocks)}</DialogContent>
+        </Dialog>
+      </>
+    );
+  }
 
   return (
     <>

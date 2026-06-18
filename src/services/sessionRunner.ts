@@ -108,6 +108,36 @@ function getLoopErrorWaitTime() {
   return 5000;
 }
 
+function formatErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error || '未知错误');
+}
+
+function buildRuntimeErrorEvent(error: unknown, title: string): DriverMessageCommitResult['runtimeEvents'][number] {
+  return {
+    eventType: 'runtime_error',
+    title,
+    summary: formatErrorMessage(error),
+    eventClass: 'phase',
+    visibilityScope: 'public',
+    channelId: 'public',
+  };
+}
+
+async function appendRecoverableRuntimeError(params: {
+  chatId: string;
+  error: unknown;
+  title: string;
+  sourceMessageId?: string;
+  appendEventMessage: (chatId: string, payload: DriverMessageCommitResult['runtimeEvents'][number], sourceMessageId?: string) => Promise<void>;
+  onLoopError: (error: unknown) => void;
+}) {
+  try {
+    await params.appendEventMessage(params.chatId, buildRuntimeErrorEvent(params.error, params.title), params.sourceMessageId);
+  } catch (appendError) {
+    params.onLoopError(appendError);
+  }
+}
+
 function shouldContinueLoop(params: { isRunning: () => boolean }) {
   return params.isRunning();
 }
@@ -150,7 +180,7 @@ export async function runSessionLoop(params: {
   isRunning: () => boolean;
   isPaused: () => boolean;
   isActiveLoop: (loopId: string) => boolean;
-  onSpeakerSelected: (characterId: string) => void;
+  onSpeakerSelected: (characterId: string, speaker?: AICharacter) => void;
   onCommitSettled?: () => boolean;
   onCommitStarted?: () => void;
   onCommitFinished?: () => void;
@@ -165,7 +195,7 @@ export async function runSessionLoop(params: {
   onCommit: (args: {
     conversation: GroupChat;
     characters: AICharacter[];
-    message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('../types/runtimeEvent').InteractionEventPayload | null };
+    message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'> & { interactionHint?: import('../types/runtimeEvent').InteractionEventPayload | null };
     previousAiMessage: Pick<Message, 'senderId'> | null;
     recentMessages?: Message[];
     apiConfig?: APIConfig;
@@ -275,9 +305,9 @@ export async function runSessionLoop(params: {
         currentMessages,
         params.api,
         {
-          onSpeakerSelected: (charId) => {
+          onSpeakerSelected: (charId, speaker) => {
             if (!isActiveLoop(params)) return;
-            params.onSpeakerSelected(charId);
+            params.onSpeakerSelected(charId, speaker);
             roundStreamingMessage = params.getStreamingMessage?.() || null;
           },
           ensureSpeakerDetail: (charId) => params.ensureCharacterDetail?.(charId) || Promise.resolve(undefined),
@@ -318,6 +348,18 @@ export async function runSessionLoop(params: {
                 getCurrentChat: params.getCurrentChat,
                 getCurrentCharacters: params.getCurrentCharacters,
               });
+            } catch (error) {
+              params.onLoopError(error);
+              if (isActiveLoop(params)) {
+                await appendRecoverableRuntimeError({
+                  chatId: params.chatId,
+                  error,
+                  title: '提交失败',
+                  sourceMessageId: roundStreamingMessage?.id,
+                  appendEventMessage: params.appendEventMessage,
+                  onLoopError: params.onLoopError,
+                });
+              }
             } finally {
               params.onCommitFinished?.();
               if (isActiveLoop(params)) {
@@ -366,6 +408,14 @@ export async function runSessionLoop(params: {
         }
         params.onLoopError(error);
         if (!isActiveLoop(params)) return;
+        await appendRecoverableRuntimeError({
+          chatId: params.chatId,
+          error,
+          title: '运行异常',
+          sourceMessageId: params.getStreamingMessage?.()?.id,
+          appendEventMessage: params.appendEventMessage,
+          onLoopError: params.onLoopError,
+        });
         markSessionLoop(params.loopId, { phase: 'error_sleeping' });
         await new Promise((resolve) => setTimeout(resolve, getLoopErrorWaitTime()));
       }

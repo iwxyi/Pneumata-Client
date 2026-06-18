@@ -1,5 +1,5 @@
 import { Box, CircularProgress, Typography } from '@mui/material';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Message, MessageAttachment } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import MessageBubble from './MessageBubble';
@@ -35,6 +35,7 @@ interface MessageListProps {
   bottomInset?: ResponsiveInset;
   selfMemberId?: string | null;
   privateConversation?: boolean;
+  tailContent?: ReactNode;
 }
 
 export default function MessageList({
@@ -55,6 +56,7 @@ export default function MessageList({
   bottomInset,
   selfMemberId = null,
   privateConversation = false,
+  tailContent,
 }: MessageListProps) {
   const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -70,6 +72,7 @@ export default function MessageList({
     itemCount: renderItems.length,
     lastItemKey: renderItems.at(-1)?.key ?? null,
     lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
+    hasTailContent: Boolean(tailContent),
   });
 
   const chatImageTimeline = useMemo(() => messages
@@ -194,6 +197,7 @@ export default function MessageList({
       itemCount: renderItems.length,
       lastItemKey: renderItems.at(-1)?.key ?? null,
       lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
+      hasTailContent: Boolean(tailContent),
     };
     const previousMetrics = previousRenderMetricsRef.current;
     previousRenderMetricsRef.current = currentMetrics;
@@ -204,12 +208,13 @@ export default function MessageList({
       currentMetrics.itemCount === previousMetrics.itemCount
       && currentMetrics.lastItemContentLength === previousMetrics.lastItemContentLength
       && currentMetrics.lastItemKey === previousMetrics.lastItemKey
+      && currentMetrics.hasTailContent === previousMetrics.hasTailContent
     ) {
       return;
     }
 
     scrollToBottom('smooth');
-  }, [renderItems, scrollToBottom]);
+  }, [renderItems, scrollToBottom, tailContent]);
 
   useEffect(() => {
     if (!isLoadingOlder) {
@@ -309,6 +314,7 @@ export default function MessageList({
             privateConversation={privateConversation}
           />
         ))}
+        {tailContent}
       </Box>
       <ImageLightbox
         open={viewerOpen}

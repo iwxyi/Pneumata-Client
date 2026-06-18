@@ -19,7 +19,8 @@ function getTargetLabel(chat: GroupChat, action: SessionActionDefinition) {
   return ` → 对象#${index + 1}`;
 }
 
-function buildActionResult(chat: GroupChat, action: SessionActionDefinition, title: string, summary: string, eventType = 'session_action_scaffold', metrics?: unknown): SessionActionExecutionResult {
+function buildActionResult(chat: GroupChat, action: SessionActionDefinition, title: string, summary: string, eventType = 'session_action_scaffold', metrics?: Record<string, unknown>): SessionActionExecutionResult {
+  const actorId = typeof action.payload?.actorId === 'string' ? action.payload.actorId : action.actorId;
   return {
     chatPatch: {
       worldState: {
@@ -27,11 +28,18 @@ function buildActionResult(chat: GroupChat, action: SessionActionDefinition, tit
         recentEvent: summary,
       },
     },
-    runtimeEvents: [buildActionRuntimeContract(chat, action.type, action.payload || {}, action.actorId, {
+    runtimeEvents: [buildActionRuntimeContract(chat, action.type, action.payload || {}, actorId, {
       eventType,
       title,
       summary,
-      metrics,
+      metrics: {
+        ...(metrics || {}),
+        _actorAudit: {
+          actorId: actorId || null,
+          origin: actorId ? (chat.memberIds.includes(actorId) ? 'member' : (chat.operatorIds || []).includes(actorId) ? 'operator' : 'external') : 'unknown',
+          isOperator: Boolean(actorId && (chat.operatorIds || []).includes(actorId)),
+        },
+      },
       visibilityScope: action.visibility || 'public',
     })],
   };
@@ -234,10 +242,28 @@ function handleVotePlayer(chat: GroupChat, action: SessionActionDefinition) {
 }
 
 function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition) {
-  const branchId = typeof action.payload?.branchId === 'string' ? action.payload.branchId : 'main';
+  const selectedBranchId = typeof action.payload?.branchId === 'string' ? action.payload.branchId : 'main';
   const prompt = getPrompt(action);
-  const summary = `剧情分支：${branchId}${prompt ? ` · ${truncate(prompt, 36)}` : ''}`;
-  const result = buildActionResult(chat, action, '故事分支推进', summary, 'story_branch', { branchId, prompt });
+  const isCustom = selectedBranchId === '__custom_story_branch';
+  const branchId = isCustom ? `custom-${Date.now().toString(36)}` : selectedBranchId;
+  const existingBranches = chat.scenarioState?.branches || [];
+  const selectedBranch = existingBranches.find((branch) => branch.branchId === selectedBranchId);
+  const branchPrompt = prompt || selectedBranch?.prompt || selectedBranch?.description || selectedBranch?.label || '';
+  const summary = `剧情分支：${isCustom ? '自定义走向' : branchId}${branchPrompt ? ` · ${truncate(branchPrompt, 36)}` : ''}`;
+  const currentEpoch = Math.max(Number(chat.scenarioState?.choiceEpoch || 0), Number(selectedBranch?.choiceEpoch || 0), 1);
+  const nextBranches = isCustom
+    ? [
+      ...existingBranches.map((branch) => ({
+        ...branch,
+        status: branch.status === 'chosen' || Number(branch.choiceEpoch || currentEpoch) === currentEpoch ? 'completed' as const : branch.status,
+      })),
+      { branchId, label: truncate(branchPrompt || '自定义走向', 18), description: branchPrompt, prompt: branchPrompt, status: 'chosen' as const, source: 'custom' as const, choiceEpoch: currentEpoch },
+    ]
+    : existingBranches.map((branch) => ({
+      ...branch,
+      status: branch.branchId === branchId ? 'chosen' as const : branch.status === 'chosen' || Number(branch.choiceEpoch || currentEpoch) === currentEpoch ? 'completed' as const : branch.status,
+    }));
+  const result = buildActionResult(chat, action, '剧情分支推进', summary, 'story_branch', { branchId, prompt: branchPrompt, source: isCustom ? 'custom' : selectedBranch?.source });
   return {
     ...result,
     chatPatch: {
@@ -245,10 +271,13 @@ function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition) {
       scenarioState: {
         ...(chat.scenarioState || {}),
         phase: 'branch',
-        branches: (chat.scenarioState?.branches || []).map((branch) => ({
-          ...branch,
-          status: branch.branchId === branchId ? 'chosen' as const : branch.status,
-        })),
+        storyDirection: branchPrompt || chat.scenarioState?.storyDirection,
+        sceneBeatCount: 0,
+        choiceEpoch: currentEpoch,
+        selectedChoiceEpoch: currentEpoch,
+        branches: nextBranches.length
+          ? nextBranches
+          : [{ branchId, label: branchPrompt || chat.topic || '主线剧情', status: 'chosen' as const, prompt: branchPrompt, source: isCustom ? 'custom' as const : 'system' as const }],
       },
     },
   };
@@ -257,7 +286,7 @@ function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition) {
 function handleStoryScene(chat: GroupChat, action: SessionActionDefinition) {
   const prompt = getPrompt(action);
   const summary = `剧情场景推进${prompt ? `：${truncate(prompt, 40)}` : ''}`;
-  const result = buildActionResult(chat, action, '故事场景推进', summary, 'story_scene', { prompt });
+  const result = buildActionResult(chat, action, '剧情场景推进', summary, 'story_scene', { prompt });
   return {
     ...result,
     chatPatch: {
@@ -265,6 +294,11 @@ function handleStoryScene(chat: GroupChat, action: SessionActionDefinition) {
       scenarioState: {
         ...(chat.scenarioState || {}),
         phase: 'scene',
+        storyDirection: prompt || chat.scenarioState?.storyDirection,
+        branches: (chat.scenarioState?.branches || []).map((branch) => ({
+          ...branch,
+          status: branch.status === 'chosen' ? 'completed' as const : branch.status,
+        })),
       },
     },
   };

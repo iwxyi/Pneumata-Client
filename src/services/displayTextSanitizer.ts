@@ -65,7 +65,7 @@ export function sanitizeUserFacingText(text: string | undefined | null, members:
   return next
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12,}/gi, '成员')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '成员')
-    .replace(/\b(source events?|sourceEventIds?|salience|tension|momentum|pressure)\b\s*:?\s*\d*\.?\d*%?/gi, '')
+    .replace(/\b(source events?|sourceEventIds?|salience|tension|momentum|pressure)\b\s*:?\s*[\w.-]*%?/gi, '')
     .replace(/\bNaN\b/g, '0')
     .replace(/\s{2,}/g, ' ')
     .replace(/\s+([，。；：、])/g, '$1')

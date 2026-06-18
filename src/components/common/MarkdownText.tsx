@@ -46,10 +46,10 @@ export default function MarkdownText({ text, softLineBreaks = true }: { text: st
     <Box
       sx={{
         fontSize: 'inherit',
-        lineHeight: 1.75,
+        lineHeight: 1.95,
         '& > :first-of-type': { mt: 0 },
         '& > :last-child': { mb: 0 },
-        '& p': { mt: 0, mb: 0.65, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
+        '& p': { mt: 0, mb: 0.95, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
         '& h1, & h2, & h3, & h4': { mt: 1.15, mb: 0.55, fontWeight: 850, lineHeight: 1.35 },
         '& h1': { fontSize: '1.28em' },
         '& h2': { fontSize: '1.16em' },

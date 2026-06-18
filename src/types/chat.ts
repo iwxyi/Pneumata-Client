@@ -89,6 +89,10 @@ export interface ScenarioBranchState {
   branchId: string;
   label: string;
   status?: 'available' | 'locked' | 'chosen' | 'completed';
+  description?: string;
+  prompt?: string;
+  source?: 'suggested' | 'custom' | 'system';
+  choiceEpoch?: number;
 }
 
 export interface ScenarioState {
@@ -102,9 +106,15 @@ export interface ScenarioState {
   goals?: ScenarioGoalState[];
   progress?: ScenarioProgressState[];
   branches?: ScenarioBranchState[];
+  sceneId?: string;
   storyBackground?: string;
   storyDirection?: string;
+  storySituation?: string;
+  storyGoal?: string;
   storyOutline?: string;
+  sceneBeatCount?: number;
+  choiceEpoch?: number;
+  selectedChoiceEpoch?: number;
   werewolfRoleConfig?: string;
   werewolfPostGameMode?: string;
   mysteryScript?: string;
@@ -310,6 +320,9 @@ export function createDefaultTextInputSurface(params: { key?: string; label?: st
 
 export function defaultInputSurfacesForConversation(conversation: Pick<GroupChat, 'type' | 'mode' | 'sessionKind'>): SessionInputSurfaceDefinition[] {
   const definition = resolveSessionDefinitionForConversation(conversation);
+  if (definition.kind.scenarioId === 'story-reader') {
+    return [createDefaultTextInputSurface()];
+  }
   if (definition.kind.surfaceProfile === 'hybrid') {
     return [
       createDefaultTextInputSurface({ key: 'hybrid-text', label: 'Chat' }),

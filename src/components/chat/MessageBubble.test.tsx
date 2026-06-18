@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import type { Message } from '../../types/message';
 import { getAttachmentErrorText, getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
-import { shouldUseCompactMessageBubble } from './messageBubblePresentation';
+import { getNarrativeParagraphBlocks, shouldUseCompactMessageBubble } from './messageBubblePresentation';
 import { buildEventDisplayText, buildMemoryDistillationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
 
 describe('MessageBubble event rendering', () => {
@@ -146,5 +147,44 @@ describe('MessageBubble event rendering', () => {
       isUser: false,
       isGuidanceBubble: true,
     })).toBe(false);
+  });
+
+  it('only renders narrator-owned narrative paragraph metadata as narration', () => {
+    const characterMessage: Message = {
+      id: 'm1',
+      chatId: 'c1',
+      senderId: 'char-1',
+      senderName: '角色',
+      type: 'ai' as const,
+      content: '正常消息',
+      timestamp: 1,
+      emotion: 0,
+      isDeleted: false,
+      metadata: {
+        narrativeTurn: {
+          turnId: 'turn-1',
+          turnKind: 'character_reaction' as const,
+          povActorId: 'char-1',
+          blocks: [{ id: 'b1', actorId: 'char-1', actorKind: 'character' as const, kind: 'dialogue' as const, displayMode: 'paragraph' as const, text: '正常消息' }],
+        },
+      },
+    };
+    const narratorMessage = {
+      ...characterMessage,
+      id: 'm2',
+      senderId: 'narrator',
+      senderName: '旁白',
+      metadata: {
+        narrativeTurn: {
+          turnId: 'turn-2',
+          turnKind: 'narrative_beat' as const,
+          povActorId: 'narrator',
+          blocks: [{ id: 'b2', actorId: 'narrator', actorKind: 'narrator' as const, kind: 'prose' as const, displayMode: 'paragraph' as const, text: '旁白正文' }],
+        },
+      },
+    };
+
+    expect(getNarrativeParagraphBlocks(characterMessage)).toEqual([]);
+    expect(getNarrativeParagraphBlocks(narratorMessage)).toHaveLength(1);
   });
 });
