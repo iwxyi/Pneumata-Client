@@ -48,7 +48,18 @@ describe('messageMetadataCompaction', () => {
           promiseHistory: [],
           sharedAnchorHistory: [],
           sharedSecretHistory: [],
-          sharedPhraseHistory: [],
+          sharedPhraseHistory: Array.from({ length: 8 }, (_, index) => ({
+            id: `phrase-${index}`,
+            phraseId: 'phrase-main',
+            action: 'upsert',
+            text: `${longText}-共同话语-${index}`,
+            kind: 'inside_joke',
+            participantIds: ['char-a', 'user'],
+            visibility: 'private',
+            evidence: [longText],
+            sourceMessageIds: [`msg-${index}`],
+            occurredAt: index,
+          })),
           ritualHistory: [],
           carePolicy: {
             dailyInitiationBudget: 1,
@@ -86,6 +97,13 @@ describe('messageMetadataCompaction', () => {
     expect(reasons?.[0]?.length).toBeLessThan(220);
     expect(compacted?.runtimeDecision?.companionshipContext?.sharedAnchors).toHaveLength(3);
     expect(compacted?.runtimeDecision?.companionshipContext?.addressingHistory).toHaveLength(3);
+    expect(compacted?.runtimeDecision?.companionshipContext?.sharedPhraseHistory).toHaveLength(3);
+    expect(compacted?.runtimeDecision?.companionshipContext?.sharedPhraseHistory?.[0]).toMatchObject({
+      phraseId: 'phrase-main',
+      participantIds: ['char-a', 'user'],
+      visibility: 'private',
+    });
+    expect(compacted?.runtimeDecision?.companionshipContext?.sharedPhraseHistory?.[0]?.text.length).toBeLessThan(220);
     expect(JSON.stringify(compacted).length).toBeLessThan(JSON.stringify(metadata).length / 4);
   });
 });

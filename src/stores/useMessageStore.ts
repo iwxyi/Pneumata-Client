@@ -4393,9 +4393,10 @@ function compactMessageForPersistence(message: Message) {
 }
 
 function compactPendingMessageOperation(operation: PendingMessageOperation): PendingMessageOperation {
+  const payload = operation.payload ? compactMessage(operation.payload, { dropContextText: true }) : undefined;
   return {
     ...operation,
-    payload: operation.payload ? compactMessage(operation.payload, { dropContextText: true }) : undefined,
+    payload: payload ? stripLargeInlineMediaForPersistence(payload) : undefined,
   };
 }
 
@@ -5239,3 +5240,8 @@ export const useMessageStore = create<MessageStore>()(
     }
   )
 );
+
+export const __messageRuntimePersistenceForTests = {
+  buildPersistedMessageState,
+  compactPendingMessageOperation,
+};
