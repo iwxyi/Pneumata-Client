@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
@@ -61,6 +61,15 @@ vi.mock('../../services/runtimeDecision', () => ({
     directorIntent: null,
   })),
 }));
+
+beforeEach(async () => {
+  const { useSettingsStore } = await import('../../stores/useSettingsStore');
+  useSettingsStore.setState((state) => ({
+    ...state,
+    developerMode: false,
+    developerUI: { ...state.developerUI, showAdvancedRuntimePanels: false },
+  }));
+});
 
 function buildCharacter(id: string, name: string): AICharacter {
   return {
@@ -211,15 +220,17 @@ describe('ChatNarrativePanel', () => {
     expect(html).toContain('当时还可以选择');
     expect(html).toContain('红太狼 在旧医院发现血迹');
     expect(html).toContain('灰太狼 去地下档案室');
-    expect(html).toContain('风险：激怒护士');
-    expect(html).toContain('风险：暴露位置');
-    expect(html).toContain('收益：得到线索');
-    expect(html).toContain('收益：找到病历');
     expect(html).toContain('后果：护士承认停电时有人进入档案室');
     expect(html).toContain('灰太狼 为什么隐瞒停电记录？');
     expect(html).toContain('地下档案室的病历被撕掉一页');
     expect(html).toContain('暴露位置');
+    expect(html).not.toContain('风险：激怒护士');
+    expect(html).not.toContain('风险：暴露位置');
+    expect(html).not.toContain('收益：得到线索');
+    expect(html).not.toContain('收益：找到病历');
+    expect(html).not.toContain('意图：探索');
     expect(html).not.toContain(uuidA);
     expect(html).not.toContain(uuidB);
   });
+
 });

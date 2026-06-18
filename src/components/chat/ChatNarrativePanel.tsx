@@ -156,7 +156,7 @@ function renderAssetChips(label: string, values: string[] | undefined, members: 
   );
 }
 
-function renderChoiceHistory(chat: GroupChat, members: AICharacter[]) {
+function renderChoiceHistory(chat: GroupChat, members: AICharacter[], showDebugDetails: boolean) {
   const choices = (chat.scenarioState?.choiceHistory || []).slice(-5);
   if (!choices.length) return null;
   return (
@@ -168,7 +168,7 @@ function renderChoiceHistory(chat: GroupChat, members: AICharacter[]) {
             <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>
               {index + 1}. {formatNarrativeLineText(choice.label, members)}
             </Typography>
-            {choice.risk || choice.reward ? (
+            {showDebugDetails && (choice.risk || choice.reward) ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
                 {[choice.risk ? `风险：${choice.risk}` : '', choice.reward ? `收益：${choice.reward}` : ''].filter(Boolean).map((item) => formatNarrativeLineText(item, members)).join(' · ')}
               </Typography>
@@ -185,7 +185,7 @@ function renderChoiceHistory(chat: GroupChat, members: AICharacter[]) {
   );
 }
 
-function renderUnchosenBranches(chat: GroupChat, members: AICharacter[]) {
+function renderUnchosenBranches(chat: GroupChat, members: AICharacter[], showDebugDetails: boolean) {
   const branches = chat.scenarioState?.branches || [];
   const choiceEpochs = Array.from(new Set(
     (chat.scenarioState?.choiceHistory || [])
@@ -211,7 +211,7 @@ function renderUnchosenBranches(chat: GroupChat, members: AICharacter[]) {
             <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>
               {formatNarrativeLineText(branch.label, members)}
             </Typography>
-            {branch.intent || branch.risk || branch.reward ? (
+            {showDebugDetails && (branch.intent || branch.risk || branch.reward) ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
                 {[branch.intent ? `意图：${branch.intent}` : '', branch.risk ? `风险：${branch.risk}` : '', branch.reward ? `收益：${branch.reward}` : ''].filter(Boolean).map((item) => formatNarrativeLineText(item, members)).join(' · ')}
               </Typography>
@@ -223,7 +223,7 @@ function renderUnchosenBranches(chat: GroupChat, members: AICharacter[]) {
   );
 }
 
-function renderChoiceReview(chat: GroupChat, members: AICharacter[]) {
+function renderChoiceReview(chat: GroupChat, members: AICharacter[], showDebugDetails: boolean) {
   const choices = chat.scenarioState?.choiceHistory || [];
   const branches = chat.scenarioState?.branches || [];
   const groups = choices.slice(-4).map((choice, index) => {
@@ -261,7 +261,7 @@ function renderChoiceReview(chat: GroupChat, members: AICharacter[]) {
                 结果：{formatNarrativeLineText(choice.outcome, members)}
               </Typography>
             ) : null}
-            {choice.risk || choice.reward ? (
+            {showDebugDetails && (choice.risk || choice.reward) ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.2, lineHeight: 1.6 }}>
                 {[choice.risk ? `代价：${choice.risk}` : '', choice.reward ? `获得：${choice.reward}` : ''].filter(Boolean).map((item) => formatNarrativeLineText(item, members)).join(' · ')}
               </Typography>
@@ -289,13 +289,18 @@ function formatStoryBeatKind(kind: string | undefined) {
   return kind ? labels[kind] || kind : '';
 }
 
-function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
+function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDebugDetails: boolean) {
   if (!hasStoryAssets(chat)) return null;
   const state = chat.scenarioState || {};
   const recap = state.chapterRecap || null;
   const recentChoices = (state.choiceHistory || [])
     .slice(-3)
-    .map((choice) => [choice.label, choice.risk ? `风险：${choice.risk}` : '', choice.reward ? `收益：${choice.reward}` : '', choice.outcome ? `后果：${choice.outcome}` : ''].filter(Boolean).join(' · '));
+    .map((choice) => [
+      choice.label,
+      showDebugDetails && choice.risk ? `风险：${choice.risk}` : '',
+      showDebugDetails && choice.reward ? `收益：${choice.reward}` : '',
+      choice.outcome ? `后果：${choice.outcome}` : '',
+    ].filter(Boolean).join(' · '));
   return (
     <Box sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'rgba(123,31,162,0.06)' }}>
       <Stack spacing={0.85}>
@@ -322,12 +327,12 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
         ) : null}
         {renderAssetChips('悬念', state.openQuestions, members)}
         {renderAssetChips('线索', state.clues, members)}
-        {renderAssetChips('代价', state.stakes, members)}
+        {showDebugDetails ? renderAssetChips('代价', state.stakes, members) : null}
         {renderAssetChips('关系压力', state.relationshipShifts, members)}
         {renderAssetChips('最近选择', recentChoices, members)}
-        {renderChoiceReview(chat, members)}
-        {renderChoiceHistory(chat, members)}
-        {renderUnchosenBranches(chat, members)}
+        {renderChoiceReview(chat, members, showDebugDetails)}
+        {renderChoiceHistory(chat, members, showDebugDetails)}
+        {renderUnchosenBranches(chat, members, showDebugDetails)}
       </Stack>
     </Box>
   );
@@ -382,7 +387,7 @@ export default function ChatNarrativePanel({ chat, members, messages = [], hideT
   const mainLineId = runtimePressure.primaryLine?.id || narrativeLines[0]?.id || null;
   const showDirectorIntent = Boolean(runtimePressure.directorIntent) && activeFilter === 'main';
   const visibleLines = narrativeLines.filter((line) => activeFilter === 'all' ? true : activeFilter === 'main' ? line.id === mainLineId : line.type === activeFilter);
-  const storyAssetSummary = activeFilter === 'all' || activeFilter === 'main' ? renderStoryAssetSummary(chat, members) : null;
+  const storyAssetSummary = activeFilter === 'all' || activeFilter === 'main' ? renderStoryAssetSummary(chat, members, showDebugDetails) : null;
   const filters = LINE_FILTERS.map((filter) => ({
     ...filter,
     count: filter.key === 'all' ? narrativeLines.length : filter.key === 'main' ? (mainLineId ? 1 : 0) : narrativeLines.filter((line) => line.type === filter.key).length,
