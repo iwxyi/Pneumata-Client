@@ -180,6 +180,44 @@ function renderChoiceHistory(chat: GroupChat, members: AICharacter[]) {
   );
 }
 
+function renderUnchosenBranches(chat: GroupChat, members: AICharacter[]) {
+  const branches = chat.scenarioState?.branches || [];
+  const choiceEpochs = Array.from(new Set(
+    (chat.scenarioState?.choiceHistory || [])
+      .map((choice) => Number(choice.choiceEpoch || 0))
+      .filter((epoch) => epoch > 0),
+  )).slice(-3);
+  const alternatives = choiceEpochs.flatMap((epoch) => branches
+    .filter((branch) => Number(branch.choiceEpoch || 0) === epoch && branch.status === 'completed')
+    .map((branch) => ({
+      epoch,
+      label: branch.label,
+      risk: branch.risk,
+      reward: branch.reward,
+      intent: branch.intent,
+    }))).slice(-6);
+  if (!alternatives.length) return null;
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.45 }}>当时还可以选择</Typography>
+      <Stack spacing={0.55}>
+        {alternatives.map((branch, index) => (
+          <Box key={`${branch.epoch}:${branch.label}:${index}`} sx={{ px: 0.8, py: 0.65, borderRadius: 1.5, bgcolor: 'rgba(15,23,42,0.035)' }}>
+            <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>
+              {formatNarrativeLineText(branch.label, members)}
+            </Typography>
+            {branch.intent || branch.risk || branch.reward ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                {[branch.intent ? `意图：${branch.intent}` : '', branch.risk ? `风险：${branch.risk}` : '', branch.reward ? `收益：${branch.reward}` : ''].filter(Boolean).map((item) => formatNarrativeLineText(item, members)).join(' · ')}
+              </Typography>
+            ) : null}
+          </Box>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
 function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
   if (!hasStoryAssets(chat)) return null;
   const state = chat.scenarioState || {};
@@ -217,6 +255,7 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
         {renderAssetChips('关系压力', state.relationshipShifts, members)}
         {renderAssetChips('最近选择', recentChoices, members)}
         {renderChoiceHistory(chat, members)}
+        {renderUnchosenBranches(chat, members)}
       </Stack>
     </Box>
   );
