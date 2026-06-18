@@ -40,8 +40,13 @@ describe('messageMetadataCompaction', () => {
             id: `address-${index}`,
             action: 'set_current',
             currentAddress: '小夏',
-            forbiddenAddresses: [],
+            privateAddress: '夏夏',
+            publicAddress: '夏同学',
+            forbiddenAddresses: ['陌生称呼'],
+            initiatedBy: 'user',
             evidence: [longText],
+            sourceMessageIds: [`address-msg-${index}`],
+            decisionSource: 'model',
             occurredAt: index,
           })),
           careTopicHistory: [],
@@ -58,6 +63,7 @@ describe('messageMetadataCompaction', () => {
             visibility: 'private',
             evidence: [longText],
             sourceMessageIds: [`msg-${index}`],
+            decisionSource: 'model',
             occurredAt: index,
           })),
           ritualHistory: [],
@@ -71,7 +77,22 @@ describe('messageMetadataCompaction', () => {
             allowMissYou: false,
           },
           phaseHistory: [],
-          userProfileHistory: [],
+          userProfileHistory: Array.from({ length: 8 }, (_, index) => ({
+            id: `profile-${index}`,
+            action: 'upsert',
+            items: [{
+              kind: 'preference',
+              text: `${longText}-喜欢晚上聊天-${index}`,
+              evidence: `${longText}-画像证据-${index}`,
+              sourceMessageIds: [`profile-msg-${index}`],
+              confidence: 0.88,
+              sensitive: index % 2 === 0,
+            }],
+            evidence: [longText],
+            sourceMessageIds: [`profile-msg-${index}`],
+            decisionSource: 'model',
+            occurredAt: index,
+          })),
           conflictHistory: [],
           attachmentHistory: [],
           diagnostics: [longText],
@@ -97,11 +118,30 @@ describe('messageMetadataCompaction', () => {
     expect(reasons?.[0]?.length).toBeLessThan(220);
     expect(compacted?.runtimeDecision?.companionshipContext?.sharedAnchors).toHaveLength(3);
     expect(compacted?.runtimeDecision?.companionshipContext?.addressingHistory).toHaveLength(3);
+    expect(compacted?.runtimeDecision?.companionshipContext?.addressingHistory?.[0]).toMatchObject({
+      currentAddress: '小夏',
+      privateAddress: '夏夏',
+      publicAddress: '夏同学',
+      forbiddenAddresses: ['陌生称呼'],
+      initiatedBy: 'user',
+      sourceMessageIds: ['address-msg-0'],
+      decisionSource: 'model',
+    });
+    expect(compacted?.runtimeDecision?.companionshipContext?.userProfileHistory).toHaveLength(3);
+    expect(compacted?.runtimeDecision?.companionshipContext?.userProfileHistory?.[0]?.decisionSource).toBe('model');
+    expect(compacted?.runtimeDecision?.companionshipContext?.userProfileHistory?.[0]?.items?.[0]).toMatchObject({
+      kind: 'preference',
+      sourceMessageIds: ['profile-msg-0'],
+      confidence: 0.88,
+      sensitive: true,
+    });
+    expect(compacted?.runtimeDecision?.companionshipContext?.userProfileHistory?.[0]?.items?.[0]?.text.length).toBeLessThan(220);
     expect(compacted?.runtimeDecision?.companionshipContext?.sharedPhraseHistory).toHaveLength(3);
     expect(compacted?.runtimeDecision?.companionshipContext?.sharedPhraseHistory?.[0]).toMatchObject({
       phraseId: 'phrase-main',
       participantIds: ['char-a', 'user'],
       visibility: 'private',
+      decisionSource: 'model',
     });
     expect(compacted?.runtimeDecision?.companionshipContext?.sharedPhraseHistory?.[0]?.text.length).toBeLessThan(220);
     expect(JSON.stringify(compacted).length).toBeLessThan(JSON.stringify(metadata).length / 4);
