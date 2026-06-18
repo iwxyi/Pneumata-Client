@@ -198,6 +198,8 @@ describe('ChatNarrativePanel', () => {
     );
 
     expect(html).toContain('新的抉择点');
+    expect(html).toContain('加压');
+    expect(html).not.toContain('pressure');
     expect(html).toContain('回顾线索');
     expect(html).toContain('回顾悬念');
     expect(html).toContain('回顾选择');

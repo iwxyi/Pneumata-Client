@@ -218,6 +218,17 @@ function renderUnchosenBranches(chat: GroupChat, members: AICharacter[]) {
   );
 }
 
+function formatStoryBeatKind(kind: string | undefined) {
+  const labels: Record<string, string> = {
+    establish: '开场',
+    pressure: '加压',
+    decision: '抉择',
+    consequence: '后果',
+    new_pressure: '新压力',
+  };
+  return kind ? labels[kind] || kind : '';
+}
+
 function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
   if (!hasStoryAssets(chat)) return null;
   const state = chat.scenarioState || {};
@@ -230,7 +241,7 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
       <Stack spacing={0.85}>
         <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
           <Chip size="small" label={recap ? recap.title : '章节记忆'} variant="outlined" sx={compactPillChipSx} />
-          {state.storyBeatKind ? <Chip size="small" label={state.storyBeatKind} variant="outlined" sx={compactPillChipSx} /> : null}
+          {state.storyBeatKind ? <Chip size="small" label={formatStoryBeatKind(state.storyBeatKind)} variant="outlined" sx={compactPillChipSx} /> : null}
         </Stack>
         {recap ? (
           <>
