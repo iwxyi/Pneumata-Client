@@ -18,7 +18,7 @@ import AppSnackbar from '../common/AppSnackbar';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import type { DisplayTextMember } from '../../services/displayTextSanitizer';
 import { copyTextToClipboard } from '../../utils/clipboard';
-import { getNarrativeParagraphBlocks, isNarrativeParagraphMessage, shouldUseCompactMessageBubble } from './messageBubblePresentation';
+import { getNarrativeDisplayBlocks, isNarrativeParagraphMessage, shouldUseCompactMessageBubble } from './messageBubblePresentation';
 
 function isConflictDeveloperEvent(eventType: string | undefined) {
   return ['conflict_focus_shift', 'conflict_axis_shift'].includes(String(eventType || ''));
@@ -182,13 +182,43 @@ const typingBounce = keyframes`
   30% { transform: translateY(-4px); opacity: 1; }
 `;
 
-function renderNarrativeParagraphContent(blocks: NarrativeBlock[]) {
+function resolveBlockSpeakerName(block: NarrativeBlock, members: DisplayTextMember[] = []) {
+  if (block.actorKind === 'narrator') return '旁白';
+  if (block.characterId) return members.find((member) => member.id === block.characterId)?.name || block.characterId;
+  return members.find((member) => member.id === block.actorId)?.name || block.actorId || '角色';
+}
+
+function renderNarrativeParagraphContent(blocks: NarrativeBlock[], members: DisplayTextMember[] = []) {
   return (
-    <Box sx={{ display: 'grid', gap: 1.75 }}>
+    <Box sx={{ display: 'grid', gap: 1.35 }}>
       {blocks.map((block) => (
-        <Box key={block.id} sx={{ typography: 'body1', lineHeight: 2.05, color: 'text.primary', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
-          <MarkdownText text={block.text} />
-        </Box>
+        block.displayMode === 'bubble' ? (
+          <Box key={block.id} sx={{ display: 'grid', justifyItems: 'start', gap: 0.25, maxWidth: 'min(88%, 560px)' }}>
+            <Typography variant="caption" sx={{ color: 'text.secondary', px: 0.5 }}>
+              {resolveBlockSpeakerName(block, members)}
+            </Typography>
+            <Box sx={{
+              px: 1.25,
+              py: 0.85,
+              borderRadius: 2,
+              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(255,255,255,0.08)',
+              border: '1px solid',
+              borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
+              boxShadow: (theme) => theme.palette.mode === 'light' ? '0 8px 20px rgba(15,23,42,0.055)' : '0 10px 24px rgba(0,0,0,0.22)',
+              typography: 'body2',
+              lineHeight: 1.75,
+              wordBreak: 'break-word',
+              userSelect: 'text',
+              WebkitUserSelect: 'text',
+            }}>
+              <MarkdownText text={block.text} />
+            </Box>
+          </Box>
+        ) : (
+          <Box key={block.id} sx={{ typography: 'body1', lineHeight: 2.05, color: 'text.primary', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
+            <MarkdownText text={block.text} />
+          </Box>
+        )
       ))}
     </Box>
   );
@@ -520,19 +550,19 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
     </Box>
   );
   const useNarrativeParagraph = !isFinalWithdrawn && (!pending || isNarrativeParagraphMessage(message));
-  const narrativeParagraphBlocks = useNarrativeParagraph ? getNarrativeParagraphBlocks(message) : [];
+  const narrativeParagraphBlocks = useNarrativeParagraph ? getNarrativeDisplayBlocks(message) : [];
 
   if (narrativeParagraphBlocks.length || (pending && useNarrativeParagraph)) {
     return (
       <>
         <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, py: 1.1, width: '100%' }}>
           <Box {...bubbleHandlers} sx={{ width: '100%', maxWidth: 760, px: { xs: 0.5, sm: 1 }, py: 0.5 }}>
-            {narrativeParagraphBlocks.length ? renderNarrativeParagraphContent(narrativeParagraphBlocks) : renderPendingTypingDots()}
+            {narrativeParagraphBlocks.length ? renderNarrativeParagraphContent(narrativeParagraphBlocks, members) : renderPendingTypingDots()}
           </Box>
         </Box>
         <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
           <DialogTitle>{message.senderName}</DialogTitle>
-          <DialogContent>{renderNarrativeParagraphContent(narrativeParagraphBlocks)}</DialogContent>
+          <DialogContent>{renderNarrativeParagraphContent(narrativeParagraphBlocks, members)}</DialogContent>
         </Dialog>
       </>
     );

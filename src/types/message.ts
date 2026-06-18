@@ -59,6 +59,21 @@ export interface StoryChoiceSuggestion {
   prompt?: string | null;
 }
 
+export type StoryEventType = 'narration' | 'speech' | 'choice_point';
+
+export interface StoryEventChoice {
+  label: string;
+  prompt?: string | null;
+}
+
+export interface StoryEvent {
+  type: StoryEventType;
+  text?: string;
+  speakerName?: string;
+  characterId?: string;
+  choices?: StoryEventChoice[];
+}
+
 export interface NarrativeBlock {
   id: string;
   actorId: string;
@@ -83,6 +98,7 @@ export interface MessageMetadata {
   format?: 'plain' | 'markdown';
   contextText?: string;
   renderText?: string;
+  storyEvents?: StoryEvent[];
   narrativeTurn?: NarrativeTurnMetadata;
   storyChoices?: StoryChoiceSuggestion[];
   manualSpeaker?: {

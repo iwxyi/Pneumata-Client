@@ -10,7 +10,8 @@ interface AppSnackbarProps {
   open: boolean;
   message: ReactNode;
   severity?: AlertColor;
-  autoHideDuration?: number;
+  action?: ReactNode;
+  autoHideDuration?: number | null;
   onClose: () => void;
   offset?: SnackbarOffset;
   alertVariant?: AlertProps['variant'];
@@ -26,6 +27,7 @@ export default function AppSnackbar({
   open,
   message,
   severity = 'success',
+  action,
   autoHideDuration = 3000,
   onClose,
   offset = 'navigation',
@@ -66,7 +68,7 @@ export default function AppSnackbar({
           },
         }}
       >
-        <Alert severity={severity} variant={alertVariant} onClose={handleAlertClose}>
+        <Alert severity={severity} variant={alertVariant} onClose={handleAlertClose} action={action}>
           {message}
         </Alert>
       </Snackbar>

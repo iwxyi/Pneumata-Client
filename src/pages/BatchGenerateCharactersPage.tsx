@@ -8,6 +8,8 @@ import AppSnackbar from '../components/common/AppSnackbar';
 import { BATCH_GENERATE_EXAMPLES } from '../constants/batchGenerateExamples';
 
 const BATCH_GENERATE_GROUP_SIZE = 10;
+const MOBILE_BOTTOM_NAV_FAB_OFFSET = 'calc(env(safe-area-inset-bottom, 0px) + 104px)';
+const MOBILE_BOTTOM_NAV_CONTENT_PADDING = 'calc(env(safe-area-inset-bottom, 0px) + 176px)';
 
 interface ProgressItem {
   name: string;
@@ -719,7 +721,16 @@ export default function BatchGenerateCharactersPage() {
   };
 
   return (
-    <Box sx={{ p: 3, pt: { xs: 1, sm: 1, md: 3 }, maxWidth: 960, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <Box sx={{
+      p: 3,
+      pt: { xs: 1, sm: 1, md: 3 },
+      pb: { xs: MOBILE_BOTTOM_NAV_CONTENT_PADDING, sm: 3 },
+      maxWidth: 960,
+      mx: 'auto',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 2,
+    }}>
       <Box sx={{ p: 2.5, border: 1, borderColor: 'divider', borderRadius: 4, bgcolor: 'background.paper', display: 'flex', flexDirection: 'column', gap: 2 }}>
         <TextField
           label={i18n.language.startsWith('zh') ? '主题/分组' : 'Theme/group'}
@@ -803,7 +814,7 @@ export default function BatchGenerateCharactersPage() {
             sx={{
               position: 'fixed',
               right: { xs: 24, sm: 32, md: 36 },
-              bottom: { xs: 24, sm: 32, md: 36 },
+              bottom: { xs: MOBILE_BOTTOM_NAV_FAB_OFFSET, sm: 32, md: 36 },
               zIndex: 1200,
               minHeight: 56,
               px: 2.25,

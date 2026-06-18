@@ -99,21 +99,28 @@ function resolveTurnPolicy(params: { conversation: GroupChat; messages: Message[
 
 function buildGenerationPromptContext(params: { conversation: GroupChat }): SessionGenerationPromptContext {
   const phase = params.conversation.scenarioState?.phase || 'scene';
+  const background = params.conversation.scenarioState?.storyBackground ? `\nStory background: ${params.conversation.scenarioState.storyBackground}` : '';
+  const direction = params.conversation.scenarioState?.storyDirection ? `\nCurrent story direction / selected branch: ${params.conversation.scenarioState.storyDirection}` : '';
+  const outline = params.conversation.scenarioState?.storyOutline ? `\nStory outline: ${params.conversation.scenarioState.storyOutline}` : '';
   return {
     responseStyle: 'creative',
     allowMarkdown: true,
     styleProfile: 'dramatic_room',
-    promptPrefix: 'You are producing a narrative-runtime story beat. Treat the narrator as the default speaker: prose paragraphs should carry setting, action, consequences, inner pressure, and sensory detail. Character dialogue is optional and should be brief; use chat bubbles only for spoken lines that change the scene. Do not turn the beat into alternating dialogue.',
+    promptPrefix: `You are producing a narrative-runtime story beat. The narrator is the active actor. Output storyEvents as the authoritative visible story body; content can be a short plaintext fallback. Prose paragraphs must carry setting, action, consequences, inner pressure, sensory detail, and scene movement. Character dialogue is optional and must appear only as storyEvents speech. Do not turn the beat into alternating chat.${background}${direction}${outline}`,
     additionalConstraints: phase === 'branch'
       ? [
+        'Use storyEvents. At minimum output one narration event. Add speech events only for spoken lines that change the scene.',
         'Resolve the chosen storyDirection with a concrete consequence: new evidence, danger, location, relationship shift, or goal pressure.',
         'End at a new decision point only after the consequence is visible. Any next choices must be specific to the current people, place, clue, threat, or goal.',
+        'If there is a decision point, output one choice_point event with 2-4 concrete choices; otherwise do not output choices.',
         'Avoid abstract option language such as investigate clues, deepen emotion, advance plot, or face the key person without naming what is at stake.',
         'Write mostly in narrator prose: show the environment changing, bodies moving, costs landing, and new pressure becoming visible. Dialogue should be sparse and consequential.',
       ]
       : [
+        'Use storyEvents. At minimum output one narration event. Add speech events only for spoken lines that change the scene.',
         'Advance the scene with concrete atmosphere, implication, or character pressure instead of plain exposition.',
         'Make the next pressure point specific enough that choices can name the person, place, clue, threat, or goal involved.',
+        'Only output a choice_point event when the scene has genuinely reached a new decision point.',
         'Prefer narrator-led prose with concrete sensory detail and visible consequences. It is valid for the whole response to be narration with no character speech.',
       ],
   };
@@ -184,7 +191,11 @@ function onMessageCommitted(params: {
   characters: Parameters<SessionEngineDefinition['onMessageCommitted']>[0]['characters'];
   message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'>;
 }) {
-  const summary = params.message.content.trim().slice(0, 72);
+  const metadataText = params.message.metadata?.narrativeTurn?.blocks
+    .map((block) => block.text)
+    .filter(Boolean)
+    .join(' ');
+  const summary = (params.message.content.trim() || metadataText || '剧情推进').slice(0, 72);
   const choices = normalizeStoryChoiceSuggestions(params.message.metadata?.storyChoices);
   const normalized = normalizeStoryBranches(params.conversation, choices);
   const nextEpoch = getCurrentChoiceEpoch({ ...params.conversation, scenarioState: { ...(params.conversation.scenarioState || {}), branches: normalized.branches } });

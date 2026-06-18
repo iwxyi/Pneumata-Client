@@ -41,6 +41,7 @@ import { buildTurnPlanPrompt, deriveTurnPlan, type TurnPlan } from './turnPlanne
 import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
 import { buildGenerationRuntimeBundle } from './generationRuntime';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
+import { buildNarrativeTurnFromStoryEvents, buildStoryEventsVisibleText, getStoryChoicesFromEvents, normalizeStoryEvents } from './narrativeRuntime';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   extraMessages?: string[] | null;
@@ -86,6 +87,7 @@ type GenerationWithGuidanceTrace = {
   finalResponse: string;
   fullResponse: string;
   extraMessages?: string[] | null;
+  storyEvents?: import('../types/message').StoryEvent[] | null;
   guidanceExecution?: GuidanceExecutionTrace;
 };
 
@@ -403,6 +405,12 @@ function isPendingJsonEnvelopeChunk(raw: string) {
   if (cleaned.startsWith('"socialEventHints"')) return true;
   if (cleaned.startsWith('"conflictFocus"')) return true;
   return false;
+}
+
+function isLikelyInlineEnvelopeResponse(raw: string) {
+  const cleaned = cleanJsonLikeText(raw).trimStart();
+  if (!cleaned.startsWith('{')) return false;
+  return /"(content|extraMessages|storyEvents|intentionalRepeat|interactionHints|socialEventHints|conflictFocus)"\s*:/.test(cleaned);
 }
 
 function buildStreamingDisplayContent(raw: string, speaker: AICharacter, showRoleActions?: boolean) {
@@ -1549,6 +1557,7 @@ function buildMessageMetadata(params: {
   capabilities: { image: boolean; audio: boolean };
   content: string;
   runtimeDecision?: MessageMetadata['runtimeDecision'];
+  storyEvents?: MessageMetadata['storyEvents'] | null;
   narrativeTurn?: MessageMetadata['narrativeTurn'] | null;
   storyChoices?: MessageMetadata['storyChoices'] | null;
   surface?: ResponseSurface;
@@ -1556,7 +1565,8 @@ function buildMessageMetadata(params: {
 }): MessageMetadata | undefined {
   const decision = normalizeMediaDecision(params.decision, params.capabilities, params.content);
   const storyChoices = normalizeStoryChoiceSuggestions(params.storyChoices);
-  if (!decision && !params.runtimeDecision && !params.narrativeTurn && !storyChoices?.length) return undefined;
+  const storyEvents = normalizeStoryEvents(params.storyEvents);
+  if (!decision && !params.runtimeDecision && !params.narrativeTurn && !storyChoices?.length && !storyEvents.length) return undefined;
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const attachments: MessageAttachment[] = [];
   if (decision?.image?.shouldGenerate && decision.image.prompt && decision.image.altText) {
@@ -1592,6 +1602,7 @@ function buildMessageMetadata(params: {
   return {
     format: params.surface?.allowMarkdown ? 'markdown' : 'plain',
     contextText: params.content,
+    storyEvents: storyEvents.length ? storyEvents : undefined,
     narrativeTurn: params.narrativeTurn || undefined,
     storyChoices: storyChoices || undefined,
     attachments,
@@ -1787,6 +1798,7 @@ async function generateWithPrompt(params: {
   systemPrompt: string;
   chatMessages: ReturnType<typeof buildChatMessages>;
   speaker: AICharacter;
+  characters?: AICharacter[];
   intent: ReturnType<typeof deriveSpeakIntentFromContext>;
   activeMessages: Message[];
   showRoleActions?: boolean;
@@ -1807,7 +1819,9 @@ async function generateWithPrompt(params: {
       : undefined,
   );
   const parsedEnvelope = parseInlineInteractionEnvelope(response);
-  const rawContent = parsedEnvelope ? parsedEnvelope.content : response;
+  const storyEvents = normalizeStoryEvents(parsedEnvelope?.storyEvents);
+  const storyEventContent = storyEvents.length ? buildStoryEventsVisibleText(storyEvents, params.characters || []) : '';
+  const rawContent = storyEventContent || (parsedEnvelope ? parsedEnvelope.content : isLikelyInlineEnvelopeResponse(response) ? '' : response);
   const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions, Boolean(parsedEnvelope?.intentionalRepeat), params.surface);
   const finalResponse = resolveCommittedStreamContent(finalizedResponse, streamBridge.getLastContent());
   const extraMessages = normalizeExtraMessages({
@@ -1822,7 +1836,7 @@ async function generateWithPrompt(params: {
   });
   const fullResponse = buildFullTurnResponse(finalResponse, extraMessages);
   streamBridge.flush(finalResponse);
-  return { parsedEnvelope, rawContent, finalResponse, fullResponse, extraMessages };
+  return { parsedEnvelope, rawContent, finalResponse, fullResponse, extraMessages, storyEvents };
 }
 
 async function generateNonDuplicateResponse(params: {
@@ -1846,6 +1860,7 @@ async function generateNonDuplicateResponse(params: {
   let lastFinalResponse = '';
   let lastFullResponse = '';
   let lastExtraMessages: string[] | null = null;
+  let lastStoryEvents: import('../types/message').StoryEvent[] | null = null;
   const rejectedReasons: GuidanceRejectionReason[] = [];
   let finalReason: GuidanceExecutionReason = params.guidance ? 'empty_content' : 'matched';
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -1855,6 +1870,7 @@ async function generateNonDuplicateResponse(params: {
     lastFinalResponse = generated.finalResponse;
     lastFullResponse = generated.fullResponse;
     lastExtraMessages = generated.extraMessages || null;
+    lastStoryEvents = generated.storyEvents || null;
     if (normalizeForComparison(generated.fullResponse)) {
       const guidanceEvaluation = evaluateGuidanceGeneratedContent(
         generated.fullResponse,
@@ -1920,6 +1936,7 @@ async function generateNonDuplicateResponse(params: {
         finalResponse: generated.finalResponse,
         fullResponse: generated.fullResponse,
         extraMessages: generated.extraMessages,
+        storyEvents: generated.storyEvents || null,
         guidanceExecution: params.guidance ? {
           status: guidanceEvaluation.matched
             ? (rejectedReasons.length ? 'accepted_after_retry' : 'accepted')
@@ -1960,6 +1977,7 @@ async function generateNonDuplicateResponse(params: {
     finalResponse: lastFinalResponse,
     fullResponse: lastFullResponse || lastFinalResponse,
     extraMessages: lastExtraMessages,
+    storyEvents: lastStoryEvents,
     guidanceExecution: params.guidance ? {
       status: 'failed_after_retry',
       validated: false,
@@ -2240,7 +2258,17 @@ Current speaking intent:
       forcedMediaQueued,
     } satisfies GuidanceExecutionTrace
     : undefined;
-  const narrativeTurn = sessionEngine.buildNarrativeTurnMetadata?.({
+  const storyEvents = normalizeStoryEvents(generated.storyEvents);
+  const storyChoicesFromEvents = getStoryChoicesFromEvents(storyEvents);
+  const legacyStoryChoices = normalizeStoryChoiceSuggestions(generated.parsedEnvelope?.storyChoices || null);
+  const storyChoices = storyChoicesFromEvents.length ? storyChoicesFromEvents : legacyStoryChoices;
+  const narrativeTurn = storyEvents.length
+    ? buildNarrativeTurnFromStoryEvents({
+        conversation: params.chat,
+        events: storyEvents,
+        characters: effectiveMembers,
+      })
+    : sessionEngine.buildNarrativeTurnMetadata?.({
     conversation: params.chat,
     characters: effectiveMembers,
     messages: activeMessages,
@@ -2261,8 +2289,9 @@ Current speaking intent:
 	      capabilities: mediaCapabilities,
 	      content: generated.fullResponse,
         surface: responseSurface,
+        storyEvents,
         narrativeTurn,
-        storyChoices: generated.parsedEnvelope?.storyChoices || null,
+        storyChoices,
 	      runtimeDecision: buildRuntimeDecisionMetadata({
 	        directorIntent: effectiveDirectorIntent,
 	        narrativeLines: params.narrativeLines,
@@ -2350,7 +2379,21 @@ export const runOneRound = async (
   const directorIntent = runtimePressure.directorIntent;
   const candidates = calculateWeights(chatMembers, activeMessages, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, pendingReplyContext, chat, directorIntent);
   const lockedGuidanceSpeaker = resolveUserGuidanceLockedSpeaker(chatMembers, directorIntent);
-  const speakerSelection = lockedGuidanceSpeaker
+  const storyNarrator = chat.sessionKind?.scenarioId === 'story-reader'
+    ? chatMembers.find((member) => member.id === 'narrator')
+    : null;
+  const speakerSelection = storyNarrator
+    ? {
+      speakerId: storyNarrator.id,
+      reason: null,
+      bypassNotice: null,
+      policy: {
+        source: 'narrative_runtime',
+        actorKind: 'narrator',
+        scenarioId: chat.sessionKind?.scenarioId,
+      },
+    }
+    : lockedGuidanceSpeaker
     ? {
       speakerId: lockedGuidanceSpeaker.id,
       reason: null,

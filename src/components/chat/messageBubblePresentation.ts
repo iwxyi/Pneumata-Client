@@ -22,6 +22,14 @@ export function getNarrativeParagraphBlocks(message: Message): NarrativeBlock[] 
   }];
 }
 
+export function getNarrativeDisplayBlocks(message: Message): NarrativeBlock[] {
+  const turn = message.metadata?.narrativeTurn;
+  if (turn?.povActorId === 'narrator') {
+    return turn.blocks.filter((block) => block.text.trim() && block.displayMode !== 'hidden');
+  }
+  return getNarrativeParagraphBlocks(message);
+}
+
 export function shouldUseCompactMessageBubble(options: {
   compactBubbleMode: boolean;
   compactPrivateBubbleMode: boolean;

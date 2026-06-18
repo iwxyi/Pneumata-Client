@@ -1,5 +1,22 @@
 import type { StoryChoiceSuggestion } from '../types/message';
 
+const abstractStoryChoicePatterns = [
+  /^深入(?:角色)?内心$/,
+  /^追查(?:异常)?线索$/,
+  /^推进(?:剧情|故事|主线)$/,
+  /^继续(?:剧情|故事|推进|调查|探索)?$/,
+  /^面对关键人物$/,
+  /^转向意外地点$/,
+  /^寻找线索$/,
+  /^调查真相$/,
+];
+
+export function isConcreteStoryChoiceLabel(label: string) {
+  const normalized = label.replace(/\s+/g, '').trim();
+  if (!normalized) return false;
+  return !abstractStoryChoicePatterns.some((pattern) => pattern.test(normalized));
+}
+
 export function normalizeStoryChoiceSuggestions(value: unknown): StoryChoiceSuggestion[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
@@ -12,7 +29,7 @@ export function normalizeStoryChoiceSuggestions(value: unknown): StoryChoiceSugg
       return { label, prompt };
     })
     .filter((choice) => {
-      if (!choice.label || seen.has(choice.label)) return false;
+      if (!choice.label || !isConcreteStoryChoiceLabel(choice.label) || seen.has(choice.label)) return false;
       seen.add(choice.label);
       return true;
     })

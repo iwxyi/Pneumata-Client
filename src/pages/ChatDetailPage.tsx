@@ -836,7 +836,7 @@ export default function ChatDetailPage() {
   );
   const storyBranchSuggestionKey = `${chat?.id || ''}:${storyBranchOptions.map((option) => option.value).join('|')}`;
   const isStoryWaitingForChoice = chat?.sessionKind?.scenarioId === 'story-reader' && storyBranchOptions.length > 0;
-  const showStoryBranchSuggestions = isStoryWaitingForChoice;
+  const showStoryBranchSuggestions = isStoryWaitingForChoice && dismissedStoryBranchChatId !== storyBranchSuggestionKey;
   const runLoopStatusContent = (chatError || runLoopError) ? (
     <Alert severity="error" variant="outlined" sx={{ mx: { xs: 1.25, sm: 2 }, mt: 1, borderRadius: 3 }}>
       {chatError || runLoopError}

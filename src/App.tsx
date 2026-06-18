@@ -24,6 +24,8 @@ import AdminAuditPage from './pages/admin/AdminAuditPage';
 import AdminNotificationsPage from './pages/admin/AdminNotificationsPage';
 import { useAdminAuthStore } from './stores/useAdminAuthStore';
 import { ADMIN_LOGIN_EVENT } from './services/adminApi';
+import DevUpdatePrompt from './components/common/DevUpdatePrompt';
+import PwaUpdatePrompt from './components/common/PwaUpdatePrompt';
 import './i18n';
 
 const routePreloaders = [
@@ -277,6 +279,8 @@ export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <DevUpdatePrompt />
+      <PwaUpdatePrompt />
       {settingsHydrated ? (
         <BrowserRouter>
           <AdminAuthRedirectHandler />

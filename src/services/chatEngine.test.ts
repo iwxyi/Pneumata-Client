@@ -406,8 +406,8 @@ describe('chatEngine streaming preview', () => {
       ],
     });
 
-    expect(contract).toContain('This is an AI private thread with exactly one counterpart');
-    expect(contract).toContain('return interactionHints.primary with that counterpart');
+    expect(contract).toContain('In AI direct chats, target the other participant');
+    expect(contract).toContain('do not target the speaker or the user unless the user is an actual participant');
     expect(contract).toContain('id=char-2; name=乙');
   });
 
@@ -435,6 +435,58 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('Decide the visible length yourself');
     expect(prompt).not.toContain('Professional form is available');
     expect(message.content).toContain('每个实例单独分支');
+  });
+
+  it('commits storyEvents as visible narrator content, narrative blocks, and choices when content is empty', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '',
+      storyEvents: [
+        { type: 'narration', text: '雨水顺着医院旧楼的铁门往下流，门缝里传出断续的敲击声。' },
+        { type: 'speech', characterId: 'lin', speakerName: '林医生', text: '不要开那扇门。' },
+        {
+          type: 'choice_point',
+          choices: [
+            { label: '让林医生去地下档案室查被撕掉的病历', prompt: '林医生进入地下档案室查病历' },
+            { label: '让护士追问昨晚停电记录', prompt: '护士追问停电记录' },
+          ],
+        },
+      ],
+      storyChoices: null,
+      extraMessages: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const lin = buildCharacter('lin', '林医生');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        memberIds: ['lin'],
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [lin],
+      messages: [buildUserMessage('开始故事', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.senderId).toBe('narrator');
+    expect(message.content).toContain('雨水顺着医院旧楼的铁门往下流');
+    expect(message.content).toContain('林医生：“不要开那扇门。”');
+    expect(message.metadata?.storyEvents).toHaveLength(3);
+    expect(message.metadata?.storyChoices).toEqual([
+      { label: '让林医生去地下档案室查被撕掉的病历', prompt: '林医生进入地下档案室查病历' },
+      { label: '让护士追问昨晚停电记录', prompt: '护士追问停电记录' },
+    ]);
+    expect(message.metadata?.narrativeTurn?.povActorId).toBe('narrator');
+    expect(message.metadata?.narrativeTurn?.blocks).toEqual([
+      expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph' }),
+      expect.objectContaining({ actorKind: 'character', displayMode: 'bubble', characterId: 'lin' }),
+    ]);
   });
 
   it('blocks semantic near-duplicates even when wording shifts', () => {

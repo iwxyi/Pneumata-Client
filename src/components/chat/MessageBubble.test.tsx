@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../types/message';
 import { getAttachmentErrorText, getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
-import { getNarrativeParagraphBlocks, isNarrativeParagraphMessage, shouldUseCompactMessageBubble } from './messageBubblePresentation';
+import { getNarrativeDisplayBlocks, getNarrativeParagraphBlocks, isNarrativeParagraphMessage, shouldUseCompactMessageBubble } from './messageBubblePresentation';
 import { buildEventDisplayText, buildMemoryDistillationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
 
 describe('MessageBubble event rendering', () => {
@@ -186,6 +186,37 @@ describe('MessageBubble event rendering', () => {
 
     expect(getNarrativeParagraphBlocks(characterMessage)).toEqual([]);
     expect(getNarrativeParagraphBlocks(narratorMessage)).toHaveLength(1);
+  });
+
+  it('keeps mixed story narration and speech as display blocks for the narrator turn', () => {
+    const message: Message = {
+      id: 'm-story',
+      chatId: 'c1',
+      senderId: 'narrator',
+      senderName: '旁白',
+      type: 'ai',
+      content: '雨声压低了整条走廊。',
+      timestamp: 1,
+      emotion: 0,
+      isDeleted: false,
+      metadata: {
+        narrativeTurn: {
+          turnId: 'turn-story',
+          turnKind: 'narrative_beat',
+          povActorId: 'narrator',
+          blocks: [
+            { id: 'b1', actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '雨声压低了整条走廊。' },
+            { id: 'b2', actorId: 'lin', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', characterId: 'lin', text: '不要开那扇门。' },
+          ],
+        },
+      },
+    };
+
+    expect(getNarrativeParagraphBlocks(message)).toHaveLength(1);
+    expect(getNarrativeDisplayBlocks(message)).toEqual([
+      expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph' }),
+      expect.objectContaining({ actorKind: 'character', displayMode: 'bubble', characterId: 'lin' }),
+    ]);
   });
 
   it('treats streaming narrator messages as narrative paragraphs before metadata is committed', () => {
