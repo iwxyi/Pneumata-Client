@@ -34,7 +34,7 @@ import { buildCompanionshipPrivateThreadScheduleDiagnostics } from '../../servic
 import { applyCompanionshipLedgerBackflow } from '../../services/companionshipLedgerBackflow';
 import { buildSharedPhraseEventsFromCompanionshipEvent } from '../../services/companionshipSharedPhraseBackflow';
 import type { Message } from '../../types/message';
-import type { AttachmentProfileHistoryEntry, CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, IntimateConflictHistoryEntry, PendingCareTopic, PendingPromise, PhaseHistoryEntry, PrivateThreadScheduleDiagnostic, RitualHistoryEntry, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedPhraseHistoryEntry, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryHistoryEntry, UserProfileMemoryKind } from '../../types/companionship';
+import type { AttachmentProfileHistoryEntry, CareTopicHistoryEntry, CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, IntimateConflictHistoryEntry, PendingCareTopic, PendingPromise, PhaseHistoryEntry, PrivateThreadScheduleDiagnostic, PromiseHistoryEntry, RitualHistoryEntry, RitualRegistryEntry, SharedAnchorHistoryEntry, SharedMemoryAnchor, SharedPhrase, SharedPhraseHistoryEntry, SharedSecret, SharedSecretHistoryEntry, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryHistoryEntry, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 type ManualPromiseLifecycleAction = Extract<PendingPromise['status'], 'fulfilled' | 'blocked' | 'stale' | 'revoked'>;
@@ -335,6 +335,37 @@ function buildManualCareTopicBlockedEvent(chat: GroupChat, character: AICharacte
   };
 }
 
+function buildManualCareTopicRestoreEvent(chat: GroupChat, character: AICharacter, item: CareTopicHistoryEntry): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, item.id, item.topicId, 'care-topic-restore']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户从历史中恢复了一个关心事项`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_care_topic',
+      characterId: character.id,
+      userId: 'user',
+      topicId: item.topicId,
+      topicText: item.topicText,
+      action: 'opened',
+      urgency: item.urgency,
+      reason: `用户在开发者诊断中从关心历史 ${item.id} 恢复追踪。`,
+      evidence: ['manual_restore_from_care_topic_history', ...item.evidence].filter(Boolean).join(' / '),
+      sourceMessageIds: item.sourceMessageIds,
+      dueAt: item.dueAt,
+      confidence: 1,
+    },
+  };
+}
+
 function formatManualPromiseLifecycleAction(action: ManualPromiseLifecycleAction) {
   const labels: Record<ManualPromiseLifecycleAction, string> = {
     fulfilled: '已完成',
@@ -439,6 +470,42 @@ function buildManualPromiseMergeEvents(chat: GroupChat, character: AICharacter, 
     }),
     buildManualPromiseLifecycleEvent(chat, character, merged, 'revoked'),
   ];
+}
+
+function buildManualPromiseRestoreEvent(chat: GroupChat, character: AICharacter, item: PromiseHistoryEntry): RuntimeEventV2 {
+  const now = Date.now();
+  const participantIds = item.participantIds.length ? item.participantIds : [character.id, 'user'];
+  const includesUser = participantIds.includes('user');
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, item.id, item.promiseId, 'promise-restore']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: participantIds,
+    summary: `${character.name} 记录用户从历史中恢复了一个未完成约定`,
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
+    eventClass: 'artifact',
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: participantIds,
+    payload: {
+      eventType: 'companionship_promise',
+      characterId: character.id,
+      userId: includesUser ? 'user' : undefined,
+      promiseId: item.promiseId,
+      promiseText: item.promiseText,
+      action: 'opened',
+      participantIds,
+      promiseKind: item.promiseKind,
+      supersedesText: item.supersedesText,
+      lifecycleEvidence: ['manual_restore_from_promise_history', ...item.lifecycleEvidence, ...item.evidence].filter(Boolean),
+      reason: `用户在开发者诊断中从约定历史 ${item.id} 恢复追踪。`,
+      evidence: ['manual_restore_from_promise_history', ...item.evidence].filter(Boolean).join(' / '),
+      sourceMessageIds: item.sourceMessageIds,
+      dueAt: item.dueAt,
+      confidence: 1,
+    },
+  };
 }
 
 function buildManualAddressingEvent(chat: GroupChat, character: AICharacter, action: 'forbid' | 'unforbid', address: string): RuntimeEventV2 {
@@ -981,6 +1048,42 @@ function buildManualSharedAnchorParticipantsEvent(chat: GroupChat, character: AI
   });
 }
 
+function buildManualSharedAnchorRestoreEvent(chat: GroupChat, character: AICharacter, item: SharedAnchorHistoryEntry): RuntimeEventV2 {
+  const now = Date.now();
+  const participantIds = item.participantIds.length ? item.participantIds : [character.id, 'user'];
+  const includesUser = participantIds.includes('user');
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, item.id, item.anchorId, 'shared-anchor-restore']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: participantIds,
+    summary: `${character.name} 记录用户从历史中恢复了一条共同锚点`,
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
+    eventClass: 'artifact',
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: participantIds,
+    payload: {
+      eventType: 'companionship_shared_anchor',
+      characterId: character.id,
+      userId: includesUser ? 'user' : undefined,
+      anchorId: item.anchorId,
+      action: 'upsert',
+      kind: item.kind,
+      participantIds,
+      title: item.title,
+      text: item.text,
+      salience: item.salience,
+      evidence: ['manual_restore_from_shared_anchor_history', ...item.evidence].filter(Boolean).join(' / '),
+      mergedAnchorIds: item.mergedAnchorIds,
+      sourceMessageIds: item.sourceMessageIds,
+      confidence: 1,
+      reason: `用户在开发者诊断中从共同锚点历史 ${item.id} 恢复。`,
+    },
+  };
+}
+
 function buildManualSharedSecretRevokedEvent(chat: GroupChat, character: AICharacter, secret: SharedSecret): RuntimeEventV2 {
   const now = Date.now();
   const includesUser = secret.participantIds.includes('user');
@@ -1179,6 +1282,48 @@ function buildManualSharedSecretParticipantsEvent(chat: GroupChat, character: AI
       evidence: `manual_secret_participants_edit_from_character_relationship_tab: ${secret.participantIds.join(',')} -> ${nextParticipantIds.join(',')}`,
       sourceMessageIds: secret.sourceMessageIds,
       emotionalWeight: secret.emotionalWeight,
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualSharedSecretRestorePublicEvent(chat: GroupChat, character: AICharacter, item: SharedSecretHistoryEntry): RuntimeEventV2 {
+  const now = Date.now();
+  const participantIds = item.participantIds.length ? item.participantIds : [character.id, 'user'];
+  const includesUser = participantIds.includes('user');
+  const action = item.leakState === 'confessed'
+    ? 'confessed'
+    : item.leakState === 'leaked'
+      ? 'leaked'
+      : item.leakState === 'hinted_publicly'
+        ? 'hinted_publicly'
+        : 'recorded';
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, item.id, item.secretId, 'shared-secret-public-restore']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: participantIds,
+    summary: `${character.name} 记录用户从历史中恢复了一条小秘密公开边界`,
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
+    eventClass: 'artifact',
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: participantIds,
+    payload: {
+      eventType: 'companionship_shared_secret',
+      characterId: character.id,
+      userId: includesUser ? 'user' : undefined,
+      secretId: item.secretId,
+      action,
+      consequenceKind: item.consequenceKind,
+      participantIds,
+      privateText: item.publicMask,
+      publicMask: item.publicMask,
+      reason: `用户在开发者诊断中从小秘密历史 ${item.id} 恢复公开遮罩和边界；历史诊断不保存私密原文。`,
+      evidence: ['manual_restore_public_mask_from_shared_secret_history', ...item.evidence].filter(Boolean).join(' / '),
+      sourceMessageIds: item.sourceMessageIds,
+      emotionalWeight: item.emotionalWeight,
       confidence: 1,
     },
   };
@@ -2553,6 +2698,10 @@ function CompanionshipDeveloperTracePanel({
   onRestoreConflict,
   onRestorePhase,
   onRestoreUserProfile,
+  onRestoreCareTopic,
+  onRestorePromise,
+  onRestoreSharedAnchor,
+  onRestoreSharedSecretPublic,
   onRestoreSharedPhrase,
   onRestoreRitualFromHistory,
 }: {
@@ -2565,6 +2714,10 @@ function CompanionshipDeveloperTracePanel({
   onRestoreConflict?: (item: IntimateConflictHistoryEntry) => void;
   onRestorePhase?: (item: PhaseHistoryEntry) => void;
   onRestoreUserProfile?: (item: UserProfileMemoryHistoryEntry) => void;
+  onRestoreCareTopic?: (item: CareTopicHistoryEntry) => void;
+  onRestorePromise?: (item: PromiseHistoryEntry) => void;
+  onRestoreSharedAnchor?: (item: SharedAnchorHistoryEntry) => void;
+  onRestoreSharedSecretPublic?: (item: SharedSecretHistoryEntry) => void;
   onRestoreSharedPhrase?: (item: SharedPhraseHistoryEntry) => void;
   onRestoreRitualFromHistory?: (item: RitualHistoryEntry) => void;
 }) {
@@ -2818,6 +2971,11 @@ function CompanionshipDeveloperTracePanel({
                     来源消息：{item.sourceMessageIds.join(' / ')}
                   </Typography>
                 ) : null}
+                {onRestoreCareTopic && item.action !== 'opened' ? (
+                  <Button size="small" variant="text" onClick={() => onRestoreCareTopic(item)} sx={{ mt: 0.4, p: 0, minWidth: 0 }}>
+                    恢复追踪
+                  </Button>
+                ) : null}
               </Box>
             ))}
           </Stack>
@@ -2853,6 +3011,11 @@ function CompanionshipDeveloperTracePanel({
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-all' }}>
                     来源消息：{item.sourceMessageIds.join(' / ')}
                   </Typography>
+                ) : null}
+                {onRestorePromise && item.action !== 'opened' ? (
+                  <Button size="small" variant="text" onClick={() => onRestorePromise(item)} sx={{ mt: 0.4, p: 0, minWidth: 0 }}>
+                    恢复为未完成约定
+                  </Button>
                 ) : null}
               </Box>
             ))}
@@ -2891,6 +3054,11 @@ function CompanionshipDeveloperTracePanel({
                     来源消息：{item.sourceMessageIds.join(' / ')}
                   </Typography>
                 ) : null}
+                {onRestoreSharedAnchor && (item.action === 'archive' || item.action === 'revoke') ? (
+                  <Button size="small" variant="text" onClick={() => onRestoreSharedAnchor(item)} sx={{ mt: 0.4, p: 0, minWidth: 0 }}>
+                    恢复此锚点
+                  </Button>
+                ) : null}
               </Box>
             ))}
           </Stack>
@@ -2921,6 +3089,11 @@ function CompanionshipDeveloperTracePanel({
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-all' }}>
                     来源消息：{item.sourceMessageIds.join(' / ')}
                   </Typography>
+                ) : null}
+                {onRestoreSharedSecretPublic && item.action === 'revoked' ? (
+                  <Button size="small" variant="text" onClick={() => onRestoreSharedSecretPublic(item)} sx={{ mt: 0.4, p: 0, minWidth: 0 }}>
+                    恢复公开边界
+                  </Button>
                 ) : null}
               </Box>
             ))}
@@ -3310,6 +3483,10 @@ function UserCompanionshipCard({
   onRestoreConflict,
   onRestorePhase,
   onRestoreUserProfile,
+  onRestoreCareTopic,
+  onRestorePromise,
+  onRestoreSharedAnchor,
+  onRestoreSharedSecretPublic,
   onRestoreSharedPhrase,
   onRestoreRitualFromHistory,
   onUpdateProfileCue,
@@ -3357,6 +3534,10 @@ function UserCompanionshipCard({
   onRestoreConflict: (item: IntimateConflictHistoryEntry) => void;
   onRestorePhase: (item: PhaseHistoryEntry) => void;
   onRestoreUserProfile: (item: UserProfileMemoryHistoryEntry) => void;
+  onRestoreCareTopic: (item: CareTopicHistoryEntry) => void;
+  onRestorePromise: (item: PromiseHistoryEntry) => void;
+  onRestoreSharedAnchor: (item: SharedAnchorHistoryEntry) => void;
+  onRestoreSharedSecretPublic: (item: SharedSecretHistoryEntry) => void;
   onRestoreSharedPhrase: (item: SharedPhraseHistoryEntry) => void;
   onRestoreRitualFromHistory: (item: RitualHistoryEntry) => void;
   onUpdateProfileCue: (item: UserProfileMemoryEventItem) => void;
@@ -4359,6 +4540,10 @@ function UserCompanionshipCard({
               onRestoreConflict={onRestoreConflict}
               onRestorePhase={onRestorePhase}
               onRestoreUserProfile={onRestoreUserProfile}
+              onRestoreCareTopic={onRestoreCareTopic}
+              onRestorePromise={onRestorePromise}
+              onRestoreSharedAnchor={onRestoreSharedAnchor}
+              onRestoreSharedSecretPublic={onRestoreSharedSecretPublic}
               onRestoreSharedPhrase={onRestoreSharedPhrase}
               onRestoreRitualFromHistory={onRestoreRitualFromHistory}
             />
@@ -5134,6 +5319,18 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 onRestoreUserProfile={(item) => {
                   if (!item.items.length) return;
                   void appendManualCompanionshipEvent(view.chat, buildManualUserProfileMemoryRestoreEvent(view.chat, character as AICharacter, item));
+                }}
+                onRestoreCareTopic={(item) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualCareTopicRestoreEvent(view.chat, character as AICharacter, item));
+                }}
+                onRestorePromise={(item) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualPromiseRestoreEvent(view.chat, character as AICharacter, item));
+                }}
+                onRestoreSharedAnchor={(item) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedAnchorRestoreEvent(view.chat, character as AICharacter, item));
+                }}
+                onRestoreSharedSecretPublic={(item) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedSecretRestorePublicEvent(view.chat, character as AICharacter, item));
                 }}
                 onRestoreSharedPhrase={(item) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseRestoreEvent(view.chat, character as AICharacter, item));
