@@ -29,6 +29,70 @@ function compareByTimeline(left: Message, right: Message) {
   return 0;
 }
 
+function normalizeContentForSignature(content: string) {
+  return content.trim().replace(/\s+/g, ' ');
+}
+
+function buildSemanticMessageSignature(message: Message) {
+  const content = normalizeContentForSignature(message.content);
+  if (!content) return null;
+  const narrativeTurnId = message.metadata?.narrativeTurn?.turnId || '';
+  return JSON.stringify([message.type, message.senderId, narrativeTurnId, content]);
+}
+
+function hasMatchingNeighbor(params: {
+  cachedMessages: Message[];
+  activeMessages: Message[];
+  cachedIndex: number;
+  activeIndex: number;
+}) {
+  const previousCached = params.cachedMessages[params.cachedIndex - 1];
+  const previousActive = params.activeMessages[params.activeIndex - 1];
+  if (
+    previousCached
+    && previousActive
+    && buildSemanticMessageSignature(previousCached) === buildSemanticMessageSignature(previousActive)
+  ) return true;
+
+  const nextCached = params.cachedMessages[params.cachedIndex + 1];
+  const nextActive = params.activeMessages[params.activeIndex + 1];
+  return Boolean(
+    nextCached
+    && nextActive
+    && buildSemanticMessageSignature(nextCached) === buildSemanticMessageSignature(nextActive)
+  );
+}
+
+function removeHydratedCacheDuplicates(cachedMessages: Message[], activeMessages: Message[]) {
+  if (!activeMessages.length || !cachedMessages.length) return cachedMessages;
+
+  const activeBySignature = new Map<string, number[]>();
+  activeMessages.forEach((message, index) => {
+    if (message.isStreaming) return;
+    const signature = buildSemanticMessageSignature(message);
+    if (!signature) return;
+    const indexes = activeBySignature.get(signature) || [];
+    indexes.push(index);
+    activeBySignature.set(signature, indexes);
+  });
+
+  return cachedMessages.filter((message, cachedIndex) => {
+    if (message.isStreaming) return true;
+    const signature = buildSemanticMessageSignature(message);
+    if (!signature) return true;
+    const activeIndexes = activeBySignature.get(signature) || [];
+    return !activeIndexes.some((activeIndex) => {
+      const activeMessage = activeMessages[activeIndex];
+      return activeMessage.timestamp === message.timestamp || hasMatchingNeighbor({
+        cachedMessages,
+        activeMessages,
+        cachedIndex,
+        activeIndex,
+      });
+    });
+  });
+}
+
 export function projectCurrentChatMessages(params: {
   chatId: string;
   activeMessages: Message[];
@@ -40,9 +104,12 @@ export function projectCurrentChatMessages(params: {
     for (const key of buildMessageIdentityKeys(message)) identityIndex.set(key, identity);
   };
   const activeMessages = params.activeMessages.filter((message) => message.chatId === params.chatId);
-  const cachedMessages = (params.cachedWindow?.messages || [])
-    .filter((message) => message.chatId === params.chatId)
-    .slice(-40);
+  const cachedMessages = removeHydratedCacheDuplicates(
+    (params.cachedWindow?.messages || [])
+      .filter((message) => message.chatId === params.chatId)
+      .slice(-40),
+    activeMessages,
+  );
   const candidates = [
     ...cachedMessages,
     ...activeMessages,

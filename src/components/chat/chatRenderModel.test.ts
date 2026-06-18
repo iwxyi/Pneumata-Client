@@ -28,6 +28,17 @@ describe('buildChatRenderItems', () => {
     expect(items.map((item) => item.pending)).toEqual([true, false]);
   });
 
+  it('classifies system, event, narrative, and regular bubble render kinds', () => {
+    const items = buildChatRenderItems([
+      message({ id: 'system-1', type: 'system', senderId: 'system', senderName: 'System', content: '系统提示' }),
+      message({ id: 'event-1', type: 'event', senderId: 'system', senderName: 'System', content: '{"eventType":"relationship_shift","summary":"关系变化"}', timestamp: 2 }),
+      message({ id: 'narrator-1', senderId: 'narrator', senderName: '旁白', content: '雨声落下。', timestamp: 3 }),
+      message({ id: 'ai-1', senderId: 'character-1', senderName: 'Character', content: '你好', timestamp: 4 }),
+    ]);
+
+    expect(items.map((item) => item.renderKind)).toEqual(['system', 'event', 'narrative', 'bubble']);
+  });
+
   it('does not render a committed streamed message twice after server confirmation', () => {
     const items = buildChatRenderItems([
       message({

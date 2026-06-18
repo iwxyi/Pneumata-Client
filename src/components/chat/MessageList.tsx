@@ -3,8 +3,11 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import type { Message, MessageAttachment } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import MessageBubble from './MessageBubble';
+import EventMessageItem from './EventMessageItem';
+import NarrativeMessageItem from './NarrativeMessageItem';
+import SystemMessageItem from './SystemMessageItem';
 import { resolveCharacterOrDeleted } from '../../utils/deletedEntity';
-import { buildChatRenderItems } from './chatRenderModel';
+import { buildChatRenderItems, type ChatRenderItem } from './chatRenderModel';
 import type { ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import ImageLightbox from '../common/ImageLightbox';
 
@@ -102,6 +105,29 @@ export default function MessageList({
     if (!onReachTop || isLoadingOlder || !hasMore) return;
     void onReachTop();
   }, [hasMore, isLoadingOlder, onReachTop]);
+
+  const renderMessageItem = useCallback((item: ChatRenderItem) => {
+    if (item.renderKind === 'system') return <SystemMessageItem key={item.key} message={item.message} />;
+    if (item.renderKind === 'event') return <EventMessageItem key={item.key} message={item.message} members={characters} />;
+    if (item.renderKind === 'narrative') return <NarrativeMessageItem key={item.key} message={item.message} pending={item.pending} />;
+    return (
+      <MessageBubble
+        key={item.key}
+        message={item.message}
+        character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
+        currentUser={currentUser}
+        onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
+        onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
+        onExpressionFeedback={item.pending || item.message.type !== 'ai' ? undefined : onExpressionFeedback}
+        onRetryMedia={item.pending ? undefined : onRetryMedia}
+        onOpenImage={item.pending ? undefined : openChatImage}
+        onCharacterAvatarClick={item.pending ? undefined : onCharacterAvatarClick}
+        pending={item.pending}
+        selfMemberId={selfMemberId}
+        privateConversation={privateConversation}
+      />
+    );
+  }, [characters, currentUser, onAnalyzeMessage, onCharacterAvatarClick, onDeleteMessage, onExpressionFeedback, onRetryMedia, openChatImage, privateConversation, selfMemberId]);
 
   const topStatusText = useMemo(() => {
     if (messages.length === 0) return null;
@@ -296,24 +322,7 @@ export default function MessageList({
       ) : null}
 
       <Box>
-        {renderItems.map((item) => (
-          <MessageBubble
-            key={item.key}
-            message={item.message}
-            character={item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined}
-            currentUser={currentUser}
-            members={characters}
-            onDelete={item.pending || item.message.type === 'system' ? undefined : onDeleteMessage}
-            onAnalyze={item.pending || item.message.type === 'system' ? undefined : onAnalyzeMessage}
-            onExpressionFeedback={item.pending || item.message.type !== 'ai' ? undefined : onExpressionFeedback}
-            onRetryMedia={item.pending ? undefined : onRetryMedia}
-            onOpenImage={item.pending ? undefined : openChatImage}
-            onCharacterAvatarClick={item.pending ? undefined : onCharacterAvatarClick}
-            pending={item.pending}
-            selfMemberId={selfMemberId}
-            privateConversation={privateConversation}
-          />
-        ))}
+        {renderItems.map(renderMessageItem)}
         {tailContent}
       </Box>
       <ImageLightbox

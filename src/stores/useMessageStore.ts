@@ -4386,8 +4386,9 @@ function stripLargeInlineMediaForPersistence<T>(value: T, key = '', seen = new W
 
 function compactMessageForPersistence(message: Message) {
   const normalized = compactMessage(normalizeMessage(message), { dropContextText: true });
+  const { isStreaming: _isStreaming, ...persisted } = normalized;
   return {
-    ...normalized,
+    ...persisted,
     metadata: stripLargeInlineMediaForPersistence(normalized.metadata),
   };
 }

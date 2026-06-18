@@ -162,6 +162,24 @@ describe('projectCurrentChatMessages', () => {
     expect(projected.map((item) => item.id)).toEqual(['repeat-1', 'repeat-2']);
   });
 
+  it('removes hydrated cache duplicates even when active messages use different ids', () => {
+    const projected = projectCurrentChatMessages({
+      chatId: 'chat-1',
+      activeMessages: [
+        message({ id: 'active-user-1', type: 'user', senderId: 'user', senderName: 'User', content: '先说一句', timestamp: 1000 }),
+        message({ id: 'active-ai-1', content: '上一条历史消息', timestamp: 2000 }),
+      ],
+      cachedWindow: {
+        messages: [
+          message({ id: 'cached-user-1', type: 'user', senderId: 'user', senderName: 'User', content: '先说一句', timestamp: 900 }),
+          message({ id: 'cached-ai-1', content: '上一条历史消息', timestamp: 1900 }),
+        ],
+      },
+    });
+
+    expect(projected.map((item) => item.id)).toEqual(['active-user-1', 'active-ai-1']);
+  });
+
   it('ignores messages from other chats', () => {
     const projected = projectCurrentChatMessages({
       chatId: 'chat-1',

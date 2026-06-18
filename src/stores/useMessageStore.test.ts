@@ -220,6 +220,37 @@ describe('useMessageStore', () => {
     expect(state.hasMore).toBe(true);
   });
 
+  it('does not persist transient streaming flags in cached message windows', async () => {
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const streamingMessage = {
+      ...buildMessage(1, chatId),
+      isStreaming: true,
+    };
+
+    useMessageStore.setState({
+      messages: [streamingMessage],
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: [streamingMessage],
+          lastSyncedAt: 0,
+          updatedAt: streamingMessage.timestamp,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: true,
+    });
+
+    const raw = localStorage.getItem(storageKey('message-storage'));
+    const persisted = raw ? JSON.parse(raw) : null;
+    const cachedMessage = persisted?.state?.messageWindowsByChatId?.[chatId]?.messages?.[0];
+
+    expect(cachedMessage?.isStreaming).toBeUndefined();
+  });
+
   it('loads older cloud messages past the local cache window', async () => {
     localStorage.setItem(storageKey('auth-mode'), 'cloud');
     const { useMessageStore } = await import('./useMessageStore');

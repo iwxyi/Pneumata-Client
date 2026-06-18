@@ -1,11 +1,22 @@
 import type { Message } from '../../types/message';
 import { getMessageRenderIdentity, messagesShareIdentity } from '../../services/messageIdentity';
 import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
+import { isNarrativeParagraphMessage } from './messageBubblePresentation';
+
+export type ChatRenderKind = 'bubble' | 'narrative' | 'system' | 'event';
 
 export interface ChatRenderItem {
   key: string;
   message: Message;
   pending: boolean;
+  renderKind: ChatRenderKind;
+}
+
+function getChatRenderKind(message: Message): ChatRenderKind {
+  if (message.type === 'system') return 'system';
+  if (message.type === 'event') return 'event';
+  if (isNarrativeParagraphMessage(message)) return 'narrative';
+  return 'bubble';
 }
 
 function getEventSourceMessageId(message: Message) {
@@ -27,6 +38,7 @@ export function buildChatRenderItems(messages: Message[]): ChatRenderItem[] {
       key: message.clientKey || identity,
       message,
       pending: Boolean(message.isStreaming),
+      renderKind: getChatRenderKind(message),
       order,
     });
   }
@@ -53,5 +65,6 @@ export function buildChatRenderItems(messages: Message[]): ChatRenderItem[] {
       key: item.key,
       message: item.message,
       pending: item.pending,
+      renderKind: item.renderKind,
     }));
 }
