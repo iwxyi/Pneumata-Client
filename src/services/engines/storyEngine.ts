@@ -104,22 +104,25 @@ function buildGenerationPromptContext(params: { conversation: GroupChat }): Sess
   const outline = params.conversation.scenarioState?.storyOutline ? `\nStory outline: ${params.conversation.scenarioState.storyOutline}` : '';
   return {
     responseStyle: 'creative',
-    allowMarkdown: true,
+    allowMarkdown: false,
     styleProfile: 'dramatic_room',
-    promptPrefix: `You are producing a narrative-runtime story beat. The narrator is the active actor. Output storyEvents as the authoritative visible story body; content can be a short plaintext fallback. Prose paragraphs must carry setting, action, consequences, inner pressure, sensory detail, and scene movement. Character dialogue is optional and must appear only as storyEvents speech. Do not turn the beat into alternating chat.${background}${direction}${outline}`,
+    promptPrefix: `Write this story beat as a chat-driven scene using storyEvents as the authoritative visible story body. The narrator is the active actor; narrator prose may carry setting, action, consequences, inner pressure, sensory detail, and scene movement, while the main visible rhythm should be character chat bubbles when characters need to speak. Characters must only say what they can speak aloud, not scene narration, inner monologue, camera direction, or omniscient analysis. Never let a character inherit another character's private object, gesture, memory, wording, or sensory detail unless the transcript explicitly makes it public. Character dialogue is optional and must appear only as storyEvents speech.${background}${direction}${outline}`,
     additionalConstraints: phase === 'branch'
       ? [
         'Use storyEvents. At minimum output one narration event. Add speech events only for spoken lines that change the scene.',
+        'Resolve the chosen storyDirection through 1 short narrator setup block followed by 2-5 character chat bubbles when dialogue is the right visible rhythm.',
         'Resolve the chosen storyDirection with a concrete consequence: new evidence, danger, location, relationship shift, or goal pressure.',
         'End at a new decision point only after the consequence is visible. Any next choices must be specific to the current people, place, clue, threat, or goal.',
         'If there is a decision point, output one choice_point event with 2-4 concrete choices; otherwise do not output choices.',
         'Avoid abstract option language such as investigate clues, deepen emotion, advance plot, or face the key person without naming what is at stake.',
-        'Write mostly in narrator prose: show the environment changing, bodies moving, costs landing, and new pressure becoming visible. Dialogue should be sparse and consequential.',
+        'Each character bubble should be 1-3 sentences. Use narrator prose only for external actions or scene changes that cannot be spoken.',
       ]
       : [
         'Use storyEvents. At minimum output one narration event. Add speech events only for spoken lines that change the scene.',
+        'Advance the scene through 2-5 short character chat bubbles when dialogue is the right visible rhythm, with at most 1 brief narrator prose block for external action or atmosphere.',
         'Advance the scene with concrete atmosphere, implication, or character pressure instead of plain exposition.',
         'Make the next pressure point specific enough that choices can name the person, place, clue, threat, or goal involved.',
+        'Prefer spoken tension, subtext, interruption, denial, probing, or evasion over narrator explanation when characters are present and speaking.',
         'Only output a choice_point event when the scene has genuinely reached a new decision point.',
         'Prefer narrator-led prose with concrete sensory detail and visible consequences. It is valid for the whole response to be narration with no character speech.',
       ],
@@ -142,7 +145,7 @@ function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: {
       surface: 'dramatic',
       texture: 'rich',
       rhythm: 'scene_beat',
-      allowMarkdown: true,
+      allowMarkdown: false,
     },
     realizationPlan: {
       moveClass: phase === 'branch' ? 'resolve' : 'perform',
@@ -157,18 +160,38 @@ function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: {
   };
 }
 
-function buildNarrativeTurnMetadata(params: { conversation: GroupChat; speaker: { id: string }; content: string }): NarrativeTurnMetadata | null {
+function splitNarrativeParagraphs(text: string) {
+  const explicit = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  if (explicit.length > 1) return explicit;
+  const sentences = text.match(/[^。！？!?]+[。！？!?]?/g)?.map((part) => part.trim()).filter(Boolean) || [text];
+  const paragraphs: string[] = [];
+  let current = '';
+  for (const sentence of sentences) {
+    const next = current ? `${current}${sentence}` : sentence;
+    if (current && next.length > 180) {
+      paragraphs.push(current);
+      current = sentence;
+    } else {
+      current = next;
+    }
+  }
+  if (current) paragraphs.push(current);
+  return paragraphs.length ? paragraphs : [text];
+}
+
+function buildNarrativeTurnMetadata(params: { conversation: GroupChat; speaker: { id: string }; content: string; blocks?: NarrativeTurnMetadata['blocks'] | null }): NarrativeTurnMetadata | null {
   const text = params.content.trim();
-  if (!text || params.speaker.id !== 'narrator') return null;
+  const blocks = params.blocks?.filter((block) => block.text.trim()) || [];
+  if ((!text && !blocks.length) || params.speaker.id !== 'narrator') return null;
   const phase = params.conversation.scenarioState?.phase || 'scene';
-  const paragraphs = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  const paragraphs = blocks.length ? [] : splitNarrativeParagraphs(text);
   return {
     turnId: `${params.conversation.id}:${Date.now().toString(36)}`,
     turnKind: phase === 'branch' ? 'choice_prompt' : 'narrative_beat',
     sceneId: String(params.conversation.scenarioState?.sceneId || 'main'),
     phase,
     povActorId: 'narrator',
-    blocks: (paragraphs.length ? paragraphs : [text]).map((paragraph, index) => ({
+    blocks: blocks.length ? blocks : (paragraphs.length ? paragraphs : [text]).map((paragraph, index) => ({
       id: `block-${index + 1}`,
       actorId: 'narrator',
       actorKind: 'narrator',

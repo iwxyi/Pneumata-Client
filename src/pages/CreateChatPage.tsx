@@ -41,6 +41,7 @@ import { normalizeRuntimeSeedLines } from '../services/runtimeSeed';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import AppSnackbar from '../components/common/AppSnackbar';
 import ExpandableFab from '../components/common/ExpandableFab';
+import SurfaceCard from '../components/common/SurfaceCard';
 import { buildInteractiveSurfaceSx } from '../styles/interaction';
 
 const HotTopicDialogContainer = lazy(() => import('../components/createChat/HotTopicDialogContainer'));
@@ -116,7 +117,7 @@ export default function CreateChatPage() {
   const gameplayTabIndex = 1;
   const conversationKind = editingChat?.type || 'group';
   const isGroupConversation = conversationKind === 'group';
-  const showManagementTab = !editingChat || isGroupConversation;
+  const showManagementTab = !editingChat;
   const showDirectorTab = !editingChat || isGroupConversation;
   const showGameplayTab = !editingChat || isGroupConversation;
   const managementTabIndex = showGameplayTab ? 2 : 1;
@@ -917,6 +918,16 @@ export default function CreateChatPage() {
               showRoleActions={showRoleActions}
               includeUserAsMember={includeUserAsMember}
               operatorIdsText={operatorIdsText}
+              ownerCharacterId={ownerCharacterId}
+              adminCharacterIds={adminCharacterIds}
+              noOwnerLabel={noOwnerLabel}
+              adminNotesValue={adminNotesValue}
+              autoModeration={autoModeration}
+              allowMute={allowMute}
+              allowPrivateThreads={allowPrivateThreads}
+              conversationKind={conversationKind}
+              conversationNoun={conversationNoun}
+              editingChat={Boolean(editingChat)}
               operatorNormalizedIds={operatorIds}
               operatorValidationHint={filteredOperatorCount > 0
                 ? (isZh ? `已自动忽略 ${filteredOperatorCount} 个与成员重复或无效的操作者 ID` : `${filteredOperatorCount} operator id(s) ignored because they overlap with members or are invalid`)
@@ -933,6 +944,11 @@ export default function CreateChatPage() {
               onShowRoleActionsChange={setShowRoleActions}
               onIncludeUserAsMemberChange={setIncludeUserAsMember}
               onOperatorIdsTextChange={setOperatorIdsText}
+              onOwnerChange={setOwnerCharacterId}
+              onAdminChange={setAdminCharacterIds}
+              onAutoModerationChange={setAutoModeration}
+              onAllowMuteChange={setAllowMute}
+              onAllowPrivateThreadsChange={setAllowPrivateThreads}
               onOpenMemberDialog={() => setMemberDialogOpen(true)}
               onOpenBatchGenerate={openBatchGenerate}
               onOpenHotDialog={openHotDialog}
@@ -946,24 +962,31 @@ export default function CreateChatPage() {
               showRoleActionsLabel={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'}
               includeUserAsMemberLabel={i18n.language.startsWith('zh') ? '把我作为群成员' : 'Include me as a member'}
               includeUserAsMemberHint={i18n.language.startsWith('zh') ? '开启后，用户普通发言按群成员语义进入关系、关注与世界事件链路。' : 'When enabled, normal user messages are treated as member participation for relationship, attention, and world-event runtime.'}
-              operatorIdsLabel={i18n.language.startsWith('zh') ? '操作者（可选）' : 'Operators (optional)'}
-              operatorIdsHint={i18n.language.startsWith('zh') ? '逗号分隔，比如 host_moderator、topic_guide_bot。操作者可不在群成员里。' : 'Comma-separated, e.g. host_moderator, topic_guide_bot. Operators can exist outside member seats.'}
+              operatorIdsLabel={i18n.language.startsWith('zh') ? '外部主持/机器人 ID（高级，可选）' : 'External host/bot IDs (advanced, optional)'}
+              operatorIdsHint={i18n.language.startsWith('zh') ? '给不会显示在成员列表里的主持、旁白或自动机器人预留身份；普通群聊通常留空。多个 ID 用逗号分隔。' : 'Reserved identities for hosts, narrators, or automation bots that are not shown as members. Leave blank for normal chats. Separate multiple IDs with commas.'}
               openTopicInspirationLabel={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}
               batchGenerateMembersLabel={i18n.language.startsWith('zh') ? '生成' : 'Generate'}
             />
             {editingChat ? (
-              <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>
-                <Button
-                  color="error"
-                  variant="outlined"
-                  startIcon={<DeleteIcon />}
-                  onClick={openDeleteDialog}
-                  fullWidth
-                  sx={{ maxWidth: { sm: 260 }, justifyContent: 'center' }}
-                >
-                  {deleteLabel}
-                </Button>
-              </Box>
+              <SurfaceCard sx={{ borderColor: 'error.light', bgcolor: 'rgba(211, 47, 47, 0.04)' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: 'error.main' }}>
+                  {isZh ? '危险操作' : 'Danger zone'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  {isZh ? `可分别清理消息记录、会话级记忆或删除${conversationNoun}。` : `You can clear messages, clear session memory, or delete the ${conversationNoun}.`}
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+                  <Button color="error" variant="outlined" onClick={openClearMessagesDialog}>
+                    {clearMessagesLabel}
+                  </Button>
+                  <Button color="error" variant="outlined" onClick={openClearMemoryDialog}>
+                    {clearMemoryLabel}
+                  </Button>
+                  <Button color="error" variant="outlined" startIcon={<DeleteIcon />} onClick={openDeleteDialog}>
+                    {deleteLabel}
+                  </Button>
+                </Box>
+              </SurfaceCard>
             ) : null}
           </>
         ) : null}
@@ -1032,8 +1055,6 @@ export default function CreateChatPage() {
             conversationKind={conversationKind}
             conversationNoun={conversationNoun}
             language={i18n.language}
-            clearMessagesLabel={clearMessagesLabel}
-            clearMemoryLabel={clearMemoryLabel}
             onOwnerChange={setOwnerCharacterId}
             onAdminChange={setAdminCharacterIds}
             onAutoModerationChange={setAutoModeration}
@@ -1041,8 +1062,6 @@ export default function CreateChatPage() {
             onAllowPrivateThreadsChange={setAllowPrivateThreads}
             onAllowCliquesChange={setAllowCliques}
             onAllowMockeryChange={setAllowMockery}
-            onOpenClearMessagesDialog={openClearMessagesDialog}
-            onOpenClearMemoryDialog={openClearMemoryDialog}
           />
         ) : null}
 
@@ -1104,6 +1123,10 @@ export default function CreateChatPage() {
             setAllowEventInjection={setAllowEventInjection}
             allowForcedReply={allowForcedReply}
             setAllowForcedReply={setAllowForcedReply}
+            allowCliques={allowCliques}
+            setAllowCliques={setAllowCliques}
+            allowMockery={allowMockery}
+            setAllowMockery={setAllowMockery}
           />
         ) : null}
 

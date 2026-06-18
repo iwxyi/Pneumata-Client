@@ -81,6 +81,7 @@ export interface NarrativeBlock {
   kind: NarrativeBlockKind;
   displayMode: NarrativeDisplayMode;
   text: string;
+  actorName?: string;
   characterId?: string;
   choices?: NarrativeChoice[];
 }

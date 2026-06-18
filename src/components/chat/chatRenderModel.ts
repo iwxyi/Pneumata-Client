@@ -14,8 +14,8 @@ export interface ChatRenderItem {
 
 function getChatRenderKind(message: Message): ChatRenderKind {
   if (message.type === 'system') return 'system';
-  if (message.type === 'event') return 'event';
   if (isNarrativeParagraphMessage(message)) return 'narrative';
+  if (message.type === 'event') return 'event';
   return 'bubble';
 }
 

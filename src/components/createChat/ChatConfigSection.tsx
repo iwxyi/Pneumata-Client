@@ -2,7 +2,11 @@ import AddIcon from '@mui/icons-material/Add';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import HotIcon from '@mui/icons-material/LocalFireDepartment';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlineOutlined';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Avatar,
   Box,
   Button,
@@ -10,6 +14,7 @@ import {
   FormControlLabel,
   IconButton,
   InputAdornment,
+  MenuItem,
   Stack,
   Switch,
   TextField,
@@ -32,6 +37,16 @@ interface ChatConfigSectionProps {
   showRoleActions: boolean;
   includeUserAsMember: boolean;
   operatorIdsText: string;
+  ownerCharacterId?: string;
+  adminCharacterIds?: string[];
+  noOwnerLabel?: string;
+  adminNotesValue?: string;
+  autoModeration?: boolean;
+  allowMute?: boolean;
+  allowPrivateThreads?: boolean;
+  conversationKind?: 'group' | 'direct' | 'ai_direct';
+  conversationNoun?: string;
+  editingChat?: boolean;
   selectedMembers: string[];
   selectedCharacters: AICharacter[];
   language: string;
@@ -44,6 +59,11 @@ interface ChatConfigSectionProps {
   onShowRoleActionsChange: (value: boolean) => void;
   onIncludeUserAsMemberChange: (value: boolean) => void;
   onOperatorIdsTextChange: (value: string) => void;
+  onOwnerChange?: (value: string) => void;
+  onAdminChange?: (value: string[]) => void;
+  onAutoModerationChange?: (value: boolean) => void;
+  onAllowMuteChange?: (value: boolean) => void;
+  onAllowPrivateThreadsChange?: (value: boolean) => void;
   onOpenMemberDialog: () => void;
   onOpenBatchGenerate: () => void;
   onOpenHotDialog: () => void;
@@ -66,6 +86,13 @@ interface ChatConfigSectionProps {
 }
 
 export default function ChatConfigSection(props: ChatConfigSectionProps) {
+  const isZh = props.language.startsWith('zh');
+  const conversationKind = props.conversationKind || 'group';
+  const isGroup = conversationKind === 'group';
+  const ownerLabel = isGroup ? (isZh ? '群主' : 'Owner') : (isZh ? '主角色' : 'Primary role');
+  const adminLabel = isGroup ? (isZh ? '管理员' : 'Admins') : (isZh ? '协同角色' : 'Supporting roles');
+  const showManagementSettings = props.editingChat && props.onOwnerChange && props.onAdminChange && props.onAutoModerationChange && props.onAllowMuteChange;
+
   return (
     <Stack spacing={2}>
       <SurfaceCard>
@@ -168,6 +195,71 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
           </Box>
       </SurfaceCard>
 
+      {showManagementSettings ? (
+        <SurfaceCard contentSx={{ p: 0, '&:last-child': { pb: 0 } }}>
+          <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', boxShadow: 'none', '&:before': { display: 'none' } }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: { xs: 2, sm: 2.25 }, py: 0.5 }}>
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                  {isZh ? '管理设置' : 'Management'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {isZh ? '群主、管理员和权限开关' : 'Owner, admins, and permission toggles'}
+                </Typography>
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: { xs: 2, sm: 2.25 }, pt: 0, pb: { xs: 2, sm: 2.25 } }}>
+              <Box sx={{ display: 'grid', gap: 2 }}>
+                <TextField
+                  select
+                  label={ownerLabel}
+                  value={props.ownerCharacterId || ''}
+                  onChange={(e) => props.onOwnerChange?.(e.target.value)}
+                  fullWidth
+                >
+                  <MenuItem value="">{props.noOwnerLabel || ''}</MenuItem>
+                  {props.selectedCharacters.map((char) => (
+                    <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>
+                  ))}
+                </TextField>
+
+                <TextField
+                  select
+                  slotProps={{ select: { multiple: true } }}
+                  label={adminLabel}
+                  value={props.adminCharacterIds || []}
+                  onChange={(e) => props.onAdminChange?.((typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value).filter(Boolean))}
+                  fullWidth
+                >
+                  {props.selectedCharacters.map((char) => (
+                    <MenuItem key={char.id} value={char.id}>{char.name}</MenuItem>
+                  ))}
+                </TextField>
+
+                <TextField
+                  label={isZh ? `${adminLabel}说明` : `${adminLabel} notes`}
+                  value={props.adminNotesValue || ''}
+                  slotProps={{ input: { readOnly: true } }}
+                  fullWidth
+                />
+
+                <Typography variant="caption" color="text.secondary">
+                  {isGroup
+                    ? (isZh ? '可多选管理员；群主不会重复加入管理员。' : 'You can select multiple admins; the owner is excluded automatically.')
+                    : (isZh ? `${props.conversationNoun || '会话'}也使用同一套角色、关系、情绪和会话记忆；这些设置只影响权限和入口显示。` : `This ${props.conversationNoun || 'conversation'} uses the same role, relationship, emotion, and session-memory runtime. These settings only affect permissions and display.`)}
+                </Typography>
+
+                <Box sx={{ display: 'grid', gap: 0.5 }}>
+                  <FormControlLabel control={<Switch checked={Boolean(props.autoModeration)} onChange={(e) => props.onAutoModerationChange?.(e.target.checked)} />} label={isZh ? '自动管理' : 'Auto moderation'} />
+                  <FormControlLabel control={<Switch checked={Boolean(props.allowMute)} onChange={(e) => props.onAllowMuteChange?.(e.target.checked)} />} label={isZh ? '允许禁言' : 'Allow mute'} />
+                  {isGroup ? <FormControlLabel control={<Switch checked={Boolean(props.allowPrivateThreads)} onChange={(e) => props.onAllowPrivateThreadsChange?.(e.target.checked)} />} label={isZh ? '允许角色私聊' : 'Allow character private chats'} /> : null}
+                </Box>
+              </Box>
+            </AccordionDetails>
+          </Accordion>
+        </SurfaceCard>
+      ) : null}
+
       <SurfaceCard contentSx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
           <Stack spacing={0.5}>
             <FormControlLabel
@@ -191,7 +283,7 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
             <Box sx={{ pt: 0.5 }}>
               <TextField
                 label={props.operatorIdsLabel}
-                placeholder="host_moderator, topic_guide_bot"
+                placeholder="host, narrator_bot"
                 value={props.operatorIdsText}
                 onChange={(e) => props.onOperatorIdsTextChange(e.target.value)}
                 fullWidth

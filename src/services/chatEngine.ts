@@ -2,7 +2,7 @@ import { getCharacterModelProfileId, type AICharacter } from '../types/character
 import { resolveShowRoleActions, type GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
-import type { MediaGenerationDecision, MessageAttachment, MessageMetadata } from '../types/message';
+import type { MediaGenerationDecision, MessageAttachment, MessageMetadata, NarrativeBlock } from '../types/message';
 import type { SessionGenerationPromptContext } from '../types/sessionEngine';
 import type { MemoryItem } from './memoryTypes';
 import { getPreferredAIProfile } from '../types/settings';
@@ -42,6 +42,7 @@ import { resolvePersonaActivation, type PersonaActivation } from './personaActiv
 import { buildGenerationRuntimeBundle } from './generationRuntime';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
 import { buildNarrativeTurnFromStoryEvents, buildStoryEventsVisibleText, getStoryChoicesFromEvents, normalizeStoryEvents } from './narrativeRuntime';
+import { useSettingsStore } from '../stores/useSettingsStore';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
   extraMessages?: string[] | null;
@@ -86,6 +87,10 @@ type GenerationWithGuidanceTrace = {
   parsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope>;
   finalResponse: string;
   fullResponse: string;
+  narrativeText?: string | null;
+  narrativeBlocks?: NarrativeBlock[] | null;
+  storyChoices?: MessageMetadata['storyChoices'] | null;
+  fullNarrativeResponse?: string;
   extraMessages?: string[] | null;
   storyEvents?: import('../types/message').StoryEvent[] | null;
   guidanceExecution?: GuidanceExecutionTrace;
@@ -96,11 +101,18 @@ const emotionMap: Record<string, number> = {};
 
 class EmptyGeneratedResponseError extends Error {
   localInterceptionReported: boolean;
+  reason: string;
 
-  constructor(speakerName: string, options?: { localInterceptionReported?: boolean }) {
-    super(`${speakerName} 连续生成了重复内容，本轮已跳过。`);
+  constructor(speakerName: string, options?: { localInterceptionReported?: boolean; reason?: string; message?: string }) {
+    const reason = options?.reason || 'duplicate_content';
+    super(options?.message || (reason === 'story_protocol_invalid'
+      ? `${speakerName} 没有按故事房格式生成结构化正文，本轮已跳过。`
+      : reason === 'empty_content'
+        ? `${speakerName} 没有生成有效内容，本轮已跳过。`
+        : `${speakerName} 连续生成了重复内容，本轮已跳过。`));
     this.name = 'EmptyGeneratedResponseError';
     this.localInterceptionReported = Boolean(options?.localInterceptionReported);
+    this.reason = reason;
   }
 }
 
@@ -296,6 +308,134 @@ function finalizeResponse(content: string, intent: ReturnType<typeof deriveSpeak
   return salvageEmptyResponse(content, speaker.name, showRoleActions);
 }
 
+function normalizeStoryActorName(value: string) {
+  return value.trim().replace(/[（(].*?[）)]/gu, '').replace(/\s+/g, '').toLowerCase();
+}
+
+function extractInlineStoryActorName(text: string) {
+  const match = text.match(/^([^\n：:（(]{1,24})(?:[（(][^\n）)]{1,24}[）)])?[：:]?\s*\n+/u);
+  return match?.[1]?.trim() || '';
+}
+
+function resolveStoryBlockCharacter(params: {
+  characters: AICharacter[];
+  characterById: Map<string, AICharacter>;
+  actorId: string;
+  actorName: string;
+  inlineActorName: string;
+  blockIndex: number;
+  text: string;
+}) {
+  const byId = params.inlineActorName ? null : params.characterById.get(params.actorId);
+  if (byId) return byId;
+  const candidates = [params.inlineActorName, params.actorName, params.actorId].map(normalizeStoryActorName).filter(Boolean);
+  const matches = params.characters.filter((character) => candidates.includes(normalizeStoryActorName(character.name)));
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) {
+    console.warn('[story-reader] Ambiguous narrative dialogue actor name; downgraded to narrator prose.', {
+      blockIndex: params.blockIndex,
+      actorId: params.actorId,
+      actorName: params.actorName,
+      text: params.text,
+      matchedCharacters: matches.map((character) => ({ id: character.id, name: character.name })),
+    });
+  } else if (params.actorId || params.actorName || params.inlineActorName) {
+    console.warn('[story-reader] Unknown narrative dialogue actor; downgraded to narrator prose.', {
+      blockIndex: params.blockIndex,
+      actorId: params.actorId,
+      actorName: params.actorName || params.inlineActorName,
+      text: params.text,
+      knownCharacters: params.characters.map((character) => ({ id: character.id, name: character.name })),
+    });
+  }
+  return null;
+}
+
+function normalizeStoryNarrativeBlocks(params: {
+  blocks: unknown;
+  events?: unknown;
+  characters: AICharacter[];
+  fallbackNarrativeText: string;
+}): NarrativeBlock[] {
+  const characterById = new Map(params.characters.map((character) => [character.id, character]));
+  const source = Array.isArray(params.events) && params.events.length
+    ? params.events.map((event) => {
+      if (!event || typeof event !== 'object') return event;
+      const raw = event as { type?: unknown; actorId?: unknown; actorName?: unknown; characterId?: unknown; speakerName?: unknown; text?: unknown };
+      if (raw.type === 'speech') return { actorId: raw.actorId || raw.characterId, actorName: raw.actorName || raw.speakerName, kind: 'dialogue', text: raw.text };
+      if (raw.type === 'narration') return { actorId: 'narrator', actorName: '旁白', kind: 'prose', text: raw.text };
+      return null;
+    }).filter(Boolean)
+    : params.blocks;
+  const normalized = Array.isArray(source)
+    ? source.flatMap((block, index): NarrativeBlock[] => {
+      if (!block || typeof block !== 'object') return [];
+      const raw = block as { actorId?: unknown; actorName?: unknown; kind?: unknown; text?: unknown };
+      const rawText = typeof raw.text === 'string' ? trimHumanChatStyle(raw.text, true) : '';
+      if (!rawText) return [];
+      const inlineActorName = extractInlineStoryActorName(rawText);
+      const text = inlineActorName ? rawText.replace(/^([^\n：:（(]{1,24})(?:[（(][^\n）)]{1,24}[）)])?[：:]?\s*\n+/u, '').trim() : rawText;
+      if (!text) return [];
+      const requestedKind = raw.kind === 'dialogue' || inlineActorName ? 'dialogue' : 'prose';
+      const requestedActorId = typeof raw.actorId === 'string' && raw.actorId.trim() ? raw.actorId.trim() : '';
+      const requestedActorName = typeof raw.actorName === 'string' && raw.actorName.trim() ? raw.actorName.trim() : '';
+      const isNarratorActor = inlineActorName
+        ? normalizeStoryActorName(inlineActorName) === normalizeStoryActorName('旁白')
+        : requestedActorId === 'narrator' || normalizeStoryActorName(requestedActorId) === normalizeStoryActorName('旁白') || normalizeStoryActorName(requestedActorName) === normalizeStoryActorName('旁白');
+      const character = requestedKind === 'dialogue' && !isNarratorActor ? resolveStoryBlockCharacter({
+        characters: params.characters,
+        characterById,
+        actorId: requestedActorId,
+        actorName: requestedActorName,
+        inlineActorName,
+        blockIndex: index,
+        text,
+      }) : null;
+      if (character) {
+        return [{
+          id: `block-${index + 1}`,
+          actorId: character.id,
+          actorKind: 'character',
+          kind: 'dialogue',
+          displayMode: 'bubble',
+          text,
+          actorName: character.name,
+          characterId: character.id,
+        }];
+      }
+      return [{
+        id: `block-${index + 1}`,
+        actorId: 'narrator',
+        actorKind: 'narrator',
+        kind: 'prose',
+        displayMode: 'paragraph',
+        text,
+      }];
+    })
+    : [];
+  if (normalized.length) return normalized;
+  const fallback = trimHumanChatStyle(params.fallbackNarrativeText, true);
+  if (!fallback) return [];
+  return fallback.split(/\n{2,}/).map((text, index) => ({
+    id: `block-${index + 1}`,
+    actorId: 'narrator',
+    actorKind: 'narrator',
+    kind: 'prose',
+    displayMode: 'paragraph',
+    text: text.trim(),
+  }));
+}
+
+function normalizeStoryEventChoices(events: unknown): MessageMetadata['storyChoices'] | null {
+  if (!Array.isArray(events)) return null;
+  const choices = events.flatMap((event) => {
+    if (!event || typeof event !== 'object') return [];
+    const raw = event as { type?: unknown; choices?: unknown };
+    return raw.type === 'choice_point' ? raw.choices : [];
+  });
+  return normalizeStoryChoiceSuggestions(choices);
+}
+
 function normalizeExtraMessages(params: {
   content: string;
   extraMessages: unknown;
@@ -336,6 +476,54 @@ function buildFullTurnResponse(content: string, extraMessages?: string[] | null)
   return [content, ...(extraMessages || [])].filter(Boolean).join('\n');
 }
 
+function isDeveloperModeEnabled() {
+  return Boolean(useSettingsStore.getState().developerMode);
+}
+
+function logRawAiResponse(params: {
+  chat: GroupChat;
+  speaker: AICharacter;
+  attempt: number;
+  response: string;
+}) {
+  if (!isDeveloperModeEnabled() || typeof console === 'undefined' || typeof console.debug !== 'function') return;
+  console.debug('[ai-raw-response]', {
+    chatId: params.chat.id,
+    chatName: params.chat.name,
+    scenarioId: resolveSessionDefinition(params.chat).kind.scenarioId,
+    speakerId: params.speaker.id,
+    speakerName: params.speaker.name,
+    attempt: params.attempt,
+    response: params.response,
+  });
+}
+
+function logAiGenerationFailure(params: {
+  chat: GroupChat;
+  speaker: AICharacter;
+  reason: string;
+  message: string;
+  attempt?: number;
+  draft?: string;
+  details?: Record<string, unknown>;
+}) {
+  if (!isDeveloperModeEnabled() || typeof console === 'undefined' || typeof console.warn !== 'function') return;
+  const payload = {
+    chatId: params.chat.id,
+    chatName: params.chat.name,
+    scenarioId: resolveSessionDefinition(params.chat).kind.scenarioId,
+    speakerId: params.speaker.id,
+    speakerName: params.speaker.name,
+    reason: params.reason,
+    message: params.message,
+    attempt: params.attempt,
+    draft: params.draft,
+    details: params.details,
+  };
+  console.warn('[ai-generation-failure]', payload);
+  console.warn('[ai-generation-failure:json]', JSON.stringify(payload, null, 2));
+}
+
 function buildRetryPrompt(basePrompt: string, priorAttempt: string) {
   return `${basePrompt}\n\nRetry rule:\n- Your previous draft was too close to recent chat or repetitive.\n- Write a meaningfully different line now.\n- Do not reuse this draft's surface or semantic core: ${priorAttempt.slice(0, 120)}`;
 }
@@ -348,6 +536,25 @@ function buildSurfaceEchoRetryPrompt(basePrompt: string, priorAttempt: string, r
 - Do not copy another member's recent line unless you set intentionalRepeat=true and the repetition is clearly a social move: quoting, mocking, chanting, fixed-answering, or deliberate mirroring.
 - Rejected draft: ${priorAttempt.slice(0, 180)}
 - Return a fresh valid JSON object only.`;
+}
+
+function buildStoryProtocolPrompt(basePrompt: string) {
+  return `${basePrompt}
+
+Final story-reader output requirements:
+- Return exactly one valid JSON object, with no markdown and no prose outside JSON.
+- storyEvents is mandatory and must contain at least one narration, speech, or choice_point event.
+- Keep content="", extraMessages=null, narrativeText=null, and narrativeBlocks=null for normal story turns.
+- Do not put the visible story in content, narrativeText, markdown, or plain prose.
+- If a character speaks, represent it as a storyEvents speech event with actorId or exact actorName.`;
+}
+
+function buildStoryProtocolRetryPrompt(basePrompt: string, priorAttempt: string) {
+  return `${buildStoryProtocolPrompt(basePrompt)}
+
+Story protocol retry:
+- The previous draft was rejected because it did not provide a structured story body.
+- Rejected draft: ${priorAttempt.slice(0, 240)}`;
 }
 
 function cleanJsonLikeText(value: string) {
@@ -414,13 +621,14 @@ function isLikelyInlineEnvelopeResponse(raw: string) {
 }
 
 function buildStreamingDisplayContent(raw: string, speaker: AICharacter, showRoleActions?: boolean) {
+  const extractedNarrativeText = extractPartialJsonStringField(raw, 'narrativeText');
   const extractedContent = extractPartialJsonStringField(raw, 'content');
-  if (extractedContent === null) {
+  if (extractedNarrativeText === null && extractedContent === null) {
     if (isPendingJsonEnvelopeChunk(raw)) {
       return null;
     }
   }
-  const content = extractedContent ?? raw;
+  const content = extractedNarrativeText ?? extractedContent ?? raw;
   const withoutPrefix = trimSpeakerPrefix(content, speaker.name);
   return showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix;
 }
@@ -1568,6 +1776,7 @@ function buildMessageMetadata(params: {
   const storyEvents = normalizeStoryEvents(params.storyEvents);
   if (!decision && !params.runtimeDecision && !params.narrativeTurn && !storyChoices?.length && !storyEvents.length) return undefined;
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
+  const contextText = params.narrativeTurn?.blocks.map((block) => block.text).filter(Boolean).join('\n\n') || params.content;
   const attachments: MessageAttachment[] = [];
   if (decision?.image?.shouldGenerate && decision.image.prompt && decision.image.altText) {
     const imageSeedParts = [
@@ -1601,7 +1810,7 @@ function buildMessageMetadata(params: {
   }
   return {
     format: params.surface?.allowMarkdown ? 'markdown' : 'plain',
-    contextText: params.content,
+    contextText,
     storyEvents: storyEvents.length ? storyEvents : undefined,
     narrativeTurn: params.narrativeTurn || undefined,
     storyChoices: storyChoices || undefined,
@@ -1794,12 +2003,14 @@ function collectExpressionFeedbackTrace(character: AICharacter, innerLife?: Inne
 }
 
 async function generateWithPrompt(params: {
+  chat: GroupChat;
   resolvedApi: APIConfig;
   systemPrompt: string;
   chatMessages: ReturnType<typeof buildChatMessages>;
   speaker: AICharacter;
-  characters?: AICharacter[];
+  characters: AICharacter[];
   intent: ReturnType<typeof deriveSpeakIntentFromContext>;
+  attempt: number;
   activeMessages: Message[];
   showRoleActions?: boolean;
   surface?: ResponseSurface;
@@ -1818,13 +2029,29 @@ async function generateWithPrompt(params: {
         }
       : undefined,
   );
+  logRawAiResponse({ chat: params.chat, speaker: params.speaker, attempt: params.attempt, response });
   const parsedEnvelope = parseInlineInteractionEnvelope(response);
   const storyEvents = normalizeStoryEvents(parsedEnvelope?.storyEvents);
   const storyEventContent = storyEvents.length ? buildStoryEventsVisibleText(storyEvents, params.characters || []) : '';
   const rawContent = storyEventContent || (parsedEnvelope ? parsedEnvelope.content : isLikelyInlineEnvelopeResponse(response) ? '' : response);
+  const rawNarrativeText = typeof parsedEnvelope?.narrativeText === 'string' ? parsedEnvelope.narrativeText : '';
   const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions, Boolean(parsedEnvelope?.intentionalRepeat), params.surface);
-  const finalResponse = resolveCommittedStreamContent(finalizedResponse, streamBridge.getLastContent());
-  const extraMessages = normalizeExtraMessages({
+  const finalizedNarrativeText = rawNarrativeText ? trimHumanChatStyle(rawNarrativeText, true) : '';
+  const allowPlainNarratorFallback = params.chat.sessionKind?.scenarioId === 'story-reader'
+    && !parsedEnvelope
+    && params.speaker.id === 'narrator'
+    && !params.chat.memberIds.includes(params.speaker.id);
+  const narrativeBlocks = normalizeStoryNarrativeBlocks({
+    blocks: parsedEnvelope?.narrativeBlocks,
+    events: parsedEnvelope?.storyEvents,
+    characters: params.characters,
+    fallbackNarrativeText: finalizedNarrativeText || (allowPlainNarratorFallback ? finalizedResponse : ''),
+  });
+  const keepStoryEventsAsContent = params.chat.sessionKind?.scenarioId === 'story-reader'
+    && storyEvents.length > 0
+    && !params.chat.memberIds.includes(params.speaker.id);
+  const finalResponse = narrativeBlocks.length && !keepStoryEventsAsContent ? '' : finalizedResponse;
+  const extraMessages = params.chat.sessionKind?.scenarioId === 'story-reader' ? null : normalizeExtraMessages({
     content: finalResponse,
     extraMessages: parsedEnvelope?.extraMessages,
     intent: params.intent,
@@ -1835,11 +2062,15 @@ async function generateWithPrompt(params: {
     turnPlan: params.turnPlan,
   });
   const fullResponse = buildFullTurnResponse(finalResponse, extraMessages);
-  streamBridge.flush(finalResponse);
-  return { parsedEnvelope, rawContent, finalResponse, fullResponse, extraMessages, storyEvents };
+  const eventStoryChoices = normalizeStoryEventChoices(parsedEnvelope?.storyEvents);
+  const storyChoices = eventStoryChoices?.length ? eventStoryChoices : normalizeStoryChoiceSuggestions(parsedEnvelope?.storyChoices);
+  const fullNarrativeResponse = narrativeBlocks.map((block) => block.text).join('\n\n') || finalizedNarrativeText;
+  streamBridge.flush(fullNarrativeResponse || finalResponse);
+  return { parsedEnvelope, rawContent, rawNarrativeText, finalResponse, narrativeText: finalizedNarrativeText, narrativeBlocks, storyChoices, fullResponse, fullNarrativeResponse, extraMessages, storyEvents };
 }
 
 async function generateNonDuplicateResponse(params: {
+  chat: GroupChat;
   resolvedApi: APIConfig;
   systemPrompt: string;
   chatMessages: ReturnType<typeof buildChatMessages>;
@@ -1855,25 +2086,62 @@ async function generateNonDuplicateResponse(params: {
   onChunk?: (content: string) => void;
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
 }): Promise<GenerationWithGuidanceTrace> {
-  let prompt = params.systemPrompt;
+  const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
+  let prompt = isStoryReader ? buildStoryProtocolPrompt(params.systemPrompt) : params.systemPrompt;
   let lastParsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope> = null;
   let lastFinalResponse = '';
   let lastFullResponse = '';
+  let lastNarrativeText = '';
+  let lastNarrativeBlocks: NarrativeBlock[] = [];
+  let lastFullNarrativeResponse = '';
   let lastExtraMessages: string[] | null = null;
   let lastStoryEvents: import('../types/message').StoryEvent[] | null = null;
+  let lastStoryChoices: MessageMetadata['storyChoices'] | null = null;
   const rejectedReasons: GuidanceRejectionReason[] = [];
   let finalReason: GuidanceExecutionReason = params.guidance ? 'empty_content' : 'matched';
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const shouldStreamAttempt = !params.guidance && attempt === 0;
-    const generated = await generateWithPrompt({ ...params, systemPrompt: prompt, onChunk: shouldStreamAttempt ? params.onChunk : undefined });
+    const shouldStreamAttempt = !isStoryReader && !params.guidance && attempt === 0;
+    const generated = await generateWithPrompt({ ...params, characters: params.characters || [], systemPrompt: prompt, attempt: attempt + 1, onChunk: shouldStreamAttempt ? params.onChunk : undefined });
     lastParsedEnvelope = generated.parsedEnvelope;
     lastFinalResponse = generated.finalResponse;
     lastFullResponse = generated.fullResponse;
+    lastNarrativeText = generated.narrativeText;
+    lastNarrativeBlocks = generated.narrativeBlocks;
+    lastFullNarrativeResponse = generated.fullNarrativeResponse;
     lastExtraMessages = generated.extraMessages || null;
     lastStoryEvents = generated.storyEvents || null;
-    if (normalizeForComparison(generated.fullResponse)) {
+    lastStoryChoices = generated.storyChoices || null;
+    const hasStructuredStoryBody = generated.narrativeBlocks.length > 0 || Boolean(generated.storyEvents?.some((event) => event.type === 'narration' || event.type === 'speech'));
+    if (isStoryReader && !hasStructuredStoryBody) {
+      const draft = generated.rawContent || generated.fullResponse;
+      if (attempt < 2) {
+        logAiGenerationFailure({
+          chat: params.chat,
+          speaker: params.speaker,
+          reason: 'story_protocol_invalid_retry',
+          message: '故事房回复缺少 storyEvents 或 narrativeBlocks，准备重试。',
+          attempt: attempt + 1,
+          draft,
+          details: { narrativeBlocks: generated.narrativeBlocks.length, hasParsedEnvelope: Boolean(generated.parsedEnvelope) },
+        });
+        prompt = buildStoryProtocolRetryPrompt(params.systemPrompt, draft);
+        continue;
+      }
+      logAiGenerationFailure({
+        chat: params.chat,
+        speaker: params.speaker,
+        reason: 'story_protocol_invalid',
+        message: '故事房回复连续缺少结构化正文。',
+        attempt: attempt + 1,
+        draft,
+        details: { narrativeBlocks: generated.narrativeBlocks.length, hasParsedEnvelope: Boolean(generated.parsedEnvelope) },
+      });
+      throw new EmptyGeneratedResponseError(params.speaker.name, { reason: 'story_protocol_invalid' });
+    }
+    const evaluationResponse = generated.fullNarrativeResponse || generated.fullResponse;
+    if (normalizeForComparison(evaluationResponse)) {
       const guidanceEvaluation = evaluateGuidanceGeneratedContent(
-        generated.fullResponse,
+        evaluationResponse,
         params.guidance,
         params.speaker,
         params.characters,
@@ -1886,7 +2154,7 @@ async function generateNonDuplicateResponse(params: {
           kind: 'guidance_retry',
           speakerId: params.speaker.id,
           speakerName: params.speaker.name,
-          draft: generated.fullResponse,
+          draft: evaluationResponse,
           reason: guidanceEvaluation.reason,
           attempt: attempt + 1,
         });
@@ -1895,13 +2163,13 @@ async function generateNonDuplicateResponse(params: {
           guidance: params.guidance,
           speaker: params.speaker,
           characters: params.characters || [],
-          previousDraft: generated.fullResponse,
+          previousDraft: evaluationResponse,
           mediaCapabilities: params.mediaCapabilities,
         });
         continue;
       }
       const echoReason = evaluateHiddenEchoDraft(
-        generated.fullResponse,
+        evaluationResponse,
         params.activeMessages,
         params.speaker.id,
         Boolean(generated.parsedEnvelope?.intentionalRepeat),
@@ -1913,28 +2181,41 @@ async function generateNonDuplicateResponse(params: {
             kind: 'surface_echo_retry',
             speakerId: params.speaker.id,
             speakerName: params.speaker.name,
-            draft: generated.fullResponse,
+            draft: evaluationResponse,
             reason: echoReason,
             attempt: attempt + 1,
           });
-          prompt = buildSurfaceEchoRetryPrompt(params.systemPrompt, generated.fullResponse, echoReason);
+          prompt = buildSurfaceEchoRetryPrompt(params.systemPrompt, evaluationResponse, echoReason);
           continue;
         }
         await params.onLocalInterception?.({
           kind: 'surface_echo_skip',
           speakerId: params.speaker.id,
           speakerName: params.speaker.name,
-          draft: generated.fullResponse,
+          draft: evaluationResponse,
           reason: echoReason,
           attempt: attempt + 1,
         });
+        logAiGenerationFailure({
+          chat: params.chat,
+          speaker: params.speaker,
+          reason: 'duplicate_content',
+          message: `连续生成重复内容：${echoReason}`,
+          attempt: attempt + 1,
+          draft: evaluationResponse,
+          details: { echoReason },
+        });
         throw new EmptyGeneratedResponseError(params.speaker.name, { localInterceptionReported: true });
       }
-      if (params.guidance || attempt > 0) params.onChunk?.(generated.finalResponse);
+      if (params.guidance || attempt > 0) params.onChunk?.(generated.narrativeText || generated.finalResponse);
       return {
         parsedEnvelope: generated.parsedEnvelope,
         finalResponse: generated.finalResponse,
+        narrativeText: generated.narrativeText,
+        narrativeBlocks: generated.narrativeBlocks,
+        storyChoices: generated.storyChoices,
         fullResponse: generated.fullResponse,
+        fullNarrativeResponse: generated.fullNarrativeResponse,
         extraMessages: generated.extraMessages,
         storyEvents: generated.storyEvents || null,
         guidanceExecution: params.guidance ? {
@@ -1975,7 +2256,11 @@ async function generateNonDuplicateResponse(params: {
   return {
     parsedEnvelope: lastParsedEnvelope,
     finalResponse: lastFinalResponse,
+    narrativeText: lastNarrativeText,
+    narrativeBlocks: lastNarrativeBlocks,
+    storyChoices: lastStoryChoices,
     fullResponse: lastFullResponse || lastFinalResponse,
+    fullNarrativeResponse: lastFullNarrativeResponse || lastNarrativeText || lastFullResponse || lastFinalResponse,
     extraMessages: lastExtraMessages,
     storyEvents: lastStoryEvents,
     guidanceExecution: params.guidance ? {
@@ -2205,6 +2490,7 @@ Current speaking intent:
   });
   const resolvedApi = resolveApiConfigForCharacter(params.speaker, params.apiConfig, params.profiles);
   const generated = await generateNonDuplicateResponse({
+    chat: params.chat,
     resolvedApi,
     systemPrompt,
     chatMessages,
@@ -2220,18 +2506,27 @@ Current speaking intent:
     onChunk: params.onChunk,
     onLocalInterception: params.onLocalInterception,
   });
-  if (!normalizeForComparison(generated.finalResponse)) {
+  const generatedDialogueResponse = generated.fullResponse || '';
+  const generatedStoryResponse = generated.fullNarrativeResponse || generatedDialogueResponse || '';
+  if (!normalizeForComparison(generatedStoryResponse)) {
     await params.onLocalInterception?.({
       kind: 'empty_generation_skip',
       speakerId: params.speaker.id,
       speakerName: params.speaker.name,
-      draft: generated.fullResponse || generated.finalResponse,
+      draft: generatedStoryResponse,
       reason: 'empty_content',
     });
-    throw new EmptyGeneratedResponseError(params.speaker.name, { localInterceptionReported: true });
+    logAiGenerationFailure({
+      chat: params.chat,
+      speaker: params.speaker,
+      reason: 'empty_content',
+      message: '模型没有生成可展示的有效内容。',
+      draft: generatedStoryResponse,
+    });
+    throw new EmptyGeneratedResponseError(params.speaker.name, { localInterceptionReported: true, reason: 'empty_content' });
   }
 
-  const msgEmotion = analyzeEmotion(generated.fullResponse);
+  const msgEmotion = analyzeEmotion(generatedStoryResponse);
   updateAllEmotions(effectiveMembers, params.speaker.id, msgEmotion, emotion);
   const modelMediaDecision = generated.parsedEnvelope?.mediaDecision;
   const mergedMediaDecision = mergeGuidanceMediaDecision({
@@ -2239,7 +2534,7 @@ Current speaking intent:
     guidance: userGuidance,
     speaker: params.speaker,
     characters: effectiveMembers,
-    content: generated.fullResponse,
+    content: generatedStoryResponse,
   });
   const forcedMediaQueued = Boolean(
     userGuidance?.mediaRequest
@@ -2273,21 +2568,22 @@ Current speaking intent:
     characters: effectiveMembers,
     messages: activeMessages,
     speaker: params.speaker,
-    content: generated.fullResponse,
+    content: generated.narrativeText || '',
+    blocks: generated.narrativeBlocks || null,
   }) || null;
   const completedMessage = buildCompletedMessage({
     chat: params.chat,
     speakerId: params.speaker.id,
     speakerName: params.speaker.name,
     finalResponse: generated.finalResponse,
-    fullResponse: generated.fullResponse,
+    fullResponse: generatedDialogueResponse,
     extraMessages: generated.extraMessages,
     emotion: getEmotion(params.speaker.id),
     parsedEnvelope: generated.parsedEnvelope,
 	    metadata: buildMessageMetadata({
 	      decision: mergedMediaDecision,
 	      capabilities: mediaCapabilities,
-	      content: generated.fullResponse,
+	      content: generatedStoryResponse,
         surface: responseSurface,
         storyEvents,
         narrativeTurn,
@@ -2513,7 +2809,16 @@ export const runOneRound = async (
       }
       if (lockedGuidanceSpeaker && activeSpeaker.id === lockedGuidanceSpeaker.id) throw error;
       const rotated = resolveSpeakerFromCandidates(chatMembers, candidates.filter((candidate) => candidate.characterId !== activeSpeaker.id));
-      if (!rotated) throw new Error(`${activeSpeaker.name} 连续生成了重复内容，本轮已跳过。`);
+      if (!rotated) {
+        logAiGenerationFailure({
+          chat,
+          speaker: activeSpeaker,
+          reason: error.reason,
+          message: error.message,
+          details: { noFallbackSpeaker: true },
+        });
+        throw error;
+      }
       activeSpeaker = rotated;
       const rotatedCandidate = candidates.find((candidate) => candidate.characterId === activeSpeaker.id);
       callbacks.onSpeakerSelected(activeSpeaker.id, activeSpeaker);

@@ -49,8 +49,8 @@ export function normalizeStoryEvents(value: unknown): StoryEvent[] {
     if (type === 'speech') {
       const text = compactText(item.text, 600);
       if (!text) continue;
-      const characterId = compactText(item.characterId, 80);
-      const speakerName = compactText(item.speakerName, 80);
+      const characterId = compactText(item.characterId, 80) || compactText(item.actorId, 80);
+      const speakerName = compactText(item.speakerName, 80) || compactText(item.actorName, 80);
       events.push({
         type,
         text,
@@ -122,14 +122,19 @@ function storyEventToBlocks(event: StoryEvent, index: number, characters: AIChar
   }
   if (event.type === 'speech' && event.text?.trim()) {
     const characterId = event.characterId || '';
-    const character = characterId ? characters.find((item) => item.id === characterId) : null;
+    const normalizedSpeaker = event.speakerName?.trim();
+    const character = characterId
+      ? characters.find((item) => item.id === characterId) || characters.find((item) => normalizedSpeaker && item.name === normalizedSpeaker)
+      : characters.find((item) => normalizedSpeaker && item.name === normalizedSpeaker);
+    const actorId = character?.id || characterId || event.speakerName || 'character';
     return [{
       id: `block-${index + 1}`,
-      actorId: characterId || event.speakerName || 'character',
+      actorId,
       actorKind: 'character',
       kind: 'dialogue',
       displayMode: 'bubble',
       text: event.text.trim(),
+      actorName: character?.name || event.speakerName,
       characterId: character?.id || characterId || undefined,
     }];
   }

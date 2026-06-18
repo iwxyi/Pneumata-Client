@@ -31,7 +31,16 @@ export function PendingTypingDots() {
 export function NarrativeParagraphContent({ blocks }: { blocks: NarrativeBlock[] }) {
   return (
     <Box sx={{ display: 'grid', gap: 1.75 }}>
-      {blocks.map((block) => (
+      {blocks.map((block) => block.displayMode === 'bubble' ? (
+        <Box key={block.id} sx={{ display: 'flex', justifyContent: 'flex-start' }}>
+          <Box sx={{ maxWidth: '82%', borderRadius: 3, px: 1.5, py: 1, bgcolor: 'background.paper', boxShadow: '0 10px 28px rgba(15,23,42,0.10)', border: '1px solid', borderColor: 'divider' }}>
+            <Box sx={{ typography: 'caption', color: 'text.secondary', mb: 0.35 }}>{block.actorName || block.actorId}</Box>
+            <Box sx={{ typography: 'body2', lineHeight: 1.75, wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
+              <MarkdownText text={block.text} />
+            </Box>
+          </Box>
+        </Box>
+      ) : (
         <Box key={block.id} sx={{ typography: 'body1', lineHeight: 2.05, color: 'text.primary', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
           <MarkdownText text={block.text} />
         </Box>

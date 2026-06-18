@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { MediaGenerationDecision, Message, StoryEvent } from '../types/message';
+import type { MediaGenerationDecision, Message } from '../types/message';
 import type { AddressedTargetHintEnvelope, ConflictFocusPayload, InteractionHintCollection, RecentSocialEventSummary, SocialEventHintEnvelope } from '../types/runtimeEvent';
 import type { TurnPlan } from './turnPlanner';
 import { hasVisibleStoryEvents, normalizeStoryEvents } from './narrativeRuntime';
@@ -10,8 +10,28 @@ export interface InlineStoryChoice {
   prompt?: string | null;
 }
 
+export type InlineStoryEventKind = 'narration' | 'speech' | 'choice_point';
+
+export interface InlineStoryEvent {
+  type: InlineStoryEventKind;
+  actorId?: string | null;
+  actorName?: string | null;
+  text?: string | null;
+  choices?: InlineStoryChoice[] | null;
+}
+
+export interface InlineStoryBlock {
+  actorId: string;
+  actorName?: string | null;
+  kind: 'prose' | 'dialogue';
+  text: string;
+}
+
 export interface InlineInteractionEnvelope {
   content: string;
+  narrativeText?: string | null;
+  storyEvents?: InlineStoryEvent[] | null;
+  narrativeBlocks?: InlineStoryBlock[] | null;
   extraMessages?: string[] | null;
   intentionalRepeat?: boolean | null;
   interactionHints?: InteractionHintCollection | null;
@@ -20,7 +40,6 @@ export interface InlineInteractionEnvelope {
   conflictFocus?: ConflictFocusPayload | null;
   mediaDecision?: MediaGenerationDecision | null;
   storyChoices?: InlineStoryChoice[] | null;
-  storyEvents?: StoryEvent[] | null;
 }
 
 function cleanJsonLikeText(value: string) {
@@ -95,7 +114,9 @@ function sanitizeEnvelope(envelope: InlineInteractionEnvelope): InlineInteractio
 
 function hasVisibleEnvelopeContent(envelope: InlineInteractionEnvelope) {
   if (typeof envelope.content === 'string' && envelope.content.trim()) return true;
+  if (typeof envelope.narrativeText === 'string' && envelope.narrativeText.trim()) return true;
   if (Array.isArray(envelope.extraMessages) && envelope.extraMessages.some((item) => typeof item === 'string' && item.trim())) return true;
+  if (Array.isArray(envelope.narrativeBlocks) && envelope.narrativeBlocks.some((item) => item && typeof item === 'object' && typeof item.text === 'string' && item.text.trim())) return true;
   return hasVisibleStoryEvents(envelope.storyEvents);
 }
 
@@ -178,26 +199,31 @@ export function buildInlineInteractionContract(params: {
   const aiDirectInteractionRules = params.chat.type === 'ai_direct'
     ? '\n8. In AI direct chats, target the other participant when the turn clearly supports, challenges, probes, defends, mocks, or dismisses them; do not target the speaker or the user unless the user is an actual participant.'
     : '';
-  const storyChoiceField = params.chat.sessionKind?.scenarioId === 'story-reader' ? ',\n  "storyEvents": null,\n  "storyChoices": null' : '';
-  const storyChoiceRules = params.chat.sessionKind?.scenarioId === 'story-reader'
-    ? `\n\nRules for storyEvents in story-reader rooms:
-1. storyEvents is the authoritative visible output. Prefer storyEvents over content/extraMessages.
-2. Use storyEvents as an array of events. Allowed event shapes:
-   - {"type":"narration","text":"旁白、动作、环境、心理或后果"}
-   - {"type":"speech","characterId":"member-id","speakerName":"角色名","text":"只放说出口的台词"}
-   - {"type":"choice_point","choices":[{"label":"具体角色动作","prompt":"选择后的具体后果"}]}
-3. narration carries action, movement, consequences, inner pressure, scene changes, clue reveals, and time jumps. Do not put these into character speech.
-4. speech is optional and should be brief. Use it only when spoken lines change the scene, reveal information, or sharpen conflict.
-5. A whole turn may contain only narration. This is valid and often preferred.
-6. choice_point appears only at a genuine decision point. Never add choices on a fixed cadence.
-7. Each choice must bind current people, places, clues, threats, goals, or relationships. Avoid abstract labels such as 深入内心、追查线索、推进剧情、面对关键人物.
-8. If storyEvents is present, content may be an empty string or a short plaintext fallback. Do not duplicate choices inside content.
-
-Legacy storyChoices:
-1. Prefer choice_point inside storyEvents. storyChoices is accepted only as compatibility fallback.
-2. If you output storyChoices, use 2-4 concrete choices shaped as {"label":"让某人做具体动作","prompt":"选择后要推进的具体后果"}.`
+  const storyEnvelopeField = params.chat.sessionKind?.scenarioId === 'story-reader' ? '\n  "narrativeText": null,\n  "storyEvents": [\n    { "type": "narration", "actorId": "narrator", "text": "写一段当前场景中可见的动作或后果。" },\n    { "type": "speech", "actorId": "member-id", "actorName": "角色显示名", "text": "写一句角色真正说出口的话。" }\n  ],\n  "narrativeBlocks": null,' : '';
+  const storyChoiceField = params.chat.sessionKind?.scenarioId === 'story-reader' ? ',\n  "storyChoices": null' : '';
+  const storyNarrativeRules = params.chat.sessionKind?.scenarioId === 'story-reader'
+    ? `\n\nRules for story event DSL:
+1. Story-reader turns must use storyEvents as the authoritative visible story body. Do not copy the JSON shape with storyEvents=null for a normal story turn.
+2. storyEvents must be an ordered array of 2-9 events for every normal story-reader turn. Do not set storyEvents=null; even a single spoken line must be represented as a speech event. Each event is one of:
+   - {"type":"narration","actorId":"narrator","text":"brief external scene action or visible consequence"}
+   - {"type":"speech","actorId":"character-id-or-null","actorName":"exact display name or null","text":"spoken line only"}
+   - {"type":"choice_point","choices":[{"label":"让某人做具体动作","prompt":"选择后要推进的具体后果"}]}
+3. narration carries action, movement, consequences, inner pressure, scene changes, clue reveals, and time jumps. Narration renders as正文段落.
+4. speech is optional and should be brief. Use it only for words actually spoken aloud by a character; every speech event must include either a valid actorId or an exact actorName.
+5. A whole turn may contain only narration. This is valid when the beat needs setting, consequence, or pressure more than dialogue.
+6. Speech text must be chat-like: 1-3 sentences, no camera direction, no omniscient analysis, no private inner monologue, no describing the whole room's reaction.
+7. Do not let one character inherit another character's private object, gesture, memory, clothing detail, wording, or sensory detail unless that detail was explicitly spoken aloud or publicly visible.
+8. Put each narration and each character line in its own event, preserving story order. Do not merge narration and speech into one event.
+9. choice_point appears only at a genuine decision point. Never add choices on a fixed cadence.
+10. Put user decision pauses in a choice_point event. Do not render choices inside content or extraMessages.
+11. narrativeBlocks is a legacy fallback. Keep it null when storyEvents is present.
+12. content and extraMessages are legacy chat fields in story-reader turns. Keep content="" and extraMessages=null; do not use them as the visible story body.
+13. narrativeText is optional legacy context text; if present it must match only the prose portions. Do not rely on it for visible story rendering.`
     : '';
-  return `\n\nOutput contract:\nReturn one valid JSON object only. This is the required shape:\n{\n  "content": "按当前请求自然作答；可短可长。如果要引用词语，优先使用中文引号，例如“某个词”。",\n  "extraMessages": null,\n  "intentionalRepeat": false${mediaExample}${storyChoiceField},\n  "conflictFocus": null,\n  "interactionHints": null,\n  "socialEventHints": null\n}\n\nJSON validity rules:\n1. The response must be parseable by JSON.parse.\n2. Do not output TypeScript syntax such as string | null, undefined, comments, or trailing commas.\n3. Use null for absent optional fields. Never use undefined.\n4. If content contains ASCII double quote characters, escape each quote with a backslash. Prefer Chinese quotes inside Chinese content.\n5. intensity must be an integer from 1 to 5. confidence must be a decimal from 0 to 1, not 0 to 100.\n6. The example values above are structural placeholders, not dialogue content, conflict content, or memory.\n\nRules for extraMessages:\n1. content is the first visible chat bubble and is streamed while generating.\n2. extraMessages is optional. Use null for one bubble.\n3. Use extraMessages only when this reply would naturally be sent as 2-5 consecutive chat bubbles by the same person. Put only the later bubbles there, not a repeat of content. extraMessages may contain at most 4 later bubbles.\n4. Each extraMessages item must be a complete visible bubble, not a punctuation-based fragment.\n5. The full visible turn is content followed by extraMessages in order. Judge interactionHints, conflictFocus, and socialEventHints from that full turn.\n6. Do not use extraMessages for markdown, longform, images, audio, or formal answers.\n7. Vary lengths naturally. Do not make every part the same size.${turnPlanRules}\n\nAllowed interactionHint values:\n- kind: "support", "challenge", "mock", "dismiss", "defend", "probe", "side_comment"\n- tone: "warm", "annoyed", "defensive", "excited", "sarcastic", "cold"\n\nRules for interactionHints:\n1. primary is the strongest directed relationship effect in the full visible turn.\n2. secondary may include other directed effects from the same turn, but only when they are real and specific.\n3. If you are just making a general comment, set interactionHints to null.\n4. If present, interactionHints must use this shape: {"primary":{"targetId":"member-id-or-null","kind":"support","tone":"warm","intensity":3,"confidence":0.86,"reason":"why this turn points to the target"},"secondary":[]}.\n5. targetId must come from this member list:\n${buildCharacterReference(params.characters.filter((character) => character.id !== params.speaker.id))}\n6. Do not emit duplicate targetId+kind pairs in secondary.\n7. If uncertain, lower confidence or omit the item.${aiDirectInteractionRules}${storyChoiceRules}\n\nRules for conflictFocus:\n1. present=false or conflictFocus=null is valid and common; not every turn contains a meaningful contradiction.\n2. If present, conflictFocus must use this shape: {"present":true,"type":"value_conflict","severity":0.72,"stage":"emerging","summary":"write a fresh one-sentence summary from the actual current turn","primaryTargetIds":["member-id"],"participantIds":["speaker-id","member-id"],"nextPressure":"stabilize","developmentHooks":["invite_target_response"],"why":"explain the actual contradiction in this turn"}.\n3. The summary and why fields must be newly written from the current transcript. Never copy placeholder wording from this contract.\n4. Judge the social function and underlying contradiction, not the literal surface words.\n5. type must be one of: "identity_ownership", "authority_challenge", "status_competition", "alliance_boundary", "care_jealousy", "value_conflict", "goal_conflict", "resource_conflict", "fairness_conflict", "contradiction_exposure", "tone_escalation", "misrecognition".\n6. nextPressure must be one of: "escalate", "spread", "stabilize", "divert", "cool".\n7. developmentHooks must only use: "invite_target_response", "force_side_taking", "expose_contradiction", "raise_stakes", "shift_public_private", "cool_down_with_residue", "redirect_topic", "trigger_memory_recall".\n8. Only mark present=true when this turn meaningfully sharpens, reframes, exposes, escalates, redirects, or cools an active contradiction.${mediaRules}\n\nAllowed socialEventHints values:\n- eventKind: "pair_private_thread", "social_outing", "post_moment", "status_update", "gift_exchange", "conflict_expression", "check_in", "react_to_moment", "custom"\n- urgency: "immediate", "soon", "defer"\n- visibilityPlan: "public", "conversation_private", "user_private", "mixed"\n\nRules for socialEventHints:\n1. Only include a hint when this full turn strongly suggests an event should happen beyond the message itself.\n2. If nothing should happen, return socialEventHints as null or [].\n3. Do not mention this JSON contract in content.\n\nRecent transcript scope:\n${transcriptScope}${recentSocialEvents ? `\n\nRecent social events to avoid duplicating:\n${recentSocialEvents}` : ''}`;
+  const storyChoiceRules = params.chat.sessionKind?.scenarioId === 'story-reader'
+    ? `\n\nRules for storyChoices:\n1. Default storyChoices=null; keep the story moving normally most turns.\n2. Set storyChoices to 2-4 options only when this turn has reached a genuine decision point where user participation would improve the story.\n3. Do not ask for choices just because a fixed number of turns passed. There is no fixed cadence.\n4. It is allowed to ask again soon if the scene truly demands it, but the room must not remain in a constant choose-operate loop.\n5. Each option must read like a concrete character action: name who does what to whom or what object/place. Avoid abstract plot directions such as investigate clues, deepen emotion, advance plot, face the key person, continue the branch.\n6. Put the narrative setup in narrativeBlocks as prose/dialogue blocks. Keep content="" and extraMessages=null for normal story turns. Put only option objects in storyChoices, each shaped as {"label":"让某人做具体动作","prompt":"选择后要推进的具体后果"}.\n7. Do not render the choices inside content or extraMessages; storyChoices drives the UI.`
+    : '';
+  return `\n\nOutput contract:\nReturn one valid JSON object only. This is the required shape:\n{${storyEnvelopeField}\n  "content": "按当前请求自然作答；可短可长。如果要引用词语，优先使用中文引号，例如“某个词”。",\n  "extraMessages": null,\n  "intentionalRepeat": false${mediaExample}${storyChoiceField},\n  "conflictFocus": null,\n  "interactionHints": null,\n  "socialEventHints": null\n}\n\nJSON validity rules:\n1. The response must be parseable by JSON.parse.\n2. Do not output TypeScript syntax such as string | null, undefined, comments, or trailing commas.\n3. Use null for absent optional fields. Never use undefined.\n4. If content contains ASCII double quote characters, escape each quote with a backslash. Prefer Chinese quotes inside Chinese content.\n5. intensity must be an integer from 1 to 5. confidence must be a decimal from 0 to 1, not 0 to 100.\n6. The example values above are structural placeholders, not dialogue content, conflict content, or memory.\n\nRules for extraMessages:\n1. content is the first visible chat bubble and is streamed while generating.\n2. extraMessages is optional. Use null for one bubble.\n3. Use extraMessages only when this reply would naturally be sent as 2-5 consecutive chat bubbles by the same person. Put only the later bubbles there, not a repeat of content. extraMessages may contain at most 4 later bubbles.\n4. Each extraMessages item must be a complete visible bubble, not a punctuation-based fragment.\n5. The full visible turn is content followed by extraMessages in order. Judge interactionHints, conflictFocus, and socialEventHints from that full turn.\n6. Do not use extraMessages for markdown, longform, images, audio, or formal answers.\n7. Vary lengths naturally. Do not make every part the same size.${turnPlanRules}\n\nAllowed interactionHint values:\n- kind: "support", "challenge", "mock", "dismiss", "defend", "probe", "side_comment"\n- tone: "warm", "annoyed", "defensive", "excited", "sarcastic", "cold"\n\nRules for interactionHints:\n1. primary is the strongest directed relationship effect in the full visible turn.\n2. secondary may include other directed effects from the same turn, but only when they are real and specific.\n3. If you are just making a general comment, set interactionHints to null.\n4. If present, interactionHints must use this shape: {"primary":{"targetId":"member-id-or-null","kind":"support","tone":"warm","intensity":3,"confidence":0.86,"reason":"why this turn points to the target"},"secondary":[]}.\n5. targetId must come from this member list:\n${buildCharacterReference(params.characters.filter((character) => character.id !== params.speaker.id))}\n6. Do not emit duplicate targetId+kind pairs in secondary.\n7. If uncertain, lower confidence or omit the item.${aiDirectInteractionRules}${storyNarrativeRules}${storyChoiceRules}\n\nRules for conflictFocus:\n1. present=false or conflictFocus=null is valid and common; not every turn contains a meaningful contradiction.\n2. If present, conflictFocus must use this shape: {"present":true,"type":"value_conflict","severity":0.72,"stage":"emerging","summary":"write a fresh one-sentence summary from the actual current turn","primaryTargetIds":["member-id"],"participantIds":["speaker-id","member-id"],"nextPressure":"stabilize","developmentHooks":["invite_target_response"],"why":"explain the actual contradiction in this turn"}.\n3. The summary and why fields must be newly written from the current transcript. Never copy placeholder wording from this contract.\n4. Judge the social function and underlying contradiction, not the literal surface words.\n5. type must be one of: "identity_ownership", "authority_challenge", "status_competition", "alliance_boundary", "care_jealousy", "value_conflict", "goal_conflict", "resource_conflict", "fairness_conflict", "contradiction_exposure", "tone_escalation", "misrecognition".\n6. nextPressure must be one of: "escalate", "spread", "stabilize", "divert", "cool".\n7. developmentHooks must only use: "invite_target_response", "force_side_taking", "expose_contradiction", "raise_stakes", "shift_public_private", "cool_down_with_residue", "redirect_topic", "trigger_memory_recall".\n8. Only mark present=true when this turn meaningfully sharpens, reframes, exposes, escalates, redirects, or cools an active contradiction.${mediaRules}\n\nAllowed socialEventHints values:\n- eventKind: "pair_private_thread", "social_outing", "post_moment", "status_update", "gift_exchange", "conflict_expression", "check_in", "react_to_moment", "custom"\n- urgency: "immediate", "soon", "defer"\n- visibilityPlan: "public", "conversation_private", "user_private", "mixed"\n\nRules for socialEventHints:\n1. Only include a hint when this full turn strongly suggests an event should happen beyond the message itself.\n2. If nothing should happen, return socialEventHints as null or [].\n3. Do not mention this JSON contract in content.\n\nRecent transcript scope:\n${transcriptScope}${recentSocialEvents ? `\n\nRecent social events to avoid duplicating:\n${recentSocialEvents}` : ''}`;
 }
 
 export function parseInlineInteractionEnvelope(raw: string): InlineInteractionEnvelope | null {

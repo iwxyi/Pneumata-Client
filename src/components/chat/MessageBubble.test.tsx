@@ -149,43 +149,35 @@ describe('MessageBubble event rendering', () => {
     })).toBe(false);
   });
 
-  it('only renders narrator-owned narrative paragraph metadata as narration', () => {
+  it('renders narrative metadata as ordered paragraphs and character bubbles', () => {
     const characterMessage: Message = {
       id: 'm1',
       chatId: 'c1',
-      senderId: 'char-1',
-      senderName: '角色',
+      senderId: 'narrator',
+      senderName: '旁白',
       type: 'ai' as const,
-      content: '正常消息',
+      content: '',
       timestamp: 1,
       emotion: 0,
       isDeleted: false,
       metadata: {
         narrativeTurn: {
           turnId: 'turn-1',
-          turnKind: 'character_reaction' as const,
-          povActorId: 'char-1',
-          blocks: [{ id: 'b1', actorId: 'char-1', actorKind: 'character' as const, kind: 'dialogue' as const, displayMode: 'paragraph' as const, text: '正常消息' }],
-        },
-      },
-    };
-    const narratorMessage = {
-      ...characterMessage,
-      id: 'm2',
-      senderId: 'narrator',
-      senderName: '旁白',
-      metadata: {
-        narrativeTurn: {
-          turnId: 'turn-2',
           turnKind: 'narrative_beat' as const,
           povActorId: 'narrator',
-          blocks: [{ id: 'b2', actorId: 'narrator', actorKind: 'narrator' as const, kind: 'prose' as const, displayMode: 'paragraph' as const, text: '旁白正文' }],
+          blocks: [
+            { id: 'b1', actorId: 'narrator', actorKind: 'narrator' as const, kind: 'prose' as const, displayMode: 'paragraph' as const, text: '角色推开门。' },
+            { id: 'b2', actorId: 'char-1', actorName: '角色', actorKind: 'character' as const, kind: 'dialogue' as const, displayMode: 'bubble' as const, text: '我听见里面有人。' },
+          ],
         },
       },
     };
 
-    expect(getNarrativeParagraphBlocks(characterMessage)).toEqual([]);
-    expect(getNarrativeParagraphBlocks(narratorMessage)).toHaveLength(1);
+    expect(isNarrativeParagraphMessage(characterMessage)).toBe(true);
+    expect(getNarrativeParagraphBlocks(characterMessage)).toEqual([
+      expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph', text: '角色推开门。' }),
+      expect.objectContaining({ actorKind: 'character', displayMode: 'bubble', actorName: '角色', text: '我听见里面有人。' }),
+    ]);
   });
 
   it('keeps mixed story narration and speech as display blocks for the narrator turn', () => {

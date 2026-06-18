@@ -1,16 +1,15 @@
 import { useMemo, useRef, useState } from 'react';
 import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, Menu, MenuItem, Tooltip, Divider } from '@mui/material';
 import { useLocation, useNavigate } from 'react-router-dom';
-import type { Message, MessageAttachment, NarrativeBlock } from '../../types/message';
+import type { Message, MessageAttachment } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import { isImageAvatar } from '../../utils/avatar';
 import { rememberFailedAvatarUrl, resolveSafeAvatarSrc } from '../../utils/avatarFallback';
 import { formatTimestamp } from '../../utils/format';
-import { getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
 import { buildGenerationRuntimeDebugRows } from '../../services/generationRuntimePresentation';
-import MarkdownText from '../common/MarkdownText';
+import { MessageContent, NarrativeParagraphContent, PendingTypingDots } from './ChatMessageContent';
 import DebugChip from '../common/DebugChip';
 import AppSnackbar from '../common/AppSnackbar';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
@@ -38,174 +37,6 @@ interface MenuPosition {
 }
 
 const LONG_PRESS_MOVE_THRESHOLD = 12;
-const typingBounce = keyframes`
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
-  30% { transform: translateY(-4px); opacity: 1; }
-`;
-
-function resolveBlockSpeakerName(block: NarrativeBlock, members: DisplayTextMember[] = []) {
-  if (block.actorKind === 'narrator') return '旁白';
-  if (block.characterId) return members.find((member) => member.id === block.characterId)?.name || block.characterId;
-  return members.find((member) => member.id === block.actorId)?.name || block.actorId || '角色';
-}
-
-function renderNarrativeParagraphContent(blocks: NarrativeBlock[], members: DisplayTextMember[] = []) {
-  return (
-    <Box sx={{ display: 'grid', gap: 1.35 }}>
-      {blocks.map((block) => (
-        block.displayMode === 'bubble' ? (
-          <Box key={block.id} sx={{ display: 'grid', justifyItems: 'start', gap: 0.25, maxWidth: 'min(88%, 560px)' }}>
-            <Typography variant="caption" sx={{ color: 'text.secondary', px: 0.5 }}>
-              {resolveBlockSpeakerName(block, members)}
-            </Typography>
-            <Box sx={{
-              px: 1.25,
-              py: 0.85,
-              borderRadius: 2,
-              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(255,255,255,0.08)',
-              border: '1px solid',
-              borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
-              boxShadow: (theme) => theme.palette.mode === 'light' ? '0 8px 20px rgba(15,23,42,0.055)' : '0 10px 24px rgba(0,0,0,0.22)',
-              typography: 'body2',
-              lineHeight: 1.75,
-              wordBreak: 'break-word',
-              userSelect: 'text',
-              WebkitUserSelect: 'text',
-            }}>
-              <MarkdownText text={block.text} />
-            </Box>
-          </Box>
-        ) : (
-          <Box key={block.id} sx={{ typography: 'body1', lineHeight: 2.05, color: 'text.primary', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
-            <MarkdownText text={block.text} />
-          </Box>
-        )
-      ))}
-    </Box>
-  );
-}
-
-function renderMessageContent(message: Message, options: {
-  onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void>;
-  onOpenImage?: (message: Message, attachment: MessageAttachment) => void;
-} = {}) {
-  const attachments = message.metadata?.attachments || [];
-  const statusChipColor = (status: string | undefined): 'error' | 'success' | 'primary' => {
-    if (status === 'failed') return 'error';
-    if (status === 'ready') return 'success';
-    return 'primary';
-  };
-  const getMediaFrameStyle = (attachment: { width?: number; height?: number }) => {
-    const width = Number(attachment.width || 0);
-    const height = Number(attachment.height || 0);
-    const ratio = width > 0 && height > 0 ? `${width} / ${height}` : '4 / 3';
-    return {
-      width: '100%',
-      maxWidth: 320,
-      aspectRatio: ratio,
-      borderRadius: 1.5,
-      border: '1px solid',
-      borderColor: 'divider',
-      overflow: 'hidden',
-      bgcolor: 'action.hover',
-      position: 'relative' as const,
-    };
-  };
-  return (
-    <Box sx={{ display: 'grid', gap: 0.9 }}>
-      <Box sx={{ typography: 'body2', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text', '& table': { width: '100%', borderCollapse: 'collapse' }, '& th, & td': { border: '1px solid', borderColor: 'divider', px: 0.75, py: 0.4 } }}>
-        <MarkdownText text={message.content} />
-      </Box>
-      {attachments.map((attachment) => {
-        if (attachment.kind === 'image') {
-          if (attachment.status === 'ready' && attachment.url) {
-            return (
-              <Box key={attachment.id} sx={getMediaFrameStyle(attachment)}>
-                <Box
-                  component="img"
-                  src={attachment.url}
-                  alt={attachment.altText}
-                  onClick={() => options.onOpenImage?.(message, attachment)}
-                  sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', cursor: options.onOpenImage ? 'zoom-in' : 'default' }}
-                />
-              </Box>
-            );
-          }
-          return (
-            <Box key={attachment.id} sx={getMediaFrameStyle(attachment)}>
-              <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', p: 1.5, textAlign: 'center' }}>
-                <Box sx={{ display: 'grid', gap: 0.75, maxWidth: '85%' }}>
-                  <Box>
-                    <Chip size="small" label={getAttachmentStatusLabel(attachment)} color={statusChipColor(attachment.status)} variant="outlined" sx={{ height: 22 }} />
-                  </Box>
-                  {attachment.status !== 'failed' ? <LinearProgress /> : null}
-                  <Typography variant="caption" sx={{ color: attachment.status === 'failed' ? 'error.main' : 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    {getAttachmentStatusDetail(attachment)}
-                  </Typography>
-                  {attachment.status === 'failed' && options.onRetryMedia ? (
-                    <Button size="small" variant="outlined" color="error" onClick={() => void options.onRetryMedia?.(message, attachment.id)}>
-                      重试
-                    </Button>
-                  ) : null}
-                  <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    {attachment.altText}
-                  </Typography>
-                </Box>
-              </Box>
-            </Box>
-          );
-        }
-        if (attachment.kind === 'audio') {
-          if (attachment.status === 'ready' && attachment.url) {
-            return (
-              <Box key={attachment.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 220 }}>
-                <Box component="audio" controls src={attachment.url} sx={{ width: '100%', maxWidth: 280 }} />
-              </Box>
-            );
-          }
-          return (
-            <Box key={attachment.id} sx={{ minWidth: 200, borderRadius: 999, border: '1px solid', borderColor: 'divider', px: 1.25, py: 0.75, bgcolor: 'action.hover' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                <Typography variant="caption" color="text.secondary">{getAttachmentStatusLabel(attachment)}</Typography>
-                <Chip size="small" label={attachment.status === 'failed' ? '失败' : '处理中'} color={statusChipColor(attachment.status)} variant="outlined" sx={{ height: 20 }} />
-              </Box>
-              {attachment.status !== 'failed' ? <LinearProgress sx={{ mt: 0.5 }} /> : null}
-              <Typography variant="caption" sx={{ display: 'block', mt: 0.45, color: attachment.status === 'failed' ? 'error.main' : 'text.secondary', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                {getAttachmentStatusDetail(attachment)}
-              </Typography>
-              {attachment.status === 'failed' && options.onRetryMedia ? (
-                <Button size="small" variant="outlined" color="error" sx={{ mt: 0.6 }} onClick={() => void options.onRetryMedia?.(message, attachment.id)}>
-                  重试
-                </Button>
-              ) : null}
-            </Box>
-          );
-        }
-        return null;
-      })}
-    </Box>
-  );
-}
-
-function renderPendingTypingDots() {
-  return (
-    <Box sx={{ display: 'flex', gap: 0.5, py: 0.25 }}>
-      {[0, 1, 2].map((i) => (
-        <Box
-          key={i}
-          sx={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            bgcolor: 'text.disabled',
-            animation: `${typingBounce} 1.4s ease-in-out infinite`,
-            animationDelay: `${i * 0.18}s`,
-          }}
-        />
-      ))}
-    </Box>
-  );
-}
 
 function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>['withdrawal'] | null) {
   if (!withdrawal?.originalContent) return '';
@@ -393,12 +224,12 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
       <>
         <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, py: 1.1, width: '100%' }}>
           <Box {...bubbleHandlers} sx={{ width: '100%', maxWidth: 760, px: { xs: 0.5, sm: 1 }, py: 0.5 }}>
-            {narrativeParagraphBlocks.length ? renderNarrativeParagraphContent(narrativeParagraphBlocks, members) : renderPendingTypingDots()}
+            {narrativeParagraphBlocks.length ? <NarrativeParagraphContent blocks={narrativeParagraphBlocks} /> : <PendingTypingDots />}
           </Box>
         </Box>
         <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
           <DialogTitle>{message.senderName}</DialogTitle>
-          <DialogContent>{renderNarrativeParagraphContent(narrativeParagraphBlocks, members)}</DialogContent>
+          <DialogContent><NarrativeParagraphContent blocks={narrativeParagraphBlocks} /></DialogContent>
         </Dialog>
       </>
     );
@@ -436,7 +267,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
               boxShadow: bubblePreview?.boxShadow || '0 8px 24px rgba(15, 23, 42, 0.08)',
             }}
           >
-            {pending && !message.content ? renderPendingTypingDots() : isFinalWithdrawn ? (
+            {pending && !message.content ? <PendingTypingDots /> : isFinalWithdrawn ? (
               showWithdrawalDebug ? (
                 <Tooltip title={buildWithdrawalDebugTitle(finalWithdrawal)} arrow placement="top" enterTouchDelay={0}>
                   <Box sx={{ cursor: 'help', '&:hover .MuiTypography-root': { textDecoration: 'underline' } }}>
@@ -444,7 +275,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
                   </Box>
                 </Tooltip>
               ) : withdrawalNoticeNode
-            ) : renderMessageContent(message, { onRetryMedia, onOpenImage })}
+            ) : <MessageContent message={message} onRetryMedia={onRetryMedia} onOpenImage={onOpenImage} />}
           </Box>
         </Box>
 
@@ -461,7 +292,7 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
 
       <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{message.senderName}</DialogTitle>
-        <DialogContent>{renderMessageContent(message, { onRetryMedia, onOpenImage })}</DialogContent>
+        <DialogContent><MessageContent message={message} onRetryMedia={onRetryMedia} onOpenImage={onOpenImage} /></DialogContent>
       </Dialog>
 
       <Menu

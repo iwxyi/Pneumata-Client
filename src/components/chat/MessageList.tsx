@@ -4,7 +4,7 @@ import type { Message, MessageAttachment } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import MessageBubble from './MessageBubble';
 import EventMessageItem from './EventMessageItem';
-import NarrativeMessageItem from './NarrativeMessageItem';
+import NarrativeMessageItem, { type NarrativeStoryChoiceOption } from './NarrativeMessageItem';
 import SystemMessageItem from './SystemMessageItem';
 import { resolveCharacterOrDeleted } from '../../utils/deletedEntity';
 import { buildChatRenderItems, type ChatRenderItem } from './chatRenderModel';
@@ -14,6 +14,7 @@ import ImageLightbox from '../common/ImageLightbox';
 const TOP_PREFETCH_THRESHOLD = 520;
 const BOTTOM_STICKY_THRESHOLD = 96;
 const SMOOTH_SCROLL_DISTANCE_LIMIT = 900;
+const FOLLOW_SCROLL_DURATION_MS = 180;
 type ResponsiveInset = number | string | Record<string, number | string>;
 interface ScrollAnchorSnapshot {
   messageId: string;
@@ -39,6 +40,9 @@ interface MessageListProps {
   selfMemberId?: string | null;
   privateConversation?: boolean;
   tailContent?: ReactNode;
+  storyChoiceMessageId?: string | null;
+  storyChoiceOptions?: NarrativeStoryChoiceOption[];
+  onChooseStoryChoice?: (value: string) => void;
 }
 
 export default function MessageList({
@@ -60,6 +64,9 @@ export default function MessageList({
   selfMemberId = null,
   privateConversation = false,
   tailContent,
+  storyChoiceMessageId = null,
+  storyChoiceOptions = [],
+  onChooseStoryChoice,
 }: MessageListProps) {
   const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -71,11 +78,13 @@ export default function MessageList({
   const latestScrollAnchorRef = useRef<ScrollAnchorSnapshot | null>(null);
   const autoFillTriggeredRef = useRef(false);
   const lastScrollTopRef = useRef(0);
+  const followScrollAnimationRef = useRef<number | null>(null);
   const previousRenderMetricsRef = useRef({
     itemCount: renderItems.length,
     lastItemKey: renderItems.at(-1)?.key ?? null,
     lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
     hasTailContent: Boolean(tailContent),
+    storyChoiceKey: `${storyChoiceMessageId || ''}:${storyChoiceOptions.map((option) => option.value).join('|')}`,
   });
 
   const chatImageTimeline = useMemo(() => messages
@@ -109,7 +118,18 @@ export default function MessageList({
   const renderMessageItem = useCallback((item: ChatRenderItem) => {
     if (item.renderKind === 'system') return <SystemMessageItem key={item.key} message={item.message} />;
     if (item.renderKind === 'event') return <EventMessageItem key={item.key} message={item.message} members={characters} />;
-    if (item.renderKind === 'narrative') return <NarrativeMessageItem key={item.key} message={item.message} pending={item.pending} />;
+    if (item.renderKind === 'narrative') {
+      const showStoryChoices = item.message.id === storyChoiceMessageId && Boolean(onChooseStoryChoice);
+      return (
+        <NarrativeMessageItem
+          key={item.key}
+          message={item.message}
+          pending={item.pending}
+          storyChoiceOptions={showStoryChoices ? storyChoiceOptions : []}
+          onChooseStoryChoice={showStoryChoices ? onChooseStoryChoice : undefined}
+        />
+      );
+    }
     return (
       <MessageBubble
         key={item.key}
@@ -127,7 +147,7 @@ export default function MessageList({
         privateConversation={privateConversation}
       />
     );
-  }, [characters, currentUser, onAnalyzeMessage, onCharacterAvatarClick, onDeleteMessage, onExpressionFeedback, onRetryMedia, openChatImage, privateConversation, selfMemberId]);
+  }, [characters, currentUser, onAnalyzeMessage, onCharacterAvatarClick, onChooseStoryChoice, onDeleteMessage, onExpressionFeedback, onRetryMedia, openChatImage, privateConversation, selfMemberId, storyChoiceMessageId, storyChoiceOptions]);
 
   const topStatusText = useMemo(() => {
     if (messages.length === 0) return null;
@@ -184,9 +204,16 @@ export default function MessageList({
     return pinned;
   }, [getDistanceFromBottom]);
 
+  const stopFollowScrollAnimation = useCallback(() => {
+    if (followScrollAnimationRef.current == null) return;
+    window.cancelAnimationFrame(followScrollAnimationRef.current);
+    followScrollAnimationRef.current = null;
+  }, []);
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const container = containerRef.current;
     if (!container) return;
+    stopFollowScrollAnimation();
     const top = Math.max(0, container.scrollHeight - container.clientHeight);
     const distance = Math.abs(top - container.scrollTop);
     const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -195,7 +222,44 @@ export default function MessageList({
     if (effectiveBehavior === 'auto') {
       lastScrollTopRef.current = top;
     }
-  }, []);
+  }, [stopFollowScrollAnimation]);
+
+  const followScrollToBottom = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    stopFollowScrollAnimation();
+    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const startTop = container.scrollTop;
+    const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    const distance = targetTop - startTop;
+    if (prefersReducedMotion || Math.abs(distance) > SMOOTH_SCROLL_DISTANCE_LIMIT) {
+      container.scrollTop = targetTop;
+      lastScrollTopRef.current = targetTop;
+      return;
+    }
+    if (Math.abs(distance) < 1) return;
+    let startTime: number | null = null;
+    const step = (time: number) => {
+      if (!shouldStickToBottomRef.current) {
+        followScrollAnimationRef.current = null;
+        return;
+      }
+      if (startTime == null) startTime = time;
+      const progress = Math.min(1, (time - startTime) / FOLLOW_SCROLL_DURATION_MS);
+      const eased = 1 - ((1 - progress) ** 3);
+      const nextTop = startTop + distance * eased;
+      container.scrollTop = nextTop;
+      lastScrollTopRef.current = nextTop;
+      if (progress < 1) {
+        followScrollAnimationRef.current = window.requestAnimationFrame(step);
+      } else {
+        followScrollAnimationRef.current = null;
+      }
+    };
+    followScrollAnimationRef.current = window.requestAnimationFrame(step);
+  }, [stopFollowScrollAnimation]);
+
+  useEffect(() => stopFollowScrollAnimation, [stopFollowScrollAnimation]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -224,6 +288,7 @@ export default function MessageList({
       lastItemKey: renderItems.at(-1)?.key ?? null,
       lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
       hasTailContent: Boolean(tailContent),
+      storyChoiceKey: `${storyChoiceMessageId || ''}:${storyChoiceOptions.map((option) => option.value).join('|')}`,
     };
     const previousMetrics = previousRenderMetricsRef.current;
     previousRenderMetricsRef.current = currentMetrics;
@@ -235,12 +300,13 @@ export default function MessageList({
       && currentMetrics.lastItemContentLength === previousMetrics.lastItemContentLength
       && currentMetrics.lastItemKey === previousMetrics.lastItemKey
       && currentMetrics.hasTailContent === previousMetrics.hasTailContent
+      && currentMetrics.storyChoiceKey === previousMetrics.storyChoiceKey
     ) {
       return;
     }
 
-    scrollToBottom('smooth');
-  }, [renderItems, scrollToBottom, tailContent]);
+    followScrollToBottom();
+  }, [followScrollToBottom, renderItems, storyChoiceMessageId, storyChoiceOptions, tailContent]);
 
   useEffect(() => {
     if (!isLoadingOlder) {

@@ -145,6 +145,27 @@ describe('STORY_ENGINE', () => {
     expect(schema?.actions).toEqual([]);
   });
 
+  it('prefers chat-driven story beats over narrator-only prose', () => {
+    const sceneChat = buildStoryChat();
+    sceneChat.scenarioState = { ...(sceneChat.scenarioState || {}), phase: 'scene' };
+    const scenePrompt = STORY_ENGINE.buildGenerationPromptContext?.({ conversation: sceneChat, characters: [], messages: [], speaker: { id: 'narrator', name: '旁白' } as never });
+    expect(scenePrompt?.promptPrefix).toContain('chat-driven scene');
+    expect(scenePrompt?.promptPrefix).toContain('main visible rhythm should be character chat bubbles');
+    expect(scenePrompt?.promptPrefix).toContain('Never let a character inherit another character');
+    expect(scenePrompt?.additionalConstraints).toEqual(expect.arrayContaining([
+      expect.stringContaining('2-5 short character chat bubbles'),
+      expect.stringContaining('Prefer spoken tension'),
+    ]));
+
+    const branchChat = buildStoryChat();
+    branchChat.scenarioState = { ...(branchChat.scenarioState || {}), phase: 'branch' };
+    const branchPrompt = STORY_ENGINE.buildGenerationPromptContext?.({ conversation: branchChat, characters: [], messages: [], speaker: { id: 'narrator', name: '旁白' } as never });
+    expect(branchPrompt?.additionalConstraints).toEqual(expect.arrayContaining([
+      expect.stringContaining('1 short narrator setup block followed by 2-5 character chat bubbles'),
+      expect.stringContaining('Each character bubble should be 1-3 sentences'),
+    ]));
+  });
+
   it('allows speaking when choice phase has no visible story choices', () => {
     const chat = buildStoryChat();
     chat.scenarioState = { ...(chat.scenarioState || {}), phase: 'choice' };

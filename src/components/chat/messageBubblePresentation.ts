@@ -1,14 +1,40 @@
 import type { Message, NarrativeBlock } from '../../types/message';
+import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
+
+function getStoryEventText(message: Message) {
+  if (message.type !== 'event') return '';
+  const event = parseRuntimeEvent(message.content);
+  if (!event?.channelId?.startsWith('story:')) return '';
+  if (event.visibilityScope !== 'public' && event.visibilityScope !== 'derived_public') return '';
+  return (event.summary || event.title || '').trim();
+}
+
+function getNarrativeTurnVisibleBlocks(message: Message) {
+  const turn = message.metadata?.narrativeTurn;
+  return turn?.blocks.filter((block) => (block.displayMode === 'paragraph' || block.displayMode === 'bubble') && block.text.trim()) || [];
+}
 
 export function isNarrativeParagraphMessage(message: Message) {
-  const turn = message.metadata?.narrativeTurn;
-  return Boolean((turn && turn.povActorId === 'narrator') || (message.type === 'ai' && message.senderId === 'narrator'));
+  return Boolean(getNarrativeTurnVisibleBlocks(message).length || (message.type === 'ai' && message.senderId === 'narrator') || getStoryEventText(message));
 }
 
 export function getNarrativeParagraphBlocks(message: Message): NarrativeBlock[] {
-  const turn = message.metadata?.narrativeTurn;
-  if (turn?.povActorId === 'narrator') {
-    return turn.blocks.filter((block) => block.actorKind === 'narrator' && block.displayMode === 'paragraph' && block.text.trim());
+  const allNarrativeTurnBlocks = getNarrativeTurnVisibleBlocks(message);
+  const hasStoryEventBubbleBlocks = allNarrativeTurnBlocks.some((block) => block.displayMode === 'bubble' && block.characterId && !block.actorName);
+  const narrativeTurnBlocks = message.metadata?.narrativeTurn?.povActorId === 'narrator' && hasStoryEventBubbleBlocks
+    ? allNarrativeTurnBlocks.filter((block) => block.displayMode === 'paragraph')
+    : allNarrativeTurnBlocks;
+  if (narrativeTurnBlocks.length) return narrativeTurnBlocks;
+  const storyEventText = getStoryEventText(message);
+  if (storyEventText) {
+    return [{
+      id: `${message.id}:story-event`,
+      actorId: 'narrator',
+      actorKind: 'narrator',
+      kind: 'action',
+      displayMode: 'paragraph',
+      text: storyEventText,
+    }];
   }
   const text = message.content.trim();
   if (!isNarrativeParagraphMessage(message) || !text) return [];

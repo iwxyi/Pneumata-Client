@@ -39,6 +39,49 @@ describe('buildChatRenderItems', () => {
     expect(items.map((item) => item.renderKind)).toEqual(['system', 'event', 'narrative', 'bubble']);
   });
 
+  it('renders narrative turn paragraph messages as narrative items', () => {
+    const items = buildChatRenderItems([
+      message({
+        id: 'character-action-1',
+        senderId: 'char-1',
+        senderName: '角色',
+        content: '角色推开门。',
+        metadata: {
+          narrativeTurn: {
+            turnId: 'turn-1',
+            turnKind: 'character_reaction',
+            povActorId: 'char-1',
+            blocks: [{ id: 'b1', actorId: 'char-1', actorKind: 'character', kind: 'action', displayMode: 'paragraph', text: '角色推开门。' }],
+          },
+        },
+      }),
+    ]);
+
+    expect(items[0]?.renderKind).toBe('narrative');
+  });
+
+  it('renders public story events as narrative items', () => {
+    for (const visibilityScope of ['public', 'derived_public']) {
+      const items = buildChatRenderItems([
+        message({
+          id: `story-event-${visibilityScope}`,
+          type: 'event',
+          senderId: 'system',
+          senderName: 'System',
+          content: JSON.stringify({
+            eventType: 'story_action',
+            title: '动作',
+            summary: '门外传来急促脚步声。',
+            channelId: 'story:scene',
+            visibilityScope,
+          }),
+        }),
+      ]);
+
+      expect(items[0]?.renderKind).toBe('narrative');
+    }
+  });
+
   it('does not render a committed streamed message twice after server confirmation', () => {
     const items = buildChatRenderItems([
       message({

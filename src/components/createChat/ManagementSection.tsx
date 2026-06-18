@@ -1,4 +1,4 @@
-import { Box, Button, FormControlLabel, MenuItem, Stack, Switch, TextField, Typography } from '@mui/material';
+import { Box, FormControlLabel, MenuItem, Switch, TextField, Typography } from '@mui/material';
 import type { AICharacter } from '../../types/character';
 import SurfaceCard from '../common/SurfaceCard';
 
@@ -17,8 +17,6 @@ interface ManagementSectionProps {
   conversationKind: 'group' | 'direct' | 'ai_direct';
   conversationNoun: string;
   language: string;
-  clearMessagesLabel: string;
-  clearMemoryLabel: string;
   onOwnerChange: (value: string) => void;
   onAdminChange: (value: string[]) => void;
   onAutoModerationChange: (value: boolean) => void;
@@ -26,8 +24,6 @@ interface ManagementSectionProps {
   onAllowPrivateThreadsChange: (value: boolean) => void;
   onAllowCliquesChange: (value: boolean) => void;
   onAllowMockeryChange: (value: boolean) => void;
-  onOpenClearMessagesDialog: () => void;
-  onOpenClearMemoryDialog: () => void;
 }
 
 export default function ManagementSection(props: ManagementSectionProps) {
@@ -101,25 +97,6 @@ export default function ManagementSection(props: ManagementSectionProps) {
             <FormControlLabel control={<Switch checked={props.allowMockery} onChange={(e) => props.onAllowMockeryChange(e.target.checked)} />} label={isZh ? '允许公开嘲讽' : 'Allow mockery'} />
           </Box>
       </SurfaceCard>
-
-      {props.editingChat ? (
-        <SurfaceCard sx={{ borderColor: 'error.light', bgcolor: 'rgba(211, 47, 47, 0.04)' }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: 'error.main' }}>
-              {isZh ? '危险操作' : 'Danger zone'}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              {isZh ? `可分别清理消息记录或会话级记忆，不删除${props.conversationNoun}本身。` : `You can clear messages or session memory separately without deleting the ${props.conversationNoun} itself.`}
-            </Typography>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-              <Button color="error" variant="outlined" onClick={props.onOpenClearMessagesDialog}>
-                {props.clearMessagesLabel}
-              </Button>
-              <Button color="error" variant="outlined" onClick={props.onOpenClearMemoryDialog}>
-                {props.clearMemoryLabel}
-              </Button>
-            </Stack>
-        </SurfaceCard>
-      ) : null}
     </Box>
   );
 }

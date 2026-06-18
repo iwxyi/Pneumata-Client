@@ -1,6 +1,6 @@
 import type { AICharacter } from './character';
 import type { GroupChat, ParticipantInstance, RuntimeAction, RuntimePanelDefinition } from './chat';
-import type { Message, MessageAttachment } from './message';
+import type { Message, MessageAttachment, NarrativeBlock } from './message';
 import type { APIConfig } from './settings';
 import { buildDirectorInterventionFields } from './directorInterventionAction';
 
@@ -1505,7 +1505,7 @@ export interface SessionEngineDefinition {
   buildGenerationPromptContext?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionGenerationPromptContext;
   resolveTurnPolicy?: (context: SessionGenerationContext) => SessionTurnPolicy;
   buildRuntimeContextBundle?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionRuntimeContextBundle | null;
-  buildNarrativeTurnMetadata?: (context: SessionGenerationContext & { speaker: AICharacter; content: string }) => NonNullable<Message['metadata']>['narrativeTurn'] | null;
+  buildNarrativeTurnMetadata?: (context: SessionGenerationContext & { speaker: AICharacter; content: string; blocks?: NarrativeBlock[] | null }) => NonNullable<Message['metadata']>['narrativeTurn'] | null;
   onMessageCommitted: (context: SessionCommitContext) => Promise<{
   chatPatch: Partial<GroupChat>;
   characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;
@@ -1802,7 +1802,7 @@ export interface SessionEngineDefinition {
   buildGenerationPromptContext?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionGenerationPromptContext;
   resolveTurnPolicy?: (context: SessionGenerationContext) => SessionTurnPolicy;
   buildRuntimeContextBundle?: (context: SessionGenerationContext & { speaker: AICharacter }) => SessionRuntimeContextBundle | null;
-  buildNarrativeTurnMetadata?: (context: SessionGenerationContext & { speaker: AICharacter; content: string }) => NonNullable<Message['metadata']>['narrativeTurn'] | null;
+  buildNarrativeTurnMetadata?: (context: SessionGenerationContext & { speaker: AICharacter; content: string; blocks?: NarrativeBlock[] | null }) => NonNullable<Message['metadata']>['narrativeTurn'] | null;
   onMessageCommitted: (context: SessionCommitContext) => Promise<{
   chatPatch: Partial<GroupChat>;
   characterPatches: Array<{ characterId: string; patch: Partial<AICharacter> }>;

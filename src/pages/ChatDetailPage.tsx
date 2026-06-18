@@ -804,7 +804,6 @@ export default function ChatDetailPage() {
     setSnackbar,
   });
 
-  const [dismissedStoryBranchChatId, setDismissedStoryBranchChatId] = useState<string | null>(null);
   const storyChoiceSourceMessage = useMemo(
     () => {
       if (!isStoryRoom) return null;
@@ -834,9 +833,7 @@ export default function ChatDetailPage() {
       .filter((action) => action.type !== 'choose_story_branch'),
     [projectedActionPanelActions, sessionActions],
   );
-  const storyBranchSuggestionKey = `${chat?.id || ''}:${storyBranchOptions.map((option) => option.value).join('|')}`;
   const isStoryWaitingForChoice = chat?.sessionKind?.scenarioId === 'story-reader' && storyBranchOptions.length > 0;
-  const showStoryBranchSuggestions = isStoryWaitingForChoice && dismissedStoryBranchChatId !== storyBranchSuggestionKey;
   const runLoopStatusContent = (chatError || runLoopError) ? (
     <Alert severity="error" variant="outlined" sx={{ mx: { xs: 1.25, sm: 2 }, mt: 1, borderRadius: 3 }}>
       {chatError || runLoopError}
@@ -844,7 +841,6 @@ export default function ChatDetailPage() {
   ) : null;
   const handleChooseStoryBranch = useCallback(async (optionValue: string) => {
     if (!chat || !id) return;
-    setDismissedStoryBranchChatId(storyBranchSuggestionKey);
     const option = storyBranchOptions.find((item) => item.value === optionValue);
     const branches = chat.scenarioState?.branches || [];
     const selectedBranch = branches.find((branch) => branch.branchId === optionValue)
@@ -877,52 +873,8 @@ export default function ChatDetailPage() {
     } : chat;
     await updateChat(id, actionResult?.chatPatch || {});
     startConversationLoopIfNeeded(nextChat);
-  }, [addMessageStable, chat, currentUser?.nickname, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, storyBranchSuggestionKey, updateChat]);
-  const storyBranchSuggestionContent = showStoryBranchSuggestions ? (
-    <Stack data-message-id="story-branch-options" spacing={0.75} sx={{ px: { xs: 1.25, sm: 2 }, py: 1.25 }}>
-      {runLoopStatusContent}
-      <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, fontWeight: 700 }}>
-        选择接下来的剧情走向
-      </Typography>
-      {storyBranchOptions.map((option) => (
-        <Box
-          key={option.value}
-          component="button"
-          type="button"
-          onClick={() => handleChooseStoryBranch(option.value)}
-          sx={(theme) => ({
-            width: '100%',
-            border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(148,163,184,0.32)' : 'rgba(226,232,240,0.16)'}`,
-            borderRadius: 3,
-            px: { xs: 1.5, sm: 1.75 },
-            py: { xs: 1, sm: 1.1 },
-            bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.88)' : 'rgba(15,23,42,0.82)',
-            color: 'text.primary',
-            textAlign: 'left',
-            font: 'inherit',
-            cursor: 'pointer',
-            boxShadow: theme.palette.mode === 'light'
-              ? '0 12px 34px rgba(15,23,42,0.10), inset 0 1px 0 rgba(255,255,255,0.88)'
-              : '0 14px 36px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08)',
-            backdropFilter: 'blur(18px) saturate(1.25)',
-            transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background-color 140ms ease',
-            '&:hover': {
-              transform: 'translateY(-1px)',
-              borderColor: theme.palette.mode === 'light' ? 'rgba(99,102,241,0.38)' : 'rgba(129,140,248,0.44)',
-              bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.96)' : 'rgba(30,41,59,0.9)',
-              boxShadow: theme.palette.mode === 'light'
-                ? '0 16px 42px rgba(79,70,229,0.14), inset 0 1px 0 rgba(255,255,255,0.96)'
-                : '0 18px 44px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.10)',
-            },
-            '&:active': { transform: 'translateY(0) scale(0.992)' },
-            '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
-          })}
-        >
-          <Typography variant="body2" sx={{ fontSize: { xs: 14, sm: 14.5 }, fontWeight: 400, lineHeight: 1.7, letterSpacing: 0 }}>{option.label}</Typography>
-        </Box>
-      ))}
-    </Stack>
-  ) : runLoopStatusContent;
+  }, [addMessageStable, chat, currentUser?.nickname, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, updateChat]);
+  const storyBranchSuggestionContent = runLoopStatusContent;
 
   const handleExpressionFeedback = useCallback(async (message: Message, kind: ExpressionFeedbackKind) => {
     if (message.type !== 'ai') return;
@@ -1163,6 +1115,9 @@ export default function ChatDetailPage() {
             bottomInset={isRemoteDeletedChat ? { xs: '24px', sm: '24px' } : { xs: 'calc(82px + env(safe-area-inset-bottom, 0px))', sm: '82px' }}
             privateConversation={chat.type === 'direct' || chat.type === 'ai_direct'}
             tailContent={storyBranchSuggestionContent}
+            storyChoiceMessageId={isStoryWaitingForChoice ? storyChoiceSourceMessage?.id : null}
+            storyChoiceOptions={storyBranchOptions}
+            onChooseStoryChoice={isStoryWaitingForChoice ? handleChooseStoryBranch : undefined}
           />
         </Box>
         {isRemoteDeletedChat ? null : <Box

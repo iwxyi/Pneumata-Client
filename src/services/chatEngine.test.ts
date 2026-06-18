@@ -396,6 +396,30 @@ describe('chatEngine streaming preview', () => {
     expect(contract).not.toContain('一句自然的群聊回复');
   });
 
+  it('adds authoritative storyEvents for story reader prose, dialogue, and choices', () => {
+    const contract = buildInlineInteractionContract({
+      chat: buildChat({
+        memberIds: ['narrator'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        runtimeEventsV2: [],
+      }),
+      speaker: { id: 'narrator', name: '旁白' } as AICharacter,
+      characters: [{ id: 'narrator', name: '旁白' } as AICharacter],
+      recentMessages: [],
+    });
+
+    expect(contract).toContain('"narrativeText": null');
+    expect(contract).toContain('"storyEvents": [');
+    expect(contract).toContain('Do not copy the JSON shape with storyEvents=null');
+    expect(contract).toContain('"narrativeBlocks": null');
+    expect(contract).toContain('Story-reader turns must use storyEvents as the authoritative visible story body');
+    expect(contract).toContain('"type":"choice_point"');
+    expect(contract).toContain('Speech text must be chat-like');
+    expect(contract).toContain("Do not let one character inherit another character's private object");
+    expect(contract).toContain('Keep content="" and extraMessages=null for normal story turns');
+  });
+
   it('asks the model to judge counterpart interaction hints in AI private chats', () => {
     const contract = buildInlineInteractionContract({
       chat: { id: 'chat-1', type: 'ai_direct', memberIds: ['char-1', 'char-2'], runtimeEventsV2: [] } as never,
@@ -642,6 +666,361 @@ describe('chatEngine streaming preview', () => {
       promptText: 'A cute WeChat-style photo of mango pomelo sago dessert on a table',
       altText: '一杯杨枝甘露甜品',
     });
+  });
+
+  it('commits story narrativeBlocks as ordered prose and character bubble blocks', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      narrativeText: '雨水从旧宅檐角连成一线。\n\n门缝里透出一截冷光。',
+      narrativeBlocks: [
+        { actorId: 'narrator', kind: 'prose', text: '雨水从旧宅檐角连成一线。' },
+        { actorId: 'mei', actorName: '阿梅', kind: 'dialogue', text: '别靠太近。' },
+        { actorId: 'narrator', kind: 'prose', text: '门缝里透出一截冷光。' },
+      ],
+      content: '',
+      extraMessages: null,
+      storyChoices: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const mei = buildCharacter('mei', '阿梅');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator', 'mei'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [narrator, mei],
+      messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.content).toBe('');
+    expect(message.metadata?.narrativeTurn?.blocks).toEqual([
+      expect.objectContaining({ actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '雨水从旧宅檐角连成一线。' }),
+      expect.objectContaining({ actorId: 'mei', actorName: '阿梅', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', text: '别靠太近。' }),
+      expect.objectContaining({ actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '门缝里透出一截冷光。' }),
+    ]);
+    expect(message.metadata?.contextText).toContain('别靠太近。');
+  });
+
+  it('commits storyEvents as blocks and choice metadata', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      narrativeText: null,
+      storyEvents: [
+        { type: 'narration', actorId: 'narrator', text: '门锁轻轻弹开。' },
+        { type: 'speech', actorId: 'mei', actorName: '阿梅', text: '现在只能进去。' },
+        { type: 'choice_point', choices: [
+          { label: '让阿梅推门进入', prompt: '阿梅推门进入旧宅' },
+          { label: '让阿梅先退回院子', prompt: '阿梅退回院子观察窗户' },
+        ] },
+      ],
+      narrativeBlocks: null,
+      content: '',
+      extraMessages: null,
+      storyChoices: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const mei = buildCharacter('mei', '阿梅');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator', 'mei'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [narrator, mei],
+      messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.content).toBe('');
+    expect(message.metadata?.narrativeTurn?.blocks).toEqual([
+      expect.objectContaining({ actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '门锁轻轻弹开。' }),
+      expect.objectContaining({ actorId: 'mei', actorName: '阿梅', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', text: '现在只能进去。' }),
+    ]);
+    expect(message.metadata?.storyChoices).toEqual([
+      { label: '让阿梅推门进入', prompt: '阿梅推门进入旧宅' },
+      { label: '让阿梅先退回院子', prompt: '阿梅退回院子观察窗户' },
+    ]);
+  });
+
+  it('matches story event speech actors by actorName', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      narrativeText: null,
+      storyEvents: [
+        { type: 'speech', actorName: '阿梅', text: '别碰那盏灯。' },
+      ],
+      narrativeBlocks: null,
+      content: '',
+      extraMessages: null,
+      storyChoices: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const mei = buildCharacter('mei', '阿梅');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator', 'mei'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [narrator, mei],
+      messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.metadata?.narrativeTurn?.blocks).toEqual([
+      expect.objectContaining({ actorId: 'mei', actorName: '阿梅', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', text: '别碰那盏灯。' }),
+    ]);
+  });
+
+  it('matches story dialogue actors by name and logs unknown actors', async () => {
+    generateResponseMock.mockReset();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      narrativeBlocks: [
+        { actorId: '阿梅', kind: 'dialogue', text: '别碰那盏灯。' },
+        { actorId: 'ghost', actorName: '幽灵角色', kind: 'dialogue', text: '我也拿着她手里的当归。' },
+      ],
+      content: '',
+      extraMessages: null,
+      storyChoices: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const mei = buildCharacter('mei', '阿梅');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator', 'mei'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [narrator, mei],
+      messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.metadata?.narrativeTurn?.blocks).toEqual([
+      expect.objectContaining({ actorId: 'mei', actorName: '阿梅', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', text: '别碰那盏灯。' }),
+      expect.objectContaining({ actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '我也拿着她手里的当归。' }),
+    ]);
+    expect(warnSpy).toHaveBeenCalledWith('[story-reader] Unknown narrative dialogue actor; downgraded to narrator prose.', expect.objectContaining({ actorId: 'ghost', actorName: '幽灵角色' }));
+    warnSpy.mockRestore();
+  });
+
+  it('recovers story dialogue from prose blocks that begin with a character heading', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      narrativeBlocks: [
+        { actorId: 'narrator', kind: 'prose', text: '江采薇（宫女）\n皇后娘娘说的是……奴婢在针线房学过几年绣活。' },
+      ],
+      content: '',
+      extraMessages: null,
+      storyChoices: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const caiwei = buildCharacter('caiwei', '江采薇', { group: '宫女' });
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator', 'caiwei'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [narrator, caiwei],
+      messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.metadata?.narrativeTurn?.blocks).toEqual([
+      expect.objectContaining({ actorId: 'caiwei', actorName: '江采薇', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', text: '皇后娘娘说的是……奴婢在针线房学过几年绣活。' }),
+    ]);
+  });
+
+  it('treats narrator dialogue blocks as prose without unknown actor warnings', async () => {
+    generateResponseMock.mockReset();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      narrativeBlocks: [
+        { actorId: '旁白', kind: 'dialogue', text: '门后的风忽然停了。' },
+      ],
+      content: '',
+      extraMessages: null,
+      storyChoices: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const mei = buildCharacter('mei', '阿梅');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator', 'mei'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [narrator, mei],
+      messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.metadata?.narrativeTurn?.blocks).toEqual([
+      expect.objectContaining({ actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '门后的风忽然停了。' }),
+    ]);
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('does not fall back to story narrativeText as bubble content when nobody speaks', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      narrativeText: '走廊尽头的灯忽明忽暗，潮湿墙面渗出旧照片一样的阴影。',
+      content: '',
+      extraMessages: null,
+      storyChoices: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const narrator = buildCharacter('narrator', '旁白');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [narrator],
+      messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.content).toBe('');
+    expect(message.extraMessages).toBeNull();
+    expect(message.metadata?.narrativeTurn?.blocks[0]?.text).toBe('走廊尽头的灯忽明忽暗，潮湿墙面渗出旧照片一样的阴影。');
+    expect(message.metadata?.contextText).toContain('走廊尽头的灯忽明忽暗');
+  });
+
+  it('rejects story-reader JSON that puts visible story only in content', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({
+        narrativeText: null,
+        storyEvents: null,
+        narrativeBlocks: null,
+        content: '门里传来脚步声。',
+        extraMessages: null,
+        storyChoices: null,
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        narrativeText: null,
+        storyEvents: [
+          { type: 'narration', actorId: 'narrator', text: '门里传来脚步声。' },
+        ],
+        narrativeBlocks: null,
+        content: '',
+        extraMessages: null,
+        storyChoices: null,
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
+    const narrator = buildCharacter('narrator', '旁白');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [narrator],
+      messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(message.content).toBe('');
+    expect(message.metadata?.narrativeTurn?.blocks).toEqual([
+      expect.objectContaining({ actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '门里传来脚步声。' }),
+    ]);
+  });
+
+  it('retries plain story text instead of committing it as a fallback bubble', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock
+      .mockResolvedValueOnce('雨滴砸在青石阶上，门内传来一声很轻的咳嗽。')
+      .mockResolvedValueOnce(JSON.stringify({
+        narrativeText: null,
+        storyEvents: [
+          { type: 'narration', actorId: 'narrator', text: '雨滴砸在青石阶上。' },
+        ],
+        narrativeBlocks: null,
+        content: '',
+        extraMessages: null,
+        storyChoices: null,
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
+    const narrator = buildCharacter('narrator', '旁白');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [narrator],
+      messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(generateResponseMock.mock.calls[1]?.[1]).toContain('Story protocol retry');
+    expect(message.content).toBe('');
+    expect(message.metadata?.narrativeTurn?.blocks).toEqual([
+      expect.objectContaining({ actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '雨滴砸在青石阶上。' }),
+    ]);
   });
 
   it('preserves narrative turn metadata without media decisions', () => {

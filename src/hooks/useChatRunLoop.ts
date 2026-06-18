@@ -147,8 +147,7 @@ export function useChatRunLoop(params: {
             emotion: 0,
           });
           const nextStreamingMessage = { ...streamingMessage, isStreaming: true };
-          current.streamingMessageRef.current = nextStreamingMessage;
-          current.upsertMessage(nextStreamingMessage);
+          current.updateStreamingMessage(() => nextStreamingMessage, { immediate: true });
           setRunLoopError(null);
           setThinkingId(charId);
           current.setCurrentSpeaker(charId);
