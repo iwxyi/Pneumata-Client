@@ -417,7 +417,12 @@ describe('chatEngine streaming preview', () => {
     expect(contract).toContain('"type":"choice_point"');
     expect(contract).toContain('Speech text must be chat-like');
     expect(contract).toContain("Do not let one character inherit another character's private object");
-    expect(contract).toContain('Keep content="" and extraMessages=null for normal story turns');
+    expect(contract).toContain('content and extraMessages are legacy chat fields in story-reader turns');
+    expect(contract).toContain('Keep content="" and extraMessages=null; do not use them as the visible story body');
+    expect(contract).toContain('storyEvents.choice_point is the source of truth');
+    expect(contract).toContain('Do not output top-level storyChoices for the primary path');
+    expect(contract).not.toContain('"storyChoices": null');
+    expect(contract).not.toContain('storyChoices drives the UI');
   });
 
   it('asks the model to judge counterpart interaction hints in AI private chats', () => {

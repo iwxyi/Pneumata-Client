@@ -406,6 +406,19 @@ describe('STORY_ENGINE', () => {
     })).toEqual({ runChat: false, runAction: false, interleaveAction: false });
   });
 
+  it('keeps waiting for a story choice when later event messages follow the choice prompt', () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = { ...(chat.scenarioState || {}), phase: 'choice' };
+    expect(STORY_ENGINE.resolveTurnPolicy?.({
+      conversation: chat,
+      characters: [],
+      messages: [
+        { id: 'choice-message', chatId: 'story-1', type: 'ai', senderId: 'narrator', senderName: '旁白', content: '选择', timestamp: 1, isDeleted: false, emotion: 0, metadata: { storyChoices: [{ label: '进入旧楼', prompt: '进入旧楼' }, { label: '留在门口追问护士', prompt: '留在门口追问护士' }] } },
+        { id: 'event-after-choice', chatId: 'story-1', type: 'event', senderId: 'system', senderName: 'System', content: 'runtime event', timestamp: 2, isDeleted: false, emotion: 0 },
+      ],
+    })).toEqual({ runChat: false, runAction: false, interleaveAction: false });
+  });
+
   it('only creates narrative turn metadata for the narrator actor', () => {
     const chat = buildStoryChat();
     expect(STORY_ENGINE.buildNarrativeTurnMetadata?.({ conversation: chat, characters: [], messages: [], speaker: { id: 'a', name: '角色' } as never, content: '角色消息' })).toBeNull();
