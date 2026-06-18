@@ -131,7 +131,8 @@ function renderRelationshipLine(line: NarrativeLineProjection, chat: GroupChat, 
 function hasStoryAssets(chat: GroupChat) {
   const state = chat.scenarioState;
   return Boolean(
-    state?.chapterMemory
+    state?.chapterRecap
+    || state?.chapterMemory
     || state?.openQuestions?.length
     || state?.clues?.length
     || state?.stakes?.length
@@ -158,6 +159,7 @@ function renderAssetChips(label: string, values: string[] | undefined, members: 
 function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
   if (!hasStoryAssets(chat)) return null;
   const state = chat.scenarioState || {};
+  const recap = state.chapterRecap || null;
   const recentChoices = (state.choiceHistory || [])
     .slice(-3)
     .map((choice) => [choice.label, choice.risk ? `风险：${choice.risk}` : '', choice.reward ? `收益：${choice.reward}` : ''].filter(Boolean).join(' · '));
@@ -165,9 +167,21 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
     <Box sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'rgba(123,31,162,0.06)' }}>
       <Stack spacing={0.85}>
         <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-          <Chip size="small" label="章节记忆" variant="outlined" sx={compactPillChipSx} />
+          <Chip size="small" label={recap ? recap.title : '章节记忆'} variant="outlined" sx={compactPillChipSx} />
           {state.storyBeatKind ? <Chip size="small" label={state.storyBeatKind} variant="outlined" sx={compactPillChipSx} /> : null}
         </Stack>
+        {recap ? (
+          <>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+              {formatNarrativeLineText(recap.summary, members)}
+            </Typography>
+            {renderAssetChips('回顾线索', recap.discoveredClues, members)}
+            {renderAssetChips('回顾悬念', recap.unresolvedQuestions, members)}
+            {renderAssetChips('回顾关系', recap.changedRelationships, members)}
+            {renderAssetChips('回顾代价', recap.stakes, members)}
+            {renderAssetChips('回顾选择', recap.lastChoiceLabels, members)}
+          </>
+        ) : null}
         {state.chapterMemory ? (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
             {formatNarrativeLineText(state.chapterMemory, members)}

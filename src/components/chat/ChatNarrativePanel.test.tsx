@@ -170,6 +170,17 @@ describe('ChatNarrativePanel', () => {
         stakes: ['暴露位置'],
         relationshipShifts: [`${uuidA} 开始怀疑 ${uuidB}`],
         choiceHistory: [{ label: `${uuidA} 追问护士`, risk: '激怒护士', reward: '得到线索' }],
+        chapterRecap: {
+          title: '新的抉择点',
+          summary: `${uuidA} 在旧医院发现血迹`,
+          discoveredClues: ['地下档案室的病历被撕掉一页'],
+          unresolvedQuestions: [`${uuidB} 为什么隐瞒停电记录？`],
+          changedRelationships: [`${uuidA} 开始怀疑 ${uuidB}`],
+          stakes: ['暴露位置'],
+          lastChoiceLabels: [`${uuidA} 追问护士`],
+          updatedAt: 2,
+          beatCount: 0,
+        },
       },
     } satisfies GroupChat;
     const html = renderToStaticMarkup(
@@ -181,7 +192,10 @@ describe('ChatNarrativePanel', () => {
       />,
     );
 
-    expect(html).toContain('章节记忆');
+    expect(html).toContain('新的抉择点');
+    expect(html).toContain('回顾线索');
+    expect(html).toContain('回顾悬念');
+    expect(html).toContain('回顾选择');
     expect(html).toContain('红太狼 在旧医院发现血迹');
     expect(html).toContain('灰太狼 为什么隐瞒停电记录？');
     expect(html).toContain('地下档案室的病历被撕掉一页');

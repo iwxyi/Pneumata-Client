@@ -187,6 +187,7 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
       relationshipShifts: isStoryReader ? [] : undefined,
       choiceHistory: isStoryReader ? [] : undefined,
       chapterMemory: isStoryReader ? '' : undefined,
+      chapterRecap: isStoryReader ? null : undefined,
       werewolfRoleConfig: input.werewolfRoleConfig || '',
       werewolfPostGameMode: input.werewolfPostGameMode || 'free_talk',
       mysteryScript: input.mysteryScript || '',

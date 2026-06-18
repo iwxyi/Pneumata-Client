@@ -202,7 +202,9 @@ function extractStoryAssets(params: {
 function buildStoryAssetPrompt(conversation: GroupChat) {
   const state = conversation.scenarioState;
   if (!state) return [];
+  const recap = state.chapterRecap;
   const lines = [
+    recap?.summary ? `Latest chapter recap: ${recap.summary}` : '',
     state.chapterMemory ? `Chapter memory: ${state.chapterMemory}` : '',
     state.openQuestions?.length ? `Open questions to preserve or answer deliberately: ${state.openQuestions.slice(-4).join(' / ')}` : '',
     state.clues?.length ? `Known clues to reuse or reframe: ${state.clues.slice(-4).join(' / ')}` : '',
@@ -215,6 +217,32 @@ function buildStoryAssetPrompt(conversation: GroupChat) {
     'Use these story assets as continuity anchors. Do not list them back to the user; weave at most 1-2 into the scene naturally.',
     ...lines,
   ];
+}
+
+function buildChapterRecap(params: {
+  conversation: GroupChat;
+  storyAssets: StoryAssetPatch;
+  summary: string;
+  openedChoice: boolean;
+  nextSceneBeatCount: number;
+}) {
+  const previous = params.conversation.scenarioState?.chapterRecap || null;
+  const shouldRefresh = params.openedChoice || params.nextSceneBeatCount >= 4 || !previous;
+  if (!shouldRefresh) return previous;
+  const choiceHistory = params.conversation.scenarioState?.choiceHistory || [];
+  const lastChoices = choiceHistory.slice(-3).map((choice) => choice.label).filter(Boolean);
+  const summary = compactStoryAssetText(params.storyAssets.chapterMemory || params.summary, 140);
+  return {
+    title: params.openedChoice ? '新的抉择点' : '阶段回顾',
+    summary,
+    discoveredClues: (params.storyAssets.clues || []).slice(-4),
+    unresolvedQuestions: (params.storyAssets.openQuestions || []).slice(-4),
+    changedRelationships: (params.storyAssets.relationshipShifts || []).slice(-4),
+    stakes: (params.storyAssets.stakes || []).slice(-4),
+    lastChoiceLabels: lastChoices,
+    updatedAt: Date.now(),
+    beatCount: params.nextSceneBeatCount,
+  };
 }
 
 function normalizeStoryBranches(conversation: GroupChat, choices: StoryChoiceSuggestion[]) {
@@ -390,11 +418,20 @@ function onMessageCommitted(params: {
   const storyAssets = extractStoryAssets({ conversation: params.conversation, message: params.message, choices, summary });
   const normalized = normalizeStoryBranches(params.conversation, choices);
   const nextEpoch = getCurrentChoiceEpoch({ ...params.conversation, scenarioState: { ...(params.conversation.scenarioState || {}), branches: normalized.branches } });
+  const nextSceneBeatCount = normalized.openedChoice ? 0 : Number(params.conversation.scenarioState?.sceneBeatCount || 0) + 1;
+  const chapterRecap = buildChapterRecap({
+    conversation: params.conversation,
+    storyAssets,
+    summary,
+    openedChoice: normalized.openedChoice,
+    nextSceneBeatCount,
+  });
   const nextScenarioState = {
     ...(params.conversation.scenarioState || {}),
     ...storyAssets,
+    chapterRecap,
     phase: normalized.hasOpenChoice ? 'choice' : 'scene',
-    sceneBeatCount: normalized.openedChoice ? 0 : Number(params.conversation.scenarioState?.sceneBeatCount || 0) + 1,
+    sceneBeatCount: nextSceneBeatCount,
     choiceEpoch: nextEpoch,
     selectedChoiceEpoch: normalized.openedChoice ? undefined : params.conversation.scenarioState?.selectedChoiceEpoch,
     branches: normalized.branches,

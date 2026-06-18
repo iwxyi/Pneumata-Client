@@ -101,6 +101,18 @@ export interface ScenarioBranchState {
 export type StoryBeatKind = 'establish' | 'pressure' | 'decision' | 'consequence' | 'new_pressure';
 export type StoryChoicePolicy = 'forbid' | 'allow' | 'require';
 
+export interface StoryChapterRecapState {
+  title: string;
+  summary: string;
+  discoveredClues: string[];
+  unresolvedQuestions: string[];
+  changedRelationships: string[];
+  stakes: string[];
+  lastChoiceLabels: string[];
+  updatedAt: number;
+  beatCount: number;
+}
+
 export interface ScenarioState {
   seats?: ScenarioSeat[];
   roleAssignments?: ScenarioRoleAssignment[];
@@ -137,6 +149,7 @@ export interface ScenarioState {
     chosenAt?: number;
   }>;
   chapterMemory?: string;
+  chapterRecap?: StoryChapterRecapState | null;
   sceneBeatCount?: number;
   choiceEpoch?: number;
   selectedChoiceEpoch?: number;

@@ -97,6 +97,7 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     expect(draft.scenarioState?.relationshipShifts).toEqual([]);
     expect(draft.scenarioState?.choiceHistory).toEqual([]);
     expect(draft.scenarioState?.chapterMemory).toBe('');
+    expect(draft.scenarioState?.chapterRecap).toBeNull();
     expect(draft.scenarioState?.branches).toEqual([]);
     expect(draft.showRoleActions).toBe(false);
     expect(draft.modeConfig.showRoleActions).toBe(false);

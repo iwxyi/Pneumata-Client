@@ -212,6 +212,13 @@ describe('STORY_ENGINE', () => {
     expect(scenarioState?.stakes).toEqual(expect.arrayContaining(['激怒护士', '得到停电线索', '暴露位置', '发现新证据']));
     expect(scenarioState?.relationshipShifts).toEqual(expect.arrayContaining(['墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。']));
     expect(scenarioState?.chapterMemory).toContain('门后到底是谁');
+    expect(scenarioState?.chapterRecap).toEqual(expect.objectContaining({
+      title: '新的抉择点',
+      discoveredClues: expect.arrayContaining(['墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。']),
+      unresolvedQuestions: expect.arrayContaining(['门后到底是谁？']),
+      stakes: expect.arrayContaining(['激怒护士', '得到停电线索']),
+      beatCount: 0,
+    }));
 
     const prompt = STORY_ENGINE.buildGenerationPromptContext?.({
       conversation: { ...chat, scenarioState },
@@ -221,6 +228,7 @@ describe('STORY_ENGINE', () => {
     });
     expect(prompt?.additionalConstraints).toEqual(expect.arrayContaining([
       expect.stringContaining('Use these story assets as continuity anchors'),
+      expect.stringContaining('Latest chapter recap'),
       expect.stringContaining('Open questions to preserve or answer deliberately'),
       expect.stringContaining('Known clues to reuse or reframe'),
       expect.stringContaining('Current stakes'),
