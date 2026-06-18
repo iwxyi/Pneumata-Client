@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE, normalizeConversation } from '../types/chat';
 import type { AICharacter } from '../types/character';
-import { buildNarrativeTurnFromStoryEvents, buildStoryEventsVisibleText, getStoryChoicesFromEvents, normalizeStoryEvents } from './narrativeRuntime';
+import {
+  buildChapterRecap,
+  buildNarrativeTurnFromStoryEvents,
+  buildStoryAssetPrompt,
+  buildStoryEventsVisibleText,
+  extractStoryAssets,
+  getStoryChoicesFromEvents,
+  normalizeStoryBranches,
+  normalizeStoryEvents,
+  resolveStoryBeatPlan,
+  updateChoiceHistoryOutcome,
+} from './narrativeRuntime';
 
 const characters = [
   { id: 'lin', name: '林医生' },
@@ -96,6 +107,81 @@ describe('narrativeRuntime', () => {
         characterId: 'unknown-actor',
         text: '别往前走。',
       }),
+    ]));
+  });
+
+  it('plans story beats and normalizes choices as reusable narrative runtime state', () => {
+    const decisionChat = normalizeConversation({
+      ...chat,
+      scenarioState: { phase: 'scene', sceneBeatCount: 3, choiceEpoch: 1, branches: [] },
+    });
+    expect(resolveStoryBeatPlan(decisionChat)).toEqual(expect.objectContaining({
+      beatKind: 'decision',
+      choicePolicy: 'require',
+    }));
+
+    const normalized = normalizeStoryBranches(decisionChat, [
+      { label: '让林医生追问昨晚停电记录', prompt: '追问停电记录', intent: '逼问', risk: '激怒护士', reward: '得到线索' },
+      { label: '让护士检查墙上的血迹', prompt: '检查血迹', intent: '探索', risk: '暴露位置', reward: '找到证据' },
+    ]);
+    expect(normalized).toEqual(expect.objectContaining({ hasOpenChoice: true, openedChoice: true }));
+    expect(normalized.branches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: '让林医生追问昨晚停电记录', choiceEpoch: 2, status: 'available', description: '意图：逼问；风险：激怒护士；收益：得到线索' }),
+    ]));
+  });
+
+  it('extracts assets, builds recaps, and records the selected branch outcome', () => {
+    const choiceChat = normalizeConversation({
+      ...chat,
+      scenarioState: {
+        phase: 'branch',
+        selectedChoiceEpoch: 2,
+        choiceHistory: [{ branchId: 'ask', label: '追问停电记录', risk: '激怒护士', reward: '得到线索', choiceEpoch: 2 }],
+        openQuestions: ['旧医院为什么停电？'],
+        clues: [],
+        stakes: [],
+        relationshipShifts: [],
+      },
+    });
+    const assets = extractStoryAssets({
+      conversation: choiceChat,
+      choices: [{ label: '让护士检查血迹', prompt: '检查血迹', risk: '暴露位置', reward: '发现证据' }],
+      summary: '护士承认停电时有人进入档案室。',
+      message: {
+        content: '护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。',
+        metadata: {},
+      },
+    });
+    expect(assets).toEqual(expect.objectContaining({
+      openQuestions: expect.arrayContaining(['旧医院为什么停电？']),
+      clues: expect.arrayContaining(['护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
+      stakes: expect.arrayContaining(['暴露位置', '发现证据']),
+      relationshipShifts: expect.arrayContaining(['护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
+    }));
+
+    const recap = buildChapterRecap({
+      conversation: choiceChat,
+      storyAssets: assets,
+      summary: '护士承认停电时有人进入档案室。',
+      openedChoice: false,
+      nextSceneBeatCount: 4,
+    });
+    expect(recap).toEqual(expect.objectContaining({
+      title: '阶段回顾',
+      discoveredClues: expect.arrayContaining(['护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
+      lastChoiceLabels: ['追问停电记录'],
+    }));
+
+    const updatedHistory = updateChoiceHistoryOutcome(choiceChat, '护士承认停电时有人进入档案室。');
+    expect(updatedHistory[0]).toEqual(expect.objectContaining({ outcome: '护士承认停电时有人进入档案室。' }));
+
+    const prompt = buildStoryAssetPrompt(normalizeConversation({
+      ...choiceChat,
+      scenarioState: { ...(choiceChat.scenarioState || {}), ...assets, choiceHistory: updatedHistory, chapterRecap: recap },
+    }));
+    expect(prompt).toEqual(expect.arrayContaining([
+      expect.stringContaining('Use these story assets as continuity anchors'),
+      expect.stringContaining('outcome=护士承认停电时有人进入档案室。'),
     ]));
   });
 });
