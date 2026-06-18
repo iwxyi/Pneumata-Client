@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { normalizeConversation } from '../../types/chat';
 import { runOneRound } from '../chatEngine';
+import { runSessionActionExecutor } from '../sessionActionExecutors/sessionActionExecutorRegistry';
 import { STORY_ENGINE } from './storyEngine';
 
 vi.mock('../aiClient', () => ({
@@ -233,6 +234,106 @@ describe('STORY_ENGINE', () => {
       expect.stringContaining('Known clues to reuse or reframe'),
       expect.stringContaining('Current stakes'),
     ]));
+  });
+
+  it('keeps the full story-room loop coherent from choice opening to branch consequence', async () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = {
+      ...(chat.scenarioState || {}),
+      phase: 'scene',
+      sceneBeatCount: 3,
+      choiceEpoch: 1,
+      branches: [],
+      openQuestions: [],
+      clues: [],
+      stakes: [],
+      relationshipShifts: [],
+      choiceHistory: [],
+    };
+
+    const choiceResult = await STORY_ENGINE.onMessageCommitted({
+      conversation: chat,
+      characters: [],
+      message: {
+        content: '门后到底是谁？墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。',
+        type: 'ai',
+        senderId: 'narrator',
+        metadata: {
+          storyChoices: [
+            { label: '让林医生追问护士昨晚去向', prompt: '林医生逼问护士', intent: '逼问', risk: '激怒护士', reward: '得到停电线索' },
+            { label: '让主角检查墙上的血迹', prompt: '主角检查血迹', intent: '探索', risk: '暴露位置', reward: '发现新证据' },
+          ],
+        },
+      },
+    });
+    const choiceState = choiceResult.chatPatch.scenarioState;
+    expect(choiceState).toEqual(expect.objectContaining({
+      phase: 'choice',
+      choiceEpoch: 2,
+      storyBeatKind: 'decision',
+      storyChoicePolicy: 'require',
+    }));
+    expect(choiceState?.branches?.filter((branch) => branch.status === 'available' && branch.choiceEpoch === 2)).toHaveLength(2);
+
+    const choiceChat = normalizeConversation({
+      ...chat,
+      scenarioState: { ...(chat.scenarioState || {}), ...(choiceState || {}) },
+      worldState: { ...chat.worldState, ...(choiceResult.chatPatch.worldState || {}) },
+    });
+    const selectedBranch = choiceChat.scenarioState?.branches?.find((branch) => branch.label === '让林医生追问护士昨晚去向');
+    expect(selectedBranch?.branchId).toBeTruthy();
+    const branchResult = runSessionActionExecutor(choiceChat, {
+      type: 'choose_story_branch',
+      actorId: 'user',
+      payload: { branchId: selectedBranch?.branchId, prompt: selectedBranch?.prompt },
+    });
+    expect(branchResult).toBeTruthy();
+    expect(branchResult?.chatPatch).toBeTruthy();
+    const branchPatch = branchResult?.chatPatch;
+    if (!branchPatch) throw new Error('Expected story branch action to return a chat patch');
+    expect(branchPatch.scenarioState).toEqual(expect.objectContaining({
+      phase: 'branch',
+      storyBeatKind: 'consequence',
+      storyChoicePolicy: 'forbid',
+      selectedChoiceEpoch: 2,
+      choiceHistory: [expect.objectContaining({
+        label: '让林医生追问护士昨晚去向',
+        risk: '激怒护士',
+        reward: '得到停电线索',
+      })],
+      branches: expect.arrayContaining([
+        expect.objectContaining({ label: '让林医生追问护士昨晚去向', status: 'chosen', choiceEpoch: 2 }),
+        expect.objectContaining({ label: '让主角检查墙上的血迹', status: 'completed', choiceEpoch: 2 }),
+      ]),
+    }));
+
+    const branchChat = normalizeConversation({
+      ...choiceChat,
+      scenarioState: { ...(choiceChat.scenarioState || {}), ...(branchPatch.scenarioState || {}) },
+      worldState: { ...choiceChat.worldState, ...(branchPatch.worldState || {}) },
+    });
+    const consequenceResult = await STORY_ENGINE.onMessageCommitted({
+      conversation: branchChat,
+      characters: [],
+      message: {
+        content: '林医生逼问护士后，护士承认停电时有人进入档案室，代价是她开始拒绝继续同行。',
+        type: 'ai',
+        senderId: 'narrator',
+      },
+    });
+    expect(consequenceResult.chatPatch.scenarioState).toEqual(expect.objectContaining({
+      phase: 'scene',
+      choiceEpoch: 2,
+      selectedChoiceEpoch: 2,
+      sceneBeatCount: 1,
+      storyBeatKind: 'pressure',
+      storyChoicePolicy: 'forbid',
+    }));
+    expect(consequenceResult.chatPatch.scenarioState?.choiceHistory).toHaveLength(1);
+    expect(consequenceResult.chatPatch.scenarioState?.branches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: '让主角检查墙上的血迹', status: 'completed', choiceEpoch: 2 }),
+    ]));
+    expect(consequenceResult.chatPatch.scenarioState?.chapterMemory).toContain('护士承认停电时有人进入档案室');
   });
 
   it('marks choice phase as branch-only', () => {

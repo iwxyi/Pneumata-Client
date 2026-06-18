@@ -84,6 +84,7 @@ function validateAction(action: SessionActionDefinition) {
 function canActorExecuteAction(chat: GroupChat, action: SessionActionDefinition) {
   const actorId = typeof action.payload?.actorId === 'string' ? action.payload.actorId : action.actorId;
   if (!actorId) return true;
+  if (action.type === 'choose_story_branch' && actorId === 'user') return true;
   const memberSet = new Set(chat.memberIds);
   const aiIds = new Set(
     chat.memberIds.filter((id) => id !== 'user' && !/([_:-]|^)(gm|game|game_master|judge|referee|host|mc|主持|guide|guidance|topic|facilitator|引导|narrator|旁白|director|god|上帝|导演|moderator|mod|管理|system|orchestrator|scheduler|runtime)([_:-]|$)/i.test(id)),

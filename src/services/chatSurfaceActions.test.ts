@@ -231,6 +231,38 @@ describe('chatSurfaceActions', () => {
     expect(context.appendEventMessage).toHaveBeenCalledWith(chat.id, expect.objectContaining({ eventType: 'story_branch' }));
   });
 
+  it('lets the user choose a story branch even when user is not a room member', async () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      memberIds: ['a', 'b'],
+      mode: 'scripted_play',
+      sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+      scenarioState: {
+        ...(buildChat().scenarioState || {}),
+        phase: 'choice',
+        choiceEpoch: 3,
+        branches: [
+          { branchId: 'ask', label: '追问护士', status: 'available' as const, choiceEpoch: 3, prompt: '追问护士停电期间的位置' },
+          { branchId: 'search', label: '检查血迹', status: 'available' as const, choiceEpoch: 3, prompt: '检查墙上的新鲜血迹' },
+        ],
+      },
+    });
+    const context = { ...buildContext(), chat, chats: [chat] } satisfies ChatSurfaceActionContext;
+    const trigger = vi.fn(async () => null);
+    await runSessionActionImpl(context, { type: 'choose_story_branch', actorId: 'user' }, { branchId: 'ask', prompt: '追问护士停电期间的位置' }, trigger);
+    expect(context.updateChat).toHaveBeenCalledWith(chat.id, expect.objectContaining({
+      scenarioState: expect.objectContaining({
+        phase: 'branch',
+        selectedChoiceEpoch: 3,
+        branches: expect.arrayContaining([
+          expect.objectContaining({ branchId: 'ask', status: 'chosen', choiceEpoch: 3 }),
+          expect.objectContaining({ branchId: 'search', status: 'completed', choiceEpoch: 3 }),
+        ]),
+      }),
+    }));
+    expect(context.appendEventMessage).toHaveBeenCalledWith(chat.id, expect.objectContaining({ eventType: 'story_branch' }));
+  });
+
 
   it('records custom story branch direction from free input', async () => {
     const chat = normalizeConversation({
