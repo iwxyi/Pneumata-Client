@@ -88,6 +88,9 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
 
     expect(draft.mode).toBe('scripted_play');
     expect(draft.scenarioState?.phase).toBe('scene');
+    expect(draft.scenarioState?.storyBeatKind).toBe('establish');
+    expect(draft.scenarioState?.storyChoicePolicy).toBe('forbid');
+    expect(draft.scenarioState?.storyBeatReason).toBe('establish scene before choices');
     expect(draft.scenarioState?.branches).toEqual([]);
     expect(draft.showRoleActions).toBe(false);
     expect(draft.modeConfig.showRoleActions).toBe(false);

@@ -57,6 +57,9 @@ export interface NarrativeChoice {
 export interface StoryChoiceSuggestion {
   label: string;
   prompt?: string | null;
+  intent?: string | null;
+  risk?: string | null;
+  reward?: string | null;
 }
 
 export type StoryEventType = 'narration' | 'speech' | 'choice_point';
@@ -64,6 +67,9 @@ export type StoryEventType = 'narration' | 'speech' | 'choice_point';
 export interface StoryEventChoice {
   label: string;
   prompt?: string | null;
+  intent?: string | null;
+  risk?: string | null;
+  reward?: string | null;
 }
 
 export interface StoryEvent {

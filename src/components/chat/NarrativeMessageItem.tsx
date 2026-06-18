@@ -7,6 +7,10 @@ import { NarrativeParagraphContent, PendingTypingDots } from './ChatMessageConte
 export interface NarrativeStoryChoiceOption {
   label: string;
   value: string;
+  prompt?: string | null;
+  intent?: string | null;
+  risk?: string | null;
+  reward?: string | null;
 }
 
 interface NarrativeMessageItemProps {
@@ -58,9 +62,41 @@ function StoryChoicePanel({ options, onChoose }: { options: NarrativeStoryChoice
           })}
         >
           <Typography variant="body2" sx={{ fontSize: { xs: 14, sm: 14.5 }, fontWeight: 400, lineHeight: 1.7, letterSpacing: 0 }}>{option.label}</Typography>
+          {option.intent || option.risk || option.reward ? (
+            <Stack direction="row" spacing={0.75} useFlexGap sx={{ mt: 0.75, flexWrap: 'wrap' }}>
+              {option.intent ? <ChoiceMeta label="意图" value={option.intent} /> : null}
+              {option.risk ? <ChoiceMeta label="风险" value={option.risk} /> : null}
+              {option.reward ? <ChoiceMeta label="收益" value={option.reward} /> : null}
+            </Stack>
+          ) : null}
         </Box>
       ))}
     </Stack>
+  );
+}
+
+function ChoiceMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <Box
+      component="span"
+      sx={(theme) => ({
+        display: 'inline-flex',
+        alignItems: 'center',
+        minWidth: 0,
+        maxWidth: '100%',
+        px: 0.75,
+        py: 0.25,
+        borderRadius: 1,
+        bgcolor: theme.palette.mode === 'light' ? 'rgba(15,23,42,0.06)' : 'rgba(226,232,240,0.08)',
+        color: 'text.secondary',
+        fontSize: 12,
+        lineHeight: 1.5,
+        letterSpacing: 0,
+      })}
+    >
+      <Box component="span" sx={{ flex: '0 0 auto', fontWeight: 700, mr: 0.5 }}>{label}</Box>
+      <Box component="span" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{value}</Box>
+    </Box>
   );
 }
 

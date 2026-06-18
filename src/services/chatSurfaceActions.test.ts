@@ -198,7 +198,7 @@ describe('chatSurfaceActions', () => {
         choiceEpoch: 1,
         branches: [
           { branchId: 'main', label: '主线', status: 'available' as const, choiceEpoch: 1 },
-          { branchId: 'hidden', label: '暗线', status: 'available' as const, choiceEpoch: 1 },
+          { branchId: 'hidden', label: '暗线', status: 'available' as const, choiceEpoch: 1, intent: '追踪', risk: '暴露行踪', reward: '找到线索' },
         ],
       },
     });
@@ -208,7 +208,20 @@ describe('chatSurfaceActions', () => {
     expect(context.updateChat).toHaveBeenCalledWith(chat.id, expect.objectContaining({
       scenarioState: expect.objectContaining({
         phase: 'branch',
+        storyBeatKind: 'consequence',
+        storyChoicePolicy: 'forbid',
+        storyBeatReason: 'resolve selected branch before opening another choice',
         selectedChoiceEpoch: 1,
+        choiceHistory: [expect.objectContaining({
+          branchId: 'hidden',
+          label: '暗线',
+          prompt: '追查暗线',
+          intent: '追踪',
+          risk: '暴露行踪',
+          reward: '找到线索',
+          choiceEpoch: 1,
+          chosenAt: expect.any(Number),
+        })],
         branches: expect.arrayContaining([
           expect.objectContaining({ branchId: 'hidden', status: 'chosen', choiceEpoch: 1 }),
           expect.objectContaining({ branchId: 'main', status: 'completed', choiceEpoch: 1 }),

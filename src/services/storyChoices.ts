@@ -5,6 +5,9 @@ export interface StoryBranchOption {
   label: string;
   value: string;
   prompt: string;
+  intent?: string | null;
+  risk?: string | null;
+  reward?: string | null;
 }
 
 const abstractStoryChoicePatterns = [
@@ -33,7 +36,16 @@ export function normalizeStoryChoiceSuggestions(value: unknown): StoryChoiceSugg
       const item = choice as Partial<Record<keyof StoryChoiceSuggestion, unknown>>;
       const label = typeof item.label === 'string' ? item.label.trim() : '';
       const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : '';
-      return { label, prompt };
+      const intent = typeof item.intent === 'string' ? item.intent.trim() : '';
+      const risk = typeof item.risk === 'string' ? item.risk.trim() : '';
+      const reward = typeof item.reward === 'string' ? item.reward.trim() : '';
+      return {
+        label,
+        prompt,
+        ...(intent ? { intent } : {}),
+        ...(risk ? { risk } : {}),
+        ...(reward ? { reward } : {}),
+      };
     })
     .filter((choice) => {
       if (!choice.label || !isConcreteStoryChoiceLabel(choice.label) || seen.has(choice.label)) return false;
@@ -77,6 +89,9 @@ export function buildStoryBranchOptions(params: {
       label: choice.label,
       value: branch?.branchId || `${params.sourceId || 'story-choice'}:${index}`,
       prompt,
+      intent: choice.intent || branch?.intent || null,
+      risk: choice.risk || branch?.risk || null,
+      reward: choice.reward || branch?.reward || null,
     };
   });
 }

@@ -91,9 +91,15 @@ export interface ScenarioBranchState {
   status?: 'available' | 'locked' | 'chosen' | 'completed';
   description?: string;
   prompt?: string;
+  intent?: string;
+  risk?: string;
+  reward?: string;
   source?: 'suggested' | 'custom' | 'system';
   choiceEpoch?: number;
 }
+
+export type StoryBeatKind = 'establish' | 'pressure' | 'decision' | 'consequence' | 'new_pressure';
+export type StoryChoicePolicy = 'forbid' | 'allow' | 'require';
 
 export interface ScenarioState {
   seats?: ScenarioSeat[];
@@ -112,6 +118,25 @@ export interface ScenarioState {
   storySituation?: string;
   storyGoal?: string;
   storyOutline?: string;
+  storyBeatKind?: StoryBeatKind;
+  storyChoicePolicy?: StoryChoicePolicy;
+  storyBeatReason?: string;
+  openQuestions?: string[];
+  clues?: string[];
+  stakes?: string[];
+  relationshipShifts?: string[];
+  choiceHistory?: Array<{
+    branchId?: string;
+    label: string;
+    prompt?: string;
+    intent?: string;
+    risk?: string;
+    reward?: string;
+    outcome?: string;
+    choiceEpoch?: number;
+    chosenAt?: number;
+  }>;
+  chapterMemory?: string;
   sceneBeatCount?: number;
   choiceEpoch?: number;
   selectedChoiceEpoch?: number;

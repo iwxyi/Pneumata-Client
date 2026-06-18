@@ -546,7 +546,8 @@ Final story-reader output requirements:
 - storyEvents is mandatory and must contain at least one narration, speech, or choice_point event.
 - Keep content="", extraMessages=null, narrativeText=null, and narrativeBlocks=null for normal story turns.
 - Do not put the visible story in content, narrativeText, markdown, or plain prose.
-- If a character speaks, represent it as a storyEvents speech event with actorId or exact actorName.`;
+- If a character speaks, represent it as a storyEvents speech event with actorId or exact actorName.
+- If you output a choice_point, each choice should include label, prompt, intent, risk, and reward.`;
 }
 
 function buildStoryProtocolRetryPrompt(basePrompt: string, priorAttempt: string) {

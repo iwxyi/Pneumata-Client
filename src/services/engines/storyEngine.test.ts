@@ -78,6 +78,40 @@ describe('STORY_ENGINE', () => {
     const scenarioState = result.chatPatch.scenarioState;
     expect(scenarioState).toEqual(expect.objectContaining({ phase: 'choice', choiceEpoch: 2, selectedChoiceEpoch: undefined, sceneBeatCount: 0 }));
     expect(scenarioState?.branches?.filter((branch) => branch.status === 'available' && branch.choiceEpoch === 2)).toHaveLength(2);
+    expect(scenarioState).toEqual(expect.objectContaining({
+      storyBeatKind: 'decision',
+      storyChoicePolicy: 'require',
+      storyBeatReason: 'runtime is waiting for user decision',
+    }));
+  });
+
+  it('suppresses model choices during establish beats', async () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = { phase: 'scene', sceneBeatCount: 0, choiceEpoch: 1, branches: [] };
+    const result = await STORY_ENGINE.onMessageCommitted({
+      conversation: chat,
+      characters: [],
+      message: {
+        content: '刚开场模型误给了选项',
+        type: 'ai',
+        senderId: 'narrator',
+        metadata: {
+          storyChoices: [
+            { label: '立刻进入地下室', prompt: '进入地下室' },
+            { label: '立刻质问院长', prompt: '质问院长' },
+          ],
+        },
+      },
+    });
+
+    expect(result.chatPatch.scenarioState).toEqual(expect.objectContaining({
+      phase: 'scene',
+      choiceEpoch: 1,
+      storyBeatKind: 'pressure',
+      storyChoicePolicy: 'forbid',
+      storyBeatReason: 'build visible pressure before choices',
+    }));
+    expect(result.chatPatch.scenarioState?.branches).toEqual([]);
   });
 
   it('does not create a new choice after every ordinary scene beat', async () => {
@@ -126,13 +160,19 @@ describe('STORY_ENGINE', () => {
           storyChoices: [
             { label: ' 让角色追上黑衣人 ', prompt: '角色追上黑衣人' },
             { label: '让角色追上黑衣人', prompt: '重复选项' },
-            { label: '说出钥匙藏在哪里', prompt: '角色说出钥匙藏在哪里' },
+            { label: '说出钥匙藏在哪里', prompt: '角色说出钥匙藏在哪里', intent: '逼问', risk: '暴露钥匙线索', reward: '知道钥匙位置' },
           ],
         },
       },
     });
     const labels = result.chatPatch.scenarioState?.branches?.filter((branch) => branch.choiceEpoch === 2).map((branch) => branch.label);
     expect(labels).toEqual(['让角色追上黑衣人', '说出钥匙藏在哪里']);
+    expect(result.chatPatch.scenarioState?.branches?.find((branch) => branch.label === '说出钥匙藏在哪里')).toEqual(expect.objectContaining({
+      intent: '逼问',
+      risk: '暴露钥匙线索',
+      reward: '知道钥匙位置',
+      description: '意图：逼问；风险：暴露钥匙线索；收益：知道钥匙位置',
+    }));
   });
 
   it('marks choice phase as branch-only', () => {
@@ -153,6 +193,8 @@ describe('STORY_ENGINE', () => {
     expect(scenePrompt?.promptPrefix).toContain('main visible rhythm should be character chat bubbles');
     expect(scenePrompt?.promptPrefix).toContain('Never let a character inherit another character');
     expect(scenePrompt?.additionalConstraints).toEqual(expect.arrayContaining([
+      expect.stringContaining('beatKind=establish; choicePolicy=forbid'),
+      expect.stringContaining('Do not output storyEvents.choice_point'),
       expect.stringContaining('2-5 short character chat bubbles'),
       expect.stringContaining('Prefer spoken tension'),
     ]));
@@ -161,8 +203,17 @@ describe('STORY_ENGINE', () => {
     branchChat.scenarioState = { ...(branchChat.scenarioState || {}), phase: 'branch' };
     const branchPrompt = STORY_ENGINE.buildGenerationPromptContext?.({ conversation: branchChat, characters: [], messages: [], speaker: { id: 'narrator', name: '旁白' } as never });
     expect(branchPrompt?.additionalConstraints).toEqual(expect.arrayContaining([
+      expect.stringContaining('beatKind=consequence; choicePolicy=forbid'),
       expect.stringContaining('1 short narrator setup block followed by 2-5 character chat bubbles'),
       expect.stringContaining('Each character bubble should be 1-3 sentences'),
+    ]));
+
+    const decisionChat = buildStoryChat();
+    decisionChat.scenarioState = { ...(decisionChat.scenarioState || {}), phase: 'scene', sceneBeatCount: 3 };
+    const decisionPrompt = STORY_ENGINE.buildGenerationPromptContext?.({ conversation: decisionChat, characters: [], messages: [], speaker: { id: 'narrator', name: '旁白' } as never });
+    expect(decisionPrompt?.additionalConstraints).toEqual(expect.arrayContaining([
+      expect.stringContaining('beatKind=decision; choicePolicy=require'),
+      expect.stringContaining('must reach a real decision point'),
     ]));
   });
 

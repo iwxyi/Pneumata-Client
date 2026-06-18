@@ -17,7 +17,16 @@ function normalizeStoryChoice(value: unknown): StoryChoiceSuggestion | null {
   const label = compactText(item.label, 80);
   if (!label || !isConcreteStoryChoiceLabel(label)) return null;
   const prompt = compactText(item.prompt, 180);
-  return { label, prompt: prompt || null };
+  const intent = compactText(item.intent, 40);
+  const risk = compactText(item.risk, 120);
+  const reward = compactText(item.reward, 120);
+  return {
+    label,
+    prompt: prompt || null,
+    ...(intent ? { intent } : {}),
+    ...(risk ? { risk } : {}),
+    ...(reward ? { reward } : {}),
+  };
 }
 
 function normalizeStoryChoices(value: unknown): StoryChoiceSuggestion[] {

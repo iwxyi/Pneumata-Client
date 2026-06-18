@@ -42,14 +42,17 @@ describe('narrativeRuntime', () => {
       {
         type: 'choice_point',
         choices: [
-          { label: '让林医生去地下档案室查被撕掉的病历', prompt: '林医生进入地下档案室' },
+          { label: '让林医生去地下档案室查被撕掉的病历', prompt: '林医生进入地下档案室', intent: '探索', risk: '被锁在地下室', reward: '找到病历' },
           { label: '让护士追问昨晚停电记录', prompt: '护士追问停电记录' },
         ],
       },
     ]);
 
     expect(buildStoryEventsVisibleText(events, characters)).toContain('林医生：“不要开那扇门。”');
-    expect(getStoryChoicesFromEvents(events)).toHaveLength(2);
+    expect(getStoryChoicesFromEvents(events)).toEqual([
+      { label: '让林医生去地下档案室查被撕掉的病历', prompt: '林医生进入地下档案室', intent: '探索', risk: '被锁在地下室', reward: '找到病历' },
+      { label: '让护士追问昨晚停电记录', prompt: '护士追问停电记录' },
+    ]);
 
     const turn = buildNarrativeTurnFromStoryEvents({ conversation: chat, events, characters });
     expect(turn?.povActorId).toBe('narrator');

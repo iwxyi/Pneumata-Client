@@ -241,7 +241,7 @@ function handleVotePlayer(chat: GroupChat, action: SessionActionDefinition) {
   };
 }
 
-function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition) {
+function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition): SessionActionExecutionResult {
   const selectedBranchId = typeof action.payload?.branchId === 'string' ? action.payload.branchId : 'main';
   const prompt = getPrompt(action);
   const isCustom = selectedBranchId === '__custom_story_branch';
@@ -251,6 +251,19 @@ function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition) {
   const branchPrompt = prompt || selectedBranch?.prompt || selectedBranch?.description || selectedBranch?.label || '';
   const summary = `剧情分支：${isCustom ? '自定义走向' : branchId}${branchPrompt ? ` · ${truncate(branchPrompt, 36)}` : ''}`;
   const currentEpoch = Math.max(Number(chat.scenarioState?.choiceEpoch || 0), Number(selectedBranch?.choiceEpoch || 0), 1);
+  const choiceHistory = [
+    ...(chat.scenarioState?.choiceHistory || []),
+    {
+      branchId,
+      label: selectedBranch?.label || branchPrompt || '自定义走向',
+      prompt: branchPrompt,
+      ...(selectedBranch?.intent ? { intent: selectedBranch.intent } : {}),
+      ...(selectedBranch?.risk ? { risk: selectedBranch.risk } : {}),
+      ...(selectedBranch?.reward ? { reward: selectedBranch.reward } : {}),
+      choiceEpoch: currentEpoch,
+      chosenAt: Date.now(),
+    },
+  ].slice(-12);
   const nextBranches = isCustom
     ? [
       ...existingBranches.map((branch) => ({
@@ -270,11 +283,15 @@ function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition) {
       ...result.chatPatch,
       scenarioState: {
         ...(chat.scenarioState || {}),
-        phase: 'branch',
+        phase: 'branch' as const,
+        storyBeatKind: 'consequence' as const,
+        storyChoicePolicy: 'forbid' as const,
+        storyBeatReason: 'resolve selected branch before opening another choice',
         storyDirection: branchPrompt || chat.scenarioState?.storyDirection,
         sceneBeatCount: 0,
         choiceEpoch: currentEpoch,
         selectedChoiceEpoch: currentEpoch,
+        choiceHistory,
         branches: nextBranches.length
           ? nextBranches
           : [{ branchId, label: branchPrompt || chat.topic || '主线剧情', status: 'chosen' as const, prompt: branchPrompt, source: isCustom ? 'custom' as const : 'system' as const }],
