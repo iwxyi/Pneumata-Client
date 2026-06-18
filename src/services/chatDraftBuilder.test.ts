@@ -91,6 +91,12 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     expect(draft.scenarioState?.storyBeatKind).toBe('establish');
     expect(draft.scenarioState?.storyChoicePolicy).toBe('forbid');
     expect(draft.scenarioState?.storyBeatReason).toBe('establish scene before choices');
+    expect(draft.scenarioState?.openQuestions).toEqual([]);
+    expect(draft.scenarioState?.clues).toEqual([]);
+    expect(draft.scenarioState?.stakes).toEqual([]);
+    expect(draft.scenarioState?.relationshipShifts).toEqual([]);
+    expect(draft.scenarioState?.choiceHistory).toEqual([]);
+    expect(draft.scenarioState?.chapterMemory).toBe('');
     expect(draft.scenarioState?.branches).toEqual([]);
     expect(draft.showRoleActions).toBe(false);
     expect(draft.modeConfig.showRoleActions).toBe(false);

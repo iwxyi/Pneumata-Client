@@ -128,6 +128,61 @@ function renderRelationshipLine(line: NarrativeLineProjection, chat: GroupChat, 
   );
 }
 
+function hasStoryAssets(chat: GroupChat) {
+  const state = chat.scenarioState;
+  return Boolean(
+    state?.chapterMemory
+    || state?.openQuestions?.length
+    || state?.clues?.length
+    || state?.stakes?.length
+    || state?.relationshipShifts?.length
+    || state?.choiceHistory?.length,
+  );
+}
+
+function renderAssetChips(label: string, values: string[] | undefined, members: AICharacter[]) {
+  const visible = (values || []).map((item) => formatNarrativeLineText(item, members)).filter(Boolean).slice(-4);
+  if (!visible.length) return null;
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.45 }}>{label}</Typography>
+      <Stack direction="row" spacing={0.6} useFlexGap sx={{ flexWrap: 'wrap' }}>
+        {visible.map((item) => (
+          <Chip key={item} size="small" label={item} variant="outlined" sx={compactPillChipSx} />
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
+function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
+  if (!hasStoryAssets(chat)) return null;
+  const state = chat.scenarioState || {};
+  const recentChoices = (state.choiceHistory || [])
+    .slice(-3)
+    .map((choice) => [choice.label, choice.risk ? `风险：${choice.risk}` : '', choice.reward ? `收益：${choice.reward}` : ''].filter(Boolean).join(' · '));
+  return (
+    <Box sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'rgba(123,31,162,0.06)' }}>
+      <Stack spacing={0.85}>
+        <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+          <Chip size="small" label="章节记忆" variant="outlined" sx={compactPillChipSx} />
+          {state.storyBeatKind ? <Chip size="small" label={state.storyBeatKind} variant="outlined" sx={compactPillChipSx} /> : null}
+        </Stack>
+        {state.chapterMemory ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            {formatNarrativeLineText(state.chapterMemory, members)}
+          </Typography>
+        ) : null}
+        {renderAssetChips('悬念', state.openQuestions, members)}
+        {renderAssetChips('线索', state.clues, members)}
+        {renderAssetChips('代价', state.stakes, members)}
+        {renderAssetChips('关系压力', state.relationshipShifts, members)}
+        {renderAssetChips('最近选择', recentChoices, members)}
+      </Stack>
+    </Box>
+  );
+}
+
 function renderLine(line: NarrativeLineProjection, chat: GroupChat, members: AICharacter[], messages: Message[], isZh: boolean, showDebugDetails: boolean) {
   if (line.type === 'relationship') return renderRelationshipLine(line, chat, members, messages);
   const names = getNarrativeLineParticipantNames(line, members);
@@ -177,6 +232,7 @@ export default function ChatNarrativePanel({ chat, members, messages = [], hideT
   const mainLineId = runtimePressure.primaryLine?.id || narrativeLines[0]?.id || null;
   const showDirectorIntent = Boolean(runtimePressure.directorIntent) && activeFilter === 'main';
   const visibleLines = narrativeLines.filter((line) => activeFilter === 'all' ? true : activeFilter === 'main' ? line.id === mainLineId : line.type === activeFilter);
+  const storyAssetSummary = activeFilter === 'all' || activeFilter === 'main' ? renderStoryAssetSummary(chat, members) : null;
   const filters = LINE_FILTERS.map((filter) => ({
     ...filter,
     count: filter.key === 'all' ? narrativeLines.length : filter.key === 'main' ? (mainLineId ? 1 : 0) : narrativeLines.filter((line) => line.type === filter.key).length,
@@ -209,7 +265,8 @@ export default function ChatNarrativePanel({ chat, members, messages = [], hideT
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{formatNarrativeLineText(formatKnownReason(runtimePressure.directorIntent.reason), members)}</Typography>
           </Box>
         ) : null}
-        {visibleLines.length ? <Stack spacing={0.8}>{visibleLines.map((line) => renderLine(line, chat, members, messages, isZh, showDebugDetails))}</Stack> : <Typography variant="body2" color="text.secondary">暂无对应叙事线</Typography>}
+        {storyAssetSummary}
+        {visibleLines.length ? <Stack spacing={0.8}>{visibleLines.map((line) => renderLine(line, chat, members, messages, isZh, showDebugDetails))}</Stack> : storyAssetSummary ? null : <Typography variant="body2" color="text.secondary">暂无对应叙事线</Typography>}
       </Stack>
     </SurfaceCard>
   );

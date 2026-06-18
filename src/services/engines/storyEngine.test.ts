@@ -175,6 +175,58 @@ describe('STORY_ENGINE', () => {
     }));
   });
 
+  it('extracts story assets and feeds them into future prompt context', async () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = {
+      ...(chat.scenarioState || {}),
+      phase: 'scene',
+      sceneBeatCount: 3,
+      openQuestions: ['旧医院为什么停电？'],
+      clues: [],
+      stakes: [],
+      relationshipShifts: [],
+    };
+    const result = await STORY_ENGINE.onMessageCommitted({
+      conversation: chat,
+      characters: [],
+      message: {
+        content: '门后到底是谁？墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。',
+        type: 'ai',
+        senderId: 'narrator',
+        metadata: {
+          storyChoices: [
+            { label: '让林医生追问护士昨晚去向', prompt: '林医生逼问护士', intent: '逼问', risk: '激怒护士', reward: '得到停电线索' },
+            { label: '让主角检查墙上的血迹', prompt: '主角检查血迹', intent: '探索', risk: '暴露位置', reward: '发现新证据' },
+          ],
+        },
+      },
+    });
+
+    const scenarioState = result.chatPatch.scenarioState;
+    expect(scenarioState?.openQuestions).toEqual(expect.arrayContaining([
+      '旧医院为什么停电？',
+      '门后到底是谁？',
+      '墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。',
+    ]));
+    expect(scenarioState?.clues).toEqual(expect.arrayContaining(['墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。']));
+    expect(scenarioState?.stakes).toEqual(expect.arrayContaining(['激怒护士', '得到停电线索', '暴露位置', '发现新证据']));
+    expect(scenarioState?.relationshipShifts).toEqual(expect.arrayContaining(['墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。']));
+    expect(scenarioState?.chapterMemory).toContain('门后到底是谁');
+
+    const prompt = STORY_ENGINE.buildGenerationPromptContext?.({
+      conversation: { ...chat, scenarioState },
+      characters: [],
+      messages: [],
+      speaker: { id: 'narrator', name: '旁白' } as never,
+    });
+    expect(prompt?.additionalConstraints).toEqual(expect.arrayContaining([
+      expect.stringContaining('Use these story assets as continuity anchors'),
+      expect.stringContaining('Open questions to preserve or answer deliberately'),
+      expect.stringContaining('Known clues to reuse or reframe'),
+      expect.stringContaining('Current stakes'),
+    ]));
+  });
+
   it('marks choice phase as branch-only', () => {
     const choicePhase = STORY_ENGINE.getPhaseDefinitions?.(buildStoryChat()).find((phase) => phase.key === 'choice');
     expect(choicePhase?.allowedActions).toEqual(['branch_choose']);

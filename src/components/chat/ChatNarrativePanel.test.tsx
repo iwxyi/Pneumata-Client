@@ -144,4 +144,49 @@ describe('ChatNarrativePanel', () => {
     expect(html).not.toContain('eventType');
     expect(html).not.toContain('Relationship ledger');
   });
+
+  it('renders story room assets as chapter memory without raw ids', async () => {
+    const memoryStorage = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => memoryStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => { memoryStorage.set(key, value); },
+        removeItem: (key: string) => { memoryStorage.delete(key); },
+        clear: () => { memoryStorage.clear(); },
+      },
+    });
+    const { default: ChatNarrativePanel } = await import('./ChatNarrativePanel');
+    const chat = {
+      ...buildChat(),
+      mode: 'scripted_play' as const,
+      sessionKind: { family: 'conversation' as const, scenarioId: 'story-reader', surfaceProfile: 'hybrid' as const, topology: 'group' as const },
+      scenarioState: {
+        phase: 'scene',
+        storyBeatKind: 'pressure' as const,
+        chapterMemory: `${uuidA} 在旧医院发现血迹`,
+        openQuestions: [`${uuidB} 为什么隐瞒停电记录？`],
+        clues: ['地下档案室的病历被撕掉一页'],
+        stakes: ['暴露位置'],
+        relationshipShifts: [`${uuidA} 开始怀疑 ${uuidB}`],
+        choiceHistory: [{ label: `${uuidA} 追问护士`, risk: '激怒护士', reward: '得到线索' }],
+      },
+    } satisfies GroupChat;
+    const html = renderToStaticMarkup(
+      <ChatNarrativePanel
+        hideTitle
+        chat={chat}
+        members={[buildCharacter(uuidA, '红太狼'), buildCharacter(uuidB, '灰太狼')]}
+        messages={[]}
+      />,
+    );
+
+    expect(html).toContain('章节记忆');
+    expect(html).toContain('红太狼 在旧医院发现血迹');
+    expect(html).toContain('灰太狼 为什么隐瞒停电记录？');
+    expect(html).toContain('地下档案室的病历被撕掉一页');
+    expect(html).toContain('暴露位置');
+    expect(html).not.toContain(uuidA);
+    expect(html).not.toContain(uuidB);
+  });
 });

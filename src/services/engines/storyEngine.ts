@@ -15,6 +15,18 @@ interface StoryBeatPlan {
   reason: string;
 }
 
+interface StoryAssetPatch {
+  openQuestions: string[];
+  clues: string[];
+  stakes: string[];
+  relationshipShifts: string[];
+  chapterMemory: string;
+}
+
+const STORY_ASSET_LIMIT = 6;
+const STORY_ASSET_TEXT_LIMIT = 56;
+const CHAPTER_MEMORY_LIMIT = 260;
+
 function getPhaseDefinitions() {
   return [...STORY_PHASES];
 }
@@ -115,6 +127,96 @@ function buildChoicePolicyPrompt(plan: StoryBeatPlan) {
   ];
 }
 
+function compactStoryAssetText(text: string, max = STORY_ASSET_TEXT_LIMIT) {
+  const normalized = text
+    .replace(/\s+/g, ' ')
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
+    .trim();
+  if (!normalized) return '';
+  return normalized.length > max ? `${normalized.slice(0, max - 1).trimEnd()}…` : normalized;
+}
+
+function mergeStoryAssetList(existing: string[] | undefined, additions: string[], limit = STORY_ASSET_LIMIT) {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const item of [...(existing || []), ...additions]) {
+    const compact = compactStoryAssetText(item);
+    if (!compact || seen.has(compact)) continue;
+    seen.add(compact);
+    merged.push(compact);
+  }
+  return merged.slice(-limit);
+}
+
+function splitStorySentences(text: string) {
+  return (text.match(/[^。！？!?；;]+[。！？!?；;]?/g) || [text])
+    .map((part) => compactStoryAssetText(part, 96))
+    .filter(Boolean);
+}
+
+function getVisibleStoryText(message: Pick<Message, 'content' | 'metadata'>) {
+  const blockText = message.metadata?.narrativeTurn?.blocks
+    .filter((block) => block.displayMode !== 'hidden')
+    .map((block) => block.text)
+    .filter(Boolean)
+    .join(' ');
+  return compactStoryAssetText(blockText || message.content || '', 360);
+}
+
+function extractStoryAssets(params: {
+  conversation: GroupChat;
+  message: Pick<Message, 'content' | 'metadata'>;
+  choices: StoryChoiceSuggestion[];
+  summary: string;
+}): StoryAssetPatch {
+  const text = getVisibleStoryText(params.message);
+  const sentences = splitStorySentences(text);
+  const openQuestionCandidates = sentences.filter((sentence) => (
+    /[?？]$/.test(sentence)
+    || /(谁|为何|为什么|是否|哪里|怎么|怎样|什么|真相|秘密|失踪|隐藏|隐瞒)/.test(sentence)
+  ));
+  const clueCandidates = sentences.filter((sentence) => (
+    /(线索|证据|发现|记录|名单|钥匙|档案|病历|血迹|痕迹|照片|录音|门缝|脚印|异常|真相)/.test(sentence)
+  ));
+  const relationshipCandidates = sentences.filter((sentence) => (
+    /(信任|怀疑|保护|隐瞒|背叛|靠近|疏远|敌意|动摇|试探|质问|承认|否认)/.test(sentence)
+  ));
+  const stakeCandidates = [
+    ...sentences.filter((sentence) => /(危险|代价|风险|威胁|暴露|失去|来不及|时间|牺牲|安全|封锁|追上|逃走)/.test(sentence)),
+    ...params.choices.flatMap((choice) => [choice.risk, choice.reward].filter(Boolean) as string[]),
+  ];
+  const chapterMemoryParts = [
+    params.conversation.scenarioState?.chapterMemory || '',
+    params.summary,
+  ].filter(Boolean);
+  const chapterMemory = compactStoryAssetText(chapterMemoryParts.join(' / '), CHAPTER_MEMORY_LIMIT);
+  return {
+    openQuestions: mergeStoryAssetList(params.conversation.scenarioState?.openQuestions, openQuestionCandidates),
+    clues: mergeStoryAssetList(params.conversation.scenarioState?.clues, clueCandidates),
+    stakes: mergeStoryAssetList(params.conversation.scenarioState?.stakes, stakeCandidates),
+    relationshipShifts: mergeStoryAssetList(params.conversation.scenarioState?.relationshipShifts, relationshipCandidates),
+    chapterMemory,
+  };
+}
+
+function buildStoryAssetPrompt(conversation: GroupChat) {
+  const state = conversation.scenarioState;
+  if (!state) return [];
+  const lines = [
+    state.chapterMemory ? `Chapter memory: ${state.chapterMemory}` : '',
+    state.openQuestions?.length ? `Open questions to preserve or answer deliberately: ${state.openQuestions.slice(-4).join(' / ')}` : '',
+    state.clues?.length ? `Known clues to reuse or reframe: ${state.clues.slice(-4).join(' / ')}` : '',
+    state.stakes?.length ? `Current stakes: ${state.stakes.slice(-4).join(' / ')}` : '',
+    state.relationshipShifts?.length ? `Relationship pressure: ${state.relationshipShifts.slice(-4).join(' / ')}` : '',
+    state.choiceHistory?.length ? `Recent user choices: ${state.choiceHistory.slice(-3).map((choice) => [choice.label, choice.risk ? `risk=${choice.risk}` : '', choice.reward ? `reward=${choice.reward}` : ''].filter(Boolean).join(' · ')).join(' / ')}` : '',
+  ].filter(Boolean);
+  if (!lines.length) return [];
+  return [
+    'Use these story assets as continuity anchors. Do not list them back to the user; weave at most 1-2 into the scene naturally.',
+    ...lines,
+  ];
+}
+
 function normalizeStoryBranches(conversation: GroupChat, choices: StoryChoiceSuggestion[]) {
   const existing = conversation.scenarioState?.branches || [];
   const currentEpoch = getCurrentChoiceEpoch(conversation);
@@ -168,6 +270,7 @@ function buildGenerationPromptContext(params: { conversation: GroupChat }): Sess
     promptPrefix: `Write this story beat as a chat-driven scene using storyEvents as the authoritative visible story body. The narrator is the active actor; narrator prose may carry setting, action, consequences, inner pressure, sensory detail, and scene movement, while the main visible rhythm should be character chat bubbles when characters need to speak. Characters must only say what they can speak aloud, not scene narration, inner monologue, camera direction, or omniscient analysis. Never let a character inherit another character's private object, gesture, memory, wording, or sensory detail unless the transcript explicitly makes it public. Character dialogue is optional and must appear only as storyEvents speech.${background}${direction}${outline}`,
     additionalConstraints: [
       ...buildChoicePolicyPrompt(beatPlan),
+      ...buildStoryAssetPrompt(params.conversation),
       ...(phase === 'branch'
         ? [
         'Use storyEvents. At minimum output one narration event. Add speech events only for spoken lines that change the scene.',
@@ -284,10 +387,12 @@ function onMessageCommitted(params: {
   const choices = currentBeatPlan.choicePolicy === 'forbid'
     ? []
     : normalizeStoryChoiceSuggestions(params.message.metadata?.storyChoices);
+  const storyAssets = extractStoryAssets({ conversation: params.conversation, message: params.message, choices, summary });
   const normalized = normalizeStoryBranches(params.conversation, choices);
   const nextEpoch = getCurrentChoiceEpoch({ ...params.conversation, scenarioState: { ...(params.conversation.scenarioState || {}), branches: normalized.branches } });
   const nextScenarioState = {
     ...(params.conversation.scenarioState || {}),
+    ...storyAssets,
     phase: normalized.hasOpenChoice ? 'choice' : 'scene',
     sceneBeatCount: normalized.openedChoice ? 0 : Number(params.conversation.scenarioState?.sceneBeatCount || 0) + 1,
     choiceEpoch: nextEpoch,
