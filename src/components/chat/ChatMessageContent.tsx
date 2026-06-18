@@ -1,6 +1,11 @@
-import { Box, Button, Chip, LinearProgress, Typography, keyframes } from '@mui/material';
+import { Avatar, Box, Button, Chip, LinearProgress, Typography, keyframes } from '@mui/material';
 import type { Message, MessageAttachment, NarrativeBlock } from '../../types/message';
+import type { AICharacter } from '../../types/character';
 import { getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
+import { isImageAvatar } from '../../utils/avatar';
+import { rememberFailedAvatarUrl, resolveSafeAvatarSrc } from '../../utils/avatarFallback';
 import MarkdownText from '../common/MarkdownText';
 
 const typingBounce = keyframes`
@@ -28,18 +33,73 @@ export function PendingTypingDots() {
   );
 }
 
-export function NarrativeParagraphContent({ blocks }: { blocks: NarrativeBlock[] }) {
+function findNarrativeBlockCharacter(block: NarrativeBlock, characters: AICharacter[]) {
+  if (block.characterId) {
+    const byId = characters.find((character) => character.id === block.characterId);
+    if (byId) return byId;
+  }
+  const actorName = (block.actorName || '').trim();
+  return actorName ? characters.find((character) => character.name === actorName) || null : null;
+}
+
+function NarrativeSpeechBubble({ block, character }: { block: NarrativeBlock; character?: AICharacter | null }) {
+  const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
+  const resolvedStyle = character
+    ? resolveCharacterBubbleStyle({ bubbleStyle: character.bubbleStyle, bubbleStyleId: character.bubbleStyleId, customStyles: customBubbleStyles })
+    : null;
+  const bubblePreview = resolvedStyle ? buildBubblePreview(resolvedStyle, false) : null;
+  const displayName = character?.name || block.actorName || block.actorId;
+  const avatar = character?.avatar?.trim();
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'flex-start', gap: 1.1, alignItems: 'flex-start', minWidth: 0 }}>
+      <Box sx={{ flexShrink: 0 }}>
+        {avatar && isImageAvatar(avatar) ? (
+          <Avatar
+            src={resolveSafeAvatarSrc(avatar)}
+            alt={displayName}
+            slotProps={{ img: { onError: () => rememberFailedAvatarUrl(avatar) } }}
+            sx={{ width: 34, height: 34 }}
+          />
+        ) : (
+          <Avatar sx={{ width: 34, height: 34, bgcolor: resolvedStyle?.backgroundColor || 'primary.main', fontSize: 15 }}>
+            {displayName.slice(0, 1)}
+          </Avatar>
+        )}
+      </Box>
+      <Box sx={{ maxWidth: 'min(78%, 720px)', minWidth: 0, display: 'grid', gap: 0.35, justifyItems: 'start' }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', px: 0.5, width: 'fit-content' }}>
+          {displayName}
+        </Typography>
+        <Box
+          sx={{
+            px: 1.4,
+            py: 1,
+            borderRadius: bubblePreview?.borderRadius || '18px',
+            background: bubblePreview?.background || '#ffffff',
+            color: bubblePreview?.color || (resolvedStyle?.textColor || '#1f2937'),
+            border: bubblePreview?.border || '1px solid rgba(15, 23, 42, 0.08)',
+            boxShadow: bubblePreview?.boxShadow || '0 8px 24px rgba(15, 23, 42, 0.08)',
+            wordBreak: 'break-word',
+            userSelect: 'text',
+            WebkitUserSelect: 'text',
+            '& table': { width: '100%', borderCollapse: 'collapse' },
+            '& th, & td': { border: '1px solid', borderColor: 'divider', px: 0.75, py: 0.4 },
+          }}
+        >
+          <Box sx={{ typography: 'body2', lineHeight: 1.75 }}>
+            <MarkdownText text={block.text} />
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+export function NarrativeParagraphContent({ blocks, characters = [] }: { blocks: NarrativeBlock[]; characters?: AICharacter[] }) {
   return (
     <Box sx={{ display: 'grid', gap: 1.75 }}>
       {blocks.map((block) => block.displayMode === 'bubble' ? (
-        <Box key={block.id} sx={{ display: 'flex', justifyContent: 'flex-start' }}>
-          <Box sx={{ maxWidth: '82%', borderRadius: 3, px: 1.5, py: 1, bgcolor: 'background.paper', boxShadow: '0 10px 28px rgba(15,23,42,0.10)', border: '1px solid', borderColor: 'divider' }}>
-            <Box sx={{ typography: 'caption', color: 'text.secondary', mb: 0.35 }}>{block.actorName || block.actorId}</Box>
-            <Box sx={{ typography: 'body2', lineHeight: 1.75, wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
-              <MarkdownText text={block.text} />
-            </Box>
-          </Box>
-        </Box>
+        <NarrativeSpeechBubble key={block.id} block={block} character={findNarrativeBlockCharacter(block, characters)} />
       ) : (
         <Box key={block.id} sx={{ typography: 'body1', lineHeight: 2.05, color: 'text.primary', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
           <MarkdownText text={block.text} />

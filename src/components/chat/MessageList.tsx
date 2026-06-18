@@ -124,6 +124,7 @@ export default function MessageList({
         <NarrativeMessageItem
           key={item.key}
           message={item.message}
+          characters={characters}
           pending={item.pending}
           storyChoiceOptions={showStoryChoices ? storyChoiceOptions : []}
           onChooseStoryChoice={showStoryChoices ? onChooseStoryChoice : undefined}

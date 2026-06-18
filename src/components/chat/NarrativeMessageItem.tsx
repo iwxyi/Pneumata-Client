@@ -1,6 +1,7 @@
 import { Box, Dialog, DialogContent, DialogTitle, Stack, Typography } from '@mui/material';
 import { useState } from 'react';
 import type { Message } from '../../types/message';
+import type { AICharacter } from '../../types/character';
 import { getNarrativeParagraphBlocks } from './messageBubblePresentation';
 import { NarrativeParagraphContent, PendingTypingDots } from './ChatMessageContent';
 
@@ -15,6 +16,7 @@ export interface NarrativeStoryChoiceOption {
 
 interface NarrativeMessageItemProps {
   message: Message;
+  characters?: AICharacter[];
   pending?: boolean;
   storyChoiceOptions?: NarrativeStoryChoiceOption[];
   onChooseStoryChoice?: (value: string) => void;
@@ -100,7 +102,7 @@ function ChoiceMeta({ label, value }: { label: string; value: string }) {
   );
 }
 
-export default function NarrativeMessageItem({ message, pending = false, storyChoiceOptions = [], onChooseStoryChoice }: NarrativeMessageItemProps) {
+export default function NarrativeMessageItem({ message, characters = [], pending = false, storyChoiceOptions = [], onChooseStoryChoice }: NarrativeMessageItemProps) {
   const [viewerOpen, setViewerOpen] = useState(false);
   const blocks = getNarrativeParagraphBlocks(message);
 
@@ -111,13 +113,13 @@ export default function NarrativeMessageItem({ message, pending = false, storyCh
           onDoubleClick={() => setViewerOpen(true)}
           sx={{ width: '100%', maxWidth: 760, px: { xs: 0.5, sm: 1 }, py: 0.5 }}
         >
-          {blocks.length ? <NarrativeParagraphContent blocks={blocks} /> : pending ? <PendingTypingDots /> : null}
+          {blocks.length ? <NarrativeParagraphContent blocks={blocks} characters={characters} /> : pending ? <PendingTypingDots /> : null}
           {onChooseStoryChoice ? <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} /> : null}
         </Box>
       </Box>
       <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{message.senderName}</DialogTitle>
-        <DialogContent>{blocks.length ? <NarrativeParagraphContent blocks={blocks} /> : null}</DialogContent>
+        <DialogContent>{blocks.length ? <NarrativeParagraphContent blocks={blocks} characters={characters} /> : null}</DialogContent>
       </Dialog>
     </>
   );

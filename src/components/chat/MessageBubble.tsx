@@ -220,16 +220,17 @@ export default function MessageBubble({ message, character, onDelete, onAnalyze,
   const narrativeParagraphBlocks = useNarrativeParagraph ? getNarrativeDisplayBlocks(message) : [];
 
   if (narrativeParagraphBlocks.length || (pending && useNarrativeParagraph)) {
+    const narrativeCharacters = effectiveCharacter ? [effectiveCharacter] : [];
     return (
       <>
         <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, py: 1.1, width: '100%' }}>
           <Box {...bubbleHandlers} sx={{ width: '100%', maxWidth: 760, px: { xs: 0.5, sm: 1 }, py: 0.5 }}>
-            {narrativeParagraphBlocks.length ? <NarrativeParagraphContent blocks={narrativeParagraphBlocks} /> : <PendingTypingDots />}
+            {narrativeParagraphBlocks.length ? <NarrativeParagraphContent blocks={narrativeParagraphBlocks} characters={narrativeCharacters} /> : <PendingTypingDots />}
           </Box>
         </Box>
         <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
           <DialogTitle>{message.senderName}</DialogTitle>
-          <DialogContent><NarrativeParagraphContent blocks={narrativeParagraphBlocks} /></DialogContent>
+          <DialogContent><NarrativeParagraphContent blocks={narrativeParagraphBlocks} characters={narrativeCharacters} /></DialogContent>
         </Dialog>
       </>
     );
