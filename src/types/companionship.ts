@@ -42,6 +42,7 @@ export interface IntimateConflictState {
   evidence: string[];
   participantIds: string[];
   sourceEventIds: string[];
+  sourceMessageIds: string[];
   updatedAt: number;
 }
 
@@ -54,6 +55,7 @@ export interface IntimateConflictHistoryEntry {
   summary: string;
   evidence: string[];
   sourceEventIds: string[];
+  sourceMessageIds: string[];
   decisionSource?: 'model' | 'local_fallback';
   confidence?: number;
   occurredAt: number;
@@ -67,6 +69,7 @@ export interface PendingCareTopic {
   status?: 'active' | 'stale' | 'answered' | 'blocked';
   restraintReason?: string;
   evidence?: string;
+  sourceMessageIds?: string[];
   updatedAt: number;
 }
 
@@ -92,6 +95,7 @@ export interface PendingPromise {
     notes: string[];
   };
   lifecycleEvidence: string[];
+  sourceMessageIds?: string[];
   updatedAt: number;
 }
 
@@ -134,6 +138,7 @@ export interface AttachmentProfileHistoryEntry {
   inferredStyle?: UserAttachmentProfile['inferredStyle'];
   confidence: number;
   evidence: string[];
+  sourceMessageIds?: string[];
   adaptations: string[];
   reason?: string;
   decisionSource?: 'model' | 'local_fallback';
@@ -213,6 +218,7 @@ export interface AddressingHistoryEntry {
   forbiddenAddresses: string[];
   reason?: string;
   evidence: string[];
+  sourceMessageIds?: string[];
   initiatedBy?: AddressingState['addressHistory'][number]['initiatedBy'];
   decisionSource?: 'model' | 'local_fallback';
   confidence?: number;
@@ -249,6 +255,7 @@ export interface PhaseHistoryEntry {
   phase?: CompanionshipPhase;
   style?: CompanionshipStyle;
   evidence: string[];
+  sourceMessageIds: string[];
   reason?: string;
   initiatedBy?: 'user' | 'character' | 'mutual' | 'system';
   decisionSource?: 'model' | 'local_fallback';
@@ -264,6 +271,7 @@ export interface CompanionshipPhaseEventPayload {
   phase?: CompanionshipPhase;
   style?: CompanionshipStyle;
   evidence?: string[];
+  sourceMessageIds?: string[];
   reason?: string;
   initiatedBy?: 'user' | 'character' | 'mutual' | 'system';
   confidence?: number;
@@ -280,6 +288,7 @@ export interface CompanionshipCareTopicEventPayload {
   urgency: PendingCareTopic['urgency'];
   reason?: string;
   evidence?: string;
+  sourceMessageIds?: string[];
   dueAt?: number;
   confidence?: number;
   decisionSource?: 'model' | 'local_fallback';
@@ -300,6 +309,7 @@ export interface CompanionshipPromiseEventPayload {
   lifecycleEvidence?: string[];
   reason?: string;
   evidence?: string;
+  sourceMessageIds?: string[];
   dueAt?: number;
   confidence?: number;
   decisionSource?: 'model' | 'local_fallback';
@@ -313,6 +323,7 @@ export interface CareTopicHistoryEntry {
   urgency: PendingCareTopic['urgency'];
   reason?: string;
   evidence: string[];
+  sourceMessageIds: string[];
   dueAt?: number;
   decisionSource?: 'model' | 'local_fallback';
   confidence?: number;
@@ -330,8 +341,63 @@ export interface PromiseHistoryEntry {
   lifecycleEvidence: string[];
   reason?: string;
   evidence: string[];
+  sourceMessageIds: string[];
   dueAt?: number;
   decisionSource?: 'model' | 'local_fallback';
+  confidence?: number;
+  occurredAt: number;
+}
+
+export interface SharedPhraseHistoryEntry {
+  id: string;
+  action: CompanionshipSharedPhraseEventPayload['action'];
+  phraseId: string;
+  text: string;
+  kind?: SharedPhrase['kind'];
+  participantIds: string[];
+  visibility?: SharedPhrase['visibility'];
+  firstSaidBy?: string;
+  reason?: string;
+  evidence: string[];
+  sourceMessageIds: string[];
+  emotionalWeight?: number;
+  reuseCount?: number;
+  decisionSource?: CompanionshipSharedPhraseEventPayload['decisionSource'];
+  confidence?: number;
+  occurredAt: number;
+}
+
+export interface SharedAnchorHistoryEntry {
+  id: string;
+  action: CompanionshipSharedAnchorEventPayload['action'];
+  anchorId: string;
+  kind?: SharedMemoryAnchor['kind'];
+  participantIds: string[];
+  title?: string;
+  text: string;
+  salience?: number;
+  reason?: string;
+  evidence: string[];
+  sourceMessageIds: string[];
+  mergedAnchorIds: string[];
+  decisionSource?: CompanionshipSharedAnchorEventPayload['decisionSource'];
+  confidence?: number;
+  occurredAt: number;
+}
+
+export interface SharedSecretHistoryEntry {
+  id: string;
+  action: CompanionshipSharedSecretEventPayload['action'];
+  secretId: string;
+  participantIds: string[];
+  publicMask: string;
+  leakState: SharedSecret['leakState'];
+  consequenceKind?: SharedSecret['consequenceKind'];
+  reason?: string;
+  evidence: string[];
+  sourceMessageIds: string[];
+  emotionalWeight?: number;
+  decisionSource?: CompanionshipSharedSecretEventPayload['decisionSource'];
   confidence?: number;
   occurredAt: number;
 }
@@ -348,6 +414,7 @@ export interface CompanionshipRitualEventPayload {
   evolution?: string[];
   reason?: string;
   evidence?: string;
+  sourceMessageIds?: string[];
   nextAvailableAt?: number;
   confidence?: number;
   decisionSource?: 'model' | 'local_fallback';
@@ -363,6 +430,7 @@ export interface RitualHistoryEntry {
   evolution: string[];
   reason?: string;
   evidence: string[];
+  sourceMessageIds: string[];
   nextAvailableAt?: number;
   decisionSource?: 'model' | 'local_fallback';
   confidence?: number;
@@ -381,6 +449,7 @@ export interface CompanionshipIntimateConflictEventPayload {
   evidence?: string[];
   participantIds?: string[];
   sourceEventIds?: string[];
+  sourceMessageIds?: string[];
   confidence?: number;
   decisionSource?: 'model' | 'local_fallback';
 }
@@ -393,6 +462,7 @@ export interface CompanionshipAttachmentProfileEventPayload {
   inferredStyle?: UserAttachmentProfile['inferredStyle'];
   confidence: number;
   evidence?: string[];
+  sourceMessageIds?: string[];
   adaptations?: string[];
   reason?: string;
   decisionSource?: 'model' | 'local_fallback';
@@ -409,6 +479,7 @@ export interface CompanionshipAddressingEventPayload {
   forbiddenAddresses?: string[];
   reason?: string;
   evidence?: string;
+  sourceMessageIds?: string[];
   initiatedBy?: AddressingState['addressHistory'][number]['initiatedBy'];
   confidence?: number;
   decisionSource?: 'model' | 'local_fallback';
@@ -454,6 +525,7 @@ export interface CompanionshipSharedSecretEventPayload {
   publicMask?: string;
   reason?: string;
   evidence?: string;
+  sourceMessageIds?: string[];
   emotionalWeight?: number;
   confidence?: number;
   decisionSource?: 'model' | 'local_fallback';
@@ -472,6 +544,7 @@ export interface CompanionshipSharedPhraseEventPayload {
   firstSaidBy?: string;
   reason?: string;
   evidence?: string;
+  sourceMessageIds?: string[];
   emotionalWeight?: number;
   reuseCount?: number;
   confidence?: number;
@@ -493,6 +566,7 @@ export interface CompanionshipSharedAnchorEventPayload {
   evidence?: string;
   mergedAnchorIds?: string[];
   sourceEventIds?: string[];
+  sourceMessageIds?: string[];
   reason?: string;
   decisionSource?: 'model' | 'local_fallback';
 }
@@ -546,6 +620,26 @@ export interface CompanionshipPrivateThreadScheduleEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface PrivateThreadScheduleDiagnostic {
+  id: string;
+  actorId: string;
+  targetId: string;
+  participantIds: string[];
+  action: CompanionshipPrivateThreadScheduleEventPayload['action'];
+  reasonType?: string;
+  triggerReason?: string;
+  openingMessage?: string;
+  reason?: string;
+  candidateId?: string;
+  privateChatId?: string;
+  dedupeKey?: string | null;
+  nextAvailableAt?: number;
+  isCoolingDown: boolean;
+  confidence?: number;
+  decisionSource?: 'model' | 'local_fallback';
+  occurredAt: number;
+}
+
 export interface CharacterCompanionshipState {
   actorId: string;
   targetId: string;
@@ -571,6 +665,7 @@ export interface SharedMemoryAnchor {
   source: 'layered_memory' | 'relationship_note' | 'runtime_event';
   sourceId?: string;
   evidence?: string;
+  sourceMessageIds?: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -585,6 +680,7 @@ export interface SharedSecret {
   emotionalWeight: number;
   sourceAnchorId: string;
   sourceEventIds: string[];
+  sourceMessageIds?: string[];
   updatedAt: number;
 }
 
@@ -599,6 +695,7 @@ export interface SharedPhrase {
   reuseCount: number;
   sourceAnchorId?: string;
   sourceEventIds: string[];
+  sourceMessageIds?: string[];
   evidence?: string;
   updatedAt: number;
 }
@@ -613,6 +710,7 @@ export interface RitualRegistryEntry {
   cooldownHours: number;
   boundaryReasons: string[];
   sourceAnchorId?: string;
+  sourceMessageIds?: string[];
   lastPerformedAt?: number;
   nextAvailableAt?: number;
   executionState?: 'available' | 'cooldown' | 'suppressed';
@@ -633,7 +731,7 @@ export interface CompanionshipRuntimeTrace {
   sharedPhrases: string[];
   sharedSecrets: string[];
   rituals: string[];
-  intimateConflict?: Pick<IntimateConflictState, 'kind' | 'severity' | 'repairReadiness' | 'summary'>;
+  intimateConflict?: Pick<IntimateConflictState, 'kind' | 'severity' | 'repairReadiness' | 'summary' | 'sourceMessageIds'>;
   pendingCareTopics: string[];
   pendingPromises: string[];
   rememberedUserPlans: string[];
@@ -643,6 +741,9 @@ export interface CompanionshipRuntimeTrace {
   addressingHistory: AddressingHistoryEntry[];
   careTopicHistory: CareTopicHistoryEntry[];
   promiseHistory: PromiseHistoryEntry[];
+  sharedAnchorHistory: SharedAnchorHistoryEntry[];
+  sharedSecretHistory: SharedSecretHistoryEntry[];
+  sharedPhraseHistory: SharedPhraseHistoryEntry[];
   ritualHistory: RitualHistoryEntry[];
   carePolicy: Pick<CarePolicy, 'dailyInitiationBudget' | 'triggerSensitivity' | 'silenceAnxietyThresholdHours' | 'expressionIntensity' | 'allowGoodMorning' | 'allowGoodNight' | 'allowMissYou'>;
   attachmentProfile?: UserAttachmentProfile;

@@ -91,6 +91,7 @@ function phaseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
     summary: '用户和苏苏明确确认了关系。',
     visibility: 'pair_private',
     eventClass: 'phase',
+    evidenceMessageIds: ['msg-phase-evidence'],
     payload: {
       eventType: 'companionship_phase_event',
       characterId: 'char-a',
@@ -99,6 +100,7 @@ function phaseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
       style: 'romantic',
       reason: '双方明确说出喜欢并确认关系边界。',
       evidence: ['用户说我们就按恋人关系相处。'],
+      sourceMessageIds: ['msg-phase-source'],
     },
     ...overrides,
   };
@@ -115,6 +117,7 @@ function ritualEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
     summary: '苏苏使用了一次轻度问候仪式。',
     visibility: 'pair_private',
     eventClass: 'artifact',
+    evidenceMessageIds: ['msg-ritual-evidence'],
     payload: {
       eventType: 'companionship_ritual',
       characterId: 'char-a',
@@ -124,6 +127,7 @@ function ritualEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
       action: 'performed',
       participantIds: ['char-a', 'user'],
       reason: '用户上线后自然接了一句问候。',
+      sourceMessageIds: ['msg-ritual-source'],
     },
     ...overrides,
   };
@@ -140,6 +144,7 @@ function intimateConflictEvent(overrides: Partial<RuntimeEventV2> = {}): Runtime
     summary: '用户和苏苏进入一次冷战后的试探修复。',
     visibility: 'pair_private',
     eventClass: 'artifact',
+    evidenceMessageIds: ['msg-conflict-evidence'],
     payload: {
       eventType: 'companionship_intimate_conflict',
       characterId: 'char-a',
@@ -152,6 +157,7 @@ function intimateConflictEvent(overrides: Partial<RuntimeEventV2> = {}): Runtime
       evidence: ['用户说：我们先别冷战了，慢慢说开。'],
       participantIds: ['char-a', 'user'],
       sourceEventIds: ['evt-source-conflict'],
+      sourceMessageIds: ['msg-conflict-source'],
       confidence: 0.88,
       decisionSource: 'model',
     },
@@ -277,6 +283,7 @@ function sharedAnchorEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEven
     summary: '苏苏记录了一个和用户之间的共同记忆锚点。',
     visibility: 'pair_private',
     eventClass: 'artifact',
+    evidenceMessageIds: ['msg-anchor-evidence'],
     payload: {
       eventType: 'companionship_shared_anchor',
       characterId: 'char-a',
@@ -288,6 +295,7 @@ function sharedAnchorEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEven
       title: '第一次深夜聊天',
       text: '第一次深夜聊天后，苏苏记住了用户没有离开。',
       evidence: '用户那晚陪苏苏聊到很晚。',
+      sourceMessageIds: ['msg-anchor-source'],
       salience: 82,
       confidence: 0.9,
       decisionSource: 'model',
@@ -307,6 +315,7 @@ function promiseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
     summary: '苏苏记录了一个还没完成的约定。',
     visibility: 'pair_private',
     eventClass: 'artifact',
+    evidenceMessageIds: ['msg-promise-evidence'],
     payload: {
       eventType: 'companionship_promise',
       characterId: 'char-a',
@@ -317,6 +326,7 @@ function promiseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEventV2 {
       participantIds: ['char-a', 'user'],
       reason: '用户和苏苏说好周末一起看电影。',
       evidence: '周末一起看那部电影吧。',
+      sourceMessageIds: ['msg-promise-source'],
       dueAt: 2_000,
       confidence: 0.9,
       decisionSource: 'model',
@@ -366,6 +376,7 @@ function sharedSecretEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEven
     summary: '苏苏记录了一个只适合私下保存的小秘密。',
     visibility: 'pair_private',
     eventClass: 'artifact',
+    evidenceMessageIds: ['msg-secret-source'],
     payload: {
       eventType: 'companionship_shared_secret',
       characterId: 'char-a',
@@ -377,6 +388,7 @@ function sharedSecretEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEven
       publicMask: '有一件只适合留在心里的事',
       reason: '用户明确说这是只告诉苏苏的暗号。',
       evidence: '这是只有我们知道的暗号。',
+      sourceMessageIds: ['msg-secret-model'],
       emotionalWeight: 82,
       confidence: 0.9,
       decisionSource: 'model',
@@ -396,6 +408,7 @@ function sharedPhraseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEven
     summary: '苏苏记录了一句只属于两个人的共同话语。',
     visibility: 'pair_private',
     eventClass: 'artifact',
+    evidenceMessageIds: ['msg-model-phrase'],
     payload: {
       eventType: 'companionship_shared_phrase',
       characterId: 'char-a',
@@ -409,6 +422,7 @@ function sharedPhraseEvent(overrides: Partial<RuntimeEventV2> = {}): RuntimeEven
       firstSaidBy: 'char-a',
       reason: '这句话在修复时被用户接受。',
       evidence: '苏苏说慢慢来，我在，用户没有再回避。',
+      sourceMessageIds: ['msg-model-phrase'],
       emotionalWeight: 78,
       reuseCount: 2,
       confidence: 0.9,
@@ -578,6 +592,7 @@ describe('companionshipProjection', () => {
       action: 'set',
       phase: 'confirmed',
       style: 'romantic',
+      sourceMessageIds: ['msg-phase-source', 'msg-phase-evidence'],
     });
     expect(trace?.phaseHistory[0]?.evidence.join('\n')).toContain('确认关系');
   });
@@ -1372,6 +1387,67 @@ describe('companionshipProjection', () => {
     });
   });
 
+  it('restores an earlier address with a later manual addressing event', () => {
+    const modelAddress = addressingEvent({
+      id: 'evt-addressing-model',
+      createdAt: 1_000,
+      payload: {
+        eventType: 'companionship_addressing',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'update',
+        currentAddress: '阿夏',
+        privateAddress: '阿夏',
+        publicAddress: '夏夏',
+        confidence: 0.92,
+        decisionSource: 'model',
+      },
+    });
+    const manualRestore = addressingEvent({
+      id: 'evt-addressing-restore',
+      createdAt: 1_200,
+      payload: {
+        eventType: 'companionship_addressing',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'set_current',
+        currentAddress: '小夏',
+        reason: '用户在称呼历史中恢复旧称呼。',
+        confidence: 1,
+      },
+    });
+    const directChat = chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [modelAddress, manualRestore]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character({
+        memory: {
+          shortTermSummary: '',
+          longTerm: [],
+          secrets: [],
+          obsessions: [],
+          tabooTopics: [],
+          userMemories: ['用户说：叫我小夏。'],
+        },
+      }),
+      messages: [message({ content: '还是叫我小夏吧。', timestamp: 1_210 })],
+      now: 1_300,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '还是叫我小夏吧。', timestamp: 1_210 })],
+      now: 1_300,
+    });
+
+    expect(projection.userBond?.addressing.currentAddress).toBe('小夏');
+    expect(projection.userBond?.addressing.privateAddress).toBe('阿夏');
+    expect(trace?.addressingHistory[0]).toMatchObject({
+      id: 'evt-addressing-restore',
+      action: 'set_current',
+      currentAddress: '小夏',
+    });
+  });
+
   it('keeps forbidden addressing out of current and private addresses', () => {
     const projection = buildUserCompanionshipProjection({
       chat: chat('direct', [relationship({ warmth: 72, trust: 66, competence: 10, threat: 2 })], [
@@ -1639,6 +1715,7 @@ describe('companionshipProjection', () => {
       source: 'runtime_event',
       text: '明天面试有点紧张。',
       status: 'active',
+      sourceMessageIds: ['msg-open'],
     });
     expect(openProjection.promptLines.join('\n')).toContain('Pending care topics');
     const openTrace = buildCompanionshipRuntimeTrace({
@@ -1650,6 +1727,7 @@ describe('companionshipProjection', () => {
     expect(openTrace?.careTopicHistory[0]).toMatchObject({
       action: 'opened',
       topicText: '明天面试有点紧张。',
+      sourceMessageIds: ['msg-open'],
     });
 
     const closed = buildCompanionshipCareTopicEventsFromDirectUserMessage({
@@ -1673,6 +1751,7 @@ describe('companionshipProjection', () => {
       now: 500,
     });
     expect(closedTrace?.careTopicHistory.map((item) => item.action)).toEqual(['closed', 'opened']);
+    expect(closedTrace?.careTopicHistory[0]?.sourceMessageIds).toEqual(['msg-close']);
   });
 
   it('uses blocked care topic runtime events to suppress matching recent-message fallback topics', () => {
@@ -1905,6 +1984,7 @@ describe('companionshipProjection', () => {
       source: 'runtime_event',
       status: 'open',
       evidence: '周末一起看那部电影吧。',
+      sourceMessageIds: ['msg-promise-source', 'msg-promise-evidence'],
       dueAt: 2_000,
     });
     expect(projection.promptLines.join('\n')).toContain('周末一起看那部电影');
@@ -1914,6 +1994,7 @@ describe('companionshipProjection', () => {
       action: 'opened',
       promiseText: '周末一起看那部电影',
       promiseKind: 'shared_activity',
+      sourceMessageIds: ['msg-promise-source', 'msg-promise-evidence'],
     });
   });
 
@@ -2695,8 +2776,10 @@ describe('companionshipProjection', () => {
       participantIds: ['char-a', 'user'],
     });
     expect(projection.userBond?.intimateConflict?.sourceEventIds).toEqual(expect.arrayContaining(['evt-intimate-conflict-1', 'evt-source-conflict']));
+    expect(projection.userBond?.intimateConflict?.sourceMessageIds).toEqual(['msg-conflict-source', 'msg-conflict-evidence']);
     expect(projection.promptLines.join('\n')).toContain('Current intimate conflict/repair state');
     expect(trace?.intimateConflict?.repairReadiness).toBe(68);
+    expect(trace?.intimateConflict?.sourceMessageIds).toEqual(['msg-conflict-source', 'msg-conflict-evidence']);
     expect(trace?.conflictHistory[0]).toMatchObject({
       id: 'evt-intimate-conflict-1',
       action: 'repair_attempted',
@@ -2704,6 +2787,7 @@ describe('companionshipProjection', () => {
       severity: 44,
       repairReadiness: 68,
       decisionSource: 'model',
+      sourceMessageIds: ['msg-conflict-source', 'msg-conflict-evidence'],
     });
     expect(trace?.conflictHistory[0]?.evidence.join('\n')).toContain('慢慢说开');
   });
@@ -2783,6 +2867,99 @@ describe('companionshipProjection', () => {
     expect(projection.promptLines.join('\n')).not.toContain('Current intimate conflict/repair state');
   });
 
+  it('lets a reopened intimate conflict event restore a dismissed history item', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 32,
+      trust: 24,
+      competence: 10,
+      threat: 58,
+    })], [
+      intimateConflictEvent({
+        id: 'evt-intimate-opened-before-dismiss',
+        createdAt: 1_000,
+        summary: '用户和苏苏有一次冷战。',
+        payload: {
+          eventType: 'companionship_intimate_conflict',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'opened',
+          kind: 'cold_war',
+          severity: 72,
+          repairReadiness: 18,
+          summary: '两个人在冷战，角色需要先克制一点。',
+          evidence: ['用户说：先别聊了，我有点失望。'],
+          participantIds: ['char-a', 'user'],
+          sourceMessageIds: ['msg-opened-source'],
+          confidence: 0.86,
+          decisionSource: 'model',
+        },
+      }),
+      intimateConflictEvent({
+        id: 'evt-intimate-dismissed',
+        createdAt: 1_100,
+        summary: '用户标记这不是一次亲密冲突。',
+        payload: {
+          eventType: 'companionship_intimate_conflict',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'dismissed',
+          kind: 'cold_war',
+          severity: 0,
+          repairReadiness: 0,
+          summary: '这不是一次亲密冲突。',
+          evidence: ['用户在关系页点了不是冲突。'],
+          participantIds: ['char-a', 'user'],
+          sourceEventIds: ['evt-intimate-opened-before-dismiss'],
+          sourceMessageIds: ['msg-opened-source'],
+          confidence: 1,
+        },
+      }),
+      intimateConflictEvent({
+        id: 'evt-intimate-reopened',
+        createdAt: 1_200,
+        summary: '用户从冲突历史中恢复了这次冷战判断。',
+        payload: {
+          eventType: 'companionship_intimate_conflict',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'reopened',
+          kind: 'cold_war',
+          severity: 72,
+          repairReadiness: 18,
+          summary: '两个人在冷战，角色需要先克制一点。',
+          evidence: ['manual_restore_from_conflict_history', '用户说：先别聊了，我有点失望。'],
+          participantIds: ['char-a', 'user'],
+          sourceEventIds: ['evt-intimate-opened-before-dismiss'],
+          sourceMessageIds: ['msg-opened-source'],
+          confidence: 1,
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '先别聊了，我有点失望。', timestamp: 990 })],
+      now: 1_300,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '先别聊了，我有点失望。', timestamp: 990 })],
+      now: 1_300,
+    });
+
+    expect(projection.userBond?.intimateConflict).toMatchObject({
+      kind: 'cold_war',
+      severity: 72,
+      repairReadiness: 18,
+      summary: '两个人在冷战，角色需要先克制一点。',
+    });
+    expect(projection.promptLines.join('\n')).toContain('Current intimate conflict/repair state');
+    expect(trace?.conflictHistory.map((item) => item.action).slice(0, 3)).toEqual(['reopened', 'dismissed', 'opened']);
+    expect(projection.userBond?.intimateConflict?.sourceEventIds).toEqual(expect.arrayContaining(['evt-intimate-reopened', 'evt-intimate-opened-before-dismiss']));
+    expect(trace?.intimateConflict?.sourceMessageIds).toEqual(['msg-opened-source', 'msg-conflict-evidence']);
+  });
+
   it('derives shared memory anchors from intimate conflict runtime events', () => {
     const directChat = chat('direct', [relationship({
       warmth: 34,
@@ -2848,9 +3025,19 @@ describe('companionshipProjection', () => {
       source: 'runtime_event',
       participantIds: ['char-a', 'user'],
       title: '第一次深夜聊天',
+      sourceMessageIds: ['msg-anchor-source', 'msg-anchor-evidence'],
     });
     expect(projection.promptLines.join('\n')).toContain('第一次深夜聊天后，苏苏记住了用户没有离开');
     expect(trace?.sharedAnchors.join('\n')).toContain('第一次深夜聊天');
+    expect(trace?.sharedAnchorHistory[0]).toMatchObject({
+      action: 'upsert',
+      anchorId: 'late-night-anchor',
+      kind: 'first_time',
+      title: '第一次深夜聊天',
+      sourceMessageIds: ['msg-anchor-source', 'msg-anchor-evidence'],
+      decisionSource: 'model',
+    });
+    expect(trace?.sharedAnchorHistory[0]?.text).toContain('第一次深夜聊天后');
   });
 
   it('uses later shared anchor upserts to narrow participants to the user pair', () => {
@@ -2869,6 +3056,7 @@ describe('companionshipProjection', () => {
           title: '第一次深夜聊天',
           text: '第一次深夜聊天后，苏苏记住了用户没有离开。',
           evidence: '旧事件误把另一个角色放进共同锚点。',
+          sourceMessageIds: ['msg-anchor-original'],
           salience: 82,
           confidence: 0.9,
           decisionSource: 'model',
@@ -2888,6 +3076,7 @@ describe('companionshipProjection', () => {
           title: '第一次深夜聊天',
           text: '第一次深夜聊天后，苏苏记住了用户没有离开。',
           evidence: 'manual_shared_anchor_participants_pair_private_from_character_relationship_tab',
+          sourceMessageIds: ['msg-anchor-manual'],
           salience: 82,
           confidence: 1,
           decisionSource: 'model',
@@ -2900,6 +3089,35 @@ describe('companionshipProjection', () => {
 
     expect(anchor?.participantIds).toEqual(['char-a', 'user']);
     expect(anchor?.participantIds).not.toContain('char-b');
+    expect(anchor?.sourceMessageIds).toEqual(['msg-anchor-original', 'msg-anchor-evidence', 'msg-anchor-manual']);
+  });
+
+  it('automatically narrows user direct shared anchors that accidentally include third-party participants', () => {
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [
+      sharedAnchorEvent({
+        id: 'evt-shared-anchor-auto-pair-private',
+        payload: {
+          eventType: 'companionship_shared_anchor',
+          characterId: 'char-a',
+          userId: 'user',
+          anchorId: 'late-night-anchor',
+          action: 'upsert',
+          kind: 'first_time',
+          participantIds: ['char-a', 'user', 'char-b'],
+          title: '第一次深夜聊天',
+          text: '第一次深夜聊天后，苏苏记住了用户没有离开。',
+          evidence: '模型误把另一个角色放进用户单聊共同锚点。',
+          salience: 82,
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+
+    const anchors = buildSharedMemoryAnchors(character(), 1_300, directChat);
+    const anchor = anchors.find((item) => item.id === 'runtime-anchor-late-night-anchor');
+
+    expect(anchor?.participantIds).toEqual(['char-a', 'user']);
   });
 
   it('projects shared phrases into prompt, trace, and private artifact seeds', () => {
@@ -2955,6 +3173,7 @@ describe('companionshipProjection', () => {
       kind: 'comfort_line',
       text: '慢慢来，我在',
       reuseCount: 2,
+      sourceMessageIds: ['msg-model-phrase'],
     });
     expect(phrases.some((phrase) => phrase.kind === 'promise_line' && phrase.text.includes('慢慢来'))).toBe(true);
     expect(projection.promptLines.join('\n')).toContain('Shared phrases/private lines');
@@ -3038,6 +3257,98 @@ describe('companionshipProjection', () => {
     expect(phrases.map((phrase) => phrase.text).join('\n')).not.toContain('慢慢来，我在');
     expect(projection.promptLines.join('\n')).not.toContain('Shared phrases/private lines');
     expect(trace?.sharedPhrases.join('\n')).not.toContain('慢慢来，我在');
+  });
+
+  it('tracks shared phrase history and lets a later restore event re-enable a suppressed phrase', () => {
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-original',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'phrase-slowly',
+          action: 'upsert',
+          text: '慢慢来，我在',
+          kind: 'comfort_line',
+          participantIds: ['char-a', 'user'],
+          visibility: 'private',
+          firstSaidBy: 'char-a',
+          reason: '第一次形成安慰话语。',
+          evidence: '苏苏说慢慢来，我在。',
+          sourceMessageIds: ['msg-phrase-original'],
+          emotionalWeight: 70,
+          reuseCount: 1,
+          confidence: 0.9,
+          decisionSource: 'model',
+        },
+      }),
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-suppressed',
+        createdAt: 1_100,
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'phrase-slowly',
+          action: 'suppressed',
+          text: '慢慢来，我在',
+          kind: 'comfort_line',
+          participantIds: ['char-a', 'user'],
+          visibility: 'private',
+          firstSaidBy: 'char-a',
+          reason: '用户暂时不想复用这句话。',
+          evidence: 'manual_shared_phrase_suppressed',
+          sourceMessageIds: ['msg-phrase-original'],
+          emotionalWeight: 70,
+          reuseCount: 1,
+          confidence: 1,
+        },
+      }),
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-restored',
+        createdAt: 1_200,
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'phrase-slowly',
+          action: 'upsert',
+          text: '慢慢来，我在',
+          kind: 'comfort_line',
+          participantIds: ['char-a', 'user'],
+          visibility: 'private',
+          firstSaidBy: 'char-a',
+          reason: '用户从共同话语历史恢复。',
+          evidence: 'manual_restore_from_shared_phrase_history',
+          sourceMessageIds: ['msg-phrase-original'],
+          emotionalWeight: 70,
+          reuseCount: 1,
+          confidence: 1,
+        },
+      }),
+    ]);
+    const phrases = buildSharedPhrases(character(), 1_300, directChat, []);
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [],
+      now: 1_300,
+    });
+
+    expect(phrases.find((phrase) => phrase.id === 'phrase-slowly')).toMatchObject({
+      text: '慢慢来，我在',
+      visibility: 'private',
+    });
+    expect(trace?.sharedPhraseHistory.map((item) => item.action).slice(0, 3)).toEqual(['upsert', 'suppressed', 'upsert']);
+    expect(trace?.sharedPhraseHistory[0]).toMatchObject({
+      id: 'evt-shared-phrase-restored',
+      phraseId: 'phrase-slowly',
+      text: '慢慢来，我在',
+      kind: 'comfort_line',
+      sourceMessageIds: ['msg-phrase-original', 'msg-model-phrase'],
+    });
   });
 
   it('uses later shared phrase upserts to correct kind and visibility', () => {
@@ -3156,6 +3467,95 @@ describe('companionshipProjection', () => {
       visibility: 'private',
     });
     expect(phrase?.participantIds).not.toContain('char-b');
+  });
+
+  it('automatically narrows user direct shared phrases that accidentally include third-party participants', () => {
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [
+      sharedPhraseEvent({
+        id: 'evt-shared-phrase-auto-pair-private',
+        payload: {
+          eventType: 'companionship_shared_phrase',
+          characterId: 'char-a',
+          userId: 'user',
+          phraseId: 'phrase-secret-code',
+          action: 'upsert',
+          text: '月亮今天也站岗',
+          kind: 'secret_code',
+          participantIds: ['char-a', 'user', 'char-b'],
+          visibility: 'private',
+          firstSaidBy: 'user',
+          reason: '模型误把第三个角色也放进了小暗号参与者。',
+          evidence: '这是只有我们知道的暗号。',
+          emotionalWeight: 86,
+          reuseCount: 2,
+          confidence: 0.86,
+          decisionSource: 'model',
+        },
+      }),
+    ]);
+
+    const phrases = buildSharedPhrases(character(), 1_300, directChat, []);
+    const phrase = phrases.find((item) => item.id === 'phrase-secret-code');
+
+    expect(phrase?.participantIds).toEqual(['char-a', 'user']);
+  });
+
+  it('narrows role-private shared phrases to a pair unless the text explicitly describes a group', () => {
+    const groupChat = {
+      ...chat('group', [], [
+        sharedPhraseEvent({
+          id: 'evt-role-phrase-ambiguous-group',
+          actorIds: ['char-a', 'char-b', 'char-c'],
+          targetIds: ['char-a', 'char-b', 'char-c'],
+          visibility: 'role_private',
+          payload: {
+            eventType: 'companionship_shared_phrase',
+            characterId: 'char-a',
+            phraseId: 'phrase-rain-ticket',
+            action: 'upsert',
+            text: '雨天加班券',
+            kind: 'inside_joke',
+            participantIds: ['char-a', 'char-b', 'char-c'],
+            visibility: 'public_hint',
+            reason: '模型误把多人都放进了共同梗参与者。',
+            evidence: '苏苏和小林又提到雨天加班券。',
+            emotionalWeight: 70,
+            reuseCount: 1,
+            confidence: 0.86,
+            decisionSource: 'model',
+          },
+        }),
+        sharedPhraseEvent({
+          id: 'evt-role-phrase-explicit-group',
+          actorIds: ['char-a', 'char-b', 'char-c'],
+          targetIds: ['char-a', 'char-b', 'char-c'],
+          visibility: 'role_private',
+          payload: {
+            eventType: 'companionship_shared_phrase',
+            characterId: 'char-a',
+            phraseId: 'phrase-team-code',
+            action: 'upsert',
+            text: '大家都知道的小队暗号',
+            kind: 'secret_code',
+            participantIds: ['char-a', 'char-b', 'char-c'],
+            visibility: 'private',
+            reason: '这是小队共同参与的暗号。',
+            evidence: '大家都说好用这个小队暗号。',
+            emotionalWeight: 76,
+            reuseCount: 1,
+            confidence: 0.9,
+            decisionSource: 'model',
+          },
+        }),
+      ]),
+      memberIds: ['char-a', 'char-b', 'char-c'],
+      type: 'group' as const,
+    };
+
+    const phrases = buildSharedPhrases(character(), 1_300, groupChat, []);
+
+    expect(phrases.find((item) => item.id === 'phrase-rain-ticket')?.participantIds).toEqual(['char-a', 'char-b']);
+    expect(phrases.find((item) => item.id === 'phrase-team-code')?.participantIds).toEqual(['char-a', 'char-b', 'char-c']);
   });
 
   it('uses reused shared phrase events to strengthen reuse count without changing text', () => {
@@ -3582,6 +3982,71 @@ describe('companionshipProjection', () => {
     });
     expect(projection.userBond?.carePolicy.silenceAnxietyThresholdHours).toBe(24);
     expect(projection.promptLines.join('\n')).toContain('keep a steady reciprocal pace');
+  });
+
+  it('uses a later restored attachment history correction to override prior inferred style', () => {
+    const directChat = chat('direct', [relationship({
+      warmth: 62,
+      trust: 58,
+      competence: 10,
+      threat: 4,
+    })], [
+      attachmentProfileEvent({
+        id: 'evt-attachment-inferred',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_attachment_profile',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'inferred',
+          inferredStyle: 'avoidant',
+          confidence: 0.82,
+          reason: '模型认为用户需要更多空间。',
+          evidence: ['用户说这几天先别追问。'],
+          adaptations: ['respect explicit space requests'],
+          decisionSource: 'model',
+        },
+      }),
+      attachmentProfileEvent({
+        id: 'evt-attachment-restored-from-history',
+        createdAt: 1_200,
+        payload: {
+          eventType: 'companionship_attachment_profile',
+          characterId: 'char-a',
+          userId: 'user',
+          action: 'corrected',
+          inferredStyle: 'anxious',
+          confidence: 1,
+          reason: '用户在开发者诊断中从互动节奏历史 evt-old-anxious 恢复为多给确认。',
+          evidence: ['manual_attachment_restore_from_history'],
+          adaptations: ['offer reassurance explicitly'],
+        },
+      }),
+    ]);
+    const projection = buildUserCompanionshipProjection({
+      chat: directChat,
+      character: character(),
+      messages: [],
+      now: 1_300,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      chat: directChat,
+      character: character(),
+      messages: [],
+      now: 1_300,
+    });
+
+    expect(projection.userBond?.attachmentProfile).toMatchObject({
+      inferredStyle: 'anxious',
+      confidence: 100,
+      adaptations: ['offer reassurance explicitly'],
+    });
+    expect(trace?.attachmentHistory[0]).toMatchObject({
+      id: 'evt-attachment-restored-from-history',
+      action: 'corrected',
+      inferredStyle: 'anxious',
+      reason: '用户在开发者诊断中从互动节奏历史 evt-old-anxious 恢复为多给确认。',
+    });
   });
 
   it('aggregates inferred attachment profile events into a long-term trend', () => {
@@ -4073,7 +4538,7 @@ describe('companionshipProjection', () => {
     setCompanionshipRuntimeConfig({
       enableProactiveCare: false,
       careIntensity: 'balanced',
-      quietHours: { enabled: false, start: '23:30', end: '08:00', suppressStatusHints: true },
+      quietHours: { enabled: false, start: '23:30', end: '08:00', suppressStatusHints: true, suppressProactiveCare: true },
     });
     const directChat = chat('direct', [relationship({ warmth: 78, trust: 72, competence: 10, threat: 2 })]);
     const actor = character({ generationPreferences: { moments: 'follow_global', diaries: 'follow_global', companionship: 'on' } });
@@ -4104,7 +4569,7 @@ describe('companionshipProjection', () => {
     const directChat = chat('direct', [relationship({ warmth: 78, trust: 72, competence: 10, threat: 2 })]);
 
     setCompanionshipRuntimeConfig({
-      quietHours: { enabled: true, start: '23:30', end: '08:00', suppressStatusHints: true },
+      quietHours: { enabled: true, start: '23:30', end: '08:00', suppressStatusHints: true, suppressProactiveCare: true },
     });
     expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
       character: baseCharacter,
@@ -4119,7 +4584,19 @@ describe('companionshipProjection', () => {
     });
 
     setCompanionshipRuntimeConfig({
-      quietHours: { enabled: false, start: '23:30', end: '08:00', suppressStatusHints: true },
+      quietHours: { enabled: false, start: '23:30', end: '08:00', suppressStatusHints: true, suppressProactiveCare: true },
+    });
+    expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
+      character: baseCharacter,
+      chat: directChat,
+      eventKind: 'status_update',
+      reasonType: 'world_attention_status_idle',
+      attentionScore: 1,
+      now: night,
+    }).blocked).toBe(false);
+
+    setCompanionshipRuntimeConfig({
+      quietHours: { enabled: true, start: '23:30', end: '08:00', suppressStatusHints: true, suppressProactiveCare: false },
     });
     expect(shouldBlockUserProactiveContactByCompanionshipPolicy({
       character: baseCharacter,
@@ -4140,7 +4617,7 @@ describe('companionshipProjection', () => {
         socialOuting: 360,
         statusUpdate: 90,
       },
-      quietHours: { enabled: false, start: '23:30', end: '08:00', suppressStatusHints: true },
+      quietHours: { enabled: false, start: '23:30', end: '08:00', suppressStatusHints: true, suppressProactiveCare: true },
     });
     const directChat = chat('direct', [relationship({ warmth: 78, trust: 72, competence: 10, threat: 2 })], [{
       id: 'evt-recent-check-in-artifact',
@@ -4812,9 +5289,20 @@ describe('companionshipProjection', () => {
       publicMask: '有一件只适合留在心里的事',
       leakState: 'sealed',
       sourceAnchorId: 'runtime-evt-shared-secret-1',
+      sourceEventIds: ['evt-shared-secret-1'],
+      sourceMessageIds: ['msg-secret-model', 'msg-secret-source'],
     });
     expect(trace?.sharedSecrets.join('\n')).toContain('有一件只适合留在心里的事');
     expect(trace?.sharedSecrets.join('\n')).not.toContain('暗号告诉过苏苏');
+    expect(trace?.sharedSecretHistory[0]).toMatchObject({
+      action: 'recorded',
+      secretId: 'secret-user-codeword',
+      publicMask: '有一件只适合留在心里的事',
+      leakState: 'sealed',
+      sourceMessageIds: ['msg-secret-model', 'msg-secret-source'],
+      decisionSource: 'model',
+    });
+    expect(JSON.stringify(trace?.sharedSecretHistory)).not.toContain('暗号告诉过苏苏');
   });
 
   it('uses later shared secret events to update the public mask without exposing private text', () => {
@@ -4851,6 +5339,8 @@ describe('companionshipProjection', () => {
       id: 'secret-user-codeword',
       publicMask: '一个只适合两个人记住的暗号',
       privateText: '用户只把那个暗号告诉过苏苏，不能告诉别人。',
+      sourceEventIds: ['evt-shared-secret-1', 'evt-shared-secret-mask-edit'],
+      sourceMessageIds: ['msg-secret-model', 'msg-secret-source'],
     });
     expect(trace?.sharedSecrets.join('\n')).toContain('一个只适合两个人记住的暗号');
     expect(trace?.sharedSecrets.join('\n')).not.toContain('暗号告诉过苏苏');
@@ -5389,6 +5879,7 @@ describe('companionshipProjection', () => {
           participantIds: ['char-a', 'user'],
           content: '晚安时会先问小夏今天有没有好好收尾，而不是机械打卡。',
           evolution: ['从普通晚安变成睡前轻轻确认状态。'],
+          sourceMessageIds: ['msg-ritual-model'],
           confidence: 0.88,
           decisionSource: 'model',
         },
@@ -5400,6 +5891,7 @@ describe('companionshipProjection', () => {
     const greeting = rituals.find((ritual) => ritual.id === 'ritual-char-a-daily-greeting');
     expect(greeting?.content).toBe('晚安时会先问小夏今天有没有好好收尾，而不是机械打卡。');
     expect(greeting?.evolution).toContain('从普通晚安变成睡前轻轻确认状态。');
+    expect(greeting?.sourceMessageIds).toEqual(['msg-ritual-model', 'msg-ritual-evidence']);
     const trace = buildCompanionshipRuntimeTrace({
       character: character(),
       chat: chat('direct', [], [ritualEvent({
@@ -5415,6 +5907,7 @@ describe('companionshipProjection', () => {
           participantIds: ['char-a', 'user'],
           content: '晚安时会先问小夏今天有没有好好收尾，而不是机械打卡。',
           evolution: ['从普通晚安变成睡前轻轻确认状态。'],
+          sourceMessageIds: ['msg-ritual-model'],
           confidence: 0.88,
           decisionSource: 'model',
         },
@@ -5430,6 +5923,7 @@ describe('companionshipProjection', () => {
       content: '晚安时会先问小夏今天有没有好好收尾，而不是机械打卡。',
       decisionSource: 'model',
       confidence: 0.88,
+      sourceMessageIds: ['msg-ritual-model', 'msg-ritual-evidence'],
     });
   });
 
@@ -5625,6 +6119,92 @@ describe('companionshipProjection', () => {
     expect(greeting?.executionState).toBe('available');
     expect(greeting?.boundaryReasons.join('\n')).not.toContain('ritual suppressed');
     expect(seeds.join('\n')).toContain('晚安时会先问小夏');
+  });
+
+  it('uses updated ritual events from history restore to re-enable suppressed ritual content', () => {
+    const events = [
+      ritualEvent({
+        id: 'evt-ritual-original-content',
+        createdAt: 1_000,
+        payload: {
+          eventType: 'companionship_ritual',
+          characterId: 'char-a',
+          userId: 'user',
+          ritualId: 'ritual-char-a-daily-greeting',
+          kind: 'daily_greeting',
+          action: 'updated',
+          participantIds: ['char-a', 'user'],
+          content: '睡前只轻轻确认一句：今天有没有好好收尾。',
+          evolution: ['用户喜欢克制一点的晚安。'],
+          sourceMessageIds: ['msg-ritual-original'],
+          confidence: 1,
+        },
+      }),
+      ritualEvent({
+        id: 'evt-ritual-suppressed',
+        createdAt: 1_100,
+        payload: {
+          eventType: 'companionship_ritual',
+          characterId: 'char-a',
+          userId: 'user',
+          ritualId: 'ritual-char-a-daily-greeting',
+          kind: 'daily_greeting',
+          action: 'suppressed',
+          participantIds: ['char-a', 'user'],
+          content: '睡前只轻轻确认一句：今天有没有好好收尾。',
+          reason: '用户暂时停用这个晚安仪式。',
+          evidence: 'manual_ritual_suppressed',
+          sourceMessageIds: ['msg-ritual-original'],
+          confidence: 1,
+        },
+      }),
+      ritualEvent({
+        id: 'evt-ritual-history-restored',
+        createdAt: 1_200,
+        payload: {
+          eventType: 'companionship_ritual',
+          characterId: 'char-a',
+          userId: 'user',
+          ritualId: 'ritual-char-a-daily-greeting',
+          kind: 'daily_greeting',
+          action: 'updated',
+          participantIds: ['char-a', 'user'],
+          content: '睡前只轻轻确认一句：今天有没有好好收尾。',
+          evolution: ['用户喜欢克制一点的晚安。', '从仪式历史 evt-ritual-original-content 恢复。'],
+          reason: '用户在开发者诊断中从仪式历史恢复内容。',
+          evidence: 'manual_restore_from_ritual_history',
+          sourceMessageIds: ['msg-ritual-original'],
+          confidence: 1,
+        },
+      }),
+    ];
+    const ritualChat = chat('direct', [relationship({ warmth: 70, trust: 68, competence: 10, threat: 2 })], events);
+    const rituals = buildRitualRegistry({
+      character: character(),
+      chat: ritualChat,
+      messages: [],
+      now: 1_300,
+    });
+    const trace = buildCompanionshipRuntimeTrace({
+      character: character(),
+      chat: ritualChat,
+      messages: [],
+      now: 1_300,
+    });
+
+    const greeting = rituals.find((ritual) => ritual.id === 'ritual-char-a-daily-greeting');
+    expect(greeting).toMatchObject({
+      content: '睡前只轻轻确认一句：今天有没有好好收尾。',
+      executionState: 'available',
+    });
+    expect(greeting?.boundaryReasons.join('\n')).not.toContain('ritual suppressed');
+    expect(greeting?.sourceMessageIds).toEqual(['msg-ritual-original', 'msg-ritual-evidence']);
+    expect(trace?.ritualHistory.map((item) => item.id).slice(0, 3)).toEqual(['evt-ritual-history-restored', 'evt-ritual-suppressed', 'evt-ritual-original-content']);
+    expect(trace?.ritualHistory[0]).toMatchObject({
+      action: 'updated',
+      content: '睡前只轻轻确认一句：今天有没有好好收尾。',
+      sourceMessageIds: ['msg-ritual-original', 'msg-ritual-evidence'],
+    });
   });
 
   it('builds private and public artifact seeds with different user-memory boundaries', () => {

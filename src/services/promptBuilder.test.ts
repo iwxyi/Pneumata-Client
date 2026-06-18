@@ -7,6 +7,7 @@ import {
   type AICharacter,
 } from '../types/character';
 import type { Message } from '../types/message';
+import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { MemoryItem } from './memoryTypes';
 import { buildChatMessages, buildPromptMemoryTrace, buildSystemPromptWithContext } from './promptBuilder';
 
@@ -429,6 +430,168 @@ describe('buildSystemPromptWithContext', () => {
       [target.id, target],
     ]));
     expect(trace.sharedSecretGuards).toContain('AI私聊可召回：阿远 · 一个只有熟人懂的暗号 · sealed');
+  });
+
+  it('uses user shared anchors as high-priority private-channel memory candidates', () => {
+    const speaker = buildCharacter();
+    const sharedAnchorEvent: RuntimeEventV2 = {
+      id: 'evt-user-shared-anchor',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: 1_000,
+      actorIds: ['user'],
+      targetIds: ['char-a'],
+      summary: '苏苏记录了一次深夜陪伴。',
+      visibility: 'pair_private',
+      eventClass: 'artifact',
+      payload: {
+        eventType: 'companionship_shared_anchor',
+        characterId: 'char-a',
+        userId: 'user',
+        anchorId: 'late-night-care',
+        action: 'upsert',
+        kind: 'first_time',
+        participantIds: ['char-a', 'user'],
+        title: '第一次深夜陪伴',
+        text: '第一次深夜聊天后，苏苏记住了用户没有离开。',
+        evidence: '用户那晚陪苏苏聊到很晚。',
+        salience: 86,
+        confidence: 0.92,
+        decisionSource: 'model',
+      },
+    };
+    const chat = {
+      ...buildDirectChat(),
+      runtimeEventsV2: [sharedAnchorEvent],
+      updatedAt: 1_200,
+    };
+    const messages = [buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '今晚又想起那次深夜聊天。', timestamp: 1_300 })];
+    const characters = new Map([[speaker.id, speaker]]);
+
+    const trace = buildPromptMemoryTrace(speaker, chat, messages, characters);
+    const prompt = buildSystemPromptWithContext(speaker, chat, 0, messages, characters);
+
+    expect(trace.injectedIds).toContain('companionship-anchor-memory-runtime-anchor-late-night-care');
+    expect(prompt).toContain('第一次深夜陪伴');
+    expect(prompt).toContain('Private-Channel Memories');
+  });
+
+  it('uses active user profile events as private-channel memory candidates and respects revoke events', () => {
+    const speaker = buildCharacter();
+    const profileEvent: RuntimeEventV2 = {
+      id: 'evt-user-profile-pressure',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: 1_000,
+      actorIds: ['user'],
+      targetIds: ['char-a'],
+      summary: '苏苏记录了用户最近面试压力很大。',
+      visibility: 'pair_private',
+      eventClass: 'artifact',
+      evidenceMessageIds: ['msg-profile-source'],
+      payload: {
+        eventType: 'companionship_user_profile_memory',
+        characterId: 'char-a',
+        userId: 'user',
+        action: 'upsert',
+        items: [{
+          kind: 'pressure_source',
+          text: '用户这周因为面试压力很大',
+          evidence: '用户说这周面试压得睡不好。',
+          sourceMessageIds: ['msg-profile-source'],
+          confidence: 0.92,
+          sensitive: true,
+        }],
+        reason: 'model extracted a sensitive user profile cue',
+        sourceMessageIds: ['msg-profile-source'],
+        confidence: 0.92,
+        decisionSource: 'model',
+      },
+    };
+    const chat = {
+      ...buildDirectChat(),
+      runtimeEventsV2: [profileEvent],
+      updatedAt: 1_200,
+    };
+    const messages = [buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '我这周面试压力还是很大。', timestamp: 1_300 })];
+    const characters = new Map([[speaker.id, speaker]]);
+
+    const trace = buildPromptMemoryTrace(speaker, chat, messages, characters);
+    const prompt = buildSystemPromptWithContext(speaker, chat, 0, messages, characters);
+
+    expect(trace.injectedIds.some((id) => id.startsWith('companionship-user-profile-memory-char-a-pressure_source'))).toBe(true);
+    expect(prompt).toContain('pressure source: 用户这周因为面试压力很大');
+    expect(prompt).toContain('Private-Channel Memories');
+
+    const revokedChat = {
+      ...chat,
+      runtimeEventsV2: [
+        profileEvent,
+        {
+          ...profileEvent,
+          id: 'evt-user-profile-pressure-revoked',
+          createdAt: 1_100,
+          summary: '用户撤回了面试压力画像。',
+          payload: {
+            ...profileEvent.payload,
+            action: 'revoke',
+          },
+        } as RuntimeEventV2,
+      ],
+    };
+    const revokedTrace = buildPromptMemoryTrace(speaker, revokedChat, messages, characters);
+    const revokedPrompt = buildSystemPromptWithContext(speaker, revokedChat, 0, messages, characters);
+
+    expect(revokedTrace.injectedIds.some((id) => id.startsWith('companionship-user-profile-memory-char-a-pressure_source'))).toBe(false);
+    expect(revokedPrompt).not.toContain('pressure source: 用户这周因为面试压力很大');
+  });
+
+  it('uses AI pair shared anchors as pair-thread memory candidates', () => {
+    const speaker = buildCharacter();
+    const target = buildCharacter({ id: 'char-b', name: '阿远' });
+    const sharedAnchorEvent: RuntimeEventV2 = {
+      id: 'evt-ai-pair-anchor',
+      conversationId: 'chat-1',
+      kind: 'artifact',
+      createdAt: 1_000,
+      actorIds: ['char-a'],
+      targetIds: ['char-b'],
+      summary: '苏苏和阿远记录了一次和解。',
+      visibility: 'role_private',
+      eventClass: 'artifact',
+      payload: {
+        eventType: 'companionship_shared_anchor',
+        characterId: 'char-a',
+        anchorId: 'pair-repair',
+        action: 'upsert',
+        kind: 'repair',
+        participantIds: ['char-a', 'char-b'],
+        title: '雨夜后的和解',
+        text: '雨夜误会之后，苏苏和阿远说好下次先把话说清楚。',
+        evidence: '阿远主动解释了失约原因。',
+        salience: 78,
+        confidence: 0.88,
+        decisionSource: 'model',
+      },
+    };
+    const chat = {
+      ...buildAiDirectChat(),
+      runtimeEventsV2: [sharedAnchorEvent],
+      updatedAt: 1_200,
+    };
+    const messages = [buildMessage({ senderId: 'char-b', senderName: '阿远', content: '雨夜那件事，我还是想解释一下。', timestamp: 1_300 })];
+    const characters = new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]);
+
+    const trace = buildPromptMemoryTrace(speaker, chat, messages, characters);
+    const prompt = buildSystemPromptWithContext(speaker, chat, 0, messages, characters);
+
+    expect(trace.injectedIds).toContain('companionship-anchor-memory-runtime-anchor-pair-repair');
+    expect(trace.targetActorId).toBe('char-b');
+    expect(prompt).toContain('雨夜后的和解');
+    expect(prompt).toContain('Pair-Thread Memories');
   });
 
   it('exposes archived memories that were actually injected into the prompt trace', () => {

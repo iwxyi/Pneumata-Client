@@ -26,6 +26,46 @@ function stableEventSeed(parts: Array<string | number | undefined>) {
   return hash.toString(36);
 }
 
+function normalizeSourceMessageIds(...sources: Array<unknown>): string[] {
+  return sources
+    .flatMap((source) => Array.isArray(source) ? source : [])
+    .filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))
+    .filter((id, index, list) => list.indexOf(id) === index)
+    .slice(0, 8);
+}
+
+function sourceMessageIdsFromEvent(event: RuntimeEventV2): string[] {
+  const payload = event.payload as { sourceMessageIds?: unknown } | undefined;
+  return normalizeSourceMessageIds(payload?.sourceMessageIds, event.evidenceMessageIds);
+}
+
+function decisionSourceFromEvent(event: RuntimeEventV2): 'model' | 'local_fallback' {
+  const payload = event.payload as { decisionSource?: unknown } | undefined;
+  return payload?.decisionSource === 'model' || payload?.decisionSource === 'local_fallback'
+    ? payload.decisionSource
+    : 'local_fallback';
+}
+
+function confidenceFromEvent(event: RuntimeEventV2, fallback = 0.86) {
+  const payload = event.payload as { confidence?: unknown } | undefined;
+  return typeof payload?.confidence === 'number' && Number.isFinite(payload.confidence)
+    ? Math.max(0, Math.min(1, payload.confidence > 1 ? payload.confidence / 100 : payload.confidence))
+    : fallback;
+}
+
+function normalizedScore(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(1, value > 1 ? value / 100 : value));
+}
+
+function isDistilledMemoryBackflowEligible(payload: Record<string, unknown>) {
+  const confidence = normalizedScore(payload.confidence);
+  if (confidence !== null && confidence < 0.72) return false;
+  const salience = normalizedScore(payload.salience);
+  if (salience !== null && salience < 0.45) return false;
+  return true;
+}
+
 function quoteOrMeaningfulText(text: string | undefined | null, fallback?: string) {
   const source = text || '';
   const quoted = source.match(/[“"「『](.{1,36}?)[”"」』]/)?.[1];
@@ -74,9 +114,11 @@ function createSharedPhraseEvent(params: {
     firstSaidBy: params.firstSaidBy,
     reason: params.reason,
     evidence: params.evidence || params.sourceEvent.summary,
+    sourceMessageIds: sourceMessageIdsFromEvent(params.sourceEvent),
     emotionalWeight: params.emotionalWeight || 64,
     reuseCount: params.reuseCount || 1,
-    confidence: 0.86,
+    confidence: confidenceFromEvent(params.sourceEvent),
+    decisionSource: decisionSourceFromEvent(params.sourceEvent),
   };
   return {
     id: `evt-${phraseId}-${stableEventSeed([params.sourceEvent.id, action, params.reuseCount])}`,
@@ -115,6 +157,7 @@ function buildSharedPhraseEventFromDistilledMemory(params: {
   if (params.event.kind !== 'memory_candidate') return [];
   const payload = params.event.payload as Record<string, unknown> | undefined;
   if (!payload || payload.origin !== 'distilled') return [];
+  if (!isDistilledMemoryBackflowEligible(payload)) return [];
   if (!params.event.targetIds?.includes(params.character.id)) return [];
   const participantIds = Array.from(new Set(params.event.targetIds.filter((id) => id === USER_ACTOR_ID || params.chat.memberIds.includes(id)))).slice(0, 6);
   if (participantIds.includes(USER_ACTOR_ID)) {

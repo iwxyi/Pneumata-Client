@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import { DEFAULT_PERSONALITY } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, RitualHistoryEntry, SharedMemoryAnchor, SharedSecret, SharedPhrase, UserProfileMemoryEventItem, UserProfileMemoryKind, UserProfileMemoryHistoryEntry, AddressingHistoryEntry, CareTopicHistoryEntry, PromiseHistoryEntry, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipCareTopicEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload, CompanionshipMomentReflectionEventPayload } from '../types/companionship';
+import type { AddressingState, CharacterCompanionshipState, CompanionshipPhase, CompanionshipProjection, CompanionshipStyle, CarePolicy, IntimacyProjection, PendingCareTopic, PreferredIntimacyStyle, UserBondState, UserProfileMemoryProjection, CompanionshipRuntimeTrace, CompanionshipStatusSignature, RitualRegistryEntry, RitualHistoryEntry, SharedMemoryAnchor, SharedAnchorHistoryEntry, SharedSecret, SharedSecretHistoryEntry, SharedPhrase, SharedPhraseHistoryEntry, UserProfileMemoryEventItem, UserProfileMemoryKind, UserProfileMemoryHistoryEntry, AddressingHistoryEntry, CareTopicHistoryEntry, PromiseHistoryEntry, IntimateConflictKind, IntimateConflictState, IntimateConflictHistoryEntry, PhaseHistoryEntry, UserAttachmentProfile, AttachmentProfileHistoryEntry, PendingPromise, CompanionshipRitualEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipAddressingEventPayload, CompanionshipOnlineReturnEventPayload, CompanionshipPromiseEventPayload, CompanionshipCareTopicEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipUnsentDraftEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipDiaryReflectionEventPayload, CompanionshipMomentReflectionEventPayload } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
@@ -491,6 +491,7 @@ interface ResolvedPhaseEvent {
   enteredAt: number;
   evidence: string[];
   sourceEventId: string;
+  sourceMessageIds: string[];
 }
 
 function resolveCompanionshipPhaseEvent(chat: GroupChat, characterId: string): ResolvedPhaseEvent | null {
@@ -521,6 +522,7 @@ function resolveCompanionshipPhaseEvent(chat: GroupChat, characterId: string): R
       enteredAt: event.createdAt || Date.now(),
       evidence: [event.summary, reason, ...evidence].filter(Boolean).slice(0, 5),
       sourceEventId: event.id,
+      sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
     };
   }
   return null;
@@ -556,6 +558,7 @@ function buildPhaseHistory(chat: GroupChat, characterId: string): PhaseHistoryEn
         phase: isCompanionshipPhase(payload.phase) ? payload.phase : undefined,
         style: isCompanionshipStyle(payload.style) ? payload.style : undefined,
         evidence: [event.summary, reason, ...evidence].filter(Boolean).slice(0, 5) as string[],
+        sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
         reason,
         initiatedBy,
         decisionSource: payload.decisionSource === 'model' || payload.decisionSource === 'local_fallback' ? payload.decisionSource : undefined,
@@ -659,6 +662,7 @@ function attachmentProfileEventPayloadOf(event: RuntimeEventV2): CompanionshipAt
     inferredStyle: isAttachmentStyle(payload.inferredStyle) ? payload.inferredStyle : undefined,
     confidence,
     evidence,
+    sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
     adaptations,
     reason: typeof payload.reason === 'string' ? compactText(payload.reason, 140) : undefined,
     decisionSource: payload.decisionSource === 'model' || payload.decisionSource === 'local_fallback' ? payload.decisionSource : undefined,
@@ -705,6 +709,7 @@ function buildAttachmentProfileHistory(chat: GroupChat, characterId: string): At
         inferredStyle: payload.inferredStyle,
         confidence: normalizeEventConfidenceScore(payload.confidence),
         evidence: [payload.reason, ...(payload.evidence || [])].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 4) as string[],
+        sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
         adaptations: payload.adaptations?.length
           ? payload.adaptations.slice(0, 4)
           : payload.inferredStyle
@@ -902,7 +907,7 @@ function applyGlobalCompanionshipSettingsToCarePolicy(policy: CarePolicy, charac
   const boundaryReasons = [...policy.boundaryReasons];
   let next: CarePolicy = {
     ...policy,
-    quietHours: settings.quietHours.enabled
+    quietHours: settings.quietHours.enabled && settings.quietHours.suppressProactiveCare
       ? { start: settings.quietHours.start, end: settings.quietHours.end }
       : { start: '00:00', end: '00:00' },
   };
@@ -1385,6 +1390,7 @@ function buildCareTopicHistory(chat: GroupChat, characterId: string): CareTopicH
         urgency: payload.urgency || 'medium',
         reason: compactText(payload.reason || event.summary, 140),
         evidence: [payload.evidence, payload.reason, event.summary].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 4) as string[],
+        sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
         dueAt: payload.dueAt,
         decisionSource: payload.decisionSource,
         confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
@@ -1413,6 +1419,7 @@ function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: U
         urgency: /(生病|不舒服|焦虑|压力|低落|崩溃|难受)/.test(`${payload.text}\n${payload.sourceSeed || ''}`) ? 'high' : 'medium',
         status: 'active',
         evidence: compactText(payload.diaryExcerpt || payload.sourceSeed || payload.text, 120),
+        sourceMessageIds: normalizeSourceMessageIds(event.evidenceMessageIds),
         updatedAt: event.createdAt || now,
       };
     })
@@ -1459,6 +1466,7 @@ function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: U
       urgency: /(难受|不舒服|压力)/.test(item.content) ? 'high' as const : 'medium' as const,
       status: 'active' as const,
       evidence: compactText(item.content, 120),
+      sourceMessageIds: item.id ? [item.id] : [],
       updatedAt: item.timestamp || now,
     }));
   return applyCareTopicLifecycle([...runtimeTopics, ...diaryReflectionTopics, ...recentUser, ...memoryTopics]
@@ -1563,7 +1571,10 @@ function buildRuntimeEventSharedPhraseState(chat: GroupChat | undefined, charact
       const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 1;
       if (confidence < 0.6) return;
       const text = compactText(payload.text, 120);
-      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id));
+      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id), {
+        chatType: chat?.type,
+        text: `${payload.text}\n${payload.evidence || ''}`,
+      });
       const kind = payload.kind || classifySharedPhrase(`${text}\n${payload.evidence || ''}`);
       const key = sharedPhraseTextKey({ kind, participantIds, text });
       if (payload.action === 'revoked' || payload.action === 'suppressed') {
@@ -1575,6 +1586,11 @@ function buildRuntimeEventSharedPhraseState(chat: GroupChat | undefined, charact
       closedIds.delete(payload.phraseId);
       closedTextKeys.delete(key);
       const previous = activeById.get(payload.phraseId);
+      const sourceMessageIds = Array.from(new Set([
+        ...(previous?.sourceMessageIds || []),
+        ...(Array.isArray(payload.sourceMessageIds) ? payload.sourceMessageIds.filter((id): id is string => typeof id === 'string' && Boolean(id.trim())) : []),
+        ...(event.evidenceMessageIds || []),
+      ])).slice(-8);
       activeById.set(payload.phraseId, {
         id: payload.phraseId,
         text,
@@ -1585,6 +1601,7 @@ function buildRuntimeEventSharedPhraseState(chat: GroupChat | undefined, charact
         emotionalWeight: clampRelationshipScore(payload.emotionalWeight ?? previous?.emotionalWeight ?? 62),
         reuseCount: Math.max(payload.reuseCount ?? previous?.reuseCount ?? 1, payload.action === 'reused' ? (previous?.reuseCount || 0) + 1 : 1),
         sourceEventIds: Array.from(new Set([...(previous?.sourceEventIds || []), event.id])).slice(-6),
+        sourceMessageIds,
         evidence: compactText(payload.evidence || payload.reason || event.summary, 160),
         updatedAt: event.createdAt || now,
       });
@@ -1594,6 +1611,46 @@ function buildRuntimeEventSharedPhraseState(chat: GroupChat | undefined, charact
     closedIds,
     closedTextKeys,
   };
+}
+
+function buildSharedPhraseHistory(chat: GroupChat, characterId: string): SharedPhraseHistoryEntry[] {
+  return (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .map((event): SharedPhraseHistoryEntry | null => {
+      const payload = sharedPhraseEventPayloadOf(event);
+      if (!payload || payload.characterId !== characterId) return null;
+      const participantIds = payload.participantIds.filter((id) => typeof id === 'string' && Boolean(id.trim())).slice(0, 8);
+      if (!participantIds.includes(characterId) || !participantIds.includes(USER_ACTOR_ID)) return null;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return null;
+      const reason = typeof payload.reason === 'string' ? compactText(payload.reason, 140) : undefined;
+      const evidence = [event.summary, reason, payload.evidence]
+        .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+        .map((item) => compactText(item, 140))
+        .slice(0, 5);
+      return {
+        id: event.id,
+        action: payload.action,
+        phraseId: payload.phraseId,
+        text: compactText(payload.text, 120),
+        kind: payload.kind,
+        participantIds,
+        visibility: payload.visibility,
+        firstSaidBy: payload.firstSaidBy,
+        reason,
+        evidence,
+        sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
+        emotionalWeight: typeof payload.emotionalWeight === 'number' && Number.isFinite(payload.emotionalWeight) ? payload.emotionalWeight : undefined,
+        reuseCount: typeof payload.reuseCount === 'number' && Number.isFinite(payload.reuseCount) ? payload.reuseCount : undefined,
+        decisionSource: payload.decisionSource,
+        confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
+        occurredAt: event.createdAt || 0,
+      };
+    })
+    .filter((item): item is SharedPhraseHistoryEntry => Boolean(item))
+    .sort((a, b) => b.occurredAt - a.occurredAt)
+    .slice(0, 10);
 }
 
 function sharedPhraseFromAnchor(anchor: SharedMemoryAnchor): SharedPhrase | null {
@@ -1621,6 +1678,7 @@ function sharedPhraseFromAnchor(anchor: SharedMemoryAnchor): SharedPhrase | null
     reuseCount: Math.max(1, Math.round(anchor.salience / 35)),
     sourceAnchorId: anchor.id,
     sourceEventIds: anchor.sourceId ? [anchor.sourceId] : [],
+    sourceMessageIds: normalizeSourceMessageIds(anchor.sourceMessageIds),
     evidence: anchor.evidence,
     updatedAt: anchor.updatedAt,
   };
@@ -1644,6 +1702,7 @@ function extractQuotedSharedPhraseFromMessage(message: Message, characterId: str
     emotionalWeight: clampRelationshipScore(kind === 'other' ? 42 : 58),
     reuseCount: 1,
     sourceEventIds: [],
+    sourceMessageIds: message.id ? [message.id] : [],
     evidence: compactText(content, 140),
     updatedAt: message.timestamp || now,
   };
@@ -1660,7 +1719,10 @@ function buildDiaryReflectionSharedPhrases(chat: GroupChat | undefined, characte
       const quoted = textSource.match(/[“"「『](.{1,36}?)[”"」』]/)?.[1];
       const text = compactText(quoted || payload.text, 96);
       if (!text) return null;
-      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id));
+      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id), {
+        chatType: chat?.type,
+        text: textSource,
+      });
       const kind = classifySharedPhrase(textSource);
       return {
         id: `phrase-diary-${payload.reflectionId}`,
@@ -1673,6 +1735,7 @@ function buildDiaryReflectionSharedPhrases(chat: GroupChat | undefined, characte
         reuseCount: 1,
         sourceAnchorId: `diary-reflection-${payload.reflectionId}`,
         sourceEventIds: [event.id],
+        sourceMessageIds: event.evidenceMessageIds || [],
         evidence: compactText(payload.diaryExcerpt || payload.sourceSeed || event.summary, 160),
         updatedAt: event.createdAt || now,
       };
@@ -1689,7 +1752,10 @@ function buildMomentReflectionSharedPhrases(chat: GroupChat | undefined, charact
       if (confidence < 0.5) return null;
       const textSource = `${payload.text}\n${payload.sourceSeed || ''}`;
       const kind = classifySharedPhrase(textSource);
-      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id));
+      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id), {
+        chatType: chat?.type,
+        text: textSource,
+      });
       return {
         id: `moment-reflection-phrase-${payload.reflectionId}`,
         text: compactText(payload.text, 80),
@@ -1700,6 +1766,7 @@ function buildMomentReflectionSharedPhrases(chat: GroupChat | undefined, charact
         emotionalWeight: clampRelationshipScore(38 + confidence * 28),
         reuseCount: 0,
         sourceEventIds: [event.id],
+        sourceMessageIds: event.evidenceMessageIds || [],
         evidence: compactText(payload.momentText || payload.sourceSeed || event.summary, 160),
         updatedAt: event.createdAt || now,
       };
@@ -1797,6 +1864,7 @@ function buildAddressingHistory(chat: GroupChat, characterId: string): Addressin
         forbiddenAddresses,
         reason: compactText(payload.reason || payload.evidence || event.summary || 'addressing runtime event', 120),
         evidence: [payload.reason, payload.evidence, event.summary].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 4) as string[],
+        sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
         initiatedBy: payload.initiatedBy,
         decisionSource: payload.decisionSource,
         confidence,
@@ -2058,6 +2126,7 @@ function buildPendingPromise(params: {
   reminderPolicy?: Partial<PendingPromise['reminderPolicy']>;
   relationshipEffects?: Partial<PendingPromise['relationshipEffects']>;
   lifecycleEvidence?: string[];
+  sourceMessageIds?: string[];
 }): PendingPromise {
   const text = compactText(params.text, 140);
   const kind = params.kind || inferPromiseKind(`${text}\n${params.evidence || ''}`);
@@ -2089,6 +2158,7 @@ function buildPendingPromise(params: {
       ], 4),
     },
     lifecycleEvidence: uniqueTexts(params.lifecycleEvidence || [params.evidence || text].filter(Boolean), 5),
+    sourceMessageIds: normalizeSourceMessageIds(params.sourceMessageIds),
     updatedAt: params.updatedAt,
   };
 }
@@ -2147,6 +2217,7 @@ function buildPromiseHistory(chat: GroupChat, characterId: string): PromiseHisto
         lifecycleEvidence: (payload.lifecycleEvidence || []).map((item) => compactText(item, 120)).slice(0, 4),
         reason: compactText(payload.reason || event.summary, 140),
         evidence: [payload.evidence, payload.reason, event.summary, ...(payload.lifecycleEvidence || [])].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 5) as string[],
+        sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
         dueAt: payload.dueAt,
         decisionSource: payload.decisionSource,
         confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
@@ -2218,6 +2289,7 @@ function buildPromiseEventState(chat: GroupChat, characterId: string, now: numbe
         source: 'runtime_event',
         status: 'open',
         evidence: compactText(payload.evidence || payload.reason || event.summary, 120),
+        sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
         kind: payload.promiseKind,
         dueAt: payload.dueAt || dueAtFromPromiseText(text, event.createdAt || now),
         reminderPolicy: payload.reminderPolicy,
@@ -2261,6 +2333,7 @@ function buildPendingPromises(params: {
         source: 'shared_anchor',
         status: 'open',
         evidence: compactText(anchor.evidence || anchor.text, 120),
+        sourceMessageIds: [],
         dueAt: dueAtFromPromiseText(`${anchor.text}\n${anchor.evidence || ''}`, anchor.updatedAt || params.now),
         lifecycleEvidence: [anchor.evidence || anchor.text],
         updatedAt: anchor.updatedAt || params.now,
@@ -2279,6 +2352,7 @@ function buildPendingPromises(params: {
         source: 'user_profile',
         status: 'open',
         evidence: compactText(text, 120),
+        sourceMessageIds: [],
         dueAt: dueAtFromPromiseText(text, params.now),
         lifecycleEvidence: [text],
         updatedAt: params.now,
@@ -2299,6 +2373,7 @@ function buildPendingPromises(params: {
         source: 'recent_message',
         status: 'open',
         evidence: compactText(message.content, 120),
+        sourceMessageIds: message.id ? [message.id] : [],
         dueAt: dueAtFromPromiseText(message.content, message.timestamp || params.now),
         lifecycleEvidence: [message.content],
         updatedAt: message.timestamp || params.now,
@@ -2365,6 +2440,7 @@ function intimateConflictEventPayloadOf(event: RuntimeEventV2): CompanionshipInt
   const sourceEventIds = Array.isArray(payload.sourceEventIds)
     ? payload.sourceEventIds.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 8)
     : undefined;
+  const sourceMessageIds = normalizeSourceMessageIds(payload.sourceMessageIds);
   return {
     eventType: 'companionship_intimate_conflict',
     characterId,
@@ -2377,6 +2453,7 @@ function intimateConflictEventPayloadOf(event: RuntimeEventV2): CompanionshipInt
     evidence,
     participantIds,
     sourceEventIds,
+    sourceMessageIds,
     confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
     decisionSource: payload.decisionSource === 'model' || payload.decisionSource === 'local_fallback' ? payload.decisionSource : undefined,
   };
@@ -2415,6 +2492,7 @@ function resolveIntimateConflictEvent(chat: GroupChat, characterId: string, now:
       evidence,
       participantIds,
       sourceEventIds: Array.from(new Set([event.id, ...(payload.sourceEventIds || [])])).slice(0, 8),
+      sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
       updatedAt: event.createdAt || now,
     };
   }
@@ -2451,6 +2529,7 @@ function buildIntimateConflictHistory(chat: GroupChat, characterId: string): Int
         summary: payload.summary || event.summary || conflictSummary(kind, severity, repairReadiness),
         evidence: [event.summary, ...(payload.evidence || [])].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 4),
         sourceEventIds: Array.from(new Set([event.id, ...(payload.sourceEventIds || [])])).slice(0, 8),
+        sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
         decisionSource: payload.decisionSource,
         confidence: payload.confidence,
         occurredAt: event.createdAt || 0,
@@ -2474,7 +2553,10 @@ function hasRecentDismissedIntimateConflictEvent(chat: GroupChat, characterId: s
     const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
     const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
     if (!actorMatches || !targetMatches) continue;
-    return payload.action === 'dismissed' && now - (event.createdAt || now) <= 30 * DAY_MS;
+    if (payload.action === 'dismissed') return now - (event.createdAt || now) <= 30 * DAY_MS;
+    if (payload.action === 'opened' || payload.action === 'updated' || payload.action === 'repair_attempted' || payload.action === 'resolved' || payload.action === 'reopened') {
+      return false;
+    }
   }
   return false;
 }
@@ -2612,6 +2694,12 @@ function buildIntimateConflictState(params: {
       ...[...leakedSecrets, ...confessedSecrets].flatMap((secret) => [secret.sourceAnchorId, ...secret.sourceEventIds]),
       ...(params.entry?.recentEvents || []).slice(-2).map((event) => event.id),
     ].filter(Boolean) as string[],
+    sourceMessageIds: normalizeSourceMessageIds(
+      params.phaseEvent?.sourceMessageIds,
+      ...conflictAnchors.map((anchor) => anchor.sourceMessageIds),
+      ...repairAnchors.map((anchor) => anchor.sourceMessageIds),
+      ...[...leakedSecrets, ...confessedSecrets].map((secret) => secret.sourceMessageIds),
+    ),
     updatedAt: Math.max(
       params.phaseEvent?.enteredAt || 0,
       ...[...conflictAnchors, ...repairAnchors].map((anchor) => anchor.updatedAt || 0),
@@ -3152,11 +3240,25 @@ function formatSharedAnchorTitle(kind: SharedMemoryAnchor['kind']) {
   return titles[kind];
 }
 
-function normalizeAnchorParticipants(ownerId: string, subjectIds: string[] | undefined) {
+function hasExplicitGroupParticipantCue(text: string | undefined | null) {
+  return /(大家|所有人|全员|群里|小队|团队|三人|四人|多人|我们几个|几个人|一起都|共同参与|都知道|都说好|小团体)/.test(text || '');
+}
+
+function normalizeAnchorParticipants(ownerId: string, subjectIds: string[] | undefined, context?: { chatType?: GroupChat['type']; text?: string }) {
   const ids = [ownerId, ...(subjectIds || [])]
     .map((item) => item.trim())
     .filter(Boolean);
-  return Array.from(new Set(ids)).slice(0, 6);
+  const unique = Array.from(new Set(ids)).slice(0, 6);
+  if (unique.length <= 2) return unique;
+  if (unique.includes(USER_ACTOR_ID)) {
+    if (context?.chatType === 'direct' || !hasExplicitGroupParticipantCue(context?.text)) {
+      return [ownerId, USER_ACTOR_ID].filter((id, index, list) => Boolean(id) && list.indexOf(id) === index);
+    }
+    return unique;
+  }
+  if (hasExplicitGroupParticipantCue(context?.text)) return unique;
+  const partner = unique.find((id) => id !== ownerId);
+  return [ownerId, partner].filter((id): id is string => Boolean(id));
 }
 
 function splitRelationshipNoteAnchorTexts(note: string) {
@@ -3184,6 +3286,7 @@ function sharedAnchorPayloadOf(event: RuntimeEventV2): CompanionshipSharedAnchor
   const sourceEventIds = Array.isArray(payload.sourceEventIds)
     ? payload.sourceEventIds.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 8)
     : undefined;
+  const sourceMessageIds = normalizeSourceMessageIds(payload.sourceMessageIds);
   return {
     eventType: 'companionship_shared_anchor',
     characterId,
@@ -3208,6 +3311,7 @@ function sharedAnchorPayloadOf(event: RuntimeEventV2): CompanionshipSharedAnchor
     evidence: typeof payload.evidence === 'string' ? compactText(payload.evidence, 180) : undefined,
     mergedAnchorIds,
     sourceEventIds,
+    sourceMessageIds,
     reason: typeof payload.reason === 'string' ? compactText(payload.reason, 120) : undefined,
     decisionSource: payload.decisionSource === 'model' || payload.decisionSource === 'local_fallback' ? payload.decisionSource : undefined,
   };
@@ -3288,7 +3392,10 @@ function sharedAnchorPayloadTextKey(payload: CompanionshipSharedAnchorEventPaylo
   const kind = payload.kind || classifySharedMemoryAnchor(`${payload.text || ''}\n${payload.evidence || ''}`);
   const text = compactText(payload.text || payload.evidence || payload.reason, 180);
   if (!kind || !text) return '';
-  const participantIds = normalizeAnchorParticipants(characterId, payload.participantIds?.length ? payload.participantIds.filter((id) => id !== characterId) : [payload.userId || USER_ACTOR_ID]);
+  const participantIds = normalizeAnchorParticipants(characterId, payload.participantIds?.length ? payload.participantIds.filter((id) => id !== characterId) : [payload.userId || USER_ACTOR_ID], {
+    chatType: undefined,
+    text,
+  });
   return sharedAnchorTextKey({ kind, participantIds, text });
 }
 
@@ -3319,10 +3426,14 @@ function buildRuntimeEventSharedAnchorState(chat: GroupChat | undefined, charact
         if (textKey) closedTextKeys.add(textKey);
         return;
       }
+      const previous = activeById.get(payload.anchorId);
       const kind = payload.kind || classifySharedMemoryAnchor(`${payload.text || ''}\n${payload.evidence || ''}`);
       const text = compactText(payload.text || payload.evidence || payload.reason, 180);
       if (!kind || !text) return;
-      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds?.length ? payload.participantIds.filter((id) => id !== character.id) : [payload.userId || USER_ACTOR_ID]);
+      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds?.length ? payload.participantIds.filter((id) => id !== character.id) : [payload.userId || USER_ACTOR_ID], {
+        chatType: chat?.type,
+        text: `${payload.text || ''}\n${payload.evidence || ''}\n${payload.reason || ''}`,
+      });
       (payload.mergedAnchorIds || []).forEach((id) => {
         if (id !== payload.anchorId) {
           activeById.delete(id);
@@ -3342,6 +3453,7 @@ function buildRuntimeEventSharedAnchorState(chat: GroupChat | undefined, charact
         source: 'runtime_event',
         sourceId: event.id,
         evidence: payload.evidence || event.summary || payload.reason,
+        sourceMessageIds: normalizeSourceMessageIds(previous?.sourceMessageIds, payload.sourceMessageIds, event.evidenceMessageIds),
         createdAt: event.createdAt || now,
         updatedAt: event.createdAt || now,
       });
@@ -3351,6 +3463,51 @@ function buildRuntimeEventSharedAnchorState(chat: GroupChat | undefined, charact
     closedIds,
     closedTextKeys,
   };
+}
+
+function buildSharedAnchorHistory(chat: GroupChat, characterId: string): SharedAnchorHistoryEntry[] {
+  return (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .map((event): SharedAnchorHistoryEntry | null => {
+      const payload = sharedAnchorPayloadOf(event);
+      if (!payload || payload.characterId !== characterId) return null;
+      const kind = payload.kind || classifySharedMemoryAnchor(`${payload.text || ''}\n${payload.evidence || ''}`);
+      const text = compactText(payload.text || payload.evidence || payload.reason || event.summary, 180);
+      if (!text) return null;
+      const participantIds = normalizeAnchorParticipants(characterId, payload.participantIds?.length ? payload.participantIds.filter((id) => id !== characterId) : [payload.userId || USER_ACTOR_ID], {
+        chatType: chat.type,
+        text: `${payload.text || ''}\n${payload.evidence || ''}\n${payload.reason || ''}`,
+      });
+      if (!participantIds.includes(characterId) || !participantIds.includes(USER_ACTOR_ID)) return null;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return null;
+      const reason = payload.reason ? compactText(payload.reason, 140) : undefined;
+      const evidence = [event.summary, reason, payload.evidence]
+        .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+        .map((item) => compactText(item, 140))
+        .slice(0, 5);
+      return {
+        id: event.id,
+        action: payload.action,
+        anchorId: payload.anchorId,
+        kind: kind || undefined,
+        participantIds,
+        title: payload.title,
+        text,
+        salience: typeof payload.salience === 'number' && Number.isFinite(payload.salience) ? payload.salience : undefined,
+        reason,
+        evidence,
+        sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
+        mergedAnchorIds: payload.mergedAnchorIds || [],
+        decisionSource: payload.decisionSource,
+        confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
+        occurredAt: event.createdAt || 0,
+      };
+    })
+    .filter((item): item is SharedAnchorHistoryEntry => Boolean(item))
+    .sort((a, b) => b.occurredAt - a.occurredAt)
+    .slice(0, 10);
 }
 
 function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: AICharacter, now: number): SharedMemoryAnchor[] {
@@ -3368,7 +3525,10 @@ function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: 
           : payload.reflectionType === 'ritual'
             ? 'inside_joke'
             : classifySharedMemoryAnchor(`${payload.text}\n${payload.sourceSeed || ''}`) || 'milestone';
-      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id));
+      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id), {
+        chatType: chat?.type,
+        text: `${payload.text}\n${payload.sourceSeed || ''}\n${payload.diaryExcerpt || ''}`,
+      });
       return {
         id: `diary-reflection-${payload.reflectionId}`,
         kind: inferredKind,
@@ -3380,6 +3540,7 @@ function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: 
         source: 'runtime_event',
         sourceId: event.id,
         evidence: compactText(payload.diaryExcerpt || payload.sourceSeed || event.summary, 180),
+        sourceMessageIds: normalizeSourceMessageIds(event.evidenceMessageIds),
         createdAt: event.createdAt || now,
         updatedAt: event.createdAt || now,
       };
@@ -3398,7 +3559,10 @@ function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: 
           : payload.reflectionType === 'ritual'
             ? 'inside_joke'
             : classifySharedMemoryAnchor(`${payload.text}\n${payload.sourceSeed || ''}`) || 'milestone';
-      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id));
+      const participantIds = normalizeAnchorParticipants(character.id, payload.participantIds.filter((id) => id !== character.id), {
+        chatType: chat?.type,
+        text: `${payload.text}\n${payload.sourceSeed || ''}\n${payload.momentText || ''}`,
+      });
       return {
         id: `moment-reflection-${payload.reflectionId}`,
         kind: inferredKind,
@@ -3410,6 +3574,7 @@ function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: 
         source: 'runtime_event',
         sourceId: event.id,
         evidence: compactText(payload.momentText || payload.sourceSeed || event.summary, 180),
+        sourceMessageIds: normalizeSourceMessageIds(event.evidenceMessageIds),
         createdAt: event.createdAt || now,
         updatedAt: event.createdAt || now,
       };
@@ -3442,6 +3607,7 @@ function buildRuntimeEventSharedAnchors(chat: GroupChat | undefined, character: 
         source: 'runtime_event',
         sourceId: event.id,
         evidence,
+        sourceMessageIds: normalizeSourceMessageIds(event.evidenceMessageIds),
         createdAt: event.createdAt || now,
         updatedAt: event.createdAt || now,
       };
@@ -3467,7 +3633,9 @@ export function buildSharedMemoryAnchors(character: AICharacter, now = 0, chat?:
       return {
         id: `memory-${item.id}`,
         kind,
-        participantIds: normalizeAnchorParticipants(character.id, item.subjectIds),
+        participantIds: normalizeAnchorParticipants(character.id, item.subjectIds, {
+          text: `${text}\n${evidence}`,
+        }),
         title: formatSharedAnchorTitle(kind),
         text,
         salience: clampRelationshipScore(item.salience * 100),
@@ -3475,6 +3643,7 @@ export function buildSharedMemoryAnchors(character: AICharacter, now = 0, chat?:
         source: 'layered_memory',
         sourceId: item.id,
         evidence,
+        sourceMessageIds: [],
         createdAt: item.createdAt || now,
         updatedAt: item.updatedAt || item.distilledAt || now,
       };
@@ -3500,6 +3669,7 @@ export function buildSharedMemoryAnchors(character: AICharacter, now = 0, chat?:
         source: 'relationship_note',
         sourceId: relation.characterId,
         evidence: compactText(relation.note, 180),
+        sourceMessageIds: [],
         createdAt: relation.updatedAt || now,
         updatedAt: relation.updatedAt || now,
       };
@@ -3591,6 +3761,7 @@ function buildRuntimeEventSharedSecrets(chat: GroupChat | undefined, character: 
       const privateText = compactText(payload.privateText, 180);
       const key = secretKey(privateText);
       if (!privateText || !key) return;
+      const previous = activeById.get(payload.secretId);
       if (payload.action === 'revoked') {
         activeById.delete(payload.secretId);
         revokedKeys.add(key);
@@ -3617,7 +3788,8 @@ function buildRuntimeEventSharedSecrets(chat: GroupChat | undefined, character: 
           : inferSecretConsequenceKind(consequenceText, leakState),
         emotionalWeight: clampRelationshipScore(payload.emotionalWeight ?? 68),
         sourceAnchorId: `runtime-${event.id}`,
-        sourceEventIds: [event.id],
+        sourceEventIds: Array.from(new Set([...(previous?.sourceEventIds || []), event.id])).slice(-8),
+        sourceMessageIds: normalizeSourceMessageIds(previous?.sourceMessageIds, payload.sourceMessageIds, event.evidenceMessageIds),
         updatedAt: event.createdAt || now,
       });
     });
@@ -3625,6 +3797,55 @@ function buildRuntimeEventSharedSecrets(chat: GroupChat | undefined, character: 
     activeSecrets: Array.from(activeById.values()).sort((left, right) => (right.emotionalWeight + right.updatedAt / DAY_MS) - (left.emotionalWeight + left.updatedAt / DAY_MS)),
     revokedKeys,
   };
+}
+
+function buildSharedSecretHistory(chat: GroupChat, characterId: string): SharedSecretHistoryEntry[] {
+  return (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .map((event): SharedSecretHistoryEntry | null => {
+      const payload = sharedSecretEventPayloadOf(event);
+      if (!payload || payload.characterId !== characterId) return null;
+      const participantIds = Array.from(new Set(payload.participantIds.filter((id) => typeof id === 'string' && Boolean(id.trim())))).slice(0, 8);
+      if (!participantIds.includes(characterId) || !participantIds.includes(USER_ACTOR_ID)) return null;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(characterId) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(characterId) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return null;
+      const leakState = secretLeakStateFromAction(payload.action);
+      const publicMask = compactText(payload.publicMask || (participantIds.includes(USER_ACTOR_ID) ? '有一件只适合留在心里的事' : '一个没有展开说的秘密'), 100);
+      const consequenceText = [
+        payload.consequenceKind,
+        payload.publicMask,
+        payload.reason,
+        payload.evidence,
+        payload.action,
+      ].filter(Boolean).join('\n');
+      const reason = typeof payload.reason === 'string' ? compactText(payload.reason, 140) : undefined;
+      const evidence = [event.summary, reason, payload.evidence]
+        .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+        .map((item) => compactText(item, 140))
+        .slice(0, 5);
+      return {
+        id: event.id,
+        action: payload.action,
+        secretId: payload.secretId,
+        participantIds,
+        publicMask,
+        leakState,
+        consequenceKind: isSharedSecretConsequenceKind(payload.consequenceKind)
+          ? payload.consequenceKind
+          : inferSecretConsequenceKind(consequenceText, leakState),
+        reason,
+        evidence,
+        sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
+        emotionalWeight: typeof payload.emotionalWeight === 'number' && Number.isFinite(payload.emotionalWeight) ? payload.emotionalWeight : undefined,
+        decisionSource: payload.decisionSource,
+        confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
+        occurredAt: event.createdAt || 0,
+      };
+    })
+    .filter((item): item is SharedSecretHistoryEntry => Boolean(item))
+    .sort((a, b) => b.occurredAt - a.occurredAt)
+    .slice(0, 10);
 }
 
 function isSecretSuppressedByRuntimeEvent(anchor: SharedMemoryAnchor, revokedKeys: Set<string>) {
@@ -3651,6 +3872,7 @@ export function buildSharedSecrets(character: AICharacter, now = 0, chat?: Group
         emotionalWeight: clampRelationshipScore(anchor.salience * 0.58 + anchor.confidence * 0.34 + (anchor.participantIds.includes(USER_ACTOR_ID) ? 8 : 0)),
         sourceAnchorId: anchor.id,
         sourceEventIds: anchor.sourceId ? [anchor.sourceId] : [],
+        sourceMessageIds: normalizeSourceMessageIds(anchor.sourceMessageIds),
         updatedAt: anchor.updatedAt || now,
       };
     });
@@ -3680,6 +3902,7 @@ function ritualFromAnchor(anchor: SharedMemoryAnchor): RitualRegistryEntry | nul
     cooldownHours: kind === 'inside_joke' ? 24 : kind === 'reconciliation' ? 72 : 24 * 14,
     boundaryReasons: [],
     sourceAnchorId: anchor.id,
+    sourceMessageIds: normalizeSourceMessageIds(anchor.sourceMessageIds),
     updatedAt: anchor.updatedAt,
   };
 }
@@ -3713,6 +3936,7 @@ function ritualEventPayloadOf(event: RuntimeEventV2): CompanionshipRitualEventPa
     evolution: Array.isArray(payload.evolution) ? payload.evolution.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => compactText(item, 120)).slice(0, 6) : undefined,
     reason: typeof payload.reason === 'string' ? payload.reason : undefined,
     evidence: typeof payload.evidence === 'string' ? payload.evidence : undefined,
+    sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds),
     nextAvailableAt: typeof payload.nextAvailableAt === 'number' && Number.isFinite(payload.nextAvailableAt) ? payload.nextAvailableAt : undefined,
     confidence: typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : undefined,
     decisionSource: payload.decisionSource === 'model' || payload.decisionSource === 'local_fallback' ? payload.decisionSource : undefined,
@@ -3726,6 +3950,7 @@ function buildRitualEventState(chat: GroupChat | undefined, characterId: string)
     nextAvailableAt?: number;
     content?: string;
     evolution?: string[];
+    sourceMessageIds?: string[];
     updatedAt: number;
   }>();
   (chat?.runtimeEventsV2 || []).forEach((event) => {
@@ -3740,6 +3965,7 @@ function buildRitualEventState(chat: GroupChat | undefined, characterId: string)
       nextAvailableAt: payload.action === 'updated' ? previous?.nextAvailableAt : payload.nextAvailableAt,
       content: payload.content || previous?.content,
       evolution: payload.evolution?.length ? payload.evolution : previous?.evolution,
+      sourceMessageIds: normalizeSourceMessageIds(previous?.sourceMessageIds, payload.sourceMessageIds, event.evidenceMessageIds),
       updatedAt: createdAt,
     });
   });
@@ -3768,6 +3994,7 @@ function buildRitualHistory(chat: GroupChat, characterId: string): RitualHistory
         evolution: payload.evolution || [],
         reason: compactText(payload.reason || event.summary, 140),
         evidence: [payload.evidence, payload.reason, event.summary, ...(payload.evolution || [])].filter(Boolean).map((item) => compactText(item, 120)).slice(0, 5) as string[],
+        sourceMessageIds: normalizeSourceMessageIds(payload.sourceMessageIds, event.evidenceMessageIds),
         nextAvailableAt: payload.nextAvailableAt,
         decisionSource: payload.decisionSource,
         confidence: payload.confidence,
@@ -3800,6 +4027,7 @@ function applyRitualExecutionState(ritual: RitualRegistryEntry, eventState: Retu
     ...ritual,
     content: state?.content || ritual.content,
     evolution: state?.evolution?.length ? Array.from(new Set([...ritual.evolution, ...state.evolution])).slice(0, 8) : ritual.evolution,
+    sourceMessageIds: normalizeSourceMessageIds(ritual.sourceMessageIds, state?.sourceMessageIds),
     lastPerformedAt: lastPerformedAt || ritual.lastPerformedAt,
     nextAvailableAt,
     executionState,
@@ -4178,6 +4406,9 @@ export function buildCompanionshipRuntimeTrace(params: {
   const addressingHistory = buildAddressingHistory(params.chat, params.character.id);
   const careTopicHistory = buildCareTopicHistory(params.chat, params.character.id);
   const promiseHistory = buildPromiseHistory(params.chat, params.character.id);
+  const sharedAnchorHistory = buildSharedAnchorHistory(params.chat, params.character.id);
+  const sharedSecretHistory = buildSharedSecretHistory(params.chat, params.character.id);
+  const sharedPhraseHistory = buildSharedPhraseHistory(params.chat, params.character.id);
   const ritualHistory = buildRitualHistory(params.chat, params.character.id);
   const conflictHistory = buildIntimateConflictHistory(params.chat, params.character.id);
   const attachmentHistory = buildAttachmentProfileHistory(params.chat, params.character.id);
@@ -4194,6 +4425,7 @@ export function buildCompanionshipRuntimeTrace(params: {
       severity: bond.intimateConflict.severity,
       repairReadiness: bond.intimateConflict.repairReadiness,
       summary: bond.intimateConflict.summary,
+      sourceMessageIds: bond.intimateConflict.sourceMessageIds,
     } : undefined,
     pendingCareTopics: bond.pendingCareTopics.map((item) => item.text).slice(0, 4),
     pendingPromises: bond.pendingPromises.map((item) => {
@@ -4208,6 +4440,9 @@ export function buildCompanionshipRuntimeTrace(params: {
     addressingHistory,
     careTopicHistory,
     promiseHistory,
+    sharedAnchorHistory,
+    sharedSecretHistory,
+    sharedPhraseHistory,
     ritualHistory,
     carePolicy: {
       dailyInitiationBudget: carePolicy.dailyInitiationBudget,

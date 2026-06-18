@@ -217,6 +217,7 @@ export function buildCompanionshipCareTopicEventsFromDecision(params: {
         urgency: params.decision.urgency,
         reason: params.decision.reason,
         evidence: params.decision.evidence,
+        sourceMessageIds: params.message.id ? [params.message.id] : [],
         dueAt: params.decision.dueAt || dueAtFor(params.decision.topicText, params.message.timestamp || Date.now()),
         confidence: params.decision.confidence,
         decisionSource: params.decision.decisionSource,
@@ -242,6 +243,7 @@ export function buildCompanionshipCareTopicEventsFromDecision(params: {
       urgency: topic.urgency,
       reason: params.decision.reason,
       evidence: params.decision.evidence,
+      sourceMessageIds: params.message.id ? [params.message.id] : [],
       confidence: params.decision.confidence,
       decisionSource: params.decision.decisionSource,
     },
@@ -312,6 +314,10 @@ export function readActiveCompanionshipCareTopicsFromEvents(chat: GroupChat, cha
       urgency: payload.urgency,
       status: 'active' as const,
       evidence: payload.evidence || event.summary,
+      sourceMessageIds: [
+        ...(Array.isArray(payload.sourceMessageIds) ? payload.sourceMessageIds.filter((id): id is string => typeof id === 'string' && Boolean(id.trim())) : []),
+        ...(event.evidenceMessageIds || []),
+      ].filter((id, index, list) => list.indexOf(id) === index).slice(0, 8),
       updatedAt: event.createdAt,
     }))
     .slice(0, 4);
@@ -426,6 +432,7 @@ export function buildCompanionshipCareTopicEventsFromDirectUserMessage(params: {
           urgency: topic.urgency,
           reason: blocked ? 'user rejected reminders or follow-up questions' : 'user closed or answered the pending care topic',
           evidence: text,
+          sourceMessageIds: params.message.id ? [params.message.id] : [],
           confidence: 0.62,
           decisionSource: 'local_fallback',
         },
@@ -452,6 +459,7 @@ export function buildCompanionshipCareTopicEventsFromDirectUserMessage(params: {
       urgency: urgencyFor(text),
       reason: 'user mentioned a plan, pressure source, health state, date, or unfinished promise',
       evidence: text,
+      sourceMessageIds: params.message.id ? [params.message.id] : [],
       dueAt: dueAtFor(text, params.message.timestamp || now),
       confidence: 0.62,
       decisionSource: 'local_fallback',

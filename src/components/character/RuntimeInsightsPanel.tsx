@@ -30,10 +30,11 @@ import { buildMemberInnerLifeChips } from '../../services/memberInnerLifePresent
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 import { formatInnerImpulseLabel } from '../../services/runtimeDecisionLabels';
 import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildRitualRegistry, buildSharedMemoryAnchors, buildSharedPhrases, buildSharedSecrets, buildUserCompanionshipProjection } from '../../services/companionshipProjection';
+import { buildCompanionshipPrivateThreadScheduleDiagnostics } from '../../services/companionshipPrivateThreadSchedule';
 import { applyCompanionshipLedgerBackflow } from '../../services/companionshipLedgerBackflow';
 import { buildSharedPhraseEventsFromCompanionshipEvent } from '../../services/companionshipSharedPhraseBackflow';
 import type { Message } from '../../types/message';
-import type { AttachmentProfileHistoryEntry, CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, IntimateConflictHistoryEntry, PendingCareTopic, PendingPromise, PhaseHistoryEntry, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
+import type { AttachmentProfileHistoryEntry, CharacterCompanionshipState, CompanionshipPhase, CompanionshipRuntimeTrace, CompanionshipStyle, IntimateConflictHistoryEntry, PendingCareTopic, PendingPromise, PhaseHistoryEntry, PrivateThreadScheduleDiagnostic, RitualHistoryEntry, RitualRegistryEntry, SharedMemoryAnchor, SharedPhrase, SharedPhraseHistoryEntry, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../../types/companionship';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 
 type ManualPromiseLifecycleAction = Extract<PendingPromise['status'], 'fulfilled' | 'blocked' | 'stale' | 'revoked'>;
@@ -328,6 +329,7 @@ function buildManualCareTopicBlockedEvent(chat: GroupChat, character: AICharacte
       urgency: topic.urgency,
       reason: '用户在角色关系页手动关闭该关心事项。',
       evidence: 'manual_close_from_character_relationship_tab',
+      sourceMessageIds: topic.sourceMessageIds,
       confidence: 1,
     },
   };
@@ -380,6 +382,7 @@ function buildManualPromiseLifecycleEvent(chat: GroupChat, character: AICharacte
       reminderPolicy: promise.reminderPolicy,
       relationshipEffects: promise.relationshipEffects,
       lifecycleEvidence: [...(promise.lifecycleEvidence || []), `manual_${action}_from_character_relationship_tab`],
+      sourceMessageIds: promise.sourceMessageIds,
       dueAt: promise.dueAt,
       reason: getManualPromiseLifecycleReason(action),
       evidence: `manual_${action}_from_character_relationship_tab`,
@@ -416,6 +419,7 @@ function buildManualPromiseUpsertEvent(chat: GroupChat, character: AICharacter, 
       reminderPolicy: promise.reminderPolicy,
       relationshipEffects: promise.relationshipEffects,
       lifecycleEvidence: [...(promise.lifecycleEvidence || []), 'manual_upsert_from_character_relationship_tab'],
+      sourceMessageIds: promise.sourceMessageIds,
       dueAt: promise.dueAt,
       reason: '用户在角色关系页手动修正该未完成约定。',
       evidence: 'manual_upsert_from_character_relationship_tab',
@@ -531,6 +535,7 @@ function buildManualIntimateConflictResolvedEvent(chat: GroupChat, character: AI
       summary: '用户已标记这段冲突或误会完成修复，后续表达应保留温和余波，但不要继续翻旧账。',
       evidence: ['manual_resolve_from_character_relationship_tab', conflict.summary],
       participantIds: [character.id, 'user'],
+      sourceMessageIds: conflict.sourceMessageIds,
       confidence: 1,
     },
   };
@@ -561,6 +566,40 @@ function buildManualIntimateConflictDismissedEvent(chat: GroupChat, character: A
       summary: '用户标记这不是一次亲密冲突，后续不要因为这条误判继续克制或翻旧账。',
       evidence: ['manual_dismiss_from_character_relationship_tab', conflict.summary],
       participantIds: [character.id, 'user'],
+      sourceMessageIds: conflict.sourceMessageIds,
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualIntimateConflictRestoreEvent(chat: GroupChat, character: AICharacter, item: IntimateConflictHistoryEntry): RuntimeEventV2 {
+  const now = Date.now();
+  const restoredKind = item.action === 'resolved' && item.kind !== 'reconciliation' ? 'reconciliation' : item.kind;
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, item.id, restoredKind, 'intimate-conflict-restore']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: [character.id],
+    summary: `${character.name} 记录用户从历史中恢复了一次亲密冲突判断`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: ['user', character.id],
+    payload: {
+      eventType: 'companionship_intimate_conflict',
+      characterId: character.id,
+      userId: 'user',
+      action: 'reopened',
+      kind: restoredKind,
+      severity: item.severity,
+      repairReadiness: item.repairReadiness,
+      summary: item.summary,
+      evidence: ['manual_restore_from_conflict_history', ...item.evidence],
+      participantIds: [character.id, 'user'],
+      sourceEventIds: Array.from(new Set([item.id, ...item.sourceEventIds])),
+      sourceMessageIds: item.sourceMessageIds,
       confidence: 1,
     },
   };
@@ -678,7 +717,13 @@ function formatInteractionPacePreferenceLabel(style: UserAttachmentProfile['infe
   return INTERACTION_PACE_OPTIONS.find((option) => option.style === style)?.label || formatAttachmentStyleLabel(style);
 }
 
-function buildManualAttachmentProfileEvent(chat: GroupChat, character: AICharacter, action: 'disabled' | 'enabled' | 'corrected', style?: UserAttachmentProfile['inferredStyle']): RuntimeEventV2 {
+function buildManualAttachmentProfileEvent(
+  chat: GroupChat,
+  character: AICharacter,
+  action: 'disabled' | 'enabled' | 'corrected',
+  style?: UserAttachmentProfile['inferredStyle'],
+  reasonOverride?: string,
+): RuntimeEventV2 {
   const now = Date.now();
   const correctedStyle = action === 'corrected' ? style || 'secure' : undefined;
   return {
@@ -704,11 +749,11 @@ function buildManualAttachmentProfileEvent(chat: GroupChat, character: AICharact
       action,
       inferredStyle: correctedStyle,
       confidence: 1,
-      reason: action === 'corrected'
+      reason: reasonOverride || (action === 'corrected'
         ? `用户在角色关系页手动设置互动节奏偏好为${correctedStyle ? formatInteractionPacePreferenceLabel(correctedStyle) : '保持稳定'}。`
         : action === 'disabled'
           ? '用户在角色关系页手动关闭互动节奏适配。'
-          : '用户在角色关系页手动恢复自动互动节奏适配。',
+          : '用户在角色关系页手动恢复自动互动节奏适配。'),
       evidence: [`manual_attachment_${action}_from_character_relationship_tab`],
     },
   };
@@ -812,6 +857,7 @@ function buildManualSharedAnchorArchiveEvent(chat: GroupChat, character: AIChara
       title: anchor.title,
       text: anchor.text,
       evidence: anchor.evidence || anchor.text,
+      sourceMessageIds: anchor.sourceMessageIds,
       confidence: 1,
       reason: '用户在角色关系页手动归档该共同锚点。',
     },
@@ -848,6 +894,7 @@ function buildManualSharedAnchorUpsertEvent(chat: GroupChat, character: AICharac
       text,
       salience: anchor.salience,
       evidence: `manual_shared_anchor_edit_from_character_relationship_tab: ${anchor.title} / ${anchor.text}`,
+      sourceMessageIds: anchor.sourceMessageIds,
       confidence: 1,
       reason: '用户在角色关系页手动修正该共同锚点。',
     },
@@ -880,6 +927,7 @@ function buildManualSharedAnchorPairPrivateEvent(chat: GroupChat, character: AIC
       text: anchor.text,
       salience: anchor.salience,
       evidence: `manual_shared_anchor_participants_pair_private_from_character_relationship_tab: ${anchor.participantIds.join(',')}`,
+      sourceMessageIds: anchor.sourceMessageIds,
       confidence: 1,
       reason: '用户在角色关系页手动把共同锚点参与者收窄为自己和该角色。',
     },
@@ -921,6 +969,7 @@ function buildManualSharedSecretRevokedEvent(chat: GroupChat, character: AIChara
       publicMask: secret.publicMask,
       reason: '用户在角色关系页手动撤回该小秘密。',
       evidence: secret.publicMask || 'manual_revoke_from_character_relationship_tab',
+      sourceMessageIds: secret.sourceMessageIds,
       emotionalWeight: secret.emotionalWeight,
       confidence: 1,
     },
@@ -966,6 +1015,7 @@ function buildManualSharedSecretConsequenceEvent(
       publicMask: secret.publicMask,
       reason: `用户在角色关系页手动修正小秘密后果为 ${consequenceKind}。`,
       evidence: secret.publicMask || 'manual_secret_consequence_correction_from_character_relationship_tab',
+      sourceMessageIds: secret.sourceMessageIds,
       emotionalWeight: secret.emotionalWeight,
       confidence: 1,
     },
@@ -1007,6 +1057,7 @@ function buildManualSharedSecretMaskEvent(chat: GroupChat, character: AICharacte
       publicMask: normalizedMask,
       reason: '用户在角色关系页手动修正小秘密公开描述。',
       evidence: `manual_secret_mask_edit_from_character_relationship_tab: ${secret.publicMask} -> ${normalizedMask}`,
+      sourceMessageIds: secret.sourceMessageIds,
       emotionalWeight: secret.emotionalWeight,
       confidence: 1,
     },
@@ -1046,6 +1097,7 @@ function buildManualSharedSecretPairPrivateEvent(chat: GroupChat, character: AIC
       publicMask: secret.publicMask,
       reason: '用户在角色关系页手动把小秘密参与者收窄为自己和该角色。',
       evidence: `manual_secret_participants_pair_private_from_character_relationship_tab: ${secret.participantIds.join(',')}`,
+      sourceMessageIds: secret.sourceMessageIds,
       emotionalWeight: secret.emotionalWeight,
       confidence: 1,
     },
@@ -1087,6 +1139,7 @@ function buildManualSharedSecretParticipantsEvent(chat: GroupChat, character: AI
       publicMask: secret.publicMask,
       reason: '用户在角色关系页手动修正小秘密参与者。',
       evidence: `manual_secret_participants_edit_from_character_relationship_tab: ${secret.participantIds.join(',')} -> ${nextParticipantIds.join(',')}`,
+      sourceMessageIds: secret.sourceMessageIds,
       emotionalWeight: secret.emotionalWeight,
       confidence: 1,
     },
@@ -1121,6 +1174,7 @@ function buildManualSharedPhraseSuppressedEvent(chat: GroupChat, character: AICh
       firstSaidBy: phrase.firstSaidBy,
       reason: '用户在角色关系页手动抑制该共同话语。',
       evidence: phrase.evidence || phrase.text,
+      sourceMessageIds: phrase.sourceMessageIds,
       emotionalWeight: phrase.emotionalWeight,
       reuseCount: phrase.reuseCount,
       confidence: 1,
@@ -1162,6 +1216,7 @@ function buildManualSharedPhraseUpsertEvent(
       firstSaidBy: phrase.firstSaidBy,
       reason: '用户在角色关系页手动修正该共同话语。',
       evidence: `manual_shared_phrase_edit_from_character_relationship_tab: ${phrase.text}/${phrase.kind}/${phrase.visibility} -> ${normalized}/${patch.kind}/${patch.visibility}`,
+      sourceMessageIds: phrase.sourceMessageIds,
       emotionalWeight: phrase.emotionalWeight,
       reuseCount: phrase.reuseCount,
       confidence: 1,
@@ -1196,6 +1251,7 @@ function buildManualSharedPhrasePairPrivateEvent(chat: GroupChat, character: AIC
       firstSaidBy: phrase.firstSaidBy,
       reason: '用户在角色关系页手动把共同话语参与者收窄为自己和该角色。',
       evidence: `manual_shared_phrase_participants_pair_private_from_character_relationship_tab: ${phrase.participantIds.join(',')}`,
+      sourceMessageIds: phrase.sourceMessageIds,
       emotionalWeight: phrase.emotionalWeight,
       reuseCount: phrase.reuseCount,
       confidence: 1,
@@ -1232,8 +1288,44 @@ function buildManualSharedPhraseParticipantsEvent(chat: GroupChat, character: AI
       firstSaidBy: phrase.firstSaidBy,
       reason: '用户在角色关系页手动修正共同话语参与者。',
       evidence: `manual_shared_phrase_participants_edit_from_character_relationship_tab: ${phrase.participantIds.join(',')} -> ${nextParticipantIds.join(',')}`,
+      sourceMessageIds: phrase.sourceMessageIds,
       emotionalWeight: phrase.emotionalWeight,
       reuseCount: phrase.reuseCount,
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualSharedPhraseRestoreEvent(chat: GroupChat, character: AICharacter, item: SharedPhraseHistoryEntry): RuntimeEventV2 {
+  const now = Date.now();
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, item.id, item.phraseId, 'shared-phrase-restore']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: item.participantIds,
+    summary: `${character.name} 记录用户从历史中恢复了一句共同话语`,
+    channelId: 'pair-private',
+    eventClass: 'artifact',
+    visibility: 'pair_private',
+    visibleToIds: item.participantIds,
+    payload: {
+      eventType: 'companionship_shared_phrase',
+      characterId: character.id,
+      userId: 'user',
+      phraseId: item.phraseId,
+      action: 'upsert',
+      text: item.text,
+      kind: item.kind,
+      participantIds: item.participantIds,
+      visibility: item.visibility,
+      firstSaidBy: item.firstSaidBy,
+      reason: `用户在开发者诊断中从共同话语历史 ${item.id} 恢复。`,
+      evidence: ['manual_restore_from_shared_phrase_history', ...item.evidence].filter(Boolean).join(' / '),
+      sourceMessageIds: item.sourceMessageIds,
+      emotionalWeight: item.emotionalWeight,
+      reuseCount: item.reuseCount,
       confidence: 1,
     },
   };
@@ -1267,6 +1359,7 @@ function buildManualRitualActionEvent(chat: GroupChat, character: AICharacter, r
       evolution: ritual.evolution,
       reason: isRestored ? '用户在角色关系页手动恢复该关系仪式。' : '用户在角色关系页手动抑制该关系仪式。',
       evidence: ritual.content,
+      sourceMessageIds: ritual.sourceMessageIds,
       confidence: 1,
     },
   };
@@ -1300,6 +1393,42 @@ function buildManualRitualUpdateEvent(chat: GroupChat, character: AICharacter, r
       evolution: [...(ritual.evolution || []), `用户修正：${normalized}`].slice(-6),
       reason: '用户在角色关系页手动修正关系仪式内容。',
       evidence: `manual_ritual_update_from_character_relationship_tab: ${ritual.content} -> ${normalized}`,
+      sourceMessageIds: ritual.sourceMessageIds,
+      confidence: 1,
+    },
+  };
+}
+
+function buildManualRitualRestoreFromHistoryEvent(chat: GroupChat, character: AICharacter, item: RitualHistoryEntry): RuntimeEventV2 {
+  const now = Date.now();
+  const participantIds = item.participantIds.length ? item.participantIds : [character.id, 'user'];
+  const includesUser = participantIds.includes('user');
+  const restoredContent = clipRuntimeText(item.content || item.reason || item.evidence[0] || '', 180);
+  return {
+    id: buildManualCompanionshipEventId([chat.id, character.id, item.id, item.ritualId, 'ritual-history-restore']),
+    conversationId: chat.id,
+    kind: 'artifact',
+    createdAt: now,
+    actorIds: ['user'],
+    targetIds: participantIds,
+    summary: `${character.name} 记录用户从历史中恢复了一个关系仪式`,
+    channelId: includesUser ? 'pair-private' : 'relationship-runtime',
+    eventClass: 'artifact',
+    visibility: includesUser ? 'pair_private' : 'role_private',
+    visibleToIds: participantIds,
+    payload: {
+      eventType: 'companionship_ritual',
+      characterId: character.id,
+      userId: includesUser ? 'user' : undefined,
+      ritualId: item.ritualId,
+      kind: item.kind,
+      action: 'updated',
+      participantIds,
+      content: restoredContent,
+      evolution: [...item.evolution, `从仪式历史 ${item.id} 恢复：${restoredContent}`].filter(Boolean).slice(-6),
+      reason: `用户在开发者诊断中从仪式历史 ${item.id} 恢复内容。`,
+      evidence: ['manual_restore_from_ritual_history', ...item.evidence].filter(Boolean).join(' / '),
+      sourceMessageIds: item.sourceMessageIds,
       confidence: 1,
     },
   };
@@ -1732,6 +1861,11 @@ function SharedMemoryAnchorPanel({
                   证据：{anchor.evidence}
                 </Typography>
               ) : null}
+              {developerMode && anchor.sourceMessageIds?.length ? (
+                <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
+                  来源消息：{anchor.sourceMessageIds.join(' / ')}
+                </Typography>
+              ) : null}
             </Stack>
           </Box>
         );
@@ -1788,6 +1922,84 @@ function CharacterCompanionshipPanel({
       })}
     </Stack>
   ) : <Typography variant="caption" color="text.secondary">暂无可投影的角色陪伴关系。关系积累到一定强度后，这里会显示护短、默契、搭档感或带刺关心。</Typography>;
+}
+
+function formatPrivateThreadScheduleAction(action: PrivateThreadScheduleDiagnostic['action']) {
+  const labels: Record<PrivateThreadScheduleDiagnostic['action'], string> = {
+    candidate_created: '候选已记录',
+    opened: '已打开私聊',
+    suppressed: '被设置抑制',
+    skipped: '冷却跳过',
+  };
+  return labels[action];
+}
+
+function formatPrivateThreadReasonType(reasonType?: string) {
+  const labels: Record<string, string> = {
+    companionship_promise_followup: '约定承接',
+    companionship_shared_secret: '小秘密承接',
+    companionship_shared_ritual: '共同仪式余波',
+    companionship_care_followup: '关心事项',
+    companionship_group_mediation: '公开缓和后的私下承接',
+  };
+  return reasonType ? labels[reasonType] || reasonType : '未标注原因';
+}
+
+function PrivateThreadScheduleDiagnosticsPanel({
+  items,
+  currentCharacterId,
+  resolveCharacterName,
+}: {
+  items: Array<{ chatName: string; diagnostic: PrivateThreadScheduleDiagnostic }>;
+  currentCharacterId: string;
+  resolveCharacterName: (id: string, fallback?: string) => string;
+}) {
+  if (!items.length) return null;
+  return (
+    <Stack spacing={0.75} sx={{ mt: 1.1 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+        AI 私聊调度诊断
+      </Typography>
+      {items.slice(0, 8).map(({ chatName, diagnostic }) => {
+        const partnerId = diagnostic.participantIds.find((id) => id !== currentCharacterId) || diagnostic.targetId || diagnostic.actorId;
+        const chips = [
+          formatPrivateThreadScheduleAction(diagnostic.action),
+          diagnostic.isCoolingDown ? '冷却中' : '',
+          diagnostic.decisionSource ? `来源 ${diagnostic.decisionSource}` : '',
+          typeof diagnostic.confidence === 'number' ? `置信 ${Math.round(diagnostic.confidence * 100)}%` : '',
+        ].filter(Boolean);
+        const lines = [
+          diagnostic.triggerReason ? `触发：${diagnostic.triggerReason}` : '',
+          diagnostic.openingMessage ? `第一句：${diagnostic.openingMessage}` : '',
+          diagnostic.reason ? `状态原因：${diagnostic.reason}` : '',
+          diagnostic.nextAvailableAt ? `下次可用：${new Date(diagnostic.nextAvailableAt).toLocaleString()}` : '',
+          diagnostic.candidateId ? `候选：${diagnostic.candidateId}` : '',
+          diagnostic.privateChatId ? `私聊：${diagnostic.privateChatId}` : '',
+        ].filter(Boolean);
+        return (
+          <Box key={diagnostic.id} sx={{ p: 1, borderRadius: 2, bgcolor: 'background.paper', border: '1px dashed', borderColor: 'divider' }}>
+            <Stack spacing={0.55}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  {resolveCharacterName(diagnostic.actorId)} → {resolveCharacterName(partnerId)}
+                </Typography>
+                <Chip size="small" label={formatPrivateThreadReasonType(diagnostic.reasonType)} variant="outlined" />
+              </Box>
+              <Typography variant="caption" color="text.secondary">
+                {chatName} · {new Date(diagnostic.occurredAt).toLocaleString()}
+              </Typography>
+              <StatChipRow items={chips} />
+              {lines.length ? (
+                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {lines.join('\n')}
+                </Typography>
+              ) : null}
+            </Stack>
+          </Box>
+        );
+      })}
+    </Stack>
+  );
 }
 
 function RoleSharedPhrasePanel({
@@ -1893,6 +2105,11 @@ function RoleSharedPhrasePanel({
                 {developerMode && phrase.evidence ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word', mt: 0.25 }}>
                     证据：{clipRuntimeText(phrase.evidence, 96)}
+                  </Typography>
+                ) : null}
+                {developerMode && phrase.sourceMessageIds?.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-all', mt: 0.15 }}>
+                    来源消息：{phrase.sourceMessageIds.join(' / ')}
                   </Typography>
                 ) : null}
               </Box>
@@ -2044,6 +2261,11 @@ function RoleSharedSecretPanel({
                     参与者：{secret.participantIds.map((id) => resolveCharacterName(id)).join(' × ')}
                   </Typography>
                 ) : null}
+                {developerMode && secret.sourceMessageIds?.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-all', mt: 0.15 }}>
+                    来源消息：{secret.sourceMessageIds.join(' / ')}
+                  </Typography>
+                ) : null}
               </Box>
               {isEditing ? (
                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
@@ -2184,6 +2406,11 @@ function RoleRitualPanel({
                     边界：{ritual.boundaryReasons.slice(0, 2).join(' / ')}
                   </Typography>
                 ) : null}
+                {developerMode && ritual.sourceMessageIds?.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-all', mt: 0.15 }}>
+                    来源消息：{ritual.sourceMessageIds.join(' / ')}
+                  </Typography>
+                ) : null}
               </Box>
               {isEditing ? (
                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
@@ -2251,11 +2478,21 @@ function CompanionshipDeveloperTracePanel({
   onDisableAttachment,
   onEnableAttachment,
   onCorrectAttachment,
+  onRestoreAttachment,
+  onRestoreAddress,
+  onRestoreConflict,
+  onRestoreSharedPhrase,
+  onRestoreRitualFromHistory,
 }: {
   trace: CompanionshipRuntimeTrace | null | undefined;
   onDisableAttachment?: () => void;
   onEnableAttachment?: () => void;
   onCorrectAttachment?: (style: UserAttachmentProfile['inferredStyle']) => void;
+  onRestoreAttachment?: (item: AttachmentProfileHistoryEntry) => void;
+  onRestoreAddress?: (action: ManualAddressingSetAction, address: string) => void;
+  onRestoreConflict?: (item: IntimateConflictHistoryEntry) => void;
+  onRestoreSharedPhrase?: (item: SharedPhraseHistoryEntry) => void;
+  onRestoreRitualFromHistory?: (item: RitualHistoryEntry) => void;
 }) {
   if (!trace) return null;
   const intimacyItems = [
@@ -2277,6 +2514,9 @@ function CompanionshipDeveloperTracePanel({
   const addressingHistory = trace.addressingHistory.slice(0, 6);
   const careTopicHistory = trace.careTopicHistory.slice(0, 6);
   const promiseHistory = trace.promiseHistory.slice(0, 6);
+  const sharedAnchorHistory = trace.sharedAnchorHistory.slice(0, 6);
+  const sharedSecretHistory = trace.sharedSecretHistory.slice(0, 6);
+  const sharedPhraseHistory = trace.sharedPhraseHistory.slice(0, 6);
   const ritualHistory = trace.ritualHistory.slice(0, 6);
   const conflictHistory = trace.conflictHistory.slice(0, 6);
   const attachmentHistory = trace.attachmentHistory.slice(0, 6);
@@ -2315,6 +2555,11 @@ function CompanionshipDeveloperTracePanel({
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
                     证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+                {item.sourceMessageIds.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.15, wordBreak: 'break-all' }}>
+                    来源消息：{item.sourceMessageIds.join(' / ')}
                   </Typography>
                 ) : null}
               </Box>
@@ -2391,10 +2636,34 @@ function CompanionshipDeveloperTracePanel({
                       ))}
                     </Stack>
                   ) : null}
+                  {onRestoreAddress && (item.currentAddress || item.privateAddress || item.publicAddress) ? (
+                    <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.55 }}>
+                      {item.currentAddress ? (
+                        <Button size="small" variant="text" onClick={() => onRestoreAddress('set_current', item.currentAddress || '')} sx={{ minWidth: 0, p: 0 }}>
+                          恢复当前
+                        </Button>
+                      ) : null}
+                      {item.privateAddress ? (
+                        <Button size="small" variant="text" onClick={() => onRestoreAddress('set_private', item.privateAddress || '')} sx={{ minWidth: 0, p: 0 }}>
+                          恢复私下
+                        </Button>
+                      ) : null}
+                      {item.publicAddress ? (
+                        <Button size="small" variant="text" onClick={() => onRestoreAddress('set_public', item.publicAddress || '')} sx={{ minWidth: 0, p: 0 }}>
+                          恢复公开
+                        </Button>
+                      ) : null}
+                    </Stack>
+                  ) : null}
                   {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{item.reason}</Typography> : null}
                   {item.evidence.length ? (
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
                       证据：{item.evidence.join(' / ')}
+                    </Typography>
+                  ) : null}
+                  {item.sourceMessageIds?.length ? (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.15, wordBreak: 'break-all' }}>
+                      来源消息：{item.sourceMessageIds.join(' / ')}
                     </Typography>
                   ) : null}
                 </Box>
@@ -2460,6 +2729,11 @@ function CompanionshipDeveloperTracePanel({
                     证据：{item.evidence.join(' / ')}
                   </Typography>
                 ) : null}
+                {item.sourceMessageIds.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-all' }}>
+                    来源消息：{item.sourceMessageIds.join(' / ')}
+                  </Typography>
+                ) : null}
               </Box>
             ))}
           </Stack>
@@ -2489,6 +2763,79 @@ function CompanionshipDeveloperTracePanel({
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
                     证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+                {item.sourceMessageIds.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-all' }}>
+                    来源消息：{item.sourceMessageIds.join(' / ')}
+                  </Typography>
+                ) : null}
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      ) : null}
+      {sharedAnchorHistory.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>共同锚点历史</Typography>
+          <Stack spacing={0.5}>
+            {sharedAnchorHistory.map((item) => (
+              <Box key={item.id} sx={{ p: 0.75, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatSharedAnchorActionLabel(item.action)} · {item.kind ? formatSharedMemoryAnchorKind(item.kind) : '共同锚点'} · {new Date(item.occurredAt).toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {[item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : '', typeof item.salience === 'number' ? `显著 ${Math.round(item.salience)}` : ''].filter(Boolean).join(' · ')}
+                  </Typography>
+                </Box>
+                {item.title ? <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 700, wordBreak: 'break-word' }}>{item.title}</Typography> : null}
+                <Typography variant="body2" sx={{ mt: item.title ? 0 : 0.25, wordBreak: 'break-word' }}>{item.text}</Typography>
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.mergedAnchorIds.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-all' }}>
+                    合并/压制：{item.mergedAnchorIds.join(' / ')}
+                  </Typography>
+                ) : null}
+                {item.evidence.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
+                    证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+                {item.sourceMessageIds.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-all' }}>
+                    来源消息：{item.sourceMessageIds.join(' / ')}
+                  </Typography>
+                ) : null}
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      ) : null}
+      {sharedSecretHistory.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>小秘密历史</Typography>
+          <Stack spacing={0.5}>
+            {sharedSecretHistory.map((item) => (
+              <Box key={item.id} sx={{ p: 0.75, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatSharedSecretActionLabel(item.action)} · {item.leakState === 'sealed' ? '保密中' : item.leakState === 'hinted_publicly' ? '已暗示' : item.leakState === 'confessed' ? '已坦白' : '已泄露'} · {new Date(item.occurredAt).toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {[item.consequenceKind ? formatSharedSecretConsequenceLabel(item.consequenceKind) : '', item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : '', typeof item.emotionalWeight === 'number' ? `权重 ${Math.round(item.emotionalWeight)}` : ''].filter(Boolean).join(' · ')}
+                  </Typography>
+                </Box>
+                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{item.publicMask}</Typography>
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.evidence.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
+                    证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+                {item.sourceMessageIds.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-all' }}>
+                    来源消息：{item.sourceMessageIds.join(' / ')}
                   </Typography>
                 ) : null}
               </Box>
@@ -2521,6 +2868,52 @@ function CompanionshipDeveloperTracePanel({
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
                     证据：{item.evidence.join(' / ')}
                   </Typography>
+                ) : null}
+                {item.sourceMessageIds.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-all' }}>
+                    来源消息：{item.sourceMessageIds.join(' / ')}
+                  </Typography>
+                ) : null}
+                {onRestoreRitualFromHistory && item.content && item.action !== 'suppressed' ? (
+                  <Button size="small" variant="text" onClick={() => onRestoreRitualFromHistory(item)} sx={{ mt: 0.4, p: 0, minWidth: 0 }}>
+                    恢复此内容
+                  </Button>
+                ) : null}
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      ) : null}
+      {sharedPhraseHistory.length ? (
+        <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>共同话语历史</Typography>
+          <Stack spacing={0.5}>
+            {sharedPhraseHistory.map((item) => (
+              <Box key={item.id} sx={{ p: 0.75, borderRadius: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatSharedPhraseActionLabel(item.action)} · {item.kind ? formatSharedPhraseKindLabel(item.kind) : '共同话语'} · {new Date(item.occurredAt).toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {[item.visibility ? formatSharedPhraseVisibilityLabel(item.visibility) : '', item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : ''].filter(Boolean).join(' · ')}
+                  </Typography>
+                </Box>
+                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{item.text}</Typography>
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.evidence.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
+                    证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+                {item.sourceMessageIds.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-all' }}>
+                    来源消息：{item.sourceMessageIds.join(' / ')}
+                  </Typography>
+                ) : null}
+                {onRestoreSharedPhrase && item.action !== 'revoked' ? (
+                  <Button size="small" variant="text" onClick={() => onRestoreSharedPhrase(item)} sx={{ mt: 0.4, p: 0, minWidth: 0 }}>
+                    恢复此话语
+                  </Button>
                 ) : null}
               </Box>
             ))}
@@ -2591,6 +2984,21 @@ function CompanionshipDeveloperTracePanel({
                     证据：{item.evidence.join(' / ')}
                   </Typography>
                 ) : null}
+                {item.sourceMessageIds.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.15, wordBreak: 'break-all' }}>
+                    来源消息：{item.sourceMessageIds.join(' / ')}
+                  </Typography>
+                ) : null}
+                {onRestoreConflict && item.action !== 'dismissed' ? (
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => onRestoreConflict(item)}
+                    sx={{ mt: 0.4, p: 0, minWidth: 0 }}
+                  >
+                    恢复为当前状态
+                  </Button>
+                ) : null}
               </Box>
             ))}
           </Stack>
@@ -2611,12 +3019,27 @@ function CompanionshipDeveloperTracePanel({
                   </Typography>
                 </Box>
                 {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{item.reason}</Typography> : null}
+                {onRestoreAttachment && item.inferredStyle ? (
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => onRestoreAttachment(item)}
+                    sx={{ minWidth: 0, p: 0, mt: 0.35 }}
+                  >
+                    恢复此节奏
+                  </Button>
+                ) : null}
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
                   置信 {item.confidence}%
                 </Typography>
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
                     证据：{item.evidence.join(' / ')}
+                  </Typography>
+                ) : null}
+                {item.sourceMessageIds?.length ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.15, wordBreak: 'break-all' }}>
+                    来源消息：{item.sourceMessageIds.join(' / ')}
                   </Typography>
                 ) : null}
               </Box>
@@ -2695,6 +3118,37 @@ function formatSharedPhraseVisibilityLabel(visibility: SharedPhrase['visibility'
   return labels[visibility] || visibility;
 }
 
+function formatSharedPhraseActionLabel(action: SharedPhraseHistoryEntry['action']) {
+  const labels: Record<SharedPhraseHistoryEntry['action'], string> = {
+    upsert: '写入/修正',
+    reused: '复用强化',
+    suppressed: '停用',
+    revoked: '撤回',
+  };
+  return labels[action] || action;
+}
+
+function formatSharedAnchorActionLabel(action: CompanionshipRuntimeTrace['sharedAnchorHistory'][number]['action']) {
+  const labels: Record<CompanionshipRuntimeTrace['sharedAnchorHistory'][number]['action'], string> = {
+    upsert: '写入/修正',
+    merge: '合并',
+    archive: '归档',
+    revoke: '撤回',
+  };
+  return labels[action] || action;
+}
+
+function formatSharedSecretActionLabel(action: CompanionshipRuntimeTrace['sharedSecretHistory'][number]['action']) {
+  const labels: Record<CompanionshipRuntimeTrace['sharedSecretHistory'][number]['action'], string> = {
+    recorded: '记录',
+    hinted_publicly: '公开暗示',
+    leaked: '泄露',
+    confessed: '坦白',
+    revoked: '撤回',
+  };
+  return labels[action] || action;
+}
+
 const PHASE_CORRECTION_OPTIONS: Array<{ label: string; phase: CompanionshipPhase; style: CompanionshipStyle }> = [
   { label: '朋友', phase: 'fond', style: 'friend' },
   { label: '暧昧', phase: 'ambiguous', style: 'ambiguous' },
@@ -2768,6 +3222,10 @@ function UserCompanionshipCard({
   onDisableAttachment,
   onEnableAttachment,
   onCorrectAttachment,
+  onRestoreAttachment,
+  onRestoreConflict,
+  onRestoreSharedPhrase,
+  onRestoreRitualFromHistory,
   onUpdateProfileCue,
   onRevokeProfileCue,
   onRevokeSharedSecret,
@@ -2809,6 +3267,10 @@ function UserCompanionshipCard({
   onDisableAttachment: () => void;
   onEnableAttachment: () => void;
   onCorrectAttachment: (style: UserAttachmentProfile['inferredStyle']) => void;
+  onRestoreAttachment: (item: AttachmentProfileHistoryEntry) => void;
+  onRestoreConflict: (item: IntimateConflictHistoryEntry) => void;
+  onRestoreSharedPhrase: (item: SharedPhraseHistoryEntry) => void;
+  onRestoreRitualFromHistory: (item: RitualHistoryEntry) => void;
   onUpdateProfileCue: (item: UserProfileMemoryEventItem) => void;
   onRevokeProfileCue: (item: UserProfileMemoryEventItem) => void;
   onRevokeSharedSecret: (secret: SharedSecret) => void;
@@ -3275,6 +3737,11 @@ function UserCompanionshipCard({
                           证据：{clipRuntimeText(phrase.evidence, 96)}
                         </Typography>
                       ) : null}
+                      {developerMode && phrase.sourceMessageIds?.length ? (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-all' }}>
+                          来源消息：{phrase.sourceMessageIds.join(' / ')}
+                        </Typography>
+                      ) : null}
                       <Box sx={{ mt: 0.5 }}>
                         <ParticipantEditor
                           selectedIds={phrase.participantIds}
@@ -3574,6 +4041,11 @@ function UserCompanionshipCard({
                         参与者：{secret.participantIds.join(' × ')}
                       </Typography>
                     ) : null}
+                    {developerMode && secret.sourceMessageIds?.length ? (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-all' }}>
+                        来源消息：{secret.sourceMessageIds.join(' / ')}
+                      </Typography>
+                    ) : null}
                     <Box sx={{ mt: 0.5 }}>
                       <ParticipantEditor
                         selectedIds={secret.participantIds}
@@ -3693,6 +4165,11 @@ function UserCompanionshipCard({
                         边界：{ritual.boundaryReasons.slice(0, 2).join(' / ')}
                       </Typography>
                     ) : null}
+                    {developerMode && ritual.sourceMessageIds?.length ? (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-all' }}>
+                        来源消息：{ritual.sourceMessageIds.join(' / ')}
+                      </Typography>
+                    ) : null}
                   </Box>
                   {editingRitualId === ritual.id ? (
                     <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
@@ -3784,7 +4261,17 @@ function UserCompanionshipCard({
                 </Button>
               </Stack>
             </Box>
-            <CompanionshipDeveloperTracePanel trace={trace} onDisableAttachment={onDisableAttachment} onEnableAttachment={onEnableAttachment} onCorrectAttachment={onCorrectAttachment} />
+            <CompanionshipDeveloperTracePanel
+              trace={trace}
+              onDisableAttachment={onDisableAttachment}
+              onEnableAttachment={onEnableAttachment}
+              onCorrectAttachment={onCorrectAttachment}
+              onRestoreAttachment={onRestoreAttachment}
+              onRestoreAddress={onSetAddress}
+              onRestoreConflict={onRestoreConflict}
+              onRestoreSharedPhrase={onRestoreSharedPhrase}
+              onRestoreRitualFromHistory={onRestoreRitualFromHistory}
+            />
             <Box sx={{ display: 'grid', gap: 0.5 }}>
               {signature.debugLines.map((line) => (
                 <Typography key={line} variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', wordBreak: 'break-word' }}>
@@ -4140,6 +4627,23 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       || recentByTime(chats.filter((chat) => chat.memberIds.includes(character.id || '')), 1)[0];
     return buildCharacterCompanionshipStates(character as AICharacter, character.updatedAt || character.createdAt || 0, relatedChat);
   }, [character, chats]);
+  const privateThreadScheduleDiagnostics = useMemo(() => {
+    if (!character.id) return [];
+    const seen = new Set<string>();
+    return recentByTime(chats.filter((chat) => chat.type !== 'direct' && chat.memberIds.includes(character.id || '')), 8)
+      .flatMap((chat) => buildCompanionshipPrivateThreadScheduleDiagnostics({
+        chat,
+        characterId: character.id,
+        limit: 6,
+      }).map((diagnostic) => ({ chatName: chat.name || '群聊', diagnostic })))
+      .filter((item) => {
+        if (seen.has(item.diagnostic.id)) return false;
+        seen.add(item.diagnostic.id);
+        return true;
+      })
+      .sort((a, b) => b.diagnostic.occurredAt - a.diagnostic.occurredAt)
+      .slice(0, 8);
+  }, [character.id, chats]);
   const roleSharedAnchorItems = useMemo(() => {
     if (!character.id || !character.personality || !character.memory) return [];
     const seen = new Set<string>();
@@ -4317,6 +4821,13 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
       <SurfaceCard>
         <SectionHeader title="角色陪伴" dense action={isDeveloperView ? <DebugChip /> : undefined} />
         <CharacterCompanionshipPanel states={characterCompanionshipStates} resolveCharacterName={resolveCharacterName} developerMode={isDeveloperView} />
+        {isDeveloperView ? (
+          <PrivateThreadScheduleDiagnosticsPanel
+            items={privateThreadScheduleDiagnostics}
+            currentCharacterId={character.id || ''}
+            resolveCharacterName={resolveCharacterName}
+          />
+        ) : null}
       </SurfaceCard>
       {roleSharedAnchorItems.length ? (
         <SurfaceCard>
@@ -4509,6 +5020,28 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
                 }}
                 onCorrectAttachment={(style) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualAttachmentProfileEvent(view.chat, character as AICharacter, 'corrected', style));
+                }}
+                onRestoreAttachment={(item) => {
+                  if (!item.inferredStyle) return;
+                  void appendManualCompanionshipEvent(
+                    view.chat,
+                    buildManualAttachmentProfileEvent(
+                      view.chat,
+                      character as AICharacter,
+                      'corrected',
+                      item.inferredStyle,
+                      `用户在开发者诊断中从互动节奏历史 ${item.id} 恢复为${formatInteractionPacePreferenceLabel(item.inferredStyle)}。`,
+                    ),
+                  );
+                }}
+                onRestoreConflict={(item) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualIntimateConflictRestoreEvent(view.chat, character as AICharacter, item));
+                }}
+                onRestoreSharedPhrase={(item) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualSharedPhraseRestoreEvent(view.chat, character as AICharacter, item));
+                }}
+                onRestoreRitualFromHistory={(item) => {
+                  void appendManualCompanionshipEvent(view.chat, buildManualRitualRestoreFromHistoryEvent(view.chat, character as AICharacter, item));
                 }}
                 onUpdateProfileCue={(item) => {
                   void appendManualCompanionshipEvent(view.chat, buildManualUserProfileMemoryUpsertEvent(view.chat, character as AICharacter, item));

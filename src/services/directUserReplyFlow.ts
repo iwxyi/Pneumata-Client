@@ -14,7 +14,7 @@ import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import type { LocalInterceptionEvent } from './chatEngine';
 import { resolveDirectCompanionshipAssessmentEvents } from './directCompanionshipAssessment';
-import { buildCompanionshipRitualEventsFromDirectUserMessage } from './directCompanionshipRitual';
+import { resolveCompanionshipRitualEventsFromDirectUserMessage } from './directCompanionshipRitual';
 import { buildSharedPhraseEventsFromCompanionshipEvents } from './companionshipSharedPhraseBackflow';
 import { reportRecoverableError } from './diagnostics';
 
@@ -63,10 +63,11 @@ export async function runDirectUserReplyFlow(params: {
         textApiConfig,
         recentMessages: getProjectedMessages(),
       });
-      const ritualEvents = buildCompanionshipRitualEventsFromDirectUserMessage({
+      const ritualEvents = await resolveCompanionshipRitualEventsFromDirectUserMessage({
         chat: latestChat,
         character: latestCharacter,
         message: params.userMessage,
+        textApiConfig,
         recentMessages: getProjectedMessages(),
       });
       const baseCompanionshipEvents = [...assessmentEvents, ...ritualEvents].filter((event): event is RuntimeEventV2 => Boolean(event));

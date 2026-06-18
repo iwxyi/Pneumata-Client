@@ -747,6 +747,7 @@ export interface CompanionshipSettings {
     start: string;
     end: string;
     suppressStatusHints: boolean;
+    suppressProactiveCare: boolean;
   };
 }
 
@@ -836,6 +837,7 @@ export const DEFAULT_COMPANIONSHIP_SETTINGS: CompanionshipSettings = {
     start: '23:30',
     end: '08:00',
     suppressStatusHints: true,
+    suppressProactiveCare: true,
   },
 };
 

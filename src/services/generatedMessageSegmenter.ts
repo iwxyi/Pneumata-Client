@@ -60,7 +60,6 @@ export function splitGeneratedRoundMessage(message: GeneratedRoundMessage) {
     metadata: {
       ...(index === 0 ? baseMessage.metadata : {
         format: baseMessage.metadata?.format,
-        contextText: baseMessage.metadata?.contextText,
         manualSpeaker: baseMessage.metadata?.manualSpeaker,
       }),
       turnSegment: {

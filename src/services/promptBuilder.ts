@@ -9,10 +9,13 @@ import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 import { getExperienceLensLabel } from './experienceChangePresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import { getGuidanceMemoryTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
-import { buildCompanionshipPromptBlock, buildSharedSecrets } from './companionshipProjection';
+import { buildCompanionshipPromptBlock, buildSharedMemoryAnchors, buildSharedSecrets } from './companionshipProjection';
 import { projectConversationForModel, type ConversationProjectionOptions } from './conversationProjection';
 import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
 import { buildInfluenceState, type InfluenceState } from './influenceState';
+import { userProfileMemoryPayloadOf } from './directUserProfileMemory';
+import type { SharedMemoryAnchor, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../types/companionship';
+import type { RuntimeEventV2 } from '../types/runtimeEvent';
 
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
@@ -20,6 +23,10 @@ const styleDescriptions: Record<ChatStyle, string> = {
   brainstorm: 'This is a brainstorming session. Generate creative ideas freely. Build on others\' ideas. No idea is too wild. Be enthusiastic and generative.',
   roleplay: 'This is a role-playing scenario. Stay in character at all times. React to the situation as your character would. Be immersive and creative.',
 };
+
+const COMPANIONSHIP_SHARED_ANCHOR_SOURCE_TAG = 'companionship_shared_anchor';
+const COMPANIONSHIP_USER_PROFILE_SOURCE_TAG = 'companionship_user_profile';
+const USER_ACTOR_ID = 'user';
 
 export interface PromptMemoryTraceItem {
   id: string;
@@ -171,15 +178,15 @@ function buildRecallCue(messages: Message[], target?: AICharacter | null) {
 
 function buildGroupMemoryPolicyTags() {
   return {
-    preferred: ['llm_memory_objective_event', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', 'interaction', 'relationship_delta', 'room_shift', 'private_thread_effect', 'private_thread_summary'],
+    preferred: ['llm_memory_objective_event', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', COMPANIONSHIP_SHARED_ANCHOR_SOURCE_TAG, 'interaction', 'relationship_delta', 'room_shift', 'private_thread_effect', 'private_thread_summary'],
     blocked: ['direct_user_message', 'direct_ai_follow_up', 'ai_direct_starter_message', 'ai_direct_target_message'],
   };
 }
 
 function buildGroupCharacterPolicyTags() {
   return {
-    preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', 'self_expression'],
-    allowed: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', 'self_expression', 'core_profile', 'background', 'speaking_style', 'expertise'],
+    preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', COMPANIONSHIP_SHARED_ANCHOR_SOURCE_TAG, 'self_expression'],
+    allowed: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'group_relationship_shift', COMPANIONSHIP_SHARED_ANCHOR_SOURCE_TAG, 'self_expression', 'core_profile', 'background', 'speaking_style', 'expertise'],
     blocked: ['direct_user_message', 'direct_ai_follow_up'],
   };
 }
@@ -190,17 +197,185 @@ function buildRetrievalBoosts(chat: GroupChat) {
   return { relationshipBoost: true, selfMemoryBoost: true, conversationBoost: true };
 }
 
+function sharedAnchorMemoryKind(kind: SharedMemoryAnchor['kind']): MemoryItem['kind'] {
+  if (kind === 'conflict') return 'conflict';
+  if (kind === 'repair' || kind === 'first_time' || kind === 'confession' || kind === 'inside_joke' || kind === 'promise' || kind === 'milestone') return 'bond';
+  if (kind === 'shared_secret') return 'artifact';
+  return 'bond';
+}
+
+function sharedAnchorToPromptMemory(anchor: SharedMemoryAnchor, character: AICharacter, chat: GroupChat): MemoryItem | null {
+  if (!anchor.participantIds.includes(character.id)) return null;
+  if (anchor.kind === 'shared_secret') return null;
+  const salience = Math.max(0.25, Math.min(1, anchor.salience / 100));
+  const confidence = Math.max(0.25, Math.min(1, anchor.confidence / 100));
+  const recency = Math.max(0.2, Math.min(1, (anchor.updatedAt || chat.updatedAt || Date.now()) / Math.max(Date.now(), 1)));
+  return {
+    id: `companionship-anchor-memory-${anchor.id}`,
+    ownerId: character.id,
+    scope: 'relationship',
+    layer: anchor.source === 'runtime_event' ? 'episodic' : 'long_term',
+    kind: sharedAnchorMemoryKind(anchor.kind),
+    subjectIds: anchor.participantIds.filter((id) => id !== character.id),
+    relatedConversationId: chat.id,
+    text: anchor.text,
+    summary: `${anchor.title}: ${anchor.text}`,
+    evidenceText: anchor.evidence,
+    salience,
+    confidence,
+    recency,
+    reinforcementCount: Math.max(1, Math.round(anchor.salience / 35)),
+    sourceEventIds: anchor.sourceId ? [anchor.sourceId] : [],
+    sourceTag: COMPANIONSHIP_SHARED_ANCHOR_SOURCE_TAG,
+    origin: anchor.source === 'runtime_event' ? 'runtime' : 'distilled',
+    distilledFromIds: anchor.sourceId ? [anchor.sourceId] : [],
+    distilledAt: anchor.source === 'runtime_event' ? null : anchor.updatedAt || null,
+    distillationVersion: null,
+    createdAt: anchor.createdAt || chat.createdAt || 0,
+    updatedAt: anchor.updatedAt || chat.updatedAt || 0,
+    archivedAt: null,
+  };
+}
+
+function buildCompanionshipAnchorPromptMemories(character: AICharacter, chat: GroupChat): MemoryItem[] {
+  return buildSharedMemoryAnchors(character, chat.updatedAt || Date.now(), chat)
+    .map((anchor) => sharedAnchorToPromptMemory(anchor, character, chat))
+    .filter((item): item is MemoryItem => Boolean(item));
+}
+
+function userProfileMemoryKind(item: UserProfileMemoryEventItem): MemoryItem['kind'] {
+  if (item.kind === 'boundary' || item.kind === 'dislike') return 'taboo';
+  if (item.kind === 'emotional_pattern' || item.kind === 'pressure_source') return 'status_shift';
+  if (item.kind === 'address_preference' || item.kind === 'display_name') return 'bond';
+  return 'trait_evidence';
+}
+
+function userProfileKindLabel(kind: UserProfileMemoryKind) {
+  const labels: Record<UserProfileMemoryKind, string> = {
+    display_name: 'display name',
+    address_preference: 'address preference',
+    schedule_hint: 'schedule',
+    pressure_source: 'pressure source',
+    preference: 'preference',
+    dislike: 'dislike',
+    boundary: 'boundary',
+    important_date: 'important date',
+    recent_plan: 'recent plan',
+    emotional_pattern: 'emotional pattern',
+  };
+  return labels[kind];
+}
+
+function userProfileEventItemKey(item: Pick<UserProfileMemoryEventItem, 'kind' | 'text'>) {
+  return `${item.kind}:${compactPromptText(item.text, 140)}`;
+}
+
+function userProfileEventItemsMatch(left: Pick<UserProfileMemoryEventItem, 'kind' | 'text'>, right: Pick<UserProfileMemoryEventItem, 'kind' | 'text'>) {
+  if (left.kind !== right.kind) return false;
+  const leftText = compactPromptText(left.text, 140);
+  const rightText = compactPromptText(right.text, 140);
+  if (!leftText || !rightText) return false;
+  if (leftText === rightText) return true;
+  if (leftText.length >= 6 && rightText.length >= 6) return leftText.includes(rightText) || rightText.includes(leftText);
+  return false;
+}
+
+function normalizePromptSourceIds(...sources: Array<unknown>) {
+  return sources
+    .flatMap((source) => Array.isArray(source) ? source : [])
+    .filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))
+    .map((id) => id.trim())
+    .filter((id, index, list) => list.indexOf(id) === index)
+    .slice(0, 8);
+}
+
+function collectUserProfilePromptItems(chat: GroupChat, character: AICharacter) {
+  const byKey = new Map<string, UserProfileMemoryEventItem & { updatedAt: number; sourceEventIds: string[] }>();
+  (chat.runtimeEventsV2 || [])
+    .filter((event): event is RuntimeEventV2 => Boolean(event?.payload))
+    .slice()
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+    .forEach((event) => {
+      const payload = userProfileMemoryPayloadOf(event);
+      if (!payload || payload.characterId !== character.id || (payload.userId || USER_ACTOR_ID) !== USER_ACTOR_ID) return;
+      const actorMatches = !event.actorIds?.length || event.actorIds.includes(character.id) || event.actorIds.includes(USER_ACTOR_ID);
+      const targetMatches = !event.targetIds?.length || event.targetIds.includes(character.id) || event.targetIds.includes(USER_ACTOR_ID);
+      if (!actorMatches || !targetMatches) return;
+      payload.items.forEach((item) => {
+        const text = compactPromptText(item.text, 140);
+        if (!text || item.confidence < 0.6) return;
+        const resolved = {
+          ...item,
+          text,
+          evidence: compactPromptText(item.evidence || event.summary, 140),
+          sourceMessageIds: normalizePromptSourceIds(item.sourceMessageIds, payload.sourceMessageIds, event.evidenceMessageIds),
+          updatedAt: event.createdAt || chat.updatedAt || 0,
+          sourceEventIds: normalizePromptSourceIds([event.id]),
+        };
+        if (payload.action === 'revoke') {
+          Array.from(byKey.entries()).forEach(([key, active]) => {
+            if (userProfileEventItemsMatch(active, resolved)) byKey.delete(key);
+          });
+          return;
+        }
+        byKey.set(userProfileEventItemKey(resolved), resolved);
+      });
+    });
+  return Array.from(byKey.values())
+    .sort((left, right) => {
+      const leftSensitiveBoost = left.sensitive ? 0.08 : 0;
+      const rightSensitiveBoost = right.sensitive ? 0.08 : 0;
+      return (right.confidence + rightSensitiveBoost) - (left.confidence + leftSensitiveBoost) || right.updatedAt - left.updatedAt;
+    })
+    .slice(0, 8);
+}
+
+function userProfileItemToPromptMemory(item: UserProfileMemoryEventItem & { updatedAt: number; sourceEventIds: string[] }, character: AICharacter, chat: GroupChat): MemoryItem {
+  const confidence = Math.max(0.25, Math.min(1, item.confidence > 1 ? item.confidence / 100 : item.confidence));
+  const salience = Math.max(0.35, Math.min(1, confidence + (item.sensitive ? 0.18 : 0)));
+  return {
+    id: `companionship-user-profile-memory-${character.id}-${userProfileEventItemKey(item).replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 80)}`,
+    ownerId: character.id,
+    scope: 'relationship',
+    layer: item.sensitive || item.kind === 'boundary' || item.kind === 'important_date' ? 'long_term' : 'working',
+    kind: userProfileMemoryKind(item),
+    subjectIds: [USER_ACTOR_ID],
+    relatedConversationId: chat.id,
+    text: item.text,
+    summary: `${userProfileKindLabel(item.kind)}: ${item.text}`,
+    evidenceText: item.evidence,
+    salience,
+    confidence,
+    recency: 1,
+    reinforcementCount: item.sensitive ? 2 : 1,
+    sourceEventIds: item.sourceEventIds,
+    sourceTag: COMPANIONSHIP_USER_PROFILE_SOURCE_TAG,
+    origin: 'runtime',
+    distilledFromIds: item.sourceEventIds,
+    distilledAt: null,
+    distillationVersion: null,
+    createdAt: item.updatedAt,
+    updatedAt: item.updatedAt,
+    archivedAt: null,
+  };
+}
+
+function buildCompanionshipUserProfilePromptMemories(character: AICharacter, chat: GroupChat): MemoryItem[] {
+  if (chat.type !== 'direct') return [];
+  return collectUserProfilePromptItems(chat, character).map((item) => userProfileItemToPromptMemory(item, character, chat));
+}
+
 function buildPromptMemoryPolicies(chat: GroupChat) {
   if (chat.type === 'direct') {
     return {
       conversation: { preferred: ['direct_user_message', 'direct_ai_follow_up'], allowed: ['direct_user_message', 'direct_ai_follow_up'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
-      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'direct_user_message', 'direct_ai_follow_up', 'self_expression'], allowed: ['expression_feedback', 'direct_user_message', 'direct_ai_follow_up', 'self_expression', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
+      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', COMPANIONSHIP_USER_PROFILE_SOURCE_TAG, COMPANIONSHIP_SHARED_ANCHOR_SOURCE_TAG, 'direct_user_message', 'direct_ai_follow_up', 'self_expression'], allowed: ['expression_feedback', 'direct_user_message', 'direct_ai_follow_up', COMPANIONSHIP_USER_PROFILE_SOURCE_TAG, COMPANIONSHIP_SHARED_ANCHOR_SOURCE_TAG, 'self_expression', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['ai_direct_starter_message', 'ai_direct_target_message'] },
     };
   }
   if (chat.type === 'ai_direct') {
     return {
       conversation: { preferred: ['ai_direct_starter_message', 'ai_direct_target_message'], allowed: ['ai_direct_starter_message', 'ai_direct_target_message'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
-      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift'], allowed: ['expression_feedback', 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
+      character: { preferred: ['expression_feedback', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal', COMPANIONSHIP_SHARED_ANCHOR_SOURCE_TAG, 'ai_direct_starter_message', 'ai_direct_target_message', 'group_relationship_shift'], allowed: ['expression_feedback', 'ai_direct_starter_message', 'ai_direct_target_message', COMPANIONSHIP_SHARED_ANCHOR_SOURCE_TAG, 'group_relationship_shift', 'core_profile', 'background', 'speaking_style', 'expertise', 'llm_memory_character_perspective', 'llm_memory_relationship_imprint', 'llm_memory_emotion_effect', 'llm_memory_growth_signal'], blocked: ['direct_user_message', 'direct_ai_follow_up'] },
     };
   }
   const group = { conversation: buildGroupMemoryPolicyTags(), character: buildGroupCharacterPolicyTags() };
@@ -494,7 +669,11 @@ function resolvePromptMemoryContext(character: AICharacter, chat: GroupChat, mes
   const relationshipSnapshot = getRelationshipSnapshot(character, target);
   const policies = buildPromptMemoryPolicies(chat);
   const boosts = buildRetrievalBoosts(chat);
-  const allMemories = character.layeredMemories || [];
+  const allMemories = buildMergedMemories([
+    ...(character.layeredMemories || []),
+    ...buildCompanionshipAnchorPromptMemories(character, chat),
+    ...buildCompanionshipUserProfilePromptMemories(character, chat),
+  ]);
   const members = buildPromptDisplayMembers(character, characters);
   const recallCue = buildRecallCue(messages, target);
   const conversationMemories = getMemoryContext(allMemories, character.id, null, chat.id, policies.conversation.preferred, policies.conversation.allowed, policies.conversation.blocked, boosts, recallCue);

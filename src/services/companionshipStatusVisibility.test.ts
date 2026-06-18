@@ -11,7 +11,7 @@ describe('companionshipStatusVisibility', () => {
   it('detects overnight companionship quiet hours', () => {
     const settings = {
       ...DEFAULT_COMPANIONSHIP_SETTINGS,
-      quietHours: { enabled: true, start: '23:30', end: '08:00', suppressStatusHints: true },
+      quietHours: { ...DEFAULT_COMPANIONSHIP_SETTINGS.quietHours, enabled: true, start: '23:30', end: '08:00', suppressStatusHints: true },
     };
 
     expect(isWithinCompanionshipQuietHours(settings, atLocalTime(23, 45))).toBe(true);
@@ -23,7 +23,7 @@ describe('companionshipStatusVisibility', () => {
   it('detects same-day companionship quiet hours', () => {
     const settings = {
       ...DEFAULT_COMPANIONSHIP_SETTINGS,
-      quietHours: { enabled: true, start: '12:00', end: '14:00', suppressStatusHints: true },
+      quietHours: { ...DEFAULT_COMPANIONSHIP_SETTINGS.quietHours, enabled: true, start: '12:00', end: '14:00', suppressStatusHints: true },
     };
 
     expect(isWithinCompanionshipQuietHours(settings, atLocalTime(12, 30))).toBe(true);
@@ -34,7 +34,7 @@ describe('companionshipStatusVisibility', () => {
     const base = {
       ...DEFAULT_COMPANIONSHIP_SETTINGS,
       showStatusHints: true,
-      quietHours: { enabled: true, start: '23:30', end: '08:00', suppressStatusHints: true },
+      quietHours: { ...DEFAULT_COMPANIONSHIP_SETTINGS.quietHours, enabled: true, start: '23:30', end: '08:00', suppressStatusHints: true },
     };
 
     expect(shouldShowCompanionshipStatusHints(base, atLocalTime(23, 45))).toBe(false);
@@ -48,7 +48,7 @@ describe('companionshipStatusVisibility', () => {
     expect(shouldShowCompanionshipStatusHints({
       ...DEFAULT_COMPANIONSHIP_SETTINGS,
       showStatusHints: false,
-      quietHours: { enabled: false, start: '23:30', end: '08:00', suppressStatusHints: true },
+      quietHours: { ...DEFAULT_COMPANIONSHIP_SETTINGS.quietHours, enabled: false, start: '23:30', end: '08:00', suppressStatusHints: true },
     }, atLocalTime(12, 0))).toBe(false);
   });
 });

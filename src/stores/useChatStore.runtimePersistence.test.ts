@@ -280,6 +280,85 @@ describe('chat runtime persistence', () => {
     expect(eventIds).toEqual(expect.arrayContaining(stateEvents.map((event) => event.id)));
   });
 
+  it('preserves recent companionship lifecycle history for the same state key', async () => {
+    const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
+    const { compactChatPatchForCloud, limits } = __chatRuntimePersistenceForTests;
+    const promiseHistory = ['opened', 'fulfilled', 'stale', 'revoked', 'opened'].map((action, index) => companionshipEvent(`companionship-promise-history-${index}`, 10 + index, {
+      eventType: 'companionship_promise',
+      characterId: 'char-1',
+      userId: 'user-1',
+      promiseId: 'promise-history',
+      promiseText: `同一个约定的生命周期 ${index}`,
+      action,
+    }));
+    const secretHistory = ['recorded', 'hinted_publicly', 'leaked', 'confessed', 'revoked'].map((action, index) => companionshipEvent(`companionship-secret-history-${index}`, 20 + index, {
+      eventType: 'companionship_shared_secret',
+      characterId: 'char-1',
+      userId: 'user-1',
+      secretId: 'secret-history',
+      privateText: `同一个小秘密 ${index}`,
+      publicMask: `公开遮罩 ${index}`,
+      participantIds: ['char-1', 'user-1'],
+      action,
+    }));
+    const recentEvents = Array.from({ length: limits.runtimeEventsV2 + 20 }, (_, index) => runtimeEvent(100 + index));
+    const patch = compactChatPatchForCloud({
+      runtimeEventsV2: [...promiseHistory, ...secretHistory, ...recentEvents],
+    });
+    const eventIds = ((patch.runtimeEventsV2 || []) as RuntimeEventV2[]).map((event) => event.id);
+
+    expect(patch.runtimeEventsV2).toHaveLength(limits.runtimeEventsV2);
+    expect(eventIds).toEqual(expect.arrayContaining([
+      'companionship-promise-history-1',
+      'companionship-promise-history-2',
+      'companionship-promise-history-3',
+      'companionship-promise-history-4',
+      'companionship-secret-history-1',
+      'companionship-secret-history-2',
+      'companionship-secret-history-3',
+      'companionship-secret-history-4',
+    ]));
+    expect(eventIds).not.toContain('companionship-promise-history-0');
+    expect(eventIds).not.toContain('companionship-secret-history-0');
+  });
+
+  it('preserves private thread schedule history per companionship pair', async () => {
+    const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
+    const { compactChatPatchForCloud, limits } = __chatRuntimePersistenceForTests;
+    const abHistory = ['candidate_created', 'opened', 'skipped', 'opened', 'skipped'].map((action, index) => companionshipEvent(`companionship-private-thread-ab-${index}`, 10 + index, {
+      eventType: 'companionship_private_thread_schedule',
+      actorId: 'a',
+      targetId: 'b',
+      participantIds: ['a', 'b'],
+      action,
+      dedupeKey: 'companionship-private-thread-chat-1-a-b',
+    }));
+    const acHistory = ['candidate_created', 'opened', 'skipped'].map((action, index) => companionshipEvent(`companionship-private-thread-ac-${index}`, 20 + index, {
+      eventType: 'companionship_private_thread_schedule',
+      actorId: 'a',
+      targetId: 'c',
+      participantIds: ['a', 'c'],
+      action,
+      dedupeKey: 'companionship-private-thread-chat-1-a-c',
+    }));
+    const recentEvents = Array.from({ length: limits.runtimeEventsV2 + 20 }, (_, index) => runtimeEvent(100 + index));
+    const patch = compactChatPatchForCloud({
+      runtimeEventsV2: [...abHistory, ...acHistory, ...recentEvents],
+    });
+    const eventIds = ((patch.runtimeEventsV2 || []) as RuntimeEventV2[]).map((event) => event.id);
+
+    expect(eventIds).toEqual(expect.arrayContaining([
+      'companionship-private-thread-ab-1',
+      'companionship-private-thread-ab-2',
+      'companionship-private-thread-ab-3',
+      'companionship-private-thread-ab-4',
+      'companionship-private-thread-ac-0',
+      'companionship-private-thread-ac-1',
+      'companionship-private-thread-ac-2',
+    ]));
+    expect(eventIds).not.toContain('companionship-private-thread-ab-0');
+  });
+
   it('merges remote runtime windows without dropping local companionship state events', async () => {
     const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
     const { mergeChatRecord, mergeWorldRuntimeRecord } = __chatRuntimePersistenceForTests;

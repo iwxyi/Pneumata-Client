@@ -18,6 +18,7 @@ import { useChatStore } from './useChatStore';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { completeLocalOutboxWorkerOperation, markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
 import { useSettingsStore } from './useSettingsStore';
+import { compactMessage, compactMessageMetadata } from '../services/messageMetadataCompaction';
 
 function isLocalOnlyMode() {
   return useAuthStore.getState().authMode === 'local' || !isCloudSyncEnabled();
@@ -38,6 +39,7 @@ function createLocalMessage(msgData: Omit<Message, 'id' | 'timestamp' | 'isDelet
   const id = `local-message-${timestamp}-${Math.random().toString(36).slice(2, 8)}`;
   return {
     ...msgData,
+    metadata: compactMessageMetadata(msgData.metadata, { dropContextText: true }),
     id,
     clientKey: id,
     timestamp,
@@ -4383,15 +4385,22 @@ function stripLargeInlineMediaForPersistence<T>(value: T, key = '', seen = new W
 }
 
 function compactMessageForPersistence(message: Message) {
-  const normalized = normalizeMessage(message);
+  const normalized = compactMessage(normalizeMessage(message), { dropContextText: true });
   return {
     ...normalized,
     metadata: stripLargeInlineMediaForPersistence(normalized.metadata),
   };
 }
 
+function compactPendingMessageOperation(operation: PendingMessageOperation): PendingMessageOperation {
+  return {
+    ...operation,
+    payload: operation.payload ? compactMessage(operation.payload, { dropContextText: true }) : undefined,
+  };
+}
+
 function buildPersistedMessageState(state: PersistedMessageState): PersistedMessageState {
-  const pendingOperations = recoverInterruptedOperations(state.pendingOperations || []);
+  const pendingOperations = recoverInterruptedOperations(state.pendingOperations || []).map(compactPendingMessageOperation);
   const compactedWindows = Object.fromEntries(Object.entries(state.messageWindowsByChatId || {}).map(([chatId, window]) => [chatId, {
     ...window,
     messages: (window.messages || []).map(compactMessageForPersistence),
@@ -4412,7 +4421,7 @@ function normalizeMessage(message: Message): Message {
     senderId: message.senderId,
     senderName: message.senderName,
     content: message.content,
-    metadata: message.metadata,
+    metadata: compactMessageMetadata(message.metadata, { dropContextText: true }),
     emotion: typeof message.emotion === 'number' ? message.emotion : 0,
     timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
     isDeleted: Boolean(message.isDeleted),
@@ -4637,7 +4646,7 @@ function createPendingMessageOperation(message: Message): PendingMessageOperatio
     chatId: message.chatId,
     localMessageId: message.id,
     messageId: message.serverId || message.id,
-    payload: message,
+    payload: compactMessage(message, { dropContextText: true }),
     createdAt: Date.now(),
     attemptCount: 0,
     status: 'pending',
@@ -4645,7 +4654,10 @@ function createPendingMessageOperation(message: Message): PendingMessageOperatio
 }
 
 function messagePayloadForCloud(message: Message, operationId: string) {
-  const metadata = hasLocalDataUrlMedia(message) ? scrubLocalMediaUrlsForCloud(message) : message.metadata;
+  const metadata = compactMessageMetadata(
+    hasLocalDataUrlMedia(message) ? scrubLocalMediaUrlsForCloud(message) : message.metadata,
+    { dropContextText: true },
+  );
   return {
     type: message.type,
     senderId: message.senderId,
@@ -4678,7 +4690,7 @@ function upsertPendingCreateOperation(queue: PendingMessageOperation[], message:
   ));
   if (existing) {
     return queue.map((operation) => operation.id === existing.id
-      ? { ...operation, payload: message, status: operation.status === 'syncing' ? 'syncing' as const : 'pending' as const }
+      ? { ...operation, payload: compactMessage(message, { dropContextText: true }), status: operation.status === 'syncing' ? 'syncing' as const : 'pending' as const }
       : operation);
   }
   return [...queue, createPendingMessageOperation(message)];
@@ -5204,9 +5216,10 @@ export const useMessageStore = create<MessageStore>()(
         const migrated = migrateMessageStoreState(
           persistedState as PersistedMessageState & { messages?: Array<Record<string, unknown>>; messageWindowsByChatId?: Record<string, { messages?: Array<Record<string, unknown>> }> }
         ) as Partial<PersistedMessageState>;
+        const pendingOperations = (migrated.pendingOperations || []).map(compactPendingMessageOperation);
         return {
-          messageWindowsByChatId: migrated.messageWindowsByChatId || {},
-          pendingOperations: migrated.pendingOperations || [],
+          messageWindowsByChatId: trimCache(migrated.messageWindowsByChatId || {}, pendingOperations),
+          pendingOperations,
         } satisfies PersistedMessageState;
       },
       partialize: (state: MessageStore) => buildPersistedMessageState({
@@ -5215,7 +5228,7 @@ export const useMessageStore = create<MessageStore>()(
       }),
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<PersistedMessageState>;
-        const pendingOperations = persisted.pendingOperations || [];
+        const pendingOperations = (persisted.pendingOperations || []).map(compactPendingMessageOperation);
         return {
           ...currentState,
           messageWindowsByChatId: trimCache(persisted.messageWindowsByChatId || {}, pendingOperations),
