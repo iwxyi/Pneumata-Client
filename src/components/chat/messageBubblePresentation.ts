@@ -15,10 +15,29 @@ function getNarrativeTurnVisibleBlocks(message: Message) {
 }
 
 export function isNarrativeParagraphMessage(message: Message) {
-  return Boolean(getNarrativeTurnVisibleBlocks(message).length || (message.type === 'ai' && message.senderId === 'narrator') || getStoryEventText(message));
+  return Boolean(message.metadata?.storyChoiceSelection || getNarrativeTurnVisibleBlocks(message).length || (message.type === 'ai' && message.senderId === 'narrator') || getStoryEventText(message));
 }
 
 export function getNarrativeParagraphBlocks(message: Message): NarrativeBlock[] {
+  const selection = message.metadata?.storyChoiceSelection;
+  if (selection?.label) {
+    return [{
+      id: `${message.id}:story-choice-selection`,
+      actorId: 'user',
+      actorKind: 'director',
+      kind: 'choice',
+      displayMode: 'choice_card',
+      text: selection.label,
+      choices: [{
+        id: selection.branchId || `${message.id}:choice`,
+        label: selection.label,
+        prompt: selection.prompt || undefined,
+        intent: selection.intent || null,
+        risk: selection.risk || null,
+        reward: selection.reward || null,
+      }],
+    }];
+  }
   const allNarrativeTurnBlocks = getNarrativeTurnVisibleBlocks(message);
   const hasStoryEventBubbleBlocks = allNarrativeTurnBlocks.some((block) => block.displayMode === 'bubble' && block.characterId && !block.actorName);
   const narrativeTurnBlocks = message.metadata?.narrativeTurn?.povActorId === 'narrator' && hasStoryEventBubbleBlocks

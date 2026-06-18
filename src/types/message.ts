@@ -52,6 +52,9 @@ export interface NarrativeChoice {
   id: string;
   label: string;
   prompt?: string;
+  intent?: string | null;
+  risk?: string | null;
+  reward?: string | null;
 }
 
 export interface StoryChoiceSuggestion {
@@ -78,6 +81,16 @@ export interface StoryEvent {
   speakerName?: string;
   characterId?: string;
   choices?: StoryEventChoice[];
+}
+
+export interface StoryChoiceSelection {
+  branchId?: string;
+  label: string;
+  prompt?: string | null;
+  intent?: string | null;
+  risk?: string | null;
+  reward?: string | null;
+  choiceEpoch?: number;
 }
 
 export interface NarrativeBlock {
@@ -108,6 +121,7 @@ export interface MessageMetadata {
   storyEvents?: StoryEvent[];
   narrativeTurn?: NarrativeTurnMetadata;
   storyChoices?: StoryChoiceSuggestion[];
+  storyChoiceSelection?: StoryChoiceSelection;
   manualSpeaker?: {
     actorId: string;
     actorName: string;

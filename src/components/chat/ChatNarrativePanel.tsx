@@ -156,6 +156,30 @@ function renderAssetChips(label: string, values: string[] | undefined, members: 
   );
 }
 
+function renderChoiceHistory(chat: GroupChat, members: AICharacter[]) {
+  const choices = (chat.scenarioState?.choiceHistory || []).slice(-5);
+  if (!choices.length) return null;
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.45 }}>已走路径</Typography>
+      <Stack spacing={0.55}>
+        {choices.map((choice, index) => (
+          <Box key={`${choice.branchId || choice.label}:${choice.choiceEpoch || index}`} sx={{ px: 0.8, py: 0.65, borderRadius: 1.5, bgcolor: 'rgba(15,23,42,0.04)' }}>
+            <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>
+              {index + 1}. {formatNarrativeLineText(choice.label, members)}
+            </Typography>
+            {choice.risk || choice.reward ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                {[choice.risk ? `风险：${choice.risk}` : '', choice.reward ? `收益：${choice.reward}` : ''].filter(Boolean).map((item) => formatNarrativeLineText(item, members)).join(' · ')}
+              </Typography>
+            ) : null}
+          </Box>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
 function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
   if (!hasStoryAssets(chat)) return null;
   const state = chat.scenarioState || {};
@@ -192,6 +216,7 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[]) {
         {renderAssetChips('代价', state.stakes, members)}
         {renderAssetChips('关系压力', state.relationshipShifts, members)}
         {renderAssetChips('最近选择', recentChoices, members)}
+        {renderChoiceHistory(chat, members)}
       </Stack>
     </Box>
   );

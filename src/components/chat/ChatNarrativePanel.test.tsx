@@ -196,7 +196,10 @@ describe('ChatNarrativePanel', () => {
     expect(html).toContain('回顾线索');
     expect(html).toContain('回顾悬念');
     expect(html).toContain('回顾选择');
+    expect(html).toContain('已走路径');
     expect(html).toContain('红太狼 在旧医院发现血迹');
+    expect(html).toContain('风险：激怒护士');
+    expect(html).toContain('收益：得到线索');
     expect(html).toContain('灰太狼 为什么隐瞒停电记录？');
     expect(html).toContain('地下档案室的病历被撕掉一页');
     expect(html).toContain('暴露位置');

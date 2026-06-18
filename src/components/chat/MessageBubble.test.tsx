@@ -228,4 +228,45 @@ describe('MessageBubble event rendering', () => {
     expect(isNarrativeParagraphMessage(message)).toBe(true);
     expect(getNarrativeParagraphBlocks(message)).toEqual([expect.objectContaining({ actorKind: 'narrator', text: '雨声沿着屋檐落下。' })]);
   });
+
+  it('renders story choice selections as narrative choice cards', () => {
+    const message: Message = {
+      id: 'm-choice',
+      chatId: 'c1',
+      senderId: 'user',
+      senderName: '我',
+      type: 'user',
+      content: '我选择：追问护士停电记录',
+      timestamp: 1,
+      emotion: 0,
+      isDeleted: false,
+      metadata: {
+        storyChoiceSelection: {
+          branchId: 'branch-1',
+          label: '追问护士停电记录',
+          prompt: '护士说出停电时有人进入档案室',
+          intent: '逼问',
+          risk: '激怒护士',
+          reward: '得到停电线索',
+          choiceEpoch: 2,
+        },
+      },
+    };
+
+    expect(isNarrativeParagraphMessage(message)).toBe(true);
+    expect(getNarrativeParagraphBlocks(message)).toEqual([
+      expect.objectContaining({
+        actorKind: 'director',
+        displayMode: 'choice_card',
+        kind: 'choice',
+        text: '追问护士停电记录',
+        choices: [expect.objectContaining({
+          id: 'branch-1',
+          intent: '逼问',
+          risk: '激怒护士',
+          reward: '得到停电线索',
+        })],
+      }),
+    ]);
+  });
 });

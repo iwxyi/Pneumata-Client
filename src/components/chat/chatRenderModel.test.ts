@@ -60,6 +60,27 @@ describe('buildChatRenderItems', () => {
     expect(items[0]?.renderKind).toBe('narrative');
   });
 
+  it('renders story choice selection messages as narrative items', () => {
+    const items = buildChatRenderItems([
+      message({
+        id: 'story-choice-1',
+        type: 'user',
+        senderId: 'user',
+        senderName: '我',
+        content: '我选择：进入旧楼',
+        metadata: {
+          storyChoiceSelection: {
+            branchId: 'branch-1',
+            label: '进入旧楼',
+            prompt: '进入旧楼',
+          },
+        },
+      }),
+    ]);
+
+    expect(items[0]?.renderKind).toBe('narrative');
+  });
+
   it('renders public story events as narrative items', () => {
     for (const visibilityScope of ['public', 'derived_public']) {
       const items = buildChatRenderItems([

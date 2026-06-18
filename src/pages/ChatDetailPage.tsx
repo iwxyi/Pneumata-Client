@@ -848,14 +848,26 @@ export default function ChatDetailPage() {
       || branches.find((branch) => branch.label === option?.label);
     const branchId = selectedBranch?.branchId || optionValue;
     const storyDirection = selectedBranch?.prompt || selectedBranch?.description || option?.prompt || option?.label || chat.scenarioState?.storyDirection;
+    const choiceLabel = option?.label || selectedBranch?.label || storyDirection || branchId;
     const choiceMessage = await addMessageStable({
       chatId: id,
       type: 'user',
       senderId: 'user',
       senderName: currentUser?.nickname?.trim() || '我',
-      content: option?.label || selectedBranch?.label || storyDirection || branchId,
+      content: `我选择：${choiceLabel}`,
       emotion: 0,
       timestamp: Date.now(),
+      metadata: {
+        storyChoiceSelection: {
+          branchId,
+          label: choiceLabel,
+          prompt: storyDirection || null,
+          intent: option?.intent || selectedBranch?.intent || null,
+          risk: option?.risk || selectedBranch?.risk || null,
+          reward: option?.reward || selectedBranch?.reward || null,
+          choiceEpoch: chat.scenarioState?.choiceEpoch,
+        },
+      },
     });
     void updateChat(id, { lastMessageAt: choiceMessage.timestamp, latestMessage: choiceMessage });
     const actionResult = await runSessionAction({ type: 'choose_story_branch', actorId: 'user' }, { branchId, prompt: storyDirection });

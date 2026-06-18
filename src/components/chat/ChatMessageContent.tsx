@@ -95,11 +95,50 @@ function NarrativeSpeechBubble({ block, character }: { block: NarrativeBlock; ch
   );
 }
 
+function NarrativeChoiceCard({ block }: { block: NarrativeBlock }) {
+  const choice = block.choices?.[0];
+  const meta = [
+    choice?.intent ? `意图：${choice.intent}` : '',
+    choice?.risk ? `风险：${choice.risk}` : '',
+    choice?.reward ? `收益：${choice.reward}` : '',
+  ].filter(Boolean);
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+      <Box
+        sx={(theme) => ({
+          width: '100%',
+          maxWidth: 640,
+          borderRadius: 2,
+          px: { xs: 1.35, sm: 1.6 },
+          py: { xs: 1, sm: 1.15 },
+          border: '1px solid',
+          borderColor: theme.palette.mode === 'light' ? 'rgba(99,102,241,0.22)' : 'rgba(129,140,248,0.32)',
+          bgcolor: theme.palette.mode === 'light' ? 'rgba(238,242,255,0.62)' : 'rgba(49,46,129,0.20)',
+        })}
+      >
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 700, mb: 0.35 }}>
+          你选择了
+        </Typography>
+        <Typography variant="body2" sx={{ lineHeight: 1.75, fontWeight: 700, wordBreak: 'break-word' }}>
+          {block.text}
+        </Typography>
+        {meta.length ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.55, lineHeight: 1.6, wordBreak: 'break-word' }}>
+            {meta.join(' · ')}
+          </Typography>
+        ) : null}
+      </Box>
+    </Box>
+  );
+}
+
 export function NarrativeParagraphContent({ blocks, characters = [] }: { blocks: NarrativeBlock[]; characters?: AICharacter[] }) {
   return (
     <Box sx={{ display: 'grid', gap: 1.75 }}>
       {blocks.map((block) => block.displayMode === 'bubble' ? (
         <NarrativeSpeechBubble key={block.id} block={block} character={findNarrativeBlockCharacter(block, characters)} />
+      ) : block.displayMode === 'choice_card' ? (
+        <NarrativeChoiceCard key={block.id} block={block} />
       ) : (
         <Box key={block.id} sx={{ typography: 'body1', lineHeight: 2.05, color: 'text.primary', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
           <MarkdownText text={block.text} />
