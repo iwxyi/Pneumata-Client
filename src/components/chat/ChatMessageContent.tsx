@@ -7,6 +7,7 @@ import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bub
 import { isImageAvatar } from '../../utils/avatar';
 import { rememberFailedAvatarUrl, resolveSafeAvatarSrc } from '../../utils/avatarFallback';
 import MarkdownText from '../common/MarkdownText';
+import { formatNarrativeLineText } from '../../services/narrativeLinePresentation';
 
 const typingBounce = keyframes`
   0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
@@ -132,6 +133,38 @@ function NarrativeChoiceCard({ block }: { block: NarrativeBlock }) {
   );
 }
 
+function NarrativeSystemPanel({ block, characters }: { block: NarrativeBlock; characters: AICharacter[] }) {
+  const lines = block.text.split('\n').map((line) => line.trim()).filter(Boolean);
+  const title = lines[0] || '章节回顾';
+  const bodyLines = lines.slice(1);
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+      <Box
+        sx={(theme) => ({
+          width: '100%',
+          maxWidth: 680,
+          borderRadius: 2,
+          px: { xs: 1.35, sm: 1.6 },
+          py: { xs: 1, sm: 1.15 },
+          border: '1px solid',
+          borderColor: theme.palette.mode === 'light' ? 'rgba(14,165,233,0.24)' : 'rgba(125,211,252,0.26)',
+          bgcolor: theme.palette.mode === 'light' ? 'rgba(240,249,255,0.72)' : 'rgba(8,47,73,0.26)',
+          boxShadow: theme.palette.mode === 'light' ? '0 10px 28px rgba(15,23,42,0.06)' : '0 12px 30px rgba(0,0,0,0.22)',
+        })}
+      >
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 700, mb: 0.45 }}>
+          {formatNarrativeLineText(title, characters)}
+        </Typography>
+        {bodyLines.map((line) => (
+          <Typography key={line} variant="body2" sx={{ lineHeight: 1.75, wordBreak: 'break-word', mt: 0.35 }}>
+            {formatNarrativeLineText(line, characters)}
+          </Typography>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
 export function NarrativeParagraphContent({ blocks, characters = [] }: { blocks: NarrativeBlock[]; characters?: AICharacter[] }) {
   return (
     <Box sx={{ display: 'grid', gap: 1.75 }}>
@@ -139,6 +172,8 @@ export function NarrativeParagraphContent({ blocks, characters = [] }: { blocks:
         <NarrativeSpeechBubble key={block.id} block={block} character={findNarrativeBlockCharacter(block, characters)} />
       ) : block.displayMode === 'choice_card' ? (
         <NarrativeChoiceCard key={block.id} block={block} />
+      ) : block.displayMode === 'system_panel' ? (
+        <NarrativeSystemPanel key={block.id} block={block} characters={characters} />
       ) : (
         <Box key={block.id} sx={{ typography: 'body1', lineHeight: 2.05, color: 'text.primary', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
           <MarkdownText text={block.text} />

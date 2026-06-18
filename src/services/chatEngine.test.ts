@@ -510,6 +510,7 @@ describe('chatEngine streaming preview', () => {
     expect(message.metadata?.narrativeTurn?.blocks).toEqual([
       expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph' }),
       expect.objectContaining({ actorKind: 'character', displayMode: 'bubble', characterId: 'lin' }),
+      expect.objectContaining({ actorKind: 'system', displayMode: 'system_panel', text: expect.stringContaining('新的抉择点') }),
     ]);
   });
 
@@ -692,7 +693,7 @@ describe('chatEngine streaming preview', () => {
         memberIds: ['narrator', 'mei'],
         mode: 'scripted_play',
         sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
-        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [], chapterMemory: '阿梅在旧宅门口听见门内有脚步声。', stakes: ['暴露位置'] },
       }),
       speaker: narrator,
       characters: [narrator, mei],
@@ -737,7 +738,7 @@ describe('chatEngine streaming preview', () => {
         memberIds: ['narrator', 'mei'],
         mode: 'scripted_play',
         sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
-        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [], chapterMemory: '阿梅在旧宅门口听见门内有脚步声。', stakes: ['暴露位置'] },
       }),
       speaker: narrator,
       characters: [narrator, mei],
@@ -749,7 +750,10 @@ describe('chatEngine streaming preview', () => {
     expect(message.metadata?.narrativeTurn?.blocks).toEqual([
       expect.objectContaining({ actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '门锁轻轻弹开。' }),
       expect.objectContaining({ actorId: 'mei', actorName: '阿梅', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', text: '现在只能进去。' }),
+      expect.objectContaining({ actorKind: 'system', kind: 'system_note', displayMode: 'system_panel', text: expect.stringContaining('新的抉择点') }),
     ]);
+    expect(message.metadata?.narrativeTurn?.blocks.at(-1)?.text).toContain('前情：阿梅在旧宅门口听见门内有脚步声。');
+    expect(message.metadata?.narrativeTurn?.blocks.at(-1)?.text).toContain('取舍：暴露位置');
     expect(message.metadata?.storyChoices).toEqual([
       { label: '让阿梅推门进入', prompt: '阿梅推门进入旧宅' },
       { label: '让阿梅先退回院子', prompt: '阿梅退回院子观察窗户' },

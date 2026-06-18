@@ -41,7 +41,7 @@ import { buildTurnPlanPrompt, deriveTurnPlan, type TurnPlan } from './turnPlanne
 import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
 import { buildGenerationRuntimeBundle } from './generationRuntime';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
-import { buildNarrativeTurnFromStoryEvents, buildStoryEventsVisibleText, getStoryChoicesFromEvents, normalizeStoryEvents } from './narrativeRuntime';
+import { appendStoryReadingPanelBlock, buildNarrativeTurnFromStoryEvents, buildStoryEventsVisibleText, getStoryChoicesFromEvents, normalizeStoryEvents } from './narrativeRuntime';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
@@ -2558,7 +2558,7 @@ Current speaking intent:
   const storyChoicesFromEvents = getStoryChoicesFromEvents(storyEvents);
   const legacyStoryChoices = normalizeStoryChoiceSuggestions(generated.parsedEnvelope?.storyChoices || null);
   const storyChoices = storyChoicesFromEvents.length ? storyChoicesFromEvents : legacyStoryChoices;
-  const narrativeTurn = storyEvents.length
+  const baseNarrativeTurn = storyEvents.length
     ? buildNarrativeTurnFromStoryEvents({
         conversation: params.chat,
         events: storyEvents,
@@ -2572,6 +2572,11 @@ Current speaking intent:
     content: generated.narrativeText || '',
     blocks: generated.narrativeBlocks || null,
   }) || null;
+  const narrativeTurn = appendStoryReadingPanelBlock({
+    conversation: params.chat,
+    narrativeTurn: baseNarrativeTurn,
+    choices: storyChoices,
+  });
   const completedMessage = buildCompletedMessage({
     chat: params.chat,
     speakerId: params.speaker.id,

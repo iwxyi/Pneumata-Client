@@ -199,15 +199,21 @@ describe('MessageBubble event rendering', () => {
           blocks: [
             { id: 'b1', actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '雨声压低了整条走廊。' },
             { id: 'b2', actorId: 'lin', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', characterId: 'lin', text: '不要开那扇门。' },
+            { id: 'b3', actorId: 'narrator', actorKind: 'system', kind: 'system_note', displayMode: 'system_panel', text: '新的抉择点\n前情：走廊尽头还有灯光。' },
           ],
         },
       },
     };
 
-    expect(getNarrativeParagraphBlocks(message)).toHaveLength(1);
+    expect(getNarrativeParagraphBlocks(message)).toHaveLength(2);
+    expect(getNarrativeParagraphBlocks(message)).toEqual([
+      expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph' }),
+      expect.objectContaining({ actorKind: 'system', displayMode: 'system_panel', text: expect.stringContaining('新的抉择点') }),
+    ]);
     expect(getNarrativeDisplayBlocks(message)).toEqual([
       expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph' }),
       expect.objectContaining({ actorKind: 'character', displayMode: 'bubble', characterId: 'lin' }),
+      expect.objectContaining({ actorKind: 'system', displayMode: 'system_panel' }),
     ]);
   });
 

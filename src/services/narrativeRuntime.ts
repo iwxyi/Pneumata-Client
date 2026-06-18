@@ -187,6 +187,56 @@ export function buildNarrativeTurnFromStoryEvents(params: {
   };
 }
 
+export function buildStoryReadingPanelBlock(params: {
+  conversation: GroupChat;
+  choices: StoryChoiceSuggestion[];
+  id?: string;
+}): NarrativeBlock | null {
+  const choices = normalizeStoryChoiceSuggestions(params.choices);
+  if (choices.length < 2) return null;
+  const state = params.conversation.scenarioState;
+  const recap = state?.chapterRecap;
+  const recapText = compactStoryAssetText(recap?.summary || state?.chapterMemory || '', 120);
+  const stakes = [
+    ...(state?.stakes || []).slice(-2),
+    ...choices.flatMap((choice) => [choice.risk, choice.reward].filter(Boolean) as string[]),
+  ].map((item) => compactStoryAssetText(item, 36)).filter(Boolean);
+  const uniqueStakes = Array.from(new Set(stakes)).slice(0, 4);
+  const lines = [
+    '新的抉择点',
+    recapText ? `前情：${recapText}` : '当前压力已经形成，下一步会改变这一章的走向。',
+    uniqueStakes.length ? `取舍：${uniqueStakes.join(' / ')}` : '',
+  ].filter(Boolean);
+  return {
+    id: params.id || 'story-reading-panel',
+    actorId: 'narrator',
+    actorKind: 'system',
+    kind: 'system_note',
+    displayMode: 'system_panel',
+    text: lines.join('\n'),
+  };
+}
+
+export function appendStoryReadingPanelBlock(params: {
+  conversation: GroupChat;
+  narrativeTurn: NarrativeTurnMetadata | null;
+  choices: StoryChoiceSuggestion[];
+}): NarrativeTurnMetadata | null {
+  const turn = params.narrativeTurn;
+  if (!turn) return null;
+  if (turn.blocks.some((block) => block.displayMode === 'system_panel' && block.kind === 'system_note')) return turn;
+  const block = buildStoryReadingPanelBlock({
+    conversation: params.conversation,
+    choices: params.choices,
+    id: `${turn.turnId}:story-reading-panel`,
+  });
+  if (!block) return turn;
+  return {
+    ...turn,
+    blocks: [...turn.blocks, block],
+  };
+}
+
 export function getCurrentChoiceEpoch(conversation: GroupChat) {
   const explicit = Number(conversation.scenarioState?.choiceEpoch || 0);
   const branchEpochs = (conversation.scenarioState?.branches || []).map((branch) => Number(branch.choiceEpoch || 0));

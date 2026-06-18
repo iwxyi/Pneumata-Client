@@ -11,7 +11,7 @@ function getStoryEventText(message: Message) {
 
 function getNarrativeTurnVisibleBlocks(message: Message) {
   const turn = message.metadata?.narrativeTurn;
-  return turn?.blocks.filter((block) => (block.displayMode === 'paragraph' || block.displayMode === 'bubble') && block.text.trim()) || [];
+  return turn?.blocks.filter((block) => (block.displayMode === 'paragraph' || block.displayMode === 'bubble' || block.displayMode === 'system_panel') && block.text.trim()) || [];
 }
 
 export function isNarrativeParagraphMessage(message: Message) {
@@ -41,7 +41,7 @@ export function getNarrativeParagraphBlocks(message: Message): NarrativeBlock[] 
   const allNarrativeTurnBlocks = getNarrativeTurnVisibleBlocks(message);
   const hasStoryEventBubbleBlocks = allNarrativeTurnBlocks.some((block) => block.displayMode === 'bubble' && block.characterId && !block.actorName);
   const narrativeTurnBlocks = message.metadata?.narrativeTurn?.povActorId === 'narrator' && hasStoryEventBubbleBlocks
-    ? allNarrativeTurnBlocks.filter((block) => block.displayMode === 'paragraph')
+    ? allNarrativeTurnBlocks.filter((block) => block.displayMode === 'paragraph' || block.displayMode === 'system_panel')
     : allNarrativeTurnBlocks;
   if (narrativeTurnBlocks.length) return narrativeTurnBlocks;
   const storyEventText = getStoryEventText(message);

@@ -6,6 +6,7 @@ import {
   buildNarrativeTurnFromStoryEvents,
   buildStoryAssetPrompt,
   buildStoryEventsVisibleText,
+  appendStoryReadingPanelBlock,
   extractStoryAssets,
   getStoryChoicesFromEvents,
   normalizeStoryBranches,
@@ -128,6 +129,47 @@ describe('narrativeRuntime', () => {
     expect(normalized.branches).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: '让林医生追问昨晚停电记录', choiceEpoch: 2, status: 'available', description: '意图：逼问；风险：激怒护士；收益：得到线索' }),
     ]));
+  });
+
+  it('adds a visible reading panel when a story beat opens choices', () => {
+    const turn = buildNarrativeTurnFromStoryEvents({
+      conversation: normalizeConversation({
+        ...chat,
+        scenarioState: {
+          phase: 'scene',
+          chapterMemory: '林医生在旧医院发现被撕掉的病历。',
+          stakes: ['激怒护士'],
+        },
+      }),
+      events: [{ type: 'narration', text: '门锁轻轻弹开。' }],
+      characters,
+    });
+    const enriched = appendStoryReadingPanelBlock({
+      conversation: normalizeConversation({
+        ...chat,
+        scenarioState: {
+          phase: 'scene',
+          chapterMemory: '林医生在旧医院发现被撕掉的病历。',
+          stakes: ['激怒护士'],
+        },
+      }),
+      narrativeTurn: turn,
+      choices: [
+        { label: '让林医生追问昨晚停电记录', prompt: '追问停电记录', risk: '激怒护士', reward: '得到线索' },
+        { label: '让护士检查墙上的血迹', prompt: '检查血迹', risk: '暴露位置', reward: '找到证据' },
+      ],
+    });
+
+    expect(enriched?.blocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actorKind: 'system',
+        kind: 'system_note',
+        displayMode: 'system_panel',
+        text: expect.stringContaining('新的抉择点'),
+      }),
+    ]));
+    expect(enriched?.blocks.at(-1)?.text).toContain('前情：林医生在旧医院发现被撕掉的病历。');
+    expect(enriched?.blocks.at(-1)?.text).toContain('取舍：激怒护士');
   });
 
   it('extracts assets, builds recaps, and records the selected branch outcome', () => {
