@@ -364,17 +364,17 @@ function getStoryProgressCopy(chat: GroupChat, members: AICharacter[]) {
   }
   if (state.storyGoal) {
     return {
-      title: '可以继续剧情',
+      title: '主线推进',
       body: `当前目标：${formatNarrativeLineText(state.storyGoal, members)}`,
       chips: [beatLabel || '主线推进'].filter(Boolean),
     };
   }
   const question = state.openQuestions?.slice(-1)[0];
   return {
-    title: '可以继续剧情',
+    title: '主线推进',
     body: question
       ? `下一段可以继续追踪：${formatNarrativeLineText(question, members)}`
-      : '没有待选项时，可以从消息流底部继续推进下一段剧情。',
+      : '没有待选项时，故事会按当前目标继续推进。',
     chips: [beatLabel || '主线推进'].filter(Boolean),
   };
 }

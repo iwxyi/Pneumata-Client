@@ -10,7 +10,7 @@ describe('ChatDetailPage pause/resume behavior', () => {
     expect(buildPauseResumeMessages()).toEqual([]);
   });
 
-  it('shows the story continue entry only when a story room is paused without pending choices', () => {
+  it('shows the story continue fallback only when a story room is stopped or paused without pending choices', () => {
     const base = {
       isStoryRoom: true,
       isStoryWaitingForChoice: false,

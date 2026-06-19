@@ -195,8 +195,18 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     sessionKind: createTemplateSessionKind('group', 'scripted_play', { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' }),
     style: 'roleplay',
     runtimeEvolutionIntensity: 'slow',
-    topicPlaceholder: '输入故事开场或当前剧情节点',
-    defaults: { storyBranchMode: 'guided', initialPhase: 'scene', goalLabel: '主线剧情', allowPrivateThreads: false, allowCliques: false, allowMockery: false, storyBackground: '', storyDirection: '', storyOutline: '' },
+    topicPlaceholder: '例如：雨夜旧医院、失踪名单、枕下长剑',
+    defaults: {
+      storyBranchMode: 'guided',
+      initialPhase: 'scene',
+      goalLabel: '主线剧情',
+      allowPrivateThreads: false,
+      allowCliques: false,
+      allowMockery: false,
+      storyBackground: '雨夜，旧医院停电后仍有一层楼亮着灯。三名角色为了各自的秘密来到这里，失踪名单上却多出一个不该存在的名字。',
+      storyDirection: '悬疑推进：围绕失踪名单、停电记录和角色隐瞒展开，让用户在追问、搜证、保护或冒险之间做关键选择。',
+      storyOutline: '开场建立旧医院和失踪名单；第一轮制造停电与脚步声压力；随后让用户选择追问知情者、检查血迹或进入档案室。',
+    },
     configGroups: [
       {
         key: 'story-required',
@@ -225,8 +235,16 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     sessionKind: createTemplateSessionKind('group', 'scripted_play', { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' }),
     style: 'roleplay',
     runtimeEvolutionIntensity: 'slow',
-    topicPlaceholder: '输入校园背景、角色关系和开场事件',
-    defaults: { storyBranchMode: 'guided', allowPrivateThreads: false, allowCliques: true, allowMockery: false, storyBackground: '', storyDirection: '', storyOutline: '' },
+    topicPlaceholder: '例如：社团招新夜、宿舍停电、匿名告白墙',
+    defaults: {
+      storyBranchMode: 'guided',
+      allowPrivateThreads: false,
+      allowCliques: true,
+      allowMockery: false,
+      storyBackground: '开学周的夜晚，社团招新名单被人调换，宿舍群里突然出现一张匿名照片。几名学生都在照片角落里留下了无法解释的痕迹。',
+      storyDirection: '校园群像推进：围绕社团竞争、友情裂缝和匿名照片展开，让用户在维护关系、追查真相和公开质问之间做选择。',
+      storyOutline: '开场从招新名单异常切入；让角色在宿舍、社团办公室和告白墙之间移动；每个选择都影响信任、站队和秘密暴露。',
+    },
     configGroups: [
       {
         key: 'campus-story-required',
@@ -255,8 +273,16 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     sessionKind: createTemplateSessionKind('group', 'scripted_play', { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' }),
     style: 'roleplay',
     runtimeEvolutionIntensity: 'slow',
-    topicPlaceholder: '输入关系设定、情感冲突或剧情节点',
-    defaults: { storyBranchMode: 'guided', allowPrivateThreads: false, allowCliques: false, allowMockery: false, storyBackground: '', storyDirection: '', storyOutline: '' },
+    topicPlaceholder: '例如：重逢晚宴、误发语音、雨夜送伞',
+    defaults: {
+      storyBranchMode: 'guided',
+      allowPrivateThreads: false,
+      allowCliques: false,
+      allowMockery: false,
+      storyBackground: '一场临时取消的订婚宴后，旧情人和现任同时出现在同一间包厢。桌上的手机亮起，误发的语音把三年前的分手真相重新推到所有人面前。',
+      storyDirection: '情感拉扯推进：围绕误会、旧账、吃醋和保护欲展开，让用户在坦白、试探、回避或当众追问之间做选择。',
+      storyOutline: '开场建立包厢重逢和误发语音；第一轮让沉默变成压力；后续选择影响信任、占有欲和关系走向。',
+    },
     configGroups: [
       {
         key: 'romance-story-required',

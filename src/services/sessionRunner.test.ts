@@ -283,11 +283,13 @@ describe('runSessionLoop', () => {
     expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(1);
   });
 
-  it('pauses story-reader loops after one committed narrative round', async () => {
+  it('keeps story-reader loops running after an ordinary committed narrative round', async () => {
     runSessionCommitPipelineMock.mockImplementation(async (args) => buildCommitPipelineResult(args));
+    let completedRounds = 0;
     runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
       hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
-      await hooks.onMessageComplete({ id: 'msg-1', chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: '月奴顿住脚步。', emotion: 0 });
+      completedRounds += 1;
+      await hooks.onMessageComplete({ id: `msg-${completedRounds}`, chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content: completedRounds === 1 ? '月奴顿住脚步。' : '窗外风声更紧。', emotion: 0 });
     });
     const params = buildLoopParams(buildChat({
       mode: 'scripted_play',
@@ -298,12 +300,15 @@ describe('runSessionLoop', () => {
     const defaultPauseLoop = params.pauseLoop;
     const pauseLoop = vi.fn(() => defaultPauseLoop());
     params.pauseLoop = pauseLoop;
+    params.onClearStreamingState = vi.fn(() => {
+      if (completedRounds >= 2) params.onLoopError();
+    });
 
     await runSessionLoop(params as never);
 
-    expect(runOneRoundMock).toHaveBeenCalledTimes(1);
-    expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(1);
-    expect(pauseLoop).toHaveBeenCalledTimes(1);
+    expect(runOneRoundMock).toHaveBeenCalledTimes(2);
+    expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(2);
+    expect(pauseLoop).not.toHaveBeenCalled();
   });
 
   it('marks turn work while a speaking tick is selecting or generating', async () => {

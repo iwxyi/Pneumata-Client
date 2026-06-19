@@ -454,6 +454,9 @@ export default function CreateChatPage() {
     if (defaults.storyBranchMode !== undefined) setStoryBranchMode(defaults.storyBranchMode);
     if (defaults.studyGoalLabel !== undefined) setStudyGoalLabel(defaults.studyGoalLabel);
     if (defaults.agentGoalLabel !== undefined) setAgentGoalLabel(defaults.agentGoalLabel);
+    if (defaults.storyBackground !== undefined) setStoryBackground(defaults.storyBackground);
+    if (defaults.storyDirection !== undefined) setStoryDirection(defaults.storyDirection);
+    if (defaults.storyOutline !== undefined) setStoryOutline(defaults.storyOutline);
     if (defaults.boardColumns !== undefined) setBoardColumns(defaults.boardColumns);
     if (defaults.boardRows !== undefined) setBoardRows(defaults.boardRows);
     if (defaults.deductionFactionCount !== undefined) setDeductionFactionCount(defaults.deductionFactionCount);

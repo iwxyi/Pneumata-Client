@@ -217,7 +217,7 @@ describe('ChatNarrativePanel', () => {
     );
 
     expect(html).toContain('新的抉择点');
-    expect(html).toContain('可以继续剧情');
+    expect(html).toContain('主线推进');
     expect(html).toContain('当前目标：红太狼 查清旧医院失踪案');
     expect(html).toContain('加压');
     expect(html).not.toContain('pressure');
