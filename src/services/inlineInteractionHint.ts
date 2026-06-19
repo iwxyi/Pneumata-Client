@@ -219,9 +219,10 @@ export function buildInlineInteractionContract(params: {
 8. Put each narration and each character line in its own event, preserving story order. Do not merge narration and speech into one event.
 9. choice_point appears only at a genuine decision point. Never add choices on a fixed cadence.
 10. Put user decision pauses in a choice_point event. Do not render choices inside content, extraMessages, or a separate visible prose block.
-11. narrativeBlocks is a legacy fallback. Keep it null when storyEvents is present.
-12. content and extraMessages are legacy chat fields in story-reader turns. Keep content="" and extraMessages=null; do not use them as the visible story body.
-13. narrativeText is optional legacy context text; if present it must match only the prose portions. Do not rely on it for visible story rendering.`
+11. Write visible scene execution, not author notes, beat analysis, future outline, or summaries like "接下来剧情将". If the user just chose a branch, first show what immediately changes on screen: a cost, clue, relationship shift, danger, or opportunity.
+12. narrativeBlocks is a legacy fallback. Keep it null when storyEvents is present.
+13. content and extraMessages are legacy chat fields in story-reader turns. Keep content="" and extraMessages=null; do not use them as the visible story body.
+14. narrativeText is optional legacy context text; if present it must match only the prose portions. Do not rely on it for visible story rendering.`
     : '';
   const storyChoiceRules = params.chat.sessionKind?.scenarioId === 'story-reader'
     ? `\n\nRules for story choice points:

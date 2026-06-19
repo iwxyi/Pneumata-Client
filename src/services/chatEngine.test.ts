@@ -417,6 +417,8 @@ describe('chatEngine streaming preview', () => {
     expect(contract).toContain('"type":"choice_point"');
     expect(contract).toContain('Speech text must be chat-like');
     expect(contract).toContain("Do not let one character inherit another character's private object");
+    expect(contract).toContain('Write visible scene execution, not author notes');
+    expect(contract).toContain('If the user just chose a branch, first show what immediately changes on screen');
     expect(contract).toContain('content and extraMessages are legacy chat fields in story-reader turns');
     expect(contract).toContain('Keep content="" and extraMessages=null; do not use them as the visible story body');
     expect(contract).toContain('storyEvents.choice_point is the source of truth');
