@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStoryChoicePendingKey, shouldShowStoryContinueButton } from './ChatDetailPage';
+import { buildStoryChoicePendingKey, isStoryChoicePending, shouldShowStoryContinueButton } from './ChatDetailPage';
 
 function buildPauseResumeMessages() {
   return [] as string[];
@@ -24,6 +24,7 @@ describe('ChatDetailPage pause/resume behavior', () => {
     expect(shouldShowStoryContinueButton({ ...base, isRunning: true, isPaused: true })).toBe(true);
     expect(shouldShowStoryContinueButton({ ...base, isRunning: true, isPaused: false })).toBe(false);
     expect(shouldShowStoryContinueButton({ ...base, isStoryWaitingForChoice: true })).toBe(false);
+    expect(shouldShowStoryContinueButton({ ...base, isStoryChoiceSubmitting: true })).toBe(false);
     expect(shouldShowStoryContinueButton({ ...base, isStoryRoom: false })).toBe(false);
     expect(shouldShowStoryContinueButton({ ...base, isRemoteDeletedChat: true })).toBe(false);
     expect(shouldShowStoryContinueButton({ ...base, hasChat: false })).toBe(false);
@@ -47,5 +48,32 @@ describe('ChatDetailPage pause/resume behavior', () => {
       choiceEpoch: 4,
       sourceMessageId: 'choice-message',
     })).not.toBe(key);
+  });
+
+  it('detects when the visible story choice group is submitting', () => {
+    const pendingKey = buildStoryChoicePendingKey({
+      chatId: 'story-1',
+      choiceEpoch: 3,
+      sourceMessageId: 'choice-message',
+    });
+
+    expect(isStoryChoicePending({
+      pendingKey,
+      chatId: 'story-1',
+      choiceEpoch: 3,
+      sourceMessageId: 'choice-message',
+    })).toBe(true);
+    expect(isStoryChoicePending({
+      pendingKey,
+      chatId: 'story-1',
+      choiceEpoch: 3,
+      sourceMessageId: 'other-choice-message',
+    })).toBe(false);
+    expect(isStoryChoicePending({
+      pendingKey: null,
+      chatId: 'story-1',
+      choiceEpoch: 3,
+      sourceMessageId: 'choice-message',
+    })).toBe(false);
   });
 });

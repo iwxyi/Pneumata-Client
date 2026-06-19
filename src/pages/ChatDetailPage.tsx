@@ -75,6 +75,7 @@ function LazyPanel({ children }: { children: React.ReactNode }) {
 export function shouldShowStoryContinueButton(params: {
   isStoryRoom: boolean;
   isStoryWaitingForChoice: boolean;
+  isStoryChoiceSubmitting?: boolean;
   isRemoteDeletedChat: boolean;
   hasChat: boolean;
   isRunning: boolean;
@@ -82,6 +83,7 @@ export function shouldShowStoryContinueButton(params: {
 }) {
   return params.isStoryRoom
     && !params.isStoryWaitingForChoice
+    && !params.isStoryChoiceSubmitting
     && !params.isRemoteDeletedChat
     && params.hasChat
     && (!params.isRunning || params.isPaused);
@@ -93,6 +95,20 @@ export function buildStoryChoicePendingKey(params: {
   sourceMessageId?: string | null;
 }) {
   return `${params.chatId}:${params.choiceEpoch || 0}:${params.sourceMessageId || ''}`;
+}
+
+export function isStoryChoicePending(params: {
+  pendingKey: string | null;
+  chatId: string | null | undefined;
+  choiceEpoch?: number | null;
+  sourceMessageId?: string | null;
+}) {
+  if (!params.pendingKey || !params.chatId) return false;
+  return params.pendingKey === buildStoryChoicePendingKey({
+    chatId: params.chatId,
+    choiceEpoch: params.choiceEpoch,
+    sourceMessageId: params.sourceMessageId,
+  });
 }
 
 function ChatSharePanel({ chat }: { chat: GroupChat }) {
@@ -240,6 +256,7 @@ export default function ChatDetailPage() {
   const [profilePreview, setProfilePreview] = useState<ProfilePreviewState | null>(null);
   const [aiDirectPerspectiveMemberId, setAiDirectPerspectiveMemberId] = useState<string | null>(null);
   const [guideTargetMemberId, setGuideTargetMemberId] = useState<string | null>(null);
+  const [pendingStoryChoiceKey, setPendingStoryChoiceKey] = useState<string | null>(null);
 
   const loopTokenRef = useRef<string | null>(null);
   const isRunningRef = useRef(false);
@@ -859,14 +876,24 @@ export default function ChatDetailPage() {
     [chat?.scenarioState?.branches, chat?.scenarioState?.choiceEpoch, storyChoiceSourceMessage],
   );
   useEffect(() => {
-    if (!isStoryRoom || chat?.scenarioState?.phase !== 'choice') pendingStoryChoiceRef.current = null;
+    if (!isStoryRoom || chat?.scenarioState?.phase !== 'choice') {
+      pendingStoryChoiceRef.current = null;
+      setPendingStoryChoiceKey(null);
+    }
   }, [chat?.scenarioState?.phase, isStoryRoom]);
+  const isCurrentStoryChoiceSubmitting = isStoryChoicePending({
+    pendingKey: pendingStoryChoiceKey,
+    chatId: id,
+    choiceEpoch: chat?.scenarioState?.choiceEpoch,
+    sourceMessageId: storyChoiceSourceMessage?.id,
+  });
+  const visibleStoryBranchOptions = isCurrentStoryChoiceSubmitting ? [] : storyBranchOptions;
   const visibleActionPanelActions = useMemo(
     () => (projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions)
       .filter((action) => action.type !== 'choose_story_branch'),
     [projectedActionPanelActions, sessionActions],
   );
-  const isStoryWaitingForChoice = chat?.sessionKind?.scenarioId === 'story-reader' && storyBranchOptions.length > 0;
+  const isStoryWaitingForChoice = chat?.sessionKind?.scenarioId === 'story-reader' && visibleStoryBranchOptions.length > 0;
   const runLoopStatusContent = (chatError || runLoopError) ? (
     <Alert severity="error" variant="outlined" sx={{ mx: { xs: 1.25, sm: 2 }, mt: 1, borderRadius: 3 }}>
       {chatError || runLoopError}
@@ -875,6 +902,7 @@ export default function ChatDetailPage() {
   const canContinueStory = shouldShowStoryContinueButton({
     isStoryRoom,
     isStoryWaitingForChoice,
+    isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
     isRemoteDeletedChat,
     hasChat: Boolean(chat),
     isRunning,
@@ -902,6 +930,7 @@ export default function ChatDetailPage() {
     });
     if (pendingStoryChoiceRef.current === choiceKey) return;
     pendingStoryChoiceRef.current = choiceKey;
+    setPendingStoryChoiceKey(choiceKey);
     let actionSucceeded = false;
     try {
       const choiceMessage = await addMessageStable({
@@ -943,7 +972,10 @@ export default function ChatDetailPage() {
       await updateChat(id, actionResult?.chatPatch || {});
       startConversationLoopIfNeeded(nextChat);
     } finally {
-      if (!actionSucceeded && pendingStoryChoiceRef.current === choiceKey) pendingStoryChoiceRef.current = null;
+      if (!actionSucceeded && pendingStoryChoiceRef.current === choiceKey) {
+        pendingStoryChoiceRef.current = null;
+        setPendingStoryChoiceKey(null);
+      }
     }
   }, [addMessageStable, chat, currentUser?.nickname, getNextMessageTimestamp, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, storyChoiceSourceMessage?.id, updateChat]);
   const storyBranchSuggestionContent = runLoopStatusContent || canContinueStory ? (
@@ -1211,7 +1243,7 @@ export default function ChatDetailPage() {
             privateConversation={chat.type === 'direct' || chat.type === 'ai_direct'}
             tailContent={storyBranchSuggestionContent}
             storyChoiceMessageId={isStoryWaitingForChoice ? storyChoiceSourceMessage?.id : null}
-            storyChoiceOptions={storyBranchOptions}
+            storyChoiceOptions={visibleStoryBranchOptions}
             onChooseStoryChoice={isStoryWaitingForChoice ? handleChooseStoryBranch : undefined}
           />
         </Box>
