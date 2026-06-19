@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:story-browser-smoke": "node scripts/story-room-browser-smoke.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
