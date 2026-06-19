@@ -6,23 +6,12 @@ import type { APIConfig, AIModelProfile } from '../types/settings';
 import { createStreamingLocalMessage } from '../services/chatCommitMessage';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
 import { projectCurrentChatMessages } from '../services/currentChatMessages';
-import { normalizeStoryChoiceSuggestions } from '../services/storyChoices';
+import { getOpenStoryChoiceState } from '../services/storyChoices';
 import type { UserDraftActivity } from '../services/userInputBuffer';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useSchedulerStore } from '../stores/useSchedulerStore';
-
-function getOpenStoryChoiceState(chat: GroupChat | undefined, messages: Message[]) {
-  if (chat?.sessionKind?.scenarioId !== 'story-reader') return null;
-  if (chat.scenarioState?.phase !== 'choice') return null;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    const choices = normalizeStoryChoiceSuggestions(message.metadata?.storyChoices);
-    if (choices.length) return { messageId: message.id, count: choices.length };
-  }
-  return null;
-}
 
 export function useChatRunLoop(params: {
   chat: GroupChat | undefined;

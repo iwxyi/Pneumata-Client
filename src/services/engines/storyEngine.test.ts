@@ -460,12 +460,29 @@ describe('STORY_ENGINE', () => {
 
   it('allows speaking when choice phase has no visible story choices', () => {
     const chat = buildStoryChat();
-    chat.scenarioState = { ...(chat.scenarioState || {}), phase: 'choice' };
+    chat.scenarioState = { phase: 'choice', choiceEpoch: 1, branches: [] };
     expect(STORY_ENGINE.resolveTurnPolicy?.({ conversation: chat, characters: [], messages: [] })).toEqual({ runChat: true, runAction: false, interleaveAction: false });
     expect(STORY_ENGINE.resolveTurnPolicy?.({
       conversation: chat,
       characters: [],
       messages: [{ id: 'm1', chatId: 'story-1', type: 'ai', senderId: 'narrator', senderName: '旁白', content: '选择', timestamp: 1, isDeleted: false, emotion: 0, metadata: { storyChoices: [{ label: '进入旧楼', prompt: '进入旧楼' }, { label: '留在门口追问护士', prompt: '留在门口追问护士' }] } }],
+    })).toEqual({ runChat: false, runAction: false, interleaveAction: false });
+  });
+
+  it('waits for fallback branch choices even when no message storyChoices exist', () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = {
+      phase: 'choice',
+      choiceEpoch: 2,
+      branches: [
+        { branchId: 'fallback-a', label: '让林医生追问护士', status: 'available', choiceEpoch: 2 },
+        { branchId: 'fallback-b', label: '让林医生检查血迹', status: 'available', choiceEpoch: 2 },
+      ],
+    };
+    expect(STORY_ENGINE.resolveTurnPolicy?.({
+      conversation: chat,
+      characters: [],
+      messages: [{ id: 'm1', chatId: 'story-1', type: 'ai', senderId: 'narrator', senderName: '旁白', content: '必须选择下一步。', timestamp: 1, isDeleted: false, emotion: 0 }],
     })).toEqual({ runChat: false, runAction: false, interleaveAction: false });
   });
 

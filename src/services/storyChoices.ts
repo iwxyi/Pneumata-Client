@@ -1,5 +1,7 @@
 import type { ScenarioBranchState } from '../types/chat';
 import type { StoryChoiceSuggestion } from '../types/message';
+import type { GroupChat } from '../types/chat';
+import type { Message } from '../types/message';
 
 export interface StoryBranchOption {
   label: string;
@@ -128,6 +130,27 @@ export function normalizeStoryChoiceSuggestions(value: unknown): StoryChoiceSugg
 
 export function hasVisibleStoryChoices(value: unknown) {
   return normalizeStoryChoiceSuggestions(value).length >= 2;
+}
+
+export function getOpenStoryChoiceState(chat: GroupChat | undefined, messages: Message[]) {
+  if (chat?.sessionKind?.scenarioId !== 'story-reader') return null;
+  if (chat.scenarioState?.phase !== 'choice') return null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const choices = normalizeStoryChoiceSuggestions(message.metadata?.storyChoices);
+    if (choices.length >= 2) return { source: 'message' as const, messageId: message.id, count: choices.length };
+  }
+  const currentEpoch = Number(chat.scenarioState?.choiceEpoch || 0);
+  const activeBranches = (chat.scenarioState?.branches || []).filter((branch) => (
+    branch.status !== 'locked'
+    && branch.status !== 'completed'
+    && branch.status !== 'chosen'
+    && Number(branch.choiceEpoch || 0) === currentEpoch
+  ));
+  if (activeBranches.length >= 2) {
+    return { source: 'branches' as const, messageId: null, count: activeBranches.length };
+  }
+  return null;
 }
 
 export function buildStoryBranchOptions(params: {

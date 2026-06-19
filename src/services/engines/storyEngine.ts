@@ -13,7 +13,7 @@ import {
   resolveStoryBeatPlan,
   updateChoiceHistoryOutcome,
 } from '../narrativeRuntime';
-import { normalizeStoryChoiceSuggestions } from '../storyChoices';
+import { getOpenStoryChoiceState, normalizeStoryChoiceSuggestions } from '../storyChoices';
 
 const STORY_PHASES = [
   { key: 'scene', label: 'Scene', allowedActions: ['speak', 'send_message'] as string[] },
@@ -66,17 +66,8 @@ function getAvailableActions() {
   ];
 }
 
-function findLatestVisibleStoryChoices(messages: Message[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    const choices = normalizeStoryChoiceSuggestions(message.metadata?.storyChoices);
-    if (choices.length) return { messageId: message.id, count: choices.length };
-  }
-  return null;
-}
-
 function resolveTurnPolicy(params: { conversation: GroupChat; messages: Message[] }) {
-  const waitingForChoice = params.conversation.scenarioState?.phase === 'choice' && Boolean(findLatestVisibleStoryChoices(params.messages));
+  const waitingForChoice = Boolean(getOpenStoryChoiceState(params.conversation, params.messages));
   return {
     runChat: !waitingForChoice,
     runAction: false,

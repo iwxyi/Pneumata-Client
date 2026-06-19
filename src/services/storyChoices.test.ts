@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStoryBranchOptions, hasVisibleStoryChoices, normalizeStoryChoiceSuggestions } from './storyChoices';
+import { buildStoryBranchOptions, getOpenStoryChoiceState, hasVisibleStoryChoices, normalizeStoryChoiceSuggestions } from './storyChoices';
 
 describe('storyChoices', () => {
   it('filters abstract template choices', () => {
@@ -79,5 +79,30 @@ describe('storyChoices', () => {
     const choices = [{ label: '让护士长打开封存柜', prompt: '柜里露出缺失的值班表' }];
     expect(hasVisibleStoryChoices(choices)).toBe(false);
     expect(buildStoryBranchOptions({ storyChoices: choices, sourceId: 'msg-3' })).toEqual([]);
+  });
+
+  it('detects open story choices from current epoch branches when message metadata is absent', () => {
+    const chat = {
+      sessionKind: { scenarioId: 'story-reader' },
+      scenarioState: {
+        phase: 'choice',
+        choiceEpoch: 3,
+        branches: [
+          { branchId: 'old-a', label: '旧选项', status: 'available', choiceEpoch: 2 },
+          { branchId: 'a', label: '让林医生追问护士', status: 'available', choiceEpoch: 3 },
+          { branchId: 'b', label: '让林医生检查血迹', status: 'available', choiceEpoch: 3 },
+        ],
+      },
+    };
+
+    expect(getOpenStoryChoiceState(chat as Parameters<typeof getOpenStoryChoiceState>[0], [])).toEqual({
+      source: 'branches',
+      messageId: null,
+      count: 2,
+    });
+    expect(getOpenStoryChoiceState({
+      ...chat,
+      scenarioState: { ...chat.scenarioState, phase: 'scene' },
+    } as Parameters<typeof getOpenStoryChoiceState>[0], [])).toBeNull();
   });
 });
