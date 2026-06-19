@@ -243,8 +243,8 @@ describe('narrativeRuntime', () => {
       storyGoal: '逼护士说出停电期间谁进过档案室',
       storySituation: '护士承认停电时有人进入档案室。',
       currentScene: expect.objectContaining({
-        location: expect.stringContaining('旧医院走廊'),
-        time: expect.stringContaining('清晨'),
+        location: '旧医院走廊',
+        time: '清晨',
         visibleThreat: expect.stringContaining('停电'),
         presentActorIds: expect.arrayContaining(['lin', 'nurse']),
       }),

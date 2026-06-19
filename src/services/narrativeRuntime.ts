@@ -364,32 +364,51 @@ function splitStorySentences(text: string) {
 }
 
 function pickLastMatchingSentence(sentences: string[], pattern: RegExp) {
-  return sentences.slice().reverse().find((sentence) => pattern.test(sentence)) || '';
+  return sentences.slice().reverse().find((sentence) => {
+    pattern.lastIndex = 0;
+    return pattern.test(sentence);
+  }) || '';
+}
+
+function pickLastMatch(texts: string[], pattern: RegExp) {
+  for (const text of texts.slice().reverse()) {
+    pattern.lastIndex = 0;
+    const matches = Array.from(text.matchAll(pattern));
+    const match = matches.at(-1)?.[0];
+    if (match) return match;
+  }
+  return '';
+}
+
+function pickFirstMatch(text: string, pattern: RegExp) {
+  pattern.lastIndex = 0;
+  return Array.from(text.matchAll(pattern))[0]?.[0] || '';
 }
 
 function inferStorySceneTime(sentences: string[], fallback?: string) {
+  const pattern = /雨夜|深夜|凌晨|清晨|黄昏|傍晚|夜里|白天|天亮|天黑|黎明|午后|此刻|现在|刚才|昨晚|今早|第二天|新的一天/g;
+  const fallbackTime = fallback ? pickLastMatch([fallback], pattern) || fallback : '';
   return compactStoryAssetText(
-    pickLastMatchingSentence(sentences, /(雨夜|深夜|凌晨|清晨|黄昏|傍晚|夜里|白天|天亮|天黑|黎明|午后|此刻|现在|刚才|昨晚|今早|第二天|新的一天)/)
-    || fallback
-    || '',
-    48,
+    pickLastMatch(sentences, pattern) || fallbackTime,
+    16,
   );
 }
 
 function inferStorySceneLocation(sentences: string[], fallback?: string) {
-  const pattern = /(医院|旧楼|走廊|病房|档案室|地下室|住院楼|妆台|侯府|房间|门口|院子|街|巷|车站|教室|办公室|实验室|仓库|码头|森林|城堡|宫殿|学校)/;
-  const candidate = pickLastMatchingSentence(sentences, pattern);
-  const fallbackLocation = fallback && pattern.test(fallback) ? fallback : '';
+  const locationPattern = /(?:旧医院走廊|旧医院|地下档案室|封锁(?:的)?旧住院楼|旧住院楼|走廊尽头|门外|门内|主楼|后院|医院|旧楼|走廊|病房|档案室|地下室|住院楼|妆台|侯府|房间|门口|院子|街|巷|车站|教室|办公室|实验室|仓库|码头|森林|城堡|宫殿|学校)/g;
+  const sentence = pickLastMatchingSentence(sentences, locationPattern);
+  const fallbackLocation = fallback ? pickFirstMatch(fallback, locationPattern) : '';
   return compactStoryAssetText(
-    candidate || fallbackLocation,
-    64,
+    (sentence ? pickFirstMatch(sentence, locationPattern) : '') || fallbackLocation,
+    32,
   );
 }
 
 function inferStorySceneThreat(sentences: string[]) {
+  const sentence = pickLastMatchingSentence(sentences, /(危险|威胁|血迹|异常|失踪|隐瞒|暴露|追上|封锁|锁住|停电|真相|秘密|脚步声|敲击声|盯着|怀疑|背叛|来不及)/);
   return compactStoryAssetText(
-    pickLastMatchingSentence(sentences, /(危险|威胁|血迹|异常|失踪|隐瞒|暴露|追上|封锁|锁住|停电|真相|秘密|脚步声|敲击声|盯着|怀疑|背叛|来不及)/),
-    80,
+    sentence,
+    56,
   );
 }
 
