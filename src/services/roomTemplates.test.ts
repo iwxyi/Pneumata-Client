@@ -5,6 +5,41 @@ import type { RoomTemplateKey } from './roomTemplates';
 
 const storyTemplateKeys: RoomTemplateKey[] = ['story_reader', 'campus_story', 'romance_story'];
 
+function buildStoryDraft(key: RoomTemplateKey, topic: string, memberIds = ['lin', 'nurse']) {
+  const template = getRoomTemplate(key);
+  return buildGroupChatDraft({
+    type: 'group',
+    name: template.label,
+    topic,
+    style: template.style,
+    runtimeEvolutionIntensity: template.runtimeEvolutionIntensity,
+    sessionKind: template.sessionKind,
+    storyBranchMode: template.defaults?.storyBranchMode,
+    storyBackground: template.defaults?.storyBackground,
+    storyDirection: template.defaults?.storyDirection,
+    storyOutline: template.defaults?.storyOutline,
+    memberIds,
+    operatorIds: [],
+    showRoleActions: true,
+    seedMemoryText: '',
+    seedArtifactText: '',
+    ownerCharacterId: null,
+    adminCharacterIds: [],
+    autoModeration: false,
+    allowMute: true,
+    allowPrivateThreads: false,
+    allowCliques: false,
+    allowMockery: false,
+    mood: '',
+    focus: '',
+    recentEvent: '',
+    allowSpeakAs: true,
+    allowDirectorMode: true,
+    allowEventInjection: true,
+    allowForcedReply: true,
+  });
+}
+
 describe('roomTemplates story seeds', () => {
   it('provides editable story seeds for every story-room template', () => {
     for (const key of storyTemplateKeys) {
@@ -17,38 +52,7 @@ describe('roomTemplates story seeds', () => {
   });
 
   it('turns the default story seed into initial narrative assets', () => {
-    const template = getRoomTemplate('story_reader');
-    const draft = buildGroupChatDraft({
-      type: 'group',
-      name: '默认故事房',
-      topic: '雨夜旧医院',
-      style: template.style,
-      runtimeEvolutionIntensity: template.runtimeEvolutionIntensity,
-      sessionKind: template.sessionKind,
-      storyBranchMode: template.defaults?.storyBranchMode,
-      storyBackground: template.defaults?.storyBackground,
-      storyDirection: template.defaults?.storyDirection,
-      storyOutline: template.defaults?.storyOutline,
-      memberIds: ['lin', 'nurse'],
-      operatorIds: [],
-      showRoleActions: true,
-      seedMemoryText: '',
-      seedArtifactText: '',
-      ownerCharacterId: null,
-      adminCharacterIds: [],
-      autoModeration: false,
-      allowMute: true,
-      allowPrivateThreads: false,
-      allowCliques: false,
-      allowMockery: false,
-      mood: '',
-      focus: '',
-      recentEvent: '',
-      allowSpeakAs: true,
-      allowDirectorMode: true,
-      allowEventInjection: true,
-      allowForcedReply: true,
-    });
+    const draft = buildStoryDraft('story_reader', '雨夜旧医院');
 
     expect(draft.scenarioState?.storyGoal).toContain('雨夜旧医院');
     expect(draft.scenarioState?.storySituation).toContain('旧医院');
@@ -58,7 +62,10 @@ describe('roomTemplates story seeds', () => {
       visibleThreat: expect.stringContaining('停电'),
       summary: expect.stringContaining('旧医院'),
     }));
-    expect(draft.scenarioState?.openQuestions).toEqual(['雨夜旧医院背后真正隐藏着什么？']);
+    expect(draft.scenarioState?.openQuestions).toEqual(expect.arrayContaining([
+      '失踪名单上不该存在的名字来自哪里？',
+      '停电期间到底是谁改变了现场？',
+    ]));
     expect(draft.scenarioState?.clues).toEqual(expect.arrayContaining([
       expect.stringContaining('失踪名单'),
     ]));
@@ -66,5 +73,32 @@ describe('roomTemplates story seeds', () => {
       expect.stringContaining('秘密'),
     ]));
     expect(draft.scenarioState?.chapterMemory).toContain('雨夜旧医院');
+  });
+
+  it('derives concrete opening hooks for campus and romance story templates', () => {
+    const campus = buildStoryDraft('campus_story', '匿名告白墙', ['student-a', 'student-b']);
+    const romance = buildStoryDraft('romance_story', '重逢晚宴', ['ex', 'current']);
+
+    expect(campus.scenarioState?.openQuestions).toEqual(expect.arrayContaining([
+      '匿名照片是谁发出来的，又想逼谁暴露？',
+      '匿名告白墙里最先暴露的秘密会牵连谁？',
+    ]));
+    expect(campus.scenarioState?.clues).toEqual(expect.arrayContaining([
+      expect.stringContaining('匿名照片'),
+    ]));
+    expect(campus.scenarioState?.relationshipShifts).toEqual(expect.arrayContaining([
+      expect.stringContaining('友情裂缝'),
+    ]));
+
+    expect(romance.scenarioState?.openQuestions).toEqual(expect.arrayContaining([
+      '误发语音为什么会把旧真相重新翻出来？',
+      '重逢晚宴里最先暴露的秘密会牵连谁？',
+    ]));
+    expect(romance.scenarioState?.stakes).toEqual(expect.arrayContaining([
+      expect.stringContaining('分手真相'),
+    ]));
+    expect(romance.scenarioState?.relationshipShifts).toEqual(expect.arrayContaining([
+      expect.stringContaining('误会'),
+    ]));
   });
 });

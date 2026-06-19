@@ -174,13 +174,30 @@ function inferInitialVisibleThreat(sentences: string[]) {
 
 function inferInitialSeedAssets(sentences: string[]) {
   const clues = sentences.filter((sentence) => /(线索|证据|记录|名单|钥匙|档案|病历|血迹|痕迹|照片|录音|门缝|脚印|异常|真相|告白墙|停电)/.test(sentence));
-  const stakes = sentences.filter((sentence) => /(危险|代价|风险|威胁|暴露|失去|来不及|安全|封锁|秘密|隐瞒|失踪|竞争|裂缝|公开质问|冒险)/.test(sentence));
-  const relationshipShifts = sentences.filter((sentence) => /(信任|怀疑|保护|隐瞒|背叛|靠近|疏远|敌意|动摇|试探|质问|承认|否认|友情|关系|站队)/.test(sentence));
+  const stakes = sentences.filter((sentence) => /(危险|代价|风险|威胁|暴露|失去|来不及|安全|封锁|秘密|隐瞒|失踪|竞争|裂缝|公开质问|冒险|真相|旧账|吃醋|保护欲|误会)/.test(sentence));
+  const relationshipShifts = sentences.filter((sentence) => /(信任|怀疑|保护|隐瞒|背叛|靠近|疏远|敌意|动摇|试探|质问|承认|否认|友情|关系|站队|旧情人|现任|旧账|吃醋|保护欲|误会|拉扯)/.test(sentence));
   return {
     clues: mergeStorySeedAssets(clues, 4),
     stakes: mergeStorySeedAssets(stakes, 4),
     relationshipShifts: mergeStorySeedAssets(relationshipShifts, 3),
   };
+}
+
+function inferInitialOpenQuestions(subject: string, direction: string, sentences: string[]) {
+  const questions: string[] = [];
+  const add = (question: string) => {
+    const compact = compactStorySeedAsset(question, 72);
+    if (compact && !questions.includes(compact)) questions.push(compact);
+  };
+  const text = sentences.join(' / ');
+  if (/(失踪|名单)/.test(text)) add('失踪名单上不该存在的名字来自哪里？');
+  if (/停电/.test(text)) add('停电期间到底是谁改变了现场？');
+  if (/(匿名|照片|告白墙)/.test(text)) add('匿名照片是谁发出来的，又想逼谁暴露？');
+  if (/(误发|语音|三年前|分手真相|订婚宴)/.test(text)) add('误发语音为什么会把旧真相重新翻出来？');
+  if (/(隐瞒|秘密|无法解释|真相)/.test(text)) add(`${subject || '这个故事'}里最先暴露的秘密会牵连谁？`);
+  if (subject) add(`${subject}背后真正隐藏着什么？`);
+  else if (direction) add(`${direction}会把角色推向什么转折？`);
+  return questions.slice(0, 3);
 }
 
 function buildInitialStoryAssets(input: Pick<ChatDraftInput, 'name' | 'topic' | 'storyBackground' | 'storyDirection' | 'storyOutline'>) {
@@ -199,11 +216,7 @@ function buildInitialStoryAssets(input: Pick<ChatDraftInput, 'name' | 'topic' | 
   const storySituation = [background, subject && !background.includes(subject) ? `当前开场：${subject}` : '']
     .filter(Boolean)
     .join(' / ');
-  const openQuestions = subject
-    ? [`${subject}背后真正隐藏着什么？`]
-    : direction
-      ? [`${direction}会把角色推向什么转折？`]
-      : [];
+  const openQuestions = inferInitialOpenQuestions(subject, direction, seedSentences);
   const chapterMemory = [subject ? `开场：${subject}` : '', outline ? `提纲：${outline}` : '']
     .filter(Boolean)
     .join(' / ');

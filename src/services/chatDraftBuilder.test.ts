@@ -91,9 +91,12 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     expect(draft.scenarioState?.storyBeatKind).toBe('establish');
     expect(draft.scenarioState?.storyChoicePolicy).toBe('forbid');
     expect(draft.scenarioState?.storyBeatReason).toBe('establish scene before choices');
-    expect(draft.scenarioState?.openQuestions).toEqual(['雨夜旧医院背后真正隐藏着什么？']);
+    expect(draft.scenarioState?.openQuestions).toEqual([
+      '失踪名单上不该存在的名字来自哪里？',
+      '雨夜旧医院背后真正隐藏着什么？',
+    ]);
     expect(draft.scenarioState?.clues).toEqual([]);
-    expect(draft.scenarioState?.stakes).toEqual([]);
+    expect(draft.scenarioState?.stakes).toEqual(['旧医院连续有人失踪。']);
     expect(draft.scenarioState?.relationshipShifts).toEqual([]);
     expect(draft.scenarioState?.choiceHistory).toEqual([]);
     expect(draft.scenarioState?.chapterMemory).toBe('开场：雨夜旧医院');
@@ -106,7 +109,9 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     expect(draft.scenarioState?.storyGoal).toBe('围绕「雨夜旧医院」推进：悬疑探索');
     expect(draft.scenarioState?.storySituation).toBe('旧医院连续有人失踪。 / 当前开场：雨夜旧医院');
     expect(draft.scenarioState?.currentScene).toEqual(expect.objectContaining({
-      location: '雨夜旧医院',
+      location: '旧医院',
+      time: '雨夜',
+      visibleThreat: '旧医院连续有人失踪。',
       summary: '旧医院连续有人失踪。 / 当前开场：雨夜旧医院',
     }));
   });
