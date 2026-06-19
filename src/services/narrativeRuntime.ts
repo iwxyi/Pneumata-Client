@@ -95,6 +95,17 @@ function isNearDuplicateStoryText(text: string, previousTexts: string[], minLeng
   });
 }
 
+function isAuthorNoteStoryText(text: string) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  return [
+    /^(接下来|下一步|后续|本轮|这一轮|这一段|本段)(?:的)?(?:剧情|故事|叙事|场景|内容|走向|分支|节拍)?(?:会|将|应该|需要|可以|要)/,
+    /^(剧情|故事|叙事|场景|分支|节拍)(?:走向|安排|设计|说明|分析|总结|规划|目标|方向)/,
+    /^(作者|编剧|导演|系统|旁白)(?:说明|提示|分析|安排|规划)/,
+    /^(选择后|用户选择后)(?:剧情|故事|叙事|场景)?(?:会|将|应该|需要)/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
 export function normalizeStoryEvents(value: unknown): StoryEvent[] {
   if (!Array.isArray(value)) return [];
   const events: StoryEvent[] = [];
@@ -106,7 +117,7 @@ export function normalizeStoryEvents(value: unknown): StoryEvent[] {
     const type = item.type;
     if (type === 'narration') {
       const text = compactText(item.text, 1600);
-      if (text && !isNearDuplicateStoryText(text, narrationTexts)) {
+      if (text && !isAuthorNoteStoryText(text) && !isNearDuplicateStoryText(text, narrationTexts)) {
         events.push({ type, text });
         narrationTexts.push(text);
       }

@@ -112,6 +112,20 @@ describe('narrativeRuntime', () => {
     ]));
   });
 
+  it('drops author-note narration while keeping visible scene execution', () => {
+    const events = normalizeStoryEvents([
+      { type: 'narration', text: '接下来剧情将围绕护士的隐瞒展开，并安排用户在追问和搜证之间做选择。' },
+      { type: 'narration', text: '本轮需要先承接用户选择，随后展示风险和收益。' },
+      { type: 'narration', text: '月奴把托盘放在门边，指尖在袖口里轻轻攥了一下。' },
+      { type: 'narration', text: '接下来他伸手推开档案室的门，门轴发出一声低哑的响。' },
+    ]);
+
+    expect(events).toEqual([
+      { type: 'narration', text: '月奴把托盘放在门边，指尖在袖口里轻轻攥了一下。' },
+      { type: 'narration', text: '接下来他伸手推开档案室的门，门轴发出一声低哑的响。' },
+    ]);
+  });
+
   it('drops near-duplicate story event text within one model response', () => {
     const events = normalizeStoryEvents([
       { type: 'narration', text: '月奴的脊背在听见这句话的瞬间僵了一下，像一根被突然拉紧的琴弦。她没有立刻转身，而是先把手里的粥碗在矮几上端端正正地摆好。' },
