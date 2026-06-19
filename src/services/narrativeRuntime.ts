@@ -724,6 +724,42 @@ function buildChoiceImpactSummary(params: {
   return compactStoryAssetText(Array.from(new Set(rows)).slice(0, 2).join('；'), 120);
 }
 
+function choiceConsequenceHasEvidence(params: {
+  choice: NonNullable<NonNullable<GroupChat['scenarioState']>['choiceHistory']>[number];
+  outcome: string;
+  storyAssets?: StoryAssetPatch;
+}) {
+  const outcomeText = [
+    params.outcome,
+    params.storyAssets?.clues?.slice(-1)[0] || '',
+    params.storyAssets?.stakes?.slice(-1)[0] || '',
+    params.storyAssets?.relationshipShifts?.slice(-1)[0] || '',
+    params.storyAssets?.openQuestions?.slice(-1)[0] || '',
+  ].filter(Boolean).join(' ');
+  const evidenceFields = [
+    params.choice.label,
+    params.choice.prompt,
+    params.choice.intent,
+    params.choice.risk,
+    params.choice.reward,
+  ].map((item) => compactStoryAssetText(item || '', 80)).filter((item) => normalizeRepeatText(item).length >= 2);
+  if (!evidenceFields.length) return true;
+  return evidenceFields.some((field) => {
+    const normalizedField = normalizeRepeatText(field);
+    const normalizedOutcome = normalizeRepeatText(outcomeText);
+    if (!normalizedField || !normalizedOutcome) return false;
+    if (normalizedOutcome.includes(normalizedField) || normalizedField.includes(normalizedOutcome)) return true;
+    const fieldBigrams = buildNgrams(normalizedField, 2);
+    const outcomeBigrams = buildNgrams(normalizedOutcome, 2);
+    let bigramOverlap = 0;
+    fieldBigrams.forEach((gram) => {
+      if (outcomeBigrams.has(gram)) bigramOverlap += 1;
+    });
+    if (fieldBigrams.size && bigramOverlap / fieldBigrams.size >= 0.24) return true;
+    return textSimilarity(normalizedField, normalizedOutcome) >= 0.18;
+  });
+}
+
 export function updateChoiceHistoryOutcome(conversation: GroupChat, outcome: string, storyAssets?: StoryAssetPatch) {
   const history = conversation.scenarioState?.choiceHistory || [];
   const compactOutcome = compactStoryAssetText(outcome, 96);
@@ -738,6 +774,7 @@ export function updateChoiceHistoryOutcome(conversation: GroupChat, outcome: str
     }
   }
   if (targetIndex === -1) return history;
+  if (!choiceConsequenceHasEvidence({ choice: history[targetIndex], outcome: compactOutcome, storyAssets })) return history;
   return history.map((choice, index) => (index === targetIndex ? {
     ...choice,
     outcome: compactOutcome,

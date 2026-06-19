@@ -367,6 +367,13 @@ describe('narrativeRuntime', () => {
       outcome: '护士承认停电时有人进入档案室。',
       impact: expect.stringContaining('关系变化：清晨的旧医院走廊里，护士承认停电时有人进入档案室'),
     }));
+    expect(updateChoiceHistoryOutcome(choiceChat, '雨声沿着屋檐落下，众人沉默地望向窗外。', {
+      ...assets,
+      clues: [],
+      stakes: [],
+      relationshipShifts: [],
+      openQuestions: [],
+    })).toEqual(choiceChat.scenarioState?.choiceHistory);
     const recapWithImpact = buildChapterRecap({
       conversation: normalizeConversation({
         ...choiceChat,

@@ -221,8 +221,20 @@ function onMessageCommitted(params: {
   const storyAssets = extractStoryAssets({ conversation: params.conversation, message: params.message, choices, summary, characters: params.characters });
   const normalized = normalizeStoryBranches(params.conversation, choices);
   const nextEpoch = getCurrentChoiceEpoch({ ...params.conversation, scenarioState: { ...(params.conversation.scenarioState || {}), branches: normalized.branches } });
-  const nextSceneBeatCount = normalized.openedChoice ? 0 : Number(params.conversation.scenarioState?.sceneBeatCount || 0) + 1;
+  const previousChoiceHistory = params.conversation.scenarioState?.choiceHistory || [];
   const nextChoiceHistory = updateChoiceHistoryOutcome(params.conversation, summary, storyAssets);
+  const selectedEpoch = Number(params.conversation.scenarioState?.selectedChoiceEpoch || 0);
+  const resolvedActiveChoice = params.conversation.scenarioState?.phase !== 'branch'
+    || !params.conversation.scenarioState?.selectedChoice
+    || nextChoiceHistory.some((choice, index) => (
+      Boolean(choice.outcome)
+      && !previousChoiceHistory[index]?.outcome
+      && (!selectedEpoch || Number(choice.choiceEpoch || 0) === selectedEpoch)
+    ));
+  const keepResolvingChoice = params.conversation.scenarioState?.phase === 'branch'
+    && Boolean(params.conversation.scenarioState?.selectedChoice)
+    && !resolvedActiveChoice;
+  const nextSceneBeatCount = normalized.openedChoice || keepResolvingChoice ? 0 : Number(params.conversation.scenarioState?.sceneBeatCount || 0) + 1;
   const chapterRecap = buildChapterRecap({
     conversation: {
       ...params.conversation,
@@ -241,11 +253,11 @@ function onMessageCommitted(params: {
     ...storyAssets,
     chapterRecap,
     choiceHistory: nextChoiceHistory,
-    phase: normalized.hasOpenChoice ? 'choice' : 'scene',
+    phase: normalized.hasOpenChoice ? 'choice' : keepResolvingChoice ? 'branch' : 'scene',
     sceneBeatCount: nextSceneBeatCount,
     choiceEpoch: nextEpoch,
-    selectedChoiceEpoch: normalized.openedChoice || params.conversation.scenarioState?.phase === 'branch' ? undefined : params.conversation.scenarioState?.selectedChoiceEpoch,
-    selectedChoice: params.conversation.scenarioState?.phase === 'branch' ? null : params.conversation.scenarioState?.selectedChoice,
+    selectedChoiceEpoch: normalized.openedChoice || (params.conversation.scenarioState?.phase === 'branch' && !keepResolvingChoice) ? undefined : params.conversation.scenarioState?.selectedChoiceEpoch,
+    selectedChoice: params.conversation.scenarioState?.phase === 'branch' && !keepResolvingChoice ? null : params.conversation.scenarioState?.selectedChoice,
     branches: normalized.branches,
   };
   const nextBeatPlan = resolveStoryBeatPlan({ ...params.conversation, scenarioState: nextScenarioState });

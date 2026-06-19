@@ -420,6 +420,56 @@ describe('STORY_ENGINE', () => {
     ]));
   });
 
+  it('keeps the selected branch active when the committed beat does not resolve the chosen promise', async () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = {
+      phase: 'branch',
+      choiceEpoch: 2,
+      selectedChoiceEpoch: 2,
+      selectedChoice: {
+        branchId: 'ask',
+        label: '让林医生追问护士昨晚去向',
+        prompt: '林医生逼问护士说出停电时的真相',
+        risk: '激怒护士',
+        reward: '得到停电线索',
+        choiceEpoch: 2,
+      },
+      choiceHistory: [{
+        branchId: 'ask',
+        label: '让林医生追问护士昨晚去向',
+        prompt: '林医生逼问护士说出停电时的真相',
+        risk: '激怒护士',
+        reward: '得到停电线索',
+        choiceEpoch: 2,
+      }],
+      branches: [
+        { branchId: 'ask', label: '让林医生追问护士昨晚去向', prompt: '林医生逼问护士说出停电时的真相', status: 'chosen', choiceEpoch: 2 },
+      ],
+    };
+
+    const result = await STORY_ENGINE.onMessageCommitted({
+      conversation: chat,
+      characters: [],
+      message: {
+        content: '雨声沿着屋檐落下，走廊里的灯光轻轻晃了一下。',
+        type: 'ai',
+        senderId: 'narrator',
+      },
+    });
+
+    expect(result.chatPatch.scenarioState).toEqual(expect.objectContaining({
+      phase: 'branch',
+      sceneBeatCount: 0,
+      selectedChoiceEpoch: 2,
+      selectedChoice: expect.objectContaining({
+        label: '让林医生追问护士昨晚去向',
+      }),
+      storyBeatKind: 'consequence',
+      storyChoicePolicy: 'forbid',
+    }));
+    expect(result.chatPatch.scenarioState?.choiceHistory?.[0]).not.toHaveProperty('outcome');
+  });
+
   it('does not append duplicate choice history when the same epoch is selected again before state catches up', async () => {
     const chat = buildStoryChat();
     chat.scenarioState = {
