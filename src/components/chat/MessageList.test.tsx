@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../types/message';
 import { buildChatRenderItems } from './chatRenderModel';
-import { getVisibleNarrativeDisplayBlocks, isNarrativeRevealAllowed, resolveNarrativeRevealTracking, selectNewNarrativeRevealKeys } from './MessageList';
+import { getVisibleNarrativeDisplayBlocks, isNarrativeRevealAllowed, resolveEffectiveNarrativeRevealKeys, resolveNarrativeRevealTracking, selectNewNarrativeRevealKeys } from './MessageList';
 
 function buildMessage(id: string, overrides: Partial<Message> = {}): Message {
   return {
@@ -187,6 +187,21 @@ describe('MessageList narrative reveal eligibility', () => {
     expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['other-message']) })).toBe(false);
     expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['client-story-live']) })).toBe(true);
     expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['server-story-live']) })).toBe(true);
+  });
+
+  it('falls back to internally tracked reveal keys when the parent gate is empty', () => {
+    const explicit = new Set<string>();
+    const fallback = new Set(['live-story']);
+    const effective = resolveEffectiveNarrativeRevealKeys({
+      explicitKeys: explicit,
+      fallbackKeys: fallback,
+    });
+
+    expect(effective).toBe(fallback);
+    expect(resolveEffectiveNarrativeRevealKeys({
+      explicitKeys: new Set(['parent-live-story']),
+      fallbackKeys: fallback,
+    })).not.toBe(fallback);
   });
 
   it('hides developer-only story panels from the normal narrative stream', () => {

@@ -242,6 +242,13 @@ export function isNarrativeRevealAllowed(params: {
   ].some((key) => Boolean(key && keys.has(key)));
 }
 
+export function resolveEffectiveNarrativeRevealKeys(params: {
+  explicitKeys?: ReadonlySet<string>;
+  fallbackKeys: ReadonlySet<string>;
+}) {
+  return params.explicitKeys?.size ? params.explicitKeys : params.fallbackKeys;
+}
+
 export function getVisibleNarrativeDisplayBlocks(message: Message, showDeveloperDetails: boolean) {
   return getNarrativeDisplayBlocks(message)
     .filter((block) => block.displayMode !== 'system_panel' || showDeveloperDetails);
@@ -365,7 +372,11 @@ export default function MessageList({
       if (item.renderKind === 'narrative') return null;
       return renderBubble(item);
     }
-    const recentNarrative = !item.pending && isNarrativeRevealAllowed({ item, revealMessageKeys: narrativeRevealMessageKeys || revealEligibleKeys });
+    const effectiveRevealMessageKeys = resolveEffectiveNarrativeRevealKeys({
+      explicitKeys: narrativeRevealMessageKeys,
+      fallbackKeys: revealEligibleKeys,
+    });
+    const recentNarrative = !item.pending && isNarrativeRevealAllowed({ item, revealMessageKeys: effectiveRevealMessageKeys });
     const activeRevealIndex = recentNarrative
       ? blocks.findIndex((candidate, candidateIndex) => {
         const candidateKey = `${item.key}:block:${candidate.id || candidateIndex}`;

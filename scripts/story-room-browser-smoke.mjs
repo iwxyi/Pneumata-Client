@@ -429,6 +429,55 @@ async function main() {
     assertCondition(afterReturn.buttons.includes('让林医生追问护士昨晚去向'), 'Expected story choice button was missing after returning from character details', afterReturn.buttons);
     assertCondition(new Set(afterReturn.messageIds).size === afterReturn.messageIds.length, 'Story message nodes duplicated after returning from character details', afterReturn.messageIds);
 
+    await evaluate(cdp, `(() => import('/src/stores/useMessageStore.ts').then(({ useMessageStore }) => {
+      const longFirstBlock = '月奴的脚步声停在门外，铜环轻轻碰了一下门板。沈清婉没有立刻回头，只看见镜中烛火被风压得低了半寸。她把那枚扣襻收进袖中，像把一枚还没落子的棋子藏回掌心。窗外的雨声忽然密起来，檐下有人压低声音说了一句听不清的话。';
+      const secondBlock = '第二段顺序验收：这句话必须等第一段逐字完成后才出现。';
+      useMessageStore.getState().upsertMessage({
+        id: 'live-reveal-story',
+        chatId: 'story-browser-smoke',
+        type: 'ai',
+        senderId: 'narrator',
+        senderName: '旁白',
+        content: longFirstBlock + '\\n\\n' + secondBlock,
+        emotion: 0,
+        timestamp: Date.now() + 10,
+        isDeleted: false,
+        metadata: {
+          narrativeTurn: {
+            turnId: 'live-reveal-story-turn',
+            turnKind: 'narrative_beat',
+            povActorId: 'narrator',
+            blocks: [
+              { id: 'live-reveal-first', actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: longFirstBlock },
+              { id: 'live-reveal-second', actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: secondBlock }
+            ]
+          }
+        }
+      });
+      return 'live-reveal-inserted';
+    }))()`, true);
+    await wait(120);
+    const liveRevealEarly = JSON.parse(await evaluate(cdp, `JSON.stringify({
+      text: document.body.innerText,
+      messageIds: Array.from(document.querySelectorAll('[data-message-id]')).map((node) => node.getAttribute('data-message-id'))
+    })`));
+    assertCondition(liveRevealEarly.text.includes('月奴'), 'Live narrative reveal did not start with the first block', liveRevealEarly);
+    assertCondition(!liveRevealEarly.text.includes('第二段顺序验收'), 'Later narrative block appeared before the active block completed', liveRevealEarly);
+    await wait(5200);
+    const liveRevealDone = JSON.parse(await evaluate(cdp, `JSON.stringify({
+      text: document.body.innerText,
+      messageIds: Array.from(document.querySelectorAll('[data-message-id]')).map((node) => node.getAttribute('data-message-id')),
+      bottomDistance: (() => {
+        const scrollBox = Array.from(document.querySelectorAll('div')).find((node) => {
+          const style = getComputedStyle(node);
+          return style.overflowY === 'auto' && node.scrollHeight > node.clientHeight;
+        });
+        return scrollBox ? Math.round(scrollBox.scrollHeight - scrollBox.scrollTop - scrollBox.clientHeight) : null;
+      })()
+    })`));
+    assertCondition(liveRevealDone.text.includes('第二段顺序验收'), 'Live narrative reveal did not eventually show the later block', liveRevealDone);
+    assertCondition(new Set(liveRevealDone.messageIds).size === liveRevealDone.messageIds.length, 'Live narrative reveal duplicated message nodes', liveRevealDone.messageIds);
+
     await evaluate(cdp, `(() => {
       const button = Array.from(document.querySelectorAll('button')).find((item) => item.innerText.includes('让林医生追问护士昨晚去向'));
       if (!button) throw new Error('choice button not found');
@@ -473,6 +522,7 @@ async function main() {
       after: {
         messageTypes: after.messageTypes,
         messageIds: after.messageIds,
+        liveRevealBottomDistance: liveRevealDone.bottomDistance,
       },
     }, null, 2));
   } finally {
