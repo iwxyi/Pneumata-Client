@@ -958,9 +958,11 @@ export default function ChatDetailPage() {
     if (!chat || !id) return;
     const option = storyBranchOptions.find((item) => item.value === optionValue);
     const branches = chat.scenarioState?.branches || [];
-    const selectedBranch = branches.find((branch) => branch.branchId === optionValue)
-      || branches.find((branch) => branch.label === option?.label && branch.prompt === option?.prompt)
-      || branches.find((branch) => branch.label === option?.label);
+    const currentEpoch = Number(chat.scenarioState?.choiceEpoch || 0);
+    const currentBranches = branches.filter((branch) => Number(branch.choiceEpoch || 0) === currentEpoch);
+    const selectedBranch = currentBranches.find((branch) => branch.branchId === optionValue)
+      || currentBranches.find((branch) => branch.label === option?.label && branch.prompt === option?.prompt)
+      || currentBranches.find((branch) => branch.label === option?.label);
     const branchId = selectedBranch?.branchId || optionValue;
     const storyDirection = selectedBranch?.prompt || selectedBranch?.description || option?.prompt || option?.label || chat.scenarioState?.storyDirection;
     const choiceLabel = option?.label || selectedBranch?.label || storyDirection || branchId;

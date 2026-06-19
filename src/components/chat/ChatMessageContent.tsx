@@ -34,11 +34,18 @@ export function PendingTypingDots() {
 export function RevealedMarkdownText({ text, reveal = false, onComplete }: { text: string; reveal?: boolean; onComplete?: () => void }) {
   const [visibleLength, setVisibleLength] = useState(reveal ? 0 : text.length);
   const onCompleteRef = useRef(onComplete);
+  const completedTextRef = useRef<string | null>(reveal ? null : text);
   useEffect(() => {
     onCompleteRef.current = onComplete;
   }, [onComplete]);
   useEffect(() => {
     if (!reveal) {
+      setVisibleLength(text.length);
+      completedTextRef.current = text;
+      onCompleteRef.current?.();
+      return undefined;
+    }
+    if (completedTextRef.current === text) {
       setVisibleLength(text.length);
       onCompleteRef.current?.();
       return undefined;
@@ -50,6 +57,7 @@ export function RevealedMarkdownText({ text, reveal = false, onComplete }: { tex
         const next = Math.min(text.length, current + step);
         if (next >= text.length) {
           window.clearInterval(timer);
+          completedTextRef.current = text;
           window.setTimeout(() => onCompleteRef.current?.(), 0);
         }
         return next;

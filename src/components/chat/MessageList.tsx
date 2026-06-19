@@ -175,6 +175,7 @@ function buildNarrativeBlockMessage(parent: Message, block: NarrativeBlock, turn
 
 export function selectNewNarrativeRevealKeys(params: {
   previousKeys: Set<string>;
+  previousMaxTimestamp?: number;
   items: ChatRenderItem[];
 }) {
   if (params.previousKeys.size === 0) return [];
@@ -182,34 +183,44 @@ export function selectNewNarrativeRevealKeys(params: {
     params.previousKeys.has(item.key) ? index : latest
   ), -1);
   if (lastPreviousIndex < 0) return [];
-  return params.items
-    .slice(lastPreviousIndex + 1)
+  const previousMaxTimestamp = Math.max(params.previousMaxTimestamp || 0, params.items.reduce((latest, item) => (
+    params.previousKeys.has(item.key) ? Math.max(latest, Number(item.message.timestamp || 0)) : latest
+  ), 0));
+  const appendedItems = params.items.slice(lastPreviousIndex + 1);
+  const appendedNarrativeKeys = appendedItems
     .filter((item) => (
       !params.previousKeys.has(item.key)
       && item.renderKind === 'narrative'
       && item.message.type === 'ai'
+      && Number(item.message.timestamp || 0) > previousMaxTimestamp
       && getNarrativeDisplayBlocks(item.message).some((block) => block.displayMode !== 'hidden' && block.text.trim())
     ))
     .map((item) => item.key);
+  if (appendedNarrativeKeys.length !== 1) return [];
+  return appendedNarrativeKeys;
 }
 
 export function resolveNarrativeRevealTracking(params: {
   initialized: boolean;
   previousKeys: Set<string>;
+  previousMaxTimestamp?: number;
   items: ChatRenderItem[];
 }) {
   const nextKeys = new Set(params.items.map((item) => item.key));
+  const nextMaxTimestamp = params.items.reduce((latest, item) => Math.max(latest, Number(item.message.timestamp || 0)), params.previousMaxTimestamp || 0);
   if (!params.initialized) {
     if (params.items.length === 0) {
-      return { initialized: false, nextSeenKeys: params.previousKeys, newRevealKeys: [] as string[] };
+      return { initialized: false, nextSeenKeys: params.previousKeys, nextMaxTimestamp, newRevealKeys: [] as string[] };
     }
-    return { initialized: true, nextSeenKeys: nextKeys, newRevealKeys: [] as string[] };
+    return { initialized: true, nextSeenKeys: nextKeys, nextMaxTimestamp, newRevealKeys: [] as string[] };
   }
   return {
     initialized: true,
     nextSeenKeys: nextKeys,
+    nextMaxTimestamp,
     newRevealKeys: selectNewNarrativeRevealKeys({
       previousKeys: params.previousKeys,
+      previousMaxTimestamp: params.previousMaxTimestamp,
       items: params.items,
     }),
   };
@@ -247,6 +258,7 @@ export default function MessageList({
   const [viewerKey, setViewerKey] = useState<string | null>(null);
   const revealKeyTrackingInitializedRef = useRef(false);
   const seenRenderKeysRef = useRef<Set<string>>(new Set());
+  const seenMaxTimestampRef = useRef(0);
   const topLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
   const hasJumpedToBottomRef = useRef(false);
@@ -407,10 +419,12 @@ export default function MessageList({
     const tracking = resolveNarrativeRevealTracking({
       initialized: revealKeyTrackingInitializedRef.current,
       previousKeys: seenRenderKeysRef.current,
+      previousMaxTimestamp: seenMaxTimestampRef.current,
       items: renderItems,
     });
     revealKeyTrackingInitializedRef.current = tracking.initialized;
     seenRenderKeysRef.current = tracking.nextSeenKeys;
+    seenMaxTimestampRef.current = tracking.nextMaxTimestamp;
     setRevealEligibleKeys((current) => {
       let changed = false;
       const next = new Set<string>();

@@ -306,6 +306,43 @@ describe('chatSurfaceActions', () => {
     }));
   });
 
+  it('does not select a stale story branch from an older choice epoch', async () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      mode: 'scripted_play',
+      sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+      scenarioState: {
+        ...(buildChat().scenarioState || {}),
+        phase: 'choice',
+        choiceEpoch: 4,
+        branches: [
+          { branchId: 'ask-old', label: '追问护士', status: 'available' as const, choiceEpoch: 3, prompt: '旧轮追问护士' },
+          { branchId: 'ask-current', label: '追问护士', status: 'available' as const, choiceEpoch: 4, prompt: '当前轮追问护士' },
+          { branchId: 'search-current', label: '检查血迹', status: 'available' as const, choiceEpoch: 4, prompt: '当前轮检查血迹' },
+        ],
+      },
+    });
+    const context = { ...buildContext(), chat, chats: [chat] } satisfies ChatSurfaceActionContext;
+    const trigger = vi.fn(async () => null);
+    await runSessionActionImpl(context, { type: 'choose_story_branch', actorId: 'user' }, { branchId: 'ask-old', prompt: '用户点到了过期选项' }, trigger);
+    expect(context.updateChat).toHaveBeenCalledWith(chat.id, expect.objectContaining({
+      scenarioState: expect.objectContaining({
+        phase: 'branch',
+        selectedChoiceEpoch: 4,
+        selectedChoice: expect.objectContaining({
+          prompt: '用户点到了过期选项',
+          choiceEpoch: 4,
+        }),
+        branches: expect.arrayContaining([
+          expect.objectContaining({ branchId: 'ask-old', status: 'available', choiceEpoch: 3 }),
+          expect.objectContaining({ branchId: 'ask-current', status: 'completed', choiceEpoch: 4 }),
+          expect.objectContaining({ branchId: 'search-current', status: 'completed', choiceEpoch: 4 }),
+          expect.objectContaining({ source: 'custom', status: 'chosen', choiceEpoch: 4 }),
+        ]),
+      }),
+    }));
+  });
+
 
   it('records custom story branch direction from free input', async () => {
     const chat = normalizeConversation({

@@ -245,13 +245,16 @@ function handleVotePlayer(chat: GroupChat, action: SessionActionDefinition) {
 function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition): SessionActionExecutionResult {
   const selectedBranchId = typeof action.payload?.branchId === 'string' ? action.payload.branchId : 'main';
   const prompt = getPrompt(action);
-  const isCustom = selectedBranchId === '__custom_story_branch';
-  const branchId = isCustom ? `custom-${Date.now().toString(36)}` : selectedBranchId;
   const existingBranches = chat.scenarioState?.branches || [];
-  const selectedBranch = existingBranches.find((branch) => branch.branchId === selectedBranchId);
+  const currentEpoch = Math.max(Number(chat.scenarioState?.choiceEpoch || 0), 1);
+  const selectedBranch = existingBranches.find((branch) => (
+    branch.branchId === selectedBranchId
+    && Number(branch.choiceEpoch || currentEpoch) === currentEpoch
+  ));
+  const isCustom = selectedBranchId === '__custom_story_branch' || !selectedBranch;
+  const branchId = isCustom ? `custom-${Date.now().toString(36)}` : selectedBranchId;
   const branchPrompt = prompt || selectedBranch?.prompt || selectedBranch?.description || selectedBranch?.label || '';
   const summary = `剧情分支：${isCustom ? '自定义走向' : branchId}${branchPrompt ? ` · ${truncate(branchPrompt, 36)}` : ''}`;
-  const currentEpoch = Math.max(Number(chat.scenarioState?.choiceEpoch || 0), Number(selectedBranch?.choiceEpoch || 0), 1);
   const alreadySelected = !isCustom && chat.scenarioState?.choiceHistory?.some((choice) => (
     Number(choice.choiceEpoch || 0) === currentEpoch
     && (choice.branchId === branchId || (selectedBranch?.label && choice.label === selectedBranch.label))
@@ -287,7 +290,7 @@ function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition): Se
     ]
     : existingBranches.map((branch) => ({
       ...branch,
-      status: branch.branchId === branchId ? 'chosen' as const : branch.status === 'chosen' || Number(branch.choiceEpoch || currentEpoch) === currentEpoch ? 'completed' as const : branch.status,
+      status: branch.branchId === branchId && Number(branch.choiceEpoch || currentEpoch) === currentEpoch ? 'chosen' as const : branch.status === 'chosen' || Number(branch.choiceEpoch || currentEpoch) === currentEpoch ? 'completed' as const : branch.status,
     }));
   const result = buildActionResult(chat, action, '剧情分支推进', summary, 'story_branch', { branchId, prompt: branchPrompt, source: isCustom ? 'custom' : selectedBranch?.source });
   return {
