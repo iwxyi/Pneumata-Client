@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../types/message';
 import { useMessageStore } from '../stores/useMessageStore';
-import { buildStoryChoicePendingKey, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus, isStoryChoicePending, shouldAutoStartStoryRoom, shouldRegisterLiveNarrativeReveal } from './ChatDetailPage';
+import { buildStoryChoicePendingKey, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus, isStoryChoicePending, shouldAutoStartStoryRoom, shouldRegisterLiveNarrativeReveal, shouldRouteTextAsStoryCustomDirection } from './ChatDetailPage';
 
 function buildPauseResumeMessages() {
   return [] as string[];
@@ -101,6 +101,39 @@ describe('ChatDetailPage pause/resume behavior', () => {
       hasRunLoopStatus: false,
       isStoryChoiceSubmitting: false,
     })).toBeNull();
+  });
+
+  it('routes story room free text as a custom story direction only in reader control mode', () => {
+    expect(shouldRouteTextAsStoryCustomDirection({
+      isStoryRoom: true,
+      hasSpeakAsCharacter: false,
+      hasGuideTargetMember: false,
+      content: '让主角先把门反锁，再试探月奴',
+    })).toBe(true);
+    expect(shouldRouteTextAsStoryCustomDirection({
+      isStoryRoom: true,
+      hasSpeakAsCharacter: true,
+      hasGuideTargetMember: false,
+      content: '我来亲自说这句话',
+    })).toBe(false);
+    expect(shouldRouteTextAsStoryCustomDirection({
+      isStoryRoom: true,
+      hasSpeakAsCharacter: false,
+      hasGuideTargetMember: true,
+      content: '安排月奴回应',
+    })).toBe(false);
+    expect(shouldRouteTextAsStoryCustomDirection({
+      isStoryRoom: false,
+      hasSpeakAsCharacter: false,
+      hasGuideTargetMember: false,
+      content: '普通群聊消息',
+    })).toBe(false);
+    expect(shouldRouteTextAsStoryCustomDirection({
+      isStoryRoom: true,
+      hasSpeakAsCharacter: false,
+      hasGuideTargetMember: false,
+      content: '   ',
+    })).toBe(false);
   });
 
   it('auto-starts story rooms only when the story is ready to keep running', () => {

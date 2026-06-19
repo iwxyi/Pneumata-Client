@@ -194,6 +194,18 @@ export function buildVisibleStoryBranchOptions(params: {
   });
 }
 
+export function shouldRouteTextAsStoryCustomDirection(params: {
+  isStoryRoom: boolean;
+  hasSpeakAsCharacter: boolean;
+  hasGuideTargetMember: boolean;
+  content: string;
+}) {
+  return params.isStoryRoom
+    && !params.hasSpeakAsCharacter
+    && !params.hasGuideTargetMember
+    && Boolean(params.content.trim());
+}
+
 function ChatSharePanel({ chat }: { chat: GroupChat }) {
   const [state, setState] = useState<ChatShareState>(() => ({
     enabled: Boolean(chat.shareEnabled),
@@ -1071,6 +1083,75 @@ export default function ChatDetailPage() {
       }
     }
   }, [addMessageStable, chat, currentUser?.nickname, getNextMessageTimestamp, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, storyChoiceSourceMessage?.id, updateChat]);
+
+  const handleStoryCustomDirectionSend = useCallback(async (content: string, attachments: MessageAttachment[] = []) => {
+    if (!chat || !id) return;
+    const storyDirection = sanitizeStoryChoicePrompt(content);
+    if (!storyDirection) return;
+    if (attachments.length) {
+      setSnackbar({ open: true, message: '故事房自定义走向暂不支持附件，请用文字描述你想推动的剧情。', severity: 'error' });
+      return;
+    }
+    await enqueueManualInput(async () => {
+      const choiceKey = buildStoryChoicePendingKey({
+        chatId: id,
+        choiceEpoch: chat.scenarioState?.choiceEpoch,
+        sourceMessageId: storyChoiceSourceMessage?.id,
+      });
+      if (pendingStoryChoiceRef.current === choiceKey) return;
+      pendingStoryChoiceRef.current = choiceKey;
+      setPendingStoryChoiceKey(choiceKey);
+      let actionSucceeded = false;
+      try {
+        const choiceMessage = await addMessageStable({
+          chatId: id,
+          type: 'user',
+          senderId: 'user',
+          senderName: currentUser?.nickname?.trim() || '我',
+          content: `我选择：${storyDirection}`,
+          emotion: 0,
+          timestamp: getNextMessageTimestamp(),
+          metadata: {
+            storyChoiceSelection: {
+              branchId: '__custom_story_branch',
+              sourceMessageId: storyChoiceSourceMessage?.id,
+              label: storyDirection,
+              prompt: storyDirection,
+              intent: null,
+              risk: null,
+              reward: null,
+              choiceEpoch: chat.scenarioState?.choiceEpoch,
+            },
+          },
+        });
+        void updateChat(id, { lastMessageAt: choiceMessage.timestamp, latestMessage: choiceMessage });
+        const actionResult = await runSessionAction(
+          { type: 'choose_story_branch', actorId: 'user' },
+          { branchId: '__custom_story_branch', prompt: storyDirection },
+        );
+        actionSucceeded = true;
+        const nextChat = actionResult?.chatPatch ? {
+          ...chat,
+          ...actionResult.chatPatch,
+          scenarioState: {
+            ...(chat.scenarioState || {}),
+            ...(actionResult.chatPatch.scenarioState || {}),
+          },
+          worldState: {
+            ...chat.worldState,
+            ...(actionResult.chatPatch.worldState || {}),
+          },
+        } : chat;
+        await updateChat(id, actionResult?.chatPatch || {});
+        startConversationLoopIfNeeded(nextChat);
+      } finally {
+        if (!actionSucceeded && pendingStoryChoiceRef.current === choiceKey) {
+          pendingStoryChoiceRef.current = null;
+          setPendingStoryChoiceKey(null);
+        }
+      }
+    });
+  }, [addMessageStable, chat, currentUser?.nickname, enqueueManualInput, getNextMessageTimestamp, id, runSessionAction, setSnackbar, startConversationLoopIfNeeded, storyChoiceSourceMessage?.id, updateChat]);
   const storyTailStatus = getStoryTailStatus({
     hasRunLoopStatus: Boolean(runLoopStatusContent),
     isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
@@ -1394,6 +1475,14 @@ export default function ChatDetailPage() {
               userDraftActivityRef.current = activity;
             }}
             onSubmitText={(submission, surface) => {
+              if (shouldRouteTextAsStoryCustomDirection({
+                isStoryRoom,
+                hasSpeakAsCharacter: Boolean(effectiveSpeakAsChar),
+                hasGuideTargetMember: Boolean(guideTargetMember),
+                content: submission.content,
+              })) {
+                return handleStoryCustomDirectionSend(submission.content, submission.attachments || []);
+              }
               if (!effectiveSpeakAsChar && guideTargetMember && surface.mode === 'guide') {
                 const guidedContent = `${guideTargetMember.name}，${submission.content}`;
                 setGuideTargetMemberId(null);
