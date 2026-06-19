@@ -207,6 +207,8 @@ describe('ChatNarrativePanel', () => {
     );
 
     expect(html).toContain('新的抉择点');
+    expect(html).toContain('可以继续剧情');
+    expect(html).toContain('下一段可以继续追踪：灰太狼 为什么隐瞒停电记录？');
     expect(html).toContain('加压');
     expect(html).not.toContain('pressure');
     expect(html).toContain('回顾线索');
@@ -231,6 +233,58 @@ describe('ChatNarrativePanel', () => {
     expect(html).not.toContain('意图：探索');
     expect(html).not.toContain(uuidA);
     expect(html).not.toContain(uuidB);
+  });
+
+  it('renders story progress states for choice and branch phases', async () => {
+    const memoryStorage = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => memoryStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => { memoryStorage.set(key, value); },
+        removeItem: (key: string) => { memoryStorage.delete(key); },
+        clear: () => { memoryStorage.clear(); },
+      },
+    });
+    const { default: ChatNarrativePanel } = await import('./ChatNarrativePanel');
+    const baseStoryChat = {
+      ...buildChat(),
+      mode: 'scripted_play' as const,
+      sessionKind: { family: 'conversation' as const, scenarioId: 'story-reader', surfaceProfile: 'hybrid' as const, topology: 'group' as const },
+    };
+    const members = [buildCharacter(uuidA, '红太狼'), buildCharacter(uuidB, '灰太狼')];
+
+    const choiceHtml = renderToStaticMarkup(
+      <ChatNarrativePanel
+        hideTitle
+        chat={{ ...baseStoryChat, scenarioState: { phase: 'choice', storyBeatKind: 'decision' as const } }}
+        members={members}
+        messages={[]}
+      />,
+    );
+    expect(choiceHtml).toContain('等待你的选择');
+    expect(choiceHtml).toContain('当前章节已经推进到抉择点');
+    expect(choiceHtml).toContain('抉择');
+
+    const branchHtml = renderToStaticMarkup(
+      <ChatNarrativePanel
+        hideTitle
+        chat={{
+          ...baseStoryChat,
+          scenarioState: {
+            phase: 'branch',
+            storyBeatKind: 'consequence' as const,
+            selectedChoice: { branchId: 'ask', label: `${uuidA} 追问月奴`, prompt: '追问月奴', choiceEpoch: 2 },
+          },
+        }}
+        members={members}
+        messages={[]}
+      />,
+    );
+    expect(branchHtml).toContain('正在兑现选择');
+    expect(branchHtml).toContain('刚才选择了：红太狼 追问月奴');
+    expect(branchHtml).toContain('后果');
+    expect(branchHtml).not.toContain(uuidA);
   });
 
 });

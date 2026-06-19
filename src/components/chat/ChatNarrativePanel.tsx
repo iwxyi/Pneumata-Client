@@ -289,6 +289,62 @@ function formatStoryBeatKind(kind: string | undefined) {
   return kind ? labels[kind] || kind : '';
 }
 
+function getStoryProgressCopy(chat: GroupChat, members: AICharacter[]) {
+  if (chat.sessionKind?.scenarioId !== 'story-reader') return null;
+  const state = chat.scenarioState || {};
+  const phase = state.phase || 'scene';
+  const beatLabel = formatStoryBeatKind(state.storyBeatKind);
+  const latestChoice = state.selectedChoice || state.choiceHistory?.slice(-1)[0] || null;
+  if (phase === 'choice') {
+    return {
+      title: '等待你的选择',
+      body: '当前章节已经推进到抉择点，先选择一个走向，故事会从你的选择后继续。',
+      chips: [beatLabel || '抉择'].filter(Boolean),
+    };
+  }
+  if (phase === 'branch') {
+    return {
+      title: '正在兑现选择',
+      body: latestChoice?.label
+        ? `刚才选择了：${formatNarrativeLineText(latestChoice.label, members)}。下一段会先呈现这个选择带来的具体后果。`
+        : '下一段会先呈现刚才选择带来的具体后果。',
+      chips: [beatLabel || '后果'].filter(Boolean),
+    };
+  }
+  const question = state.openQuestions?.slice(-1)[0];
+  return {
+    title: '可以继续剧情',
+    body: question
+      ? `下一段可以继续追踪：${formatNarrativeLineText(question, members)}`
+      : '没有待选项时，可以从消息流底部继续推进下一段剧情。',
+    chips: [beatLabel || '主线推进'].filter(Boolean),
+  };
+}
+
+function renderStoryProgressCard(chat: GroupChat, members: AICharacter[]) {
+  const progress = getStoryProgressCopy(chat, members);
+  if (!progress) return null;
+  return (
+    <Box
+      sx={(theme) => ({
+        p: { xs: 0.9, sm: 1 },
+        borderRadius: 2,
+        border: '1px solid',
+        borderColor: theme.palette.mode === 'light' ? 'rgba(14,165,233,0.18)' : 'rgba(125,211,252,0.18)',
+        bgcolor: theme.palette.mode === 'light' ? 'rgba(240,249,255,0.72)' : 'rgba(8,47,73,0.22)',
+      })}
+    >
+      <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.45 }}>
+        <Typography variant="body2" sx={{ fontWeight: 700 }}>{progress.title}</Typography>
+        {progress.chips.map((chip) => <Chip key={chip} size="small" label={chip} variant="outlined" sx={compactPillChipSx} />)}
+      </Stack>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.65 }}>
+        {progress.body}
+      </Typography>
+    </Box>
+  );
+}
+
 function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDebugDetails: boolean) {
   if (!hasStoryAssets(chat)) return null;
   const state = chat.scenarioState || {};
@@ -387,6 +443,7 @@ export default function ChatNarrativePanel({ chat, members, messages = [], hideT
   const mainLineId = runtimePressure.primaryLine?.id || narrativeLines[0]?.id || null;
   const showDirectorIntent = Boolean(runtimePressure.directorIntent) && activeFilter === 'main';
   const visibleLines = narrativeLines.filter((line) => activeFilter === 'all' ? true : activeFilter === 'main' ? line.id === mainLineId : line.type === activeFilter);
+  const storyProgressCard = activeFilter === 'all' || activeFilter === 'main' ? renderStoryProgressCard(chat, members) : null;
   const storyAssetSummary = activeFilter === 'all' || activeFilter === 'main' ? renderStoryAssetSummary(chat, members, showDebugDetails) : null;
   const filters = LINE_FILTERS.map((filter) => ({
     ...filter,
@@ -420,6 +477,7 @@ export default function ChatNarrativePanel({ chat, members, messages = [], hideT
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{formatNarrativeLineText(formatKnownReason(runtimePressure.directorIntent.reason), members)}</Typography>
           </Box>
         ) : null}
+        {storyProgressCard}
         {storyAssetSummary}
         {visibleLines.length ? <Stack spacing={0.8}>{visibleLines.map((line) => renderLine(line, chat, members, messages, isZh, showDebugDetails))}</Stack> : storyAssetSummary ? null : <Typography variant="body2" color="text.secondary">暂无对应叙事线</Typography>}
       </Stack>
