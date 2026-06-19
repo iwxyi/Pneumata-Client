@@ -53,10 +53,18 @@ describe('roomTemplates story seeds', () => {
     expect(draft.scenarioState?.storyGoal).toContain('雨夜旧医院');
     expect(draft.scenarioState?.storySituation).toContain('旧医院');
     expect(draft.scenarioState?.currentScene).toEqual(expect.objectContaining({
-      location: '雨夜旧医院',
+      location: '旧医院',
+      time: '雨夜',
+      visibleThreat: expect.stringContaining('停电'),
       summary: expect.stringContaining('旧医院'),
     }));
     expect(draft.scenarioState?.openQuestions).toEqual(['雨夜旧医院背后真正隐藏着什么？']);
+    expect(draft.scenarioState?.clues).toEqual(expect.arrayContaining([
+      expect.stringContaining('失踪名单'),
+    ]));
+    expect(draft.scenarioState?.stakes).toEqual(expect.arrayContaining([
+      expect.stringContaining('秘密'),
+    ]));
     expect(draft.scenarioState?.chapterMemory).toContain('雨夜旧医院');
   });
 });

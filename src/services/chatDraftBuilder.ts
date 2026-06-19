@@ -93,8 +93,94 @@ function buildRuntimeSeed(input: Pick<ChatDraftInput, 'seedMemoryText' | 'seedAr
   };
 }
 
-function compactDraftText(value: string | undefined) {
-  return (value || '').replace(/\s+/g, ' ').trim();
+function compactDraftText(value: string | undefined, max = 1200) {
+  const text = (value || '').replace(/\s+/g, ' ').trim();
+  return text.length > max ? text.slice(0, max).trim() : text;
+}
+
+function compactStorySeedAsset(value: string | undefined, max = 56) {
+  const text = compactDraftText(value, max + 20).replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+}
+
+function splitStorySeedSentences(text: string) {
+  return (text.match(/[^。！？!?；;\n]+[。！？!?；;]?/g) || [text])
+    .map((part) => compactStorySeedAsset(part, 96))
+    .filter(Boolean);
+}
+
+function pickLastMatch(texts: string[], pattern: RegExp) {
+  for (const text of texts.slice().reverse()) {
+    pattern.lastIndex = 0;
+    const matches = Array.from(text.matchAll(pattern));
+    const match = matches.at(-1)?.[0];
+    if (match) return match;
+  }
+  return '';
+}
+
+function pickFirstMatch(text: string, pattern: RegExp) {
+  pattern.lastIndex = 0;
+  return Array.from(text.matchAll(pattern))[0]?.[0] || '';
+}
+
+function pickLastMatchingSentence(sentences: string[], pattern: RegExp) {
+  return sentences.slice().reverse().find((sentence) => {
+    pattern.lastIndex = 0;
+    return pattern.test(sentence);
+  }) || '';
+}
+
+function pickFirstMatchingSentence(sentences: string[], pattern: RegExp) {
+  return sentences.find((sentence) => {
+    pattern.lastIndex = 0;
+    return pattern.test(sentence);
+  }) || '';
+}
+
+function mergeStorySeedAssets(items: string[], limit = 4) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of items) {
+    const compact = compactStorySeedAsset(item);
+    if (!compact || seen.has(compact)) continue;
+    seen.add(compact);
+    result.push(compact);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+function inferInitialSceneTime(seedTexts: string[]) {
+  return compactStorySeedAsset(
+    pickLastMatch(seedTexts, /雨夜|深夜|凌晨|清晨|黄昏|傍晚|夜里|白天|天亮|天黑|黎明|午后|开学周|此刻|现在|昨晚|今早|第二天/g),
+    16,
+  );
+}
+
+function inferInitialSceneLocation(seedTexts: string[], subject: string) {
+  const text = seedTexts.join(' / ');
+  const locationPattern = /(?:旧医院走廊|旧医院|地下档案室|封锁(?:的)?旧住院楼|旧住院楼|走廊尽头|宿舍群|宿舍|社团办公室|告白墙|校园|学校|医院|旧楼|走廊|病房|档案室|地下室|住院楼|妆台|侯府|房间|门口|院子|街|巷|车站|教室|办公室|实验室|仓库|码头|森林|城堡|宫殿)/g;
+  return compactStorySeedAsset(
+    pickFirstMatch(text, locationPattern) || subject,
+    32,
+  );
+}
+
+function inferInitialVisibleThreat(sentences: string[]) {
+  const sentence = pickFirstMatchingSentence(sentences, /(危险|威胁|血迹|异常|失踪|隐瞒|暴露|封锁|锁住|停电|真相|秘密|脚步声|敲击声|匿名|调换|无法解释|竞争|裂缝|质问|冒险)/);
+  return compactStorySeedAsset(sentence, 56);
+}
+
+function inferInitialSeedAssets(sentences: string[]) {
+  const clues = sentences.filter((sentence) => /(线索|证据|记录|名单|钥匙|档案|病历|血迹|痕迹|照片|录音|门缝|脚印|异常|真相|告白墙|停电)/.test(sentence));
+  const stakes = sentences.filter((sentence) => /(危险|代价|风险|威胁|暴露|失去|来不及|安全|封锁|秘密|隐瞒|失踪|竞争|裂缝|公开质问|冒险)/.test(sentence));
+  const relationshipShifts = sentences.filter((sentence) => /(信任|怀疑|保护|隐瞒|背叛|靠近|疏远|敌意|动摇|试探|质问|承认|否认|友情|关系|站队)/.test(sentence));
+  return {
+    clues: mergeStorySeedAssets(clues, 4),
+    stakes: mergeStorySeedAssets(stakes, 4),
+    relationshipShifts: mergeStorySeedAssets(relationshipShifts, 3),
+  };
 }
 
 function buildInitialStoryAssets(input: Pick<ChatDraftInput, 'name' | 'topic' | 'storyBackground' | 'storyDirection' | 'storyOutline'>) {
@@ -104,6 +190,9 @@ function buildInitialStoryAssets(input: Pick<ChatDraftInput, 'name' | 'topic' | 
   const direction = compactDraftText(input.storyDirection);
   const outline = compactDraftText(input.storyOutline);
   const subject = topic || name;
+  const seedTexts = [subject, background, direction, outline].filter(Boolean);
+  const seedSentences = splitStorySeedSentences(seedTexts.join('。'));
+  const initialSeedAssets = inferInitialSeedAssets(seedSentences);
   const storyGoal = subject && direction
     ? `围绕「${subject}」推进：${direction}`
     : direction || subject;
@@ -120,7 +209,9 @@ function buildInitialStoryAssets(input: Pick<ChatDraftInput, 'name' | 'topic' | 
     .join(' / ');
   const currentScene = subject || background
     ? {
-        location: subject || undefined,
+        location: inferInitialSceneLocation(seedTexts, subject) || undefined,
+        time: inferInitialSceneTime(seedTexts) || undefined,
+        visibleThreat: inferInitialVisibleThreat(seedSentences) || undefined,
         summary: storySituation || subject || background,
         updatedAt: Date.now(),
       }
@@ -130,6 +221,9 @@ function buildInitialStoryAssets(input: Pick<ChatDraftInput, 'name' | 'topic' | 
     storySituation,
     currentScene,
     openQuestions,
+    clues: initialSeedAssets.clues,
+    stakes: initialSeedAssets.stakes,
+    relationshipShifts: initialSeedAssets.relationshipShifts,
     chapterMemory,
   };
 }
@@ -227,9 +321,9 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
       storyChoicePolicy: isStoryReader ? 'forbid' : undefined,
       storyBeatReason: isStoryReader ? 'establish scene before choices' : undefined,
       openQuestions: isStoryReader ? initialStoryAssets?.openQuestions || [] : undefined,
-      clues: isStoryReader ? [] : undefined,
-      stakes: isStoryReader ? [] : undefined,
-      relationshipShifts: isStoryReader ? [] : undefined,
+      clues: isStoryReader ? initialStoryAssets?.clues || [] : undefined,
+      stakes: isStoryReader ? initialStoryAssets?.stakes || [] : undefined,
+      relationshipShifts: isStoryReader ? initialStoryAssets?.relationshipShifts || [] : undefined,
       choiceHistory: isStoryReader ? [] : undefined,
       chapterMemory: isStoryReader ? initialStoryAssets?.chapterMemory || '' : undefined,
       chapterRecap: isStoryReader ? null : undefined,
