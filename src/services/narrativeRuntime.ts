@@ -634,9 +634,12 @@ export function buildChapterRecap(params: {
   nextSceneBeatCount: number;
 }) {
   const previous = params.conversation.scenarioState?.chapterRecap || null;
-  const shouldRefresh = params.openedChoice || params.nextSceneBeatCount >= 4 || !previous;
-  if (!shouldRefresh) return previous;
   const choiceHistory = params.conversation.scenarioState?.choiceHistory || [];
+  const choiceImpacts = choiceHistory.slice(-3).map((choice) => choice.impact).filter(Boolean) as string[];
+  const previousImpacts = new Set(previous?.choiceImpacts || []);
+  const hasNewChoiceImpact = choiceImpacts.some((impact) => !previousImpacts.has(impact));
+  const shouldRefresh = params.openedChoice || params.nextSceneBeatCount >= 4 || hasNewChoiceImpact || !previous;
+  if (!shouldRefresh) return previous;
   const lastChoices = choiceHistory.slice(-3).map((choice) => choice.label).filter(Boolean);
   const summary = compactStoryAssetText(params.storyAssets.chapterMemory || params.summary, 140);
   return {
@@ -647,6 +650,7 @@ export function buildChapterRecap(params: {
     changedRelationships: (params.storyAssets.relationshipShifts || []).slice(-4),
     stakes: (params.storyAssets.stakes || []).slice(-4),
     lastChoiceLabels: lastChoices,
+    ...(choiceImpacts.length ? { choiceImpacts } : {}),
     updatedAt: Date.now(),
     beatCount: params.nextSceneBeatCount,
   };

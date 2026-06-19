@@ -396,7 +396,11 @@ describe('STORY_ENGINE', () => {
     expect(consequenceResult.chatPatch.scenarioState?.choiceHistory?.[0]).toEqual(expect.objectContaining({
       label: '让林医生追问护士昨晚去向',
       outcome: expect.stringContaining('护士承认停电时有人进入档案室'),
+      impact: expect.stringContaining('关系变化：林医生逼问护士后'),
     }));
+    expect(consequenceResult.chatPatch.scenarioState?.chapterRecap?.choiceImpacts).toEqual([
+      expect.stringContaining('关系变化：林医生逼问护士后'),
+    ]);
     expect(consequenceResult.chatPatch.scenarioState?.branches).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: '让主角检查墙上的血迹', status: 'completed', choiceEpoch: 2 }),
     ]));

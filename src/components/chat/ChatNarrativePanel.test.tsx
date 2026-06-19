@@ -202,6 +202,7 @@ describe('ChatNarrativePanel', () => {
           changedRelationships: [`${uuidA} 开始怀疑 ${uuidB}`],
           stakes: ['暴露位置'],
           lastChoiceLabels: [`${uuidA} 追问护士`],
+          choiceImpacts: ['关系变化：护士开始怀疑林医生'],
           updatedAt: 2,
           beatCount: 0,
         },
@@ -224,6 +225,7 @@ describe('ChatNarrativePanel', () => {
     expect(html).toContain('回顾线索');
     expect(html).toContain('回顾悬念');
     expect(html).toContain('回顾选择');
+    expect(html).toContain('回顾影响');
     expect(html).toContain('关键抉择');
     expect(html).toContain('节点 2');
     expect(html).toContain('已选');
@@ -238,6 +240,7 @@ describe('ChatNarrativePanel', () => {
     expect(html).toContain('发现：地下档案室的病历被撕掉一页');
     expect(html).toContain('关系：红太狼 开始怀疑 灰太狼');
     expect(html).toContain('结果：护士承认停电时有人进入档案室');
+    expect(html).toContain('影响：关系变化：护士开始怀疑林医生');
     expect(html).toContain('未解：灰太狼 为什么隐瞒停电记录？');
     expect(html).toContain('当前场景');
     expect(html).toContain('地点：灰太狼 所在的地下档案室');

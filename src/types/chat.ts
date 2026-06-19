@@ -109,6 +109,7 @@ export interface StoryChapterRecapState {
   changedRelationships: string[];
   stakes: string[];
   lastChoiceLabels: string[];
+  choiceImpacts?: string[];
   updatedAt: number;
   beatCount: number;
 }

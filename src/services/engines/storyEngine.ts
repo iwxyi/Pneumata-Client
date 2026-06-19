@@ -218,8 +218,15 @@ function onMessageCommitted(params: {
   const normalized = normalizeStoryBranches(params.conversation, choices);
   const nextEpoch = getCurrentChoiceEpoch({ ...params.conversation, scenarioState: { ...(params.conversation.scenarioState || {}), branches: normalized.branches } });
   const nextSceneBeatCount = normalized.openedChoice ? 0 : Number(params.conversation.scenarioState?.sceneBeatCount || 0) + 1;
+  const nextChoiceHistory = updateChoiceHistoryOutcome(params.conversation, summary, storyAssets);
   const chapterRecap = buildChapterRecap({
-    conversation: params.conversation,
+    conversation: {
+      ...params.conversation,
+      scenarioState: {
+        ...(params.conversation.scenarioState || {}),
+        choiceHistory: nextChoiceHistory,
+      },
+    },
     storyAssets,
     summary,
     openedChoice: normalized.openedChoice,
@@ -229,7 +236,7 @@ function onMessageCommitted(params: {
     ...(params.conversation.scenarioState || {}),
     ...storyAssets,
     chapterRecap,
-    choiceHistory: updateChoiceHistoryOutcome(params.conversation, summary, storyAssets),
+    choiceHistory: nextChoiceHistory,
     phase: normalized.hasOpenChoice ? 'choice' : 'scene',
     sceneBeatCount: nextSceneBeatCount,
     choiceEpoch: nextEpoch,

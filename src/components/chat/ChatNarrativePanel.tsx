@@ -185,9 +185,10 @@ function renderChapterSettlement(chat: GroupChat, members: AICharacter[]) {
     recap.discoveredClues[0] ? `发现：${formatNarrativeLineText(recap.discoveredClues[0], members)}` : '',
     recap.changedRelationships[0] ? `关系：${formatNarrativeLineText(recap.changedRelationships[0], members)}` : '',
     latestChoice?.outcome ? `结果：${formatNarrativeLineText(latestChoice.outcome, members)}` : '',
+    recap.choiceImpacts?.[0] ? `影响：${formatNarrativeLineText(recap.choiceImpacts[0], members)}` : '',
     recap.unresolvedQuestions[0] ? `未解：${formatNarrativeLineText(recap.unresolvedQuestions[0], members)}` : '',
     state.storyGoal ? `下一步：${formatNarrativeLineText(state.storyGoal, members)}` : '',
-  ].filter(Boolean).slice(0, 4);
+  ].filter(Boolean).slice(0, 5);
   if (!rows.length) return null;
   const sceneLabel = [
     state.currentScene?.time ? formatNarrativeLineText(state.currentScene.time, members) : '',
@@ -436,6 +437,7 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDe
             {renderAssetChips('回顾关系', recap.changedRelationships, members)}
             {renderAssetChips('回顾代价', recap.stakes, members)}
             {renderAssetChips('回顾选择', recap.lastChoiceLabels, members)}
+            {renderAssetChips('回顾影响', recap.choiceImpacts, members)}
           </>
         ) : null}
         {state.chapterMemory ? (
