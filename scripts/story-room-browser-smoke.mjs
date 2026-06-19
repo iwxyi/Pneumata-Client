@@ -88,6 +88,8 @@ const seedStoryRoomExpression = String.raw`
     { useMessageStore },
     { useCharacterStore },
     { useAuthStore },
+    { useSettingsStore },
+    { useUIStore },
     { flushBufferedPersistenceWrites },
     { normalizeConversation },
     characterTypes,
@@ -97,6 +99,8 @@ const seedStoryRoomExpression = String.raw`
     import('/src/stores/useMessageStore.ts'),
     import('/src/stores/useCharacterStore.ts'),
     import('/src/stores/useAuthStore.ts'),
+    import('/src/stores/useSettingsStore.ts'),
+    import('/src/stores/useUIStore.ts'),
     import('/src/stores/storePersistenceScope.ts'),
     import('/src/types/chat.ts'),
     import('/src/types/character.ts'),
@@ -161,7 +165,7 @@ const seedStoryRoomExpression = String.raw`
     { id: 'lin', name: '林医生' },
     { id: 'nurse', name: '护士' },
   ];
-  const buildStoryEventMessage = ({ id, timestamp, events, extraBlocks = [] }) => {
+  const buildStoryEventMessage = ({ id, timestamp, events, extraBlocks = [], storyQuality = null }) => {
     const storyEvents = narrativeRuntime.normalizeStoryEvents(events);
     const narrativeTurn = narrativeRuntime.buildNarrativeTurnFromStoryEvents({
       conversation: chat,
@@ -181,6 +185,7 @@ const seedStoryRoomExpression = String.raw`
       metadata: {
         storyEvents,
         storyChoices: narrativeRuntime.getStoryChoicesFromEvents(storyEvents),
+        ...(storyQuality ? { storyQuality } : {}),
         narrativeTurn: narrativeTurn ? {
           ...narrativeTurn,
           blocks: [...narrativeTurn.blocks, ...extraBlocks],
@@ -196,6 +201,11 @@ const seedStoryRoomExpression = String.raw`
         { type: 'narration', text: '雨水顺着旧医院走廊的窗缝往下流，墙上的新鲜血迹还没有干。' },
         { type: 'speech', characterId: 'lin', text: '不要碰那道血迹，先看护士的反应。' },
       ],
+      storyQuality: {
+        score: 72,
+        labels: ['has_narration', 'has_speech', 'has_story_hook'],
+        gaps: ['weak_concrete_scene'],
+      },
     }),
     buildStoryEventMessage({
       id: 'choice-source',
@@ -245,7 +255,15 @@ const seedStoryRoomExpression = String.raw`
     useChatStore.persist.hasHydrated() ? undefined : useChatStore.persist.rehydrate(),
     useMessageStore.persist.hasHydrated() ? undefined : useMessageStore.persist.rehydrate(),
     useCharacterStore.persist.hasHydrated() ? undefined : useCharacterStore.persist.rehydrate(),
+    useSettingsStore.persist.hasHydrated() ? undefined : useSettingsStore.persist.rehydrate(),
+    useUIStore.persist.hasHydrated() ? undefined : useUIStore.persist.rehydrate(),
   ]);
+  useSettingsStore.setState((state) => ({
+    ...state,
+    developerMode: false,
+    developerUI: { ...state.developerUI, showAdvancedRuntimePanels: false },
+  }));
+  useUIStore.setState((state) => ({ ...state, rightPanelOpen: true, rightPanelTab: 'narrative' }));
   useCharacterStore.setState({
     characters: [
       { ...baseCharacter, id: 'lin', name: '林医生' },
@@ -349,6 +367,12 @@ async function main() {
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
     await cdp.send('Log.enable');
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: 1440,
+      height: 1100,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
     await cdp.send('Page.navigate', { url: `${CLIENT_URL}/chats` });
     await wait(1500);
     await evaluate(cdp, seedStoryRoomExpression, true);
@@ -361,6 +385,7 @@ async function main() {
       messageTypes: Array.from(document.querySelectorAll('[data-message-type]')).map((node) => node.getAttribute('data-message-type')),
       hasDiagnosticText: document.body.innerText.includes('新的抉择点'),
       hasDeveloperChoiceMeta: /意图[：:]|风险[：:]|收益[：:]/.test(document.body.innerText),
+      hasStoryQuality: document.body.innerText.includes('故事质量') || document.body.innerText.includes('质量 72'),
       hasContinueButton: Array.from(document.querySelectorAll('button')).some((button) => button.innerText.includes('继续剧情')),
       hasChoicePrompt: document.body.innerText.includes('选择接下来的剧情走向'),
       hasSpeech: document.body.innerText.includes('不要碰那道血迹')
@@ -370,8 +395,62 @@ async function main() {
     assertCondition(before.hasSpeech, 'Story speech bubble text was not visible before choosing', before);
     assertCondition(!before.hasDiagnosticText, 'Developer-only story diagnostic text leaked to normal UI', before);
     assertCondition(!before.hasDeveloperChoiceMeta, 'Developer-only story choice meta leaked to normal UI', before);
+    assertCondition(!before.hasStoryQuality, 'Developer-only story quality trace leaked to normal UI', before);
     assertCondition(!before.hasContinueButton, 'Story room exposed a continue button instead of auto-running', before);
     assertCondition(before.buttons.includes('让林医生追问护士昨晚去向'), 'Expected story choice button was missing', before.buttons);
+    await evaluate(cdp, `Promise.all([
+      import('/src/stores/useSettingsStore.ts'),
+      import('/src/stores/useUIStore.ts'),
+    ]).then(([{ useSettingsStore }, { useUIStore }]) => {
+      useSettingsStore.setState((state) => ({
+        ...state,
+        developerMode: true,
+        developerUI: { ...state.developerUI, showAdvancedRuntimePanels: true },
+      }));
+      useUIStore.setState((state) => ({ ...state, rightPanelOpen: true, rightPanelTab: 'narrative' }));
+      return 'developer-story-quality-enabled';
+    })`, true);
+    await wait(300);
+    const narrativeTabState = JSON.parse(await evaluate(cdp, `Promise.all([
+      import('/src/stores/useUIStore.ts'),
+    ]).then(([{ useUIStore }]) => {
+      const buttons = Array.from(document.querySelectorAll('button')).map((button) => button.innerText.trim()).filter(Boolean);
+      const narrativeTab = Array.from(document.querySelectorAll('button')).find((button) => button.innerText.includes('叙事线'));
+      if (narrativeTab) narrativeTab.click();
+      return JSON.stringify({
+        clicked: Boolean(narrativeTab),
+        buttons,
+        ui: {
+          rightPanelOpen: useUIStore.getState().rightPanelOpen,
+          rightPanelTab: useUIStore.getState().rightPanelTab,
+        },
+        text: document.body.innerText.slice(0, 1800),
+      });
+    })`, true));
+    assertCondition(narrativeTabState.clicked, 'Story narrative sidebar tab was not available for quality diagnostics', narrativeTabState);
+    await wait(500);
+    const developerQuality = JSON.parse(await evaluate(cdp, `JSON.stringify({
+      text: document.body.innerText,
+      hasStoryQuality: document.body.innerText.includes('故事质量') && document.body.innerText.includes('质量 72'),
+      hasStoryQualityLabel: document.body.innerText.includes('旁白') && document.body.innerText.includes('气泡') && document.body.innerText.includes('悬念钩子'),
+      hasStoryQualityGap: document.body.innerText.includes('待补：场景细节弱')
+    })`));
+    assertCondition(developerQuality.hasStoryQuality, 'Developer advanced mode did not show story quality score', developerQuality);
+    assertCondition(developerQuality.hasStoryQualityLabel, 'Developer advanced mode did not show story quality labels', developerQuality);
+    assertCondition(developerQuality.hasStoryQualityGap, 'Developer advanced mode did not show story quality gaps', developerQuality);
+    await evaluate(cdp, `Promise.all([
+      import('/src/stores/useSettingsStore.ts'),
+      import('/src/stores/useUIStore.ts'),
+    ]).then(([{ useSettingsStore }, { useUIStore }]) => {
+      useSettingsStore.setState((state) => ({
+        ...state,
+        developerMode: false,
+        developerUI: { ...state.developerUI, showAdvancedRuntimePanels: false },
+      }));
+      useUIStore.setState((state) => ({ ...state, rightPanelOpen: false, rightPanelTab: 'members' }));
+      return 'developer-story-quality-disabled';
+    })`, true);
+    await wait(500);
     const choiceSourceMetadata = JSON.parse(await evaluate(cdp, `import('/src/stores/useMessageStore.ts').then(({ useMessageStore }) => {
       const message = useMessageStore.getState().messages.find((item) => item.id === 'choice-source');
       return JSON.stringify({
