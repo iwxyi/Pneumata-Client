@@ -161,6 +161,58 @@ describe('narrativeRuntime', () => {
     ]);
   });
 
+  it('drops near-duplicate story text from previous narrative messages while keeping new progress', () => {
+    const previousMessages = [{
+      id: 'previous-story',
+      chatId: 'story-1',
+      type: 'ai' as const,
+      senderId: 'narrator',
+      senderName: '旁白',
+      content: '月奴的脊背在听见这句话的瞬间僵了一下，像一根被突然拉紧的琴弦。她没有立刻转身，而是先把手里的粥碗在矮几上端端正正地摆好。',
+      emotion: 0,
+      timestamp: 1,
+      isDeleted: false,
+      metadata: {
+        narrativeTurn: {
+          turnId: 'previous-turn',
+          turnKind: 'narrative_beat' as const,
+          povActorId: 'narrator',
+          blocks: [
+            {
+              id: 'previous-prose',
+              actorId: 'narrator',
+              actorKind: 'narrator' as const,
+              kind: 'prose' as const,
+              displayMode: 'paragraph' as const,
+              text: '月奴的脊背在听见这句话的瞬间僵了一下，像一根被突然拉紧的琴弦。她没有立刻转身，而是先把手里的粥碗在矮几上端端正正地摆好。',
+            },
+            {
+              id: 'previous-speech',
+              actorId: 'nurse',
+              actorKind: 'character' as const,
+              kind: 'dialogue' as const,
+              displayMode: 'bubble' as const,
+              characterId: 'nurse',
+              text: '回小姐，奴婢铺床的时候，没觉得有什么不平整的。',
+            },
+          ],
+        },
+      },
+    }];
+
+    const events = normalizeStoryEvents([
+      { type: 'narration', text: '月奴的脊背在听见这句话的瞬间僵了一下，像一根被突然拉紧的琴弦。她没有立刻转身，而是先把粥碗端端正正搁在矮几上。' },
+      { type: 'speech', characterId: 'nurse', text: '回小姐……奴婢铺床的时候，没觉得有什么不平整的。' },
+      { type: 'narration', text: '门外忽然响起第二个人的脚步声，月奴的脸色终于变了。' },
+      { type: 'speech', characterId: 'lin', text: '外面还有人。' },
+    ], { previousMessages });
+
+    expect(events).toEqual([
+      { type: 'narration', text: '门外忽然响起第二个人的脚步声，月奴的脸色终于变了。' },
+      { type: 'speech', characterId: 'lin', speakerName: undefined, text: '外面还有人。' },
+    ]);
+  });
+
   it('plans story beats and normalizes choices as reusable narrative runtime state', () => {
     const decisionChat = normalizeConversation({
       ...chat,

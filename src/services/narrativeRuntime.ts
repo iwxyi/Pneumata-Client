@@ -26,6 +26,10 @@ export interface StoryAssetPatch {
   storySituation?: string;
 }
 
+export interface NormalizeStoryEventsOptions {
+  previousMessages?: Array<Pick<Message, 'content' | 'metadata' | 'senderId' | 'senderName' | 'type'>>;
+}
+
 function compactText(value: unknown, max = 1200) {
   if (typeof value !== 'string') return '';
   return value.replace(/\s+/g, ' ').trim().slice(0, max).trim();
@@ -106,11 +110,43 @@ function isAuthorNoteStoryText(text: string) {
   ].some((pattern) => pattern.test(normalized));
 }
 
-export function normalizeStoryEvents(value: unknown): StoryEvent[] {
+function collectHistoricalStoryText(message: Pick<Message, 'content' | 'metadata'>) {
+  const blocks = message.metadata?.narrativeTurn?.blocks || [];
+  const blockTexts = blocks
+    .filter((block) => block.displayMode !== 'hidden' && block.displayMode !== 'system_panel' && block.displayMode !== 'choice_card')
+    .map((block) => compactText(block.text, 1200))
+    .filter(Boolean);
+  const content = compactText(message.content, 1200);
+  return Array.from(new Set([...blockTexts, content])).filter(Boolean);
+}
+
+function collectHistoricalSpeechTextsByActor(messages: NormalizeStoryEventsOptions['previousMessages']) {
+  const speechTextsByActor = new Map<string, string[]>();
+  for (const message of messages || []) {
+    const blocks = message.metadata?.narrativeTurn?.blocks || [];
+    for (const block of blocks) {
+      if (block.actorKind !== 'character' || block.displayMode !== 'bubble') continue;
+      const speakerKey = block.characterId || block.actorId || block.actorName || 'unknown';
+      const text = compactText(block.text, 600);
+      if (!text) continue;
+      speechTextsByActor.set(speakerKey, [...(speechTextsByActor.get(speakerKey) || []), text]);
+    }
+    if (message.type === 'ai' && !blocks.length) {
+      const text = compactText(message.content, 600);
+      if (!text) continue;
+      const speakerKey = message.senderId || message.senderName || 'unknown';
+      speechTextsByActor.set(speakerKey, [...(speechTextsByActor.get(speakerKey) || []), text]);
+    }
+  }
+  return speechTextsByActor;
+}
+
+export function normalizeStoryEvents(value: unknown, options: NormalizeStoryEventsOptions = {}): StoryEvent[] {
   if (!Array.isArray(value)) return [];
   const events: StoryEvent[] = [];
-  const narrationTexts: string[] = [];
-  const speechTextsByActor = new Map<string, string[]>();
+  const narrationTexts: string[] = (options.previousMessages || [])
+    .flatMap((message) => collectHistoricalStoryText(message));
+  const speechTextsByActor = collectHistoricalSpeechTextsByActor(options.previousMessages);
   for (const raw of value.slice(0, MAX_STORY_EVENTS)) {
     if (!raw || typeof raw !== 'object') continue;
     const item = raw as Record<string, unknown>;

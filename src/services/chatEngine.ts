@@ -2032,7 +2032,7 @@ async function generateWithPrompt(params: {
   );
   logRawAiResponse({ chat: params.chat, speaker: params.speaker, attempt: params.attempt, response });
   const parsedEnvelope = parseInlineInteractionEnvelope(response);
-  const storyEvents = normalizeStoryEvents(parsedEnvelope?.storyEvents);
+  const storyEvents = normalizeStoryEvents(parsedEnvelope?.storyEvents, { previousMessages: params.activeMessages });
   const storyEventContent = storyEvents.length ? buildStoryEventsVisibleText(storyEvents, params.characters || []) : '';
   const rawContent = storyEventContent || (parsedEnvelope ? parsedEnvelope.content : isLikelyInlineEnvelopeResponse(response) ? '' : response);
   const rawNarrativeText = typeof parsedEnvelope?.narrativeText === 'string' ? parsedEnvelope.narrativeText : '';
@@ -2554,7 +2554,7 @@ Current speaking intent:
       forcedMediaQueued,
     } satisfies GuidanceExecutionTrace
     : undefined;
-  const storyEvents = normalizeStoryEvents(generated.storyEvents);
+  const storyEvents = normalizeStoryEvents(generated.storyEvents, { previousMessages: activeMessages });
   const storyChoicesFromEvents = getStoryChoicesFromEvents(storyEvents);
   const legacyStoryChoices = normalizeStoryChoiceSuggestions(generated.parsedEnvelope?.storyChoices || null);
   const storyChoices = storyChoicesFromEvents.length ? storyChoicesFromEvents : legacyStoryChoices;
