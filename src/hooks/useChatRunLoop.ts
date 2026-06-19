@@ -13,6 +13,40 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useSchedulerStore } from '../stores/useSchedulerStore';
 
+export type ConversationLoopStartBlockReason = 'direct_chat' | 'waiting_story_choice' | 'already_active';
+
+export function getConversationLoopStartBlockReason(params: {
+  conversationType?: GroupChat['type'] | null;
+  isRunning: boolean;
+  isPaused: boolean;
+  isStoryChoiceBlocked: boolean;
+  hasActiveLoop: boolean;
+}): ConversationLoopStartBlockReason | null {
+  if (params.conversationType === 'direct') return 'direct_chat';
+  if (params.isStoryChoiceBlocked) return 'waiting_story_choice';
+  if (params.isRunning && !params.isPaused && params.hasActiveLoop) return 'already_active';
+  return null;
+}
+
+export function shouldSkipConversationLoopStart(params: {
+  isRunning: boolean;
+  isPaused: boolean;
+  isStoryChoiceBlocked: boolean;
+  hasActiveLoop: boolean;
+}) {
+  return getConversationLoopStartBlockReason({ ...params, conversationType: 'group' }) === 'already_active';
+}
+
+export function shouldStartConversationLoop(params: {
+  conversationType?: GroupChat['type'] | null;
+  isRunning: boolean;
+  isPaused: boolean;
+  isStoryChoiceBlocked: boolean;
+  hasActiveLoop: boolean;
+}) {
+  return getConversationLoopStartBlockReason(params) === null;
+}
+
 export function useChatRunLoop(params: {
   chat: GroupChat | undefined;
   chatId: string | undefined;
@@ -99,21 +133,7 @@ export function useChatRunLoop(params: {
           });
           const storyChoice = getOpenStoryChoiceState(latestChat, latestMessages);
           const manualInputPending = current.isManualInputPending() && !current.streamingMessageRef.current && pendingCommitCountRef.current === 0;
-          const paused = current.isPausedRef.current || Boolean(storyChoice) || manualInputPending;
-          if (paused && typeof console !== 'undefined' && typeof console.debug === 'function') {
-            console.debug('[chat-run-loop:paused]', {
-              chatId: current.chatId,
-              loopId,
-              manualPaused: current.isPausedRef.current,
-              storyChoice,
-              manualInputPending,
-              pendingCommitCount: pendingCommitCountRef.current,
-              pendingTurnWorkCount: pendingTurnWorkCountRef.current,
-              streamingMessageId: current.streamingMessageRef.current?.id || null,
-              phase: latestChat?.scenarioState?.phase || null,
-            });
-          }
-          return paused;
+          return current.isPausedRef.current || Boolean(storyChoice) || manualInputPending;
         },
         isActiveLoop: (currentLoopId) => current.activeChatIdRef.current === current.chatId && current.loopTokenRef.current === currentLoopId,
         onCommitSettled: isCommitSettled,
@@ -235,7 +255,6 @@ export function useChatRunLoop(params: {
 
   const startConversationLoopIfNeeded = useCallback((conversationChat: GroupChat) => {
     const current = paramsRef.current;
-    if (conversationChat.type === 'direct') return;
     const latestMessages = projectCurrentChatMessages({
       chatId: conversationChat.id,
       activeMessages: useMessageStore.getState().messages,
@@ -243,16 +262,18 @@ export function useChatRunLoop(params: {
     });
     const storyChoice = getOpenStoryChoiceState(conversationChat, latestMessages);
     const isStoryChoiceBlocked = Boolean(storyChoice);
-    if (isStoryChoiceBlocked && typeof console !== 'undefined' && typeof console.debug === 'function') {
-      console.debug('[chat-run-loop:waiting-story-choice]', {
-        chatId: conversationChat.id,
-        storyChoice,
-        phase: conversationChat.scenarioState?.phase || null,
-      });
-    }
-    if (current.isRunningRef.current && !current.isPausedRef.current && !isStoryChoiceBlocked) return;
+    const hasActiveLoop = Boolean(activeRunLoopTokenRef.current)
+      && current.loopTokenRef.current === activeRunLoopTokenRef.current;
+    const blockReason = getConversationLoopStartBlockReason({
+      conversationType: conversationChat.type,
+      isRunning: current.isRunningRef.current,
+      isPaused: current.isPausedRef.current,
+      isStoryChoiceBlocked,
+      hasActiveLoop,
+    });
+    if (blockReason) return blockReason;
     const run = runLoopRef.current;
-    if (!run) return;
+    if (!run) return null;
     current.resetAllCooldowns();
     const newLoopToken = `${conversationChat.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     current.loopTokenRef.current = newLoopToken;
@@ -262,6 +283,7 @@ export function useChatRunLoop(params: {
     current.start(newLoopToken);
     current.updateChat(conversationChat.id, { isActive: true });
     window.setTimeout(() => void run(newLoopToken), 100);
+    return null;
   }, []);
 
   const resetRunLoopUiState = useCallback(() => {

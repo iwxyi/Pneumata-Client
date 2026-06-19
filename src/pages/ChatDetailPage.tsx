@@ -35,7 +35,7 @@ import { useAuthStore } from '../stores/useAuthStore';
 import { useCurrentChatMessages } from '../hooks/useCurrentChatMessages';
 import { useManualInputQueue } from '../hooks/useManualInputQueue';
 import { useStreamingMessageState } from '../hooks/useStreamingMessageState';
-import { useChatRunLoop } from '../hooks/useChatRunLoop';
+import { getConversationLoopStartBlockReason, useChatRunLoop } from '../hooks/useChatRunLoop';
 import { useChatSidebarProjection } from '../hooks/useChatSidebarProjection';
 import { useMessageAnalysis } from '../hooks/useMessageAnalysis';
 import { useChatSurfaceActions } from '../hooks/useChatSurfaceActions';
@@ -114,15 +114,9 @@ export function shouldAutoStartStoryRoom(params: {
   isStoryChoiceSubmitting: boolean;
   hasRunLoopError: boolean;
 }) {
-  return params.hasChat
-    && params.hasChatId
-    && params.canAutoRunConversation
-    && params.isStoryRoom
-    && !params.isRunning
-    && !params.isPaused
-    && !params.isStoryWaitingForChoice
-    && !params.isStoryChoiceSubmitting
-    && !params.hasRunLoopError;
+  // Story rooms must enter and refresh in a paused state. The runtime resumes only after an explicit reader action.
+  void params;
+  return false;
 }
 
 function getNarrativeRevealIdentityKeys(message: Message) {
@@ -1257,36 +1251,23 @@ export default function ChatDetailPage() {
 
   const canAutoRunConversation = chat?.type !== 'direct' && !isRemoteDeletedChat;
 
-  useEffect(() => {
-    if (!shouldAutoStartStoryRoom({
-      hasChat: Boolean(chat),
-      hasChatId: Boolean(id),
-      canAutoRunConversation: Boolean(canAutoRunConversation),
-      isStoryRoom,
-      isRunning,
-      isPaused,
-      isStoryWaitingForChoice,
-      isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
-      hasRunLoopError: Boolean(chatError || runLoopError),
-    })) return;
-    if (!chat) return;
-    startConversationLoopIfNeeded(chat);
-  }, [
-    canAutoRunConversation,
-    chat,
-    chatError,
-    id,
-    isCurrentStoryChoiceSubmitting,
-    isPaused,
-    isRunning,
-    isStoryRoom,
-    isStoryWaitingForChoice,
-    runLoopError,
-    startConversationLoopIfNeeded,
-  ]);
-
   const handleHeaderPrimaryAction = useCallback(() => {
     if (!chat || !id || !canAutoRunConversation) return;
+    const blockReason = getConversationLoopStartBlockReason({
+      conversationType: chat.type,
+      isRunning,
+      isPaused,
+      isStoryChoiceBlocked: isStoryWaitingForChoice,
+      hasActiveLoop: false,
+    });
+    if (blockReason === 'waiting_story_choice') {
+      isRunningRef.current = false;
+      isPausedRef.current = false;
+      stop();
+      void updateChat(id, { isActive: false });
+      setSnackbar({ open: true, message: '请先选择一个剧情走向', severity: 'error' });
+      return;
+    }
     if (!isRunning || isPaused) {
       resume();
       startConversationLoopIfNeeded(chat);
@@ -1295,7 +1276,7 @@ export default function ChatDetailPage() {
       pause();
       updateChat(id, { isActive: false });
     }
-  }, [canAutoRunConversation, chat, id, isPaused, isRunning, pause, resume, startConversationLoopIfNeeded, updateChat]);
+  }, [canAutoRunConversation, chat, id, isPaused, isRunning, isStoryWaitingForChoice, pause, resume, startConversationLoopIfNeeded, stop, updateChat]);
 
   const headerPrimaryActionButton = canAutoRunConversation ? (
     <IconButton onClick={handleHeaderPrimaryAction} color={isRunning && !isPaused ? 'primary' : 'default'}>

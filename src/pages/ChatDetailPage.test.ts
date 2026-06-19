@@ -153,7 +153,7 @@ describe('ChatDetailPage pause/resume behavior', () => {
     });
   });
 
-  it('auto-starts story rooms only when the story is ready to keep running', () => {
+  it('does not auto-start story rooms when entering or refreshing the page', () => {
     const base = {
       hasChat: true,
       hasChatId: true,
@@ -166,7 +166,7 @@ describe('ChatDetailPage pause/resume behavior', () => {
       hasRunLoopError: false,
     };
 
-    expect(shouldAutoStartStoryRoom(base)).toBe(true);
+    expect(shouldAutoStartStoryRoom(base)).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, isStoryWaitingForChoice: true })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, isStoryChoiceSubmitting: true })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, isPaused: true })).toBe(false);
