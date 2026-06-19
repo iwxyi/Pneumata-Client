@@ -54,7 +54,7 @@ describe('STORY_ENGINE', () => {
       message: { content: '暗线继续推进', type: 'ai', senderId: 'a' },
     });
     const scenarioState = result.chatPatch.scenarioState;
-    expect(scenarioState).toEqual(expect.objectContaining({ phase: 'scene', choiceEpoch: 1, selectedChoiceEpoch: 1, sceneBeatCount: 1 }));
+    expect(scenarioState).toEqual(expect.objectContaining({ phase: 'scene', choiceEpoch: 1, selectedChoiceEpoch: undefined, sceneBeatCount: 1 }));
     expect(scenarioState?.branches?.filter((branch) => branch.status === 'available' && branch.choiceEpoch === 2)).toHaveLength(0);
   });
 
@@ -337,7 +337,7 @@ describe('STORY_ENGINE', () => {
     expect(consequenceResult.chatPatch.scenarioState).toEqual(expect.objectContaining({
       phase: 'scene',
       choiceEpoch: 2,
-      selectedChoiceEpoch: 2,
+      selectedChoiceEpoch: undefined,
       selectedChoice: null,
       sceneBeatCount: 1,
       storyBeatKind: 'pressure',

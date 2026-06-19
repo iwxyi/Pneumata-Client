@@ -112,6 +112,22 @@ describe('narrativeRuntime', () => {
     ]));
   });
 
+  it('drops near-duplicate story event text within one model response', () => {
+    const events = normalizeStoryEvents([
+      { type: 'narration', text: '月奴的脊背在听见这句话的瞬间僵了一下，像一根被突然拉紧的琴弦。她没有立刻转身，而是先把手里的粥碗在矮几上端端正正地摆好。' },
+      { type: 'narration', text: '月奴的脊背在听见这句话的瞬间僵了一下，像一根被突然拉紧的琴弦。她没有立刻转身，而是先把手里的粥碗在矮几上摆好，才慢慢回过身来。' },
+      { type: 'speech', characterId: 'nurse', text: '回小姐，奴婢铺床的时候，没觉得有什么不平整的。' },
+      { type: 'speech', characterId: 'nurse', text: '回小姐……奴婢铺床的时候，没觉得有什么不平整的。' },
+      { type: 'narration', text: '窗外传来扫院子的沙沙声，天光已经从青白变成了淡金。' },
+    ]);
+
+    expect(events).toEqual([
+      { type: 'narration', text: '月奴的脊背在听见这句话的瞬间僵了一下，像一根被突然拉紧的琴弦。她没有立刻转身，而是先把手里的粥碗在矮几上端端正正地摆好。' },
+      { type: 'speech', characterId: 'nurse', speakerName: undefined, text: '回小姐，奴婢铺床的时候，没觉得有什么不平整的。' },
+      { type: 'narration', text: '窗外传来扫院子的沙沙声，天光已经从青白变成了淡金。' },
+    ]);
+  });
+
   it('plans story beats and normalizes choices as reusable narrative runtime state', () => {
     const decisionChat = normalizeConversation({
       ...chat,

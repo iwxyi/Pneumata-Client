@@ -237,6 +237,7 @@ export default function ChatDetailPage() {
   const isRunningRef = useRef(false);
   const isPausedRef = useRef(false);
   const loadingMoreRef = useRef(false);
+  const pendingStoryChoiceRef = useRef<string | null>(null);
   const activeChatIdRef = useRef<string | null>(id ?? null);
   const isManualInputPendingRef = useRef<() => boolean>(() => false);
   const userDraftActivityRef = useRef<UserDraftActivity | null>(null);
@@ -849,6 +850,9 @@ export default function ChatDetailPage() {
     },
     [chat?.scenarioState?.branches, chat?.scenarioState?.choiceEpoch, storyChoiceSourceMessage],
   );
+  useEffect(() => {
+    if (!isStoryRoom || chat?.scenarioState?.phase !== 'choice') pendingStoryChoiceRef.current = null;
+  }, [chat?.scenarioState?.phase, isStoryRoom]);
   const visibleActionPanelActions = useMemo(
     () => (projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions)
       .filter((action) => action.type !== 'choose_story_branch'),
@@ -883,43 +887,52 @@ export default function ChatDetailPage() {
     const branchId = selectedBranch?.branchId || optionValue;
     const storyDirection = selectedBranch?.prompt || selectedBranch?.description || option?.prompt || option?.label || chat.scenarioState?.storyDirection;
     const choiceLabel = option?.label || selectedBranch?.label || storyDirection || branchId;
-    const choiceMessage = await addMessageStable({
-      chatId: id,
-      type: 'user',
-      senderId: 'user',
-      senderName: currentUser?.nickname?.trim() || '我',
-      content: `我选择：${choiceLabel}`,
-      emotion: 0,
-      timestamp: getNextMessageTimestamp(),
-      metadata: {
-        storyChoiceSelection: {
-          branchId,
-          sourceMessageId: storyChoiceSourceMessage?.id,
-          label: choiceLabel,
-          prompt: storyDirection || null,
-          intent: option?.intent || selectedBranch?.intent || null,
-          risk: option?.risk || selectedBranch?.risk || null,
-          reward: option?.reward || selectedBranch?.reward || null,
-          choiceEpoch: chat.scenarioState?.choiceEpoch,
+    const choiceKey = `${id}:${chat.scenarioState?.choiceEpoch || 0}:${storyChoiceSourceMessage?.id || ''}:${branchId}`;
+    if (pendingStoryChoiceRef.current === choiceKey) return;
+    pendingStoryChoiceRef.current = choiceKey;
+    let actionSucceeded = false;
+    try {
+      const choiceMessage = await addMessageStable({
+        chatId: id,
+        type: 'user',
+        senderId: 'user',
+        senderName: currentUser?.nickname?.trim() || '我',
+        content: `我选择：${choiceLabel}`,
+        emotion: 0,
+        timestamp: getNextMessageTimestamp(),
+        metadata: {
+          storyChoiceSelection: {
+            branchId,
+            sourceMessageId: storyChoiceSourceMessage?.id,
+            label: choiceLabel,
+            prompt: storyDirection || null,
+            intent: option?.intent || selectedBranch?.intent || null,
+            risk: option?.risk || selectedBranch?.risk || null,
+            reward: option?.reward || selectedBranch?.reward || null,
+            choiceEpoch: chat.scenarioState?.choiceEpoch,
+          },
         },
-      },
-    });
-    void updateChat(id, { lastMessageAt: choiceMessage.timestamp, latestMessage: choiceMessage });
-    const actionResult = await runSessionAction({ type: 'choose_story_branch', actorId: 'user' }, { branchId, prompt: storyDirection });
-    const nextChat = actionResult?.chatPatch ? {
-      ...chat,
-      ...actionResult.chatPatch,
-      scenarioState: {
-        ...(chat.scenarioState || {}),
-        ...(actionResult.chatPatch.scenarioState || {}),
-      },
-      worldState: {
-        ...chat.worldState,
-        ...(actionResult.chatPatch.worldState || {}),
-      },
-    } : chat;
-    await updateChat(id, actionResult?.chatPatch || {});
-    startConversationLoopIfNeeded(nextChat);
+      });
+      void updateChat(id, { lastMessageAt: choiceMessage.timestamp, latestMessage: choiceMessage });
+      const actionResult = await runSessionAction({ type: 'choose_story_branch', actorId: 'user' }, { branchId, prompt: storyDirection });
+      actionSucceeded = true;
+      const nextChat = actionResult?.chatPatch ? {
+        ...chat,
+        ...actionResult.chatPatch,
+        scenarioState: {
+          ...(chat.scenarioState || {}),
+          ...(actionResult.chatPatch.scenarioState || {}),
+        },
+        worldState: {
+          ...chat.worldState,
+          ...(actionResult.chatPatch.worldState || {}),
+        },
+      } : chat;
+      await updateChat(id, actionResult?.chatPatch || {});
+      startConversationLoopIfNeeded(nextChat);
+    } finally {
+      if (!actionSucceeded && pendingStoryChoiceRef.current === choiceKey) pendingStoryChoiceRef.current = null;
+    }
   }, [addMessageStable, chat, currentUser?.nickname, getNextMessageTimestamp, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, storyChoiceSourceMessage?.id, updateChat]);
   const storyBranchSuggestionContent = runLoopStatusContent || canContinueStory ? (
     <>

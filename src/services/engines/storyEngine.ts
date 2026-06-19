@@ -233,7 +233,7 @@ function onMessageCommitted(params: {
     phase: normalized.hasOpenChoice ? 'choice' : 'scene',
     sceneBeatCount: nextSceneBeatCount,
     choiceEpoch: nextEpoch,
-    selectedChoiceEpoch: normalized.openedChoice ? undefined : params.conversation.scenarioState?.selectedChoiceEpoch,
+    selectedChoiceEpoch: normalized.openedChoice || params.conversation.scenarioState?.phase === 'branch' ? undefined : params.conversation.scenarioState?.selectedChoiceEpoch,
     selectedChoice: params.conversation.scenarioState?.phase === 'branch' ? null : params.conversation.scenarioState?.selectedChoice,
     branches: normalized.branches,
   };

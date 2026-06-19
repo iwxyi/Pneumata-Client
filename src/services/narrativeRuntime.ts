@@ -62,16 +62,63 @@ function normalizeStoryChoices(value: unknown): StoryChoiceSuggestion[] {
   return choices;
 }
 
+function normalizeRepeatText(text: string) {
+  return text
+    .replace(/\s+/g, '')
+    .replace(/[，。！？、；：“”"'‘’（）()[\]{}《》<>…—\-.,!?;:]/g, '')
+    .trim();
+}
+
+function buildNgrams(text: string, size = 3) {
+  const grams = new Set<string>();
+  if (text.length <= size) {
+    if (text) grams.add(text);
+    return grams;
+  }
+  for (let index = 0; index <= text.length - size; index += 1) {
+    grams.add(text.slice(index, index + size));
+  }
+  return grams;
+}
+
+function textSimilarity(left: string, right: string) {
+  const a = buildNgrams(normalizeRepeatText(left));
+  const b = buildNgrams(normalizeRepeatText(right));
+  if (!a.size || !b.size) return 0;
+  let overlap = 0;
+  a.forEach((gram) => {
+    if (b.has(gram)) overlap += 1;
+  });
+  return overlap / Math.min(a.size, b.size);
+}
+
+function isNearDuplicateStoryText(text: string, previousTexts: string[], minLength = 28) {
+  const normalized = normalizeRepeatText(text);
+  if (normalized.length < minLength) return false;
+  return previousTexts.some((previous) => {
+    const previousNormalized = normalizeRepeatText(previous);
+    if (previousNormalized.length < minLength) return false;
+    if (previousNormalized.includes(normalized) || normalized.includes(previousNormalized)) return true;
+    if (previousNormalized.slice(0, 36) === normalized.slice(0, 36)) return true;
+    return textSimilarity(normalized, previousNormalized) >= 0.72;
+  });
+}
+
 export function normalizeStoryEvents(value: unknown): StoryEvent[] {
   if (!Array.isArray(value)) return [];
   const events: StoryEvent[] = [];
+  const narrationTexts: string[] = [];
+  const speechTextsByActor = new Map<string, string[]>();
   for (const raw of value.slice(0, MAX_STORY_EVENTS)) {
     if (!raw || typeof raw !== 'object') continue;
     const item = raw as Record<string, unknown>;
     const type = item.type;
     if (type === 'narration') {
       const text = compactText(item.text, 1600);
-      if (text) events.push({ type, text });
+      if (text && !isNearDuplicateStoryText(text, narrationTexts)) {
+        events.push({ type, text });
+        narrationTexts.push(text);
+      }
       continue;
     }
     if (type === 'speech') {
@@ -79,6 +126,10 @@ export function normalizeStoryEvents(value: unknown): StoryEvent[] {
       if (!text) continue;
       const characterId = compactText(item.characterId, 80) || compactText(item.actorId, 80);
       const speakerName = compactText(item.speakerName, 80) || compactText(item.actorName, 80);
+      const speakerKey = characterId || speakerName || 'unknown';
+      const previousSpeechTexts = speechTextsByActor.get(speakerKey) || [];
+      if (isNearDuplicateStoryText(text, previousSpeechTexts, 14)) continue;
+      speechTextsByActor.set(speakerKey, [...previousSpeechTexts, text]);
       events.push({
         type,
         text,

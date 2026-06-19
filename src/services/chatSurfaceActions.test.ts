@@ -273,6 +273,39 @@ describe('chatSurfaceActions', () => {
     expect(context.appendEventMessage).toHaveBeenCalledWith(chat.id, expect.objectContaining({ eventType: 'story_branch' }));
   });
 
+  it('keeps repeated story branch selection idempotent for the same choice epoch', async () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      memberIds: ['a', 'b'],
+      mode: 'scripted_play',
+      sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+      scenarioState: {
+        ...(buildChat().scenarioState || {}),
+        phase: 'branch',
+        choiceEpoch: 3,
+        selectedChoiceEpoch: 3,
+        selectedChoice: { branchId: 'ask', label: '追问护士', prompt: '追问护士停电期间的位置', choiceEpoch: 3 },
+        choiceHistory: [{ branchId: 'ask', label: '追问护士', prompt: '追问护士停电期间的位置', choiceEpoch: 3 }],
+        branches: [
+          { branchId: 'ask', label: '追问护士', status: 'chosen' as const, choiceEpoch: 3, prompt: '追问护士停电期间的位置' },
+          { branchId: 'search', label: '检查血迹', status: 'completed' as const, choiceEpoch: 3, prompt: '检查墙上的新鲜血迹' },
+        ],
+      },
+    });
+    const context = { ...buildContext(), chat, chats: [chat] } satisfies ChatSurfaceActionContext;
+    const trigger = vi.fn(async () => null);
+    await runSessionActionImpl(context, { type: 'choose_story_branch', actorId: 'user' }, { branchId: 'ask', prompt: '追问护士停电期间的位置' }, trigger);
+    const patch = vi.mocked(context.updateChat).mock.calls[0]?.[1];
+    expect(patch?.scenarioState).toBeUndefined();
+    expect(patch?.worldState).toEqual(expect.objectContaining({
+      recentEvent: expect.stringContaining('剧情分支'),
+    }));
+    expect(context.appendEventMessage).toHaveBeenCalledWith(chat.id, expect.objectContaining({
+      eventType: 'story_branch',
+      metrics: expect.objectContaining({ duplicate: true }),
+    }));
+  });
+
 
   it('records custom story branch direction from free input', async () => {
     const chat = normalizeConversation({

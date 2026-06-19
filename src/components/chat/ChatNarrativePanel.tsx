@@ -22,6 +22,8 @@ interface ChatNarrativePanelProps {
 }
 
 type LineFilter = 'all' | 'main' | NarrativeLineType;
+type StoryChoiceHistoryItem = NonNullable<NonNullable<GroupChat['scenarioState']>['choiceHistory']>[number];
+type StoryBranchItem = NonNullable<NonNullable<GroupChat['scenarioState']>['branches']>[number];
 
 const LINE_FILTERS: Array<{ key: LineFilter; label: string }> = [
   { key: 'all', label: '全部' },
@@ -261,6 +263,9 @@ function renderChoiceReview(chat: GroupChat, members: AICharacter[], showDebugDe
                 结果：{formatNarrativeLineText(choice.outcome, members)}
               </Typography>
             ) : null}
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, lineHeight: 1.6 }}>
+              影响：{formatChoiceImpactText({ choice, alternatives, chat, members })}
+            </Typography>
             {showDebugDetails && (choice.risk || choice.reward) ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.2, lineHeight: 1.6 }}>
                 {[choice.risk ? `代价：${choice.risk}` : '', choice.reward ? `获得：${choice.reward}` : ''].filter(Boolean).map((item) => formatNarrativeLineText(item, members)).join(' · ')}
@@ -276,6 +281,24 @@ function renderChoiceReview(chat: GroupChat, members: AICharacter[], showDebugDe
       </Stack>
     </Box>
   );
+}
+
+function formatChoiceImpactText(params: {
+  choice: StoryChoiceHistoryItem;
+  alternatives: StoryBranchItem[];
+  chat: GroupChat;
+  members: AICharacter[];
+}) {
+  if (params.choice.outcome) {
+    return '已造成可见后果，后续剧情会沿这个结果继续累积。';
+  }
+  if (params.chat.scenarioState?.storyGoal) {
+    return `推动当前目标：${formatNarrativeLineText(params.chat.scenarioState.storyGoal, params.members)}`;
+  }
+  if (params.alternatives.length) {
+    return '已锁定当前路线，未走分支会保留为回看线索。';
+  }
+  return '这个选择已经成为后续剧情的承接点。';
 }
 
 function formatStoryBeatKind(kind: string | undefined) {
