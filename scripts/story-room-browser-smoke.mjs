@@ -505,6 +505,137 @@ async function main() {
     assertCondition(!after.hasDeveloperChoiceMeta, 'Developer-only selected choice meta leaked to normal UI', after);
     assertCondition(!after.hasContinueButton, 'Story room exposed a continue button after choosing', after);
 
+    await evaluate(cdp, `(() => Promise.all([
+      import('/src/stores/useChatStore.ts'),
+      import('/src/stores/useMessageStore.ts'),
+    ]).then(([{ useChatStore }, { useMessageStore }]) => {
+      const sourceChat = useChatStore.getState().chats.find((item) => item.id === 'story-browser-smoke');
+      if (!sourceChat) throw new Error('source story chat not found');
+      const now = Date.now();
+      const customChat = {
+        ...sourceChat,
+        id: 'story-custom-input-smoke',
+        name: '自定义走向烟测',
+        scenarioState: {
+          ...(sourceChat.scenarioState || {}),
+          phase: 'scene',
+          sceneBeatCount: 1,
+          choiceEpoch: 7,
+          storyGoal: '验证输入框会推动剧情走向',
+          storyDirection: '',
+          selectedChoice: null,
+          selectedChoiceEpoch: null,
+          branches: [],
+          choiceHistory: [],
+        },
+        createdAt: now,
+        updatedAt: now,
+        lastMessageAt: now,
+      };
+      const messages = [{
+        id: 'custom-intro',
+        chatId: customChat.id,
+        type: 'ai',
+        senderId: 'narrator',
+        senderName: '旁白',
+        content: '风从窗缝里挤进来，旧病房的门牌轻轻晃了一下。',
+        emotion: 0,
+        timestamp: now,
+        isDeleted: false,
+        metadata: {
+          narrativeTurn: {
+            turnId: 'custom-intro-turn',
+            turnKind: 'narrative_beat',
+            povActorId: 'narrator',
+            blocks: [
+              { id: 'custom-intro-prose', actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '风从窗缝里挤进来，旧病房的门牌轻轻晃了一下。' }
+            ]
+          }
+        }
+      }];
+      useChatStore.setState((state) => ({
+        chats: [customChat, ...state.chats.filter((item) => item.id !== customChat.id)],
+        currentChatId: customChat.id,
+      }));
+      useMessageStore.setState((state) => ({
+        activeChatId: customChat.id,
+        messages,
+        messageWindowsByChatId: {
+          ...state.messageWindowsByChatId,
+          [customChat.id]: {
+            messages,
+            lastSyncedAt: now,
+            updatedAt: now,
+            remoteExhausted: true,
+            activeLimit: 40,
+          },
+        },
+        isLoading: false,
+        isLoadingOlder: false,
+        hasMore: false,
+      }));
+      history.pushState(null, '', '/chats/story-custom-input-smoke');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return 'custom-input-seeded';
+    }))()`, true);
+    await wait(1800);
+    await evaluate(cdp, `(() => {
+      const input = document.querySelector('textarea, input');
+      if (!input) throw new Error('story custom direction input not found');
+      const value = '让主角先反锁病房门，再低声试探护士';
+      const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value');
+      descriptor?.set?.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return 'custom-direction-filled';
+    })()`);
+    await wait(150);
+    await evaluate(cdp, `(() => {
+      const enabledButtons = Array.from(document.querySelectorAll('button')).filter((button) => !button.disabled);
+      const sendButton = enabledButtons.at(-1);
+      if (!sendButton) throw new Error('story custom direction send button not found');
+      sendButton.click();
+      return 'custom-direction-sent';
+    })()`);
+    await wait(1400);
+    const customInputResult = JSON.parse(await evaluate(cdp, `JSON.stringify((() => {
+      return {
+        path: location.pathname,
+        text: document.body.innerText,
+        buttons: Array.from(document.querySelectorAll('button')).map((button) => button.innerText.trim()).filter(Boolean),
+        messageTypes: Array.from(document.querySelectorAll('[data-message-type]')).map((node) => node.getAttribute('data-message-type')),
+      };
+    })())`));
+    const customInputStore = JSON.parse(await evaluate(cdp, `Promise.all([
+      import('/src/stores/useChatStore.ts'),
+      import('/src/stores/useMessageStore.ts'),
+    ]).then(([{ useChatStore }, { useMessageStore }]) => {
+      const chat = useChatStore.getState().chats.find((item) => item.id === 'story-custom-input-smoke');
+      const messages = useMessageStore.getState().messageWindowsByChatId['story-custom-input-smoke']?.messages || [];
+      return JSON.stringify({
+        phase: chat?.scenarioState?.phase,
+        storyDirection: chat?.scenarioState?.storyDirection,
+        selectedChoice: chat?.scenarioState?.selectedChoice,
+        choiceHistory: chat?.scenarioState?.choiceHistory,
+        branches: chat?.scenarioState?.branches,
+        messages: messages.map((message) => ({
+          type: message.type,
+          content: message.content,
+          storyChoiceSelection: message.metadata?.storyChoiceSelection || null,
+        })),
+      });
+    })`, true));
+    assertCondition(customInputResult.path === '/chats/story-custom-input-smoke', 'Custom story direction smoke did not navigate to the seeded chat', customInputResult);
+    assertCondition(customInputResult.text.includes('你选择了'), 'Custom story direction did not render as a selected choice reading node', customInputResult);
+    assertCondition(customInputResult.text.includes('让主角先反锁病房门，再低声试探护士'), 'Custom story direction text was not visible in the reading flow', customInputResult);
+    assertCondition(customInputStore.phase === 'branch', 'Custom story direction did not move the story into branch consequence phase', customInputStore);
+    assertCondition(customInputStore.storyDirection === '让主角先反锁病房门，再低声试探护士', 'Custom story direction was not written into scenarioState.storyDirection', customInputStore);
+    assertCondition(customInputStore.selectedChoice?.branchId?.startsWith('custom-'), 'Custom story direction did not create a custom selected choice', customInputStore);
+    assertCondition(customInputStore.choiceHistory?.some((choice) => choice.prompt === '让主角先反锁病房门，再低声试探护士'), 'Custom story direction was not written into choiceHistory', customInputStore);
+    assertCondition(customInputStore.branches?.some((branch) => branch.source === 'custom' && branch.status === 'chosen'), 'Custom story direction did not create a chosen custom branch', customInputStore);
+    assertCondition(customInputStore.messages?.some((message) => message.storyChoiceSelection?.branchId === '__custom_story_branch'), 'Custom story direction was not persisted as a storyChoiceSelection message', customInputStore);
+    assertCondition(!customInputStore.messages?.some((message) => message.type === 'god' && message.content.includes('让主角先反锁病房门')), 'Custom story direction leaked into ordinary director messages', customInputStore);
+
     const errors = cdp.events
       .filter((event) => event.method === 'Runtime.exceptionThrown' || event.method === 'Log.entryAdded')
       .map((event) => event.params)
@@ -528,6 +659,11 @@ async function main() {
         messageTypes: after.messageTypes,
         messageIds: after.messageIds,
         liveRevealBottomDistance: liveRevealDone.bottomDistance,
+      },
+      customInput: {
+        phase: customInputStore.phase,
+        storyDirection: customInputStore.storyDirection,
+        choiceHistoryCount: customInputStore.choiceHistory?.length || 0,
       },
     }, null, 2));
   } finally {
