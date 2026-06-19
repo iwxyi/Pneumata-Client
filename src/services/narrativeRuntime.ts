@@ -226,6 +226,53 @@ export function buildStoryEventsVisibleText(events: StoryEvent[], characters: AI
     .trim();
 }
 
+function countMatches(text: string, pattern: RegExp) {
+  pattern.lastIndex = 0;
+  return Array.from(text.matchAll(pattern)).length;
+}
+
+export function evaluateStoryEventQuality(events: StoryEvent[]) {
+  const normalized = normalizeStoryEvents(events);
+  const visibleText = normalized
+    .filter((event) => event.type === 'narration' || event.type === 'speech')
+    .map((event) => event.text || '')
+    .join(' ');
+  const narrationCount = normalized.filter((event) => event.type === 'narration').length;
+  const speechCount = normalized.filter((event) => event.type === 'speech').length;
+  const choiceEvents = normalized.filter((event) => event.type === 'choice_point');
+  const choices = choiceEvents.flatMap((event) => event.choices || []);
+  const concreteSignals = countMatches(visibleText, /(门|窗|雨|血|灯|脚步|钥匙|名单|病历|档案|信|照片|袖口|走廊|房间|医院|妆台|院子|声音|气味|手指|眼神|伤口|锁)/g);
+  const hookSignals = countMatches(visibleText, /(为什么|谁|哪里|真相|秘密|隐瞒|失踪|异常|危险|威胁|暴露|怀疑|背叛|来不及|脚步声|敲击声|血迹|停电|名单|钥匙|代价|风险)/g);
+  const relationshipSignals = countMatches(visibleText, /(信任|怀疑|保护|试探|逼问|沉默|拒绝|靠近|远离|隐瞒|背叛|动摇|警觉|害怕|犹豫)/g);
+  const labels = [
+    narrationCount > 0 ? 'has_narration' : '',
+    speechCount > 0 ? 'has_speech' : '',
+    choices.length >= 2 ? 'has_choice_point' : '',
+    concreteSignals >= 2 ? 'concrete_scene' : '',
+    hookSignals > 0 ? 'has_story_hook' : '',
+    relationshipSignals > 0 ? 'has_relationship_pressure' : '',
+    choices.length >= 2 && choices.every((choice) => choice.risk && choice.reward) ? 'choices_have_tradeoffs' : '',
+  ].filter(Boolean);
+  const gaps = [
+    narrationCount > 0 ? '' : 'missing_narration',
+    !visibleText || concreteSignals >= 2 ? '' : 'weak_concrete_scene',
+    hookSignals > 0 ? '' : 'missing_story_hook',
+    speechCount > 0 ? '' : 'no_character_speech',
+    choices.length && choices.length < 2 ? 'too_few_choices' : '',
+    choices.length >= 2 && choices.some((choice) => !choice.risk || !choice.reward) ? 'choice_tradeoff_missing' : '',
+  ].filter(Boolean);
+  const score = Math.max(0, Math.min(100, Math.round(
+    (narrationCount > 0 ? 20 : 0)
+    + (speechCount > 0 ? 12 : 0)
+    + (concreteSignals >= 2 ? 22 : concreteSignals > 0 ? 10 : 0)
+    + (hookSignals > 0 ? 18 : 0)
+    + (relationshipSignals > 0 ? 10 : 0)
+    + (choices.length >= 2 ? 10 : 0)
+    + (choices.length >= 2 && choices.every((choice) => choice.risk && choice.reward) ? 8 : 0)
+  )));
+  return { score, labels, gaps };
+}
+
 function storyEventToBlocks(event: StoryEvent, index: number, characters: AICharacter[]): NarrativeBlock[] {
   if (event.type === 'narration' && event.text?.trim()) {
     return [{

@@ -83,6 +83,12 @@ export interface StoryEvent {
   choices?: StoryEventChoice[];
 }
 
+export interface StoryQualityTrace {
+  score: number;
+  labels: string[];
+  gaps: string[];
+}
+
 export interface StoryChoiceSelection {
   branchId?: string;
   sourceMessageId?: string;
@@ -120,6 +126,7 @@ export interface MessageMetadata {
   contextText?: string;
   renderText?: string;
   storyEvents?: StoryEvent[];
+  storyQuality?: StoryQualityTrace;
   narrativeTurn?: NarrativeTurnMetadata;
   storyChoices?: StoryChoiceSuggestion[];
   storyChoiceSelection?: StoryChoiceSelection;

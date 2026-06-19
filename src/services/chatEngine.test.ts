@@ -511,6 +511,11 @@ describe('chatEngine streaming preview', () => {
     expect(message.content).toContain('雨水顺着医院旧楼的铁门往下流');
     expect(message.content).toContain('林医生：“不要开那扇门。”');
     expect(message.metadata?.storyEvents).toHaveLength(3);
+    expect(message.metadata?.storyQuality).toEqual(expect.objectContaining({
+      score: expect.any(Number),
+      labels: expect.arrayContaining(['has_narration', 'has_speech', 'has_choice_point', 'concrete_scene', 'has_story_hook']),
+    }));
+    expect(message.metadata?.storyQuality?.gaps).not.toContain('missing_story_hook');
     expect(message.metadata?.storyChoices).toEqual([
       { label: '让林医生去地下档案室查被撕掉的病历', prompt: '林医生进入地下档案室查病历' },
       { label: '让护士追问昨晚停电记录', prompt: '护士追问停电记录' },

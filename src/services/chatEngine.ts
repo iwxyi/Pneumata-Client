@@ -41,7 +41,7 @@ import { buildTurnPlanPrompt, deriveTurnPlan, type TurnPlan } from './turnPlanne
 import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
 import { buildGenerationRuntimeBundle } from './generationRuntime';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
-import { appendStoryReadingPanelBlock, buildNarrativeTurnFromStoryEvents, buildStoryEventsVisibleText, getStoryChoicesFromEvents, normalizeStoryEvents } from './narrativeRuntime';
+import { appendStoryReadingPanelBlock, buildNarrativeTurnFromStoryEvents, buildStoryEventsVisibleText, evaluateStoryEventQuality, getStoryChoicesFromEvents, normalizeStoryEvents } from './narrativeRuntime';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
@@ -1767,6 +1767,7 @@ function buildMessageMetadata(params: {
   content: string;
   runtimeDecision?: MessageMetadata['runtimeDecision'];
   storyEvents?: MessageMetadata['storyEvents'] | null;
+  storyQuality?: MessageMetadata['storyQuality'] | null;
   narrativeTurn?: MessageMetadata['narrativeTurn'] | null;
   storyChoices?: MessageMetadata['storyChoices'] | null;
   surface?: ResponseSurface;
@@ -1775,6 +1776,7 @@ function buildMessageMetadata(params: {
   const decision = normalizeMediaDecision(params.decision, params.capabilities, params.content);
   const storyChoices = normalizeStoryChoiceSuggestions(params.storyChoices);
   const storyEvents = normalizeStoryEvents(params.storyEvents);
+  const storyQuality = params.storyQuality || (storyEvents.length ? evaluateStoryEventQuality(storyEvents) : null);
   if (!decision && !params.runtimeDecision && !params.narrativeTurn && !storyChoices?.length && !storyEvents.length) return undefined;
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const contextText = params.narrativeTurn?.blocks.map((block) => block.text).filter(Boolean).join('\n\n') || params.content;
@@ -1813,6 +1815,7 @@ function buildMessageMetadata(params: {
     format: params.surface?.allowMarkdown ? 'markdown' : 'plain',
     contextText,
     storyEvents: storyEvents.length ? storyEvents : undefined,
+    storyQuality: storyQuality || undefined,
     narrativeTurn: params.narrativeTurn || undefined,
     storyChoices: storyChoices || undefined,
     attachments,

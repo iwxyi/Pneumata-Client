@@ -3,6 +3,7 @@ import { DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE, normalizeC
 import type { AICharacter } from '../types/character';
 import {
   buildChapterRecap,
+  evaluateStoryEventQuality,
   buildNarrativeTurnFromStoryEvents,
   buildSelectedChoiceConsequencePrompt,
   buildStoryAssetPrompt,
@@ -73,6 +74,37 @@ describe('narrativeRuntime', () => {
       expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph', text: '雨水顺着旧楼铁门往下流。' }),
       expect.objectContaining({ actorKind: 'character', displayMode: 'bubble', characterId: 'lin', text: '不要开那扇门。' }),
     ]));
+  });
+
+  it('scores story event quality with hooks, concrete scene detail, speech, and choice tradeoffs', () => {
+    const strong = evaluateStoryEventQuality([
+      { type: 'narration', text: '雨水顺着旧医院走廊的窗缝往下流，墙上的新鲜血迹还没有干，门后的脚步声忽然停住。' },
+      { type: 'speech', characterId: 'lin', text: '不要碰那道血迹，先看护士的反应。' },
+      {
+        type: 'choice_point',
+        choices: [
+          { label: '让林医生追问护士昨晚去向', prompt: '林医生逼问护士', risk: '激怒护士', reward: '得到停电线索' },
+          { label: '让主角检查墙上的新鲜血迹', prompt: '主角检查血迹', risk: '暴露位置', reward: '发现新证据' },
+        ],
+      },
+    ]);
+    const weak = evaluateStoryEventQuality([
+      { type: 'narration', text: '他们继续往前走。' },
+      { type: 'choice_point', choices: [{ label: '推进剧情', prompt: '推进剧情' }] },
+    ]);
+
+    expect(strong.score).toBeGreaterThan(80);
+    expect(strong.labels).toEqual(expect.arrayContaining([
+      'has_narration',
+      'has_speech',
+      'has_choice_point',
+      'concrete_scene',
+      'has_story_hook',
+      'choices_have_tradeoffs',
+    ]));
+    expect(strong.gaps).not.toContain('missing_story_hook');
+    expect(weak.score).toBeLessThan(strong.score);
+    expect(weak.gaps).toEqual(expect.arrayContaining(['weak_concrete_scene', 'missing_story_hook', 'no_character_speech']));
   });
 
   it('rejects abstract template choices before they reach storyChoices metadata', () => {
