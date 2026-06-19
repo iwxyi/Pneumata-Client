@@ -181,14 +181,18 @@ function renderChapterSettlement(chat: GroupChat, members: AICharacter[]) {
   const recap = state?.chapterRecap;
   if (!state || !recap) return null;
   const latestChoice = state.choiceHistory?.slice(-1)[0];
+  const latestClue = recap.discoveredClues.slice(-1)[0];
+  const latestRelationship = recap.changedRelationships.slice(-1)[0];
+  const latestImpact = recap.choiceImpacts?.slice(-1)[0];
+  const latestQuestion = recap.unresolvedQuestions.slice(-1)[0];
   const rows = [
-    recap.discoveredClues[0] ? `发现：${formatNarrativeLineText(recap.discoveredClues[0], members)}` : '',
-    recap.changedRelationships[0] ? `关系：${formatNarrativeLineText(recap.changedRelationships[0], members)}` : '',
+    latestClue ? `发现：${formatNarrativeLineText(latestClue, members)}` : '',
+    latestRelationship ? `关系：${formatNarrativeLineText(latestRelationship, members)}` : '',
     latestChoice?.outcome ? `结果：${formatNarrativeLineText(latestChoice.outcome, members)}` : '',
-    recap.choiceImpacts?.[0] ? `影响：${formatNarrativeLineText(recap.choiceImpacts[0], members)}` : '',
-    recap.unresolvedQuestions[0] ? `未解：${formatNarrativeLineText(recap.unresolvedQuestions[0], members)}` : '',
+    latestImpact ? `影响：${formatNarrativeLineText(latestImpact, members)}` : '',
+    latestQuestion ? `未解：${formatNarrativeLineText(latestQuestion, members)}` : '',
     state.storyGoal ? `下一步：${formatNarrativeLineText(state.storyGoal, members)}` : '',
-  ].filter(Boolean).slice(0, 5);
+  ].filter(Boolean);
   if (!rows.length) return null;
   const sceneLabel = [
     state.currentScene?.time ? formatNarrativeLineText(state.currentScene.time, members) : '',

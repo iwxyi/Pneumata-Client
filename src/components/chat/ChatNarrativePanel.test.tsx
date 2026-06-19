@@ -314,4 +314,60 @@ describe('ChatNarrativePanel', () => {
     expect(branchHtml).not.toContain(uuidA);
   });
 
+  it('uses the latest chapter recap assets in story settlement', async () => {
+    const memoryStorage = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => memoryStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => { memoryStorage.set(key, value); },
+        removeItem: (key: string) => { memoryStorage.delete(key); },
+        clear: () => { memoryStorage.clear(); },
+      },
+    });
+    const { default: ChatNarrativePanel } = await import('./ChatNarrativePanel');
+    const chat = {
+      ...buildChat(),
+      mode: 'scripted_play' as const,
+      sessionKind: { family: 'conversation' as const, scenarioId: 'story-reader', surfaceProfile: 'hybrid' as const, topology: 'group' as const },
+      scenarioState: {
+        phase: 'scene',
+        storyGoal: '去地下档案室确认名单缺页',
+        choiceHistory: [{ branchId: 'ask', label: '追问护士', outcome: '护士承认有人改过值班表', impact: '旧影响', choiceEpoch: 2 }],
+        chapterRecap: {
+          title: '阶段回顾',
+          summary: '旧医院的线索开始收束。',
+          discoveredClues: ['旧线索：门口有水迹', '新线索：值班表被撕掉一页'],
+          unresolvedQuestions: ['旧问题：门后是谁？', '新问题：名单缺页被谁拿走？'],
+          changedRelationships: ['旧关系：林医生犹豫', '新关系：护士开始相信林医生'],
+          stakes: ['暴露位置'],
+          lastChoiceLabels: ['追问护士'],
+          choiceImpacts: ['旧影响：护士沉默', '新影响：护士愿意带路'],
+          updatedAt: 2,
+          beatCount: 4,
+        },
+      },
+    } satisfies GroupChat;
+
+    const html = renderToStaticMarkup(
+      <ChatNarrativePanel
+        hideTitle
+        chat={chat}
+        members={[buildCharacter(uuidA, '红太狼'), buildCharacter(uuidB, '灰太狼')]}
+        messages={[]}
+      />,
+    );
+
+    expect(html).toContain('章节结算');
+    expect(html).toContain('发现：新线索：值班表被撕掉一页');
+    expect(html).toContain('关系：新关系：护士开始相信林医生');
+    expect(html).toContain('影响：新影响：护士愿意带路');
+    expect(html).toContain('未解：新问题：名单缺页被谁拿走？');
+    expect(html).toContain('下一步：去地下档案室确认名单缺页');
+    expect(html).not.toContain('发现：旧线索：门口有水迹');
+    expect(html).not.toContain('关系：旧关系：林医生犹豫');
+    expect(html).not.toContain('影响：旧影响：护士沉默');
+    expect(html).not.toContain('未解：旧问题：门后是谁？');
+  });
+
 });
