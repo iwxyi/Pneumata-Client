@@ -31,6 +31,13 @@ function sanitizeStoryChoiceLabel(label: string) {
     .trim();
 }
 
+function sanitizeStoryChoicePrompt(prompt: string) {
+  return prompt
+    .trim()
+    .replace(/(?:^|[\s；;。])(?:意图|风险|收益|回报|奖励|代价)\s*[：:].*$/u, '')
+    .trim();
+}
+
 export function isConcreteStoryChoiceLabel(label: string) {
   const normalized = label.replace(/\s+/g, '').trim();
   if (!normalized) return false;
@@ -115,7 +122,7 @@ export function normalizeStoryChoiceSuggestions(value: unknown): StoryChoiceSugg
       if (!choice || typeof choice !== 'object') return { label: '', prompt: '' };
       const item = choice as Partial<Record<keyof StoryChoiceSuggestion, unknown>>;
       const label = typeof item.label === 'string' ? sanitizeStoryChoiceLabel(item.label) : '';
-      const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : '';
+      const prompt = typeof item.prompt === 'string' ? sanitizeStoryChoicePrompt(item.prompt) : '';
       const intent = typeof item.intent === 'string' ? item.intent.trim() : '';
       const risk = typeof item.risk === 'string' ? item.risk.trim() : '';
       const reward = typeof item.reward === 'string' ? item.reward.trim() : '';

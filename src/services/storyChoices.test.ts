@@ -14,7 +14,7 @@ describe('storyChoices', () => {
   it('cleans model formatting and developer meta from visible choice labels', () => {
     expect(normalizeStoryChoiceSuggestions([
       { label: '选项A：让林医生追问护士昨晚去向（风险：激怒护士，收益：得到线索）', prompt: '追问护士昨晚去向', risk: '激怒护士', reward: '得到线索' },
-      { label: '方案2 - 让主角检查墙上的新鲜血迹 意图：搜证', prompt: '检查血迹', intent: '搜证' },
+      { label: '方案2 - 让主角检查墙上的新鲜血迹 意图：搜证', prompt: '检查血迹；风险：暴露位置；收益：找到证据', intent: '搜证' },
     ])).toEqual([
       { label: '让林医生追问护士昨晚去向', prompt: '追问护士昨晚去向', risk: '激怒护士', reward: '得到线索' },
       { label: '让主角检查墙上的新鲜血迹', prompt: '检查血迹', intent: '搜证' },
