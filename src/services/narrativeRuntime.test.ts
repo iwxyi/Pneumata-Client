@@ -335,6 +335,7 @@ describe('narrativeRuntime', () => {
     }));
     expect(prompt).toEqual(expect.arrayContaining([
       expect.stringContaining('Use these story assets as continuity anchors'),
+      expect.stringContaining('Before inventing an unrelated new clue'),
       expect.stringContaining('Current chapter goal: 查清旧医院失踪案'),
       expect.stringContaining('Current scene:'),
       expect.stringContaining('Current situation: 护士承认停电时有人进入档案室。'),

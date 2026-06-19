@@ -614,6 +614,7 @@ export function buildStoryAssetPrompt(conversation: GroupChat) {
   if (!lines.length) return [];
   return [
     'Use these story assets as continuity anchors. Do not list them back to the user; weave at most 1-2 into the scene naturally.',
+    'Before inventing an unrelated new clue, try to answer, complicate, or reframe one existing open question or known clue when it fits the current beat.',
     ...lines,
   ];
 }
