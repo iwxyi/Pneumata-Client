@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:story-browser-smoke": "node scripts/story-room-browser-smoke.mjs",
+    "test:story-llm-acceptance": "node scripts/story-llm-acceptance.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
