@@ -227,20 +227,27 @@ describe('narrativeRuntime', () => {
     });
     const assets = extractStoryAssets({
       conversation: choiceChat,
+      characters,
       choices: [{ label: '让护士检查血迹', prompt: '检查血迹', risk: '暴露位置', reward: '发现证据' }],
       summary: '护士承认停电时有人进入档案室。',
       message: {
-        content: '护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。',
+        content: '清晨的旧医院走廊里，护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。',
         metadata: {},
       },
     });
     expect(assets).toEqual(expect.objectContaining({
       openQuestions: expect.arrayContaining(['旧医院为什么停电？']),
-      clues: expect.arrayContaining(['护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
+      clues: expect.arrayContaining(['清晨的旧医院走廊里，护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
       stakes: expect.arrayContaining(['暴露位置', '发现证据']),
-      relationshipShifts: expect.arrayContaining(['护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
+      relationshipShifts: expect.arrayContaining(['清晨的旧医院走廊里，护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
       storyGoal: '逼护士说出停电期间谁进过档案室',
       storySituation: '护士承认停电时有人进入档案室。',
+      currentScene: expect.objectContaining({
+        location: expect.stringContaining('旧医院走廊'),
+        time: expect.stringContaining('清晨'),
+        visibleThreat: expect.stringContaining('停电'),
+        presentActorIds: expect.arrayContaining(['lin', 'nurse']),
+      }),
     }));
 
     const recap = buildChapterRecap({
@@ -252,7 +259,7 @@ describe('narrativeRuntime', () => {
     });
     expect(recap).toEqual(expect.objectContaining({
       title: '阶段回顾',
-      discoveredClues: expect.arrayContaining(['护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
+      discoveredClues: expect.arrayContaining(['清晨的旧医院走廊里，护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
       lastChoiceLabels: ['追问停电记录'],
     }));
 
@@ -266,6 +273,7 @@ describe('narrativeRuntime', () => {
     expect(prompt).toEqual(expect.arrayContaining([
       expect.stringContaining('Use these story assets as continuity anchors'),
       expect.stringContaining('Current chapter goal: 逼护士说出停电期间谁进过档案室'),
+      expect.stringContaining('Current scene:'),
       expect.stringContaining('Current situation: 护士承认停电时有人进入档案室。'),
       expect.stringContaining('outcome=护士承认停电时有人进入档案室。'),
     ]));

@@ -214,7 +214,7 @@ function onMessageCommitted(params: {
   const choices = currentBeatPlan.choicePolicy === 'forbid'
     ? []
     : normalizeStoryChoiceSuggestions(params.message.metadata?.storyChoices);
-  const storyAssets = extractStoryAssets({ conversation: params.conversation, message: params.message, choices, summary });
+  const storyAssets = extractStoryAssets({ conversation: params.conversation, message: params.message, choices, summary, characters: params.characters });
   const normalized = normalizeStoryBranches(params.conversation, choices);
   const nextEpoch = getCurrentChoiceEpoch({ ...params.conversation, scenarioState: { ...(params.conversation.scenarioState || {}), branches: normalized.branches } });
   const nextSceneBeatCount = normalized.openedChoice ? 0 : Number(params.conversation.scenarioState?.sceneBeatCount || 0) + 1;

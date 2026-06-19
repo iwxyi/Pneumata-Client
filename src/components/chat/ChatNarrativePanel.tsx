@@ -133,13 +133,46 @@ function renderRelationshipLine(line: NarrativeLineProjection, chat: GroupChat, 
 function hasStoryAssets(chat: GroupChat) {
   const state = chat.scenarioState;
   return Boolean(
-    state?.chapterRecap
+    state?.currentScene
+    || state?.chapterRecap
     || state?.chapterMemory
     || state?.openQuestions?.length
     || state?.clues?.length
     || state?.stakes?.length
     || state?.relationshipShifts?.length
     || state?.choiceHistory?.length,
+  );
+}
+
+function renderCurrentScene(chat: GroupChat, members: AICharacter[], showDebugDetails: boolean) {
+  const scene = chat.scenarioState?.currentScene;
+  if (!scene) return null;
+  const actorNames = (scene.presentActorIds || [])
+    .map((id) => members.find((member) => member.id === id)?.name)
+    .filter(Boolean) as string[];
+  const rows = [
+    scene.location ? `地点：${formatNarrativeLineText(scene.location, members)}` : '',
+    scene.time ? `时间：${formatNarrativeLineText(scene.time, members)}` : '',
+    scene.visibleThreat ? `压力：${formatNarrativeLineText(scene.visibleThreat, members)}` : '',
+    showDebugDetails && actorNames.length ? `在场：${actorNames.join('、')}` : '',
+  ].filter(Boolean);
+  if (!rows.length && !scene.summary) return null;
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.45 }}>当前场景</Typography>
+      <Box sx={{ px: 0.9, py: 0.75, borderRadius: 1.5, bgcolor: 'rgba(14,165,233,0.06)' }}>
+        {scene.summary ? (
+          <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.55 }}>
+            {formatNarrativeLineText(scene.summary, members)}
+          </Typography>
+        ) : null}
+        {rows.length ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: scene.summary ? 0.35 : 0, lineHeight: 1.6 }}>
+            {rows.join(' · ')}
+          </Typography>
+        ) : null}
+      </Box>
+    </Box>
   );
 }
 
@@ -367,6 +400,7 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDe
             当前处境：{formatNarrativeLineText(state.storySituation, members)}
           </Typography>
         ) : null}
+        {renderCurrentScene(chat, members, showDebugDetails)}
         {renderAssetChips('悬念', state.openQuestions, members)}
         {renderAssetChips('线索', state.clues, members)}
         {showDebugDetails ? renderAssetChips('代价', state.stakes, members) : null}

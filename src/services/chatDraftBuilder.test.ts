@@ -105,6 +105,10 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     expect(draft.scenarioState?.storyDirection).toBe('悬疑探索');
     expect(draft.scenarioState?.storyGoal).toBe('围绕「雨夜旧医院」推进：悬疑探索');
     expect(draft.scenarioState?.storySituation).toBe('旧医院连续有人失踪。 / 当前开场：雨夜旧医院');
+    expect(draft.scenarioState?.currentScene).toEqual(expect.objectContaining({
+      location: '雨夜旧医院',
+      summary: '旧医院连续有人失踪。 / 当前开场：雨夜旧医院',
+    }));
   });
 
   it('normalizes operator ids and filters user/member duplicates', () => {

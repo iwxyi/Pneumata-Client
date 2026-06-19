@@ -113,6 +113,15 @@ export interface StoryChapterRecapState {
   beatCount: number;
 }
 
+export interface StoryCurrentSceneState {
+  location?: string;
+  time?: string;
+  presentActorIds?: string[];
+  visibleThreat?: string;
+  summary?: string;
+  updatedAt?: number;
+}
+
 export interface ScenarioState {
   seats?: ScenarioSeat[];
   roleAssignments?: ScenarioRoleAssignment[];
@@ -128,6 +137,7 @@ export interface ScenarioState {
   storyBackground?: string;
   storyDirection?: string;
   storySituation?: string;
+  currentScene?: StoryCurrentSceneState | null;
   storyGoal?: string;
   storyOutline?: string;
   storyBeatKind?: StoryBeatKind;

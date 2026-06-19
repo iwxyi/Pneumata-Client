@@ -118,9 +118,17 @@ function buildInitialStoryAssets(input: Pick<ChatDraftInput, 'name' | 'topic' | 
   const chapterMemory = [subject ? `开场：${subject}` : '', outline ? `提纲：${outline}` : '']
     .filter(Boolean)
     .join(' / ');
+  const currentScene = subject || background
+    ? {
+        location: subject || undefined,
+        summary: storySituation || subject || background,
+        updatedAt: Date.now(),
+      }
+    : null;
   return {
     storyGoal,
     storySituation,
+    currentScene,
     openQuestions,
     chapterMemory,
   };
@@ -213,6 +221,7 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
       storyDirection: input.storyDirection || '',
       storyGoal: isStoryReader ? initialStoryAssets?.storyGoal : undefined,
       storySituation: isStoryReader ? initialStoryAssets?.storySituation : undefined,
+      currentScene: isStoryReader ? initialStoryAssets?.currentScene : undefined,
       storyOutline: input.storyOutline || '',
       storyBeatKind: isStoryReader ? 'establish' : undefined,
       storyChoicePolicy: isStoryReader ? 'forbid' : undefined,

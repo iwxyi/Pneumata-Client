@@ -212,6 +212,11 @@ describe('STORY_ENGINE', () => {
     expect(scenarioState?.clues).toEqual(expect.arrayContaining(['墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。']));
     expect(scenarioState?.stakes).toEqual(expect.arrayContaining(['激怒护士', '得到停电线索', '暴露位置', '发现新证据']));
     expect(scenarioState?.relationshipShifts).toEqual(expect.arrayContaining(['墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。']));
+    expect(scenarioState?.currentScene).toEqual(expect.objectContaining({
+      visibleThreat: expect.stringContaining('血迹'),
+      summary: expect.stringContaining('门后到底是谁'),
+    }));
+    expect(scenarioState?.currentScene?.location).toBeUndefined();
     expect(scenarioState?.chapterMemory).toContain('门后到底是谁');
     expect(scenarioState?.chapterRecap).toEqual(expect.objectContaining({
       title: '新的抉择点',
@@ -229,6 +234,7 @@ describe('STORY_ENGINE', () => {
     });
     expect(prompt?.additionalConstraints).toEqual(expect.arrayContaining([
       expect.stringContaining('Use these story assets as continuity anchors'),
+      expect.stringContaining('Current scene:'),
       expect.stringContaining('Latest chapter recap'),
       expect.stringContaining('Open questions to preserve or answer deliberately'),
       expect.stringContaining('Known clues to reuse or reframe'),

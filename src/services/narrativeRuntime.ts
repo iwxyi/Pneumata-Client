@@ -1,4 +1,4 @@
-import type { GroupChat, StoryBeatKind, StoryChoicePolicy } from '../types/chat';
+import type { GroupChat, StoryBeatKind, StoryChoicePolicy, StoryCurrentSceneState } from '../types/chat';
 import type { AICharacter } from '../types/character';
 import type { Message, NarrativeBlock, NarrativeTurnMetadata, StoryChoiceSuggestion, StoryEvent } from '../types/message';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
@@ -16,6 +16,7 @@ export interface StoryBeatPlan {
 }
 
 export interface StoryAssetPatch {
+  currentScene?: StoryCurrentSceneState | null;
   openQuestions: string[];
   clues: string[];
   stakes: string[];
@@ -362,6 +363,72 @@ function splitStorySentences(text: string) {
     .filter(Boolean);
 }
 
+function pickLastMatchingSentence(sentences: string[], pattern: RegExp) {
+  return sentences.slice().reverse().find((sentence) => pattern.test(sentence)) || '';
+}
+
+function inferStorySceneTime(sentences: string[], fallback?: string) {
+  return compactStoryAssetText(
+    pickLastMatchingSentence(sentences, /(雨夜|深夜|凌晨|清晨|黄昏|傍晚|夜里|白天|天亮|天黑|黎明|午后|此刻|现在|刚才|昨晚|今早|第二天|新的一天)/)
+    || fallback
+    || '',
+    48,
+  );
+}
+
+function inferStorySceneLocation(sentences: string[], fallback?: string) {
+  const pattern = /(医院|旧楼|走廊|病房|档案室|地下室|住院楼|妆台|侯府|房间|门口|院子|街|巷|车站|教室|办公室|实验室|仓库|码头|森林|城堡|宫殿|学校)/;
+  const candidate = pickLastMatchingSentence(sentences, pattern);
+  const fallbackLocation = fallback && pattern.test(fallback) ? fallback : '';
+  return compactStoryAssetText(
+    candidate || fallbackLocation,
+    64,
+  );
+}
+
+function inferStorySceneThreat(sentences: string[]) {
+  return compactStoryAssetText(
+    pickLastMatchingSentence(sentences, /(危险|威胁|血迹|异常|失踪|隐瞒|暴露|追上|封锁|锁住|停电|真相|秘密|脚步声|敲击声|盯着|怀疑|背叛|来不及)/),
+    80,
+  );
+}
+
+function inferPresentActorIds(text: string, characters: AICharacter[]) {
+  return characters
+    .filter((character) => character.name && text.includes(character.name))
+    .map((character) => character.id)
+    .slice(0, 6);
+}
+
+function buildCurrentScenePatch(params: {
+  conversation: GroupChat;
+  text: string;
+  summary: string;
+  sentences: string[];
+  characters?: AICharacter[];
+}): StoryCurrentSceneState | null {
+  const previous = params.conversation.scenarioState?.currentScene || null;
+  const state = params.conversation.scenarioState;
+  const summary = compactStoryAssetText(params.summary || params.text || previous?.summary || state?.storySituation || state?.storyBackground || '', 120);
+  const location = inferStorySceneLocation(params.sentences, previous?.location || state?.storyBackground || params.conversation.topic);
+  const time = inferStorySceneTime(params.sentences, previous?.time);
+  const visibleThreat = inferStorySceneThreat(params.sentences) || previous?.visibleThreat;
+  const presentActorIds = inferPresentActorIds(params.text, params.characters || []);
+  const mergedActorIds = Array.from(new Set([
+    ...(previous?.presentActorIds || []),
+    ...presentActorIds,
+  ].filter(Boolean))).slice(-6);
+  if (!summary && !location && !time && !visibleThreat && !mergedActorIds.length) return null;
+  return {
+    ...(location ? { location } : {}),
+    ...(time ? { time } : {}),
+    ...(mergedActorIds.length ? { presentActorIds: mergedActorIds } : {}),
+    ...(visibleThreat ? { visibleThreat } : {}),
+    ...(summary ? { summary } : {}),
+    updatedAt: Date.now(),
+  };
+}
+
 function getVisibleStoryText(message: Pick<Message, 'content' | 'metadata'>) {
   const blockText = message.metadata?.narrativeTurn?.blocks
     .filter((block) => block.displayMode !== 'hidden')
@@ -376,6 +443,7 @@ export function extractStoryAssets(params: {
   message: Pick<Message, 'content' | 'metadata'>;
   choices: StoryChoiceSuggestion[];
   summary: string;
+  characters?: AICharacter[];
 }): StoryAssetPatch {
   const text = getVisibleStoryText(params.message);
   const sentences = splitStorySentences(text);
@@ -402,7 +470,15 @@ export function extractStoryAssets(params: {
   const selectedGoal = state?.selectedChoice?.prompt || state?.selectedChoice?.label || '';
   const storyGoal = compactStoryAssetText(selectedGoal || state?.storyGoal || state?.storyDirection || params.conversation.topic || '', 120);
   const storySituation = compactStoryAssetText(params.summary || text || state?.storySituation || state?.storyBackground || '', 180);
+  const currentScene = buildCurrentScenePatch({
+    conversation: params.conversation,
+    text,
+    summary: params.summary,
+    sentences,
+    characters: params.characters,
+  });
   return {
+    ...(currentScene ? { currentScene } : {}),
     openQuestions: mergeStoryAssetList(params.conversation.scenarioState?.openQuestions, openQuestionCandidates),
     clues: mergeStoryAssetList(params.conversation.scenarioState?.clues, clueCandidates),
     stakes: mergeStoryAssetList(params.conversation.scenarioState?.stakes, stakeCandidates),
@@ -419,6 +495,12 @@ export function buildStoryAssetPrompt(conversation: GroupChat) {
   const recap = state.chapterRecap;
   const lines = [
     state.storyGoal ? `Current chapter goal: ${state.storyGoal}` : '',
+    state.currentScene ? `Current scene: ${[
+      state.currentScene.location ? `location=${state.currentScene.location}` : '',
+      state.currentScene.time ? `time=${state.currentScene.time}` : '',
+      state.currentScene.visibleThreat ? `visible pressure=${state.currentScene.visibleThreat}` : '',
+      state.currentScene.summary ? `summary=${state.currentScene.summary}` : '',
+    ].filter(Boolean).join('; ')}` : '',
     state.storySituation ? `Current situation: ${state.storySituation}` : '',
     recap?.summary ? `Latest chapter recap: ${recap.summary}` : '',
     state.chapterMemory ? `Chapter memory: ${state.chapterMemory}` : '',
