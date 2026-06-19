@@ -91,20 +91,20 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     expect(draft.scenarioState?.storyBeatKind).toBe('establish');
     expect(draft.scenarioState?.storyChoicePolicy).toBe('forbid');
     expect(draft.scenarioState?.storyBeatReason).toBe('establish scene before choices');
-    expect(draft.scenarioState?.openQuestions).toEqual([]);
+    expect(draft.scenarioState?.openQuestions).toEqual(['雨夜旧医院背后真正隐藏着什么？']);
     expect(draft.scenarioState?.clues).toEqual([]);
     expect(draft.scenarioState?.stakes).toEqual([]);
     expect(draft.scenarioState?.relationshipShifts).toEqual([]);
     expect(draft.scenarioState?.choiceHistory).toEqual([]);
-    expect(draft.scenarioState?.chapterMemory).toBe('');
+    expect(draft.scenarioState?.chapterMemory).toBe('开场：雨夜旧医院');
     expect(draft.scenarioState?.chapterRecap).toBeNull();
     expect(draft.scenarioState?.branches).toEqual([]);
     expect(draft.showRoleActions).toBe(false);
     expect(draft.modeConfig.showRoleActions).toBe(false);
     expect(draft.scenarioState?.storyBackground).toBe('旧医院连续有人失踪。');
     expect(draft.scenarioState?.storyDirection).toBe('悬疑探索');
-    expect(draft.scenarioState?.storyGoal).toBe('悬疑探索');
-    expect(draft.scenarioState?.storySituation).toBe('旧医院连续有人失踪。');
+    expect(draft.scenarioState?.storyGoal).toBe('围绕「雨夜旧医院」推进：悬疑探索');
+    expect(draft.scenarioState?.storySituation).toBe('旧医院连续有人失踪。 / 当前开场：雨夜旧医院');
   });
 
   it('normalizes operator ids and filters user/member duplicates', () => {

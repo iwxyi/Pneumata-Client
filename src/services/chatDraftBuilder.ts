@@ -93,10 +93,44 @@ function buildRuntimeSeed(input: Pick<ChatDraftInput, 'seedMemoryText' | 'seedAr
   };
 }
 
+function compactDraftText(value: string | undefined) {
+  return (value || '').replace(/\s+/g, ' ').trim();
+}
+
+function buildInitialStoryAssets(input: Pick<ChatDraftInput, 'name' | 'topic' | 'storyBackground' | 'storyDirection' | 'storyOutline'>) {
+  const name = compactDraftText(input.name);
+  const topic = compactDraftText(input.topic);
+  const background = compactDraftText(input.storyBackground);
+  const direction = compactDraftText(input.storyDirection);
+  const outline = compactDraftText(input.storyOutline);
+  const subject = topic || name;
+  const storyGoal = subject && direction
+    ? `围绕「${subject}」推进：${direction}`
+    : direction || subject;
+  const storySituation = [background, subject && !background.includes(subject) ? `当前开场：${subject}` : '']
+    .filter(Boolean)
+    .join(' / ');
+  const openQuestions = subject
+    ? [`${subject}背后真正隐藏着什么？`]
+    : direction
+      ? [`${direction}会把角色推向什么转折？`]
+      : [];
+  const chapterMemory = [subject ? `开场：${subject}` : '', outline ? `提纲：${outline}` : '']
+    .filter(Boolean)
+    .join(' / ');
+  return {
+    storyGoal,
+    storySituation,
+    openQuestions,
+    chapterMemory,
+  };
+}
+
 export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'> {
   const sessionKind = input.sessionKind || createDefaultSessionKind('group', 'open_chat');
   const templateDefaults = getRoomTemplateDefaultsBySessionKind(sessionKind);
   const isStoryReader = sessionKind.scenarioId === 'story-reader';
+  const initialStoryAssets = isStoryReader ? buildInitialStoryAssets(input) : null;
   const mode = sessionKind.scenarioId === 'group-discussion'
     ? 'group_discussion'
     : sessionKind.scenarioId === 'roundtable-discussion'
@@ -177,18 +211,18 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
       roleAssignments: [],
       storyBackground: input.storyBackground || '',
       storyDirection: input.storyDirection || '',
-      storyGoal: isStoryReader ? input.storyDirection || input.topic.trim() || input.name.trim() : undefined,
-      storySituation: isStoryReader ? input.storyBackground || input.topic.trim() || input.name.trim() : undefined,
+      storyGoal: isStoryReader ? initialStoryAssets?.storyGoal : undefined,
+      storySituation: isStoryReader ? initialStoryAssets?.storySituation : undefined,
       storyOutline: input.storyOutline || '',
       storyBeatKind: isStoryReader ? 'establish' : undefined,
       storyChoicePolicy: isStoryReader ? 'forbid' : undefined,
       storyBeatReason: isStoryReader ? 'establish scene before choices' : undefined,
-      openQuestions: isStoryReader ? [] : undefined,
+      openQuestions: isStoryReader ? initialStoryAssets?.openQuestions || [] : undefined,
       clues: isStoryReader ? [] : undefined,
       stakes: isStoryReader ? [] : undefined,
       relationshipShifts: isStoryReader ? [] : undefined,
       choiceHistory: isStoryReader ? [] : undefined,
-      chapterMemory: isStoryReader ? '' : undefined,
+      chapterMemory: isStoryReader ? initialStoryAssets?.chapterMemory || '' : undefined,
       chapterRecap: isStoryReader ? null : undefined,
       werewolfRoleConfig: input.werewolfRoleConfig || '',
       werewolfPostGameMode: input.werewolfPostGameMode || 'free_talk',
