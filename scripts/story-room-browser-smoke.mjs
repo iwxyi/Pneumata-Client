@@ -747,6 +747,154 @@ async function main() {
     await evaluate(cdp, `(() => Promise.all([
       import('/src/stores/useChatStore.ts'),
       import('/src/stores/useMessageStore.ts'),
+      import('/src/services/engines/storyEngine.ts'),
+      import('/src/services/narrativeRuntime.ts'),
+      import('/src/types/chat.ts'),
+    ]).then(async ([{ useChatStore }, { useMessageStore }, { STORY_ENGINE }, narrativeRuntime, { normalizeConversation }]) => {
+      const characters = [{ id: 'lin', name: '林医生' }, { id: 'nurse', name: '护士' }];
+      const buildStoryEventMessage = (chat, id, timestamp, events) => {
+        const storyEvents = narrativeRuntime.normalizeStoryEvents(events);
+        const narrativeTurn = narrativeRuntime.buildNarrativeTurnFromStoryEvents({
+          conversation: chat,
+          events: storyEvents,
+          characters,
+        });
+        return {
+          id,
+          chatId: chat.id,
+          type: 'ai',
+          senderId: 'narrator',
+          senderName: '旁白',
+          content: narrativeRuntime.buildStoryEventsVisibleText(storyEvents, characters),
+          emotion: 0,
+          timestamp,
+          isDeleted: false,
+          metadata: {
+            storyEvents,
+            storyChoices: narrativeRuntime.getStoryChoicesFromEvents(storyEvents),
+            narrativeTurn: narrativeTurn || undefined,
+          },
+        };
+      };
+      const applyCommit = async (chat, message) => {
+        const commit = await STORY_ENGINE.onMessageCommitted({
+          conversation: chat,
+          characters,
+          message,
+        });
+        return normalizeConversation({
+          ...chat,
+          scenarioState: { ...(chat.scenarioState || {}), ...(commit.chatPatch?.scenarioState || {}) },
+          worldState: { ...(chat.worldState || {}), ...(commit.chatPatch?.worldState || {}) },
+          updatedAt: message.timestamp,
+          lastMessageAt: message.timestamp,
+        });
+      };
+      const setChat = (chat) => {
+        useChatStore.setState((state) => ({
+          chats: state.chats.map((item) => item.id === chat.id ? chat : item),
+          currentChatId: chat.id,
+        }));
+      };
+      let chat = useChatStore.getState().chats.find((item) => item.id === 'story-browser-smoke');
+      if (!chat) throw new Error('story chat missing before long-flow smoke');
+      const now = Date.now();
+      const firstConsequence = buildStoryEventMessage(chat, 'long-flow-first-consequence', now + 20, [
+        { type: 'narration', text: '林医生把问题压得更低，走廊顶灯闪了一下。护士承认停电时有个拿铜钥匙的人进过档案室，代价是她后退半步，明显开始警觉。' },
+        { type: 'speech', characterId: 'nurse', text: '我只看见钥匙，不知道那个人的脸。你再逼我，我就不往前走了。' },
+      ]);
+      useMessageStore.getState().upsertMessage(firstConsequence);
+      chat = await applyCommit(chat, firstConsequence);
+      setChat(chat);
+      const pressureBeat = buildStoryEventMessage(chat, 'long-flow-pressure', now + 25, [
+        { type: 'narration', text: '档案室门锁里传来极轻的转动声，旧医院走廊的雨味被一股消毒水气味压住。地上的血迹没有通向楼梯，反而在门前断掉，像有人故意把路线擦干净。' },
+        { type: 'speech', characterId: 'lin', text: '钥匙是真的，血迹也是真的。现在的问题是，门里的人为什么还没有出来？' },
+      ]);
+      useMessageStore.getState().upsertMessage(pressureBeat);
+      chat = await applyCommit(chat, pressureBeat);
+      setChat(chat);
+      const secondChoice = buildStoryEventMessage(chat, 'long-flow-second-choice', now + 30, [
+        { type: 'narration', text: '档案室门锁里传来极轻的转动声，护士袖口露出一角被雨水洇开的名单。林医生必须在门里的人逃走前决定先抓哪条线。' },
+        { type: 'speech', characterId: 'nurse', text: '别开门。名单上的名字如果被看见，我们都会有危险。' },
+        {
+          type: 'choice_point',
+          choices: [
+            { label: '让林医生立刻推开档案室门', prompt: '林医生推门确认门里的人和血迹来源', intent: '冒险', risk: '惊动门内的人', reward: '确认谁进入过档案室' },
+            { label: '让护士交出袖口里的名单', prompt: '护士交出袖口里被雨水洇开的名单', intent: '揭露', risk: '护士可能彻底失去信任', reward: '得到失踪名单上的缺失名字' },
+          ],
+        },
+      ]);
+      useMessageStore.getState().upsertMessage(secondChoice);
+      chat = await applyCommit(chat, secondChoice);
+      setChat(chat);
+      return 'long-flow-second-choice-seeded';
+    }))()`, true);
+    await wait(1800);
+    const longFlowBeforeSecondChoice = JSON.parse(await evaluate(cdp, `JSON.stringify({
+      text: document.body.innerText,
+      buttons: Array.from(document.querySelectorAll('button')).map((button) => button.innerText.trim()).filter(Boolean),
+      messageIds: Array.from(document.querySelectorAll('[data-message-id]')).map((node) => node.getAttribute('data-message-id')),
+      choicePanelIndex: document.body.innerText.indexOf('选择接下来的剧情走向'),
+      consequenceIndex: document.body.innerText.indexOf('护士承认停电时有个拿铜钥匙的人进过档案室'),
+      secondChoiceIndex: document.body.innerText.indexOf('让护士交出袖口里的名单')
+    })`));
+    assertCondition(longFlowBeforeSecondChoice.text.includes('护士承认停电时有个拿铜钥匙的人进过档案室'), 'Long-flow smoke did not render the first consequence after selecting', longFlowBeforeSecondChoice);
+    assertCondition(longFlowBeforeSecondChoice.buttons.includes('让护士交出袖口里的名单'), 'Long-flow smoke did not render the second choice button', longFlowBeforeSecondChoice.buttons);
+    assertCondition(longFlowBeforeSecondChoice.consequenceIndex >= 0 && longFlowBeforeSecondChoice.secondChoiceIndex > longFlowBeforeSecondChoice.consequenceIndex, 'Long-flow second choice appeared before the selected consequence', longFlowBeforeSecondChoice);
+    assertCondition(!longFlowBeforeSecondChoice.buttons.includes('让林医生追问护士昨晚去向'), 'Long-flow smoke reopened the previous choice button', longFlowBeforeSecondChoice.buttons);
+    assertCondition(new Set(longFlowBeforeSecondChoice.messageIds).size === longFlowBeforeSecondChoice.messageIds.length, 'Long-flow smoke duplicated message nodes before second choice', longFlowBeforeSecondChoice.messageIds);
+
+    await evaluate(cdp, `(() => {
+      const button = Array.from(document.querySelectorAll('button')).find((item) => item.innerText.includes('让护士交出袖口里的名单'));
+      if (!button) throw new Error('second choice button not found');
+      button.click();
+      return 'second-choice-clicked';
+    })()`);
+    await wait(1800);
+    const longFlowAfterSecondChoice = JSON.parse(await evaluate(cdp, `Promise.all([
+      import('/src/stores/useChatStore.ts'),
+      import('/src/stores/useMessageStore.ts'),
+    ]).then(([{ useChatStore }, { useMessageStore }]) => {
+      const chat = useChatStore.getState().chats.find((item) => item.id === 'story-browser-smoke');
+      const messages = useMessageStore.getState().messageWindowsByChatId['story-browser-smoke']?.messages || [];
+      const text = document.body.innerText;
+      return JSON.stringify({
+        text,
+        buttons: Array.from(document.querySelectorAll('button')).map((button) => button.innerText.trim()).filter(Boolean),
+        messageIds: Array.from(document.querySelectorAll('[data-message-id]')).map((node) => node.getAttribute('data-message-id')),
+        phase: chat?.scenarioState?.phase,
+        storyDirection: chat?.scenarioState?.storyDirection,
+        selectedChoice: chat?.scenarioState?.selectedChoice,
+        selectedChoiceEpoch: chat?.scenarioState?.selectedChoiceEpoch,
+        choiceHistory: chat?.scenarioState?.choiceHistory,
+        branches: chat?.scenarioState?.branches,
+        selectionMessages: messages.filter((message) => message.metadata?.storyChoiceSelection).map((message) => ({
+          content: message.content,
+          branchId: message.metadata.storyChoiceSelection.branchId,
+          label: message.metadata.storyChoiceSelection.label,
+          choiceEpoch: message.metadata.storyChoiceSelection.choiceEpoch,
+        })),
+        firstSelectionIndex: text.indexOf('让林医生追问护士昨晚去向'),
+        firstConsequenceIndex: text.indexOf('护士承认停电时有个拿铜钥匙的人进过档案室'),
+        secondSelectionIndex: text.lastIndexOf('让护士交出袖口里的名单'),
+      });
+    })`, true));
+    assertCondition(longFlowAfterSecondChoice.phase === 'branch', 'Long-flow second choice did not move back into branch consequence phase', longFlowAfterSecondChoice);
+    assertCondition(longFlowAfterSecondChoice.storyDirection === '护士交出袖口里被雨水洇开的名单', 'Long-flow second choice did not write the selected prompt', longFlowAfterSecondChoice);
+    assertCondition(longFlowAfterSecondChoice.selectedChoice?.label === '让护士交出袖口里的名单', 'Long-flow second choice did not preserve selected choice label', longFlowAfterSecondChoice);
+    assertCondition(longFlowAfterSecondChoice.selectedChoiceEpoch === 3, 'Long-flow second choice did not preserve the second choice epoch', longFlowAfterSecondChoice);
+    assertCondition(longFlowAfterSecondChoice.choiceHistory?.length >= 2, 'Long-flow second choice did not append to choice history', longFlowAfterSecondChoice);
+    assertCondition(longFlowAfterSecondChoice.choiceHistory?.some((choice) => choice.label === '让林医生追问护士昨晚去向'), 'Long-flow lost the first selected choice history', longFlowAfterSecondChoice);
+    assertCondition(longFlowAfterSecondChoice.choiceHistory?.some((choice) => choice.label === '让护士交出袖口里的名单'), 'Long-flow did not write the second selected choice history', longFlowAfterSecondChoice);
+    assertCondition(longFlowAfterSecondChoice.branches?.some((branch) => branch.label === '让林医生立刻推开档案室门' && branch.status === 'completed'), 'Long-flow did not keep the second unchosen branch as completed history', longFlowAfterSecondChoice);
+    assertCondition(longFlowAfterSecondChoice.selectionMessages?.filter((message) => message.label === '让护士交出袖口里的名单').length === 1, 'Long-flow duplicated the second choice selection message', longFlowAfterSecondChoice);
+    assertCondition(!longFlowAfterSecondChoice.buttons.includes('让护士交出袖口里的名单'), 'Long-flow second choice button remained visible after choosing', longFlowAfterSecondChoice.buttons);
+    assertCondition(longFlowAfterSecondChoice.firstSelectionIndex >= 0 && longFlowAfterSecondChoice.firstConsequenceIndex > longFlowAfterSecondChoice.firstSelectionIndex && longFlowAfterSecondChoice.secondSelectionIndex > longFlowAfterSecondChoice.firstConsequenceIndex, 'Long-flow reading order was not selection -> consequence -> second selection', longFlowAfterSecondChoice);
+    assertCondition(new Set(longFlowAfterSecondChoice.messageIds).size === longFlowAfterSecondChoice.messageIds.length, 'Long-flow smoke duplicated message nodes after second choice', longFlowAfterSecondChoice.messageIds);
+
+    await evaluate(cdp, `(() => Promise.all([
+      import('/src/stores/useChatStore.ts'),
+      import('/src/stores/useMessageStore.ts'),
     ]).then(([{ useChatStore }, { useMessageStore }]) => {
       const sourceChat = useChatStore.getState().chats.find((item) => item.id === 'story-browser-smoke');
       if (!sourceChat) throw new Error('source story chat not found');
@@ -908,6 +1056,11 @@ async function main() {
         phase: customInputStore.phase,
         storyDirection: customInputStore.storyDirection,
         choiceHistoryCount: customInputStore.choiceHistory?.length || 0,
+      },
+      longFlow: {
+        phase: longFlowAfterSecondChoice.phase,
+        storyDirection: longFlowAfterSecondChoice.storyDirection,
+        choiceHistoryCount: longFlowAfterSecondChoice.choiceHistory?.length || 0,
       },
     }, null, 2));
   } finally {
