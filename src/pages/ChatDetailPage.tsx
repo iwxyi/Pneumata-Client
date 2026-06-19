@@ -135,6 +135,11 @@ export function findVisibleStoryChoiceSourceMessage(params: {
     if (!normalizeStoryChoiceSuggestions(message.metadata?.storyChoices).length) continue;
     return message;
   }
+  for (let index = params.messages.length - 1; index >= 0; index -= 1) {
+    const message = params.messages[index];
+    if (message.isDeleted || message.type !== 'ai') continue;
+    return message;
+  }
   return null;
 }
 
@@ -145,8 +150,25 @@ export function buildVisibleStoryBranchOptions(params: {
 }) {
   const sourceMessage = params.sourceMessage;
   if (!params.isStoryRoom || params.chat?.scenarioState?.phase !== 'choice' || !sourceMessage) return [];
+  const storyChoices = normalizeStoryChoiceSuggestions(sourceMessage.metadata?.storyChoices);
+  const branchFallbackChoices = storyChoices.length >= 2
+    ? storyChoices
+    : (params.chat.scenarioState?.branches || [])
+      .filter((branch) => (
+        branch.status !== 'locked'
+        && branch.status !== 'completed'
+        && branch.status !== 'chosen'
+        && Number(branch.choiceEpoch || 0) === Number(params.chat?.scenarioState?.choiceEpoch || 0)
+      ))
+      .map((branch) => ({
+        label: branch.label,
+        prompt: branch.prompt || branch.description || branch.label,
+        intent: branch.intent || null,
+        risk: branch.risk || null,
+        reward: branch.reward || null,
+      }));
   return buildStoryBranchOptions({
-    storyChoices: sourceMessage.metadata?.storyChoices,
+    storyChoices: branchFallbackChoices,
     branches: params.chat.scenarioState?.branches,
     choiceEpoch: params.chat.scenarioState?.choiceEpoch,
     sourceId: sourceMessage.id,

@@ -86,6 +86,49 @@ describe('STORY_ENGINE', () => {
     }));
   });
 
+  it('opens fallback choices when a required decision beat has no valid model choices', async () => {
+    const chat = buildStoryChat();
+    chat.memberIds = ['a', 'b'];
+    chat.scenarioState = {
+      phase: 'scene',
+      sceneBeatCount: 3,
+      choiceEpoch: 1,
+      branches: [],
+      currentScene: { location: '旧医院走廊', presentActorIds: ['a', 'b'], visibleThreat: '护士开始隐瞒停电记录' },
+      openQuestions: ['停电记录是谁改过的？'],
+      clues: ['墙边的新鲜血迹'],
+      stakes: ['护士可能反咬一口'],
+    };
+    const result = await STORY_ENGINE.onMessageCommitted({
+      conversation: chat,
+      characters: [{ id: 'a', name: '林医生' }, { id: 'b', name: '护士' }] as never,
+      message: {
+        content: '冲突已经逼到走廊尽头，但模型没有给出选项。',
+        type: 'ai',
+        senderId: 'narrator',
+      },
+    });
+    const scenarioState = result.chatPatch.scenarioState;
+    const fallbackBranches = scenarioState?.branches?.filter((branch) => branch.status === 'available' && branch.choiceEpoch === 2) || [];
+    expect(scenarioState).toEqual(expect.objectContaining({
+      phase: 'choice',
+      choiceEpoch: 2,
+      sceneBeatCount: 0,
+      storyBeatKind: 'decision',
+      storyChoicePolicy: 'require',
+    }));
+    expect(fallbackBranches.map((branch) => branch.label)).toEqual(expect.arrayContaining([
+      '让林医生当场追问护士隐瞒的细节',
+    ]));
+    expect(fallbackBranches.map((branch) => branch.label).join('\n')).toContain('让林医生检查');
+    expect(fallbackBranches.map((branch) => branch.label).join('\n')).toContain('墙边的新鲜血迹');
+    expect(fallbackBranches[0]).toEqual(expect.objectContaining({
+      intent: expect.any(String),
+      risk: expect.any(String),
+      reward: expect.any(String),
+    }));
+  });
+
   it('suppresses model choices during establish beats', async () => {
     const chat = buildStoryChat();
     chat.scenarioState = { phase: 'scene', sceneBeatCount: 0, choiceEpoch: 1, branches: [] };

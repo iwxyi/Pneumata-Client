@@ -139,4 +139,44 @@ describe('ChatDetailPage pause/resume behavior', () => {
       ...params,
     })).toEqual([]);
   });
+
+  it('shows current branch fallback options when the choice source message has no storyChoices metadata', () => {
+    const sourceMessage = {
+      id: 'fallback-choice-source',
+      chatId: 'story-1',
+      type: 'ai' as const,
+      senderId: 'narrator',
+      senderName: '旁白',
+      content: '走廊尽头的灯忽明忽暗，必须立刻决定下一步。',
+      emotion: 0,
+      timestamp: 2,
+      isDeleted: false,
+    };
+    const chat = {
+      id: 'story-1',
+      scenarioState: {
+        phase: 'choice',
+        choiceEpoch: 4,
+        branches: [
+          { branchId: 'ask', label: '让林医生追问护士隐瞒的细节', prompt: '林医生追问护士', status: 'available' as const, choiceEpoch: 4 },
+          { branchId: 'search', label: '让林医生检查旧医院走廊里的血迹', prompt: '林医生检查血迹', status: 'available' as const, choiceEpoch: 4 },
+          { branchId: 'old', label: '旧选项', prompt: '旧选项', status: 'available' as const, choiceEpoch: 3 },
+        ],
+      },
+    };
+
+    expect(findVisibleStoryChoiceSourceMessage({
+      isStoryRoom: true,
+      phase: 'choice',
+      messages: [sourceMessage],
+    })).toBe(sourceMessage);
+    expect(buildVisibleStoryBranchOptions({
+      isStoryRoom: true,
+      chat: chat as Parameters<typeof buildVisibleStoryBranchOptions>[0]['chat'],
+      sourceMessage,
+    })).toEqual([
+      expect.objectContaining({ label: '让林医生追问护士隐瞒的细节', value: 'ask' }),
+      expect.objectContaining({ label: '让林医生检查旧医院走廊里的血迹', value: 'search' }),
+    ]);
+  });
 });

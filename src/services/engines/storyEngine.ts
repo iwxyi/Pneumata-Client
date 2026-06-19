@@ -4,6 +4,7 @@ import type { Message, NarrativeTurnMetadata } from '../../types/message';
 import {
   buildChapterRecap,
   buildChoicePolicyPrompt,
+  buildRequiredStoryChoiceFallbacks,
   buildSelectedChoiceConsequencePrompt,
   buildStoryAssetPrompt,
   extractStoryAssets,
@@ -211,9 +212,17 @@ function onMessageCommitted(params: {
     .join(' ');
   const summary = (params.message.content.trim() || metadataText || '剧情推进').slice(0, 72);
   const currentBeatPlan = resolveStoryBeatPlan(params.conversation);
-  const choices = currentBeatPlan.choicePolicy === 'forbid'
+  const modelChoices = currentBeatPlan.choicePolicy === 'forbid'
     ? []
     : normalizeStoryChoiceSuggestions(params.message.metadata?.storyChoices);
+  const preliminaryStoryAssets = extractStoryAssets({ conversation: params.conversation, message: params.message, choices: modelChoices, summary, characters: params.characters });
+  const choices = currentBeatPlan.choicePolicy === 'require' && modelChoices.length < 2
+    ? buildRequiredStoryChoiceFallbacks({
+      conversation: params.conversation,
+      storyAssets: preliminaryStoryAssets,
+      characters: params.characters,
+    })
+    : modelChoices;
   const storyAssets = extractStoryAssets({ conversation: params.conversation, message: params.message, choices, summary, characters: params.characters });
   const normalized = normalizeStoryBranches(params.conversation, choices);
   const nextEpoch = getCurrentChoiceEpoch({ ...params.conversation, scenarioState: { ...(params.conversation.scenarioState || {}), branches: normalized.branches } });
