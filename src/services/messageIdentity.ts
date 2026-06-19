@@ -1,6 +1,6 @@
 import type { Message } from '../types/message';
 
-export type MessageIdentityLike = Pick<Message, 'id' | 'clientKey' | 'serverId' | 'chatId'>;
+export type MessageIdentityLike = Pick<Message, 'id' | 'clientKey' | 'serverId' | 'chatId' | 'metadata'>;
 
 export function isLocalOnlyMessageId(id: string | undefined | null) {
   return Boolean(id && /^local[-_]/i.test(id));
@@ -8,6 +8,13 @@ export function isLocalOnlyMessageId(id: string | undefined | null) {
 
 export function buildMessageIdentityKeys(message: MessageIdentityLike) {
   const keys = new Set<string>();
+  const storyChoiceSelection = message.metadata?.storyChoiceSelection;
+  if (storyChoiceSelection) {
+    const sourceMessageId = storyChoiceSelection.sourceMessageId || 'unknown-source';
+    const choiceEpoch = storyChoiceSelection.choiceEpoch || 'unknown-epoch';
+    const choiceKey = storyChoiceSelection.branchId || storyChoiceSelection.label || storyChoiceSelection.prompt || '';
+    if (choiceKey) keys.add(`story-choice:${sourceMessageId}:${choiceEpoch}:${choiceKey}`);
+  }
   if (message.clientKey) keys.add(`client:${message.clientKey}`);
   if (message.id) {
     keys.add(`id:${message.id}`);

@@ -121,6 +121,101 @@ describe('buildChatRenderItems', () => {
     expect(items.map((item) => item.message.id)).toEqual(['choice-source', 'choice-selection', 'consequence-1']);
   });
 
+  it('keeps the full story choice reading order stable after selection, events, and follow-up beats', () => {
+    const items = buildChatRenderItems([
+      message({
+        id: 'intro',
+        senderId: 'narrator',
+        senderName: '旁白',
+        content: '喜帐垂在床沿，烛泪堆在铜台上。',
+        timestamp: 10,
+      }),
+      message({
+        id: 'choice-source',
+        senderId: 'narrator',
+        senderName: '旁白',
+        content: '月奴转身要走，沈清婉看见她袖口一紧。',
+        timestamp: 20,
+        metadata: {
+          storyChoices: [
+            { label: '叫住月奴，问她昨晚铺床时有没有发现枕下异物', prompt: '沈清婉旁敲侧击试探月奴' },
+            { label: '暂时放月奴离开，自己检查枕下长剑的来历', prompt: '沈清婉独自检查长剑' },
+          ],
+        },
+      }),
+      message({
+        id: 'branch-event',
+        type: 'event',
+        senderId: 'system',
+        senderName: 'System',
+        content: JSON.stringify({
+          eventType: 'story_branch',
+          summary: '剧情分支：沈清婉旁敲侧击试探月奴',
+          sourceMessageId: 'choice-selection',
+          visibilityScope: 'public',
+        }),
+        timestamp: 21,
+      }),
+      message({
+        id: 'choice-selection',
+        type: 'user',
+        senderId: 'user',
+        senderName: '我',
+        content: '我选择：叫住月奴，问她昨晚铺床时有没有发现枕下异物',
+        timestamp: 30,
+        metadata: {
+          storyChoiceSelection: {
+            branchId: 'ask-yuenu',
+            sourceMessageId: 'choice-source',
+            label: '叫住月奴，问她昨晚铺床时有没有发现枕下异物',
+            prompt: '沈清婉旁敲侧击试探月奴',
+            choiceEpoch: 2,
+          },
+        },
+      }),
+      message({
+        id: 'duplicate-selection',
+        type: 'user',
+        senderId: 'user',
+        senderName: '我',
+        content: '我选择：叫住月奴，问她昨晚铺床时有没有发现枕下异物',
+        timestamp: 31,
+        metadata: {
+          storyChoiceSelection: {
+            branchId: 'ask-yuenu',
+            sourceMessageId: 'choice-source',
+            label: '叫住月奴，问她昨晚铺床时有没有发现枕下异物',
+            prompt: '沈清婉旁敲侧击试探月奴',
+            choiceEpoch: 2,
+          },
+        },
+      }),
+      message({
+        id: 'consequence',
+        senderId: 'narrator',
+        senderName: '旁白',
+        content: '月奴的脊背僵了一瞬，回答得太稳，反而露出了破绽。',
+        timestamp: 40,
+      }),
+      message({
+        id: 'follow-up',
+        senderId: 'narrator',
+        senderName: '旁白',
+        content: '门外扫院子的声音一下一下，把这场试探拖得更长。',
+        timestamp: 50,
+      }),
+    ]);
+
+    expect(items.map((item) => item.message.id)).toEqual([
+      'intro',
+      'choice-source',
+      'choice-selection',
+      'branch-event',
+      'consequence',
+      'follow-up',
+    ]);
+  });
+
   it('renders public story events as narrative items', () => {
     for (const visibilityScope of ['public', 'derived_public']) {
       const items = buildChatRenderItems([
