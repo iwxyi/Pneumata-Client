@@ -234,6 +234,11 @@ describe('ChatNarrativePanel', () => {
     expect(html).not.toContain('当时还可以选择');
     expect(html).toContain('红太狼 在旧医院发现血迹');
     expect(html).toContain('当前处境：灰太狼 刚从地下档案室逃出来');
+    expect(html).toContain('章节结算');
+    expect(html).toContain('发现：地下档案室的病历被撕掉一页');
+    expect(html).toContain('关系：红太狼 开始怀疑 灰太狼');
+    expect(html).toContain('结果：护士承认停电时有人进入档案室');
+    expect(html).toContain('未解：灰太狼 为什么隐瞒停电记录？');
     expect(html).toContain('当前场景');
     expect(html).toContain('地点：灰太狼 所在的地下档案室');
     expect(html).toContain('时间：清晨');

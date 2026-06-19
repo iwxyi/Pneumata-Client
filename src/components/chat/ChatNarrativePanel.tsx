@@ -176,6 +176,55 @@ function renderCurrentScene(chat: GroupChat, members: AICharacter[], showDebugDe
   );
 }
 
+function renderChapterSettlement(chat: GroupChat, members: AICharacter[]) {
+  const state = chat.scenarioState;
+  const recap = state?.chapterRecap;
+  if (!state || !recap) return null;
+  const latestChoice = state.choiceHistory?.slice(-1)[0];
+  const rows = [
+    recap.discoveredClues[0] ? `发现：${formatNarrativeLineText(recap.discoveredClues[0], members)}` : '',
+    recap.changedRelationships[0] ? `关系：${formatNarrativeLineText(recap.changedRelationships[0], members)}` : '',
+    latestChoice?.outcome ? `结果：${formatNarrativeLineText(latestChoice.outcome, members)}` : '',
+    recap.unresolvedQuestions[0] ? `未解：${formatNarrativeLineText(recap.unresolvedQuestions[0], members)}` : '',
+    state.storyGoal ? `下一步：${formatNarrativeLineText(state.storyGoal, members)}` : '',
+  ].filter(Boolean).slice(0, 4);
+  if (!rows.length) return null;
+  const sceneLabel = [
+    state.currentScene?.time ? formatNarrativeLineText(state.currentScene.time, members) : '',
+    state.currentScene?.location ? formatNarrativeLineText(state.currentScene.location, members) : '',
+  ].filter(Boolean).join(' · ');
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.45 }}>章节结算</Typography>
+      <Box
+        sx={(theme) => ({
+          px: 0.9,
+          py: 0.75,
+          borderRadius: 1.5,
+          border: '1px solid',
+          borderColor: theme.palette.mode === 'light' ? 'rgba(16,185,129,0.18)' : 'rgba(52,211,153,0.18)',
+          bgcolor: theme.palette.mode === 'light' ? 'rgba(236,253,245,0.58)' : 'rgba(6,78,59,0.18)',
+        })}
+      >
+        <Stack direction="row" spacing={0.6} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.35 }}>
+          <Chip size="small" label={recap.title || '阶段回顾'} variant="outlined" sx={compactPillChipSx} />
+          {sceneLabel ? <Chip size="small" label={sceneLabel} variant="outlined" sx={compactPillChipSx} /> : null}
+        </Stack>
+        <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.55 }}>
+          {formatNarrativeLineText(recap.summary, members)}
+        </Typography>
+        <Stack spacing={0.25} sx={{ mt: 0.45 }}>
+          {rows.map((row) => (
+            <Typography key={row} variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>
+              {row}
+            </Typography>
+          ))}
+        </Stack>
+      </Box>
+    </Box>
+  );
+}
+
 function renderAssetChips(label: string, values: string[] | undefined, members: AICharacter[]) {
   const visible = (values || []).map((item) => formatNarrativeLineText(item, members)).filter(Boolean).slice(-4);
   if (!visible.length) return null;
@@ -400,6 +449,7 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDe
             当前处境：{formatNarrativeLineText(state.storySituation, members)}
           </Typography>
         ) : null}
+        {renderChapterSettlement(chat, members)}
         {renderCurrentScene(chat, members, showDebugDetails)}
         {renderAssetChips('悬念', state.openQuestions, members)}
         {renderAssetChips('线索', state.clues, members)}
