@@ -81,6 +81,13 @@ function buildGenerationPromptContext(params: { conversation: GroupChat }): Sess
   const background = params.conversation.scenarioState?.storyBackground ? `\nStory background: ${params.conversation.scenarioState.storyBackground}` : '';
   const direction = params.conversation.scenarioState?.storyDirection ? `\nCurrent story direction / selected branch: ${params.conversation.scenarioState.storyDirection}` : '';
   const outline = params.conversation.scenarioState?.storyOutline ? `\nStory outline: ${params.conversation.scenarioState.storyOutline}` : '';
+  const openingConstraints = beatPlan.beatKind === 'establish'
+    ? [
+        'Opening beat: start inside the current scene, not with a setting summary. Show a concrete object, sound, gesture, or pressure from storySituation/currentScene/openQuestions within the first narration event.',
+        'Opening beat: include at least one spoken line that reveals denial, suspicion, fear, or pressure between present characters when any character is available.',
+        'Opening beat: end with a specific unresolved hook tied to an existing clue, secret, threat, or relationship crack; do not ask the user to choose yet.',
+      ]
+    : [];
   return {
     responseStyle: 'creative',
     allowMarkdown: false,
@@ -90,6 +97,7 @@ function buildGenerationPromptContext(params: { conversation: GroupChat }): Sess
       ...buildChoicePolicyPrompt(beatPlan),
       ...buildStoryAssetPrompt(params.conversation),
       ...buildSelectedChoiceConsequencePrompt(params.conversation),
+      ...openingConstraints,
       ...(phase === 'branch'
         ? [
         'Use storyEvents. At minimum output one narration event. Add speech events only for spoken lines that change the scene.',

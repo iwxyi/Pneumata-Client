@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildGroupChatDraft } from './chatDraftBuilder';
+import { STORY_ENGINE } from './engines/storyEngine';
 import { getRoomTemplate } from './roomTemplates';
 import type { RoomTemplateKey } from './roomTemplates';
 
@@ -38,6 +39,16 @@ function buildStoryDraft(key: RoomTemplateKey, topic: string, memberIds = ['lin'
     allowEventInjection: true,
     allowForcedReply: true,
   });
+}
+
+function materializeDraft(draft: ReturnType<typeof buildStoryDraft>) {
+  return {
+    ...draft,
+    id: 'story-template-test',
+    createdAt: 1,
+    updatedAt: 1,
+    lastMessageAt: 1,
+  };
 }
 
 describe('roomTemplates story seeds', () => {
@@ -82,6 +93,33 @@ describe('roomTemplates story seeds', () => {
       expect(state?.clues?.length).toBeGreaterThanOrEqual(1);
       expect(state?.stakes?.length).toBeGreaterThanOrEqual(1);
       expect(seedText).toMatch(/秘密|真相|停电|失踪|匿名|误发|照片|语音|名单|压力|暴露|裂缝|竞争|误会|分手/);
+    }
+  });
+
+  it('feeds every story template into an opening prompt that starts in-scene instead of summarizing settings', () => {
+    for (const key of storyTemplateKeys) {
+      const template = getRoomTemplate(key);
+      const draft = buildStoryDraft(key, template.topicPlaceholder.replace(/^例如：/, '').split('、')[0] || template.label);
+      const prompt = STORY_ENGINE.buildGenerationPromptContext?.({
+        conversation: materializeDraft(draft),
+        characters: [],
+        messages: [],
+        speaker: { id: 'narrator', name: '旁白' } as never,
+      });
+      const constraints = prompt?.additionalConstraints?.join('\n') || '';
+
+      expect(prompt?.promptPrefix).toContain('storyEvents as the authoritative visible story body');
+      expect(prompt?.promptPrefix).toContain('Story background:');
+      expect(prompt?.promptPrefix).toContain('Current story direction');
+      expect(prompt?.promptPrefix).toContain('Story outline:');
+      expect(constraints).toContain('beatKind=establish; choicePolicy=forbid');
+      expect(constraints).toContain('Do not output storyEvents.choice_point');
+      expect(constraints).toContain('Opening beat: start inside the current scene');
+      expect(constraints).toContain('include at least one spoken line');
+      expect(constraints).toContain('specific unresolved hook');
+      expect(constraints).toContain('Current chapter goal:');
+      expect(constraints).toContain('Current scene:');
+      expect(constraints).toContain('Open questions to preserve or answer deliberately:');
     }
   });
 
