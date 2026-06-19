@@ -128,6 +128,25 @@ describe('narrativeRuntime', () => {
     ]);
   });
 
+  it('drops repeated branch consequence rewrites even when wording changes', () => {
+    const events = normalizeStoryEvents([
+      { type: 'narration', text: '月奴正转身要退出去，沈清婉的声音从妆台前传来，不重，却让月奴的步子顿住了。月奴没有立刻转身，而是先把手里的托盘轻轻放在门边的春凳上。' },
+      { type: 'speech', speakerName: '沈清婉', text: '月奴，你昨晚铺床的时候，可觉得枕头底下有什么不平整的地方？' },
+      { type: 'narration', text: '月奴的脊背在听见这句话的瞬间僵了一下，像一根被突然拉紧的琴弦。她没有立刻转身，而是先把手里的粥碗在矮几上端端正正地摆好，才慢慢回过身来。' },
+      { type: 'narration', text: '月奴的脊背在听见这句话的瞬间僵了一下，像一根被突然拉紧的琴弦。她没有立刻转身，而是先把手里的粥碗在矮几上端端正正地摆好，才慢慢回过身来，目光低垂，落在沈清婉肩头那件还没换下的嫁衣上。' },
+      { type: 'speech', speakerName: '林月奴', text: '回小姐，枕头底下奴婢都用手抚平了的，席子也重新铺过一遍，没有什么硌手的东西。' },
+      { type: 'narration', text: '窗外传来扫院子的沙沙声，天光已经从青白变成了淡金，新的一天开始了。' },
+    ]);
+
+    expect(events.map((event) => event.type === 'narration' ? event.text : `${event.speakerName}:${event.text}`)).toEqual([
+      '月奴正转身要退出去，沈清婉的声音从妆台前传来，不重，却让月奴的步子顿住了。月奴没有立刻转身，而是先把手里的托盘轻轻放在门边的春凳上。',
+      '沈清婉:月奴，你昨晚铺床的时候，可觉得枕头底下有什么不平整的地方？',
+      '月奴的脊背在听见这句话的瞬间僵了一下，像一根被突然拉紧的琴弦。她没有立刻转身，而是先把手里的粥碗在矮几上端端正正地摆好，才慢慢回过身来。',
+      '林月奴:回小姐，枕头底下奴婢都用手抚平了的，席子也重新铺过一遍，没有什么硌手的东西。',
+      '窗外传来扫院子的沙沙声，天光已经从青白变成了淡金，新的一天开始了。',
+    ]);
+  });
+
   it('plans story beats and normalizes choices as reusable narrative runtime state', () => {
     const decisionChat = normalizeConversation({
       ...chat,

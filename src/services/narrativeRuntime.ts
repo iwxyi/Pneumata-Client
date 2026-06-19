@@ -1,7 +1,7 @@
 import type { GroupChat, StoryBeatKind, StoryChoicePolicy } from '../types/chat';
 import type { AICharacter } from '../types/character';
 import type { Message, NarrativeBlock, NarrativeTurnMetadata, StoryChoiceSuggestion, StoryEvent } from '../types/message';
-import { isConcreteStoryChoiceLabel, normalizeStoryChoiceSuggestions } from './storyChoices';
+import { normalizeStoryChoiceSuggestions } from './storyChoices';
 
 const MAX_STORY_EVENTS = 12;
 const MAX_CHOICES = 4;
@@ -30,36 +30,8 @@ function compactText(value: unknown, max = 1200) {
   return value.replace(/\s+/g, ' ').trim().slice(0, max).trim();
 }
 
-function normalizeStoryChoice(value: unknown): StoryChoiceSuggestion | null {
-  if (!value || typeof value !== 'object') return null;
-  const item = value as Record<string, unknown>;
-  const label = compactText(item.label, 80);
-  if (!label || !isConcreteStoryChoiceLabel(label)) return null;
-  const prompt = compactText(item.prompt, 180);
-  const intent = compactText(item.intent, 40);
-  const risk = compactText(item.risk, 120);
-  const reward = compactText(item.reward, 120);
-  return {
-    label,
-    prompt: prompt || null,
-    ...(intent ? { intent } : {}),
-    ...(risk ? { risk } : {}),
-    ...(reward ? { reward } : {}),
-  };
-}
-
 function normalizeStoryChoices(value: unknown): StoryChoiceSuggestion[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const choices: StoryChoiceSuggestion[] = [];
-  for (const raw of value) {
-    const choice = normalizeStoryChoice(raw);
-    if (!choice || seen.has(choice.label)) continue;
-    seen.add(choice.label);
-    choices.push(choice);
-    if (choices.length >= MAX_CHOICES) break;
-  }
-  return choices;
+  return normalizeStoryChoiceSuggestions(value).slice(0, MAX_CHOICES);
 }
 
 function normalizeRepeatText(text: string) {
@@ -92,6 +64,23 @@ function textSimilarity(left: string, right: string) {
   return overlap / Math.min(a.size, b.size);
 }
 
+function splitDistinctiveStoryFragments(text: string) {
+  return (text.match(/[^。！？!?；;\n]+[。！？!?；;]?/g) || [text])
+    .map((part) => normalizeRepeatText(part))
+    .filter((part) => part.length >= 18);
+}
+
+function sharesDistinctiveStoryFragment(text: string, previous: string) {
+  const fragments = splitDistinctiveStoryFragments(text);
+  const previousFragments = splitDistinctiveStoryFragments(previous);
+  if (!fragments.length || !previousFragments.length) return false;
+  return fragments.some((fragment) => previousFragments.some((previousFragment) => (
+    fragment.includes(previousFragment)
+    || previousFragment.includes(fragment)
+    || textSimilarity(fragment, previousFragment) >= 0.86
+  )));
+}
+
 function isNearDuplicateStoryText(text: string, previousTexts: string[], minLength = 28) {
   const normalized = normalizeRepeatText(text);
   if (normalized.length < minLength) return false;
@@ -100,6 +89,7 @@ function isNearDuplicateStoryText(text: string, previousTexts: string[], minLeng
     if (previousNormalized.length < minLength) return false;
     if (previousNormalized.includes(normalized) || normalized.includes(previousNormalized)) return true;
     if (previousNormalized.slice(0, 36) === normalized.slice(0, 36)) return true;
+    if (sharesDistinctiveStoryFragment(normalized, previousNormalized)) return true;
     return textSimilarity(normalized, previousNormalized) >= 0.72;
   });
 }

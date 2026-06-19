@@ -27,10 +27,80 @@ export function isConcreteStoryChoiceLabel(label: string) {
   return !abstractStoryChoicePatterns.some((pattern) => pattern.test(normalized));
 }
 
+function normalizeChoiceText(value: string) {
+  return value
+    .replace(/\s+/g, '')
+    .replace(/[，。！？、；：“”"'‘’（）()[\]{}《》<>…—\-.,!?;:]/g, '')
+    .trim();
+}
+
+function buildCharacterNgrams(text: string, size = 2) {
+  const normalized = normalizeChoiceText(text);
+  const grams = new Set<string>();
+  if (normalized.length <= size) {
+    if (normalized) grams.add(normalized);
+    return grams;
+  }
+  for (let index = 0; index <= normalized.length - size; index += 1) {
+    grams.add(normalized.slice(index, index + size));
+  }
+  return grams;
+}
+
+function choiceTextSimilarity(left: string, right: string) {
+  const a = buildCharacterNgrams(left);
+  const b = buildCharacterNgrams(right);
+  if (!a.size || !b.size) return 0;
+  let overlap = 0;
+  a.forEach((gram) => {
+    if (b.has(gram)) overlap += 1;
+  });
+  return overlap / Math.min(a.size, b.size);
+}
+
+function extractChoiceKeywords(text: string) {
+  const normalized = normalizeChoiceText(text);
+  const keywords = new Set<string>();
+  const terms = [
+    '追问', '质问', '逼问', '试探', '调查', '检查', '查看', '进入', '离开', '打开', '寻找', '保护', '隐瞒', '揭露', '跟踪', '等待', '叫住', '放走', '交代', '说出',
+    '医生', '护士', '小姐', '少爷', '夫人', '院长', '太后', '月奴', '主角', '同伴', '黑衣人', '林医生', '护士长',
+    '记录', '档案', '病历', '血迹', '线索', '证据', '长剑', '枕下', '停电', '真相', '名单', '钥匙', '封存柜', '地下室', '档案室',
+  ];
+  for (const term of terms) {
+    if (normalized.includes(term)) keywords.add(term);
+  }
+  return keywords;
+}
+
+function choiceKeywordOverlap(left: string, right: string) {
+  const a = extractChoiceKeywords(left);
+  const b = extractChoiceKeywords(right);
+  if (!a.size || !b.size) return 0;
+  let overlap = 0;
+  a.forEach((keyword) => {
+    if (b.has(keyword)) overlap += 1;
+  });
+  return overlap / Math.min(a.size, b.size);
+}
+
+function isNearDuplicateChoice(choice: StoryChoiceSuggestion, previous: StoryChoiceSuggestion[]) {
+  const choiceText = `${choice.label}${choice.prompt ? ` ${choice.prompt}` : ''}`;
+  const normalizedChoiceText = normalizeChoiceText(choiceText);
+  if (normalizedChoiceText.length < 10) return false;
+  return previous.some((item) => {
+    const previousText = `${item.label}${item.prompt ? ` ${item.prompt}` : ''}`;
+    const normalizedPreviousText = normalizeChoiceText(previousText);
+    if (normalizedPreviousText.length < 10) return false;
+    if (normalizedPreviousText.includes(normalizedChoiceText) || normalizedChoiceText.includes(normalizedPreviousText)) return true;
+    return choiceTextSimilarity(choiceText, previousText) >= 0.78 || choiceKeywordOverlap(choiceText, previousText) >= 0.67;
+  });
+}
+
 export function normalizeStoryChoiceSuggestions(value: unknown): StoryChoiceSuggestion[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
-  return value
+  const choices: StoryChoiceSuggestion[] = [];
+  for (const choice of value
     .map((choice) => {
       if (!choice || typeof choice !== 'object') return { label: '', prompt: '' };
       const item = choice as Partial<Record<keyof StoryChoiceSuggestion, unknown>>;
@@ -46,13 +116,14 @@ export function normalizeStoryChoiceSuggestions(value: unknown): StoryChoiceSugg
         ...(risk ? { risk } : {}),
         ...(reward ? { reward } : {}),
       };
-    })
-    .filter((choice) => {
-      if (!choice.label || !isConcreteStoryChoiceLabel(choice.label) || seen.has(choice.label)) return false;
-      seen.add(choice.label);
-      return true;
-    })
-    .slice(0, 4);
+    })) {
+    if (!choice.label || !isConcreteStoryChoiceLabel(choice.label) || seen.has(choice.label)) continue;
+    if (isNearDuplicateChoice(choice, choices)) continue;
+    seen.add(choice.label);
+    choices.push(choice);
+    if (choices.length >= 4) break;
+  }
+  return choices;
 }
 
 export function hasVisibleStoryChoices(value: unknown) {

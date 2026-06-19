@@ -11,6 +11,17 @@ describe('storyChoices', () => {
     ]);
   });
 
+  it('filters near-duplicate choices that point to the same story action', () => {
+    expect(normalizeStoryChoiceSuggestions([
+      { label: '追问林医生昨晚的停电记录', prompt: '林医生说出停电时有人进入档案室', risk: '激怒林医生' },
+      { label: '继续追问林医生昨晚停电记录', prompt: '逼林医生交代停电时谁进入档案室', reward: '得到人名' },
+      { label: '去地下档案室查被撕掉的病历', prompt: '地下档案室出现新证据', risk: '被护士发现' },
+    ])).toEqual([
+      { label: '追问林医生昨晚的停电记录', prompt: '林医生说出停电时有人进入档案室', risk: '激怒林医生' },
+      { label: '去地下档案室查被撕掉的病历', prompt: '地下档案室出现新证据', risk: '被护士发现' },
+    ]);
+  });
+
   it('binds visible choices to active branches from the current epoch', () => {
     const options = buildStoryBranchOptions({
       storyChoices: [
