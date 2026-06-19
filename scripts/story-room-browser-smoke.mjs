@@ -360,6 +360,30 @@ async function main() {
     assertCondition(before.buttons.includes('让林医生追问护士昨晚去向'), 'Expected story choice button was missing', before.buttons);
 
     await evaluate(cdp, `(() => {
+      const root = document.querySelector('[data-message-id="intro:narrative-block:intro-speech"]');
+      if (!root) throw new Error('story speech bubble node not found');
+      const candidates = Array.from(root.querySelectorAll('*')).filter((node) => node.textContent?.includes('不要碰那道血迹'));
+      const bubble = candidates.at(-1);
+      if (!bubble) throw new Error('story speech bubble text node not found');
+      bubble.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, view: window, clientX: 120, clientY: 180, button: 2 }));
+      return 'context-menu-opened';
+    })()`);
+    await wait(450);
+    const contextMenu = JSON.parse(await evaluate(cdp, `JSON.stringify({
+      text: Array.from(document.querySelectorAll('[role="menu"]')).map((node) => node.innerText).join('\\n'),
+      menuItems: Array.from(document.querySelectorAll('[role="menuitem"]')).map((node) => node.innerText.trim()).filter(Boolean)
+    })`));
+    assertCondition(contextMenu.menuItems.includes('复制'), 'Story speech bubble did not expose the standard copy context menu item', contextMenu);
+    assertCondition(contextMenu.menuItems.includes('AI分析'), 'Story speech bubble did not expose the standard AI analysis context menu item', contextMenu);
+    assertCondition(contextMenu.menuItems.some((item) => item.includes('表达反馈')), 'Story speech bubble did not expose the standard expression feedback context menu item', contextMenu);
+    await evaluate(cdp, `(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+      document.body.click();
+      return 'context-menu-closed';
+    })()`);
+    await wait(250);
+
+    await evaluate(cdp, `(() => {
       const avatar = document.querySelector('[data-message-id="intro:narrative-block:intro-speech"] .MuiAvatar-root');
       if (!avatar) throw new Error('story speech avatar not found');
       avatar.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
@@ -428,6 +452,7 @@ async function main() {
       before: {
         messageTypes: before.messageTypes,
         buttons: before.buttons.filter((button) => button.includes('让')),
+        contextMenuItems: contextMenu.menuItems,
       },
       afterReturn: {
         messageIds: afterReturn.messageIds,
