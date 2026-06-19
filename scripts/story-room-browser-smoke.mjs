@@ -65,11 +65,22 @@ function wait(ms) {
 }
 
 async function evaluate(cdp, expression, awaitPromise = false) {
-  const result = await cdp.send('Runtime.evaluate', {
-    expression,
-    awaitPromise,
-    returnByValue: true,
-  });
+  let result;
+  try {
+    result = await cdp.send('Runtime.evaluate', {
+      expression,
+      awaitPromise,
+      returnByValue: true,
+    });
+  } catch (error) {
+    if (!String(error?.message || error).includes('Promise was collected')) throw error;
+    await wait(350);
+    result = await cdp.send('Runtime.evaluate', {
+      expression,
+      awaitPromise,
+      returnByValue: true,
+    });
+  }
   if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
   return result.result?.value;
 }
@@ -352,6 +363,95 @@ const seedStoryRoomExpression = String.raw`
 })()
 `;
 
+const verifyStoryTemplateOpeningExpression = String.raw`
+(async () => {
+  const [
+    { getRoomTemplate },
+    { buildGroupChatDraft },
+    { STORY_ENGINE },
+  ] = await Promise.all([
+    import('/src/services/roomTemplates.ts'),
+    import('/src/services/chatDraftBuilder.ts'),
+    import('/src/services/engines/storyEngine.ts'),
+  ]);
+  const keys = ['story_reader', 'campus_story', 'romance_story'];
+  const buildDraft = (key) => {
+    const template = getRoomTemplate(key);
+    const topic = (template.topicPlaceholder || template.label).replace(/^例如：/, '').split('、')[0] || template.label;
+    const draft = buildGroupChatDraft({
+      type: 'group',
+      name: template.label,
+      topic,
+      style: template.style,
+      runtimeEvolutionIntensity: template.runtimeEvolutionIntensity,
+      sessionKind: template.sessionKind,
+      storyBranchMode: template.defaults?.storyBranchMode,
+      storyBackground: template.defaults?.storyBackground,
+      storyDirection: template.defaults?.storyDirection,
+      storyOutline: template.defaults?.storyOutline,
+      memberIds: ['lin', 'nurse'],
+      operatorIds: [],
+      showRoleActions: true,
+      seedMemoryText: '',
+      seedArtifactText: '',
+      ownerCharacterId: null,
+      adminCharacterIds: [],
+      autoModeration: false,
+      allowMute: true,
+      allowPrivateThreads: false,
+      allowCliques: false,
+      allowMockery: false,
+      mood: '',
+      focus: '',
+      recentEvent: '',
+      allowSpeakAs: true,
+      allowDirectorMode: true,
+      allowEventInjection: true,
+      allowForcedReply: true,
+    });
+    return {
+      ...draft,
+      id: 'template-smoke-' + key,
+      createdAt: 1,
+      updatedAt: 1,
+      lastMessageAt: 1,
+    };
+  };
+  return JSON.stringify(keys.map((key) => {
+    const chat = buildDraft(key);
+    const prompt = STORY_ENGINE.buildGenerationPromptContext?.({
+      conversation: chat,
+      characters: [],
+      messages: [],
+      speaker: { id: 'narrator', name: '旁白' },
+    });
+    const constraints = (prompt?.additionalConstraints || []).join('\n');
+    const state = chat.scenarioState || {};
+    return {
+      key,
+      scenarioId: chat.sessionKind?.scenarioId,
+      showRoleActions: chat.showRoleActions,
+      phase: state.phase,
+      beatKind: state.storyBeatKind,
+      choicePolicy: state.storyChoicePolicy,
+      hasStoryGoal: Boolean(state.storyGoal && state.storyGoal.length > 20),
+      hasStorySituation: Boolean(state.storySituation && state.storySituation.length > 20),
+      hasCurrentScene: Boolean(state.currentScene?.summary && state.currentScene.summary.length > 20),
+      openQuestionCount: state.openQuestions?.length || 0,
+      clueCount: state.clues?.length || 0,
+      stakeCount: state.stakes?.length || 0,
+      hasOpeningPrompt: constraints.includes('Opening beat: start inside the current scene')
+        && constraints.includes('include at least one spoken line')
+        && constraints.includes('specific unresolved hook')
+        && constraints.includes('Do not output storyEvents.choice_point'),
+      hasAssetPrompt: constraints.includes('Current chapter goal:')
+        && constraints.includes('Current scene:')
+        && constraints.includes('Open questions to preserve or answer deliberately:'),
+    };
+  }));
+})()
+`;
+
 function assertCondition(condition, message, detail) {
   if (!condition) {
     const suffix = detail ? `\n${JSON.stringify(detail, null, 2)}` : '';
@@ -375,6 +475,16 @@ async function main() {
     });
     await cdp.send('Page.navigate', { url: `${CLIENT_URL}/chats` });
     await wait(1500);
+    const templateOpening = JSON.parse(await evaluate(cdp, verifyStoryTemplateOpeningExpression, true));
+    templateOpening.forEach((item) => {
+      assertCondition(item.scenarioId === 'story-reader', 'Story template did not create a story-reader session', item);
+      assertCondition(item.showRoleActions === false, 'Story template exposed role action buttons by default', item);
+      assertCondition(item.phase === 'scene' && item.beatKind === 'establish' && item.choicePolicy === 'forbid', 'Story template did not start in a guarded establish beat', item);
+      assertCondition(item.hasStoryGoal && item.hasStorySituation && item.hasCurrentScene, 'Story template did not produce concrete opening story assets', item);
+      assertCondition(item.openQuestionCount >= 2 && item.clueCount >= 1 && item.stakeCount >= 1, 'Story template did not produce enough opening hooks, clues, and stakes', item);
+      assertCondition(item.hasOpeningPrompt, 'Story template opening prompt did not enforce an in-scene hook-first opening', item);
+      assertCondition(item.hasAssetPrompt, 'Story template opening prompt did not include story asset anchors', item);
+    });
     await evaluate(cdp, seedStoryRoomExpression, true);
     await wait(2500);
 
