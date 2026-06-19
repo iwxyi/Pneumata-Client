@@ -296,8 +296,11 @@ describe('narrativeRuntime', () => {
       lastChoiceLabels: ['追问停电记录'],
     }));
 
-    const updatedHistory = updateChoiceHistoryOutcome(choiceChat, '护士承认停电时有人进入档案室。');
-    expect(updatedHistory[0]).toEqual(expect.objectContaining({ outcome: '护士承认停电时有人进入档案室。' }));
+    const updatedHistory = updateChoiceHistoryOutcome(choiceChat, '护士承认停电时有人进入档案室。', assets);
+    expect(updatedHistory[0]).toEqual(expect.objectContaining({
+      outcome: '护士承认停电时有人进入档案室。',
+      impact: expect.stringContaining('关系变化：清晨的旧医院走廊里，护士承认停电时有人进入档案室'),
+    }));
 
     const prompt = buildStoryAssetPrompt(normalizeConversation({
       ...choiceChat,
@@ -309,6 +312,7 @@ describe('narrativeRuntime', () => {
       expect.stringContaining('Current scene:'),
       expect.stringContaining('Current situation: 护士承认停电时有人进入档案室。'),
       expect.stringContaining('outcome=护士承认停电时有人进入档案室。'),
+      expect.stringContaining('impact=关系变化：清晨的旧医院走廊里，护士承认停电时有人进入档案室'),
     ]));
   });
 

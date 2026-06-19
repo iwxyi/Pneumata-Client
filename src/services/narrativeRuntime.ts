@@ -593,7 +593,7 @@ export function buildStoryAssetPrompt(conversation: GroupChat) {
     state.clues?.length ? `Known clues to reuse or reframe: ${state.clues.slice(-4).join(' / ')}` : '',
     state.stakes?.length ? `Current stakes: ${state.stakes.slice(-4).join(' / ')}` : '',
     state.relationshipShifts?.length ? `Relationship pressure: ${state.relationshipShifts.slice(-4).join(' / ')}` : '',
-    state.choiceHistory?.length ? `Recent user choices: ${state.choiceHistory.slice(-3).map((choice) => [choice.label, choice.risk ? `risk=${choice.risk}` : '', choice.reward ? `reward=${choice.reward}` : '', choice.outcome ? `outcome=${choice.outcome}` : ''].filter(Boolean).join(' · ')).join(' / ')}` : '',
+    state.choiceHistory?.length ? `Recent user choices: ${state.choiceHistory.slice(-3).map((choice) => [choice.label, choice.risk ? `risk=${choice.risk}` : '', choice.reward ? `reward=${choice.reward}` : '', choice.outcome ? `outcome=${choice.outcome}` : '', choice.impact ? `impact=${choice.impact}` : ''].filter(Boolean).join(' · ')).join(' / ')}` : '',
   ].filter(Boolean);
   if (!lines.length) return [];
   return [
@@ -652,7 +652,22 @@ export function buildChapterRecap(params: {
   };
 }
 
-export function updateChoiceHistoryOutcome(conversation: GroupChat, outcome: string) {
+function buildChoiceImpactSummary(params: {
+  choice: NonNullable<NonNullable<GroupChat['scenarioState']>['choiceHistory']>[number];
+  storyAssets?: StoryAssetPatch;
+}) {
+  const rows = [
+    params.storyAssets?.relationshipShifts?.slice(-1)[0] ? `关系变化：${params.storyAssets.relationshipShifts.slice(-1)[0]}` : '',
+    params.storyAssets?.clues?.slice(-1)[0] ? `新线索：${params.storyAssets.clues.slice(-1)[0]}` : '',
+    params.storyAssets?.stakes?.slice(-1)[0] ? `代价/风险：${params.storyAssets.stakes.slice(-1)[0]}` : '',
+    params.storyAssets?.openQuestions?.slice(-1)[0] ? `遗留悬念：${params.storyAssets.openQuestions.slice(-1)[0]}` : '',
+    params.choice.reward ? `兑现收益：${params.choice.reward}` : '',
+    params.choice.risk ? `承接风险：${params.choice.risk}` : '',
+  ].map((item) => compactStoryAssetText(item, 72)).filter(Boolean);
+  return compactStoryAssetText(Array.from(new Set(rows)).slice(0, 2).join('；'), 120);
+}
+
+export function updateChoiceHistoryOutcome(conversation: GroupChat, outcome: string, storyAssets?: StoryAssetPatch) {
   const history = conversation.scenarioState?.choiceHistory || [];
   const compactOutcome = compactStoryAssetText(outcome, 96);
   if (!history.length || !compactOutcome || conversation.scenarioState?.phase !== 'branch') return history;
@@ -666,7 +681,11 @@ export function updateChoiceHistoryOutcome(conversation: GroupChat, outcome: str
     }
   }
   if (targetIndex === -1) return history;
-  return history.map((choice, index) => (index === targetIndex ? { ...choice, outcome: compactOutcome } : choice));
+  return history.map((choice, index) => (index === targetIndex ? {
+    ...choice,
+    outcome: compactOutcome,
+    impact: choice.impact || buildChoiceImpactSummary({ choice, storyAssets }) || undefined,
+  } : choice));
 }
 
 export function normalizeStoryBranches(conversation: GroupChat, choices: StoryChoiceSuggestion[]) {

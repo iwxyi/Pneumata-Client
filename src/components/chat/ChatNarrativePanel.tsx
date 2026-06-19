@@ -305,6 +305,9 @@ function formatChoiceImpactText(params: {
   chat: GroupChat;
   members: AICharacter[];
 }) {
+  if (params.choice.impact) {
+    return formatNarrativeLineText(params.choice.impact, params.members);
+  }
   const latestClue = params.chat.scenarioState?.clues?.slice(-1)[0];
   if (latestClue) {
     return `留下新线索：${formatNarrativeLineText(latestClue, params.members)}`;
@@ -414,6 +417,7 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDe
       showDebugDetails && choice.risk ? `风险：${choice.risk}` : '',
       showDebugDetails && choice.reward ? `收益：${choice.reward}` : '',
       choice.outcome ? `后果：${choice.outcome}` : '',
+      choice.impact ? `影响：${choice.impact}` : '',
     ].filter(Boolean).join(' · '));
   return (
     <Box sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'rgba(123,31,162,0.06)' }}>

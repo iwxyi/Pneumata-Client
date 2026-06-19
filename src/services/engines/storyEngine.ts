@@ -229,7 +229,7 @@ function onMessageCommitted(params: {
     ...(params.conversation.scenarioState || {}),
     ...storyAssets,
     chapterRecap,
-    choiceHistory: updateChoiceHistoryOutcome(params.conversation, summary),
+    choiceHistory: updateChoiceHistoryOutcome(params.conversation, summary, storyAssets),
     phase: normalized.hasOpenChoice ? 'choice' : 'scene',
     sceneBeatCount: nextSceneBeatCount,
     choiceEpoch: nextEpoch,

@@ -155,6 +155,7 @@ export interface ScenarioState {
     risk?: string;
     reward?: string;
     outcome?: string;
+    impact?: string;
     choiceEpoch?: number;
     chosenAt?: number;
   }>;
