@@ -122,6 +122,35 @@ export function getStoryTailStatus(params: {
   return null;
 }
 
+export function findVisibleStoryChoiceSourceMessage(params: {
+  isStoryRoom: boolean;
+  phase?: string | null;
+  messages: Message[];
+}) {
+  if (!params.isStoryRoom || params.phase !== 'choice') return null;
+  for (let index = params.messages.length - 1; index >= 0; index -= 1) {
+    const message = params.messages[index];
+    if (!normalizeStoryChoiceSuggestions(message.metadata?.storyChoices).length) continue;
+    return message;
+  }
+  return null;
+}
+
+export function buildVisibleStoryBranchOptions(params: {
+  isStoryRoom: boolean;
+  chat?: GroupChat | null;
+  sourceMessage?: Message | null;
+}) {
+  const sourceMessage = params.sourceMessage;
+  if (!params.isStoryRoom || params.chat?.scenarioState?.phase !== 'choice' || !sourceMessage) return [];
+  return buildStoryBranchOptions({
+    storyChoices: sourceMessage.metadata?.storyChoices,
+    branches: params.chat.scenarioState?.branches,
+    choiceEpoch: params.chat.scenarioState?.choiceEpoch,
+    sourceId: sourceMessage.id,
+  });
+}
+
 function ChatSharePanel({ chat }: { chat: GroupChat }) {
   const [state, setState] = useState<ChatShareState>(() => ({
     enabled: Boolean(chat.shareEnabled),
@@ -862,29 +891,20 @@ export default function ChatDetailPage() {
   });
 
   const storyChoiceSourceMessage = useMemo(
-    () => {
-      if (!isStoryRoom) return null;
-      if (chat?.scenarioState?.phase !== 'choice') return null;
-      for (let index = currentChatMessages.length - 1; index >= 0; index -= 1) {
-        const message = currentChatMessages[index];
-        if (!normalizeStoryChoiceSuggestions(message.metadata?.storyChoices).length) continue;
-        return message;
-      }
-      return null;
-    },
+    () => findVisibleStoryChoiceSourceMessage({
+      isStoryRoom,
+      phase: chat?.scenarioState?.phase,
+      messages: currentChatMessages,
+    }),
     [chat?.scenarioState?.phase, currentChatMessages, isStoryRoom],
   );
   const storyBranchOptions = useMemo(
-    () => {
-      const sourceId = storyChoiceSourceMessage?.id || '';
-      return buildStoryBranchOptions({
-        storyChoices: storyChoiceSourceMessage?.metadata?.storyChoices,
-        branches: chat?.scenarioState?.branches,
-        choiceEpoch: chat?.scenarioState?.choiceEpoch,
-        sourceId,
-      });
-    },
-    [chat?.scenarioState?.branches, chat?.scenarioState?.choiceEpoch, storyChoiceSourceMessage],
+    () => buildVisibleStoryBranchOptions({
+      isStoryRoom,
+      chat,
+      sourceMessage: storyChoiceSourceMessage,
+    }),
+    [chat, isStoryRoom, storyChoiceSourceMessage],
   );
   useEffect(() => {
     if (!isStoryRoom || chat?.scenarioState?.phase !== 'choice') {

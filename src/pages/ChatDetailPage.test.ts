@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStoryChoicePendingKey, getStoryTailStatus, isStoryChoicePending, shouldShowStoryContinueButton } from './ChatDetailPage';
+import { buildStoryChoicePendingKey, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus, isStoryChoicePending, shouldShowStoryContinueButton } from './ChatDetailPage';
 
 function buildPauseResumeMessages() {
   return [] as string[];
@@ -98,5 +98,50 @@ describe('ChatDetailPage pause/resume behavior', () => {
       canContinueStory: false,
       isStoryChoiceSubmitting: false,
     })).toBeNull();
+  });
+
+  it('does not revive old story choices outside the active choice phase', () => {
+    const choiceMessage = {
+      id: 'choice-source',
+      chatId: 'story-1',
+      type: 'ai' as const,
+      senderId: 'narrator',
+      senderName: '旁白',
+      content: '门后出现新线索。',
+      emotion: 0,
+      timestamp: 1,
+      isDeleted: false,
+      metadata: {
+        storyChoices: [
+          { label: '追问护士昨晚去向', prompt: '追问护士' },
+          { label: '检查墙上血迹', prompt: '检查血迹' },
+        ],
+      },
+    };
+    const chat = {
+      id: 'story-1',
+      scenarioState: {
+        phase: 'scene',
+        choiceEpoch: 2,
+        branches: [
+          { branchId: 'ask', label: '追问护士昨晚去向', status: 'completed' as const, choiceEpoch: 2 },
+          { branchId: 'search', label: '检查墙上血迹', status: 'completed' as const, choiceEpoch: 2 },
+        ],
+      },
+    };
+
+    expect(findVisibleStoryChoiceSourceMessage({
+      isStoryRoom: true,
+      phase: 'scene',
+      messages: [choiceMessage],
+    })).toBeNull();
+    const params: Parameters<typeof buildVisibleStoryBranchOptions>[0] = {
+      isStoryRoom: true,
+      chat: chat as Parameters<typeof buildVisibleStoryBranchOptions>[0]['chat'],
+      sourceMessage: choiceMessage,
+    };
+    expect(buildVisibleStoryBranchOptions({
+      ...params,
+    })).toEqual([]);
   });
 });
