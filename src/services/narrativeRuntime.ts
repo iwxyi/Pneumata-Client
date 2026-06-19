@@ -516,7 +516,12 @@ export function extractStoryAssets(params: {
   const chapterMemory = compactStoryAssetText(chapterMemoryParts.join(' / '), CHAPTER_MEMORY_LIMIT);
   const state = params.conversation.scenarioState;
   const selectedGoal = state?.selectedChoice?.prompt || state?.selectedChoice?.label || '';
-  const storyGoal = compactStoryAssetText(selectedGoal || state?.storyGoal || state?.storyDirection || params.conversation.topic || '', 120);
+  const storyGoal = compactStoryAssetText(
+    state?.phase === 'branch'
+      ? (state.storyGoal || state.storyDirection || params.conversation.topic || '')
+      : (selectedGoal || state?.storyGoal || state?.storyDirection || params.conversation.topic || ''),
+    120,
+  );
   const storySituation = compactStoryAssetText(params.summary || text || state?.storySituation || state?.storyBackground || '', 180);
   const currentScene = buildCurrentScenePatch({
     conversation: params.conversation,

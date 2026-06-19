@@ -287,7 +287,7 @@ describe('narrativeRuntime', () => {
       clues: expect.arrayContaining(['清晨的旧医院走廊里，护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
       stakes: expect.arrayContaining(['暴露位置', '发现证据']),
       relationshipShifts: expect.arrayContaining(['清晨的旧医院走廊里，护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
-      storyGoal: '逼护士说出停电期间谁进过档案室',
+      storyGoal: '查清旧医院失踪案',
       storySituation: '护士承认停电时有人进入档案室。',
       currentScene: expect.objectContaining({
         location: '旧医院走廊',
@@ -335,7 +335,7 @@ describe('narrativeRuntime', () => {
     }));
     expect(prompt).toEqual(expect.arrayContaining([
       expect.stringContaining('Use these story assets as continuity anchors'),
-      expect.stringContaining('Current chapter goal: 逼护士说出停电期间谁进过档案室'),
+      expect.stringContaining('Current chapter goal: 查清旧医院失踪案'),
       expect.stringContaining('Current scene:'),
       expect.stringContaining('Current situation: 护士承认停电时有人进入档案室。'),
       expect.stringContaining('outcome=护士承认停电时有人进入档案室。'),
