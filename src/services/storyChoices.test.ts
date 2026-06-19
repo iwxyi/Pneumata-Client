@@ -85,6 +85,24 @@ describe('storyChoices', () => {
     expect(options.map((option) => option.value)).toEqual(['choice-2-a', 'choice-2-b']);
   });
 
+  it('cleans executable prompts from branch fallback data', () => {
+    expect(buildStoryBranchOptions({
+      storyChoices: [
+        { label: '让林医生追问昨晚的停电记录', prompt: '追问停电记录；风险：激怒林医生；收益：得到人名' },
+        { label: '让护士检查墙上的血迹', prompt: '检查血迹；风险：暴露位置；收益：找到证据' },
+      ],
+      choiceEpoch: 2,
+      branches: [
+        { branchId: 'ask', label: '让林医生追问昨晚的停电记录', prompt: '追问停电记录；风险：激怒林医生；收益：得到人名', status: 'available', choiceEpoch: 2 },
+        { branchId: 'search', label: '让护士检查墙上的血迹', prompt: '检查血迹；风险：暴露位置；收益：找到证据', status: 'available', choiceEpoch: 2 },
+      ],
+      sourceId: 'msg-5',
+    })).toEqual([
+      { label: '让林医生追问昨晚的停电记录', prompt: '追问停电记录', value: 'ask', intent: null, risk: null, reward: null },
+      { label: '让护士检查墙上的血迹', prompt: '检查血迹', value: 'search', intent: null, risk: null, reward: null },
+    ]);
+  });
+
   it('does not expose a single legacy choice as a waiting choice point', () => {
     const choices = [{ label: '让护士长打开封存柜', prompt: '柜里露出缺失的值班表' }];
     expect(hasVisibleStoryChoices(choices)).toBe(false);

@@ -4,6 +4,7 @@ import type { SessionActionDefinition, SessionActionExecutionResult } from '../.
 import { buildStartPrivateThreadExecutionResult } from '../directSessionRuntime';
 import { canActorRunSessionAction, resolveConversationActorRef } from '../memberActionPolicy';
 import { buildActionRuntimeContract } from '../sessionRuntimeContract';
+import { sanitizeStoryChoicePrompt } from '../storyChoices';
 
 function truncate(text: string, maxLength: number) {
   const normalized = text.trim();
@@ -253,7 +254,7 @@ function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition): Se
   ));
   const isCustom = selectedBranchId === '__custom_story_branch' || !selectedBranch;
   const branchId = isCustom ? `custom-${Date.now().toString(36)}` : selectedBranchId;
-  const branchPrompt = prompt || selectedBranch?.prompt || selectedBranch?.description || selectedBranch?.label || '';
+  const branchPrompt = sanitizeStoryChoicePrompt(prompt || selectedBranch?.prompt || selectedBranch?.description || selectedBranch?.label || '');
   const summary = `剧情分支：${isCustom ? '自定义走向' : branchId}${branchPrompt ? ` · ${truncate(branchPrompt, 36)}` : ''}`;
   const alreadySelected = !isCustom && chat.scenarioState?.choiceHistory?.some((choice) => (
     Number(choice.choiceEpoch || 0) === currentEpoch

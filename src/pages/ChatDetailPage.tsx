@@ -53,7 +53,7 @@ import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
 import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
-import { buildStoryBranchOptions, normalizeStoryChoiceSuggestions } from '../services/storyChoices';
+import { buildStoryBranchOptions, normalizeStoryChoiceSuggestions, sanitizeStoryChoicePrompt } from '../services/storyChoices';
 import { messagesShareIdentity } from '../services/messageIdentity';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
@@ -1014,7 +1014,7 @@ export default function ChatDetailPage() {
       || currentBranches.find((branch) => branch.label === option?.label && branch.prompt === option?.prompt)
       || currentBranches.find((branch) => branch.label === option?.label);
     const branchId = selectedBranch?.branchId || optionValue;
-    const storyDirection = selectedBranch?.prompt || selectedBranch?.description || option?.prompt || option?.label || chat.scenarioState?.storyDirection;
+    const storyDirection = sanitizeStoryChoicePrompt(selectedBranch?.prompt || selectedBranch?.description || option?.prompt || option?.label || chat.scenarioState?.storyDirection || '');
     const choiceLabel = option?.label || selectedBranch?.label || storyDirection || branchId;
     const choiceKey = buildStoryChoicePendingKey({
       chatId: id,

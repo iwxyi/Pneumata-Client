@@ -273,6 +273,40 @@ describe('chatSurfaceActions', () => {
     expect(context.appendEventMessage).toHaveBeenCalledWith(chat.id, expect.objectContaining({ eventType: 'story_branch' }));
   });
 
+  it('cleans branch prompt meta before writing story branch direction', async () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      mode: 'scripted_play',
+      sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+      scenarioState: {
+        ...(buildChat().scenarioState || {}),
+        phase: 'choice',
+        choiceEpoch: 3,
+        branches: [
+          { branchId: 'ask', label: '追问护士', status: 'available' as const, choiceEpoch: 3, prompt: '追问护士停电期间的位置；风险：激怒护士；收益：确认时间线' },
+          { branchId: 'search', label: '检查血迹', status: 'available' as const, choiceEpoch: 3, prompt: '检查墙上的血迹' },
+        ],
+      },
+    });
+    const context = { ...buildContext(), chat, chats: [chat] } satisfies ChatSurfaceActionContext;
+    const trigger = vi.fn(async () => null);
+    await runSessionActionImpl(context, { type: 'choose_story_branch', actorId: 'user' }, { branchId: 'ask' }, trigger);
+
+    expect(context.updateChat).toHaveBeenCalledWith(chat.id, expect.objectContaining({
+      scenarioState: expect.objectContaining({
+        storyDirection: '追问护士停电期间的位置',
+        selectedChoice: expect.objectContaining({
+          branchId: 'ask',
+          prompt: '追问护士停电期间的位置',
+        }),
+        choiceHistory: [expect.objectContaining({
+          branchId: 'ask',
+          prompt: '追问护士停电期间的位置',
+        })],
+      }),
+    }));
+  });
+
   it('keeps repeated story branch selection idempotent for the same choice epoch', async () => {
     const chat = normalizeConversation({
       ...buildChat(),

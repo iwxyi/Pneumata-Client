@@ -31,7 +31,7 @@ function sanitizeStoryChoiceLabel(label: string) {
     .trim();
 }
 
-function sanitizeStoryChoicePrompt(prompt: string) {
+export function sanitizeStoryChoicePrompt(prompt: string) {
   return prompt
     .trim()
     .replace(/(?:^|[\s；;。])(?:意图|风险|收益|回报|奖励|代价)\s*[：:].*$/u, '')
@@ -189,10 +189,10 @@ export function buildStoryBranchOptions(params: {
     : availableBranches.filter((branch) => Number(branch.choiceEpoch || latestAvailableEpoch) === latestAvailableEpoch);
   const usedBranchIds = new Set<string>();
   return choices.map((choice, index) => {
-    const prompt = choice.prompt || choice.label;
+    const prompt = sanitizeStoryChoicePrompt(choice.prompt || choice.label);
     const branch = activeBranches.find((item) => {
       if (usedBranchIds.has(item.branchId)) return false;
-      return item.label === choice.label && (item.prompt || item.description || item.label) === prompt;
+      return item.label === choice.label && sanitizeStoryChoicePrompt(item.prompt || item.description || item.label) === prompt;
     }) || activeBranches.find((item) => {
       if (usedBranchIds.has(item.branchId)) return false;
       return item.label === choice.label;
