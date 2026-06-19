@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStoryChoicePendingKey, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus, isStoryChoicePending } from './ChatDetailPage';
+import { buildStoryChoicePendingKey, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus, isStoryChoicePending, shouldAutoStartStoryRoom } from './ChatDetailPage';
 
 function buildPauseResumeMessages() {
   return [] as string[];
@@ -70,6 +70,29 @@ describe('ChatDetailPage pause/resume behavior', () => {
       hasRunLoopStatus: false,
       isStoryChoiceSubmitting: false,
     })).toBeNull();
+  });
+
+  it('auto-starts story rooms only when the story is ready to keep running', () => {
+    const base = {
+      hasChat: true,
+      hasChatId: true,
+      canAutoRunConversation: true,
+      isStoryRoom: true,
+      isRunning: false,
+      isPaused: false,
+      isStoryWaitingForChoice: false,
+      isStoryChoiceSubmitting: false,
+      hasRunLoopError: false,
+    };
+
+    expect(shouldAutoStartStoryRoom(base)).toBe(true);
+    expect(shouldAutoStartStoryRoom({ ...base, isStoryWaitingForChoice: true })).toBe(false);
+    expect(shouldAutoStartStoryRoom({ ...base, isStoryChoiceSubmitting: true })).toBe(false);
+    expect(shouldAutoStartStoryRoom({ ...base, isPaused: true })).toBe(false);
+    expect(shouldAutoStartStoryRoom({ ...base, isRunning: true })).toBe(false);
+    expect(shouldAutoStartStoryRoom({ ...base, hasRunLoopError: true })).toBe(false);
+    expect(shouldAutoStartStoryRoom({ ...base, isStoryRoom: false })).toBe(false);
+    expect(shouldAutoStartStoryRoom({ ...base, canAutoRunConversation: false })).toBe(false);
   });
 
   it('does not revive old story choices outside the active choice phase', () => {

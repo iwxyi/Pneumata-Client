@@ -102,6 +102,28 @@ export function getStoryTailStatus(params: {
   return null;
 }
 
+export function shouldAutoStartStoryRoom(params: {
+  hasChat: boolean;
+  hasChatId: boolean;
+  canAutoRunConversation: boolean;
+  isStoryRoom: boolean;
+  isRunning: boolean;
+  isPaused: boolean;
+  isStoryWaitingForChoice: boolean;
+  isStoryChoiceSubmitting: boolean;
+  hasRunLoopError: boolean;
+}) {
+  return params.hasChat
+    && params.hasChatId
+    && params.canAutoRunConversation
+    && params.isStoryRoom
+    && !params.isRunning
+    && !params.isPaused
+    && !params.isStoryWaitingForChoice
+    && !params.isStoryChoiceSubmitting
+    && !params.hasRunLoopError;
+}
+
 export function findVisibleStoryChoiceSourceMessage(params: {
   isStoryRoom: boolean;
   phase?: string | null;
@@ -1052,10 +1074,18 @@ export default function ChatDetailPage() {
   const canAutoRunConversation = chat?.type !== 'direct' && !isRemoteDeletedChat;
 
   useEffect(() => {
-    if (!chat || !id || !canAutoRunConversation || !isStoryRoom) return;
-    if (isRunning || isPaused) return;
-    if (isStoryWaitingForChoice || isCurrentStoryChoiceSubmitting) return;
-    if (chatError || runLoopError) return;
+    if (!shouldAutoStartStoryRoom({
+      hasChat: Boolean(chat),
+      hasChatId: Boolean(id),
+      canAutoRunConversation: Boolean(canAutoRunConversation),
+      isStoryRoom,
+      isRunning,
+      isPaused,
+      isStoryWaitingForChoice,
+      isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
+      hasRunLoopError: Boolean(chatError || runLoopError),
+    })) return;
+    if (!chat) return;
     startConversationLoopIfNeeded(chat);
   }, [
     canAutoRunConversation,
