@@ -420,26 +420,37 @@ function getStoryProgressCopy(chat: GroupChat, members: AICharacter[]) {
   const phase = state.phase || 'scene';
   const beatLabel = formatStoryBeatKind(state.storyBeatKind);
   const latestChoice = state.selectedChoice || state.choiceHistory?.slice(-1)[0] || null;
+  const situation = state.storySituation || state.currentScene?.summary || state.currentScene?.visibleThreat || '';
+  const formattedSituation = situation ? formatNarrativeLineText(situation, members) : '';
   if (phase === 'choice') {
     return {
       title: '等待你的选择',
-      body: '当前章节已经推进到抉择点，先选择一个走向，故事会从你的选择后继续。',
+      body: formattedSituation
+        ? `当前章节已经推进到抉择点，先选择一个走向，故事会从你的选择后继续。当前处境：${formattedSituation}`
+        : '当前章节已经推进到抉择点，先选择一个走向，故事会从你的选择后继续。',
       chips: [beatLabel || '抉择'].filter(Boolean),
     };
   }
   if (phase === 'branch') {
     return {
       title: '正在兑现选择',
-      body: latestChoice?.label
+      body: latestChoice?.label && formattedSituation
+        ? `刚才选择了：${formatNarrativeLineText(latestChoice.label, members)}。当前处境：${formattedSituation}。下一段会先呈现这个选择带来的具体后果。`
+        : latestChoice?.label
         ? `刚才选择了：${formatNarrativeLineText(latestChoice.label, members)}。下一段会先呈现这个选择带来的具体后果。`
+        : formattedSituation
+          ? `当前处境：${formattedSituation}。下一段会先呈现刚才选择带来的具体后果。`
         : '下一段会先呈现刚才选择带来的具体后果。',
       chips: [beatLabel || '后果'].filter(Boolean),
     };
   }
   if (state.storyGoal) {
+    const goal = formatNarrativeLineText(state.storyGoal, members);
     return {
       title: '主线推进',
-      body: `当前目标：${formatNarrativeLineText(state.storyGoal, members)}`,
+      body: formattedSituation && formattedSituation !== goal
+        ? `当前目标：${goal}。当前处境：${formattedSituation}`
+        : `当前目标：${goal}`,
       chips: [beatLabel || '主线推进'].filter(Boolean),
     };
   }

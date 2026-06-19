@@ -219,7 +219,7 @@ describe('ChatNarrativePanel', () => {
 
     expect(html).toContain('新的抉择点');
     expect(html).toContain('主线推进');
-    expect(html).toContain('当前目标：红太狼 查清旧医院失踪案');
+    expect(html).toContain('当前目标：红太狼 查清旧医院失踪案。当前处境：灰太狼 刚从地下档案室逃出来');
     expect(html).toContain('加压');
     expect(html).not.toContain('pressure');
     expect(html).toContain('回顾线索');
@@ -284,14 +284,16 @@ describe('ChatNarrativePanel', () => {
     const choiceHtml = renderToStaticMarkup(
       <ChatNarrativePanel
         hideTitle
-        chat={{ ...baseStoryChat, scenarioState: { phase: 'choice', storyBeatKind: 'decision' as const } }}
+        chat={{ ...baseStoryChat, scenarioState: { phase: 'choice', storyBeatKind: 'decision' as const, storySituation: `${uuidB} 被困在旧医院走廊` } }}
         members={members}
         messages={[]}
       />,
     );
     expect(choiceHtml).toContain('等待你的选择');
     expect(choiceHtml).toContain('当前章节已经推进到抉择点');
+    expect(choiceHtml).toContain('当前处境：灰太狼 被困在旧医院走廊');
     expect(choiceHtml).toContain('抉择');
+    expect(choiceHtml).not.toContain(uuidB);
 
     const branchHtml = renderToStaticMarkup(
       <ChatNarrativePanel
@@ -301,6 +303,10 @@ describe('ChatNarrativePanel', () => {
           scenarioState: {
             phase: 'branch',
             storyBeatKind: 'consequence' as const,
+            currentScene: {
+              visibleThreat: `${uuidB} 门外还有脚步声`,
+              updatedAt: 3,
+            },
             selectedChoice: { branchId: 'ask', label: `${uuidA} 追问月奴`, prompt: '追问月奴', choiceEpoch: 2 },
           },
         }}
@@ -310,8 +316,10 @@ describe('ChatNarrativePanel', () => {
     );
     expect(branchHtml).toContain('正在兑现选择');
     expect(branchHtml).toContain('刚才选择了：红太狼 追问月奴');
+    expect(branchHtml).toContain('当前处境：灰太狼 门外还有脚步声');
     expect(branchHtml).toContain('后果');
     expect(branchHtml).not.toContain(uuidA);
+    expect(branchHtml).not.toContain(uuidB);
   });
 
   it('uses the latest chapter recap assets in story settlement', async () => {
