@@ -72,6 +72,21 @@ function LazyPanel({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PanelFallback />}>{children}</Suspense>;
 }
 
+export function shouldShowStoryContinueButton(params: {
+  isStoryRoom: boolean;
+  isStoryWaitingForChoice: boolean;
+  isRemoteDeletedChat: boolean;
+  hasChat: boolean;
+  isRunning: boolean;
+  isPaused: boolean;
+}) {
+  return params.isStoryRoom
+    && !params.isStoryWaitingForChoice
+    && !params.isRemoteDeletedChat
+    && params.hasChat
+    && (!params.isRunning || params.isPaused);
+}
+
 function ChatSharePanel({ chat }: { chat: GroupChat }) {
   const [state, setState] = useState<ChatShareState>(() => ({
     enabled: Boolean(chat.shareEnabled),
@@ -845,11 +860,14 @@ export default function ChatDetailPage() {
       {chatError || runLoopError}
     </Alert>
   ) : null;
-  const canContinueStory = isStoryRoom
-    && !isStoryWaitingForChoice
-    && !isRemoteDeletedChat
-    && Boolean(chat)
-    && (!isRunning || isPaused);
+  const canContinueStory = shouldShowStoryContinueButton({
+    isStoryRoom,
+    isStoryWaitingForChoice,
+    isRemoteDeletedChat,
+    hasChat: Boolean(chat),
+    isRunning,
+    isPaused,
+  });
   const handleContinueStory = useCallback(() => {
     if (!chat || !id) return;
     resume();
