@@ -217,12 +217,13 @@ export function buildInlineInteractionContract(params: {
 6. Speech text must be chat-like: 1-3 sentences, no camera direction, no omniscient analysis, no private inner monologue, no describing the whole room's reaction.
 7. Do not let one character inherit another character's private object, gesture, memory, clothing detail, wording, or sensory detail unless that detail was explicitly spoken aloud or publicly visible.
 8. Put each narration and each character line in its own event, preserving story order. Do not merge narration and speech into one event.
-9. choice_point appears only at a genuine decision point. Never add choices on a fixed cadence.
-10. Put user decision pauses in a choice_point event. Do not render choices inside content, extraMessages, or a separate visible prose block.
-11. Write visible scene execution, not author notes, beat analysis, future outline, or summaries like "接下来剧情将". If the user just chose a branch, first show what immediately changes on screen: a cost, clue, relationship shift, danger, or opportunity.
-12. narrativeBlocks is a legacy fallback. Keep it null when storyEvents is present.
-13. content and extraMessages are legacy chat fields in story-reader turns. Keep content="" and extraMessages=null; do not use them as the visible story body.
-14. narrativeText is optional legacy context text; if present it must match only the prose portions. Do not rely on it for visible story rendering.`
+9. Do not output alternate rewrites of the same moment. If you revise a narration or spoken line, keep only the final version; do not include both drafts in storyEvents.
+10. choice_point appears only at a genuine decision point. Never add choices on a fixed cadence.
+11. Put user decision pauses in a choice_point event. Do not render choices inside content, extraMessages, or a separate visible prose block.
+12. Write visible scene execution, not author notes, beat analysis, future outline, or summaries like "接下来剧情将". If the user just chose a branch, first show what immediately changes on screen: a cost, clue, relationship shift, danger, or opportunity.
+13. narrativeBlocks is a legacy fallback. Keep it null when storyEvents is present.
+14. content and extraMessages are legacy chat fields in story-reader turns. Keep content="" and extraMessages=null; do not use them as the visible story body.
+15. narrativeText is optional legacy context text; if present it must match only the prose portions. Do not rely on it for visible story rendering.`
     : '';
   const storyChoiceRules = params.chat.sessionKind?.scenarioId === 'story-reader'
     ? `\n\nRules for story choice points:

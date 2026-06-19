@@ -93,6 +93,7 @@ function buildGenerationPromptContext(params: { conversation: GroupChat }): Sess
       ...(phase === 'branch'
         ? [
         'Use storyEvents. At minimum output one narration event. Add speech events only for spoken lines that change the scene.',
+        'Do not output alternate rewrites of the same consequence. If you revise a narration or spoken line, keep only the final version in storyEvents.',
         'Resolve the chosen storyDirection through 1 short narrator setup block followed by 2-5 character chat bubbles when dialogue is the right visible rhythm.',
         'Resolve the chosen storyDirection with a concrete consequence: new evidence, danger, location, relationship shift, or goal pressure.',
         'End the beat with at least one trackable hook: a clue, unanswered question, visible cost, relationship pressure, changed location, or imminent threat.',
@@ -102,6 +103,7 @@ function buildGenerationPromptContext(params: { conversation: GroupChat }): Sess
         ]
         : [
         'Use storyEvents. At minimum output one narration event. Add speech events only for spoken lines that change the scene.',
+        'Do not output alternate rewrites of the same moment. If you revise a narration or spoken line, keep only the final version in storyEvents.',
         'Advance the scene through 2-5 short character chat bubbles when dialogue is the right visible rhythm, with at most 1 brief narrator prose block for external action or atmosphere.',
         'Advance the scene with concrete atmosphere, implication, or character pressure instead of plain exposition.',
         'End the beat with at least one trackable hook: a clue, unanswered question, visible cost, relationship pressure, changed location, or imminent threat.',

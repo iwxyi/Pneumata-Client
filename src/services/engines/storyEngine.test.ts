@@ -571,6 +571,7 @@ describe('STORY_ENGINE', () => {
       expect.stringContaining('beatKind=establish; choicePolicy=forbid'),
       expect.stringContaining('Do not output storyEvents.choice_point'),
       expect.stringContaining('2-5 short character chat bubbles'),
+      expect.stringContaining('Do not output alternate rewrites of the same moment'),
       expect.stringContaining('End the beat with at least one trackable hook'),
       expect.stringContaining('Prefer spoken tension'),
     ]));
@@ -580,6 +581,7 @@ describe('STORY_ENGINE', () => {
     const branchPrompt = STORY_ENGINE.buildGenerationPromptContext?.({ conversation: branchChat, characters: [], messages: [], speaker: { id: 'narrator', name: '旁白' } as never });
     expect(branchPrompt?.additionalConstraints).toEqual(expect.arrayContaining([
       expect.stringContaining('beatKind=consequence; choicePolicy=forbid'),
+      expect.stringContaining('Do not output alternate rewrites of the same consequence'),
       expect.stringContaining('1 short narrator setup block followed by 2-5 character chat bubbles'),
       expect.stringContaining('End the beat with at least one trackable hook'),
       expect.stringContaining('Each character bubble should be 1-3 sentences'),
