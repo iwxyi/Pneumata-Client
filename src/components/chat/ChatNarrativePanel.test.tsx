@@ -216,12 +216,14 @@ describe('ChatNarrativePanel', () => {
     expect(html).toContain('回顾线索');
     expect(html).toContain('回顾悬念');
     expect(html).toContain('回顾选择');
-    expect(html).toContain('抉择回看');
+    expect(html).toContain('关键抉择');
     expect(html).toContain('节点 2');
+    expect(html).toContain('已选');
     expect(html).toContain('结果：护士承认停电时有人进入档案室');
-    expect(html).toContain('未走：灰太狼 去地下档案室');
-    expect(html).toContain('已走路径');
-    expect(html).toContain('当时还可以选择');
+    expect(html).toContain('影响：留下新线索：地下档案室的病历被撕掉一页');
+    expect(html).toContain('未走路径：灰太狼 去地下档案室');
+    expect(html).not.toContain('已走路径');
+    expect(html).not.toContain('当时还可以选择');
     expect(html).toContain('红太狼 在旧医院发现血迹');
     expect(html).toContain('当前处境：灰太狼 刚从地下档案室逃出来');
     expect(html).toContain('灰太狼 去地下档案室');

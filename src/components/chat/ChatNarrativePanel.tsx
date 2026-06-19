@@ -158,73 +158,6 @@ function renderAssetChips(label: string, values: string[] | undefined, members: 
   );
 }
 
-function renderChoiceHistory(chat: GroupChat, members: AICharacter[], showDebugDetails: boolean) {
-  const choices = (chat.scenarioState?.choiceHistory || []).slice(-5);
-  if (!choices.length) return null;
-  return (
-    <Box>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.45 }}>已走路径</Typography>
-      <Stack spacing={0.55}>
-        {choices.map((choice, index) => (
-          <Box key={`${choice.branchId || choice.label}:${choice.choiceEpoch || index}`} sx={{ px: 0.8, py: 0.65, borderRadius: 1.5, bgcolor: 'rgba(15,23,42,0.04)' }}>
-            <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>
-              {index + 1}. {formatNarrativeLineText(choice.label, members)}
-            </Typography>
-            {showDebugDetails && (choice.risk || choice.reward) ? (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                {[choice.risk ? `风险：${choice.risk}` : '', choice.reward ? `收益：${choice.reward}` : ''].filter(Boolean).map((item) => formatNarrativeLineText(item, members)).join(' · ')}
-              </Typography>
-            ) : null}
-            {choice.outcome ? (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                后果：{formatNarrativeLineText(choice.outcome, members)}
-              </Typography>
-            ) : null}
-          </Box>
-        ))}
-      </Stack>
-    </Box>
-  );
-}
-
-function renderUnchosenBranches(chat: GroupChat, members: AICharacter[], showDebugDetails: boolean) {
-  const branches = chat.scenarioState?.branches || [];
-  const choiceEpochs = Array.from(new Set(
-    (chat.scenarioState?.choiceHistory || [])
-      .map((choice) => Number(choice.choiceEpoch || 0))
-      .filter((epoch) => epoch > 0),
-  )).slice(-3);
-  const alternatives = choiceEpochs.flatMap((epoch) => branches
-    .filter((branch) => Number(branch.choiceEpoch || 0) === epoch && branch.status === 'completed')
-    .map((branch) => ({
-      epoch,
-      label: branch.label,
-      risk: branch.risk,
-      reward: branch.reward,
-      intent: branch.intent,
-    }))).slice(-6);
-  if (!alternatives.length) return null;
-  return (
-    <Box>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.45 }}>当时还可以选择</Typography>
-      <Stack spacing={0.55}>
-        {alternatives.map((branch, index) => (
-          <Box key={`${branch.epoch}:${branch.label}:${index}`} sx={{ px: 0.8, py: 0.65, borderRadius: 1.5, bgcolor: 'rgba(15,23,42,0.035)' }}>
-            <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>
-              {formatNarrativeLineText(branch.label, members)}
-            </Typography>
-            {showDebugDetails && (branch.intent || branch.risk || branch.reward) ? (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                {[branch.intent ? `意图：${branch.intent}` : '', branch.risk ? `风险：${branch.risk}` : '', branch.reward ? `收益：${branch.reward}` : ''].filter(Boolean).map((item) => formatNarrativeLineText(item, members)).join(' · ')}
-              </Typography>
-            ) : null}
-          </Box>
-        ))}
-      </Stack>
-    </Box>
-  );
-}
-
 function renderChoiceReview(chat: GroupChat, members: AICharacter[], showDebugDetails: boolean) {
   const choices = chat.scenarioState?.choiceHistory || [];
   const branches = chat.scenarioState?.branches || [];
@@ -238,7 +171,7 @@ function renderChoiceReview(chat: GroupChat, members: AICharacter[], showDebugDe
   if (!groups.length) return null;
   return (
     <Box>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.45 }}>抉择回看</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.45 }}>关键抉择</Typography>
       <Stack spacing={0.7}>
         {groups.map(({ choice, epoch, alternatives, index }) => (
           <Box
@@ -254,6 +187,7 @@ function renderChoiceReview(chat: GroupChat, members: AICharacter[], showDebugDe
           >
             <Stack direction="row" spacing={0.6} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.35 }}>
               <Chip size="small" label={`节点 ${epoch || index + 1}`} variant="outlined" sx={compactPillChipSx} />
+              <Chip size="small" label="已选" variant="outlined" sx={compactPillChipSx} />
               <Typography variant="caption" sx={{ fontWeight: 700 }}>
                 {formatNarrativeLineText(choice.label, members)}
               </Typography>
@@ -273,7 +207,7 @@ function renderChoiceReview(chat: GroupChat, members: AICharacter[], showDebugDe
             ) : null}
             {alternatives.length ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35, lineHeight: 1.6 }}>
-                未走：{alternatives.slice(0, 3).map((branch) => formatNarrativeLineText(branch.label, members)).join(' / ')}
+                未走路径：{alternatives.slice(0, 3).map((branch) => formatNarrativeLineText(branch.label, members)).join(' / ')}
               </Typography>
             ) : null}
           </Box>
@@ -289,6 +223,18 @@ function formatChoiceImpactText(params: {
   chat: GroupChat;
   members: AICharacter[];
 }) {
+  const latestClue = params.chat.scenarioState?.clues?.slice(-1)[0];
+  if (latestClue) {
+    return `留下新线索：${formatNarrativeLineText(latestClue, params.members)}`;
+  }
+  const latestRelationship = params.chat.scenarioState?.relationshipShifts?.slice(-1)[0];
+  if (latestRelationship) {
+    return `改变角色关系：${formatNarrativeLineText(latestRelationship, params.members)}`;
+  }
+  const latestQuestion = params.chat.scenarioState?.openQuestions?.slice(-1)[0];
+  if (latestQuestion) {
+    return `留下悬念：${formatNarrativeLineText(latestQuestion, params.members)}`;
+  }
   if (params.choice.outcome) {
     return '已造成可见后果，后续剧情会沿这个结果继续累积。';
   }
@@ -427,8 +373,6 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDe
         {renderAssetChips('关系压力', state.relationshipShifts, members)}
         {renderAssetChips('最近选择', recentChoices, members)}
         {renderChoiceReview(chat, members, showDebugDetails)}
-        {renderChoiceHistory(chat, members, showDebugDetails)}
-        {renderUnchosenBranches(chat, members, showDebugDetails)}
       </Stack>
     </Box>
   );
