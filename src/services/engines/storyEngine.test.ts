@@ -598,6 +598,69 @@ describe('STORY_ENGINE', () => {
       '让林医生推开档案室门查看里面的人',
       '让护士守住走廊尽头拦下脚步声',
     ]);
+
+    const secondChoiceChat = normalizeConversation({
+      ...afterPressure,
+      scenarioState: { ...(afterPressure.scenarioState || {}), ...(decisionResult.chatPatch.scenarioState || {}) },
+    });
+    const secondBranch = secondChoiceChat.scenarioState?.branches?.find((branch) => branch.label === '让护士守住走廊尽头拦下脚步声');
+    expect(secondBranch?.branchId).toBeTruthy();
+    const secondBranchResult = runSessionActionExecutor(secondChoiceChat, {
+      type: 'choose_story_branch',
+      actorId: 'user',
+      payload: { branchId: secondBranch?.branchId, prompt: secondBranch?.prompt },
+    });
+    if (!secondBranchResult?.chatPatch) throw new Error('Expected second story branch action to return a chat patch');
+    const secondConsequenceChat = normalizeConversation({
+      ...secondChoiceChat,
+      scenarioState: { ...(secondChoiceChat.scenarioState || {}), ...(secondBranchResult.chatPatch.scenarioState || {}) },
+      worldState: { ...secondChoiceChat.worldState, ...(secondBranchResult.chatPatch.worldState || {}) },
+    });
+    expect(secondConsequenceChat.scenarioState).toEqual(expect.objectContaining({
+      phase: 'branch',
+      selectedChoice: expect.objectContaining({
+        label: '让护士守住走廊尽头拦下脚步声',
+        risk: '护士可能趁机传递消息',
+        reward: '阻止第二个人逃走',
+      }),
+    }));
+
+    const secondConsequenceResult = await STORY_ENGINE.onMessageCommitted({
+      conversation: secondConsequenceChat,
+      characters: [{ id: 'lin', name: '林医生' }, { id: 'nurse', name: '护士' }] as never,
+      message: {
+        content: '护士守住走廊尽头时，果然有人想趁黑逃走。她拦住那个人，却也露出自己袖口里藏着的纸条，林医生终于确认有人在传递停电名单。',
+        type: 'ai',
+        senderId: 'narrator',
+      },
+    });
+    const finalState = secondConsequenceResult.chatPatch.scenarioState;
+    expect(finalState).toEqual(expect.objectContaining({
+      phase: 'scene',
+      choiceEpoch: 3,
+      selectedChoice: null,
+      selectedChoiceEpoch: undefined,
+      storyBeatKind: 'pressure',
+      storyChoicePolicy: 'forbid',
+    }));
+    expect(finalState?.choiceHistory).toHaveLength(2);
+    expect(finalState?.choiceHistory?.[0]).toEqual(expect.objectContaining({
+      label: '让林医生追问护士昨晚去向',
+      outcome: expect.stringContaining('护士承认停电时有人进入档案室'),
+      impact: expect.any(String),
+    }));
+    expect(finalState?.choiceHistory?.[1]).toEqual(expect.objectContaining({
+      label: '让护士守住走廊尽头拦下脚步声',
+      outcome: expect.stringContaining('有人想趁黑逃走'),
+      impact: expect.stringContaining('新线索'),
+    }));
+    expect(finalState?.chapterRecap?.lastChoiceLabels).toEqual([
+      '让林医生追问护士昨晚去向',
+      '让护士守住走廊尽头拦下脚步声',
+    ]);
+    expect(finalState?.chapterRecap?.choiceImpacts).toEqual(expect.arrayContaining([
+      expect.stringContaining('新线索'),
+    ]));
   });
 
   it('marks choice phase as branch-only', () => {
