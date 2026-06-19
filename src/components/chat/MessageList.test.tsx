@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../types/message';
 import { buildChatRenderItems } from './chatRenderModel';
-import { resolveNarrativeRevealTracking, selectNewNarrativeRevealKeys } from './MessageList';
+import { isNarrativeRevealAllowed, resolveNarrativeRevealTracking, selectNewNarrativeRevealKeys } from './MessageList';
 
 function buildMessage(id: string, overrides: Partial<Message> = {}): Message {
   return {
@@ -175,5 +175,17 @@ describe('MessageList narrative reveal eligibility', () => {
     expect(hydrated.newRevealKeys).toEqual([]);
     expect(hydrated.nextMaxTimestamp).toBe(4);
     expect(live.newRevealKeys).toEqual([expect.stringContaining('live-story')]);
+  });
+
+  it('requires an explicit live message key when a reveal gate is provided', () => {
+    const [item] = buildChatRenderItems([
+      buildNarrativeMessage('story-live', { clientKey: 'client-story-live', serverId: 'server-story-live', timestamp: 2 }),
+    ]);
+
+    expect(item).toBeTruthy();
+    expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set() })).toBe(false);
+    expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['other-message']) })).toBe(false);
+    expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['client-story-live']) })).toBe(true);
+    expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['server-story-live']) })).toBe(true);
   });
 });

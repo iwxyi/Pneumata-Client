@@ -124,6 +124,11 @@ export function shouldAutoStartStoryRoom(params: {
     && !params.hasRunLoopError;
 }
 
+function getNarrativeRevealIdentityKeys(message: Message) {
+  if (message.type !== 'ai' || !message.metadata?.narrativeTurn) return [];
+  return [message.id, message.clientKey, message.serverId].filter((key): key is string => Boolean(key));
+}
+
 export function findVisibleStoryChoiceSourceMessage(params: {
   isStoryRoom: boolean;
   phase?: string | null;
@@ -321,6 +326,7 @@ export default function ChatDetailPage() {
   const [aiDirectPerspectiveMemberId, setAiDirectPerspectiveMemberId] = useState<string | null>(null);
   const [guideTargetMemberId, setGuideTargetMemberId] = useState<string | null>(null);
   const [pendingStoryChoiceKey, setPendingStoryChoiceKey] = useState<string | null>(null);
+  const [narrativeRevealMessageKeys, setNarrativeRevealMessageKeys] = useState<ReadonlySet<string>>(() => new Set());
 
   const loopTokenRef = useRef<string | null>(null);
   const isRunningRef = useRef(false);
@@ -330,12 +336,41 @@ export default function ChatDetailPage() {
   const activeChatIdRef = useRef<string | null>(id ?? null);
   const isManualInputPendingRef = useRef<() => boolean>(() => false);
   const userDraftActivityRef = useRef<UserDraftActivity | null>(null);
+  const upsertMessageWithLiveReveal = useCallback((message: Message) => {
+    const revealKeys = getNarrativeRevealIdentityKeys(message);
+    if (revealKeys.length) {
+      setNarrativeRevealMessageKeys((current) => {
+        const next = new Set(current);
+        let changed = false;
+        revealKeys.forEach((key) => {
+          if (!next.has(key)) {
+            next.add(key);
+            changed = true;
+          }
+        });
+        return changed ? next : current;
+      });
+    }
+    upsertMessage(message);
+  }, [upsertMessage]);
+  const clearNarrativeRevealMessage = useCallback((message: Message) => {
+    const revealKeys = getNarrativeRevealIdentityKeys(message);
+    if (!revealKeys.length) return;
+    setNarrativeRevealMessageKeys((current) => {
+      let changed = false;
+      const next = new Set(current);
+      revealKeys.forEach((key) => {
+        if (next.delete(key)) changed = true;
+      });
+      return changed ? next : current;
+    });
+  }, []);
   const {
     streamingMessageRef,
     updateStreamingMessage,
     discardStreamingMessage,
     clearStreamingMessageRef,
-  } = useStreamingMessageState(upsertMessage);
+  } = useStreamingMessageState(upsertMessageWithLiveReveal);
 
   useLayoutEffect(() => {
     if (!id) return;
@@ -423,6 +458,7 @@ export default function ChatDetailPage() {
   }, [aiDirectMemberIds, aiDirectPerspectiveMemberId, chat]);
   useEffect(() => {
     setGuideTargetMemberId(null);
+    setNarrativeRevealMessageKeys(new Set());
   }, [id]);
   const aiDirectPerspectiveChar = useMemo(
     () => {
@@ -647,8 +683,8 @@ export default function ChatDetailPage() {
   }, [addMessage]);
 
   const upsertMessageStable = useCallback((message: Message) => {
-    upsertMessage(message);
-  }, [upsertMessage]);
+    upsertMessageWithLiveReveal(message);
+  }, [upsertMessageWithLiveReveal]);
 
   const appendEventMessageStable = appendEventMessage;
   const appendEventMessagesStable = appendEventMessages;
@@ -734,7 +770,7 @@ export default function ChatDetailPage() {
     updateChat,
     showErrorToast,
     t,
-    upsertMessage,
+    upsertMessage: upsertMessageStable,
     updateCharacter,
     updateCharacters,
     appendEventMessage: appendEventMessageStable,
@@ -1318,6 +1354,8 @@ export default function ChatDetailPage() {
             storyChoiceMessageId={isStoryWaitingForChoice ? storyChoiceSourceMessage?.id : null}
             storyChoiceOptions={visibleStoryBranchOptions}
             onChooseStoryChoice={isStoryWaitingForChoice ? handleChooseStoryBranch : undefined}
+            narrativeRevealMessageKeys={narrativeRevealMessageKeys}
+            onNarrativeRevealComplete={clearNarrativeRevealMessage}
           />
         </Box>
         {isRemoteDeletedChat ? null : <Box

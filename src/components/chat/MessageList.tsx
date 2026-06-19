@@ -44,6 +44,8 @@ interface MessageListProps {
   storyChoiceMessageId?: string | null;
   storyChoiceOptions?: NarrativeStoryChoiceOption[];
   onChooseStoryChoice?: (value: string) => void;
+  narrativeRevealMessageKeys?: ReadonlySet<string>;
+  onNarrativeRevealComplete?: (message: Message) => void;
 }
 
 function ChoiceMeta({ label, value }: { label: string; value: string }) {
@@ -226,6 +228,20 @@ export function resolveNarrativeRevealTracking(params: {
   };
 }
 
+export function isNarrativeRevealAllowed(params: {
+  item: ChatRenderItem;
+  revealMessageKeys?: ReadonlySet<string>;
+}) {
+  const keys = params.revealMessageKeys;
+  if (!keys?.size) return false;
+  return [
+    params.item.key,
+    params.item.message.id,
+    params.item.message.clientKey,
+    params.item.message.serverId,
+  ].some((key) => Boolean(key && keys.has(key)));
+}
+
 export default function MessageList({
   messages,
   characters,
@@ -248,6 +264,8 @@ export default function MessageList({
   storyChoiceMessageId = null,
   storyChoiceOptions = [],
   onChooseStoryChoice,
+  narrativeRevealMessageKeys,
+  onNarrativeRevealComplete,
 }: MessageListProps) {
   const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const developerMode = useSettingsStore((state) => state.developerMode);
@@ -332,7 +350,7 @@ export default function MessageList({
       ? getNarrativeDisplayBlocks(item.message).filter((block) => block.displayMode !== 'system_panel' || developerMode)
       : [];
     if (!blocks.length) return renderBubble(item);
-    const recentNarrative = !item.pending && revealEligibleKeys.has(item.key);
+    const recentNarrative = !item.pending && isNarrativeRevealAllowed({ item, revealMessageKeys: narrativeRevealMessageKeys || revealEligibleKeys });
     const activeRevealIndex = recentNarrative
       ? blocks.findIndex((candidate, candidateIndex) => {
         const candidateKey = `${item.key}:block:${candidate.id || candidateIndex}`;
@@ -350,12 +368,15 @@ export default function MessageList({
         message: blockMessage,
         character: character || (blockMessage.type === 'ai' ? resolveCharacterOrDeleted(characters, blockMessage.senderId, blockMessage.senderName) : undefined),
         revealText,
-        onRevealComplete: revealText ? () => setCompletedRevealKeys((current) => {
-          if (current.has(blockKey)) return current;
-          const next = new Set(current);
-          next.add(blockKey);
-          return next;
-        }) : undefined,
+        onRevealComplete: revealText ? () => {
+          setCompletedRevealKeys((current) => {
+            if (current.has(blockKey)) return current;
+            const next = new Set(current);
+            next.add(blockKey);
+            return next;
+          });
+          if (index === blocks.length - 1) onNarrativeRevealComplete?.(item.message);
+        } : undefined,
       });
     });
     return (
@@ -366,7 +387,7 @@ export default function MessageList({
         ) : null}
       </Box>
     );
-  }, [characters, completedRevealKeys, developerMode, onChooseStoryChoice, renderBubble, revealEligibleKeys, storyChoiceMessageId, storyChoiceOptions]);
+  }, [characters, completedRevealKeys, developerMode, narrativeRevealMessageKeys, onChooseStoryChoice, onNarrativeRevealComplete, renderBubble, revealEligibleKeys, storyChoiceMessageId, storyChoiceOptions]);
 
   const topStatusText = useMemo(() => {
     if (messages.length === 0) return null;
