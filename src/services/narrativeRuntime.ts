@@ -630,6 +630,20 @@ export function buildStoryAssetPrompt(conversation: GroupChat) {
   const state = conversation.scenarioState;
   if (!state) return [];
   const recap = state.chapterRecap;
+  const recentChoices = state.choiceHistory?.slice(-3) || [];
+  const unchosenPaths = recentChoices
+    .map((choice) => {
+      const epoch = Number(choice.choiceEpoch || 0);
+      const alternatives = epoch
+        ? (state.branches || [])
+          .filter((branch) => Number(branch.choiceEpoch || 0) === epoch && branch.status === 'completed')
+          .map((branch) => branch.label)
+          .filter(Boolean)
+          .slice(0, 2)
+        : [];
+      return alternatives.length ? `epoch ${epoch || '?'} unchosen=${alternatives.join(' | ')}` : '';
+    })
+    .filter(Boolean);
   const lines = [
     state.storyGoal ? `Current chapter goal: ${state.storyGoal}` : '',
     state.currentScene ? `Current scene: ${[
@@ -645,12 +659,15 @@ export function buildStoryAssetPrompt(conversation: GroupChat) {
     state.clues?.length ? `Known clues to reuse or reframe: ${state.clues.slice(-4).join(' / ')}` : '',
     state.stakes?.length ? `Current stakes: ${state.stakes.slice(-4).join(' / ')}` : '',
     state.relationshipShifts?.length ? `Relationship pressure: ${state.relationshipShifts.slice(-4).join(' / ')}` : '',
-    state.choiceHistory?.length ? `Recent user choices: ${state.choiceHistory.slice(-3).map((choice) => [choice.label, choice.risk ? `risk=${choice.risk}` : '', choice.reward ? `reward=${choice.reward}` : '', choice.outcome ? `outcome=${choice.outcome}` : '', choice.impact ? `impact=${choice.impact}` : ''].filter(Boolean).join(' · ')).join(' / ')}` : '',
+    recentChoices.length ? `Recent user choices: ${recentChoices.map((choice) => [choice.label, choice.risk ? `risk=${choice.risk}` : '', choice.reward ? `reward=${choice.reward}` : '', choice.outcome ? `outcome=${choice.outcome}` : '', choice.impact ? `impact=${choice.impact}` : ''].filter(Boolean).join(' · ')).join(' / ')}` : '',
+    unchosenPaths.length ? `Unchosen branches for continuity only: ${unchosenPaths.join(' / ')}` : '',
   ].filter(Boolean);
   if (!lines.length) return [];
   return [
     'Use these story assets as continuity anchors. Do not list them back to the user; weave at most 1-2 into the scene naturally.',
     'Before inventing an unrelated new clue, try to answer, complicate, or reframe one existing open question or known clue when it fits the current beat.',
+    'Respect the user-selected path as canon. Do not write an unchosen branch as if it happened; use unchosen branches only as contrast, regret, rumor, or replay context.',
+    'Make the next beat visibly inherit at least one prior choice outcome, impact, clue, or relationship pressure so the story feels remembered.',
     ...lines,
   ];
 }

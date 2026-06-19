@@ -318,6 +318,10 @@ describe('narrativeRuntime', () => {
         selectedChoice: { branchId: 'ask', label: '追问停电记录', prompt: '逼护士说出停电期间谁进过档案室', choiceEpoch: 2 },
         selectedChoiceEpoch: 2,
         choiceHistory: [{ branchId: 'ask', label: '追问停电记录', risk: '激怒护士', reward: '得到线索', choiceEpoch: 2 }],
+        branches: [
+          { branchId: 'ask', label: '追问停电记录', status: 'chosen', choiceEpoch: 2 },
+          { branchId: 'blood', label: '检查墙上的新鲜血迹', status: 'completed', choiceEpoch: 2 },
+        ],
         openQuestions: ['旧医院为什么停电？'],
         clues: [],
         stakes: [],
@@ -395,11 +399,14 @@ describe('narrativeRuntime', () => {
     expect(prompt).toEqual(expect.arrayContaining([
       expect.stringContaining('Use these story assets as continuity anchors'),
       expect.stringContaining('Before inventing an unrelated new clue'),
+      expect.stringContaining('Respect the user-selected path as canon'),
+      expect.stringContaining('Make the next beat visibly inherit at least one prior choice outcome'),
       expect.stringContaining('Current chapter goal: 查清旧医院失踪案'),
       expect.stringContaining('Current scene:'),
       expect.stringContaining('Current situation: 护士承认停电时有人进入档案室。'),
       expect.stringContaining('outcome=护士承认停电时有人进入档案室。'),
       expect.stringContaining('impact=关系变化：清晨的旧医院走廊里，护士承认停电时有人进入档案室'),
+      expect.stringContaining('Unchosen branches for continuity only: epoch 2 unchosen=检查墙上的新鲜血迹'),
     ]));
   });
 
